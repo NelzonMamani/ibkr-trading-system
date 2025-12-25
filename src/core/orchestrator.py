@@ -10,6 +10,7 @@ from execution.execution_engine import ExecutionEngine
 from patterns.pattern_engine import PatternEngine
 from risk.risk_engine import RiskEngine
 from scanner.scanner import Scanner
+from models.data_models import TradeRecord
 from storage.storage_engine import StorageEngine
 from strategy.strategy_runner import StrategyRunner
 
@@ -70,7 +71,16 @@ class CoreOrchestrator:
         print("[TEACH] <<< Execution stage complete — moving to storage stage.")
 
         print("[TEACH] >>> Storage stage — record decisions/results (conceptual).")
-        storage_result = self.storage_engine.store_trade_record(execution_result)
+        print("[TEACH] Creating TradeRecord to capture stage outputs for review.")
+        trade_record = TradeRecord(
+            scanner_output=scanner_results,
+            pattern_output=pattern_results,
+            strategy_output=strategy_output,
+            risk_output=risk_output,
+            execution_output=execution_result,
+        )
+        print("[TEACH] TradeRecord encapsulates the journey for teaching purposes.")
+        storage_result = self.storage_engine.store_trade_record(trade_record)
         if storage_result is None:
             print("[STORAGE] No storage action taken — placeholder outcome.")
         else:
