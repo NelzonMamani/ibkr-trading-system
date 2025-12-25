@@ -1,5 +1,8 @@
 """
-Data model skeletons representing the shared contracts between modules.
+Phase 3 skeleton data models for the teaching-first trading system.
+
+No business logic is present here; the classes are shape-only placeholders
+to illustrate how information might flow between system stages.
 """
 
 from dataclasses import dataclass, field
@@ -119,25 +122,13 @@ class ExecutionResult:
 
 @dataclass
 class TradeRecord:
-    """Aggregates the full lifecycle of a trade attempt for learning and review."""
+    """Minimal teaching-first record of one trade attempt's stage outputs."""
 
-    scanner_snapshots: List[ScannerResult] = field(default_factory=list)
-    pattern_results: List[PatternResult] = field(default_factory=list)
-    trade_intent: Optional[TradeIntent] = None
-    risk_decision: Optional[RiskDecision] = None
-    execution_results: List[ExecutionResult] = field(default_factory=list)
-    exit_reason: Optional[str] = None
-    exit_price: Optional[float] = None
-    pnl_dollars: Optional[float] = None
-    pnl_percent: Optional[float] = None
-    max_favorable_excursion: Optional[float] = None
-    max_adverse_excursion: Optional[float] = None
-    hold_time_seconds: Optional[float] = None
-    rules_followed_flag: Optional[bool] = None
-    rule_violations: List[str] = field(default_factory=list)
-    user_notes: Optional[str] = None
-    ai_review_summary: Optional[str] = None
-    improvement_tags: List[str] = field(default_factory=list)
+    scanner_output: Optional[str] = None
+    pattern_output: Optional[str] = None
+    strategy_output: Optional[str] = None
+    risk_output: Optional[str] = None
+    execution_output: Optional[str] = None
 
     def __post_init__(self) -> None:
-        print("[STORAGE] TradeRecord instantiated — skeleton container only")
+        print("[STORAGE] TradeRecord instantiated — skeleton container only (shape, no logic)")
