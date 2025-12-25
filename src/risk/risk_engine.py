@@ -1,18 +1,25 @@
 """
-Risk engine skeleton responsible for approving or blocking trade intents.
-"""
+Risk engine skeleton demonstrating where trade intents would be assessed.
 
-from models.data_models import RiskDecision, TradeIntent
+Phase 3: Skeleton status only — this module is for teaching purposes.
+No real risk checks, thresholds, or approvals are implemented.
+"""
 
 
 class RiskEngine:
-    """Skeleton risk engine returning placeholder decisions with logging."""
+    """Minimal risk engine placeholder with teaching-style log messages."""
 
     def __init__(self) -> None:
-        print("[BOOT] RiskEngine instantiated — skeleton only")
+        print("[BOOT] RiskEngine instantiated — phase 3 skeleton only")
 
-    def evaluate_trade_intent(self, trade_intent: TradeIntent) -> RiskDecision:
-        """Evaluate a trade intent placeholder and return a neutral RiskDecision."""
+    def evaluate_trade_intent(self, trade_intent: str) -> dict:
+        """
+        Demonstrate how a trade intent might be evaluated for risk.
 
-        print("[RISK] Skeleton risk evaluation invoked — no logic implemented yet")
-        return RiskDecision(trade_id=trade_intent.trade_id, risk_decision=None)
+        Returns an empty dictionary to emphasize that no assessment occurs while
+        providing clear instructional logging.
+        """
+
+        print("[RISK] Received trade intent for teaching-only risk evaluation")
+        print("[RISK] No risk logic executed — returning empty dictionary")
+        return {}

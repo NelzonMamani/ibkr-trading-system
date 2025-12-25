@@ -1,18 +1,25 @@
 """
-Storage engine skeleton responsible for persisting system activity.
-"""
+Storage engine skeleton illustrating where system activity would be persisted.
 
-from models.data_models import TradeRecord
+Phase 3: Skeleton status only — this module is purely instructional.
+No database connections, file writes, or real persistence are implemented.
+"""
 
 
 class StorageEngine:
-    """Skeleton storage engine that logs storage attempts without persistence."""
+    """Minimal storage engine placeholder with teaching-oriented logging."""
 
     def __init__(self) -> None:
-        print("[BOOT] StorageEngine instantiated — skeleton only")
+        print("[BOOT] StorageEngine instantiated — phase 3 skeleton only")
 
-    def store_trade_record(self, trade_record: TradeRecord) -> bool:
-        """Store a TradeRecord placeholder; always returns True in skeleton."""
+    def store_trade_record(self, trade_record: str) -> None:
+        """
+        Demonstrate how a trade record might be stored in a full system.
 
-        print("[STORAGE] Skeleton storage invoked — no persistence performed")
-        return True
+        Returns None to emphasize that no persistence occurs while providing
+        clear instructional log messages.
+        """
+
+        print("[STORAGE] Received trade record for teaching-only storage flow")
+        print("[STORAGE] No data persisted — returning None as placeholder")
+        return None

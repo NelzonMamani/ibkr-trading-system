@@ -1,20 +1,27 @@
 """
-Scanner module skeleton responsible for producing ranked market candidates.
+Scanner module skeleton for illustrating how market candidates could be produced.
+
+Phase 3: Skeleton status only — this module contains placeholders for teaching.
+No real scanning logic is implemented; outputs are empty for demonstration.
 """
 
 from typing import List
 
-from models.data_models import ScannerResult
-
 
 class Scanner:
-    """Skeleton scanner that returns empty results with instructional logging."""
+    """Minimal scanner placeholder with instructional logging."""
 
     def __init__(self) -> None:
-        print("[BOOT] Scanner instantiated — skeleton only")
+        print("[BOOT] Scanner instantiated — phase 3 skeleton, no logic inside")
 
-    def run_scan_cycle(self) -> List[ScannerResult]:
-        """Run a scan cycle placeholder and return an empty list."""
+    def run_scan_cycle(self) -> List[str]:
+        """
+        Demonstrate how a scan cycle would be invoked in a real system.
 
-        print("[SCAN] Skeleton scanner invoked — no logic implemented yet")
+        Returns an empty list to emphasize the absence of implementation while
+        printing teaching-first log messages.
+        """
+
+        print("[SCAN] Skeleton scan started — replace with real market scan later")
+        print("[SCAN] Returning empty list to show placeholder behavior")
         return []

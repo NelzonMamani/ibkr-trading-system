@@ -1,26 +1,31 @@
 """
-Execution engine skeleton responsible for interacting with the broker via a BrokerInterface.
+Execution engine skeleton illustrating where broker interactions would occur.
+
+Phase 3: Skeleton status only — this module exists to teach structure.
+No real broker calls, order management, or execution logic is implemented.
 """
 
 from typing import Optional
 
-from broker.broker_interface import BrokerInterface
-from models.data_models import ExecutionResult, RiskDecision
-
 
 class ExecutionEngine:
-    """Skeleton execution engine demonstrating broker interaction points."""
+    """Minimal execution engine placeholder with teaching-first log statements."""
 
-    def __init__(self, broker: Optional[BrokerInterface] = None) -> None:
-        print("[BOOT] ExecutionEngine instantiated — skeleton only")
+    def __init__(self, broker: Optional[object] = None) -> None:
+        print("[BOOT] ExecutionEngine instantiated — phase 3 skeleton only")
         self.broker = broker
 
-    def execute_trade(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
-        """Execute a trade placeholder; returns None when no action taken."""
+    def execute_trade(self, risk_decision: Optional[str]) -> None:
+        """
+        Demonstrate how a risk decision could lead to an execution call.
 
-        print("[EXECUTION] Skeleton execution invoked — no broker calls performed")
-        if risk_decision.risk_decision is None:
-            print("[EXECUTION] No action — risk decision undefined in skeleton")
-            return None
+        Returns None to highlight the absence of execution logic while emitting
+        clear instructional logs about the intended behavior.
+        """
 
-        return ExecutionResult(trade_id=risk_decision.trade_id, order_status=None)
+        print("[EXECUTION] Received risk decision for teaching-only execution flow")
+        if risk_decision is None:
+            print("[EXECUTION] No execution performed — placeholder path")
+        else:
+            print("[EXECUTION] Execution logic would run here in a full system")
+        return None
