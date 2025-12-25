@@ -8,12 +8,16 @@ avoids importing other project modules, performing any trading logic, loading
 configuration, or connecting to brokers or data sources.
 """
 
+from core.orchestrator import CoreOrchestrator
+
 
 def main() -> None:
     """Run the minimal teaching-first entry point."""
     print("[BOOT] Starting the IBKR Trading System skeleton.")
     print("[PHASE] PHASE 3 — Skeleton System (Teaching-First).")
     print("[INTENT] Demonstrate a clean, observable entry point without trading logic.")
+    orchestrator = CoreOrchestrator()
+    orchestrator.run_once()
     print("[SHUTDOWN] Exiting gracefully. Goodbye!")
 
 

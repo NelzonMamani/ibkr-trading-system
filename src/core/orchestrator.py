@@ -1,28 +1,24 @@
 """
-File: orchestrator.py
-Phase: PHASE 3 — Skeleton System
-Purpose:
-Central orchestrator that wires all modules together.
-In Phase 3, this only demonstrates system flow with logs.
-NO trading logic is implemented.
+Core Orchestrator for PHASE 3 — Skeleton System (Teaching-First).
+
+This file only outlines the conceptual flow of the trading system and contains
+no real trading logic, integrations, or data handling. It exists solely to make
+the system stages and their order easy to follow during this teaching phase.
 """
 
 class CoreOrchestrator:
     def __init__(self):
-        print("[INFO] Core Orchestrator initialised")
+        print("[INFO] Core Orchestrator initialised.")
 
     def run_once(self):
-        print("[INFO] Starting orchestrator cycle")
+        """Run a single conceptual system cycle in teaching order."""
+        print("[INFO] Starting orchestrator cycle (teaching-only).")
 
-        print("[SCAN] Scanner step invoked (skeleton)")
-        print("[PATTERN] Pattern engine step invoked (skeleton)")
-        print("[STRATEGY] Strategy runner step invoked (skeleton)")
-        print("[RISK] Risk engine step invoked (skeleton)")
-        print("[EXECUTION] Execution engine step invoked (skeleton)")
-        print("[STORAGE] Storage engine step invoked (skeleton)")
+        print("[SCAN] Scanner stage → gather candidates (conceptual).")
+        print("[PATTERN] Patterns stage → look for shapes/behaviors (conceptual).")
+        print("[STRATEGY] Strategy stage → decide on trade ideas (conceptual).")
+        print("[RISK] Risk stage → check sizing and limits (conceptual).")
+        print("[EXECUTION] Execution stage → send/prepare orders (conceptual).")
+        print("[STORAGE] Storage stage → record decisions/results (conceptual).")
 
-        print("[INFO] Orchestrator cycle complete")
-
-
-
-
+        print("[INFO] Orchestrator cycle complete (teaching-only).")
