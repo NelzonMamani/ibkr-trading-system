@@ -12,6 +12,18 @@ class RiskEngine:
 
     def __init__(self) -> None:
         print("[BOOT] RiskEngine instantiated — phase 4 teaching rules active")
+        self.strategy_limits = {
+            "SCALPER": {
+                "max_trades": 2,
+            },
+            "MOMENTUM": {
+                "max_trades": 1,
+            },
+        }
+        self.active_trades_by_strategy = {
+            "SCALPER": 0,
+            "MOMENTUM": 0,
+        }
 
     def evaluate_trade_intent(self, trade_intent: TradeIntent) -> RiskDecision:
         """
@@ -22,6 +34,40 @@ class RiskEngine:
         """
 
         print(f"[RISK] Evaluating TradeIntent for symbol={trade_intent.symbol}")
+
+        trader_type = getattr(trade_intent, "trader_type", "MANUAL").upper()
+        current_active = self.active_trades_by_strategy.get(trader_type, 0)
+        strategy_limit = self.strategy_limits.get(trader_type)
+        if strategy_limit:
+            max_trades = strategy_limit.get("max_trades", 0)
+            if current_active >= max_trades:
+                print(
+                    f"[RISK:STRATEGY] {trader_type} active={current_active} max={max_trades} "
+                    "→ BLOCKED (limit reached)"
+                )
+                rationale = (
+                    f"Strategy {trader_type} reached its max active trades "
+                    f"({current_active}/{max_trades}); blocking this intent."
+                )
+                return RiskDecision(
+                    symbol=trade_intent.symbol,
+                    allowed=False,
+                    max_position_size=0,
+                    risk_level="BLOCKED",
+                    rationale=rationale,
+                    trader_type=trader_type,
+                )
+
+            next_active = current_active + 1
+            self.active_trades_by_strategy[trader_type] = next_active
+            print(
+                f"[RISK:STRATEGY] {trader_type} active={current_active} max={max_trades} "
+                "→ ALLOW (within limit)"
+            )
+        else:
+            print(
+                f"[RISK:STRATEGY] {trader_type} has no configured limit — defaulting to ALLOW"
+            )
 
         allowed = True
         if trade_intent.direction.upper() == "LONG":
@@ -49,7 +95,8 @@ class RiskEngine:
 
         rationale = (
             "Teaching-only decision: allow intent, cap size at 1 share, "
-            f"and set risk level to {risk_level} based on confidence."
+            f"and set risk level to {risk_level} based on confidence for {trader_type} "
+            "within strategy limits."
         )
 
         return RiskDecision(
@@ -58,4 +105,5 @@ class RiskEngine:
             max_position_size=max_position_size,
             risk_level=risk_level,
             rationale=rationale,
+            trader_type=trader_type,
         )
