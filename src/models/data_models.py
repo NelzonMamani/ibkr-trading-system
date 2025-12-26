@@ -13,18 +13,12 @@ from typing import List, Optional
 class ScannerCandidate:
     """Phase 4 teaching-first representation of a scanner output candidate."""
 
-    symbol: str
-    price: float
-    gap_percent: float
-    rvol: float
-    float_millions: float
-    rationale: str
-
-    def __post_init__(self) -> None:
-        print(
-            f"[SCAN] ScannerCandidate created for {self.symbol} — static placeholder, "
-            "no live data or validation"
-        )
+    symbol: str  # Ticker symbol under review; purely illustrative, not fetched from markets.
+    price: float  # Reference price snapshot for teaching math on position sizing.
+    gap_percent: float  # Pre-market or open gap magnitude to highlight momentum potential.
+    rvol: float  # Relative volume to show how unusual the current activity is versus baseline.
+    float_millions: float  # Share float in millions to discuss supply dynamics and volatility.
+    rationale: str  # Plain-language teaching note that explains why the symbol is interesting.
 
 
 @dataclass
