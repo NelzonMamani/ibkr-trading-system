@@ -53,24 +53,12 @@ class ScannerResult:
 
 @dataclass
 class PatternResult:
-    """Represents evaluation of a specific pattern on one symbol."""
+    """Teaching-first record of a detected pattern for one symbol."""
 
-    symbol: Optional[str] = None
-    pattern_name: Optional[str] = None
-    pattern_family: Optional[str] = None
-    detected: Optional[bool] = None
-    direction: Optional[str] = None
-    confidence_score: Optional[float] = None
-    quality_tags: List[str] = field(default_factory=list)
-    entry_zone: Optional[str] = None
-    stop_suggestion: Optional[str] = None
-    target_suggestion: Optional[str] = None
-    rationale_text: Optional[str] = None
-    risk_flags: List[str] = field(default_factory=list)
-    data_quality_flags: List[str] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        print(f"[INFO] PatternResult instantiated for symbol={self.symbol} — skeleton container only")
+    symbol: str  # Symbol under review; keeps the pattern explanation tied to one ticker.
+    pattern_name: str  # Human-readable, classroom-friendly label of the pattern being taught.
+    confidence: float  # Simple confidence number to illustrate certainty without real modeling.
+    rationale: str  # Plain-language teaching note describing why this pattern label was chosen.
 
 
 @dataclass
