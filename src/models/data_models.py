@@ -63,25 +63,18 @@ class PatternResult:
 
 @dataclass
 class TradeIntent:
-    """Represents a deliberate decision to attempt a trade if risk permits."""
+    """
+    Teaching-first intent to express a directional idea; **not** a broker order.
 
-    trade_id: Optional[str] = None
-    strategy_id: Optional[str] = None
-    symbol: Optional[str] = None
-    direction: Optional[str] = None
-    timestamp_created: Optional[str] = None
-    session: Optional[str] = None
-    setup_name: Optional[str] = None
-    signal_rationale_text: Optional[str] = None
-    supporting_patterns: List[PatternResult] = field(default_factory=list)
-    intended_entry_type: Optional[str] = None
-    intended_entry_price: Optional[float] = None
-    initial_stop_price: Optional[float] = None
-    profit_targets: List[float] = field(default_factory=list)
-    time_stop_minutes: Optional[int] = None
+    The intent keeps the conversation in the classroom by describing direction and confidence
+    without containing any execution details.
+    """
 
-    def __post_init__(self) -> None:
-        print(f"[STRATEGY] TradeIntent instantiated (trade_id={self.trade_id}) — skeleton container only")
+    symbol: str  # Ticker symbol for the intent being discussed.
+    direction: str  # "LONG", "SHORT", or "NONE" — directional learning cue only.
+    strategy_name: str  # Name of the teaching strategy that produced this intent.
+    confidence: float  # Confidence score carried for discussion; not a trading signal.
+    rationale: str  # Plain-language explanation of why this intent exists.
 
 
 @dataclass
