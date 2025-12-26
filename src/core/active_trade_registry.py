@@ -25,7 +25,3 @@ class ActiveTradeRegistry:
 
     def snapshot(self):
         return list(self._active_trades)
-
-
-# Shared singleton-style registry for teaching flows that do not inject one.
-DEFAULT_ACTIVE_TRADE_REGISTRY = ActiveTradeRegistry()

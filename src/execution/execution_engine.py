@@ -7,10 +7,7 @@ No real broker calls, order management, or execution logic is implemented.
 
 from typing import Optional
 
-from core.active_trade_registry import (
-    DEFAULT_ACTIVE_TRADE_REGISTRY,
-    ActiveTradeRegistry,
-)
+from core.active_trade_registry import ActiveTradeRegistry
 from models.data_models import ExecutionResult, RiskDecision
 
 
@@ -24,7 +21,7 @@ class ExecutionEngine:
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — phase 3 skeleton only")
         self.broker = broker
-        self.trade_registry = trade_registry or DEFAULT_ACTIVE_TRADE_REGISTRY
+        self.trade_registry = trade_registry or ActiveTradeRegistry()
 
     def execute_trade(self, risk_decision: Optional[RiskDecision]) -> ExecutionResult:
         """

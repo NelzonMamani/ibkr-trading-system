@@ -6,6 +6,7 @@ no real trading logic, integrations, or data handling. It exists solely to make
 the system stages and their order easy to follow during this teaching phase.
 """
 
+from core.active_trade_registry import ActiveTradeRegistry
 from execution.execution_engine import ExecutionEngine
 from patterns.pattern_engine import PatternEngine
 from risk.risk_engine import RiskEngine
@@ -19,11 +20,12 @@ from typing import List
 class CoreOrchestrator:
     def __init__(self):
         print("[INFO] Core Orchestrator initialised.")
+        self.trade_registry = ActiveTradeRegistry()
         self.scanner = Scanner()
         self.pattern_engine = PatternEngine()
         self.strategy_runner = StrategyRunner()
-        self.risk_engine = RiskEngine()
-        self.execution_engine = ExecutionEngine()
+        self.risk_engine = RiskEngine(trade_registry=self.trade_registry)
+        self.execution_engine = ExecutionEngine(trade_registry=self.trade_registry)
         self.storage_engine = StorageEngine()
 
     def run_once(self):

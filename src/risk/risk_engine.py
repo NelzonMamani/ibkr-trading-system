@@ -6,10 +6,7 @@ Phase 4: Minimal live-capable scaffolding with highly constrained, conservative 
 
 from typing import Optional
 
-from core.active_trade_registry import (
-    DEFAULT_ACTIVE_TRADE_REGISTRY,
-    ActiveTradeRegistry,
-)
+from core.active_trade_registry import ActiveTradeRegistry
 from models.data_models import RiskDecision, TradeIntent
 
 
@@ -20,7 +17,7 @@ class RiskEngine:
         self, trade_registry: Optional[ActiveTradeRegistry] = None
     ) -> None:
         print("[BOOT] RiskEngine instantiated — phase 4 teaching rules active")
-        self.trade_registry = trade_registry or DEFAULT_ACTIVE_TRADE_REGISTRY
+        self.trade_registry = trade_registry or ActiveTradeRegistry()
         self.strategy_limits = {
             "SCALPER": {
                 "max_trades": 2,
