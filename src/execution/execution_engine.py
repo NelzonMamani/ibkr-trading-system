@@ -99,3 +99,29 @@ class ExecutionEngine:
             f"symbol={symbol} trader_type={trader_type}; "
             f"remaining active={self.trade_registry.count_active_by_trader(trader_type)}"
         )
+
+    def close_all_active_trades(self):
+        """
+        Teaching-first lifecycle reset.
+
+        Closes and deregisters all active trades so capacity is freed in the
+        ActiveTradeRegistry for future cycles.
+        """
+
+        closed_trades = self.trade_registry.close_all_trades()
+        if not closed_trades:
+            print("[EXECUTION:REGISTRY] No active trades to close — registry already empty.")
+            return []
+
+        print("[EXECUTION:REGISTRY] Closing all active trades and resetting registry")
+        for trade in closed_trades:
+            print(
+                "[EXECUTION:REGISTRY] Closed trade "
+                f"symbol={trade.get('symbol', 'UNKNOWN')} "
+                f"trader_type={trade.get('trader_type', 'UNKNOWN')}"
+            )
+
+        print(
+            "[EXECUTION:REGISTRY] All trades closed; registry capacity reset for next cycle"
+        )
+        return closed_trades
