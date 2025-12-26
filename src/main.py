@@ -10,6 +10,12 @@ configuration, or connecting to brokers or data sources.
 import time
 
 from config.runtime_config import get_run_mode
+from config.system_config import (
+    ACTIVE_SESSIONS,
+    CYCLE_SLEEP_SECONDS,
+    RUN_MODE,
+    get_current_market_session,
+)
 from core.orchestrator import CoreOrchestrator
 
 
@@ -18,6 +24,10 @@ def main() -> None:
     print("[BOOT] Starting the IBKR Trading System skeleton.")
     print("[PHASE] PHASE 4 — Minimal Live-Capable System (Teaching-First).")
     print("[INTENT] Demonstrate a clean, observable entry point without trading logic.")
+    print("[CONFIG] Teaching-first configuration preview:")
+    print(f"  - RUN_MODE (baseline string): {RUN_MODE}")
+    print(f"  - CYCLE_SLEEP_SECONDS: {CYCLE_SLEEP_SECONDS} (seconds)")
+    print(f"  - ACTIVE_SESSIONS: {', '.join(ACTIVE_SESSIONS)}")
     run_mode = get_run_mode()
     print(f"[MODE] RUN_MODE = {run_mode.value} (safe default)")
     orchestrator = CoreOrchestrator()
@@ -26,9 +36,17 @@ def main() -> None:
     try:
         while True:
             print("[CYCLE] Starting orchestrator cycle.")
+            current_session = get_current_market_session()
+            print(f"[SESSION] Detected market session: {current_session}")
+            if current_session in ACTIVE_SESSIONS:
+                print("[SESSION] System WOULD consider trading allowed in this session (teaching-only).")
+            else:
+                print("[SESSION] System WOULD treat market as closed (teaching-only).")
             orchestrator.run_once()
-            print("[SLEEP] Sleeping for 3 seconds before next cycle.")
-            time.sleep(3)
+            print(
+                f"[SLEEP] Sleeping for {CYCLE_SLEEP_SECONDS} seconds before next cycle."
+            )
+            time.sleep(CYCLE_SLEEP_SECONDS)
     except KeyboardInterrupt:
         print("[SHUTDOWN] KeyboardInterrupt received. Stopping continuous run loop.")
 
