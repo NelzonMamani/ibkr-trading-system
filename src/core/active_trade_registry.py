@@ -25,3 +25,12 @@ class ActiveTradeRegistry:
 
     def snapshot(self):
         return list(self._active_trades)
+
+    def close_all_trades(self):
+        """
+        Teaching-first lifecycle reset.
+        Closes all active trades deterministically.
+        """
+        closed = list(self._active_trades)
+        self._active_trades.clear()
+        return closed
