@@ -79,19 +79,18 @@ class TradeIntent:
 
 @dataclass
 class RiskDecision:
-    """Represents permission or denial to execute a TradeIntent."""
+    """
+    Teaching-first risk output that intentionally stops short of being an order.
 
-    trade_id: Optional[str] = None
-    risk_decision: Optional[str] = None
-    max_position_size_allowed: Optional[float] = None
-    risk_budget_percent: Optional[float] = None
-    constraints: List[str] = field(default_factory=list)
-    risk_rationale_text: Optional[str] = None
-    risk_flags: List[str] = field(default_factory=list)
-    circuit_breaker_triggered_flag: Optional[bool] = None
+    A RiskDecision represents permission and limits only; it does not include any order
+    ticket details or broker-specific instructions.
+    """
 
-    def __post_init__(self) -> None:
-        print(f"[RISK] RiskDecision instantiated (trade_id={self.trade_id}) — skeleton container only")
+    symbol: str
+    allowed: bool
+    max_position_size: int
+    risk_level: str
+    rationale: str
 
 
 @dataclass
