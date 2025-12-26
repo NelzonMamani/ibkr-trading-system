@@ -6,14 +6,17 @@ no real trading logic, integrations, or data handling. It exists solely to make
 the system stages and their order easy to follow during this teaching phase.
 """
 
+from datetime import datetime
+from typing import List
+
 from execution.execution_engine import ExecutionEngine
 from patterns.pattern_engine import PatternEngine
+from portfolio.active_trade_registry import active_trade_registry
 from risk.risk_engine import RiskEngine
 from scanner.scanner import Scanner
 from models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
 from storage.storage_engine import StorageEngine
 from strategy.strategy_runner import StrategyRunner
-from typing import List
 
 
 class CoreOrchestrator:
@@ -29,6 +32,7 @@ class CoreOrchestrator:
     def run_once(self):
         """Run a single conceptual system cycle in teaching order."""
         print("[INFO] Starting orchestrator cycle (teaching-only).")
+        self._auto_close_simulated_trades()
 
         print("[TEACH] >>> Scanner stage — gather candidates (conceptual).")
         scanner_results = self.scanner.run_scan_cycle()
@@ -69,6 +73,10 @@ class CoreOrchestrator:
                 )
                 decision = self.risk_engine.evaluate_trade_intent(trade_intent)
                 decision.trader_type = getattr(trade_intent, "trader_type", "MANUAL")
+                decision.strategy_name = getattr(
+                    trade_intent, "strategy_name", "UNKNOWN"
+                )
+                decision.direction = getattr(trade_intent, "direction", "UNKNOWN")
                 risk_output.append(decision)
             if not risk_output:
                 print("[RISK] No risk decision produced — placeholder outcome.")
@@ -121,3 +129,20 @@ class CoreOrchestrator:
         )
 
         print("[INFO] Orchestrator cycle complete (teaching-only).")
+
+    def _auto_close_simulated_trades(self, max_age_seconds: int = 10) -> None:
+        """
+        Close any open ActiveTrades older than max_age_seconds using SIM rule.
+        """
+
+        now = datetime.utcnow()
+        open_trades = active_trade_registry.get_active_trades()
+        for trade in open_trades:
+            age_seconds = (now - trade.entry_timestamp).total_seconds()
+            if age_seconds >= max_age_seconds:
+                print(
+                    "[TEACH] Auto-closing trade_id="
+                    f"{trade.trade_id} symbol={trade.symbol} age={age_seconds:.2f}s "
+                    "via SIM_TIME_EXIT rule"
+                )
+                active_trade_registry.close_trade(trade.trade_id, "SIM_TIME_EXIT")
