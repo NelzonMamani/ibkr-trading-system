@@ -54,16 +54,25 @@ class CoreOrchestrator:
         print("[TEACH] <<< Strategy stage complete — moving to risk stage.")
 
         print("[TEACH] >>> Risk stage — check sizing and limits (conceptual).")
-        risk_input = strategy_output if strategy_output else None
-        risk_output = self.risk_engine.evaluate_trade_intent(risk_input)
-        if not risk_output:
+        risk_output = []
+        if not strategy_output:
             print("[RISK] No risk decision produced — placeholder outcome.")
         else:
-            print(f"[RISK] Risk decision produced: {risk_output}")
+            print(
+                f"[TEACH] Risk engine will evaluate {len(strategy_output)} trade intents."
+            )
+            for trade_intent in strategy_output:
+                print(f"[TEACH] Evaluating risk for symbol: {trade_intent.symbol}")
+                decision = self.risk_engine.evaluate_trade_intent(trade_intent)
+                risk_output.append(decision)
+            if not risk_output:
+                print("[RISK] No risk decision produced — placeholder outcome.")
+            else:
+                print(f"[RISK] Risk decision produced: {risk_output}")
         print("[TEACH] <<< Risk stage complete — moving to execution stage.")
 
         print("[TEACH] >>> Execution stage — send/prepare orders (conceptual).")
-        execution_result = self.execution_engine.execute_trade(risk_output)
+        execution_result = self.execution_engine.execute_trade(risk_output or None)
         if execution_result is None:
             print("[EXECUTION] No execution result — placeholder outcome.")
         else:
