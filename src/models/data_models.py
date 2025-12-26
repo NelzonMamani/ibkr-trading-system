@@ -77,7 +77,7 @@ class TradeIntent:
     strategy_name: str  # Name of the teaching strategy that produced this intent.
     confidence: float  # Confidence score carried for discussion; not a trading signal.
     rationale: str  # Plain-language explanation of why this intent exists.
-    trader_type: str  # "SCALPER", "MOMENTUM", "QUANT", or "MANUAL" for routing the teaching flow.
+    trader_type: str = "UNKNOWN"  # "SCALPER", "MOMENTUM", "QUANT", or "MANUAL" for routing the teaching flow.
 
 
 @dataclass
