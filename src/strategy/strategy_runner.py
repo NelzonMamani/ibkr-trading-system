@@ -19,9 +19,17 @@ class StrategyRunner:
         self.strategies = []
 
         for strategy_name, strategy_class in configured_strategies:
-            enabled = ENABLED_STRATEGIES.get(strategy_name, True)
+            enabled = ENABLED_STRATEGIES.get(strategy_name, False)
             if not enabled:
-                print(f"[BOOT] Strategy '{strategy_name}' DISABLED via config; skipping.")
+                reason = (
+                    "explicitly disabled"
+                    if strategy_name in ENABLED_STRATEGIES
+                    else "missing from ENABLED_STRATEGIES; defaulting to DISABLED"
+                )
+                print(
+                    f"[BOOT] Strategy '{strategy_name}' DISABLED via config "
+                    f"({reason}); skipping."
+                )
                 continue
 
             strategy = strategy_class()
