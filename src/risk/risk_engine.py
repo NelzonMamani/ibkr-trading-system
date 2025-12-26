@@ -4,14 +4,23 @@ Teaching-first risk engine that deterministically converts intents to risk decis
 Phase 4: Minimal live-capable scaffolding with highly constrained, conservative defaults.
 """
 
+from typing import Optional
+
+from core.active_trade_registry import (
+    DEFAULT_ACTIVE_TRADE_REGISTRY,
+    ActiveTradeRegistry,
+)
 from models.data_models import RiskDecision, TradeIntent
 
 
 class RiskEngine:
     """Minimal risk engine placeholder with teaching-style log messages."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self, trade_registry: Optional[ActiveTradeRegistry] = None
+    ) -> None:
         print("[BOOT] RiskEngine instantiated — phase 4 teaching rules active")
+        self.trade_registry = trade_registry or DEFAULT_ACTIVE_TRADE_REGISTRY
         self.strategy_limits = {
             "SCALPER": {
                 "max_trades": 2,
@@ -19,10 +28,6 @@ class RiskEngine:
             "MOMENTUM": {
                 "max_trades": 1,
             },
-        }
-        self.active_trades_by_strategy = {
-            "SCALPER": 0,
-            "MOMENTUM": 0,
         }
 
     def evaluate_trade_intent(self, trade_intent: TradeIntent) -> RiskDecision:
@@ -36,7 +41,11 @@ class RiskEngine:
         print(f"[RISK] Evaluating TradeIntent for symbol={trade_intent.symbol}")
 
         trader_type = getattr(trade_intent, "trader_type", "MANUAL").upper()
-        current_active = self.active_trades_by_strategy.get(trader_type, 0)
+        current_active = self.trade_registry.count_active_by_trader(trader_type)
+        print(
+            f"[RISK:REGISTRY] Active trades for {trader_type} currently {current_active} "
+            "(registry single source of truth)"
+        )
         strategy_limit = self.strategy_limits.get(trader_type)
         if strategy_limit:
             max_trades = strategy_limit.get("max_trades", 0)
@@ -58,8 +67,6 @@ class RiskEngine:
                     trader_type=trader_type,
                 )
 
-            next_active = current_active + 1
-            self.active_trades_by_strategy[trader_type] = next_active
             print(
                 f"[RISK:STRATEGY] {trader_type} active={current_active} max={max_trades} "
                 "→ ALLOW (within limit)"
