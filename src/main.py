@@ -9,7 +9,7 @@ configuration, or connecting to brokers or data sources.
 
 import time
 
-from config.runtime_config import get_run_mode
+from config.runtime_config import RunMode, get_run_mode
 from config.system_config import (
     ACTIVE_SESSIONS,
     CYCLE_SLEEP_SECONDS,
@@ -42,7 +42,15 @@ def main() -> None:
                 print("[SESSION] System WOULD consider trading allowed in this session (teaching-only).")
             else:
                 print("[SESSION] System WOULD treat market as closed (teaching-only).")
-            orchestrator.run_once()
+            if run_mode == RunMode.LIVE and current_session == "CLOSED":
+                print(
+                    "[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() "
+                    "to maintain teaching-first safety."
+                )
+                print("[GATE] Teaching note: SIM/PAPER would still run for education, but LIVE waits for an open session.")
+            else:
+                print("[SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().")
+                orchestrator.run_once()
             print(
                 f"[SLEEP] Sleeping for {CYCLE_SLEEP_SECONDS} seconds before next cycle."
             )
