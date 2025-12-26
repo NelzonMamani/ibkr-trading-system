@@ -67,14 +67,17 @@ class TradeIntent:
     Teaching-first intent to express a directional idea; **not** a broker order.
 
     The intent keeps the conversation in the classroom by describing direction and confidence
-    without containing any execution details.
+    without containing any execution details. The trader_type routes the intent to different
+    teaching execution paths (scalper vs. momentum vs. quant vs. manual) while we remain
+    single-threaded on purpose so students can trace the flow without concurrency complexity.
     """
 
     symbol: str  # Ticker symbol for the intent being discussed.
-    direction: str  # "LONG", "SHORT", or "NONE" — directional learning cue only.
+    direction: str  # "LONG", "SHORT", or "NEUTRAL" — directional learning cue only.
     strategy_name: str  # Name of the teaching strategy that produced this intent.
     confidence: float  # Confidence score carried for discussion; not a trading signal.
     rationale: str  # Plain-language explanation of why this intent exists.
+    trader_type: str  # "SCALPER", "MOMENTUM", "QUANT", or "MANUAL" for routing the teaching flow.
 
 
 @dataclass
@@ -83,7 +86,8 @@ class RiskDecision:
     Teaching-first risk output that intentionally stops short of being an order.
 
     A RiskDecision represents permission and limits only; it does not include any order
-    ticket details or broker-specific instructions.
+    ticket details or broker-specific instructions. It carries trader_type so execution can
+    route deterministically in a single-threaded teaching flow.
     """
 
     symbol: str
@@ -91,36 +95,39 @@ class RiskDecision:
     max_position_size: int
     risk_level: str
     rationale: str
+    trader_type: str = "MANUAL"
 
 
 @dataclass
 class ExecutionResult:
-    """Represents broker execution outcomes for a trade attempt."""
+    """
+    Phase 4 teaching-only execution result for deterministic, broker-free flows.
 
-    trade_id: Optional[str] = None
-    order_id: Optional[str] = None
-    order_status: Optional[str] = None
-    filled_quantity: Optional[float] = None
-    average_fill_price: Optional[float] = None
-    timestamp_execution: Optional[str] = None
-    slippage: Optional[float] = None
-    commission_fees: Optional[float] = None
-    execution_rationale_text: Optional[str] = None
-    broker_error_codes: List[str] = field(default_factory=list)
+    This dataclass explicitly avoids any broker details and only records the routing path,
+    status, and rationale for the simulated attempt.
+    """
 
-    def __post_init__(self) -> None:
-        print(f"[EXECUTION] ExecutionResult instantiated (trade_id={self.trade_id}) — skeleton container only")
+    symbol: str
+    trader_type: str
+    attempted: bool
+    status: str  # "SKIPPED" or "SIMULATED" to reinforce safety.
+    rationale: str
 
 
 @dataclass
 class TradeRecord:
     """Minimal teaching-first record of one trade attempt's stage outputs."""
 
-    scanner_output: Optional[str] = None
-    pattern_output: Optional[str] = None
-    strategy_output: Optional[str] = None
-    risk_output: Optional[str] = None
-    execution_output: Optional[str] = None
+    scanner_output: List = field(default_factory=list)
+    pattern_output: List = field(default_factory=list)
+    strategy_output: List[TradeIntent] = field(default_factory=list)
+    risk_output: List[RiskDecision] = field(default_factory=list)
+    execution_output: List[ExecutionResult] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        print("[STORAGE] TradeRecord instantiated — skeleton container only (shape, no logic)")
+        print(
+            "[STORAGE] TradeRecord instantiated — capturing lists for each stage with "
+            f"{len(self.scanner_output)} scanner, {len(self.pattern_output)} patterns, "
+            f"{len(self.strategy_output)} intents, {len(self.risk_output)} risk decisions, "
+            f"{len(self.execution_output)} execution results."
+        )

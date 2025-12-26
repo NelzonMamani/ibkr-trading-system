@@ -10,9 +10,10 @@ from execution.execution_engine import ExecutionEngine
 from patterns.pattern_engine import PatternEngine
 from risk.risk_engine import RiskEngine
 from scanner.scanner import Scanner
-from models.data_models import TradeRecord
+from models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
 from storage.storage_engine import StorageEngine
 from strategy.strategy_runner import StrategyRunner
+from typing import List
 
 
 class CoreOrchestrator:
@@ -54,16 +55,20 @@ class CoreOrchestrator:
         print("[TEACH] <<< Strategy stage complete — moving to risk stage.")
 
         print("[TEACH] >>> Risk stage — check sizing and limits (conceptual).")
-        risk_output = []
+        risk_output: List[RiskDecision] = []
         if not strategy_output:
             print("[RISK] No risk decision produced — placeholder outcome.")
         else:
             print(
-                f"[TEACH] Risk engine will evaluate {len(strategy_output)} trade intents."
+                f"[TEACH] Risk engine will evaluate {len(strategy_output)} trade intents individually."
             )
             for trade_intent in strategy_output:
-                print(f"[TEACH] Evaluating risk for symbol: {trade_intent.symbol}")
+                print(
+                    f"[TEACH] Evaluating risk for symbol: {trade_intent.symbol} "
+                    f"(trader_type={trade_intent.trader_type})"
+                )
                 decision = self.risk_engine.evaluate_trade_intent(trade_intent)
+                decision.trader_type = getattr(trade_intent, "trader_type", "MANUAL")
                 risk_output.append(decision)
             if not risk_output:
                 print("[RISK] No risk decision produced — placeholder outcome.")
@@ -72,21 +77,31 @@ class CoreOrchestrator:
         print("[TEACH] <<< Risk stage complete — moving to execution stage.")
 
         print("[TEACH] >>> Execution stage — send/prepare orders (conceptual).")
-        execution_result = self.execution_engine.execute_trade(risk_output or None)
-        if execution_result is None:
+        execution_output: List[ExecutionResult] = []
+        if not risk_output:
             print("[EXECUTION] No execution result — placeholder outcome.")
         else:
-            print(f"[EXECUTION] Execution result: {execution_result}")
+            print(f"[TEACH] Execution engine will handle {len(risk_output)} risk decisions individually.")
+            for risk_decision in risk_output:
+                print(
+                    f"[TEACH] Routing execution for symbol: {risk_decision.symbol} "
+                    f"(trader_type={risk_decision.trader_type})"
+                )
+                execution_output.append(self.execution_engine.execute_trade(risk_decision))
+            if not execution_output:
+                print("[EXECUTION] No execution results captured — placeholder outcome.")
+            else:
+                print(f"[EXECUTION] Execution results: {execution_output}")
         print("[TEACH] <<< Execution stage complete — moving to storage stage.")
 
         print("[TEACH] >>> Storage stage — record decisions/results (conceptual).")
         print("[TEACH] Creating TradeRecord to capture stage outputs for review.")
         trade_record = TradeRecord(
-            scanner_output=scanner_results,
-            pattern_output=pattern_results,
-            strategy_output=strategy_output,
-            risk_output=risk_output,
-            execution_output=execution_result,
+            scanner_output=scanner_results or [],
+            pattern_output=pattern_results or [],
+            strategy_output=strategy_output or [],
+            risk_output=risk_output or [],
+            execution_output=execution_output or [],
         )
         print("[TEACH] TradeRecord encapsulates the journey for teaching purposes.")
         storage_result = self.storage_engine.store_trade_record(trade_record)
@@ -95,5 +110,14 @@ class CoreOrchestrator:
         else:
             print(f"[STORAGE] Storage result: {storage_result}")
         print("[TEACH] <<< Storage stage complete.")
+
+        print(
+            "[SUMMARY] "
+            f"scanner={len(scanner_results or [])} | "
+            f"patterns={len(pattern_results or [])} | "
+            f"trade_intents={len(strategy_output or [])} | "
+            f"risk_decisions={len(risk_output or [])} | "
+            f"execution_results={len(execution_output or [])}"
+        )
 
         print("[INFO] Orchestrator cycle complete (teaching-only).")
