@@ -4,13 +4,14 @@ from typing import List
 
 from models.data_models import PatternResult, TradeIntent
 from strategy.gap_and_go_strategy import GapAndGoStrategy
+from strategy.momentum_continuation_strategy import MomentumContinuationStrategy
 
 
 class StrategyRunner:
     """Dispatches registered strategies to translate PatternResults into TradeIntents."""
 
     def __init__(self) -> None:
-        self.strategies = [GapAndGoStrategy()]
+        self.strategies = [GapAndGoStrategy(), MomentumContinuationStrategy()]
         registered = ", ".join(strategy.name for strategy in self.strategies)
         print(f"[BOOT] StrategyRunner instantiated with strategies: {registered}")
 
