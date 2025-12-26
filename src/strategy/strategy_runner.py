@@ -2,6 +2,7 @@
 
 from typing import List
 
+from config.trading_config import ENABLED_STRATEGIES
 from models.data_models import PatternResult, TradeIntent
 from strategy.gap_and_go_strategy import GapAndGoStrategy
 from strategy.momentum_continuation_strategy import MomentumContinuationStrategy
@@ -11,7 +12,22 @@ class StrategyRunner:
     """Dispatches registered strategies to translate PatternResults into TradeIntents."""
 
     def __init__(self) -> None:
-        self.strategies = [GapAndGoStrategy(), MomentumContinuationStrategy()]
+        configured_strategies = [
+            ("GapAndGoStrategy", GapAndGoStrategy),
+            ("MomentumContinuationStrategy", MomentumContinuationStrategy),
+        ]
+        self.strategies = []
+
+        for strategy_name, strategy_class in configured_strategies:
+            enabled = ENABLED_STRATEGIES.get(strategy_name, True)
+            if not enabled:
+                print(f"[BOOT] Strategy '{strategy_name}' DISABLED via config; skipping.")
+                continue
+
+            strategy = strategy_class()
+            self.strategies.append(strategy)
+            print(f"[BOOT] Strategy '{strategy_name}' ENABLED via config and registered.")
+
         registered = ", ".join(strategy.name for strategy in self.strategies)
         print(f"[BOOT] StrategyRunner instantiated with strategies: {registered}")
 
