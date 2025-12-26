@@ -1,4 +1,3 @@
-
 """
 Main entry point for PHASE 3 — Skeleton System (Teaching-First).
 
@@ -8,6 +7,7 @@ avoids importing other project modules, performing any trading logic, loading
 configuration, or connecting to brokers or data sources.
 """
 
+from config.runtime_config import get_run_mode
 from core.orchestrator import CoreOrchestrator
 
 
@@ -16,6 +16,8 @@ def main() -> None:
     print("[BOOT] Starting the IBKR Trading System skeleton.")
     print("[PHASE] PHASE 3 — Skeleton System (Teaching-First).")
     print("[INTENT] Demonstrate a clean, observable entry point without trading logic.")
+    run_mode = get_run_mode()
+    print(f"[MODE] RUN_MODE = {run_mode.value} (safe default)")
     orchestrator = CoreOrchestrator()
     orchestrator.run_once()
     print("[SHUTDOWN] Exiting gracefully. Goodbye!")
