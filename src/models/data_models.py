@@ -95,6 +95,8 @@ class RiskDecision:
     max_position_size: int
     risk_level: str
     rationale: str
+    strategy_name: str = "UNKNOWN"
+    direction: str = "UNKNOWN"
     trader_type: str = "MANUAL"
 
 

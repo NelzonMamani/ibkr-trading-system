@@ -5,6 +5,7 @@ Phase 4: Minimal live-capable scaffolding with highly constrained, conservative 
 """
 
 from models.data_models import RiskDecision, TradeIntent
+from portfolio.active_trade_registry import active_trade_registry
 
 
 class RiskEngine:
@@ -20,10 +21,6 @@ class RiskEngine:
                 "max_trades": 1,
             },
         }
-        self.active_trades_by_strategy = {
-            "SCALPER": 0,
-            "MOMENTUM": 0,
-        }
 
     def evaluate_trade_intent(self, trade_intent: TradeIntent) -> RiskDecision:
         """
@@ -36,18 +33,24 @@ class RiskEngine:
         print(f"[RISK] Evaluating TradeIntent for symbol={trade_intent.symbol}")
 
         trader_type = getattr(trade_intent, "trader_type", "MANUAL").upper()
-        current_active = self.active_trades_by_strategy.get(trader_type, 0)
+        strategy_name = getattr(trade_intent, "strategy_name", "UNKNOWN")
+        current_active_strategy = active_trade_registry.count_active_by_strategy(strategy_name)
+        current_active_trader = active_trade_registry.count_active_by_trader_type(trader_type)
         strategy_limit = self.strategy_limits.get(trader_type)
         if strategy_limit:
             max_trades = strategy_limit.get("max_trades", 0)
-            if current_active >= max_trades:
+            print(
+                f"[RISK:STRATEGY] current_active_by_strategy={current_active_strategy} "
+                f"current_active_by_trader_type={current_active_trader} max={max_trades}"
+            )
+            if current_active_trader >= max_trades:
                 print(
-                    f"[RISK:STRATEGY] {trader_type} active={current_active} max={max_trades} "
+                    f"[RISK:STRATEGY] {trader_type} active={current_active_trader} max={max_trades} "
                     "→ BLOCKED (limit reached)"
                 )
                 rationale = (
                     f"Strategy {trader_type} reached its max active trades "
-                    f"({current_active}/{max_trades}); blocking this intent."
+                    f"({current_active_trader}/{max_trades}); blocking this intent using real open trades."
                 )
                 return RiskDecision(
                     symbol=trade_intent.symbol,
@@ -55,13 +58,13 @@ class RiskEngine:
                     max_position_size=0,
                     risk_level="BLOCKED",
                     rationale=rationale,
+                    strategy_name=strategy_name,
+                    direction=trade_intent.direction,
                     trader_type=trader_type,
                 )
 
-            next_active = current_active + 1
-            self.active_trades_by_strategy[trader_type] = next_active
             print(
-                f"[RISK:STRATEGY] {trader_type} active={current_active} max={max_trades} "
+                f"[RISK:STRATEGY] {trader_type} active={current_active_trader} max={max_trades} "
                 "→ ALLOW (within limit)"
             )
         else:
@@ -95,8 +98,8 @@ class RiskEngine:
 
         rationale = (
             "Teaching-only decision: allow intent, cap size at 1 share, "
-            f"and set risk level to {risk_level} based on confidence for {trader_type} "
-            "within strategy limits."
+            f"and set risk level to {risk_level} based on confidence for {trader_type} within strategy limits. "
+            "ActiveTradeRegistry used for real-time limits."
         )
 
         return RiskDecision(
@@ -105,5 +108,7 @@ class RiskEngine:
             max_position_size=max_position_size,
             risk_level=risk_level,
             rationale=rationale,
+            strategy_name=strategy_name,
+            direction=trade_intent.direction,
             trader_type=trader_type,
         )
