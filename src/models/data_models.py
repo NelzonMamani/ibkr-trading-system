@@ -10,6 +10,24 @@ from typing import List, Optional
 
 
 @dataclass
+class ScannerCandidate:
+    """Phase 4 teaching-first representation of a scanner output candidate."""
+
+    symbol: str
+    price: float
+    gap_percent: float
+    rvol: float
+    float_millions: float
+    rationale: str
+
+    def __post_init__(self) -> None:
+        print(
+            f"[SCAN] ScannerCandidate created for {self.symbol} — static placeholder, "
+            "no live data or validation"
+        )
+
+
+@dataclass
 class ScannerResult:
     """Represents a single symbol’s market snapshot and explainability context."""
 
