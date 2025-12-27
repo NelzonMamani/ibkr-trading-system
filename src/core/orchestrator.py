@@ -34,6 +34,18 @@ class CoreOrchestrator:
         self.execution_engine = ExecutionEngine(trade_registry=self.trade_registry)
         self.storage_engine = StorageEngine()
 
+    def replay_events(self, events):
+        print("[REPLAY] Starting deterministic event replay")
+
+        for event in events:
+            print(
+                f"[REPLAY] {event.timestamp} | "
+                f"{event.event_type} | {event.source} | "
+                f"{event.payload}"
+            )
+
+        print("[REPLAY] Replay complete")
+
     def run_once(self):
         """Run a single conceptual system cycle in teaching order."""
         print("[INFO] Starting orchestrator cycle (teaching-only).")
@@ -171,3 +183,5 @@ class CoreOrchestrator:
             print(
                 f"[EVENT_SUMMARY] {event.timestamp} | {event.event_type} | {event.source}"
             )
+        print("[REPLAY] Initiating replay for teaching verification")
+        self.replay_events(snapshot)
