@@ -8,6 +8,8 @@ No real broker calls, order management, or execution logic is implemented.
 from typing import Optional
 
 from core.active_trade_registry import ActiveTradeRegistry
+from core.event_collector import EventCollector
+from core.events import SystemEvent
 from models.data_models import ExecutionResult, RiskDecision
 
 
@@ -18,10 +20,12 @@ class ExecutionEngine:
         self,
         broker: Optional[object] = None,
         trade_registry: Optional[ActiveTradeRegistry] = None,
+        event_collector: Optional[EventCollector] = None,
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — phase 3 skeleton only")
         self.broker = broker
         self.trade_registry = trade_registry or ActiveTradeRegistry()
+        self.event_collector = event_collector or EventCollector()
 
     def execute_trade(self, risk_decision: Optional[RiskDecision]) -> ExecutionResult:
         """
@@ -68,6 +72,21 @@ class ExecutionEngine:
             "(teaching-only path)"
         )
         self.trade_registry.register_trade(symbol, trader_type)
+        self.event_collector.record(
+            SystemEvent(
+                event_type="TRADE_OPENED",
+                source="ExecutionEngine",
+                payload={
+                    "symbol": risk_decision.symbol,
+                    "trader_type": risk_decision.trader_type,
+                    "mode": "SIM",
+                },
+            )
+        )
+        print(
+            f"[EVENT] TRADE_OPENED emitted for "
+            f"{risk_decision.symbol} ({risk_decision.trader_type})"
+        )
         print(
             "[EXECUTION:REGISTRY] Registered active trade "
             f"symbol={symbol} trader_type={trader_type}"
