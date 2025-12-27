@@ -96,6 +96,32 @@ class ExecutionEngine:
             f"{trader_type}: {self.trade_registry.count_active_by_trader(trader_type)}"
         )
         print("[EXECUTION] SIM mode active — no broker calls; returning simulated result.")
+        print(
+            f"[EXECUTION] Simulating trade CLOSE for "
+            f"{risk_decision.symbol} ({risk_decision.trader_type})"
+        )
+        self.trade_registry.unregister_trade(
+            symbol=risk_decision.symbol, trader_type=risk_decision.trader_type
+        )
+        print(
+            f"[EXECUTION:REGISTRY] Unregistered trade "
+            f"{risk_decision.symbol} ({risk_decision.trader_type})"
+        )
+        self.event_collector.record(
+            SystemEvent(
+                event_type="TRADE_CLOSED",
+                source="ExecutionEngine",
+                payload={
+                    "symbol": risk_decision.symbol,
+                    "trader_type": risk_decision.trader_type,
+                    "mode": "SIM",
+                },
+            )
+        )
+        print(
+            f"[EVENT] TRADE_CLOSED emitted for "
+            f"{risk_decision.symbol} ({risk_decision.trader_type})"
+        )
 
         return ExecutionResult(
             symbol=symbol,
