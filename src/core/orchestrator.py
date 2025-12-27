@@ -8,6 +8,7 @@ the system stages and their order easy to follow during this teaching phase.
 
 from config.runtime_config import get_run_mode
 from core.active_trade_registry import ActiveTradeRegistry
+from core.event_collector import EventCollector
 from core.events import SystemEvent
 from execution.execution_engine import ExecutionEngine
 from patterns.pattern_engine import PatternEngine
@@ -23,6 +24,8 @@ class CoreOrchestrator:
     def __init__(self):
         print("[INFO] Core Orchestrator initialised.")
         self.run_mode = get_run_mode()
+        self.event_collector = EventCollector()
+        print("[BOOT] EventCollector initialised")
         self.trade_registry = ActiveTradeRegistry()
         self.scanner = Scanner()
         self.pattern_engine = PatternEngine()
@@ -34,19 +37,23 @@ class CoreOrchestrator:
     def run_once(self):
         """Run a single conceptual system cycle in teaching order."""
         print("[INFO] Starting orchestrator cycle (teaching-only).")
-        print(SystemEvent(
+        event = SystemEvent(
             event_type="CYCLE_START",
             source="Orchestrator",
             payload={"run_mode": self.run_mode}
-        ))
+        )
+        print(event)
+        self.event_collector.record(event)
 
         print("[TEACH] >>> Scanner stage — gather candidates (conceptual).")
         scanner_results = self.scanner.run_scan_cycle()
-        print(SystemEvent(
+        event = SystemEvent(
             event_type="SCAN_COMPLETE",
             source="Scanner",
             payload={"candidates": len(scanner_results or [])}
-        ))
+        )
+        print(event)
+        self.event_collector.record(event)
         if not scanner_results:
             print("[SCAN] Scanner returned no candidates — placeholder outcome.")
         else:
@@ -63,11 +70,13 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Strategy stage — decide on trade ideas (conceptual).")
         strategy_output = self.strategy_runner.generate_trade_intent(pattern_results or [])
-        print(SystemEvent(
+        event = SystemEvent(
             event_type="STRATEGY_COMPLETE",
             source="StrategyRunner",
             payload={"trade_intents": len(strategy_output or [])}
-        ))
+        )
+        print(event)
+        self.event_collector.record(event)
         if not strategy_output:
             print("[STRATEGY] No trade intents generated — placeholder outcome.")
         else:
@@ -112,11 +121,13 @@ class CoreOrchestrator:
                 print("[EXECUTION] No execution results captured — placeholder outcome.")
             else:
                 print(f"[EXECUTION] Execution results: {execution_output}")
-        print(SystemEvent(
+        event = SystemEvent(
             event_type="EXECUTION_COMPLETE",
             source="ExecutionEngine",
             payload={"results": len(execution_output or [])}
-        ))
+        )
+        print(event)
+        self.event_collector.record(event)
         print("[TEACH] <<< Execution stage complete — moving to storage stage.")
 
         print("[TEACH] >>> Storage stage — record decisions/results (conceptual).")
