@@ -6,7 +6,7 @@ no real trading logic, integrations, or data handling. It exists solely to make
 the system stages and their order easy to follow during this teaching phase.
 """
 
-from config.runtime_config import get_run_mode
+from config.runtime_config import RunMode, get_run_mode
 from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
 from core.events import SystemEvent
@@ -193,5 +193,22 @@ class CoreOrchestrator:
             print(
                 f"[EVENT_SUMMARY] {event.timestamp} | {event.event_type} | {event.source}"
             )
+        run_mode_value = getattr(self.run_mode, "value", self.run_mode)
+        sim_mode = run_mode_value == RunMode.SIM.value
+        opened_count = self.event_collector.count("TRADE_OPENED")
+        closed_count = self.event_collector.count("TRADE_CLOSED")
+        realised_pnl = (
+            f"{self.event_collector.sum_realised_pnl():.2f}"
+            if sim_mode
+            else "N/A"
+        )
+        print(
+            "[CYCLE_SUMMARY] "
+            f"opened={opened_count} "
+            f"closed={closed_count} "
+            f"realised_pnl={realised_pnl} "
+            f"run_mode={run_mode_value} "
+            f"tick={tick}"
+        )
         print("[REPLAY] Initiating replay for teaching verification")
         self.replay_events(snapshot)
