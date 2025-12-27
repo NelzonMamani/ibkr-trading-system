@@ -7,10 +7,11 @@ No real broker calls, order management, or execution logic is implemented.
 
 from typing import Optional
 
-from core.active_trade_registry import ActiveTradeRegistry
+from core.active_trade_registry import ActiveTradeRegistry, ActiveTrade
 from core.event_collector import EventCollector
 from core.events import SystemEvent
 from models.data_models import ExecutionResult, RiskDecision
+from sim.price_feed import DeterministicPriceFeed
 
 
 class ExecutionEngine:
@@ -21,11 +22,14 @@ class ExecutionEngine:
         broker: Optional[object] = None,
         trade_registry: Optional[ActiveTradeRegistry] = None,
         event_collector: Optional[EventCollector] = None,
+        price_feed: Optional[DeterministicPriceFeed] = None,
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — phase 3 skeleton only")
         self.broker = broker
         self.trade_registry = trade_registry or ActiveTradeRegistry()
         self.event_collector = event_collector or EventCollector()
+        self.price_feed = price_feed or DeterministicPriceFeed()
+        self.current_tick: Optional[int] = None
 
     def execute_trade(self, risk_decision: Optional[RiskDecision]) -> ExecutionResult:
         """
@@ -71,7 +75,15 @@ class ExecutionEngine:
             f"[EXECUTION] Routing execution for symbol={symbol} to trader_type={trader_type} "
             "(teaching-only path)"
         )
-        self.trade_registry.register_trade(symbol, trader_type)
+        tick = self.current_tick if self.current_tick is not None else 0
+        entry_price = self.price_feed.price_for(symbol, tick)
+        active_trade = ActiveTrade(
+            symbol=symbol,
+            trader_type=trader_type,
+            entry_tick=tick,
+            entry_price=entry_price,
+        )
+        self.trade_registry.register_trade(active_trade)
         self.event_collector.record(
             SystemEvent(
                 event_type="TRADE_OPENED",
@@ -79,6 +91,8 @@ class ExecutionEngine:
                 payload={
                     "symbol": risk_decision.symbol,
                     "trader_type": risk_decision.trader_type,
+                    "entry_tick": tick,
+                    "entry_price": entry_price,
                     "mode": "SIM",
                 },
             )
@@ -86,6 +100,7 @@ class ExecutionEngine:
         print(
             f"[EVENT] TRADE_OPENED emitted for "
             f"{risk_decision.symbol} ({risk_decision.trader_type})"
+            f" tick={tick} price={entry_price}"
         )
         print(
             "[EXECUTION:REGISTRY] Registered active trade "
@@ -162,8 +177,8 @@ class ExecutionEngine:
         for trade in closed_trades:
             print(
                 "[EXECUTION:REGISTRY] Closed trade "
-                f"symbol={trade.get('symbol', 'UNKNOWN')} "
-                f"trader_type={trade.get('trader_type', 'UNKNOWN')}"
+                f"symbol={getattr(trade, 'symbol', 'UNKNOWN')} "
+                f"trader_type={getattr(trade, 'trader_type', 'UNKNOWN')}"
             )
 
         print(
