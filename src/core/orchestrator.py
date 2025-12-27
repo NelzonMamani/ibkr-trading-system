@@ -59,8 +59,7 @@ class CoreOrchestrator:
         tick = self.sim_clock.tick()
         print(f"[CYCLE_CTX] tick={tick} run_mode={self.run_mode}")
         self.execution_engine.current_tick = tick
-        print("[EVENT_COLLECTOR] Clearing events for new cycle")
-        self.event_collector._events.clear()
+        self.event_collector.clear_cycle_events()
         event = SystemEvent(
             event_type="CYCLE_START",
             source="Orchestrator",
@@ -184,7 +183,7 @@ class CoreOrchestrator:
         print(
             f"[EVENT_SUMMARY] Cycle produced {self.event_collector.count()} total events"
         )
-        snapshot = self.event_collector.snapshot()
+        snapshot = self.event_collector.snapshot_all_events()
         print(
             f"[EVENT_SNAPSHOT] Captured "
             f"{len(snapshot)} events for replay"
@@ -195,10 +194,10 @@ class CoreOrchestrator:
             )
         run_mode_value = getattr(self.run_mode, "value", self.run_mode)
         sim_mode = run_mode_value == RunMode.SIM.value
-        opened_count = self.event_collector.count("TRADE_OPENED")
-        closed_count = self.event_collector.count("TRADE_CLOSED")
+        opened_count = self.event_collector.cycle_count("TRADE_OPENED")
+        closed_count = self.event_collector.cycle_count("TRADE_CLOSED")
         realised_pnl = (
-            f"{self.event_collector.sum_realised_pnl():.2f}"
+            f"{self.event_collector.cycle_sum_realised_pnl():.2f}"
             if sim_mode
             else "N/A"
         )

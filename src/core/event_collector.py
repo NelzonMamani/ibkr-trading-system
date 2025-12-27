@@ -5,21 +5,27 @@ class EventCollector:
     """
 
     def __init__(self):
-        self._events = []
+        self._cycle_events = []
+        self._all_events = []
 
-    def record(self, event):
+    def record_event(self, event):
         print(f"[EVENT_COLLECTOR] Recording event: {event.event_type}")
-        self._events.append(event)
+        self._cycle_events.append(event)
+        self._all_events.append(event)
 
-    def snapshot(self):
-        print("[EVENT_COLLECTOR] Snapshotting events")
-        return list(self._events)
+    def clear_cycle_events(self):
+        print("[EVENT_COLLECTOR] Clearing cycle-scoped events")
+        self._cycle_events.clear()
+
+    def snapshot_all_events(self):
+        print("[EVENT_COLLECTOR] Snapshotting all events")
+        return list(self._all_events)
 
     def count(self, event_type: str = None):
         if event_type is None:
-            return len(self._events)
+            return len(self._all_events)
         return len([
-            e for e in self._events
+            e for e in self._all_events
             if e.event_type == event_type
         ])
 
@@ -28,7 +34,7 @@ class EventCollector:
             f"[EVENT_COLLECTOR] Filtering events — type={event_type}"
         )
         return [
-            e for e in self._events
+            e for e in self._all_events
             if e.event_type == event_type
         ]
 
@@ -37,15 +43,39 @@ class EventCollector:
             f"[EVENT_COLLECTOR] Filtering events — source={source}"
         )
         return [
-            e for e in self._events
+            e for e in self._all_events
             if e.source == source
         ]
 
     def sum_realised_pnl(self) -> float:
         realised_pnl = 0.0
-        for event in self._events:
+        for event in self._all_events:
             if event.event_type != "TRADE_CLOSED":
                 continue
             payload = event.payload or {}
             realised_pnl += payload.get("realised_pnl", 0.0)
         return round(realised_pnl, 2)
+
+    def cycle_count(self, event_type: str = None):
+        if event_type is None:
+            return len(self._cycle_events)
+        return len([
+            e for e in self._cycle_events
+            if e.event_type == event_type
+        ])
+
+    def cycle_sum_realised_pnl(self) -> float:
+        realised_pnl = 0.0
+        for event in self._cycle_events:
+            if event.event_type != "TRADE_CLOSED":
+                continue
+            payload = event.payload or {}
+            realised_pnl += payload.get("realised_pnl", 0.0)
+        return round(realised_pnl, 2)
+
+    # Backwards compatibility with earlier naming.
+    def record(self, event):
+        self.record_event(event)
+
+    def snapshot(self):
+        return self.snapshot_all_events()
