@@ -15,8 +15,13 @@ class EventCollector:
         print("[EVENT_COLLECTOR] Snapshotting events")
         return list(self._events)
 
-    def count(self):
-        return len(self._events)
+    def count(self, event_type: str = None):
+        if event_type is None:
+            return len(self._events)
+        return len([
+            e for e in self._events
+            if e.event_type == event_type
+        ])
 
     def filter_by_type(self, event_type: str):
         print(
@@ -35,3 +40,12 @@ class EventCollector:
             e for e in self._events
             if e.source == source
         ]
+
+    def sum_realised_pnl(self) -> float:
+        realised_pnl = 0.0
+        for event in self._events:
+            if event.event_type != "TRADE_CLOSED":
+                continue
+            payload = event.payload or {}
+            realised_pnl += payload.get("realised_pnl", 0.0)
+        return round(realised_pnl, 2)
