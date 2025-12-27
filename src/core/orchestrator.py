@@ -37,6 +37,8 @@ class CoreOrchestrator:
     def run_once(self):
         """Run a single conceptual system cycle in teaching order."""
         print("[INFO] Starting orchestrator cycle (teaching-only).")
+        print("[EVENT_COLLECTOR] Clearing events for new cycle")
+        self.event_collector._events.clear()
         event = SystemEvent(
             event_type="CYCLE_START",
             source="Orchestrator",
