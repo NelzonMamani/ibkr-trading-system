@@ -201,6 +201,11 @@ class CoreOrchestrator:
             if sim_mode
             else "N/A"
         )
+        pnl_by_trader_type = (
+            self.event_collector.cycle_pnl_by_trader_type()
+            if sim_mode
+            else {}
+        )
         print(
             "[CYCLE_SUMMARY] "
             f"opened={opened_count} "
@@ -209,5 +214,17 @@ class CoreOrchestrator:
             f"run_mode={run_mode_value} "
             f"tick={tick}"
         )
+        pnl_by_trader_type_parts = [
+            f"{trader_type}={pnl:.2f}"
+            for trader_type, pnl in sorted(
+                pnl_by_trader_type.items(), key=lambda item: item[0]
+            )
+        ]
+        pnl_by_trader_type_summary = (
+            " | ".join(pnl_by_trader_type_parts)
+            if sim_mode and pnl_by_trader_type_parts
+            else "N/A"
+        )
+        print(f"[PNL_BY_STRATEGY] {pnl_by_trader_type_summary}")
         print("[REPLAY] Initiating replay for teaching verification")
         self.replay_events(snapshot)
