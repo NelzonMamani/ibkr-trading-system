@@ -12,6 +12,7 @@ class EventCollector:
         self._events.append(event)
 
     def snapshot(self):
+        print("[EVENT_COLLECTOR] Snapshotting events")
         return list(self._events)
 
     def count(self):

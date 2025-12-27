@@ -162,7 +162,12 @@ class CoreOrchestrator:
         print(
             f"[EVENT_SUMMARY] Cycle produced {self.event_collector.count()} total events"
         )
-        for event in self.event_collector.snapshot():
+        snapshot = self.event_collector.snapshot()
+        print(
+            f"[EVENT_SNAPSHOT] Captured "
+            f"{len(snapshot)} events for replay"
+        )
+        for event in snapshot:
             print(
                 f"[EVENT_SUMMARY] {event.timestamp} | {event.event_type} | {event.source}"
             )
