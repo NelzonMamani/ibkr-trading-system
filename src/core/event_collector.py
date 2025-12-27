@@ -9,7 +9,6 @@ class EventCollector:
         self._all_events = []
 
     def record_event(self, event):
-        print(f"[EVENT_COLLECTOR] Recording event: {event.event_type}")
         self._cycle_events.append(event)
         self._all_events.append(event)
 
