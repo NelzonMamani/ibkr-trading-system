@@ -157,3 +157,10 @@ class CoreOrchestrator:
         )
 
         print("[INFO] Orchestrator cycle complete (teaching-only).")
+        print(
+            f"[EVENT_SUMMARY] Cycle produced {self.event_collector.count()} total events"
+        )
+        for event in self.event_collector.snapshot():
+            print(
+                f"[EVENT_SUMMARY] {event.timestamp} | {event.event_type} | {event.source}"
+            )
