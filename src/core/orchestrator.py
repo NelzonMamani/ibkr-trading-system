@@ -15,6 +15,8 @@ from patterns.pattern_engine import PatternEngine
 from risk.risk_engine import RiskEngine
 from scanner.scanner import Scanner
 from models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
+from sim.clock import SimClock
+from sim.price_feed import DeterministicPriceFeed
 from storage.storage_engine import StorageEngine
 from strategy.strategy_runner import StrategyRunner
 from typing import List
@@ -24,6 +26,8 @@ class CoreOrchestrator:
     def __init__(self):
         print("[INFO] Core Orchestrator initialised.")
         self.run_mode = get_run_mode()
+        self.sim_clock = SimClock()
+        self.price_feed = DeterministicPriceFeed()
         self.event_collector = EventCollector()
         print("[BOOT] EventCollector initialised")
         self.trade_registry = ActiveTradeRegistry()
@@ -31,7 +35,10 @@ class CoreOrchestrator:
         self.pattern_engine = PatternEngine()
         self.strategy_runner = StrategyRunner()
         self.risk_engine = RiskEngine(trade_registry=self.trade_registry)
-        self.execution_engine = ExecutionEngine(trade_registry=self.trade_registry)
+        self.execution_engine = ExecutionEngine(
+            trade_registry=self.trade_registry,
+            price_feed=self.price_feed,
+        )
         self.storage_engine = StorageEngine()
 
     def replay_events(self, events):
@@ -49,6 +56,9 @@ class CoreOrchestrator:
     def run_once(self):
         """Run a single conceptual system cycle in teaching order."""
         print("[INFO] Starting orchestrator cycle (teaching-only).")
+        tick = self.sim_clock.tick()
+        print(f"[CYCLE_CTX] tick={tick} run_mode={self.run_mode}")
+        self.execution_engine.current_tick = tick
         print("[EVENT_COLLECTOR] Clearing events for new cycle")
         self.event_collector._events.clear()
         event = SystemEvent(
