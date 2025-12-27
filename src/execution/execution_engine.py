@@ -7,6 +7,7 @@ No real broker calls, order management, or execution logic is implemented.
 
 from typing import Optional
 
+from config.runtime_config import RunMode, get_run_mode
 from core.active_trade_registry import ActiveTradeRegistry, ActiveTrade
 from core.event_collector import EventCollector
 from core.events import SystemEvent
@@ -30,6 +31,7 @@ class ExecutionEngine:
         self.event_collector = event_collector or EventCollector()
         self.price_feed = price_feed or DeterministicPriceFeed()
         self.current_tick: Optional[int] = None
+        self.run_mode: RunMode = get_run_mode()
 
     def execute_trade(self, risk_decision: Optional[RiskDecision]) -> ExecutionResult:
         """
@@ -110,33 +112,63 @@ class ExecutionEngine:
             "[EXECUTION:REGISTRY] Active trades for trader_type "
             f"{trader_type}: {self.trade_registry.count_active_by_trader(trader_type)}"
         )
-        print("[EXECUTION] SIM mode active — no broker calls; returning simulated result.")
         print(
-            f"[EXECUTION] Simulating trade CLOSE for "
-            f"{risk_decision.symbol} ({risk_decision.trader_type})"
+            f"[EXECUTION] {self.run_mode.value} mode active — no broker calls; returning simulated result."
         )
-        self.trade_registry.unregister_trade(
-            symbol=risk_decision.symbol, trader_type=risk_decision.trader_type
-        )
-        print(
-            f"[EXECUTION:REGISTRY] Unregistered trade "
-            f"{risk_decision.symbol} ({risk_decision.trader_type})"
-        )
-        self.event_collector.record(
-            SystemEvent(
-                event_type="TRADE_CLOSED",
-                source="ExecutionEngine",
-                payload={
-                    "symbol": risk_decision.symbol,
-                    "trader_type": risk_decision.trader_type,
-                    "mode": "SIM",
-                },
+        if self.run_mode == RunMode.SIM:
+            print(
+                f"[EXECUTION] Simulating trade CLOSE for "
+                f"{risk_decision.symbol} ({risk_decision.trader_type})"
             )
-        )
-        print(
-            f"[EVENT] TRADE_CLOSED emitted for "
-            f"{risk_decision.symbol} ({risk_decision.trader_type})"
-        )
+            close_tick = self.current_tick if self.current_tick is not None else 0
+            close_price = self.price_feed.price_for(symbol, close_tick)
+            trade = self.trade_registry.get_trade(symbol, trader_type)
+            entry_tick = trade.entry_tick if trade else tick
+            entry_price_for_pnl = trade.entry_price if trade else entry_price
+            realised_pnl = round(close_price - entry_price_for_pnl, 2)
+            self.trade_registry.mark_closed(
+                symbol=risk_decision.symbol,
+                trader_type=risk_decision.trader_type,
+                close_tick=close_tick,
+                close_price=close_price,
+                realised_pnl=realised_pnl,
+            )
+            print(
+                f"[EXECUTION] CLOSE symbol={symbol} tick={close_tick} "
+                f"close_price={close_price} realised_pnl={realised_pnl} (SIM)"
+            )
+            self.event_collector.record(
+                SystemEvent(
+                    event_type="TRADE_CLOSED",
+                    source="ExecutionEngine",
+                    payload={
+                        "symbol": risk_decision.symbol,
+                        "trader_type": risk_decision.trader_type,
+                        "entry_tick": entry_tick,
+                        "entry_price": entry_price_for_pnl,
+                        "close_tick": close_tick,
+                        "close_price": close_price,
+                        "realised_pnl": realised_pnl,
+                        "mode": "SIM",
+                    },
+                )
+            )
+            print(
+                f"[EVENT] TRADE_CLOSED emitted for "
+                f"{risk_decision.symbol} ({risk_decision.trader_type}) "
+                f"tick={close_tick} price={close_price} pnl={realised_pnl}"
+            )
+            self.trade_registry.unregister_trade(
+                symbol=risk_decision.symbol, trader_type=risk_decision.trader_type
+            )
+            print(
+                f"[EXECUTION:REGISTRY] Unregistered trade "
+                f"{risk_decision.symbol} ({risk_decision.trader_type})"
+            )
+        else:
+            print(
+                "[EXECUTION] Non-SIM mode detected — skipping deterministic SIM close flow."
+            )
 
         return ExecutionResult(
             symbol=symbol,

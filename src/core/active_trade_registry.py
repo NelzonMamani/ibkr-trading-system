@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 
 @dataclass
@@ -8,6 +8,9 @@ class ActiveTrade:
     trader_type: str
     entry_tick: int
     entry_price: float
+    close_tick: Optional[int] = None
+    close_price: Optional[float] = None
+    realised_pnl: Optional[float] = None
 
 
 class ActiveTradeRegistry:
@@ -35,6 +38,35 @@ class ActiveTradeRegistry:
             t for t in self._active_trades
             if not (t.symbol == symbol and t.trader_type == trader_type)
         ]
+
+    def get_trade(self, symbol: str, trader_type: str) -> Optional[ActiveTrade]:
+        for trade in self._active_trades:
+            if trade.symbol == symbol and trade.trader_type == trader_type:
+                return trade
+        return None
+
+    def mark_closed(
+        self,
+        symbol: str,
+        trader_type: str,
+        close_tick: int,
+        close_price: float,
+        realised_pnl: float,
+    ):
+        trade = self.get_trade(symbol, trader_type)
+        if trade is None:
+            return
+        trade.close_tick = close_tick
+        trade.close_price = close_price
+        trade.realised_pnl = realised_pnl
+        print(
+            "[REGISTRY] MARK_CLOSED "
+            f"symbol={symbol} "
+            f"trader_type={trader_type} "
+            f"close_tick={close_tick} "
+            f"close_price={close_price} "
+            f"realised_pnl={realised_pnl}"
+        )
 
     def count_active_by_trader(self, trader_type: str) -> int:
         return len(
