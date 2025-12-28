@@ -12,7 +12,6 @@ from config.runtime_config import RunMode, get_run_mode
 from config.system_config import EventReplayMode, get_event_replay_mode
 from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
-from core.events import SystemEvent
 from core.performance_registry import PerformanceRegistry
 from core.replay_engine import ReplayEngine
 from execution.execution_engine import ExecutionEngine
@@ -26,6 +25,7 @@ from sim.clock import SimClock
 from sim.price_feed import DeterministicPriceFeed
 from storage.storage_engine import StorageEngine
 from strategy.strategy_runner import StrategyRunner
+from events.event_invariants import check_invariants, EventInvariantError
 
 
 class CoreOrchestrator:
@@ -73,30 +73,28 @@ class CoreOrchestrator:
         print("[REPLAY] Initiating full-run replay")
         self.replay_events(self.event_collector.snapshot_all())
 
-    def run_once(self):
+    def run_once(self) -> bool:
         """Run a single conceptual system cycle in teaching order."""
         print("[INFO] Starting orchestrator cycle (teaching-only).")
         tick = self.sim_clock.tick()
         print(f"[CYCLE_CTX] tick={tick} run_mode={self.run_mode.value}")
         self.execution_engine.current_tick = tick
         self.event_collector.clear_cycle()
-        event = SystemEvent(
+        event = self.event_collector.emit(
             event_type="CYCLE_START",
             source="Orchestrator",
             payload={"run_mode": self.run_mode}
         )
         print(event)
-        self.event_collector.record(event)
 
         print("[TEACH] >>> Scanner stage — gather candidates (conceptual).")
         scanner_results = self.scanner.run_scan_cycle()
-        event = SystemEvent(
+        event = self.event_collector.emit(
             event_type="SCAN_COMPLETE",
             source="Scanner",
             payload={"candidates": len(scanner_results or [])}
         )
         print(event)
-        self.event_collector.record(event)
         if not scanner_results:
             print("[SCAN] Scanner returned no candidates — placeholder outcome.")
         else:
@@ -113,13 +111,12 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Strategy stage — decide on trade ideas (conceptual).")
         strategy_output = self.strategy_runner.generate_trade_intent(pattern_results or [])
-        event = SystemEvent(
+        event = self.event_collector.emit(
             event_type="STRATEGY_COMPLETE",
             source="StrategyRunner",
             payload={"trade_intents": len(strategy_output or [])}
         )
         print(event)
-        self.event_collector.record(event)
         if not strategy_output:
             print("[STRATEGY] No trade intents generated — placeholder outcome.")
         else:
@@ -164,13 +161,12 @@ class CoreOrchestrator:
                 print("[EXECUTION] No execution results captured — placeholder outcome.")
             else:
                 print(f"[EXECUTION] Execution results: {execution_output}")
-        event = SystemEvent(
+        event = self.event_collector.emit(
             event_type="EXECUTION_COMPLETE",
             source="ExecutionEngine",
             payload={"results": len(execution_output or [])}
         )
         print(event)
-        self.event_collector.record(event)
         print("[TEACH] <<< Execution stage complete — moving to storage stage.")
 
         print("[TEACH] >>> Trade Exit stage — manage open trades explicitly.")
@@ -178,13 +174,12 @@ class CoreOrchestrator:
             run_mode=self.run_mode,
             tick=tick,
         )
-        event = SystemEvent(
+        event = self.event_collector.emit(
             event_type="TRADE_EXIT_COMPLETE",
             source="TradeExitEngine",
             payload={"closed": len(exit_results or []), "outcomes": len(trade_outcomes or [])}
         )
         print(event)
-        self.event_collector.record(event)
         if not exit_results:
             print("[EXIT] No trades closed by TradeExitEngine this cycle.")
         else:
@@ -212,13 +207,12 @@ class CoreOrchestrator:
                 f"gross_pnl={bucket.get('gross_pnl', 0.0):.2f} "
                 f"total_trades={bucket.get('total_trades', 0)}"
             )
-        perf_snapshot_event = SystemEvent(
+        perf_snapshot_event = self.event_collector.emit(
             event_type="PERF_SNAPSHOT",
             source="PerformanceRegistry",
             payload=asdict(performance_snapshot),
         )
         print(perf_snapshot_event)
-        self.event_collector.record(perf_snapshot_event)
         closed_trade_events = [
             event
             for event in self.event_collector.snapshot_cycle()
@@ -238,13 +232,12 @@ class CoreOrchestrator:
             }
             for snapshot in strategy_snapshots
         ]
-        strategy_perf_event = SystemEvent(
+        strategy_perf_event = self.event_collector.emit(
             event_type="STRATEGY_PERF_SNAPSHOT",
             source="CoreOrchestrator",
             payload={"strategies": strategy_perf_payload},
         )
         print(strategy_perf_event)
-        self.event_collector.record(strategy_perf_event)
 
         print("[TEACH] >>> Storage stage — record decisions/results (conceptual).")
         print("[TEACH] Creating TradeRecord to capture stage outputs for review.")
@@ -329,17 +322,27 @@ class CoreOrchestrator:
                     f"gross_pnl={snapshot.gross_pnl:.2f}"
                 )
         print(f"[PNL_BY_TRADER_TYPE] {pnl_by_trader_type_summary}")
+        try:
+            check_invariants(cycle_snapshot)
+            print("[INVARIANTS] OK")
+        except EventInvariantError as exc:
+            print(f"[INVARIANTS] FAILED: {exc}")
+            if self.run_mode == RunMode.LIVE:
+                print("[INVARIANTS] VIOLATION — entering safe halt")
+                return False
+            raise
         print(
             f"[REPLAY] Replay selection — mode={self.replay_mode.value} "
             f"run_mode={run_mode_value}"
         )
         if self.run_mode == RunMode.LIVE:
             print("[REPLAY] Replay is locked down in LIVE mode — skipping replay")
-            return
+            return True
         events_for_replay = self.event_collector.get_events_for_replay(
             self.replay_mode
         )
         if not events_for_replay:
             print("[REPLAY] No events selected for replay")
-            return
+            return True
         self.replay_events(events_for_replay)
+        return True

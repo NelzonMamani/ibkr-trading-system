@@ -2,7 +2,6 @@ from typing import List, Tuple, Optional
 from datetime import datetime
 
 from core.active_trade_registry import ActiveTradeRegistry
-from core.events import SystemEvent
 from models.data_models import ExecutionResult
 from core.trade_outcome_factory import TradeOutcomeFactory
 from domain.trade_outcome import TradeOutcome
@@ -72,30 +71,28 @@ class TradeExitEngine:
 
             self.trade_registry.unregister_trade(symbol, trader_type)
 
-            self.event_collector.record(
-                SystemEvent(
-                    event_type="TRADE_CLOSED",
-                    source="TradeExitEngine",
-                    payload={
-                        "symbol": symbol,
-                        "trader_type": trader_type,
-                        "strategy_name": strategy_name,
-                        "tick": tick,
-                        "reason": "Teaching exit after 1 tick",
-                        "mode": normalized_run_mode,
-                        "entry_tick": entry_tick,
-                        "opened_at_tick": entry_tick,
-                        "entry_price": entry_price,
-                        "exit_tick": exit_tick,
-                        "exit_price": exit_price,
-                        "close_tick": exit_tick,
-                        "close_price": exit_price,
-                        "closed_at_tick": exit_tick,
-                        "pnl": realised_pnl,
-                        "realised_pnl": realised_pnl,
-                    },
-                    timestamp=datetime.utcnow(),
-                )
+            self.event_collector.emit(
+                event_type="TRADE_CLOSED",
+                source="TradeExitEngine",
+                payload={
+                    "symbol": symbol,
+                    "trader_type": trader_type,
+                    "strategy_name": strategy_name,
+                    "tick": tick,
+                    "reason": "Teaching exit after 1 tick",
+                    "mode": normalized_run_mode,
+                    "entry_tick": entry_tick,
+                    "opened_at_tick": entry_tick,
+                    "entry_price": entry_price,
+                    "exit_tick": exit_tick,
+                    "exit_price": exit_price,
+                    "close_tick": exit_tick,
+                    "close_price": exit_price,
+                    "closed_at_tick": exit_tick,
+                    "pnl": realised_pnl,
+                    "realised_pnl": realised_pnl,
+                },
+                timestamp=datetime.utcnow(),
             )
 
             closed_result = ExecutionResult(

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
+from events.event_invariants import check_invariants, EventInvariantError
+
 
 @dataclass
 class _ReplayState:
@@ -26,7 +28,8 @@ class ReplayEngine:
         self._state.last_perf_snapshot = None
         self._state.last_strategy_snapshot = None
 
-        for event in sorted(events or [], key=lambda e: e.timestamp):
+        ordered_events = sorted(events or [], key=lambda e: e.timestamp)
+        for event in ordered_events:
             self._log_event(event)
             if getattr(event, "event_type", None) == "PERF_SNAPSHOT":
                 self._record_perf_snapshot(event.payload)
@@ -35,6 +38,11 @@ class ReplayEngine:
 
         self._log_performance_summary()
         self._log_strategy_summary()
+        try:
+            check_invariants(ordered_events)
+            print("[REPLAY][INVARIANTS] OK")
+        except EventInvariantError as exc:
+            print(f"[REPLAY][INVARIANTS] FAILED: {exc}")
         print("[REPLAY] Replay complete")
 
     def _log_event(self, event: Any) -> None:

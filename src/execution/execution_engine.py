@@ -10,7 +10,6 @@ from typing import Optional
 from config.runtime_config import RunMode, get_run_mode
 from core.active_trade_registry import ActiveTradeRegistry, ActiveTrade
 from core.event_collector import EventCollector
-from core.events import SystemEvent
 from models.data_models import ExecutionResult, RiskDecision
 from sim.price_feed import DeterministicPriceFeed
 
@@ -94,20 +93,20 @@ class ExecutionEngine:
             strategy_name=strategy_name,
         )
         self.trade_registry.register_trade(active_trade)
-        self.event_collector.record(
-            SystemEvent(
-                event_type="TRADE_OPENED",
-                source="ExecutionEngine",
-                payload={
-                    "symbol": risk_decision.symbol,
-                    "trader_type": risk_decision.trader_type,
-                    "strategy_name": strategy_name,
-                    "entry_tick": tick,
-                    "opened_at_tick": tick,
-                    "entry_price": entry_price,
-                    "mode": self.run_mode.value,
-                },
-            )
+        self.event_collector.emit(
+            event_type="TRADE_OPENED",
+            source="ExecutionEngine",
+            payload={
+                "symbol": risk_decision.symbol,
+                "trader_type": risk_decision.trader_type,
+                "strategy_name": strategy_name,
+                "entry_tick": tick,
+                "opened_at_tick": tick,
+                "entry_price": entry_price,
+                "mode": self.run_mode.value,
+                "direction": direction,
+                "quantity": quantity,
+            },
         )
         print(
             f"[EVENT] TRADE_OPENED emitted for "
@@ -147,26 +146,25 @@ class ExecutionEngine:
                 f"[EXECUTION] CLOSE symbol={symbol} tick={close_tick} "
                 f"close_price={close_price} realised_pnl={realised_pnl} (SIM)"
             )
-            self.event_collector.record(
-                SystemEvent(
-                    event_type="TRADE_CLOSED",
-                    source="ExecutionEngine",
-                    payload={
-                        "symbol": risk_decision.symbol,
-                        "trader_type": risk_decision.trader_type,
-                        "strategy_name": getattr(trade, "strategy_name", strategy_name),
-                        "entry_tick": entry_tick,
-                        "opened_at_tick": entry_tick,
-                        "entry_price": entry_price_for_pnl,
-                        "close_tick": close_tick,
-                        "close_price": close_price,
-                        "closed_at_tick": close_tick,
-                        "exit_price": close_price,
-                        "pnl": realised_pnl,
-                        "realised_pnl": realised_pnl,
-                        "mode": self.run_mode.value,
-                    },
-                )
+            self.event_collector.emit(
+                event_type="TRADE_CLOSED",
+                source="ExecutionEngine",
+                payload={
+                    "symbol": risk_decision.symbol,
+                    "trader_type": risk_decision.trader_type,
+                    "strategy_name": getattr(trade, "strategy_name", strategy_name),
+                    "entry_tick": entry_tick,
+                    "opened_at_tick": entry_tick,
+                    "entry_price": entry_price_for_pnl,
+                    "close_tick": close_tick,
+                    "close_price": close_price,
+                    "closed_at_tick": close_tick,
+                    "exit_price": close_price,
+                    "pnl": realised_pnl,
+                    "realised_pnl": realised_pnl,
+                    "mode": self.run_mode.value,
+                    "exit_tick": close_tick,
+                },
             )
             print(
                 f"[EVENT] TRADE_CLOSED emitted for "

@@ -8,7 +8,6 @@ from typing import Optional
 
 from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
-from core.events import SystemEvent
 from models.data_models import RiskDecision, TradeIntent
 
 
@@ -56,16 +55,14 @@ class RiskEngine:
                     f"[RISK:STRATEGY] {trader_type} active={current_active} max={max_trades} "
                     "→ BLOCKED (limit reached)"
                 )
-                self.event_collector.record(
-                    SystemEvent(
-                        event_type="TRADE_BLOCKED",
-                        source="RiskEngine",
-                        payload={
-                            "symbol": trade_intent.symbol,
-                            "trader_type": trade_intent.trader_type,
-                            "reason": "strategy_limit",
-                        },
-                    )
+                self.event_collector.emit(
+                    event_type="TRADE_BLOCKED",
+                    source="RiskEngine",
+                    payload={
+                        "symbol": trade_intent.symbol,
+                        "trader_type": trade_intent.trader_type,
+                        "reason": "strategy_limit",
+                    },
                 )
                 print(
                     f"[EVENT] TRADE_BLOCKED emitted for "
