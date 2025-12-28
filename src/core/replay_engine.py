@@ -7,6 +7,7 @@ from typing import Any, Iterable, Optional
 @dataclass
 class _ReplayState:
     last_perf_snapshot: Optional[dict[str, Any]] = None
+    last_strategy_snapshot: Optional[list[dict[str, Any]]] = None
 
 
 class ReplayEngine:
@@ -23,13 +24,17 @@ class ReplayEngine:
     def replay(self, events: Iterable[Any]) -> None:
         print("[REPLAY] Starting deterministic event replay")
         self._state.last_perf_snapshot = None
+        self._state.last_strategy_snapshot = None
 
         for event in sorted(events or [], key=lambda e: e.timestamp):
             self._log_event(event)
             if getattr(event, "event_type", None) == "PERF_SNAPSHOT":
                 self._record_perf_snapshot(event.payload)
+            if getattr(event, "event_type", None) == "STRATEGY_PERF_SNAPSHOT":
+                self._record_strategy_snapshot(event.payload)
 
         self._log_performance_summary()
+        self._log_strategy_summary()
         print("[REPLAY] Replay complete")
 
     def _log_event(self, event: Any) -> None:
@@ -42,6 +47,12 @@ class ReplayEngine:
     def _record_perf_snapshot(self, payload: Any) -> None:
         if isinstance(payload, dict):
             self._state.last_perf_snapshot = payload
+
+    def _record_strategy_snapshot(self, payload: Any) -> None:
+        if isinstance(payload, dict):
+            strategies = payload.get("strategies")
+            if isinstance(strategies, list):
+                self._state.last_strategy_snapshot = strategies
 
     def _log_performance_summary(self) -> None:
         if not self._state.last_perf_snapshot:
@@ -60,3 +71,25 @@ class ReplayEngine:
             f"win_rate={win_rate:.2f} "
             f"gross_pnl={gross_pnl:.2f}"
         )
+
+    def _log_strategy_summary(self) -> None:
+        if not self._state.last_strategy_snapshot:
+            print("[REPLAY][STRATEGY] No STRATEGY_PERF_SNAPSHOT events encountered during replay")
+            return
+
+        print("[REPLAY][STRATEGY] Reconstructed strategy snapshot from events")
+        for strategy in sorted(
+            self._state.last_strategy_snapshot,
+            key=lambda item: item.get("strategy_name", ""),
+        ):
+            strategy_name = strategy.get("strategy_name", "UNKNOWN")
+            total_trades = int(strategy.get("total_trades", 0))
+            win_rate = float(strategy.get("win_rate", 0.0))
+            gross_pnl = float(strategy.get("gross_pnl", 0.0))
+            print(
+                f"[REPLAY][STRATEGY] "
+                f"{strategy_name} "
+                f"trades={total_trades} "
+                f"win_rate={win_rate:.2f} "
+                f"gross_pnl={gross_pnl:.2f}"
+            )
