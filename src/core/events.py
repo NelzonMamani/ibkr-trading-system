@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict
 
@@ -8,4 +8,4 @@ class SystemEvent:
     event_type: str
     source: str
     payload: Dict[str, Any]
-    timestamp: datetime = datetime.utcnow()
+    timestamp: datetime = field(default_factory=datetime.now)
