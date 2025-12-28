@@ -23,7 +23,7 @@ class EventCollector:
         return list(self._all_events)
 
     def get_events_for_replay(self, replay_mode: str):
-        normalized_mode = (replay_mode or "").upper()
+        normalized_mode = (getattr(replay_mode, "value", replay_mode) or "").upper()
         if normalized_mode == "OFF":
             print("[REPLAY] Replay mode OFF — no events will be replayed")
             return []
