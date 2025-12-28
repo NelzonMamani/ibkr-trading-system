@@ -1,3 +1,6 @@
+from datetime import datetime
+
+
 class RunEventTimeline:
     """
     Aggregates all SystemEvents across the entire runtime.
@@ -54,4 +57,22 @@ class RunEventTimeline:
             event
             for event in self._events
             if getattr(event, "symbol", None) == symbol
+        ]
+
+    def events_after(self, timestamp: datetime) -> list:
+        return [
+            event for event in self._events
+            if event.timestamp >= timestamp
+        ]
+
+    def events_before(self, timestamp: datetime) -> list:
+        return [
+            event for event in self._events
+            if event.timestamp <= timestamp
+        ]
+
+    def events_between(self, start: datetime, end: datetime) -> list:
+        return [
+            event for event in self._events
+            if start <= event.timestamp <= end
         ]
