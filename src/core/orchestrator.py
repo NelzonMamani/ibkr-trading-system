@@ -672,7 +672,7 @@ class CoreOrchestrator:
                 )
         print(f"[PNL_BY_TRADER_TYPE] {pnl_by_trader_type_summary}")
         try:
-            check_invariants(cycle_snapshot)
+            check_invariants(all_snapshot)
             print("[INVARIANTS] OK")
         except EventInvariantError as exc:
             print(f"[INVARIANTS] FAILED: {exc}")
@@ -699,6 +699,16 @@ class CoreOrchestrator:
         events_for_replay = self.event_collector.get_events_for_replay(
             self.replay_mode
         )
+        if (
+            self.replay_mode == EventReplayMode.CYCLE
+            and self.event_collector.cycle_count("TRADE_CLOSED") > 0
+            and self.event_collector.cycle_count("TRADE_OPENED") == 0
+        ):
+            print(
+                "[REPLAY] Cycle replay missing TRADE_OPENED context — "
+                "falling back to run-scope events for invariant safety."
+            )
+            events_for_replay = all_snapshot
         if not events_for_replay:
             print("[REPLAY] No events selected for replay")
             return True
