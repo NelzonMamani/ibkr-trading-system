@@ -118,3 +118,12 @@ class TradeExitEngine:
             )
 
         return results, trade_outcomes
+
+    def shutdown(self) -> None:
+        """
+        Idempotent shutdown placeholder for trade exit resources.
+
+        Future implementations will include broker-driven cancel/flatten logic.
+        """
+
+        print("[TRADE_EXIT] Shutdown requested — placeholder cleanup complete.")

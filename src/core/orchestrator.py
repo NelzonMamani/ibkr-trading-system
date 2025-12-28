@@ -18,6 +18,7 @@ from core.faults import (
     decide_recovery_action,
     fault_to_payload,
 )
+from core.stop_controller import StopController, StopMode
 from core.performance_registry import PerformanceRegistry
 from core.replay_engine import ReplayEngine
 from execution.execution_engine import ExecutionEngine
@@ -51,6 +52,7 @@ class CoreOrchestrator:
         self.sim_clock = SimClock()
         self.price_feed = DeterministicPriceFeed()
         self.event_collector = EventCollector()
+        self.stop_controller = StopController()
         print("[BOOT] EventCollector initialised")
         self.replay_engine = ReplayEngine()
         self.performance_registry = PerformanceRegistry()
@@ -71,6 +73,7 @@ class CoreOrchestrator:
         )
         self.storage_engine = StorageEngine()
         self._halted = False
+        self._degraded = False
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
 
     def replay_events(self, events):
@@ -84,8 +87,162 @@ class CoreOrchestrator:
         print("[REPLAY] Initiating full-run replay")
         self.replay_events(self.event_collector.snapshot_all())
 
+    def _stop_payload(self, mode: Optional[StopMode] = None) -> dict:
+        resolved_mode = mode or self.stop_controller.stop_mode() or StopMode.GRACEFUL
+        return {
+            "mode": resolved_mode.value,
+            "reason": self.stop_controller.stop_reason() or "No reason provided",
+            "source": self.stop_controller.stop_source() or "Unknown",
+            "run_mode": self.run_mode.value,
+            "tick": self.sim_clock.now(),
+        }
+
+    def _request_stop(self, mode: StopMode, reason: str, source: str) -> StopMode:
+        previous_mode = self.stop_controller.stop_mode()
+        self.stop_controller.request_stop(mode, reason, source)
+        resolved_mode = self.stop_controller.stop_mode() or mode
+        self._halted = True
+        if previous_mode is None:
+            self.event_collector.emit(
+                event_type="SHUTDOWN_REQUESTED",
+                source="CoreOrchestrator",
+                payload=self._stop_payload(resolved_mode),
+            )
+        if resolved_mode == StopMode.PANIC and (
+            previous_mode is None or previous_mode == StopMode.GRACEFUL
+        ):
+            self.event_collector.emit(
+                event_type="PANIC_STOP_TRIGGERED",
+                source="CoreOrchestrator",
+                payload=self._stop_payload(resolved_mode),
+            )
+        return resolved_mode
+
+    def _stop_requested_at_boundary(self, stage_label: str) -> bool:
+        if self.stop_controller.is_stop_requested():
+            mode = self.stop_controller.stop_mode() or StopMode.GRACEFUL
+            print(
+                f"[STOP] Stop requested at stage boundary '{stage_label}' "
+                f"— mode={mode.value}"
+            )
+            self._halted = True
+            return True
+        if self._halted:
+            print(
+                f"[STOP] Orchestrator halted prior to stage '{stage_label}' "
+                "— exiting cycle safely."
+            )
+            return True
+        return False
+
+    def _handle_keyboard_interrupt(self):
+        if not self.stop_controller.is_stop_requested():
+            print("[SHUTDOWN] KeyboardInterrupt — requesting graceful stop.")
+            self._request_stop(
+                StopMode.GRACEFUL,
+                reason="KeyboardInterrupt",
+                source="Main",
+            )
+            return
+        print("[SHUTDOWN] KeyboardInterrupt escalation — triggering panic stop.")
+        self._request_stop(
+            StopMode.PANIC,
+            reason="KeyboardInterrupt (escalation)",
+            source="Main",
+        )
+
+    def run_forever(
+        self,
+        cycle_sleep_seconds: Optional[int] = None,
+        max_cycles: Optional[int] = None,
+    ) -> None:
+        """
+        Continuous orchestrator loop with integrated stop handling.
+
+        - Respects market session gates for LIVE mode.
+        - Responds to KeyboardInterrupt with graceful then panic escalation.
+        - Executes shutdown sequence when stop is requested.
+        """
+
+        from config.system_config import (
+            ACTIVE_SESSIONS,
+            CYCLE_SLEEP_SECONDS,
+            get_current_market_session,
+        )
+        import time
+
+        sleep_seconds = (
+            CYCLE_SLEEP_SECONDS if cycle_sleep_seconds is None else cycle_sleep_seconds
+        )
+        cycles_run = 0
+        performed_shutdown = False
+
+        while True:
+            try:
+                if self.stop_controller.is_stop_requested():
+                    self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
+                    performed_shutdown = True
+                    break
+
+                if max_cycles is not None and cycles_run >= max_cycles:
+                    break
+
+                print("[CYCLE] Starting orchestrator cycle.")
+                current_session = get_current_market_session()
+                print(f"[SESSION] Detected market session: {current_session}")
+                if current_session in ACTIVE_SESSIONS:
+                    print(
+                        "[SESSION] System WOULD consider trading allowed in this session "
+                        "(teaching-only)."
+                    )
+                else:
+                    print(
+                        "[SESSION] System WOULD treat market as closed (teaching-only)."
+                    )
+                if self.run_mode == RunMode.LIVE and current_session == "CLOSED":
+                    print(
+                        "[GATE] RUN_MODE is LIVE while session is CLOSED. "
+                        "Skipping orchestrator.run_once() to maintain teaching-first safety."
+                    )
+                    print(
+                        "[GATE] Teaching note: SIM/PAPER would still run for education, "
+                        "but LIVE waits for an open session."
+                    )
+                else:
+                    print(
+                        "[SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once()."
+                    )
+                    should_continue = self.run_once()
+                    cycles_run += 1
+                    if should_continue is False:
+                        if not self.stop_controller.is_stop_requested():
+                            self._request_stop(
+                                StopMode.GRACEFUL,
+                                reason="Cycle requested halt",
+                                source="CoreOrchestrator",
+                            )
+                        self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
+                        performed_shutdown = True
+                        break
+
+                print(f"[SLEEP] Sleeping for {sleep_seconds} seconds before next cycle.")
+                time.sleep(sleep_seconds)
+            except KeyboardInterrupt:
+                self._handle_keyboard_interrupt()
+                continue
+        if not performed_shutdown:
+            if not self.stop_controller.is_stop_requested():
+                self._request_stop(
+                    StopMode.GRACEFUL,
+                    reason="Run loop complete",
+                    source="CoreOrchestrator",
+                )
+            self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
+
     def run_once(self) -> bool:
         """Run a single conceptual system cycle in teaching order."""
+        if self._stop_requested_at_boundary("PRE_CYCLE"):
+            return False
         try:
             return self._run_once_inner()
         except SystemExit:
@@ -109,7 +266,7 @@ class CoreOrchestrator:
             cycle_stage="CYCLE_START",
             stage_exception=None,
         )
-        if self._halted:
+        if self._stop_requested_at_boundary("CYCLE_START"):
             return False
 
         print("[TEACH] >>> Scanner stage — gather candidates (conceptual).")
@@ -126,7 +283,7 @@ class CoreOrchestrator:
             stage_exception=None,
             scanner_results=scanner_results,
         )
-        if self._halted:
+        if self._stop_requested_at_boundary("SCANNER"):
             return False
         event = self.event_collector.emit(
             event_type="SCAN_COMPLETE",
@@ -161,7 +318,7 @@ class CoreOrchestrator:
         else:
             print(f"[PATTERN] Patterns evaluated: {pattern_results}")
         print("[TEACH] <<< Pattern stage complete — moving to strategy stage.")
-        if self._halted:
+        if self._stop_requested_at_boundary("PATTERN"):
             return False
 
         print("[TEACH] >>> Strategy stage — decide on trade ideas (conceptual).")
@@ -182,7 +339,7 @@ class CoreOrchestrator:
             pattern_results=pattern_results,
             strategy_output=strategy_output,
         )
-        if self._halted:
+        if self._stop_requested_at_boundary("STRATEGY"):
             return False
         event = self.event_collector.emit(
             event_type="STRATEGY_COMPLETE",
@@ -235,7 +392,7 @@ class CoreOrchestrator:
             risk_output=risk_output,
         )
         print("[TEACH] <<< Risk stage complete — moving to execution stage.")
-        if self._halted:
+        if self._stop_requested_at_boundary("RISK"):
             return False
 
         print("[TEACH] >>> Execution stage — send/prepare orders (conceptual).")
@@ -281,7 +438,7 @@ class CoreOrchestrator:
         )
         print(event)
         print("[TEACH] <<< Execution stage complete — moving to storage stage.")
-        if self._halted:
+        if self._stop_requested_at_boundary("EXECUTION"):
             return False
 
         print("[TEACH] >>> Trade Exit stage — manage open trades explicitly.")
@@ -325,7 +482,7 @@ class CoreOrchestrator:
         if trade_outcomes:
             print(f"[EXIT] Realised trade outcomes: {trade_outcomes}")
         print("[TEACH] <<< Trade Exit stage complete — moving to storage stage.")
-        if self._halted:
+        if self._stop_requested_at_boundary("TRADE_EXIT"):
             return False
 
         self.performance_registry.record(trade_outcomes or [])
@@ -438,7 +595,7 @@ class CoreOrchestrator:
             trade_record=trade_record,
         )
         print("[TEACH] <<< Storage stage complete.")
-        if self._halted:
+        if self._stop_requested_at_boundary("STORAGE"):
             return False
 
         print(
@@ -564,14 +721,117 @@ class CoreOrchestrator:
         if action == RecoveryAction.SKIP_STAGE:
             print("[FAULT] Action=SKIP_STAGE — skipping stage not implemented; aborting cycle.")
             return False
+        if action == RecoveryAction.SKIP_CYCLE:
+            print("[FAULT] Action=SKIP_CYCLE — skipping the remainder of this cycle.")
+            return True
+        if action == RecoveryAction.DEGRADE_MODE:
+            print("[FAULT] Action=DEGRADE_MODE — entering degraded mode but continuing.")
+            self._degraded = True
+            return True
         if action == RecoveryAction.ABORT_CYCLE:
             print("[FAULT] Action=ABORT_CYCLE — aborting current cycle safely.")
             return False
         if action == RecoveryAction.HALT_SYSTEM:
             print("[FAULT] Action=HALT_SYSTEM — halting orchestrator safely.")
-            self._halted = True
-            raise SystemExit("[HALT] Fault requires system halt.")
+            mode = StopMode.PANIC if self.run_mode == RunMode.LIVE else StopMode.GRACEFUL
+            self._request_stop(
+                mode,
+                reason=f"Fault: {fault.message}",
+                source="FaultRecovery",
+            )
+            return False
         return False
+
+    def _shutdown(self, mode: StopMode) -> None:
+        """
+        Structured shutdown sequence with hook isolation.
+
+        GRACEFUL mode executes all hooks in order. PANIC mode skips
+        non-essential steps to exit quickly while still emitting events.
+        """
+
+        resolved_mode = mode or StopMode.GRACEFUL
+        print(f"[SHUTDOWN] Beginning {resolved_mode.value} shutdown sequence.")
+        start_payload = self._stop_payload(resolved_mode)
+        self.event_collector.emit(
+            event_type="SHUTDOWN_STARTED",
+            source="CoreOrchestrator",
+            payload=start_payload,
+        )
+        if resolved_mode == StopMode.PANIC:
+            print("[SHUTDOWN] Panic stop — running minimal hooks.")
+            try:
+                self.execution_engine.shutdown()
+            except Exception as exc:
+                fault = classify_exception(exc)
+                hook_payload = {
+                    **self._stop_payload(resolved_mode),
+                    "hook": "execution_engine.shutdown",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                    "fault_category": fault.category.value,
+                    "fault_severity": fault.severity.value,
+                }
+                self.event_collector.emit(
+                    event_type="SHUTDOWN_HOOK_FAILED",
+                    source="CoreOrchestrator",
+                    payload=hook_payload,
+                )
+            complete_payload = self._stop_payload(resolved_mode)
+            self.event_collector.emit(
+                event_type="SHUTDOWN_COMPLETE",
+                source="CoreOrchestrator",
+                payload=complete_payload,
+            )
+            return
+
+        hooks = [
+            ("execution_engine.shutdown", self.execution_engine.shutdown),
+            ("trade_exit_engine.shutdown", self.trade_exit_engine.shutdown),
+            ("storage_engine.shutdown", self.storage_engine.shutdown),
+            ("event_collector.flush_summary", self.event_collector.flush_summary),
+            ("active_trade_registry.verify_empty", self.trade_registry.verify_empty),
+        ]
+
+        for hook_name, hook_fn in hooks:
+            try:
+                result = hook_fn()
+                if hook_name == "active_trade_registry.verify_empty" and result is False:
+                    self.event_collector.emit(
+                        event_type="SHUTDOWN_HOOK_FAILED",
+                        source="CoreOrchestrator",
+                        payload={
+                            **self._stop_payload(resolved_mode),
+                            "hook": hook_name,
+                            "exception_type": "RegistryNotEmpty",
+                            "exception_message": "Active trades remain during shutdown",
+                            "fault_category": "STATE",
+                            "fault_severity": "CRITICAL",
+                        },
+                    )
+            except Exception as exc:
+                fault = classify_exception(exc)
+                hook_payload = {
+                    **self._stop_payload(resolved_mode),
+                    "hook": hook_name,
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                    "fault_category": fault.category.value,
+                    "fault_severity": fault.severity.value,
+                }
+                self.event_collector.emit(
+                    event_type="SHUTDOWN_HOOK_FAILED",
+                    source="CoreOrchestrator",
+                    payload=hook_payload,
+                )
+                continue
+
+        complete_payload = self._stop_payload(resolved_mode)
+        self.event_collector.emit(
+            event_type="SHUTDOWN_COMPLETE",
+            source="CoreOrchestrator",
+            payload=complete_payload,
+        )
 
     def _evaluate_runtime_safety(
         self,
@@ -593,7 +853,7 @@ class CoreOrchestrator:
         In SIM/PAPER, violations raise an exception for visibility.
         """
 
-        if self._halted:
+        if self.stop_controller.is_stop_requested() or self._halted:
             print("[SAFETY] Orchestrator already halted — ignoring subsequent stages.")
             return
 
@@ -669,7 +929,11 @@ class CoreOrchestrator:
 
         if self.run_mode == RunMode.LIVE:
             print("[SAFETY] LIVE mode violation — entering deterministic safe halt.")
-            self._halted = True
+            self._request_stop(
+                StopMode.PANIC,
+                reason="Runtime safety violation",
+                source="RuntimeSafety",
+            )
             return
 
         raise RuntimeSafetyError("; ".join(violations))

@@ -89,6 +89,18 @@ class EventCollector:
             if e.source == source
         ]
 
+    def flush_summary(self) -> dict:
+        """
+        Provide a summary of recorded events.
+
+        Designed for shutdown hooks where we want a final snapshot without
+        introducing heavy persistence or side effects.
+        """
+
+        summary = self._run_timeline.summary()
+        print("[EVENT_COLLECTOR] Flushing event summary for shutdown", summary)
+        return summary
+
     def sum_realised_pnl(self) -> float:
         realised_pnl = 0.0
         for event in self._run_timeline.snapshot():

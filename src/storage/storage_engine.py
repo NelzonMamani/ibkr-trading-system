@@ -26,3 +26,13 @@ class StorageEngine:
         print(f"[STORAGE] Record content (placeholder): {trade_record}")
         print("[STORAGE] No data persisted — returning True as placeholder acknowledgement")
         return True
+
+    def shutdown(self) -> None:
+        """
+        Placeholder shutdown hook to integrate with orchestrator lifecycle.
+
+        No persistence exists yet, but the hook ensures a consistent shutdown
+        contract for future broker/persistence integration.
+        """
+
+        print("[STORAGE] Shutdown requested — placeholder cleanup complete.")
