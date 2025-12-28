@@ -1,17 +1,47 @@
 """
-Central teaching-focused configuration for the trading system.
-
-This module captures the baseline defaults we expect to use across the
-application. Values are intentionally safe and annotated to explain their
-purpose to new contributors during Phase 4.
+System-level configuration (logging, replay, persistence).
 """
 
+from __future__ import annotations
+import os
+from enum import Enum
 from datetime import datetime, time
+from .runtime_config import RunMode
 
-# Runtime mode defaults to SIM to keep all behaviour safe by default. The
-# runtime_config module still owns authoritative runtime selection, but this
-# value provides a simple, central reference for teaching purposes.
-RUN_MODE: str = "SIM"
+
+class EventReplayMode(str, Enum):
+    OFF = "OFF"
+    CYCLE = "CYCLE"
+    RUN = "RUN"
+
+
+DEFAULT_EVENT_REPLAY_MODE: EventReplayMode = EventReplayMode.CYCLE
+
+
+def get_event_replay_mode(run_mode: RunMode) -> EventReplayMode:
+    """
+    Resolve replay mode safely.
+
+    RULES:
+    - LIVE always forces OFF
+    - SIM / PAPER allow ENV override
+    """
+    if run_mode == RunMode.LIVE:
+        return EventReplayMode.OFF
+
+    raw = (os.getenv("EVENT_REPLAY_MODE") or "").strip().upper()
+    if not raw:
+        return DEFAULT_EVENT_REPLAY_MODE
+
+    try:
+        return EventReplayMode(raw)
+    except ValueError:
+        print(
+            f"[SYSTEM] Invalid EVENT_REPLAY_MODE='{raw}'. "
+            f"Falling back to default {DEFAULT_EVENT_REPLAY_MODE}."
+        )
+        return DEFAULT_EVENT_REPLAY_MODE
+
 
 # Sleep interval (in seconds) between orchestrator cycles. Kept short for
 # demonstration while remaining safe to run locally.

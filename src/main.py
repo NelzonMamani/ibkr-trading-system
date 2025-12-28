@@ -13,7 +13,7 @@ from config.runtime_config import RunMode, get_run_mode
 from config.system_config import (
     ACTIVE_SESSIONS,
     CYCLE_SLEEP_SECONDS,
-    RUN_MODE,
+    get_event_replay_mode,
     get_current_market_session,
 )
 from core.orchestrator import CoreOrchestrator
@@ -24,12 +24,16 @@ def main() -> None:
     print("[BOOT] Starting the IBKR Trading System skeleton.")
     print("[PHASE] PHASE 4 — Minimal Live-Capable System (Teaching-First).")
     print("[INTENT] Demonstrate a clean, observable entry point without trading logic.")
-    print("[CONFIG] Teaching-first configuration preview:")
-    print(f"  - RUN_MODE (baseline string): {RUN_MODE}")
-    print(f"  - CYCLE_SLEEP_SECONDS: {CYCLE_SLEEP_SECONDS} (seconds)")
-    print(f"  - ACTIVE_SESSIONS: {', '.join(ACTIVE_SESSIONS)}")
     run_mode = get_run_mode()
-    print(f"[MODE] RUN_MODE = {run_mode.value} (safe default)")
+    event_replay_mode = get_event_replay_mode(run_mode)
+    print("[CONFIG] Resolved runtime configuration:")
+    print(f"  - RUN_MODE: {run_mode.value}")
+    if run_mode == RunMode.LIVE:
+        print(f"  - EVENT_REPLAY_MODE: {event_replay_mode.value} (forced by LIVE)")
+    else:
+        print(f"  - EVENT_REPLAY_MODE: {event_replay_mode.value}")
+    print(f"  - CYCLE_SLEEP_SECONDS: {CYCLE_SLEEP_SECONDS}")
+    print(f"  - ACTIVE_SESSIONS: {', '.join(ACTIVE_SESSIONS)}")
     orchestrator = CoreOrchestrator()
     print("[LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.")
 
