@@ -9,6 +9,7 @@ from core.active_trade_registry import ActiveTrade, ActiveTradeRegistry  # noqa:
 from core.event_collector import EventCollector  # noqa: E402
 from execution.trade_exit_engine import TradeExitEngine  # noqa: E402
 from sim.price_feed import DeterministicPriceFeed  # noqa: E402
+from strategy.exit_signal import ExitSignal  # noqa: E402
 
 
 def test_trade_exit_engine_enforces_tick_based_exit_window():
@@ -96,3 +97,107 @@ def test_trade_exit_engine_enforces_tick_based_exit_window():
         "Exit condition met: maximum hold duration reached"
         in payload["reason"]
     )
+
+
+def test_exit_signal_honoured_after_minimum_hold():
+    """
+    Strategy exit signals should be honoured once the minimum hold is satisfied.
+    """
+
+    price_feed = DeterministicPriceFeed()
+    trade_registry = ActiveTradeRegistry()
+    event_collector = EventCollector()
+
+    symbol = "XYZ"
+    trader_type = "SIM_TRADER"
+    strategy_name = "GapAndGoStrategy"
+    entry_tick = 0
+    entry_price = price_feed.price_for(symbol, entry_tick)
+
+    trade_registry.register_trade(
+        ActiveTrade(
+            symbol=symbol,
+            trader_type=trader_type,
+            entry_tick=entry_tick,
+            entry_price=entry_price,
+            direction="LONG",
+            quantity=1,
+            strategy_name=strategy_name,
+        )
+    )
+
+    exit_engine = TradeExitEngine(
+        trade_registry=trade_registry,
+        event_collector=event_collector,
+        price_feed=price_feed,
+    )
+
+    exit_signal = ExitSignal(
+        symbol=symbol,
+        trader_type=trader_type,
+        strategy_name=strategy_name,
+        reason="Strategy requests exit after minimum hold duration.",
+    )
+
+    close_tick = entry_tick + MIN_HOLD_TICKS
+    results, outcomes = exit_engine.evaluate_and_close_trades(
+        run_mode=RunMode.SIM, tick=close_tick, exit_signals=[exit_signal]
+    )
+
+    assert len(results) == 1
+    assert len(outcomes) == 1
+    assert trade_registry.get_trade(symbol, trader_type) is None
+
+    closed_result = results[0]
+    assert closed_result.exit_tick == close_tick
+    assert "Strategy exit request honoured" in closed_result.rationale
+
+
+def test_exit_signal_ignored_before_minimum_hold():
+    """
+    Strategy exit signals should not bypass the minimum hold requirement.
+    """
+
+    price_feed = DeterministicPriceFeed()
+    trade_registry = ActiveTradeRegistry()
+    event_collector = EventCollector()
+
+    symbol = "LMN"
+    trader_type = "SIM_TRADER"
+    strategy_name = "MomentumContinuationStrategy"
+    entry_tick = 0
+    entry_price = price_feed.price_for(symbol, entry_tick)
+
+    trade_registry.register_trade(
+        ActiveTrade(
+            symbol=symbol,
+            trader_type=trader_type,
+            entry_tick=entry_tick,
+            entry_price=entry_price,
+            direction="LONG",
+            quantity=1,
+            strategy_name=strategy_name,
+        )
+    )
+
+    exit_engine = TradeExitEngine(
+        trade_registry=trade_registry,
+        event_collector=event_collector,
+        price_feed=price_feed,
+    )
+
+    exit_signal = ExitSignal(
+        symbol=symbol,
+        trader_type=trader_type,
+        strategy_name=strategy_name,
+        reason="Strategy requests early exit.",
+    )
+
+    pre_min_tick = entry_tick + max(MIN_HOLD_TICKS - 1, 0)
+    results, outcomes = exit_engine.evaluate_and_close_trades(
+        run_mode=RunMode.SIM, tick=pre_min_tick, exit_signals=[exit_signal]
+    )
+
+    assert results == []
+    assert outcomes == []
+    assert trade_registry.get_trade(symbol, trader_type) is not None
