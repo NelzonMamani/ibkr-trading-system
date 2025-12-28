@@ -7,15 +7,12 @@ avoids importing other project modules, performing any trading logic, loading
 configuration, or connecting to brokers or data sources.
 """
 
-import time
-
 from config.runtime_config import DEFAULT_RUN_MODE, RunMode, get_run_mode
 from config.system_config import (
     DEFAULT_EVENT_REPLAY_MODE,
     ACTIVE_SESSIONS,
     CYCLE_SLEEP_SECONDS,
     get_event_replay_mode,
-    get_current_market_session,
 )
 from core.orchestrator import CoreOrchestrator
 
@@ -44,33 +41,7 @@ def main() -> None:
     orchestrator = CoreOrchestrator()
     print("[LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.")
 
-    try:
-        while True:
-            print("[CYCLE] Starting orchestrator cycle.")
-            current_session = get_current_market_session()
-            print(f"[SESSION] Detected market session: {current_session}")
-            if current_session in ACTIVE_SESSIONS:
-                print("[SESSION] System WOULD consider trading allowed in this session (teaching-only).")
-            else:
-                print("[SESSION] System WOULD treat market as closed (teaching-only).")
-            if run_mode == RunMode.LIVE and current_session == "CLOSED":
-                print(
-                    "[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() "
-                    "to maintain teaching-first safety."
-                )
-                print("[GATE] Teaching note: SIM/PAPER would still run for education, but LIVE waits for an open session.")
-            else:
-                print("[SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().")
-                should_continue = orchestrator.run_once()
-                if should_continue is False:
-                    print("[SAFETY] Orchestrator requested halt after invariant violation in LIVE mode.")
-                    break
-            print(
-                f"[SLEEP] Sleeping for {CYCLE_SLEEP_SECONDS} seconds before next cycle."
-            )
-            time.sleep(CYCLE_SLEEP_SECONDS)
-    except KeyboardInterrupt:
-        print("[SHUTDOWN] KeyboardInterrupt received. Stopping continuous run loop.")
+    orchestrator.run_forever()
 
     print("[SHUTDOWN] Exiting gracefully. Goodbye!")
 

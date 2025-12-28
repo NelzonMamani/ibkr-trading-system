@@ -52,6 +52,11 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
         "timestamp",
         "recommended_action",
     },
+    "SHUTDOWN_REQUESTED": {"mode", "reason", "source", "run_mode", "tick"},
+    "SHUTDOWN_STARTED": {"mode", "reason", "source", "run_mode", "tick"},
+    "SHUTDOWN_HOOK_FAILED": {"mode", "reason", "source", "run_mode", "tick", "hook"},
+    "SHUTDOWN_COMPLETE": {"mode", "reason", "source", "run_mode", "tick"},
+    "PANIC_STOP_TRIGGERED": {"mode", "reason", "source", "run_mode", "tick"},
 }
 
 
@@ -86,6 +91,12 @@ OPTIONAL_FIELDS: Dict[str, Set[str]] = {
     },
     "FAULT_DETECTED": {"stack_hint", "recommended_action"},
     "FAULT_ACTION_TAKEN": {"stack_hint"},
+    "SHUTDOWN_HOOK_FAILED": {
+        "exception_type",
+        "exception_message",
+        "fault_category",
+        "fault_severity",
+    },
 }
 
 

@@ -234,3 +234,14 @@ class ExecutionEngine:
             "[EXECUTION:REGISTRY] All trades closed; registry capacity reset for next cycle"
         )
         return closed_trades
+
+    def shutdown(self) -> None:
+        """
+        Idempotent shutdown placeholder.
+
+        Future implementation will release broker resources, cancel orders,
+        and flush telemetry. For now this acts as a structural hook to enable
+        safe orchestrator shutdown sequencing.
+        """
+
+        print("[EXECUTION] Shutdown requested — placeholder cleanup complete.")

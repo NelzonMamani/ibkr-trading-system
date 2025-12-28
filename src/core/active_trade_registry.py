@@ -90,3 +90,18 @@ class ActiveTradeRegistry:
         closed = list(self._active_trades)
         self._active_trades.clear()
         return closed
+
+    def verify_empty(self) -> bool:
+        """
+        Teaching-first integrity check to confirm registry state on shutdown.
+        """
+
+        active_count = len(self._active_trades)
+        if active_count == 0:
+            print("[REGISTRY] Verification passed — no active trades remain.")
+            return True
+        print(
+            "[REGISTRY] Verification failed — active trades remain at shutdown: "
+            f"{active_count}"
+        )
+        return False

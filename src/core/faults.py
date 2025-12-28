@@ -32,6 +32,8 @@ class RecoveryAction(str, Enum):
     IGNORE = "IGNORE"
     RETRY = "RETRY"
     SKIP_STAGE = "SKIP_STAGE"
+    SKIP_CYCLE = "SKIP_CYCLE"
+    DEGRADE_MODE = "DEGRADE_MODE"
     ABORT_CYCLE = "ABORT_CYCLE"
     HALT_SYSTEM = "HALT_SYSTEM"
 
