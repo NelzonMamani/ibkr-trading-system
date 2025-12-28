@@ -1,6 +1,7 @@
 """
-Define the runtime safety mode for the trading system.
-Single source of truth for SIM / PAPER / LIVE.
+Define authoritative runtime settings for the trading system.
+
+This module is the single source of truth for runtime modes and replay modes.
 """
 
 from __future__ import annotations
@@ -14,7 +15,6 @@ class RunMode(str, Enum):
     LIVE = "LIVE"
 
 
-# DEFAULT_RUN_MODE: RunMode = RunMode.SIM
 DEFAULT_RUN_MODE: RunMode = RunMode.SIM
 
 
@@ -35,3 +35,39 @@ def get_run_mode() -> RunMode:
     except ValueError:
         print(f"[RUNTIME] Invalid RUN_MODE='{raw}'. Falling back to SAFE default SIM.")
         return RunMode.SIM
+
+
+class EventReplayMode(str, Enum):
+    OFF = "OFF"
+    CYCLE = "CYCLE"
+    RUN = "RUN"
+
+
+DEFAULT_EVENT_REPLAY_MODE: EventReplayMode = EventReplayMode.CYCLE
+
+
+def get_event_replay_mode(run_mode: RunMode) -> EventReplayMode:
+    """
+    Resolve EVENT_REPLAY_MODE using runtime-safe rules.
+
+    Resolution order:
+    1) LIVE always forces OFF
+    2) ENV: EVENT_REPLAY_MODE
+    3) DEFAULT_EVENT_REPLAY_MODE (CYCLE)
+    """
+
+    if run_mode == RunMode.LIVE:
+        return EventReplayMode.OFF
+
+    raw = (os.getenv("EVENT_REPLAY_MODE") or "").strip().upper()
+    if not raw:
+        return DEFAULT_EVENT_REPLAY_MODE
+
+    try:
+        return EventReplayMode(raw)
+    except ValueError:
+        print(
+            f"[RUNTIME] Invalid EVENT_REPLAY_MODE='{raw}'. "
+            f"Falling back to default {DEFAULT_EVENT_REPLAY_MODE}."
+        )
+        return DEFAULT_EVENT_REPLAY_MODE

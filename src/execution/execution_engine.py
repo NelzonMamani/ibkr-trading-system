@@ -36,8 +36,8 @@ class ExecutionEngine:
         """
         Demonstrate how a risk decision could lead to an execution call.
 
-        Returns an ExecutionResult to highlight routing while emitting clear instructional logs
-        about the intended behavior without touching any broker.
+        This engine is authoritative for opening trades. Closures are delegated to
+        TradeExitEngine to maintain a single execution path.
         """
 
         print("[EXECUTION] Received risk decision for teaching-only execution flow")
@@ -124,68 +124,6 @@ class ExecutionEngine:
         print(
             f"[EXECUTION] {self.run_mode.value} mode active — no broker calls; returning simulated result."
         )
-        exit_price: Optional[float] = None
-        exit_tick: Optional[int] = None
-        if self.run_mode == RunMode.SIM:
-            print(
-                f"[EXECUTION] Simulating trade CLOSE for "
-                f"{risk_decision.symbol} ({risk_decision.trader_type})"
-            )
-            close_tick = self.current_tick if self.current_tick is not None else 0
-            close_price = self.price_feed.price_for(symbol, close_tick)
-            trade = self.trade_registry.get_trade(symbol, trader_type)
-            entry_tick = trade.entry_tick if trade else tick
-            entry_price_for_pnl = trade.entry_price if trade else entry_price
-            realised_pnl = round(close_price - entry_price_for_pnl, 2)
-            self.trade_registry.mark_closed(
-                symbol=risk_decision.symbol,
-                trader_type=risk_decision.trader_type,
-                close_tick=close_tick,
-                close_price=close_price,
-                realised_pnl=realised_pnl,
-            )
-            exit_price = close_price
-            exit_tick = close_tick
-            print(
-                f"[EXECUTION] CLOSE symbol={symbol} tick={close_tick} "
-                f"close_price={close_price} realised_pnl={realised_pnl} (SIM)"
-            )
-            self.event_collector.emit(
-                event_type="TRADE_CLOSED",
-                source="ExecutionEngine",
-                payload={
-                    "symbol": risk_decision.symbol,
-                    "trader_type": risk_decision.trader_type,
-                    "strategy_name": getattr(trade, "strategy_name", strategy_name),
-                    "entry_tick": entry_tick,
-                    "opened_at_tick": entry_tick,
-                    "entry_price": entry_price_for_pnl,
-                    "close_tick": close_tick,
-                    "close_price": close_price,
-                    "closed_at_tick": close_tick,
-                    "exit_price": close_price,
-                    "pnl": realised_pnl,
-                    "realised_pnl": realised_pnl,
-                    "mode": self.run_mode.value,
-                    "exit_tick": close_tick,
-                },
-            )
-            print(
-                f"[EVENT] TRADE_CLOSED emitted for "
-                f"{risk_decision.symbol} ({risk_decision.trader_type}) "
-                f"tick={close_tick} price={close_price} pnl={realised_pnl}"
-            )
-            self.trade_registry.unregister_trade(
-                symbol=risk_decision.symbol, trader_type=risk_decision.trader_type
-            )
-            print(
-                f"[EXECUTION:REGISTRY] Unregistered trade "
-                f"{risk_decision.symbol} ({risk_decision.trader_type})"
-            )
-        else:
-            print(
-                "[EXECUTION] Non-SIM mode detected — skipping deterministic SIM close flow."
-            )
 
         return ExecutionResult(
             symbol=symbol,
@@ -196,9 +134,7 @@ class ExecutionEngine:
             direction=direction,
             quantity=quantity,
             entry_price=entry_price,
-            exit_price=exit_price,
             entry_tick=tick,
-            exit_tick=exit_tick,
         )
 
     def complete_trade(self, symbol: str, trader_type: str) -> None:

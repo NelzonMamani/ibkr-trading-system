@@ -8,8 +8,12 @@ the system stages and their order easy to follow during this teaching phase.
 from dataclasses import asdict
 from typing import List, Optional, Set, Tuple
 
-from config.runtime_config import RunMode, get_run_mode
-from config.system_config import EventReplayMode, get_event_replay_mode
+from config.runtime_config import (
+    EventReplayMode,
+    RunMode,
+    get_event_replay_mode,
+    get_run_mode,
+)
 from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
 from core.faults import (
@@ -433,12 +437,6 @@ class CoreOrchestrator:
             risk_output=risk_output,
             execution_output=execution_output,
         )
-        event = self.event_collector.emit(
-            event_type="EXECUTION_COMPLETE",
-            source="ExecutionEngine",
-            payload={"results": len(execution_output or [])}
-        )
-        print(event)
         print("[TEACH] <<< Execution stage complete — moving to storage stage.")
         if self._stop_requested_at_boundary("EXECUTION"):
             return False
@@ -471,6 +469,12 @@ class CoreOrchestrator:
             exit_results=exit_results,
             trade_outcomes=trade_outcomes,
         )
+        execution_complete_event = self.event_collector.emit(
+            event_type="EXECUTION_COMPLETE",
+            source="ExecutionEngine",
+            payload={"results": len(execution_output or [])}
+        )
+        print(execution_complete_event)
         event = self.event_collector.emit(
             event_type="TRADE_EXIT_COMPLETE",
             source="TradeExitEngine",
