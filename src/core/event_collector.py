@@ -22,6 +22,23 @@ class EventCollector:
     def snapshot_all(self):
         return list(self._all_events)
 
+    def get_events_for_replay(self, replay_mode: str):
+        normalized_mode = (replay_mode or "").upper()
+        if normalized_mode == "OFF":
+            print("[REPLAY] Replay mode OFF — no events will be replayed")
+            return []
+        if normalized_mode == "CYCLE":
+            print("[REPLAY] Replay mode CYCLE — using latest cycle events")
+            return self.snapshot_cycle()
+        if normalized_mode == "ALL":
+            print("[REPLAY] Replay mode ALL — using all recorded events")
+            return self.snapshot_all()
+
+        print(
+            f"[REPLAY] Unknown replay mode '{replay_mode}' — defaulting to OFF"
+        )
+        return []
+
     def count(self, event_type: str = None):
         if event_type is None:
             return len(self._all_events)

@@ -15,3 +15,9 @@ ENABLED_STRATEGIES = {
     "GapAndGoStrategy": True,
     "MomentumContinuationStrategy": True,
 }
+
+# Event replay behavior
+# OFF   → no replay
+# CYCLE → replay most recent cycle events
+# ALL   → replay all recorded events (teaching/debug only)
+EVENT_REPLAY_MODE = "CYCLE"
