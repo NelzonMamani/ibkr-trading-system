@@ -16,6 +16,25 @@ class RunEventTimeline:
     def count(self) -> int:
         return len(self._events)
 
+    def count_by_type(self) -> dict[str, int]:
+        counts = {}
+        for event in self._events:
+            counts[event.event_type] = counts.get(event.event_type, 0) + 1
+        return counts
+
+    def count_by_source(self) -> dict[str, int]:
+        counts = {}
+        for event in self._events:
+            counts[event.source] = counts.get(event.source, 0) + 1
+        return counts
+
+    def summary(self) -> dict:
+        return {
+            "total": self.count(),
+            "by_type": self.count_by_type(),
+            "by_source": self.count_by_source(),
+        }
+
     def filter_by_type(self, event_type: str):
         return [
             event
