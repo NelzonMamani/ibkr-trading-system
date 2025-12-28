@@ -107,6 +107,30 @@ class RunEventTimeline:
             return []
         return self._events[latest_cycle_start_index:]
 
+    def validate_snapshot(self, snapshot: dict) -> None:
+        """
+        Validate the structural integrity of an exported event snapshot.
+
+        Raises ValueError if the snapshot is invalid.
+        """
+
+        if not isinstance(snapshot, dict):
+            raise ValueError("Snapshot must be a dictionary")
+
+        required_keys = {"scope", "event_count", "events"}
+        if not required_keys.issubset(snapshot.keys()):
+            raise ValueError("Snapshot missing required keys")
+
+        if snapshot["scope"] not in {"CYCLE", "RUN"}:
+            raise ValueError("Snapshot scope must be 'CYCLE' or 'RUN'")
+
+        events = snapshot["events"]
+        if not isinstance(events, list):
+            raise ValueError("Snapshot events must be a list")
+
+        if snapshot["event_count"] != len(events):
+            raise ValueError("Snapshot event_count does not match events length")
+
     def export_latest_cycle_snapshot(self) -> dict:
         events = self.get_latest_cycle_events()
 
