@@ -124,6 +124,8 @@ class ExecutionEngine:
         print(
             f"[EXECUTION] {self.run_mode.value} mode active — no broker calls; returning simulated result."
         )
+        exit_price: Optional[float] = None
+        exit_tick: Optional[int] = None
         if self.run_mode == RunMode.SIM:
             print(
                 f"[EXECUTION] Simulating trade CLOSE for "
@@ -142,6 +144,8 @@ class ExecutionEngine:
                 close_price=close_price,
                 realised_pnl=realised_pnl,
             )
+            exit_price = close_price
+            exit_tick = close_tick
             print(
                 f"[EXECUTION] CLOSE symbol={symbol} tick={close_tick} "
                 f"close_price={close_price} realised_pnl={realised_pnl} (SIM)"
@@ -192,7 +196,9 @@ class ExecutionEngine:
             direction=direction,
             quantity=quantity,
             entry_price=entry_price,
+            exit_price=exit_price,
             entry_tick=tick,
+            exit_tick=exit_tick,
         )
 
     def complete_trade(self, symbol: str, trader_type: str) -> None:
