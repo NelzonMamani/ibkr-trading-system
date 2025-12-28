@@ -7,7 +7,7 @@ strategy code. Strategies not explicitly listed here default to DISABLED.
 
 # Minimum number of ticks a trade must remain open before TradeExitEngine
 # is allowed to close it. Keeps lifecycle visible across cycles.
-MIN_HOLD_TICKS: int = 3
+MIN_HOLD_TICKS: int = 2
 
 # ==========================================================
 # Strategy enable / disable governance
