@@ -2,7 +2,7 @@ from typing import List, Tuple, Optional
 from datetime import datetime
 
 from config.runtime_config import RunMode
-from config.trading_config import MIN_HOLD_TICKS
+from config.trading_config import MAX_HOLD_TICKS, MIN_HOLD_TICKS
 from core.active_trade_registry import ActiveTradeRegistry
 from models.data_models import ExecutionResult
 from core.trade_outcome_factory import TradeOutcomeFactory
@@ -59,12 +59,24 @@ class TradeExitEngine:
             if symbol is None:
                 continue
 
-            if (exit_tick - entry_tick) < MIN_HOLD_TICKS:
+            hold_duration_ticks = exit_tick - entry_tick
+
+            if hold_duration_ticks < MIN_HOLD_TICKS:
                 print(
                     "[EXIT] Hold threshold not met — keeping trade open "
                     f"symbol={symbol} trader_type={trader_type} "
                     f"entry_tick={entry_tick} current_tick={exit_tick} "
                     f"min_hold_ticks={MIN_HOLD_TICKS}"
+                )
+                continue
+
+            if hold_duration_ticks < MAX_HOLD_TICKS:
+                print(
+                    "[EXIT] Hold window active — keeping trade open "
+                    f"symbol={symbol} trader_type={trader_type} "
+                    f"entry_tick={entry_tick} current_tick={exit_tick} "
+                    f"hold_ticks={hold_duration_ticks} "
+                    f"max_hold_ticks={MAX_HOLD_TICKS}"
                 )
                 continue
 
@@ -76,6 +88,10 @@ class TradeExitEngine:
                 realised_pnl = (exit_price - entry_price) * quantity
             realised_pnl = round(realised_pnl, 2)
 
+            rationale = (
+                "Exit condition met: maximum hold duration reached via TradeExitEngine "
+                f"(held {hold_duration_ticks} ticks; max_hold_ticks={MAX_HOLD_TICKS})"
+            )
             self.trade_registry.unregister_trade(symbol, trader_type)
 
             self.event_collector.emit(
@@ -86,7 +102,7 @@ class TradeExitEngine:
                     "trader_type": trader_type,
                     "strategy_name": strategy_name,
                     "tick": tick,
-                    "reason": f"Exit condition met: held for {exit_tick - entry_tick} ticks",
+                    "reason": rationale,
                     "mode": normalized_run_mode,
                     "entry_tick": entry_tick,
                     "opened_at_tick": entry_tick,
@@ -96,6 +112,9 @@ class TradeExitEngine:
                     "close_tick": exit_tick,
                     "close_price": exit_price,
                     "closed_at_tick": exit_tick,
+                    "hold_duration_ticks": hold_duration_ticks,
+                    "min_hold_ticks": MIN_HOLD_TICKS,
+                    "max_hold_ticks": MAX_HOLD_TICKS,
                     "pnl": realised_pnl,
                     "realised_pnl": realised_pnl,
                 },
@@ -107,9 +126,7 @@ class TradeExitEngine:
                 trader_type=trader_type,
                 attempted=True,
                 status="CLOSED",
-                rationale=(
-                    "Exit condition met: minimum hold duration satisfied via TradeExitEngine"
-                ),
+                rationale=rationale,
                 direction=direction,
                 quantity=quantity,
                 entry_price=entry_price,

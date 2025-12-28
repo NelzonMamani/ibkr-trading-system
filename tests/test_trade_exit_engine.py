@@ -1,0 +1,98 @@
+from pathlib import Path
+import sys
+
+sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
+
+from config.runtime_config import RunMode  # noqa: E402
+from config.trading_config import MAX_HOLD_TICKS, MIN_HOLD_TICKS  # noqa: E402
+from core.active_trade_registry import ActiveTrade, ActiveTradeRegistry  # noqa: E402
+from core.event_collector import EventCollector  # noqa: E402
+from execution.trade_exit_engine import TradeExitEngine  # noqa: E402
+from sim.price_feed import DeterministicPriceFeed  # noqa: E402
+
+
+def test_trade_exit_engine_enforces_tick_based_exit_window():
+    """
+    Trades should stay open until the deterministic max hold tick is reached.
+    """
+
+    price_feed = DeterministicPriceFeed()
+    trade_registry = ActiveTradeRegistry()
+    event_collector = EventCollector()
+
+    symbol = "ABC"
+    trader_type = "SIM_TRADER"
+    strategy_name = "TestStrategy"
+    entry_tick = 0
+    entry_price = price_feed.price_for(symbol, entry_tick)
+
+    trade_registry.register_trade(
+        ActiveTrade(
+            symbol=symbol,
+            trader_type=trader_type,
+            entry_tick=entry_tick,
+            entry_price=entry_price,
+            direction="LONG",
+            quantity=1,
+            strategy_name=strategy_name,
+        )
+    )
+
+    exit_engine = TradeExitEngine(
+        trade_registry=trade_registry,
+        event_collector=event_collector,
+        price_feed=price_feed,
+    )
+
+    pre_min_tick = entry_tick + max(MIN_HOLD_TICKS - 1, 0)
+    results, outcomes = exit_engine.evaluate_and_close_trades(
+        run_mode=RunMode.SIM, tick=pre_min_tick
+    )
+
+    assert results == []
+    assert outcomes == []
+    assert trade_registry.get_trade(symbol, trader_type) is not None
+
+    mid_tick = entry_tick + MAX_HOLD_TICKS - 1
+    results, outcomes = exit_engine.evaluate_and_close_trades(
+        run_mode=RunMode.SIM, tick=mid_tick
+    )
+
+    assert results == []
+    assert outcomes == []
+    assert trade_registry.get_trade(symbol, trader_type) is not None
+
+    close_tick = entry_tick + MAX_HOLD_TICKS
+    results, outcomes = exit_engine.evaluate_and_close_trades(
+        run_mode=RunMode.SIM, tick=close_tick
+    )
+
+    expected_exit_price = price_feed.price_for(symbol, close_tick)
+
+    assert len(results) == 1
+    assert len(outcomes) == 1
+    assert trade_registry.get_trade(symbol, trader_type) is None
+
+    closed_result = results[0]
+    assert closed_result.exit_tick == close_tick
+    assert closed_result.exit_price == expected_exit_price
+    assert (
+        "Exit condition met: maximum hold duration reached"
+        in closed_result.rationale
+    )
+
+    closed_events = event_collector.filter_by_type("TRADE_CLOSED")
+    assert len(closed_events) == 1
+    payload = closed_events[0].payload
+
+    assert payload["tick"] == close_tick
+    assert payload["hold_duration_ticks"] == MAX_HOLD_TICKS
+    assert payload["min_hold_ticks"] == MIN_HOLD_TICKS
+    assert payload["max_hold_ticks"] == MAX_HOLD_TICKS
+    assert payload["realised_pnl"] == round(
+        expected_exit_price - entry_price, 2
+    )
+    assert (
+        "Exit condition met: maximum hold duration reached"
+        in payload["reason"]
+    )
