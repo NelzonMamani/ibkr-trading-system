@@ -17,11 +17,19 @@ class EventCollector:
         print("[EVENT_COLLECTOR] Clearing cycle-scoped events")
         self._cycle_events.clear()
 
-    def record_event(self, event):
-        self._cycle_events.append(event)
+    def record_event(self, event, include_cycle: bool = True):
+        if include_cycle:
+            self._cycle_events.append(event)
         self._run_timeline.record(event)
 
-    def emit(self, event_type: str, source: str, payload: dict, timestamp=None):
+    def emit(
+        self,
+        event_type: str,
+        source: str,
+        payload: dict,
+        timestamp=None,
+        include_cycle: bool = True,
+    ):
         validate_event(event_type, payload)
         if timestamp is None:
             event = SystemEvent(
@@ -36,7 +44,7 @@ class EventCollector:
                 payload=payload,
                 timestamp=timestamp,
             )
-        self.record_event(event)
+        self.record_event(event, include_cycle=include_cycle)
         return event
 
     def snapshot_cycle(self):

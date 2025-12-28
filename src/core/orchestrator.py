@@ -107,6 +107,7 @@ class CoreOrchestrator:
                 event_type="SHUTDOWN_REQUESTED",
                 source="CoreOrchestrator",
                 payload=self._stop_payload(resolved_mode),
+                include_cycle=False,
             )
         if resolved_mode == StopMode.PANIC and (
             previous_mode is None or previous_mode == StopMode.GRACEFUL
@@ -115,6 +116,7 @@ class CoreOrchestrator:
                 event_type="PANIC_STOP_TRIGGERED",
                 source="CoreOrchestrator",
                 payload=self._stop_payload(resolved_mode),
+                include_cycle=False,
             )
         return resolved_mode
 
@@ -525,6 +527,7 @@ class CoreOrchestrator:
                 "total_trades": snapshot.total_trades,
                 "wins": snapshot.wins,
                 "losses": snapshot.losses,
+                "flats": snapshot.flats,
                 "gross_pnl": snapshot.gross_pnl,
                 "win_rate": snapshot.win_rate,
             }
@@ -659,6 +662,7 @@ class CoreOrchestrator:
                     f"trades={snapshot.total_trades} "
                     f"wins={snapshot.wins} "
                     f"losses={snapshot.losses} "
+                    f"flats={snapshot.flats} "
                     f"win_rate={snapshot.win_rate:.2f} "
                     f"gross_pnl={snapshot.gross_pnl:.2f}"
                 )
@@ -758,6 +762,7 @@ class CoreOrchestrator:
             event_type="SHUTDOWN_STARTED",
             source="CoreOrchestrator",
             payload=start_payload,
+            include_cycle=False,
         )
         if resolved_mode == StopMode.PANIC:
             print("[SHUTDOWN] Panic stop — running minimal hooks.")
@@ -777,12 +782,14 @@ class CoreOrchestrator:
                     event_type="SHUTDOWN_HOOK_FAILED",
                     source="CoreOrchestrator",
                     payload=hook_payload,
+                    include_cycle=False,
                 )
             complete_payload = self._stop_payload(resolved_mode)
             self.event_collector.emit(
                 event_type="SHUTDOWN_COMPLETE",
                 source="CoreOrchestrator",
                 payload=complete_payload,
+                include_cycle=False,
             )
             return
 
@@ -809,6 +816,7 @@ class CoreOrchestrator:
                             "fault_category": "STATE",
                             "fault_severity": "CRITICAL",
                         },
+                        include_cycle=False,
                     )
             except Exception as exc:
                 fault = classify_exception(exc)
@@ -824,6 +832,7 @@ class CoreOrchestrator:
                     event_type="SHUTDOWN_HOOK_FAILED",
                     source="CoreOrchestrator",
                     payload=hook_payload,
+                    include_cycle=False,
                 )
                 continue
 
@@ -832,6 +841,7 @@ class CoreOrchestrator:
             event_type="SHUTDOWN_COMPLETE",
             source="CoreOrchestrator",
             payload=complete_payload,
+            include_cycle=False,
         )
 
     def _evaluate_runtime_safety(
