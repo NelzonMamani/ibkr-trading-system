@@ -263,11 +263,12 @@ class CoreOrchestrator:
         for event in cycle_snapshot:
             print(
                 f"[EVENT_SUMMARY] {event.timestamp} | {event.event_type} | {event.source}"
-            )
+        )
         run_mode_value = self.run_mode.value
         opened_count = self.event_collector.cycle_count("TRADE_OPENED")
         closed_count = self.event_collector.cycle_count("TRADE_CLOSED")
         realised_pnl = f"{performance_snapshot.gross_pnl:.2f}"
+        pnl_by_strategy = performance_snapshot.by_strategy
         pnl_by_trader_type = performance_snapshot.by_trader_type
         print(
             "[CYCLE_SUMMARY] "
@@ -283,10 +284,20 @@ class CoreOrchestrator:
                 pnl_by_trader_type.items(), key=lambda item: item[0]
             )
         ]
+        pnl_by_strategy_parts = [
+            f"{strategy_name}={bucket.get('gross_pnl', 0.0):.2f}"
+            for strategy_name, bucket in sorted(
+                pnl_by_strategy.items(), key=lambda item: item[0]
+            )
+        ]
         pnl_by_trader_type_summary = (
             " | ".join(pnl_by_trader_type_parts) if pnl_by_trader_type_parts else "N/A"
         )
-        print(f"[PNL_BY_STRATEGY] {pnl_by_trader_type_summary}")
+        pnl_by_strategy_summary = (
+            " | ".join(pnl_by_strategy_parts) if pnl_by_strategy_parts else "N/A"
+        )
+        print(f"[PNL_BY_STRATEGY] {pnl_by_strategy_summary}")
+        print(f"[PNL_BY_TRADER_TYPE] {pnl_by_trader_type_summary}")
         print(
             f"[REPLAY] Replay selection — mode={self.replay_mode.value} "
             f"run_mode={run_mode_value}"
