@@ -8,6 +8,7 @@ from models.data_models import ExecutionResult
 from core.trade_outcome_factory import TradeOutcomeFactory
 from domain.trade_outcome import TradeOutcome
 from sim.price_feed import DeterministicPriceFeed
+from strategy.exit_signal import ExitSignal
 
 
 class TradeExitEngine:
@@ -32,16 +33,23 @@ class TradeExitEngine:
         self,
         run_mode: RunMode,
         tick: int,
+        exit_signals: Optional[List[ExitSignal]] = None,
     ) -> Tuple[List[ExecutionResult], List[TradeOutcome]]:
         """
         Evaluate open trades and close them using the authoritative exit path.
 
         Rule: close only when explicit exit condition is met. ExecutionEngine
-        opens trades; TradeExitEngine is the single closer.
+        opens trades; TradeExitEngine is the single closer. Strategy-driven
+        exit_signals are advisory inputs; time-based exits still override
+        everything.
         """
 
         results: List[ExecutionResult] = []
         trade_outcomes: List[TradeOutcome] = []
+        exit_signal_map = {}
+        for signal in exit_signals or []:
+            key = (signal.symbol, signal.trader_type)
+            exit_signal_map.setdefault(key, []).append(signal)
 
         normalized_run_mode = (getattr(run_mode, "value", run_mode) or "").upper()
         active_trades = self.trade_registry.snapshot()
@@ -61,6 +69,16 @@ class TradeExitEngine:
 
             hold_duration_ticks = exit_tick - entry_tick
 
+            exit_price = self.price_feed.price_for(symbol, exit_tick)
+            normalized_direction = (direction or "").upper()
+            if normalized_direction == "SHORT":
+                realised_pnl = (entry_price - exit_price) * quantity
+            else:
+                realised_pnl = (exit_price - entry_price) * quantity
+            realised_pnl = round(realised_pnl, 2)
+
+            rationale: Optional[str] = None
+
             if hold_duration_ticks < MIN_HOLD_TICKS:
                 print(
                     "[EXIT] Hold threshold not met — keeping trade open "
@@ -70,28 +88,37 @@ class TradeExitEngine:
                 )
                 continue
 
-            if hold_duration_ticks < MAX_HOLD_TICKS:
-                print(
-                    "[EXIT] Hold window active — keeping trade open "
-                    f"symbol={symbol} trader_type={trader_type} "
-                    f"entry_tick={entry_tick} current_tick={exit_tick} "
-                    f"hold_ticks={hold_duration_ticks} "
-                    f"max_hold_ticks={MAX_HOLD_TICKS}"
+            if hold_duration_ticks >= MAX_HOLD_TICKS:
+                rationale = (
+                    "Exit condition met: maximum hold duration reached via TradeExitEngine "
+                    f"(held {hold_duration_ticks} ticks; max_hold_ticks={MAX_HOLD_TICKS})"
                 )
-                continue
-
-            exit_price = self.price_feed.price_for(symbol, exit_tick)
-            normalized_direction = (direction or "").upper()
-            if normalized_direction == "SHORT":
-                realised_pnl = (entry_price - exit_price) * quantity
             else:
-                realised_pnl = (exit_price - entry_price) * quantity
-            realised_pnl = round(realised_pnl, 2)
+                signals_for_trade = exit_signal_map.get((symbol, trader_type), [])
+                if not signals_for_trade:
+                    print(
+                        "[EXIT] No strategy exit request — keeping trade open "
+                        f"symbol={symbol} trader_type={trader_type} "
+                        f"entry_tick={entry_tick} current_tick={exit_tick} "
+                        f"hold_ticks={hold_duration_ticks} "
+                        f"max_hold_ticks={MAX_HOLD_TICKS}"
+                    )
+                    continue
+                selected_signal = next(
+                    (
+                        signal
+                        for signal in signals_for_trade
+                        if signal.strategy_name == strategy_name
+                    ),
+                    signals_for_trade[0],
+                )
+                rationale = (
+                    "Strategy exit request honoured by TradeExitEngine: "
+                    f"{selected_signal.reason} "
+                    f"(requested_by={selected_signal.strategy_name}; "
+                    f"hold_duration_ticks={hold_duration_ticks})"
+                )
 
-            rationale = (
-                "Exit condition met: maximum hold duration reached via TradeExitEngine "
-                f"(held {hold_duration_ticks} ticks; max_hold_ticks={MAX_HOLD_TICKS})"
-            )
             self.trade_registry.unregister_trade(symbol, trader_type)
 
             self.event_collector.emit(

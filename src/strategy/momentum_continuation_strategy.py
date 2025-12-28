@@ -9,7 +9,9 @@ with other strategy modules like GapAndGoStrategy.
 
 from typing import List
 
+from config.trading_config import MIN_HOLD_TICKS
 from models.data_models import PatternResult, TradeIntent
+from strategy.exit_signal import ExitSignal
 from strategy.base_strategy import BaseStrategy
 
 
@@ -51,3 +53,48 @@ class MomentumContinuationStrategy(BaseStrategy):
             f"[STRATEGY:Momentum] Evaluation complete — generated {len(trade_intents)} TradeIntent(s)"
         )
         return trade_intents
+
+    def evaluate_exit_signals(self, active_trades: List, current_tick: int) -> List[ExitSignal]:
+        print(
+            f"[STRATEGY:Momentum] Exit review start — evaluating {len(active_trades)} active trade(s)"
+        )
+        exit_signals: List[ExitSignal] = []
+        for trade in active_trades or []:
+            if getattr(trade, "strategy_name", None) != self.name:
+                continue
+
+            symbol = getattr(trade, "symbol", None)
+            trader_type = getattr(trade, "trader_type", "UNKNOWN")
+            entry_tick = getattr(trade, "entry_tick", current_tick)
+            hold_duration = current_tick - entry_tick
+
+            if symbol is None:
+                continue
+
+            if hold_duration < MIN_HOLD_TICKS:
+                print(
+                    "[STRATEGY:Momentum] Exit request deferred — min hold not met "
+                    f"(symbol={symbol} hold_duration={hold_duration} min_hold={MIN_HOLD_TICKS})"
+                )
+                continue
+
+            rationale = (
+                f"Teaching exit request after {hold_duration} tick(s); "
+                "Momentum Continuation is ready to secure progress once minimum hold is satisfied."
+            )
+            exit_signal = ExitSignal(
+                symbol=symbol,
+                trader_type=trader_type,
+                strategy_name=self.name,
+                reason=rationale,
+            )
+            exit_signals.append(exit_signal)
+            print(
+                "[STRATEGY:Momentum] ExitSignal created "
+                f"symbol={symbol} trader_type={trader_type} hold_duration={hold_duration}"
+            )
+
+        print(
+            f"[STRATEGY:Momentum] Exit review complete — requested {len(exit_signals)} exit(s)"
+        )
+        return exit_signals

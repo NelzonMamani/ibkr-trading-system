@@ -6,6 +6,8 @@ from config.trading_config import ENABLED_STRATEGIES
 from models.data_models import PatternResult, TradeIntent
 from strategy.gap_and_go_strategy import GapAndGoStrategy
 from strategy.momentum_continuation_strategy import MomentumContinuationStrategy
+from strategy.exit_signal import ExitSignal
+from core.active_trade_registry import ActiveTrade
 
 
 class StrategyRunner:
@@ -63,3 +65,27 @@ class StrategyRunner:
         """
 
         return self.generate_trade_intents(pattern_results)
+
+    def generate_exit_signals(
+        self, active_trades: List[ActiveTrade], current_tick: int
+    ) -> List[ExitSignal]:
+        """
+        Call each registered strategy to request advisory exit signals for active trades.
+        """
+
+        print(f"[STRATEGY] Dispatching exit-signal review to {len(self.strategies)} strategy(ies)")
+        all_exit_signals: List[ExitSignal] = []
+        for strategy in self.strategies:
+            print(
+                f"[STRATEGY] Evaluating exit signals for strategy '{strategy.name}' "
+                f"against {len(active_trades)} active trade(s)"
+            )
+            signals = strategy.evaluate_exit_signals(active_trades, current_tick)
+            print(
+                f"[STRATEGY] Strategy '{strategy.name}' requested {len(signals)} exit signal(s)"
+            )
+            all_exit_signals.extend(signals)
+        print(
+            f"[STRATEGY] Aggregated exit signals from all strategies: {len(all_exit_signals)} total"
+        )
+        return all_exit_signals

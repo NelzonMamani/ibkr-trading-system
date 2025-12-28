@@ -36,6 +36,7 @@ from sim.clock import SimClock
 from sim.price_feed import DeterministicPriceFeed
 from storage.storage_engine import StorageEngine
 from strategy.strategy_runner import StrategyRunner
+from strategy.exit_signal import ExitSignal
 from events.event_invariants import check_invariants, EventInvariantError
 
 
@@ -437,8 +438,50 @@ class CoreOrchestrator:
             risk_output=risk_output,
             execution_output=execution_output,
         )
-        print("[TEACH] <<< Execution stage complete — moving to storage stage.")
+        print("[TEACH] <<< Execution stage complete — moving to strategy exit stage.")
         if self._stop_requested_at_boundary("EXECUTION"):
+            return False
+
+        print("[TEACH] >>> Strategy Exit stage — allow strategies to request exits (conceptual).")
+        exit_signals: List[ExitSignal] = []
+        try:
+            active_trades_snapshot = self.trade_registry.snapshot()
+            exit_signals = self.strategy_runner.generate_exit_signals(
+                active_trades=active_trades_snapshot,
+                current_tick=tick,
+            )
+        except Exception as exc:
+            self._evaluate_runtime_safety(
+                cycle_stage="EXIT_SIGNALS",
+                stage_exception=exc,
+                scanner_results=scanner_results,
+                pattern_results=pattern_results,
+                strategy_output=strategy_output,
+                risk_output=risk_output,
+                execution_output=execution_output,
+            )
+            return False
+        self._evaluate_runtime_safety(
+            cycle_stage="EXIT_SIGNALS",
+            stage_exception=None,
+            scanner_results=scanner_results,
+            pattern_results=pattern_results,
+            strategy_output=strategy_output,
+            risk_output=risk_output,
+            execution_output=execution_output,
+        )
+        exit_signal_event = self.event_collector.emit(
+            event_type="EXIT_SIGNALS_GENERATED",
+            source="StrategyRunner",
+            payload={"exit_signals": len(exit_signals or [])},
+        )
+        print(exit_signal_event)
+        if not exit_signals:
+            print("[EXIT] No strategy-driven exit requests this cycle.")
+        else:
+            print(f"[EXIT] Strategy exit requests generated: {exit_signals}")
+        print("[TEACH] <<< Strategy Exit stage complete — moving to trade exit stage.")
+        if self._stop_requested_at_boundary("EXIT_SIGNALS"):
             return False
 
         print("[TEACH] >>> Trade Exit stage — manage open trades explicitly.")
@@ -446,6 +489,7 @@ class CoreOrchestrator:
             exit_results, trade_outcomes = self.trade_exit_engine.evaluate_and_close_trades(
                 run_mode=self.run_mode,
                 tick=tick,
+                exit_signals=exit_signals,
             )
         except Exception as exc:
             self._evaluate_runtime_safety(
@@ -891,6 +935,7 @@ class CoreOrchestrator:
             "STRATEGY",
             "RISK",
             "EXECUTION",
+            "EXIT_SIGNALS",
             "TRADE_EXIT",
             "STORAGE",
             "INVARIANTS",
