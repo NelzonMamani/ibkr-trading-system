@@ -1,16 +1,14 @@
 """
 Define the runtime safety mode for the trading system.
-
-Phase 4 — Step 4.1 introduces explicit runtime modes (SIM, PAPER, LIVE) to make
-runtime intent obvious and to keep the system safe by default.
+Single source of truth for SIM / PAPER / LIVE.
 """
 
+from __future__ import annotations
+import os
 from enum import Enum
 
 
 class RunMode(str, Enum):
-    """Enumerate supported runtime modes for the trading system."""
-
     SIM = "SIM"
     PAPER = "PAPER"
     LIVE = "LIVE"
@@ -20,10 +18,19 @@ DEFAULT_RUN_MODE: RunMode = RunMode.SIM
 
 
 def get_run_mode() -> RunMode:
-    """Return the current runtime mode.
-
-    For now, this returns the safe default and does not inspect environment
-    variables or command-line arguments.
     """
+    Authoritative runtime mode resolver.
 
-    return DEFAULT_RUN_MODE
+    Resolution order:
+    1) ENV: RUN_MODE
+    2) DEFAULT_RUN_MODE (SIM)
+    """
+    raw = (os.getenv("RUN_MODE") or "").strip().upper()
+    if not raw:
+        return DEFAULT_RUN_MODE
+
+    try:
+        return RunMode(raw)
+    except ValueError:
+        print(f"[RUNTIME] Invalid RUN_MODE='{raw}'. Falling back to SAFE default SIM.")
+        return RunMode.SIM

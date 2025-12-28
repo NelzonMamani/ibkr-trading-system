@@ -30,8 +30,8 @@ class EventCollector:
         if normalized_mode == "CYCLE":
             print("[REPLAY] Replay mode CYCLE — using latest cycle events")
             return self.snapshot_cycle()
-        if normalized_mode == "ALL":
-            print("[REPLAY] Replay mode ALL — using all recorded events")
+        if normalized_mode in {"RUN", "ALL"}:
+            print("[REPLAY] Replay mode RUN — using all recorded events")
             return self.snapshot_all()
 
         print(
