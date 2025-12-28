@@ -68,6 +68,7 @@ OPTIONAL_FIELDS: Dict[str, Set[str]] = {
         "close_price",
         "closed_at_tick",
         "realised_pnl",
+        "tick",
         "mode",
         "reason",
     },
