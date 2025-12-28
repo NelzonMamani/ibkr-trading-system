@@ -1,6 +1,7 @@
 from typing import List, Tuple, Optional
 from datetime import datetime
 
+from config.runtime_config import RunMode
 from core.active_trade_registry import ActiveTradeRegistry
 from models.data_models import ExecutionResult
 from core.trade_outcome_factory import TradeOutcomeFactory
@@ -28,24 +29,20 @@ class TradeExitEngine:
 
     def evaluate_and_close_trades(
         self,
-        run_mode: str,
+        run_mode: RunMode,
         tick: int,
     ) -> Tuple[List[ExecutionResult], List[TradeOutcome]]:
         """
-        Evaluate open trades and close them using simple teaching rules.
+        Evaluate open trades and close them using the authoritative exit path.
 
-        Current teaching rule:
-        - In SIM: do nothing (SIM auto-close already handled)
-        - In LIVE / PAPER: close all trades after 1 tick
+        Rule: close all open trades after one tick regardless of mode. ExecutionEngine
+        opens trades; TradeExitEngine is the single closer.
         """
 
         results: List[ExecutionResult] = []
         trade_outcomes: List[TradeOutcome] = []
 
         normalized_run_mode = (getattr(run_mode, "value", run_mode) or "").upper()
-        if normalized_run_mode == "SIM":
-            return results, trade_outcomes
-
         active_trades = self.trade_registry.snapshot()
 
         for trade in active_trades:
@@ -79,7 +76,7 @@ class TradeExitEngine:
                     "trader_type": trader_type,
                     "strategy_name": strategy_name,
                     "tick": tick,
-                    "reason": "Teaching exit after 1 tick",
+                    "reason": "Authoritative exit after 1 tick",
                     "mode": normalized_run_mode,
                     "entry_tick": entry_tick,
                     "opened_at_tick": entry_tick,

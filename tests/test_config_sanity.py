@@ -5,8 +5,12 @@ import pytest
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
-from config.runtime_config import RunMode, get_run_mode  # noqa: E402
-from config.system_config import EventReplayMode, get_event_replay_mode  # noqa: E402
+from config.runtime_config import (  # noqa: E402
+    EventReplayMode,
+    RunMode,
+    get_event_replay_mode,
+    get_run_mode,
+)
 
 
 def test_module_imports_survive_phase8_precheck():
