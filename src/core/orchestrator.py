@@ -12,6 +12,7 @@ from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
 from core.events import SystemEvent
 from execution.execution_engine import ExecutionEngine
+from execution.trade_exit_engine import TradeExitEngine
 from patterns.pattern_engine import PatternEngine
 from risk.risk_engine import RiskEngine
 from scanner.scanner import Scanner
@@ -44,7 +45,12 @@ class CoreOrchestrator:
         self.risk_engine = RiskEngine(trade_registry=self.trade_registry)
         self.execution_engine = ExecutionEngine(
             trade_registry=self.trade_registry,
+            event_collector=self.event_collector,
             price_feed=self.price_feed,
+        )
+        self.trade_exit_engine = TradeExitEngine(
+            trade_registry=self.trade_registry,
+            event_collector=self.event_collector,
         )
         self.storage_engine = StorageEngine()
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
@@ -168,6 +174,24 @@ class CoreOrchestrator:
         print(event)
         self.event_collector.record(event)
         print("[TEACH] <<< Execution stage complete — moving to storage stage.")
+
+        print("[TEACH] >>> Trade Exit stage — manage open trades explicitly.")
+        exit_results: List[ExecutionResult] = self.trade_exit_engine.evaluate_and_close_trades(
+            run_mode=self.run_mode,
+            tick=tick,
+        )
+        event = SystemEvent(
+            event_type="TRADE_EXIT_COMPLETE",
+            source="TradeExitEngine",
+            payload={"closed": len(exit_results or [])}
+        )
+        print(event)
+        self.event_collector.record(event)
+        if not exit_results:
+            print("[EXIT] No trades closed by TradeExitEngine this cycle.")
+        else:
+            print(f"[EXIT] TradeExitEngine closed trades: {exit_results}")
+        print("[TEACH] <<< Trade Exit stage complete — moving to storage stage.")
 
         print("[TEACH] >>> Storage stage — record decisions/results (conceptual).")
         print("[TEACH] Creating TradeRecord to capture stage outputs for review.")

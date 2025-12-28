@@ -95,7 +95,7 @@ class ExecutionEngine:
                     "trader_type": risk_decision.trader_type,
                     "entry_tick": tick,
                     "entry_price": entry_price,
-                    "mode": "SIM",
+                    "mode": self.run_mode.value,
                 },
             )
         )
@@ -149,7 +149,7 @@ class ExecutionEngine:
                         "close_tick": close_tick,
                         "close_price": close_price,
                         "realised_pnl": realised_pnl,
-                        "mode": "SIM",
+                        "mode": self.run_mode.value,
                     },
                 )
             )
