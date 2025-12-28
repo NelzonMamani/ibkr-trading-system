@@ -5,6 +5,8 @@ This file only outlines the conceptual flow of the trading system and contains
 no real trading logic, integrations, or data handling. It exists solely to make
 the system stages and their order easy to follow during this teaching phase.
 """
+from dataclasses import asdict
+from typing import List
 
 from config.runtime_config import RunMode, get_run_mode
 from config.system_config import EventReplayMode, get_event_replay_mode
@@ -12,17 +14,17 @@ from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
 from core.events import SystemEvent
 from core.performance_registry import PerformanceRegistry
+from core.replay_engine import ReplayEngine
 from execution.execution_engine import ExecutionEngine
 from execution.trade_exit_engine import TradeExitEngine
+from models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
 from patterns.pattern_engine import PatternEngine
 from risk.risk_engine import RiskEngine
 from scanner.scanner import Scanner
-from models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
 from sim.clock import SimClock
 from sim.price_feed import DeterministicPriceFeed
 from storage.storage_engine import StorageEngine
 from strategy.strategy_runner import StrategyRunner
-from typing import List
 
 
 class CoreOrchestrator:
@@ -39,6 +41,7 @@ class CoreOrchestrator:
         self.price_feed = DeterministicPriceFeed()
         self.event_collector = EventCollector()
         print("[BOOT] EventCollector initialised")
+        self.replay_engine = ReplayEngine()
         self.performance_registry = PerformanceRegistry()
         self.trade_registry = ActiveTradeRegistry()
         self.scanner = Scanner()
@@ -58,16 +61,7 @@ class CoreOrchestrator:
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
 
     def replay_events(self, events):
-        print("[REPLAY] Starting deterministic event replay")
-
-        for event in events:
-            print(
-                f"[REPLAY] {event.timestamp} | "
-                f"{event.event_type} | {event.source} | "
-                f"{event.payload}"
-            )
-
-        print("[REPLAY] Replay complete")
+        self.replay_engine.replay(events)
 
     def replay_cycle_events(self):
         print("[REPLAY] Initiating cycle-scoped replay")
@@ -216,6 +210,13 @@ class CoreOrchestrator:
                 f"gross_pnl={bucket.get('gross_pnl', 0.0):.2f} "
                 f"total_trades={bucket.get('total_trades', 0)}"
             )
+        perf_snapshot_event = SystemEvent(
+            event_type="PERF_SNAPSHOT",
+            source="PerformanceRegistry",
+            payload=asdict(performance_snapshot),
+        )
+        print(perf_snapshot_event)
+        self.event_collector.record(perf_snapshot_event)
 
         print("[TEACH] >>> Storage stage — record decisions/results (conceptual).")
         print("[TEACH] Creating TradeRecord to capture stage outputs for review.")
