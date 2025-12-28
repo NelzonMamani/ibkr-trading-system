@@ -7,6 +7,7 @@ the system stages and their order easy to follow during this teaching phase.
 """
 
 from config.runtime_config import RunMode, get_run_mode
+from config.trading_config import EVENT_REPLAY_MODE
 from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
 from core.events import SystemEvent
@@ -40,6 +41,34 @@ class CoreOrchestrator:
             price_feed=self.price_feed,
         )
         self.storage_engine = StorageEngine()
+        self.replay_mode = self._resolve_replay_mode()
+        print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode}")
+
+    def _resolve_replay_mode(self) -> str:
+        configured_mode = (EVENT_REPLAY_MODE or "OFF").upper()
+        run_mode_value = getattr(self.run_mode, "value", self.run_mode)
+        allowed_modes = {"OFF", "CYCLE", "ALL"}
+        if configured_mode not in allowed_modes:
+            print(
+                f"[REPLAY] Invalid EVENT_REPLAY_MODE='{EVENT_REPLAY_MODE}' "
+                "— defaulting to OFF"
+            )
+            configured_mode = "OFF"
+
+        if run_mode_value == RunMode.LIVE.value:
+            print(
+                "[REPLAY] Run mode LIVE detected — forcing replay mode OFF for safety"
+            )
+            return "OFF"
+
+        if run_mode_value != RunMode.SIM.value and configured_mode == "ALL":
+            print(
+                f"[REPLAY] Replay mode ALL not permitted in run_mode={run_mode_value} "
+                "— falling back to CYCLE"
+            )
+            return "CYCLE"
+
+        return configured_mode
 
     def replay_events(self, events):
         print("[REPLAY] Starting deterministic event replay")
@@ -240,5 +269,14 @@ class CoreOrchestrator:
             else "N/A"
         )
         print(f"[PNL_BY_STRATEGY] {pnl_by_trader_type_summary}")
-        print("[REPLAY] Initiating replay for teaching verification")
-        self.replay_cycle_events()
+        print(
+            f"[REPLAY] Replay selection — mode={self.replay_mode} "
+            f"run_mode={run_mode_value}"
+        )
+        events_for_replay = self.event_collector.get_events_for_replay(
+            self.replay_mode
+        )
+        if not events_for_replay:
+            print("[REPLAY] No events selected for replay")
+            return
+        self.replay_events(events_for_replay)
