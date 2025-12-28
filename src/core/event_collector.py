@@ -1,3 +1,6 @@
+from core.run_event_timeline import RunEventTimeline
+
+
 class EventCollector:
     """
     In-memory collector for SystemEvents.
@@ -6,7 +9,7 @@ class EventCollector:
 
     def __init__(self):
         self._cycle_events = []
-        self._all_events = []
+        self._run_timeline = RunEventTimeline()
 
     def clear_cycle(self):
         print("[EVENT_COLLECTOR] Clearing cycle-scoped events")
@@ -14,13 +17,13 @@ class EventCollector:
 
     def record_event(self, event):
         self._cycle_events.append(event)
-        self._all_events.append(event)
+        self._run_timeline.record(event)
 
     def snapshot_cycle(self):
         return list(self._cycle_events)
 
     def snapshot_all(self):
-        return list(self._all_events)
+        return self._run_timeline.snapshot()
 
     def get_events_for_replay(self, replay_mode: str):
         normalized_mode = (getattr(replay_mode, "value", replay_mode) or "").upper()
@@ -40,10 +43,11 @@ class EventCollector:
         return []
 
     def count(self, event_type: str = None):
+        all_events = self._run_timeline.snapshot()
         if event_type is None:
-            return len(self._all_events)
+            return len(all_events)
         return len([
-            e for e in self._all_events
+            e for e in all_events
             if e.event_type == event_type
         ])
 
@@ -52,7 +56,7 @@ class EventCollector:
             f"[EVENT_COLLECTOR] Filtering events — type={event_type}"
         )
         return [
-            e for e in self._all_events
+            e for e in self._run_timeline.snapshot()
             if e.event_type == event_type
         ]
 
@@ -61,13 +65,13 @@ class EventCollector:
             f"[EVENT_COLLECTOR] Filtering events — source={source}"
         )
         return [
-            e for e in self._all_events
+            e for e in self._run_timeline.snapshot()
             if e.source == source
         ]
 
     def sum_realised_pnl(self) -> float:
         realised_pnl = 0.0
-        for event in self._all_events:
+        for event in self._run_timeline.snapshot():
             if event.event_type != "TRADE_CLOSED":
                 continue
             payload = event.payload or {}
