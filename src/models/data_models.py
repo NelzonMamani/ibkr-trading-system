@@ -8,6 +8,7 @@ to illustrate how information might flow between system stages.
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from domain.performance_snapshot import PerformanceSnapshot
 from domain.trade_outcome import TradeOutcome
 
 
@@ -134,6 +135,7 @@ class TradeRecord:
     risk_output: List[RiskDecision] = field(default_factory=list)
     execution_output: List[ExecutionResult] = field(default_factory=list)
     trade_outcomes: List[TradeOutcome] = field(default_factory=list)
+    performance_snapshot: Optional[PerformanceSnapshot] = None
 
     def __post_init__(self) -> None:
         print(
@@ -141,5 +143,6 @@ class TradeRecord:
             f"{len(self.scanner_output)} scanner, {len(self.pattern_output)} patterns, "
             f"{len(self.strategy_output)} intents, {len(self.risk_output)} risk decisions, "
             f"{len(self.execution_output)} execution results, "
-            f"{len(self.trade_outcomes)} trade outcomes."
+            f"{len(self.trade_outcomes)} trade outcomes, "
+            f"performance_snapshot={'present' if self.performance_snapshot else 'absent'}."
         )
