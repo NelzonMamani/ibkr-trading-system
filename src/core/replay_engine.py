@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Iterable, Optional
+
+
+@dataclass
+class _ReplayState:
+    last_perf_snapshot: Optional[dict[str, Any]] = None
+
+
+class ReplayEngine:
+    """
+    Deterministic, read-only event replay engine.
+
+    Replay relies solely on the event payloads that were emitted during the live
+    cycle. No registries or runtime state are mutated during replay.
+    """
+
+    def __init__(self) -> None:
+        self._state = _ReplayState()
+
+    def replay(self, events: Iterable[Any]) -> None:
+        print("[REPLAY] Starting deterministic event replay")
+        self._state.last_perf_snapshot = None
+
+        for event in sorted(events or [], key=lambda e: e.timestamp):
+            self._log_event(event)
+            if getattr(event, "event_type", None) == "PERF_SNAPSHOT":
+                self._record_perf_snapshot(event.payload)
+
+        self._log_performance_summary()
+        print("[REPLAY] Replay complete")
+
+    def _log_event(self, event: Any) -> None:
+        print(
+            f"[REPLAY] {event.timestamp} | "
+            f"{event.event_type} | {event.source} | "
+            f"{event.payload}"
+        )
+
+    def _record_perf_snapshot(self, payload: Any) -> None:
+        if isinstance(payload, dict):
+            self._state.last_perf_snapshot = payload
+
+    def _log_performance_summary(self) -> None:
+        if not self._state.last_perf_snapshot:
+            print("[REPLAY][PERF] No PERF_SNAPSHOT events encountered during replay")
+            return
+
+        snapshot = self._state.last_perf_snapshot
+        total_trades = int(snapshot.get("total_trades", 0))
+        win_rate = float(snapshot.get("win_rate", 0.0))
+        gross_pnl = float(snapshot.get("gross_pnl", 0.0))
+
+        print("[REPLAY][PERF] Final performance snapshot reconstructed from events")
+        print(
+            "[REPLAY][PERF] "
+            f"total_trades={total_trades} "
+            f"win_rate={win_rate:.2f} "
+            f"gross_pnl={gross_pnl:.2f}"
+        )
