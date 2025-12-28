@@ -8,6 +8,7 @@ class StrategyPerformanceSnapshot:
     total_trades: int
     wins: int
     losses: int
+    flats: int
     gross_pnl: float
 
     @property
@@ -39,18 +40,27 @@ class StrategyPerformanceTracker:
             pnl_value = float(pnl)
         except (TypeError, ValueError):
             pnl_value = 0.0
+        pnl_value = round(pnl_value, 2)
 
         bucket = self._by_strategy.setdefault(
             strategy_name,
-            {"total_trades": 0, "wins": 0, "losses": 0, "gross_pnl": 0.0},
+            {
+                "total_trades": 0,
+                "wins": 0,
+                "losses": 0,
+                "flats": 0,
+                "gross_pnl": 0.0,
+            },
         )
 
         bucket["total_trades"] += 1
         bucket["gross_pnl"] += pnl_value
         if pnl_value > 0:
             bucket["wins"] += 1
-        else:
+        elif pnl_value < 0:
             bucket["losses"] += 1
+        else:
+            bucket["flats"] += 1
 
     def snapshot(self) -> List[StrategyPerformanceSnapshot]:
         snapshots = [
@@ -59,6 +69,7 @@ class StrategyPerformanceTracker:
                 total_trades=bucket["total_trades"],
                 wins=bucket["wins"],
                 losses=bucket["losses"],
+                flats=bucket["flats"],
                 gross_pnl=bucket["gross_pnl"],
             )
             for strategy_name, bucket in self._by_strategy.items()
