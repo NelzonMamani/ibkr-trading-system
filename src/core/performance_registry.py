@@ -1,50 +1,55 @@
+from typing import Iterable
+
+from core.events import SystemEvent
 from domain.performance_snapshot import PerformanceSnapshot
-from domain.trade_outcome import TradeOutcome
 
 
 class PerformanceRegistry:
     """
-    In-memory registry that aggregates TradeOutcome records.
+    In-memory registry that aggregates trade performance from authoritative events.
 
-    This class is intentionally side-effect free and maintains an internal
-    collection of trade outcomes as the single source of truth for performance
-    metrics.
+    TRADE_CLOSED events are treated as the single source of truth. Metrics are
+    derived directly from recorded event payloads to guarantee alignment
+    between replay, accounting, and runtime reporting.
     """
 
     def __init__(self) -> None:
-        self._outcomes: list[TradeOutcome] = []
+        self._closed_trades: list[dict] = []
 
-    def record(self, outcomes: list[TradeOutcome]) -> None:
-        if not outcomes:
+    def record(self, events: Iterable[SystemEvent]) -> None:
+        if not events:
             return
-        self._outcomes.extend(outcomes)
+        for event in events:
+            self._record_event(event)
+
+    def _record_event(self, event: SystemEvent) -> None:
+        if getattr(event, "event_type", None) != "TRADE_CLOSED":
+            return
+        payload = event.payload or {}
+        realised_pnl = round(self._extract_realised_pnl(payload), 2)
+        normalised_payload = {
+            "symbol": payload.get("symbol", "UNKNOWN"),
+            "trader_type": payload.get("trader_type", "UNKNOWN"),
+            "strategy_name": payload.get("strategy_name", "UNKNOWN"),
+            "realised_pnl": realised_pnl,
+            "outcome": self._classify_outcome(realised_pnl),
+        }
+        self._closed_trades.append(normalised_payload)
 
     def snapshot(self) -> PerformanceSnapshot:
-        total_trades = len(self._outcomes)
-        wins = sum(1 for outcome in self._outcomes if outcome.outcome == "WIN")
-        losses = sum(1 for outcome in self._outcomes if outcome.outcome == "LOSS")
-        flats = sum(1 for outcome in self._outcomes if outcome.outcome == "FLAT")
-        gross_pnl = sum(outcome.realised_pnl for outcome in self._outcomes)
+        total_trades = len(self._closed_trades)
+        wins = sum(1 for trade in self._closed_trades if trade["outcome"] == "WIN")
+        losses = sum(1 for trade in self._closed_trades if trade["outcome"] == "LOSS")
+        flats = sum(1 for trade in self._closed_trades if trade["outcome"] == "FLAT")
+        gross_pnl = round(
+            sum(trade["realised_pnl"] for trade in self._closed_trades), 2
+        )
 
         win_rate = wins / total_trades if total_trades else 0.0
         avg_pnl_per_trade = gross_pnl / total_trades if total_trades else 0.0
 
-        by_strategy: dict[str, dict[str, float | int]] = {}
-        by_trader_type: dict[str, dict[str, float | int]] = {}
-
-        for outcome in self._outcomes:
-            strategy_bucket = by_strategy.setdefault(
-                outcome.strategy_name, self._create_empty_bucket()
-            )
-            trader_type_bucket = by_trader_type.setdefault(
-                outcome.trader_type, self._create_empty_bucket()
-            )
-
-            self._update_bucket(strategy_bucket, outcome)
-            self._update_bucket(trader_type_bucket, outcome)
-
-        self._finalize_bucket_metrics(by_strategy)
-        self._finalize_bucket_metrics(by_trader_type)
+        by_strategy = self._build_buckets(self._closed_trades, "strategy_name")
+        by_trader_type = self._build_buckets(self._closed_trades, "trader_type")
 
         return PerformanceSnapshot(
             total_trades=total_trades,
@@ -57,6 +62,19 @@ class PerformanceRegistry:
             by_strategy=by_strategy,
             by_trader_type=by_trader_type,
         )
+
+    def _build_buckets(
+        self,
+        trades: list[dict],
+        key: str,
+    ) -> dict[str, dict[str, float | int]]:
+        buckets: dict[str, dict[str, float | int]] = {}
+        for trade in trades:
+            bucket_key = trade.get(key, "UNKNOWN")
+            bucket = buckets.setdefault(bucket_key, self._create_empty_bucket())
+            self._update_bucket(bucket, trade)
+        self._finalize_bucket_metrics(buckets)
+        return buckets
 
     @staticmethod
     def _create_empty_bucket() -> dict[str, float | int]:
@@ -71,14 +89,14 @@ class PerformanceRegistry:
         }
 
     @staticmethod
-    def _update_bucket(bucket: dict[str, float | int], outcome: TradeOutcome) -> None:
+    def _update_bucket(bucket: dict[str, float | int], trade: dict) -> None:
         bucket["total_trades"] += 1
-        bucket["gross_pnl"] += outcome.realised_pnl
-        if outcome.outcome == "WIN":
+        bucket["gross_pnl"] += trade["realised_pnl"]
+        if trade["outcome"] == "WIN":
             bucket["wins"] += 1
-        elif outcome.outcome == "LOSS":
+        elif trade["outcome"] == "LOSS":
             bucket["losses"] += 1
-        elif outcome.outcome == "FLAT":
+        elif trade["outcome"] == "FLAT":
             bucket["flats"] += 1
 
     @staticmethod
@@ -91,3 +109,17 @@ class PerformanceRegistry:
             bucket["avg_pnl_per_trade"] = (
                 gross_pnl / total_trades if total_trades else 0.0
             )
+
+    @staticmethod
+    def _extract_realised_pnl(payload: dict) -> float:
+        if payload is None:
+            return 0.0
+        return float(payload.get("realised_pnl", payload.get("pnl", 0.0)))
+
+    @staticmethod
+    def _classify_outcome(realised_pnl: float) -> str:
+        if realised_pnl > 0:
+            return "WIN"
+        if realised_pnl < 0:
+            return "LOSS"
+        return "FLAT"

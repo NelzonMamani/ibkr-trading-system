@@ -485,7 +485,13 @@ class CoreOrchestrator:
         if self._stop_requested_at_boundary("TRADE_EXIT"):
             return False
 
-        self.performance_registry.record(trade_outcomes or [])
+        closed_trade_events = [
+            event
+            for event in self.event_collector.snapshot_cycle()
+            if event.event_type == "TRADE_CLOSED"
+        ]
+
+        self.performance_registry.record(closed_trade_events)
         performance_snapshot = self.performance_registry.snapshot()
         print(
             "[PERF] "
@@ -510,11 +516,6 @@ class CoreOrchestrator:
             payload=asdict(performance_snapshot),
         )
         print(perf_snapshot_event)
-        closed_trade_events = [
-            event
-            for event in self.event_collector.snapshot_cycle()
-            if event.event_type == "TRADE_CLOSED"
-        ]
         for event in closed_trade_events:
             self.strategy_perf_tracker.record_trade_close(event.payload or {})
         strategy_snapshots = self.strategy_perf_tracker.snapshot()
