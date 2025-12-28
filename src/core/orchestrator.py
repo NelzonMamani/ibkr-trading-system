@@ -53,13 +53,21 @@ class CoreOrchestrator:
 
         print("[REPLAY] Replay complete")
 
+    def replay_cycle_events(self):
+        print("[REPLAY] Initiating cycle-scoped replay")
+        self.replay_events(self.event_collector.snapshot_cycle())
+
+    def replay_all_events(self):
+        print("[REPLAY] Initiating full-run replay")
+        self.replay_events(self.event_collector.snapshot_all())
+
     def run_once(self):
         """Run a single conceptual system cycle in teaching order."""
         print("[INFO] Starting orchestrator cycle (teaching-only).")
         tick = self.sim_clock.tick()
         print(f"[CYCLE_CTX] tick={tick} run_mode={self.run_mode}")
         self.execution_engine.current_tick = tick
-        self.event_collector.clear_cycle_events()
+        self.event_collector.clear_cycle()
         event = SystemEvent(
             event_type="CYCLE_START",
             source="Orchestrator",
@@ -180,15 +188,21 @@ class CoreOrchestrator:
         )
 
         print("[INFO] Orchestrator cycle complete (teaching-only).")
+        cycle_snapshot = self.event_collector.snapshot_cycle()
+        all_snapshot = self.event_collector.snapshot_all()
+        cycle_event_count = len(cycle_snapshot)
+        all_event_count = len(all_snapshot)
         print(
-            f"[EVENT_SUMMARY] Cycle produced {self.event_collector.count()} total events"
+            f"[EVENT_SUMMARY] Cycle produced {cycle_event_count} event(s) (cycle scope)"
         )
-        snapshot = self.event_collector.snapshot_all_events()
+        print(
+            f"[EVENT_SUMMARY] Run has {all_event_count} total event(s) (all cycles)"
+        )
         print(
             f"[EVENT_SNAPSHOT] Captured "
-            f"{len(snapshot)} events for replay"
+            f"{len(cycle_snapshot)} events for replay"
         )
-        for event in snapshot:
+        for event in cycle_snapshot:
             print(
                 f"[EVENT_SUMMARY] {event.timestamp} | {event.event_type} | {event.source}"
             )
@@ -227,4 +241,4 @@ class CoreOrchestrator:
         )
         print(f"[PNL_BY_STRATEGY] {pnl_by_trader_type_summary}")
         print("[REPLAY] Initiating replay for teaching verification")
-        self.replay_events(snapshot)
+        self.replay_cycle_events()

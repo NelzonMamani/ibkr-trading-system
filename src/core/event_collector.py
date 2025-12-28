@@ -8,16 +8,18 @@ class EventCollector:
         self._cycle_events = []
         self._all_events = []
 
+    def clear_cycle(self):
+        print("[EVENT_COLLECTOR] Clearing cycle-scoped events")
+        self._cycle_events.clear()
+
     def record_event(self, event):
         self._cycle_events.append(event)
         self._all_events.append(event)
 
-    def clear_cycle_events(self):
-        print("[EVENT_COLLECTOR] Clearing cycle-scoped events")
-        self._cycle_events.clear()
+    def snapshot_cycle(self):
+        return list(self._cycle_events)
 
-    def snapshot_all_events(self):
-        print("[EVENT_COLLECTOR] Snapshotting all events")
+    def snapshot_all(self):
         return list(self._all_events)
 
     def count(self, event_type: str = None):
@@ -94,5 +96,11 @@ class EventCollector:
     def record(self, event):
         self.record_event(event)
 
-    def snapshot(self):
-        return self.snapshot_all_events()
+    def snapshot_cycle_events(self):
+        return self.snapshot_cycle()
+
+    def snapshot_all_events(self):
+        return self.snapshot_all()
+
+    def clear_cycle_events(self):
+        self.clear_cycle()
