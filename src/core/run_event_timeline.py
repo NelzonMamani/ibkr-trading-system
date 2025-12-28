@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 
 class RunEventTimeline:
@@ -84,3 +85,42 @@ class RunEventTimeline:
             event for event in self._events
             if start <= event.timestamp <= end
         ]
+
+    def serialize_filtered(self, events) -> list[dict]:
+        return [
+            self.serialize_event(event)
+            for event in events
+        ]
+
+    def serialize_all(self) -> list[dict]:
+        return self.serialize_filtered(self._events)
+
+    def get_latest_cycle_start_index(self) -> Optional[int]:
+        for index in range(len(self._events) - 1, -1, -1):
+            if self._events[index].event_type == "CYCLE_START":
+                return index
+        return None
+
+    def get_latest_cycle_events(self) -> list:
+        latest_cycle_start_index = self.get_latest_cycle_start_index()
+        if latest_cycle_start_index is None:
+            return []
+        return self._events[latest_cycle_start_index:]
+
+    def export_latest_cycle_snapshot(self) -> dict:
+        events = self.get_latest_cycle_events()
+
+        return {
+            "scope": "CYCLE",
+            "event_count": len(events),
+            "events": self.serialize_filtered(events),
+        }
+
+    def export_run_snapshot(self) -> dict:
+        events = self.snapshot()
+
+        return {
+            "scope": "RUN",
+            "event_count": len(events),
+            "events": self.serialize_filtered(events),
+        }
