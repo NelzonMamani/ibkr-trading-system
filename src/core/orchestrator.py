@@ -12,6 +12,12 @@ from config.runtime_config import RunMode, get_run_mode
 from config.system_config import EventReplayMode, get_event_replay_mode
 from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
+from core.faults import (
+    RecoveryAction,
+    classify_exception,
+    decide_recovery_action,
+    fault_to_payload,
+)
 from core.performance_registry import PerformanceRegistry
 from core.replay_engine import ReplayEngine
 from execution.execution_engine import ExecutionEngine
@@ -80,6 +86,14 @@ class CoreOrchestrator:
 
     def run_once(self) -> bool:
         """Run a single conceptual system cycle in teaching order."""
+        try:
+            return self._run_once_inner()
+        except SystemExit:
+            raise
+        except Exception as exc:
+            return self._handle_fault(exc)
+
+    def _run_once_inner(self) -> bool:
         print("[INFO] Starting orchestrator cycle (teaching-only).")
         tick = self.sim_clock.tick()
         print(f"[CYCLE_CTX] tick={tick} run_mode={self.run_mode.value}")
@@ -524,6 +538,40 @@ class CoreOrchestrator:
             return True
         self.replay_events(events_for_replay)
         return True
+
+    def _handle_fault(self, exc: Exception) -> bool:
+        fault = classify_exception(exc)
+        fault_event = self.event_collector.emit(
+            event_type="FAULT_DETECTED",
+            source="Orchestrator",
+            payload=fault_to_payload(fault, self.run_mode),
+        )
+        print(fault_event)
+        action = decide_recovery_action(fault, self.run_mode)
+        action_event = self.event_collector.emit(
+            event_type="FAULT_ACTION_TAKEN",
+            source="Orchestrator",
+            payload=fault_to_payload(fault, self.run_mode, action),
+        )
+        print(action_event)
+
+        if action == RecoveryAction.IGNORE:
+            print("[FAULT] Action=IGNORE — continuing cycle execution.")
+            return True
+        if action == RecoveryAction.RETRY:
+            print("[FAULT] Action=RETRY — bounded retry not implemented; aborting cycle.")
+            return False
+        if action == RecoveryAction.SKIP_STAGE:
+            print("[FAULT] Action=SKIP_STAGE — skipping stage not implemented; aborting cycle.")
+            return False
+        if action == RecoveryAction.ABORT_CYCLE:
+            print("[FAULT] Action=ABORT_CYCLE — aborting current cycle safely.")
+            return False
+        if action == RecoveryAction.HALT_SYSTEM:
+            print("[FAULT] Action=HALT_SYSTEM — halting orchestrator safely.")
+            self._halted = True
+            raise SystemExit("[HALT] Fault requires system halt.")
+        return False
 
     def _evaluate_runtime_safety(
         self,
