@@ -35,6 +35,23 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
     "PERF_SNAPSHOT": {"total_trades"},
     "TRADE_BLOCKED": {"symbol", "trader_type", "reason"},
     "RUNTIME_SAFETY_VIOLATION": {"stage", "run_mode", "replay_mode", "violations"},
+    "FAULT_DETECTED": {
+        "category",
+        "severity",
+        "message",
+        "exception_type",
+        "run_mode",
+        "timestamp",
+    },
+    "FAULT_ACTION_TAKEN": {
+        "category",
+        "severity",
+        "message",
+        "exception_type",
+        "run_mode",
+        "timestamp",
+        "recommended_action",
+    },
 }
 
 
@@ -67,6 +84,8 @@ OPTIONAL_FIELDS: Dict[str, Set[str]] = {
         "duplicate_keys",
         "stage_exception",
     },
+    "FAULT_DETECTED": {"stack_hint", "recommended_action"},
+    "FAULT_ACTION_TAKEN": {"stack_hint"},
 }
 
 

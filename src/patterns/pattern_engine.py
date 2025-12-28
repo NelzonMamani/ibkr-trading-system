@@ -7,7 +7,7 @@ No real pattern recognition, indicators, or scoring logic is present.
 
 from typing import List
 
-from src.models.data_models import PatternResult, ScannerCandidate
+from models.data_models import PatternResult, ScannerCandidate
 
 
 class PatternEngine:

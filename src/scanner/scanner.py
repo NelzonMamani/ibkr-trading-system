@@ -7,7 +7,7 @@ No real scanning logic is implemented; outputs are empty for demonstration.
 
 from typing import List
 
-from src.models.data_models import ScannerCandidate
+from models.data_models import ScannerCandidate
 
 
 class Scanner:
