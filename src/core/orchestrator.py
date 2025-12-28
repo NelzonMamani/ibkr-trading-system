@@ -29,7 +29,10 @@ class CoreOrchestrator:
         self.run_mode = get_run_mode()
         self.replay_mode = get_event_replay_mode(self.run_mode)
         if self.run_mode == RunMode.LIVE and self.replay_mode != EventReplayMode.OFF:
-            raise RuntimeError("Replay must be OFF in LIVE mode")
+            print(
+                "[SAFETY] Replay request detected in LIVE. Forcing EVENT_REPLAY_MODE=OFF."
+            )
+            self.replay_mode = EventReplayMode.OFF
         self.sim_clock = SimClock()
         self.price_feed = DeterministicPriceFeed()
         self.event_collector = EventCollector()
