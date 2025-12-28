@@ -56,9 +56,11 @@ class CoreOrchestrator:
             configured_mode = "OFF"
 
         if run_mode_value == RunMode.LIVE.value:
-            print(
-                "[REPLAY] Run mode LIVE detected — forcing replay mode OFF for safety"
-            )
+            if configured_mode != "OFF":
+                raise RuntimeError(
+                    "[REPLAY] Event replay is forbidden in LIVE mode — "
+                    "set EVENT_REPLAY_MODE=OFF or switch to SIM/PAPER"
+                )
             return "OFF"
 
         if run_mode_value != RunMode.SIM.value and configured_mode == "ALL":
@@ -273,6 +275,9 @@ class CoreOrchestrator:
             f"[REPLAY] Replay selection — mode={self.replay_mode} "
             f"run_mode={run_mode_value}"
         )
+        if run_mode_value == RunMode.LIVE.value:
+            print("[REPLAY] Replay is locked down in LIVE mode — skipping replay")
+            return
         events_for_replay = self.event_collector.get_events_for_replay(
             self.replay_mode
         )
