@@ -38,6 +38,14 @@ class RunEventTimeline:
             "by_source": self.count_by_source(),
         }
 
+    def serialize_event(self, event) -> dict:
+        return {
+            "event_type": event.event_type,
+            "source": event.source,
+            "payload": event.payload,
+            "timestamp": event.timestamp.isoformat(),
+        }
+
     def filter_by_type(self, event_type: str):
         return [
             event
