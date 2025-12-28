@@ -15,7 +15,7 @@ class RunMode(str, Enum):
 
 
 # DEFAULT_RUN_MODE: RunMode = RunMode.SIM
-DEFAULT_RUN_MODE: RunMode = RunMode.LIVE
+DEFAULT_RUN_MODE: RunMode = RunMode.SIM
 
 
 def get_run_mode() -> RunMode:

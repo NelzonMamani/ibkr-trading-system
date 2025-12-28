@@ -54,6 +54,9 @@ class ExecutionEngine:
 
         trader_type = getattr(risk_decision, "trader_type", "MANUAL")
         symbol = getattr(risk_decision, "symbol", "UNKNOWN")
+        direction = getattr(risk_decision, "direction", "UNKNOWN")
+        strategy_name = getattr(risk_decision, "strategy_name", "UNKNOWN")
+        quantity = getattr(risk_decision, "max_position_size", 1)
         print(
             "[EXECUTION:REGISTRY] Current active trades snapshot by trader_type "
             f"{trader_type}: {self.trade_registry.count_active_by_trader(trader_type)}"
@@ -71,6 +74,8 @@ class ExecutionEngine:
                     "Risk engine blocked this trade; no execution attempted in "
                     "teaching-only mode."
                 ),
+                direction=direction,
+                quantity=quantity,
             )
 
         print(
@@ -84,6 +89,9 @@ class ExecutionEngine:
             trader_type=trader_type,
             entry_tick=tick,
             entry_price=entry_price,
+            direction=direction,
+            quantity=quantity,
+            strategy_name=strategy_name,
         )
         self.trade_registry.register_trade(active_trade)
         self.event_collector.record(
@@ -176,6 +184,10 @@ class ExecutionEngine:
             attempted=True,
             status="SIMULATED",
             rationale="Teaching-only: routed by trader_type with no broker execution in SIM mode.",
+            direction=direction,
+            quantity=quantity,
+            entry_price=entry_price,
+            entry_tick=tick,
         )
 
     def complete_trade(self, symbol: str, trader_type: str) -> None:

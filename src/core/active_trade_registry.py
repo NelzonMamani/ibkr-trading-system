@@ -8,6 +8,9 @@ class ActiveTrade:
     trader_type: str
     entry_tick: int
     entry_price: float
+    direction: str = "UNKNOWN"
+    quantity: int = 1
+    strategy_name: str = "UNKNOWN"
     close_tick: Optional[int] = None
     close_price: Optional[float] = None
     realised_pnl: Optional[float] = None
@@ -28,7 +31,10 @@ class ActiveTradeRegistry:
             f"symbol={active_trade.symbol} "
             f"trader_type={active_trade.trader_type} "
             f"entry_tick={active_trade.entry_tick} "
-            f"entry_price={active_trade.entry_price}"
+            f"entry_price={active_trade.entry_price} "
+            f"direction={active_trade.direction} "
+            f"quantity={active_trade.quantity} "
+            f"strategy={active_trade.strategy_name}"
         )
         self._active_trades.append(active_trade)
 

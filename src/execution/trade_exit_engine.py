@@ -1,9 +1,12 @@
-from typing import List
+from typing import List, Tuple, Optional
 from datetime import datetime
 
 from core.active_trade_registry import ActiveTradeRegistry
 from core.events import SystemEvent
 from models.data_models import ExecutionResult
+from core.trade_outcome_factory import TradeOutcomeFactory
+from domain.trade_outcome import TradeOutcome
+from sim.price_feed import DeterministicPriceFeed
 
 
 class TradeExitEngine:
@@ -14,11 +17,21 @@ class TradeExitEngine:
     intentional, and extendable.
     """
 
-    def __init__(self, trade_registry: ActiveTradeRegistry, event_collector):
+    def __init__(
+        self,
+        trade_registry: ActiveTradeRegistry,
+        event_collector,
+        price_feed: Optional[DeterministicPriceFeed] = None,
+    ):
         self.trade_registry = trade_registry
         self.event_collector = event_collector
+        self.price_feed = price_feed or DeterministicPriceFeed()
 
-    def evaluate_and_close_trades(self, run_mode: str, tick: int) -> List[ExecutionResult]:
+    def evaluate_and_close_trades(
+        self,
+        run_mode: str,
+        tick: int,
+    ) -> Tuple[List[ExecutionResult], List[TradeOutcome]]:
         """
         Evaluate open trades and close them using simple teaching rules.
 
@@ -28,19 +41,28 @@ class TradeExitEngine:
         """
 
         results: List[ExecutionResult] = []
+        trade_outcomes: List[TradeOutcome] = []
 
         normalized_run_mode = (getattr(run_mode, "value", run_mode) or "").upper()
         if normalized_run_mode == "SIM":
-            return results
+            return results, trade_outcomes
 
         active_trades = self.trade_registry.snapshot()
 
         for trade in active_trades:
             symbol = getattr(trade, "symbol", None)
             trader_type = getattr(trade, "trader_type", "UNKNOWN")
+            direction = getattr(trade, "direction", "UNKNOWN")
+            quantity = getattr(trade, "quantity", 1)
+            strategy_name = getattr(trade, "strategy_name", "UNKNOWN")
+            entry_price = getattr(trade, "entry_price", 0.0)
+            entry_tick = getattr(trade, "entry_tick", tick)
+            exit_tick = tick
 
             if symbol is None:
                 continue
+
+            exit_price = self.price_feed.price_for(symbol, exit_tick)
 
             self.trade_registry.unregister_trade(symbol, trader_type)
 
@@ -54,19 +76,35 @@ class TradeExitEngine:
                         "tick": tick,
                         "reason": "Teaching exit after 1 tick",
                         "mode": normalized_run_mode,
+                        "entry_tick": entry_tick,
+                        "entry_price": entry_price,
+                        "exit_tick": exit_tick,
+                        "exit_price": exit_price,
                     },
                     timestamp=datetime.utcnow(),
                 )
             )
 
-            results.append(
-                ExecutionResult(
-                    symbol=symbol,
+            closed_result = ExecutionResult(
+                symbol=symbol,
+                trader_type=trader_type,
+                attempted=True,
+                status="CLOSED",
+                rationale="Teaching-only exit via TradeExitEngine",
+                direction=direction,
+                quantity=quantity,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                entry_tick=entry_tick,
+                exit_tick=exit_tick,
+            )
+            results.append(closed_result)
+            trade_outcomes.append(
+                TradeOutcomeFactory.from_execution_result(
+                    closed_result,
+                    strategy_name=strategy_name,
                     trader_type=trader_type,
-                    attempted=True,
-                    status="CLOSED",
-                    rationale="Teaching-only exit via TradeExitEngine",
                 )
             )
 
-        return results
+        return results, trade_outcomes

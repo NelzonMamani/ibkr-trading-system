@@ -8,6 +8,8 @@ to illustrate how information might flow between system stages.
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from domain.trade_outcome import TradeOutcome
+
 
 @dataclass
 class ScannerCandidate:
@@ -96,6 +98,8 @@ class RiskDecision:
     risk_level: str
     rationale: str
     trader_type: str = "MANUAL"
+    strategy_name: str = "UNKNOWN"
+    direction: str = "UNKNOWN"
 
 
 @dataclass
@@ -112,6 +116,12 @@ class ExecutionResult:
     attempted: bool
     status: str  # "SKIPPED" or "SIMULATED" to reinforce safety.
     rationale: str
+    direction: str = "UNKNOWN"
+    quantity: int = 1
+    entry_price: Optional[float] = None
+    exit_price: Optional[float] = None
+    entry_tick: Optional[int] = None
+    exit_tick: Optional[int] = None
 
 
 @dataclass
@@ -123,11 +133,13 @@ class TradeRecord:
     strategy_output: List[TradeIntent] = field(default_factory=list)
     risk_output: List[RiskDecision] = field(default_factory=list)
     execution_output: List[ExecutionResult] = field(default_factory=list)
+    trade_outcomes: List[TradeOutcome] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         print(
             "[STORAGE] TradeRecord instantiated — capturing lists for each stage with "
             f"{len(self.scanner_output)} scanner, {len(self.pattern_output)} patterns, "
             f"{len(self.strategy_output)} intents, {len(self.risk_output)} risk decisions, "
-            f"{len(self.execution_output)} execution results."
+            f"{len(self.execution_output)} execution results, "
+            f"{len(self.trade_outcomes)} trade outcomes."
         )
