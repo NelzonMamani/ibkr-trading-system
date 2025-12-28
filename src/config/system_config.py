@@ -16,22 +16,6 @@ class EventReplayMode(str, Enum):
 
 
 DEFAULT_EVENT_REPLAY_MODE: EventReplayMode = EventReplayMode.CYCLE
-LEGACY_REPLAY_ENV_KEYS = ["EVENT_REPLAY_MODE", "REPLAY_MODE"]
-
-
-def _read_replay_mode_from_env() -> tuple[str | None, str | None]:
-    """
-    Return the first configured replay mode env value (supports legacy alias).
-
-    Preferred key is EVENT_REPLAY_MODE. REPLAY_MODE is accepted for backwards
-    compatibility but not advertised.
-    """
-
-    for key in LEGACY_REPLAY_ENV_KEYS:
-        raw = os.getenv(key)
-        if raw:
-            return raw.strip().upper(), key
-    return None, None
 
 
 def get_event_replay_mode(run_mode: RunMode) -> EventReplayMode:
@@ -42,16 +26,10 @@ def get_event_replay_mode(run_mode: RunMode) -> EventReplayMode:
     - LIVE always forces OFF
     - SIM / PAPER allow ENV override
     """
-    raw, source = _read_replay_mode_from_env()
-
     if run_mode == RunMode.LIVE:
-        if raw and raw != EventReplayMode.OFF.value:
-            print(
-                f"[SYSTEM] EVENT_REPLAY_MODE request '{raw}' (via {source}) ignored in LIVE; "
-                "forcing OFF for safety."
-            )
         return EventReplayMode.OFF
 
+    raw = (os.getenv("EVENT_REPLAY_MODE") or "").strip().upper()
     if not raw:
         return DEFAULT_EVENT_REPLAY_MODE
 
@@ -59,19 +37,10 @@ def get_event_replay_mode(run_mode: RunMode) -> EventReplayMode:
         return EventReplayMode(raw)
     except ValueError:
         print(
-            f"[SYSTEM] Invalid EVENT_REPLAY_MODE='{raw}' from {source or 'ENV'}. "
+            f"[SYSTEM] Invalid EVENT_REPLAY_MODE='{raw}'. "
             f"Falling back to default {DEFAULT_EVENT_REPLAY_MODE}."
         )
         return DEFAULT_EVENT_REPLAY_MODE
-
-
-# Backwards compatible helper for legacy callers.
-def get_replay_mode(run_mode: RunMode) -> EventReplayMode:
-    return get_event_replay_mode(run_mode)
-
-
-# Backwards compatible constant for older references.
-DEFAULT_REPLAY_MODE = DEFAULT_EVENT_REPLAY_MODE
 
 
 # Sleep interval (in seconds) between orchestrator cycles. Kept short for
