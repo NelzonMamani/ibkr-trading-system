@@ -1,5 +1,7 @@
 from datetime import datetime
 from typing import Optional
+import json
+import hashlib
 
 
 class RunEventTimeline:
@@ -38,6 +40,36 @@ class RunEventTimeline:
             "by_type": self.count_by_type(),
             "by_source": self.count_by_source(),
         }
+
+    def _checksum_payload(self, snapshot: dict) -> str:
+        """
+        Build a deterministic JSON string for checksum generation.
+
+        Only the snapshot's meaningful data is included in the checksum so
+        verification is stable even after adding metadata fields like the
+        checksum itself.
+        """
+
+        checksum_payload = {
+            "scope": snapshot["scope"],
+            "event_count": snapshot["event_count"],
+            "events": snapshot["events"],
+        }
+
+        return json.dumps(
+            checksum_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+
+    def generate_checksum(self, snapshot: dict) -> str:
+        """
+        Create a deterministic checksum for the provided snapshot.
+        """
+
+        payload = self._checksum_payload(snapshot)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def serialize_event(self, event) -> dict:
         return {
@@ -117,7 +149,7 @@ class RunEventTimeline:
         if not isinstance(snapshot, dict):
             raise ValueError("Snapshot must be a dictionary")
 
-        required_keys = {"scope", "event_count", "events"}
+        required_keys = {"scope", "event_count", "events", "checksum"}
         if not required_keys.issubset(snapshot.keys()):
             raise ValueError("Snapshot missing required keys")
 
@@ -131,20 +163,28 @@ class RunEventTimeline:
         if snapshot["event_count"] != len(events):
             raise ValueError("Snapshot event_count does not match events length")
 
+        expected_checksum = self.generate_checksum(snapshot)
+        if snapshot["checksum"] != expected_checksum:
+            raise ValueError("Snapshot checksum does not match content")
+
     def export_latest_cycle_snapshot(self) -> dict:
         events = self.get_latest_cycle_events()
 
-        return {
+        snapshot = {
             "scope": "CYCLE",
             "event_count": len(events),
             "events": self.serialize_filtered(events),
         }
+        snapshot["checksum"] = self.generate_checksum(snapshot)
+        return snapshot
 
     def export_run_snapshot(self) -> dict:
         events = self.snapshot()
 
-        return {
+        snapshot = {
             "scope": "RUN",
             "event_count": len(events),
             "events": self.serialize_filtered(events),
         }
+        snapshot["checksum"] = self.generate_checksum(snapshot)
+        return snapshot
