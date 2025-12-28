@@ -6,7 +6,7 @@ no real trading logic, integrations, or data handling. It exists solely to make
 the system stages and their order easy to follow during this teaching phase.
 """
 from dataclasses import asdict
-from typing import List
+from typing import List, Optional, Set, Tuple
 
 from config.runtime_config import RunMode, get_run_mode
 from config.system_config import EventReplayMode, get_event_replay_mode
@@ -26,6 +26,10 @@ from sim.price_feed import DeterministicPriceFeed
 from storage.storage_engine import StorageEngine
 from strategy.strategy_runner import StrategyRunner
 from events.event_invariants import check_invariants, EventInvariantError
+
+
+class RuntimeSafetyError(RuntimeError):
+    """Raised when a runtime safety gate is violated."""
 
 
 class CoreOrchestrator:
@@ -60,6 +64,7 @@ class CoreOrchestrator:
             event_collector=self.event_collector,
         )
         self.storage_engine = StorageEngine()
+        self._halted = False
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
 
     def replay_events(self, events):
@@ -86,9 +91,29 @@ class CoreOrchestrator:
             payload={"run_mode": self.run_mode}
         )
         print(event)
+        self._evaluate_runtime_safety(
+            cycle_stage="CYCLE_START",
+            stage_exception=None,
+        )
+        if self._halted:
+            return False
 
         print("[TEACH] >>> Scanner stage — gather candidates (conceptual).")
-        scanner_results = self.scanner.run_scan_cycle()
+        try:
+            scanner_results = self.scanner.run_scan_cycle()
+        except Exception as exc:
+            self._evaluate_runtime_safety(
+                cycle_stage="SCANNER",
+                stage_exception=exc,
+            )
+            return False
+        self._evaluate_runtime_safety(
+            cycle_stage="SCANNER",
+            stage_exception=None,
+            scanner_results=scanner_results,
+        )
+        if self._halted:
+            return False
         event = self.event_collector.emit(
             event_type="SCAN_COMPLETE",
             source="Scanner",
@@ -102,15 +127,49 @@ class CoreOrchestrator:
         print("[TEACH] <<< Scanner stage complete — moving to pattern stage.")
 
         print("[TEACH] >>> Pattern stage — evaluate shapes/behaviors (conceptual).")
-        pattern_results = self.pattern_engine.evaluate_patterns(scanner_results or [])
+        try:
+            pattern_results = self.pattern_engine.evaluate_patterns(scanner_results or [])
+        except Exception as exc:
+            self._evaluate_runtime_safety(
+                cycle_stage="PATTERN",
+                stage_exception=exc,
+                scanner_results=scanner_results,
+            )
+            return False
+        self._evaluate_runtime_safety(
+            cycle_stage="PATTERN",
+            stage_exception=None,
+            scanner_results=scanner_results,
+            pattern_results=pattern_results,
+        )
         if not pattern_results:
             print("[PATTERN] No patterns detected — placeholder outcome.")
         else:
             print(f"[PATTERN] Patterns evaluated: {pattern_results}")
         print("[TEACH] <<< Pattern stage complete — moving to strategy stage.")
+        if self._halted:
+            return False
 
         print("[TEACH] >>> Strategy stage — decide on trade ideas (conceptual).")
-        strategy_output = self.strategy_runner.generate_trade_intent(pattern_results or [])
+        try:
+            strategy_output = self.strategy_runner.generate_trade_intent(pattern_results or [])
+        except Exception as exc:
+            self._evaluate_runtime_safety(
+                cycle_stage="STRATEGY",
+                stage_exception=exc,
+                scanner_results=scanner_results,
+                pattern_results=pattern_results,
+            )
+            return False
+        self._evaluate_runtime_safety(
+            cycle_stage="STRATEGY",
+            stage_exception=None,
+            scanner_results=scanner_results,
+            pattern_results=pattern_results,
+            strategy_output=strategy_output,
+        )
+        if self._halted:
+            return False
         event = self.event_collector.emit(
             event_type="STRATEGY_COMPLETE",
             source="StrategyRunner",
@@ -131,19 +190,39 @@ class CoreOrchestrator:
             print(
                 f"[TEACH] Risk engine will evaluate {len(strategy_output)} trade intents individually."
             )
-            for trade_intent in strategy_output:
-                print(
-                    f"[TEACH] Evaluating risk for symbol: {trade_intent.symbol} "
-                    f"(trader_type={trade_intent.trader_type})"
+            try:
+                for trade_intent in strategy_output:
+                    print(
+                        f"[TEACH] Evaluating risk for symbol: {trade_intent.symbol} "
+                        f"(trader_type={trade_intent.trader_type})"
+                    )
+                    decision = self.risk_engine.evaluate_trade_intent(trade_intent)
+                    decision.trader_type = getattr(trade_intent, "trader_type", "MANUAL")
+                    risk_output.append(decision)
+            except Exception as exc:
+                self._evaluate_runtime_safety(
+                    cycle_stage="RISK",
+                    stage_exception=exc,
+                    scanner_results=scanner_results,
+                    pattern_results=pattern_results,
+                    strategy_output=strategy_output,
                 )
-                decision = self.risk_engine.evaluate_trade_intent(trade_intent)
-                decision.trader_type = getattr(trade_intent, "trader_type", "MANUAL")
-                risk_output.append(decision)
+                return False
             if not risk_output:
                 print("[RISK] No risk decision produced — placeholder outcome.")
             else:
                 print(f"[RISK] Risk decision produced: {risk_output}")
+        self._evaluate_runtime_safety(
+            cycle_stage="RISK",
+            stage_exception=None,
+            scanner_results=scanner_results,
+            pattern_results=pattern_results,
+            strategy_output=strategy_output,
+            risk_output=risk_output,
+        )
         print("[TEACH] <<< Risk stage complete — moving to execution stage.")
+        if self._halted:
+            return False
 
         print("[TEACH] >>> Execution stage — send/prepare orders (conceptual).")
         execution_output: List[ExecutionResult] = []
@@ -156,11 +235,31 @@ class CoreOrchestrator:
                     f"[TEACH] Routing execution for symbol: {risk_decision.symbol} "
                     f"(trader_type={risk_decision.trader_type})"
                 )
-                execution_output.append(self.execution_engine.execute_trade(risk_decision))
+                try:
+                    execution_output.append(self.execution_engine.execute_trade(risk_decision))
+                except Exception as exc:
+                    self._evaluate_runtime_safety(
+                        cycle_stage="EXECUTION",
+                        stage_exception=exc,
+                        scanner_results=scanner_results,
+                        pattern_results=pattern_results,
+                        strategy_output=strategy_output,
+                        risk_output=risk_output,
+                    )
+                    return False
             if not execution_output:
                 print("[EXECUTION] No execution results captured — placeholder outcome.")
             else:
                 print(f"[EXECUTION] Execution results: {execution_output}")
+        self._evaluate_runtime_safety(
+            cycle_stage="EXECUTION",
+            stage_exception=None,
+            scanner_results=scanner_results,
+            pattern_results=pattern_results,
+            strategy_output=strategy_output,
+            risk_output=risk_output,
+            execution_output=execution_output,
+        )
         event = self.event_collector.emit(
             event_type="EXECUTION_COMPLETE",
             source="ExecutionEngine",
@@ -168,11 +267,36 @@ class CoreOrchestrator:
         )
         print(event)
         print("[TEACH] <<< Execution stage complete — moving to storage stage.")
+        if self._halted:
+            return False
 
         print("[TEACH] >>> Trade Exit stage — manage open trades explicitly.")
-        exit_results, trade_outcomes = self.trade_exit_engine.evaluate_and_close_trades(
-            run_mode=self.run_mode,
-            tick=tick,
+        try:
+            exit_results, trade_outcomes = self.trade_exit_engine.evaluate_and_close_trades(
+                run_mode=self.run_mode,
+                tick=tick,
+            )
+        except Exception as exc:
+            self._evaluate_runtime_safety(
+                cycle_stage="TRADE_EXIT",
+                stage_exception=exc,
+                scanner_results=scanner_results,
+                pattern_results=pattern_results,
+                strategy_output=strategy_output,
+                risk_output=risk_output,
+                execution_output=execution_output,
+            )
+            return False
+        self._evaluate_runtime_safety(
+            cycle_stage="TRADE_EXIT",
+            stage_exception=None,
+            scanner_results=scanner_results,
+            pattern_results=pattern_results,
+            strategy_output=strategy_output,
+            risk_output=risk_output,
+            execution_output=execution_output,
+            exit_results=exit_results,
+            trade_outcomes=trade_outcomes,
         )
         event = self.event_collector.emit(
             event_type="TRADE_EXIT_COMPLETE",
@@ -187,6 +311,8 @@ class CoreOrchestrator:
         if trade_outcomes:
             print(f"[EXIT] Realised trade outcomes: {trade_outcomes}")
         print("[TEACH] <<< Trade Exit stage complete — moving to storage stage.")
+        if self._halted:
+            return False
 
         self.performance_registry.record(trade_outcomes or [])
         performance_snapshot = self.performance_registry.snapshot()
@@ -241,22 +367,65 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Storage stage — record decisions/results (conceptual).")
         print("[TEACH] Creating TradeRecord to capture stage outputs for review.")
-        trade_record = TradeRecord(
-            scanner_output=scanner_results or [],
-            pattern_output=pattern_results or [],
-            strategy_output=strategy_output or [],
-            risk_output=risk_output or [],
-            execution_output=execution_output or [],
-            trade_outcomes=trade_outcomes or [],
-            performance_snapshot=performance_snapshot,
-        )
+        try:
+            trade_record = TradeRecord(
+                scanner_output=scanner_results or [],
+                pattern_output=pattern_results or [],
+                strategy_output=strategy_output or [],
+                risk_output=risk_output or [],
+                execution_output=execution_output or [],
+                trade_outcomes=trade_outcomes or [],
+                performance_snapshot=performance_snapshot,
+            )
+        except Exception as exc:
+            self._evaluate_runtime_safety(
+                cycle_stage="STORAGE",
+                stage_exception=exc,
+                scanner_results=scanner_results,
+                pattern_results=pattern_results,
+                strategy_output=strategy_output,
+                risk_output=risk_output,
+                execution_output=execution_output,
+                exit_results=exit_results,
+                trade_outcomes=trade_outcomes,
+            )
+            return False
         print("[TEACH] TradeRecord encapsulates the journey for teaching purposes.")
-        storage_result = self.storage_engine.store_trade_record(trade_record)
+        try:
+            storage_result = self.storage_engine.store_trade_record(trade_record)
+        except Exception as exc:
+            self._evaluate_runtime_safety(
+                cycle_stage="STORAGE",
+                stage_exception=exc,
+                scanner_results=scanner_results,
+                pattern_results=pattern_results,
+                strategy_output=strategy_output,
+                risk_output=risk_output,
+                execution_output=execution_output,
+                exit_results=exit_results,
+                trade_outcomes=trade_outcomes,
+                trade_record=trade_record,
+            )
+            return False
         if storage_result is None:
             print("[STORAGE] No storage action taken — placeholder outcome.")
         else:
             print(f"[STORAGE] Storage result: {storage_result}")
+        self._evaluate_runtime_safety(
+            cycle_stage="STORAGE",
+            stage_exception=None,
+            scanner_results=scanner_results,
+            pattern_results=pattern_results,
+            strategy_output=strategy_output,
+            risk_output=risk_output,
+            execution_output=execution_output,
+            exit_results=exit_results,
+            trade_outcomes=trade_outcomes,
+            trade_record=trade_record,
+        )
         print("[TEACH] <<< Storage stage complete.")
+        if self._halted:
+            return False
 
         print(
             "[SUMMARY] "
@@ -327,10 +496,19 @@ class CoreOrchestrator:
             print("[INVARIANTS] OK")
         except EventInvariantError as exc:
             print(f"[INVARIANTS] FAILED: {exc}")
-            if self.run_mode == RunMode.LIVE:
-                print("[INVARIANTS] VIOLATION — entering safe halt")
-                return False
-            raise
+            self._evaluate_runtime_safety(
+                cycle_stage="INVARIANTS",
+                stage_exception=exc,
+                scanner_results=scanner_results,
+                pattern_results=pattern_results,
+                strategy_output=strategy_output,
+                risk_output=risk_output,
+                execution_output=execution_output,
+                exit_results=exit_results,
+                trade_outcomes=trade_outcomes,
+                trade_record=trade_record,
+            )
+            return False
         print(
             f"[REPLAY] Replay selection — mode={self.replay_mode.value} "
             f"run_mode={run_mode_value}"
@@ -346,3 +524,104 @@ class CoreOrchestrator:
             return True
         self.replay_events(events_for_replay)
         return True
+
+    def _evaluate_runtime_safety(
+        self,
+        cycle_stage: Optional[str],
+        stage_exception: Optional[BaseException] = None,
+        scanner_results: Optional[list] = None,
+        pattern_results: Optional[list] = None,
+        strategy_output: Optional[list] = None,
+        risk_output: Optional[list] = None,
+        execution_output: Optional[list] = None,
+        exit_results: Optional[list] = None,
+        trade_outcomes: Optional[list] = None,
+        trade_record: Optional[TradeRecord] = None,
+    ) -> None:
+        """
+        Enforce runtime safety gates.
+
+        In LIVE mode, any violation halts the system immediately.
+        In SIM/PAPER, violations raise an exception for visibility.
+        """
+
+        if self._halted:
+            print("[SAFETY] Orchestrator already halted — ignoring subsequent stages.")
+            return
+
+        violations: List[str] = []
+        duplicate_keys: Set[Tuple[str, str]] = set()
+        known_stages = {
+            "CYCLE_START",
+            "SCANNER",
+            "PATTERN",
+            "STRATEGY",
+            "RISK",
+            "EXECUTION",
+            "TRADE_EXIT",
+            "STORAGE",
+            "INVARIANTS",
+        }
+        stage_label = cycle_stage or "UNKNOWN"
+
+        if self.run_mode == RunMode.LIVE and self.replay_mode != EventReplayMode.OFF:
+            violations.append("Replay requested while in LIVE mode")
+        if self.run_mode == RunMode.LIVE and isinstance(self.sim_clock, SimClock):
+            violations.append("Deterministic SimClock detected in LIVE mode")
+        if self.run_mode == RunMode.LIVE and isinstance(
+            self.price_feed, DeterministicPriceFeed
+        ):
+            violations.append("Deterministic price feed detected in LIVE mode")
+
+        active_trades = self.trade_registry.snapshot()
+        if len(active_trades) < 0:
+            violations.append("Active trade count is negative (undefined state)")
+        seen_keys: Set[Tuple[str, str]] = set()
+        for trade in active_trades:
+            key = (trade.symbol, trade.trader_type)
+            if key in seen_keys:
+                duplicate_keys.add(key)
+            seen_keys.add(key)
+        if duplicate_keys:
+            duplicates_display = ", ".join(sorted(f"{s}:{t}" for s, t in duplicate_keys))
+            violations.append(
+                f"Duplicate active trade keys detected: {duplicates_display}"
+            )
+
+        if cycle_stage not in known_stages:
+            violations.append("Orchestrator entered an undefined stage")
+
+        if stage_exception is not None:
+            violations.append(
+                f"Unhandled exception in stage {stage_label}: {stage_exception}"
+            )
+
+        if not violations:
+            return
+
+        payload = {
+            "stage": stage_label,
+            "run_mode": self.run_mode.value,
+            "replay_mode": getattr(self.replay_mode, "value", str(self.replay_mode)),
+            "violations": violations,
+        }
+        if duplicate_keys:
+            payload["duplicate_keys"] = list(duplicate_keys)
+        if stage_exception is not None:
+            payload["exception_type"] = type(stage_exception).__name__
+            payload["exception_message"] = str(stage_exception)
+
+        print(f"[SAFETY] Violations detected at stage={stage_label}: {violations}")
+        violation_event = self.event_collector.emit(
+            event_type="RUNTIME_SAFETY_VIOLATION",
+            source="CoreOrchestrator",
+            payload=payload,
+        )
+        print(violation_event)
+
+        if self.run_mode == RunMode.LIVE:
+            print("[SAFETY] LIVE mode violation — entering deterministic safe halt.")
+            self._halted = True
+            return
+
+        raise RuntimeSafetyError("; ".join(violations))
