@@ -9,6 +9,10 @@ strategy code. Strategies not explicitly listed here default to DISABLED.
 # is allowed to close it. Keeps lifecycle visible across cycles.
 MIN_HOLD_TICKS: int = 2
 
+# Maximum number of ticks a trade may remain open before TradeExitEngine
+# forces an exit. Ensures trades always resolve deterministically.
+MAX_HOLD_TICKS: int = 10
+
 # ==========================================================
 # Strategy enable / disable governance
 # True  = strategy allowed to run
