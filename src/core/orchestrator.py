@@ -17,6 +17,7 @@ from core.performance_registry import PerformanceRegistry
 from core.replay_engine import ReplayEngine
 from execution.execution_engine import ExecutionEngine
 from execution.trade_exit_engine import TradeExitEngine
+from performance.strategy_performance import StrategyPerformanceTracker
 from models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
 from patterns.pattern_engine import PatternEngine
 from risk.risk_engine import RiskEngine
@@ -44,6 +45,7 @@ class CoreOrchestrator:
         self.replay_engine = ReplayEngine()
         self.performance_registry = PerformanceRegistry()
         self.trade_registry = ActiveTradeRegistry()
+        self.strategy_perf_tracker = StrategyPerformanceTracker()
         self.scanner = Scanner()
         self.pattern_engine = PatternEngine()
         self.strategy_runner = StrategyRunner()
@@ -217,6 +219,32 @@ class CoreOrchestrator:
         )
         print(perf_snapshot_event)
         self.event_collector.record(perf_snapshot_event)
+        closed_trade_events = [
+            event
+            for event in self.event_collector.snapshot_cycle()
+            if event.event_type == "TRADE_CLOSED"
+        ]
+        for event in closed_trade_events:
+            self.strategy_perf_tracker.record_trade_close(event.payload or {})
+        strategy_snapshots = self.strategy_perf_tracker.snapshot()
+        strategy_perf_payload = [
+            {
+                "strategy_name": snapshot.strategy_name,
+                "total_trades": snapshot.total_trades,
+                "wins": snapshot.wins,
+                "losses": snapshot.losses,
+                "gross_pnl": snapshot.gross_pnl,
+                "win_rate": snapshot.win_rate,
+            }
+            for snapshot in strategy_snapshots
+        ]
+        strategy_perf_event = SystemEvent(
+            event_type="STRATEGY_PERF_SNAPSHOT",
+            source="CoreOrchestrator",
+            payload={"strategies": strategy_perf_payload},
+        )
+        print(strategy_perf_event)
+        self.event_collector.record(strategy_perf_event)
 
         print("[TEACH] >>> Storage stage — record decisions/results (conceptual).")
         print("[TEACH] Creating TradeRecord to capture stage outputs for review.")
@@ -269,7 +297,6 @@ class CoreOrchestrator:
         opened_count = self.event_collector.cycle_count("TRADE_OPENED")
         closed_count = self.event_collector.cycle_count("TRADE_CLOSED")
         realised_pnl = f"{performance_snapshot.gross_pnl:.2f}"
-        pnl_by_strategy = performance_snapshot.by_strategy
         pnl_by_trader_type = performance_snapshot.by_trader_type
         print(
             "[CYCLE_SUMMARY] "
@@ -285,19 +312,22 @@ class CoreOrchestrator:
                 pnl_by_trader_type.items(), key=lambda item: item[0]
             )
         ]
-        pnl_by_strategy_parts = [
-            f"{strategy_name}={bucket.get('gross_pnl', 0.0):.2f}"
-            for strategy_name, bucket in sorted(
-                pnl_by_strategy.items(), key=lambda item: item[0]
-            )
-        ]
         pnl_by_trader_type_summary = (
             " | ".join(pnl_by_trader_type_parts) if pnl_by_trader_type_parts else "N/A"
         )
-        pnl_by_strategy_summary = (
-            " | ".join(pnl_by_strategy_parts) if pnl_by_strategy_parts else "N/A"
-        )
-        print(f"[PNL_BY_STRATEGY] {pnl_by_strategy_summary}")
+        print("[PNL_BY_STRATEGY]")
+        if not strategy_snapshots:
+            print("N/A")
+        else:
+            for snapshot in strategy_snapshots:
+                print(
+                    f"{snapshot.strategy_name}: "
+                    f"trades={snapshot.total_trades} "
+                    f"wins={snapshot.wins} "
+                    f"losses={snapshot.losses} "
+                    f"win_rate={snapshot.win_rate:.2f} "
+                    f"gross_pnl={snapshot.gross_pnl:.2f}"
+                )
         print(f"[PNL_BY_TRADER_TYPE] {pnl_by_trader_type_summary}")
         print(
             f"[REPLAY] Replay selection — mode={self.replay_mode.value} "

@@ -63,6 +63,12 @@ class TradeExitEngine:
                 continue
 
             exit_price = self.price_feed.price_for(symbol, exit_tick)
+            normalized_direction = (direction or "").upper()
+            if normalized_direction == "SHORT":
+                realised_pnl = (entry_price - exit_price) * quantity
+            else:
+                realised_pnl = (exit_price - entry_price) * quantity
+            realised_pnl = round(realised_pnl, 2)
 
             self.trade_registry.unregister_trade(symbol, trader_type)
 
@@ -73,13 +79,20 @@ class TradeExitEngine:
                     payload={
                         "symbol": symbol,
                         "trader_type": trader_type,
+                        "strategy_name": strategy_name,
                         "tick": tick,
                         "reason": "Teaching exit after 1 tick",
                         "mode": normalized_run_mode,
                         "entry_tick": entry_tick,
+                        "opened_at_tick": entry_tick,
                         "entry_price": entry_price,
                         "exit_tick": exit_tick,
                         "exit_price": exit_price,
+                        "close_tick": exit_tick,
+                        "close_price": exit_price,
+                        "closed_at_tick": exit_tick,
+                        "pnl": realised_pnl,
+                        "realised_pnl": realised_pnl,
                     },
                     timestamp=datetime.utcnow(),
                 )
