@@ -11,6 +11,7 @@ from config.system_config import EventReplayMode, get_event_replay_mode
 from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
 from core.events import SystemEvent
+from core.performance_registry import PerformanceRegistry
 from execution.execution_engine import ExecutionEngine
 from execution.trade_exit_engine import TradeExitEngine
 from patterns.pattern_engine import PatternEngine
@@ -38,6 +39,7 @@ class CoreOrchestrator:
         self.price_feed = DeterministicPriceFeed()
         self.event_collector = EventCollector()
         print("[BOOT] EventCollector initialised")
+        self.performance_registry = PerformanceRegistry()
         self.trade_registry = ActiveTradeRegistry()
         self.scanner = Scanner()
         self.pattern_engine = PatternEngine()
@@ -195,6 +197,26 @@ class CoreOrchestrator:
             print(f"[EXIT] Realised trade outcomes: {trade_outcomes}")
         print("[TEACH] <<< Trade Exit stage complete — moving to storage stage.")
 
+        self.performance_registry.record(trade_outcomes or [])
+        performance_snapshot = self.performance_registry.snapshot()
+        print(
+            "[PERF] "
+            f"total={performance_snapshot.total_trades} "
+            f"wins={performance_snapshot.wins} "
+            f"losses={performance_snapshot.losses} "
+            f"flats={performance_snapshot.flats} "
+            f"win_rate={performance_snapshot.win_rate:.2f} "
+            f"gross_pnl={performance_snapshot.gross_pnl:.2f} "
+            f"avg_pnl={performance_snapshot.avg_pnl_per_trade:.2f}"
+        )
+        for strategy_name, bucket in sorted(performance_snapshot.by_strategy.items()):
+            print(
+                "[PERF] "
+                f"strategy={strategy_name} "
+                f"gross_pnl={bucket.get('gross_pnl', 0.0):.2f} "
+                f"total_trades={bucket.get('total_trades', 0)}"
+            )
+
         print("[TEACH] >>> Storage stage — record decisions/results (conceptual).")
         print("[TEACH] Creating TradeRecord to capture stage outputs for review.")
         trade_record = TradeRecord(
@@ -204,6 +226,7 @@ class CoreOrchestrator:
             risk_output=risk_output or [],
             execution_output=execution_output or [],
             trade_outcomes=trade_outcomes or [],
+            performance_snapshot=performance_snapshot,
         )
         print("[TEACH] TradeRecord encapsulates the journey for teaching purposes.")
         storage_result = self.storage_engine.store_trade_record(trade_record)
@@ -242,19 +265,10 @@ class CoreOrchestrator:
                 f"[EVENT_SUMMARY] {event.timestamp} | {event.event_type} | {event.source}"
             )
         run_mode_value = self.run_mode.value
-        sim_mode = self.run_mode == RunMode.SIM
         opened_count = self.event_collector.cycle_count("TRADE_OPENED")
         closed_count = self.event_collector.cycle_count("TRADE_CLOSED")
-        realised_pnl = (
-            f"{self.event_collector.cycle_sum_realised_pnl():.2f}"
-            if sim_mode
-            else "N/A"
-        )
-        pnl_by_trader_type = (
-            self.event_collector.cycle_pnl_by_trader_type()
-            if sim_mode
-            else {}
-        )
+        realised_pnl = f"{performance_snapshot.gross_pnl:.2f}"
+        pnl_by_trader_type = performance_snapshot.by_trader_type
         print(
             "[CYCLE_SUMMARY] "
             f"opened={opened_count} "
@@ -264,15 +278,13 @@ class CoreOrchestrator:
             f"tick={tick}"
         )
         pnl_by_trader_type_parts = [
-            f"{trader_type}={pnl:.2f}"
-            for trader_type, pnl in sorted(
+            f"{trader_type}={bucket.get('gross_pnl', 0.0):.2f}"
+            for trader_type, bucket in sorted(
                 pnl_by_trader_type.items(), key=lambda item: item[0]
             )
         ]
         pnl_by_trader_type_summary = (
-            " | ".join(pnl_by_trader_type_parts)
-            if sim_mode and pnl_by_trader_type_parts
-            else "N/A"
+            " | ".join(pnl_by_trader_type_parts) if pnl_by_trader_type_parts else "N/A"
         )
         print(f"[PNL_BY_STRATEGY] {pnl_by_trader_type_summary}")
         print(
