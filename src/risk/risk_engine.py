@@ -82,6 +82,8 @@ class RiskEngine:
                     risk_level="BLOCKED",
                     rationale=rationale,
                     trader_type=trader_type,
+                    strategy_name=trade_intent.strategy_name,
+                    direction=trade_intent.direction,
                 )
 
             print(
@@ -130,4 +132,6 @@ class RiskEngine:
             risk_level=risk_level,
             rationale=rationale,
             trader_type=trader_type,
+            strategy_name=trade_intent.strategy_name,
+            direction=trade_intent.direction,
         )

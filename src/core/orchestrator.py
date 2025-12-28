@@ -176,14 +176,14 @@ class CoreOrchestrator:
         print("[TEACH] <<< Execution stage complete — moving to storage stage.")
 
         print("[TEACH] >>> Trade Exit stage — manage open trades explicitly.")
-        exit_results: List[ExecutionResult] = self.trade_exit_engine.evaluate_and_close_trades(
+        exit_results, trade_outcomes = self.trade_exit_engine.evaluate_and_close_trades(
             run_mode=self.run_mode,
             tick=tick,
         )
         event = SystemEvent(
             event_type="TRADE_EXIT_COMPLETE",
             source="TradeExitEngine",
-            payload={"closed": len(exit_results or [])}
+            payload={"closed": len(exit_results or []), "outcomes": len(trade_outcomes or [])}
         )
         print(event)
         self.event_collector.record(event)
@@ -191,6 +191,8 @@ class CoreOrchestrator:
             print("[EXIT] No trades closed by TradeExitEngine this cycle.")
         else:
             print(f"[EXIT] TradeExitEngine closed trades: {exit_results}")
+        if trade_outcomes:
+            print(f"[EXIT] Realised trade outcomes: {trade_outcomes}")
         print("[TEACH] <<< Trade Exit stage complete — moving to storage stage.")
 
         print("[TEACH] >>> Storage stage — record decisions/results (conceptual).")
@@ -201,6 +203,7 @@ class CoreOrchestrator:
             strategy_output=strategy_output or [],
             risk_output=risk_output or [],
             execution_output=execution_output or [],
+            trade_outcomes=trade_outcomes or [],
         )
         print("[TEACH] TradeRecord encapsulates the journey for teaching purposes.")
         storage_result = self.storage_engine.store_trade_record(trade_record)
