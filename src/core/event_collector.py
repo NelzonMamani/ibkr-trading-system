@@ -1,4 +1,6 @@
 from core.run_event_timeline import RunEventTimeline
+from core.events import SystemEvent
+from events.event_schema import validate_event
 
 
 class EventCollector:
@@ -18,6 +20,24 @@ class EventCollector:
     def record_event(self, event):
         self._cycle_events.append(event)
         self._run_timeline.record(event)
+
+    def emit(self, event_type: str, source: str, payload: dict, timestamp=None):
+        validate_event(event_type, payload)
+        if timestamp is None:
+            event = SystemEvent(
+                event_type=event_type,
+                source=source,
+                payload=payload,
+            )
+        else:
+            event = SystemEvent(
+                event_type=event_type,
+                source=source,
+                payload=payload,
+                timestamp=timestamp,
+            )
+        self.record_event(event)
+        return event
 
     def snapshot_cycle(self):
         return list(self._cycle_events)

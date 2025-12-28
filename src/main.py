@@ -61,7 +61,10 @@ def main() -> None:
                 print("[GATE] Teaching note: SIM/PAPER would still run for education, but LIVE waits for an open session.")
             else:
                 print("[SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().")
-                orchestrator.run_once()
+                should_continue = orchestrator.run_once()
+                if should_continue is False:
+                    print("[SAFETY] Orchestrator requested halt after invariant violation in LIVE mode.")
+                    break
             print(
                 f"[SLEEP] Sleeping for {CYCLE_SLEEP_SECONDS} seconds before next cycle."
             )
