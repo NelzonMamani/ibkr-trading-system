@@ -1,50 +1,47 @@
 """
-Execution engine with deterministic gateway, retry semantics, and liquidity routing.
+Execution engine that routes through a broker adapter with deterministic retry semantics.
 """
 
 import hashlib
-from decimal import Decimal
 from typing import List, Optional
 
+from brokers.base_broker import BaseBroker, BrokerOrderRequest
+from brokers.sim_broker import SimBroker
 from config.runtime_config import RunMode, get_run_mode
-from core.active_trade_registry import ActiveTradeRegistry, ActiveTrade
+from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
-from execution.liquidity_engine import LiquidityEngine
-from execution.order_gateway import GatewayDecision, OrderGateway
-from execution.order_models import OrderRequest, PendingOrderBook
-from execution.slippage_model import SlippageModel
+from execution.order_gateway import OrderGateway
+from execution.order_models import PendingOrderBook
 from models.execution_result import ExecutionResult
 from models.data_models import RiskDecision
 from sim.price_feed import DeterministicPriceFeed
-from utils.price_math import (
-    apply_slippage,
-    apply_spread_mid_to_quote,
-    choose_execution_reference_price,
-    deterministic_spread,
-    q_price,
-    to_decimal,
-)
 
 
 class ExecutionEngine:
-    """Deterministic execution engine with retryable gateway semantics."""
+    """Deterministic execution engine with broker routing and retry semantics."""
 
     def __init__(
         self,
-        broker: Optional[object] = None,
+        broker: Optional[BaseBroker] = None,
         trade_registry: Optional[ActiveTradeRegistry] = None,
         event_collector: Optional[EventCollector] = None,
         price_feed: Optional[DeterministicPriceFeed] = None,
     ) -> None:
-        print("[BOOT] ExecutionEngine instantiated — deterministic gateway + liquidity")
-        self.broker = broker
+        print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
+        self.run_mode: RunMode = get_run_mode()
         self.trade_registry = trade_registry or ActiveTradeRegistry()
         self.event_collector = event_collector or EventCollector()
         self.price_feed = price_feed or DeterministicPriceFeed()
-        self.gateway = OrderGateway()
         self.pending_book = PendingOrderBook()
         self.current_tick: Optional[int] = None
-        self.run_mode: RunMode = get_run_mode()
+        self._broker: BaseBroker = broker or SimBroker(
+            gateway=OrderGateway(),
+            price_feed=self.price_feed,
+            trade_registry=self.trade_registry,
+            event_collector=self.event_collector,
+            run_mode=self.run_mode,
+        )
+        self.broker: BaseBroker = self._broker
 
     @staticmethod
     def _max_attempts(trader_type: str) -> int:
@@ -62,35 +59,6 @@ class ExecutionEngine:
         key = f"{symbol}|{trader_type}|{strategy_name}|{direction}|{created_tick}"
         return hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
 
-    @staticmethod
-    def _slippage_value(direction: str, trader_type: str, quantity: int) -> Decimal:
-        normalized_direction = (direction or "").upper()
-        normalized_trader_type = (trader_type or "").upper()
-        base_slippage = Decimal(
-            str(SlippageModel._SLIPPAGE_TABLE.get((normalized_trader_type, normalized_direction), 0.0))
-        )
-        is_exit = quantity < 0
-        if is_exit and normalized_direction == "LONG":
-            applied_slippage = -base_slippage
-        else:
-            applied_slippage = base_slippage
-        return q_price(abs(applied_slippage))
-
-    def _compute_quote_context(
-        self, order: OrderRequest, tick: int
-    ) -> tuple[Optional[Decimal], Optional[Decimal], Optional[Decimal], Optional[Decimal], Optional[Decimal]]:
-        raw_mid = q_price(to_decimal(self.price_feed.price_for(order.symbol, tick)))
-        if raw_mid is None:
-            return None, None, None, None, None
-        spread = deterministic_spread(order.symbol, tick, order.trader_type)
-        bid_price, ask_price = apply_spread_mid_to_quote(raw_mid, spread)
-        reference_price = choose_execution_reference_price(
-            order.direction,
-            bid_price,
-            ask_price,
-        )
-        return raw_mid, spread, bid_price, ask_price, reference_price
-
     def process_pending_orders(self, tick: int) -> List[ExecutionResult]:
         due_orders = self.pending_book.due_orders(tick)
         results: List[ExecutionResult] = []
@@ -98,15 +66,15 @@ class ExecutionEngine:
             print(f"[PENDING] Processing {len(due_orders)} pending orders for tick={tick}")
         for order in due_orders:
             self.pending_book.remove(order.client_order_id)
-            results.append(self._handle_order_attempt(order, tick))
+            results.append(self._route_order(order))
         return results
 
     def execute_trade(self, risk_decision: Optional[RiskDecision]) -> ExecutionResult:
         """
-        Convert a risk decision into an order request and route through the gateway.
+        Convert a risk decision into a broker request and route through the broker adapter.
         """
 
-        print("[EXECUTION] Received risk decision for deterministic gateway flow")
+        print("[EXECUTION] Received risk decision for broker-routed flow")
         if risk_decision is None:
             print("[EXECUTION] No execution performed — placeholder path")
             return ExecutionResult(
@@ -118,7 +86,7 @@ class ExecutionEngine:
             )
 
         if not getattr(risk_decision, "allowed", True):
-            print("[EXECUTION] Risk decision not allowed — skipping gateway")
+            print("[EXECUTION] Risk decision not allowed — skipping broker routing")
             return ExecutionResult(
                 symbol=risk_decision.symbol,
                 trader_type=risk_decision.trader_type,
@@ -133,12 +101,11 @@ class ExecutionEngine:
 
         tick = self.current_tick if self.current_tick is not None else 0
         order = self._order_from_risk_decision(risk_decision, tick)
-        self._emit_order_submitted(order)
-        return self._handle_order_attempt(order, tick)
+        return self._route_order(order)
 
     def _order_from_risk_decision(
         self, risk_decision: RiskDecision, tick: int
-    ) -> OrderRequest:
+    ) -> BrokerOrderRequest:
         requested_quantity = max(
             1, int(getattr(risk_decision, "max_position_size", 1) or 1)
         )
@@ -154,393 +121,62 @@ class ExecutionEngine:
             f"id={client_order_id} symbol={risk_decision.symbol} qty={requested_quantity} "
             f"trader_type={risk_decision.trader_type} attempt=1"
         )
-        return OrderRequest(
+        return BrokerOrderRequest(
             client_order_id=client_order_id,
             symbol=risk_decision.symbol,
+            direction=risk_decision.direction,
+            quantity=requested_quantity,
+            order_type="MKT",
             trader_type=risk_decision.trader_type,
             strategy_name=risk_decision.strategy_name,
-            direction=risk_decision.direction,
-            requested_quantity=requested_quantity,
-            created_tick=tick,
             attempt_number=1,
+            created_tick=tick,
             stop_loss_price=risk_decision.stop_loss_price,
             take_profit_price=risk_decision.take_profit_price,
-        )
-
-    def _emit_order_submitted(self, order: OrderRequest) -> None:
-        self.event_collector.emit(
-            event_type="ORDER_SUBMITTED",
-            source="ExecutionEngine",
-            payload={
-                "client_order_id": order.client_order_id,
-                "symbol": order.symbol,
-                "trader_type": order.trader_type,
-                "strategy_name": order.strategy_name,
-                "direction": order.direction,
-                "requested_quantity": order.requested_quantity,
-                "created_tick": order.created_tick,
-                "attempt_number": order.attempt_number,
-            },
-        )
-
-    def _handle_order_attempt(self, order: OrderRequest, tick: int) -> ExecutionResult:
-        decision, decision_key, mapping_r = self.gateway.decide_with_trace(
-            order.symbol, tick, order.trader_type, order.attempt_number
-        )
-        order.last_decision = decision.value
-        print(
-            f"[GATEWAY] id={order.client_order_id} tick={tick} "
-            f"attempt={order.attempt_number} decision={decision.value}"
-        )
-        self.event_collector.emit(
-            event_type="ORDER_GATEWAY_DECISION",
-            source="ExecutionEngine",
-            payload={
-                "client_order_id": order.client_order_id,
-                "symbol": order.symbol,
-                "trader_type": order.trader_type,
-                "tick": tick,
-                "attempt_number": order.attempt_number,
-                "decision": decision.value,
-                "deterministic_key": decision_key,
-                "mapping_r": mapping_r,
-            },
-        )
-
-        if decision == GatewayDecision.REJECT:
-            return self._on_hard_reject(order, tick)
-
-        if decision == GatewayDecision.SOFT_REJECT:
-            return self._on_soft_reject(order, tick)
-
-        return self._execute_liquidity(order, tick)
-
-    def _on_hard_reject(self, order: OrderRequest, tick: int) -> ExecutionResult:
-        self.pending_book.remove(order.client_order_id)
-        self.event_collector.emit(
-            event_type="ORDER_REJECTED_HARD",
-            source="ExecutionEngine",
-            payload={
-                "client_order_id": order.client_order_id,
-                "symbol": order.symbol,
-                "trader_type": order.trader_type,
-                "tick": tick,
-                "attempt_number": order.attempt_number,
-                "reason": "GATEWAY_HARD_REJECT",
-            },
-        )
-        raw_mid, spread, bid_price, ask_price, reference_price = self._compute_quote_context(order, tick)
-        return ExecutionResult(
-            symbol=order.symbol,
-            trader_type=order.trader_type,
-            attempted=False,
-            status="REJECTED",
-            rationale="Deterministic gateway hard rejected the order.",
-            direction=order.direction,
-            quantity=0,
-            entry_price=None,
-            raw_price=raw_mid,
-            entry_tick=tick,
-            stop_loss_price=order.stop_loss_price,
-            take_profit_price=order.take_profit_price,
-            requested_quantity=order.requested_quantity,
-            filled_quantity=0,
-            remaining_quantity=order.requested_quantity,
-            fill_status="NONE",
-            average_fill_price=None,
-            note="Gateway hard reject — no liquidity attempted.",
-            gateway_decision=GatewayDecision.REJECT.value,
-            attempt_number=order.attempt_number,
-            client_order_id=order.client_order_id,
-            retry_scheduled=False,
             next_retry_tick=None,
-            rejection_reason="GATEWAY_HARD_REJECT",
-            spread=spread,
-            bid_price=bid_price,
-            ask_price=ask_price,
-            reference_price=reference_price,
         )
 
-    def _on_soft_reject(self, order: OrderRequest, tick: int) -> ExecutionResult:
-        max_attempts = self._max_attempts(order.trader_type)
-        raw_mid, spread, bid_price, ask_price, reference_price = self._compute_quote_context(order, tick)
-        if order.attempt_number >= max_attempts:
-            self.event_collector.emit(
-                event_type="ORDER_EXPIRED",
-                source="ExecutionEngine",
-                payload={
-                    "client_order_id": order.client_order_id,
-                    "symbol": order.symbol,
-                    "trader_type": order.trader_type,
-                    "tick": tick,
-                    "attempt_number": order.attempt_number,
-                    "reason": "MAX_ATTEMPTS_REACHED",
-                },
-            )
+    def _route_order(self, request: BrokerOrderRequest) -> ExecutionResult:
+        result = self._broker.place_order(request)
+        if not self._broker.is_live():
             print(
-                f"[EXPIRE] id={order.client_order_id} attempts={order.attempt_number} "
-                f"max={max_attempts} dropped"
+                f"[EXECUTION] {self.run_mode.value} mode active — broker={self._broker.name()} deterministic flow."
             )
-            return ExecutionResult(
-                symbol=order.symbol,
-                trader_type=order.trader_type,
-                attempted=False,
-                status="EXPIRED",
-                rationale="Soft reject but max attempts reached; expiring order.",
-                direction=order.direction,
-                quantity=0,
-                entry_price=None,
-                raw_price=raw_mid,
-                entry_tick=tick,
-                stop_loss_price=order.stop_loss_price,
-                take_profit_price=order.take_profit_price,
-                requested_quantity=order.requested_quantity,
-                filled_quantity=0,
-                remaining_quantity=order.requested_quantity,
-                fill_status="NONE",
-                average_fill_price=None,
-                note="Gateway soft reject expired at max attempts.",
-                gateway_decision=GatewayDecision.SOFT_REJECT.value,
-                attempt_number=order.attempt_number,
-                client_order_id=order.client_order_id,
-                retry_scheduled=False,
-                next_retry_tick=None,
-                rejection_reason="EXPIRED",
-                spread=spread,
-                bid_price=bid_price,
-                ask_price=ask_price,
-                reference_price=reference_price,
-            )
+        else:
+            print("[EXECUTION] LIVE broker stub result returned; no live order placed.")
+        self._schedule_retry(request, result)
+        return result
 
-        order.attempt_number += 1
-        order.next_retry_tick = tick + 1
-        self.pending_book.add(order)
-        self.event_collector.emit(
-            event_type="ORDER_RETRY_SCHEDULED",
-            source="ExecutionEngine",
-            payload={
-                "client_order_id": order.client_order_id,
-                "symbol": order.symbol,
-                "trader_type": order.trader_type,
-                "from_tick": tick,
-                "next_retry_tick": order.next_retry_tick,
-                "next_attempt_number": order.attempt_number,
-            },
-        )
-        print(
-            f"[RETRY] id={order.client_order_id} scheduled next_tick={order.next_retry_tick} "
-            f"next_attempt={order.attempt_number}"
-        )
-        return ExecutionResult(
-            symbol=order.symbol,
-            trader_type=order.trader_type,
-            attempted=False,
-            status="RETRY_SCHEDULED",
-            rationale="Gateway soft reject — retry scheduled.",
-            direction=order.direction,
-            quantity=0,
-            entry_price=None,
-            raw_price=raw_mid,
-            entry_tick=tick,
-            stop_loss_price=order.stop_loss_price,
-            take_profit_price=order.take_profit_price,
-            requested_quantity=order.requested_quantity,
-            filled_quantity=0,
-            remaining_quantity=order.requested_quantity,
-            fill_status="NONE",
-            average_fill_price=None,
-            note="Gateway soft reject; will retry deterministically.",
-            gateway_decision=GatewayDecision.SOFT_REJECT.value,
-            attempt_number=order.attempt_number - 1,
-            client_order_id=order.client_order_id,
-            retry_scheduled=True,
-            next_retry_tick=order.next_retry_tick,
-            rejection_reason="GATEWAY_SOFT_REJECT",
-            spread=spread,
-            bid_price=bid_price,
-            ask_price=ask_price,
-            reference_price=reference_price,
-        )
+    def _schedule_retry(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
+        if not getattr(result, "retry_scheduled", False) or result.next_retry_tick is None:
+            return
 
-    def _execute_liquidity(self, order: OrderRequest, tick: int) -> ExecutionResult:
-        available_liquidity = LiquidityEngine.available_liquidity(
-            symbol=order.symbol,
-            tick=tick,
-            trader_type=order.trader_type,
-        )
-        raw_mid, spread, bid_price, ask_price, reference_price = self._compute_quote_context(order, tick)
-        requested_quantity = order.requested_quantity
-        filled_quantity = min(requested_quantity, available_liquidity)
-        remaining_quantity = max(0, requested_quantity - filled_quantity)
-        fill_status = "NONE"
-        if filled_quantity == requested_quantity and requested_quantity > 0:
-            fill_status = "FULL"
-        elif 0 < filled_quantity < requested_quantity:
-            fill_status = "PARTIAL"
-
-        if filled_quantity == 0:
-            reason = (
-                "LIQUIDITY_ZERO" if available_liquidity == 0 else "LIQUIDITY_CAP"
-            )
+        next_attempt = request.attempt_number + 1
+        max_attempts = self._max_attempts(request.trader_type or "")
+        if next_attempt > max_attempts:
             print(
-                "[LIQUIDITY] "
-                f"symbol={order.symbol} tick={tick} trader_type={order.trader_type} "
-                f"requested={requested_quantity} available={available_liquidity} "
-                f"filled={filled_quantity} remaining={remaining_quantity} "
-                "status=NONE (no trade opened)"
+                f"[RETRY] id={request.client_order_id} reached max attempts; not scheduling further retries."
             )
-            self.event_collector.emit(
-                event_type="TRADE_NOT_FILLED",
-                source="ExecutionEngine",
-                payload={
-                    "symbol": order.symbol,
-                    "trader_type": order.trader_type,
-                    "tick": tick,
-                    "requested_quantity": requested_quantity,
-                    "available_liquidity": available_liquidity,
-                    "filled_quantity": 0,
-                    "remaining_quantity": remaining_quantity,
-                    "reason": reason,
-                    "fill_status": "NONE",
-                    "client_order_id": order.client_order_id,
-                    "attempt_number": order.attempt_number,
-                    "gateway_decision": GatewayDecision.ACCEPT.value,
-                },
-            )
-            return ExecutionResult(
-                symbol=order.symbol,
-                trader_type=order.trader_type,
-                attempted=True,
-                status="NOT_FILLED",
-                rationale="Deterministic liquidity returned zero available volume.",
-                direction=order.direction,
-                quantity=0,
-                entry_price=None,
-                raw_price=raw_mid,
-                spread=spread,
-                bid_price=bid_price,
-                ask_price=ask_price,
-                reference_price=reference_price,
-                execution_price=None,
-                entry_tick=tick,
-                stop_loss_price=to_decimal(order.stop_loss_price) if order.stop_loss_price is not None else None,
-                take_profit_price=to_decimal(order.take_profit_price) if order.take_profit_price is not None else None,
-                requested_quantity=requested_quantity,
-                filled_quantity=0,
-                remaining_quantity=remaining_quantity,
-                fill_status="NONE",
-                average_fill_price=None,
-                note="No fill: liquidity zero for this tick/symbol combination.",
-                gateway_decision=GatewayDecision.ACCEPT.value,
-                attempt_number=order.attempt_number,
-                client_order_id=order.client_order_id,
-                retry_scheduled=False,
-                next_retry_tick=None,
-                rejection_reason=None,
-            )
+            return
 
-        slippage_value = self._slippage_value(order.direction, order.trader_type, filled_quantity)
-        execution_price, slippage_applied = apply_slippage(reference_price, slippage_value, order.direction)
-        entry_price = execution_price
-        registry_entry_price = float(entry_price)
-        active_trade = ActiveTrade(
-            symbol=order.symbol,
-            trader_type=order.trader_type,
-            entry_tick=tick,
-            entry_price=registry_entry_price,
-            direction=order.direction,
-            quantity=filled_quantity,
-            strategy_name=order.strategy_name,
-            stop_loss_price=order.stop_loss_price,
-            take_profit_price=order.take_profit_price,
+        scheduled_request = BrokerOrderRequest(
+            client_order_id=request.client_order_id,
+            symbol=request.symbol,
+            direction=request.direction,
+            quantity=request.quantity,
+            order_type=request.order_type,
+            trader_type=request.trader_type,
+            strategy_name=request.strategy_name,
+            attempt_number=next_attempt,
+            created_tick=result.next_retry_tick,
+            stop_loss_price=request.stop_loss_price,
+            take_profit_price=request.take_profit_price,
+            next_retry_tick=result.next_retry_tick,
         )
-        self.trade_registry.register_trade(active_trade)
-        self.event_collector.emit(
-            event_type="TRADE_OPENED",
-            source="ExecutionEngine",
-            payload={
-                "symbol": order.symbol,
-                "trader_type": order.trader_type,
-                "strategy_name": order.strategy_name,
-                "entry_tick": tick,
-                "opened_at_tick": tick,
-                "entry_price": float(entry_price),
-                "raw_price": float(raw_mid),
-                "slippage_applied": float(slippage_applied),
-                "execution_price": float(entry_price),
-                "mode": self.run_mode.value,
-                "direction": order.direction,
-                "quantity": filled_quantity,
-                "stop_loss_price": float(order.stop_loss_price) if order.stop_loss_price is not None else None,
-                "take_profit_price": float(order.take_profit_price) if order.take_profit_price is not None else None,
-                "requested_quantity": requested_quantity,
-                "filled_quantity": filled_quantity,
-                "remaining_quantity": remaining_quantity,
-                "fill_status": fill_status,
-                "client_order_id": order.client_order_id,
-                "attempt_number": order.attempt_number,
-                "gateway_decision": GatewayDecision.ACCEPT.value,
-            },
-        )
+        self.pending_book.add(scheduled_request)
         print(
-            f"[EVENT] TRADE_OPENED emitted for "
-            f"{order.symbol} ({order.trader_type})"
-            f" tick={tick} price={entry_price}"
-        )
-        print(
-            "[EXECUTION:REGISTRY] Registered active trade "
-            f"symbol={order.symbol} trader_type={order.trader_type}"
-        )
-        print(
-            "[EXECUTION:REGISTRY] Active trades for trader_type "
-            f"{order.trader_type}: {self.trade_registry.count_active_by_trader(order.trader_type)}"
-        )
-        print(
-            f"[EXECUTION] {self.run_mode.value} mode active — no broker calls; returning simulated result."
-        )
-
-        liquidity_note = None
-        if fill_status == "PARTIAL":
-            liquidity_note = "Partial fill due to deterministic liquidity cap."
-            print(
-                "[LIQUIDITY] "
-                f"symbol={order.symbol} tick={tick} trader_type={order.trader_type} "
-                f"requested={requested_quantity} available={available_liquidity} "
-                f"filled={filled_quantity} remaining={remaining_quantity} "
-                f"status=PARTIAL"
-            )
-
-        return ExecutionResult(
-            symbol=order.symbol,
-            trader_type=order.trader_type,
-            attempted=True,
-            status="SIMULATED",
-            rationale="Teaching-only: routed by trader_type with deterministic gateway and liquidity.",
-            direction=order.direction,
-            quantity=filled_quantity,
-            entry_price=entry_price,
-            raw_price=raw_mid,
-            slippage_applied=slippage_applied,
-            entry_tick=tick,
-            stop_loss_price=order.stop_loss_price,
-            take_profit_price=order.take_profit_price,
-            requested_quantity=requested_quantity,
-            filled_quantity=filled_quantity,
-            remaining_quantity=remaining_quantity,
-            fill_status=fill_status,
-            average_fill_price=entry_price,
-            note=liquidity_note,
-            gateway_decision=GatewayDecision.ACCEPT.value,
-            attempt_number=order.attempt_number,
-            client_order_id=order.client_order_id,
-            retry_scheduled=False,
-            next_retry_tick=None,
-            rejection_reason=None,
-            spread=spread,
-            bid_price=bid_price,
-            ask_price=ask_price,
-            reference_price=reference_price,
-            execution_price=execution_price,
+            f"[PENDING] Added retry for id={request.client_order_id} "
+            f"attempt={next_attempt} tick={result.next_retry_tick}"
         )
 
     def complete_trade(self, symbol: str, trader_type: str) -> None:
