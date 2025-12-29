@@ -10,6 +10,7 @@ from domain.trade_outcome import TradeOutcome
 from sim.price_feed import DeterministicPriceFeed
 from strategy.exit_signal import ExitSignal
 from execution.slippage_model import SlippageModel
+from execution.commission_model import CommissionModel
 
 
 @dataclass
@@ -167,10 +168,12 @@ class TradeExitEngine:
             slippage_applied = round(exit_price - raw_exit_price, 2)
             normalized_direction = (direction or "").upper()
             if normalized_direction == "SHORT":
-                realised_pnl = (entry_price - exit_price) * quantity
+                gross_realised_pnl = (entry_price - exit_price) * quantity
             else:
-                realised_pnl = (exit_price - entry_price) * quantity
-            realised_pnl = round(realised_pnl, 2)
+                gross_realised_pnl = (exit_price - entry_price) * quantity
+            gross_realised_pnl = round(gross_realised_pnl, 2)
+            commission = CommissionModel.calculate_commission(trader_type, quantity)
+            net_realised_pnl = round(gross_realised_pnl - commission, 2)
 
             stop_loss_price = getattr(trade, "stop_loss_price", None)
             take_profit_price = getattr(trade, "take_profit_price", None)
@@ -265,8 +268,11 @@ class TradeExitEngine:
                     "hold_duration_ticks": hold_duration_ticks,
                     "min_hold_ticks": runtime_config.min_hold_ticks,
                     "max_hold_ticks": runtime_config.max_hold_ticks,
-                    "pnl": realised_pnl,
-                    "realised_pnl": realised_pnl,
+                    "pnl": net_realised_pnl,
+                    "realised_pnl": net_realised_pnl,
+                    "gross_realised_pnl": gross_realised_pnl,
+                    "commission": commission,
+                    "net_realised_pnl": net_realised_pnl,
                     "stop_loss_price": stop_loss_price,
                     "take_profit_price": take_profit_price,
                 },
@@ -289,6 +295,9 @@ class TradeExitEngine:
                 exit_tick=exit_tick,
                 stop_loss_price=stop_loss_price,
                 take_profit_price=take_profit_price,
+                gross_realised_pnl=gross_realised_pnl,
+                commission=commission,
+                net_realised_pnl=net_realised_pnl,
             )
             results.append(closed_result)
             trade_outcomes.append(
@@ -368,10 +377,12 @@ class TradeExitEngine:
             slippage_applied = round(exit_price - raw_exit_price, 2)
             normalized_direction = (direction or "").upper()
             if normalized_direction == "SHORT":
-                realised_pnl = (entry_price - exit_price) * quantity
+                gross_realised_pnl = (entry_price - exit_price) * quantity
             else:
-                realised_pnl = (exit_price - entry_price) * quantity
-            realised_pnl = round(realised_pnl, 2)
+                gross_realised_pnl = (exit_price - entry_price) * quantity
+            gross_realised_pnl = round(gross_realised_pnl, 2)
+            commission = CommissionModel.calculate_commission(trader_type, quantity)
+            net_realised_pnl = round(gross_realised_pnl - commission, 2)
 
             stop_loss_price = getattr(trade, "stop_loss_price", None)
             take_profit_price = getattr(trade, "take_profit_price", None)
@@ -412,8 +423,11 @@ class TradeExitEngine:
                     "hold_duration_ticks": hold_duration_ticks,
                     "min_hold_ticks": self._resolve_threshold(runtime_config, "MIN_HOLD_TICKS", "min_hold_ticks"),
                     "max_hold_ticks": self._resolve_threshold(runtime_config, "MAX_HOLD_TICKS", "max_hold_ticks"),
-                    "pnl": realised_pnl,
-                    "realised_pnl": realised_pnl,
+                    "pnl": net_realised_pnl,
+                    "realised_pnl": net_realised_pnl,
+                    "gross_realised_pnl": gross_realised_pnl,
+                    "commission": commission,
+                    "net_realised_pnl": net_realised_pnl,
                     "stop_loss_price": stop_loss_price,
                     "take_profit_price": take_profit_price,
                 },

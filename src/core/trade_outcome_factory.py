@@ -17,9 +17,19 @@ class TradeOutcomeFactory:
         exit_price = getattr(execution_result, "exit_price", 0.0) or 0.0
 
         if direction == "SHORT":
-            realised_pnl = (entry_price - exit_price) * quantity
+            gross_realised_pnl = (entry_price - exit_price) * quantity
         else:
-            realised_pnl = (exit_price - entry_price) * quantity
+            gross_realised_pnl = (exit_price - entry_price) * quantity
+
+        gross_realised_pnl = round(gross_realised_pnl, 2)
+        commission = getattr(execution_result, "commission", 0.0) or 0.0
+        try:
+            commission_value = float(commission)
+        except (TypeError, ValueError):
+            commission_value = 0.0
+        commission_value = round(commission_value, 4)
+
+        net_realised_pnl = round(gross_realised_pnl - commission_value, 2)
 
         entry_tick = getattr(execution_result, "entry_tick", None)
         exit_tick = getattr(execution_result, "exit_tick", None)
@@ -28,9 +38,9 @@ class TradeOutcomeFactory:
         else:
             duration_ticks = exit_tick - entry_tick
 
-        if realised_pnl > 0:
+        if net_realised_pnl > 0:
             outcome = "WIN"
-        elif realised_pnl < 0:
+        elif net_realised_pnl < 0:
             outcome = "LOSS"
         else:
             outcome = "FLAT"
@@ -43,7 +53,9 @@ class TradeOutcomeFactory:
             entry_price=entry_price,
             exit_price=exit_price,
             quantity=quantity,
-            realised_pnl=realised_pnl,
+            gross_realised_pnl=gross_realised_pnl,
+            commission=commission_value,
+            net_realised_pnl=net_realised_pnl,
             duration_ticks=duration_ticks,
             outcome=outcome,
         )
