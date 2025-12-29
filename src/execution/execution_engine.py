@@ -13,6 +13,7 @@ from core.event_collector import EventCollector
 from models.data_models import ExecutionResult, RiskDecision
 from sim.price_feed import DeterministicPriceFeed
 from execution.slippage_model import SlippageModel
+from execution.liquidity_model import LiquidityModel
 
 
 class ExecutionEngine:
@@ -87,12 +88,75 @@ class ExecutionEngine:
             "(teaching-only path)"
         )
         tick = self.current_tick if self.current_tick is not None else 0
+        requested_quantity = max(
+            1, int(getattr(risk_decision, "max_position_size", 1) or 1)
+        )
+        available_liquidity = LiquidityModel.available_liquidity(
+            symbol=symbol,
+            tick=tick,
+            trader_type=trader_type,
+        )
+        filled_quantity = min(requested_quantity, available_liquidity)
+        remaining_quantity = max(0, requested_quantity - filled_quantity)
+        fill_status = "NONE"
+        if filled_quantity == requested_quantity and requested_quantity > 0:
+            fill_status = "FULL"
+        elif 0 < filled_quantity < requested_quantity:
+            fill_status = "PARTIAL"
         raw_price = self.price_feed.price_for(symbol, tick)
+
+        if filled_quantity == 0:
+            reason = (
+                "LIQUIDITY_ZERO" if available_liquidity == 0 else "LIQUIDITY_CAP"
+            )
+            print(
+                "[LIQUIDITY] "
+                f"symbol={symbol} tick={tick} trader_type={trader_type} "
+                f"requested={requested_quantity} available={available_liquidity} "
+                f"filled={filled_quantity} remaining={remaining_quantity} "
+                "status=NONE (no trade opened)"
+            )
+            self.event_collector.emit(
+                event_type="TRADE_NOT_FILLED",
+                source="ExecutionEngine",
+                payload={
+                    "symbol": symbol,
+                    "trader_type": trader_type,
+                    "tick": tick,
+                    "requested_quantity": requested_quantity,
+                    "available_liquidity": available_liquidity,
+                    "filled_quantity": 0,
+                    "remaining_quantity": remaining_quantity,
+                    "reason": reason,
+                    "fill_status": "NONE",
+                },
+            )
+            return ExecutionResult(
+                symbol=symbol,
+                trader_type=trader_type,
+                attempted=True,
+                status="NOT_FILLED",
+                rationale="Deterministic liquidity returned zero available volume.",
+                direction=direction,
+                quantity=0,
+                entry_price=None,
+                raw_price=raw_price,
+                entry_tick=tick,
+                stop_loss_price=stop_loss_price,
+                take_profit_price=take_profit_price,
+                requested_quantity=requested_quantity,
+                filled_quantity=0,
+                remaining_quantity=remaining_quantity,
+                fill_status="NONE",
+                average_fill_price=None,
+                note="No fill: liquidity zero for this tick/symbol combination.",
+            )
+
         entry_price = SlippageModel.apply_slippage(
             price=raw_price,
             direction=direction,
             trader_type=trader_type,
-            quantity=quantity,
+            quantity=filled_quantity,
         )
         slippage_applied = round(entry_price - raw_price, 2)
         active_trade = ActiveTrade(
@@ -101,7 +165,7 @@ class ExecutionEngine:
             entry_tick=tick,
             entry_price=entry_price,
             direction=direction,
-            quantity=quantity,
+            quantity=filled_quantity,
             strategy_name=strategy_name,
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
@@ -122,9 +186,13 @@ class ExecutionEngine:
                 "execution_price": entry_price,
                 "mode": self.run_mode.value,
                 "direction": direction,
-                "quantity": quantity,
+                "quantity": filled_quantity,
                 "stop_loss_price": stop_loss_price,
                 "take_profit_price": take_profit_price,
+                "requested_quantity": requested_quantity,
+                "filled_quantity": filled_quantity,
+                "remaining_quantity": remaining_quantity,
+                "fill_status": fill_status,
             },
         )
         print(
@@ -144,6 +212,17 @@ class ExecutionEngine:
             f"[EXECUTION] {self.run_mode.value} mode active — no broker calls; returning simulated result."
         )
 
+        liquidity_note = None
+        if fill_status == "PARTIAL":
+            liquidity_note = "Partial fill due to deterministic liquidity cap."
+            print(
+                "[LIQUIDITY] "
+                f"symbol={symbol} tick={tick} trader_type={trader_type} "
+                f"requested={requested_quantity} available={available_liquidity} "
+                f"filled={filled_quantity} remaining={remaining_quantity} "
+                f"status=PARTIAL"
+            )
+
         return ExecutionResult(
             symbol=symbol,
             trader_type=trader_type,
@@ -151,13 +230,19 @@ class ExecutionEngine:
             status="SIMULATED",
             rationale="Teaching-only: routed by trader_type with no broker execution in SIM mode.",
             direction=direction,
-            quantity=quantity,
+            quantity=filled_quantity,
             entry_price=entry_price,
             raw_price=raw_price,
             slippage_applied=slippage_applied,
             entry_tick=tick,
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
+            requested_quantity=requested_quantity,
+            filled_quantity=filled_quantity,
+            remaining_quantity=remaining_quantity,
+            fill_status=fill_status,
+            average_fill_price=entry_price,
+            note=liquidity_note,
         )
 
     def complete_trade(self, symbol: str, trader_type: str) -> None:

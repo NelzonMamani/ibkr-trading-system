@@ -22,6 +22,10 @@ TRADE_OPENED_SCHEMA = {
     "quantity": int,
     "stop_loss_price": (float, type(None)),
     "take_profit_price": (float, type(None)),
+    "requested_quantity": int,
+    "filled_quantity": int,
+    "remaining_quantity": int,
+    "fill_status": str,
 }
 
 TRADE_CLOSED_SCHEMA = {
@@ -47,9 +51,22 @@ TRADE_CLOSED_SCHEMA = {
     "take_profit_price": (float, type(None)),
 }
 
+TRADE_NOT_FILLED_SCHEMA = {
+    "symbol": str,
+    "trader_type": str,
+    "tick": int,
+    "requested_quantity": int,
+    "available_liquidity": int,
+    "filled_quantity": int,
+    "remaining_quantity": int,
+    "reason": str,
+    "fill_status": str,
+}
+
 EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
     "TRADE_OPENED": TRADE_OPENED_SCHEMA,
     "TRADE_CLOSED": TRADE_CLOSED_SCHEMA,
+    "TRADE_NOT_FILLED": TRADE_NOT_FILLED_SCHEMA,
 }
 
 
@@ -60,6 +77,7 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
     "STRATEGY_COMPLETE": {"trade_intents"},
     "EXECUTION_COMPLETE": {"results"},
     "TRADE_OPENED": set(TRADE_OPENED_SCHEMA.keys()),
+    "TRADE_NOT_FILLED": set(TRADE_NOT_FILLED_SCHEMA.keys()),
     "TRADE_CLOSED": {
         "symbol",
         "trader_type",
@@ -111,6 +129,7 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
 
 OPTIONAL_FIELDS: Dict[str, Set[str]] = {
     "TRADE_OPENED": set(),
+    "TRADE_NOT_FILLED": set(),
     "TRADE_CLOSED": {
         "opened_at_tick",
         "close_tick",
