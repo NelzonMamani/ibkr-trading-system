@@ -45,14 +45,20 @@ class PerformanceRegistry:
         gross_pnl = Decimal("0.00")
         total_commissions = Decimal("0.00")
         for trade in self._closed_trades:
-            gross_pnl += to_decimal(trade.get("gross_realised_pnl", trade.get("realised_pnl", 0)) or 0)
-            total_commissions += to_decimal(trade.get("commission", 0) or 0)
+            gross_pnl += to_decimal(
+                trade.get("gross_realised_pnl", trade.get("realised_pnl", Decimal("0.00"))) or Decimal("0.00")
+            )
+            total_commissions += to_decimal(trade.get("commission", Decimal("0.00")) or Decimal("0.00"))
         gross_q = q_money(gross_pnl)
         comm_q = q_money(total_commissions)
         net_q = q_money(gross_q - comm_q)
 
         win_rate = float(wins / total_trades) if total_trades else 0.0
-        avg_q = q_money(gross_q / Decimal(str(total_trades))) if total_trades > 0 else Decimal("0.00")
+        avg_q = (
+            q_money(net_q / Decimal(str(total_trades)))
+            if total_trades > 0
+            else Decimal("0.00")
+        )
 
         by_strategy = self._build_buckets(self._closed_trades, "strategy_name")
         by_trader_type = self._build_buckets(self._closed_trades, "trader_type")
@@ -101,10 +107,10 @@ class PerformanceRegistry:
     @staticmethod
     def _update_bucket(bucket: Dict[str, float | int], trade: Dict) -> None:
         bucket["total_trades"] += 1
-        bucket["gross_pnl"] += to_decimal(trade.get("gross_realised_pnl", trade["realised_pnl"])) or Decimal(
-            "0.00"
+        bucket["gross_pnl"] += (
+            to_decimal(trade.get("gross_realised_pnl", trade["realised_pnl"])) or Decimal("0.00")
         )
-        bucket["total_commissions"] += to_decimal(trade.get("commission", 0.0)) or Decimal("0.00")
+        bucket["total_commissions"] += to_decimal(trade.get("commission", Decimal("0.00")) or Decimal("0.00"))
         if trade["outcome"] == "WIN":
             bucket["wins"] += 1
         elif trade["outcome"] == "LOSS":
@@ -125,14 +131,14 @@ class PerformanceRegistry:
             bucket["total_commissions"] = float(total_commissions)
             bucket["net_pnl"] = float(net_pnl)
             bucket["avg_pnl_per_trade"] = float(
-                q_money(net_pnl / Decimal(total_trades)) if total_trades else Decimal("0.00")
+                q_money(net_pnl / Decimal(str(total_trades))) if total_trades else Decimal("0.00")
             )
 
     @staticmethod
     def _extract_realised_pnl(payload: dict) -> Decimal:
         if payload is None:
             return Decimal("0.00")
-        return D(payload.get("net_realised_pnl", payload.get("realised_pnl", payload.get("pnl", 0.0))))
+        return D(payload.get("net_realised_pnl", payload.get("realised_pnl", payload.get("pnl", Decimal("0.00")))))
 
     @staticmethod
     def _extract_gross_realised_pnl(payload: dict) -> Decimal:
@@ -140,7 +146,7 @@ class PerformanceRegistry:
             return Decimal("0.00")
         if "gross_realised_pnl" in payload:
             return D(payload.get("gross_realised_pnl", Decimal("0.00")))
-        return D(payload.get("realised_pnl", payload.get("pnl", 0.0)))
+        return D(payload.get("realised_pnl", payload.get("pnl", Decimal("0.00"))))
 
     @staticmethod
     def _extract_commission(payload: dict) -> Decimal:
