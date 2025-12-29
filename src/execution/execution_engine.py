@@ -8,12 +8,14 @@ from typing import List, Optional
 from config.runtime_config import RunMode, get_run_mode
 from core.active_trade_registry import ActiveTradeRegistry, ActiveTrade
 from core.event_collector import EventCollector
-from execution.liquidity_model import LiquidityModel
+from execution.liquidity_engine import LiquidityEngine
 from execution.order_gateway import GatewayDecision, OrderGateway
 from execution.order_models import OrderRequest, PendingOrderBook
 from execution.slippage_model import SlippageModel
-from models.data_models import ExecutionResult, RiskDecision
+from models.execution_result import ExecutionResult
+from models.data_models import RiskDecision
 from sim.price_feed import DeterministicPriceFeed
+from utils.price_math import D, quantize_money
 
 
 class ExecutionEngine:
@@ -310,11 +312,18 @@ class ExecutionEngine:
         )
 
     def _execute_liquidity(self, order: OrderRequest, tick: int) -> ExecutionResult:
-        available_liquidity = LiquidityModel.available_liquidity(
+        available_liquidity = LiquidityEngine.available_liquidity(
             symbol=order.symbol,
             tick=tick,
             trader_type=order.trader_type,
         )
+        quotes = LiquidityEngine.quote(
+            symbol=order.symbol,
+            tick=tick,
+            trader_type=order.trader_type,
+            mid_price=self.price_feed.price_for(order.symbol, tick),
+        )
+        raw_price = quotes["mid"]
         requested_quantity = order.requested_quantity
         filled_quantity = min(requested_quantity, available_liquidity)
         remaining_quantity = max(0, requested_quantity - filled_quantity)
@@ -323,7 +332,6 @@ class ExecutionEngine:
             fill_status = "FULL"
         elif 0 < filled_quantity < requested_quantity:
             fill_status = "PARTIAL"
-        raw_price = self.price_feed.price_for(order.symbol, tick)
 
         if filled_quantity == 0:
             reason = (
@@ -365,8 +373,8 @@ class ExecutionEngine:
                 entry_price=None,
                 raw_price=raw_price,
                 entry_tick=tick,
-                stop_loss_price=order.stop_loss_price,
-                take_profit_price=order.take_profit_price,
+                stop_loss_price=D(order.stop_loss_price) if order.stop_loss_price is not None else None,
+                take_profit_price=D(order.take_profit_price) if order.take_profit_price is not None else None,
                 requested_quantity=requested_quantity,
                 filled_quantity=0,
                 remaining_quantity=remaining_quantity,
@@ -381,18 +389,21 @@ class ExecutionEngine:
                 rejection_reason=None,
             )
 
+        side_price = LiquidityEngine.side_price(order.direction, quotes)
         entry_price = SlippageModel.apply_slippage(
-            price=raw_price,
+            price=float(side_price),
             direction=order.direction,
             trader_type=order.trader_type,
             quantity=filled_quantity,
         )
-        slippage_applied = round(entry_price - raw_price, 2)
+        entry_price = quantize_money(D(entry_price))
+        slippage_applied = quantize_money(entry_price - side_price)
+        registry_entry_price = float(entry_price)
         active_trade = ActiveTrade(
             symbol=order.symbol,
             trader_type=order.trader_type,
             entry_tick=tick,
-            entry_price=entry_price,
+            entry_price=registry_entry_price,
             direction=order.direction,
             quantity=filled_quantity,
             strategy_name=order.strategy_name,
@@ -409,15 +420,15 @@ class ExecutionEngine:
                 "strategy_name": order.strategy_name,
                 "entry_tick": tick,
                 "opened_at_tick": tick,
-                "entry_price": entry_price,
-                "raw_price": raw_price,
-                "slippage_applied": slippage_applied,
-                "execution_price": entry_price,
+                "entry_price": float(entry_price),
+                "raw_price": float(raw_price),
+                "slippage_applied": float(slippage_applied),
+                "execution_price": float(entry_price),
                 "mode": self.run_mode.value,
                 "direction": order.direction,
                 "quantity": filled_quantity,
-                "stop_loss_price": order.stop_loss_price,
-                "take_profit_price": order.take_profit_price,
+                "stop_loss_price": float(order.stop_loss_price) if order.stop_loss_price is not None else None,
+                "take_profit_price": float(order.take_profit_price) if order.take_profit_price is not None else None,
                 "requested_quantity": requested_quantity,
                 "filled_quantity": filled_quantity,
                 "remaining_quantity": remaining_quantity,
