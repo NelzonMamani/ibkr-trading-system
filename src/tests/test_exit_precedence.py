@@ -47,9 +47,10 @@ def test_exit_precedence_matrix_honours_highest_priority_condition():
             "current_price": 90.0,
             "strategy_exit_signal": True,
             "expected": ExitDecision(
-                should_exit=True,
-                reason="TIME_MAX",
-                rationale="Exit condition met: maximum hold duration reached via TradeExitEngine (held 5 ticks; max_hold_ticks=5)",
+                category="TIME_MAX",
+                reason="Max hold duration reached",
+                exit_tick=5,
+                exit_price=90.0,
             ),
         },
         {
@@ -62,9 +63,10 @@ def test_exit_precedence_matrix_honours_highest_priority_condition():
             "current_price": 105.0,
             "strategy_exit_signal": True,
             "expected": ExitDecision(
-                should_exit=True,
-                reason="PRICE_STOP",
-                rationale="Exit condition met: stop-loss price reached via TradeExitEngine (direction=LONG price=105.0 stop_loss_price=105.0)",
+                category="PRICE_STOP",
+                reason="Stop loss breached",
+                exit_tick=4,
+                exit_price=105.0,
             ),
         },
         {
@@ -77,9 +79,10 @@ def test_exit_precedence_matrix_honours_highest_priority_condition():
             "current_price": 101.0,
             "strategy_exit_signal": True,
             "expected": ExitDecision(
-                should_exit=True,
-                reason="PRICE_TP",
-                rationale="Exit condition met: take-profit price reached via TradeExitEngine (direction=LONG price=101.0 take_profit_price=101.0)",
+                category="PRICE_TP",
+                reason="Take profit reached",
+                exit_tick=1,
+                exit_price=101.0,
             ),
         },
         {
@@ -88,11 +91,7 @@ def test_exit_precedence_matrix_honours_highest_priority_condition():
             "tick": 1,
             "current_price": 100.0,
             "strategy_exit_signal": True,
-            "expected": ExitDecision(
-                should_exit=False,
-                reason="TIME_MIN_BLOCK",
-                rationale="Minimum hold duration not yet reached — strategy exits blocked (held 1 ticks; min_hold_ticks=2)",
-            ),
+            "expected": None,
         },
         {
             "name": "Strategy exit allowed after minimum hold with no other triggers",
@@ -101,9 +100,10 @@ def test_exit_precedence_matrix_honours_highest_priority_condition():
             "current_price": 100.0,
             "strategy_exit_signal": True,
             "expected": ExitDecision(
-                should_exit=True,
-                reason="STRATEGY_SIGNAL",
-                rationale="Strategy exit request honoured by TradeExitEngine",
+                category="STRATEGY_SIGNAL",
+                reason="Strategy requested exit",
+                exit_tick=3,
+                exit_price=100.0,
             ),
         },
         {
@@ -112,25 +112,27 @@ def test_exit_precedence_matrix_honours_highest_priority_condition():
             "tick": 3,
             "current_price": 100.0,
             "strategy_exit_signal": False,
-            "expected": ExitDecision(
-                should_exit=False,
-                reason="HOLD",
-                rationale="No exit condition met — holding trade open.",
-            ),
+            "expected": None,
         },
     ]
 
     for scenario in scenarios:
         decision = engine.decide_exit(
             trade=scenario["trade"],
-            tick=scenario["tick"],
+            current_tick=scenario["tick"],
             current_price=scenario["current_price"],
             strategy_exit_signal=scenario["strategy_exit_signal"],
             config=config,
         )
-        assert decision.should_exit == scenario["expected"].should_exit, scenario["name"]
-        assert decision.reason == scenario["expected"].reason, scenario["name"]
-        assert decision.rationale == scenario["expected"].rationale, scenario["name"]
+        expected = scenario["expected"]
+        if expected is None:
+            assert decision is None, scenario["name"]
+        else:
+            assert decision is not None, scenario["name"]
+            assert decision.category == expected.category, scenario["name"]
+            assert decision.reason == expected.reason, scenario["name"]
+            assert decision.exit_tick == expected.exit_tick, scenario["name"]
+            assert decision.exit_price == expected.exit_price, scenario["name"]
 
 
 def test_price_exit_precedence_for_short_trades():
@@ -145,22 +147,22 @@ def test_price_exit_precedence_for_short_trades():
 
     decision = engine.decide_exit(
         trade=trade,
-        tick=3,
+        current_tick=3,
         current_price=95.5,
         strategy_exit_signal=False,
         config=config,
     )
 
-    assert decision.reason == "PRICE_STOP"
-    assert decision.should_exit
+    assert decision is not None
+    assert decision.category == "PRICE_STOP"
 
     tp_decision = engine.decide_exit(
         trade=trade,
-        tick=2,
+        current_tick=2,
         current_price=89.0,
         strategy_exit_signal=False,
         config=config,
     )
 
-    assert tp_decision.reason == "PRICE_TP"
-    assert tp_decision.should_exit
+    assert tp_decision is not None
+    assert tp_decision.category == "PRICE_TP"

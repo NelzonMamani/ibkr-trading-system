@@ -17,6 +17,11 @@ class ActiveTrade:
     close_price: Optional[float] = None
     realised_pnl: Optional[float] = None
 
+    def hold_duration(self, current_tick: int) -> int:
+        """Return how many ticks this trade has been held so far."""
+
+        return max(0, current_tick - self.entry_tick)
+
 
 class ActiveTradeRegistry:
     """

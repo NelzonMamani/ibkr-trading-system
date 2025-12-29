@@ -30,6 +30,7 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
         "entry_tick",
         "exit_tick",
     },
+    "EXIT_SIGNALS_GENERATED": {"exit_signals"},
     "TRADE_EXIT_COMPLETE": {"closed"},
     "STRATEGY_PERF_SNAPSHOT": {"strategies"},
     "PERF_SNAPSHOT": {"total_trades"},
@@ -73,6 +74,7 @@ OPTIONAL_FIELDS: Dict[str, Set[str]] = {
         "reason",
     },
     "TRADE_EXIT_COMPLETE": {"outcomes"},
+    "EXIT_SIGNALS_GENERATED": set(),
     "PERF_SNAPSHOT": {
         "wins",
         "losses",
