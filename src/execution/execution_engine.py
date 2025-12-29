@@ -12,6 +12,7 @@ from core.active_trade_registry import ActiveTradeRegistry, ActiveTrade
 from core.event_collector import EventCollector
 from models.data_models import ExecutionResult, RiskDecision
 from sim.price_feed import DeterministicPriceFeed
+from execution.slippage_model import SlippageModel
 
 
 class ExecutionEngine:
@@ -86,7 +87,14 @@ class ExecutionEngine:
             "(teaching-only path)"
         )
         tick = self.current_tick if self.current_tick is not None else 0
-        entry_price = self.price_feed.price_for(symbol, tick)
+        raw_price = self.price_feed.price_for(symbol, tick)
+        entry_price = SlippageModel.apply_slippage(
+            price=raw_price,
+            direction=direction,
+            trader_type=trader_type,
+            quantity=quantity,
+        )
+        slippage_applied = round(entry_price - raw_price, 2)
         active_trade = ActiveTrade(
             symbol=symbol,
             trader_type=trader_type,
@@ -109,6 +117,9 @@ class ExecutionEngine:
                 "entry_tick": tick,
                 "opened_at_tick": tick,
                 "entry_price": entry_price,
+                "raw_price": raw_price,
+                "slippage_applied": slippage_applied,
+                "execution_price": entry_price,
                 "mode": self.run_mode.value,
                 "direction": direction,
                 "quantity": quantity,
@@ -142,6 +153,8 @@ class ExecutionEngine:
             direction=direction,
             quantity=quantity,
             entry_price=entry_price,
+            raw_price=raw_price,
+            slippage_applied=slippage_applied,
             entry_tick=tick,
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,

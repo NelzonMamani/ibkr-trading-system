@@ -9,6 +9,7 @@ from core.trade_outcome_factory import TradeOutcomeFactory
 from domain.trade_outcome import TradeOutcome
 from sim.price_feed import DeterministicPriceFeed
 from strategy.exit_signal import ExitSignal
+from execution.slippage_model import SlippageModel
 
 
 @dataclass
@@ -156,7 +157,14 @@ class TradeExitEngine:
 
             hold_duration_ticks = exit_tick - entry_tick
 
-            exit_price = self.price_feed.price_for(symbol, exit_tick)
+            raw_exit_price = self.price_feed.price_for(symbol, exit_tick)
+            exit_price = SlippageModel.apply_slippage(
+                price=raw_exit_price,
+                direction=direction,
+                trader_type=trader_type,
+                quantity=-quantity,
+            )
+            slippage_applied = round(exit_price - raw_exit_price, 2)
             normalized_direction = (direction or "").upper()
             if normalized_direction == "SHORT":
                 realised_pnl = (entry_price - exit_price) * quantity
@@ -248,6 +256,9 @@ class TradeExitEngine:
                     "entry_price": entry_price,
                     "exit_tick": exit_tick,
                     "exit_price": exit_price,
+                    "raw_price": raw_exit_price,
+                    "slippage_applied": slippage_applied,
+                    "execution_price": exit_price,
                     "close_tick": exit_tick,
                     "close_price": exit_price,
                     "closed_at_tick": exit_tick,
@@ -272,6 +283,8 @@ class TradeExitEngine:
                 quantity=quantity,
                 entry_price=entry_price,
                 exit_price=exit_price,
+                raw_price=raw_exit_price,
+                slippage_applied=slippage_applied,
                 entry_tick=entry_tick,
                 exit_tick=exit_tick,
                 stop_loss_price=stop_loss_price,
@@ -345,7 +358,14 @@ class TradeExitEngine:
             strategy_name = getattr(trade, "strategy_name", "UNKNOWN")
             entry_price = getattr(trade, "entry_price", 0.0)
             entry_tick = getattr(trade, "entry_tick", resolved_tick)
-            exit_price = self.price_feed.price_for(symbol, resolved_tick)
+            raw_exit_price = self.price_feed.price_for(symbol, resolved_tick)
+            exit_price = SlippageModel.apply_slippage(
+                price=raw_exit_price,
+                direction=direction,
+                trader_type=trader_type,
+                quantity=-quantity,
+            )
+            slippage_applied = round(exit_price - raw_exit_price, 2)
             normalized_direction = (direction or "").upper()
             if normalized_direction == "SHORT":
                 realised_pnl = (entry_price - exit_price) * quantity
@@ -383,6 +403,9 @@ class TradeExitEngine:
                     "entry_price": entry_price,
                     "exit_tick": resolved_tick,
                     "exit_price": exit_price,
+                    "raw_price": raw_exit_price,
+                    "slippage_applied": slippage_applied,
+                    "execution_price": exit_price,
                     "close_tick": resolved_tick,
                     "close_price": exit_price,
                     "closed_at_tick": resolved_tick,
