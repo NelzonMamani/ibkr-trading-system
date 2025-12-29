@@ -125,6 +125,8 @@ class ExecutionResult:
     quantity: int = 1
     entry_price: Optional[float] = None
     exit_price: Optional[float] = None
+    raw_price: Optional[float] = None
+    slippage_applied: float = 0.0
     entry_tick: Optional[int] = None
     exit_tick: Optional[int] = None
     stop_loss_price: Optional[float] = None
