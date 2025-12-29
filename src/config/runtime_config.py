@@ -40,8 +40,13 @@ def get_run_mode() -> RunMode:
         return RunMode.SIM
 
 
-def get_ibkr_readonly_enabled() -> bool:
-    return (os.getenv("IBKR_READONLY_ENABLED") or "").strip().lower() == "true"
+def get_ibkr_readonly_enabled(default: bool = False) -> bool:
+    raw = (os.getenv("IBKR_READONLY_ENABLED") or "").strip().lower()
+    if raw in {"true", "1", "yes"}:
+        return True
+    if raw in {"false", "0", "no"}:
+        return False
+    return default
 
 
 def get_ibkr_host(default: str = "127.0.0.1") -> str:
@@ -95,6 +100,106 @@ def get_ibkr_default_exchange(default: str = "SMART") -> str:
 
 def get_ibkr_default_currency(default: str = "USD") -> str:
     return (os.getenv("IBKR_DEFAULT_CURRENCY") or default).strip() or default
+
+
+def get_ibkr_order_submission_enabled(default: bool = False) -> bool:
+    raw = (os.getenv("IBKR_ORDER_SUBMISSION_ENABLED") or "").strip().lower()
+    if raw in {"true", "1", "yes"}:
+        return True
+    if raw in {"false", "0", "no"}:
+        return False
+    return default
+
+
+def get_ibkr_kill_switch(default: bool = True) -> bool:
+    raw = (os.getenv("IBKR_KILL_SWITCH") or "").strip().lower()
+    if raw in {"false", "0", "no"}:
+        return False
+    if raw in {"true", "1", "yes"}:
+        return True
+    return default
+
+
+def get_ibkr_max_orders_per_run(default: int = 1) -> int:
+    raw = (os.getenv("IBKR_MAX_ORDERS_PER_RUN") or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        print(
+            f"[RUNTIME] Invalid IBKR_MAX_ORDERS_PER_RUN='{raw}'. "
+            f"Falling back to default {default}."
+        )
+        return default
+
+
+def get_ibkr_submit_only_symbol(default: str | None = None) -> str | None:
+    raw = (os.getenv("IBKR_SUBMIT_ONLY_SYMBOL") or "").strip().upper()
+    return raw or default
+
+
+def get_ibkr_paper_only_enforced(default: bool = True) -> bool:
+    raw = (os.getenv("IBKR_PAPER_ONLY_ENFORCED") or "").strip().lower()
+    if raw in {"false", "0", "no"}:
+        return False
+    if raw in {"true", "1", "yes"}:
+        return True
+    return default
+
+
+def get_ibkr_paper_host(default: str = "127.0.0.1") -> str:
+    return (os.getenv("IBKR_PAPER_HOST") or default).strip() or default
+
+
+def get_ibkr_paper_port(default: int = 7497) -> int:
+    raw = (os.getenv("IBKR_PAPER_PORT") or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        print(
+            f"[RUNTIME] Invalid IBKR_PAPER_PORT='{raw}'. "
+            f"Falling back to default {default}."
+        )
+        return default
+
+
+def get_ibkr_live_port(default: int = 7496) -> int:
+    raw = (os.getenv("IBKR_LIVE_PORT") or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        print(
+            f"[RUNTIME] Invalid IBKR_LIVE_PORT='{raw}'. "
+            f"Falling back to default {default}."
+        )
+        return default
+
+
+def get_ibkr_ack_timeout_seconds(default: int = 10) -> int:
+    raw = (os.getenv("IBKR_ACK_TIMEOUT_SECONDS") or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        print(
+            f"[RUNTIME] Invalid IBKR_ACK_TIMEOUT_SECONDS='{raw}'. "
+            f"Falling back to default {default}."
+        )
+        return default
+
+
+def get_ibkr_client_id_order_submit(default: int = 9012) -> int:
+    raw = (os.getenv("IBKR_CLIENT_ID_ORDER_SUBMIT") or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        print(
+            f"[RUNTIME] Invalid IBKR_CLIENT_ID_ORDER_SUBMIT='{raw}'. "
+            f"Falling back to default {default}."
+        )
+        return default
+
+
+def get_ibkr_guard_persist_path(default: str = "runtime/submission_guard.json") -> str:
+    return (os.getenv("IBKR_GUARD_PERSIST_PATH") or default).strip() or default
 
 
 class EventReplayMode(str, Enum):

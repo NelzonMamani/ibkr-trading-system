@@ -67,6 +67,43 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
     "TRADE_OPENED": TRADE_OPENED_SCHEMA,
     "TRADE_CLOSED": TRADE_CLOSED_SCHEMA,
     "TRADE_NOT_FILLED": TRADE_NOT_FILLED_SCHEMA,
+    "ORDER_SUBMISSION_ATTEMPTED": {
+        "client_order_id": str,
+        "symbol": str,
+        "direction": str,
+        "quantity": int,
+        "order_type": str,
+        "timestamp": str,
+    },
+    "ORDER_SUBMITTED_ACK": {
+        "client_order_id": str,
+        "symbol": str,
+        "direction": str,
+        "quantity": int,
+        "order_type": str,
+        "timestamp": str,
+        "ibkr_order_id": (int, type(None)),
+        "ack_status": (str, type(None)),
+    },
+    "ORDER_SUBMISSION_FAILED": {
+        "client_order_id": str,
+        "symbol": str,
+        "direction": str,
+        "quantity": int,
+        "order_type": str,
+        "timestamp": str,
+        "ibkr_order_id": (int, type(None)),
+        "reason": (str, type(None)),
+    },
+    "ORDER_SUBMISSION_BLOCKED": {
+        "client_order_id": str,
+        "symbol": str,
+        "direction": str,
+        "quantity": int,
+        "order_type": str,
+        "timestamp": str,
+        "reason": str,
+    },
 }
 
 
@@ -124,6 +161,39 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
     "SHUTDOWN_HOOK_FAILED": {"mode", "reason", "source", "run_mode", "tick", "hook"},
     "SHUTDOWN_COMPLETE": {"mode", "reason", "source", "run_mode", "tick"},
     "PANIC_STOP_TRIGGERED": {"mode", "reason", "source", "run_mode", "tick"},
+    "ORDER_SUBMISSION_ATTEMPTED": {
+        "client_order_id",
+        "symbol",
+        "direction",
+        "quantity",
+        "order_type",
+        "timestamp",
+    },
+    "ORDER_SUBMITTED_ACK": {
+        "client_order_id",
+        "symbol",
+        "direction",
+        "quantity",
+        "order_type",
+        "timestamp",
+    },
+    "ORDER_SUBMISSION_FAILED": {
+        "client_order_id",
+        "symbol",
+        "direction",
+        "quantity",
+        "order_type",
+        "timestamp",
+    },
+    "ORDER_SUBMISSION_BLOCKED": {
+        "client_order_id",
+        "symbol",
+        "direction",
+        "quantity",
+        "order_type",
+        "timestamp",
+        "reason",
+    },
 }
 
 
@@ -170,6 +240,10 @@ OPTIONAL_FIELDS: Dict[str, Set[str]] = {
         "fault_category",
         "fault_severity",
     },
+    "ORDER_SUBMISSION_ATTEMPTED": {"ibkr_order_id", "reason"},
+    "ORDER_SUBMITTED_ACK": {"ibkr_order_id", "ack_status", "reason"},
+    "ORDER_SUBMISSION_FAILED": {"ibkr_order_id", "reason"},
+    "ORDER_SUBMISSION_BLOCKED": {"ibkr_order_id"},
 }
 
 

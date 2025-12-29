@@ -1,7 +1,15 @@
 from __future__ import annotations
 
-from ibapi.contract import Contract
-from ibapi.order import Order
+try:
+    from ibapi.contract import Contract
+    from ibapi.order import Order
+
+    IBAPI_AVAILABLE = True
+except ModuleNotFoundError:  # pragma: no cover - optional dependency missing
+    IBAPI_AVAILABLE = False
+    Contract = None  # type: ignore
+    Order = None  # type: ignore
+    print("[IBKR][TRANSLATOR] ibapi dependency missing; translation unavailable.")
 
 from domain.models.internal_order import InternalOrder
 
@@ -86,6 +94,8 @@ class IbkrOrderTranslator:
     def _ensure_enabled(self) -> None:
         if not self.order_translation_enabled:
             raise RuntimeError("IBKR order translation disabled by config.")
+        if not IBAPI_AVAILABLE:
+            raise RuntimeError("ibapi dependency missing; IBKR translation unavailable.")
 
     @staticmethod
     def _map_direction(direction: str) -> str:
