@@ -56,6 +56,8 @@ class ExecutionEngine:
         direction = getattr(risk_decision, "direction", "UNKNOWN")
         strategy_name = getattr(risk_decision, "strategy_name", "UNKNOWN")
         quantity = getattr(risk_decision, "max_position_size", 1)
+        stop_loss_price = getattr(risk_decision, "stop_loss_price", None)
+        take_profit_price = getattr(risk_decision, "take_profit_price", None)
         print(
             "[EXECUTION:REGISTRY] Current active trades snapshot by trader_type "
             f"{trader_type}: {self.trade_registry.count_active_by_trader(trader_type)}"
@@ -75,6 +77,8 @@ class ExecutionEngine:
                 ),
                 direction=direction,
                 quantity=quantity,
+                stop_loss_price=stop_loss_price,
+                take_profit_price=take_profit_price,
             )
 
         print(
@@ -91,6 +95,8 @@ class ExecutionEngine:
             direction=direction,
             quantity=quantity,
             strategy_name=strategy_name,
+            stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price,
         )
         self.trade_registry.register_trade(active_trade)
         self.event_collector.emit(
@@ -106,6 +112,8 @@ class ExecutionEngine:
                 "mode": self.run_mode.value,
                 "direction": direction,
                 "quantity": quantity,
+                "stop_loss_price": stop_loss_price,
+                "take_profit_price": take_profit_price,
             },
         )
         print(
@@ -135,6 +143,8 @@ class ExecutionEngine:
             quantity=quantity,
             entry_price=entry_price,
             entry_tick=tick,
+            stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price,
         )
 
     def complete_trade(self, symbol: str, trader_type: str) -> None:

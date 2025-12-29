@@ -11,6 +11,8 @@ class ActiveTrade:
     direction: str = "UNKNOWN"
     quantity: int = 1
     strategy_name: str = "UNKNOWN"
+    stop_loss_price: Optional[float] = None
+    take_profit_price: Optional[float] = None
     close_tick: Optional[int] = None
     close_price: Optional[float] = None
     realised_pnl: Optional[float] = None

@@ -79,45 +79,58 @@ class TradeExitEngine:
 
             rationale: Optional[str] = None
 
-            if hold_duration_ticks < MIN_HOLD_TICKS:
-                print(
-                    "[EXIT] Hold threshold not met — keeping trade open "
-                    f"symbol={symbol} trader_type={trader_type} "
-                    f"entry_tick={entry_tick} current_tick={exit_tick} "
-                    f"min_hold_ticks={MIN_HOLD_TICKS}"
-                )
-                continue
+            stop_loss_price = getattr(trade, "stop_loss_price", None)
+            take_profit_price = getattr(trade, "take_profit_price", None)
 
-            if hold_duration_ticks >= MAX_HOLD_TICKS:
-                rationale = (
-                    "Exit condition met: maximum hold duration reached via TradeExitEngine "
-                    f"(held {hold_duration_ticks} ticks; max_hold_ticks={MAX_HOLD_TICKS})"
-                )
-            else:
-                signals_for_trade = exit_signal_map.get((symbol, trader_type), [])
-                if not signals_for_trade:
+            price_exit_rationale = self._evaluate_price_exit(
+                normalized_direction=normalized_direction,
+                exit_price=exit_price,
+                stop_loss_price=stop_loss_price,
+                take_profit_price=take_profit_price,
+            )
+
+            if price_exit_rationale is None:
+                if hold_duration_ticks < MIN_HOLD_TICKS:
                     print(
-                        "[EXIT] No strategy exit request — keeping trade open "
+                        "[EXIT] Hold threshold not met — keeping trade open "
                         f"symbol={symbol} trader_type={trader_type} "
                         f"entry_tick={entry_tick} current_tick={exit_tick} "
-                        f"hold_ticks={hold_duration_ticks} "
-                        f"max_hold_ticks={MAX_HOLD_TICKS}"
+                        f"min_hold_ticks={MIN_HOLD_TICKS}"
                     )
                     continue
-                selected_signal = next(
-                    (
-                        signal
-                        for signal in signals_for_trade
-                        if signal.strategy_name == strategy_name
-                    ),
-                    signals_for_trade[0],
-                )
-                rationale = (
-                    "Strategy exit request honoured by TradeExitEngine: "
-                    f"{selected_signal.reason} "
-                    f"(requested_by={selected_signal.strategy_name}; "
-                    f"hold_duration_ticks={hold_duration_ticks})"
-                )
+
+                if hold_duration_ticks >= MAX_HOLD_TICKS:
+                    rationale = (
+                        "Exit condition met: maximum hold duration reached via TradeExitEngine "
+                        f"(held {hold_duration_ticks} ticks; max_hold_ticks={MAX_HOLD_TICKS})"
+                    )
+                else:
+                    signals_for_trade = exit_signal_map.get((symbol, trader_type), [])
+                    if not signals_for_trade:
+                        print(
+                            "[EXIT] No strategy exit request — keeping trade open "
+                            f"symbol={symbol} trader_type={trader_type} "
+                            f"entry_tick={entry_tick} current_tick={exit_tick} "
+                            f"hold_ticks={hold_duration_ticks} "
+                            f"max_hold_ticks={MAX_HOLD_TICKS}"
+                        )
+                        continue
+                    selected_signal = next(
+                        (
+                            signal
+                            for signal in signals_for_trade
+                            if signal.strategy_name == strategy_name
+                        ),
+                        signals_for_trade[0],
+                    )
+                    rationale = (
+                        "Strategy exit request honoured by TradeExitEngine: "
+                        f"{selected_signal.reason} "
+                        f"(requested_by={selected_signal.strategy_name}; "
+                        f"hold_duration_ticks={hold_duration_ticks})"
+                    )
+            else:
+                rationale = price_exit_rationale
 
             self.trade_registry.unregister_trade(symbol, trader_type)
 
@@ -144,6 +157,8 @@ class TradeExitEngine:
                     "max_hold_ticks": MAX_HOLD_TICKS,
                     "pnl": realised_pnl,
                     "realised_pnl": realised_pnl,
+                    "stop_loss_price": stop_loss_price,
+                    "take_profit_price": take_profit_price,
                 },
                 timestamp=datetime.utcnow(),
             )
@@ -160,6 +175,8 @@ class TradeExitEngine:
                 exit_price=exit_price,
                 entry_tick=entry_tick,
                 exit_tick=exit_tick,
+                stop_loss_price=stop_loss_price,
+                take_profit_price=take_profit_price,
             )
             results.append(closed_result)
             trade_outcomes.append(
@@ -171,6 +188,50 @@ class TradeExitEngine:
             )
 
         return results, trade_outcomes
+
+    @staticmethod
+    def _evaluate_price_exit(
+        normalized_direction: str,
+        exit_price: float,
+        stop_loss_price: Optional[float],
+        take_profit_price: Optional[float],
+    ) -> Optional[str]:
+        """
+        Determine whether a price-based exit should be triggered.
+
+        Stop-loss takes precedence over take-profit when both thresholds are
+        simultaneously crossed, ensuring risk-first behaviour.
+        """
+
+        if stop_loss_price is not None:
+            if normalized_direction == "SHORT":
+                if exit_price >= stop_loss_price:
+                    return (
+                        "Exit condition met: stop-loss price reached via TradeExitEngine "
+                        f"(direction=SHORT price={exit_price} stop_loss_price={stop_loss_price})"
+                    )
+            else:
+                if exit_price <= stop_loss_price:
+                    return (
+                        "Exit condition met: stop-loss price reached via TradeExitEngine "
+                        f"(direction=LONG price={exit_price} stop_loss_price={stop_loss_price})"
+                    )
+
+        if take_profit_price is not None:
+            if normalized_direction == "SHORT":
+                if exit_price <= take_profit_price:
+                    return (
+                        "Exit condition met: take-profit price reached via TradeExitEngine "
+                        f"(direction=SHORT price={exit_price} take_profit_price={take_profit_price})"
+                    )
+            else:
+                if exit_price >= take_profit_price:
+                    return (
+                        "Exit condition met: take-profit price reached via TradeExitEngine "
+                        f"(direction=LONG price={exit_price} take_profit_price={take_profit_price})"
+                    )
+
+        return None
 
     def shutdown(self) -> None:
         """

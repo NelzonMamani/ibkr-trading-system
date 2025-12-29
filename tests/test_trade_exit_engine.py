@@ -201,3 +201,103 @@ def test_exit_signal_ignored_before_minimum_hold():
     assert results == []
     assert outcomes == []
     assert trade_registry.get_trade(symbol, trader_type) is not None
+
+
+def test_stop_loss_exit_triggers_even_before_minimum_hold():
+    """
+    Price-based stop-loss exits should be enforced by the TradeExitEngine immediately.
+    """
+
+    price_feed = DeterministicPriceFeed()
+    trade_registry = ActiveTradeRegistry()
+    event_collector = EventCollector()
+
+    symbol = "ABC"
+    trader_type = "SIM_TRADER"
+    strategy_name = "ProtectiveStrategy"
+    entry_tick = 0
+    entry_price = price_feed.price_for(symbol, entry_tick)
+    stop_loss_price = entry_price + 0.01
+
+    trade_registry.register_trade(
+        ActiveTrade(
+            symbol=symbol,
+            trader_type=trader_type,
+            entry_tick=entry_tick,
+            entry_price=entry_price,
+            direction="SHORT",
+            quantity=1,
+            strategy_name=strategy_name,
+            stop_loss_price=stop_loss_price,
+        )
+    )
+
+    exit_engine = TradeExitEngine(
+        trade_registry=trade_registry,
+        event_collector=event_collector,
+        price_feed=price_feed,
+    )
+
+    trigger_tick = entry_tick + 1
+    results, outcomes = exit_engine.evaluate_and_close_trades(
+        run_mode=RunMode.SIM, tick=trigger_tick
+    )
+
+    assert len(results) == 1
+    assert len(outcomes) == 1
+    assert trade_registry.get_trade(symbol, trader_type) is None
+
+    closed_result = results[0]
+    assert closed_result.exit_tick == trigger_tick
+    assert "stop-loss price reached" in closed_result.rationale
+    assert closed_result.stop_loss_price == stop_loss_price
+
+
+def test_take_profit_exit_triggers_when_threshold_hit():
+    """
+    Price-based take-profit exits should be enforced when the threshold is met.
+    """
+
+    price_feed = DeterministicPriceFeed()
+    trade_registry = ActiveTradeRegistry()
+    event_collector = EventCollector()
+
+    symbol = "XYZ"
+    trader_type = "SIM_TRADER"
+    strategy_name = "ProtectiveStrategy"
+    entry_tick = 0
+    entry_price = price_feed.price_for(symbol, entry_tick)
+    take_profit_price = entry_price + 0.01
+
+    trade_registry.register_trade(
+        ActiveTrade(
+            symbol=symbol,
+            trader_type=trader_type,
+            entry_tick=entry_tick,
+            entry_price=entry_price,
+            direction="LONG",
+            quantity=1,
+            strategy_name=strategy_name,
+            take_profit_price=take_profit_price,
+        )
+    )
+
+    exit_engine = TradeExitEngine(
+        trade_registry=trade_registry,
+        event_collector=event_collector,
+        price_feed=price_feed,
+    )
+
+    trigger_tick = entry_tick + 1
+    results, outcomes = exit_engine.evaluate_and_close_trades(
+        run_mode=RunMode.SIM, tick=trigger_tick
+    )
+
+    assert len(results) == 1
+    assert len(outcomes) == 1
+    assert trade_registry.get_trade(symbol, trader_type) is None
+
+    closed_result = results[0]
+    assert closed_result.exit_tick == trigger_tick
+    assert "take-profit price reached" in closed_result.rationale
+    assert closed_result.take_profit_price == take_profit_price
