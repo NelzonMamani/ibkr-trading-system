@@ -76,6 +76,21 @@ class ExecutionEngine:
             applied_slippage = base_slippage
         return q_price(abs(applied_slippage))
 
+    def _compute_quote_context(
+        self, order: OrderRequest, tick: int
+    ) -> tuple[Optional[Decimal], Optional[Decimal], Optional[Decimal], Optional[Decimal], Optional[Decimal]]:
+        raw_mid = q_price(to_decimal(self.price_feed.price_for(order.symbol, tick)))
+        if raw_mid is None:
+            return None, None, None, None, None
+        spread = deterministic_spread(order.symbol, tick, order.trader_type)
+        bid_price, ask_price = apply_spread_mid_to_quote(raw_mid, spread)
+        reference_price = choose_execution_reference_price(
+            order.direction,
+            bid_price,
+            ask_price,
+        )
+        return raw_mid, spread, bid_price, ask_price, reference_price
+
     def process_pending_orders(self, tick: int) -> List[ExecutionResult]:
         due_orders = self.pending_book.due_orders(tick)
         results: List[ExecutionResult] = []
@@ -214,6 +229,7 @@ class ExecutionEngine:
                 "reason": "GATEWAY_HARD_REJECT",
             },
         )
+        raw_mid, spread, bid_price, ask_price, reference_price = self._compute_quote_context(order, tick)
         return ExecutionResult(
             symbol=order.symbol,
             trader_type=order.trader_type,
@@ -223,7 +239,7 @@ class ExecutionEngine:
             direction=order.direction,
             quantity=0,
             entry_price=None,
-            raw_price=None,
+            raw_price=raw_mid,
             entry_tick=tick,
             stop_loss_price=order.stop_loss_price,
             take_profit_price=order.take_profit_price,
@@ -239,10 +255,15 @@ class ExecutionEngine:
             retry_scheduled=False,
             next_retry_tick=None,
             rejection_reason="GATEWAY_HARD_REJECT",
+            spread=spread,
+            bid_price=bid_price,
+            ask_price=ask_price,
+            reference_price=reference_price,
         )
 
     def _on_soft_reject(self, order: OrderRequest, tick: int) -> ExecutionResult:
         max_attempts = self._max_attempts(order.trader_type)
+        raw_mid, spread, bid_price, ask_price, reference_price = self._compute_quote_context(order, tick)
         if order.attempt_number >= max_attempts:
             self.event_collector.emit(
                 event_type="ORDER_EXPIRED",
@@ -269,7 +290,7 @@ class ExecutionEngine:
                 direction=order.direction,
                 quantity=0,
                 entry_price=None,
-                raw_price=None,
+                raw_price=raw_mid,
                 entry_tick=tick,
                 stop_loss_price=order.stop_loss_price,
                 take_profit_price=order.take_profit_price,
@@ -285,6 +306,10 @@ class ExecutionEngine:
                 retry_scheduled=False,
                 next_retry_tick=None,
                 rejection_reason="EXPIRED",
+                spread=spread,
+                bid_price=bid_price,
+                ask_price=ask_price,
+                reference_price=reference_price,
             )
 
         order.attempt_number += 1
@@ -315,7 +340,7 @@ class ExecutionEngine:
             direction=order.direction,
             quantity=0,
             entry_price=None,
-            raw_price=None,
+            raw_price=raw_mid,
             entry_tick=tick,
             stop_loss_price=order.stop_loss_price,
             take_profit_price=order.take_profit_price,
@@ -331,6 +356,10 @@ class ExecutionEngine:
             retry_scheduled=True,
             next_retry_tick=order.next_retry_tick,
             rejection_reason="GATEWAY_SOFT_REJECT",
+            spread=spread,
+            bid_price=bid_price,
+            ask_price=ask_price,
+            reference_price=reference_price,
         )
 
     def _execute_liquidity(self, order: OrderRequest, tick: int) -> ExecutionResult:
@@ -339,14 +368,7 @@ class ExecutionEngine:
             tick=tick,
             trader_type=order.trader_type,
         )
-        raw_mid = q_price(to_decimal(self.price_feed.price_for(order.symbol, tick)))
-        spread = deterministic_spread(order.symbol, tick, order.trader_type)
-        bid_price, ask_price = apply_spread_mid_to_quote(raw_mid, spread)
-        reference_price = choose_execution_reference_price(
-            order.direction,
-            bid_price,
-            ask_price,
-        )
+        raw_mid, spread, bid_price, ask_price, reference_price = self._compute_quote_context(order, tick)
         requested_quantity = order.requested_quantity
         filled_quantity = min(requested_quantity, available_liquidity)
         remaining_quantity = max(0, requested_quantity - filled_quantity)

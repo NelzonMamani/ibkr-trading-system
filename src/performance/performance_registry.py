@@ -2,7 +2,7 @@ from decimal import Decimal
 from typing import Dict, Iterable, List
 
 from domain.performance_snapshot import PerformanceSnapshot
-from utils.price_math import D, q_money, to_decimal
+from src.utils.price_math import D, q_money, to_decimal
 
 
 class PerformanceRegistry:
@@ -42,17 +42,14 @@ class PerformanceRegistry:
         wins = sum(1 for trade in self._closed_trades if trade["outcome"] == "WIN")
         losses = sum(1 for trade in self._closed_trades if trade["outcome"] == "LOSS")
         flats = sum(1 for trade in self._closed_trades if trade["outcome"] == "FLAT")
-        gross_pnl_dec = sum(
-            (to_decimal(trade.get("gross_realised_pnl", trade["realised_pnl"])) or Decimal("0.00"))
-            for trade in self._closed_trades
-        )
-        total_commissions_dec = sum(
-            (to_decimal(trade.get("commission", Decimal("0.00"))) or Decimal("0.00"))
-            for trade in self._closed_trades
-        )
+        gross_pnl_dec = Decimal("0.00")
+        total_commissions_dec = Decimal("0.00")
+        for trade in self._closed_trades:
+            gross_pnl_dec += to_decimal(trade.get("gross_realised_pnl", trade["realised_pnl"])) or Decimal("0.00")
+            total_commissions_dec += to_decimal(trade.get("commission", Decimal("0.00"))) or Decimal("0.00")
         gross_pnl = q_money(gross_pnl_dec) or Decimal("0.00")
         total_commissions = q_money(total_commissions_dec) or Decimal("0.00")
-        net_pnl = q_money(gross_pnl_dec - total_commissions_dec) or Decimal("0.00")
+        net_pnl = q_money(gross_pnl - total_commissions) or Decimal("0.00")
 
         win_rate = float(wins / total_trades) if total_trades else 0.0
         avg_pnl_per_trade = (
