@@ -7,19 +7,53 @@ class EventSchemaError(Exception):
     """Raised when an event payload violates the minimal schema."""
 
 
+TRADE_OPENED_SCHEMA = {
+    "symbol": str,
+    "trader_type": str,
+    "strategy_name": str,
+    "entry_tick": int,
+    "opened_at_tick": int,
+    "entry_price": float,
+    "mode": str,
+    "direction": str,
+    "quantity": int,
+    "stop_loss_price": (float, type(None)),
+    "take_profit_price": (float, type(None)),
+}
+
+TRADE_CLOSED_SCHEMA = {
+    "symbol": str,
+    "trader_type": str,
+    "strategy_name": str,
+    "entry_tick": int,
+    "exit_tick": int,
+    "entry_price": float,
+    "exit_price": float,
+    "direction": str,
+    "quantity": int,
+    "exit_category": str,
+    "exit_reason": str,
+    "pnl": float,
+    "hold_duration_ticks": int,
+    "min_hold_ticks": int,
+    "max_hold_ticks": int,
+    "stop_loss_price": (float, type(None)),
+    "take_profit_price": (float, type(None)),
+}
+
+EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
+    "TRADE_OPENED": TRADE_OPENED_SCHEMA,
+    "TRADE_CLOSED": TRADE_CLOSED_SCHEMA,
+}
+
+
 # Conservative schemas focused on consistency for teaching purposes.
 REQUIRED_FIELDS: Dict[str, Set[str]] = {
     "CYCLE_START": {"run_mode"},
     "SCAN_COMPLETE": {"candidates"},
     "STRATEGY_COMPLETE": {"trade_intents"},
     "EXECUTION_COMPLETE": {"results"},
-    "TRADE_OPENED": {
-        "symbol",
-        "trader_type",
-        "strategy_name",
-        "entry_price",
-        "entry_tick",
-    },
+    "TRADE_OPENED": set(TRADE_OPENED_SCHEMA.keys()),
     "TRADE_CLOSED": {
         "symbol",
         "trader_type",
@@ -29,6 +63,11 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
         "pnl",
         "entry_tick",
         "exit_tick",
+        "hold_duration_ticks",
+        "min_hold_ticks",
+        "max_hold_ticks",
+        "stop_loss_price",
+        "take_profit_price",
     },
     "EXIT_SIGNALS_GENERATED": {"exit_signals"},
     "TRADE_EXIT_COMPLETE": {"closed"},
@@ -62,7 +101,7 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
 
 
 OPTIONAL_FIELDS: Dict[str, Set[str]] = {
-    "TRADE_OPENED": {"opened_at_tick", "mode", "direction", "quantity"},
+    "TRADE_OPENED": set(),
     "TRADE_CLOSED": {
         "opened_at_tick",
         "close_tick",
@@ -111,6 +150,19 @@ def _log_unknown_keys(event_type: str, payload: Dict[str, Any], known_keys: Set[
     print(f"[SCHEMA] event={event_type} has extra keys: {extras_display}")
 
 
+def _validate_field_types(event_type: str, payload: Dict[str, Any], schema: Dict[str, Any]) -> None:
+    for key, expected_type in schema.items():
+        if key not in payload:
+            continue
+        value = payload[key]
+        if isinstance(value, expected_type):
+            continue
+        raise EventSchemaError(
+            f"event_type={event_type} invalid type for key='{key}': "
+            f"expected {expected_type}, got {type(value)}"
+        )
+
+
 def validate_event(event_type: str, payload: Dict[str, Any]) -> None:
     """
     Validate event payload against minimal schema.
@@ -132,6 +184,8 @@ def validate_event(event_type: str, payload: Dict[str, Any]) -> None:
             f"event_type={event_type} missing required keys: {', '.join(missing)}"
         )
 
+    schema = EVENT_SCHEMAS.get(event_type, {})
     optional_keys = OPTIONAL_FIELDS.get(event_type, set())
-    known_keys = required_keys | optional_keys
+    known_keys = required_keys | optional_keys | set(schema.keys())
     _log_unknown_keys(event_type, payload, known_keys)
+    _validate_field_types(event_type, payload, schema)
