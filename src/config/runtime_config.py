@@ -6,7 +6,10 @@ This module is the single source of truth for runtime modes and replay modes.
 
 from __future__ import annotations
 import os
+from dataclasses import dataclass
 from enum import Enum
+
+from config.trading_config import MAX_HOLD_TICKS, MIN_HOLD_TICKS
 
 
 class RunMode(str, Enum):
@@ -71,3 +74,17 @@ def get_event_replay_mode(run_mode: RunMode) -> EventReplayMode:
             f"Falling back to default {DEFAULT_EVENT_REPLAY_MODE}."
         )
         return DEFAULT_EVENT_REPLAY_MODE
+
+
+@dataclass
+class RuntimeConfig:
+    """
+    Minimal runtime configuration context for deterministic engine evaluation.
+
+    This container intentionally mirrors the authoritative trading thresholds to
+    make pure decision functions testable without importing global constants in
+    multiple places.
+    """
+
+    min_hold_ticks: int = MIN_HOLD_TICKS
+    max_hold_ticks: int = MAX_HOLD_TICKS
