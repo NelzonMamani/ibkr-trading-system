@@ -85,6 +85,18 @@ def get_ibkr_market_data_type(default: str = "LIVE") -> str:
     return raw or default
 
 
+def get_ibkr_order_translation_enabled() -> bool:
+    return (os.getenv("IBKR_ORDER_TRANSLATION_ENABLED") or "").strip().lower() == "true"
+
+
+def get_ibkr_default_exchange(default: str = "SMART") -> str:
+    return (os.getenv("IBKR_DEFAULT_EXCHANGE") or default).strip() or default
+
+
+def get_ibkr_default_currency(default: str = "USD") -> str:
+    return (os.getenv("IBKR_DEFAULT_CURRENCY") or default).strip() or default
+
+
 class EventReplayMode(str, Enum):
     OFF = "OFF"
     CYCLE = "CYCLE"
