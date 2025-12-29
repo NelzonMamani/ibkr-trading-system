@@ -10,7 +10,8 @@ class TradeOutcome:
     entry_price: float
     exit_price: float
     quantity: int
-    realised_pnl: float
+    gross_realised_pnl: float
+    commission: float
+    net_realised_pnl: float
     duration_ticks: int
     outcome: str  # WIN | LOSS | FLAT
-

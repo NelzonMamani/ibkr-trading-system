@@ -10,6 +10,8 @@ class StrategyPerformanceSnapshot:
     losses: int
     flats: int
     gross_pnl: float
+    net_pnl: float
+    total_commissions: float
 
     @property
     def win_rate(self) -> float:
@@ -32,9 +34,11 @@ class StrategyPerformanceTracker:
             return
 
         strategy_name = str(event_payload.get("strategy_name") or "UNKNOWN")
-        pnl = event_payload.get("pnl")
+        pnl = event_payload.get("net_realised_pnl")
         if pnl is None:
-            pnl = event_payload.get("realised_pnl", 0.0)
+            pnl = event_payload.get("realised_pnl")
+        if pnl is None:
+            pnl = event_payload.get("pnl", 0.0)
 
         try:
             pnl_value = float(pnl)
@@ -50,11 +54,20 @@ class StrategyPerformanceTracker:
                 "losses": 0,
                 "flats": 0,
                 "gross_pnl": 0.0,
+                "net_pnl": 0.0,
+                "total_commissions": 0.0,
             },
         )
 
         bucket["total_trades"] += 1
         bucket["gross_pnl"] += pnl_value
+        commission_value = event_payload.get("commission", 0.0)
+        try:
+            commission_value = float(commission_value)
+        except (TypeError, ValueError):
+            commission_value = 0.0
+        bucket["total_commissions"] += commission_value
+        bucket["net_pnl"] += pnl_value - commission_value
         if pnl_value > 0:
             bucket["wins"] += 1
         elif pnl_value < 0:
@@ -71,6 +84,8 @@ class StrategyPerformanceTracker:
                 losses=bucket["losses"],
                 flats=bucket["flats"],
                 gross_pnl=bucket["gross_pnl"],
+                net_pnl=bucket["net_pnl"],
+                total_commissions=bucket["total_commissions"],
             )
             for strategy_name, bucket in self._by_strategy.items()
         ]

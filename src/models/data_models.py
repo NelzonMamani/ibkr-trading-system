@@ -131,6 +131,9 @@ class ExecutionResult:
     exit_tick: Optional[int] = None
     stop_loss_price: Optional[float] = None
     take_profit_price: Optional[float] = None
+    gross_realised_pnl: float = 0.0
+    commission: float = 0.0
+    net_realised_pnl: float = 0.0
 
 
 @dataclass

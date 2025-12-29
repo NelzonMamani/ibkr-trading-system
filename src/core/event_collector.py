@@ -115,7 +115,9 @@ class EventCollector:
             if event.event_type != "TRADE_CLOSED":
                 continue
             payload = event.payload or {}
-            realised_pnl += payload.get("realised_pnl", 0.0)
+            realised_pnl += payload.get(
+                "net_realised_pnl", payload.get("realised_pnl", 0.0)
+            )
         return round(realised_pnl, 2)
 
     def cycle_count(self, event_type: str = None):
@@ -132,7 +134,9 @@ class EventCollector:
             if event.event_type != "TRADE_CLOSED":
                 continue
             payload = event.payload or {}
-            realised_pnl += payload.get("realised_pnl", 0.0)
+            realised_pnl += payload.get(
+                "net_realised_pnl", payload.get("realised_pnl", 0.0)
+            )
         return round(realised_pnl, 2)
 
     def cycle_pnl_by_trader_type(self) -> dict[str, float]:
@@ -146,7 +150,9 @@ class EventCollector:
                 continue
             pnl_by_trader_type[trader_type] = (
                 pnl_by_trader_type.get(trader_type, 0.0)
-                + payload.get("realised_pnl", 0.0)
+                + payload.get(
+                    "net_realised_pnl", payload.get("realised_pnl", 0.0)
+                )
             )
         return {
             trader_type: round(realised_pnl, 2)
