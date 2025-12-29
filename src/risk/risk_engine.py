@@ -131,4 +131,6 @@ class RiskEngine:
             trader_type=trader_type,
             strategy_name=trade_intent.strategy_name,
             direction=trade_intent.direction,
+            stop_loss_price=getattr(trade_intent, "stop_loss_price", None),
+            take_profit_price=getattr(trade_intent, "take_profit_price", None),
         )

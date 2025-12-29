@@ -81,6 +81,8 @@ class TradeIntent:
     confidence: float  # Confidence score carried for discussion; not a trading signal.
     rationale: str  # Plain-language explanation of why this intent exists.
     trader_type: str = "UNKNOWN"  # "SCALPER", "MOMENTUM", "QUANT", or "MANUAL" for routing the teaching flow.
+    stop_loss_price: Optional[float] = None  # Optional price-based protection configured at entry time.
+    take_profit_price: Optional[float] = None  # Optional profit target configured at entry time.
 
 
 @dataclass
@@ -101,6 +103,8 @@ class RiskDecision:
     trader_type: str = "MANUAL"
     strategy_name: str = "UNKNOWN"
     direction: str = "UNKNOWN"
+    stop_loss_price: Optional[float] = None
+    take_profit_price: Optional[float] = None
 
 
 @dataclass
@@ -123,6 +127,8 @@ class ExecutionResult:
     exit_price: Optional[float] = None
     entry_tick: Optional[int] = None
     exit_tick: Optional[int] = None
+    stop_loss_price: Optional[float] = None
+    take_profit_price: Optional[float] = None
 
 
 @dataclass
