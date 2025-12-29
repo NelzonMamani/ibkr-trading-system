@@ -1,9 +1,13 @@
-import hashlib
 from decimal import Decimal
 from typing import Dict, Optional
 
 from execution.liquidity_model import LiquidityModel
-from utils.price_math import D, quantize_money
+from utils.price_math import (
+    D,
+    apply_spread_mid_to_quote,
+    deterministic_spread,
+    q_price,
+)
 
 
 class LiquidityEngine:
@@ -16,20 +20,6 @@ class LiquidityEngine:
     - Keep monetary values in Decimal with cent-level quantisation
     """
 
-    _MIN_SPREAD = Decimal("0.01")
-
-    @classmethod
-    def _spread_cents(cls, symbol: str, tick: int, trader_type: str) -> Decimal:
-        """
-        Deterministically map inputs to a 1–3 cent spread to avoid float drift.
-        """
-
-        key = f"{symbol}|{tick}|{trader_type or 'UNKNOWN'}|SPREAD"
-        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
-        mapped = int(digest[:6], 16)
-        cents = (mapped % 3) + 1  # 1, 2, or 3 cents
-        return Decimal(cents) / Decimal(100)
-
     @classmethod
     def quote(
         cls,
@@ -38,11 +28,9 @@ class LiquidityEngine:
         trader_type: str,
         mid_price: float,
     ) -> Dict[str, Decimal]:
-        mid = quantize_money(D(mid_price))
-        spread = max(cls._spread_cents(symbol, tick, trader_type), cls._MIN_SPREAD)
-        half_spread = spread / Decimal(2)
-        bid = quantize_money(mid - half_spread)
-        ask = quantize_money(mid + half_spread)
+        mid = q_price(D(mid_price))
+        spread = deterministic_spread(symbol, tick, trader_type)
+        bid, ask = apply_spread_mid_to_quote(mid, spread)
         return {
             "mid": mid,
             "bid": bid,

@@ -3,6 +3,7 @@ Execution engine with deterministic gateway, retry semantics, and liquidity rout
 """
 
 import hashlib
+from decimal import Decimal
 from typing import List, Optional
 
 from config.runtime_config import RunMode, get_run_mode
@@ -15,7 +16,14 @@ from execution.slippage_model import SlippageModel
 from models.execution_result import ExecutionResult
 from models.data_models import RiskDecision
 from sim.price_feed import DeterministicPriceFeed
-from utils.price_math import D, quantize_money
+from utils.price_math import (
+    apply_slippage,
+    apply_spread_mid_to_quote,
+    choose_execution_reference_price,
+    deterministic_spread,
+    q_price,
+    to_decimal,
+)
 
 
 class ExecutionEngine:
@@ -53,6 +61,20 @@ class ExecutionEngine:
     ) -> str:
         key = f"{symbol}|{trader_type}|{strategy_name}|{direction}|{created_tick}"
         return hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+
+    @staticmethod
+    def _slippage_value(direction: str, trader_type: str, quantity: int) -> Decimal:
+        normalized_direction = (direction or "").upper()
+        normalized_trader_type = (trader_type or "").upper()
+        base_slippage = Decimal(
+            str(SlippageModel._SLIPPAGE_TABLE.get((normalized_trader_type, normalized_direction), 0.0))
+        )
+        is_exit = quantity < 0
+        if is_exit and normalized_direction == "LONG":
+            applied_slippage = -base_slippage
+        else:
+            applied_slippage = base_slippage
+        return q_price(abs(applied_slippage))
 
     def process_pending_orders(self, tick: int) -> List[ExecutionResult]:
         due_orders = self.pending_book.due_orders(tick)
@@ -317,13 +339,14 @@ class ExecutionEngine:
             tick=tick,
             trader_type=order.trader_type,
         )
-        quotes = LiquidityEngine.quote(
-            symbol=order.symbol,
-            tick=tick,
-            trader_type=order.trader_type,
-            mid_price=self.price_feed.price_for(order.symbol, tick),
+        raw_mid = q_price(to_decimal(self.price_feed.price_for(order.symbol, tick)))
+        spread = deterministic_spread(order.symbol, tick, order.trader_type)
+        bid_price, ask_price = apply_spread_mid_to_quote(raw_mid, spread)
+        reference_price = choose_execution_reference_price(
+            order.direction,
+            bid_price,
+            ask_price,
         )
-        raw_price = quotes["mid"]
         requested_quantity = order.requested_quantity
         filled_quantity = min(requested_quantity, available_liquidity)
         remaining_quantity = max(0, requested_quantity - filled_quantity)
@@ -371,10 +394,15 @@ class ExecutionEngine:
                 direction=order.direction,
                 quantity=0,
                 entry_price=None,
-                raw_price=raw_price,
+                raw_price=raw_mid,
+                spread=spread,
+                bid_price=bid_price,
+                ask_price=ask_price,
+                reference_price=reference_price,
+                execution_price=None,
                 entry_tick=tick,
-                stop_loss_price=D(order.stop_loss_price) if order.stop_loss_price is not None else None,
-                take_profit_price=D(order.take_profit_price) if order.take_profit_price is not None else None,
+                stop_loss_price=to_decimal(order.stop_loss_price) if order.stop_loss_price is not None else None,
+                take_profit_price=to_decimal(order.take_profit_price) if order.take_profit_price is not None else None,
                 requested_quantity=requested_quantity,
                 filled_quantity=0,
                 remaining_quantity=remaining_quantity,
@@ -389,15 +417,9 @@ class ExecutionEngine:
                 rejection_reason=None,
             )
 
-        side_price = LiquidityEngine.side_price(order.direction, quotes)
-        entry_price = SlippageModel.apply_slippage(
-            price=float(side_price),
-            direction=order.direction,
-            trader_type=order.trader_type,
-            quantity=filled_quantity,
-        )
-        entry_price = quantize_money(D(entry_price))
-        slippage_applied = quantize_money(entry_price - side_price)
+        slippage_value = self._slippage_value(order.direction, order.trader_type, filled_quantity)
+        execution_price, slippage_applied = apply_slippage(reference_price, slippage_value, order.direction)
+        entry_price = execution_price
         registry_entry_price = float(entry_price)
         active_trade = ActiveTrade(
             symbol=order.symbol,
@@ -421,7 +443,7 @@ class ExecutionEngine:
                 "entry_tick": tick,
                 "opened_at_tick": tick,
                 "entry_price": float(entry_price),
-                "raw_price": float(raw_price),
+                "raw_price": float(raw_mid),
                 "slippage_applied": float(slippage_applied),
                 "execution_price": float(entry_price),
                 "mode": self.run_mode.value,
@@ -475,7 +497,7 @@ class ExecutionEngine:
             direction=order.direction,
             quantity=filled_quantity,
             entry_price=entry_price,
-            raw_price=raw_price,
+            raw_price=raw_mid,
             slippage_applied=slippage_applied,
             entry_tick=tick,
             stop_loss_price=order.stop_loss_price,
@@ -492,6 +514,11 @@ class ExecutionEngine:
             retry_scheduled=False,
             next_retry_tick=None,
             rejection_reason=None,
+            spread=spread,
+            bid_price=bid_price,
+            ask_price=ask_price,
+            reference_price=reference_price,
+            execution_price=execution_price,
         )
 
     def complete_trade(self, symbol: str, trader_type: str) -> None:
