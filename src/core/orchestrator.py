@@ -8,6 +8,7 @@ the system stages and their order easy to follow during this teaching phase.
 from dataclasses import asdict
 from typing import List, Optional, Set, Tuple
 
+from brokers import IbkrBroker, SimBroker
 from config.runtime_config import (
     EventReplayMode,
     RunMode,
@@ -26,6 +27,7 @@ from core.stop_controller import StopController, StopMode
 from core.performance_registry import PerformanceRegistry
 from core.replay_engine import ReplayEngine
 from execution.execution_engine import ExecutionEngine
+from execution.order_gateway import OrderGateway
 from execution.trade_exit_engine import TradeExitEngine
 from performance.strategy_performance import StrategyPerformanceTracker
 from models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
@@ -67,7 +69,18 @@ class CoreOrchestrator:
         self.pattern_engine = PatternEngine()
         self.strategy_runner = StrategyRunner()
         self.risk_engine = RiskEngine(trade_registry=self.trade_registry)
+        if self.run_mode == RunMode.SIM:
+            broker = SimBroker(
+                gateway=OrderGateway(),
+                price_feed=self.price_feed,
+                trade_registry=self.trade_registry,
+                event_collector=self.event_collector,
+                run_mode=self.run_mode,
+            )
+        else:
+            broker = IbkrBroker()
         self.execution_engine = ExecutionEngine(
+            broker=broker,
             trade_registry=self.trade_registry,
             event_collector=self.event_collector,
             price_feed=self.price_feed,

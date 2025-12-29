@@ -1,33 +1,21 @@
-from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List
 
+from brokers.base_broker import BrokerOrderRequest
 
-@dataclass
-class OrderRequest:
-    client_order_id: str
-    symbol: str
-    trader_type: str
-    strategy_name: str
-    direction: str
-    requested_quantity: int
-    created_tick: int
-    attempt_number: int
-    stop_loss_price: Optional[float] = None
-    take_profit_price: Optional[float] = None
-    next_retry_tick: Optional[int] = None
-    last_decision: Optional[str] = None
+# Backwards compatibility alias for prior imports.
+OrderRequest = BrokerOrderRequest
 
 
 class PendingOrderBook:
     """In-memory pending order queue keyed by client_order_id."""
 
     def __init__(self) -> None:
-        self._orders: Dict[str, OrderRequest] = {}
+        self._orders: Dict[str, BrokerOrderRequest] = {}
 
-    def add(self, order: OrderRequest) -> None:
+    def add(self, order: BrokerOrderRequest) -> None:
         self._orders[order.client_order_id] = order
 
-    def due_orders(self, tick: int) -> List[OrderRequest]:
+    def due_orders(self, tick: int) -> List[BrokerOrderRequest]:
         return [order for order in self._orders.values() if order.next_retry_tick == tick]
 
     def remove(self, client_order_id: str) -> None:
@@ -36,5 +24,5 @@ class PendingOrderBook:
     def count(self) -> int:
         return len(self._orders)
 
-    def snapshot(self) -> Dict[str, OrderRequest]:
+    def snapshot(self) -> Dict[str, BrokerOrderRequest]:
         return dict(self._orders)
