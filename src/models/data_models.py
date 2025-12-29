@@ -6,6 +6,7 @@ to illustrate how information might flow between system stages.
 """
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import List, Optional
 
 from domain.performance_snapshot import PerformanceSnapshot
@@ -123,22 +124,22 @@ class ExecutionResult:
     rationale: str
     direction: str = "UNKNOWN"
     quantity: int = 1
-    entry_price: Optional[float] = None
-    exit_price: Optional[float] = None
-    raw_price: Optional[float] = None
-    slippage_applied: float = 0.0
+    entry_price: Optional[Decimal] = None
+    exit_price: Optional[Decimal] = None
+    raw_price: Optional[Decimal] = None
+    slippage_applied: Decimal = Decimal("0")
     entry_tick: Optional[int] = None
     exit_tick: Optional[int] = None
     stop_loss_price: Optional[float] = None
     take_profit_price: Optional[float] = None
-    gross_realised_pnl: float = 0.0
-    commission: float = 0.0
-    net_realised_pnl: float = 0.0
+    gross_realised_pnl: Decimal = Decimal("0")
+    commission: Decimal = Decimal("0")
+    net_realised_pnl: Decimal = Decimal("0")
     requested_quantity: int = 0
     filled_quantity: int = 0
     remaining_quantity: int = 0
     fill_status: str = "UNKNOWN"  # "FULL" | "PARTIAL" | "NONE"
-    average_fill_price: Optional[float] = None
+    average_fill_price: Optional[Decimal] = None
     note: Optional[str] = None
     gateway_decision: Optional[str] = None
     attempt_number: int = 0
@@ -146,6 +147,11 @@ class ExecutionResult:
     retry_scheduled: bool = False
     next_retry_tick: Optional[int] = None
     rejection_reason: Optional[str] = None
+    bid_price: Optional[Decimal] = None
+    ask_price: Optional[Decimal] = None
+    spread: Optional[Decimal] = None
+    reference_price: Optional[Decimal] = None
+    execution_price: Optional[Decimal] = None
 
 
 @dataclass

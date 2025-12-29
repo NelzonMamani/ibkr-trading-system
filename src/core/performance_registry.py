@@ -1,7 +1,9 @@
+from decimal import Decimal
 from typing import Iterable
 
 from core.events import SystemEvent
 from domain.performance_snapshot import PerformanceSnapshot
+from utils.price_math import q_money, to_decimal
 
 
 class PerformanceRegistry:
@@ -26,9 +28,9 @@ class PerformanceRegistry:
         if getattr(event, "event_type", None) != "TRADE_CLOSED":
             return
         payload = event.payload or {}
-        net_realised_pnl = round(self._extract_realised_pnl(payload), 2)
-        gross_realised_pnl = round(self._extract_gross_realised_pnl(payload), 2)
-        commission = round(self._extract_commission(payload), 2)
+        net_realised_pnl = q_money(self._extract_realised_pnl(payload))
+        gross_realised_pnl = q_money(self._extract_gross_realised_pnl(payload))
+        commission = q_money(self._extract_commission(payload))
         normalised_payload = {
             "symbol": payload.get("symbol", "UNKNOWN"),
             "trader_type": payload.get("trader_type", "UNKNOWN"),
@@ -45,16 +47,16 @@ class PerformanceRegistry:
         wins = sum(1 for trade in self._closed_trades if trade["outcome"] == "WIN")
         losses = sum(1 for trade in self._closed_trades if trade["outcome"] == "LOSS")
         flats = sum(1 for trade in self._closed_trades if trade["outcome"] == "FLAT")
-        gross_pnl = round(
-            sum(trade.get("gross_realised_pnl", trade["realised_pnl"]) for trade in self._closed_trades), 2
+        gross_pnl = q_money(
+            sum(trade.get("gross_realised_pnl", trade["realised_pnl"]) for trade in self._closed_trades)
         )
-        total_commissions = round(
-            sum(trade.get("commission", 0.0) for trade in self._closed_trades), 2
+        total_commissions = q_money(
+            sum(trade.get("commission", Decimal("0")) for trade in self._closed_trades)
         )
-        net_pnl = round(gross_pnl - total_commissions, 2)
+        net_pnl = q_money(gross_pnl - total_commissions)
 
         win_rate = wins / total_trades if total_trades else 0.0
-        avg_pnl_per_trade = net_pnl / total_trades if total_trades else 0.0
+        avg_pnl_per_trade = float(net_pnl) / total_trades if total_trades else 0.0
 
         by_strategy = self._build_buckets(self._closed_trades, "strategy_name")
         by_trader_type = self._build_buckets(self._closed_trades, "trader_type")
@@ -65,9 +67,9 @@ class PerformanceRegistry:
             losses=losses,
             flats=flats,
             win_rate=win_rate,
-            gross_pnl=gross_pnl,
-            total_commissions=total_commissions,
-            net_pnl=net_pnl,
+            gross_pnl=float(gross_pnl),
+            total_commissions=float(total_commissions),
+            net_pnl=float(net_pnl),
             avg_pnl_per_trade=avg_pnl_per_trade,
             by_strategy=by_strategy,
             by_trader_type=by_trader_type,
@@ -94,9 +96,9 @@ class PerformanceRegistry:
             "losses": 0,
             "flats": 0,
             "win_rate": 0.0,
-            "gross_pnl": 0.0,
-            "total_commissions": 0.0,
-            "net_pnl": 0.0,
+            "gross_pnl": Decimal("0"),
+            "total_commissions": Decimal("0"),
+            "net_pnl": Decimal("0"),
             "avg_pnl_per_trade": 0.0,
         }
 
@@ -104,7 +106,7 @@ class PerformanceRegistry:
     def _update_bucket(bucket: dict[str, float | int], trade: dict) -> None:
         bucket["total_trades"] += 1
         bucket["gross_pnl"] += trade.get("gross_realised_pnl", trade["realised_pnl"])
-        bucket["total_commissions"] += trade.get("commission", 0.0)
+        bucket["total_commissions"] += trade.get("commission", Decimal("0"))
         if trade["outcome"] == "WIN":
             bucket["wins"] += 1
         elif trade["outcome"] == "LOSS":
@@ -117,39 +119,41 @@ class PerformanceRegistry:
         for bucket in buckets.values():
             total_trades = bucket["total_trades"]
             wins = bucket["wins"]
-            gross_pnl = bucket["gross_pnl"]
-            total_commissions = bucket.get("total_commissions", 0.0)
-            net_pnl = gross_pnl - total_commissions
+            gross_pnl = q_money(bucket["gross_pnl"])
+            total_commissions = q_money(bucket.get("total_commissions", Decimal("0")))
+            net_pnl = q_money(gross_pnl - total_commissions)
             bucket["win_rate"] = wins / total_trades if total_trades else 0.0
-            bucket["net_pnl"] = net_pnl
+            bucket["net_pnl"] = float(net_pnl)
+            bucket["gross_pnl"] = float(gross_pnl)
+            bucket["total_commissions"] = float(total_commissions)
             bucket["avg_pnl_per_trade"] = (
-                net_pnl / total_trades if total_trades else 0.0
+                float(net_pnl) / total_trades if total_trades else 0.0
             )
 
     @staticmethod
-    def _extract_realised_pnl(payload: dict) -> float:
+    def _extract_realised_pnl(payload: dict) -> Decimal:
         if payload is None:
-            return 0.0
-        return float(payload.get("net_realised_pnl", payload.get("realised_pnl", payload.get("pnl", 0.0))))
+            return Decimal("0")
+        return to_decimal(payload.get("net_realised_pnl", payload.get("realised_pnl", payload.get("pnl", 0.0))))
 
     @staticmethod
-    def _extract_gross_realised_pnl(payload: dict) -> float:
+    def _extract_gross_realised_pnl(payload: dict) -> Decimal:
         if payload is None:
-            return 0.0
+            return Decimal("0")
         if "gross_realised_pnl" in payload:
-            return float(payload.get("gross_realised_pnl", 0.0))
-        return float(payload.get("realised_pnl", payload.get("pnl", 0.0)))
+            return to_decimal(payload.get("gross_realised_pnl", 0.0))
+        return to_decimal(payload.get("realised_pnl", payload.get("pnl", 0.0)))
 
     @staticmethod
-    def _extract_commission(payload: dict) -> float:
+    def _extract_commission(payload: dict) -> Decimal:
         if payload is None:
-            return 0.0
-        return float(payload.get("commission", 0.0))
+            return Decimal("0")
+        return to_decimal(payload.get("commission", 0.0))
 
     @staticmethod
-    def _classify_outcome(realised_pnl: float) -> str:
-        if realised_pnl > 0:
+    def _classify_outcome(realised_pnl: Decimal) -> str:
+        if realised_pnl > Decimal("0"):
             return "WIN"
-        if realised_pnl < 0:
+        if realised_pnl < Decimal("0"):
             return "LOSS"
         return "FLAT"

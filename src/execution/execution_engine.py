@@ -3,6 +3,7 @@ Execution engine with deterministic gateway, retry semantics, and liquidity rout
 """
 
 import hashlib
+from decimal import Decimal
 from typing import List, Optional
 
 from config.runtime_config import RunMode, get_run_mode
@@ -14,6 +15,15 @@ from execution.order_models import OrderRequest, PendingOrderBook
 from execution.slippage_model import SlippageModel
 from models.data_models import ExecutionResult, RiskDecision
 from sim.price_feed import DeterministicPriceFeed
+from utils.price_math import (
+    apply_slippage,
+    apply_spread_mid_to_quote,
+    choose_execution_reference_price,
+    deterministic_spread,
+    q_money,
+    q_price,
+    to_decimal,
+)
 
 
 class ExecutionEngine:
@@ -323,7 +333,15 @@ class ExecutionEngine:
             fill_status = "FULL"
         elif 0 < filled_quantity < requested_quantity:
             fill_status = "PARTIAL"
-        raw_price = self.price_feed.price_for(order.symbol, tick)
+        raw_price = q_price(to_decimal(self.price_feed.price_for(order.symbol, tick)))
+        spread = deterministic_spread(order.symbol, tick, order.trader_type)
+        bid_price, ask_price = apply_spread_mid_to_quote(raw_price, spread)
+        reference_price = choose_execution_reference_price(
+            direction=order.direction,
+            bid=bid_price,
+            ask=ask_price,
+        )
+        slippage_value = self._slippage_for(order.trader_type, order.direction)
 
         if filled_quantity == 0:
             reason = (
@@ -352,6 +370,11 @@ class ExecutionEngine:
                     "client_order_id": order.client_order_id,
                     "attempt_number": order.attempt_number,
                     "gateway_decision": GatewayDecision.ACCEPT.value,
+                    "raw_price": float(raw_price),
+                    "bid_price": float(bid_price),
+                    "ask_price": float(ask_price),
+                    "spread": float(spread),
+                    "reference_price": float(reference_price),
                 },
             )
             return ExecutionResult(
@@ -379,20 +402,28 @@ class ExecutionEngine:
                 retry_scheduled=False,
                 next_retry_tick=None,
                 rejection_reason=None,
+                bid_price=bid_price,
+                ask_price=ask_price,
+                spread=spread,
+                reference_price=reference_price,
             )
 
-        entry_price = SlippageModel.apply_slippage(
-            price=raw_price,
+        execution_price, slippage_applied = apply_slippage(
+            reference_price=reference_price,
+            slippage=slippage_value,
             direction=order.direction,
-            trader_type=order.trader_type,
-            quantity=filled_quantity,
         )
-        slippage_applied = round(entry_price - raw_price, 2)
+        commission = self._commission_for_fill(
+            symbol=order.symbol,
+            trader_type=order.trader_type,
+            filled_qty=filled_quantity,
+            execution_price=execution_price,
+        )
         active_trade = ActiveTrade(
             symbol=order.symbol,
             trader_type=order.trader_type,
             entry_tick=tick,
-            entry_price=entry_price,
+            entry_price=float(execution_price),
             direction=order.direction,
             quantity=filled_quantity,
             strategy_name=order.strategy_name,
@@ -409,10 +440,10 @@ class ExecutionEngine:
                 "strategy_name": order.strategy_name,
                 "entry_tick": tick,
                 "opened_at_tick": tick,
-                "entry_price": entry_price,
-                "raw_price": raw_price,
-                "slippage_applied": slippage_applied,
-                "execution_price": entry_price,
+                "entry_price": float(execution_price),
+                "raw_price": float(raw_price),
+                "slippage_applied": float(slippage_applied),
+                "execution_price": float(execution_price),
                 "mode": self.run_mode.value,
                 "direction": order.direction,
                 "quantity": filled_quantity,
@@ -425,12 +456,16 @@ class ExecutionEngine:
                 "client_order_id": order.client_order_id,
                 "attempt_number": order.attempt_number,
                 "gateway_decision": GatewayDecision.ACCEPT.value,
+                "bid_price": float(bid_price),
+                "ask_price": float(ask_price),
+                "spread": float(spread),
+                "reference_price": float(reference_price),
             },
         )
         print(
             f"[EVENT] TRADE_OPENED emitted for "
             f"{order.symbol} ({order.trader_type})"
-            f" tick={tick} price={entry_price}"
+            f" tick={tick} price={execution_price}"
         )
         print(
             "[EXECUTION:REGISTRY] Registered active trade "
@@ -463,7 +498,7 @@ class ExecutionEngine:
             rationale="Teaching-only: routed by trader_type with deterministic gateway and liquidity.",
             direction=order.direction,
             quantity=filled_quantity,
-            entry_price=entry_price,
+            entry_price=execution_price,
             raw_price=raw_price,
             slippage_applied=slippage_applied,
             entry_tick=tick,
@@ -473,7 +508,7 @@ class ExecutionEngine:
             filled_quantity=filled_quantity,
             remaining_quantity=remaining_quantity,
             fill_status=fill_status,
-            average_fill_price=entry_price,
+            average_fill_price=execution_price,
             note=liquidity_note,
             gateway_decision=GatewayDecision.ACCEPT.value,
             attempt_number=order.attempt_number,
@@ -481,6 +516,14 @@ class ExecutionEngine:
             retry_scheduled=False,
             next_retry_tick=None,
             rejection_reason=None,
+            commission=commission,
+            gross_realised_pnl=Decimal("0"),
+            net_realised_pnl=Decimal("0"),
+            bid_price=bid_price,
+            ask_price=ask_price,
+            spread=spread,
+            reference_price=reference_price,
+            execution_price=execution_price,
         )
 
     def complete_trade(self, symbol: str, trader_type: str) -> None:
@@ -533,3 +576,26 @@ class ExecutionEngine:
         """
 
         print("[EXECUTION] Shutdown requested — placeholder cleanup complete.")
+
+    @staticmethod
+    def _slippage_for(trader_type: str, direction: str) -> Decimal:
+        normalized_direction = (direction or "").upper()
+        normalized_trader_type = (trader_type or "").upper()
+        base_slippage = SlippageModel._SLIPPAGE_TABLE.get(
+            (normalized_trader_type, normalized_direction), 0.0
+        )
+        return q_price(abs(to_decimal(base_slippage)))
+
+    @staticmethod
+    def _commission_for_fill(
+        symbol: str, trader_type: str, filled_qty: int, execution_price: Decimal
+    ) -> Decimal:
+        if filled_qty <= 0:
+            return Decimal("0")
+        min_commission = Decimal("0.35")
+        per_share = Decimal("0.0035") * Decimal(filled_qty)
+        notional = execution_price * Decimal(filled_qty)
+        cap = notional * Decimal("0.01")
+        commission = max(per_share, min_commission)
+        commission = min(commission, cap)
+        return q_money(commission)
