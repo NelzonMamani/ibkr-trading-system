@@ -33,6 +33,8 @@ class ActiveTradeRegistry:
         self._active_trades: List[ActiveTrade] = []
 
     def register_trade(self, active_trade: ActiveTrade):
+        if getattr(active_trade, "quantity", 0) <= 0:
+            raise ValueError("Cannot register a trade with non-positive quantity.")
         print(
             "[REGISTRY] REGISTER "
             f"symbol={active_trade.symbol} "

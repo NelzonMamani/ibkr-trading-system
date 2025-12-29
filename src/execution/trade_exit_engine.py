@@ -275,6 +275,7 @@ class TradeExitEngine:
                     "net_realised_pnl": net_realised_pnl,
                     "stop_loss_price": stop_loss_price,
                     "take_profit_price": take_profit_price,
+                    "quantity": quantity,
                 },
                 timestamp=datetime.utcnow(),
             )
@@ -298,6 +299,11 @@ class TradeExitEngine:
                 gross_realised_pnl=gross_realised_pnl,
                 commission=commission,
                 net_realised_pnl=net_realised_pnl,
+                requested_quantity=quantity,
+                filled_quantity=quantity,
+                remaining_quantity=0,
+                fill_status="FULL",
+                average_fill_price=entry_price,
             )
             results.append(closed_result)
             trade_outcomes.append(
@@ -430,6 +436,7 @@ class TradeExitEngine:
                     "net_realised_pnl": net_realised_pnl,
                     "stop_loss_price": stop_loss_price,
                     "take_profit_price": take_profit_price,
+                    "quantity": quantity,
                 },
                 timestamp=datetime.utcnow(),
             )

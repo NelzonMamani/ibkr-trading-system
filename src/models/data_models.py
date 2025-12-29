@@ -134,6 +134,12 @@ class ExecutionResult:
     gross_realised_pnl: float = 0.0
     commission: float = 0.0
     net_realised_pnl: float = 0.0
+    requested_quantity: int = 0
+    filled_quantity: int = 0
+    remaining_quantity: int = 0
+    fill_status: str = "UNKNOWN"  # "FULL" | "PARTIAL" | "NONE"
+    average_fill_price: Optional[float] = None
+    note: Optional[str] = None
 
 
 @dataclass
