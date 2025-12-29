@@ -42,19 +42,17 @@ class PerformanceRegistry:
         wins = sum(1 for trade in self._closed_trades if trade["outcome"] == "WIN")
         losses = sum(1 for trade in self._closed_trades if trade["outcome"] == "LOSS")
         flats = sum(1 for trade in self._closed_trades if trade["outcome"] == "FLAT")
-        gross_pnl_dec = Decimal("0.00")
-        total_commissions_dec = Decimal("0.00")
+        gross_pnl = Decimal("0.00")
+        total_commissions = Decimal("0.00")
         for trade in self._closed_trades:
-            gross_pnl_dec += to_decimal(trade.get("gross_realised_pnl", trade["realised_pnl"])) or Decimal("0.00")
-            total_commissions_dec += to_decimal(trade.get("commission", Decimal("0.00"))) or Decimal("0.00")
-        gross_pnl = q_money(gross_pnl_dec) or Decimal("0.00")
-        total_commissions = q_money(total_commissions_dec) or Decimal("0.00")
-        net_pnl = q_money(gross_pnl - total_commissions) or Decimal("0.00")
+            gross_pnl += to_decimal(trade.get("gross_realised_pnl", trade.get("realised_pnl", 0)) or 0)
+            total_commissions += to_decimal(trade.get("commission", 0) or 0)
+        gross_q = q_money(gross_pnl)
+        comm_q = q_money(total_commissions)
+        net_q = q_money(gross_q - comm_q)
 
         win_rate = float(wins / total_trades) if total_trades else 0.0
-        avg_pnl_per_trade = (
-            q_money(net_pnl / Decimal(total_trades)) if total_trades else Decimal("0.00")
-        )
+        avg_q = q_money(gross_q / Decimal(str(total_trades))) if total_trades > 0 else Decimal("0.00")
 
         by_strategy = self._build_buckets(self._closed_trades, "strategy_name")
         by_trader_type = self._build_buckets(self._closed_trades, "trader_type")
@@ -65,10 +63,10 @@ class PerformanceRegistry:
             losses=losses,
             flats=flats,
             win_rate=win_rate,
-            gross_pnl=float(gross_pnl),
-            total_commissions=float(total_commissions),
-            net_pnl=float(net_pnl),
-            avg_pnl_per_trade=float(avg_pnl_per_trade),
+            gross_pnl=float(gross_q),
+            total_commissions=float(comm_q),
+            net_pnl=float(net_q),
+            avg_pnl_per_trade=float(avg_q),
             by_strategy=by_strategy,
             by_trader_type=by_trader_type,
         )
