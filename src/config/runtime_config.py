@@ -40,6 +40,51 @@ def get_run_mode() -> RunMode:
         return RunMode.SIM
 
 
+def get_ibkr_readonly_enabled() -> bool:
+    return (os.getenv("IBKR_READONLY_ENABLED") or "").strip().lower() == "true"
+
+
+def get_ibkr_host(default: str = "127.0.0.1") -> str:
+    return (os.getenv("IBKR_HOST") or default).strip() or default
+
+
+def get_ibkr_port(default: int = 7497) -> int:
+    raw = (os.getenv("IBKR_PORT") or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        print(f"[RUNTIME] Invalid IBKR_PORT='{raw}'. Falling back to default {default}.")
+        return default
+
+
+def get_ibkr_client_id(default: int = 7) -> int:
+    raw = (os.getenv("IBKR_CLIENT_ID") or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        print(
+            f"[RUNTIME] Invalid IBKR_CLIENT_ID='{raw}'. Falling back to default {default}."
+        )
+        return default
+
+
+def get_ibkr_snapshot_timeout_seconds(default: int = 5) -> int:
+    raw = (os.getenv("IBKR_SNAPSHOT_TIMEOUT_SECONDS") or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        print(
+            "[RUNTIME] Invalid IBKR_SNAPSHOT_TIMEOUT_SECONDS='" + raw + "'. "
+            f"Falling back to default {default}."
+        )
+        return default
+
+
+def get_ibkr_market_data_type(default: str = "LIVE") -> str:
+    raw = (os.getenv("IBKR_MARKET_DATA_TYPE") or default).strip().upper()
+    return raw or default
+
+
 class EventReplayMode(str, Enum):
     OFF = "OFF"
     CYCLE = "CYCLE"

@@ -1,19 +1,46 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Optional
 
+from adapters.brokers.ibkr.ibkr_client import IbkrClient
 from brokers.base_broker import BaseBroker, BrokerOrderRequest
+from config.runtime_config import (
+    get_ibkr_client_id,
+    get_ibkr_host,
+    get_ibkr_market_data_type,
+    get_ibkr_port,
+    get_ibkr_readonly_enabled,
+    get_ibkr_snapshot_timeout_seconds,
+)
+from domain.market_snapshot import MarketSnapshot
 from models.execution_result import ExecutionResult
+
+
+READONLY_ERROR = "IBKR READ-ONLY MODE: order submission disabled in Phase 12.2"
 
 
 @dataclass
 class IbkrBroker(BaseBroker):
     """
-    LIVE-capable broker adapter (stub in Phase 12.1).
+    Read-only IBKR broker adapter for Phase 12.2.
 
-    In later steps this will wrap ibapi/ib_insync or your IBKR client.
-    For now: return a safe stub result and emit NO broker-side actions.
+    Exposes contract resolution and market snapshot helpers while hard-failing
+    any order submission attempts.
     """
+
+    client: Optional[IbkrClient] = field(default=None)
+
+    def __post_init__(self) -> None:
+        if self.client is None:
+            self.client = IbkrClient(
+                host=get_ibkr_host(),
+                port=get_ibkr_port(),
+                client_id=get_ibkr_client_id(),
+                snapshot_timeout_seconds=get_ibkr_snapshot_timeout_seconds(),
+                market_data_type=get_ibkr_market_data_type(),
+                readonly_enabled=get_ibkr_readonly_enabled(),
+            )
 
     def name(self) -> str:
         return "IBKR_BROKER"
@@ -21,41 +48,36 @@ class IbkrBroker(BaseBroker):
     def is_live(self) -> bool:
         return True
 
+    # --- Read-only helpers ---
+    def connect(self) -> None:
+        assert self.client is not None
+        self.client.connect()
+
+    def disconnect(self) -> None:
+        assert self.client is not None
+        self.client.disconnect()
+
+    def resolve_contract(self, symbol: str) -> object:
+        assert self.client is not None
+        return self.client.resolve_contract(symbol)
+
+    def get_market_snapshot(self, symbol: str) -> MarketSnapshot:
+        assert self.client is not None
+        return self.client.get_market_snapshot(symbol)
+
+    def health(self) -> dict:
+        assert self.client is not None
+        return self.client.health()
+
+    # --- Order lifecycle: hard fail in read-only mode ---
+    def _order_error(self) -> RuntimeError:
+        return RuntimeError(READONLY_ERROR)
+
     def place_order(self, request: BrokerOrderRequest) -> ExecutionResult:
-        return ExecutionResult(
-            symbol=request.symbol,
-            trader_type=request.trader_type or "UNKNOWN",
-            attempted=False,
-            status="LIVE_STUB",
-            rationale="LIVE broker stub: Phase 12.1 does not submit to IBKR.",
-            direction=request.direction,
-            quantity=0,
-            entry_price=None,
-            exit_price=None,
-            raw_price=None,
-            slippage_applied=0,
-            entry_tick=request.created_tick,
-            exit_tick=None,
-            stop_loss_price=None,
-            take_profit_price=None,
-            gross_realised_pnl=0,
-            commission=0,
-            net_realised_pnl=0,
-            requested_quantity=request.quantity,
-            filled_quantity=0,
-            remaining_quantity=request.quantity,
-            fill_status="UNKNOWN",
-            average_fill_price=None,
-            note="No broker interaction performed.",
-            gateway_decision=None,
-            attempt_number=request.attempt_number,
-            client_order_id=request.client_order_id,
-            retry_scheduled=False,
-            next_retry_tick=None,
-            rejection_reason=None,
-            spread=None,
-            bid_price=None,
-            ask_price=None,
-            reference_price=None,
-            execution_price=None,
-        )
+        raise self._order_error()
+
+    def cancel_order(self, client_order_id: str) -> None:
+        raise self._order_error()
+
+    def replace_order(self, client_order_id: str, new_request: BrokerOrderRequest) -> None:
+        raise self._order_error()
