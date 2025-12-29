@@ -17,13 +17,18 @@ from config.runtime_config import (
     get_ibkr_client_id,
     get_ibkr_host,
     get_ibkr_market_data_type,
+    get_ibkr_default_currency,
+    get_ibkr_default_exchange,
     get_ibkr_port,
+    get_ibkr_order_translation_enabled,
     get_ibkr_readonly_enabled,
     get_ibkr_snapshot_timeout_seconds,
     get_run_mode,
 )
 from config.system_config import ACTIVE_SESSIONS, CYCLE_SLEEP_SECONDS
+from domain.models.internal_order import InternalOrder
 from core.orchestrator import CoreOrchestrator
+from adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
 
 
 def main() -> None:
@@ -54,6 +59,73 @@ def main() -> None:
     print(f"  - IBKR_CLIENT_ID: {get_ibkr_client_id()}")
     print(f"  - IBKR_SNAPSHOT_TIMEOUT_SECONDS: {get_ibkr_snapshot_timeout_seconds()}")
     print(f"  - IBKR_MARKET_DATA_TYPE: {get_ibkr_market_data_type()}")
+    ibkr_order_translation_enabled = get_ibkr_order_translation_enabled()
+    print(f"  - IBKR_ORDER_TRANSLATION_ENABLED: {ibkr_order_translation_enabled}")
+    ibkr_default_exchange = get_ibkr_default_exchange()
+    ibkr_default_currency = get_ibkr_default_currency()
+    print(f"  - IBKR_DEFAULT_EXCHANGE: {ibkr_default_exchange}")
+    print(f"  - IBKR_DEFAULT_CURRENCY: {ibkr_default_currency}")
+
+    translation_test_symbol = (
+        os.getenv("IBKR_TRANSLATION_TEST_SYMBOL") or ""
+    ).strip().upper()
+    translation_test_direction = (
+        os.getenv("IBKR_TRANSLATION_TEST_DIRECTION") or "LONG"
+    ).strip().upper()
+    translation_test_order_type = (
+        os.getenv("IBKR_TRANSLATION_TEST_ORDER_TYPE") or "MKT"
+    ).strip().upper()
+    translation_test_quantity_raw = (os.getenv("IBKR_TRANSLATION_TEST_QUANTITY") or "").strip()
+    if translation_test_quantity_raw:
+        try:
+            translation_test_quantity = int(translation_test_quantity_raw)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Invalid IBKR_TRANSLATION_TEST_QUANTITY='{translation_test_quantity_raw}'"
+            ) from exc
+    else:
+        translation_test_quantity = 1
+    translation_test_limit_price_raw = os.getenv("IBKR_TRANSLATION_TEST_LIMIT_PRICE")
+    if translation_test_limit_price_raw not in {None, ""}:
+        try:
+            translation_test_limit_price = float(translation_test_limit_price_raw)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Invalid IBKR_TRANSLATION_TEST_LIMIT_PRICE='{translation_test_limit_price_raw}'"
+            ) from exc
+    else:
+        translation_test_limit_price = None
+    translation_test_tif = (os.getenv("IBKR_TRANSLATION_TEST_TIF") or "DAY").strip().upper()
+    translation_client_order_id = (
+        os.getenv("IBKR_TRANSLATION_TEST_CLIENT_ORDER_ID") or "dry-run-ibkr-translation"
+    ).strip()
+    translation_strategy_name = (
+        os.getenv("IBKR_TRANSLATION_TEST_STRATEGY_NAME") or "DRY_RUN"
+    ).strip()
+    translation_trader_type = (
+        os.getenv("IBKR_TRANSLATION_TEST_TRADER_TYPE") or "MANUAL"
+    ).strip()
+
+    if ibkr_order_translation_enabled and translation_test_symbol:
+        translator = IbkrOrderTranslator(
+            order_translation_enabled=ibkr_order_translation_enabled,
+            default_exchange=ibkr_default_exchange,
+            default_currency=ibkr_default_currency,
+        )
+        internal_order = InternalOrder(
+            client_order_id=translation_client_order_id,
+            symbol=translation_test_symbol,
+            direction=translation_test_direction,
+            quantity=translation_test_quantity,
+            order_type=translation_test_order_type,
+            limit_price=translation_test_limit_price,
+            time_in_force=translation_test_tif,
+            strategy_name=translation_strategy_name,
+            trader_type=translation_trader_type,
+        )
+        translator.translate(internal_order)
+        print("[IBKR][DRY-RUN] Translation complete. Exiting before any broker connectivity.")
+        return
 
     smoke_symbol = (os.getenv("IBKR_SMOKE_SYMBOL") or "").strip().upper()
     if (
