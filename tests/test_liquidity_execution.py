@@ -8,6 +8,7 @@ from core.event_collector import EventCollector
 from core.replay_engine import ReplayEngine
 from execution.execution_engine import ExecutionEngine
 from execution.trade_exit_engine import TradeExitEngine
+from execution.order_gateway import OrderGateway, GatewayDecision
 from execution.liquidity_model import LiquidityModel
 from models.data_models import RiskDecision
 
@@ -32,19 +33,22 @@ def test_deterministic_liquidity_outcomes_and_replay():
     exit_engine = TradeExitEngine(trade_registry=registry, event_collector=events)
 
     liquidity = LiquidityModel()
+    gateway = OrderGateway()
     symbol = "XYZ"
     trader_type = "SCALPER"
 
     # Determine deterministic ticks for specific liquidity outcomes.
     tick_zero = next(
         tick
-        for tick in range(1, 10)
+        for tick in range(1, 20)
         if liquidity.available_liquidity(symbol, tick, trader_type) == 0
+        and gateway.decide(symbol, tick, trader_type, 1) == GatewayDecision.ACCEPT
     )
     tick_one = next(
         tick
-        for tick in range(1, 10)
+        for tick in range(1, 20)
         if liquidity.available_liquidity(symbol, tick, trader_type) == 1
+        and gateway.decide(symbol, tick, trader_type, 1) == GatewayDecision.ACCEPT
     )
 
     # FULL fill

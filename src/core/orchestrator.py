@@ -404,6 +404,8 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Execution stage — send/prepare orders (conceptual).")
         execution_output: List[ExecutionResult] = []
+        pending_results = self.execution_engine.process_pending_orders(tick)
+        execution_output.extend(pending_results)
         if not risk_output:
             print("[EXECUTION] No execution result — placeholder outcome.")
         else:
