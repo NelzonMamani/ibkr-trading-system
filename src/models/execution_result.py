@@ -41,12 +41,22 @@ class ExecutionResult:
     retry_scheduled: bool = False
     next_retry_tick: Optional[int] = None
     rejection_reason: Optional[str] = None
+    spread: Optional[Decimal] = None
+    bid_price: Optional[Decimal] = None
+    ask_price: Optional[Decimal] = None
+    reference_price: Optional[Decimal] = None
+    execution_price: Optional[Decimal] = None
 
     def __post_init__(self) -> None:
         self.entry_price = self._maybe_quantize(self.entry_price)
         self.exit_price = self._maybe_quantize(self.exit_price)
         self.raw_price = self._maybe_quantize(self.raw_price)
         self.average_fill_price = self._maybe_quantize(self.average_fill_price)
+        self.spread = self._maybe_quantize(self.spread)
+        self.bid_price = self._maybe_quantize(self.bid_price)
+        self.ask_price = self._maybe_quantize(self.ask_price)
+        self.reference_price = self._maybe_quantize(self.reference_price)
+        self.execution_price = self._maybe_quantize(self.execution_price)
         self.slippage_applied = quantize_money(D(self.slippage_applied))
         self.gross_realised_pnl = quantize_money(D(self.gross_realised_pnl))
         self.commission = quantize_money(D(self.commission))
