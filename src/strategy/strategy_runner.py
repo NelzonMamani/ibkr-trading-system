@@ -1,8 +1,9 @@
 """Strategy runner dispatcher for pluggable, teaching-first strategy modules."""
 
-from typing import List
+from typing import List, Optional
 
 from config.trading_config import ENABLED_STRATEGIES
+from core.event_collector import EventCollector
 from models.data_models import PatternResult, TradeIntent
 from strategy.gap_and_go_strategy import GapAndGoStrategy
 from strategy.momentum_continuation_strategy import MomentumContinuationStrategy
@@ -13,12 +14,13 @@ from core.active_trade_registry import ActiveTrade
 class StrategyRunner:
     """Dispatches registered strategies to translate PatternResults into TradeIntents."""
 
-    def __init__(self) -> None:
+    def __init__(self, event_collector: Optional[EventCollector] = None) -> None:
         configured_strategies = [
             ("GapAndGoStrategy", GapAndGoStrategy),
             ("MomentumContinuationStrategy", MomentumContinuationStrategy),
         ]
         self.strategies = []
+        self.event_collector = event_collector
 
         for strategy_name, strategy_class in configured_strategies:
             enabled = ENABLED_STRATEGIES.get(strategy_name, False)
@@ -65,6 +67,26 @@ class StrategyRunner:
         """
 
         return self.generate_trade_intents(pattern_results)
+
+    def run_from_intents(self, intents: List[TradeIntent]) -> List[TradeIntent]:
+        """
+        Teaching-first adapter entrypoint that preserves StrategyRunner ownership.
+        """
+
+        trade_intents = intents or []
+        print(
+            f"[STRATEGY] Received {len(trade_intents)} TradeIntent(s) from adapter."
+        )
+        if self.event_collector is not None:
+            event = self.event_collector.emit(
+                event_type="STRATEGY_COMPLETE",
+                source="StrategyRunner",
+                payload={"trade_intents": len(trade_intents)},
+            )
+            print(event)
+        else:
+            print("[STRATEGY] EventCollector unavailable; skipping STRATEGY_COMPLETE emit.")
+        return trade_intents
 
     def generate_exit_signals(
         self, active_trades: List[ActiveTrade], current_tick: int

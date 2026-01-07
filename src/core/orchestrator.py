@@ -41,6 +41,7 @@ from sim.price_feed import DeterministicPriceFeed
 from signals.engine import SignalEngine
 from signals.registry import build_default_signal_registry
 from signals.types import SignalContext, SignalDecision
+from strategy.signal_adapter import SignalToIntentAdapter
 from storage.storage_engine import StorageEngine
 from strategy.strategy_runner import StrategyRunner
 from strategy.exit_signal import ExitSignal
@@ -77,7 +78,8 @@ class CoreOrchestrator:
             registry=self.signal_registry,
             event_collector=self.event_collector,
         )
-        self.strategy_runner = StrategyRunner()
+        self.signal_adapter = SignalToIntentAdapter()
+        self.strategy_runner = StrategyRunner(event_collector=self.event_collector)
         self.risk_engine = RiskEngine(trade_registry=self.trade_registry)
         if self.run_mode == RunMode.SIM:
             broker = SimBroker(
@@ -396,7 +398,45 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Strategy stage — decide on trade ideas (conceptual).")
         try:
-            strategy_output = self.strategy_runner.generate_trade_intent(pattern_results or [])
+            strategy_intents = self.signal_adapter.to_trade_intents(
+                signal_events_by_symbol=signals_by_symbol,
+                pattern_results=pattern_results or [],
+                scanner_candidates=scanner_results or [],
+                tick=tick,
+            )
+            by_trader_type = {}
+            by_strategy = {}
+            for intent in strategy_intents:
+                by_trader_type[intent.trader_type] = (
+                    by_trader_type.get(intent.trader_type, 0) + 1
+                )
+                by_strategy[intent.strategy_name] = (
+                    by_strategy.get(intent.strategy_name, 0) + 1
+                )
+            adapter_event = self.event_collector.emit(
+                event_type="INTENTS_FROM_SIGNALS",
+                source="SignalToIntentAdapter",
+                payload={
+                    "tick": tick,
+                    "total_intents": len(strategy_intents),
+                    "by_trader_type": by_trader_type,
+                    "by_strategy": by_strategy,
+                },
+            )
+            print(adapter_event)
+            sorted_by_type = {
+                key: by_trader_type[key] for key in sorted(by_trader_type.keys())
+            }
+            sorted_by_strategy = {
+                key: by_strategy[key] for key in sorted(by_strategy.keys())
+            }
+            print(
+                "[ADAPTER] intents="
+                f"{len(strategy_intents)} "
+                f"by_type={sorted_by_type} "
+                f"by_strategy={sorted_by_strategy}"
+            )
+            strategy_output = self.strategy_runner.run_from_intents(strategy_intents)
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="STRATEGY",
@@ -414,12 +454,6 @@ class CoreOrchestrator:
         )
         if self._stop_requested_at_boundary("STRATEGY"):
             return False
-        event = self.event_collector.emit(
-            event_type="STRATEGY_COMPLETE",
-            source="StrategyRunner",
-            payload={"trade_intents": len(strategy_output or [])}
-        )
-        print(event)
         if not strategy_output:
             print("[STRATEGY] No trade intents generated — placeholder outcome.")
         else:
