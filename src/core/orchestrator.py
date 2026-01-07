@@ -6,7 +6,6 @@ no real trading logic, integrations, or data handling. It exists solely to make
 the system stages and their order easy to follow during this teaching phase.
 """
 from dataclasses import asdict
-from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, List, Optional, Set, Tuple
 
 from brokers import IbkrBroker, SimBroker
@@ -16,7 +15,6 @@ from config.runtime_config import (
     get_event_replay_mode,
     get_run_mode,
 )
-from config.system_config import get_current_market_session
 from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
 from core.faults import (
@@ -38,10 +36,7 @@ from risk.risk_engine import RiskEngine
 from scanner.scanner import Scanner
 from sim.clock import SimClock
 from sim.price_feed import DeterministicPriceFeed
-from signals.engine import SignalEngine
-from signals.registry import build_default_signal_registry
-from signals.signal_to_intent_adapter import SignalToIntentAdapter, SignalToIntentConfig
-from signals.types import SignalContext, SignalDecision
+from signals.signal_engine_v1 import SignalEngineV1
 from storage.storage_engine import StorageEngine
 from strategy.strategy_runner import StrategyRunner
 from strategy.exit_signal import ExitSignal
@@ -73,15 +68,8 @@ class CoreOrchestrator:
         self.strategy_perf_tracker = StrategyPerformanceTracker()
         self.scanner = Scanner()
         self.pattern_engine = PatternEngine()
-        self.signal_registry = build_default_signal_registry()
-        self.signal_engine = SignalEngine(
-            registry=self.signal_registry,
-            event_collector=self.event_collector,
-        )
-        self.signal_intent_adapter = SignalToIntentAdapter(
-            config=SignalToIntentConfig(),
-            event_collector=self.event_collector,
-        )
+        self.signal_engine_v1 = SignalEngineV1()
+        print("[BOOT] SignalEngineV1 instantiated")
         self.strategy_runner = StrategyRunner(event_collector=self.event_collector)
         self.risk_engine = RiskEngine(trade_registry=self.trade_registry)
         if self.run_mode == RunMode.SIM:
@@ -352,62 +340,30 @@ class CoreOrchestrator:
             print("[PATTERN] No patterns detected — placeholder outcome.")
         else:
             print(f"[PATTERN] Patterns evaluated: {pattern_results}")
-        print("[TEACH] <<< Pattern stage complete — moving to strategy stage.")
+        print("[TEACH] <<< Pattern stage complete — moving to signals stage.")
         if self._stop_requested_at_boundary("PATTERN"):
             return False
 
         print("[TEACH] >>> Signals stage — evaluate momentum triggers (teaching).")
-        current_session = get_current_market_session()
-        signal_context = SignalContext(
-            symbol="",
+        signals = self.signal_engine_v1.generate(
+            scanner_output=scanner_results or [],
+            pattern_output=pattern_results or [],
             tick=tick,
-            run_mode=self.run_mode.value,
-            session=current_session,
         )
-        inputs_by_symbol = {}
-        if scanner_results:
-            def quantize_price(value: Decimal) -> Decimal:
-                return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-            for candidate in scanner_results:
-                price = quantize_price(Decimal(str(candidate.price)))
-                inputs_by_symbol[candidate.symbol] = {
-                    "last_price": price,
-                    "hod": quantize_price(price * Decimal("1.00")),
-                    "pmh": quantize_price(price * Decimal("0.99")),
-                    "vwap": quantize_price(price * Decimal("0.995")),
-                    "orb_high": quantize_price(price * Decimal("1.01")),
-                    "pullback_low": quantize_price(price * Decimal("0.97")),
-                }
-
-        signals_by_symbol = self.signal_engine.evaluate_all(
-            signal_context,
-            inputs_by_symbol,
-        )
-        for symbol, events in signals_by_symbol.items():
-            signal_names = [
-                event.signal_type.value
-                for event in events
-                if event.decision == SignalDecision.SIGNAL
-            ]
+        print(f"[SIGNALS] total={len(signals)}")
+        for signal in signals:
             print(
-                f"[SIGNALS] symbol={symbol} signals={len(signal_names)} "
-                f"({', '.join(signal_names)})"
+                "[SIGNAL] "
+                f"symbol={signal.symbol} type={signal.signal_type.value} "
+                f"strength={signal.strength:.2f}"
             )
-        if not signals_by_symbol and scanner_results:
-            for candidate in scanner_results:
-                print(f"[SIGNALS] symbol={candidate.symbol} signals=0 ()")
-        print("[TEACH] <<< Signals stage complete — moving to signal adapter stage.")
-
-        print("[TEACH] >>> Signal adapter stage — map signals to trade intents (teaching).")
-        signals = [
-            event for events in signals_by_symbol.values() for event in events
-        ]
-        adapter_intents = self.signal_intent_adapter.convert(signals, tick=tick)
-        print(
-            f"[SIGNAL_ADAPTER] signals_in={len(signals)} intents_out={len(adapter_intents)}"
+        event = self.event_collector.emit(
+            event_type="SIGNALS_GENERATED",
+            source="SignalEngineV1",
+            payload={"signals": len(signals)},
         )
-        print("[TEACH] <<< Signal adapter stage complete — moving to strategy stage.")
+        print(event)
+        print("[TEACH] <<< Signals stage complete — moving to strategy stage.")
 
         print("[TEACH] >>> Strategy stage — decide on trade ideas (conceptual).")
         try:
@@ -415,17 +371,7 @@ class CoreOrchestrator:
                 pattern_results or [],
                 signals=signals,
             )
-            strategy_intents = self.strategy_runner.run_from_intents(strategy_intents)
-            merged_intents = self._merge_trade_intents(
-                adapter_intents,
-                strategy_intents,
-            )
-            print(
-                "[INTENTS] merged total="
-                f"{len(merged_intents)} "
-                f"(adapter={len(adapter_intents)} strategy={len(strategy_intents)})"
-            )
-            strategy_output = merged_intents
+            strategy_output = self.strategy_runner.run_from_intents(strategy_intents)
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="STRATEGY",
