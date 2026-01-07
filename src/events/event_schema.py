@@ -104,6 +104,18 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
         "timestamp": str,
         "reason": str,
     },
+    "SIGNAL_EMITTED": {
+        "symbol": str,
+        "signal_type": str,
+        "decision": str,
+        "confidence": float,
+    },
+    "SIGNAL_INVALID": {
+        "symbol": str,
+        "signal_type": str,
+        "decision": str,
+        "confidence": float,
+    },
 }
 
 
@@ -194,6 +206,8 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
         "timestamp",
         "reason",
     },
+    "SIGNAL_EMITTED": {"symbol", "signal_type", "decision", "confidence"},
+    "SIGNAL_INVALID": {"symbol", "signal_type", "decision", "confidence"},
 }
 
 
