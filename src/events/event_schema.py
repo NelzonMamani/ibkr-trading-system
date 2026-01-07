@@ -116,6 +116,12 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
         "decision": str,
         "confidence": float,
     },
+    "INTENTS_FROM_SIGNALS": {
+        "tick": int,
+        "total_intents": int,
+        "by_trader_type": dict,
+        "by_strategy": dict,
+    },
 }
 
 
@@ -208,6 +214,12 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
     },
     "SIGNAL_EMITTED": {"symbol", "signal_type", "decision", "confidence"},
     "SIGNAL_INVALID": {"symbol", "signal_type", "decision", "confidence"},
+    "INTENTS_FROM_SIGNALS": {
+        "tick",
+        "total_intents",
+        "by_trader_type",
+        "by_strategy",
+    },
 }
 
 
