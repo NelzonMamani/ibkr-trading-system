@@ -7,7 +7,7 @@ the system stages and their order easy to follow during this teaching phase.
 """
 from dataclasses import asdict
 from decimal import Decimal, ROUND_HALF_UP
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from brokers import IbkrBroker, SimBroker
 from config.runtime_config import (
@@ -40,8 +40,8 @@ from sim.clock import SimClock
 from sim.price_feed import DeterministicPriceFeed
 from signals.engine import SignalEngine
 from signals.registry import build_default_signal_registry
+from signals.signal_to_intent_adapter import SignalToIntentAdapter, SignalToIntentConfig
 from signals.types import SignalContext, SignalDecision
-from strategy.signal_adapter import SignalToIntentAdapter
 from storage.storage_engine import StorageEngine
 from strategy.strategy_runner import StrategyRunner
 from strategy.exit_signal import ExitSignal
@@ -78,7 +78,10 @@ class CoreOrchestrator:
             registry=self.signal_registry,
             event_collector=self.event_collector,
         )
-        self.signal_adapter = SignalToIntentAdapter()
+        self.signal_intent_adapter = SignalToIntentAdapter(
+            config=SignalToIntentConfig(),
+            event_collector=self.event_collector,
+        )
         self.strategy_runner = StrategyRunner(event_collector=self.event_collector)
         self.risk_engine = RiskEngine(trade_registry=self.trade_registry)
         if self.run_mode == RunMode.SIM:
@@ -394,49 +397,34 @@ class CoreOrchestrator:
         if not signals_by_symbol and scanner_results:
             for candidate in scanner_results:
                 print(f"[SIGNALS] symbol={candidate.symbol} signals=0 ()")
-        print("[TEACH] <<< Signals stage complete — moving to strategy stage.")
+        print("[TEACH] <<< Signals stage complete — moving to signal adapter stage.")
+
+        print("[TEACH] >>> Signal adapter stage — map signals to trade intents (teaching).")
+        signals = [
+            event for events in signals_by_symbol.values() for event in events
+        ]
+        adapter_intents = self.signal_intent_adapter.convert(signals, tick=tick)
+        print(
+            f"[SIGNAL_ADAPTER] signals_in={len(signals)} intents_out={len(adapter_intents)}"
+        )
+        print("[TEACH] <<< Signal adapter stage complete — moving to strategy stage.")
 
         print("[TEACH] >>> Strategy stage — decide on trade ideas (conceptual).")
         try:
-            strategy_intents = self.signal_adapter.to_trade_intents(
-                signal_events_by_symbol=signals_by_symbol,
-                pattern_results=pattern_results or [],
-                scanner_candidates=scanner_results or [],
-                tick=tick,
+            strategy_intents = self.strategy_runner.generate_trade_intents(
+                pattern_results or []
             )
-            by_trader_type = {}
-            by_strategy = {}
-            for intent in strategy_intents:
-                by_trader_type[intent.trader_type] = (
-                    by_trader_type.get(intent.trader_type, 0) + 1
-                )
-                by_strategy[intent.strategy_name] = (
-                    by_strategy.get(intent.strategy_name, 0) + 1
-                )
-            adapter_event = self.event_collector.emit(
-                event_type="INTENTS_FROM_SIGNALS",
-                source="SignalToIntentAdapter",
-                payload={
-                    "tick": tick,
-                    "total_intents": len(strategy_intents),
-                    "by_trader_type": by_trader_type,
-                    "by_strategy": by_strategy,
-                },
+            strategy_intents = self.strategy_runner.run_from_intents(strategy_intents)
+            merged_intents = self._merge_trade_intents(
+                adapter_intents,
+                strategy_intents,
             )
-            print(adapter_event)
-            sorted_by_type = {
-                key: by_trader_type[key] for key in sorted(by_trader_type.keys())
-            }
-            sorted_by_strategy = {
-                key: by_strategy[key] for key in sorted(by_strategy.keys())
-            }
             print(
-                "[ADAPTER] intents="
-                f"{len(strategy_intents)} "
-                f"by_type={sorted_by_type} "
-                f"by_strategy={sorted_by_strategy}"
+                "[INTENTS] merged total="
+                f"{len(merged_intents)} "
+                f"(adapter={len(adapter_intents)} strategy={len(strategy_intents)})"
             )
-            strategy_output = self.strategy_runner.run_from_intents(strategy_intents)
+            strategy_output = merged_intents
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="STRATEGY",
@@ -860,6 +848,40 @@ class CoreOrchestrator:
             return True
         self.replay_events(events_for_replay)
         return True
+
+    def _merge_trade_intents(
+        self,
+        adapter_intents: List[TradeIntent],
+        strategy_intents: List[TradeIntent],
+    ) -> List[TradeIntent]:
+        merged: Dict[Tuple[str, str, str], TradeIntent] = {}
+        sources: Dict[Tuple[str, str, str], str] = {}
+
+        def consider(intent: TradeIntent, source: str) -> None:
+            key = (intent.symbol, intent.direction, intent.trader_type)
+            current = merged.get(key)
+            if current is None:
+                merged[key] = intent
+                sources[key] = source
+                return
+            if intent.confidence > current.confidence:
+                merged[key] = intent
+                sources[key] = source
+                return
+            if (
+                intent.confidence == current.confidence
+                and source == "adapter"
+                and sources.get(key) != "adapter"
+            ):
+                merged[key] = intent
+                sources[key] = source
+
+        for intent in adapter_intents:
+            consider(intent, "adapter")
+        for intent in strategy_intents:
+            consider(intent, "strategy")
+
+        return [merged[key] for key in sorted(merged.keys())]
 
     def _handle_fault(self, exc: Exception) -> bool:
         fault = classify_exception(exc)
