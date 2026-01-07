@@ -10,7 +10,7 @@ from strategy.momentum_continuation_strategy import MomentumContinuationStrategy
 from strategy.ross_momentum_strategy_v1 import RossMomentumStrategyV1
 from strategy.exit_signal import ExitSignal
 from core.active_trade_registry import ActiveTrade
-from signals.types import SignalEvent
+from signals.signal_event import SignalEvent
 
 
 class StrategyRunner:

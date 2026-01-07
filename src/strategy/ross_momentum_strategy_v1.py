@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence
 
 from models.data_models import PatternResult, TradeIntent
-from signals.types import SignalDecision, SignalEvent
+from signals.signal_event import SignalEvent
 from strategy.base_strategy import BaseStrategy
 from strategy.exit_signal import ExitSignal
 
@@ -123,8 +123,11 @@ class RossMomentumStrategyV1(BaseStrategy):
     ) -> Dict[str, List[SignalEvent]]:
         grouped: Dict[str, List[SignalEvent]] = {}
         for event in signals:
-            if event.decision != SignalDecision.SIGNAL:
-                continue
+            decision = getattr(event, "decision", None)
+            if decision is not None:
+                decision_value = getattr(decision, "value", decision)
+                if decision_value != "SIGNAL":
+                    continue
             grouped.setdefault(event.symbol, []).append(event)
         return grouped
 
