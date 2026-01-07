@@ -2,12 +2,12 @@
 
 from typing import List, Optional, Sequence
 
-from config.trading_config import ENABLED_STRATEGIES
+from config.trading_config import ENABLED_STRATEGIES, ROSS_MOMENTUM_STRATEGY_ENABLED
 from core.event_collector import EventCollector
 from models.data_models import PatternResult, TradeIntent
 from strategy.gap_and_go_strategy import GapAndGoStrategy
 from strategy.momentum_continuation_strategy import MomentumContinuationStrategy
-from strategy.ross_momentum_strategy_v1 import RossMomentumStrategyV1
+from strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
 from strategy.exit_signal import ExitSignal
 from core.active_trade_registry import ActiveTrade
 from signals.signal_event import SignalEvent
@@ -26,13 +26,19 @@ class StrategyRunner:
         self.event_collector = event_collector
 
         for strategy_name, strategy_class in configured_strategies:
-            enabled = ENABLED_STRATEGIES.get(strategy_name, False)
-            if not enabled:
+            if strategy_name == "RossMomentumStrategyV1":
+                enabled = ROSS_MOMENTUM_STRATEGY_ENABLED
+                reason = (
+                    f"ROSS_MOMENTUM_STRATEGY_ENABLED={ROSS_MOMENTUM_STRATEGY_ENABLED}"
+                )
+            else:
+                enabled = ENABLED_STRATEGIES.get(strategy_name, False)
                 reason = (
                     "explicitly disabled"
                     if strategy_name in ENABLED_STRATEGIES
                     else "missing from ENABLED_STRATEGIES; defaulting to DISABLED"
                 )
+            if not enabled:
                 print(
                     f"[BOOT] Strategy '{strategy_name}' DISABLED via config "
                     f"({reason}); skipping."

@@ -19,8 +19,9 @@ MAX_HOLD_TICKS: int = 10
 # False = strategy skipped entirely
 # ==========================================================
 
+ROSS_MOMENTUM_STRATEGY_ENABLED: bool = False
+
 ENABLED_STRATEGIES = {
     "GapAndGoStrategy": True,
     "MomentumContinuationStrategy": True,
-    "RossMomentumStrategyV1": True,
 }
