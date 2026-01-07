@@ -1,6 +1,6 @@
 """Signal contracts and validation helpers."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
 from typing import Optional, Tuple
@@ -47,6 +47,7 @@ class SignalEvent:
     target_level: Optional[Decimal]
     invalidation_level: Optional[Decimal]
     source: str
+    metadata: dict = field(default_factory=dict)
 
 
 def validate_signal_event(event: SignalEvent) -> Tuple[bool, str]:
@@ -56,6 +57,8 @@ def validate_signal_event(event: SignalEvent) -> Tuple[bool, str]:
     if event.decision == SignalDecision.SIGNAL:
         if event.entry_level is None:
             return False, "entry_level is required when decision is SIGNAL"
+        if event.stop_level is None:
+            return False, "stop_level is required when decision is SIGNAL"
         if event.invalidation_level is None:
             return False, "invalidation_level is required when decision is SIGNAL"
 
