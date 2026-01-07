@@ -412,7 +412,8 @@ class CoreOrchestrator:
         print("[TEACH] >>> Strategy stage — decide on trade ideas (conceptual).")
         try:
             strategy_intents = self.strategy_runner.generate_trade_intents(
-                pattern_results or []
+                pattern_results or [],
+                signals=signals,
             )
             strategy_intents = self.strategy_runner.run_from_intents(strategy_intents)
             merged_intents = self._merge_trade_intents(

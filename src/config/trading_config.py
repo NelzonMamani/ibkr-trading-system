@@ -22,4 +22,5 @@ MAX_HOLD_TICKS: int = 10
 ENABLED_STRATEGIES = {
     "GapAndGoStrategy": True,
     "MomentumContinuationStrategy": True,
+    "RossMomentumStrategyV1": True,
 }
