@@ -60,6 +60,7 @@ class ExecutionEngine:
         if self.readonly_gate_active:
             print("[SAFETY] LIVE DATA — READ ONLY MODE")
             print("[SAFETY] NO ORDERS WILL BE SENT")
+            print("[EXECUTION] Execution policy: READ_ONLY_DISABLED")
         self.trade_registry = trade_registry or ActiveTradeRegistry()
         self.event_collector = event_collector or EventCollector()
         self.price_feed = price_feed or DeterministicPriceFeed()
@@ -77,9 +78,16 @@ class ExecutionEngine:
             )
         else:
             if broker is None:
-                raise RuntimeError("ExecutionEngine requires broker adapter in non-SIM modes.")
-            self._broker = broker
-        self.broker: BaseBroker = self._broker
+                if self.readonly_gate_active:
+                    print("[EXECUTION] No broker adapter required in READ_ONLY_DISABLED mode.")
+                    self._broker = None
+                else:
+                    raise RuntimeError(
+                        "ExecutionEngine requires broker adapter in non-SIM modes."
+                    )
+            else:
+                self._broker = broker
+        self.broker: Optional[BaseBroker] = self._broker
 
     @staticmethod
     def _max_attempts(trader_type: str) -> int:
@@ -283,6 +291,8 @@ class ExecutionEngine:
     def _route_order(self, request: BrokerOrderRequest) -> ExecutionResult:
         if self.readonly_gate_active:
             return self._blocked_execution_from_request(request)
+        if self._broker is None:
+            raise RuntimeError("ExecutionEngine broker adapter missing for execution path.")
         result = self._broker.place_order(request)
         if not self._broker.is_live():
             print(

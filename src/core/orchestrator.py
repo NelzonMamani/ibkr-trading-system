@@ -130,6 +130,8 @@ class CoreOrchestrator:
                 event_collector=self.event_collector,
                 run_mode=self.run_mode,
             )
+        elif self.run_mode == RunMode.LIVE_READ_ONLY:
+            broker = None
         elif self.run_mode == RunMode.LIVE_MICRO:
             if IbkrLiveBroker is None:
                 raise RuntimeError("IBKR live broker unavailable; ibapi dependency missing.")
@@ -1182,16 +1184,24 @@ class CoreOrchestrator:
             execution_policy = "SIMULATED"
         elif self.run_mode == RunMode.LIVE_MICRO:
             execution_policy = "ALLOWED"
-        elif self.run_mode in {RunMode.LIVE_READ_ONLY, RunMode.LIVE, RunMode.PAPER}:
+        elif self.run_mode == RunMode.LIVE_READ_ONLY:
+            execution_policy = "READ_ONLY_DISABLED"
+        elif self.run_mode in {RunMode.LIVE, RunMode.PAPER}:
             execution_policy = "DISABLED"
         else:
             execution_policy = "DISABLED"
         print(f"[VALIDATION] Execution policy: {execution_policy}")
+        market_data_source = (
+            "IBKR"
+            if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
+            else "SIM"
+        )
+        print(f"[VALIDATION] Market data source: {market_data_source}")
         broker_adapter = getattr(self.execution_engine, "broker", None)
         broker_name = (
             broker_adapter.name()
             if broker_adapter is not None and hasattr(broker_adapter, "name")
-            else type(broker_adapter).__name__ if broker_adapter is not None else "UNKNOWN"
+            else type(broker_adapter).__name__ if broker_adapter is not None else "NONE"
         )
         print(f"[VALIDATION] Broker adapter in use: {broker_name}")
         if self.run_mode == RunMode.LIVE_READ_ONLY:
