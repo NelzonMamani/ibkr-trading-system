@@ -6,7 +6,7 @@ no real trading logic, integrations, or data handling. It exists solely to make
 the system stages and their order easy to follow during this teaching phase.
 """
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
 from brokers import IbkrBroker, IbkrLiveBroker, SimBroker
@@ -20,6 +20,7 @@ from config.runtime_config import (
     get_live_micro_max_trades_per_day,
     get_run_mode,
 )
+from config.system_config import get_current_market_session
 from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
 from core.faults import (
@@ -363,6 +364,7 @@ class CoreOrchestrator:
 
     def _run_once_inner(self) -> bool:
         print("[INFO] Starting orchestrator cycle (teaching-only).")
+        cycle_started_at = datetime.now(timezone.utc)
         tick = self.sim_clock.tick()
         print(f"[CYCLE_CTX] tick={tick} run_mode={self.run_mode.value}")
         self.execution_engine.current_tick = tick
@@ -783,6 +785,13 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Storage stage — record decisions/results (conceptual).")
         print("[TEACH] Creating TradeRecord to capture stage outputs for review.")
+        cycle_ended_at = datetime.now(timezone.utc)
+        cycle_context = {
+            "tick": tick,
+            "session": get_current_market_session(),
+            "cycle_started_at": cycle_started_at,
+            "cycle_ended_at": cycle_ended_at,
+        }
         try:
             trade_record = TradeRecord(
                 scanner_output=scanner_results or [],
@@ -808,7 +817,11 @@ class CoreOrchestrator:
             return False
         print("[TEACH] TradeRecord encapsulates the journey for teaching purposes.")
         try:
-            storage_result = self.storage_engine.store_trade_record(trade_record)
+            storage_result = self.storage_engine.store_trade_record(
+                trade_record,
+                cycle_context=cycle_context,
+                events=self.event_collector.snapshot_cycle(),
+            )
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="STORAGE",
