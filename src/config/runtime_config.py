@@ -317,7 +317,7 @@ def get_persistence_backend(default: str = "sqlite") -> str:
     return raw or default
 
 
-def get_persistence_sqlite_path(default: str = "data/ibkr_system.sqlite") -> str:
+def get_persistence_sqlite_path(default: str = "data/ibkr_system.db") -> str:
     return (os.getenv("PERSISTENCE_SQLITE_PATH") or default).strip() or default
 
 
