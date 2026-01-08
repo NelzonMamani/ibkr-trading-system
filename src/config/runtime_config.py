@@ -287,6 +287,60 @@ def get_ibkr_guard_persist_path(default: str = "runtime/submission_guard.json") 
     return (os.getenv("IBKR_GUARD_PERSIST_PATH") or default).strip() or default
 
 
+def get_persistence_enabled(default: bool = True) -> bool:
+    raw = (os.getenv("PERSISTENCE_ENABLED") or "").strip().lower()
+    if raw in {"true", "1", "yes"}:
+        return True
+    if raw in {"false", "0", "no"}:
+        return False
+    return default
+
+
+def get_persistence_backend(default: str = "sqlite") -> str:
+    raw = (os.getenv("PERSISTENCE_BACKEND") or default).strip().lower()
+    return raw or default
+
+
+def get_persistence_sqlite_path(default: str = "data/ibkr_system.sqlite") -> str:
+    return (os.getenv("PERSISTENCE_SQLITE_PATH") or default).strip() or default
+
+
+def get_persistence_jsonl_mirror_enabled(default: bool = False) -> bool:
+    raw = (os.getenv("PERSISTENCE_JSONL_MIRROR_ENABLED") or "").strip().lower()
+    if raw in {"true", "1", "yes"}:
+        return True
+    if raw in {"false", "0", "no"}:
+        return False
+    return default
+
+
+def get_audit_hash_chain_enabled(default: bool = True) -> bool:
+    raw = (os.getenv("AUDIT_HASH_CHAIN_ENABLED") or "").strip().lower()
+    if raw in {"false", "0", "no"}:
+        return False
+    if raw in {"true", "1", "yes"}:
+        return True
+    return default
+
+
+def get_audit_verify_on_start(default: bool = False) -> bool:
+    raw = (os.getenv("AUDIT_VERIFY_ON_START") or "").strip().lower()
+    if raw in {"true", "1", "yes"}:
+        return True
+    if raw in {"false", "0", "no"}:
+        return False
+    return default
+
+
+def get_persist_flush_each_cycle(default: bool = True) -> bool:
+    raw = (os.getenv("PERSIST_FLUSH_EACH_CYCLE") or "").strip().lower()
+    if raw in {"false", "0", "no"}:
+        return False
+    if raw in {"true", "1", "yes"}:
+        return True
+    return default
+
+
 class EventReplayMode(str, Enum):
     OFF = "OFF"
     CYCLE = "CYCLE"
