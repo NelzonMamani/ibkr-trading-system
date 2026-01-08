@@ -37,6 +37,11 @@ class ExecutionEngine:
         self.run_mode: RunMode = get_run_mode()
         self.read_only_mode = self.run_mode == RunMode.LIVE_READ_ONLY
         self.ibkr_readonly_enabled = get_ibkr_readonly_enabled()
+        if self.run_mode != RunMode.SIM and self.ibkr_readonly_enabled:
+            raise RuntimeError(
+                "IBKR_READONLY_ENABLED=True only supported with RUN_MODE=SIM "
+                "to prevent live execution paths."
+            )
         self.readonly_gate_active = self.read_only_mode or (
             self.ibkr_readonly_enabled
             and self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
@@ -57,13 +62,20 @@ class ExecutionEngine:
         self.price_feed = price_feed or DeterministicPriceFeed()
         self.pending_book = PendingOrderBook()
         self.current_tick: Optional[int] = None
-        self._broker: BaseBroker = broker or SimBroker(
-            gateway=OrderGateway(),
-            price_feed=self.price_feed,
-            trade_registry=self.trade_registry,
-            event_collector=self.event_collector,
-            run_mode=self.run_mode,
-        )
+        if self.run_mode == RunMode.SIM:
+            if broker is not None and not isinstance(broker, SimBroker):
+                print("[EXECUTION][SIM] Overriding non-SIM broker with SIM broker")
+            self._broker = SimBroker(
+                gateway=OrderGateway(),
+                price_feed=self.price_feed,
+                trade_registry=self.trade_registry,
+                event_collector=self.event_collector,
+                run_mode=self.run_mode,
+            )
+        else:
+            if broker is None:
+                raise RuntimeError("ExecutionEngine requires broker adapter in non-SIM modes.")
+            self._broker = broker
         self.broker: BaseBroker = self._broker
 
     @staticmethod

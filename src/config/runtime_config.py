@@ -158,6 +158,15 @@ def get_scanner_symbols(default: list[str] | None = None) -> list[str]:
     return [symbol.strip().upper() for symbol in raw.split(",") if symbol.strip()]
 
 
+def get_intent_dedup_selftest_enabled(default: bool = False) -> bool:
+    raw = (os.getenv("INTENT_DEDUP_SELFTEST_ENABLED") or "").strip().lower()
+    if raw in {"true", "1", "yes"}:
+        return True
+    if raw in {"false", "0", "no"}:
+        return False
+    return default
+
+
 def get_ibkr_order_translation_enabled() -> bool:
     return (os.getenv("IBKR_ORDER_TRANSLATION_ENABLED") or "").strip().lower() == "true"
 

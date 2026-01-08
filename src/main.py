@@ -24,6 +24,7 @@ from config.runtime_config import (
     get_ibkr_order_translation_enabled,
     get_ibkr_readonly_enabled,
     get_ibkr_snapshot_timeout_seconds,
+    get_intent_dedup_selftest_enabled,
     get_run_mode,
     get_scanner_mode,
     get_scanner_symbols,
@@ -66,12 +67,18 @@ def main() -> None:
     print(f"  - IBKR_MAX_SYMBOLS_PER_CYCLE: {get_ibkr_max_symbols_per_cycle()}")
     print(f"  - SCANNER_MODE: {get_scanner_mode()}")
     print(f"  - SCANNER_SYMBOLS: {get_scanner_symbols()}")
+    print(f"  - INTENT_DEDUP_SELFTEST_ENABLED: {get_intent_dedup_selftest_enabled()}")
     ibkr_order_translation_enabled = get_ibkr_order_translation_enabled()
     print(f"  - IBKR_ORDER_TRANSLATION_ENABLED: {ibkr_order_translation_enabled}")
     ibkr_default_exchange = get_ibkr_default_exchange()
     ibkr_default_currency = get_ibkr_default_currency()
     print(f"  - IBKR_DEFAULT_EXCHANGE: {ibkr_default_exchange}")
     print(f"  - IBKR_DEFAULT_CURRENCY: {ibkr_default_currency}")
+    if ibkr_readonly_enabled:
+        print(
+            "[CONFIG] IBKR_READONLY_ENABLED=True — broker order routing to IBKR "
+            "is disabled. SIM execution is internal-only."
+        )
     if run_mode == RunMode.LIVE_READ_ONLY:
         print("[SAFETY] LIVE READ-ONLY MODE ACTIVE")
         print("[SAFETY] NO EXECUTION ENABLED")

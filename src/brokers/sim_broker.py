@@ -98,6 +98,10 @@ class SimBroker(BaseBroker):
         return q_price(abs(applied_slippage))
 
     def _emit_order_submitted(self, request: BrokerOrderRequest, tick: int) -> None:
+        print(
+            "[SIM_ORDER] Submitted "
+            f"symbol={request.symbol} direction={request.direction} quantity={request.quantity}"
+        )
         self.event_collector.emit(
             event_type="ORDER_SUBMITTED",
             source="ExecutionEngine",
@@ -110,6 +114,7 @@ class SimBroker(BaseBroker):
                 "requested_quantity": request.quantity,
                 "created_tick": tick,
                 "attempt_number": request.attempt_number,
+                "broker": self.name(),
             },
         )
 

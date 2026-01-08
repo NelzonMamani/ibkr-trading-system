@@ -50,6 +50,18 @@ class PatternEngine:
                 f"[PATTERN] Evaluating {candidate.symbol}: gap={candidate.gap_percent}% "
                 f"float={candidate.float_millions}M rVol={candidate.rvol} — {candidate.rationale}"
             )
+            if candidate.price is None:
+                print(
+                    "[PATTERN] Skipping candidate due to missing price "
+                    f"symbol={candidate.symbol}"
+                )
+                continue
+            if candidate.gap_percent is None or candidate.rvol is None or candidate.float_millions is None:
+                print(
+                    "[PATTERN] Skipping candidate due to missing teaching metrics "
+                    f"symbol={candidate.symbol}"
+                )
+                continue
             if candidate.data_quality_flags:
                 print(
                     "[PATTERN] Skipping candidate due to data quality flags "
