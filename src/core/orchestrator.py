@@ -80,6 +80,10 @@ class CoreOrchestrator:
         if self.run_mode == RunMode.LIVE_MICRO:
             print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
             print("[SAFETY] 1-SHARE LIMIT ENFORCED")
+        if self.run_mode == RunMode.LIVE_READ_ONLY and not get_ibkr_readonly_enabled():
+            raise RuntimeError(
+                "LIVE_READ_ONLY requires IBKR_READONLY_ENABLED=True to connect safely."
+            )
         self.sim_clock = SimClock()
         self.event_collector = EventCollector()
         self.stop_controller = StopController()
@@ -89,8 +93,19 @@ class CoreOrchestrator:
         self.trade_registry = ActiveTradeRegistry()
         self.strategy_perf_tracker = StrategyPerformanceTracker()
         self.market_data_hub = None
-        if (
-            self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
+        if self.run_mode == RunMode.LIVE_READ_ONLY:
+            if IbkrBroker is None:
+                raise RuntimeError(
+                    "LIVE_READ_ONLY requires IbkrBroker for market data snapshots."
+                )
+            self.market_data_hub = MarketDataHub(
+                event_collector=self.event_collector,
+                broker=IbkrBroker(),
+                max_symbols_per_cycle=get_ibkr_max_symbols_per_cycle(),
+            )
+            self.price_feed = MarketDataPriceFeed(self.market_data_hub)
+        elif (
+            self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO}
             and IbkrBroker is not None
         ):
             self.market_data_hub = MarketDataHub(
@@ -104,7 +119,7 @@ class CoreOrchestrator:
         self.scanner_mode = get_scanner_mode()
         if self.run_mode == RunMode.LIVE_READ_ONLY:
             self.scanner_mode = "LIVE_READONLY"
-            print("[MARKET_DATA] Market data source: IBKR")
+            print("[MARKET_DATA] Market data source: IBKR (READ_ONLY)")
         self.market_data_client = None
         if self.scanner_mode == "LIVE_READONLY":
             self.market_data_client = MarketDataClient()
@@ -1184,20 +1199,20 @@ class CoreOrchestrator:
         print(f"[VALIDATION] Scanner type selected: {type(self.scanner).__name__}")
         if self.run_mode == RunMode.SIM:
             execution_policy = "SIMULATED"
+            market_data_source = "SIM"
         elif self.run_mode == RunMode.LIVE_MICRO:
             execution_policy = "ALLOWED"
+            market_data_source = "IBKR"
         elif self.run_mode == RunMode.LIVE_READ_ONLY:
-            execution_policy = "READ_ONLY_DISABLED"
+            execution_policy = "DISABLED (READ_ONLY)"
+            market_data_source = "IBKR (READ_ONLY)"
         elif self.run_mode in {RunMode.LIVE, RunMode.PAPER}:
             execution_policy = "DISABLED"
+            market_data_source = "IBKR"
         else:
             execution_policy = "DISABLED"
+            market_data_source = "SIM"
         print(f"[VALIDATION] Execution policy: {execution_policy}")
-        market_data_source = (
-            "IBKR"
-            if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
-            else "SIM"
-        )
         print(f"[VALIDATION] Market data source: {market_data_source}")
         broker_adapter = getattr(self.execution_engine, "broker", None)
         broker_name = (
@@ -1209,6 +1224,14 @@ class CoreOrchestrator:
         if self.run_mode == RunMode.LIVE_READ_ONLY:
             print("[VALIDATION] LIVE_READ_ONLY: live data enabled")
             print("[VALIDATION] LIVE_READ_ONLY: execution disabled by design")
+            if not get_ibkr_readonly_enabled():
+                raise RuntimeError("LIVE_READ_ONLY requires IBKR_READONLY_ENABLED=True")
+            if not isinstance(self.scanner, LiveReadOnlyScanner):
+                raise RuntimeError("LIVE_READ_ONLY must use LiveReadOnlyScanner")
+            if self.market_data_hub is None:
+                raise RuntimeError("LIVE_READ_ONLY requires MarketDataHub for IBKR data")
+            if not isinstance(self.price_feed, MarketDataPriceFeed):
+                raise RuntimeError("LIVE_READ_ONLY must use MarketDataPriceFeed")
         if get_ibkr_readonly_enabled():
             print(
                 "[CONFIG] IBKR_READONLY_ENABLED=True — broker order routing to IBKR "
