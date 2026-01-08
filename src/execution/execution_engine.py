@@ -52,6 +52,9 @@ class ExecutionEngine:
         if self.read_only_mode:
             print("[SAFETY] LIVE READ-ONLY MODE ACTIVE")
             print("[SAFETY] NO EXECUTION ENABLED")
+            print("[EXECUTION] Gateway: DISABLED")
+            print("[EXECUTION] Liquidity checks: DISABLED")
+            print("[EXECUTION] Broker submission: DISABLED")
         elif self.run_mode == RunMode.LIVE_MICRO:
             print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
             print("[SAFETY] 1-SHARE LIMIT ENFORCED")
