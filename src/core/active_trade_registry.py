@@ -88,6 +88,9 @@ class ActiveTradeRegistry:
             [t for t in self._active_trades if t.trader_type == trader_type]
         )
 
+    def count_active(self) -> int:
+        return len(self._active_trades)
+
     def snapshot(self):
         return list(self._active_trades)
 

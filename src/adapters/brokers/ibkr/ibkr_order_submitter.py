@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -11,6 +10,7 @@ from events.event_types import (
     ORDER_SUBMISSION_BLOCKED,
     ORDER_SUBMISSION_FAILED,
     ORDER_SUBMITTED_ACK,
+    ORDER_FILL_RECORDED,
 )
 
 
@@ -22,6 +22,14 @@ class SubmissionResult:
     error: Optional[str]
     submitted_at: datetime
     acked_at: Optional[datetime]
+    filled_at: Optional[datetime] = None
+    filled_quantity: Optional[int] = None
+    remaining_quantity: Optional[int] = None
+    average_fill_price: Optional[float] = None
+    last_fill_price: Optional[float] = None
+    fill_status: Optional[str] = None
+    commission: Optional[float] = None
+    slippage: Optional[float] = None
 
 
 @dataclass
@@ -77,9 +85,10 @@ class IbkrOrderSubmitter:
         contract, order = self.translator.translate(internal_order)
         self._log_translation(contract, order)
 
+        host, port = self._resolve_connection()
         self._log(
-            f"[CONNECT] Connecting to IBKR paper gateway host={self.config.paper_host} "
-            f"port={self.config.paper_port} client_id={self.config.client_id}"
+            f"[CONNECT] Connecting to IBKR gateway host={host} "
+            f"port={port} client_id={self.config.client_id}"
         )
 
         submitted_at = datetime.now(timezone.utc)
@@ -99,7 +108,7 @@ class IbkrOrderSubmitter:
         try:
             self._emit_attempted(internal_order, ibkr_order_id=None)
             try:
-                trade = self.ibkr_client.placeOrder(contract, order)
+                ibkr_order_id = self.ibkr_client.submit_order(contract, order)
             except Exception as exc:
                 error = f"IBKR placeOrder failed: {exc}"
                 self._log(f"[ERROR] {error}")
@@ -117,11 +126,15 @@ class IbkrOrderSubmitter:
                 f"submitted_count={self.guard.submitted_count()}"
             )
 
-            ibkr_order_id, ack_status, acked_at = self._wait_for_ack(trade)
+            ack_status, acked_at = self._wait_for_ack(ibkr_order_id)
             if acked_at:
                 self._emit_ack(internal_order, ibkr_order_id, ack_status)
                 self._log(
                     f"[ACK] Order acknowledged ibkr_order_id={ibkr_order_id} status={ack_status}"
+                )
+                fill_payload = self._capture_fill_details(
+                    internal_order,
+                    ibkr_order_id,
                 )
                 return self._result(
                     internal_order,
@@ -130,6 +143,7 @@ class IbkrOrderSubmitter:
                     submitted_at=submitted_at,
                     acked_at=acked_at,
                     ibkr_order_id=ibkr_order_id,
+                    **fill_payload,
                 )
 
             reason = "Acknowledgement timeout"
@@ -156,8 +170,11 @@ class IbkrOrderSubmitter:
     # --- internals ---
     def _preflight(self, internal_order: InternalOrder) -> None:
         run_mode = getattr(self.config.run_mode, "value", self.config.run_mode)
-        if str(run_mode).upper() != "SIM":
-            raise RuntimeError("IBKR submission forbidden unless RUN_MODE=SIM")
+        normalized_run_mode = str(run_mode).upper()
+        if normalized_run_mode not in {"SIM", "PAPER", "LIVE_MICRO"}:
+            raise RuntimeError(
+                "IBKR submission forbidden unless RUN_MODE is SIM, PAPER, or LIVE_MICRO"
+            )
 
         if not self.config.order_submission_enabled:
             raise RuntimeError("IBKR submission disabled by config")
@@ -180,19 +197,72 @@ class IbkrOrderSubmitter:
         if not self.config.allow_shorting and internal_order.direction.upper() == "SHORT":
             raise RuntimeError("Shorting is blocked for IBKR submission mode")
 
-    def _wait_for_ack(self, trade) -> tuple[Optional[int], Optional[str], Optional[datetime]]:
-        deadline = time.time() + self.config.ack_timeout_seconds
-        ack_status = None
-        ibkr_order_id = None
-        while time.time() < deadline:
-            status_obj = getattr(trade, "orderStatus", None)
-            if status_obj is not None:
-                ack_status = getattr(status_obj, "status", None)
-                ibkr_order_id = getattr(status_obj, "orderId", None)
-                if ack_status or ibkr_order_id is not None:
-                    return ibkr_order_id, ack_status, datetime.now(timezone.utc)
-            time.sleep(0.1)
-        return ibkr_order_id, ack_status, None
+        if internal_order.quantity != 1:
+            raise RuntimeError("LIVE_MICRO enforces quantity == 1 share")
+
+    def _wait_for_ack(self, ibkr_order_id: int) -> tuple[Optional[str], Optional[datetime]]:
+        status = self.ibkr_client.wait_for_order_status(
+            ibkr_order_id, timeout_seconds=self.config.ack_timeout_seconds
+        )
+        if status is None:
+            return None, None
+        ack_status = status.get("status")
+        return ack_status, datetime.now(timezone.utc)
+
+    def _capture_fill_details(self, internal_order: InternalOrder, ibkr_order_id: int) -> dict:
+        status = self.ibkr_client.wait_for_order_status(
+            ibkr_order_id, timeout_seconds=self.config.ack_timeout_seconds
+        )
+        if status is None:
+            return {}
+        filled = int(status.get("filled", 0) or 0)
+        remaining = int(status.get("remaining", 0) or 0)
+        avg_fill_price = status.get("avgFillPrice")
+        last_fill_price = status.get("lastFillPrice")
+        fill_status = "NONE"
+        if filled > 0 and remaining == 0:
+            fill_status = "FULL"
+        elif filled > 0 and remaining > 0:
+            fill_status = "PARTIAL"
+
+        commission = self.ibkr_client.commission_for_order(ibkr_order_id)
+        slippage = None
+        if avg_fill_price is not None and internal_order.limit_price is not None:
+            slippage = float(avg_fill_price) - float(internal_order.limit_price)
+
+        fill_payload = {
+            "filled_at": datetime.now(timezone.utc),
+            "filled_quantity": filled,
+            "remaining_quantity": remaining,
+            "average_fill_price": avg_fill_price,
+            "last_fill_price": last_fill_price,
+            "fill_status": fill_status,
+            "commission": commission,
+            "slippage": slippage,
+        }
+        self._emit_fill(internal_order, ibkr_order_id, fill_payload)
+        self._log(
+            "[FILL] ibkr_order_id={oid} status={status} filled={filled} remaining={remaining} "
+            "avg_fill_price={avg} last_fill_price={last} commission={commission} slippage={slippage}".format(
+                oid=ibkr_order_id,
+                status=fill_status,
+                filled=filled,
+                remaining=remaining,
+                avg=avg_fill_price,
+                last=last_fill_price,
+                commission=commission,
+                slippage=slippage,
+            )
+        )
+        return fill_payload
+
+    def _resolve_connection(self) -> tuple[str, int]:
+        if hasattr(self.ibkr_client, "host") and hasattr(self.ibkr_client, "port"):
+            return self.ibkr_client.host, self.ibkr_client.port
+        run_mode = getattr(self.config.run_mode, "value", self.config.run_mode)
+        if str(run_mode).upper() == "LIVE_MICRO":
+            return self.config.paper_host, self.config.live_port
+        return self.config.paper_host, self.config.paper_port
 
     def _emit_attempted(self, internal_order: InternalOrder, ibkr_order_id: Optional[int]) -> None:
         payload = self._base_payload(internal_order, ibkr_order_id=ibkr_order_id)
@@ -227,6 +297,33 @@ class IbkrOrderSubmitter:
         payload["ack_status"] = ack_status
         self.event_bus.emit(
             event_type=ORDER_SUBMITTED_ACK,
+            source=self.SOURCE,
+            payload=payload,
+        )
+
+    def _emit_fill(
+        self,
+        internal_order: InternalOrder,
+        ibkr_order_id: Optional[int],
+        fill_payload: dict,
+    ) -> None:
+        payload = self._base_payload(
+            internal_order,
+            ibkr_order_id=ibkr_order_id,
+        )
+        payload.update(
+            {
+                "filled_quantity": fill_payload.get("filled_quantity"),
+                "remaining_quantity": fill_payload.get("remaining_quantity"),
+                "average_fill_price": fill_payload.get("average_fill_price"),
+                "last_fill_price": fill_payload.get("last_fill_price"),
+                "fill_status": fill_payload.get("fill_status"),
+                "commission": fill_payload.get("commission"),
+                "slippage": fill_payload.get("slippage"),
+            }
+        )
+        self.event_bus.emit(
+            event_type=ORDER_FILL_RECORDED,
             source=self.SOURCE,
             payload=payload,
         )
@@ -275,6 +372,14 @@ class IbkrOrderSubmitter:
         submitted_at: Optional[datetime] = None,
         acked_at: Optional[datetime] = None,
         ibkr_order_id: Optional[int] = None,
+        filled_at: Optional[datetime] = None,
+        filled_quantity: Optional[int] = None,
+        remaining_quantity: Optional[int] = None,
+        average_fill_price: Optional[float] = None,
+        last_fill_price: Optional[float] = None,
+        fill_status: Optional[str] = None,
+        commission: Optional[float] = None,
+        slippage: Optional[float] = None,
     ) -> SubmissionResult:
         return SubmissionResult(
             client_order_id=internal_order.client_order_id,
@@ -283,10 +388,22 @@ class IbkrOrderSubmitter:
             error=error,
             submitted_at=submitted_at or datetime.now(timezone.utc),
             acked_at=acked_at,
+            filled_at=filled_at,
+            filled_quantity=filled_quantity,
+            remaining_quantity=remaining_quantity,
+            average_fill_price=average_fill_price,
+            last_fill_price=last_fill_price,
+            fill_status=fill_status,
+            commission=commission,
+            slippage=slippage,
         )
 
     def _log_banner(self) -> None:
-        self._log("IBKR SUBMISSION MODE — SIM ONLY — SINGLE ORDER — KILL SWITCH AVAILABLE")
+        run_mode = getattr(self.config.run_mode, "value", self.config.run_mode)
+        self._log(
+            "IBKR SUBMISSION MODE — SINGLE ORDER — KILL SWITCH AVAILABLE "
+            f"(run_mode={run_mode})"
+        )
 
     def _log_settings(self) -> None:
         self._log(

@@ -17,6 +17,7 @@ class RunMode(str, Enum):
     PAPER = "PAPER"
     LIVE = "LIVE"
     LIVE_READ_ONLY = "LIVE_READ_ONLY"
+    LIVE_MICRO = "LIVE_MICRO"
 
 
 DEFAULT_RUN_MODE: RunMode = RunMode.SIM
@@ -168,6 +169,54 @@ def get_ibkr_max_orders_per_run(default: int = 1) -> int:
         return default
 
 
+def get_live_micro_max_concurrent_trades(default: int = 1) -> int:
+    raw = (os.getenv("LIVE_MICRO_MAX_CONCURRENT_TRADES") or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        print(
+            f"[RUNTIME] Invalid LIVE_MICRO_MAX_CONCURRENT_TRADES='{raw}'. "
+            f"Falling back to default {default}."
+        )
+        return default
+
+
+def get_live_micro_max_trades_per_day(default: int = 3) -> int:
+    raw = (os.getenv("LIVE_MICRO_MAX_TRADES_PER_DAY") or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        print(
+            f"[RUNTIME] Invalid LIVE_MICRO_MAX_TRADES_PER_DAY='{raw}'. "
+            f"Falling back to default {default}."
+        )
+        return default
+
+
+def get_live_micro_daily_max_loss(default: float = 5.0) -> float:
+    raw = (os.getenv("LIVE_MICRO_DAILY_MAX_LOSS") or "").strip()
+    try:
+        return float(raw) if raw else default
+    except ValueError:
+        print(
+            f"[RUNTIME] Invalid LIVE_MICRO_DAILY_MAX_LOSS='{raw}'. "
+            f"Falling back to default {default}."
+        )
+        return default
+
+
+def get_live_micro_max_consecutive_losses(default: int = 1) -> int:
+    raw = (os.getenv("LIVE_MICRO_MAX_CONSECUTIVE_LOSSES") or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        print(
+            f"[RUNTIME] Invalid LIVE_MICRO_MAX_CONSECUTIVE_LOSSES='{raw}'. "
+            f"Falling back to default {default}."
+        )
+        return default
+
+
 def get_ibkr_submit_only_symbol(default: str | None = None) -> str | None:
     raw = (os.getenv("IBKR_SUBMIT_ONLY_SYMBOL") or "").strip().upper()
     return raw or default
@@ -252,12 +301,12 @@ def get_event_replay_mode(run_mode: RunMode) -> EventReplayMode:
     Resolve EVENT_REPLAY_MODE using runtime-safe rules.
 
     Resolution order:
-    1) LIVE/LIVE_READ_ONLY always forces OFF
+    1) LIVE/LIVE_READ_ONLY/LIVE_MICRO always forces OFF
     2) ENV: EVENT_REPLAY_MODE
     3) DEFAULT_EVENT_REPLAY_MODE (CYCLE)
     """
 
-    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
+    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
         return EventReplayMode.OFF
 
     raw = (os.getenv("EVENT_REPLAY_MODE") or "").strip().upper()
