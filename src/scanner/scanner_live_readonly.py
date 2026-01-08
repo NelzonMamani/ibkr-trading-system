@@ -4,7 +4,11 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from config.runtime_config import (
+    get_ibkr_auto_lockdown_enabled,
+    get_ibkr_fallback_enabled,
+    get_ibkr_fallback_source,
     get_ibkr_max_symbols_per_cycle,
+    get_ibkr_snapshot_max_age_seconds,
     get_scanner_symbols,
 )
 from config.system_config import get_current_market_session
@@ -38,6 +42,11 @@ class LiveReadOnlyScanner:
                 max_symbols_per_cycle=get_ibkr_max_symbols_per_cycle(),
             )
         self.config = config
+        self.snapshot_max_age_seconds = get_ibkr_snapshot_max_age_seconds()
+        self.max_symbols_per_cycle = get_ibkr_max_symbols_per_cycle()
+        self.fallback_enabled = get_ibkr_fallback_enabled()
+        self.fallback_source = get_ibkr_fallback_source()
+        self.auto_lockdown_enabled = get_ibkr_auto_lockdown_enabled()
         self.market_data_client = market_data_client
         self.event_collector = event_collector
         self.last_data_quality_flags: dict[str, list[str]] = {}
