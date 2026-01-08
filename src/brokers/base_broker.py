@@ -24,6 +24,8 @@ class BrokerOrderRequest:
     created_tick: Optional[int] = None
     stop_loss_price: Optional[float] = None
     take_profit_price: Optional[float] = None
+    pattern_name: Optional[str] = None
+    invalidation_level: Optional[float] = None
     next_retry_tick: Optional[int] = None
 
 

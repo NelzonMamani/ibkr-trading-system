@@ -74,6 +74,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 trader_type=self.trader_type,
                 stop_loss_price=None,
                 take_profit_price=None,
+                pattern_name=selected_type,
                 gap_percent=getattr(selected_signal, "gap_percent", None),
                 rvol=getattr(selected_signal, "rvol", None),
                 float_millions=getattr(selected_signal, "float_millions", None),

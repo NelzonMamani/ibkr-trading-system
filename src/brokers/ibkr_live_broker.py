@@ -35,6 +35,7 @@ from config.runtime_config import (
 from core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from core.event_collector import EventCollector
 from domain.models.internal_order import InternalOrder
+from execution.exit_plan import compute_stop_price, compute_take_profit_price
 from models.execution_result import ExecutionResult
 
 
@@ -193,10 +194,30 @@ class IbkrLiveBroker(BaseBroker):
         filled_quantity = int(result.filled_quantity or 0)
         remaining_quantity = int(result.remaining_quantity or request.quantity)
         fill_status = result.fill_status or "NONE"
+        resolved_stop_loss = request.stop_loss_price
+        resolved_take_profit = request.take_profit_price
 
         if fill_status in {"FULL", "PARTIAL"} and filled_quantity > 0:
             entry_price = average_fill_price
             if entry_price is not None:
+                pattern_name = request.pattern_name
+                if resolved_stop_loss is None:
+                    resolved_stop_loss = request.invalidation_level
+                if resolved_stop_loss is None:
+                    resolved_stop_loss = compute_stop_price(
+                        entry_price,
+                        request.direction,
+                        pattern_name=pattern_name,
+                        strategy_name=request.strategy_name,
+                    )
+                if resolved_take_profit is None:
+                    resolved_take_profit = compute_take_profit_price(
+                        entry_price,
+                        resolved_stop_loss,
+                        request.direction,
+                        pattern_name=pattern_name,
+                        strategy_name=request.strategy_name,
+                    )
                 active_trade = ActiveTrade(
                     symbol=request.symbol,
                     trader_type=request.trader_type or "UNKNOWN",
@@ -205,10 +226,42 @@ class IbkrLiveBroker(BaseBroker):
                     direction=request.direction,
                     quantity=filled_quantity,
                     strategy_name=request.strategy_name or "UNKNOWN",
-                    stop_loss_price=request.stop_loss_price,
-                    take_profit_price=request.take_profit_price,
+                    stop_loss_price=resolved_stop_loss,
+                    take_profit_price=resolved_take_profit,
+                    pattern_name=pattern_name,
+                    invalidation_level=request.invalidation_level,
+                )
+                self.event_collector.emit(
+                    event_type="PROTECTIVE_STOP_PLACED",
+                    source="IbkrLiveBroker",
+                    payload={
+                        "symbol": request.symbol,
+                        "trader_type": request.trader_type or "UNKNOWN",
+                        "strategy_name": request.strategy_name or "UNKNOWN",
+                        "pattern_name": pattern_name,
+                        "stop_loss_price": float(resolved_stop_loss),
+                        "take_profit_price": float(resolved_take_profit),
+                        "rationale": "Protective stop assigned immediately upon fill.",
+                        "tick": request.created_tick or 0,
+                    },
                 )
                 self.trade_registry.register_trade(active_trade)
+                if active_trade.state_history:
+                    last_transition = active_trade.state_history[-1]
+                    if last_transition.get("to") == "PROTECTED":
+                        self.event_collector.emit(
+                            event_type="TRADE_STATE_UPDATED",
+                            source="IbkrLiveBroker",
+                            payload={
+                                "symbol": request.symbol,
+                                "trader_type": request.trader_type or "UNKNOWN",
+                                "strategy_name": request.strategy_name or "UNKNOWN",
+                                "from_state": last_transition.get("from"),
+                                "to_state": last_transition.get("to"),
+                                "tick": last_transition.get("tick"),
+                                "reason": last_transition.get("reason"),
+                            },
+                        )
                 self.event_collector.emit(
                     event_type="TRADE_OPENED",
                     source="IbkrLiveBroker",
@@ -225,16 +278,8 @@ class IbkrLiveBroker(BaseBroker):
                         "mode": self.run_mode.value,
                         "direction": request.direction,
                         "quantity": filled_quantity,
-                        "stop_loss_price": (
-                            float(request.stop_loss_price)
-                            if request.stop_loss_price is not None
-                            else None
-                        ),
-                        "take_profit_price": (
-                            float(request.take_profit_price)
-                            if request.take_profit_price is not None
-                            else None
-                        ),
+                        "stop_loss_price": float(resolved_stop_loss),
+                        "take_profit_price": float(resolved_take_profit),
                         "requested_quantity": request.quantity,
                         "filled_quantity": filled_quantity,
                         "remaining_quantity": remaining_quantity,
@@ -242,6 +287,7 @@ class IbkrLiveBroker(BaseBroker):
                         "client_order_id": request.client_order_id,
                         "attempt_number": request.attempt_number,
                         "gateway_decision": "LIVE_MICRO",
+                        "pattern_name": pattern_name,
                     },
                 )
 
@@ -257,8 +303,8 @@ class IbkrLiveBroker(BaseBroker):
             direction=request.direction,
             quantity=request.quantity,
             entry_price=average_fill_price,
-            stop_loss_price=request.stop_loss_price,
-            take_profit_price=request.take_profit_price,
+            stop_loss_price=resolved_stop_loss,
+            take_profit_price=resolved_take_profit,
             requested_quantity=request.quantity,
             filled_quantity=filled_quantity,
             remaining_quantity=remaining_quantity,

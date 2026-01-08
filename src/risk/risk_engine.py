@@ -193,4 +193,6 @@ class RiskEngine:
             direction=trade_intent.direction,
             stop_loss_price=getattr(trade_intent, "stop_loss_price", None),
             take_profit_price=getattr(trade_intent, "take_profit_price", None),
+            pattern_name=getattr(trade_intent, "pattern_name", None),
+            invalidation_level=getattr(trade_intent, "invalidation_level", None),
         )
