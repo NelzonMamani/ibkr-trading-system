@@ -59,7 +59,7 @@ class StorageEngine:
         self.enabled = get_persistence_enabled(default=True)
         self.backend = get_persistence_backend(default="sqlite")
         self.sqlite_path = os.path.abspath(
-            get_persistence_sqlite_path(default="data/ibkr_system.sqlite")
+            get_persistence_sqlite_path(default="data/ibkr_system.db")
         )
         self.jsonl_mirror_enabled = get_persistence_jsonl_mirror_enabled(default=False)
         self.audit_hash_chain_enabled = get_audit_hash_chain_enabled(default=True)
