@@ -39,6 +39,8 @@ class PerformanceRegistry:
 
     def snapshot(self) -> PerformanceSnapshot:
         total_trades = len(self._closed_trades)
+        closed_trades = total_trades
+        open_trades = 0
         wins = sum(1 for trade in self._closed_trades if trade["outcome"] == "WIN")
         losses = sum(1 for trade in self._closed_trades if trade["outcome"] == "LOSS")
         flats = sum(1 for trade in self._closed_trades if trade["outcome"] == "FLAT")
@@ -65,6 +67,8 @@ class PerformanceRegistry:
 
         return PerformanceSnapshot(
             total_trades=total_trades,
+            closed_trades=closed_trades,
+            open_trades=open_trades,
             wins=wins,
             losses=losses,
             flats=flats,

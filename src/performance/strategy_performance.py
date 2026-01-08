@@ -5,6 +5,10 @@ from typing import Dict, List
 @dataclass
 class StrategyPerformanceSnapshot:
     strategy_name: str
+    attempts: int
+    opened: int
+    blocked: int
+    closed: int
     total_trades: int
     wins: int
     losses: int
@@ -29,6 +33,22 @@ class StrategyPerformanceTracker:
     def __init__(self) -> None:
         self._by_strategy: Dict[str, Dict[str, float | int]] = {}
 
+    def record_trade_attempt(self, strategy_name: str) -> None:
+        bucket = self._bucket_for(strategy_name)
+        bucket["attempts"] += 1
+
+    def record_trade_open(self, event_payload: dict) -> None:
+        if not isinstance(event_payload, dict):
+            return
+        bucket = self._bucket_for(str(event_payload.get("strategy_name") or "UNKNOWN"))
+        bucket["opened"] += 1
+
+    def record_trade_blocked(self, event_payload: dict) -> None:
+        if not isinstance(event_payload, dict):
+            return
+        bucket = self._bucket_for(str(event_payload.get("strategy_name") or "UNKNOWN"))
+        bucket["blocked"] += 1
+
     def record_trade_close(self, event_payload) -> None:
         if not isinstance(event_payload, dict):
             return
@@ -46,19 +66,8 @@ class StrategyPerformanceTracker:
             pnl_value = 0.0
         pnl_value = round(pnl_value, 2)
 
-        bucket = self._by_strategy.setdefault(
-            strategy_name,
-            {
-                "total_trades": 0,
-                "wins": 0,
-                "losses": 0,
-                "flats": 0,
-                "gross_pnl": 0.0,
-                "net_pnl": 0.0,
-                "total_commissions": 0.0,
-            },
-        )
-
+        bucket = self._bucket_for(strategy_name)
+        bucket["closed"] += 1
         bucket["total_trades"] += 1
         bucket["gross_pnl"] += pnl_value
         commission_value = event_payload.get("commission", 0.0)
@@ -79,6 +88,10 @@ class StrategyPerformanceTracker:
         snapshots = [
             StrategyPerformanceSnapshot(
                 strategy_name=strategy_name,
+                attempts=bucket["attempts"],
+                opened=bucket["opened"],
+                blocked=bucket["blocked"],
+                closed=bucket["closed"],
                 total_trades=bucket["total_trades"],
                 wins=bucket["wins"],
                 losses=bucket["losses"],
@@ -90,3 +103,21 @@ class StrategyPerformanceTracker:
             for strategy_name, bucket in self._by_strategy.items()
         ]
         return sorted(snapshots, key=lambda snap: snap.strategy_name)
+
+    def _bucket_for(self, strategy_name: str) -> Dict[str, float | int]:
+        return self._by_strategy.setdefault(
+            strategy_name,
+            {
+                "attempts": 0,
+                "opened": 0,
+                "blocked": 0,
+                "closed": 0,
+                "total_trades": 0,
+                "wins": 0,
+                "losses": 0,
+                "flats": 0,
+                "gross_pnl": 0.0,
+                "net_pnl": 0.0,
+                "total_commissions": 0.0,
+            },
+        )

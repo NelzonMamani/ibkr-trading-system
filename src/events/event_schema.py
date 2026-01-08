@@ -31,6 +31,7 @@ TRADE_OPENED_SCHEMA = {
     "client_order_id": (str, type(None)),
     "attempt_number": int,
     "gateway_decision": str,
+    "pattern_name": (str, type(None)),
 }
 
 CYCLE_START_SCHEMA = {
@@ -231,6 +232,8 @@ SIGNAL_INTENTS_CREATED_SCHEMA = {
 
 PERF_SNAPSHOT_SCHEMA = {
     "total_trades": int,
+    "closed_trades": int,
+    "open_trades": int,
     "wins": int,
     "losses": int,
     "flats": int,
@@ -725,7 +728,7 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
 
 
 OPTIONAL_FIELDS: Dict[str, Set[str]] = {
-    "TRADE_OPENED": {"gateway_decision"},
+    "TRADE_OPENED": {"gateway_decision", "pattern_name"},
     "TRADE_NOT_FILLED": {"client_order_id", "attempt_number", "gateway_decision"},
     "TRADE_CLOSED": {
         "opened_at_tick",
@@ -752,6 +755,8 @@ OPTIONAL_FIELDS: Dict[str, Set[str]] = {
         "total_commissions",
         "net_pnl",
         "avg_pnl_per_trade",
+        "closed_trades",
+        "open_trades",
         "by_strategy",
         "by_trader_type",
         "by_pattern",

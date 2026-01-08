@@ -21,7 +21,8 @@ class PerformanceRegistry:
 
     TRADE_CLOSED events are treated as the single source of truth. Metrics are
     derived directly from recorded event payloads to guarantee alignment
-    between replay, accounting, and runtime reporting.
+    between replay, accounting, and runtime reporting. total_trades reflects
+    closed trades; open trades are supplied by the caller for clarity.
     """
 
     def __init__(self) -> None:
@@ -101,9 +102,11 @@ class PerformanceRegistry:
         }
         self._closed_trades.append(normalised_payload)
 
-    def snapshot(self) -> PerformanceSnapshot:
+    def snapshot(self, open_trades: int | None = None) -> PerformanceSnapshot:
         summary = self._summarize_trades(self._closed_trades)
         total_trades = summary["total_trades"]
+        closed_trades = total_trades
+        open_trades_value = open_trades if open_trades is not None else 0
         wins = summary["wins"]
         losses = summary["losses"]
         flats = summary["flats"]
@@ -129,6 +132,8 @@ class PerformanceRegistry:
 
         return PerformanceSnapshot(
             total_trades=total_trades,
+            closed_trades=closed_trades,
+            open_trades=open_trades_value,
             wins=wins,
             losses=losses,
             flats=flats,
