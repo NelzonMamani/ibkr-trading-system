@@ -19,7 +19,6 @@ from config.runtime_config import (
     get_ibkr_fallback_source,
     get_ibkr_market_data_type,
     get_ibkr_max_symbols_per_cycle,
-    get_ibkr_readonly_enabled,
     get_ibkr_snapshot_max_age_seconds,
     get_run_mode,
 )
@@ -38,7 +37,6 @@ class Scanner:
         market_data_hub: MarketDataHub | None = None,
     ) -> None:
         self.run_mode = get_run_mode()
-        self.ibkr_readonly_enabled = get_ibkr_readonly_enabled()
         self.scan_symbols = self._resolve_scan_symbols()
         self.market_data_type = get_ibkr_market_data_type()
         self.snapshot_max_age_seconds = get_ibkr_snapshot_max_age_seconds()
@@ -72,12 +70,7 @@ class Scanner:
         self.last_connectivity_issue = None
         self.last_fallback_reason = None
         if self.run_mode == RunMode.LIVE_READ_ONLY and self.scan_symbols:
-            if self.ibkr_readonly_enabled:
-                return self._run_live_readonly_scan()
-            print(
-                "[SCAN] LIVE_READ_ONLY requires IBKR_READONLY_ENABLED=True; "
-                "falling back to static candidates."
-            )
+            return self._run_live_readonly_scan()
         if self.run_mode == RunMode.LIVE_READ_ONLY and not self.scan_symbols:
             reason = "No IBKR_SCAN_SYMBOLS provided; falling back to static scan list."
             print(f"[SCAN] {reason}")

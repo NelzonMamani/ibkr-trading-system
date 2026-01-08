@@ -5,7 +5,6 @@ from typing import List, Optional
 
 from config.runtime_config import (
     get_ibkr_max_symbols_per_cycle,
-    get_ibkr_readonly_enabled,
     get_scanner_symbols,
 )
 from config.system_config import get_current_market_session
@@ -32,8 +31,6 @@ class LiveReadOnlyScanner:
         event_collector: Optional[EventCollector] = None,
         config: Optional[LiveReadOnlyScannerConfig] = None,
     ) -> None:
-        if not get_ibkr_readonly_enabled():
-            raise RuntimeError("LIVE_READONLY scanner requires IBKR_READONLY_ENABLED=True")
         resolved_symbols = get_scanner_symbols()
         if config is None:
             config = LiveReadOnlyScannerConfig(

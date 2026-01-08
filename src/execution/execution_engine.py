@@ -9,9 +9,10 @@ from brokers.base_broker import BaseBroker, BrokerOrderRequest
 from brokers.sim_broker import SimBroker
 from config.runtime_config import (
     RunMode,
-    get_ibkr_readonly_enabled,
+    get_execution_enabled,
     get_live_micro_max_concurrent_trades,
     get_run_mode,
+    is_execution_enabled,
 )
 from config.trading_config import is_strategy_enabled
 from core.active_trade_registry import ActiveTradeRegistry
@@ -35,66 +36,54 @@ class ExecutionEngine:
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
         self.run_mode: RunMode = get_run_mode()
-        self.read_only_mode = self.run_mode == RunMode.LIVE_READ_ONLY
-        self.ibkr_readonly_enabled = get_ibkr_readonly_enabled()
-        if self.run_mode == RunMode.LIVE_READ_ONLY and not self.ibkr_readonly_enabled:
-            raise RuntimeError(
-                "LIVE_READ_ONLY requires IBKR_READONLY_ENABLED=True to connect safely."
+        self.execution_enabled = is_execution_enabled(self.run_mode)
+        if get_execution_enabled() and self.run_mode != RunMode.LIVE_MICRO:
+            print(
+                "[SAFETY] EXECUTION_ENABLED ignored unless RUN_MODE=LIVE_MICRO; "
+                f"run_mode={self.run_mode.value}"
             )
-        if self.ibkr_readonly_enabled and self.run_mode not in {
-            RunMode.SIM,
-            RunMode.LIVE_READ_ONLY,
-        }:
-            raise RuntimeError(
-                "IBKR_READONLY_ENABLED=True only supported with RUN_MODE=SIM "
-                "or RUN_MODE=LIVE_READ_ONLY to prevent live execution paths."
-            )
-        self.readonly_gate_active = self.read_only_mode or (
-            self.ibkr_readonly_enabled
-            and self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
-        )
-        if self.read_only_mode:
-            print("[SAFETY] LIVE READ-ONLY MODE ACTIVE")
-            print("[SAFETY] NO EXECUTION ENABLED")
+        if not self.execution_enabled:
+            print("[SAFETY] EXECUTION: HARD DISABLED")
             print("[EXECUTION] Gateway: DISABLED")
             print("[EXECUTION] Liquidity checks: DISABLED")
             print("[EXECUTION] Broker submission: DISABLED")
         elif self.run_mode == RunMode.LIVE_MICRO:
             print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
             print("[SAFETY] 1-SHARE LIMIT ENFORCED")
-        elif self.run_mode == RunMode.LIVE and self.ibkr_readonly_enabled:
-            print("[SAFETY] IBKR READ-ONLY ENABLED (LIVE mode) — execution remains gated by broker.")
-        if self.readonly_gate_active:
-            print("[SAFETY] LIVE DATA — READ ONLY MODE")
-            print("[SAFETY] NO ORDERS WILL BE SENT")
-            print("[EXECUTION] Execution policy: READ_ONLY_DISABLED")
         self.trade_registry = trade_registry or ActiveTradeRegistry()
         self.event_collector = event_collector or EventCollector()
         self.price_feed = price_feed or DeterministicPriceFeed()
         self.pending_book = PendingOrderBook()
         self.current_tick: Optional[int] = None
-        if self.run_mode == RunMode.LIVE_READ_ONLY and isinstance(broker, SimBroker):
-            raise RuntimeError("LIVE_READ_ONLY cannot route through SimBroker.")
         if self.run_mode == RunMode.SIM:
-            if broker is not None and not isinstance(broker, SimBroker):
-                print("[EXECUTION][SIM] Overriding non-SIM broker with SIM broker")
-            self._broker = SimBroker(
-                gateway=OrderGateway(),
-                price_feed=self.price_feed,
-                trade_registry=self.trade_registry,
-                event_collector=self.event_collector,
-                run_mode=self.run_mode,
-            )
+            if self.execution_enabled:
+                if broker is not None and not isinstance(broker, SimBroker):
+                    print("[EXECUTION][SIM] Overriding non-SIM broker with SIM broker")
+                self._broker = SimBroker(
+                    gateway=OrderGateway(),
+                    price_feed=self.price_feed,
+                    trade_registry=self.trade_registry,
+                    event_collector=self.event_collector,
+                    run_mode=self.run_mode,
+                )
+            else:
+                if broker is not None:
+                    raise RuntimeError(
+                        "Execution disabled; broker adapters must not be instantiated."
+                    )
+                self._broker = None
         else:
-            if broker is None:
-                if self.readonly_gate_active:
-                    print("[EXECUTION] No broker adapter required in READ_ONLY_DISABLED mode.")
-                    self._broker = None
-                else:
+            if not self.execution_enabled:
+                if broker is not None:
+                    raise RuntimeError(
+                        "Execution disabled; broker adapters must not be instantiated."
+                    )
+                self._broker = None
+            else:
+                if broker is None:
                     raise RuntimeError(
                         "ExecutionEngine requires broker adapter in non-SIM modes."
                     )
-            else:
                 self._broker = broker
         self.broker: Optional[BaseBroker] = self._broker
 
@@ -130,8 +119,8 @@ class ExecutionEngine:
         """
 
         print("[EXECUTION] Received risk decision for broker-routed flow")
-        if self.readonly_gate_active:
-            return self._blocked_execution_from_risk_decision(risk_decision)
+        if not self.execution_enabled:
+            raise RuntimeError("Execution disabled: refusing to process trade request.")
         if risk_decision is None:
             print("[EXECUTION] No execution performed — placeholder path")
             return ExecutionResult(
@@ -265,6 +254,7 @@ class ExecutionEngine:
     def _order_from_risk_decision(
         self, risk_decision: RiskDecision, tick: int
     ) -> BrokerOrderRequest:
+        self._assert_execution_enabled_for_order_construction("risk decision")
         requested_quantity = max(
             1, int(getattr(risk_decision, "max_position_size", 1) or 1)
         )
@@ -298,8 +288,8 @@ class ExecutionEngine:
         )
 
     def _route_order(self, request: BrokerOrderRequest) -> ExecutionResult:
-        if self.readonly_gate_active:
-            return self._blocked_execution_from_request(request)
+        if not self.execution_enabled:
+            raise RuntimeError("Execution disabled: refusing to route order.")
         if self._broker is None:
             raise RuntimeError("ExecutionEngine broker adapter missing for execution path.")
         result = self._broker.place_order(request)
@@ -328,7 +318,7 @@ class ExecutionEngine:
             quantity = getattr(risk_decision, "max_position_size", 1)
             strategy_name = risk_decision.strategy_name
 
-        rationale = "READ_ONLY_MODE"
+        rationale = "EXECUTION_DISABLED"
         self.event_collector.emit(
             event_type="ORDER_BLOCKED_READONLY",
             source="ExecutionEngine",
@@ -339,7 +329,7 @@ class ExecutionEngine:
                 "direction": direction,
                 "requested_quantity": quantity,
                 "run_mode": self.run_mode.value,
-                "readonly_enabled": True,
+                "execution_enabled": self.execution_enabled,
                 "reason": rationale,
             },
         )
@@ -357,14 +347,14 @@ class ExecutionEngine:
             filled_quantity=0,
             remaining_quantity=quantity,
             fill_status="NONE",
-            note="READ_ONLY_MODE",
-            rejection_reason="READ_ONLY_MODE",
+            note="EXECUTION_DISABLED",
+            rejection_reason="EXECUTION_DISABLED",
         )
 
     def _blocked_execution_from_request(
         self, request: BrokerOrderRequest
     ) -> ExecutionResult:
-        rationale = "READ_ONLY_MODE"
+        rationale = "EXECUTION_DISABLED"
         self.event_collector.emit(
             event_type="ORDER_BLOCKED_READONLY",
             source="ExecutionEngine",
@@ -375,7 +365,7 @@ class ExecutionEngine:
                 "direction": request.direction,
                 "requested_quantity": request.quantity,
                 "run_mode": self.run_mode.value,
-                "readonly_enabled": True,
+                "execution_enabled": self.execution_enabled,
                 "reason": rationale,
             },
         )
@@ -393,8 +383,8 @@ class ExecutionEngine:
             filled_quantity=0,
             remaining_quantity=request.quantity,
             fill_status="NONE",
-            note="READ_ONLY_MODE",
-            rejection_reason="READ_ONLY_MODE",
+            note="EXECUTION_DISABLED",
+            rejection_reason="EXECUTION_DISABLED",
             attempt_number=request.attempt_number,
             client_order_id=request.client_order_id,
             retry_scheduled=False,
@@ -402,7 +392,7 @@ class ExecutionEngine:
         )
 
     def _schedule_retry(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
-        if self.readonly_gate_active:
+        if not self.execution_enabled:
             return
         if not getattr(result, "retry_scheduled", False) or result.next_retry_tick is None:
             return
@@ -415,6 +405,7 @@ class ExecutionEngine:
             )
             return
 
+        self._assert_execution_enabled_for_order_construction("retry schedule")
         scheduled_request = BrokerOrderRequest(
             client_order_id=request.client_order_id,
             symbol=request.symbol,
@@ -436,6 +427,13 @@ class ExecutionEngine:
             f"[PENDING] Added retry for id={request.client_order_id} "
             f"attempt={next_attempt} tick={result.next_retry_tick}"
         )
+
+    def _assert_execution_enabled_for_order_construction(self, context: str) -> None:
+        if not self.execution_enabled:
+            raise RuntimeError(
+                "Execution disabled: order construction blocked "
+                f"(context={context})."
+            )
 
     def complete_trade(self, symbol: str, trader_type: str) -> None:
         """
