@@ -52,11 +52,18 @@ class CoreOrchestrator:
         print("[INFO] Core Orchestrator initialised.")
         self.run_mode = get_run_mode()
         self.replay_mode = get_event_replay_mode(self.run_mode)
-        if self.run_mode == RunMode.LIVE and self.replay_mode != EventReplayMode.OFF:
+        if (
+            self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}
+            and self.replay_mode != EventReplayMode.OFF
+        ):
             print(
-                "[SAFETY] Replay request detected in LIVE. Forcing EVENT_REPLAY_MODE=OFF."
+                "[SAFETY] Replay request detected in LIVE/LIVE_READ_ONLY. "
+                "Forcing EVENT_REPLAY_MODE=OFF."
             )
             self.replay_mode = EventReplayMode.OFF
+        if self.run_mode == RunMode.LIVE_READ_ONLY:
+            print("[SAFETY] LIVE READ-ONLY MODE ACTIVE")
+            print("[SAFETY] NO EXECUTION ENABLED")
         self.sim_clock = SimClock()
         self.price_feed = DeterministicPriceFeed()
         self.event_collector = EventCollector()
@@ -776,8 +783,8 @@ class CoreOrchestrator:
             f"[REPLAY] Replay selection — mode={self.replay_mode.value} "
             f"run_mode={run_mode_value}"
         )
-        if self.run_mode == RunMode.LIVE:
-            print("[REPLAY] Replay is locked down in LIVE mode — skipping replay")
+        if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
+            print("[REPLAY] Replay is locked down in LIVE/LIVE_READ_ONLY — skipping replay")
             return True
         events_for_replay = self.event_collector.get_events_for_replay(
             self.replay_mode
@@ -869,7 +876,11 @@ class CoreOrchestrator:
             return False
         if action == RecoveryAction.HALT_SYSTEM:
             print("[FAULT] Action=HALT_SYSTEM — halting orchestrator safely.")
-            mode = StopMode.PANIC if self.run_mode == RunMode.LIVE else StopMode.GRACEFUL
+            mode = (
+                StopMode.PANIC
+                if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}
+                else StopMode.GRACEFUL
+            )
             self._request_stop(
                 mode,
                 reason=f"Fault: {fault.message}",
@@ -1015,8 +1026,11 @@ class CoreOrchestrator:
         }
         stage_label = cycle_stage or "UNKNOWN"
 
-        if self.run_mode == RunMode.LIVE and self.replay_mode != EventReplayMode.OFF:
-            violations.append("Replay requested while in LIVE mode")
+        if (
+            self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}
+            and self.replay_mode != EventReplayMode.OFF
+        ):
+            violations.append("Replay requested while in LIVE/LIVE_READ_ONLY mode")
         if self.run_mode == RunMode.LIVE and isinstance(self.sim_clock, SimClock):
             violations.append("Deterministic SimClock detected in LIVE mode")
         if self.run_mode == RunMode.LIVE and isinstance(
@@ -1070,8 +1084,10 @@ class CoreOrchestrator:
         )
         print(violation_event)
 
-        if self.run_mode == RunMode.LIVE:
-            print("[SAFETY] LIVE mode violation — entering deterministic safe halt.")
+        if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
+            print(
+                "[SAFETY] LIVE/LIVE_READ_ONLY mode violation — entering deterministic safe halt."
+            )
             self._request_stop(
                 StopMode.PANIC,
                 reason="Runtime safety violation",
