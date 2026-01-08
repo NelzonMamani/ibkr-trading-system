@@ -14,7 +14,7 @@ TRADE_OPENED_SCHEMA = {
     "entry_tick": int,
     "opened_at_tick": int,
     "entry_price": float,
-    "raw_price": float,
+    "raw_price": (float, type(None)),
     "slippage_applied": float,
     "execution_price": float,
     "mode": str,
@@ -26,6 +26,9 @@ TRADE_OPENED_SCHEMA = {
     "filled_quantity": int,
     "remaining_quantity": int,
     "fill_status": str,
+    "client_order_id": (str, type(None)),
+    "attempt_number": int,
+    "gateway_decision": str,
 }
 
 TRADE_CLOSED_SCHEMA = {
@@ -61,6 +64,123 @@ TRADE_NOT_FILLED_SCHEMA = {
     "remaining_quantity": int,
     "reason": str,
     "fill_status": str,
+    "client_order_id": (str, type(None)),
+    "attempt_number": int,
+    "gateway_decision": str,
+}
+
+ORDER_SUBMITTED_SCHEMA = {
+    "client_order_id": str,
+    "symbol": str,
+    "trader_type": (str, type(None)),
+    "strategy_name": (str, type(None)),
+    "direction": str,
+    "requested_quantity": int,
+    "created_tick": int,
+    "attempt_number": int,
+    "order_type": str,
+    "quantity": int,
+    "timestamp": str,
+}
+
+ORDER_GATEWAY_DECISION_SCHEMA = {
+    "client_order_id": str,
+    "symbol": str,
+    "trader_type": (str, type(None)),
+    "tick": int,
+    "attempt_number": int,
+    "decision": str,
+    "deterministic_key": str,
+    "mapping_r": int,
+}
+
+ORDER_REJECTED_HARD_SCHEMA = {
+    "client_order_id": str,
+    "symbol": str,
+    "trader_type": (str, type(None)),
+    "tick": int,
+    "attempt_number": int,
+    "reason": str,
+}
+
+ORDER_RETRY_SCHEDULED_SCHEMA = {
+    "client_order_id": str,
+    "symbol": str,
+    "trader_type": (str, type(None)),
+    "from_tick": int,
+    "next_retry_tick": int,
+    "next_attempt_number": int,
+}
+
+ORDER_EXPIRED_SCHEMA = {
+    "client_order_id": str,
+    "symbol": str,
+    "trader_type": (str, type(None)),
+    "tick": int,
+    "attempt_number": int,
+    "reason": str,
+}
+
+ORDER_ACCEPTED_SCHEMA = {
+    "client_order_id": str,
+    "symbol": str,
+    "direction": str,
+    "quantity": int,
+    "order_type": str,
+    "timestamp": str,
+    "status": str,
+}
+
+ORDER_REJECTED_SCHEMA = {
+    "client_order_id": str,
+    "symbol": str,
+    "direction": str,
+    "quantity": int,
+    "order_type": str,
+    "timestamp": str,
+    "status": str,
+}
+
+ORDER_FINAL_STATUS_SCHEMA = {
+    "client_order_id": str,
+    "symbol": str,
+    "direction": str,
+    "quantity": int,
+    "order_type": str,
+    "timestamp": str,
+    "final_status": str,
+}
+
+SIGNAL_DETECTED_SCHEMA = {
+    "symbol": str,
+    "signal_type": str,
+    "confidence": float,
+    "tick": int,
+}
+
+SIGNAL_SUMMARY_SCHEMA = {
+    "tick": int,
+    "total_signals": int,
+    "by_type": dict,
+}
+
+SIGNAL_INTENTS_CREATED_SCHEMA = {
+    "count": int,
+    "signals_in": int,
+}
+
+PERF_SNAPSHOT_SCHEMA = {
+    "total_trades": int,
+    "wins": int,
+    "losses": int,
+    "flats": int,
+    "win_rate": (float, int),
+    "gross_pnl": (float, int),
+    "total_commissions": (float, int),
+    "net_pnl": (float, int),
+    "avg_pnl_per_trade": (float, int),
+    "by_strategy": dict,
+    "by_trader_type": dict,
 }
 
 EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
@@ -93,6 +213,14 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
         "ibkr_order_id": (int, type(None)),
         "ack_status": (str, type(None)),
     },
+    "ORDER_SUBMITTED": ORDER_SUBMITTED_SCHEMA,
+    "ORDER_GATEWAY_DECISION": ORDER_GATEWAY_DECISION_SCHEMA,
+    "ORDER_REJECTED_HARD": ORDER_REJECTED_HARD_SCHEMA,
+    "ORDER_RETRY_SCHEDULED": ORDER_RETRY_SCHEDULED_SCHEMA,
+    "ORDER_EXPIRED": ORDER_EXPIRED_SCHEMA,
+    "ORDER_ACCEPTED": ORDER_ACCEPTED_SCHEMA,
+    "ORDER_REJECTED": ORDER_REJECTED_SCHEMA,
+    "ORDER_FINAL_STATUS": ORDER_FINAL_STATUS_SCHEMA,
     "ORDER_SUBMISSION_FAILED": {
         "client_order_id": str,
         "symbol": str,
@@ -127,12 +255,19 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
         "decision": str,
         "confidence": float,
     },
+    "SIGNAL_DETECTED": SIGNAL_DETECTED_SCHEMA,
+    "SIGNAL_SUMMARY": SIGNAL_SUMMARY_SCHEMA,
+    "SIGNAL_INTENTS_CREATED": SIGNAL_INTENTS_CREATED_SCHEMA,
     "INTENTS_FROM_SIGNALS": {
         "tick": int,
         "total_intents": int,
         "by_trader_type": dict,
         "by_strategy": dict,
     },
+    "STRATEGY_PERF_SNAPSHOT": {
+        "strategies": list,
+    },
+    "PERF_SNAPSHOT": PERF_SNAPSHOT_SCHEMA,
 }
 
 
@@ -142,8 +277,37 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
     "SCAN_COMPLETE": {"candidates"},
     "STRATEGY_COMPLETE": {"trade_intents"},
     "EXECUTION_COMPLETE": {"results"},
-    "TRADE_OPENED": set(TRADE_OPENED_SCHEMA.keys()),
-    "TRADE_NOT_FILLED": set(TRADE_NOT_FILLED_SCHEMA.keys()),
+    "TRADE_OPENED": {
+        "symbol",
+        "trader_type",
+        "strategy_name",
+        "entry_tick",
+        "opened_at_tick",
+        "entry_price",
+        "raw_price",
+        "slippage_applied",
+        "execution_price",
+        "mode",
+        "direction",
+        "quantity",
+        "stop_loss_price",
+        "take_profit_price",
+        "requested_quantity",
+        "filled_quantity",
+        "remaining_quantity",
+        "fill_status",
+    },
+    "TRADE_NOT_FILLED": {
+        "symbol",
+        "trader_type",
+        "tick",
+        "requested_quantity",
+        "available_liquidity",
+        "filled_quantity",
+        "remaining_quantity",
+        "reason",
+        "fill_status",
+    },
     "TRADE_CLOSED": {
         "symbol",
         "trader_type",
@@ -204,6 +368,68 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
         "order_type",
         "timestamp",
     },
+    "ORDER_SUBMITTED": {"client_order_id", "symbol", "direction"},
+    "ORDER_GATEWAY_DECISION": {
+        "client_order_id",
+        "symbol",
+        "trader_type",
+        "tick",
+        "attempt_number",
+        "decision",
+        "deterministic_key",
+        "mapping_r",
+    },
+    "ORDER_REJECTED_HARD": {
+        "client_order_id",
+        "symbol",
+        "trader_type",
+        "tick",
+        "attempt_number",
+        "reason",
+    },
+    "ORDER_RETRY_SCHEDULED": {
+        "client_order_id",
+        "symbol",
+        "trader_type",
+        "from_tick",
+        "next_retry_tick",
+        "next_attempt_number",
+    },
+    "ORDER_EXPIRED": {
+        "client_order_id",
+        "symbol",
+        "trader_type",
+        "tick",
+        "attempt_number",
+        "reason",
+    },
+    "ORDER_ACCEPTED": {
+        "client_order_id",
+        "symbol",
+        "direction",
+        "quantity",
+        "order_type",
+        "timestamp",
+        "status",
+    },
+    "ORDER_REJECTED": {
+        "client_order_id",
+        "symbol",
+        "direction",
+        "quantity",
+        "order_type",
+        "timestamp",
+        "status",
+    },
+    "ORDER_FINAL_STATUS": {
+        "client_order_id",
+        "symbol",
+        "direction",
+        "quantity",
+        "order_type",
+        "timestamp",
+        "final_status",
+    },
     "ORDER_SUBMITTED_ACK": {
         "client_order_id",
         "symbol",
@@ -232,18 +458,23 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
     "SIGNALS_GENERATED": {"signals"},
     "SIGNAL_EMITTED": {"symbol", "signal_type", "decision", "confidence"},
     "SIGNAL_INVALID": {"symbol", "signal_type", "decision", "confidence"},
+    "SIGNAL_DETECTED": {"symbol", "signal_type", "confidence", "tick"},
+    "SIGNAL_SUMMARY": {"tick", "total_signals", "by_type"},
+    "SIGNAL_INTENTS_CREATED": {"count", "signals_in"},
     "INTENTS_FROM_SIGNALS": {
         "tick",
         "total_intents",
         "by_trader_type",
         "by_strategy",
     },
+    "STRATEGY_PERF_SNAPSHOT": {"strategies"},
+    "PERF_SNAPSHOT": {"total_trades"},
 }
 
 
 OPTIONAL_FIELDS: Dict[str, Set[str]] = {
-    "TRADE_OPENED": set(),
-    "TRADE_NOT_FILLED": set(),
+    "TRADE_OPENED": {"gateway_decision"},
+    "TRADE_NOT_FILLED": {"client_order_id", "attempt_number", "gateway_decision"},
     "TRADE_CLOSED": {
         "opened_at_tick",
         "close_tick",
@@ -265,6 +496,8 @@ OPTIONAL_FIELDS: Dict[str, Set[str]] = {
         "flats",
         "win_rate",
         "gross_pnl",
+        "total_commissions",
+        "net_pnl",
         "avg_pnl_per_trade",
         "by_strategy",
         "by_trader_type",
@@ -288,6 +521,16 @@ OPTIONAL_FIELDS: Dict[str, Set[str]] = {
     "ORDER_SUBMITTED_ACK": {"ibkr_order_id", "ack_status", "reason"},
     "ORDER_SUBMISSION_FAILED": {"ibkr_order_id", "reason"},
     "ORDER_SUBMISSION_BLOCKED": {"ibkr_order_id"},
+    "ORDER_SUBMITTED": {
+        "trader_type",
+        "strategy_name",
+        "requested_quantity",
+        "created_tick",
+        "attempt_number",
+        "order_type",
+        "quantity",
+        "timestamp",
+    },
 }
 
 
