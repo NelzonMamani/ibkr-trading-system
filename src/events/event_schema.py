@@ -2,6 +2,8 @@
 
 from typing import Any, Dict, Set
 
+from config.runtime_config import RunMode
+
 
 class EventSchemaError(Exception):
     """Raised when an event payload violates the minimal schema."""
@@ -29,6 +31,31 @@ TRADE_OPENED_SCHEMA = {
     "client_order_id": (str, type(None)),
     "attempt_number": int,
     "gateway_decision": str,
+}
+
+CYCLE_START_SCHEMA = {
+    "run_mode": (RunMode, str),
+}
+
+SCAN_COMPLETE_SCHEMA = {
+    "candidates": int,
+}
+
+STRATEGY_COMPLETE_SCHEMA = {
+    "trade_intents": int,
+}
+
+EXECUTION_COMPLETE_SCHEMA = {
+    "results": int,
+}
+
+EXIT_SIGNALS_GENERATED_SCHEMA = {
+    "exit_signals": int,
+}
+
+TRADE_EXIT_COMPLETE_SCHEMA = {
+    "closed": int,
+    "outcomes": int,
 }
 
 TRADE_CLOSED_SCHEMA = {
@@ -183,7 +210,53 @@ PERF_SNAPSHOT_SCHEMA = {
     "by_trader_type": dict,
 }
 
+RUNTIME_SAFETY_VIOLATION_SCHEMA = {
+    "stage": str,
+    "run_mode": str,
+    "replay_mode": str,
+    "violations": list,
+    "duplicate_keys": list,
+    "exception_type": str,
+    "exception_message": str,
+}
+
+FAULT_DETECTED_SCHEMA = {
+    "category": str,
+    "severity": str,
+    "message": str,
+    "exception_type": str,
+    "run_mode": str,
+    "timestamp": str,
+    "stack_hint": str,
+}
+
+FAULT_ACTION_TAKEN_SCHEMA = {
+    **FAULT_DETECTED_SCHEMA,
+    "recommended_action": str,
+}
+
+SHUTDOWN_BASE_SCHEMA = {
+    "mode": str,
+    "reason": str,
+    "source": str,
+    "run_mode": str,
+    "tick": int,
+}
+
+SHUTDOWN_HOOK_FAILED_SCHEMA = {
+    **SHUTDOWN_BASE_SCHEMA,
+    "hook": str,
+    "exception_type": str,
+    "exception_message": str,
+    "fault_category": str,
+    "fault_severity": str,
+}
+
 EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
+    "CYCLE_START": CYCLE_START_SCHEMA,
+    "SCAN_COMPLETE": SCAN_COMPLETE_SCHEMA,
+    "STRATEGY_COMPLETE": STRATEGY_COMPLETE_SCHEMA,
+    "EXECUTION_COMPLETE": EXECUTION_COMPLETE_SCHEMA,
     "TRADE_OPENED": TRADE_OPENED_SCHEMA,
     "TRADE_CLOSED": TRADE_CLOSED_SCHEMA,
     "TRADE_NOT_FILLED": TRADE_NOT_FILLED_SCHEMA,
@@ -258,6 +331,8 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
     "SIGNAL_DETECTED": SIGNAL_DETECTED_SCHEMA,
     "SIGNAL_SUMMARY": SIGNAL_SUMMARY_SCHEMA,
     "SIGNAL_INTENTS_CREATED": SIGNAL_INTENTS_CREATED_SCHEMA,
+    "EXIT_SIGNALS_GENERATED": EXIT_SIGNALS_GENERATED_SCHEMA,
+    "TRADE_EXIT_COMPLETE": TRADE_EXIT_COMPLETE_SCHEMA,
     "INTENTS_FROM_SIGNALS": {
         "tick": int,
         "total_intents": int,
@@ -268,6 +343,14 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
         "strategies": list,
     },
     "PERF_SNAPSHOT": PERF_SNAPSHOT_SCHEMA,
+    "RUNTIME_SAFETY_VIOLATION": RUNTIME_SAFETY_VIOLATION_SCHEMA,
+    "FAULT_DETECTED": FAULT_DETECTED_SCHEMA,
+    "FAULT_ACTION_TAKEN": FAULT_ACTION_TAKEN_SCHEMA,
+    "SHUTDOWN_REQUESTED": SHUTDOWN_BASE_SCHEMA,
+    "SHUTDOWN_STARTED": SHUTDOWN_BASE_SCHEMA,
+    "SHUTDOWN_HOOK_FAILED": SHUTDOWN_HOOK_FAILED_SCHEMA,
+    "SHUTDOWN_COMPLETE": SHUTDOWN_BASE_SCHEMA,
+    "PANIC_STOP_TRIGGERED": SHUTDOWN_BASE_SCHEMA,
 }
 
 

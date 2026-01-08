@@ -5,7 +5,7 @@ No business logic is present here; the classes are shape-only placeholders
 to illustrate how information might flow between system stages.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import List, Optional
 
 from domain.performance_snapshot import PerformanceSnapshot
@@ -160,6 +160,16 @@ class ExecutionResult:
 class TradeRecord:
     """Minimal teaching-first record of one trade attempt's stage outputs."""
 
+    SCHEMA_FIELDS = (
+        "scanner_output",
+        "pattern_output",
+        "strategy_output",
+        "risk_output",
+        "execution_output",
+        "trade_outcomes",
+        "performance_snapshot",
+    )
+
     scanner_output: List = field(default_factory=list)
     pattern_output: List = field(default_factory=list)
     strategy_output: List[TradeIntent] = field(default_factory=list)
@@ -177,3 +187,10 @@ class TradeRecord:
             f"{len(self.trade_outcomes)} trade outcomes, "
             f"performance_snapshot={'present' if self.performance_snapshot else 'absent'}."
         )
+
+    @classmethod
+    def schema_fields(cls) -> tuple[str, ...]:
+        return cls.SCHEMA_FIELDS
+
+    def to_serializable_dict(self) -> dict:
+        return asdict(self)

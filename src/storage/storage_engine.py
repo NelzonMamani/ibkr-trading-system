@@ -23,7 +23,15 @@ class StorageEngine:
         """
 
         print("[STORAGE] Received TradeRecord for teaching-only storage flow")
-        print(f"[STORAGE] Record content (placeholder): {trade_record}")
+        schema_fields = trade_record.schema_fields()
+        print(
+            "[STORAGE] TradeRecord schema acknowledged: "
+            + ", ".join(schema_fields)
+        )
+        print(
+            "[STORAGE] Record content (placeholder): "
+            f"{trade_record.to_serializable_dict()}"
+        )
         print("[STORAGE] No data persisted — returning True as placeholder acknowledgement")
         return True
 
