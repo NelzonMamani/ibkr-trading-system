@@ -231,6 +231,21 @@ SIGNAL_INTENTS_CREATED_SCHEMA = {
     "signals_in": int,
 }
 
+INTENT_NORMALISED_SCHEMA = {
+    "before_count": int,
+    "after_count": int,
+    "duplicates_dropped": int,
+}
+
+INTENT_DROPPED_DUPLICATE_SCHEMA = {
+    "symbol": str,
+    "trader_type": str,
+    "direction": str,
+    "kept_confidence": (float, int),
+    "dropped_confidence": (float, int),
+    "reason": str,
+}
+
 PERF_SNAPSHOT_SCHEMA = {
     "total_trades": int,
     "closed_trades": int,
@@ -422,6 +437,8 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
         "request_source": str,
         "symbols": list,
     },
+    "INTENT_NORMALISED": INTENT_NORMALISED_SCHEMA,
+    "INTENT_DROPPED_DUPLICATE": INTENT_DROPPED_DUPLICATE_SCHEMA,
     "SIGNALS_GENERATED": {
         "signals": int,
     },
@@ -784,6 +801,15 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
         "data_mode",
         "request_source",
         "symbols",
+    },
+    "INTENT_NORMALISED": {"before_count", "after_count", "duplicates_dropped"},
+    "INTENT_DROPPED_DUPLICATE": {
+        "symbol",
+        "trader_type",
+        "direction",
+        "kept_confidence",
+        "dropped_confidence",
+        "reason",
     },
     "SIGNALS_GENERATED": {"signals"},
     "SIGNAL_EMITTED": {"symbol", "signal_type", "decision", "confidence"},

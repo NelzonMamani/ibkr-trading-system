@@ -20,6 +20,7 @@ from config.runtime_config import (
     get_live_micro_max_consecutive_losses,
     get_live_micro_max_trades_per_day,
     get_run_mode,
+    get_scanner_mode,
 )
 from config.system_config import get_current_market_session
 from core.active_trade_registry import ActiveTradeRegistry
@@ -36,13 +37,14 @@ from core.replay_engine import ReplayEngine
 from execution.execution_engine import ExecutionEngine
 from execution.order_gateway import OrderGateway
 from execution.trade_exit_engine import TradeExitEngine
+from ibkr.market_data_client import MarketDataClient
 from market_data.market_data_hub import MarketDataHub
 from market_data.market_data_price_feed import MarketDataPriceFeed
 from performance.strategy_performance import StrategyPerformanceTracker
 from models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
 from patterns.pattern_engine import PatternEngine
 from risk.risk_engine import RiskEngine
-from scanner.scanner import Scanner
+from scanner import LiveReadOnlyScanner, Scanner
 from sim.clock import SimClock
 from sim.price_feed import DeterministicPriceFeed
 from signals.signal_engine_v1 import SignalEngineV1
@@ -97,10 +99,17 @@ class CoreOrchestrator:
             self.price_feed = MarketDataPriceFeed(self.market_data_hub)
         else:
             self.price_feed = DeterministicPriceFeed()
-        self.scanner = Scanner(
-            event_collector=self.event_collector,
-            market_data_hub=self.market_data_hub,
-        )
+        self.scanner_mode = get_scanner_mode()
+        self.market_data_client = None
+        if self.scanner_mode == "LIVE_READONLY":
+            self.market_data_client = MarketDataClient()
+            self.scanner = LiveReadOnlyScanner(market_data_client=self.market_data_client)
+            print("[SCAN] LiveReadOnlyScanner enabled — using IBKR read-only market data")
+        else:
+            self.scanner = Scanner(
+                event_collector=self.event_collector,
+                market_data_hub=self.market_data_hub,
+            )
         self.pattern_engine = PatternEngine()
         self.signal_engine_v1 = SignalEngineV1()
         print("[BOOT] SignalEngineV1 instantiated")
@@ -138,7 +147,9 @@ class CoreOrchestrator:
         self.storage_engine = StorageEngine()
         self._halted = False
         self._degraded = False
+        self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
+        self._run_startup_validations()
 
     def replay_events(self, events):
         self.replay_engine.replay(events)
@@ -543,6 +554,27 @@ class CoreOrchestrator:
                 )
         print("[TEACH] <<< Strategy stage complete — moving to risk stage.")
 
+        print("[TEACH] >>> Intent normalization stage — enforce deduplication.")
+        try:
+            strategy_output = self._normalize_trade_intents(strategy_output)
+        except Exception as exc:
+            self._evaluate_runtime_safety(
+                cycle_stage="INTENT_NORMALISATION",
+                stage_exception=exc,
+                scanner_results=scanner_results,
+                pattern_results=pattern_results,
+                strategy_output=strategy_output,
+            )
+            return False
+        self._evaluate_runtime_safety(
+            cycle_stage="INTENT_NORMALISATION",
+            stage_exception=None,
+            scanner_results=scanner_results,
+            pattern_results=pattern_results,
+            strategy_output=strategy_output,
+        )
+        print("[TEACH] <<< Intent normalization stage complete — moving to risk stage.")
+
         print("[TEACH] >>> Risk stage — check sizing and limits (conceptual).")
         risk_output: List[RiskDecision] = []
         blocked_symbols: set[str] = set()
@@ -877,6 +909,31 @@ class CoreOrchestrator:
         if self._stop_requested_at_boundary("STORAGE"):
             return False
 
+        cycle_events = self.event_collector.snapshot_cycle()
+        expected_events = len(cycle_events)
+        storage_ok = True
+        events_ok = True
+        if self.storage_engine.enabled and self.storage_engine.backend == "sqlite":
+            storage_ok = storage_result.ok
+            events_ok = (
+                storage_result.ok
+                and storage_result.events_persisted == expected_events
+            )
+        intent_ok = self._last_intent_validation.get("ok", True)
+        market_data_ok = True
+        if self.scanner_mode == "LIVE_READONLY":
+            market_data_ok = not self.scanner.last_connectivity_issue and not self.scanner.last_data_quality_flags
+
+        print(
+            "[VALIDATION][SUMMARY] "
+            f"storage={'OK' if storage_ok else 'FAIL'} "
+            f"intent={'OK' if intent_ok else 'FAIL'} "
+            f"market_data={'OK' if market_data_ok else 'FAIL'} "
+            f"events={'OK' if events_ok else 'FAIL'}"
+        )
+        if not all([storage_ok, intent_ok, market_data_ok, events_ok]):
+            raise RuntimeError("Validation summary failed; halting cycle")
+
         print(
             "[SUMMARY] "
             f"scanner={len(scanner_results or [])} | "
@@ -887,7 +944,7 @@ class CoreOrchestrator:
         )
 
         print("[INFO] Orchestrator cycle complete (teaching-only).")
-        cycle_snapshot = self.event_collector.snapshot_cycle()
+        cycle_snapshot = cycle_events
         all_snapshot = self.event_collector.snapshot_all()
         cycle_event_count = len(cycle_snapshot)
         all_event_count = len(all_snapshot)
@@ -1024,6 +1081,81 @@ class CoreOrchestrator:
             consider(intent, "strategy")
 
         return [merged[key] for key in sorted(merged.keys())]
+
+    def _normalize_trade_intents(self, intents: List[TradeIntent]) -> List[TradeIntent]:
+        before_count = len(intents)
+        deduped: Dict[Tuple[str, str, str], TradeIntent] = {}
+        for intent in intents:
+            key = (intent.symbol, intent.trader_type, intent.direction)
+            current = deduped.get(key)
+            if current is None or intent.confidence > current.confidence:
+                deduped[key] = intent
+
+        dropped = before_count - len(deduped)
+        for intent in intents:
+            key = (intent.symbol, intent.trader_type, intent.direction)
+            kept = deduped.get(key)
+            if kept is None or kept is intent:
+                continue
+            self.event_collector.emit(
+                event_type="INTENT_DROPPED_DUPLICATE",
+                source="CoreOrchestrator",
+                payload={
+                    "symbol": intent.symbol,
+                    "trader_type": intent.trader_type,
+                    "direction": intent.direction,
+                    "kept_confidence": kept.confidence,
+                    "dropped_confidence": intent.confidence,
+                    "reason": "Lower confidence duplicate dropped",
+                },
+            )
+
+        normalized = list(deduped.values())
+        normalized_keys = [
+            (intent.symbol, intent.trader_type, intent.direction) for intent in normalized
+        ]
+        if len(set(normalized_keys)) != len(normalized_keys):
+            self._last_intent_validation = {
+                "ok": False,
+                "before": before_count,
+                "after": len(normalized),
+                "dropped": dropped,
+            }
+            raise RuntimeError("Intent deduplication failed — duplicates remain")
+
+        self.event_collector.emit(
+            event_type="INTENT_NORMALISED",
+            source="CoreOrchestrator",
+            payload={
+                "before_count": before_count,
+                "after_count": len(normalized),
+                "duplicates_dropped": dropped,
+            },
+        )
+        print(
+            "[INTENT][VALIDATION] Deduplication OK — "
+            f"before={before_count} after={len(normalized)} duplicates_dropped={dropped}"
+        )
+        self._last_intent_validation = {
+            "ok": True,
+            "before": before_count,
+            "after": len(normalized),
+            "dropped": dropped,
+        }
+        return normalized
+
+    def _run_startup_validations(self) -> None:
+        print("[VALIDATION] Running startup validations")
+        print("[VALIDATION] Config resolved")
+        if self.storage_engine.enabled and self.storage_engine.backend == "sqlite":
+            if self.storage_engine._store is None:
+                raise RuntimeError("Storage engine failed to open SQLite store")
+            print("[VALIDATION] Storage OK — SQLite opened")
+        if self.scanner_mode == "LIVE_READONLY":
+            if not hasattr(self.scanner, "validate_startup"):
+                raise RuntimeError("LiveReadOnlyScanner missing startup validation hook")
+            self.scanner.validate_startup()
+            print("[VALIDATION] Market data connectivity OK")
 
     def _handle_fault(self, exc: Exception) -> bool:
         fault = classify_exception(exc)
@@ -1203,6 +1335,7 @@ class CoreOrchestrator:
             "SCANNER",
             "PATTERN",
             "STRATEGY",
+            "INTENT_NORMALISATION",
             "RISK",
             "EXECUTION",
             "EXIT_SIGNALS",
