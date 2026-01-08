@@ -14,15 +14,15 @@ from config.runtime_config import (
     EventReplayMode,
     RunMode,
     get_event_replay_mode,
-    get_ibkr_kill_switch,
+    get_ibkr_api_write_allowed,
     get_ibkr_max_symbols_per_cycle,
-    get_ibkr_readonly_enabled,
     get_intent_dedup_selftest_enabled,
     get_live_micro_daily_max_loss,
     get_live_micro_max_consecutive_losses,
     get_live_micro_max_trades_per_day,
     get_run_mode,
     get_scanner_mode,
+    is_execution_enabled,
     is_live_read_only_required,
 )
 from config.system_config import get_current_market_session
@@ -65,6 +65,8 @@ class CoreOrchestrator:
     def __init__(self):
         print("[INFO] Core Orchestrator initialised.")
         self.run_mode = get_run_mode()
+        self.execution_enabled = is_execution_enabled(self.run_mode)
+        self.ibkr_api_write_allowed = get_ibkr_api_write_allowed()
         self.replay_mode = get_event_replay_mode(self.run_mode)
         if (
             self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
@@ -75,16 +77,12 @@ class CoreOrchestrator:
                 "Forcing EVENT_REPLAY_MODE=OFF."
             )
             self.replay_mode = EventReplayMode.OFF
-        if self.run_mode in {RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
-            print("[SAFETY] LIVE READ-ONLY MODE ACTIVE")
-            print("[SAFETY] NO EXECUTION ENABLED")
+        if not self.execution_enabled:
+            print("[SAFETY] EXECUTION: HARD DISABLED")
+            print("[SAFETY] ORDER ROUTING: BLOCKED")
         if self.run_mode == RunMode.LIVE_MICRO:
             print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
             print("[SAFETY] 1-SHARE LIMIT ENFORCED")
-        if self.run_mode == RunMode.LIVE_READ_ONLY and not get_ibkr_readonly_enabled():
-            raise RuntimeError(
-                "LIVE_READ_ONLY requires IBKR_READONLY_ENABLED=True to connect safely."
-            )
         self.sim_clock = SimClock()
         self.event_collector = EventCollector()
         self.stop_controller = StopController()
@@ -140,7 +138,9 @@ class CoreOrchestrator:
         print("[BOOT] SignalEngineV1 instantiated")
         self.strategy_runner = StrategyRunner(event_collector=self.event_collector)
         self.risk_engine = RiskEngine(trade_registry=self.trade_registry)
-        if self.run_mode == RunMode.SIM:
+        if not self.execution_enabled:
+            broker = None
+        elif self.run_mode == RunMode.SIM:
             broker = SimBroker(
                 gateway=OrderGateway(),
                 price_feed=self.price_feed,
@@ -148,8 +148,6 @@ class CoreOrchestrator:
                 event_collector=self.event_collector,
                 run_mode=self.run_mode,
             )
-        elif self.run_mode == RunMode.LIVE_READ_ONLY:
-            broker = None
         elif self.run_mode == RunMode.LIVE_MICRO:
             if IbkrLiveBroker is None:
                 raise RuntimeError("IBKR live broker unavailable; ibapi dependency missing.")
@@ -159,7 +157,7 @@ class CoreOrchestrator:
                 run_mode=self.run_mode,
             )
         else:
-            broker = IbkrBroker()
+            broker = None
         self.execution_engine = ExecutionEngine(
             broker=broker,
             trade_registry=self.trade_registry,
@@ -337,17 +335,6 @@ class CoreOrchestrator:
 
         while True:
             try:
-                if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
-                    if get_ibkr_kill_switch():
-                        print("[KILL_SWITCH] IBKR kill-switch engaged — halting immediately.")
-                        self._request_stop(
-                            StopMode.PANIC,
-                            reason="Manual kill-switch engaged",
-                            source="KillSwitch",
-                        )
-                        self._shutdown(self.stop_controller.stop_mode() or StopMode.PANIC)
-                        performed_shutdown = True
-                        break
                 if self.stop_controller.is_stop_requested():
                     self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
                     performed_shutdown = True
@@ -1199,22 +1186,28 @@ class CoreOrchestrator:
         print(f"[VALIDATION] Effective run mode: {self.run_mode.value}")
         print(f"[VALIDATION] Scanner type selected: {type(self.scanner).__name__}")
         if self.run_mode == RunMode.SIM:
-            execution_policy = "SIMULATED"
             market_data_source = "SIM"
-        elif self.run_mode == RunMode.LIVE_MICRO:
-            execution_policy = "ALLOWED"
-            market_data_source = "IBKR"
-        elif self.run_mode == RunMode.LIVE_READ_ONLY:
-            execution_policy = "DISABLED (READ_ONLY)"
-            market_data_source = "IBKR (READ_ONLY)"
-        elif self.run_mode in {RunMode.LIVE, RunMode.PAPER}:
-            execution_policy = "DISABLED"
+        elif self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO, RunMode.PAPER}:
             market_data_source = "IBKR"
         else:
-            execution_policy = "DISABLED"
             market_data_source = "SIM"
+        execution_policy = "ALLOWED" if self.execution_enabled else "HARD DISABLED"
         print(f"[VALIDATION] Execution policy: {execution_policy}")
         print(f"[VALIDATION] Market data source: {market_data_source}")
+        print(
+            "[VALIDATION] IBKR API WRITE: "
+            f"{'ENABLED' if self.ibkr_api_write_allowed else 'DISABLED'}"
+        )
+        print(
+            "[VALIDATION] EXECUTION: "
+            f"{'ENABLED' if self.execution_enabled else 'HARD DISABLED'}"
+        )
+        print(
+            "[VALIDATION] ORDER ROUTING: "
+            f"{'ALLOWED' if self.execution_enabled else 'BLOCKED'}"
+        )
+        if market_data_source == "IBKR":
+            print("[VALIDATION] MARKET DATA: LIVE IBKR")
         broker_adapter = getattr(self.execution_engine, "broker", None)
         broker_name = (
             broker_adapter.name()
@@ -1236,19 +1229,12 @@ class CoreOrchestrator:
         if self.run_mode == RunMode.LIVE_READ_ONLY:
             print("[VALIDATION] LIVE_READ_ONLY: live data enabled")
             print("[VALIDATION] LIVE_READ_ONLY: execution disabled by design")
-            if not get_ibkr_readonly_enabled():
-                raise RuntimeError("LIVE_READ_ONLY requires IBKR_READONLY_ENABLED=True")
             if not isinstance(self.scanner, LiveReadOnlyScanner):
                 raise RuntimeError("LIVE_READ_ONLY must use LiveReadOnlyScanner")
             if self.market_data_hub is None:
                 raise RuntimeError("LIVE_READ_ONLY requires MarketDataHub for IBKR data")
             if not isinstance(self.price_feed, MarketDataPriceFeed):
                 raise RuntimeError("LIVE_READ_ONLY must use MarketDataPriceFeed")
-        if get_ibkr_readonly_enabled():
-            print(
-                "[CONFIG] IBKR_READONLY_ENABLED=True — broker order routing to IBKR "
-                "is disabled. SIM execution is internal-only."
-            )
         if self.storage_engine.enabled and self.storage_engine.backend == "sqlite":
             if self.storage_engine._store is None:
                 raise RuntimeError("Storage engine failed to open SQLite store")

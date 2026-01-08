@@ -31,6 +31,7 @@ from config.runtime_config import (
     get_ibkr_paper_port,
     get_ibkr_readonly_enabled,
     get_ibkr_snapshot_timeout_seconds,
+    is_execution_enabled,
 )
 from core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from core.event_collector import EventCollector
@@ -55,6 +56,8 @@ class IbkrLiveBroker(BaseBroker):
     submitter: Optional[IbkrOrderSubmitter] = field(default=None)
 
     def __post_init__(self) -> None:
+        if not is_execution_enabled(self.run_mode):
+            raise RuntimeError("EXECUTION_ENABLED must be True for LIVE_MICRO execution.")
         if get_ibkr_readonly_enabled():
             raise RuntimeError(
                 "IBKR_READONLY_ENABLED must be False for LIVE_MICRO execution."

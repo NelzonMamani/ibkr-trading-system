@@ -24,14 +24,7 @@ DEFAULT_RUN_MODE: RunMode = RunMode.SIM
 
 
 def is_live_read_only_required() -> bool:
-    market_data_type = get_ibkr_market_data_type()
-    ibkr_readonly_enabled = get_ibkr_readonly_enabled()
-    ibkr_port = get_ibkr_port()
-    return (
-        market_data_type == "LIVE"
-        or ibkr_readonly_enabled
-        or ibkr_port in {7496, 7497}
-    )
+    return get_run_mode() == RunMode.LIVE_READ_ONLY
 
 
 def get_run_mode() -> RunMode:
@@ -43,20 +36,6 @@ def get_run_mode() -> RunMode:
     2) DEFAULT_RUN_MODE (SIM)
     """
     raw = (os.getenv("RUN_MODE") or "").strip().upper()
-    if is_live_read_only_required():
-        if raw:
-            try:
-                resolved_raw = RunMode(raw)
-            except ValueError:
-                print(
-                    f"[RUNTIME] Invalid RUN_MODE='{raw}'. Forcing LIVE_READ_ONLY due to IBKR settings."
-                )
-                resolved_raw = None
-            if resolved_raw == RunMode.SIM:
-                raise RuntimeError(
-                    "RUN_MODE=SIM is invalid when IBKR live/read-only settings are active."
-                )
-        return RunMode.LIVE_READ_ONLY
     if not raw:
         return DEFAULT_RUN_MODE
 
@@ -65,15 +44,6 @@ def get_run_mode() -> RunMode:
     except ValueError:
         print(f"[RUNTIME] Invalid RUN_MODE='{raw}'. Falling back to SAFE default SIM.")
         resolved = RunMode.SIM
-    if (
-        resolved == RunMode.SIM
-        and get_ibkr_market_data_type() == "LIVE"
-        and get_ibkr_readonly_enabled()
-    ):
-        raise RuntimeError(
-            "RUN_MODE=SIM with IBKR_MARKET_DATA_TYPE=LIVE and IBKR_READONLY_ENABLED=True "
-            "is an invalid configuration."
-        )
     return resolved
 
 
@@ -84,6 +54,29 @@ def get_ibkr_readonly_enabled(default: bool = True) -> bool:
     if raw in {"false", "0", "no"}:
         return False
     return default
+
+
+def get_ibkr_api_write_allowed(default: bool = True) -> bool:
+    raw = (os.getenv("IBKR_API_WRITE_ALLOWED") or "").strip().lower()
+    if raw in {"true", "1", "yes"}:
+        return True
+    if raw in {"false", "0", "no"}:
+        return False
+    return default
+
+
+def get_execution_enabled(default: bool = False) -> bool:
+    raw = (os.getenv("EXECUTION_ENABLED") or "").strip().lower()
+    if raw in {"true", "1", "yes"}:
+        return True
+    if raw in {"false", "0", "no"}:
+        return False
+    return default
+
+
+def is_execution_enabled(run_mode: RunMode | None = None) -> bool:
+    resolved_run_mode = run_mode or get_run_mode()
+    return resolved_run_mode == RunMode.LIVE_MICRO and get_execution_enabled()
 
 
 def get_ibkr_host(default: str = "127.0.0.1") -> str:

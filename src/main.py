@@ -14,6 +14,8 @@ from config.runtime_config import (
     DEFAULT_RUN_MODE,
     RunMode,
     get_event_replay_mode,
+    get_execution_enabled,
+    get_ibkr_api_write_allowed,
     get_ibkr_client_id,
     get_ibkr_host,
     get_ibkr_market_data_type,
@@ -28,6 +30,7 @@ from config.runtime_config import (
     get_run_mode,
     get_scanner_mode,
     get_scanner_symbols,
+    is_execution_enabled,
 )
 from config.system_config import ACTIVE_SESSIONS, CYCLE_SLEEP_SECONDS
 from domain.models.internal_order import InternalOrder
@@ -62,7 +65,11 @@ def main() -> None:
     print(f"  - CYCLE_SLEEP_SECONDS: {CYCLE_SLEEP_SECONDS}")
     print(f"  - ACTIVE_SESSIONS: {', '.join(ACTIVE_SESSIONS)}")
     ibkr_readonly_enabled = get_ibkr_readonly_enabled()
+    ibkr_api_write_allowed = get_ibkr_api_write_allowed()
+    execution_enabled = is_execution_enabled(run_mode)
     print(f"  - IBKR_READONLY_ENABLED: {ibkr_readonly_enabled}")
+    print(f"  - IBKR_API_WRITE_ALLOWED: {ibkr_api_write_allowed}")
+    print(f"  - EXECUTION_ENABLED: {get_execution_enabled()}")
     print(f"  - IBKR_HOST: {get_ibkr_host()}")
     print(f"  - IBKR_PORT: {get_ibkr_port()}")
     print(f"  - IBKR_CLIENT_ID: {get_ibkr_client_id()}")
@@ -78,6 +85,15 @@ def main() -> None:
     ibkr_default_currency = get_ibkr_default_currency()
     print(f"  - IBKR_DEFAULT_EXCHANGE: {ibkr_default_exchange}")
     print(f"  - IBKR_DEFAULT_CURRENCY: {ibkr_default_currency}")
+    print(
+        "[SAFETY] IBKR API WRITE: "
+        f"{'ENABLED' if ibkr_api_write_allowed else 'DISABLED'}"
+    )
+    if not execution_enabled:
+        print("[SAFETY] EXECUTION: HARD DISABLED")
+        print("[SAFETY] ORDER ROUTING: BLOCKED")
+    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
+        print("[SAFETY] MARKET DATA: LIVE IBKR")
     if ibkr_readonly_enabled:
         print(
             "[CONFIG] IBKR_READONLY_ENABLED=True — broker order routing to IBKR "
@@ -85,20 +101,10 @@ def main() -> None:
         )
     if run_mode == RunMode.LIVE_READ_ONLY:
         print("[SAFETY] LIVE READ-ONLY MODE ACTIVE")
-        print("[SAFETY] NO EXECUTION ENABLED")
         print("[SAFETY] LIVE DATA — READ ONLY MODE")
-        print("[SAFETY] NO ORDERS WILL BE SENT")
-        if not ibkr_readonly_enabled:
-            raise RuntimeError(
-                "LIVE_READ_ONLY requires IBKR_READONLY_ENABLED=True to connect safely."
-            )
     if run_mode == RunMode.LIVE_MICRO:
         print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
         print("[SAFETY] 1-SHARE LIMIT ENFORCED")
-        if ibkr_readonly_enabled:
-            raise RuntimeError(
-                "LIVE_MICRO requires IBKR_READONLY_ENABLED=False to enable execution."
-            )
     if run_mode == RunMode.LIVE and ibkr_readonly_enabled:
         print("[SAFETY] LIVE DATA — READ ONLY MODE")
         print("[SAFETY] NO ORDERS WILL BE SENT")

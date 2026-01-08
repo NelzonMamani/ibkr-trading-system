@@ -1,28 +1,34 @@
-"""Read-only guardrail for IBKR order actions."""
+"""Execution guardrail for IBKR order actions."""
 
 from __future__ import annotations
 
-from config.runtime_config import get_ibkr_readonly_enabled
+from config.runtime_config import get_execution_enabled, get_run_mode, is_execution_enabled
 
 
 _BLOCKED_ACTIONS = {"PLACE_ORDER", "MODIFY_ORDER", "CANCEL_ORDER"}
 
 
 def assert_read_only_allows(action: str) -> None:
-    """Raise if read-only mode is enabled and the action is restricted."""
+    """Raise if execution is disabled and the action is restricted."""
     normalized = (action or "").upper()
-    if get_ibkr_readonly_enabled() and normalized in _BLOCKED_ACTIONS:
-        raise RuntimeError(f"Read-only enabled: blocking broker action {normalized}")
+    if normalized in _BLOCKED_ACTIONS and not is_execution_enabled():
+        run_mode = get_run_mode().value
+        execution_flag = get_execution_enabled()
+        raise RuntimeError(
+            "Execution disabled: blocking broker action "
+            f"{normalized} (run_mode={run_mode} execution_enabled={execution_flag})"
+        )
 
 
 def validate_read_only_guard() -> None:
-    """Run a guard self-test when read-only mode is enabled."""
-    if not get_ibkr_readonly_enabled():
+    """Run a guard self-test when execution is disabled."""
+    if is_execution_enabled():
+        print("[CONFIG][VALIDATION] Execution enabled; guard allows broker actions")
         return
-    print("[CONFIG][VALIDATION] Running read-only guard self-test")
+    print("[CONFIG][VALIDATION] Running execution guard self-test")
     try:
         assert_read_only_allows("PLACE_ORDER")
     except RuntimeError:
-        print("[CONFIG][VALIDATION] Read-only guard enforced")
+        print("[CONFIG][VALIDATION] Execution guard enforced")
         return
-    raise RuntimeError("Read-only enabled but guard did not block PLACE_ORDER")
+    raise RuntimeError("Execution disabled but guard did not block PLACE_ORDER")
