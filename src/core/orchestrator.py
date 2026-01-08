@@ -104,6 +104,7 @@ class CoreOrchestrator:
         self.scanner_mode = get_scanner_mode()
         if self.run_mode == RunMode.LIVE_READ_ONLY:
             self.scanner_mode = "LIVE_READONLY"
+            print("[MARKET_DATA] Market data source: IBKR")
         self.market_data_client = None
         if self.scanner_mode == "LIVE_READONLY":
             self.market_data_client = MarketDataClient()
@@ -112,6 +113,7 @@ class CoreOrchestrator:
                 event_collector=self.event_collector,
             )
             print("[SCAN] LiveReadOnlyScanner enabled — using IBKR read-only market data")
+            print("[SCAN] Scanner type: LiveReadOnlyScanner")
         else:
             self.scanner = Scanner(
                 event_collector=self.event_collector,
