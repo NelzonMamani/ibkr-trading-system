@@ -694,13 +694,12 @@ class CoreOrchestrator:
         if self._stop_requested_at_boundary("TRADE_EXIT"):
             return False
 
+        cycle_events = self.event_collector.snapshot_cycle()
         closed_trade_events = [
-            event
-            for event in self.event_collector.snapshot_cycle()
-            if event.event_type == "TRADE_CLOSED"
+            event for event in cycle_events if event.event_type == "TRADE_CLOSED"
         ]
 
-        self.performance_registry.record(closed_trade_events)
+        self.performance_registry.record(cycle_events)
         performance_snapshot = self.performance_registry.snapshot()
         print(
             "[PERF] "

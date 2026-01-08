@@ -388,6 +388,7 @@ class TradeExitEngine:
                     "symbol": symbol,
                     "trader_type": trader_type,
                     "strategy_name": strategy_name,
+                    "pattern_name": pattern_name,
                     "tick": tick,
                     "reason": rationale,
                     "exit_category": decision.category,
