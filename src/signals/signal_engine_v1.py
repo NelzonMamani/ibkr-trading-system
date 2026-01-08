@@ -93,7 +93,7 @@ class SignalEngineV1:
                     )
                 )
 
-            if self._has_pattern(patterns_by_symbol.get(symbol, []), "Gap and Go"):
+            if self._has_pattern(patterns_by_symbol.get(symbol, []), {"GAP_AND_GO"}):
                 symbol_signals.append(
                     self._build_signal(
                         symbol,
@@ -103,11 +103,14 @@ class SignalEngineV1:
                         gap_percent,
                         rvol,
                         float_millions,
-                        "pattern contains 'Gap and Go'",
+                        "pattern contains 'GAP_AND_GO'",
                     )
                 )
 
-            if self._has_pattern(patterns_by_symbol.get(symbol, []), "Momentum"):
+            if self._has_pattern(
+                patterns_by_symbol.get(symbol, []),
+                {"ORB_BREAKOUT", "FIRST_PULLBACK", "VWAP_RECLAIM", "HOD_BREAK"},
+            ):
                 symbol_signals.append(
                     self._build_signal(
                         symbol,
@@ -117,7 +120,7 @@ class SignalEngineV1:
                         gap_percent,
                         rvol,
                         float_millions,
-                        "pattern contains 'Momentum'",
+                        "pattern contains Ross momentum pattern",
                     )
                 )
 
@@ -142,8 +145,10 @@ class SignalEngineV1:
             grouped.setdefault(pattern.symbol, []).append(pattern)
         return grouped
 
-    def _has_pattern(self, patterns: Iterable[PatternResult], needle: str) -> bool:
-        return any(needle in pattern.pattern_name for pattern in patterns)
+    def _has_pattern(
+        self, patterns: Iterable[PatternResult], needles: set[str]
+    ) -> bool:
+        return any(pattern.pattern_name in needles for pattern in patterns)
 
     def _base_strength(
         self, gap_percent: float, rvol: float, float_millions: float

@@ -1,7 +1,7 @@
 """
 Momentum Continuation strategy plugin.
 
-This module translates detected "Momentum Continuation" patterns into
+This module translates detected Ross momentum continuation patterns into
 TradeIntent objects without applying thresholds, sizing, or risk logic. It
 keeps the system deterministic and SIM-only while demonstrating coexistence
 with other strategy modules like GapAndGoStrategy.
@@ -16,7 +16,7 @@ from strategy.base_strategy import BaseStrategy
 
 
 class MomentumContinuationStrategy(BaseStrategy):
-    """Pure translation from Momentum Continuation pattern into a long MOMENTUM intent."""
+    """Pure translation from Ross momentum patterns into a long MOMENTUM intent."""
 
     name = "MomentumContinuationStrategy"
 
@@ -25,10 +25,11 @@ class MomentumContinuationStrategy(BaseStrategy):
             f"[STRATEGY:Momentum] Evaluation start — received {len(pattern_results)} pattern(s) for review"
         )
         trade_intents: List[TradeIntent] = []
+        momentum_patterns = {"ORB_BREAKOUT", "FIRST_PULLBACK", "VWAP_RECLAIM", "HOD_BREAK"}
         for pattern in pattern_results:
-            if "Momentum Continuation" in pattern.pattern_name:
+            if pattern.pattern_name in momentum_patterns:
                 rationale = (
-                    f"{pattern.rationale} | Teaching note: translating 'Momentum Continuation' detection into a long MOMENTUM intent."
+                    f"{pattern.rationale} | Translating {pattern.pattern_name} detection into a long MOMENTUM intent."
                 )
                 print(
                     "[STRATEGY:Momentum] Matched pattern — creating TradeIntent "
@@ -50,7 +51,7 @@ class MomentumContinuationStrategy(BaseStrategy):
                 )
             else:
                 print(
-                    "[STRATEGY:Momentum] Skipped pattern — not a Momentum Continuation label "
+                    "[STRATEGY:Momentum] Skipped pattern — not a Ross momentum label "
                     f"for symbol={pattern.symbol} (pattern='{pattern.pattern_name}')"
                 )
         print(
@@ -83,8 +84,8 @@ class MomentumContinuationStrategy(BaseStrategy):
                 continue
 
             rationale = (
-                f"Teaching exit request after {hold_duration} tick(s); "
-                "Momentum Continuation is ready to secure progress once minimum hold is satisfied."
+                f"Exit request after {hold_duration} tick(s); "
+                "Momentum continuation is ready to secure progress once minimum hold is satisfied."
             )
             exit_signal = ExitSignal(
                 symbol=symbol,

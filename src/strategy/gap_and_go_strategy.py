@@ -1,7 +1,7 @@
 """
 Deterministic Gap and Go strategy plugin.
 
-This strategy simply translates PatternResults labeled with "Gap and Go" into
+This strategy simply translates PatternResults labeled with "GAP_AND_GO" into
 TradeIntent objects without thresholds, sizing, or broker integration.
 """
 
@@ -24,9 +24,9 @@ class GapAndGoStrategy(BaseStrategy):
         )
         trade_intents: List[TradeIntent] = []
         for pattern in pattern_results:
-            if "Gap and Go" in pattern.pattern_name:
+            if pattern.pattern_name == "GAP_AND_GO":
                 rationale = (
-                    f"{pattern.rationale} | Teaching note: translating 'Gap and Go' detection into a long SCALPER intent."
+                    f"{pattern.rationale} | Translating GAP_AND_GO detection into a long SCALPER intent."
                 )
                 print(
                     "[STRATEGY:GapAndGo] Matched pattern — creating TradeIntent "
@@ -45,7 +45,7 @@ class GapAndGoStrategy(BaseStrategy):
                 )
             else:
                 print(
-                    "[STRATEGY:GapAndGo] Skipped pattern — not a Gap and Go label "
+                    "[STRATEGY:GapAndGo] Skipped pattern — not a GAP_AND_GO label "
                     f"for symbol={pattern.symbol} (pattern='{pattern.pattern_name}')"
                 )
         print(
@@ -78,7 +78,7 @@ class GapAndGoStrategy(BaseStrategy):
                 continue
 
             rationale = (
-                f"Teaching exit request after holding {hold_duration} tick(s); "
+                f"Exit request after holding {hold_duration} tick(s); "
                 "Gap and Go strategy would lock in gains once minimum visibility is met."
             )
             exit_signal = ExitSignal(
