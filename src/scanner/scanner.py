@@ -18,29 +18,39 @@ from config.runtime_config import (
     get_ibkr_fallback_enabled,
     get_ibkr_fallback_source,
     get_ibkr_market_data_type,
+    get_ibkr_max_symbols_per_cycle,
     get_ibkr_readonly_enabled,
     get_ibkr_snapshot_max_age_seconds,
     get_run_mode,
 )
 from config.system_config import get_current_market_session
+from core.event_collector import EventCollector
+from market_data.market_data_hub import MarketDataHub
 from models.data_models import ScannerCandidate
 
 
 class Scanner:
     """Minimal scanner placeholder with instructional logging."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        event_collector: EventCollector | None = None,
+        market_data_hub: MarketDataHub | None = None,
+    ) -> None:
         self.run_mode = get_run_mode()
         self.ibkr_readonly_enabled = get_ibkr_readonly_enabled()
         self.scan_symbols = self._resolve_scan_symbols()
         self.market_data_type = get_ibkr_market_data_type()
         self.snapshot_max_age_seconds = get_ibkr_snapshot_max_age_seconds()
+        self.max_symbols_per_cycle = get_ibkr_max_symbols_per_cycle()
         self.fallback_enabled = get_ibkr_fallback_enabled()
         self.fallback_source = get_ibkr_fallback_source()
         self.auto_lockdown_enabled = get_ibkr_auto_lockdown_enabled()
         self.last_data_quality_flags: Dict[str, List[str]] = {}
         self.last_connectivity_issue: str | None = None
         self.last_fallback_reason: str | None = None
+        self.event_collector = event_collector
+        self.market_data_hub = market_data_hub
         print("[BOOT] Scanner instantiated — phase 4 teaching placeholder (static outputs)")
 
     @staticmethod
@@ -68,6 +78,11 @@ class Scanner:
                 "[SCAN] LIVE_READ_ONLY requires IBKR_READONLY_ENABLED=True; "
                 "falling back to static candidates."
             )
+        if self.run_mode == RunMode.LIVE_READ_ONLY and not self.scan_symbols:
+            reason = "No IBKR_SCAN_SYMBOLS provided; falling back to static scan list."
+            print(f"[SCAN] {reason}")
+            self._emit_market_data_fallback(reason)
+            return self._fallback_candidates() if self.fallback_enabled else []
         if self.run_mode == RunMode.LIVE_MICRO and self.scan_symbols:
             return self._run_live_readonly_scan()
 
@@ -81,26 +96,42 @@ class Scanner:
     def _run_live_readonly_scan(self) -> List[ScannerCandidate]:
         mode_label = "LIVE MICRO" if self.run_mode == RunMode.LIVE_MICRO else "LIVE READ-ONLY"
         print(f"[SCAN] {mode_label} scan started — using IBKR market snapshots")
-        if IbkrBroker is None:
+        if IbkrBroker is None and self.market_data_hub is None:
             print("[SCAN] IBKR broker unavailable; falling back to static candidates.")
+            self._emit_market_data_fallback("IBKR broker unavailable", symbols=self.scan_symbols)
             return self._static_candidates()
-        broker = IbkrBroker()
+        hub = self.market_data_hub or MarketDataHub(
+            event_collector=self.event_collector,
+            broker=IbkrBroker() if IbkrBroker is not None else None,
+            max_symbols_per_cycle=self.max_symbols_per_cycle,
+        )
+        broker = hub.broker
         session = get_current_market_session()
         candidates: List[ScannerCandidate] = []
+        symbols = list(self.scan_symbols)
+        if self.max_symbols_per_cycle and len(symbols) > self.max_symbols_per_cycle:
+            print(
+                "[SCAN] Limiting scan symbols "
+                f"max={self.max_symbols_per_cycle} total={len(symbols)}"
+            )
+            symbols = symbols[: self.max_symbols_per_cycle]
         try:
-            broker.connect()
-            health = broker.health()
+            hub.connect()
+            health = broker.health() if broker is not None else {"connected": False}
             print(f"[SCAN] IBKR health status: {health}")
             if not health.get("connected", False):
                 self.last_connectivity_issue = "IBKR health reported disconnected"
                 print(f"[SCAN] Connectivity issue: {self.last_connectivity_issue}")
+                self._emit_market_data_fallback(self.last_connectivity_issue, symbols=symbols)
                 return self._fallback_candidates() if self.fallback_enabled else []
-            for symbol in self.scan_symbols:
+            for symbol in symbols:
                 try:
-                    snapshot = broker.get_market_snapshot(symbol)
+                    observation = hub.snapshot(symbol, request_source="Scanner")
+                    snapshot = observation.snapshot
                 except Exception as exc:
                     self.last_connectivity_issue = f"Snapshot failure symbol={symbol} err={exc}"
                     print(f"[SCAN] Connectivity issue: {self.last_connectivity_issue}")
+                    self._emit_market_data_fallback(self.last_connectivity_issue, symbols=symbols)
                     if self.fallback_enabled:
                         return self._fallback_candidates()
                     continue
@@ -132,6 +163,7 @@ class Scanner:
                     "[SCAN] IBKR snapshot "
                     f"symbol={symbol} bid={bid} ask={ask} last={last} "
                     f"volume={volume} spread={spread} session={session} "
+                    f"mode={observation.data_mode} request={observation.request_mode} "
                     f"flags={data_quality_flags}"
                 )
                 candidates.append(
@@ -146,6 +178,10 @@ class Scanner:
                             "placeholders for micro-execution validation."
                         ),
                         session=session,
+                        bid=bid,
+                        ask=ask,
+                        spread=spread,
+                        volume=volume,
                         data_quality_flags=data_quality_flags,
                     )
                 )
@@ -153,15 +189,17 @@ class Scanner:
                 reason = "Data quality flags detected; triggering fallback source"
                 print(f"[SCAN] {reason} source={self.fallback_source}")
                 self.last_fallback_reason = reason
+                self._emit_market_data_fallback(reason, symbols=symbols)
                 return self._fallback_candidates()
         except Exception as exc:
             self.last_connectivity_issue = f"IBKR connection failed: {exc}"
             print(f"[SCAN] Connectivity issue: {self.last_connectivity_issue}")
+            self._emit_market_data_fallback(self.last_connectivity_issue, symbols=symbols)
             if self.fallback_enabled:
                 return self._fallback_candidates()
             return []
         finally:
-            broker.disconnect()
+            hub.disconnect()
         print("[SCAN] Returning IBKR-backed candidates for downstream teaching modules")
         return candidates
 
@@ -277,3 +315,26 @@ class Scanner:
             return self._static_candidates()
         print(f"[SCAN] Unknown fallback source '{self.fallback_source}'; returning empty list.")
         return []
+
+    def _emit_market_data_fallback(self, reason: str, symbols: List[str] | None = None) -> None:
+        if self.market_data_hub is not None:
+            self.market_data_hub.emit_fallback(
+                reason=reason,
+                request_source="Scanner",
+                symbols=symbols,
+                fallback_source=self.fallback_source,
+            )
+            return
+        if not self.event_collector:
+            return
+        self.event_collector.emit(
+            event_type="MARKET_DATA_FALLBACK",
+            source="Scanner",
+            payload={
+                "reason": reason,
+                "fallback_source": self.fallback_source,
+                "data_mode": "FALLBACK",
+                "request_source": "Scanner",
+                "symbols": symbols or [],
+            },
+        )

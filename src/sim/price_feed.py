@@ -1,4 +1,10 @@
 from dataclasses import dataclass
+from typing import Protocol
+
+
+class PriceFeed(Protocol):
+    def price_for(self, symbol: str, tick: int) -> float:
+        ...
 
 
 @dataclass(frozen=True)
@@ -8,10 +14,8 @@ class PricePoint:
     price: float
 
 
-class DeterministicPriceFeed:
-    """
-    Teaching-only deterministic price generator.
-    """
+class DeterministicPriceFeed(PriceFeed):
+    """Teaching-only deterministic price generator."""
 
     BASE_PRICES = {
         "ABC": 12.35,

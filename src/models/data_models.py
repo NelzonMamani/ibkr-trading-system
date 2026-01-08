@@ -41,6 +41,10 @@ class ScannerCandidate:
     breakout_hold_minutes: Optional[int] = None
     breakout_reject: Optional[bool] = None
     extension_pct: Optional[float] = None
+    bid: Optional[float] = None
+    ask: Optional[float] = None
+    spread: Optional[float] = None
+    volume: Optional[float] = None
     data_quality_flags: List[str] = field(default_factory=list)
 
 

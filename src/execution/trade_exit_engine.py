@@ -7,7 +7,7 @@ from core.active_trade_registry import ActiveTradeRegistry
 from models.data_models import ExecutionResult
 from core.trade_outcome_factory import TradeOutcomeFactory
 from domain.trade_outcome import TradeOutcome
-from sim.price_feed import DeterministicPriceFeed
+from sim.price_feed import DeterministicPriceFeed, PriceFeed
 from strategy.exit_signal import ExitSignal
 from execution.slippage_model import SlippageModel
 from execution.exit_plan import (
@@ -39,7 +39,7 @@ class TradeExitEngine:
         self,
         trade_registry: ActiveTradeRegistry,
         event_collector,
-        price_feed: Optional[DeterministicPriceFeed] = None,
+        price_feed: Optional[PriceFeed] = None,
     ):
         self.trade_registry = trade_registry
         self.event_collector = event_collector

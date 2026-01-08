@@ -15,6 +15,7 @@ from config.runtime_config import (
     RunMode,
     get_event_replay_mode,
     get_ibkr_kill_switch,
+    get_ibkr_max_symbols_per_cycle,
     get_live_micro_daily_max_loss,
     get_live_micro_max_consecutive_losses,
     get_live_micro_max_trades_per_day,
@@ -35,6 +36,8 @@ from core.replay_engine import ReplayEngine
 from execution.execution_engine import ExecutionEngine
 from execution.order_gateway import OrderGateway
 from execution.trade_exit_engine import TradeExitEngine
+from market_data.market_data_hub import MarketDataHub
+from market_data.market_data_price_feed import MarketDataPriceFeed
 from performance.strategy_performance import StrategyPerformanceTracker
 from models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
 from patterns.pattern_engine import PatternEngine
@@ -74,7 +77,6 @@ class CoreOrchestrator:
             print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
             print("[SAFETY] 1-SHARE LIMIT ENFORCED")
         self.sim_clock = SimClock()
-        self.price_feed = DeterministicPriceFeed()
         self.event_collector = EventCollector()
         self.stop_controller = StopController()
         print("[BOOT] EventCollector initialised")
@@ -82,7 +84,23 @@ class CoreOrchestrator:
         self.performance_registry = PerformanceRegistry()
         self.trade_registry = ActiveTradeRegistry()
         self.strategy_perf_tracker = StrategyPerformanceTracker()
-        self.scanner = Scanner()
+        self.market_data_hub = None
+        if (
+            self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
+            and IbkrBroker is not None
+        ):
+            self.market_data_hub = MarketDataHub(
+                event_collector=self.event_collector,
+                broker=IbkrBroker(),
+                max_symbols_per_cycle=get_ibkr_max_symbols_per_cycle(),
+            )
+            self.price_feed = MarketDataPriceFeed(self.market_data_hub)
+        else:
+            self.price_feed = DeterministicPriceFeed()
+        self.scanner = Scanner(
+            event_collector=self.event_collector,
+            market_data_hub=self.market_data_hub,
+        )
         self.pattern_engine = PatternEngine()
         self.signal_engine_v1 = SignalEngineV1()
         print("[BOOT] SignalEngineV1 instantiated")
@@ -115,6 +133,7 @@ class CoreOrchestrator:
         self.trade_exit_engine = TradeExitEngine(
             trade_registry=self.trade_registry,
             event_collector=self.event_collector,
+            price_feed=self.price_feed,
         )
         self.storage_engine = StorageEngine()
         self._halted = False
@@ -369,6 +388,8 @@ class CoreOrchestrator:
         print(f"[CYCLE_CTX] tick={tick} run_mode={self.run_mode.value}")
         self.execution_engine.current_tick = tick
         self.event_collector.clear_cycle()
+        if self.market_data_hub is not None:
+            self.market_data_hub.reset_cycle()
         event = self.event_collector.emit(
             event_type="CYCLE_START",
             source="Orchestrator",

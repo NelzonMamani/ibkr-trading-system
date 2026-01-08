@@ -42,7 +42,7 @@ def get_run_mode() -> RunMode:
         return RunMode.SIM
 
 
-def get_ibkr_readonly_enabled(default: bool = False) -> bool:
+def get_ibkr_readonly_enabled(default: bool = True) -> bool:
     raw = (os.getenv("IBKR_READONLY_ENABLED") or "").strip().lower()
     if raw in {"true", "1", "yes"}:
         return True
@@ -101,7 +101,23 @@ def get_ibkr_snapshot_max_age_seconds(default: int = 15) -> int:
 
 def get_ibkr_market_data_type(default: str = "LIVE") -> str:
     raw = (os.getenv("IBKR_MARKET_DATA_TYPE") or default).strip().upper()
-    return raw or default
+    if raw in {"LIVE", "DELAYED", "DELAYED_FROZEN", "FROZEN"}:
+        return raw
+    if raw:
+        print(f"[RUNTIME] Invalid IBKR_MARKET_DATA_TYPE='{raw}'. Falling back to default {default}.")
+    return default
+
+
+def get_ibkr_max_symbols_per_cycle(default: int = 50) -> int:
+    raw = (os.getenv("IBKR_MAX_SYMBOLS_PER_CYCLE") or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        print(
+            f"[RUNTIME] Invalid IBKR_MAX_SYMBOLS_PER_CYCLE='{raw}'. "
+            f"Falling back to default {default}."
+        )
+        return default
 
 
 def get_ibkr_fallback_enabled(default: bool = False) -> bool:

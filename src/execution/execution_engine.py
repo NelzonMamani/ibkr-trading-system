@@ -20,7 +20,7 @@ from execution.order_gateway import OrderGateway
 from execution.order_models import PendingOrderBook
 from models.execution_result import ExecutionResult
 from models.data_models import RiskDecision
-from sim.price_feed import DeterministicPriceFeed
+from sim.price_feed import DeterministicPriceFeed, PriceFeed
 
 
 class ExecutionEngine:
@@ -31,19 +31,27 @@ class ExecutionEngine:
         broker: Optional[BaseBroker] = None,
         trade_registry: Optional[ActiveTradeRegistry] = None,
         event_collector: Optional[EventCollector] = None,
-        price_feed: Optional[DeterministicPriceFeed] = None,
+        price_feed: Optional[PriceFeed] = None,
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
         self.run_mode: RunMode = get_run_mode()
         self.read_only_mode = self.run_mode == RunMode.LIVE_READ_ONLY
+        self.ibkr_readonly_enabled = get_ibkr_readonly_enabled()
+        self.readonly_gate_active = self.read_only_mode or (
+            self.ibkr_readonly_enabled
+            and self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
+        )
         if self.read_only_mode:
             print("[SAFETY] LIVE READ-ONLY MODE ACTIVE")
             print("[SAFETY] NO EXECUTION ENABLED")
         elif self.run_mode == RunMode.LIVE_MICRO:
             print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
             print("[SAFETY] 1-SHARE LIMIT ENFORCED")
-        elif self.run_mode == RunMode.LIVE and get_ibkr_readonly_enabled():
+        elif self.run_mode == RunMode.LIVE and self.ibkr_readonly_enabled:
             print("[SAFETY] IBKR READ-ONLY ENABLED (LIVE mode) — execution remains gated by broker.")
+        if self.readonly_gate_active:
+            print("[SAFETY] LIVE DATA — READ ONLY MODE")
+            print("[SAFETY] NO ORDERS WILL BE SENT")
         self.trade_registry = trade_registry or ActiveTradeRegistry()
         self.event_collector = event_collector or EventCollector()
         self.price_feed = price_feed or DeterministicPriceFeed()
@@ -90,7 +98,7 @@ class ExecutionEngine:
         """
 
         print("[EXECUTION] Received risk decision for broker-routed flow")
-        if self.read_only_mode:
+        if self.readonly_gate_active:
             return self._blocked_execution_from_risk_decision(risk_decision)
         if risk_decision is None:
             print("[EXECUTION] No execution performed — placeholder path")
@@ -258,7 +266,7 @@ class ExecutionEngine:
         )
 
     def _route_order(self, request: BrokerOrderRequest) -> ExecutionResult:
-        if self.read_only_mode:
+        if self.readonly_gate_active:
             return self._blocked_execution_from_request(request)
         result = self._broker.place_order(request)
         if not self._broker.is_live():
@@ -286,9 +294,9 @@ class ExecutionEngine:
             quantity = getattr(risk_decision, "max_position_size", 1)
             strategy_name = risk_decision.strategy_name
 
-        rationale = "READ_ONLY_BLOCK: LIVE_READ_ONLY mode forbids all execution."
+        rationale = "READONLY_BLOCK: IBKR_READONLY_ENABLED active — execution blocked."
         self.event_collector.emit(
-            event_type="READ_ONLY_BLOCK",
+            event_type="ORDER_BLOCKED_READONLY",
             source="ExecutionEngine",
             payload={
                 "symbol": symbol,
@@ -297,6 +305,7 @@ class ExecutionEngine:
                 "direction": direction,
                 "requested_quantity": quantity,
                 "run_mode": self.run_mode.value,
+                "readonly_enabled": self.ibkr_readonly_enabled or self.read_only_mode,
                 "reason": rationale,
             },
         )
@@ -314,16 +323,16 @@ class ExecutionEngine:
             filled_quantity=0,
             remaining_quantity=quantity,
             fill_status="NONE",
-            note="READ_ONLY_BLOCK",
-            rejection_reason="READ_ONLY_BLOCK",
+            note="ORDER_BLOCKED_READONLY",
+            rejection_reason="ORDER_BLOCKED_READONLY",
         )
 
     def _blocked_execution_from_request(
         self, request: BrokerOrderRequest
     ) -> ExecutionResult:
-        rationale = "READ_ONLY_BLOCK: LIVE_READ_ONLY mode forbids all execution."
+        rationale = "READONLY_BLOCK: IBKR_READONLY_ENABLED active — execution blocked."
         self.event_collector.emit(
-            event_type="READ_ONLY_BLOCK",
+            event_type="ORDER_BLOCKED_READONLY",
             source="ExecutionEngine",
             payload={
                 "symbol": request.symbol,
@@ -332,6 +341,7 @@ class ExecutionEngine:
                 "direction": request.direction,
                 "requested_quantity": request.quantity,
                 "run_mode": self.run_mode.value,
+                "readonly_enabled": self.ibkr_readonly_enabled or self.read_only_mode,
                 "reason": rationale,
             },
         )
@@ -349,8 +359,8 @@ class ExecutionEngine:
             filled_quantity=0,
             remaining_quantity=request.quantity,
             fill_status="NONE",
-            note="READ_ONLY_BLOCK",
-            rejection_reason="READ_ONLY_BLOCK",
+            note="ORDER_BLOCKED_READONLY",
+            rejection_reason="ORDER_BLOCKED_READONLY",
             attempt_number=request.attempt_number,
             client_order_id=request.client_order_id,
             retry_scheduled=False,
@@ -358,7 +368,7 @@ class ExecutionEngine:
         )
 
     def _schedule_retry(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
-        if self.read_only_mode:
+        if self.readonly_gate_active:
             return
         if not getattr(result, "retry_scheduled", False) or result.next_retry_tick is None:
             return
