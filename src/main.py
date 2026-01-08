@@ -44,7 +44,7 @@ def main() -> None:
     print("[BOOT] Starting the IBKR Trading System skeleton.")
     run_mode = get_run_mode()
     if run_mode == RunMode.LIVE_READ_ONLY:
-        print("[PHASE] PHASE 22 — Live Read-Only Runtime (Authoritative).")
+        print("[PHASE] PHASE 23 — Live Read-Only Runtime (Authoritative).")
         print("[INTENT] Enforce live read-only runtime authority and IBKR data access.")
     else:
         print("[PHASE] PHASE 4 — Minimal Live-Capable System (Teaching-First).")
