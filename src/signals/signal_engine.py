@@ -165,7 +165,7 @@ class SignalEngine:
         return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     def _has_gap_pattern(self, patterns: Iterable[PatternResult]) -> bool:
-        return any("Gap" in pattern.pattern_name for pattern in patterns)
+        return any("GAP" in (pattern.pattern_name or "").upper() for pattern in patterns)
 
     def _group_patterns(
         self, patterns: Iterable[PatternResult]

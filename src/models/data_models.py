@@ -22,6 +22,25 @@ class ScannerCandidate:
     rvol: float  # Relative volume to show how unusual the current activity is versus baseline.
     float_millions: float  # Share float in millions to discuss supply dynamics and volatility.
     rationale: str  # Plain-language teaching note that explains why the symbol is interesting.
+    session: Optional[str] = None  # Session label, e.g. PRE/REGULAR/AFTER for session-aware rules.
+    premarket_high: Optional[float] = None
+    early_session_high: Optional[float] = None
+    opening_range_high: Optional[float] = None
+    opening_range_low: Optional[float] = None
+    opening_range_minutes: Optional[int] = None
+    momentum_move_pct: Optional[float] = None
+    pullback_pct: Optional[float] = None
+    pullback_high: Optional[float] = None
+    pullback_volume_ratio: Optional[float] = None
+    higher_low: Optional[bool] = None
+    vwap: Optional[float] = None
+    vwap_hold_minutes: Optional[int] = None
+    hod: Optional[float] = None
+    consolidation_range_pct: Optional[float] = None
+    breakout_volume_ratio: Optional[float] = None
+    breakout_hold_minutes: Optional[int] = None
+    breakout_reject: Optional[bool] = None
+    extension_pct: Optional[float] = None
     data_quality_flags: List[str] = field(default_factory=list)
 
 

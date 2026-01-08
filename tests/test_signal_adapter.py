@@ -61,7 +61,7 @@ def test_confidence_merge_uses_pattern_cap():
     patterns = [
         PatternResult(
             symbol="XYZ",
-            pattern_name="Gap and Go (Teaching)",
+            pattern_name="GAP_AND_GO",
             confidence=0.96,
             rationale="Pattern rationale",
         )
@@ -76,7 +76,7 @@ def test_confidence_merge_uses_pattern_cap():
 
     assert len(intents) == 1
     assert intents[0].confidence == pytest.approx(0.95)
-    assert "Pattern=Gap and Go (Teaching)" in intents[0].rationale
+    assert "Pattern=GAP_AND_GO" in intents[0].rationale
 
 
 def test_global_cap_limits_to_three_intents():
