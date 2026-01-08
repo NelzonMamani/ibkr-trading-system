@@ -39,12 +39,16 @@ from ibkr.read_only_guard import validate_read_only_guard
 def main() -> None:
     """Run the minimal teaching-first entry point."""
     print("[BOOT] Starting the IBKR Trading System skeleton.")
-    print("[PHASE] PHASE 4 — Minimal Live-Capable System (Teaching-First).")
-    print("[INTENT] Demonstrate a clean, observable entry point without trading logic.")
+    run_mode = get_run_mode()
+    if run_mode == RunMode.LIVE_READ_ONLY:
+        print("[PHASE] PHASE 22 — Live Read-Only Runtime (Authoritative).")
+        print("[INTENT] Enforce live read-only runtime authority and IBKR data access.")
+    else:
+        print("[PHASE] PHASE 4 — Minimal Live-Capable System (Teaching-First).")
+        print("[INTENT] Demonstrate a clean, observable entry point without trading logic.")
     print("[CONFIG] Baseline teaching defaults (pre-resolution):")
     print(f"  - RUN_MODE: {DEFAULT_RUN_MODE.value} (baseline)")
     print(f"  - EVENT_REPLAY_MODE: {DEFAULT_EVENT_REPLAY_MODE.value} (baseline)")
-    run_mode = get_run_mode()
     event_replay_mode = get_event_replay_mode(run_mode)
     print("[CONFIG] Resolved runtime configuration (authoritative):")
     print(f"  - RUN_MODE: {run_mode.value} (resolved)")
