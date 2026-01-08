@@ -10,6 +10,8 @@ from ib_insync import IB, Stock
 
 from config.runtime_config import (
     get_ibkr_client_id,
+    get_ibkr_default_currency,
+    get_ibkr_default_exchange,
     get_ibkr_host,
     get_ibkr_market_data_type,
     get_ibkr_port,
@@ -48,17 +50,17 @@ class MarketDataSnapshot:
     bid: Optional[float]
     ask: Optional[float]
     last: Optional[float]
-    last_size: Optional[float]
     bid_size: Optional[float]
     ask_size: Optional[float]
+    last_size: Optional[float]
     volume: Optional[float]
     vwap: Optional[float]
+    open: Optional[float]
     high: Optional[float]
     low: Optional[float]
     close: Optional[float]
-    open: Optional[float]
-    timestamp: datetime
     spread: Optional[float]
+    timestamp_utc: str
     data_quality_flags: list[str] = field(default_factory=list)
 
 
@@ -72,6 +74,8 @@ class MarketDataClient:
         client_id: int | None = None,
         market_data_type: str | None = None,
         snapshot_timeout_seconds: int | None = None,
+        default_exchange: str | None = None,
+        default_currency: str | None = None,
     ) -> None:
         self.host = host or get_ibkr_host()
         self.port = port or get_ibkr_port()
@@ -80,20 +84,31 @@ class MarketDataClient:
         self.snapshot_timeout_seconds = (
             snapshot_timeout_seconds or get_ibkr_snapshot_timeout_seconds()
         )
+        self.default_exchange = default_exchange or get_ibkr_default_exchange()
+        self.default_currency = default_currency or get_ibkr_default_currency()
         self.ib = IB()
 
     def connect(self) -> None:
         if self.ib.isConnected():
             return
         print(
-            "[MD] Connecting to IBKR "
+            "[IBKR][MD] Connecting "
             f"host={self.host} port={self.port} client_id={self.client_id}"
         )
         if not self.ib.connect(self.host, self.port, clientId=self.client_id, timeout=5):
             raise RuntimeError("IBKR market data connection failed")
+        server_version = None
+        try:
+            server_version = self.ib.client.serverVersion()
+        except Exception:
+            server_version = None
         data_type_code = _market_data_type_code(self.market_data_type)
         print(
-            "[MD] Setting market data type "
+            "[IBKR][MD] Connected "
+            f"serverVersion={server_version} host={self.host} port={self.port}"
+        )
+        print(
+            "[IBKR][MD] Market data type set "
             f"type={self.market_data_type} code={data_type_code}"
         )
         self.ib.reqMarketDataType(data_type_code)
@@ -101,16 +116,16 @@ class MarketDataClient:
     def disconnect(self) -> None:
         if self.ib.isConnected():
             self.ib.disconnect()
-            print("[MD] Disconnected from IBKR market data")
+            print("[IBKR][MD] Disconnected")
 
     def qualify_contract(self, symbol: str):
-        contract = Stock(symbol, "SMART", "USD")
+        contract = Stock(symbol, self.default_exchange, self.default_currency)
         qualified = self.ib.qualifyContracts(contract)
         if not qualified:
             return None
         return qualified[0]
 
-    def snapshot_for_symbol(self, symbol: str) -> MarketDataSnapshot:
+    def snapshot_stock(self, symbol: str) -> MarketDataSnapshot:
         flags: list[str] = []
         try:
             contract = self.qualify_contract(symbol)
@@ -152,23 +167,25 @@ class MarketDataClient:
         close = _clean(getattr(ticker, "close", None))
         open_price = _clean(getattr(ticker, "open", None))
         spread = (ask - bid) if bid is not None and ask is not None else None
+        if bid is None and ask is None and last is None:
+            flags.append("MD_EMPTY")
 
         return MarketDataSnapshot(
             symbol=symbol,
             bid=bid,
             ask=ask,
             last=last,
-            last_size=last_size,
             bid_size=bid_size,
             ask_size=ask_size,
+            last_size=last_size,
             volume=volume,
             vwap=vwap,
+            open=open_price,
             high=high,
             low=low,
             close=close,
-            open=open_price,
-            timestamp=datetime.now(timezone.utc),
             spread=spread,
+            timestamp_utc=datetime.now(timezone.utc).isoformat(),
             data_quality_flags=flags,
         )
 
@@ -193,16 +210,19 @@ class MarketDataClient:
             bid=None,
             ask=None,
             last=None,
-            last_size=None,
             bid_size=None,
             ask_size=None,
+            last_size=None,
             volume=None,
             vwap=None,
+            open=None,
             high=None,
             low=None,
             close=None,
-            open=None,
-            timestamp=datetime.now(timezone.utc),
             spread=None,
+            timestamp_utc=datetime.now(timezone.utc).isoformat(),
             data_quality_flags=flags,
         )
+
+    def snapshot_for_symbol(self, symbol: str) -> MarketDataSnapshot:
+        return self.snapshot_stock(symbol)

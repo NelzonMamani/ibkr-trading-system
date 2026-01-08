@@ -17,10 +17,10 @@ class ScannerCandidate:
     """Phase 4 teaching-first representation of a scanner output candidate."""
 
     symbol: str  # Ticker symbol under review; purely illustrative, not fetched from markets.
-    price: float  # Reference price snapshot for teaching math on position sizing.
-    gap_percent: float  # Pre-market or open gap magnitude to highlight momentum potential.
-    rvol: float  # Relative volume to show how unusual the current activity is versus baseline.
-    float_millions: float  # Share float in millions to discuss supply dynamics and volatility.
+    price: Optional[float]  # Reference price snapshot for teaching math on position sizing.
+    gap_percent: Optional[float]  # Pre-market or open gap magnitude to highlight momentum potential.
+    rvol: Optional[float]  # Relative volume to show how unusual the current activity is versus baseline.
+    float_millions: Optional[float]  # Share float in millions to discuss supply dynamics and volatility.
     rationale: str  # Plain-language teaching note that explains why the symbol is interesting.
     session: Optional[str] = None  # Session label, e.g. PRE/REGULAR/AFTER for session-aware rules.
     premarket_high: Optional[float] = None

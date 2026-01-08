@@ -37,6 +37,13 @@ class SignalEngine:
         all_events: List[SignalEvent] = []
 
         for candidate in scanner_candidates:
+            if candidate.price is None:
+                print(
+                    "[SIGNAL] Skipping candidate due to missing price "
+                    f"symbol={candidate.symbol}"
+                )
+                continue
+            gap_percent = candidate.gap_percent if candidate.gap_percent is not None else 0.0
             simulated_last_price = self._simulate_last_price(candidate.price, tick)
             symbol_events: List[SignalEvent] = []
             pattern = self._pick_pattern(patterns_by_symbol.get(candidate.symbol, []))
@@ -44,7 +51,7 @@ class SignalEngine:
             if pattern is not None:
                 metadata_base["pattern"] = pattern.pattern_name
 
-            if candidate.gap_percent >= 4.0 and simulated_last_price > self._percent_above(
+            if gap_percent >= 4.0 and simulated_last_price > self._percent_above(
                 candidate.price, Decimal("1.01")
             ):
                 symbol_events.append(

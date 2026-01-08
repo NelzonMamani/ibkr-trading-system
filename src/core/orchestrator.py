@@ -5,7 +5,7 @@ This file only outlines the conceptual flow of the trading system and contains
 no real trading logic, integrations, or data handling. It exists solely to make
 the system stages and their order easy to follow during this teaching phase.
 """
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -16,6 +16,8 @@ from config.runtime_config import (
     get_event_replay_mode,
     get_ibkr_kill_switch,
     get_ibkr_max_symbols_per_cycle,
+    get_ibkr_readonly_enabled,
+    get_intent_dedup_selftest_enabled,
     get_live_micro_daily_max_loss,
     get_live_micro_max_consecutive_losses,
     get_live_micro_max_trades_per_day,
@@ -103,7 +105,10 @@ class CoreOrchestrator:
         self.market_data_client = None
         if self.scanner_mode == "LIVE_READONLY":
             self.market_data_client = MarketDataClient()
-            self.scanner = LiveReadOnlyScanner(market_data_client=self.market_data_client)
+            self.scanner = LiveReadOnlyScanner(
+                market_data_client=self.market_data_client,
+                event_collector=self.event_collector,
+            )
             print("[SCAN] LiveReadOnlyScanner enabled — using IBKR read-only market data")
         else:
             self.scanner = Scanner(
@@ -920,17 +925,17 @@ class CoreOrchestrator:
                 and storage_result.events_persisted == expected_events
             )
         intent_ok = self._last_intent_validation.get("ok", True)
-        market_data_ok = True
-        if self.scanner_mode == "LIVE_READONLY":
-            market_data_ok = not self.scanner.last_connectivity_issue and not self.scanner.last_data_quality_flags
+        market_data_status, market_data_ok = self._resolve_market_data_status()
 
         print(
             "[VALIDATION][SUMMARY] "
             f"storage={'OK' if storage_ok else 'FAIL'} "
             f"intent={'OK' if intent_ok else 'FAIL'} "
-            f"market_data={'OK' if market_data_ok else 'FAIL'} "
+            f"market_data={market_data_status} "
             f"events={'OK' if events_ok else 'FAIL'}"
         )
+        if market_data_status == "FAIL":
+            raise RuntimeError("Market data validation failed; halting cycle")
         if not all([storage_ok, intent_ok, market_data_ok, events_ok]):
             raise RuntimeError("Validation summary failed; halting cycle")
 
@@ -1083,16 +1088,29 @@ class CoreOrchestrator:
         return [merged[key] for key in sorted(merged.keys())]
 
     def _normalize_trade_intents(self, intents: List[TradeIntent]) -> List[TradeIntent]:
-        before_count = len(intents)
+        intents_to_process = list(intents)
+        injected_duplicates = 0
+        if get_intent_dedup_selftest_enabled() and intents_to_process:
+            base_intent = intents_to_process[0]
+            lowered_confidence = max((base_intent.confidence or 0.0) - 0.01, 0.0)
+            duplicate = replace(base_intent, confidence=lowered_confidence)
+            intents_to_process.append(duplicate)
+            injected_duplicates = 1
+            print(
+                "[INTENT][SELFTEST] Injected duplicate intent for "
+                f"symbol={base_intent.symbol} trader_type={base_intent.trader_type} "
+                f"direction={base_intent.direction}"
+            )
+        before_count = len(intents_to_process)
         deduped: Dict[Tuple[str, str, str], TradeIntent] = {}
-        for intent in intents:
+        for intent in intents_to_process:
             key = (intent.symbol, intent.trader_type, intent.direction)
             current = deduped.get(key)
             if current is None or intent.confidence > current.confidence:
                 deduped[key] = intent
 
-        dropped = before_count - len(deduped)
-        for intent in intents:
+        dropped = len(intents_to_process) - len(deduped)
+        for intent in intents_to_process:
             key = (intent.symbol, intent.trader_type, intent.direction)
             kept = deduped.get(key)
             if kept is None or kept is intent:
@@ -1136,6 +1154,15 @@ class CoreOrchestrator:
             "[INTENT][VALIDATION] Deduplication OK — "
             f"before={before_count} after={len(normalized)} duplicates_dropped={dropped}"
         )
+        if get_intent_dedup_selftest_enabled():
+            if injected_duplicates < 1 or dropped < injected_duplicates:
+                raise RuntimeError(
+                    "Intent dedup self-test failed — duplicates were not dropped"
+                )
+            print(
+                "[INTENT][SELFTEST] injected_duplicates="
+                f"{injected_duplicates} dropped={dropped} OK"
+            )
         self._last_intent_validation = {
             "ok": True,
             "before": before_count,
@@ -1147,6 +1174,11 @@ class CoreOrchestrator:
     def _run_startup_validations(self) -> None:
         print("[VALIDATION] Running startup validations")
         print("[VALIDATION] Config resolved")
+        if get_ibkr_readonly_enabled():
+            print(
+                "[CONFIG] IBKR_READONLY_ENABLED=True — broker order routing to IBKR "
+                "is disabled. SIM execution is internal-only."
+            )
         if self.storage_engine.enabled and self.storage_engine.backend == "sqlite":
             if self.storage_engine._store is None:
                 raise RuntimeError("Storage engine failed to open SQLite store")
@@ -1156,6 +1188,21 @@ class CoreOrchestrator:
                 raise RuntimeError("LiveReadOnlyScanner missing startup validation hook")
             self.scanner.validate_startup()
             print("[VALIDATION] Market data connectivity OK")
+
+    def _resolve_market_data_status(self) -> tuple[str, bool]:
+        if self.scanner_mode == "TEACHING":
+            return "N/A", True
+        if self.scanner_mode != "LIVE_READONLY":
+            return "OK", True
+        if self.scanner.last_connectivity_issue:
+            return "FAIL", False
+        success_count = getattr(self.scanner, "last_snapshot_success_count", 0)
+        attempt_count = getattr(self.scanner, "last_snapshot_attempted_count", 0)
+        if success_count > 0:
+            return "OK", True
+        if attempt_count > 0:
+            return "DEGRADED", True
+        return "DEGRADED", True
 
     def _handle_fault(self, exc: Exception) -> bool:
         fault = classify_exception(exc)

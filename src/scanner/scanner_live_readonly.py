@@ -9,6 +9,7 @@ from config.runtime_config import (
     get_scanner_symbols,
 )
 from config.system_config import get_current_market_session
+from core.event_collector import EventCollector
 from ibkr.market_data_client import MarketDataClient
 from models.data_models import ScannerCandidate
 
@@ -28,6 +29,7 @@ class LiveReadOnlyScanner:
     def __init__(
         self,
         market_data_client: MarketDataClient,
+        event_collector: Optional[EventCollector] = None,
         config: Optional[LiveReadOnlyScannerConfig] = None,
     ) -> None:
         if not get_ibkr_readonly_enabled():
@@ -40,8 +42,11 @@ class LiveReadOnlyScanner:
             )
         self.config = config
         self.market_data_client = market_data_client
+        self.event_collector = event_collector
         self.last_data_quality_flags: dict[str, list[str]] = {}
         self.last_connectivity_issue: Optional[str] = None
+        self.last_snapshot_success_count = 0
+        self.last_snapshot_attempted_count = 0
         print("[BOOT] LiveReadOnlyScanner instantiated — IBKR read-only market data")
 
     def validate_startup(self) -> None:
@@ -52,6 +57,8 @@ class LiveReadOnlyScanner:
     def run_scan_cycle(self) -> List[ScannerCandidate]:
         self.last_data_quality_flags = {}
         self.last_connectivity_issue = None
+        self.last_snapshot_success_count = 0
+        self.last_snapshot_attempted_count = 0
         symbols = self._resolve_symbols()
         if not symbols:
             print("[SCAN] LiveReadOnlyScanner has no symbols to query")
@@ -63,7 +70,8 @@ class LiveReadOnlyScanner:
         try:
             self.market_data_client.connect()
             for symbol in symbols:
-                snapshot = self.market_data_client.snapshot_for_symbol(symbol)
+                self.last_snapshot_attempted_count += 1
+                snapshot = self.market_data_client.snapshot_stock(symbol)
                 if "CONTRACT_QUALIFY_FAILED" in snapshot.data_quality_flags:
                     self.last_data_quality_flags[symbol] = snapshot.data_quality_flags
                     print(
@@ -76,6 +84,9 @@ class LiveReadOnlyScanner:
 
                 price = self._resolve_price(snapshot)
                 data_quality_flags = list(snapshot.data_quality_flags)
+                has_any_price = snapshot.bid is not None or snapshot.ask is not None or snapshot.last is not None
+                if has_any_price:
+                    self.last_snapshot_success_count += 1
                 if price is None:
                     data_quality_flags.append("MISSING_PRICE")
                 if snapshot.bid is None or snapshot.ask is None:
@@ -104,14 +115,11 @@ class LiveReadOnlyScanner:
                 candidates.append(
                     ScannerCandidate(
                         symbol=symbol,
-                        price=float(price) if price is not None else 0.0,
-                        gap_percent=0.0,
-                        rvol=0.0,
-                        float_millions=0.0,
-                        rationale=(
-                            "Live read-only IBKR snapshot; "
-                            "gap/rvol/float/news placeholders for Phase 22."
-                        ),
+                        price=float(price) if price is not None else None,
+                        gap_percent=None,
+                        rvol=None,
+                        float_millions=None,
+                        rationale="IBKR snapshot market data",
                         session=session,
                         bid=snapshot.bid,
                         ask=snapshot.ask,
@@ -128,6 +136,12 @@ class LiveReadOnlyScanner:
             self.market_data_client.disconnect()
 
         print(f"[SCAN] produced candidates={len(candidates)} mode=LIVE_READONLY")
+        if self.event_collector is not None:
+            self.event_collector.emit(
+                event_type="SCAN_COMPLETE",
+                source="LiveReadOnlyScanner",
+                payload={"candidates": len(candidates)},
+            )
         return candidates
 
     def _resolve_symbols(self) -> List[str]:

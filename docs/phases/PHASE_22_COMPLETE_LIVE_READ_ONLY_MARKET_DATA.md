@@ -1,7 +1,7 @@
 # PHASE_22_COMPLETE_LIVE_READ_ONLY_MARKET_DATA.md
 
 ## Objective
-Deliver a working, observable, deterministic read-only market data pipeline that connects to IBKR, requests live (or delayed) market data snapshots, and feeds real bid/ask/last/spread/volume into the Scanner. Enforce hard read-only safety gates, verify Phase 21 intent normalization/deduplication, and provide validation logs at startup, per cycle, and shutdown.
+Enable a live, read-only IBKR market data scanner that pulls real snapshot data (bid/ask/last/volume), feeds it into the scanner pipeline, and reports truthful validation status without implying broker execution. Provide deterministic validation hooks for Phase 21 intent deduplication and clarify read-only semantics.
 
 ## Architecture
 - **Market data client (IBKR, read-only)**: `MarketDataClient` in `src/ibkr/market_data_client.py` uses `ib_insync.IB` to connect, set market data type, qualify contracts, and request snapshot data.
@@ -13,6 +13,7 @@ Deliver a working, observable, deterministic read-only market data pipeline that
 ## Config Keys
 - `SCANNER_MODE` = `TEACHING` (default) or `LIVE_READONLY`.
 - `SCANNER_SYMBOLS` = comma-separated list of symbols (fallback to `IBKR_SCAN_SYMBOLS` for compatibility).
+- `INTENT_DEDUP_SELFTEST_ENABLED` = `True` to inject a deterministic duplicate intent and prove deduplication drops it.
 - `IBKR_READONLY_ENABLED` = `True` to enforce read-only guard and allow read-only IBKR connections.
 - `IBKR_HOST`, `IBKR_PORT`, `IBKR_CLIENT_ID` = IBKR gateway connection settings.
 - `IBKR_MARKET_DATA_TYPE` = `LIVE` | `DELAYED` | `DELAYED_FROZEN` (mapped to IBKR market data type codes).
@@ -41,8 +42,11 @@ Deliver a working, observable, deterministic read-only market data pipeline that
 ### Per-cycle
 - Intent normalization emits `INTENT_NORMALISED` and `INTENT_DROPPED_DUPLICATE` events.
 - Deduplication validation log: `[INTENT][VALIDATION] Deduplication OK — before=<n> after=<m> duplicates_dropped=<k>`.
-- Persisted event counts must match cycle events.
-- Validation summary log: `[VALIDATION][SUMMARY] storage=OK intent=OK market_data=OK events=OK`.
+- Validation summary log uses truthful market data status:
+  - `market_data=N/A` when `SCANNER_MODE=TEACHING`
+  - `market_data=OK` when at least one live snapshot returns bid/ask/last
+  - `market_data=DEGRADED` when all live snapshots are empty/timeout
+  - `market_data=FAIL` when IBKR connectivity fails (cycle halts)
 
 ### Shutdown
 - Active trade registry verification must pass and log `Verification passed — no active trades remain.`
@@ -51,16 +55,18 @@ Deliver a working, observable, deterministic read-only market data pipeline that
 - Live read-only scanner prints real bid/ask/last/spread/volume for at least one symbol when market data is available.
 - IBKR read-only guard blocks any broker order action and self-test logs `Read-only guard enforced`.
 - Intent normalization/dedup is present, emits events, and hard-fails if duplicates remain.
-- End-of-cycle validation summary prints all OK.
+- End-of-cycle validation summary prints truthful market_data status.
 - Shutdown completes with zero active trades in the registry.
 
-## Test Plan
-1. **Teaching mode**
+## Run / Verify Instructions
+1. **Teaching mode sanity**
    - `SCANNER_MODE=TEACHING RUN_MODE=SIM python src/main.py`
-   - Expect teaching scanner outputs and no crashes.
-2. **Live read-only mode**
-   - `IBKR_READONLY_ENABLED=True SCANNER_MODE=LIVE_READONLY IBKR_PORT=7497 python src/main.py`
-   - Expect IBKR connection, market data type log, `[MD]` lines with bid/ask/last/spread/volume, and read-only guard validation.
-3. **Shutdown**
-   - Run `python src/main.py`, then press Ctrl+C.
-   - Expect clean shutdown logs and registry verification passed.
+   - Expect teaching scanner outputs and `market_data=N/A` in the validation summary.
+2. **Live read-only market data**
+   - `SCANNER_MODE=LIVE_READONLY RUN_MODE=SIM IBKR_READONLY_ENABLED=True \
+      IBKR_HOST=127.0.0.1 IBKR_PORT=7497 IBKR_CLIENT_ID=7 \
+      IBKR_MARKET_DATA_TYPE=LIVE SCANNER_SYMBOLS=AAPL,TSLA,NVDA python src/main.py`
+   - Expect `[IBKR][MD]` connection logs, `[MD]` per symbol snapshots, and `market_data=OK` or `DEGRADED`.
+3. **Dedup proof**
+   - `INTENT_DEDUP_SELFTEST_ENABLED=True SCANNER_MODE=TEACHING RUN_MODE=SIM python src/main.py`
+   - Confirm `[INTENT][SELFTEST] injected_duplicates=1 dropped=<k> OK`.

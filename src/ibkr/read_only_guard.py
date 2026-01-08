@@ -19,6 +19,7 @@ def validate_read_only_guard() -> None:
     """Run a guard self-test when read-only mode is enabled."""
     if not get_ibkr_readonly_enabled():
         return
+    print("[CONFIG][VALIDATION] Running read-only guard self-test")
     try:
         assert_read_only_allows("PLACE_ORDER")
     except RuntimeError:
