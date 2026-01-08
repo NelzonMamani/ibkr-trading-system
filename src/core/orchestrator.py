@@ -102,6 +102,8 @@ class CoreOrchestrator:
         else:
             self.price_feed = DeterministicPriceFeed()
         self.scanner_mode = get_scanner_mode()
+        if self.run_mode == RunMode.LIVE_READ_ONLY:
+            self.scanner_mode = "LIVE_READONLY"
         self.market_data_client = None
         if self.scanner_mode == "LIVE_READONLY":
             self.market_data_client = MarketDataClient()
@@ -1174,6 +1176,27 @@ class CoreOrchestrator:
     def _run_startup_validations(self) -> None:
         print("[VALIDATION] Running startup validations")
         print("[VALIDATION] Config resolved")
+        print(f"[VALIDATION] Effective run mode: {self.run_mode.value}")
+        print(f"[VALIDATION] Scanner type selected: {type(self.scanner).__name__}")
+        if self.run_mode == RunMode.SIM:
+            execution_policy = "SIMULATED"
+        elif self.run_mode == RunMode.LIVE_MICRO:
+            execution_policy = "ALLOWED"
+        elif self.run_mode in {RunMode.LIVE_READ_ONLY, RunMode.LIVE, RunMode.PAPER}:
+            execution_policy = "DISABLED"
+        else:
+            execution_policy = "DISABLED"
+        print(f"[VALIDATION] Execution policy: {execution_policy}")
+        broker_adapter = getattr(self.execution_engine, "broker", None)
+        broker_name = (
+            broker_adapter.name()
+            if broker_adapter is not None and hasattr(broker_adapter, "name")
+            else type(broker_adapter).__name__ if broker_adapter is not None else "UNKNOWN"
+        )
+        print(f"[VALIDATION] Broker adapter in use: {broker_name}")
+        if self.run_mode == RunMode.LIVE_READ_ONLY:
+            print("[VALIDATION] LIVE_READ_ONLY: live data enabled")
+            print("[VALIDATION] LIVE_READ_ONLY: execution disabled by design")
         if get_ibkr_readonly_enabled():
             print(
                 "[CONFIG] IBKR_READONLY_ENABLED=True — broker order routing to IBKR "

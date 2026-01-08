@@ -37,10 +37,13 @@ class ExecutionEngine:
         self.run_mode: RunMode = get_run_mode()
         self.read_only_mode = self.run_mode == RunMode.LIVE_READ_ONLY
         self.ibkr_readonly_enabled = get_ibkr_readonly_enabled()
-        if self.run_mode != RunMode.SIM and self.ibkr_readonly_enabled:
+        if self.ibkr_readonly_enabled and self.run_mode not in {
+            RunMode.SIM,
+            RunMode.LIVE_READ_ONLY,
+        }:
             raise RuntimeError(
                 "IBKR_READONLY_ENABLED=True only supported with RUN_MODE=SIM "
-                "to prevent live execution paths."
+                "or RUN_MODE=LIVE_READ_ONLY to prevent live execution paths."
             )
         self.readonly_gate_active = self.read_only_mode or (
             self.ibkr_readonly_enabled
