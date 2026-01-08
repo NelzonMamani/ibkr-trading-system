@@ -37,6 +37,10 @@ class ExecutionEngine:
         self.run_mode: RunMode = get_run_mode()
         self.read_only_mode = self.run_mode == RunMode.LIVE_READ_ONLY
         self.ibkr_readonly_enabled = get_ibkr_readonly_enabled()
+        if self.run_mode == RunMode.LIVE_READ_ONLY and not self.ibkr_readonly_enabled:
+            raise RuntimeError(
+                "LIVE_READ_ONLY requires IBKR_READONLY_ENABLED=True to connect safely."
+            )
         if self.ibkr_readonly_enabled and self.run_mode not in {
             RunMode.SIM,
             RunMode.LIVE_READ_ONLY,
@@ -69,6 +73,8 @@ class ExecutionEngine:
         self.price_feed = price_feed or DeterministicPriceFeed()
         self.pending_book = PendingOrderBook()
         self.current_tick: Optional[int] = None
+        if self.run_mode == RunMode.LIVE_READ_ONLY and isinstance(broker, SimBroker):
+            raise RuntimeError("LIVE_READ_ONLY cannot route through SimBroker.")
         if self.run_mode == RunMode.SIM:
             if broker is not None and not isinstance(broker, SimBroker):
                 print("[EXECUTION][SIM] Overriding non-SIM broker with SIM broker")
@@ -322,7 +328,7 @@ class ExecutionEngine:
             quantity = getattr(risk_decision, "max_position_size", 1)
             strategy_name = risk_decision.strategy_name
 
-        rationale = "READONLY_BLOCK: IBKR_READONLY_ENABLED active — execution blocked."
+        rationale = "READ_ONLY_MODE"
         self.event_collector.emit(
             event_type="ORDER_BLOCKED_READONLY",
             source="ExecutionEngine",
@@ -333,7 +339,7 @@ class ExecutionEngine:
                 "direction": direction,
                 "requested_quantity": quantity,
                 "run_mode": self.run_mode.value,
-                "readonly_enabled": self.ibkr_readonly_enabled or self.read_only_mode,
+                "readonly_enabled": True,
                 "reason": rationale,
             },
         )
@@ -351,14 +357,14 @@ class ExecutionEngine:
             filled_quantity=0,
             remaining_quantity=quantity,
             fill_status="NONE",
-            note="ORDER_BLOCKED_READONLY",
-            rejection_reason="ORDER_BLOCKED_READONLY",
+            note="READ_ONLY_MODE",
+            rejection_reason="READ_ONLY_MODE",
         )
 
     def _blocked_execution_from_request(
         self, request: BrokerOrderRequest
     ) -> ExecutionResult:
-        rationale = "READONLY_BLOCK: IBKR_READONLY_ENABLED active — execution blocked."
+        rationale = "READ_ONLY_MODE"
         self.event_collector.emit(
             event_type="ORDER_BLOCKED_READONLY",
             source="ExecutionEngine",
@@ -369,7 +375,7 @@ class ExecutionEngine:
                 "direction": request.direction,
                 "requested_quantity": request.quantity,
                 "run_mode": self.run_mode.value,
-                "readonly_enabled": self.ibkr_readonly_enabled or self.read_only_mode,
+                "readonly_enabled": True,
                 "reason": rationale,
             },
         )
@@ -387,8 +393,8 @@ class ExecutionEngine:
             filled_quantity=0,
             remaining_quantity=request.quantity,
             fill_status="NONE",
-            note="ORDER_BLOCKED_READONLY",
-            rejection_reason="ORDER_BLOCKED_READONLY",
+            note="READ_ONLY_MODE",
+            rejection_reason="READ_ONLY_MODE",
             attempt_number=request.attempt_number,
             client_order_id=request.client_order_id,
             retry_scheduled=False,
