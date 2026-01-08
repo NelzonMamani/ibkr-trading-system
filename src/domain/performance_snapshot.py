@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 @dataclass
 class PerformanceSnapshot:
     total_trades: int
+    closed_trades: int
+    open_trades: int
     wins: int
     losses: int
     flats: int

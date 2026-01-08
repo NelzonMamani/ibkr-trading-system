@@ -492,6 +492,7 @@ class CoreOrchestrator:
                 signals=signals,
             )
             strategy_output = self.strategy_runner.run_from_intents(strategy_intents)
+            strategy_output = self._merge_trade_intents([], strategy_output)
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="STRATEGY",
@@ -513,10 +514,15 @@ class CoreOrchestrator:
             print("[STRATEGY] No trade intents generated — placeholder outcome.")
         else:
             print(f"[STRATEGY] Trade intents generated: {strategy_output}")
+            for trade_intent in strategy_output:
+                self.strategy_perf_tracker.record_trade_attempt(
+                    getattr(trade_intent, "strategy_name", "UNKNOWN")
+                )
         print("[TEACH] <<< Strategy stage complete — moving to risk stage.")
 
         print("[TEACH] >>> Risk stage — check sizing and limits (conceptual).")
         risk_output: List[RiskDecision] = []
+        blocked_symbols: set[str] = set()
         if not strategy_output:
             print("[RISK] No risk decision produced — placeholder outcome.")
         else:
@@ -525,6 +531,12 @@ class CoreOrchestrator:
             )
             try:
                 for trade_intent in strategy_output:
+                    if trade_intent.symbol in blocked_symbols:
+                        print(
+                            "[RISK] Skipping duplicate blocked intent for "
+                            f"symbol={trade_intent.symbol} in this cycle."
+                        )
+                        continue
                     print(
                         f"[TEACH] Evaluating risk for symbol: {trade_intent.symbol} "
                         f"(trader_type={trade_intent.trader_type})"
@@ -533,6 +545,8 @@ class CoreOrchestrator:
                         trade_intent.tick = tick
                     decision = self.risk_engine.evaluate_trade_intent(trade_intent)
                     decision.trader_type = getattr(trade_intent, "trader_type", "MANUAL")
+                    if not decision.allowed or decision.risk_level == "BLOCKED":
+                        blocked_symbols.add(trade_intent.symbol)
                     risk_output.append(decision)
             except Exception as exc:
                 self._evaluate_runtime_safety(
@@ -698,12 +712,21 @@ class CoreOrchestrator:
         closed_trade_events = [
             event for event in cycle_events if event.event_type == "TRADE_CLOSED"
         ]
+        opened_trade_events = [
+            event for event in cycle_events if event.event_type == "TRADE_OPENED"
+        ]
+        blocked_trade_events = [
+            event for event in cycle_events if event.event_type == "TRADE_BLOCKED"
+        ]
 
         self.performance_registry.record(cycle_events)
-        performance_snapshot = self.performance_registry.snapshot()
+        performance_snapshot = self.performance_registry.snapshot(
+            open_trades=self.trade_registry.count_active()
+        )
         print(
             "[PERF] "
-            f"total={performance_snapshot.total_trades} "
+            f"closed={performance_snapshot.closed_trades} "
+            f"open={performance_snapshot.open_trades} "
             f"wins={performance_snapshot.wins} "
             f"losses={performance_snapshot.losses} "
             f"flats={performance_snapshot.flats} "
@@ -726,15 +749,25 @@ class CoreOrchestrator:
         print(perf_snapshot_event)
         for event in closed_trade_events:
             self.strategy_perf_tracker.record_trade_close(event.payload or {})
+        for event in opened_trade_events:
+            self.strategy_perf_tracker.record_trade_open(event.payload or {})
+        for event in blocked_trade_events:
+            self.strategy_perf_tracker.record_trade_blocked(event.payload or {})
         strategy_snapshots = self.strategy_perf_tracker.snapshot()
         strategy_perf_payload = [
             {
                 "strategy_name": snapshot.strategy_name,
+                "attempts": snapshot.attempts,
+                "opened": snapshot.opened,
+                "blocked": snapshot.blocked,
+                "closed": snapshot.closed,
                 "total_trades": snapshot.total_trades,
                 "wins": snapshot.wins,
                 "losses": snapshot.losses,
                 "flats": snapshot.flats,
                 "gross_pnl": snapshot.gross_pnl,
+                "net_pnl": snapshot.net_pnl,
+                "total_commissions": snapshot.total_commissions,
                 "win_rate": snapshot.win_rate,
             }
             for snapshot in strategy_snapshots
@@ -867,7 +900,10 @@ class CoreOrchestrator:
             for snapshot in strategy_snapshots:
                 print(
                     f"{snapshot.strategy_name}: "
-                    f"trades={snapshot.total_trades} "
+                    f"attempts={snapshot.attempts} "
+                    f"opened={snapshot.opened} "
+                    f"blocked={snapshot.blocked} "
+                    f"closed={snapshot.closed} "
                     f"wins={snapshot.wins} "
                     f"losses={snapshot.losses} "
                     f"flats={snapshot.flats} "
@@ -926,11 +962,11 @@ class CoreOrchestrator:
         adapter_intents: List[TradeIntent],
         strategy_intents: List[TradeIntent],
     ) -> List[TradeIntent]:
-        merged: Dict[Tuple[str, str, str], TradeIntent] = {}
-        sources: Dict[Tuple[str, str, str], str] = {}
+        merged: Dict[Tuple[str, str], TradeIntent] = {}
+        sources: Dict[Tuple[str, str], str] = {}
 
         def consider(intent: TradeIntent, source: str) -> None:
-            key = (intent.symbol, intent.direction, intent.trader_type)
+            key = (intent.symbol, intent.trader_type)
             current = merged.get(key)
             if current is None:
                 merged[key] = intent
