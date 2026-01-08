@@ -409,6 +409,8 @@ class CoreOrchestrator:
                         f"[TEACH] Evaluating risk for symbol: {trade_intent.symbol} "
                         f"(trader_type={trade_intent.trader_type})"
                     )
+                    if getattr(trade_intent, "tick", None) is None:
+                        trade_intent.tick = tick
                     decision = self.risk_engine.evaluate_trade_intent(trade_intent)
                     decision.trader_type = getattr(trade_intent, "trader_type", "MANUAL")
                     risk_output.append(decision)

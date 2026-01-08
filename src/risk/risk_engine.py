@@ -9,6 +9,11 @@ from typing import Optional
 from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
 from models.data_models import RiskDecision, TradeIntent
+from models.risk_decision import STRATEGY_LIMIT_REACHED
+from strategies.ross_momentum.ross_momentum_risk_overlay import (
+    RiskContext,
+    RossMomentumRiskOverlay,
+)
 
 
 class RiskEngine:
@@ -22,6 +27,12 @@ class RiskEngine:
         print("[BOOT] RiskEngine instantiated — phase 4 teaching rules active")
         self.trade_registry = trade_registry or ActiveTradeRegistry()
         self.event_collector = event_collector or EventCollector()
+        self.ross_overlay = RossMomentumRiskOverlay(event_collector=self.event_collector)
+        self._ross_strategy_names = {
+            "MomentumContinuationStrategy",
+            "RossMomentumStrategy",
+            "RossMomentumStrategyV1",
+        }
         self.strategy_limits = {
             "SCALPER": {
                 "max_trades": 2,
@@ -40,6 +51,14 @@ class RiskEngine:
         """
 
         print(f"[RISK] Evaluating TradeIntent for symbol={trade_intent.symbol}")
+
+        if trade_intent.strategy_name in self._ross_strategy_names:
+            overlay_context = RiskContext(
+                current_tick=getattr(trade_intent, "tick", 0) or 0
+            )
+            overlay_decision = self.ross_overlay.evaluate(trade_intent, overlay_context)
+            if overlay_decision is not None:
+                return overlay_decision
 
         trader_type = getattr(trade_intent, "trader_type", "MANUAL").upper()
         current_active = self.trade_registry.count_active_by_trader(trader_type)
@@ -61,7 +80,13 @@ class RiskEngine:
                     payload={
                         "symbol": trade_intent.symbol,
                         "trader_type": trade_intent.trader_type,
-                        "reason": "strategy_limit",
+                        "strategy_name": trade_intent.strategy_name,
+                        "reason": STRATEGY_LIMIT_REACHED,
+                        "reason_code": STRATEGY_LIMIT_REACHED,
+                        "human_readable_rationale": (
+                            f"Strategy {trader_type} reached its max active trades "
+                            f"({current_active}/{max_trades}); blocking this intent."
+                        ),
                     },
                 )
                 print(
@@ -81,6 +106,7 @@ class RiskEngine:
                     trader_type=trader_type,
                     strategy_name=trade_intent.strategy_name,
                     direction=trade_intent.direction,
+                    reason_code=STRATEGY_LIMIT_REACHED,
                 )
 
             print(

@@ -67,6 +67,14 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
     "TRADE_OPENED": TRADE_OPENED_SCHEMA,
     "TRADE_CLOSED": TRADE_CLOSED_SCHEMA,
     "TRADE_NOT_FILLED": TRADE_NOT_FILLED_SCHEMA,
+    "TRADE_BLOCKED": {
+        "symbol": str,
+        "trader_type": str,
+        "strategy_name": str,
+        "reason_code": str,
+        "human_readable_rationale": str,
+        "reason": str,
+    },
     "ORDER_SUBMISSION_ATTEMPTED": {
         "client_order_id": str,
         "symbol": str,
@@ -158,7 +166,13 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
     "TRADE_EXIT_COMPLETE": {"closed"},
     "STRATEGY_PERF_SNAPSHOT": {"strategies"},
     "PERF_SNAPSHOT": {"total_trades"},
-    "TRADE_BLOCKED": {"symbol", "trader_type", "reason"},
+    "TRADE_BLOCKED": {
+        "symbol",
+        "trader_type",
+        "strategy_name",
+        "reason_code",
+        "human_readable_rationale",
+    },
     "RUNTIME_SAFETY_VIOLATION": {"stage", "run_mode", "replay_mode", "violations"},
     "FAULT_DETECTED": {
         "category",
@@ -255,7 +269,7 @@ OPTIONAL_FIELDS: Dict[str, Set[str]] = {
         "by_strategy",
         "by_trader_type",
     },
-    "TRADE_BLOCKED": {"symbol", "trader_type", "reason"},
+    "TRADE_BLOCKED": {"reason"},
     "RUNTIME_SAFETY_VIOLATION": {
         "exception_type",
         "exception_message",

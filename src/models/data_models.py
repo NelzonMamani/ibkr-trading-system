@@ -62,6 +62,9 @@ class PatternResult:
     pattern_name: str  # Human-readable, classroom-friendly label of the pattern being taught.
     confidence: float  # Simple confidence number to illustrate certainty without real modeling.
     rationale: str  # Plain-language teaching note describing why this pattern label was chosen.
+    gap_percent: Optional[float] = None
+    rvol: Optional[float] = None
+    float_millions: Optional[float] = None
 
 
 @dataclass
@@ -83,6 +86,10 @@ class TradeIntent:
     trader_type: str = "UNKNOWN"  # "SCALPER", "MOMENTUM", "QUANT", or "MANUAL" for routing the teaching flow.
     stop_loss_price: Optional[float] = None  # Optional price-based protection configured at entry time.
     take_profit_price: Optional[float] = None  # Optional profit target configured at entry time.
+    gap_percent: Optional[float] = None
+    rvol: Optional[float] = None
+    float_millions: Optional[float] = None
+    tick: Optional[int] = None
 
 
 @dataclass
@@ -105,6 +112,7 @@ class RiskDecision:
     direction: str = "UNKNOWN"
     stop_loss_price: Optional[float] = None
     take_profit_price: Optional[float] = None
+    reason_code: Optional[str] = None
 
 
 @dataclass

@@ -42,6 +42,9 @@ class MomentumContinuationStrategy(BaseStrategy):
                         confidence=pattern.confidence,
                         rationale=rationale,
                         trader_type="MOMENTUM",
+                        gap_percent=getattr(pattern, "gap_percent", None),
+                        rvol=getattr(pattern, "rvol", None),
+                        float_millions=getattr(pattern, "float_millions", None),
                     )
                 )
             else:

@@ -74,6 +74,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                 trader_type=self.trader_type,
                 stop_loss_price=None,
                 take_profit_price=None,
+                gap_percent=getattr(selected_signal, "gap_percent", None),
+                rvol=getattr(selected_signal, "rvol", None),
+                float_millions=getattr(selected_signal, "float_millions", None),
+                tick=getattr(selected_signal, "tick", None),
             )
             intents_with_signal.append((intent, selected_type))
             print(
