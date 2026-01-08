@@ -17,6 +17,7 @@ from config.runtime_config import (
     get_ibkr_client_id,
     get_ibkr_host,
     get_ibkr_market_data_type,
+    get_ibkr_max_symbols_per_cycle,
     get_ibkr_default_currency,
     get_ibkr_default_exchange,
     get_ibkr_port,
@@ -59,6 +60,7 @@ def main() -> None:
     print(f"  - IBKR_CLIENT_ID: {get_ibkr_client_id()}")
     print(f"  - IBKR_SNAPSHOT_TIMEOUT_SECONDS: {get_ibkr_snapshot_timeout_seconds()}")
     print(f"  - IBKR_MARKET_DATA_TYPE: {get_ibkr_market_data_type()}")
+    print(f"  - IBKR_MAX_SYMBOLS_PER_CYCLE: {get_ibkr_max_symbols_per_cycle()}")
     ibkr_order_translation_enabled = get_ibkr_order_translation_enabled()
     print(f"  - IBKR_ORDER_TRANSLATION_ENABLED: {ibkr_order_translation_enabled}")
     ibkr_default_exchange = get_ibkr_default_exchange()
@@ -68,6 +70,8 @@ def main() -> None:
     if run_mode == RunMode.LIVE_READ_ONLY:
         print("[SAFETY] LIVE READ-ONLY MODE ACTIVE")
         print("[SAFETY] NO EXECUTION ENABLED")
+        print("[SAFETY] LIVE DATA — READ ONLY MODE")
+        print("[SAFETY] NO ORDERS WILL BE SENT")
         if not ibkr_readonly_enabled:
             raise RuntimeError(
                 "LIVE_READ_ONLY requires IBKR_READONLY_ENABLED=True to connect safely."
@@ -79,6 +83,9 @@ def main() -> None:
             raise RuntimeError(
                 "LIVE_MICRO requires IBKR_READONLY_ENABLED=False to enable execution."
             )
+    if run_mode == RunMode.LIVE and ibkr_readonly_enabled:
+        print("[SAFETY] LIVE DATA — READ ONLY MODE")
+        print("[SAFETY] NO ORDERS WILL BE SENT")
 
     translation_test_symbol = (
         os.getenv("IBKR_TRANSLATION_TEST_SYMBOL") or ""
