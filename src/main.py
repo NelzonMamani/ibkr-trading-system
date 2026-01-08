@@ -25,11 +25,14 @@ from config.runtime_config import (
     get_ibkr_readonly_enabled,
     get_ibkr_snapshot_timeout_seconds,
     get_run_mode,
+    get_scanner_mode,
+    get_scanner_symbols,
 )
 from config.system_config import ACTIVE_SESSIONS, CYCLE_SLEEP_SECONDS
 from domain.models.internal_order import InternalOrder
 from core.orchestrator import CoreOrchestrator
 from adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
+from ibkr.read_only_guard import validate_read_only_guard
 
 
 def main() -> None:
@@ -61,6 +64,8 @@ def main() -> None:
     print(f"  - IBKR_SNAPSHOT_TIMEOUT_SECONDS: {get_ibkr_snapshot_timeout_seconds()}")
     print(f"  - IBKR_MARKET_DATA_TYPE: {get_ibkr_market_data_type()}")
     print(f"  - IBKR_MAX_SYMBOLS_PER_CYCLE: {get_ibkr_max_symbols_per_cycle()}")
+    print(f"  - SCANNER_MODE: {get_scanner_mode()}")
+    print(f"  - SCANNER_SYMBOLS: {get_scanner_symbols()}")
     ibkr_order_translation_enabled = get_ibkr_order_translation_enabled()
     print(f"  - IBKR_ORDER_TRANSLATION_ENABLED: {ibkr_order_translation_enabled}")
     ibkr_default_exchange = get_ibkr_default_exchange()
@@ -86,6 +91,7 @@ def main() -> None:
     if run_mode == RunMode.LIVE and ibkr_readonly_enabled:
         print("[SAFETY] LIVE DATA — READ ONLY MODE")
         print("[SAFETY] NO ORDERS WILL BE SENT")
+    validate_read_only_guard()
 
     translation_test_symbol = (
         os.getenv("IBKR_TRANSLATION_TEST_SYMBOL") or ""

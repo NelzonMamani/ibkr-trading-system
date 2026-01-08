@@ -11,6 +11,7 @@ from ibapi.contract import Contract, ContractDetails
 from ibapi.wrapper import EWrapper
 
 from domain.market_snapshot import MarketSnapshot
+from ibkr.read_only_guard import assert_read_only_allows
 
 
 def _market_data_type_code(market_data_type: str) -> int:
@@ -151,6 +152,7 @@ class IbkrClient(EWrapper, EClient):
     def submit_order(self, contract: Contract, order) -> int:
         if not self.is_connected():
             raise RuntimeError("IBKR client is not connected.")
+        assert_read_only_allows("PLACE_ORDER")
         order_id = self.reserve_order_id()
         self._order_status_events[order_id] = threading.Event()
         self._exec_details_by_order[order_id] = []

@@ -12,6 +12,7 @@ from events.event_types import (
     ORDER_SUBMITTED_ACK,
     ORDER_FILL_RECORDED,
 )
+from ibkr.read_only_guard import assert_read_only_allows
 
 
 @dataclass(frozen=True)
@@ -169,6 +170,7 @@ class IbkrOrderSubmitter:
 
     # --- internals ---
     def _preflight(self, internal_order: InternalOrder) -> None:
+        assert_read_only_allows("PLACE_ORDER")
         run_mode = getattr(self.config.run_mode, "value", self.config.run_mode)
         normalized_run_mode = str(run_mode).upper()
         if normalized_run_mode not in {"SIM", "PAPER", "LIVE_MICRO"}:

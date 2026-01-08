@@ -58,9 +58,7 @@ class StorageEngine:
     def __init__(self) -> None:
         self.enabled = get_persistence_enabled(default=True)
         self.backend = get_persistence_backend(default="sqlite")
-        self.sqlite_path = os.path.abspath(
-            get_persistence_sqlite_path(default="data/ibkr_system.db")
-        )
+        self.sqlite_path = self._resolve_sqlite_path()
         self.jsonl_mirror_enabled = get_persistence_jsonl_mirror_enabled(default=False)
         self.audit_hash_chain_enabled = get_audit_hash_chain_enabled(default=True)
         self.audit_verify_on_start = get_audit_verify_on_start(default=False)
@@ -80,6 +78,20 @@ class StorageEngine:
             if self.audit_verify_on_start:
                 self._verify_latest_run()
         print("[BOOT] StorageEngine initialised")
+
+    def _resolve_sqlite_path(self) -> str:
+        resolved = os.path.abspath(
+            get_persistence_sqlite_path(default="data/ibkr_system.db")
+        )
+        if resolved.endswith("ibkr_system.db"):
+            legacy = resolved.replace("ibkr_system.db", "ibkr_system.sqlite")
+            if not os.path.exists(resolved) and os.path.exists(legacy):
+                print(
+                    "[STORAGE][WARN] Using legacy sqlite filename ibkr_system.sqlite; "
+                    "consider renaming to ibkr_system.db"
+                )
+                return legacy
+        return resolved
 
     def _insert_run(self) -> None:
         if not self._store:

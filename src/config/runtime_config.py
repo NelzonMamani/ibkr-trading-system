@@ -143,6 +143,21 @@ def get_ibkr_auto_lockdown_enabled(default: bool = False) -> bool:
     return default
 
 
+def get_scanner_mode(default: str = "TEACHING") -> str:
+    raw = (os.getenv("SCANNER_MODE") or default).strip().upper()
+    if raw in {"TEACHING", "LIVE_READONLY"}:
+        return raw
+    print(f"[RUNTIME] Invalid SCANNER_MODE='{raw}'. Falling back to default {default}.")
+    return default
+
+
+def get_scanner_symbols(default: list[str] | None = None) -> list[str]:
+    raw = (os.getenv("SCANNER_SYMBOLS") or os.getenv("IBKR_SCAN_SYMBOLS") or "").strip()
+    if not raw:
+        return default or []
+    return [symbol.strip().upper() for symbol in raw.split(",") if symbol.strip()]
+
+
 def get_ibkr_order_translation_enabled() -> bool:
     return (os.getenv("IBKR_ORDER_TRANSLATION_ENABLED") or "").strip().lower() == "true"
 
