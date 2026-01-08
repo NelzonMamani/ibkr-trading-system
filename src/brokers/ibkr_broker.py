@@ -17,13 +17,13 @@ from domain.market_snapshot import MarketSnapshot
 from models.execution_result import ExecutionResult
 
 
-READONLY_ERROR = "IBKR READ-ONLY MODE: order submission disabled in Phase 12.2"
+READONLY_ERROR = "IBKR READ-ONLY MODE: order submission disabled in LIVE_READ_ONLY."
 
 
 @dataclass
 class IbkrBroker(BaseBroker):
     """
-    Read-only IBKR broker adapter for Phase 12.2.
+    Read-only IBKR broker adapter for Phase 15.1.
 
     Exposes contract resolution and market snapshot helpers while hard-failing
     any order submission attempts.
@@ -74,7 +74,25 @@ class IbkrBroker(BaseBroker):
         return RuntimeError(READONLY_ERROR)
 
     def place_order(self, request: BrokerOrderRequest) -> ExecutionResult:
-        raise self._order_error()
+        return ExecutionResult(
+            symbol=request.symbol,
+            trader_type=request.trader_type or "UNKNOWN",
+            attempted=False,
+            status="BLOCKED",
+            rationale="READ_ONLY_BLOCK: IBKR broker is read-only; no order submitted.",
+            direction=request.direction,
+            quantity=request.quantity,
+            stop_loss_price=request.stop_loss_price,
+            take_profit_price=request.take_profit_price,
+            requested_quantity=request.quantity,
+            filled_quantity=0,
+            remaining_quantity=request.quantity,
+            fill_status="NONE",
+            note="READ_ONLY_BLOCK",
+            rejection_reason="READ_ONLY_BLOCK",
+            attempt_number=request.attempt_number,
+            client_order_id=request.client_order_id,
+        )
 
     def cancel_order(self, client_order_id: str) -> None:
         raise self._order_error()

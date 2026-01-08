@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from brokers.base_broker import BaseBroker, BrokerOrderRequest
 from brokers.sim_broker import SimBroker
-from config.runtime_config import RunMode, get_run_mode
+from config.runtime_config import RunMode, get_ibkr_readonly_enabled, get_run_mode
 from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
 from execution.order_gateway import OrderGateway
@@ -29,6 +29,12 @@ class ExecutionEngine:
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
         self.run_mode: RunMode = get_run_mode()
+        self.read_only_mode = self.run_mode == RunMode.LIVE_READ_ONLY
+        if self.read_only_mode:
+            print("[SAFETY] LIVE READ-ONLY MODE ACTIVE")
+            print("[SAFETY] NO EXECUTION ENABLED")
+        elif self.run_mode == RunMode.LIVE and get_ibkr_readonly_enabled():
+            print("[SAFETY] IBKR READ-ONLY ENABLED (LIVE mode) — execution remains gated by broker.")
         self.trade_registry = trade_registry or ActiveTradeRegistry()
         self.event_collector = event_collector or EventCollector()
         self.price_feed = price_feed or DeterministicPriceFeed()
@@ -75,6 +81,8 @@ class ExecutionEngine:
         """
 
         print("[EXECUTION] Received risk decision for broker-routed flow")
+        if self.read_only_mode:
+            return self._blocked_execution_from_risk_decision(risk_decision)
         if risk_decision is None:
             print("[EXECUTION] No execution performed — placeholder path")
             return ExecutionResult(
@@ -137,6 +145,8 @@ class ExecutionEngine:
         )
 
     def _route_order(self, request: BrokerOrderRequest) -> ExecutionResult:
+        if self.read_only_mode:
+            return self._blocked_execution_from_request(request)
         result = self._broker.place_order(request)
         if not self._broker.is_live():
             print(
@@ -147,7 +157,96 @@ class ExecutionEngine:
         self._schedule_retry(request, result)
         return result
 
+    def _blocked_execution_from_risk_decision(
+        self, risk_decision: Optional[RiskDecision]
+    ) -> ExecutionResult:
+        if risk_decision is None:
+            symbol = "UNKNOWN"
+            trader_type = "MANUAL"
+            direction = "UNKNOWN"
+            quantity = 0
+            strategy_name = "UNKNOWN"
+        else:
+            symbol = risk_decision.symbol
+            trader_type = risk_decision.trader_type
+            direction = risk_decision.direction
+            quantity = getattr(risk_decision, "max_position_size", 1)
+            strategy_name = risk_decision.strategy_name
+
+        rationale = "READ_ONLY_BLOCK: LIVE_READ_ONLY mode forbids all execution."
+        self.event_collector.emit(
+            event_type="READ_ONLY_BLOCK",
+            source="ExecutionEngine",
+            payload={
+                "symbol": symbol,
+                "trader_type": trader_type,
+                "strategy_name": strategy_name,
+                "direction": direction,
+                "requested_quantity": quantity,
+                "run_mode": self.run_mode.value,
+                "reason": rationale,
+            },
+        )
+        return ExecutionResult(
+            symbol=symbol,
+            trader_type=trader_type,
+            attempted=False,
+            status="BLOCKED",
+            rationale=rationale,
+            direction=direction,
+            quantity=quantity,
+            stop_loss_price=getattr(risk_decision, "stop_loss_price", None),
+            take_profit_price=getattr(risk_decision, "take_profit_price", None),
+            requested_quantity=quantity,
+            filled_quantity=0,
+            remaining_quantity=quantity,
+            fill_status="NONE",
+            note="READ_ONLY_BLOCK",
+            rejection_reason="READ_ONLY_BLOCK",
+        )
+
+    def _blocked_execution_from_request(
+        self, request: BrokerOrderRequest
+    ) -> ExecutionResult:
+        rationale = "READ_ONLY_BLOCK: LIVE_READ_ONLY mode forbids all execution."
+        self.event_collector.emit(
+            event_type="READ_ONLY_BLOCK",
+            source="ExecutionEngine",
+            payload={
+                "symbol": request.symbol,
+                "trader_type": request.trader_type or "UNKNOWN",
+                "strategy_name": request.strategy_name or "UNKNOWN",
+                "direction": request.direction,
+                "requested_quantity": request.quantity,
+                "run_mode": self.run_mode.value,
+                "reason": rationale,
+            },
+        )
+        return ExecutionResult(
+            symbol=request.symbol,
+            trader_type=request.trader_type or "UNKNOWN",
+            attempted=False,
+            status="BLOCKED",
+            rationale=rationale,
+            direction=request.direction,
+            quantity=request.quantity,
+            stop_loss_price=request.stop_loss_price,
+            take_profit_price=request.take_profit_price,
+            requested_quantity=request.quantity,
+            filled_quantity=0,
+            remaining_quantity=request.quantity,
+            fill_status="NONE",
+            note="READ_ONLY_BLOCK",
+            rejection_reason="READ_ONLY_BLOCK",
+            attempt_number=request.attempt_number,
+            client_order_id=request.client_order_id,
+            retry_scheduled=False,
+            next_retry_tick=None,
+        )
+
     def _schedule_retry(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
+        if self.read_only_mode:
+            return
         if not getattr(result, "retry_scheduled", False) or result.next_retry_tick is None:
             return
 

@@ -43,10 +43,10 @@ def main() -> None:
     event_replay_mode = get_event_replay_mode(run_mode)
     print("[CONFIG] Resolved runtime configuration (authoritative):")
     print(f"  - RUN_MODE: {run_mode.value} (resolved)")
-    if run_mode == RunMode.LIVE:
+    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
         print(
             f"  - EVENT_REPLAY_MODE: {event_replay_mode.value} "
-            "(resolved; forced OFF in LIVE for safety)"
+            "(resolved; forced OFF in LIVE/LIVE_READ_ONLY for safety)"
         )
     else:
         print(f"  - EVENT_REPLAY_MODE: {event_replay_mode.value} (resolved)")
@@ -65,6 +65,13 @@ def main() -> None:
     ibkr_default_currency = get_ibkr_default_currency()
     print(f"  - IBKR_DEFAULT_EXCHANGE: {ibkr_default_exchange}")
     print(f"  - IBKR_DEFAULT_CURRENCY: {ibkr_default_currency}")
+    if run_mode == RunMode.LIVE_READ_ONLY:
+        print("[SAFETY] LIVE READ-ONLY MODE ACTIVE")
+        print("[SAFETY] NO EXECUTION ENABLED")
+        if not ibkr_readonly_enabled:
+            raise RuntimeError(
+                "LIVE_READ_ONLY requires IBKR_READONLY_ENABLED=True to connect safely."
+            )
 
     translation_test_symbol = (
         os.getenv("IBKR_TRANSLATION_TEST_SYMBOL") or ""
@@ -129,7 +136,7 @@ def main() -> None:
 
     smoke_symbol = (os.getenv("IBKR_SMOKE_SYMBOL") or "").strip().upper()
     if (
-        run_mode in {RunMode.SIM, RunMode.LIVE}
+        run_mode in {RunMode.SIM, RunMode.LIVE, RunMode.LIVE_READ_ONLY}
         and ibkr_readonly_enabled
         and smoke_symbol
     ):

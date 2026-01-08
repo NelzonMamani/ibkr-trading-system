@@ -16,6 +16,7 @@ class RunMode(str, Enum):
     SIM = "SIM"
     PAPER = "PAPER"
     LIVE = "LIVE"
+    LIVE_READ_ONLY = "LIVE_READ_ONLY"
 
 
 DEFAULT_RUN_MODE: RunMode = RunMode.SIM
@@ -216,12 +217,12 @@ def get_event_replay_mode(run_mode: RunMode) -> EventReplayMode:
     Resolve EVENT_REPLAY_MODE using runtime-safe rules.
 
     Resolution order:
-    1) LIVE always forces OFF
+    1) LIVE/LIVE_READ_ONLY always forces OFF
     2) ENV: EVENT_REPLAY_MODE
     3) DEFAULT_EVENT_REPLAY_MODE (CYCLE)
     """
 
-    if run_mode == RunMode.LIVE:
+    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
         return EventReplayMode.OFF
 
     raw = (os.getenv("EVENT_REPLAY_MODE") or "").strip().upper()
