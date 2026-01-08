@@ -642,35 +642,42 @@ class CoreOrchestrator:
         if self._stop_requested_at_boundary("RISK"):
             return False
 
-        print("[TEACH] >>> Execution stage — send/prepare orders (conceptual).")
         execution_output: List[ExecutionResult] = []
-        pending_results = self.execution_engine.process_pending_orders(tick)
-        execution_output.extend(pending_results)
-        if not risk_output:
-            print("[EXECUTION] No execution result — placeholder outcome.")
+        if not self.execution_enabled:
+            print("[EXECUTION] Execution stage skipped — execution disabled.")
         else:
-            print(f"[TEACH] Execution engine will handle {len(risk_output)} risk decisions individually.")
-            for risk_decision in risk_output:
-                print(
-                    f"[TEACH] Routing execution for symbol: {risk_decision.symbol} "
-                    f"(trader_type={risk_decision.trader_type})"
-                )
-                try:
-                    execution_output.append(self.execution_engine.execute_trade(risk_decision))
-                except Exception as exc:
-                    self._evaluate_runtime_safety(
-                        cycle_stage="EXECUTION",
-                        stage_exception=exc,
-                        scanner_results=scanner_results,
-                        pattern_results=pattern_results,
-                        strategy_output=strategy_output,
-                        risk_output=risk_output,
-                    )
-                    return False
-            if not execution_output:
-                print("[EXECUTION] No execution results captured — placeholder outcome.")
+            print("[TEACH] >>> Execution stage — send/prepare orders (conceptual).")
+            pending_results = self.execution_engine.process_pending_orders(tick)
+            execution_output.extend(pending_results)
+            if not risk_output:
+                print("[EXECUTION] No execution result — placeholder outcome.")
             else:
-                print(f"[EXECUTION] Execution results: {execution_output}")
+                print(
+                    f"[TEACH] Execution engine will handle {len(risk_output)} risk decisions individually."
+                )
+                for risk_decision in risk_output:
+                    print(
+                        f"[TEACH] Routing execution for symbol: {risk_decision.symbol} "
+                        f"(trader_type={risk_decision.trader_type})"
+                    )
+                    try:
+                        execution_output.append(
+                            self.execution_engine.execute_trade(risk_decision)
+                        )
+                    except Exception as exc:
+                        self._evaluate_runtime_safety(
+                            cycle_stage="EXECUTION",
+                            stage_exception=exc,
+                            scanner_results=scanner_results,
+                            pattern_results=pattern_results,
+                            strategy_output=strategy_output,
+                            risk_output=risk_output,
+                        )
+                        return False
+                if not execution_output:
+                    print("[EXECUTION] No execution results captured — placeholder outcome.")
+                else:
+                    print(f"[EXECUTION] Execution results: {execution_output}")
         self._evaluate_runtime_safety(
             cycle_stage="EXECUTION",
             stage_exception=None,

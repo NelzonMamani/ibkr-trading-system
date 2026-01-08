@@ -23,13 +23,17 @@ class RunMode(str, Enum):
 DEFAULT_RUN_MODE: RunMode = RunMode.SIM
 
 
+class RuntimeConfigError(RuntimeError):
+    """Raised when runtime configuration violates safety rules."""
+
+
 def is_live_read_only_required() -> bool:
     return get_run_mode() == RunMode.LIVE_READ_ONLY
 
 
-def get_run_mode() -> RunMode:
+def _resolve_baseline_run_mode() -> RunMode:
     """
-    Authoritative runtime mode resolver.
+    Resolve baseline run mode from environment before derived overrides.
 
     Resolution order:
     1) ENV: RUN_MODE
@@ -44,6 +48,36 @@ def get_run_mode() -> RunMode:
     except ValueError:
         print(f"[RUNTIME] Invalid RUN_MODE='{raw}'. Falling back to SAFE default SIM.")
         resolved = RunMode.SIM
+    return resolved
+
+
+def get_run_mode() -> RunMode:
+    """
+    Authoritative runtime mode resolver with derived safety overrides.
+
+    Derived precedence:
+    - LIVE market data + IBKR API write allowed + execution disabled
+      forces LIVE_READ_ONLY.
+    - RUN_MODE=SIM is invalid with LIVE market data.
+    """
+    baseline = _resolve_baseline_run_mode()
+    market_data_type = get_ibkr_market_data_type()
+    ibkr_api_write_allowed = get_ibkr_api_write_allowed()
+    execution_enabled = get_execution_enabled()
+
+    resolved = baseline
+    if (
+        market_data_type == "LIVE"
+        and ibkr_api_write_allowed
+        and not execution_enabled
+    ):
+        resolved = RunMode.LIVE_READ_ONLY
+
+    if resolved == RunMode.SIM and market_data_type == "LIVE":
+        raise RuntimeConfigError(
+            "RUN_MODE=SIM is invalid when IBKR_MARKET_DATA_TYPE=LIVE."
+        )
+
     return resolved
 
 
