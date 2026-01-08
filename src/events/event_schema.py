@@ -113,6 +113,7 @@ TRADE_CLOSED_SCHEMA = {
     "max_hold_ticks": int,
     "stop_loss_price": (float, type(None)),
     "take_profit_price": (float, type(None)),
+    "state_history": list,
 }
 
 TRADE_NOT_FILLED_SCHEMA = {
@@ -743,6 +744,7 @@ OPTIONAL_FIELDS: Dict[str, Set[str]] = {
         "mode",
         "reason",
         "pattern_name",
+        "state_history",
     },
     "TRADE_EXIT_COMPLETE": {"outcomes"},
     "EXIT_SIGNALS_GENERATED": set(),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from config.runtime_config import get_persistence_sqlite_path
@@ -38,7 +39,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    store = SQLiteStore(args.sqlite_path)
+    sqlite_path = os.path.abspath(args.sqlite_path)
+    print(f"[STORAGE] Using SQLite path {sqlite_path}")
+    store = SQLiteStore(sqlite_path)
     store.initialize_schema()
 
     try:

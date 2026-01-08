@@ -57,8 +57,8 @@ class StorageEngine:
     def __init__(self) -> None:
         self.enabled = get_persistence_enabled(default=True)
         self.backend = get_persistence_backend(default="sqlite")
-        self.sqlite_path = get_persistence_sqlite_path(
-            default="data/ibkr_system.sqlite"
+        self.sqlite_path = os.path.abspath(
+            get_persistence_sqlite_path(default="data/ibkr_system.sqlite")
         )
         self.jsonl_mirror_enabled = get_persistence_jsonl_mirror_enabled(default=False)
         self.audit_hash_chain_enabled = get_audit_hash_chain_enabled(default=True)
@@ -69,6 +69,7 @@ class StorageEngine:
         self._last_hash = "GENESIS"
         self._store: SQLiteStore | None = None
         if self.enabled and self.backend == "sqlite":
+            print(f"[STORAGE] SQLite path resolved to {self.sqlite_path}")
             self._store = SQLiteStore(
                 self.sqlite_path,
                 commit_each_write=self.flush_each_cycle,
@@ -393,6 +394,11 @@ class StorageEngine:
         if result.ok:
             return "OK"
         return f"FAILED seq={result.first_bad_seq} reason={result.reason}"
+
+    def export_run(self, run_id: str, fmt: str, out_path: str) -> list[str]:
+        if not self._store:
+            raise RuntimeError("Persistence not enabled")
+        return self._store.export_run(run_id, fmt, out_path)
 
     def _resolved_config(self) -> dict[str, Any]:
         run_mode = get_run_mode()
