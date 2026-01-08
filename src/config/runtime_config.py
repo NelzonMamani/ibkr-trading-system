@@ -86,9 +86,44 @@ def get_ibkr_snapshot_timeout_seconds(default: int = 5) -> int:
         return default
 
 
+def get_ibkr_snapshot_max_age_seconds(default: int = 15) -> int:
+    raw = (os.getenv("IBKR_SNAPSHOT_MAX_AGE_SECONDS") or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        print(
+            "[RUNTIME] Invalid IBKR_SNAPSHOT_MAX_AGE_SECONDS='" + raw + "'. "
+            f"Falling back to default {default}."
+        )
+        return default
+
+
 def get_ibkr_market_data_type(default: str = "LIVE") -> str:
     raw = (os.getenv("IBKR_MARKET_DATA_TYPE") or default).strip().upper()
     return raw or default
+
+
+def get_ibkr_fallback_enabled(default: bool = False) -> bool:
+    raw = (os.getenv("IBKR_FALLBACK_ENABLED") or "").strip().lower()
+    if raw in {"true", "1", "yes"}:
+        return True
+    if raw in {"false", "0", "no"}:
+        return False
+    return default
+
+
+def get_ibkr_fallback_source(default: str = "STATIC") -> str:
+    raw = (os.getenv("IBKR_FALLBACK_SOURCE") or default).strip().upper()
+    return raw or default
+
+
+def get_ibkr_auto_lockdown_enabled(default: bool = False) -> bool:
+    raw = (os.getenv("IBKR_AUTO_LOCKDOWN_ENABLED") or "").strip().lower()
+    if raw in {"true", "1", "yes"}:
+        return True
+    if raw in {"false", "0", "no"}:
+        return False
+    return default
 
 
 def get_ibkr_order_translation_enabled() -> bool:

@@ -32,6 +32,12 @@ class PatternEngine:
                 f"[PATTERN] Evaluating {candidate.symbol}: gap={candidate.gap_percent}% "
                 f"float={candidate.float_millions}M rVol={candidate.rvol} — {candidate.rationale}"
             )
+            if candidate.data_quality_flags:
+                print(
+                    "[PATTERN] Skipping candidate due to data quality flags "
+                    f"symbol={candidate.symbol} flags={candidate.data_quality_flags}"
+                )
+                continue
 
             pattern_assignment: PatternResult | None = None
 
@@ -52,6 +58,7 @@ class PatternEngine:
                     gap_percent=candidate.gap_percent,
                     rvol=candidate.rvol,
                     float_millions=candidate.float_millions,
+                    data_quality_flags=candidate.data_quality_flags,
                 )
             elif 4.0 <= candidate.gap_percent < 8.0 and candidate.float_millions >= 100.0:
                 rationale = (
@@ -70,6 +77,7 @@ class PatternEngine:
                     gap_percent=candidate.gap_percent,
                     rvol=candidate.rvol,
                     float_millions=candidate.float_millions,
+                    data_quality_flags=candidate.data_quality_flags,
                 )
             else:
                 print(

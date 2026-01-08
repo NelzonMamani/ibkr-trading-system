@@ -39,6 +39,12 @@ class SignalEngineV1:
 
         for symbol in sorted(candidates_by_symbol.keys()):
             candidate = candidates_by_symbol[symbol]
+            if getattr(candidate, "data_quality_flags", []):
+                print(
+                    "[SIGNALS] Skipping symbol due to data quality flags "
+                    f"symbol={symbol} flags={candidate.data_quality_flags}"
+                )
+                continue
             gap_percent = float(getattr(candidate, "gap_percent", 0.0) or 0.0)
             rvol = float(getattr(candidate, "rvol", 0.0) or 0.0)
             float_millions = float(getattr(candidate, "float_millions", 0.0) or 0.0)

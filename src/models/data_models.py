@@ -22,6 +22,7 @@ class ScannerCandidate:
     rvol: float  # Relative volume to show how unusual the current activity is versus baseline.
     float_millions: float  # Share float in millions to discuss supply dynamics and volatility.
     rationale: str  # Plain-language teaching note that explains why the symbol is interesting.
+    data_quality_flags: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -65,6 +66,7 @@ class PatternResult:
     gap_percent: Optional[float] = None
     rvol: Optional[float] = None
     float_millions: Optional[float] = None
+    data_quality_flags: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -90,6 +92,7 @@ class TradeIntent:
     rvol: Optional[float] = None
     float_millions: Optional[float] = None
     tick: Optional[int] = None
+    data_quality_flags: List[str] = field(default_factory=list)
 
 
 @dataclass

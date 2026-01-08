@@ -62,6 +62,7 @@ class IbkrClient(EWrapper, EClient):
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._connection_event = threading.Event()
+        self._last_disconnect_reason: Optional[str] = None
 
     # --- Connection management ---
     def connect(self) -> None:  # type: ignore[override]
@@ -113,7 +114,9 @@ class IbkrClient(EWrapper, EClient):
         return {
             "connected": self.is_connected(),
             "last_error": last_error,
+            "last_disconnect_reason": self._last_disconnect_reason,
             "market_data_type": self.market_data_type,
+            "connection_event_set": self._connection_event.is_set(),
         }
 
     def _run_loop(self) -> None:
@@ -184,7 +187,12 @@ class IbkrClient(EWrapper, EClient):
 
         event = threading.Event()
         self._market_events[req_id] = event
-        self._market_data[req_id] = {"bid": None, "ask": None, "last": None}
+        self._market_data[req_id] = {
+            "bid": None,
+            "ask": None,
+            "last": None,
+            "volume": None,
+        }
 
         self.reqMktData(
             reqId=req_id,
@@ -204,7 +212,9 @@ class IbkrClient(EWrapper, EClient):
             bid=prices.get("bid"),
             ask=prices.get("ask"),
             last=prices.get("last"),
+            volume=prices.get("volume"),
             asof_utc=datetime.now(timezone.utc),
+            market_data_type=self.market_data_type,
         )
         if event.is_set():
             print(
@@ -223,7 +233,9 @@ class IbkrClient(EWrapper, EClient):
         price: float,
         attrib,
     ):  # type: ignore[override]
-        prices = self._market_data.setdefault(reqId, {"bid": None, "ask": None, "last": None})
+        prices = self._market_data.setdefault(
+            reqId, {"bid": None, "ask": None, "last": None, "volume": None}
+        )
         if tickType == 1:
             prices["bid"] = price
         elif tickType == 2:
@@ -231,6 +243,22 @@ class IbkrClient(EWrapper, EClient):
         elif tickType == 4:
             prices["last"] = price
 
+        if any(value is not None for value in prices.values()):
+            event = self._market_events.get(reqId)
+            if event:
+                event.set()
+
+    def tickSize(
+        self,
+        reqId: TickerId,
+        tickType: int,
+        size: float,
+    ):  # type: ignore[override]
+        prices = self._market_data.setdefault(
+            reqId, {"bid": None, "ask": None, "last": None, "volume": None}
+        )
+        if tickType in (8, 37):
+            prices["volume"] = float(size)
         if any(value is not None for value in prices.values()):
             event = self._market_events.get(reqId)
             if event:
@@ -247,8 +275,14 @@ class IbkrClient(EWrapper, EClient):
         message = f"[IBKR] Error reqId={reqId} code={errorCode} msg={errorString}"
         print(message)
         if errorCode in (1100, 1300):  # connection/pacing
+            self._last_disconnect_reason = f"code={errorCode} msg={errorString}"
             self._connection_event.clear()
 
     def nextValidId(self, orderId: int):  # type: ignore[override]
         print(f"[IBKR] nextValidId received orderId={orderId}")
         self._connection_event.set()
+
+    def connectionClosed(self):  # type: ignore[override]
+        self._last_disconnect_reason = "connectionClosed"
+        self._connection_event.clear()
+        print("[IBKR] Connection closed by broker.")
