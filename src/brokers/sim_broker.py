@@ -11,6 +11,7 @@ from core.event_collector import EventCollector
 from execution.liquidity_engine import LiquidityEngine
 from execution.order_gateway import GatewayDecision, OrderGateway
 from execution.slippage_model import SlippageModel
+from execution.exit_plan import compute_stop_price, compute_take_profit_price
 from models.execution_result import ExecutionResult
 from sim.price_feed import DeterministicPriceFeed
 from utils.price_math import (
@@ -382,6 +383,26 @@ class SimBroker(BaseBroker):
         execution_price, slippage_applied = apply_slippage(reference_price, slippage_value, request.direction)
         entry_price = execution_price
         registry_entry_price = float(entry_price)
+        pattern_name = request.pattern_name
+        resolved_stop_loss = request.stop_loss_price
+        if resolved_stop_loss is None:
+            resolved_stop_loss = request.invalidation_level
+        if resolved_stop_loss is None:
+            resolved_stop_loss = compute_stop_price(
+                registry_entry_price,
+                request.direction,
+                pattern_name=pattern_name,
+                strategy_name=request.strategy_name,
+            )
+        resolved_take_profit = request.take_profit_price
+        if resolved_take_profit is None:
+            resolved_take_profit = compute_take_profit_price(
+                registry_entry_price,
+                resolved_stop_loss,
+                request.direction,
+                pattern_name=pattern_name,
+                strategy_name=request.strategy_name,
+            )
         active_trade = ActiveTrade(
             symbol=request.symbol,
             trader_type=request.trader_type or "UNKNOWN",
@@ -390,10 +411,42 @@ class SimBroker(BaseBroker):
             direction=request.direction,
             quantity=filled_quantity,
             strategy_name=request.strategy_name or "UNKNOWN",
-            stop_loss_price=request.stop_loss_price,
-            take_profit_price=request.take_profit_price,
+            stop_loss_price=resolved_stop_loss,
+            take_profit_price=resolved_take_profit,
+            pattern_name=pattern_name,
+            invalidation_level=request.invalidation_level,
+        )
+        self.event_collector.emit(
+            event_type="PROTECTIVE_STOP_PLACED",
+            source="ExecutionEngine",
+            payload={
+                "symbol": request.symbol,
+                "trader_type": request.trader_type,
+                "strategy_name": request.strategy_name,
+                "pattern_name": pattern_name,
+                "stop_loss_price": float(resolved_stop_loss),
+                "take_profit_price": float(resolved_take_profit),
+                "rationale": "Protective stop assigned immediately upon fill.",
+                "tick": tick,
+            },
         )
         self.trade_registry.register_trade(active_trade)
+        if active_trade.state_history:
+            last_transition = active_trade.state_history[-1]
+            if last_transition.get("to") == "PROTECTED":
+                self.event_collector.emit(
+                    event_type="TRADE_STATE_UPDATED",
+                    source="ExecutionEngine",
+                    payload={
+                        "symbol": request.symbol,
+                        "trader_type": request.trader_type or "UNKNOWN",
+                        "strategy_name": request.strategy_name or "UNKNOWN",
+                        "from_state": last_transition.get("from"),
+                        "to_state": last_transition.get("to"),
+                        "tick": last_transition.get("tick"),
+                        "reason": last_transition.get("reason"),
+                    },
+                )
         self.event_collector.emit(
             event_type="TRADE_OPENED",
             source="ExecutionEngine",
@@ -410,8 +463,8 @@ class SimBroker(BaseBroker):
                 "mode": self.run_mode.value if isinstance(self.run_mode, RunMode) else RunMode.SIM.value,
                 "direction": request.direction,
                 "quantity": filled_quantity,
-                "stop_loss_price": float(request.stop_loss_price) if request.stop_loss_price is not None else None,
-                "take_profit_price": float(request.take_profit_price) if request.take_profit_price is not None else None,
+                "stop_loss_price": float(resolved_stop_loss),
+                "take_profit_price": float(resolved_take_profit),
                 "requested_quantity": requested_quantity,
                 "filled_quantity": filled_quantity,
                 "remaining_quantity": remaining_quantity,
@@ -419,6 +472,7 @@ class SimBroker(BaseBroker):
                 "client_order_id": request.client_order_id,
                 "attempt_number": request.attempt_number,
                 "gateway_decision": GatewayDecision.ACCEPT.value,
+                "pattern_name": pattern_name,
             },
         )
         print(
@@ -461,8 +515,8 @@ class SimBroker(BaseBroker):
             raw_price=raw_mid,
             slippage_applied=slippage_applied,
             entry_tick=tick,
-            stop_loss_price=to_decimal(request.stop_loss_price) if request.stop_loss_price is not None else None,
-            take_profit_price=to_decimal(request.take_profit_price) if request.take_profit_price is not None else None,
+            stop_loss_price=to_decimal(resolved_stop_loss),
+            take_profit_price=to_decimal(resolved_take_profit),
             requested_quantity=requested_quantity,
             filled_quantity=filled_quantity,
             remaining_quantity=remaining_quantity,

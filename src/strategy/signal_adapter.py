@@ -97,6 +97,12 @@ class SignalToIntentAdapter:
                 trader_type=selection.trader_type,
                 stop_loss_price=stop_loss_price,
                 take_profit_price=None,
+                pattern_name=event.signal_type.value,
+                invalidation_level=(
+                    float(event.invalidation_level)
+                    if event.invalidation_level is not None
+                    else None
+                ),
                 data_quality_flags=(
                     pattern.data_quality_flags if pattern is not None else []
                 ),

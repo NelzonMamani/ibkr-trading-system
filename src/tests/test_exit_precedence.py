@@ -27,6 +27,7 @@ def _build_trade(**overrides) -> ActiveTrade:
         direction="LONG",
         quantity=1,
         strategy_name="StrategyX",
+        stop_loss_price=99.0,
     )
     defaults.update(overrides)
     return ActiveTrade(**defaults)
@@ -47,7 +48,7 @@ def test_exit_precedence_matrix_honours_highest_priority_condition():
             "current_price": 90.0,
             "strategy_exit_signal": True,
             "expected": ExitDecision(
-                category="TIME_MAX",
+                category="EXIT_TIME",
                 reason="Max hold duration reached",
                 exit_tick=5,
                 exit_price=90.0,
@@ -63,8 +64,8 @@ def test_exit_precedence_matrix_honours_highest_priority_condition():
             "current_price": 105.0,
             "strategy_exit_signal": True,
             "expected": ExitDecision(
-                category="PRICE_STOP",
-                reason="Stop loss breached",
+                category="EXIT_FAILED_SETUP",
+                reason="Pattern invalidation / failed breakout — stop-loss breached",
                 exit_tick=4,
                 exit_price=105.0,
             ),
@@ -73,14 +74,14 @@ def test_exit_precedence_matrix_honours_highest_priority_condition():
             "name": "Take-profit fires even before minimum hold threshold",
             "trade": _build_trade(
                 take_profit_price=101.0,
-                stop_loss_price=None,
+                stop_loss_price=99.0,
             ),
             "tick": 1,
             "current_price": 101.0,
             "strategy_exit_signal": True,
             "expected": ExitDecision(
-                category="PRICE_TP",
-                reason="Take profit reached",
+                category="EXIT_TARGET",
+                reason="Profit target reached",
                 exit_tick=1,
                 exit_price=101.0,
             ),
@@ -89,7 +90,7 @@ def test_exit_precedence_matrix_honours_highest_priority_condition():
             "name": "Minimum hold blocks strategy exit when no price overrides",
             "trade": _build_trade(),
             "tick": 1,
-            "current_price": 100.0,
+            "current_price": 100.5,
             "strategy_exit_signal": True,
             "expected": None,
         },
@@ -97,20 +98,20 @@ def test_exit_precedence_matrix_honours_highest_priority_condition():
             "name": "Strategy exit allowed after minimum hold with no other triggers",
             "trade": _build_trade(),
             "tick": 3,
-            "current_price": 100.0,
+            "current_price": 100.7,
             "strategy_exit_signal": True,
             "expected": ExitDecision(
-                category="STRATEGY_SIGNAL",
+                category="EXIT_STRATEGY",
                 reason="Strategy requested exit",
                 exit_tick=3,
-                exit_price=100.0,
+                exit_price=100.7,
             ),
         },
         {
             "name": "Hold when no exit criteria are met",
             "trade": _build_trade(),
-            "tick": 3,
-            "current_price": 100.0,
+            "tick": 2,
+            "current_price": 100.5,
             "strategy_exit_signal": False,
             "expected": None,
         },
@@ -154,7 +155,7 @@ def test_price_exit_precedence_for_short_trades():
     )
 
     assert decision is not None
-    assert decision.category == "PRICE_STOP"
+    assert decision.category == "EXIT_FAILED_SETUP"
 
     tp_decision = engine.decide_exit(
         trade=trade,
@@ -165,4 +166,4 @@ def test_price_exit_precedence_for_short_trades():
     )
 
     assert tp_decision is not None
-    assert tp_decision.category == "PRICE_TP"
+    assert tp_decision.category == "EXIT_TARGET"

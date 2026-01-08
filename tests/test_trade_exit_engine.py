@@ -36,6 +36,8 @@ def test_trade_exit_engine_enforces_tick_based_exit_window():
             direction="LONG",
             quantity=1,
             strategy_name=strategy_name,
+            stop_loss_price=round(entry_price - 0.05, 2),
+            take_profit_price=round(entry_price + 100.0, 2),
         )
     )
 
@@ -123,6 +125,7 @@ def test_exit_signal_honoured_after_minimum_hold():
             direction="LONG",
             quantity=1,
             strategy_name=strategy_name,
+            stop_loss_price=round(entry_price - 0.05, 2),
         )
     )
 
@@ -177,6 +180,7 @@ def test_exit_signal_ignored_before_minimum_hold():
             direction="LONG",
             quantity=1,
             strategy_name=strategy_name,
+            stop_loss_price=round(entry_price - 0.05, 2),
         )
     )
 
@@ -229,6 +233,7 @@ def test_stop_loss_exit_triggers_even_before_minimum_hold():
             quantity=1,
             strategy_name=strategy_name,
             stop_loss_price=stop_loss_price,
+            take_profit_price=round(entry_price - 100.0, 2),
         )
     )
 
@@ -249,7 +254,7 @@ def test_stop_loss_exit_triggers_even_before_minimum_hold():
 
     closed_result = results[0]
     assert closed_result.exit_tick == trigger_tick
-    assert "stop-loss price reached" in closed_result.rationale
+    assert "failed setup / invalidation" in closed_result.rationale
     assert closed_result.stop_loss_price == stop_loss_price
 
 
@@ -268,6 +273,7 @@ def test_take_profit_exit_triggers_when_threshold_hit():
     entry_tick = 0
     entry_price = price_feed.price_for(symbol, entry_tick)
     take_profit_price = entry_price + 0.01
+    stop_loss_price = round(entry_price - 0.05, 2)
 
     trade_registry.register_trade(
         ActiveTrade(
@@ -278,6 +284,7 @@ def test_take_profit_exit_triggers_when_threshold_hit():
             direction="LONG",
             quantity=1,
             strategy_name=strategy_name,
+            stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
         )
     )

@@ -10,6 +10,12 @@ from domain.trade_outcome import TradeOutcome
 from sim.price_feed import DeterministicPriceFeed
 from strategy.exit_signal import ExitSignal
 from execution.slippage_model import SlippageModel
+from execution.exit_plan import (
+    compute_take_profit_price,
+    resolve_exit_plan,
+    resolve_max_hold_ticks,
+    resolve_momentum_fail_ticks,
+)
 from execution.commission_model import CommissionModel
 
 
@@ -66,42 +72,110 @@ class TradeExitEngine:
         """
 
         entry_tick = getattr(trade, "entry_tick", current_tick)
+        entry_price = getattr(trade, "entry_price", current_price)
         normalized_direction = (getattr(trade, "direction", "") or "").upper()
         stop_loss_price = getattr(trade, "stop_loss_price", None)
         take_profit_price = getattr(trade, "take_profit_price", None)
+        trader_type = getattr(trade, "trader_type", "UNKNOWN")
+        strategy_name = getattr(trade, "strategy_name", None)
+        pattern_name = getattr(trade, "pattern_name", None)
         hold_duration_ticks = (
             trade.hold_duration(current_tick)
             if hasattr(trade, "hold_duration")
             else max(0, current_tick - entry_tick)
         )
 
-        max_hold_ticks = self._resolve_threshold(config, "MAX_HOLD_TICKS", "max_hold_ticks")
         min_hold_ticks = self._resolve_threshold(config, "MIN_HOLD_TICKS", "min_hold_ticks")
+        max_hold_ticks = resolve_max_hold_ticks(
+            trader_type=trader_type,
+            pattern_name=pattern_name,
+            strategy_name=strategy_name,
+            fallback=self._resolve_threshold(config, "MAX_HOLD_TICKS", "max_hold_ticks"),
+        )
 
         if hold_duration_ticks >= max_hold_ticks:
             return ExitDecision(
-                category="TIME_MAX",
+                category="EXIT_TIME",
                 reason="Max hold duration reached",
                 exit_tick=current_tick,
                 exit_price=current_price,
             )
 
-        price_decision = self._evaluate_price_exit_decision(
-            normalized_direction=normalized_direction,
-            exit_price=current_price,
-            stop_loss_price=stop_loss_price,
-            take_profit_price=take_profit_price,
-            exit_tick=current_tick,
+        if stop_loss_price is not None and take_profit_price is None:
+            take_profit_price = compute_take_profit_price(
+                entry_price=entry_price,
+                stop_loss_price=stop_loss_price,
+                direction=normalized_direction,
+                pattern_name=pattern_name,
+                strategy_name=strategy_name,
+            )
+
+        stop_loss_triggered = False
+        take_profit_triggered = False
+        if stop_loss_price is not None:
+            if normalized_direction == "SHORT":
+                stop_loss_triggered = current_price >= stop_loss_price
+            else:
+                stop_loss_triggered = current_price <= stop_loss_price
+
+        if take_profit_price is not None:
+            if normalized_direction == "SHORT":
+                take_profit_triggered = current_price <= take_profit_price
+            else:
+                take_profit_triggered = current_price >= take_profit_price
+
+        if stop_loss_triggered:
+            trade_state = getattr(trade, "state", "OPENED")
+            category = "EXIT_FAILED_SETUP" if trade_state != "IN_PROFIT" else "EXIT_STOP_LOSS"
+            reason = (
+                "Pattern invalidation / failed breakout — stop-loss breached"
+                if category == "EXIT_FAILED_SETUP"
+                else "Protective stop-loss breached"
+            )
+            return ExitDecision(
+                category=category,
+                reason=reason,
+                exit_tick=current_tick,
+                exit_price=current_price,
+            )
+
+        if take_profit_triggered:
+            return ExitDecision(
+                category="EXIT_TARGET",
+                reason="Profit target reached",
+                exit_tick=current_tick,
+                exit_price=current_price,
+            )
+
+        momentum_fail_ticks = resolve_momentum_fail_ticks(
+            trader_type=trader_type,
+            pattern_name=pattern_name,
+            strategy_name=strategy_name,
+            fallback=min_hold_ticks,
         )
-        if price_decision is not None:
-            return price_decision
+        plan = resolve_exit_plan(pattern_name, strategy_name)
+        risk_amount = max(abs(entry_price - (stop_loss_price or entry_price)), 0.01)
+        if normalized_direction == "SHORT":
+            progress_r = (entry_price - current_price) / risk_amount
+        else:
+            progress_r = (current_price - entry_price) / risk_amount
+        if hold_duration_ticks >= momentum_fail_ticks and progress_r < plan.momentum_min_r_multiple:
+            return ExitDecision(
+                category="EXIT_TIME",
+                reason=(
+                    "Momentum failed or volume collapsed — "
+                    f"progress={progress_r:.2f}R after {hold_duration_ticks} ticks"
+                ),
+                exit_tick=current_tick,
+                exit_price=current_price,
+            )
 
         if hold_duration_ticks < min_hold_ticks:
             return None
 
         if strategy_exit_signal:
             return ExitDecision(
-                category="STRATEGY_SIGNAL",
+                category="EXIT_STRATEGY",
                 reason="Strategy requested exit",
                 exit_tick=current_tick,
                 exit_price=current_price,
@@ -138,7 +212,6 @@ class TradeExitEngine:
         normalized_run_mode = (getattr(run_mode, "value", run_mode) or "").upper()
         active_trades = self.trade_registry.snapshot()
 
-        max_hold_ticks = self._resolve_threshold(runtime_config, "MAX_HOLD_TICKS", "max_hold_ticks")
         min_hold_ticks = self._resolve_threshold(runtime_config, "MIN_HOLD_TICKS", "min_hold_ticks")
 
         for trade in active_trades:
@@ -177,6 +250,37 @@ class TradeExitEngine:
 
             stop_loss_price = getattr(trade, "stop_loss_price", None)
             take_profit_price = getattr(trade, "take_profit_price", None)
+            pattern_name = getattr(trade, "pattern_name", None)
+            plan = resolve_exit_plan(pattern_name, strategy_name)
+            resolved_max_hold_ticks = resolve_max_hold_ticks(
+                trader_type=trader_type,
+                pattern_name=pattern_name,
+                strategy_name=strategy_name,
+                fallback=self._resolve_threshold(runtime_config, "MAX_HOLD_TICKS", "max_hold_ticks"),
+            )
+            risk_amount = max(abs(entry_price - (stop_loss_price or entry_price)), 0.01)
+            if stop_loss_price is not None and take_profit_price is None:
+                take_profit_price = compute_take_profit_price(
+                    entry_price=entry_price,
+                    stop_loss_price=stop_loss_price,
+                    direction=normalized_direction,
+                    pattern_name=pattern_name,
+                    strategy_name=strategy_name,
+                )
+                trade.take_profit_price = take_profit_price
+
+            if getattr(trade, "state", None) in {"OPENED", "PROTECTED"}:
+                if normalized_direction == "SHORT":
+                    progress_r = (entry_price - exit_price) / risk_amount
+                else:
+                    progress_r = (exit_price - entry_price) / risk_amount
+                if progress_r >= 0.5:
+                    self._transition_trade_state(
+                        trade,
+                        new_state="IN_PROFIT",
+                        tick=exit_tick,
+                        reason="Trade reached +0.5R unrealised gain",
+                    )
 
             signals_for_trade = exit_signal_map.get((symbol, trader_type), [])
             selected_signal = next(
@@ -210,29 +314,41 @@ class TradeExitEngine:
                         f"symbol={symbol} trader_type={trader_type} "
                         f"entry_tick={entry_tick} current_tick={exit_tick} "
                         f"hold_ticks={hold_duration_ticks} "
-                        f"max_hold_ticks={max_hold_ticks}"
+                        f"max_hold_ticks={resolved_max_hold_ticks}"
                     )
                 continue
 
             rationale: str
-            if decision.category == "TIME_MAX":
-                rationale = (
-                    "Exit condition met: maximum hold duration reached via TradeExitEngine "
-                    f"(held {hold_duration_ticks} ticks; max_hold_ticks={max_hold_ticks})"
-                )
-            elif decision.category == "PRICE_STOP":
+            if decision.category == "EXIT_TIME":
+                if decision.reason.startswith("Momentum failed"):
+                    rationale = (
+                        "Exit condition met: momentum failed within time budget via TradeExitEngine "
+                        f"({decision.reason}; max_hold_ticks={resolved_max_hold_ticks})"
+                    )
+                else:
+                    rationale = (
+                        "Exit condition met: maximum hold duration reached via TradeExitEngine "
+                        f"(held {hold_duration_ticks} ticks; max_hold_ticks={resolved_max_hold_ticks})"
+                    )
+            elif decision.category == "EXIT_STOP_LOSS":
                 rationale = (
                     "Exit condition met: stop-loss price reached via TradeExitEngine "
                     f"(direction={normalized_direction or 'UNKNOWN'} price={exit_price} "
                     f"stop_loss_price={stop_loss_price})"
                 )
-            elif decision.category == "PRICE_TP":
+            elif decision.category == "EXIT_FAILED_SETUP":
+                rationale = (
+                    "Exit condition met: failed setup / invalidation breached "
+                    f"(direction={normalized_direction or 'UNKNOWN'} price={exit_price} "
+                    f"invalidation_level={stop_loss_price})"
+                )
+            elif decision.category == "EXIT_TARGET":
                 rationale = (
                     "Exit condition met: take-profit price reached via TradeExitEngine "
                     f"(direction={normalized_direction or 'UNKNOWN'} price={exit_price} "
-                    f"take_profit_price={take_profit_price})"
+                    f"take_profit_price={take_profit_price}; micro-safe full exit logged)"
                 )
-            elif decision.category == "STRATEGY_SIGNAL" and selected_signal is not None:
+            elif decision.category == "EXIT_STRATEGY" and selected_signal is not None:
                 rationale = (
                     "Strategy exit request honoured by TradeExitEngine: "
                     f"{selected_signal.reason} "
@@ -242,7 +358,28 @@ class TradeExitEngine:
             else:
                 rationale = decision.reason
 
+            self._transition_trade_state(
+                trade,
+                new_state="EXIT_PENDING",
+                tick=exit_tick,
+                reason=rationale,
+            )
             self.trade_registry.unregister_trade(symbol, trader_type)
+            self._transition_trade_state(
+                trade,
+                new_state="CLOSED",
+                tick=exit_tick,
+                reason="Trade closed by TradeExitEngine",
+            )
+
+            self._emit_exit_event(
+                decision=decision,
+                trade=trade,
+                exit_tick=exit_tick,
+                exit_price=exit_price,
+                net_realised_pnl=net_realised_pnl,
+                hold_duration_ticks=hold_duration_ticks,
+            )
 
             self.event_collector.emit(
                 event_type="TRADE_CLOSED",
@@ -253,6 +390,8 @@ class TradeExitEngine:
                     "strategy_name": strategy_name,
                     "tick": tick,
                     "reason": rationale,
+                    "exit_category": decision.category,
+                    "exit_reason": decision.reason,
                     "mode": normalized_run_mode,
                     "entry_tick": entry_tick,
                     "opened_at_tick": entry_tick,
@@ -267,7 +406,7 @@ class TradeExitEngine:
                     "closed_at_tick": exit_tick,
                     "hold_duration_ticks": hold_duration_ticks,
                     "min_hold_ticks": runtime_config.min_hold_ticks,
-                    "max_hold_ticks": runtime_config.max_hold_ticks,
+                    "max_hold_ticks": resolved_max_hold_ticks,
                     "pnl": net_realised_pnl,
                     "realised_pnl": net_realised_pnl,
                     "gross_realised_pnl": gross_realised_pnl,
@@ -276,6 +415,7 @@ class TradeExitEngine:
                     "stop_loss_price": stop_loss_price,
                     "take_profit_price": take_profit_price,
                     "quantity": quantity,
+                    "state_history": getattr(trade, "state_history", []),
                 },
                 timestamp=datetime.utcnow(),
             )
@@ -316,46 +456,54 @@ class TradeExitEngine:
 
         return results, trade_outcomes
 
-    @staticmethod
-    def _evaluate_price_exit_decision(
-        normalized_direction: str,
-        exit_price: float,
-        stop_loss_price: Optional[float],
-        take_profit_price: Optional[float],
+    def _transition_trade_state(self, trade, new_state: str, tick: int, reason: str) -> None:
+        if not hasattr(trade, "transition_state"):
+            return
+        previous_state = getattr(trade, "state", None)
+        try:
+            trade.transition_state(new_state, tick, reason)
+        except ValueError as exc:
+            print(f"[STATE] Transition blocked: {exc}")
+            return
+        self.event_collector.emit(
+            event_type="TRADE_STATE_UPDATED",
+            source="TradeExitEngine",
+            payload={
+                "symbol": getattr(trade, "symbol", "UNKNOWN"),
+                "trader_type": getattr(trade, "trader_type", "UNKNOWN"),
+                "strategy_name": getattr(trade, "strategy_name", "UNKNOWN"),
+                "from_state": previous_state,
+                "to_state": new_state,
+                "tick": tick,
+                "reason": reason,
+            },
+        )
+
+    def _emit_exit_event(
+        self,
+        decision: ExitDecision,
+        trade,
         exit_tick: int,
-    ) -> Optional[ExitDecision]:
-        stop_loss_triggered = False
-        take_profit_triggered = False
-
-        if stop_loss_price is not None:
-            if normalized_direction == "SHORT":
-                stop_loss_triggered = exit_price >= stop_loss_price
-            else:
-                stop_loss_triggered = exit_price <= stop_loss_price
-
-        if take_profit_price is not None:
-            if normalized_direction == "SHORT":
-                take_profit_triggered = exit_price <= take_profit_price
-            else:
-                take_profit_triggered = exit_price >= take_profit_price
-
-        if stop_loss_triggered:
-            return ExitDecision(
-                category="PRICE_STOP",
-                reason="Stop loss breached",
-                exit_tick=exit_tick,
-                exit_price=exit_price,
-            )
-
-        if take_profit_triggered:
-            return ExitDecision(
-                category="PRICE_TP",
-                reason="Take profit reached",
-                exit_tick=exit_tick,
-                exit_price=exit_price,
-            )
-
-        return None
+        exit_price: float,
+        net_realised_pnl: float,
+        hold_duration_ticks: int,
+    ) -> None:
+        event_type = decision.category
+        self.event_collector.emit(
+            event_type=event_type,
+            source="TradeExitEngine",
+            payload={
+                "symbol": getattr(trade, "symbol", "UNKNOWN"),
+                "trader_type": getattr(trade, "trader_type", "UNKNOWN"),
+                "strategy_name": getattr(trade, "strategy_name", "UNKNOWN"),
+                "exit_tick": exit_tick,
+                "exit_price": exit_price,
+                "exit_category": decision.category,
+                "exit_reason": decision.reason,
+                "pnl": net_realised_pnl,
+                "hold_duration_ticks": hold_duration_ticks,
+            },
+        )
 
     def _force_close_all_trades(self, resolved_tick: int, runtime_config: RuntimeConfig) -> None:
         active_trades = self.trade_registry.snapshot()
@@ -405,6 +553,32 @@ class TradeExitEngine:
                 f"min_hold_ticks={self._resolve_threshold(runtime_config, 'MIN_HOLD_TICKS', 'min_hold_ticks')} "
                 f"max_hold_ticks={self._resolve_threshold(runtime_config, 'MAX_HOLD_TICKS', 'max_hold_ticks')})"
             )
+            forced_decision = ExitDecision(
+                category="EXIT_TIME",
+                reason="Forced shutdown exit",
+                exit_tick=resolved_tick,
+                exit_price=exit_price,
+            )
+            self._transition_trade_state(
+                trade,
+                new_state="EXIT_PENDING",
+                tick=resolved_tick,
+                reason=rationale,
+            )
+            self._transition_trade_state(
+                trade,
+                new_state="CLOSED",
+                tick=resolved_tick,
+                reason="Forced shutdown close",
+            )
+            self._emit_exit_event(
+                decision=forced_decision,
+                trade=trade,
+                exit_tick=resolved_tick,
+                exit_price=exit_price,
+                net_realised_pnl=net_realised_pnl,
+                hold_duration_ticks=hold_duration_ticks,
+            )
             self.event_collector.emit(
                 event_type="TRADE_CLOSED",
                 source="TradeExitEngine",
@@ -414,6 +588,8 @@ class TradeExitEngine:
                     "strategy_name": strategy_name,
                     "tick": resolved_tick,
                     "reason": rationale,
+                    "exit_category": forced_decision.category,
+                    "exit_reason": forced_decision.reason,
                     "mode": normalized_run_mode,
                     "entry_tick": entry_tick,
                     "opened_at_tick": entry_tick,
@@ -437,6 +613,7 @@ class TradeExitEngine:
                     "stop_loss_price": stop_loss_price,
                     "take_profit_price": take_profit_price,
                     "quantity": quantity,
+                    "state_history": getattr(trade, "state_history", []),
                 },
                 timestamp=datetime.utcnow(),
             )

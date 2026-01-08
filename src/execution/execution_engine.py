@@ -252,6 +252,8 @@ class ExecutionEngine:
             created_tick=tick,
             stop_loss_price=risk_decision.stop_loss_price,
             take_profit_price=risk_decision.take_profit_price,
+            pattern_name=getattr(risk_decision, "pattern_name", None),
+            invalidation_level=getattr(risk_decision, "invalidation_level", None),
             next_retry_tick=None,
         )
 
@@ -381,6 +383,8 @@ class ExecutionEngine:
             created_tick=result.next_retry_tick,
             stop_loss_price=request.stop_loss_price,
             take_profit_price=request.take_profit_price,
+            pattern_name=request.pattern_name,
+            invalidation_level=request.invalidation_level,
             next_retry_tick=result.next_retry_tick,
         )
         self.pending_book.add(scheduled_request)

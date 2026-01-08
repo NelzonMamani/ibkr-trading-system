@@ -1,5 +1,16 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
+
+
+_TRADE_STATES = ("OPENED", "PROTECTED", "IN_PROFIT", "EXIT_PENDING", "CLOSED")
+_VALID_STATE_TRANSITIONS = {
+    ("OPENED", "PROTECTED"),
+    ("OPENED", "EXIT_PENDING"),
+    ("PROTECTED", "IN_PROFIT"),
+    ("PROTECTED", "EXIT_PENDING"),
+    ("IN_PROFIT", "EXIT_PENDING"),
+    ("EXIT_PENDING", "CLOSED"),
+}
 
 
 @dataclass
@@ -13,6 +24,10 @@ class ActiveTrade:
     strategy_name: str = "UNKNOWN"
     stop_loss_price: Optional[float] = None
     take_profit_price: Optional[float] = None
+    pattern_name: Optional[str] = None
+    invalidation_level: Optional[float] = None
+    state: str = "OPENED"
+    state_history: List[dict] = field(default_factory=list)
     close_tick: Optional[int] = None
     close_price: Optional[float] = None
     realised_pnl: Optional[float] = None
@@ -21,6 +36,25 @@ class ActiveTrade:
         """Return how many ticks this trade has been held so far."""
 
         return max(0, current_tick - self.entry_tick)
+
+    def transition_state(self, new_state: str, tick: int, reason: str) -> None:
+        if new_state not in _TRADE_STATES:
+            raise ValueError(f"Unknown trade state '{new_state}'")
+        if new_state == self.state:
+            return
+        if (self.state, new_state) not in _VALID_STATE_TRANSITIONS:
+            raise ValueError(
+                f"Invalid trade state transition {self.state} -> {new_state}"
+            )
+        self.state_history.append(
+            {
+                "from": self.state,
+                "to": new_state,
+                "tick": tick,
+                "reason": reason,
+            }
+        )
+        self.state = new_state
 
 
 class ActiveTradeRegistry:
@@ -35,6 +69,10 @@ class ActiveTradeRegistry:
     def register_trade(self, active_trade: ActiveTrade):
         if getattr(active_trade, "quantity", 0) <= 0:
             raise ValueError("Cannot register a trade with non-positive quantity.")
+        if getattr(active_trade, "stop_loss_price", None) is None:
+            raise ValueError(
+                "Protective stop required; cannot register trade without stop_loss_price."
+            )
         print(
             "[REGISTRY] REGISTER "
             f"symbol={active_trade.symbol} "
@@ -45,6 +83,21 @@ class ActiveTradeRegistry:
             f"quantity={active_trade.quantity} "
             f"strategy={active_trade.strategy_name}"
         )
+        if not active_trade.state_history:
+            active_trade.state_history.append(
+                {
+                    "from": None,
+                    "to": active_trade.state,
+                    "tick": active_trade.entry_tick,
+                    "reason": "Trade opened",
+                }
+            )
+        if active_trade.state != "PROTECTED":
+            active_trade.transition_state(
+                "PROTECTED",
+                tick=active_trade.entry_tick,
+                reason="Initial protective stop assigned",
+            )
         self._active_trades.append(active_trade)
 
     def unregister_trade(self, symbol: str, trader_type: str):

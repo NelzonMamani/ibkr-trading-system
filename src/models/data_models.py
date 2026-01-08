@@ -107,6 +107,8 @@ class TradeIntent:
     trader_type: str = "UNKNOWN"  # "SCALPER", "MOMENTUM", "QUANT", or "MANUAL" for routing the teaching flow.
     stop_loss_price: Optional[float] = None  # Optional price-based protection configured at entry time.
     take_profit_price: Optional[float] = None  # Optional profit target configured at entry time.
+    pattern_name: Optional[str] = None
+    invalidation_level: Optional[float] = None
     gap_percent: Optional[float] = None
     rvol: Optional[float] = None
     float_millions: Optional[float] = None
@@ -134,6 +136,8 @@ class RiskDecision:
     direction: str = "UNKNOWN"
     stop_loss_price: Optional[float] = None
     take_profit_price: Optional[float] = None
+    pattern_name: Optional[str] = None
+    invalidation_level: Optional[float] = None
     reason_code: Optional[str] = None
 
 
