@@ -49,6 +49,9 @@ class PatternEngine:
                     pattern_name="Gap and Go (Teaching)",
                     confidence=0.82,
                     rationale=rationale,
+                    gap_percent=candidate.gap_percent,
+                    rvol=candidate.rvol,
+                    float_millions=candidate.float_millions,
                 )
             elif 4.0 <= candidate.gap_percent < 8.0 and candidate.float_millions >= 100.0:
                 rationale = (
@@ -64,6 +67,9 @@ class PatternEngine:
                     pattern_name="Momentum Continuation (Teaching)",
                     confidence=0.58,
                     rationale=rationale,
+                    gap_percent=candidate.gap_percent,
+                    rvol=candidate.rvol,
+                    float_millions=candidate.float_millions,
                 )
             else:
                 print(

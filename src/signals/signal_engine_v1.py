@@ -180,4 +180,7 @@ class SignalEngineV1:
             tick=tick,
             source=self.name,
             rationale=rationale,
+            gap_percent=gap_percent,
+            rvol=rvol,
+            float_millions=float_millions,
         )

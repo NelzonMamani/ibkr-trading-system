@@ -1,6 +1,7 @@
 """Signal event contract for deterministic teaching signals."""
 
 from dataclasses import dataclass
+from typing import Optional
 
 from signals.signal_types import SignalType
 
@@ -13,6 +14,9 @@ class SignalEvent:
     tick: int
     source: str = "SignalEngineV1"
     rationale: str = ""
+    gap_percent: Optional[float] = None
+    rvol: Optional[float] = None
+    float_millions: Optional[float] = None
 
     def as_dict(self) -> dict:
         return {
@@ -22,4 +26,7 @@ class SignalEvent:
             "tick": self.tick,
             "source": self.source,
             "rationale": self.rationale,
+            "gap_percent": self.gap_percent,
+            "rvol": self.rvol,
+            "float_millions": self.float_millions,
         }
