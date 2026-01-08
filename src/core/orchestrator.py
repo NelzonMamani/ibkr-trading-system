@@ -13,6 +13,7 @@ from config.runtime_config import (
     EventReplayMode,
     RunMode,
     get_event_replay_mode,
+    get_ibkr_kill_switch,
     get_run_mode,
 )
 from core.active_trade_registry import ActiveTradeRegistry
@@ -209,6 +210,17 @@ class CoreOrchestrator:
 
         while True:
             try:
+                if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
+                    if get_ibkr_kill_switch():
+                        print("[KILL_SWITCH] IBKR kill-switch engaged — halting immediately.")
+                        self._request_stop(
+                            StopMode.PANIC,
+                            reason="Manual kill-switch engaged",
+                            source="KillSwitch",
+                        )
+                        self._shutdown(self.stop_controller.stop_mode() or StopMode.PANIC)
+                        performed_shutdown = True
+                        break
                 if self.stop_controller.is_stop_requested():
                     self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
                     performed_shutdown = True
@@ -313,6 +325,38 @@ class CoreOrchestrator:
             stage_exception=None,
             scanner_results=scanner_results,
         )
+        if self.run_mode == RunMode.LIVE_READ_ONLY:
+            if self.scanner.last_connectivity_issue:
+                print(
+                    "[CONNECTIVITY] IBKR issue detected "
+                    f"details={self.scanner.last_connectivity_issue}"
+                )
+                if self.scanner.auto_lockdown_enabled:
+                    self._request_stop(
+                        StopMode.PANIC,
+                        reason="Connectivity degradation detected",
+                        source="Scanner",
+                    )
+                    return False
+                self._degraded = True
+            if self.scanner.last_data_quality_flags:
+                print(
+                    "[DATA_QUALITY] Flags detected in live scan "
+                    f"symbols={list(self.scanner.last_data_quality_flags.keys())}"
+                )
+                if self.scanner.auto_lockdown_enabled:
+                    self._request_stop(
+                        StopMode.PANIC,
+                        reason="Data quality degradation detected",
+                        source="Scanner",
+                    )
+                    return False
+                self._degraded = True
+                scanner_results = [
+                    candidate
+                    for candidate in scanner_results
+                    if not candidate.data_quality_flags
+                ]
         if self._stop_requested_at_boundary("SCANNER"):
             return False
         event = self.event_collector.emit(

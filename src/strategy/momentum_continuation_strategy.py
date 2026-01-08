@@ -45,6 +45,7 @@ class MomentumContinuationStrategy(BaseStrategy):
                         gap_percent=getattr(pattern, "gap_percent", None),
                         rvol=getattr(pattern, "rvol", None),
                         float_millions=getattr(pattern, "float_millions", None),
+                        data_quality_flags=pattern.data_quality_flags,
                     )
                 )
             else:

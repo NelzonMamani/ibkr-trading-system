@@ -97,6 +97,9 @@ class SignalToIntentAdapter:
                 trader_type=selection.trader_type,
                 stop_loss_price=stop_loss_price,
                 take_profit_price=None,
+                data_quality_flags=(
+                    pattern.data_quality_flags if pattern is not None else []
+                ),
             )
             intents_with_meta.append((intent, selection.priority))
 

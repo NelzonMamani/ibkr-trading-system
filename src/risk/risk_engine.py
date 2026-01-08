@@ -9,7 +9,7 @@ from typing import Optional
 from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
 from models.data_models import RiskDecision, TradeIntent
-from models.risk_decision import STRATEGY_LIMIT_REACHED
+from models.risk_decision import DATA_QUALITY_BLOCK, STRATEGY_LIMIT_REACHED
 from strategies.ross_momentum.ross_momentum_risk_overlay import (
     RiskContext,
     RossMomentumRiskOverlay,
@@ -51,6 +51,40 @@ class RiskEngine:
         """
 
         print(f"[RISK] Evaluating TradeIntent for symbol={trade_intent.symbol}")
+
+        data_quality_flags = getattr(trade_intent, "data_quality_flags", [])
+        if data_quality_flags:
+            rationale = (
+                "Trade intent blocked due to data quality flags: "
+                + ", ".join(data_quality_flags)
+            )
+            self.event_collector.emit(
+                event_type="TRADE_BLOCKED",
+                source="RiskEngine",
+                payload={
+                    "symbol": trade_intent.symbol,
+                    "trader_type": trade_intent.trader_type,
+                    "strategy_name": trade_intent.strategy_name,
+                    "reason": DATA_QUALITY_BLOCK,
+                    "reason_code": DATA_QUALITY_BLOCK,
+                    "human_readable_rationale": rationale,
+                },
+            )
+            print(
+                "[RISK] Data quality block — "
+                f"symbol={trade_intent.symbol} flags={data_quality_flags}"
+            )
+            return RiskDecision(
+                symbol=trade_intent.symbol,
+                allowed=False,
+                max_position_size=0,
+                risk_level="BLOCKED",
+                rationale=rationale,
+                trader_type=trade_intent.trader_type,
+                strategy_name=trade_intent.strategy_name,
+                direction=trade_intent.direction,
+                reason_code=DATA_QUALITY_BLOCK,
+            )
 
         if trade_intent.strategy_name in self._ross_strategy_names:
             overlay_context = RiskContext(

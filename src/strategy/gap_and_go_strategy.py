@@ -40,6 +40,7 @@ class GapAndGoStrategy(BaseStrategy):
                         confidence=pattern.confidence,
                         rationale=rationale,
                         trader_type="SCALPER",
+                        data_quality_flags=pattern.data_quality_flags,
                     )
                 )
             else:
