@@ -35,12 +35,19 @@ import random
 import re
 import time
 import urllib.parse
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ib_insync import IB, ScannerSubscription, Stock, util
+from config.runtime_config import (
+    get_ibkr_client_id,
+    get_ibkr_host,
+    get_ibkr_max_symbols_per_cycle,
+    get_ibkr_port,
+)
 
 # Optional dependencies for News Truth (RSS parsing).
 try:  # pragma: no cover
@@ -145,12 +152,13 @@ def _req_hist_safe(
 
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+logger = logging.getLogger(__name__)
 
-IB_HOST = os.environ.get("IB_HOST", "127.0.0.1")
-IB_PORT = int(os.environ.get("IB_PORT", "7496"))
+IB_HOST = get_ibkr_host()
+IB_PORT = get_ibkr_port()
 IB_CONNECT_TIMEOUT = float(os.environ.get("IB_CONNECT_TIMEOUT", "12"))
 
-TOP_GAINERS_COUNT = int(os.environ.get("TOP_GAINERS_COUNT", "50"))
+TOP_GAINERS_COUNT = int(os.environ.get("TOP_GAINERS_COUNT", str(get_ibkr_max_symbols_per_cycle())))
 
 # News Truth controls
 NEWS_ENABLED = os.environ.get("NEWS_ENABLED", "1").strip() not in {"0", "false", "False"}
@@ -367,7 +375,9 @@ def save_json_file(path: str, obj: Any) -> None:
 def ib_connect() -> IB:
     ib = IB()
     ib.RaiseRequestErrors = False  # prefer empty results over hard failures on pacing/cancellations
-    client_id = random.randint(1000, 9999)
+    client_id = int(os.environ.get("IBKR_CLIENT_ID", str(get_ibkr_client_id())) or 0)
+    if client_id <= 0:
+        client_id = random.randint(1000, 9999)
     logging.info("Connecting to %s:%s with clientId %s...", IB_HOST, IB_PORT, client_id)
     ib.connect(IB_HOST, IB_PORT, clientId=client_id, timeout=IB_CONNECT_TIMEOUT)
     return ib
@@ -668,23 +678,15 @@ def _try_live_intraday_volume(ib: IB, contract: Stock, wait_seconds: float = 1.2
 
 
 def get_volume_truth(ib: IB, contract: Stock, *, session_label: str) -> VolumeTruth:
-    """Phase 1B — Volume + RVOL + Velocity (best-effort).
+    """Phase 1B — Volume + RVOL + Velocity (best-effort)."""
+    cur_vol, cur_vol_src = _try_live_intraday_volume(ib, contract)
 
-    This function is the primary source of IB pacing pressure (historical calls).
-    We therefore:
-      - Use strict timeouts
-      - Pace requests globally
-      - Return partial data rather than fail the scan
-    """
-    sym = contract.symbol
-
-    cur_vol = _try_live_intraday_volume(ib, contract)
     avg20 = None
     rvol = None
-    vol_truth_source = "NONE"
     vel_5m = None
-    vel_10m = None
     vel_15m = None
+    vol_truth_source = "NONE"
+    window_days = 20
 
     # --- Daily bars for Avg20 volume (single request) ---
     daily = _req_hist_safe(
@@ -698,7 +700,6 @@ def get_volume_truth(ib: IB, contract: Stock, *, session_label: str) -> VolumeTr
         timeout_s=8.0,
     )
     if daily:
-        # Keep last 20 completed bars (exclude the last bar if it's today and still forming)
         vols = []
         for b in daily[-21:]:
             v = getattr(b, "volume", None)
@@ -706,9 +707,8 @@ def get_volume_truth(ib: IB, contract: Stock, *, session_label: str) -> VolumeTr
                 continue
             vols.append(float(v))
         if len(vols) >= 5:
-            # Use last 20 if available
             tail = vols[-20:] if len(vols) >= 20 else vols
-            avg20 = sum(tail) / len(tail)
+            avg20 = int(sum(tail) / len(tail))
             vol_truth_source = "HIST_DAILY_25D"
 
     if cur_vol is not None and avg20 and avg20 > 0:
@@ -726,7 +726,6 @@ def get_volume_truth(ib: IB, contract: Stock, *, session_label: str) -> VolumeTr
         timeout_s=8.0,
     )
     if intraday:
-        # Velocity here is "shares traded in last N minutes"
         def _sum_last_n(minutes: int) -> Optional[int]:
             bars_needed = max(1, int(minutes / 5))
             tail = intraday[-bars_needed:]
@@ -739,20 +738,85 @@ def get_volume_truth(ib: IB, contract: Stock, *, session_label: str) -> VolumeTr
             return s if s > 0 else None
 
         vel_5m = _sum_last_n(5)
-        vel_10m = _sum_last_n(10)
         vel_15m = _sum_last_n(15)
         if vol_truth_source == "NONE":
             vol_truth_source = "HIST_INTRADAY_5M"
 
-    return VolumeTruth(
-        current_vol=cur_vol,
-        avg20=avg20,
-        rvol=rvol,
-        vel_5m=vel_5m,
-        vel_10m=vel_10m,
-        vel_15m=vel_15m,
-        truth_source=vol_truth_source,
+    has_cur = cur_vol is not None
+    has_avg = avg20 is not None
+    has_v5 = vel_5m is not None
+    has_v15 = vel_15m is not None
+    src_bucket = (
+        "LIVE" if cur_vol_src == "LIVE_STREAM" else
+        "SNAPSHOT" if cur_vol_src == "SNAPSHOT" else
+        "HIST" if cur_vol_src == "HIST_DAILY_TODAY" else
+        "UNAVAILABLE"
     )
+
+    if has_cur and has_avg and has_v5 and has_v15:
+        quality = "OK_LIVE" if src_bucket == "LIVE" else "OK_DELAYED"
+    elif has_cur and has_avg:
+        quality = f"PARTIAL_NO_VELOCITY_{src_bucket}"
+    elif has_cur and not has_avg:
+        quality = f"PARTIAL_NO_AVG_{src_bucket}"
+    elif has_cur:
+        quality = f"PARTIAL_CUR_ONLY_{src_bucket}"
+    else:
+        quality = "MISSING_VOLUME"
+
+    return VolumeTruth(
+        current_intraday_volume=cur_vol,
+        current_volume_source_label=cur_vol_src,
+        average_daily_volume_20d=avg20,
+        average_daily_volume_window_days=window_days,
+        relative_volume=rvol,
+        relative_volume_category=categorize_rvol(rvol),
+        volume_velocity_5m=vel_5m,
+        volume_velocity_15m=vel_15m,
+        volume_data_quality_flag=quality,
+    )
+
+# ============================
+# Section 7: News Truth (verified_rss.txt only)
+# ============================
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+VERIFIED_RSS_PATH = os.environ.get("VERIFIED_RSS_PATH", str(SCRIPT_DIR / "verified_rss.txt"))
+NEWS_REFRESH_SECONDS = int(os.environ.get("NEWS_REFRESH_SECONDS", "90"))
+NEWS_MAX_ITEMS_PER_FEED = int(os.environ.get("NEWS_MAX_ITEMS_PER_FEED", "75"))
+NEWS_MAX_TOP_HEADLINES = int(os.environ.get("NEWS_MAX_TOP_HEADLINES", "5"))
+NEWS_DEBUG = os.environ.get("NEWS_DEBUG", "0").strip().lower() in {"1", "true", "yes"}
+
+DOMAIN_CREDIBILITY = {
+    "reuters.com": 1.00,
+    "bloomberg.com": 0.95,
+    "wsj.com": 0.95,
+    "ft.com": 0.90,
+    "apnews.com": 0.90,
+    "bbc.co.uk": 0.88,
+    "bbc.com": 0.88,
+}
+
+_TIME_BUCKETS = [
+    ("0_1m", 0, 1),
+    ("1_5m", 1, 5),
+    ("5_10m", 5, 10),
+    ("10_20m", 10, 20),
+    ("20_30m", 20, 30),
+    ("30_60m", 30, 60),
+    ("1_5h", 60, 300),
+    ("5_10h", 300, 600),
+    ("10_24h", 600, 1440),
+    ("24_48h", 1440, 2880),
+    ("48h_plus", 2880, 10**9),
+]
+
+_NEWS_CACHE = {
+    "loaded_at": 0.0,
+    "rss_urls": [],
+    "items": [],
+}
+
 
 def _load_verified_rss_urls(path: str) -> list:
     """Load RSS feed URLs from a verified list (one per line).
@@ -859,6 +923,11 @@ def _refresh_news_cache_if_needed(now_ts: float) -> None:
     if (now_ts - _NEWS_CACHE['loaded_at']) < NEWS_REFRESH_SECONDS and _NEWS_CACHE['items']:
         return
 
+    if feedparser is None:
+        _NEWS_CACHE['loaded_at'] = now_ts
+        _NEWS_CACHE['items'] = []
+        return
+
     rss_urls = _load_verified_rss_urls(VERIFIED_RSS_PATH)
     _NEWS_CACHE['rss_urls'] = rss_urls
 
@@ -953,6 +1022,11 @@ def get_news_truth(symbol: str) -> dict:
     (Phase 3B), we compute them and attach to the returned dict under the key
     '_news_time_buckets' for downstream scoring/debug.
     """
+    if not NEWS_ENABLED or feedparser is None:
+        out = blank_news_fields()
+        out['_news_time_buckets'] = {k: 0 for k, _, _ in _TIME_BUCKETS}
+        return out
+
     now_ts = time.time()
     _refresh_news_cache_if_needed(now_ts)
 
@@ -967,6 +1041,13 @@ def get_news_truth(symbol: str) -> dict:
         if _matches_symbol(it.get('title', ''), symbol):
             matched.append(it)
         # You may extend matching to summaries if you later store them.
+
+    lookback_minutes = NEWS_LOOKBACK_HOURS * 60.0
+    if lookback_minutes > 0:
+        matched = [
+            it for it in matched
+            if it.get("age_minutes") is None or it.get("age_minutes") <= lookback_minutes
+        ]
 
     if not matched:
         out = blank_news_fields()
@@ -1098,9 +1179,9 @@ def build_entry(
         "bid_ask_spread": pt.spread,
         "mid_price": pt.mid,
         "vwap_price": pt.vwap,
-        "day_high_price": pt.high,
-        "day_low_price": pt.low,
-        "intraday_range_percentage": pt.range_pct,
+        "day_high_price": pt.day_high,
+        "day_low_price": pt.day_low,
+        "intraday_range_percentage": pt.intraday_range_pct,
         "price_data_type_label": pt.data_type_label,
         "price_truth_source_label": pt.truth_source_label,
         "daily_bars_count": pt.daily_bars_count,
@@ -1145,7 +1226,7 @@ def build_entry(
     # canonical 1–54 field list. We attach it to the (already canonical) scoring
     # breakdown field for now.
     entry["score_components_breakdown"] = {
-        "news_time_distribution": news.get("news_time_distribution", {}),
+        "news_time_distribution": news.get("_news_time_buckets", {}),
     }
 
     # Scoring placeholders (Phase 4 will fill)
@@ -1242,10 +1323,12 @@ def compute_composite_momentum(entry: dict) -> tuple[float | None, dict | None, 
     float_n = _score_float(float_raw)
     news_n = _score_news(entry)
 
-    spread_pct = entry.get("bid_ask_spread_pct")
-    if spread_pct is None:
+    spread = _safe_float(entry.get("bid_ask_spread"), None)
+    last_price = _safe_float(entry.get("last_trade_price"), None)
+    if spread is None or last_price is None or last_price == 0:
         spread_pen = 0.0
     else:
+        spread_pct = spread / last_price
         # Penalise very wide spreads (microcaps). Cap penalty at 1.
         spread_pen = _clamp(float(spread_pct) / 0.05, 0.0, 1.0)  # 5% spread => full penalty
 
@@ -1280,6 +1363,19 @@ def compute_composite_momentum(entry: dict) -> tuple[float | None, dict | None, 
         label = "PASS"
         rationale = "Insufficient composite strength versus risk/liquidity."
     return round(score_0_100, 2), components, tier, label, rationale
+
+
+def apply_composite_scoring(entries: List[Dict[str, Any]]) -> None:
+    for entry in entries:
+        score, components, tier, label, rationale = compute_composite_momentum(entry)
+        entry["composite_momentum_score"] = score
+        if components is not None:
+            existing = entry.get("score_components_breakdown") or {}
+            existing.update(components)
+            entry["score_components_breakdown"] = existing
+        entry["attention_tier"] = tier
+        entry["trade_suggestion_label"] = label
+        entry["trade_suggestion_rationale"] = rationale
 
 
 # ============================
@@ -1348,6 +1444,84 @@ def sniper_rank_score(entry: dict) -> float:
         + 0.05 * _clamp(cred, 0.0, 1.0)
     )
 
+
+ROSS_WATCHLIST_LIMIT = int(os.environ.get("ROSS_WATCHLIST_LIMIT", "15"))
+
+
+def _print_headlines_block(headlines: list) -> None:
+    for h in headlines[:NEWS_MAX_TOP_HEADLINES]:
+        if isinstance(h, dict):
+            title = str(h.get("title", ""))
+            url = str(h.get("url", ""))
+            age = h.get("age_minutes")
+            age_s = "N/A" if age is None else f"{age}m"
+            src = h.get("source", "")
+            label = f"{title} [{src}] ({age_s})" if src else f"{title} ({age_s})"
+            print(f"    - {format_clickable(label, url)}")
+        else:
+            print(f"    - {h}")
+
+
+def print_ross_5_pillars_watchlist(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    print("\n" + "=" * 90)
+    print("ROSS 5-PILLARS WATCHLIST —", utc_now_iso())
+    print("=" * 90)
+
+    filtered = [e for e in entries if passes_ross_5_pillars(e)]
+    filtered = sorted(
+        filtered,
+        key=lambda x: (x.get("current_percentage_change_from_prior_close") is None,
+                       -(x.get("current_percentage_change_from_prior_close") or -10**9)),
+    )[:ROSS_WATCHLIST_LIMIT]
+
+    for e in filtered:
+        sym = e.get("symbol", "")
+        pct = e.get("current_percentage_change_from_prior_close")
+        px = e.get("last_trade_price")
+        flt = e.get("float_shares_formatted")
+        rvol = e.get("relative_volume")
+        news_total = e.get("news_total_headlines", 0)
+        vel10 = e.get("news_velocity_10m")
+        regions = e.get("news_regions_list")
+        print(
+            f"{sym} | %Chg:{pct} | Px:{px} | Float:{flt} | RVOL:{rvol} | "
+            f"News:{news_total} | Vel10:{vel10} | Regions:{regions}"
+        )
+        headlines = e.get("news_top_headlines_list") or []
+        if headlines:
+            print("  Top Headlines:")
+            _print_headlines_block(headlines)
+    print("=" * 90)
+    return filtered
+
+
+def print_sniper_watchlist(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    print("\n" + "=" * 90)
+    print("SNIPER NEWS WATCHLIST —", utc_now_iso())
+    print("=" * 90)
+
+    eligible = []
+    for e in entries:
+        total = _safe_float(e.get("news_total_headlines"), 0.0) or 0.0
+        regions = _safe_float(e.get("news_region_count"), 0.0) or 0.0
+        vel10 = _safe_float(e.get("news_velocity_10m"), 0.0) or 0.0
+        if total >= SNIPER_RULES["min_news_total"] and regions >= SNIPER_RULES["min_regions"] and vel10 >= SNIPER_RULES["min_vel10m"]:
+            eligible.append(e)
+
+    ranked = sorted(eligible, key=sniper_rank_score, reverse=True)[:SNIPER_RULES["max_picks"]]
+    for e in ranked:
+        sym = e.get("symbol", "")
+        score = round(sniper_rank_score(e), 3)
+        news_total = e.get("news_total_headlines", 0)
+        vel10 = e.get("news_velocity_10m")
+        regions = e.get("news_regions_list")
+        print(f"{sym} | SniperScore:{score} | News:{news_total} | Vel10:{vel10} | Regions:{regions}")
+        headlines = e.get("news_top_headlines_list") or []
+        if headlines:
+            print("  Top Headlines:")
+            _print_headlines_block(headlines)
+    print("=" * 90)
+    return ranked
 # Section 9: MASTER PRINTER
 # ============================
 
@@ -1405,7 +1579,7 @@ def print_master(entries: List[Dict[str, Any]]) -> None:
                 headlines = e.get(k) or []
                 print(f"  - {k}:")
                 if isinstance(headlines, list):
-                    for h in headlines[:5]:
+                    for h in headlines[:NEWS_MAX_TOP_HEADLINES]:
                         if isinstance(h, dict):
                             title = str(h.get("title", ""))
                             url = str(h.get("url", ""))
