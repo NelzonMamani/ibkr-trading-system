@@ -46,9 +46,9 @@ def abort(message: str) -> None:
 
 def validate_runtime() -> RunMode:
     run_mode = get_run_mode()
-    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
+    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
         abort(
-            "RUN_MODE=LIVE or LIVE_READ_ONLY detected — live submission is forbidden for this CLI."
+            "RUN_MODE=LIVE, LIVE_READ_ONLY, or LIVE_MICRO detected — live submission is forbidden for this CLI."
         )
 
     if not get_ibkr_order_translation_enabled():

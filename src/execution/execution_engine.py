@@ -7,7 +7,13 @@ from typing import List, Optional
 
 from brokers.base_broker import BaseBroker, BrokerOrderRequest
 from brokers.sim_broker import SimBroker
-from config.runtime_config import RunMode, get_ibkr_readonly_enabled, get_run_mode
+from config.runtime_config import (
+    RunMode,
+    get_ibkr_readonly_enabled,
+    get_live_micro_max_concurrent_trades,
+    get_run_mode,
+)
+from config.trading_config import is_strategy_enabled
 from core.active_trade_registry import ActiveTradeRegistry
 from core.event_collector import EventCollector
 from execution.order_gateway import OrderGateway
@@ -33,6 +39,9 @@ class ExecutionEngine:
         if self.read_only_mode:
             print("[SAFETY] LIVE READ-ONLY MODE ACTIVE")
             print("[SAFETY] NO EXECUTION ENABLED")
+        elif self.run_mode == RunMode.LIVE_MICRO:
+            print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
+            print("[SAFETY] 1-SHARE LIMIT ENFORCED")
         elif self.run_mode == RunMode.LIVE and get_ibkr_readonly_enabled():
             print("[SAFETY] IBKR READ-ONLY ENABLED (LIVE mode) — execution remains gated by broker.")
         self.trade_registry = trade_registry or ActiveTradeRegistry()
@@ -103,6 +112,108 @@ class ExecutionEngine:
                 rationale="Risk engine blocked this trade; no execution attempted.",
                 direction=risk_decision.direction,
                 quantity=getattr(risk_decision, "max_position_size", 1),
+                stop_loss_price=risk_decision.stop_loss_price,
+                take_profit_price=risk_decision.take_profit_price,
+            )
+
+        if self.run_mode == RunMode.LIVE_MICRO:
+            return self._execute_live_micro(risk_decision)
+
+        tick = self.current_tick if self.current_tick is not None else 0
+        order = self._order_from_risk_decision(risk_decision, tick)
+        return self._route_order(order)
+
+    def _execute_live_micro(self, risk_decision: RiskDecision) -> ExecutionResult:
+        max_concurrent = get_live_micro_max_concurrent_trades()
+        active_count = self.trade_registry.count_active()
+        if active_count >= max_concurrent:
+            rationale = (
+                "LIVE_MICRO_BLOCK: max concurrent trade limit reached "
+                f"({active_count}/{max_concurrent})."
+            )
+            print(f"[SAFETY] {rationale}")
+            self.event_collector.emit(
+                event_type="TRADE_BLOCKED",
+                source="ExecutionEngine",
+                payload={
+                    "symbol": risk_decision.symbol,
+                    "trader_type": risk_decision.trader_type,
+                    "strategy_name": risk_decision.strategy_name,
+                    "reason_code": "MAX_CONCURRENT_TRADES",
+                    "human_readable_rationale": rationale,
+                    "reason": rationale,
+                },
+            )
+            return ExecutionResult(
+                symbol=risk_decision.symbol,
+                trader_type=risk_decision.trader_type,
+                attempted=False,
+                status="BLOCKED",
+                rationale=rationale,
+                direction=risk_decision.direction,
+                quantity=getattr(risk_decision, "max_position_size", 1) or 1,
+                stop_loss_price=risk_decision.stop_loss_price,
+                take_profit_price=risk_decision.take_profit_price,
+            )
+
+        strategy_name = risk_decision.strategy_name or "UNKNOWN"
+        if not is_strategy_enabled(strategy_name):
+            rationale = (
+                "LIVE_MICRO_BLOCK: strategy not approved for live micro-execution "
+                f"(strategy={strategy_name})."
+            )
+            print(f"[SAFETY] {rationale}")
+            self.event_collector.emit(
+                event_type="TRADE_BLOCKED",
+                source="ExecutionEngine",
+                payload={
+                    "symbol": risk_decision.symbol,
+                    "trader_type": risk_decision.trader_type,
+                    "strategy_name": strategy_name,
+                    "reason_code": "STRATEGY_NOT_APPROVED",
+                    "human_readable_rationale": rationale,
+                    "reason": rationale,
+                },
+            )
+            return ExecutionResult(
+                symbol=risk_decision.symbol,
+                trader_type=risk_decision.trader_type,
+                attempted=False,
+                status="BLOCKED",
+                rationale=rationale,
+                direction=risk_decision.direction,
+                quantity=getattr(risk_decision, "max_position_size", 1) or 1,
+                stop_loss_price=risk_decision.stop_loss_price,
+                take_profit_price=risk_decision.take_profit_price,
+            )
+
+        requested_quantity = int(getattr(risk_decision, "max_position_size", 1) or 1)
+        if requested_quantity != 1:
+            rationale = (
+                "LIVE_MICRO_BLOCK: quantity must be exactly 1 share "
+                f"(requested={requested_quantity})."
+            )
+            print(f"[SAFETY] {rationale}")
+            self.event_collector.emit(
+                event_type="TRADE_BLOCKED",
+                source="ExecutionEngine",
+                payload={
+                    "symbol": risk_decision.symbol,
+                    "trader_type": risk_decision.trader_type,
+                    "strategy_name": strategy_name,
+                    "reason_code": "LIVE_MICRO_SIZE_LIMIT",
+                    "human_readable_rationale": rationale,
+                    "reason": rationale,
+                },
+            )
+            return ExecutionResult(
+                symbol=risk_decision.symbol,
+                trader_type=risk_decision.trader_type,
+                attempted=False,
+                status="BLOCKED",
+                rationale=rationale,
+                direction=risk_decision.direction,
+                quantity=requested_quantity,
                 stop_loss_price=risk_decision.stop_loss_price,
                 take_profit_price=risk_decision.take_profit_price,
             )

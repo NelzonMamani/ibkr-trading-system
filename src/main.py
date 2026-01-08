@@ -43,10 +43,10 @@ def main() -> None:
     event_replay_mode = get_event_replay_mode(run_mode)
     print("[CONFIG] Resolved runtime configuration (authoritative):")
     print(f"  - RUN_MODE: {run_mode.value} (resolved)")
-    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
+    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
         print(
             f"  - EVENT_REPLAY_MODE: {event_replay_mode.value} "
-            "(resolved; forced OFF in LIVE/LIVE_READ_ONLY for safety)"
+            "(resolved; forced OFF in LIVE/LIVE_READ_ONLY/LIVE_MICRO for safety)"
         )
     else:
         print(f"  - EVENT_REPLAY_MODE: {event_replay_mode.value} (resolved)")
@@ -71,6 +71,13 @@ def main() -> None:
         if not ibkr_readonly_enabled:
             raise RuntimeError(
                 "LIVE_READ_ONLY requires IBKR_READONLY_ENABLED=True to connect safely."
+            )
+    if run_mode == RunMode.LIVE_MICRO:
+        print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
+        print("[SAFETY] 1-SHARE LIMIT ENFORCED")
+        if ibkr_readonly_enabled:
+            raise RuntimeError(
+                "LIVE_MICRO requires IBKR_READONLY_ENABLED=False to enable execution."
             )
 
     translation_test_symbol = (
@@ -136,7 +143,7 @@ def main() -> None:
 
     smoke_symbol = (os.getenv("IBKR_SMOKE_SYMBOL") or "").strip().upper()
     if (
-        run_mode in {RunMode.SIM, RunMode.LIVE, RunMode.LIVE_READ_ONLY}
+        run_mode in {RunMode.SIM, RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
         and ibkr_readonly_enabled
         and smoke_symbol
     ):

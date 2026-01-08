@@ -6,14 +6,18 @@ no real trading logic, integrations, or data handling. It exists solely to make
 the system stages and their order easy to follow during this teaching phase.
 """
 from dataclasses import asdict
+from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple
 
-from brokers import IbkrBroker, SimBroker
+from brokers import IbkrBroker, IbkrLiveBroker, SimBroker
 from config.runtime_config import (
     EventReplayMode,
     RunMode,
     get_event_replay_mode,
     get_ibkr_kill_switch,
+    get_live_micro_daily_max_loss,
+    get_live_micro_max_consecutive_losses,
+    get_live_micro_max_trades_per_day,
     get_run_mode,
 )
 from core.active_trade_registry import ActiveTradeRegistry
@@ -54,17 +58,20 @@ class CoreOrchestrator:
         self.run_mode = get_run_mode()
         self.replay_mode = get_event_replay_mode(self.run_mode)
         if (
-            self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}
+            self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
             and self.replay_mode != EventReplayMode.OFF
         ):
             print(
-                "[SAFETY] Replay request detected in LIVE/LIVE_READ_ONLY. "
+                "[SAFETY] Replay request detected in LIVE/LIVE_READ_ONLY/LIVE_MICRO. "
                 "Forcing EVENT_REPLAY_MODE=OFF."
             )
             self.replay_mode = EventReplayMode.OFF
-        if self.run_mode == RunMode.LIVE_READ_ONLY:
+        if self.run_mode in {RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
             print("[SAFETY] LIVE READ-ONLY MODE ACTIVE")
             print("[SAFETY] NO EXECUTION ENABLED")
+        if self.run_mode == RunMode.LIVE_MICRO:
+            print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
+            print("[SAFETY] 1-SHARE LIMIT ENFORCED")
         self.sim_clock = SimClock()
         self.price_feed = DeterministicPriceFeed()
         self.event_collector = EventCollector()
@@ -86,6 +93,14 @@ class CoreOrchestrator:
                 price_feed=self.price_feed,
                 trade_registry=self.trade_registry,
                 event_collector=self.event_collector,
+                run_mode=self.run_mode,
+            )
+        elif self.run_mode == RunMode.LIVE_MICRO:
+            if IbkrLiveBroker is None:
+                raise RuntimeError("IBKR live broker unavailable; ibapi dependency missing.")
+            broker = IbkrLiveBroker(
+                event_collector=self.event_collector,
+                trade_registry=self.trade_registry,
                 run_mode=self.run_mode,
             )
         else:
@@ -115,6 +130,60 @@ class CoreOrchestrator:
     def replay_all_events(self):
         print("[REPLAY] Initiating full-run replay")
         self.replay_events(self.event_collector.snapshot_all())
+
+    def _check_live_micro_circuit_breakers(self) -> bool:
+        if self.run_mode != RunMode.LIVE_MICRO:
+            return True
+
+        net_realised_pnl = self.event_collector.sum_realised_pnl()
+        trades_submitted = self.event_collector.count("ORDER_SUBMITTED")
+        consecutive_losses = self.event_collector.consecutive_losses()
+
+        max_daily_loss = abs(get_live_micro_daily_max_loss())
+        max_trades = get_live_micro_max_trades_per_day()
+        max_consecutive_losses = get_live_micro_max_consecutive_losses()
+
+        breaches = []
+        if net_realised_pnl <= -max_daily_loss:
+            breaches.append(f"DAILY_MAX_LOSS (net_pnl={net_realised_pnl:.2f})")
+        if trades_submitted >= max_trades:
+            breaches.append(f"MAX_TRADES_PER_DAY (submitted={trades_submitted})")
+        if consecutive_losses >= max_consecutive_losses:
+            breaches.append(
+                f"MAX_CONSECUTIVE_LOSSES (consecutive_losses={consecutive_losses})"
+            )
+
+        if not breaches:
+            return True
+
+        self.event_collector.emit(
+            event_type="CIRCUIT_BREAKER_TRIGGERED",
+            source="CoreOrchestrator",
+            payload={
+                "run_mode": self.run_mode.value,
+                "breaches": breaches,
+                "limits": {
+                    "daily_max_loss": max_daily_loss,
+                    "max_trades_per_day": max_trades,
+                    "max_consecutive_losses": max_consecutive_losses,
+                },
+                "metrics": {
+                    "net_realised_pnl": net_realised_pnl,
+                    "trades_submitted": trades_submitted,
+                    "consecutive_losses": consecutive_losses,
+                },
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
+        reason = "Circuit breaker triggered: " + "; ".join(breaches)
+        print(f"[CIRCUIT_BREAKER] {reason}")
+        self._request_stop(
+            StopMode.PANIC,
+            reason=reason,
+            source="CircuitBreaker",
+        )
+        self._shutdown(self.stop_controller.stop_mode() or StopMode.PANIC)
+        return False
 
     def _stop_payload(self, mode: Optional[StopMode] = None) -> dict:
         resolved_mode = mode or self.stop_controller.stop_mode() or StopMode.GRACEFUL
@@ -210,7 +279,7 @@ class CoreOrchestrator:
 
         while True:
             try:
-                if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
+                if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
                     if get_ibkr_kill_switch():
                         print("[KILL_SWITCH] IBKR kill-switch engaged — halting immediately.")
                         self._request_stop(
@@ -241,14 +310,14 @@ class CoreOrchestrator:
                     print(
                         "[SESSION] System WOULD treat market as closed (teaching-only)."
                     )
-                if self.run_mode == RunMode.LIVE and current_session == "CLOSED":
+                if self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO} and current_session == "CLOSED":
                     print(
-                        "[GATE] RUN_MODE is LIVE while session is CLOSED. "
+                        "[GATE] RUN_MODE is LIVE/LIVE_MICRO while session is CLOSED. "
                         "Skipping orchestrator.run_once() to maintain teaching-first safety."
                     )
                     print(
                         "[GATE] Teaching note: SIM/PAPER would still run for education, "
-                        "but LIVE waits for an open session."
+                        "but LIVE/LIVE_MICRO waits for an open session."
                     )
                 else:
                     print(
@@ -677,6 +746,8 @@ class CoreOrchestrator:
             payload={"strategies": strategy_perf_payload},
         )
         print(strategy_perf_event)
+        if not self._check_live_micro_circuit_breakers():
+            return False
 
         print("[TEACH] >>> Storage stage — record decisions/results (conceptual).")
         print("[TEACH] Creating TradeRecord to capture stage outputs for review.")
@@ -827,8 +898,10 @@ class CoreOrchestrator:
             f"[REPLAY] Replay selection — mode={self.replay_mode.value} "
             f"run_mode={run_mode_value}"
         )
-        if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
-            print("[REPLAY] Replay is locked down in LIVE/LIVE_READ_ONLY — skipping replay")
+        if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
+            print(
+                "[REPLAY] Replay is locked down in LIVE/LIVE_READ_ONLY/LIVE_MICRO — skipping replay"
+            )
             return True
         events_for_replay = self.event_collector.get_events_for_replay(
             self.replay_mode
@@ -922,7 +995,7 @@ class CoreOrchestrator:
             print("[FAULT] Action=HALT_SYSTEM — halting orchestrator safely.")
             mode = (
                 StopMode.PANIC
-                if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}
+                if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
                 else StopMode.GRACEFUL
             )
             self._request_stop(
@@ -1071,16 +1144,18 @@ class CoreOrchestrator:
         stage_label = cycle_stage or "UNKNOWN"
 
         if (
-            self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}
+            self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
             and self.replay_mode != EventReplayMode.OFF
         ):
-            violations.append("Replay requested while in LIVE/LIVE_READ_ONLY mode")
-        if self.run_mode == RunMode.LIVE and isinstance(self.sim_clock, SimClock):
-            violations.append("Deterministic SimClock detected in LIVE mode")
-        if self.run_mode == RunMode.LIVE and isinstance(
+            violations.append("Replay requested while in LIVE/LIVE_READ_ONLY/LIVE_MICRO mode")
+        if self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO} and isinstance(
+            self.sim_clock, SimClock
+        ):
+            violations.append("Deterministic SimClock detected in LIVE/LIVE_MICRO mode")
+        if self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO} and isinstance(
             self.price_feed, DeterministicPriceFeed
         ):
-            violations.append("Deterministic price feed detected in LIVE mode")
+            violations.append("Deterministic price feed detected in LIVE/LIVE_MICRO mode")
 
         active_trades = self.trade_registry.snapshot()
         if len(active_trades) < 0:
@@ -1128,9 +1203,9 @@ class CoreOrchestrator:
         )
         print(violation_event)
 
-        if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
+        if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
             print(
-                "[SAFETY] LIVE/LIVE_READ_ONLY mode violation — entering deterministic safe halt."
+                "[SAFETY] LIVE/LIVE_READ_ONLY/LIVE_MICRO mode violation — entering deterministic safe halt."
             )
             self._request_stop(
                 StopMode.PANIC,

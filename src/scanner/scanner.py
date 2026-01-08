@@ -61,11 +61,14 @@ class Scanner:
         self.last_data_quality_flags = {}
         self.last_connectivity_issue = None
         self.last_fallback_reason = None
-        if (
-            self.run_mode == RunMode.LIVE_READ_ONLY
-            and self.ibkr_readonly_enabled
-            and self.scan_symbols
-        ):
+        if self.run_mode == RunMode.LIVE_READ_ONLY and self.scan_symbols:
+            if self.ibkr_readonly_enabled:
+                return self._run_live_readonly_scan()
+            print(
+                "[SCAN] LIVE_READ_ONLY requires IBKR_READONLY_ENABLED=True; "
+                "falling back to static candidates."
+            )
+        if self.run_mode == RunMode.LIVE_MICRO and self.scan_symbols:
             return self._run_live_readonly_scan()
 
         print("[SCAN] Teaching scan started — using static, fake symbols only")
@@ -76,7 +79,8 @@ class Scanner:
         return self._static_candidates()
 
     def _run_live_readonly_scan(self) -> List[ScannerCandidate]:
-        print("[SCAN] LIVE READ-ONLY scan started — using IBKR market snapshots")
+        mode_label = "LIVE MICRO" if self.run_mode == RunMode.LIVE_MICRO else "LIVE READ-ONLY"
+        print(f"[SCAN] {mode_label} scan started — using IBKR market snapshots")
         if IbkrBroker is None:
             print("[SCAN] IBKR broker unavailable; falling back to static candidates.")
             return self._static_candidates()
@@ -138,8 +142,8 @@ class Scanner:
                         rvol=0.0,
                         float_millions=0.0,
                         rationale=(
-                            "LIVE_READ_ONLY snapshot from IBKR; gaps/rVol/float "
-                            "placeholders for phase 15 validation."
+                            "LIVE snapshot from IBKR; gaps/rVol/float "
+                            "placeholders for micro-execution validation."
                         ),
                         data_quality_flags=data_quality_flags,
                     )

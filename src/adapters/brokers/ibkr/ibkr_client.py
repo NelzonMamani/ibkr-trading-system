@@ -63,11 +63,16 @@ class IbkrClient(EWrapper, EClient):
         self._stop_event = threading.Event()
         self._connection_event = threading.Event()
         self._last_disconnect_reason: Optional[str] = None
+        self._next_order_id: Optional[int] = None
+        self._order_status_events: Dict[int, threading.Event] = {}
+        self._order_status: Dict[int, Dict[str, Optional[float | int | str]]] = {}
+        self._exec_details_by_order: Dict[int, List[dict]] = {}
+        self._commission_by_exec_id: Dict[str, float] = {}
 
     # --- Connection management ---
     def connect(self) -> None:  # type: ignore[override]
         if not self.readonly_enabled:
-            raise RuntimeError("IBKR read-only disabled by config")
+            print("[IBKR] Read-only disabled; trading-enabled connection requested.")
 
         print(
             f"[IBKR] Connecting to host={self.host} port={self.port} client_id={self.client_id}"
@@ -134,6 +139,47 @@ class IbkrClient(EWrapper, EClient):
         with self._lock:
             self._req_id += 1
             return self._req_id
+
+    def reserve_order_id(self) -> int:
+        with self._lock:
+            if self._next_order_id is None:
+                raise RuntimeError("IBKR order id not yet initialized.")
+            order_id = self._next_order_id
+            self._next_order_id += 1
+            return order_id
+
+    def submit_order(self, contract: Contract, order) -> int:
+        if not self.is_connected():
+            raise RuntimeError("IBKR client is not connected.")
+        order_id = self.reserve_order_id()
+        self._order_status_events[order_id] = threading.Event()
+        self._exec_details_by_order[order_id] = []
+        self.placeOrder(order_id, contract, order)
+        return order_id
+
+    def wait_for_order_status(
+        self, order_id: int, timeout_seconds: int
+    ) -> Optional[Dict[str, Optional[float | int | str]]]:
+        event = self._order_status_events.setdefault(order_id, threading.Event())
+        event.wait(timeout=timeout_seconds)
+        return self._order_status.get(order_id)
+
+    def commission_for_order(self, order_id: int) -> Optional[float]:
+        exec_details = self._exec_details_by_order.get(order_id, [])
+        if not exec_details:
+            return None
+        total_commission = 0.0
+        found = False
+        for detail in exec_details:
+            exec_id = detail.get("execId")
+            if exec_id is None:
+                continue
+            commission = self._commission_by_exec_id.get(exec_id)
+            if commission is None:
+                continue
+            found = True
+            total_commission += commission
+        return round(total_commission, 2) if found else None
 
     # --- Contract resolution ---
     def resolve_contract(
@@ -280,7 +326,51 @@ class IbkrClient(EWrapper, EClient):
 
     def nextValidId(self, orderId: int):  # type: ignore[override]
         print(f"[IBKR] nextValidId received orderId={orderId}")
+        self._next_order_id = orderId
         self._connection_event.set()
+
+    def orderStatus(
+        self,
+        orderId: int,
+        status: str,
+        filled: float,
+        remaining: float,
+        avgFillPrice: float,
+        permId: int,
+        parentId: int,
+        lastFillPrice: float,
+        clientId: int,
+        whyHeld: str,
+        mktCapPrice: float,
+    ):  # type: ignore[override]
+        self._order_status[orderId] = {
+            "status": status,
+            "filled": int(filled),
+            "remaining": int(remaining),
+            "avgFillPrice": avgFillPrice,
+            "lastFillPrice": lastFillPrice,
+        }
+        event = self._order_status_events.setdefault(orderId, threading.Event())
+        event.set()
+
+    def execDetails(self, reqId, contract, execution):  # type: ignore[override]
+        order_id = getattr(execution, "orderId", None)
+        if order_id is None:
+            return
+        details = {
+            "execId": getattr(execution, "execId", None),
+            "time": getattr(execution, "time", None),
+            "price": getattr(execution, "price", None),
+            "shares": getattr(execution, "shares", None),
+        }
+        self._exec_details_by_order.setdefault(order_id, []).append(details)
+
+    def commissionReport(self, commissionReport):  # type: ignore[override]
+        exec_id = getattr(commissionReport, "execId", None)
+        commission = getattr(commissionReport, "commission", None)
+        if exec_id is None or commission is None:
+            return
+        self._commission_by_exec_id[exec_id] = float(commission)
 
     def connectionClosed(self):  # type: ignore[override]
         self._last_disconnect_reason = "connectionClosed"

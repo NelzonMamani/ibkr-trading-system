@@ -159,6 +159,23 @@ class EventCollector:
             for trader_type, realised_pnl in pnl_by_trader_type.items()
         }
 
+    def consecutive_losses(self) -> int:
+        losses = 0
+        for event in reversed(self._run_timeline.snapshot()):
+            if event.event_type != "TRADE_CLOSED":
+                continue
+            payload = event.payload or {}
+            pnl = payload.get("net_realised_pnl", payload.get("realised_pnl", 0.0))
+            try:
+                pnl_value = float(pnl)
+            except (TypeError, ValueError):
+                pnl_value = 0.0
+            if pnl_value < 0:
+                losses += 1
+            else:
+                break
+        return losses
+
     # Backwards compatibility with earlier naming.
     def record(self, event):
         self.record_event(event)

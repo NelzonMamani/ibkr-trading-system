@@ -25,3 +25,9 @@ ENABLED_STRATEGIES = {
     "GapAndGoStrategy": True,
     "MomentumContinuationStrategy": True,
 }
+
+
+def is_strategy_enabled(strategy_name: str) -> bool:
+    if strategy_name == "RossMomentumStrategyV1":
+        return ROSS_MOMENTUM_STRATEGY_ENABLED
+    return ENABLED_STRATEGIES.get(strategy_name or "", False)

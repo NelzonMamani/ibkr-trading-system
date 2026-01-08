@@ -210,6 +210,14 @@ PERF_SNAPSHOT_SCHEMA = {
     "by_trader_type": dict,
 }
 
+CIRCUIT_BREAKER_TRIGGERED_SCHEMA = {
+    "run_mode": str,
+    "breaches": list,
+    "limits": dict,
+    "metrics": dict,
+    "timestamp": str,
+}
+
 RUNTIME_SAFETY_VIOLATION_SCHEMA = {
     "stage": str,
     "run_mode": str,
@@ -313,6 +321,22 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
         "timestamp": str,
         "reason": str,
     },
+    "ORDER_FILL_RECORDED": {
+        "client_order_id": str,
+        "symbol": str,
+        "direction": str,
+        "quantity": int,
+        "order_type": str,
+        "timestamp": str,
+        "ibkr_order_id": (int, type(None)),
+        "filled_quantity": int,
+        "remaining_quantity": int,
+        "average_fill_price": (float, type(None)),
+        "last_fill_price": (float, type(None)),
+        "fill_status": str,
+        "commission": (float, type(None)),
+        "slippage": (float, type(None)),
+    },
     "READ_ONLY_BLOCK": {
         "symbol": str,
         "trader_type": str,
@@ -352,6 +376,7 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
         "strategies": list,
     },
     "PERF_SNAPSHOT": PERF_SNAPSHOT_SCHEMA,
+    "CIRCUIT_BREAKER_TRIGGERED": CIRCUIT_BREAKER_TRIGGERED_SCHEMA,
     "RUNTIME_SAFETY_VIOLATION": RUNTIME_SAFETY_VIOLATION_SCHEMA,
     "FAULT_DETECTED": FAULT_DETECTED_SCHEMA,
     "FAULT_ACTION_TAKEN": FAULT_ACTION_TAKEN_SCHEMA,
@@ -422,6 +447,7 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
     "TRADE_EXIT_COMPLETE": {"closed"},
     "STRATEGY_PERF_SNAPSHOT": {"strategies"},
     "PERF_SNAPSHOT": {"total_trades"},
+    "CIRCUIT_BREAKER_TRIGGERED": {"run_mode", "breaches", "limits", "metrics", "timestamp"},
     "TRADE_BLOCKED": {
         "symbol",
         "trader_type",
@@ -547,6 +573,17 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
         "timestamp",
         "reason",
     },
+    "ORDER_FILL_RECORDED": {
+        "client_order_id",
+        "symbol",
+        "direction",
+        "quantity",
+        "order_type",
+        "timestamp",
+        "filled_quantity",
+        "remaining_quantity",
+        "fill_status",
+    },
     "READ_ONLY_BLOCK": {
         "symbol",
         "trader_type",
@@ -622,6 +659,13 @@ OPTIONAL_FIELDS: Dict[str, Set[str]] = {
     "ORDER_SUBMITTED_ACK": {"ibkr_order_id", "ack_status", "reason"},
     "ORDER_SUBMISSION_FAILED": {"ibkr_order_id", "reason"},
     "ORDER_SUBMISSION_BLOCKED": {"ibkr_order_id"},
+    "ORDER_FILL_RECORDED": {
+        "ibkr_order_id",
+        "average_fill_price",
+        "last_fill_price",
+        "commission",
+        "slippage",
+    },
     "ORDER_SUBMITTED": {
         "trader_type",
         "strategy_name",
