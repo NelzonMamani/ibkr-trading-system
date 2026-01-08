@@ -23,6 +23,17 @@ class RunMode(str, Enum):
 DEFAULT_RUN_MODE: RunMode = RunMode.SIM
 
 
+def is_live_read_only_required() -> bool:
+    market_data_type = get_ibkr_market_data_type()
+    ibkr_readonly_enabled = get_ibkr_readonly_enabled()
+    ibkr_port = get_ibkr_port()
+    return (
+        market_data_type == "LIVE"
+        or ibkr_readonly_enabled
+        or ibkr_port in {7496, 7497}
+    )
+
+
 def get_run_mode() -> RunMode:
     """
     Authoritative runtime mode resolver.
@@ -32,14 +43,38 @@ def get_run_mode() -> RunMode:
     2) DEFAULT_RUN_MODE (SIM)
     """
     raw = (os.getenv("RUN_MODE") or "").strip().upper()
+    if is_live_read_only_required():
+        if raw:
+            try:
+                resolved_raw = RunMode(raw)
+            except ValueError:
+                print(
+                    f"[RUNTIME] Invalid RUN_MODE='{raw}'. Forcing LIVE_READ_ONLY due to IBKR settings."
+                )
+                resolved_raw = None
+            if resolved_raw == RunMode.SIM:
+                raise RuntimeError(
+                    "RUN_MODE=SIM is invalid when IBKR live/read-only settings are active."
+                )
+        return RunMode.LIVE_READ_ONLY
     if not raw:
         return DEFAULT_RUN_MODE
 
     try:
-        return RunMode(raw)
+        resolved = RunMode(raw)
     except ValueError:
         print(f"[RUNTIME] Invalid RUN_MODE='{raw}'. Falling back to SAFE default SIM.")
-        return RunMode.SIM
+        resolved = RunMode.SIM
+    if (
+        resolved == RunMode.SIM
+        and get_ibkr_market_data_type() == "LIVE"
+        and get_ibkr_readonly_enabled()
+    ):
+        raise RuntimeError(
+            "RUN_MODE=SIM with IBKR_MARKET_DATA_TYPE=LIVE and IBKR_READONLY_ENABLED=True "
+            "is an invalid configuration."
+        )
+    return resolved
 
 
 def get_ibkr_readonly_enabled(default: bool = True) -> bool:

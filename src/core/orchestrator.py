@@ -23,6 +23,7 @@ from config.runtime_config import (
     get_live_micro_max_trades_per_day,
     get_run_mode,
     get_scanner_mode,
+    is_live_read_only_required,
 )
 from config.system_config import get_current_market_session
 from core.active_trade_registry import ActiveTradeRegistry
@@ -1221,6 +1222,17 @@ class CoreOrchestrator:
             else type(broker_adapter).__name__ if broker_adapter is not None else "NONE"
         )
         print(f"[VALIDATION] Broker adapter in use: {broker_name}")
+        if is_live_read_only_required():
+            if self.run_mode == RunMode.SIM:
+                raise RuntimeError(
+                    "RUN_MODE=SIM is invalid when IBKR live/read-only settings are active."
+                )
+            if "SIM" in market_data_source:
+                raise RuntimeError(
+                    "Market data source resolved to SIM under LIVE_READ_ONLY conditions."
+                )
+            if isinstance(broker_adapter, SimBroker):
+                raise RuntimeError("SIM broker instantiated under LIVE_READ_ONLY conditions.")
         if self.run_mode == RunMode.LIVE_READ_ONLY:
             print("[VALIDATION] LIVE_READ_ONLY: live data enabled")
             print("[VALIDATION] LIVE_READ_ONLY: execution disabled by design")
