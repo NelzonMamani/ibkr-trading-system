@@ -1,16 +1,24 @@
-# IBKR Trading System
+# IBKR Modular Trading System
 
-Algorithmic trading system using Interactive Brokers API.
-Initial focus: momentum strategies inspired by Ross Cameron (paper trading only).
+This repository contains a phase-governed, safety-first trading system
+built around an orchestrator-centric architecture.
 
-## Phase 13 — Signals Layer
+## What This System Is
+- Multi-strategy trading platform
+- IBKR-integrated with strict safety controls
+- Ross Cameron momentum strategy as first-class reference
+- Designed for extension, research, and automation
 
-Signals sit between the PatternEngine and StrategyRunner stages. The Signals
-layer evaluates deterministic momentum triggers (HOD break, PMH break, micro
-pullback, bull flag, ORB 1m) and emits teaching-first events without changing
-strategy logic yet. Later phases will replace dict inputs with typed
-CandleSeries + MarketSnapshot snapshots for real market structures.
+## Authoritative Documents
+The following files define system truth:
 
-New event types:
-- SIGNAL_EMITTED
-- SIGNAL_INVALID
+- SYSTEM_CONSTITUTION.md — permanent system law
+- SYSTEM_STATE.md — current phase and runtime authority
+- docs/ — phase specifications and completion records
+
+## How to Run (High Level)
+- main.py runs the full orchestrated system
+- scanner modules can be run standalone for validation
+- LIVE_READ_ONLY mode is the default safe runtime
+
+Refer to SYSTEM_STATE.md for current expectations.
