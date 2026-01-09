@@ -11,6 +11,9 @@ Notes
   - This script is intentionally defensive: missing data must not crash the run.
   - The MASTER PRINTER must print the full canonical 1–54 fields for every symbol.
   - The compact header line is Ross-aligned: Fire → Symbol → %Chg → Gap → Price → Float → RVOL → News.
+
+Run (from repo root):
+  .venv\\Scripts\\python.exe -m src.scanner.scanner_master_v2026_01_06_07
 """
 
 from __future__ import annotations
@@ -27,43 +30,29 @@ if sys.platform.startswith("win"):
 # Section 1: Imports & Config
 # ============================
 
+import importlib
+import importlib.util
 import json
 import logging
 import math
 import os
 import random
-import re
 import time
-import urllib.parse
-from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ib_insync import IB, ScannerSubscription, Stock, util
-from config.runtime_config import (
-    get_ibkr_client_id,
-    get_ibkr_host,
-    get_ibkr_max_symbols_per_cycle,
-    get_ibkr_port,
-)
 
-# Optional dependencies for News Truth (RSS parsing).
-try:  # pragma: no cover
-    import feedparser  # type: ignore
-except Exception:  # pragma: no cover
-    feedparser = None
-
-try:  # pragma: no cover
-    import requests  # type: ignore
-except Exception:  # pragma: no cover
-    requests = None
+from .filters import passes_catalyst_eligibility, passes_ross_5_pillars
+from .news_engine import NEWS_MAX_TOP_HEADLINES, get_news_truth
+from .scanner_config import FLOAT_CACHE_FILE, IB_CONNECT_TIMEOUT, IB_HOST, IB_PORT, TOP_GAINERS_COUNT
 
 # Optional float fallback: yfinance (best-effort)
-try:
-    import yfinance as yf  # type: ignore
-except Exception:  # pragma: no cover
+if importlib.util.find_spec("yfinance"):
+    yf = importlib.import_module("yfinance")  # type: ignore
+else:  # pragma: no cover
     yf = None
 
 # ============================
@@ -154,20 +143,6 @@ def _req_hist_safe(
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
-IB_HOST = get_ibkr_host()
-IB_PORT = get_ibkr_port()
-IB_CONNECT_TIMEOUT = float(os.environ.get("IB_CONNECT_TIMEOUT", "12"))
-
-TOP_GAINERS_COUNT = int(os.environ.get("TOP_GAINERS_COUNT", str(get_ibkr_max_symbols_per_cycle())))
-
-# News Truth controls
-NEWS_ENABLED = os.environ.get("NEWS_ENABLED", "1").strip() not in {"0", "false", "False"}
-NEWS_REQUEST_TIMEOUT_S = float(os.environ.get("NEWS_REQUEST_TIMEOUT_S", "5"))
-NEWS_MAX_ENTRIES_PER_SYMBOL = int(os.environ.get("NEWS_MAX_ENTRIES_PER_SYMBOL", "50"))
-NEWS_LOOKBACK_HOURS = float(os.environ.get("NEWS_LOOKBACK_HOURS", "48"))
-
-FLOAT_CACHE_FILE = os.environ.get("FLOAT_CACHE_FILE", "float_cache.json")
-
 
 # ============================
 # Section 2: Canonical field order (1–54)
@@ -241,8 +216,6 @@ CANONICAL_FIELDS: List[str] = [
     "trade_suggestion_label",
     "trade_suggestion_rationale",
 ]
-CANONICAL_FIELD_ORDER = CANONICAL_FIELDS  # backwards-compat alias
-
 assert len(CANONICAL_FIELDS) == 54, f"Expected 54 fields, got {len(CANONICAL_FIELDS)}"
 
 
@@ -347,7 +320,7 @@ def market_session_label_utc(now: Optional[datetime] = None) -> str:
     return "OVN"
 
 
-def load_json_file(path: str, default: Any) -> Any:
+def load_json_file(path: str | Path, default: Any) -> Any:
     try:
         p = Path(path)
         if not p.exists():
@@ -358,7 +331,7 @@ def load_json_file(path: str, default: Any) -> Any:
         return default
 
 
-def save_json_file(path: str, obj: Any) -> None:
+def save_json_file(path: str | Path, obj: Any) -> None:
     try:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -375,7 +348,7 @@ def save_json_file(path: str, obj: Any) -> None:
 def ib_connect() -> IB:
     ib = IB()
     ib.RaiseRequestErrors = False  # prefer empty results over hard failures on pacing/cancellations
-    client_id = int(os.environ.get("IBKR_CLIENT_ID", str(get_ibkr_client_id())) or 0)
+    client_id = int(os.environ.get("IBKR_CLIENT_ID", "0") or 0)
     if client_id <= 0:
         client_id = random.randint(1000, 9999)
     logging.info("Connecting to %s:%s with clientId %s...", IB_HOST, IB_PORT, client_id)
@@ -508,7 +481,7 @@ def get_price_truth(ib: IB, contract: Stock, session_open_price_fallback: Option
 
         truth_source = "SNAPSHOT"
     except Exception as e:
-        logger.warning("Snapshot price failed for %s: %s", sym, e)
+        logging.getLogger(__name__).warning("Snapshot price failed for %s: %s", sym, e)
 
     # Ensure no lingering subscription
     try:
@@ -776,361 +749,6 @@ def get_volume_truth(ib: IB, contract: Stock, *, session_label: str) -> VolumeTr
         volume_data_quality_flag=quality,
     )
 
-# ============================
-# Section 7: News Truth (verified_rss.txt only)
-# ============================
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-VERIFIED_RSS_PATH = os.environ.get("VERIFIED_RSS_PATH", str(SCRIPT_DIR / "verified_rss.txt"))
-NEWS_REFRESH_SECONDS = int(os.environ.get("NEWS_REFRESH_SECONDS", "90"))
-NEWS_MAX_ITEMS_PER_FEED = int(os.environ.get("NEWS_MAX_ITEMS_PER_FEED", "75"))
-NEWS_MAX_TOP_HEADLINES = int(os.environ.get("NEWS_MAX_TOP_HEADLINES", "5"))
-NEWS_DEBUG = os.environ.get("NEWS_DEBUG", "0").strip().lower() in {"1", "true", "yes"}
-
-DOMAIN_CREDIBILITY = {
-    "reuters.com": 1.00,
-    "bloomberg.com": 0.95,
-    "wsj.com": 0.95,
-    "ft.com": 0.90,
-    "apnews.com": 0.90,
-    "bbc.co.uk": 0.88,
-    "bbc.com": 0.88,
-}
-
-_TIME_BUCKETS = [
-    ("0_1m", 0, 1),
-    ("1_5m", 1, 5),
-    ("5_10m", 5, 10),
-    ("10_20m", 10, 20),
-    ("20_30m", 20, 30),
-    ("30_60m", 30, 60),
-    ("1_5h", 60, 300),
-    ("5_10h", 300, 600),
-    ("10_24h", 600, 1440),
-    ("24_48h", 1440, 2880),
-    ("48h_plus", 2880, 10**9),
-]
-
-_NEWS_CACHE = {
-    "loaded_at": 0.0,
-    "rss_urls": [],
-    "items": [],
-}
-
-
-def _load_verified_rss_urls(path: str) -> list:
-    """Load RSS feed URLs from a verified list (one per line).
-
-    - Empty lines and comments (# ...) are ignored
-    - Duplicate URLs are removed (stable order)
-    """
-    urls: list = []
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                s = (line or "").strip()
-                if not s or s.startswith("#"):
-                    continue
-                urls.append(s)
-    except FileNotFoundError:
-        logging.warning("verified_rss.txt not found at %s (News will be empty).", path)
-        urls = []
-    except Exception as e:
-        logging.warning("Failed reading verified_rss.txt at %s: %s", path, e)
-        urls = []
-
-    out = []
-    seen = set()
-    for u in urls:
-        if u in seen:
-            continue
-        seen.add(u)
-        out.append(u)
-
-    if NEWS_DEBUG:
-        logging.info("RSS sources loaded: %d", len(out))
-
-    return out
-
-
-def _domain_from_url(url: str) -> str:
-    try:
-        host = urllib.parse.urlparse(url).netloc.lower()
-        host = host.split('@')[-1]
-        if host.startswith('www.'):
-            host = host[4:]
-        return host
-    except Exception:
-        return ''
-
-
-def _infer_region_from_domain(domain: str) -> str:
-    # Conservative heuristic; we only need a coarse "regions list".
-    if domain.endswith('.co.uk') or domain.endswith('.uk'):
-        return 'UK'
-    if domain.endswith('.ca'):
-        return 'CA'
-    if domain.endswith('.au'):
-        return 'AU'
-    if domain.endswith('.de'):
-        return 'DE'
-    if domain.endswith('.fr'):
-        return 'FR'
-    if domain.endswith('.es'):
-        return 'ES'
-    if domain.endswith('.it'):
-        return 'IT'
-    if domain.endswith('.nl'):
-        return 'NL'
-    if domain.endswith('.jp'):
-        return 'JP'
-    if domain.endswith('.cn'):
-        return 'CN'
-    if domain.endswith('.in'):
-        return 'IN'
-    if domain.endswith('.br'):
-        return 'BR'
-    # default
-    return 'US/Global'
-
-
-def _credibility_for_domain(domain: str) -> float:
-    if not domain:
-        return 0.0
-    # exact match
-    if domain in DOMAIN_CREDIBILITY:
-        return float(DOMAIN_CREDIBILITY[domain])
-    # suffix match
-    for k, v in DOMAIN_CREDIBILITY.items():
-        if domain.endswith(k):
-            return float(v)
-    return 0.60  # neutral default
-
-
-def _published_ts_from_entry(e) -> float | None:
-    # feedparser gives published_parsed / updated_parsed as time.struct_time
-    try:
-        if getattr(e, 'published_parsed', None):
-            return time.mktime(e.published_parsed)
-        if getattr(e, 'updated_parsed', None):
-            return time.mktime(e.updated_parsed)
-    except Exception:
-        return None
-    return None
-
-
-def _refresh_news_cache_if_needed(now_ts: float) -> None:
-    if (now_ts - _NEWS_CACHE['loaded_at']) < NEWS_REFRESH_SECONDS and _NEWS_CACHE['items']:
-        return
-
-    if feedparser is None:
-        _NEWS_CACHE['loaded_at'] = now_ts
-        _NEWS_CACHE['items'] = []
-        return
-
-    rss_urls = _load_verified_rss_urls(VERIFIED_RSS_PATH)
-    _NEWS_CACHE['rss_urls'] = rss_urls
-
-    if not rss_urls:
-        _NEWS_CACHE['loaded_at'] = now_ts
-        _NEWS_CACHE['items'] = []
-        return
-
-    items = []
-    feeds_ok = 0
-    feeds_err = 0
-    for url in rss_urls:
-        try:
-            feed = feedparser.parse(url)
-            if getattr(feed, 'bozo', False):
-                feeds_err += 1
-                if NEWS_DEBUG:
-                    logging.info('RSS parse bozo: %s (%s)', url, getattr(feed, 'bozo_exception', ''))
-            else:
-                feeds_ok += 1
-            feed_title = ''
-            try:
-                feed_title = (feed.feed.get('title') or '').strip()
-            except Exception:
-                feed_title = ''
-
-            for entry in (feed.entries or [])[:NEWS_MAX_ITEMS_PER_FEED]:
-                title = (getattr(entry, 'title', '') or '').strip()
-                link = (getattr(entry, 'link', '') or '').strip()
-                if not title or not link:
-                    continue
-                ts = _published_ts_from_entry(entry)
-                age_min = None
-                if ts is not None:
-                    age_min = max(0.0, (now_ts - ts) / 60.0)
-                domain = _domain_from_url(link)
-                region = _infer_region_from_domain(domain)
-
-                items.append({
-                    'title': title,
-                    'url': link,
-                    'published_ts': ts,
-                    'age_minutes': age_min,
-                    'source': feed_title or domain or 'Unknown',
-                    'domain': domain,
-                    'region': region,
-                })
-        except Exception as e:
-            logging.debug('[NEWS] RSS parse failed for %s: %s', url, e)
-            continue
-
-    # sort freshest first
-    items.sort(key=lambda x: (x['published_ts'] is None, -(x['published_ts'] or 0)))
-
-    _NEWS_CACHE['loaded_at'] = now_ts
-    if NEWS_DEBUG:
-        logging.info('RSS refresh: feeds_ok=%d feeds_err=%d items=%d', feeds_ok, feeds_err, len(items))
-    _NEWS_CACHE['items'] = items
-
-
-def blank_news_fields() -> dict:
-    return {
-        'news_total_headlines': 0,
-        'news_unique_headlines': 0,
-        'news_replicated_headlines': 0,
-        'news_velocity_10m': 0,
-        'news_velocity_60m': 0,
-        'news_spike_indicator': False,
-        'news_freshest_age_minutes': None,
-        'news_regions_list': [],
-        'news_region_count': 0,
-        'news_top_sources_list': [],
-        'news_top_source_credibility_score': 0.0,
-        'news_average_sentiment': 0.0,  # placeholder (Phase 3 future)
-        'news_keyword_relevance_score': 0.0,  # placeholder (Phase 3 future)
-        'news_primary_catalyst_keywords': [],  # placeholder (Phase 3 future)
-        'news_top_headlines_list': [],
-    }
-
-
-def _matches_symbol(text: str, symbol: str) -> bool:
-    if not text or not symbol:
-        return False
-    # Match as standalone token-ish to reduce false positives
-    return re.search(rf"(?<![A-Z0-9]){re.escape(symbol)}(?![A-Z0-9])", text.upper()) is not None
-
-
-def get_news_truth(symbol: str) -> dict:
-    """Return Phase-3 news truth, using verified_rss.txt only.
-
-    Outputs fill canonical fields (news_*). For the time-distribution buckets
-    (Phase 3B), we compute them and attach to the returned dict under the key
-    '_news_time_buckets' for downstream scoring/debug.
-    """
-    if not NEWS_ENABLED or feedparser is None:
-        out = blank_news_fields()
-        out['_news_time_buckets'] = {k: 0 for k, _, _ in _TIME_BUCKETS}
-        return out
-
-    now_ts = time.time()
-    _refresh_news_cache_if_needed(now_ts)
-
-    items = _NEWS_CACHE.get('items', [])
-    if not items:
-        out = blank_news_fields()
-        out['_news_time_buckets'] = {k: 0 for k, _, _ in _TIME_BUCKETS}
-        return out
-
-    matched = []
-    for it in items:
-        if _matches_symbol(it.get('title', ''), symbol):
-            matched.append(it)
-        # You may extend matching to summaries if you later store them.
-
-    lookback_minutes = NEWS_LOOKBACK_HOURS * 60.0
-    if lookback_minutes > 0:
-        matched = [
-            it for it in matched
-            if it.get("age_minutes") is None or it.get("age_minutes") <= lookback_minutes
-        ]
-
-    if not matched:
-        out = blank_news_fields()
-        out['_news_time_buckets'] = {k: 0 for k, _, _ in _TIME_BUCKETS}
-        return out
-
-    # Dedup by normalised title
-    norm_map = {}
-    for it in matched:
-        norm = re.sub(r'\s+', ' ', (it.get('title') or '').strip().lower())
-        norm_map.setdefault(norm, []).append(it)
-
-    unique_items = [v[0] for v in norm_map.values()]
-    replicated = sum(max(0, len(v) - 1) for v in norm_map.values())
-
-    # Velocities: how many headlines (unique) published within last X minutes
-    def within(minutes: float, it: dict) -> bool:
-        age = it.get('age_minutes')
-        return age is not None and age <= minutes
-
-    vel10 = sum(1 for it in unique_items if within(10, it))
-    vel60 = sum(1 for it in unique_items if within(60, it))
-
-    freshest = None
-    ages = [it.get('age_minutes') for it in unique_items if it.get('age_minutes') is not None]
-    if ages:
-        freshest = min(ages)
-
-    # Regions & sources
-    regions = sorted({(it.get('region') or 'US/Global') for it in unique_items})
-    sources = [it.get('source') or 'Unknown' for it in unique_items]
-    top_sources = [s for s, _ in Counter(sources).most_common(5)]
-
-    # Credibility: max of the top sources domains
-    cred = 0.0
-    for it in unique_items[:10]:
-        cred = max(cred, _credibility_for_domain(it.get('domain', '')))
-
-    # Spike: simple heuristic = lots of very recent headlines
-    spike = (vel10 >= 5) or (vel10 >= 3 and vel60 >= 6)
-
-    # Time buckets (Phase 3B)
-    buckets = {k: 0 for k, _, _ in _TIME_BUCKETS}
-    for it in unique_items:
-        age = it.get('age_minutes')
-        if age is None:
-            continue
-        for k, lo, hi in _TIME_BUCKETS:
-            if lo <= age < hi:
-                buckets[k] += 1
-                break
-
-    # Top headlines list (Phase 3C): store title+url+age
-    top = []
-    for it in unique_items[:NEWS_MAX_TOP_HEADLINES]:
-        top.append({
-            'title': it.get('title', ''),
-            'url': it.get('url', ''),
-            'age_minutes': it.get('age_minutes'),
-            'source': it.get('source', ''),
-            'region': it.get('region', ''),
-        })
-
-    out = {
-        'news_total_headlines': len(matched),
-        'news_unique_headlines': len(unique_items),
-        'news_replicated_headlines': int(replicated),
-        'news_velocity_10m': int(vel10),
-        'news_velocity_60m': int(vel60),
-        'news_spike_indicator': bool(spike),
-        'news_freshest_age_minutes': round(float(freshest), 2) if freshest is not None else None,
-        'news_regions_list': regions,
-        'news_region_count': int(len(regions)),
-        'news_top_sources_list': top_sources,
-        'news_top_source_credibility_score': round(float(cred), 2),
-        'news_average_sentiment': 0.0,
-        'news_keyword_relevance_score': 0.0,
-        'news_primary_catalyst_keywords': [],
-        'news_top_headlines_list': top,
-        '_news_time_buckets': buckets,
-    }
-    return out
-
 # Section 8: Entry builder (1 symbol → 54 fields)
 # ============================
 
@@ -1155,10 +773,15 @@ def build_entry(
 
     # Phase 3A/3B: News truth (RSS-based best-effort)
     news = get_news_truth(sym)
+    news_total = news.get("news_total_headlines") or 0
 
     # Fire indicator (simple, trader-friendly; adjustable later)
     fire = ""
-    if (pt.pct_change is not None and pt.pct_change >= 10) and (vt.relative_volume is not None and vt.relative_volume >= 2):
+    if (
+        (pt.pct_change is not None and pt.pct_change >= 10)
+        and (vt.relative_volume is not None and vt.relative_volume >= 2)
+        and news_total > 0
+    ):
         fire = "🔥"
 
     entry: Dict[str, Any] = {
@@ -1222,12 +845,7 @@ def build_entry(
         "news_top_headlines_list": news.get("news_top_headlines_list"),
     }
 
-    # Phase 3B: Persist the time-distribution for later UIs without changing the
-    # canonical 1–54 field list. We attach it to the (already canonical) scoring
-    # breakdown field for now.
-    entry["score_components_breakdown"] = {
-        "news_time_distribution": news.get("_news_time_buckets", {}),
-    }
+    entry["score_components_breakdown"] = {}
 
     # Scoring placeholders (Phase 4 will fill)
     entry.update({
@@ -1378,150 +996,6 @@ def apply_composite_scoring(entries: List[Dict[str, Any]]) -> None:
         entry["trade_suggestion_rationale"] = rationale
 
 
-# ============================
-# Phase 5: Ross 5-Pillars Watchlist Printer
-# ============================
-
-ROSS_5_PILLARS = {
-    "min_pct_change": 10.0,
-    "min_price": 1.0,
-    "max_price": 20.0,
-    "max_float": 20_000_000,
-    "min_rvol": 5.0,
-    "min_volume": 1_000_000,
-    "require_news": False,  # Ross often wants a catalyst; set True if you prefer.
-}
-
-def passes_ross_5_pillars(entry: dict) -> bool:
-    pct = _safe_float(entry.get("current_percentage_change_from_prior_close"), None)
-    px = _safe_float(entry.get("last_trade_price"), None)
-    flt = entry.get("float_shares_raw")
-    rvol = _safe_float(entry.get("relative_volume"), None)
-    vol = _safe_float(entry.get("current_intraday_volume"), None)
-    news_total = _safe_float(entry.get("news_total_headlines"), 0.0) or 0.0
-
-    if pct is None or px is None or rvol is None or vol is None:
-        return False
-    if pct < ROSS_5_PILLARS["min_pct_change"]:
-        return False
-    if not (ROSS_5_PILLARS["min_price"] <= px <= ROSS_5_PILLARS["max_price"]):
-        return False
-    if flt is None or flt <= 0 or flt > ROSS_5_PILLARS["max_float"]:
-        return False
-    if rvol < ROSS_5_PILLARS["min_rvol"]:
-        return False
-    if vol < ROSS_5_PILLARS["min_volume"]:
-        return False
-    if ROSS_5_PILLARS["require_news"] and news_total <= 0:
-        return False
-    return True
-
-
-# ============================
-# Phase 6: Sniper Strategy Printer (news-weighted ranking)
-# ============================
-
-SNIPER_RULES = {
-    "max_picks": 10,
-    "min_news_total": 1,
-    "min_regions": 1,
-    "min_vel10m": 1,
-}
-
-def sniper_rank_score(entry: dict) -> float:
-    total = _safe_float(entry.get("news_total_headlines"), 0.0) or 0.0
-    unique = _safe_float(entry.get("news_unique_headlines"), 0.0) or 0.0
-    regions = _safe_float(entry.get("news_region_count"), 0.0) or 0.0
-    vel10 = _safe_float(entry.get("news_velocity_10m"), 0.0) or 0.0
-    cred = _safe_float(entry.get("news_top_source_credibility_score"), 0.0) or 0.0
-
-    # Emphasise: breadth (regions), novelty (unique), urgency (vel10), magnitude (total), credibility.
-    return (
-        0.30 * _clamp(total / 50.0, 0.0, 1.0)
-        + 0.25 * _clamp(unique / 10.0, 0.0, 1.0)
-        + 0.20 * _clamp(regions / 6.0, 0.0, 1.0)
-        + 0.20 * _clamp(vel10 / 10.0, 0.0, 1.0)
-        + 0.05 * _clamp(cred, 0.0, 1.0)
-    )
-
-
-ROSS_WATCHLIST_LIMIT = int(os.environ.get("ROSS_WATCHLIST_LIMIT", "15"))
-
-
-def _print_headlines_block(headlines: list) -> None:
-    for h in headlines[:NEWS_MAX_TOP_HEADLINES]:
-        if isinstance(h, dict):
-            title = str(h.get("title", ""))
-            url = str(h.get("url", ""))
-            age = h.get("age_minutes")
-            age_s = "N/A" if age is None else f"{age}m"
-            src = h.get("source", "")
-            label = f"{title} [{src}] ({age_s})" if src else f"{title} ({age_s})"
-            print(f"    - {format_clickable(label, url)}")
-        else:
-            print(f"    - {h}")
-
-
-def print_ross_5_pillars_watchlist(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    print("\n" + "=" * 90)
-    print("ROSS 5-PILLARS WATCHLIST —", utc_now_iso())
-    print("=" * 90)
-
-    filtered = [e for e in entries if passes_ross_5_pillars(e)]
-    filtered = sorted(
-        filtered,
-        key=lambda x: (x.get("current_percentage_change_from_prior_close") is None,
-                       -(x.get("current_percentage_change_from_prior_close") or -10**9)),
-    )[:ROSS_WATCHLIST_LIMIT]
-
-    for e in filtered:
-        sym = e.get("symbol", "")
-        pct = e.get("current_percentage_change_from_prior_close")
-        px = e.get("last_trade_price")
-        flt = e.get("float_shares_formatted")
-        rvol = e.get("relative_volume")
-        news_total = e.get("news_total_headlines", 0)
-        vel10 = e.get("news_velocity_10m")
-        regions = e.get("news_regions_list")
-        print(
-            f"{sym} | %Chg:{pct} | Px:{px} | Float:{flt} | RVOL:{rvol} | "
-            f"News:{news_total} | Vel10:{vel10} | Regions:{regions}"
-        )
-        headlines = e.get("news_top_headlines_list") or []
-        if headlines:
-            print("  Top Headlines:")
-            _print_headlines_block(headlines)
-    print("=" * 90)
-    return filtered
-
-
-def print_sniper_watchlist(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    print("\n" + "=" * 90)
-    print("SNIPER NEWS WATCHLIST —", utc_now_iso())
-    print("=" * 90)
-
-    eligible = []
-    for e in entries:
-        total = _safe_float(e.get("news_total_headlines"), 0.0) or 0.0
-        regions = _safe_float(e.get("news_region_count"), 0.0) or 0.0
-        vel10 = _safe_float(e.get("news_velocity_10m"), 0.0) or 0.0
-        if total >= SNIPER_RULES["min_news_total"] and regions >= SNIPER_RULES["min_regions"] and vel10 >= SNIPER_RULES["min_vel10m"]:
-            eligible.append(e)
-
-    ranked = sorted(eligible, key=sniper_rank_score, reverse=True)[:SNIPER_RULES["max_picks"]]
-    for e in ranked:
-        sym = e.get("symbol", "")
-        score = round(sniper_rank_score(e), 3)
-        news_total = e.get("news_total_headlines", 0)
-        vel10 = e.get("news_velocity_10m")
-        regions = e.get("news_regions_list")
-        print(f"{sym} | SniperScore:{score} | News:{news_total} | Vel10:{vel10} | Regions:{regions}")
-        headlines = e.get("news_top_headlines_list") or []
-        if headlines:
-            print("  Top Headlines:")
-            _print_headlines_block(headlines)
-    print("=" * 90)
-    return ranked
 # Section 9: MASTER PRINTER
 # ============================
 
@@ -1550,12 +1024,35 @@ def format_clickable(label: str, url: str) -> str:
     clickable = f"\033]8;;{url}\033\\{label}\033]8;;\033\\"
     return f"{clickable} ({url})" if show_urls else clickable
 
+
+def validate_entry(entry: dict) -> tuple[bool, list[str]]:
+    missing = [k for k in CANONICAL_FIELDS if k not in entry]
+    return len(missing) == 0, missing
+
+
+def _print_headlines_block(headlines: list) -> None:
+    for h in headlines[:NEWS_MAX_TOP_HEADLINES]:
+        if isinstance(h, dict):
+            title = str(h.get("title", ""))
+            url = str(h.get("url", ""))
+            age = h.get("age_minutes")
+            age_s = "N/A" if age is None else f"{age}m"
+            src = h.get("source", "")
+            label = f"{title} [{src}] ({age_s})" if src else f"{title} ({age_s})"
+            print(f"    - {format_clickable(label, url)}")
+        else:
+            print(f"    - {h}")
+
+
 def print_master(entries: List[Dict[str, Any]]) -> None:
     print("\n" + "=" * 90)
     print("MASTER SCANNER PRINTER —", utc_now_iso())
     print("=" * 90)
 
     for e in entries:
+        _, missing = validate_entry(e)
+        if missing:
+            print(f"[WARN] Missing canonical fields: {missing}")
         fire = e.get("momentum_fire_indicator", "") or ""
         sym = e.get("symbol", "")
         pct = e.get("current_percentage_change_from_prior_close")
@@ -1579,17 +1076,7 @@ def print_master(entries: List[Dict[str, Any]]) -> None:
                 headlines = e.get(k) or []
                 print(f"  - {k}:")
                 if isinstance(headlines, list):
-                    for h in headlines[:NEWS_MAX_TOP_HEADLINES]:
-                        if isinstance(h, dict):
-                            title = str(h.get("title", ""))
-                            url = str(h.get("url", ""))
-                            age = h.get("age_minutes")
-                            age_s = "N/A" if age is None else f"{age}m"
-                            src = h.get("source", "")
-                            label = f"{title} [{src}] ({age_s})" if src else f"{title} ({age_s})"
-                            print(f"    - {format_clickable(label, url)}")
-                        else:
-                            print(f"    - {h}")
+                    _print_headlines_block(headlines)
                 else:
                     print(f"    - {headlines}")
                 continue
@@ -1599,7 +1086,72 @@ def print_master(entries: List[Dict[str, Any]]) -> None:
 
 
 # ============================
-# Section 10: Orchestrator
+# Section 10: Filtered Watchlists
+# ============================
+
+def _format_watchlist_line(entry: Dict[str, Any]) -> str:
+    fire = entry.get("momentum_fire_indicator", "") or ""
+    sym = entry.get("symbol", "")
+    pct = entry.get("current_percentage_change_from_prior_close")
+    gap = entry.get("overnight_gap_percentage")
+    px = entry.get("last_trade_price")
+    flt = entry.get("float_shares_formatted")
+    rvol = entry.get("relative_volume")
+    news_total = entry.get("news_total_headlines", 0)
+    vel10 = entry.get("news_velocity_10m")
+    freshest = entry.get("news_freshest_age_minutes")
+    regions = entry.get("news_regions_list")
+
+    pct_s = "N/A" if pct is None else f"{pct:.1f}"
+    gap_s = "N/A" if gap is None else f"{gap:.1f}"
+    px_s = "N/A" if px is None else f"{px:.4g}"
+    rvol_s = "N/A" if rvol is None else f"{rvol:.2f}"
+    flt_s = flt if flt is not None else "N/A"
+    freshest_s = "N/A" if freshest is None else f"{freshest}m"
+
+    return (
+        f"{fire} {sym} | %Chg:{pct_s} | Gap:{gap_s} | Px:{px_s} | Float:{flt_s} | "
+        f"RVOL:{rvol_s} | News:{news_total} | Vel10:{vel10} | Freshest:{freshest_s} | Regions:{regions}"
+    )
+
+
+def build_filtered_watchlist(entries: List[Dict[str, Any]], limit: int = 15) -> List[Dict[str, Any]]:
+    filtered = [
+        entry
+        for entry in entries
+        if passes_ross_5_pillars(entry) and passes_catalyst_eligibility(entry)
+    ]
+    filtered = sorted(
+        filtered,
+        key=lambda x: (
+            x.get("current_percentage_change_from_prior_close") is None,
+            -(x.get("current_percentage_change_from_prior_close") or -10**9),
+        ),
+    )
+    return filtered[:limit]
+
+
+def print_filtered_watchlist(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    filtered = build_filtered_watchlist(entries, limit=15)
+    print("\n" + "=" * 90)
+    print("FILTERED WATCHLIST (ROSS+CATALYST) — TOP 15 —", utc_now_iso())
+    print("=" * 90)
+    for entry in filtered:
+        print(_format_watchlist_line(entry))
+    print("=" * 90)
+
+    focus = filtered[:3]
+    print("\n" + "=" * 90)
+    print("FOCUS TOP 3 —", utc_now_iso())
+    print("=" * 90)
+    for entry in focus:
+        print(_format_watchlist_line(entry))
+    print("=" * 90)
+    return filtered
+
+
+# ============================
+# Section 11: Orchestrator
 # ============================
 
 def run_once() -> None:
@@ -1632,7 +1184,7 @@ def run_once() -> None:
                     "market_session_label": session_label,
                     "sort_rank_by_gap_desc": idx,
                     # preserve canonical keys with N/A elsewhere; printer expects complete schema
-                    **{k: None for k in CANONICAL_FIELD_ORDER if k not in {"momentum_fire_indicator","symbol","market_session_label","sort_rank_by_gap_desc"}}
+                    **{k: None for k in CANONICAL_FIELDS if k not in {"momentum_fire_indicator","symbol","market_session_label","sort_rank_by_gap_desc"}}
                 })
 
         # Sort by % change desc (Ross/IB style), while keeping a deterministic rank label for printing
@@ -1648,8 +1200,7 @@ def run_once() -> None:
         save_json_file(FLOAT_CACHE_FILE, float_cache)
         apply_composite_scoring(sorted_entries)
         print_master(sorted_entries)
-        print_ross_5_pillars_watchlist(sorted_entries)
-        print_sniper_watchlist(sorted_entries)
+        print_filtered_watchlist(sorted_entries)
 
     finally:
         try:

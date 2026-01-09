@@ -1,17 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import os
 from typing import List, Optional
 
-from config.runtime_config import (
-    get_ibkr_auto_lockdown_enabled,
-    get_ibkr_fallback_enabled,
-    get_ibkr_fallback_source,
-    get_ibkr_max_symbols_per_cycle,
-    get_ibkr_snapshot_max_age_seconds,
-    get_scanner_symbols,
-)
-from config.system_config import get_current_market_session
 from core.event_collector import EventCollector
 from ibkr.market_data_client import MarketDataClient
 from models.data_models import ScannerCandidate
@@ -26,6 +19,39 @@ class LiveReadOnlyScannerConfig:
     max_symbols_per_cycle: int
 
 
+def _get_scanner_symbols() -> List[str]:
+    raw = (os.getenv("SCANNER_SYMBOLS") or os.getenv("IBKR_SCAN_SYMBOLS") or "").strip()
+    if not raw:
+        return []
+    return [symbol.strip().upper() for symbol in raw.split(",") if symbol.strip()]
+
+
+def _get_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except Exception:
+        return default
+
+
+def _get_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no"}
+
+
+def _current_market_session() -> str:
+    now = datetime.now(timezone.utc)
+    h = now.hour + now.minute / 60.0
+    if 12.0 <= h < 14.0:
+        return "PRE"
+    if 14.0 <= h < 21.5:
+        return "RTH"
+    if 21.5 <= h < 23.0:
+        return "AFT"
+    return "OVN"
+
+
 class LiveReadOnlyScanner:
     """Scanner that uses live IBKR read-only market data snapshots."""
 
@@ -35,18 +61,18 @@ class LiveReadOnlyScanner:
         event_collector: Optional[EventCollector] = None,
         config: Optional[LiveReadOnlyScannerConfig] = None,
     ) -> None:
-        resolved_symbols = get_scanner_symbols()
+        resolved_symbols = _get_scanner_symbols()
         if config is None:
             config = LiveReadOnlyScannerConfig(
                 symbols=resolved_symbols,
-                max_symbols_per_cycle=get_ibkr_max_symbols_per_cycle(),
+                max_symbols_per_cycle=_get_int("IBKR_MAX_SYMBOLS_PER_CYCLE", 50),
             )
         self.config = config
-        self.snapshot_max_age_seconds = get_ibkr_snapshot_max_age_seconds()
-        self.max_symbols_per_cycle = get_ibkr_max_symbols_per_cycle()
-        self.fallback_enabled = get_ibkr_fallback_enabled()
-        self.fallback_source = get_ibkr_fallback_source()
-        self.auto_lockdown_enabled = get_ibkr_auto_lockdown_enabled()
+        self.snapshot_max_age_seconds = _get_int("IBKR_SNAPSHOT_MAX_AGE_SECONDS", 15)
+        self.max_symbols_per_cycle = _get_int("IBKR_MAX_SYMBOLS_PER_CYCLE", 50)
+        self.fallback_enabled = _get_bool("IBKR_FALLBACK_ENABLED", True)
+        self.fallback_source = os.getenv("IBKR_FALLBACK_SOURCE", "static")
+        self.auto_lockdown_enabled = _get_bool("IBKR_AUTO_LOCKDOWN_ENABLED", False)
         self.market_data_client = market_data_client
         self.event_collector = event_collector
         self.last_data_quality_flags: dict[str, list[str]] = {}
@@ -70,7 +96,7 @@ class LiveReadOnlyScanner:
             print("[SCAN] LiveReadOnlyScanner has no symbols to query")
             return []
 
-        session = get_current_market_session()
+        session = _current_market_session()
         candidates: List[ScannerCandidate] = []
 
         try:

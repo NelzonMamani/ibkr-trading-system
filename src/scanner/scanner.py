@@ -9,23 +9,53 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Dict, List
 
 from brokers import IbkrBroker
-from config.runtime_config import (
-    RunMode,
-    get_ibkr_auto_lockdown_enabled,
-    get_ibkr_fallback_enabled,
-    get_ibkr_fallback_source,
-    get_ibkr_market_data_type,
-    get_ibkr_max_symbols_per_cycle,
-    get_ibkr_snapshot_max_age_seconds,
-    get_run_mode,
-)
-from config.system_config import get_current_market_session
 from core.event_collector import EventCollector
 from market_data.market_data_hub import MarketDataHub
 from models.data_models import ScannerCandidate
+
+
+class RunMode(Enum):
+    LIVE_READ_ONLY = "LIVE_READ_ONLY"
+    LIVE_MICRO = "LIVE_MICRO"
+    PAPER = "PAPER"
+
+
+def _get_run_mode() -> RunMode:
+    raw = (os.getenv("RUN_MODE") or "").strip().upper()
+    for mode in RunMode:
+        if mode.value == raw:
+            return mode
+    return RunMode.PAPER
+
+
+def _get_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no"}
+
+
+def _get_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except Exception:
+        return default
+
+
+def _get_current_market_session() -> str:
+    now = datetime.now(timezone.utc)
+    h = now.hour + now.minute / 60.0
+    if 12.0 <= h < 14.0:
+        return "PRE"
+    if 14.0 <= h < 21.5:
+        return "RTH"
+    if 21.5 <= h < 23.0:
+        return "AFT"
+    return "OVN"
 
 
 class Scanner:
@@ -36,14 +66,14 @@ class Scanner:
         event_collector: EventCollector | None = None,
         market_data_hub: MarketDataHub | None = None,
     ) -> None:
-        self.run_mode = get_run_mode()
+        self.run_mode = _get_run_mode()
         self.scan_symbols = self._resolve_scan_symbols()
-        self.market_data_type = get_ibkr_market_data_type()
-        self.snapshot_max_age_seconds = get_ibkr_snapshot_max_age_seconds()
-        self.max_symbols_per_cycle = get_ibkr_max_symbols_per_cycle()
-        self.fallback_enabled = get_ibkr_fallback_enabled()
-        self.fallback_source = get_ibkr_fallback_source()
-        self.auto_lockdown_enabled = get_ibkr_auto_lockdown_enabled()
+        self.market_data_type = os.getenv("IBKR_MARKET_DATA_TYPE", "DELAYED")
+        self.snapshot_max_age_seconds = _get_int("IBKR_SNAPSHOT_MAX_AGE_SECONDS", 15)
+        self.max_symbols_per_cycle = _get_int("IBKR_MAX_SYMBOLS_PER_CYCLE", 50)
+        self.fallback_enabled = _get_bool("IBKR_FALLBACK_ENABLED", True)
+        self.fallback_source = os.getenv("IBKR_FALLBACK_SOURCE", "static")
+        self.auto_lockdown_enabled = _get_bool("IBKR_AUTO_LOCKDOWN_ENABLED", False)
         self.last_data_quality_flags: Dict[str, List[str]] = {}
         self.last_connectivity_issue: str | None = None
         self.last_fallback_reason: str | None = None
@@ -99,7 +129,7 @@ class Scanner:
             max_symbols_per_cycle=self.max_symbols_per_cycle,
         )
         broker = hub.broker
-        session = get_current_market_session()
+        session = _get_current_market_session()
         candidates: List[ScannerCandidate] = []
         symbols = list(self.scan_symbols)
         if self.max_symbols_per_cycle and len(symbols) > self.max_symbols_per_cycle:
