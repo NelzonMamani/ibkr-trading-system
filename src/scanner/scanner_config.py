@@ -40,7 +40,7 @@ NEWS_LOOKBACK_HOURS = _env_float("NEWS_LOOKBACK_HOURS", 48.0)
 NEWS_REQUEST_TIMEOUT_S = _env_float("NEWS_REQUEST_TIMEOUT_S", 5.0)
 NEWS_MAX_ENTRIES_PER_SYMBOL = _env_int("NEWS_MAX_ENTRIES_PER_SYMBOL", 50)
 
-_VERIFIED_RSS_DEFAULT = Path(__file__).resolve().parent / "verified_rss.txt"
+_VERIFIED_RSS_DEFAULT = Path(__file__).resolve().parents[2] / "verified_rss.txt"
 VERIFIED_RSS_PATH = Path(os.environ.get("VERIFIED_RSS_PATH", str(_VERIFIED_RSS_DEFAULT)))
 
 _FLOAT_CACHE_DEFAULT = Path(__file__).resolve().parent / "float_cache.json"

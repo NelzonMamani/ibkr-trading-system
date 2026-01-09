@@ -45,7 +45,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ib_insync import IB, ScannerSubscription, Stock, util
 
-from news.news_heat import compute_fire_indicator
+from src.news.news_heat import compute_fire_indicator
 
 from .filters import passes_catalyst_eligibility, passes_ross_5_pillars
 from .news_engine import NEWS_MAX_TOP_HEADLINES, get_news_truth

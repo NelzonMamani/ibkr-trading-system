@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from adapters.brokers.ibkr.ibkr_client import IbkrClient
-from brokers.base_broker import BaseBroker, BrokerOrderRequest
-from config.runtime_config import (
+from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+from src.brokers.base_broker import BaseBroker, BrokerOrderRequest
+from src.config.runtime_config import (
     get_ibkr_client_id,
     get_ibkr_host,
     get_ibkr_market_data_type,
@@ -13,8 +13,8 @@ from config.runtime_config import (
     get_ibkr_readonly_enabled,
     get_ibkr_snapshot_timeout_seconds,
 )
-from domain.market_snapshot import MarketSnapshot
-from models.execution_result import ExecutionResult
+from src.domain.market_snapshot import MarketSnapshot
+from src.models.execution_result import ExecutionResult
 
 
 READONLY_ERROR = "IBKR READ-ONLY MODE: order submission disabled in LIVE_READ_ONLY."

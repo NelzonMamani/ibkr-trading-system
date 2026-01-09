@@ -6,9 +6,9 @@ from collections import Counter
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, Iterable, List, Optional
 
-from core.event_collector import EventCollector
-from models.data_models import PatternResult, ScannerCandidate
-from signals.types import SignalDecision, SignalEvent, SignalType
+from src.core.event_collector import EventCollector
+from src.models.data_models import PatternResult, ScannerCandidate
+from src.signals.types import SignalDecision, SignalEvent, SignalType
 
 
 class SignalEngine:

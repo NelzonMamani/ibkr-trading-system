@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from models.data_models import PatternResult, ScannerCandidate, TradeIntent
-from signals.types import SignalDecision, SignalEvent, SignalType
+from src.models.data_models import PatternResult, ScannerCandidate, TradeIntent
+from src.signals.types import SignalDecision, SignalEvent, SignalType
 
 
 @dataclass(frozen=True)

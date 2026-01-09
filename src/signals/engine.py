@@ -1,5 +1,5 @@
 """Compatibility wrapper for the teaching-first SignalEngine."""
 
-from signals.signal_engine import SignalEngine
+from src.signals.signal_engine import SignalEngine
 
 __all__ = ["SignalEngine"]

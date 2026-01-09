@@ -5,9 +5,10 @@ from datetime import datetime, timezone
 import os
 from typing import List, Optional
 
-from core.event_collector import EventCollector
-from ibkr.market_data_client import MarketDataClient
-from models.data_models import ScannerCandidate
+from src.core.event_collector import EventCollector
+from src.ibkr.market_data_client import MarketDataClient
+from src.models.data_models import ScannerCandidate
+from src.scanner.providers.mock_provider import MockScannerProvider
 
 
 DEFAULT_SCAN_SYMBOLS = ["AAPL", "TSLA", "NVDA", "AMD", "SPY"]
@@ -79,18 +80,30 @@ class LiveReadOnlyScanner:
         self.last_connectivity_issue: Optional[str] = None
         self.last_snapshot_success_count = 0
         self.last_snapshot_attempted_count = 0
+        self._fallback_provider: Optional[MockScannerProvider] = None
         print("[BOOT] LiveReadOnlyScanner instantiated — IBKR read-only market data")
 
     def validate_startup(self) -> None:
         """Validate connectivity and market data type configuration."""
-        self.market_data_client.connect()
-        self.market_data_client.disconnect()
+        try:
+            self.market_data_client.connect()
+            self.market_data_client.disconnect()
+        except Exception as exc:
+            self.last_connectivity_issue = f"IBKR market data error: {exc}"
+            print(
+                "[SCAN][FALLBACK] IBKR unavailable — switching to MOCK provider "
+                f"reason={exc}"
+            )
+            self._fallback_provider = MockScannerProvider()
+            return None
 
     def run_scan_cycle(self) -> List[ScannerCandidate]:
         self.last_data_quality_flags = {}
         self.last_connectivity_issue = None
         self.last_snapshot_success_count = 0
         self.last_snapshot_attempted_count = 0
+        if self._fallback_provider is not None:
+            return self._run_mock_cycle()
         symbols = self._resolve_symbols()
         if not symbols:
             print("[SCAN] LiveReadOnlyScanner has no symbols to query")
@@ -174,6 +187,33 @@ class LiveReadOnlyScanner:
                 source="LiveReadOnlyScanner",
                 payload={"candidates": len(candidates)},
             )
+        return candidates
+
+    def _run_mock_cycle(self) -> List[ScannerCandidate]:
+        symbols = self._fallback_provider.get_top_gainers(self.max_symbols_per_cycle)
+        session = _current_market_session()
+        candidates: List[ScannerCandidate] = []
+        for symbol in symbols:
+            quote = self._fallback_provider.get_quote(symbol)
+            price = quote.last or quote.bid or quote.ask
+            candidates.append(
+                ScannerCandidate(
+                    symbol=symbol,
+                    price=float(price) if price is not None else None,
+                    gap_percent=None,
+                    rvol=None,
+                    float_millions=None,
+                    rationale="MOCK fallback market data",
+                    session=session,
+                    bid=quote.bid,
+                    ask=quote.ask,
+                    spread=None,
+                    volume=quote.volume,
+                    vwap=quote.vwap,
+                    data_quality_flags=["MOCK_FALLBACK"],
+                )
+            )
+        print(f"[SCAN] produced candidates={len(candidates)} mode=MOCK_FALLBACK")
         return candidates
 
     def _resolve_symbols(self) -> List[str]:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from config.runtime_config import get_execution_enabled, get_run_mode, is_execution_enabled
+from src.config.runtime_config import get_execution_enabled, get_run_mode, is_execution_enabled
 
 
 _BLOCKED_ACTIONS = {"PLACE_ORDER", "MODIFY_ORDER", "CANCEL_ORDER"}

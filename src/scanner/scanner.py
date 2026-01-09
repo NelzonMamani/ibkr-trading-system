@@ -12,10 +12,10 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List
 
-from brokers import IbkrBroker
-from core.event_collector import EventCollector
-from market_data.market_data_hub import MarketDataHub
-from models.data_models import ScannerCandidate
+from src.brokers import IbkrBroker
+from src.core.event_collector import EventCollector
+from src.market_data.market_data_hub import MarketDataHub
+from src.models.data_models import ScannerCandidate
 
 
 class RunMode(Enum):

@@ -28,7 +28,7 @@ ROSS_5_PILLARS = {
     "min_rvol": float(os.environ.get("ROSS_MIN_RVOL", "5")),
     "min_volume": int(os.environ.get("ROSS_MIN_VOLUME", "1000000")),
     "min_premarket_volume": int(os.environ.get("ROSS_MIN_PREMARKET_VOLUME", "100000")),
-    "require_news": os.environ.get("ROSS_REQUIRE_NEWS", "0").strip().lower() in {"1", "true", "yes"},
+    "require_news": os.environ.get("ROSS_REQUIRE_NEWS", "1").strip().lower() in {"1", "true", "yes"},
 }
 NEWS_GATES = {
     "max_age_seconds": int(os.environ.get("NEWS_MAX_AGE_SECONDS", "3600")),

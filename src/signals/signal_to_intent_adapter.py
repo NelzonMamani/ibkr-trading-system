@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
 
-from core.event_collector import EventCollector
-from models.data_models import TradeIntent
-from signals.types import SignalDecision, SignalEvent
+from src.core.event_collector import EventCollector
+from src.models.data_models import TradeIntent
+from src.signals.types import SignalDecision, SignalEvent
 
 
 @dataclass(frozen=True)

@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Iterable, List
 
-from models.data_models import PatternResult, ScannerCandidate
-from signals.signal_event import SignalEvent
-from signals.signal_types import SignalType
+from src.models.data_models import PatternResult, ScannerCandidate
+from src.signals.signal_event import SignalEvent
+from src.signals.signal_types import SignalType
 
 
 @dataclass(frozen=True)

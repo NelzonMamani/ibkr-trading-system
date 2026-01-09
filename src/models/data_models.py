@@ -8,8 +8,8 @@ to illustrate how information might flow between system stages.
 from dataclasses import asdict, dataclass, field
 from typing import List, Optional
 
-from domain.performance_snapshot import PerformanceSnapshot
-from domain.trade_outcome import TradeOutcome
+from src.domain.performance_snapshot import PerformanceSnapshot
+from src.domain.trade_outcome import TradeOutcome
 
 
 @dataclass

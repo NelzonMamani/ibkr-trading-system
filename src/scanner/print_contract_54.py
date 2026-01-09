@@ -48,22 +48,19 @@ def print_watchlist_compact(rows: Iterable[ScannerRow54]) -> None:
         fire = row.momentum_fire_indicator or ""
         pct = row.current_percentage_change_from_prior_close
         gap = row.overnight_gap_percentage
-        px = row.last_trade_price
         flt = row.float_shares_formatted
         rvol = row.relative_volume
         news_total = row.news_total_headlines
-        label = row.trade_suggestion_label or "N/A"
-        rationale = row.trade_suggestion_rationale or "N/A"
+        score = row.composite_momentum_score
         pct_s = "N/A" if pct is None else f"{pct:.1f}"
         gap_s = "N/A" if gap is None else f"{gap:.1f}"
-        px_s = "N/A" if px is None else f"{px:.4g}"
         rvol_s = "N/A" if rvol is None else f"{rvol:.2f}"
         flt_s = flt if flt is not None else "N/A"
         news_s = "N/A" if news_total is None else str(news_total)
+        score_s = "N/A" if score is None else f"{score:.1f}"
         print(
-            f"{fire} {row.symbol or 'UNKNOWN'} | %Chg:{pct_s} | Gap:{gap_s} | "
-            f"Px:{px_s} | Float:{flt_s} | RVOL:{rvol_s} | News:{news_s} | "
-            f"Label:{label} | Reason:{rationale}"
+            f"{fire} {row.symbol or 'UNKNOWN'} pct_change={pct_s} gap={gap_s} "
+            f"rvol={rvol_s} float={flt_s} news={news_s} score={score_s}"
         )
     print("=" * 90)
 
@@ -74,21 +71,18 @@ def format_watchlist_lines(rows: Iterable[ScannerRow54]) -> List[str]:
         fire = row.momentum_fire_indicator or ""
         pct = row.current_percentage_change_from_prior_close
         gap = row.overnight_gap_percentage
-        px = row.last_trade_price
         flt = row.float_shares_formatted
         rvol = row.relative_volume
         news_total = row.news_total_headlines
-        label = row.trade_suggestion_label or "N/A"
-        rationale = row.trade_suggestion_rationale or "N/A"
+        score = row.composite_momentum_score
         pct_s = "N/A" if pct is None else f"{pct:.1f}"
         gap_s = "N/A" if gap is None else f"{gap:.1f}"
-        px_s = "N/A" if px is None else f"{px:.4g}"
         rvol_s = "N/A" if rvol is None else f"{rvol:.2f}"
         flt_s = flt if flt is not None else "N/A"
         news_s = "N/A" if news_total is None else str(news_total)
+        score_s = "N/A" if score is None else f"{score:.1f}"
         lines.append(
-            f"{fire} {row.symbol or 'UNKNOWN'} | %Chg:{pct_s} | Gap:{gap_s} | "
-            f"Px:{px_s} | Float:{flt_s} | RVOL:{rvol_s} | News:{news_s} | "
-            f"Label:{label} | Reason:{rationale}"
+            f"{fire} {row.symbol or 'UNKNOWN'} pct_change={pct_s} gap={gap_s} "
+            f"rvol={rvol_s} float={flt_s} news={news_s} score={score_s}"
         )
     return lines

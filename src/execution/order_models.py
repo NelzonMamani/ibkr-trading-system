@@ -1,6 +1,6 @@
 from typing import Dict, List
 
-from brokers.base_broker import BrokerOrderRequest
+from src.brokers.base_broker import BrokerOrderRequest
 
 # Backwards compatibility alias for prior imports.
 OrderRequest = BrokerOrderRequest

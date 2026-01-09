@@ -2,65 +2,65 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from news.news_heat import compute_fire_indicator, compute_news_heat_score
+from src.news.news_heat import compute_fire_indicator, compute_news_heat_score
 
-from .contracts import ScannerRow54
+from .contracts import SCANNER_GIT_SHA, SCANNER_VERSION, ScannerRow54
 
 FIELD_SOURCES: Dict[str, str] = {
-    "momentum_fire_indicator": "news.news_heat.compute_fire_indicator",
-    "symbol": "scanner_runner (IBKR contract)",
-    "market_session_label": "scanner_master_v2026_01_06_07.market_session_label_utc",
+    "momentum_fire_indicator": "src.news.news_heat.compute_fire_indicator",
+    "symbol": "scanner_runner provider",
+    "market_session_label": "scanner_runner session label",
     "sort_rank_by_gap_desc": "scanner_runner sort",
-    "previous_close_price": "scanner_master_v2026_01_06_07.get_price_truth",
-    "session_open_price": "scanner_master_v2026_01_06_07.get_price_truth",
-    "overnight_gap_percentage": "scanner_master_v2026_01_06_07.get_price_truth",
-    "last_trade_price": "scanner_master_v2026_01_06_07.get_price_truth",
-    "current_percentage_change_from_prior_close": "scanner_master_v2026_01_06_07.get_price_truth",
-    "bid_price": "scanner_master_v2026_01_06_07.get_price_truth",
-    "ask_price": "scanner_master_v2026_01_06_07.get_price_truth",
-    "bid_ask_spread": "scanner_master_v2026_01_06_07.get_price_truth",
-    "mid_price": "scanner_master_v2026_01_06_07.get_price_truth",
-    "vwap_price": "scanner_master_v2026_01_06_07.get_price_truth",
-    "day_high_price": "scanner_master_v2026_01_06_07.get_price_truth",
-    "day_low_price": "scanner_master_v2026_01_06_07.get_price_truth",
-    "intraday_range_percentage": "scanner_master_v2026_01_06_07.get_price_truth",
-    "price_data_type_label": "scanner_master_v2026_01_06_07.get_price_truth",
-    "price_truth_source_label": "scanner_master_v2026_01_06_07.get_price_truth",
-    "daily_bars_count": "scanner_master_v2026_01_06_07.get_price_truth",
-    "float_shares_raw": "scanner_master_v2026_01_06_07.get_float_shares",
-    "float_shares_formatted": "scanner_master_v2026_01_06_07.fmt_float_human",
-    "float_category": "scanner_master_v2026_01_06_07.categorize_float",
-    "float_shares_source": "scanner_master_v2026_01_06_07.get_float_shares",
-    "float_cache_hit": "scanner_master_v2026_01_06_07.get_float_shares",
-    "current_intraday_volume": "scanner_master_v2026_01_06_07.get_volume_truth",
-    "current_volume_source_label": "scanner_master_v2026_01_06_07.get_volume_truth",
-    "average_daily_volume_20d": "scanner_master_v2026_01_06_07.get_volume_truth",
-    "average_daily_volume_window_days": "scanner_master_v2026_01_06_07.get_volume_truth",
-    "relative_volume": "scanner_master_v2026_01_06_07.get_volume_truth",
-    "relative_volume_category": "scanner_master_v2026_01_06_07.get_volume_truth",
-    "volume_velocity_5m": "scanner_master_v2026_01_06_07.get_volume_truth",
-    "volume_velocity_15m": "scanner_master_v2026_01_06_07.get_volume_truth",
-    "volume_data_quality_flag": "scanner_master_v2026_01_06_07.get_volume_truth",
-    "news_total_headlines": "scanner.news_engine.get_news_truth",
-    "news_unique_headlines": "scanner.news_engine.get_news_truth",
-    "news_replicated_headlines": "scanner.news_engine.get_news_truth",
-    "news_velocity_10m": "scanner.news_engine.get_news_truth",
-    "news_velocity_60m": "scanner.news_engine.get_news_truth",
-    "news_spike_indicator": "scanner.news_engine.get_news_truth",
-    "news_freshest_age_minutes": "scanner.news_engine.get_news_truth",
-    "news_regions_list": "scanner.news_engine.get_news_truth",
-    "news_region_count": "scanner.news_engine.get_news_truth",
-    "news_top_sources_list": "scanner.news_engine.get_news_truth",
-    "news_top_source_credibility_score": "scanner.news_engine.get_news_truth",
-    "news_average_sentiment": "scanner.news_engine.get_news_truth",
-    "news_keyword_relevance_score": "scanner.news_engine.get_news_truth",
-    "news_primary_catalyst_keywords": "scanner.news_engine.get_news_truth",
-    "news_top_headlines_list": "scanner.news_engine.get_news_truth",
+    "previous_close_price": "scanner_runner provider quote",
+    "session_open_price": "scanner_runner provider quote",
+    "overnight_gap_percentage": "scanner_runner derived gap",
+    "last_trade_price": "scanner_runner provider quote",
+    "current_percentage_change_from_prior_close": "scanner_runner derived pct",
+    "bid_price": "scanner_runner provider quote",
+    "ask_price": "scanner_runner provider quote",
+    "bid_ask_spread": "scanner_runner derived spread",
+    "mid_price": "scanner_runner derived mid",
+    "vwap_price": "scanner_runner provider quote",
+    "day_high_price": "scanner_runner provider quote",
+    "day_low_price": "scanner_runner provider quote",
+    "intraday_range_percentage": "scanner_runner derived range",
+    "price_data_type_label": "scanner_runner provider",
+    "price_truth_source_label": "scanner_runner provider",
+    "daily_bars_count": "scanner_runner",
+    "float_shares_raw": "scanner_runner provider",
+    "float_shares_formatted": "scanner_runner derived",
+    "float_category": "scanner_runner derived",
+    "float_shares_source": "scanner_runner provider",
+    "float_cache_hit": "scanner_runner provider",
+    "current_intraday_volume": "scanner_runner provider",
+    "current_volume_source_label": "scanner_runner provider",
+    "average_daily_volume_20d": "scanner_runner provider",
+    "average_daily_volume_window_days": "scanner_runner provider",
+    "relative_volume": "scanner_runner provider",
+    "relative_volume_category": "scanner_runner provider",
+    "volume_velocity_5m": "scanner_runner provider",
+    "volume_velocity_15m": "scanner_runner provider",
+    "volume_data_quality_flag": "scanner_runner provider",
+    "news_total_headlines": "src.news.news_normalizer.normalize_headlines",
+    "news_unique_headlines": "src.news.news_normalizer.normalize_headlines",
+    "news_replicated_headlines": "src.news.news_normalizer.normalize_headlines",
+    "news_velocity_10m": "src.news.news_normalizer.normalize_headlines",
+    "news_velocity_60m": "src.news.news_normalizer.normalize_headlines",
+    "news_spike_indicator": "scanner_runner spike heuristic",
+    "news_freshest_age_minutes": "src.news.news_normalizer.normalize_headlines",
+    "news_regions_list": "src.news.news_normalizer.normalize_headlines",
+    "news_region_count": "src.news.news_normalizer.normalize_headlines",
+    "news_top_sources_list": "src.news.news_normalizer.normalize_headlines",
+    "news_top_source_credibility_score": "src.news.news_normalizer.normalize_headlines",
+    "news_average_sentiment": "src.news.news_normalizer.normalize_headlines",
+    "news_keyword_relevance_score": "src.news.news_normalizer.normalize_headlines",
+    "news_primary_catalyst_keywords": "src.news.news_normalizer.normalize_headlines",
+    "news_top_headlines_list": "src.news.news_normalizer.normalize_headlines",
     "composite_momentum_score": "scanner.field_mapper._compute_scores",
-    "score_components_breakdown": "scanner.field_mapper._compute_scores",
-    "attention_tier": "scanner.field_mapper._compute_scores",
-    "trade_suggestion_label": "scanner.field_mapper._compute_scores",
-    "trade_suggestion_rationale": "scanner.field_mapper._compute_scores",
+    "composite_news_score": "scanner.field_mapper._compute_scores",
+    "strategy_trade_bias": "scanner.field_mapper._compute_scores",
+    "scanner_version": "scanner.contracts.SCANNER_VERSION",
+    "debug_notes": "scanner.field_mapper._compute_scores",
 }
 
 
@@ -83,10 +83,9 @@ def _compute_scores(symbol_context: Dict[str, Any], news_context: Dict[str, Any]
     if pct is None or rvol is None:
         return {
             "composite_momentum_score": None,
-            "score_components_breakdown": None,
-            "attention_tier": None,
-            "trade_suggestion_label": None,
-            "trade_suggestion_rationale": None,
+            "composite_news_score": None,
+            "strategy_trade_bias": None,
+            "debug_notes": None,
         }
 
     pct_n = min(max((pct + 5.0) / 50.0, 0.0), 2.0)
@@ -103,33 +102,17 @@ def _compute_scores(symbol_context: Dict[str, Any], news_context: Dict[str, Any]
         + 0.10 * news_n
     )
     score_0_100 = round(min(score, 1.0) * 100.0, 2)
+    news_score = round(min(news_heat, 100.0), 2)
 
-    if score_0_100 >= 70:
-        tier = "A"
-        label = "HOT"
-        rationale = "High momentum with supportive volume and news context."
-    elif score_0_100 >= 50:
-        tier = "B"
-        label = "WATCH"
-        rationale = "Moderate momentum; monitor for continuation."
-    else:
-        tier = "C"
-        label = "PASS"
-        rationale = "Below threshold momentum or volume conditions."
-
-    breakdown = {
-        "pct_change_norm": round(min(pct_n, 1.0), 3),
-        "gap_norm": round(min(gap_n, 1.0), 3),
-        "rvol_norm": round(min(rvol_n, 1.0), 3),
-        "volume_norm": round(min(vol_n, 1.0), 3),
-        "news_heat_score": news_heat,
-    }
+    bias = "LONG" if (pct or 0.0) > 0 else "NEUTRAL"
+    debug_notes = ""
+    if SCANNER_GIT_SHA:
+        debug_notes = f"git_sha={SCANNER_GIT_SHA}"
     return {
         "composite_momentum_score": score_0_100,
-        "score_components_breakdown": breakdown,
-        "attention_tier": tier,
-        "trade_suggestion_label": label,
-        "trade_suggestion_rationale": rationale,
+        "composite_news_score": news_score,
+        "strategy_trade_bias": bias,
+        "debug_notes": debug_notes or None,
     }
 
 
@@ -142,6 +125,7 @@ def build_scanner_row54(
     fire_on = compute_fire_indicator(news_context)
     scores = _compute_scores(symbol_context, news_context)
     fire_indicator = "🔥" if fire_on else ""
+    debug_notes = scores.get("debug_notes")
 
     return ScannerRow54(
         momentum_fire_indicator=fire_indicator,
@@ -196,9 +180,8 @@ def build_scanner_row54(
         news_primary_catalyst_keywords=news_context.get("news_primary_catalyst_keywords"),
         news_top_headlines_list=news_context.get("news_top_headlines_list"),
         composite_momentum_score=scores.get("composite_momentum_score"),
-        score_components_breakdown=scores.get("score_components_breakdown"),
-        attention_tier=scores.get("attention_tier"),
-        trade_suggestion_label=scores.get("trade_suggestion_label"),
-        trade_suggestion_rationale=scores.get("trade_suggestion_rationale"),
+        composite_news_score=scores.get("composite_news_score"),
+        strategy_trade_bias=scores.get("strategy_trade_bias"),
+        scanner_version=SCANNER_VERSION,
+        debug_notes=debug_notes,
     )
-

@@ -10,8 +10,8 @@ from ibapi.common import TickerId
 from ibapi.contract import Contract, ContractDetails
 from ibapi.wrapper import EWrapper
 
-from domain.market_snapshot import MarketSnapshot
-from ibkr.read_only_guard import assert_read_only_allows
+from src.domain.market_snapshot import MarketSnapshot
+from src.ibkr.read_only_guard import assert_read_only_allows
 
 
 def _market_data_type_code(market_data_type: str) -> int:

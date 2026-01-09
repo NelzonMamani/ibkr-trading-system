@@ -8,7 +8,7 @@ from typing import Optional
 
 from ib_insync import IB, Stock
 
-from config.runtime_config import (
+from src.config.runtime_config import (
     get_ibkr_client_id,
     get_ibkr_default_currency,
     get_ibkr_default_exchange,
