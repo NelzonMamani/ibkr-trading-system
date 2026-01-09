@@ -45,6 +45,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ib_insync import IB, ScannerSubscription, Stock, util
 
+from news.news_heat import compute_fire_indicator
+
 from .filters import passes_catalyst_eligibility, passes_ross_5_pillars
 from .news_engine import NEWS_MAX_TOP_HEADLINES, get_news_truth
 from .scanner_config import FLOAT_CACHE_FILE, IB_CONNECT_TIMEOUT, IB_HOST, IB_PORT, TOP_GAINERS_COUNT
@@ -775,14 +777,8 @@ def build_entry(
     news = get_news_truth(sym)
     news_total = news.get("news_total_headlines") or 0
 
-    # Fire indicator (simple, trader-friendly; adjustable later)
-    fire = ""
-    if (
-        (pt.pct_change is not None and pt.pct_change >= 10)
-        and (vt.relative_volume is not None and vt.relative_volume >= 2)
-        and news_total > 0
-    ):
-        fire = "🔥"
+    # Fire indicator (news-derived only)
+    fire = "🔥" if compute_fire_indicator(news) else ""
 
     entry: Dict[str, Any] = {
         # Header / identity

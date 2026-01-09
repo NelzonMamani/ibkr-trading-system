@@ -47,7 +47,7 @@ from performance.strategy_performance import StrategyPerformanceTracker
 from models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
 from patterns.pattern_engine import PatternEngine
 from risk.risk_engine import RiskEngine
-from scanner import LiveReadOnlyScanner, Scanner
+from scanner import LiveReadOnlyScanner, Scanner, run_scanner_cycle
 from sim.clock import SimClock
 from sim.price_feed import DeterministicPriceFeed
 from signals.signal_engine_v1 import SignalEngineV1
@@ -103,6 +103,7 @@ class CoreOrchestrator:
                 max_symbols_per_cycle=get_ibkr_max_symbols_per_cycle(),
             )
             self.price_feed = MarketDataPriceFeed(self.market_data_hub)
+            print("[MARKET_DATA] Market data source: IBKR (READ_ONLY)")
         elif (
             self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO}
             and IbkrBroker is not None
@@ -118,7 +119,7 @@ class CoreOrchestrator:
         self.scanner_mode = get_scanner_mode()
         if self.run_mode == RunMode.LIVE_READ_ONLY:
             self.scanner_mode = "LIVE_READONLY"
-            print("[MARKET_DATA] Market data source: IBKR (READ_ONLY)")
+        self.last_scanner_watchlist_payload = {}
         self.market_data_client = None
         if self.scanner_mode == "LIVE_READONLY":
             self.market_data_client = MarketDataClient()
@@ -437,6 +438,21 @@ class CoreOrchestrator:
                 stage_exception=exc,
             )
             return False
+        scanner_watchlist_payload = {}
+        try:
+            scanner_watchlist_payload = run_scanner_cycle(mode="integrated")
+            self.last_scanner_watchlist_payload = scanner_watchlist_payload
+            self.event_collector.emit(
+                event_type="SCANNER_WATCHLIST",
+                source="Scanner",
+                payload={
+                    "scanner_version": scanner_watchlist_payload.get("scanner_version"),
+                    "timestamp_utc": scanner_watchlist_payload.get("timestamp_utc"),
+                    "symbols": scanner_watchlist_payload.get("symbols", []),
+                },
+            )
+        except Exception as exc:
+            print(f"[SCANNER] Integrated watchlist failed: {exc}")
         self._evaluate_runtime_safety(
             cycle_stage="SCANNER",
             stage_exception=None,
