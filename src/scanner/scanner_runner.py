@@ -5,15 +5,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.news.news_fetcher import Headline, fetch_headlines_for_symbols
-from src.news.news_normalizer import normalize_headlines
-from src.news.verified_sources import load_verified_rss_sources
+from ..news.news_fetcher import Headline, fetch_headlines_for_symbols
+from ..news.news_normalizer import normalize_headlines
+from ..news.verified_sources import load_verified_rss_sources
 
 from .audit import audit_field_population, write_field_audit, write_mechanical_checklist
 from .contracts import SCANNER_GIT_SHA, SCANNER_VERSION, ScannerRow54
 from .field_mapper import build_scanner_row54
 from .filters import passes_catalyst_eligibility, passes_ross_5_pillars
-from .print_contract_54 import format_watchlist_lines, print_master, print_watchlist_compact
 from .providers.base import ScannerDataProvider
 from .providers.factory import build_provider
 
@@ -204,10 +203,9 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
         diagnostics["provider_source"] = provider.source_name
         diagnostics["symbol_count"] = len(symbols)
         if not symbols:
-            print("[SCANNER] No symbols provided by provider.")
-            return {}
+            symbols = []
 
-        news_by_symbol = _enrich_news_context(symbols, provider.source_name)
+        news_by_symbol = _enrich_news_context(symbols, provider.source_name) if symbols else {}
 
         raw_contexts = []
         for idx, symbol in enumerate(symbols, start=1):
@@ -235,33 +233,43 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
     finally:
         provider.disconnect()
 
-    if mode == "standalone":
-        print_master(rows)
     watchlist = _apply_filters(rows, limit=15)
-    print_watchlist_compact(watchlist)
+    watchlist_symbols = [row.symbol for row in watchlist if row.symbol]
 
     report = audit_field_population(rows)
-    docs_dir = Path("docs")
-    write_field_audit(report, docs_dir / "PHASE_24_SCANNER_FIELD_AUDIT.json")
-    write_mechanical_checklist(report, docs_dir / "PHASE_24_SCANNER_MECHANICAL_CHECKLIST.md")
 
     if mode == "standalone":
-        session = (os.getenv("SCANNER_SESSION") or "DEFAULT").strip().upper()
-        ts = utc_now.strftime("%Y-%m-%d_%H-%M-%S")
+        docs_dir = Path("docs")
+        write_field_audit(report, docs_dir / "PHASE_24_SCANNER_FIELD_AUDIT.json")
+        write_mechanical_checklist(report, docs_dir / "PHASE_24_SCANNER_MECHANICAL_CHECKLIST.md")
+        ts = utc_now.strftime("%Y%m%d_%H%M%S_UTC")
         watchlist_dir = Path("output/watchlists")
         watchlist_dir.mkdir(parents=True, exist_ok=True)
-        file_path = watchlist_dir / f"watchlist_{session}_{ts}_UTC.txt"
-        file_path.write_text("\n".join(format_watchlist_lines(watchlist)) + "\n", encoding="utf-8")
-        local_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[SCANNER] Local time: {local_now}")
-        print(f"[SCANNER] Saved watchlist to: {file_path}")
+        file_path = watchlist_dir / f"watchlist_RossMomentum_{ts}.txt"
+        file_path.write_text("\n".join(watchlist_symbols) + "\n", encoding="utf-8")
 
     return {
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
         "timestamp_utc": utc_now.isoformat(),
-        "symbols": [row.symbol for row in watchlist],
-        "watchlist": watchlist,
+        "symbols": watchlist_symbols,
+        "watchlist": watchlist_symbols,
+        "watchlist_rows": watchlist,
         "unfiltered_rows": rows,
+        "audit": report,
         "diagnostics": diagnostics,
     }
+
+
+if __name__ == "__main__":
+    payload = run_scanner_cycle(mode="standalone")
+
+    print("\n[SCANNER] Standalone scan complete")
+    print(f"[SCANNER] Version: {payload.get('scanner_version')}")
+    print(f"[SCANNER] Timestamp (UTC): {payload.get('timestamp_utc')}")
+    print(f"[SCANNER] Symbols scanned: {len(payload.get('unfiltered_rows', []))}")
+    print(f"[SCANNER] Watchlist size: {len(payload.get('watchlist', []))}")
+
+    print("\n[WATCHLIST]")
+    for symbol in payload.get("watchlist", []):
+        print(f" - {symbol}")

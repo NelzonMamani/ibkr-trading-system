@@ -7,7 +7,7 @@ if sys.platform.startswith("win"):
 
     _asyncio_tmp.set_event_loop_policy(_asyncio_tmp.WindowsSelectorEventLoopPolicy())
 
-from src.scanner.scanner_runner import run_scanner_cycle
+from .scanner_runner import run_scanner_cycle
 
 
 def main() -> None:
