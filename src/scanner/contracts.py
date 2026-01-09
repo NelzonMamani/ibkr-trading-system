@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.config.config_resolver import get_config
+
 SCANNER_VERSION = "v2026-01-04-11"
-SCANNER_GIT_SHA = (os.getenv("SCANNER_GIT_SHA") or os.getenv("GIT_SHA") or "").strip()
+SCANNER_GIT_SHA = str(get_config("SCANNER_GIT_SHA") or "")
 
 CANONICAL_FIELD_ORDER: List[str] = [
     "momentum_fire_indicator",

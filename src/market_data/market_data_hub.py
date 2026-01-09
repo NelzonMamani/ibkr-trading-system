@@ -5,11 +5,7 @@ from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from src.brokers import IbkrBroker
-from src.config.runtime_config import (
-    get_ibkr_market_data_type,
-    get_ibkr_max_symbols_per_cycle,
-    get_ibkr_readonly_enabled,
-)
+from src.config.config_resolver import get_config
 from src.core.event_collector import EventCollector
 from src.domain.market_snapshot import MarketSnapshot
 
@@ -32,13 +28,13 @@ class MarketDataHub:
     ) -> None:
         self.event_collector = event_collector
         self.broker = broker
-        self.market_data_type = get_ibkr_market_data_type()
+        self.market_data_type = get_config("IBKR_MARKET_DATA_TYPE")
         self.max_symbols_per_cycle = (
             max_symbols_per_cycle
             if max_symbols_per_cycle is not None
-            else get_ibkr_max_symbols_per_cycle()
+            else get_config("IBKR_MAX_SYMBOLS_PER_CYCLE")
         )
-        self.readonly_enabled = get_ibkr_readonly_enabled()
+        self.readonly_enabled = get_config("IBKR_READONLY_ENABLED")
         self._connected = False
         self._cache: Dict[str, MarketDataObservation] = {}
 

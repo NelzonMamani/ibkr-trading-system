@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 import random
 from pathlib import Path
 from typing import Optional
 
+from src.config.config_resolver import get_config
 from .base import IntradayStats, QuoteData, ScannerDataProvider
 
 
@@ -45,13 +45,11 @@ class MockScannerProvider(ScannerDataProvider):
     source_name = "MOCK"
 
     def __init__(self, symbols: Optional[list[str]] = None, seed: Optional[int] = None) -> None:
-        self.seed = seed if seed is not None else int(os.environ.get("SCANNER_MOCK_SEED", "42"))
+        self.seed = seed if seed is not None else int(get_config("SCANNER_MOCK_SEED"))
         default_file = (
             Path(__file__).resolve().parents[1] / "mock_universe.txt"
         )
-        symbols_file = Path(
-            os.environ.get("SCANNER_MOCK_SYMBOLS_FILE", str(default_file))
-        )
+        symbols_file = Path(get_config("SCANNER_MOCK_SYMBOLS_FILE") or str(default_file))
         fallback = [
             "AAPL",
             "MSFT",
@@ -105,9 +103,7 @@ class MockScannerProvider(ScannerDataProvider):
             "WFC",
         ]
         self.symbols = symbols or _load_mock_symbols(symbols_file, fallback)
-        float_cache_path = Path(
-            os.environ.get("SCANNER_FLOAT_CACHE_FILE", "src/scanner/float_cache.json")
-        )
+        float_cache_path = Path(get_config("SCANNER_FLOAT_CACHE_FILE"))
         self.float_cache = _load_float_cache(float_cache_path)
 
     def connect(self) -> None:

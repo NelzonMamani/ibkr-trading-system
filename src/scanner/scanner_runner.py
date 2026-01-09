@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -14,6 +13,8 @@ from .contracts import SCANNER_GIT_SHA, SCANNER_VERSION, ScannerRow54
 from .field_mapper import build_scanner_row54
 from .filters import passes_catalyst_eligibility, passes_ross_5_pillars
 from .providers.base import ScannerDataProvider
+from src.config.config_resolver import get_config
+
 from .providers.factory import build_provider
 
 
@@ -199,7 +200,7 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
     provider: ScannerDataProvider = build_provider()
 
     try:
-        symbols = provider.get_top_gainers(int(os.environ.get("TOP_GAINERS_COUNT", "50")))
+        symbols = provider.get_top_gainers(get_config("SCANNER_TOP_GAINERS_COUNT"))
         diagnostics["provider_source"] = provider.source_name
         diagnostics["symbol_count"] = len(symbols)
         if not symbols:
@@ -233,7 +234,7 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
     finally:
         provider.disconnect()
 
-    watchlist = _apply_filters(rows, limit=15)
+    watchlist = _apply_filters(rows, limit=get_config("SCANNER_WATCHLIST_LIMIT"))
     watchlist_symbols = [row.symbol for row in watchlist if row.symbol]
 
     report = audit_field_population(rows)

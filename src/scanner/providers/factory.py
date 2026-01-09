@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import logging
-import os
 
+from src.config.config_resolver import get_config
 from .base import ProviderConnectionError, ScannerDataProvider
 from .ibkr_provider import IbkrScannerProvider
 from .mock_provider import MockScannerProvider
 
 
 def _source_mode() -> str:
-    return (os.environ.get("SCANNER_DATA_SOURCE") or "AUTO").strip().upper()
+    return str(get_config("SCANNER_DATA_SOURCE"))
 
 
 def build_provider() -> ScannerDataProvider:

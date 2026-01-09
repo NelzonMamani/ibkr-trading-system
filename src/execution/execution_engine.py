@@ -7,13 +7,8 @@ from typing import List, Optional
 
 from src.brokers.base_broker import BaseBroker, BrokerOrderRequest
 from src.brokers.sim_broker import SimBroker
-from src.config.runtime_config import (
-    RunMode,
-    get_execution_enabled,
-    get_live_micro_max_concurrent_trades,
-    get_run_mode,
-    is_execution_enabled,
-)
+from src.config.config_resolver import get_config
+from src.config.runtime_config import RunMode
 from src.config.trading_config import is_strategy_enabled
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
@@ -35,9 +30,9 @@ class ExecutionEngine:
         price_feed: Optional[PriceFeed] = None,
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
-        self.run_mode: RunMode = get_run_mode()
-        self.execution_enabled = is_execution_enabled(self.run_mode)
-        if get_execution_enabled() and self.run_mode != RunMode.LIVE_MICRO:
+        self.run_mode: RunMode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
+        self.execution_enabled = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
+        if get_config("EXECUTION_ENABLED") and self.run_mode != RunMode.LIVE_MICRO:
             print(
                 "[SAFETY] EXECUTION_ENABLED ignored unless RUN_MODE=LIVE_MICRO; "
                 f"run_mode={self.run_mode.value}"
@@ -90,11 +85,10 @@ class ExecutionEngine:
     @staticmethod
     def _max_attempts(trader_type: str) -> int:
         normalized = (trader_type or "").upper()
-        if normalized == "SCALPER":
-            return 2
-        if normalized == "MOMENTUM":
-            return 3
-        return 1
+        limits = get_config("EXECUTION_MAX_ATTEMPTS_BY_TRADER")
+        if normalized in limits:
+            return int(limits[normalized])
+        return int(limits.get("DEFAULT", 1))
 
     @staticmethod
     def _client_order_id(
@@ -153,7 +147,7 @@ class ExecutionEngine:
         return self._route_order(order)
 
     def _execute_live_micro(self, risk_decision: RiskDecision) -> ExecutionResult:
-        max_concurrent = get_live_micro_max_concurrent_trades()
+        max_concurrent = get_config("LIVE_MICRO_MAX_CONCURRENT_TRADES")
         active_count = self.trade_registry.count_active()
         if active_count >= max_concurrent:
             rationale = (
@@ -217,10 +211,11 @@ class ExecutionEngine:
             )
 
         requested_quantity = int(getattr(risk_decision, "max_position_size", 1) or 1)
-        if requested_quantity != 1:
+        required_quantity = int(get_config("LIVE_MICRO_REQUIRED_QUANTITY"))
+        if requested_quantity != required_quantity:
             rationale = (
-                "LIVE_MICRO_BLOCK: quantity must be exactly 1 share "
-                f"(requested={requested_quantity})."
+                "LIVE_MICRO_BLOCK: quantity must be exactly "
+                f\"{required_quantity} share(s) (requested={requested_quantity}).\"
             )
             print(f"[SAFETY] {rationale}")
             self.event_collector.emit(

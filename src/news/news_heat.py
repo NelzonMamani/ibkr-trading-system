@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import os
 from typing import Any, Dict, Optional
+
+from src.config.config_resolver import get_config
 
 
 def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
@@ -58,9 +59,9 @@ def compute_fire_indicator(news_context: Dict[str, Any]) -> bool:
     spike = news_context.get("news_spike_indicator") is True
     regions = _safe_float(news_context.get("news_region_count"), 0.0) or 0.0
 
-    max_age = int(os.environ.get("NEWS_MAX_AGE_SECONDS", "3600"))
-    min_vel = int(os.environ.get("NEWS_MIN_VELOCITY_10M", "1"))
-    min_regions = int(os.environ.get("NEWS_MIN_REGIONS", "1"))
+    max_age = int(get_config("NEWS_MAX_AGE_SECONDS"))
+    min_vel = int(get_config("NEWS_MIN_VELOCITY_10M"))
+    min_regions = int(get_config("NEWS_MIN_REGIONS"))
 
     if total <= 0:
         return False
