@@ -10,21 +10,8 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
 from src.brokers import IbkrBroker, IbkrLiveBroker, SimBroker
-from src.config.runtime_config import (
-    EventReplayMode,
-    RunMode,
-    get_event_replay_mode,
-    get_ibkr_api_write_allowed,
-    get_ibkr_max_symbols_per_cycle,
-    get_intent_dedup_selftest_enabled,
-    get_live_micro_daily_max_loss,
-    get_live_micro_max_consecutive_losses,
-    get_live_micro_max_trades_per_day,
-    get_run_mode,
-    get_scanner_mode,
-    is_execution_enabled,
-    is_live_read_only_required,
-)
+from src.config.config_resolver import emit_config_event, get_config
+from src.config.runtime_config import EventReplayMode, RunMode
 from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
@@ -66,10 +53,10 @@ class RuntimeSafetyError(RuntimeError):
 class CoreOrchestrator:
     def __init__(self):
         print("[INFO] Core Orchestrator initialised.")
-        self.run_mode = get_run_mode()
-        self.execution_enabled = is_execution_enabled(self.run_mode)
-        self.ibkr_api_write_allowed = get_ibkr_api_write_allowed()
-        self.replay_mode = get_event_replay_mode(self.run_mode)
+        self.run_mode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
+        self.execution_enabled = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
+        self.ibkr_api_write_allowed = bool(get_config("IBKR_API_WRITE_ALLOWED"))
+        self.replay_mode = EventReplayMode(get_config("EVENT_REPLAY_MODE_EFFECTIVE"))
         if (
             self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
             and self.replay_mode != EventReplayMode.OFF
@@ -87,6 +74,7 @@ class CoreOrchestrator:
             print("[SAFETY] 1-SHARE LIMIT ENFORCED")
         self.sim_clock = SimClock()
         self.event_collector = EventCollector()
+        emit_config_event(self.event_collector)
         self.stop_controller = StopController()
         print("[BOOT] EventCollector initialised")
         self.replay_engine = ReplayEngine()
@@ -102,7 +90,7 @@ class CoreOrchestrator:
             self.market_data_hub = MarketDataHub(
                 event_collector=self.event_collector,
                 broker=IbkrBroker(),
-                max_symbols_per_cycle=get_ibkr_max_symbols_per_cycle(),
+                max_symbols_per_cycle=get_config("IBKR_MAX_SYMBOLS_PER_CYCLE"),
             )
             self.price_feed = MarketDataPriceFeed(self.market_data_hub)
             print("[MARKET_DATA] Market data source: IBKR (READ_ONLY)")
@@ -113,12 +101,12 @@ class CoreOrchestrator:
             self.market_data_hub = MarketDataHub(
                 event_collector=self.event_collector,
                 broker=IbkrBroker(),
-                max_symbols_per_cycle=get_ibkr_max_symbols_per_cycle(),
+                max_symbols_per_cycle=get_config("IBKR_MAX_SYMBOLS_PER_CYCLE"),
             )
             self.price_feed = MarketDataPriceFeed(self.market_data_hub)
         else:
             self.price_feed = DeterministicPriceFeed()
-        self.scanner_mode = get_scanner_mode()
+        self.scanner_mode = get_config("SCANNER_MODE")
         if self.run_mode == RunMode.LIVE_READ_ONLY:
             self.scanner_mode = "LIVE_READONLY"
         self.last_scanner_watchlist_payload = {}
@@ -198,9 +186,9 @@ class CoreOrchestrator:
         trades_submitted = self.event_collector.count("ORDER_SUBMITTED")
         consecutive_losses = self.event_collector.consecutive_losses()
 
-        max_daily_loss = abs(get_live_micro_daily_max_loss())
-        max_trades = get_live_micro_max_trades_per_day()
-        max_consecutive_losses = get_live_micro_max_consecutive_losses()
+        max_daily_loss = abs(get_config("LIVE_MICRO_DAILY_MAX_LOSS"))
+        max_trades = get_config("LIVE_MICRO_MAX_TRADES_PER_DAY")
+        max_consecutive_losses = get_config("LIVE_MICRO_MAX_CONSECUTIVE_LOSSES")
 
         breaches = []
         if net_realised_pnl <= -max_daily_loss:
@@ -1124,7 +1112,7 @@ class CoreOrchestrator:
     def _normalize_trade_intents(self, intents: List[TradeIntent]) -> List[TradeIntent]:
         intents_to_process = list(intents)
         injected_duplicates = 0
-        if get_intent_dedup_selftest_enabled() and intents_to_process:
+        if get_config("INTENT_DEDUP_SELFTEST_ENABLED") and intents_to_process:
             base_intent = intents_to_process[0]
             lowered_confidence = max((base_intent.confidence or 0.0) - 0.01, 0.0)
             duplicate = replace(base_intent, confidence=lowered_confidence)
@@ -1188,7 +1176,7 @@ class CoreOrchestrator:
             "[INTENT][VALIDATION] Deduplication OK — "
             f"before={before_count} after={len(normalized)} duplicates_dropped={dropped}"
         )
-        if get_intent_dedup_selftest_enabled():
+        if get_config("INTENT_DEDUP_SELFTEST_ENABLED"):
             if injected_duplicates < 1 or dropped < injected_duplicates:
                 raise RuntimeError(
                     "Intent dedup self-test failed — duplicates were not dropped"
@@ -1240,7 +1228,7 @@ class CoreOrchestrator:
             else type(broker_adapter).__name__ if broker_adapter is not None else "NONE"
         )
         print(f"[VALIDATION] Broker adapter in use: {broker_name}")
-        if is_live_read_only_required():
+        if self.run_mode == RunMode.LIVE_READ_ONLY:
             if self.run_mode == RunMode.SIM:
                 raise RuntimeError(
                     "RUN_MODE=SIM is invalid when IBKR live/read-only settings are active."

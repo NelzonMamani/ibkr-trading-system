@@ -10,10 +10,10 @@ import getpass
 import json
 import os
 import socket
-import subprocess
 from typing import Any
 from uuid import uuid4
 
+from src.config.config_resolver import get_config, get_config_snapshot
 from src.config.runtime_config import (
     get_event_replay_mode,
     get_persistence_backend,
@@ -104,11 +104,14 @@ class StorageEngine:
             "ended_at": None,
             "hostname": socket.gethostname(),
             "user": getpass.getuser(),
-            "app_version": os.getenv("APP_VERSION") or "UNKNOWN",
-            "git_sha": _resolve_git_sha(),
+            "app_version": get_config("APP_VERSION"),
+            "git_sha": get_config("GIT_SHA"),
             "run_mode": run_mode.value,
             "event_replay_mode": event_replay_mode.value,
-            "resolved_config_json": canonical_json(self._resolved_config(), allow_fallback=True),
+            "resolved_config_json": canonical_json(
+                get_config_snapshot(),
+                allow_fallback=True,
+            ),
             "schema_version": SCHEMA_VERSION,
             "created_at": now_iso(),
         }
@@ -457,20 +460,3 @@ def _append_jsonl(path: str, record: dict[str, Any]) -> None:
     with open(path, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-
-def _resolve_git_sha() -> str | None:
-    override = os.getenv("GIT_SHA")
-    if override:
-        return override
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-    except OSError:
-        return None
-    sha = result.stdout.strip()
-    return sha if sha else None

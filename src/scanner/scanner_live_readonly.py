@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import os
 from typing import List, Optional
 
+from src.config.config_resolver import get_config
 from src.core.event_collector import EventCollector
 from src.ibkr.market_data_client import MarketDataClient
 from src.models.data_models import ScannerCandidate
 from src.scanner.providers.mock_provider import MockScannerProvider
 
 
-DEFAULT_SCAN_SYMBOLS = ["AAPL", "TSLA", "NVDA", "AMD", "SPY"]
+DEFAULT_SCAN_SYMBOLS = get_config("SCANNER_DEFAULT_SYMBOLS")
 
 
 @dataclass(frozen=True)
@@ -21,34 +21,19 @@ class LiveReadOnlyScannerConfig:
 
 
 def _get_scanner_symbols() -> List[str]:
-    raw = (os.getenv("SCANNER_SYMBOLS") or os.getenv("IBKR_SCAN_SYMBOLS") or "").strip()
-    if not raw:
-        return []
-    return [symbol.strip().upper() for symbol in raw.split(",") if symbol.strip()]
-
-
-def _get_int(name: str, default: int) -> int:
-    try:
-        return int(os.getenv(name, str(default)))
-    except Exception:
-        return default
-
-
-def _get_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() not in {"0", "false", "no"}
+    symbols = get_config("SCANNER_SYMBOLS")
+    return list(symbols or [])
 
 
 def _current_market_session() -> str:
     now = datetime.now(timezone.utc)
     h = now.hour + now.minute / 60.0
-    if 12.0 <= h < 14.0:
+    windows = get_config("SCANNER_SESSION_WINDOWS_UTC")
+    if windows["PRE_START"] <= h < windows["RTH_START"]:
         return "PRE"
-    if 14.0 <= h < 21.5:
+    if windows["RTH_START"] <= h < windows["AFT_START"]:
         return "RTH"
-    if 21.5 <= h < 23.0:
+    if windows["AFT_START"] <= h < windows["AFT_END"]:
         return "AFT"
     return "OVN"
 
@@ -65,15 +50,15 @@ class LiveReadOnlyScanner:
         resolved_symbols = _get_scanner_symbols()
         if config is None:
             config = LiveReadOnlyScannerConfig(
-                symbols=resolved_symbols,
-                max_symbols_per_cycle=_get_int("IBKR_MAX_SYMBOLS_PER_CYCLE", 50),
+                symbols=resolved_symbols or list(DEFAULT_SCAN_SYMBOLS),
+                max_symbols_per_cycle=get_config("IBKR_MAX_SYMBOLS_PER_CYCLE"),
             )
         self.config = config
-        self.snapshot_max_age_seconds = _get_int("IBKR_SNAPSHOT_MAX_AGE_SECONDS", 15)
-        self.max_symbols_per_cycle = _get_int("IBKR_MAX_SYMBOLS_PER_CYCLE", 50)
-        self.fallback_enabled = _get_bool("IBKR_FALLBACK_ENABLED", True)
-        self.fallback_source = os.getenv("IBKR_FALLBACK_SOURCE", "static")
-        self.auto_lockdown_enabled = _get_bool("IBKR_AUTO_LOCKDOWN_ENABLED", False)
+        self.snapshot_max_age_seconds = get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS")
+        self.max_symbols_per_cycle = get_config("IBKR_MAX_SYMBOLS_PER_CYCLE")
+        self.fallback_enabled = get_config("IBKR_FALLBACK_ENABLED")
+        self.fallback_source = get_config("IBKR_FALLBACK_SOURCE")
+        self.auto_lockdown_enabled = get_config("IBKR_AUTO_LOCKDOWN_ENABLED")
         self.market_data_client = market_data_client
         self.event_collector = event_collector
         self.last_data_quality_flags: dict[str, list[str]] = {}
@@ -203,30 +188,23 @@ class LiveReadOnlyScanner:
                     gap_percent=None,
                     rvol=None,
                     float_millions=None,
-                    rationale="MOCK fallback market data",
+                    rationale="MOCK fallback provider",
                     session=session,
                     bid=quote.bid,
                     ask=quote.ask,
                     spread=None,
                     volume=quote.volume,
                     vwap=quote.vwap,
-                    data_quality_flags=["MOCK_FALLBACK"],
+                    data_quality_flags=["MOCK"],
                 )
             )
-        print(f"[SCAN] produced candidates={len(candidates)} mode=MOCK_FALLBACK")
         return candidates
 
     def _resolve_symbols(self) -> List[str]:
-        symbols = self.config.symbols or DEFAULT_SCAN_SYMBOLS
-        symbols = [symbol.strip().upper() for symbol in symbols if symbol.strip()]
-        if self.config.max_symbols_per_cycle and len(symbols) > self.config.max_symbols_per_cycle:
-            symbols = symbols[: self.config.max_symbols_per_cycle]
+        symbols = list(self.config.symbols)
+        if self.max_symbols_per_cycle and len(symbols) > self.max_symbols_per_cycle:
+            symbols = symbols[: self.max_symbols_per_cycle]
         return symbols
 
-    @staticmethod
-    def _resolve_price(snapshot) -> Optional[float]:
-        if snapshot.last is not None:
-            return snapshot.last
-        if snapshot.bid is not None and snapshot.ask is not None:
-            return round((snapshot.bid + snapshot.ask) / 2, 4)
-        return None
+    def _resolve_price(self, snapshot) -> Optional[float]:
+        return snapshot.last or snapshot.bid or snapshot.ask

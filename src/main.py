@@ -7,8 +7,7 @@ avoids importing other project modules, performing any trading logic, loading
 configuration, or connecting to brokers or data sources.
 """
 
-import os
-
+from src.config.config_resolver import get_config
 from src.config.runtime_config import (
     DEFAULT_EVENT_REPLAY_MODE,
     DEFAULT_RUN_MODE,
@@ -110,44 +109,24 @@ def main() -> None:
         print("[SAFETY] NO ORDERS WILL BE SENT")
     validate_read_only_guard()
 
-    translation_test_symbol = (
-        os.getenv("IBKR_TRANSLATION_TEST_SYMBOL") or ""
+    translation_test_symbol = str(get_config("IBKR_TRANSLATION_TEST_SYMBOL") or "").strip().upper()
+    translation_test_direction = str(
+        get_config("IBKR_TRANSLATION_TEST_DIRECTION") or "LONG"
     ).strip().upper()
-    translation_test_direction = (
-        os.getenv("IBKR_TRANSLATION_TEST_DIRECTION") or "LONG"
+    translation_test_order_type = str(
+        get_config("IBKR_TRANSLATION_TEST_ORDER_TYPE") or "MKT"
     ).strip().upper()
-    translation_test_order_type = (
-        os.getenv("IBKR_TRANSLATION_TEST_ORDER_TYPE") or "MKT"
-    ).strip().upper()
-    translation_test_quantity_raw = (os.getenv("IBKR_TRANSLATION_TEST_QUANTITY") or "").strip()
-    if translation_test_quantity_raw:
-        try:
-            translation_test_quantity = int(translation_test_quantity_raw)
-        except ValueError as exc:
-            raise RuntimeError(
-                f"Invalid IBKR_TRANSLATION_TEST_QUANTITY='{translation_test_quantity_raw}'"
-            ) from exc
-    else:
-        translation_test_quantity = 1
-    translation_test_limit_price_raw = os.getenv("IBKR_TRANSLATION_TEST_LIMIT_PRICE")
-    if translation_test_limit_price_raw not in {None, ""}:
-        try:
-            translation_test_limit_price = float(translation_test_limit_price_raw)
-        except ValueError as exc:
-            raise RuntimeError(
-                f"Invalid IBKR_TRANSLATION_TEST_LIMIT_PRICE='{translation_test_limit_price_raw}'"
-            ) from exc
-    else:
-        translation_test_limit_price = None
-    translation_test_tif = (os.getenv("IBKR_TRANSLATION_TEST_TIF") or "DAY").strip().upper()
-    translation_client_order_id = (
-        os.getenv("IBKR_TRANSLATION_TEST_CLIENT_ORDER_ID") or "dry-run-ibkr-translation"
+    translation_test_quantity = int(get_config("IBKR_TRANSLATION_TEST_QUANTITY") or 1)
+    translation_test_limit_price = get_config("IBKR_TRANSLATION_TEST_LIMIT_PRICE")
+    translation_test_tif = str(get_config("IBKR_TRANSLATION_TEST_TIF") or "DAY").strip().upper()
+    translation_client_order_id = str(
+        get_config("IBKR_TRANSLATION_TEST_CLIENT_ORDER_ID") or "dry-run-ibkr-translation"
     ).strip()
-    translation_strategy_name = (
-        os.getenv("IBKR_TRANSLATION_TEST_STRATEGY_NAME") or "DRY_RUN"
+    translation_strategy_name = str(
+        get_config("IBKR_TRANSLATION_TEST_STRATEGY_NAME") or "DRY_RUN"
     ).strip()
-    translation_trader_type = (
-        os.getenv("IBKR_TRANSLATION_TEST_TRADER_TYPE") or "MANUAL"
+    translation_trader_type = str(
+        get_config("IBKR_TRANSLATION_TEST_TRADER_TYPE") or "MANUAL"
     ).strip()
 
     if ibkr_order_translation_enabled and translation_test_symbol:
@@ -171,7 +150,7 @@ def main() -> None:
         print("[IBKR][DRY-RUN] Translation complete. Exiting before any broker connectivity.")
         return
 
-    smoke_symbol = (os.getenv("IBKR_SMOKE_SYMBOL") or "").strip().upper()
+    smoke_symbol = str(get_config("IBKR_SMOKE_SYMBOL") or "").strip().upper()
     if (
         run_mode in {RunMode.SIM, RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
         and ibkr_readonly_enabled

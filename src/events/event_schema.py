@@ -483,6 +483,15 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
     "SHUTDOWN_HOOK_FAILED": SHUTDOWN_HOOK_FAILED_SCHEMA,
     "SHUTDOWN_COMPLETE": SHUTDOWN_BASE_SCHEMA,
     "PANIC_STOP_TRIGGERED": SHUTDOWN_BASE_SCHEMA,
+    "CONFIG_RESOLVED": {
+        "resolved_at": str,
+        "total": int,
+        "hard": int,
+        "soft": int,
+        "advisory": int,
+        "values": dict,
+        "sources": dict,
+    },
 }
 
 
@@ -650,6 +659,15 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
     "SHUTDOWN_HOOK_FAILED": {"mode", "reason", "source", "run_mode", "tick", "hook"},
     "SHUTDOWN_COMPLETE": {"mode", "reason", "source", "run_mode", "tick"},
     "PANIC_STOP_TRIGGERED": {"mode", "reason", "source", "run_mode", "tick"},
+    "CONFIG_RESOLVED": {
+        "resolved_at",
+        "total",
+        "hard",
+        "soft",
+        "advisory",
+        "values",
+        "sources",
+    },
     "ORDER_SUBMISSION_ATTEMPTED": {
         "client_order_id",
         "symbol",

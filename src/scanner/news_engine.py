@@ -4,7 +4,6 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import logging
-import os
 import re
 import time
 import urllib.parse
@@ -29,10 +28,12 @@ if importlib.util.find_spec("requests"):
 else:  # pragma: no cover
     requests = None
 
-NEWS_REFRESH_SECONDS = int(os.environ.get("NEWS_REFRESH_SECONDS", "90"))
-NEWS_MAX_ITEMS_PER_FEED = int(os.environ.get("NEWS_MAX_ITEMS_PER_FEED", "75"))
-NEWS_MAX_TOP_HEADLINES = int(os.environ.get("NEWS_MAX_TOP_HEADLINES", "5"))
-NEWS_DEBUG = os.environ.get("NEWS_DEBUG", "0").strip().lower() in {"1", "true", "yes"}
+from src.config.config_resolver import get_config
+
+NEWS_REFRESH_SECONDS = int(get_config("NEWS_REFRESH_SECONDS"))
+NEWS_MAX_ITEMS_PER_FEED = int(get_config("NEWS_MAX_ITEMS_PER_FEED"))
+NEWS_MAX_TOP_HEADLINES = int(get_config("NEWS_MAX_TOP_HEADLINES"))
+NEWS_DEBUG = bool(get_config("NEWS_DEBUG"))
 
 DOMAIN_CREDIBILITY = {
     "reuters.com": 1.00,

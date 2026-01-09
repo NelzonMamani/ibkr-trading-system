@@ -6,6 +6,7 @@ Phase 4: Minimal live-capable scaffolding with highly constrained, conservative 
 
 from typing import Optional
 
+from src.config.config_resolver import get_config
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.models.data_models import RiskDecision, TradeIntent
@@ -33,14 +34,7 @@ class RiskEngine:
             "RossMomentumStrategy",
             "RossMomentumStrategyV1",
         }
-        self.strategy_limits = {
-            "SCALPER": {
-                "max_trades": 2,
-            },
-            "MOMENTUM": {
-                "max_trades": 1,
-            },
-        }
+        self.strategy_limits = dict(get_config("RISK_STRATEGY_LIMITS"))
 
     def evaluate_trade_intent(self, trade_intent: TradeIntent) -> RiskDecision:
         """
@@ -162,19 +156,31 @@ class RiskEngine:
                 "no blocking logic implemented"
             )
 
-        max_position_size = 1
-        print("[RISK] Max position size capped at 1 share for safety and simplicity")
+        max_position_size = int(get_config("RISK_MAX_POSITION_SIZE"))
+        print(
+            "[RISK] Max position size capped at "
+            f"{max_position_size} share(s) for safety and simplicity"
+        )
 
         confidence = trade_intent.confidence
-        if confidence >= 0.75:
+        low_threshold = float(get_config("RISK_CONFIDENCE_LOW_THRESHOLD"))
+        medium_threshold = float(get_config("RISK_CONFIDENCE_MEDIUM_THRESHOLD"))
+        if confidence >= low_threshold:
             risk_level = "LOW"
-            print("[RISK] Confidence >= 0.75 — assigning risk level LOW for teaching clarity")
-        elif confidence >= 0.50:
+            print(
+                f"[RISK] Confidence >= {low_threshold:.2f} — assigning risk level LOW for teaching clarity"
+            )
+        elif confidence >= medium_threshold:
             risk_level = "MEDIUM"
-            print("[RISK] Confidence between 0.50 and 0.74 — assigning risk level MEDIUM")
+            print(
+                f"[RISK] Confidence between {medium_threshold:.2f} and {low_threshold:.2f} — "
+                "assigning risk level MEDIUM"
+            )
         else:
             risk_level = "HIGH"
-            print("[RISK] Confidence < 0.50 — assigning risk level HIGH to emphasize caution")
+            print(
+                f"[RISK] Confidence < {medium_threshold:.2f} — assigning risk level HIGH to emphasize caution"
+            )
 
         rationale = (
             "Teaching-only decision: allow intent, cap size at 1 share, "

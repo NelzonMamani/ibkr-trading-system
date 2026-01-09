@@ -35,7 +35,6 @@ import importlib.util
 import json
 import logging
 import math
-import os
 import random
 import time
 from dataclasses import dataclass
@@ -48,6 +47,8 @@ from ib_insync import IB, ScannerSubscription, Stock, util
 from src.news.news_heat import compute_fire_indicator
 
 from .filters import passes_catalyst_eligibility, passes_ross_5_pillars
+from src.config.config_resolver import get_config
+
 from .news_engine import NEWS_MAX_TOP_HEADLINES, get_news_truth
 from .scanner_config import FLOAT_CACHE_FILE, IB_CONNECT_TIMEOUT, IB_HOST, IB_PORT, TOP_GAINERS_COUNT
 
@@ -350,7 +351,7 @@ def save_json_file(path: str | Path, obj: Any) -> None:
 def ib_connect() -> IB:
     ib = IB()
     ib.RaiseRequestErrors = False  # prefer empty results over hard failures on pacing/cancellations
-    client_id = int(os.environ.get("IBKR_CLIENT_ID", "0") or 0)
+    client_id = int(get_config("IBKR_CLIENT_ID") or 0)
     if client_id <= 0:
         client_id = random.randint(1000, 9999)
     logging.info("Connecting to %s:%s with clientId %s...", IB_HOST, IB_PORT, client_id)
@@ -1010,8 +1011,8 @@ def format_clickable(label: str, url: str) -> str:
     if not url:
         return label
 
-    show_urls = os.environ.get("SHOW_URLS", "1").strip().lower() not in {"0", "false", "no"}
-    disable_osc8 = os.environ.get("DISABLE_OSC8", "0").strip().lower() in {"1", "true", "yes"}
+    show_urls = bool(get_config("SHOW_URLS"))
+    disable_osc8 = bool(get_config("DISABLE_OSC8"))
 
     if disable_osc8:
         return f"{label} ({url})" if show_urls else label
