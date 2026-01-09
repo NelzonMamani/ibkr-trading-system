@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 
 from .base import ProviderConnectionError, ScannerDataProvider
@@ -25,9 +26,9 @@ def build_provider() -> ScannerDataProvider:
             provider.connect()
             return provider
         except ProviderConnectionError as exc:
-            print(
-                "[SCAN][FALLBACK] IBKR unavailable — switching to MOCK provider "
-                f"reason={exc}"
+            logging.getLogger(__name__).warning(
+                "[SCAN][FALLBACK] IBKR unavailable — switching to MOCK provider reason=%s",
+                exc,
             )
             return MockScannerProvider()
     raise ValueError(f"Unsupported SCANNER_DATA_SOURCE={mode}")
