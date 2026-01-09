@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 SCANNER_VERSION = "v2026-01-04-11"
 SCANNER_GIT_SHA = (os.getenv("SCANNER_GIT_SHA") or os.getenv("GIT_SHA") or "").strip()
 
-CANONICAL_FIELDS: List[str] = [
+CANONICAL_FIELD_ORDER: List[str] = [
     "momentum_fire_indicator",
     "symbol",
     "market_session_label",
@@ -58,11 +58,12 @@ CANONICAL_FIELDS: List[str] = [
     "news_primary_catalyst_keywords",
     "news_top_headlines_list",
     "composite_momentum_score",
-    "score_components_breakdown",
-    "attention_tier",
-    "trade_suggestion_label",
-    "trade_suggestion_rationale",
+    "composite_news_score",
+    "strategy_trade_bias",
+    "scanner_version",
+    "debug_notes",
 ]
+CANONICAL_FIELDS = CANONICAL_FIELD_ORDER
 
 ALLOWED_NA: Dict[str, bool] = {
     "momentum_fire_indicator": False,
@@ -115,10 +116,10 @@ ALLOWED_NA: Dict[str, bool] = {
     "news_primary_catalyst_keywords": True,
     "news_top_headlines_list": True,
     "composite_momentum_score": True,
-    "score_components_breakdown": True,
-    "attention_tier": True,
-    "trade_suggestion_label": True,
-    "trade_suggestion_rationale": True,
+    "composite_news_score": True,
+    "strategy_trade_bias": True,
+    "scanner_version": False,
+    "debug_notes": True,
 }
 
 
@@ -174,25 +175,26 @@ class ScannerRow54:
     news_primary_catalyst_keywords: Optional[List[str]]
     news_top_headlines_list: Optional[List[Any]]
     composite_momentum_score: Optional[float]
-    score_components_breakdown: Optional[Dict[str, Any]]
-    attention_tier: Optional[str]
-    trade_suggestion_label: Optional[str]
-    trade_suggestion_rationale: Optional[str]
+    composite_news_score: Optional[float]
+    strategy_trade_bias: Optional[str]
+    scanner_version: Optional[str]
+    debug_notes: Optional[str]
 
 
 def validate_row(
     row: ScannerRow54,
 ) -> Tuple[List[str], List[str], bool, float]:
-    missing_fields: List[str] = []
+    missing_data_fields: List[str] = []
     non_allowed_na_fields: List[str] = []
-    non_empty_count = 0
     for field_name in CANONICAL_FIELDS:
         value = getattr(row, field_name, None)
         if value is None:
+            missing_data_fields.append(field_name)
             if not ALLOWED_NA.get(field_name, True):
                 non_allowed_na_fields.append(field_name)
-        else:
-            non_empty_count += 1
-    completeness_flag = not missing_fields and not non_allowed_na_fields
-    data_integrity_score = round((non_empty_count / len(CANONICAL_FIELDS)) * 100.0, 2)
-    return missing_fields, non_allowed_na_fields, completeness_flag, data_integrity_score
+    completeness_flag = not non_allowed_na_fields
+    data_integrity_score = max(
+        0.0,
+        100.0 - (len(missing_data_fields) * 2.0) - (len(non_allowed_na_fields) * 5.0),
+    )
+    return missing_data_fields, non_allowed_na_fields, completeness_flag, round(data_integrity_score, 2)

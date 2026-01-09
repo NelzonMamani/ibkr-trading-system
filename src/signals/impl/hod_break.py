@@ -3,8 +3,8 @@
 from decimal import Decimal
 from typing import Optional
 
-from signals.base import BaseSignal
-from signals.types import SignalContext, SignalDecision, SignalEvent, SignalType
+from src.signals.base import BaseSignal
+from src.signals.types import SignalContext, SignalDecision, SignalEvent, SignalType
 
 
 def _coerce_decimal(value) -> Optional[Decimal]:

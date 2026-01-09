@@ -1,6 +1,6 @@
-from core.run_event_timeline import RunEventTimeline
-from core.events import SystemEvent
-from events.event_schema import validate_event
+from src.core.run_event_timeline import RunEventTimeline
+from src.core.events import SystemEvent
+from src.events.event_schema import validate_event
 
 
 class EventCollector:

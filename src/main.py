@@ -9,7 +9,7 @@ configuration, or connecting to brokers or data sources.
 
 import os
 
-from config.runtime_config import (
+from src.config.runtime_config import (
     DEFAULT_EVENT_REPLAY_MODE,
     DEFAULT_RUN_MODE,
     RunMode,
@@ -32,11 +32,11 @@ from config.runtime_config import (
     get_scanner_symbols,
     is_execution_enabled,
 )
-from config.system_config import ACTIVE_SESSIONS, CYCLE_SLEEP_SECONDS
-from domain.models.internal_order import InternalOrder
-from core.orchestrator import CoreOrchestrator
-from adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
-from ibkr.read_only_guard import validate_read_only_guard
+from src.config.system_config import ACTIVE_SESSIONS, CYCLE_SLEEP_SECONDS
+from src.domain.models.internal_order import InternalOrder
+from src.core.orchestrator import CoreOrchestrator
+from src.adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
+from src.ibkr.read_only_guard import validate_read_only_guard
 
 
 def main() -> None:
@@ -181,7 +181,7 @@ def main() -> None:
             "[IBKR] READ-ONLY smoke test starting "
             f"run_mode={run_mode.value} symbol={smoke_symbol}"
         )
-        from brokers.ibkr_broker import IbkrBroker
+        from src.brokers.ibkr_broker import IbkrBroker
 
         broker = IbkrBroker()
         try:

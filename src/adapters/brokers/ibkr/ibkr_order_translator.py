@@ -11,7 +11,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency missing
     Order = None  # type: ignore
     print("[IBKR][TRANSLATOR] ibapi dependency missing; translation unavailable.")
 
-from domain.models.internal_order import InternalOrder
+from src.domain.models.internal_order import InternalOrder
 
 
 class IbkrOrderTranslator:

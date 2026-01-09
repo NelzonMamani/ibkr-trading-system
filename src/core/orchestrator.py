@@ -9,8 +9,8 @@ from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
-from brokers import IbkrBroker, IbkrLiveBroker, SimBroker
-from config.runtime_config import (
+from src.brokers import IbkrBroker, IbkrLiveBroker, SimBroker
+from src.config.runtime_config import (
     EventReplayMode,
     RunMode,
     get_event_replay_mode,
@@ -25,36 +25,38 @@ from config.runtime_config import (
     is_execution_enabled,
     is_live_read_only_required,
 )
-from config.system_config import get_current_market_session
-from core.active_trade_registry import ActiveTradeRegistry
-from core.event_collector import EventCollector
-from core.faults import (
+from src.config.system_config import get_current_market_session
+from src.core.active_trade_registry import ActiveTradeRegistry
+from src.core.event_collector import EventCollector
+from src.core.faults import (
     RecoveryAction,
     classify_exception,
     decide_recovery_action,
     fault_to_payload,
 )
-from core.stop_controller import StopController, StopMode
-from core.performance_registry import PerformanceRegistry
-from core.replay_engine import ReplayEngine
-from execution.execution_engine import ExecutionEngine
-from execution.order_gateway import OrderGateway
-from execution.trade_exit_engine import TradeExitEngine
-from ibkr.market_data_client import MarketDataClient
-from market_data.market_data_hub import MarketDataHub
-from market_data.market_data_price_feed import MarketDataPriceFeed
-from performance.strategy_performance import StrategyPerformanceTracker
-from models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
-from patterns.pattern_engine import PatternEngine
-from risk.risk_engine import RiskEngine
-from scanner import LiveReadOnlyScanner, Scanner, run_scanner_cycle
-from sim.clock import SimClock
-from sim.price_feed import DeterministicPriceFeed
-from signals.signal_engine_v1 import SignalEngineV1
-from storage.storage_engine import StorageEngine
-from strategy.strategy_runner import StrategyRunner
-from strategy.exit_signal import ExitSignal
-from events.event_invariants import check_invariants, EventInvariantError
+from src.core.stop_controller import StopController, StopMode
+from src.core.performance_registry import PerformanceRegistry
+from src.core.replay_engine import ReplayEngine
+from src.execution.execution_engine import ExecutionEngine
+from src.execution.order_gateway import OrderGateway
+from src.execution.trade_exit_engine import TradeExitEngine
+from src.ibkr.market_data_client import MarketDataClient
+from src.market_data.market_data_hub import MarketDataHub
+from src.market_data.market_data_price_feed import MarketDataPriceFeed
+from src.performance.strategy_performance import StrategyPerformanceTracker
+from src.models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
+from src.patterns.pattern_engine import PatternEngine
+from src.risk.risk_engine import RiskEngine
+from src.scanner.scanner_live_readonly import LiveReadOnlyScanner
+from src.scanner.scanner import Scanner
+from src.scanner.scanner_runner import run_scanner_cycle
+from src.sim.clock import SimClock
+from src.sim.price_feed import DeterministicPriceFeed
+from src.signals.signal_engine_v1 import SignalEngineV1
+from src.storage.storage_engine import StorageEngine
+from src.strategy.strategy_runner import StrategyRunner
+from src.strategy.exit_signal import ExitSignal
+from src.events.event_invariants import check_invariants, EventInvariantError
 
 
 class RuntimeSafetyError(RuntimeError):
@@ -321,7 +323,7 @@ class CoreOrchestrator:
         - Executes shutdown sequence when stop is requested.
         """
 
-        from config.system_config import (
+        from src.config.system_config import (
             ACTIVE_SESSIONS,
             CYCLE_SLEEP_SECONDS,
             get_current_market_session,

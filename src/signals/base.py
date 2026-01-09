@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 
-from signals.types import SignalContext, SignalEvent, SignalType
+from src.signals.types import SignalContext, SignalEvent, SignalType
 
 
 class BaseSignal(ABC):

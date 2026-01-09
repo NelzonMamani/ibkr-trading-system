@@ -1,7 +1,7 @@
 import inspect
 
-from news.news_heat import compute_fire_indicator
-from scanner.contracts import CANONICAL_FIELDS, ScannerRow54, validate_row
+from src.news.news_heat import compute_fire_indicator
+from src.scanner.contracts import CANONICAL_FIELDS, ScannerRow54, validate_row
 
 
 def _blank_row() -> ScannerRow54:
@@ -56,10 +56,10 @@ def _blank_row() -> ScannerRow54:
         news_primary_catalyst_keywords=None,
         news_top_headlines_list=None,
         composite_momentum_score=None,
-        score_components_breakdown=None,
-        attention_tier=None,
-        trade_suggestion_label=None,
-        trade_suggestion_rationale=None,
+        composite_news_score=None,
+        strategy_trade_bias=None,
+        scanner_version=None,
+        debug_notes=None,
     )
 
 
@@ -76,6 +76,7 @@ def test_validate_row_flags_non_allowed_na_fields():
         "symbol",
         "market_session_label",
         "sort_rank_by_gap_desc",
+        "scanner_version",
     }
 
 

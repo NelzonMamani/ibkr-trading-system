@@ -1,13 +1,13 @@
 """Signals package for teaching-first momentum triggers."""
 
-from signals.base import BaseSignal
-from signals.engine import SignalEngine
-from signals.registry import SignalRegistry, build_default_signal_registry
-from signals.signal_engine_v1 import SignalEngineConfig, SignalEngineV1
-from signals.signal_event import SignalEvent
-from signals.signal_to_intent_adapter import SignalToIntentAdapter, SignalToIntentConfig
-from signals.signal_types import SignalType
-from signals.types import (
+from src.signals.base import BaseSignal
+from src.signals.engine import SignalEngine
+from src.signals.registry import SignalRegistry, build_default_signal_registry
+from src.signals.signal_engine_v1 import SignalEngineConfig, SignalEngineV1
+from src.signals.signal_event import SignalEvent
+from src.signals.signal_to_intent_adapter import SignalToIntentAdapter, SignalToIntentConfig
+from src.signals.signal_types import SignalType
+from src.signals.types import (
     Level,
     SignalContext,
     SignalDecision,

@@ -1,12 +1,12 @@
 """Registry for signal implementations."""
 
-from signals.base import BaseSignal
-from signals.types import SignalType
-from signals.impl.hod_break import HodBreakSignal
-from signals.impl.premarket_high_break import PremarketHighBreakSignal
-from signals.impl.micro_pullback import MicroPullbackSignal
-from signals.impl.bull_flag import BullFlagSignal
-from signals.impl.orb_1m import Orb1mSignal
+from src.signals.base import BaseSignal
+from src.signals.types import SignalType
+from src.signals.impl.hod_break import HodBreakSignal
+from src.signals.impl.premarket_high_break import PremarketHighBreakSignal
+from src.signals.impl.micro_pullback import MicroPullbackSignal
+from src.signals.impl.bull_flag import BullFlagSignal
+from src.signals.impl.orb_1m import Orb1mSignal
 
 
 class SignalRegistry:

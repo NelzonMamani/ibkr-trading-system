@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import Dict, Optional
 
-from execution.liquidity_model import LiquidityModel
+from src.execution.liquidity_model import LiquidityModel
 from utils.price_math import (
     D,
     apply_spread_mid_to_quote,

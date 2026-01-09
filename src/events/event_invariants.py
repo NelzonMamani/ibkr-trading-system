@@ -2,7 +2,7 @@
 
 from typing import Iterable, Tuple
 
-from core.events import SystemEvent
+from src.core.events import SystemEvent
 
 
 class EventInvariantError(Exception):

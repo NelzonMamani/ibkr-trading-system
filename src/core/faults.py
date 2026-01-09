@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from config.runtime_config import RunMode
+from src.config.runtime_config import RunMode
 
 
 class FaultCategory(str, Enum):
@@ -67,7 +67,7 @@ def _default_severity(category: FaultCategory) -> FaultSeverity:
 def classify_exception(exc: Exception) -> FaultEvent:
     """Classify an exception into a structured FaultEvent."""
 
-    from events.event_invariants import EventInvariantError
+    from src.events.event_invariants import EventInvariantError
 
     if isinstance(exc, RuntimeError) and "[SAFETY]" in str(exc):
         category = FaultCategory.SAFETY

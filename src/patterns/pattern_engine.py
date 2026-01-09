@@ -5,7 +5,7 @@ Ross Momentum pattern engine with deterministic, explainable pattern evaluation.
 from dataclasses import dataclass
 from typing import List, Tuple
 
-from models.data_models import PatternResult, ScannerCandidate
+from src.models.data_models import PatternResult, ScannerCandidate
 
 
 @dataclass(frozen=True)

@@ -7,13 +7,10 @@ if sys.platform.startswith("win"):
 
     _asyncio_tmp.set_event_loop_policy(_asyncio_tmp.WindowsSelectorEventLoopPolicy())
 
-from ib_insync import util
-
-from .scanner_runner import run_scanner_cycle
+from src.scanner.scanner_runner import run_scanner_cycle
 
 
 def main() -> None:
-    util.patchAsyncio()
     run_scanner_cycle(mode="standalone")
 
 

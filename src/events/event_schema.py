@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, Set
 
-from config.runtime_config import RunMode
+from src.config.runtime_config import RunMode
 
 
 class EventSchemaError(Exception):

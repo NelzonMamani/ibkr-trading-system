@@ -4,8 +4,8 @@ import argparse
 import os
 import sys
 
-from config.runtime_config import get_persistence_sqlite_path
-from storage.sqlite_store import SQLiteStore
+from src.config.runtime_config import get_persistence_sqlite_path
+from src.storage.sqlite_store import SQLiteStore
 
 
 def _build_parser() -> argparse.ArgumentParser:

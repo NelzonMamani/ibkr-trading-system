@@ -8,7 +8,7 @@ from .contracts import CANONICAL_FIELDS, SCANNER_GIT_SHA, SCANNER_VERSION, Scann
 from .field_mapper import FIELD_SOURCES
 
 
-def audit_fields(sample_rows: List[ScannerRow54]) -> Dict[str, Any]:
+def audit_field_population(sample_rows: List[ScannerRow54]) -> Dict[str, Any]:
     present_fields: List[str] = []
     missing_fields: List[str] = []
     per_field_notes: Dict[str, str] = {}
@@ -23,15 +23,25 @@ def audit_fields(sample_rows: List[ScannerRow54]) -> Dict[str, Any]:
         else:
             missing_fields.append(field_name)
             per_field_notes[field_name] = "No non-empty values observed in sample."
+    expected_fields = set(CANONICAL_FIELDS)
+    mapped_fields = set(FIELD_SOURCES.keys())
+    unwired_fields = sorted(expected_fields - mapped_fields)
+    extra_sources = sorted(mapped_fields - expected_fields)
+    if extra_sources:
+        per_field_notes["__extra_sources__"] = ", ".join(extra_sources)
     report = {
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
         "sample_size": len(sample_rows),
         "present_fields": present_fields,
-        "unwired_fields": [],
+        "unwired_fields": unwired_fields,
         "missing_fields": missing_fields,
         "per_field_notes": per_field_notes,
         "field_sources": FIELD_SOURCES,
+        "unwired_methodology": (
+            "Unwired fields are canonical fields missing from FIELD_SOURCES. "
+            "Extra sources are noted under __extra_sources__ if present."
+        ),
     }
     return report
 

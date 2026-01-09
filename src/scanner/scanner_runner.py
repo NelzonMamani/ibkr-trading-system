@@ -5,27 +5,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from config.runtime_config import get_scanner_symbols
+from src.news.news_fetcher import Headline, fetch_headlines_for_symbols
+from src.news.news_normalizer import normalize_headlines
+from src.news.verified_sources import load_verified_rss_sources
 
-from .audit import audit_fields, write_field_audit, write_mechanical_checklist
+from .audit import audit_field_population, write_field_audit, write_mechanical_checklist
 from .contracts import SCANNER_GIT_SHA, SCANNER_VERSION, ScannerRow54
 from .field_mapper import build_scanner_row54
 from .filters import passes_catalyst_eligibility, passes_ross_5_pillars
-from .news_engine import get_news_truth
 from .print_contract_54 import format_watchlist_lines, print_master, print_watchlist_compact
-from .scanner_master_v2026_01_06_07 import (
-    categorize_float,
-    fetch_top_gainers,
-    fmt_float_human,
-    get_float_shares,
-    get_price_truth,
-    get_volume_truth,
-    ib_connect,
-    load_json_file,
-    market_session_label_utc,
-    save_json_file,
-)
-from .scanner_config import FLOAT_CACHE_FILE, TOP_GAINERS_COUNT
+from .providers.base import ScannerDataProvider
+from .providers.factory import build_provider
 
 
 def _utc_now() -> datetime:
@@ -41,150 +31,196 @@ def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
         return default
 
 
+def _market_session_label_utc(now: datetime) -> str:
+    h = now.hour + now.minute / 60.0
+    if 12.0 <= h < 14.0:
+        return "PRE"
+    if 14.0 <= h < 21.5:
+        return "RTH"
+    if 21.5 <= h < 23.0:
+        return "AFT"
+    return "OVN"
+
+
+def _fmt_float_human(value: Optional[int]) -> Optional[str]:
+    if value is None:
+        return None
+    if value >= 1_000_000_000:
+        return f"{value / 1_000_000_000:.2f}B"
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.2f}M"
+    if value >= 1_000:
+        return f"{value / 1_000:.2f}K"
+    return str(value)
+
+
+def _categorize_float(value: Optional[int]) -> Optional[str]:
+    if value is None:
+        return None
+    if value <= 5_000_000:
+        return "LOW"
+    if value <= 20_000_000:
+        return "MID"
+    return "HIGH"
+
+
 def _build_symbol_context(
+    provider: ScannerDataProvider,
     symbol: str,
     session_label: str,
     sort_rank: int,
-    price_truth,
-    volume_truth,
-    float_raw: Optional[int],
-    float_source: str,
-    cache_hit: bool,
 ) -> Dict[str, Any]:
+    quote = provider.get_quote(symbol)
+    prev_close = quote.close if quote.close is not None else provider.get_prev_close(symbol)
+    intraday = provider.get_intraday_stats(symbol)
+    float_raw = provider.get_float(symbol)
+    open_price = quote.open
+    last_price = quote.last
+    bid = quote.bid
+    ask = quote.ask
+    mid = None
+    if bid is not None and ask is not None:
+        mid = round((bid + ask) / 2, 4)
+    spread = None
+    if bid is not None and ask is not None:
+        spread = round(ask - bid, 4)
+
+    gap_pct = None
+    if prev_close and open_price:
+        gap_pct = round(((open_price - prev_close) / prev_close) * 100.0, 2)
+
+    pct_change = None
+    if prev_close and last_price:
+        pct_change = round(((last_price - prev_close) / prev_close) * 100.0, 2)
+
+    intraday_range_pct = None
+    if quote.high is not None and quote.low is not None and prev_close:
+        intraday_range_pct = round(((quote.high - quote.low) / prev_close) * 100.0, 2)
+
     return {
         "symbol": symbol,
         "market_session_label": session_label,
         "sort_rank_by_gap_desc": sort_rank,
-        "previous_close_price": price_truth.prev_close,
-        "session_open_price": price_truth.session_open,
-        "overnight_gap_percentage": price_truth.gap_pct,
-        "last_trade_price": price_truth.last,
-        "current_percentage_change_from_prior_close": price_truth.pct_change,
-        "bid_price": price_truth.bid,
-        "ask_price": price_truth.ask,
-        "bid_ask_spread": price_truth.spread,
-        "mid_price": price_truth.mid,
-        "vwap_price": price_truth.vwap,
-        "day_high_price": price_truth.day_high,
-        "day_low_price": price_truth.day_low,
-        "intraday_range_percentage": price_truth.intraday_range_pct,
-        "price_data_type_label": price_truth.data_type_label,
-        "price_truth_source_label": price_truth.truth_source_label,
-        "daily_bars_count": price_truth.daily_bars_count,
+        "previous_close_price": prev_close,
+        "session_open_price": open_price,
+        "overnight_gap_percentage": gap_pct,
+        "last_trade_price": last_price,
+        "current_percentage_change_from_prior_close": pct_change,
+        "bid_price": bid,
+        "ask_price": ask,
+        "bid_ask_spread": spread,
+        "mid_price": mid,
+        "vwap_price": quote.vwap,
+        "day_high_price": quote.high,
+        "day_low_price": quote.low,
+        "intraday_range_percentage": intraday_range_pct,
+        "price_data_type_label": provider.source_name,
+        "price_truth_source_label": provider.source_name,
+        "daily_bars_count": None,
         "float_shares_raw": float_raw,
-        "float_shares_formatted": fmt_float_human(float_raw),
-        "float_category": categorize_float(float_raw),
-        "float_shares_source": float_source,
-        "float_cache_hit": cache_hit,
-        "current_intraday_volume": volume_truth.current_intraday_volume,
-        "current_volume_source_label": volume_truth.current_volume_source_label,
-        "average_daily_volume_20d": volume_truth.average_daily_volume_20d,
-        "average_daily_volume_window_days": volume_truth.average_daily_volume_window_days,
-        "relative_volume": volume_truth.relative_volume,
-        "relative_volume_category": volume_truth.relative_volume_category,
-        "volume_velocity_5m": volume_truth.volume_velocity_5m,
-        "volume_velocity_15m": volume_truth.volume_velocity_15m,
-        "volume_data_quality_flag": volume_truth.volume_data_quality_flag,
+        "float_shares_formatted": _fmt_float_human(float_raw),
+        "float_category": _categorize_float(float_raw),
+        "float_shares_source": provider.source_name if float_raw is not None else None,
+        "float_cache_hit": float_raw is not None,
+        "current_intraday_volume": intraday.current_intraday_volume,
+        "current_volume_source_label": intraday.current_volume_source_label,
+        "average_daily_volume_20d": intraday.average_daily_volume_20d,
+        "average_daily_volume_window_days": intraday.average_daily_volume_window_days,
+        "relative_volume": intraday.relative_volume,
+        "relative_volume_category": intraday.relative_volume_category,
+        "volume_velocity_5m": intraday.volume_velocity_5m,
+        "volume_velocity_15m": intraday.volume_velocity_15m,
+        "volume_data_quality_flag": intraday.volume_data_quality_flag,
     }
 
 
-def _fallback_symbol_context(symbol: str, session_label: str, sort_rank: int) -> Dict[str, Any]:
-    return {
-        "symbol": symbol,
-        "market_session_label": session_label,
-        "sort_rank_by_gap_desc": sort_rank,
-    }
+def _mock_headlines_for_symbols(symbols: List[str]) -> Dict[str, List[Headline]]:
+    now_ts = datetime.now(timezone.utc).timestamp()
+    headlines: Dict[str, List[Headline]] = {symbol: [] for symbol in symbols}
+    for symbol in symbols[:20]:
+        headlines[symbol] = [
+            Headline(
+                title=f"{symbol} reports earnings beat and raises guidance",
+                source="MOCK_NEWS",
+                published_ts=now_ts - 300,
+                url="https://mock.news/earnings",
+            ),
+            Headline(
+                title=f"{symbol} announces new partnership",
+                source="MOCK_NEWS",
+                published_ts=now_ts - 900,
+                url="https://mock.news/partnership",
+            ),
+        ]
+    return headlines
+
+
+def _enrich_news_context(
+    symbols: List[str],
+    provider_source: str,
+) -> Dict[str, Dict[str, Any]]:
+    sources = load_verified_rss_sources()
+    headlines_by_symbol = fetch_headlines_for_symbols(symbols, sources)
+    if provider_source == "MOCK":
+        if all(len(items) == 0 for items in headlines_by_symbol.values()):
+            headlines_by_symbol = _mock_headlines_for_symbols(symbols)
+    news_by_symbol: Dict[str, Dict[str, Any]] = {}
+    for symbol, headlines in headlines_by_symbol.items():
+        news_context = normalize_headlines(headlines)
+        vel10 = news_context.get("news_velocity_10m") or 0
+        vel60 = news_context.get("news_velocity_60m") or 0
+        spike = bool(vel10 >= 2 or (vel60 and vel10 > (vel60 / 6.0)))
+        news_context["news_spike_indicator"] = spike
+        news_by_symbol[symbol] = news_context
+    return news_by_symbol
 
 
 def _rank_watchlist(rows: List[ScannerRow54]) -> List[ScannerRow54]:
     scored: List[tuple[float, ScannerRow54]] = []
     for row in rows:
         momentum = _safe_float(row.composite_momentum_score, 0.0) or 0.0
-        news_score = 0.0
-        if row.score_components_breakdown:
-            news_score = _safe_float(
-                row.score_components_breakdown.get("news_heat_score"), 0.0
-            ) or 0.0
+        news_score = _safe_float(row.composite_news_score, 0.0) or 0.0
         rank_score = (momentum * 0.7) + (news_score * 0.3)
-        if row.score_components_breakdown is not None:
-            row.score_components_breakdown["watchlist_rank_score"] = round(rank_score, 2)
-            row.score_components_breakdown["composite_news_score"] = round(news_score, 2)
         scored.append((rank_score, row))
     scored.sort(key=lambda item: item[0], reverse=True)
     return [row for _, row in scored]
 
 
 def _apply_filters(rows: List[ScannerRow54], limit: int = 15) -> List[ScannerRow54]:
-    filtered = []
-    for row in rows:
-        if passes_ross_5_pillars(row) and passes_catalyst_eligibility(row):
-            reason = row.trade_suggestion_rationale or ""
-            suffix = "Filters: Ross5 + Catalyst"
-            row.trade_suggestion_rationale = f"{reason} | {suffix}".strip(" |")
-            filtered.append(row)
+    filtered = [row for row in rows if passes_ross_5_pillars(row) and passes_catalyst_eligibility(row)]
     ranked = _rank_watchlist(filtered)
     return ranked[:limit]
 
 
-def _print_field_audit(rows: List[ScannerRow54]) -> Dict[str, Any]:
-    report = audit_fields(rows)
-    present = report.get("present_fields", [])
-    missing = report.get("missing_fields", [])
-    print(
-        "[SCANNER][AUDIT] field status: "
-        f"present={len(present)} missing={len(missing)} unwired=0"
-    )
-    return report
-
-
 def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
     utc_now = _utc_now()
-    session_label = market_session_label_utc(utc_now)
-    float_cache: Dict[str, Any] = load_json_file(FLOAT_CACHE_FILE, {})
-    if not isinstance(float_cache, dict):
-        float_cache = {}
-
+    session_label = _market_session_label_utc(utc_now)
     rows: List[ScannerRow54] = []
     diagnostics: Dict[str, Any] = {"mode": mode}
-    ib = None
-    contracts = []
+    provider: ScannerDataProvider = build_provider()
 
     try:
-        ib = ib_connect()
-        contracts = fetch_top_gainers(ib, TOP_GAINERS_COUNT)
-    except Exception as exc:
-        diagnostics["ib_connect_error"] = str(exc)
-        contracts = []
+        symbols = provider.get_top_gainers(int(os.environ.get("TOP_GAINERS_COUNT", "50")))
+        diagnostics["provider_source"] = provider.source_name
+        diagnostics["symbol_count"] = len(symbols)
+        if not symbols:
+            print("[SCANNER] No symbols provided by provider.")
+            return {}
 
-    if not contracts:
-        fallback_symbols = get_scanner_symbols(default=["AAPL", "MSFT", "NVDA", "AMD", "TSLA"])
-        print("[SCANNER] Falling back to configured symbols:", ", ".join(fallback_symbols))
-        for idx, symbol in enumerate(fallback_symbols, start=1):
-            symbol_ctx = _fallback_symbol_context(symbol, session_label, idx)
-            news_ctx = get_news_truth(symbol)
-            rows.append(build_scanner_row54(symbol_ctx, news_ctx, {}, diagnostics))
-    else:
-        raw_contexts: List[Dict[str, Any]] = []
-        for idx, contract in enumerate(contracts, start=1):
-            symbol = contract.symbol.upper()
+        news_by_symbol = _enrich_news_context(symbols, provider.source_name)
+
+        raw_contexts = []
+        for idx, symbol in enumerate(symbols, start=1):
             try:
-                price_truth = get_price_truth(ib, contract)
-                float_raw, float_source, cache_hit = get_float_shares(ib, contract, float_cache)
-                volume_truth = get_volume_truth(ib, contract, session_label=session_label)
-                symbol_ctx = _build_symbol_context(
-                    symbol,
-                    session_label,
-                    idx,
-                    price_truth,
-                    volume_truth,
-                    float_raw,
-                    float_source,
-                    cache_hit,
-                )
+                symbol_ctx = _build_symbol_context(provider, symbol, session_label, idx)
             except Exception as exc:
                 diagnostics.setdefault("enrichment_errors", {})[symbol] = str(exc)
-                symbol_ctx = _fallback_symbol_context(symbol, session_label, idx)
-            news_ctx = get_news_truth(symbol)
+                symbol_ctx = {
+                    "symbol": symbol,
+                    "market_session_label": session_label,
+                    "sort_rank_by_gap_desc": idx,
+                }
+            news_ctx = news_by_symbol.get(symbol, {})
             raw_contexts.append({"symbol": symbol_ctx, "news": news_ctx})
 
         raw_contexts.sort(
@@ -196,22 +232,15 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
         for idx, item in enumerate(raw_contexts, start=1):
             item["symbol"]["sort_rank_by_gap_desc"] = idx
             rows.append(build_scanner_row54(item["symbol"], item["news"], {}, diagnostics))
+    finally:
+        provider.disconnect()
 
-    if ib is not None:
-        try:
-            if ib.isConnected():
-                ib.disconnect()
-        except Exception:
-            pass
-
-    if float_cache:
-        save_json_file(FLOAT_CACHE_FILE, float_cache)
-
-    print_master(rows) if mode == "standalone" else None
+    if mode == "standalone":
+        print_master(rows)
     watchlist = _apply_filters(rows, limit=15)
     print_watchlist_compact(watchlist)
 
-    report = _print_field_audit(rows)
+    report = audit_field_population(rows)
     docs_dir = Path("docs")
     write_field_audit(report, docs_dir / "PHASE_24_SCANNER_FIELD_AUDIT.json")
     write_mechanical_checklist(report, docs_dir / "PHASE_24_SCANNER_MECHANICAL_CHECKLIST.md")
@@ -221,7 +250,7 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
         ts = utc_now.strftime("%Y-%m-%d_%H-%M-%S")
         watchlist_dir = Path("output/watchlists")
         watchlist_dir.mkdir(parents=True, exist_ok=True)
-        file_path = watchlist_dir / f"watchlist_{session}_{ts}.txt"
+        file_path = watchlist_dir / f"watchlist_{session}_{ts}_UTC.txt"
         file_path.write_text("\n".join(format_watchlist_lines(watchlist)) + "\n", encoding="utf-8")
         local_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"[SCANNER] Local time: {local_now}")

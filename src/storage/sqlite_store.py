@@ -7,7 +7,7 @@ import os
 import sqlite3
 from typing import Any, Iterable
 
-from storage.serialization import compute_audit_hash
+from src.storage.serialization import compute_audit_hash
 
 
 SCHEMA_VERSION = 1

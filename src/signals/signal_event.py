@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from signals.signal_types import SignalType
+from src.signals.signal_types import SignalType
 
 
 @dataclass(frozen=True)

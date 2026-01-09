@@ -7,10 +7,10 @@ TradeIntent objects without thresholds, sizing, or broker integration.
 
 from typing import List
 
-from config.trading_config import MIN_HOLD_TICKS
-from models.data_models import PatternResult, TradeIntent
-from strategy.exit_signal import ExitSignal
-from strategy.base_strategy import BaseStrategy
+from src.config.trading_config import MIN_HOLD_TICKS
+from src.models.data_models import PatternResult, TradeIntent
+from src.strategy.exit_signal import ExitSignal
+from src.strategy.base_strategy import BaseStrategy
 
 
 class GapAndGoStrategy(BaseStrategy):

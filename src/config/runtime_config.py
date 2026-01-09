@@ -9,7 +9,7 @@ import os
 from dataclasses import dataclass
 from enum import Enum
 
-from config.trading_config import MAX_HOLD_TICKS, MIN_HOLD_TICKS
+from src.config.trading_config import MAX_HOLD_TICKS, MIN_HOLD_TICKS
 
 
 class RunMode(str, Enum):

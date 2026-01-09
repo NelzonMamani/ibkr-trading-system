@@ -1,5 +1,5 @@
-from models.data_models import ExecutionResult
-from domain.trade_outcome import TradeOutcome
+from src.models.data_models import ExecutionResult
+from src.domain.trade_outcome import TradeOutcome
 
 
 class TradeOutcomeFactory:

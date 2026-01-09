@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
-from events.event_invariants import check_invariants, EventInvariantError
+from src.events.event_invariants import check_invariants, EventInvariantError
 
 
 @dataclass

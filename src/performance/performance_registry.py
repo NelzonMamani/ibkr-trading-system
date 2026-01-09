@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import Dict, Iterable, List
 
-from domain.performance_snapshot import PerformanceSnapshot
+from src.domain.performance_snapshot import PerformanceSnapshot
 from src.utils.price_math import D, q_money, to_decimal
 
 
