@@ -5,8 +5,10 @@ import importlib.util
 import logging
 import re
 import time
+from collections import Counter
 from dataclasses import dataclass
 from typing import Dict, Iterable, List
+from urllib.parse import urlparse
 
 if importlib.util.find_spec("feedparser"):
     feedparser = importlib.import_module("feedparser")  # type: ignore
@@ -45,14 +47,57 @@ def _entry_timestamp(entry) -> float:
     return time.time()
 
 
+def _domain_from_url(url: str) -> str:
+    try:
+        host = urlparse(url).netloc.lower()
+        host = host.split("@")[-1]
+        return host[4:] if host.startswith("www.") else host
+    except Exception:
+        return ""
+
+
+_RETRYABLE_STATUS = {"408", "429", "500", "502", "503", "504"}
+
+
 def _fetch_feed(url: str, timeout_s: float) -> object | None:
     if feedparser is None:
         return None
     if requests is None:
         return feedparser.parse(url)
-    response = requests.get(url, timeout=timeout_s)
+    headers = {
+        "User-Agent": "IBKRScanner/1.0 (+https://github.com/NelzonMamani/ibkr-trading-system)",
+        "Accept": "application/rss+xml, application/xml;q=0.9, */*;q=0.8",
+    }
+    response = requests.get(url, timeout=timeout_s, headers=headers)
     response.raise_for_status()
     return feedparser.parse(response.text)
+
+
+def _fetch_feed_with_retry(url: str, timeout_s: float, max_attempts: int = 2) -> object | None:
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            return _fetch_feed(url, timeout_s)
+        except Exception as exc:
+            last_exc = exc
+            status = str(getattr(getattr(exc, "response", None), "status_code", "error"))
+            if status not in _RETRYABLE_STATUS or attempt + 1 >= max_attempts:
+                break
+            time.sleep(0.3)
+    if last_exc:
+        raise last_exc
+    return None
+
+
+def _sleep_for_throttle(domain: str, last_request: Dict[str, float], min_delay_s: float) -> None:
+    if not domain:
+        return
+    last_ts = last_request.get(domain)
+    if last_ts is None:
+        return
+    elapsed = time.time() - last_ts
+    if elapsed < min_delay_s:
+        time.sleep(max(0.0, min_delay_s - elapsed))
 
 
 def fetch_headlines_for_symbols(
@@ -69,16 +114,34 @@ def fetch_headlines_for_symbols(
     min_ts = now - (lookback_hours * 3600)
     patterns = _compile_symbol_patterns(symbols)
     failures = 0
+    successes = 0
+    throttled_domains: Dict[str, float] = {}
+    failure_domains: Counter[str] = Counter()
+    failure_codes: Counter[str] = Counter()
+    logged_domains = set()
+    min_delay_s = 0.4
     for url in sources:
+        domain = _domain_from_url(url)
+        _sleep_for_throttle(domain, throttled_domains, min_delay_s)
+        throttled_domains[domain] = time.time()
         try:
-            feed = _fetch_feed(url, request_timeout_s)
+            feed = _fetch_feed_with_retry(url, request_timeout_s)
         except Exception as exc:
             failures += 1
-            logging.warning("[NEWS] RSS fetch failed for %s: %s", url, exc)
+            failure_domains[domain or url] += 1
+            code = getattr(getattr(exc, "response", None), "status_code", None)
+            failure_codes[str(code or "error")] += 1
+            if revealing := (domain or url):
+                if revealing not in logged_domains:
+                    logging.warning("[NEWS] RSS fetch failed for %s: %s", revealing, exc)
+                    logged_domains.add(revealing)
             continue
         if feed is None:
             failures += 1
+            failure_domains[domain or url] += 1
+            failure_codes["parse_error"] += 1
             continue
+        successes += 1
         source_name = ""
         try:
             source_name = (feed.feed.get("title") or "").strip()
@@ -102,6 +165,18 @@ def fetch_headlines_for_symbols(
                             url=link,
                         )
                     )
-    if failures:
-        logging.info("[NEWS] RSS failures=%d sources=%d", failures, len(sources))
+    top_domains = ", ".join(
+        f"{domain}={count}" for domain, count in failure_domains.most_common(5)
+    )
+    top_codes = ", ".join(
+        f"{code}={count}" for code, count in failure_codes.most_common(5)
+    )
+    logging.info(
+        "[NEWS] RSS summary total=%d successes=%d failures=%d top_domains=[%s] top_codes=[%s]",
+        len(sources),
+        successes,
+        failures,
+        top_domains,
+        top_codes,
+    )
     return headlines

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from src.config.config_resolver import get_config
 from src.config.runtime_config import get_scanner_symbols
 from src.ibkr.market_data_client import MarketDataClient
 
@@ -26,7 +27,7 @@ class IbkrScannerProvider(ScannerDataProvider):
     def get_top_gainers(self, limit: int) -> list[str]:
         symbols = get_scanner_symbols(default=[])
         if not symbols:
-            symbols = ["AAPL", "MSFT", "NVDA", "AMD", "TSLA"]
+            symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS") or [])
         return [symbol.upper() for symbol in symbols][:limit]
 
     def get_quote(self, symbol: str) -> QuoteData:

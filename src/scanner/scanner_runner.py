@@ -1,21 +1,24 @@
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..news.news_fetcher import Headline, fetch_headlines_for_symbols
-from ..news.news_normalizer import normalize_headlines
-from ..news.verified_sources import load_verified_rss_sources
+if __package__ is None or __package__ == "":
+    repo_root = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(repo_root))
 
-from .audit import audit_field_population, write_field_audit, write_mechanical_checklist
-from .contracts import SCANNER_GIT_SHA, SCANNER_VERSION, ScannerRow54
-from .field_mapper import build_scanner_row54
-from .filters import passes_catalyst_eligibility, passes_ross_5_pillars
-from .providers.base import ScannerDataProvider
-from src.config.config_resolver import get_config
-
-from .providers.factory import build_provider
+from src.config.config_resolver import get_config, get_config_record
+from src.news.news_fetcher import Headline, fetch_headlines_for_symbols
+from src.news.news_normalizer import normalize_headlines
+from src.news.verified_sources import load_verified_rss_sources
+from src.scanner.audit import audit_field_population, write_field_audit, write_mechanical_checklist
+from src.scanner.contracts import SCANNER_GIT_SHA, SCANNER_VERSION, ScannerRow54
+from src.scanner.field_mapper import build_scanner_row54
+from src.scanner.filters import FilterDecision, evaluate_scan_row
+from src.scanner.providers.base import ScannerDataProvider
+from src.scanner.providers.factory import build_provider
 
 
 def _utc_now() -> datetime:
@@ -158,12 +161,32 @@ def _mock_headlines_for_symbols(symbols: List[str]) -> Dict[str, List[Headline]]
 def _enrich_news_context(
     symbols: List[str],
     provider_source: str,
-) -> Dict[str, Dict[str, Any]]:
+) -> tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
+    news_enabled = bool(get_config("NEWS_ENABLED"))
+    if not news_enabled:
+        return {}, {"news_enabled": False, "news_degraded_reason": "NEWS_DISABLED"}
+
     sources = load_verified_rss_sources()
-    headlines_by_symbol = fetch_headlines_for_symbols(symbols, sources)
+    headlines_by_symbol = fetch_headlines_for_symbols(
+        symbols,
+        sources,
+        lookback_hours=float(get_config("NEWS_LOOKBACK_HOURS")),
+        request_timeout_s=float(get_config("NEWS_REQUEST_TIMEOUT_S")),
+    )
+    news_summary = {
+        "sources_total": len(sources),
+        "sources_used": len([source for source in sources if source]),
+        "headlines_total": sum(len(items) for items in headlines_by_symbol.values()),
+        "news_enabled": news_enabled,
+    }
     if provider_source == "MOCK":
         if all(len(items) == 0 for items in headlines_by_symbol.values()):
             headlines_by_symbol = _mock_headlines_for_symbols(symbols)
+            news_summary["mock_fallback"] = True
+    if not sources:
+        news_summary["news_degraded_reason"] = "NO_VERIFIED_SOURCES"
+    elif not any(headlines_by_symbol.values()):
+        news_summary["news_degraded_reason"] = "NO_HEADLINES"
     news_by_symbol: Dict[str, Dict[str, Any]] = {}
     for symbol, headlines in headlines_by_symbol.items():
         news_context = normalize_headlines(headlines)
@@ -172,7 +195,7 @@ def _enrich_news_context(
         spike = bool(vel10 >= 2 or (vel60 and vel10 > (vel60 / 6.0)))
         news_context["news_spike_indicator"] = spike
         news_by_symbol[symbol] = news_context
-    return news_by_symbol
+    return news_by_symbol, news_summary
 
 
 def _rank_watchlist(rows: List[ScannerRow54]) -> List[ScannerRow54]:
@@ -186,10 +209,52 @@ def _rank_watchlist(rows: List[ScannerRow54]) -> List[ScannerRow54]:
     return [row for _, row in scored]
 
 
-def _apply_filters(rows: List[ScannerRow54], limit: int = 15) -> List[ScannerRow54]:
-    filtered = [row for row in rows if passes_ross_5_pillars(row) and passes_catalyst_eligibility(row)]
+def _apply_filters(
+    rows: List[ScannerRow54],
+    limit: int,
+    enforce_news_gate: bool,
+) -> tuple[List[ScannerRow54], Dict[str, int], int]:
+    decisions: List[FilterDecision] = []
+    for row in rows:
+        decisions.append(evaluate_scan_row(row, enforce_news_gate=enforce_news_gate))
+
+    filtered = [decision.row for decision in decisions if decision.passes]
     ranked = _rank_watchlist(filtered)
-    return ranked[:limit]
+    ranked = ranked[:limit]
+
+    excluded_reasons: Dict[str, int] = {}
+    for decision in decisions:
+        if decision.passes:
+            continue
+        for reason in decision.reasons:
+            excluded_reasons[reason] = excluded_reasons.get(reason, 0) + 1
+
+    excluded_count = len(rows) - len(ranked)
+    return ranked, excluded_reasons, excluded_count
+
+
+def _resolve_symbol_limits() -> Dict[str, Any]:
+    top_gainers = int(get_config("SCANNER_TOP_GAINERS_COUNT"))
+    ibkr_cap = int(get_config("IBKR_MAX_SYMBOLS_PER_CYCLE"))
+    teaching_cap = int(get_config("SCANNER_TEACHING_SYMBOL_CAP"))
+    scanner_mode = str(get_config("SCANNER_MODE"))
+
+    resolved_limit = min(top_gainers, ibkr_cap)
+    reasons = []
+    if top_gainers > ibkr_cap:
+        reasons.append("IBKR_MAX_SYMBOLS_PER_CYCLE cap applied")
+    if scanner_mode == "TEACHING" and teaching_cap > 0:
+        resolved_limit = min(resolved_limit, teaching_cap)
+        reasons.append("SCANNER_TEACHING_SYMBOL_CAP applied (TEACHING mode)")
+
+    return {
+        "top_gainers": top_gainers,
+        "ibkr_cap": ibkr_cap,
+        "teaching_cap": teaching_cap,
+        "scanner_mode": scanner_mode,
+        "resolved_limit": resolved_limit,
+        "reasons": reasons,
+    }
 
 
 def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
@@ -200,13 +265,41 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
     provider: ScannerDataProvider = build_provider()
 
     try:
-        symbols = provider.get_top_gainers(get_config("SCANNER_TOP_GAINERS_COUNT"))
+        limits = _resolve_symbol_limits()
+        config_sources = {
+            "TOP_GAINERS_COUNT": get_config_record("SCANNER_TOP_GAINERS_COUNT").source,
+            "IBKR_MAX_SYMBOLS_PER_CYCLE": get_config_record("IBKR_MAX_SYMBOLS_PER_CYCLE").source,
+            "SCANNER_TEACHING_SYMBOL_CAP": get_config_record("SCANNER_TEACHING_SYMBOL_CAP").source,
+        }
+        print(
+            "[SCANNER] Symbol limits resolved "
+            f"TOP_GAINERS_COUNT={limits['top_gainers']}({config_sources['TOP_GAINERS_COUNT']}) "
+            f"IBKR_MAX_SYMBOLS_PER_CYCLE={limits['ibkr_cap']}({config_sources['IBKR_MAX_SYMBOLS_PER_CYCLE']}) "
+            f"SCANNER_TEACHING_SYMBOL_CAP={limits['teaching_cap']}({config_sources['SCANNER_TEACHING_SYMBOL_CAP']}) "
+            f"RESOLVED_LIMIT={limits['resolved_limit']}"
+        )
+        if limits["reasons"]:
+            print("[SCANNER] Symbol limit reasons: " + "; ".join(limits["reasons"]))
+            if "SCANNER_TEACHING_SYMBOL_CAP applied (TEACHING mode)" in limits["reasons"]:
+                print("[SCANNER] Override with env SCANNER_TEACHING_SYMBOL_CAP=0 to disable teaching cap")
+
+        symbols = provider.get_top_gainers(limits["resolved_limit"])
         diagnostics["provider_source"] = provider.source_name
         diagnostics["symbol_count"] = len(symbols)
+        diagnostics["symbol_limit"] = limits
         if not symbols:
             symbols = []
+        if len(symbols) < limits["resolved_limit"]:
+            print(
+                "[SCANNER] Provider returned fewer symbols "
+                f"returned={len(symbols)} resolved_limit={limits['resolved_limit']}"
+            )
 
-        news_by_symbol = _enrich_news_context(symbols, provider.source_name) if symbols else {}
+        news_by_symbol: Dict[str, Dict[str, Any]] = {}
+        news_summary: Dict[str, Any] = {}
+        if symbols:
+            news_by_symbol, news_summary = _enrich_news_context(symbols, provider.source_name)
+        diagnostics["news_summary"] = news_summary
 
         raw_contexts = []
         for idx, symbol in enumerate(symbols, start=1):
@@ -234,7 +327,21 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
     finally:
         provider.disconnect()
 
-    watchlist = _apply_filters(rows, limit=get_config("SCANNER_WATCHLIST_LIMIT"))
+    enforce_news_gate = bool(get_config("NEWS_ENABLED"))
+    if news_summary.get("news_degraded_reason"):
+        enforce_news_gate = False
+        print(
+            "[NEWS] News degraded "
+            f"reason={news_summary.get('news_degraded_reason')} "
+            "=> bypassing news gate for watchlist eligibility"
+        )
+
+    watchlist_limit = int(get_config("SCANNER_WATCHLIST_LIMIT"))
+    watchlist, exclusion_reasons, excluded_count = _apply_filters(
+        rows,
+        limit=watchlist_limit,
+        enforce_news_gate=enforce_news_gate,
+    )
     watchlist_symbols = [row.symbol for row in watchlist if row.symbol]
 
     report = audit_field_population(rows)
@@ -247,7 +354,33 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
         watchlist_dir = Path("output/watchlists")
         watchlist_dir.mkdir(parents=True, exist_ok=True)
         file_path = watchlist_dir / f"watchlist_RossMomentum_{ts}.txt"
-        file_path.write_text("\n".join(watchlist_symbols) + "\n", encoding="utf-8")
+        header = [
+            "# Ross Momentum Watchlist",
+            f"# Timestamp (UTC): {utc_now.isoformat()}",
+            f"# candidates_count={len(rows)}",
+            f"# enriched_count={len(rows)}",
+            f"# excluded_count={excluded_count}",
+            f"# watchlist_count={len(watchlist_symbols)}",
+        ]
+        if not watchlist_symbols and exclusion_reasons:
+            sorted_reasons = sorted(exclusion_reasons.items(), key=lambda item: item[1], reverse=True)
+            header.append("# exclusion_reasons=" + ", ".join(f"{reason}:{count}" for reason, count in sorted_reasons))
+        file_path.write_text("\n".join(header + watchlist_symbols) + "\n", encoding="utf-8")
+
+    print(
+        "[WATCHLIST] candidates_count={candidates} enriched_count={enriched} "
+        "excluded_count={excluded} watchlist_count={watchlist}".format(
+            candidates=len(rows),
+            enriched=len(rows),
+            excluded=excluded_count,
+            watchlist=len(watchlist_symbols),
+        )
+    )
+    if not watchlist_symbols and exclusion_reasons:
+        top_reasons = ", ".join(
+            f"{reason}={count}" for reason, count in sorted(exclusion_reasons.items(), key=lambda item: item[1], reverse=True)[:5]
+        )
+        print(f"[WATCHLIST] Empty watchlist reasons: {top_reasons}")
 
     return {
         "scanner_version": SCANNER_VERSION,

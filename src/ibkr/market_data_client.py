@@ -136,21 +136,41 @@ class MarketDataClient:
             flags.append("CONTRACT_QUALIFY_FAILED")
             return self._empty_snapshot(symbol, flags)
 
-        ticker = self.ib.reqMktData(
-            contract,
-            genericTickList="",
-            snapshot=True,
-            regulatorySnapshot=False,
-        )
-        timeout_at = time.time() + self.snapshot_timeout_seconds
-        while time.time() < timeout_at:
-            self.ib.waitOnUpdate(timeout=0.2)
-            if self._ticker_has_data(ticker):
-                break
-        else:
-            flags.append("MD_TIMEOUT")
+        error_events: list[tuple[int, str]] = []
 
-        self.ib.cancelMktData(contract)
+        def _on_error(req_id: int, error_code: int, error_string: str, _contract):
+            if error_code in {300, 321}:
+                error_events.append((error_code, error_string))
+
+        self.ib.errorEvent += _on_error
+        ticker = None
+        try:
+            ticker = self.ib.reqMktData(
+                contract,
+                genericTickList="",
+                snapshot=True,
+                regulatorySnapshot=False,
+            )
+            timeout_at = time.time() + self.snapshot_timeout_seconds
+            while time.time() < timeout_at:
+                self.ib.waitOnUpdate(timeout=0.2)
+                if self._ticker_has_data(ticker):
+                    break
+            else:
+                flags.append("MD_TIMEOUT")
+        except Exception as exc:
+            flags.append("MD_REQUEST_FAILED")
+            return self._empty_snapshot(symbol, flags, error=str(exc))
+        finally:
+            if ticker is not None:
+                self.ib.cancelMktData(contract)
+            self.ib.errorEvent -= _on_error
+
+        if error_events:
+            for code, message in error_events:
+                flags.append(f"IBKR_ERROR_{code}")
+                print(f"[IBKR][MD][WARN] symbol={symbol} error_code={code} message={message}")
+            return self._empty_snapshot(symbol, flags)
         if "MD_TIMEOUT" in flags and not self._ticker_has_data(ticker):
             return self._empty_snapshot(symbol, flags)
 

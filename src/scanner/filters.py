@@ -1,6 +1,7 @@
 """Filtering rules for scanner watchlists."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from src.config.config_resolver import get_config
@@ -42,7 +43,7 @@ def _news_gates() -> dict:
     }
 
 
-def passes_ross_5_pillars(entry: Any) -> bool:
+def _passes_ross_5_pillars(entry: Any, enforce_news: bool = True) -> bool:
     pillars = _ross_5_pillars()
     pct = _safe_float(_get_value(entry, "current_percentage_change_from_prior_close"), None)
     px = _safe_float(_get_value(entry, "last_trade_price"), None)
@@ -67,9 +68,13 @@ def passes_ross_5_pillars(entry: Any) -> bool:
             return False
     elif vol < pillars["min_volume"]:
         return False
-    if pillars["require_news"] and news_total <= 0:
+    if enforce_news and pillars["require_news"] and news_total <= 0:
         return False
     return True
+
+
+def passes_ross_5_pillars(entry: Any) -> bool:
+    return _passes_ross_5_pillars(entry, enforce_news=True)
 
 
 def passes_catalyst_eligibility(entry: Any) -> bool:
@@ -91,3 +96,77 @@ def passes_catalyst_eligibility(entry: Any) -> bool:
     if region_count < gates["min_regions"]:
         return False
     return True
+
+
+@dataclass(frozen=True)
+class FilterDecision:
+    row: Any
+    passes: bool
+    reasons: list[str]
+
+
+def evaluate_scan_row(entry: Any, enforce_news_gate: bool) -> FilterDecision:
+    reasons: list[str] = []
+    pillars = _ross_5_pillars()
+    gates = _news_gates()
+
+    pct = _safe_float(_get_value(entry, "current_percentage_change_from_prior_close"), None)
+    px = _safe_float(_get_value(entry, "last_trade_price"), None)
+    flt = _get_value(entry, "float_shares_raw")
+    rvol = _safe_float(_get_value(entry, "relative_volume"), None)
+    vol = _safe_float(_get_value(entry, "current_intraday_volume"), None)
+    news_total = _safe_float(_get_value(entry, "news_total_headlines"), 0.0) or 0.0
+    session_label = (_get_value(entry, "market_session_label") or "").upper()
+
+    if pct is None:
+        reasons.append("MISSING_PCT_CHANGE")
+    elif pct < pillars["min_pct_change"]:
+        reasons.append("LOW_PCT_CHANGE")
+
+    if px is None:
+        reasons.append("MISSING_PRICE")
+    elif not (pillars["min_price"] <= px <= pillars["max_price"]):
+        reasons.append("PRICE_OUT_OF_RANGE")
+
+    if flt is None or flt <= 0:
+        reasons.append("MISSING_FLOAT")
+    elif flt > pillars["max_float"]:
+        reasons.append("FLOAT_TOO_HIGH")
+
+    if rvol is None:
+        reasons.append("MISSING_RVOL")
+    elif rvol < pillars["min_rvol"]:
+        reasons.append("LOW_RVOL")
+
+    if vol is None:
+        reasons.append("MISSING_VOLUME")
+    else:
+        if session_label in {"PRE", "OVN"}:
+            if vol < pillars["min_premarket_volume"]:
+                reasons.append("LOW_PREMARKET_VOLUME")
+        elif vol < pillars["min_volume"]:
+            reasons.append("LOW_VOLUME")
+
+    if enforce_news_gate and pillars["require_news"] and news_total <= 0:
+        reasons.append("NO_NEWS")
+
+    if enforce_news_gate:
+        total = news_total
+        vel10 = _safe_float(_get_value(entry, "news_velocity_10m"), 0.0) or 0.0
+        freshest = _safe_float(_get_value(entry, "news_freshest_age_minutes"), None)
+        spike = _get_value(entry, "news_spike_indicator") is True
+        region_count = _safe_float(_get_value(entry, "news_region_count"), 0.0) or 0.0
+
+        if total <= 0:
+            reasons.append("CATALYST_NO_HEADLINES")
+        if vel10 < gates["min_velocity_10m"]:
+            reasons.append("CATALYST_LOW_VELOCITY")
+        if freshest is None or freshest * 60 > gates["max_age_seconds"]:
+            reasons.append("CATALYST_STALE")
+        if not (spike or vel10 >= 2):
+            reasons.append("CATALYST_NO_SPIKE")
+        if region_count < gates["min_regions"]:
+            reasons.append("CATALYST_LOW_REGIONS")
+
+    passes = not reasons
+    return FilterDecision(row=entry, passes=passes, reasons=reasons)
