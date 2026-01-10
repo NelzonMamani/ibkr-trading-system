@@ -182,6 +182,48 @@ class ScannerRow54:
     debug_notes: Optional[str]
 
 
+@dataclass
+class ScannerArtifact:
+    scanner_version: str
+    timestamp_utc: str
+    run_mode: str
+    provider_source: str
+    candidates_count: int
+    enriched_count: int
+    watchlist_count: int
+    watchlist: List[str]
+    artifact_path: Optional[str]
+    symbol_rows: List[ScannerRow54]
+    row_validations: Dict[str, Dict[str, Any]]
+    price_truth_source_labels: Optional[Dict[str, int]] = None
+    news_degraded_reason: Optional[str] = None
+    provider_fallback_reason: Optional[str] = None
+    top_exclusion_reasons: Optional[Dict[str, int]] = None
+    scanner_git_sha: Optional[str] = None
+    diagnostics: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "scanner_version": self.scanner_version,
+            "timestamp_utc": self.timestamp_utc,
+            "run_mode": self.run_mode,
+            "provider_source": self.provider_source,
+            "candidates_count": self.candidates_count,
+            "enriched_count": self.enriched_count,
+            "watchlist_count": self.watchlist_count,
+            "watchlist": self.watchlist,
+            "artifact_path": self.artifact_path,
+            "symbol_rows": self.symbol_rows,
+            "row_validations": self.row_validations,
+            "price_truth_source_labels": self.price_truth_source_labels,
+            "news_degraded_reason": self.news_degraded_reason,
+            "provider_fallback_reason": self.provider_fallback_reason,
+            "top_exclusion_reasons": self.top_exclusion_reasons,
+            "scanner_git_sha": self.scanner_git_sha,
+            "diagnostics": self.diagnostics,
+        }
+
+
 def validate_row(
     row: ScannerRow54,
 ) -> Tuple[List[str], List[str], bool, float]:

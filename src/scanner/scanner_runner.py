@@ -17,7 +17,13 @@ from src.news.news_normalizer import normalize_headlines
 from src.news.verified_sources import load_verified_rss_sources
 
 from src.scanner.audit import audit_field_population, write_field_audit, write_mechanical_checklist
-from src.scanner.contracts import SCANNER_GIT_SHA, SCANNER_VERSION, ScannerRow54, validate_row
+from src.scanner.contracts import (
+    SCANNER_GIT_SHA,
+    SCANNER_VERSION,
+    ScannerArtifact,
+    ScannerRow54,
+    validate_row,
+)
 from src.scanner.field_mapper import build_scanner_row54
 from src.scanner.filters import evaluate_filters
 from src.scanner.print_contract_54 import format_watchlist_lines, print_master, print_watchlist_compact
@@ -274,11 +280,12 @@ def _apply_filters(
     return ranked[:limit], exclusion_reasons, len(filtered)
 
 
-def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
+def run_scanner_cycle(mode: str = "integrated") -> ScannerArtifact:
     utc_now = _utc_now()
     session_label = _market_session_label_utc(utc_now)
     rows: List[ScannerRow54] = []
     diagnostics: Dict[str, Any] = {"mode": mode}
+    row_validations: Dict[str, Dict[str, Any]] = {}
     provider: ScannerDataProvider = build_provider()
     scanner_mode = str(get_config("SCANNER_MODE"))
     limits = _print_symbol_limits(scanner_mode, provider.source_name)
@@ -346,7 +353,7 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
             item["symbol"]["sort_rank_by_gap_desc"] = idx
             row = build_scanner_row54(item["symbol"], item["news"], {}, diagnostics)
             missing_fields, non_allowed, _, integrity = validate_row(row)
-            diagnostics.setdefault("row_validations", {})[row.symbol or f"row_{idx}"] = {
+            row_validations[row.symbol or f"row_{idx}"] = {
                 "missing_fields": missing_fields,
                 "non_allowed_na_fields": non_allowed,
                 "integrity_score": integrity,
@@ -394,28 +401,53 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
         "\n".join(header_lines + [""] + watchlist_lines) + "\n", encoding="utf-8"
     )
 
-    return {
-        "scanner_version": SCANNER_VERSION,
-        "scanner_git_sha": SCANNER_GIT_SHA,
-        "timestamp_utc": utc_now.isoformat(),
-        "symbols": watchlist_symbols,
-        "watchlist": watchlist_symbols,
-        "watchlist_rows": watchlist,
-        "unfiltered_rows": rows,
-        "audit": report,
-        "diagnostics": diagnostics,
-    }
+    diagnostics["row_validations"] = row_validations
+    price_truth_source_labels = Counter(
+        row.price_truth_source_label for row in rows if row.price_truth_source_label
+    )
+    news_diag = diagnostics.get("news", {})
+    news_degraded_reason = None
+    if news_diag.get("news_degraded"):
+        news_degraded_reason = news_diag.get("rss_failure_reason") or "news_degraded"
+    provider_fallback_reason = None
+    if diagnostics.get("provider_fallback"):
+        provider_fallback_reason = diagnostics.get("provider_fallback", {}).get("reason")
+    top_exclusion_reasons = (
+        dict(exclusion_reasons.most_common(5)) if exclusion_reasons else None
+    )
+
+    return ScannerArtifact(
+        scanner_version=SCANNER_VERSION,
+        scanner_git_sha=SCANNER_GIT_SHA,
+        timestamp_utc=utc_now.isoformat(),
+        run_mode=mode,
+        provider_source=diagnostics.get("provider_source") or provider.source_name,
+        candidates_count=len(symbols),
+        enriched_count=len(rows),
+        watchlist_count=len(watchlist_symbols),
+        watchlist=watchlist_symbols,
+        artifact_path=str(file_path),
+        symbol_rows=rows,
+        row_validations=row_validations,
+        price_truth_source_labels=dict(price_truth_source_labels)
+        if price_truth_source_labels
+        else None,
+        news_degraded_reason=news_degraded_reason,
+        provider_fallback_reason=provider_fallback_reason,
+        top_exclusion_reasons=top_exclusion_reasons,
+        diagnostics=diagnostics,
+    )
 
 
 if __name__ == "__main__":
     payload = run_scanner_cycle(mode="standalone")
 
     print("\n[SCANNER] Standalone scan complete")
-    print(f"[SCANNER] Version: {payload.get('scanner_version')}")
-    print(f"[SCANNER] Timestamp (UTC): {payload.get('timestamp_utc')}")
-    print(f"[SCANNER] Symbols scanned: {len(payload.get('unfiltered_rows', []))}")
-    print(f"[SCANNER] Watchlist size: {len(payload.get('watchlist', []))}")
-    diagnostics = payload.get("diagnostics", {})
+    print(f"[SCANNER] Version: {payload.scanner_version}")
+    print(f"[SCANNER] Timestamp (UTC): {payload.timestamp_utc}")
+    print(f"[SCANNER] Symbols scanned: {payload.enriched_count}")
+    print(f"[SCANNER] Watchlist size: {payload.watchlist_count}")
+    diagnostics = payload.diagnostics or {}
     news_diag = diagnostics.get("news", {})
     if news_diag:
         print(
@@ -427,7 +459,11 @@ if __name__ == "__main__":
         print(f"[SCANNER][NEWS] News gate bypassed: {news_diag.get('news_gate_bypassed')}")
 
     print("\n[WATCHLIST]")
-    for symbol in payload.get("watchlist", []):
+    for symbol in payload.watchlist:
         print(f" - {symbol}")
-    print_watchlist_compact(payload.get("watchlist_rows", []))
-    print_master(payload.get("unfiltered_rows", []))
+    watchlist_rows = [row for row in payload.symbol_rows if row.symbol in payload.watchlist]
+    watchlist_rows.sort(
+        key=lambda row: payload.watchlist.index(row.symbol) if row.symbol in payload.watchlist else 0
+    )
+    print_watchlist_compact(watchlist_rows)
+    print_master(payload.symbol_rows)

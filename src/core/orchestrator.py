@@ -36,6 +36,7 @@ from src.patterns.pattern_engine import PatternEngine
 from src.risk.risk_engine import RiskEngine
 from src.scanner.scanner_live_readonly import LiveReadOnlyScanner
 from src.scanner.scanner import Scanner
+from src.scanner.contract_adapter import build_scanner_candidates
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.sim.clock import SimClock
 from src.sim.price_feed import DeterministicPriceFeed
@@ -425,93 +426,75 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Scanner stage — gather candidates (conceptual).")
         try:
-            scanner_results = self.scanner.run_scan_cycle()
-        except Exception as exc:
-            self._evaluate_runtime_safety(
-                cycle_stage="SCANNER",
-                stage_exception=exc,
+            scanner_artifact = run_scanner_cycle(mode="integrated")
+            self.last_scanner_watchlist_payload = scanner_artifact
+            scanner_rows = scanner_artifact.symbol_rows
+            row_validations = scanner_artifact.row_validations
+            scanner_candidates = build_scanner_candidates(scanner_rows, row_validations)
+            print(
+                "[SCANNER] Artifact summary "
+                f"path={scanner_artifact.artifact_path} "
+                f"provider={scanner_artifact.provider_source} "
+                f"run_mode={scanner_artifact.run_mode} "
+                f"candidates={scanner_artifact.candidates_count} "
+                f"enriched={scanner_artifact.enriched_count} "
+                f"watchlist={scanner_artifact.watchlist_count}"
             )
-            return False
-        scanner_watchlist_payload = {}
-        try:
-            scanner_watchlist_payload = run_scanner_cycle(mode="integrated")
-            self.last_scanner_watchlist_payload = scanner_watchlist_payload
+            if not scanner_artifact.watchlist and scanner_artifact.top_exclusion_reasons:
+                print(
+                    "[SCANNER] Watchlist empty — top exclusions "
+                    f"{scanner_artifact.top_exclusion_reasons}"
+                )
             self.event_collector.emit(
                 event_type="SCANNER_WATCHLIST",
                 source="Scanner",
                 payload={
-                    "scanner_version": scanner_watchlist_payload.get("scanner_version"),
-                    "timestamp_utc": scanner_watchlist_payload.get("timestamp_utc"),
-                    "symbols": scanner_watchlist_payload.get("symbols", []),
+                    "scanner_version": scanner_artifact.scanner_version,
+                    "timestamp_utc": scanner_artifact.timestamp_utc,
+                    "symbols": scanner_artifact.watchlist,
+                    "artifact_path": scanner_artifact.artifact_path,
+                    "candidates": scanner_artifact.candidates_count,
+                    "watchlist_count": scanner_artifact.watchlist_count,
                 },
             )
         except Exception as exc:
             print(f"[SCANNER] Integrated watchlist failed: {exc}")
+            scanner_rows = []
+            row_validations = {}
+            scanner_candidates = []
         self._evaluate_runtime_safety(
             cycle_stage="SCANNER",
             stage_exception=None,
-            scanner_results=scanner_results,
+            scanner_results=scanner_rows,
         )
-        if self.run_mode == RunMode.LIVE_READ_ONLY:
-            if self.scanner.last_connectivity_issue:
-                print(
-                    "[CONNECTIVITY] IBKR issue detected "
-                    f"details={self.scanner.last_connectivity_issue}"
-                )
-                if self.scanner.auto_lockdown_enabled:
-                    self._request_stop(
-                        StopMode.PANIC,
-                        reason="Connectivity degradation detected",
-                        source="Scanner",
-                    )
-                    return False
-                self._degraded = True
-            if self.scanner.last_data_quality_flags:
-                print(
-                    "[DATA_QUALITY] Flags detected in live scan "
-                    f"symbols={list(self.scanner.last_data_quality_flags.keys())}"
-                )
-                if self.scanner.auto_lockdown_enabled:
-                    self._request_stop(
-                        StopMode.PANIC,
-                        reason="Data quality degradation detected",
-                        source="Scanner",
-                    )
-                    return False
-                self._degraded = True
-                scanner_results = [
-                    candidate
-                    for candidate in scanner_results
-                    if not candidate.data_quality_flags
-                ]
         if self._stop_requested_at_boundary("SCANNER"):
             return False
         event = self.event_collector.emit(
             event_type="SCAN_COMPLETE",
             source="Scanner",
-            payload={"candidates": len(scanner_results or [])}
+            payload={"candidates": len(scanner_candidates or [])}
         )
         print(event)
-        if not scanner_results:
+        if not scanner_candidates:
             print("[SCAN] Scanner returned no candidates — placeholder outcome.")
         else:
-            print(f"[SCAN] Scanner produced candidates: {scanner_results}")
+            print(f"[SCAN] Scanner produced candidates: {scanner_candidates}")
         print("[TEACH] <<< Scanner stage complete — moving to pattern stage.")
 
         print("[TEACH] >>> Pattern stage — evaluate shapes/behaviors (conceptual).")
         try:
-            pattern_results = self.pattern_engine.evaluate_patterns(scanner_results or [])
+            pattern_results = self.pattern_engine.evaluate_patterns(scanner_candidates or [])
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="PATTERN",
                 stage_exception=exc,
-                scanner_results=scanner_results,
+                scanner_results=scanner_rows,
             )
             return False
         self._evaluate_runtime_safety(
             cycle_stage="PATTERN",
             stage_exception=None,
-            scanner_results=scanner_results,
+            scanner_results=scanner_rows,
             pattern_results=pattern_results,
         )
         if not pattern_results:
@@ -524,7 +507,7 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Signals stage — evaluate momentum triggers (teaching).")
         signals = self.signal_engine_v1.generate(
-            scanner_output=scanner_results or [],
+            scanner_output=scanner_candidates or [],
             pattern_output=pattern_results or [],
             tick=tick,
         )
@@ -555,14 +538,14 @@ class CoreOrchestrator:
             self._evaluate_runtime_safety(
                 cycle_stage="STRATEGY",
                 stage_exception=exc,
-                scanner_results=scanner_results,
+                scanner_results=scanner_rows,
                 pattern_results=pattern_results,
             )
             return False
         self._evaluate_runtime_safety(
             cycle_stage="STRATEGY",
             stage_exception=None,
-            scanner_results=scanner_results,
+            scanner_results=scanner_rows,
             pattern_results=pattern_results,
             strategy_output=strategy_output,
         )
@@ -585,7 +568,7 @@ class CoreOrchestrator:
             self._evaluate_runtime_safety(
                 cycle_stage="INTENT_NORMALISATION",
                 stage_exception=exc,
-                scanner_results=scanner_results,
+                scanner_results=scanner_rows,
                 pattern_results=pattern_results,
                 strategy_output=strategy_output,
             )
@@ -593,7 +576,7 @@ class CoreOrchestrator:
         self._evaluate_runtime_safety(
             cycle_stage="INTENT_NORMALISATION",
             stage_exception=None,
-            scanner_results=scanner_results,
+            scanner_results=scanner_rows,
             pattern_results=pattern_results,
             strategy_output=strategy_output,
         )
@@ -631,7 +614,7 @@ class CoreOrchestrator:
                 self._evaluate_runtime_safety(
                     cycle_stage="RISK",
                     stage_exception=exc,
-                    scanner_results=scanner_results,
+                    scanner_results=scanner_rows,
                     pattern_results=pattern_results,
                     strategy_output=strategy_output,
                 )
@@ -643,7 +626,7 @@ class CoreOrchestrator:
         self._evaluate_runtime_safety(
             cycle_stage="RISK",
             stage_exception=None,
-            scanner_results=scanner_results,
+            scanner_results=scanner_rows,
             pattern_results=pattern_results,
             strategy_output=strategy_output,
             risk_output=risk_output,
@@ -678,7 +661,7 @@ class CoreOrchestrator:
                         self._evaluate_runtime_safety(
                             cycle_stage="EXECUTION",
                             stage_exception=exc,
-                            scanner_results=scanner_results,
+                            scanner_results=scanner_rows,
                             pattern_results=pattern_results,
                             strategy_output=strategy_output,
                             risk_output=risk_output,
@@ -691,7 +674,7 @@ class CoreOrchestrator:
         self._evaluate_runtime_safety(
             cycle_stage="EXECUTION",
             stage_exception=None,
-            scanner_results=scanner_results,
+            scanner_results=scanner_rows,
             pattern_results=pattern_results,
             strategy_output=strategy_output,
             risk_output=risk_output,
@@ -713,7 +696,7 @@ class CoreOrchestrator:
             self._evaluate_runtime_safety(
                 cycle_stage="EXIT_SIGNALS",
                 stage_exception=exc,
-                scanner_results=scanner_results,
+                scanner_results=scanner_rows,
                 pattern_results=pattern_results,
                 strategy_output=strategy_output,
                 risk_output=risk_output,
@@ -723,7 +706,7 @@ class CoreOrchestrator:
         self._evaluate_runtime_safety(
             cycle_stage="EXIT_SIGNALS",
             stage_exception=None,
-            scanner_results=scanner_results,
+            scanner_results=scanner_rows,
             pattern_results=pattern_results,
             strategy_output=strategy_output,
             risk_output=risk_output,
@@ -754,7 +737,7 @@ class CoreOrchestrator:
             self._evaluate_runtime_safety(
                 cycle_stage="TRADE_EXIT",
                 stage_exception=exc,
-                scanner_results=scanner_results,
+                scanner_results=scanner_rows,
                 pattern_results=pattern_results,
                 strategy_output=strategy_output,
                 risk_output=risk_output,
@@ -764,7 +747,7 @@ class CoreOrchestrator:
         self._evaluate_runtime_safety(
             cycle_stage="TRADE_EXIT",
             stage_exception=None,
-            scanner_results=scanner_results,
+            scanner_results=scanner_rows,
             pattern_results=pattern_results,
             strategy_output=strategy_output,
             risk_output=risk_output,
@@ -878,7 +861,7 @@ class CoreOrchestrator:
         }
         try:
             trade_record = TradeRecord(
-                scanner_output=scanner_results or [],
+                scanner_output=scanner_candidates or [],
                 pattern_output=pattern_results or [],
                 strategy_output=strategy_output or [],
                 risk_output=risk_output or [],
@@ -890,7 +873,7 @@ class CoreOrchestrator:
             self._evaluate_runtime_safety(
                 cycle_stage="STORAGE",
                 stage_exception=exc,
-                scanner_results=scanner_results,
+                scanner_results=scanner_rows,
                 pattern_results=pattern_results,
                 strategy_output=strategy_output,
                 risk_output=risk_output,
@@ -910,7 +893,7 @@ class CoreOrchestrator:
             self._evaluate_runtime_safety(
                 cycle_stage="STORAGE",
                 stage_exception=exc,
-                scanner_results=scanner_results,
+                scanner_results=scanner_rows,
                 pattern_results=pattern_results,
                 strategy_output=strategy_output,
                 risk_output=risk_output,
@@ -927,7 +910,7 @@ class CoreOrchestrator:
         self._evaluate_runtime_safety(
             cycle_stage="STORAGE",
             stage_exception=None,
-            scanner_results=scanner_results,
+            scanner_results=scanner_rows,
             pattern_results=pattern_results,
             strategy_output=strategy_output,
             risk_output=risk_output,
@@ -967,7 +950,7 @@ class CoreOrchestrator:
 
         print(
             "[SUMMARY] "
-            f"scanner={len(scanner_results or [])} | "
+            f"scanner={len(scanner_candidates or [])} | "
             f"patterns={len(pattern_results or [])} | "
             f"trade_intents={len(strategy_output or [])} | "
             f"risk_decisions={len(risk_output or [])} | "
@@ -1041,7 +1024,7 @@ class CoreOrchestrator:
             self._evaluate_runtime_safety(
                 cycle_stage="INVARIANTS",
                 stage_exception=exc,
-                scanner_results=scanner_results,
+                scanner_results=scanner_rows,
                 pattern_results=pattern_results,
                 strategy_output=strategy_output,
                 risk_output=risk_output,
