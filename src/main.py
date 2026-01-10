@@ -34,7 +34,6 @@ from src.config.runtime_config import (
 from src.config.system_config import ACTIVE_SESSIONS, CYCLE_SLEEP_SECONDS
 from src.domain.models.internal_order import InternalOrder
 from src.core.orchestrator import CoreOrchestrator
-from src.adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
 from src.ibkr.read_only_guard import validate_read_only_guard
 
 
@@ -130,6 +129,8 @@ def main() -> None:
     ).strip()
 
     if ibkr_order_translation_enabled and translation_test_symbol:
+        from src.adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
+
         translator = IbkrOrderTranslator(
             order_translation_enabled=ibkr_order_translation_enabled,
             default_exchange=ibkr_default_exchange,

@@ -9,13 +9,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List
-
-from src.brokers import IbkrBroker
+from typing import TYPE_CHECKING, Dict, List
 from src.config.config_resolver import get_config
 from src.core.event_collector import EventCollector
 from src.market_data.market_data_hub import MarketDataHub
 from src.models.data_models import ScannerCandidate
+
+if TYPE_CHECKING:
+    from src.brokers import IbkrBroker
 
 
 class RunMode(Enum):
@@ -102,6 +103,8 @@ class Scanner:
         return self._static_candidates()
 
     def _run_live_readonly_scan(self) -> List[ScannerCandidate]:
+        from src.brokers import IbkrBroker
+
         mode_label = "LIVE MICRO" if self.run_mode == RunMode.LIVE_MICRO else "LIVE READ-ONLY"
         print(f"[SCAN] {mode_label} scan started — using IBKR market snapshots")
         if IbkrBroker is None and self.market_data_hub is None:

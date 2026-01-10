@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, Optional
-
-from src.brokers import IbkrBroker
+from typing import TYPE_CHECKING, Dict, Optional
 from src.config.config_resolver import get_config
 from src.core.event_collector import EventCollector
 from src.domain.market_snapshot import MarketSnapshot
+
+if TYPE_CHECKING:
+    from src.brokers import IbkrBroker
 
 
 @dataclass(frozen=True)
@@ -23,7 +24,7 @@ class MarketDataHub:
     def __init__(
         self,
         event_collector: Optional[EventCollector] = None,
-        broker: Optional[IbkrBroker] = None,
+        broker: Optional["IbkrBroker"] = None,
         max_symbols_per_cycle: Optional[int] = None,
     ) -> None:
         self.event_collector = event_collector
