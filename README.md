@@ -48,7 +48,7 @@ Configuration is centralized under `src/config/` (resolver + registry). Environm
 Key scanner/news settings:
 - `SCANNER_TOP_GAINERS_COUNT`
 - `IBKR_MAX_SYMBOLS_PER_CYCLE`
-- `SCANNER_TEACHING_SYMBOL_CAP`
+- `SCANNER_TEACHING_SYMBOL_CAP` (0 disables cap; applied only in TEACHING mode)
 - `SCANNER_WATCHLIST_LIMIT`
 - `NEWS_ENABLED`
 - `VERIFIED_RSS_PATH`

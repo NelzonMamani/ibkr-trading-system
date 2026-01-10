@@ -460,7 +460,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "SCANNER_TEACHING_SYMBOL_CAP": {
         "type": int,
-        "default": 25,
+        "default": 0,
         "env": ["SCANNER_TEACHING_SYMBOL_CAP"],
         "affects": ["ScannerRunner"],
         "enforcement": "SOFT",

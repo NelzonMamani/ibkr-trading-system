@@ -7,7 +7,7 @@ from src.core.event_collector import EventCollector
 from src.models.data_models import PatternResult, TradeIntent
 from src.strategy.gap_and_go_strategy import GapAndGoStrategy
 from src.strategy.momentum_continuation_strategy import MomentumContinuationStrategy
-from strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
+from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
 from src.strategy.exit_signal import ExitSignal
 from src.core.active_trade_registry import ActiveTrade
 from src.signals.signal_event import SignalEvent
