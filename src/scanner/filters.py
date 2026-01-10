@@ -42,8 +42,10 @@ def _news_gates() -> dict:
     }
 
 
-def passes_ross_5_pillars(entry: Any) -> bool:
+def evaluate_ross_5_pillars(entry: Any, require_news_override: Optional[bool] = None) -> tuple[bool, list[str]]:
     pillars = _ross_5_pillars()
+    if require_news_override is not None:
+        pillars["require_news"] = require_news_override
     pct = _safe_float(_get_value(entry, "current_percentage_change_from_prior_close"), None)
     px = _safe_float(_get_value(entry, "last_trade_price"), None)
     flt = _get_value(entry, "float_shares_raw")
@@ -51,28 +53,40 @@ def passes_ross_5_pillars(entry: Any) -> bool:
     vol = _safe_float(_get_value(entry, "current_intraday_volume"), None)
     news_total = _safe_float(_get_value(entry, "news_total_headlines"), 0.0) or 0.0
     session_label = (_get_value(entry, "market_session_label") or "").upper()
+    reasons: list[str] = []
 
     if pct is None or px is None or rvol is None or vol is None:
-        return False
+        reasons.append("missing_core_metrics")
+        return False, reasons
     if pct < pillars["min_pct_change"]:
-        return False
+        reasons.append("pct_change_below_min")
     if not (pillars["min_price"] <= px <= pillars["max_price"]):
-        return False
-    if flt is None or flt <= 0 or flt > pillars["max_float"]:
-        return False
+        reasons.append("price_out_of_range")
+    if flt is None or flt <= 0:
+        reasons.append("float_missing")
+    elif flt > pillars["max_float"]:
+        reasons.append("float_above_max")
     if rvol < pillars["min_rvol"]:
-        return False
+        reasons.append("rvol_below_min")
     if session_label in {"PRE", "OVN"}:
         if vol < pillars["min_premarket_volume"]:
-            return False
+            reasons.append("premarket_volume_below_min")
     elif vol < pillars["min_volume"]:
-        return False
+        reasons.append("volume_below_min")
     if pillars["require_news"] and news_total <= 0:
-        return False
-    return True
+        reasons.append("news_required_missing")
+
+    return (len(reasons) == 0), reasons
 
 
-def passes_catalyst_eligibility(entry: Any) -> bool:
+def passes_ross_5_pillars(entry: Any, require_news_override: Optional[bool] = None) -> bool:
+    passed, _ = evaluate_ross_5_pillars(entry, require_news_override=require_news_override)
+    return passed
+
+
+def evaluate_catalyst_eligibility(entry: Any, bypass: bool = False) -> tuple[bool, list[str]]:
+    if bypass:
+        return True, []
     gates = _news_gates()
     total = _safe_float(_get_value(entry, "news_total_headlines"), 0.0) or 0.0
     vel10 = _safe_float(_get_value(entry, "news_velocity_10m"), 0.0) or 0.0
@@ -81,13 +95,36 @@ def passes_catalyst_eligibility(entry: Any) -> bool:
     region_count = _safe_float(_get_value(entry, "news_region_count"), 0.0) or 0.0
 
     if total <= 0:
-        return False
+        return False, ["news_total_missing"]
     if vel10 < gates["min_velocity_10m"]:
-        return False
+        return False, ["news_velocity_below_min"]
     if freshest is None or freshest * 60 > gates["max_age_seconds"]:
-        return False
+        return False, ["news_too_old"]
     if not (spike or vel10 >= 2):
-        return False
+        return False, ["news_spike_missing"]
     if region_count < gates["min_regions"]:
-        return False
-    return True
+        return False, ["news_regions_below_min"]
+    return True, []
+
+
+def passes_catalyst_eligibility(entry: Any, bypass: bool = False) -> bool:
+    passed, _ = evaluate_catalyst_eligibility(entry, bypass=bypass)
+    return passed
+
+
+def evaluate_filters(
+    entry: Any,
+    require_news_override: Optional[bool] = None,
+    bypass_news_gates: bool = False,
+) -> tuple[bool, list[str]]:
+    passed_pillars, pillar_reasons = evaluate_ross_5_pillars(
+        entry, require_news_override=require_news_override
+    )
+    if not passed_pillars:
+        return False, pillar_reasons
+    passed_catalyst, catalyst_reasons = evaluate_catalyst_eligibility(
+        entry, bypass=bypass_news_gates
+    )
+    if not passed_catalyst:
+        return False, catalyst_reasons
+    return True, []
