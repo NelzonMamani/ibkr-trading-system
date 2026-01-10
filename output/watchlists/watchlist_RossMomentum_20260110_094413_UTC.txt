@@ -1,0 +1,6 @@
+# candidates_count=5
+# enriched_count=5
+# excluded_count=5
+# watchlist_count=0
+# exclusion_reasons=missing_core_metrics:5
+
