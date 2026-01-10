@@ -8,11 +8,7 @@ from urllib.parse import urlparse
 
 def _default_verified_path() -> Path:
     repo_root = Path(__file__).resolve().parents[2]
-    root_path = repo_root / "verified_rss.txt"
-    if root_path.exists():
-        return root_path
-    fallback = repo_root / "src" / "scanner" / "verified_rss.txt"
-    return fallback
+    return repo_root / "verified_rss.txt"
 
 
 def _is_valid_url(url: str) -> bool:

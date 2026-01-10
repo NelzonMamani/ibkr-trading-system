@@ -7,27 +7,33 @@ EXECUTION_STATUS: HARD DISABLED
 BROKER_WRITE_ACCESS: DISABLED
 
 ### Scanner Status
-- Canonical output contract: 54 fields
-- Unfiltered universe: TOP 50 US gainers
-- Watchlist output: TOP 15 after Ross-aligned filters
-- Scanner must always emit:
-  - Raw candidate count
-  - Filtered watchlist (even if empty, with explanation)
+- Canonical output contract: 54 fields (ScannerRow54).
+- Symbol discovery priority:
+  1) IBKR-assisted symbols (free endpoints only)
+  2) Configured defaults (teaching)
+  3) MOCK fallback
+- Watchlist output is always written, even if empty, with header counts and exclusion reasons.
+- Symbol limits are printed each run with source and resolved caps.
 
 ### News Status
-- News is a Ross pillar but NOT a hard gate.
-- News failures are expected and tolerated.
-- Momentum fire indicator is derived ONLY from news analytics.
+- News is advisory, not a hard gate.
+- RSS failures are expected; they are summarized (domains + codes).
+- If all feeds fail, news gates are bypassed automatically.
+- News degradation reason is reported in scanner output.
 
 ### Known Degradations
-- RSS sources may rate-limit or reject requests.
-- MOCK news fallback permitted.
-- Some IBKR snapshot fields may be intermittently unavailable.
+- RSS sources may rate-limit or reject requests; summary logging is required.
+- MOCK news fallback permitted when IBKR or RSS data is unavailable.
+- IBKR snapshot fields may be intermittently unavailable (per-symbol degradation expected).
+- Feedparser or requests libraries may be missing, triggering news gate bypass.
 
 ### Acceptance Criteria for Phase 24
-- Scanner runs standalone without import errors.
-- Scanner prints 54-field canonical output.
-- Watchlist generation is observable in console.
-- MOCK fallback operates transparently.
+- Scanner runs standalone as module and script without ImportError.
+- Scanner produces 54-field output with missing-data flags.
+- Symbol limits are printed with sources and resolved caps.
+- RSS failures are summarized (not spammed), with degradation reasons.
+- IBKR failures degrade gracefully per symbol; total failure falls back to MOCK.
+- Watchlist file is always written with header counts and empty-watchlist reasons.
+- Field audit and mechanical checklist artifacts exist in docs/.
 
 This file must be updated as phases advance.

@@ -18,6 +18,7 @@ The system is orchestrator-centric and phase-governed.
 
 ### 3. Data Trust & Provenance Policy
 - Market data priority: IBKR → MOCK (fallback).
+- Paid IBKR scanner subscriptions are not required or assumed.
 - News data is advisory, probabilistic, and non-blocking.
 - verified_rss.txt is the ONLY authoritative list of permitted RSS sources.
 - News unavailability must NEVER crash the scanner.

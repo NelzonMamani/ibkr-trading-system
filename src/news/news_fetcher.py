@@ -7,6 +7,7 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Dict, Iterable, List
+from urllib.parse import urlparse
 
 if importlib.util.find_spec("feedparser"):
     feedparser = importlib.import_module("feedparser")  # type: ignore
@@ -25,6 +26,14 @@ class Headline:
     source: str
     published_ts: float
     url: str
+
+
+@dataclass(frozen=True)
+class RssFailureSummary:
+    total_sources: int
+    failure_count: int
+    failures_by_domain: Dict[str, Dict[str, int]]
+    reason: str | None
 
 
 def _compile_symbol_patterns(symbols: Iterable[str]) -> Dict[str, re.Pattern[str]]:
@@ -55,15 +64,64 @@ def _fetch_feed(url: str, timeout_s: float) -> object | None:
     return feedparser.parse(response.text)
 
 
+def _domain_for_url(url: str) -> str:
+    parsed = urlparse(url)
+    return parsed.netloc or "unknown"
+
+
+def _failure_code(exc: Exception | None, feed_missing: bool = False) -> str:
+    if feed_missing:
+        return "FEED_EMPTY"
+    if exc is None:
+        return "UNKNOWN"
+    status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    if status_code:
+        return f"HTTP_{status_code}"
+    return type(exc).__name__.upper()
+
+
+def _record_failure(
+    failures_by_domain: Dict[str, Dict[str, int]],
+    domain: str,
+    code: str,
+) -> None:
+    bucket = failures_by_domain.setdefault(domain, {})
+    bucket[code] = bucket.get(code, 0) + 1
+
+
+def _summarize_failures(summary: RssFailureSummary) -> None:
+    if summary.failure_count <= 0:
+        return
+    parts = []
+    for domain, codes in summary.failures_by_domain.items():
+        code_str = ",".join(f"{code}:{count}" for code, count in sorted(codes.items()))
+        parts.append(f"{domain}({code_str})")
+    logging.info(
+        "[NEWS] RSS failure summary: failures=%d/%d domains=%s",
+        summary.failure_count,
+        summary.total_sources,
+        "; ".join(parts),
+    )
+
+
 def fetch_headlines_for_symbols(
     symbols: List[str],
     sources: List[str],
     lookback_hours: float = 24.0,
     request_timeout_s: float = 5.0,
-) -> Dict[str, List[Headline]]:
+) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     headlines: Dict[str, List[Headline]] = {symbol: [] for symbol in symbols}
-    if not symbols or not sources or feedparser is None:
-        return headlines
+    failures_by_domain: Dict[str, Dict[str, int]] = {}
+    if not symbols:
+        return headlines, RssFailureSummary(0, 0, failures_by_domain, "no_symbols")
+    if not sources:
+        return headlines, RssFailureSummary(0, 0, failures_by_domain, "no_sources")
+    if feedparser is None:
+        for url in sources:
+            _record_failure(failures_by_domain, _domain_for_url(url), "DEPENDENCY_MISSING")
+        summary = RssFailureSummary(len(sources), len(sources), failures_by_domain, "feedparser_missing")
+        _summarize_failures(summary)
+        return headlines, summary
 
     now = time.time()
     min_ts = now - (lookback_hours * 3600)
@@ -74,10 +132,11 @@ def fetch_headlines_for_symbols(
             feed = _fetch_feed(url, request_timeout_s)
         except Exception as exc:
             failures += 1
-            logging.warning("[NEWS] RSS fetch failed for %s: %s", url, exc)
+            _record_failure(failures_by_domain, _domain_for_url(url), _failure_code(exc))
             continue
         if feed is None:
             failures += 1
+            _record_failure(failures_by_domain, _domain_for_url(url), _failure_code(None, feed_missing=True))
             continue
         source_name = ""
         try:
@@ -102,6 +161,6 @@ def fetch_headlines_for_symbols(
                             url=link,
                         )
                     )
-    if failures:
-        logging.info("[NEWS] RSS failures=%d sources=%d", failures, len(sources))
-    return headlines
+    summary = RssFailureSummary(len(sources), failures, failures_by_domain, None)
+    _summarize_failures(summary)
+    return headlines, summary

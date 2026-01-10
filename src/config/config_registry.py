@@ -458,6 +458,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "per-cycle",
         "description": "Max symbols requested from scanner provider.",
     },
+    "SCANNER_TEACHING_SYMBOL_CAP": {
+        "type": int,
+        "default": 25,
+        "env": ["SCANNER_TEACHING_SYMBOL_CAP"],
+        "affects": ["ScannerRunner"],
+        "enforcement": "SOFT",
+        "mutable": "per-cycle",
+        "description": "Cap on symbols per cycle when SCANNER_MODE=TEACHING.",
+    },
     "SCANNER_WATCHLIST_LIMIT": {
         "type": int,
         "default": 15,
