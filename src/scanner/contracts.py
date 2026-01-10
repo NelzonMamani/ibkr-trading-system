@@ -182,6 +182,28 @@ class ScannerRow54:
     debug_notes: Optional[str]
 
 
+@dataclass
+class ScannerArtifact:
+    scanner_version: str
+    scanner_git_sha: str
+    timestamp_utc: str
+    provider_source: str
+    run_mode: str
+    candidates_count: int
+    enriched_count: int
+    excluded_count: int
+    watchlist_count: int
+    symbol_rows: List[ScannerRow54]
+    watchlist_rows: List[ScannerRow54]
+    symbols: List[str]
+    row_validations: Dict[str, Any]
+    news_degraded_reason: Optional[str]
+    provider_fallback_reason: Optional[str]
+    top_exclusion_reasons: List[str]
+    artifact_path: Optional[str]
+    diagnostics: Dict[str, Any]
+
+
 def validate_row(
     row: ScannerRow54,
 ) -> Tuple[List[str], List[str], bool, float]:

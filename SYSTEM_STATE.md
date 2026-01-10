@@ -12,7 +12,7 @@ Phase 26 enforced execution boundary hardening by removing import-time coupling 
 and broker/execution modules. Main boot and continuous loop operate under LIVE_READ_ONLY while preserving
 HARD DISABLED execution.
 
-## Phase 27 Objective (Active)
+## Phase 27 Objective (Complete)
 Phase 27 formalises the **Scanner → Orchestrator Contract** so the orchestrator consumes a single canonical
 scanner artifact instead of relying on “conceptual scan” stubs.
 
@@ -71,4 +71,4 @@ Phase 27 MUST NOT weaken safety:
   - `python -m src.scanner.scanner_runner`
   - `python src/scanner/scanner_runner.py`
 
-Last updated: 2026-01-10T10:00:00Z
+Last updated: 2026-01-10T10:29:03Z
