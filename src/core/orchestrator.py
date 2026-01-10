@@ -9,7 +9,7 @@ from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
-from src.brokers import IbkrBroker, IbkrLiveBroker, SimBroker
+from src.brokers import IbkrLiveBroker, SimBroker
 from src.config.config_resolver import emit_config_event, get_config
 from src.config.runtime_config import EventReplayMode, RunMode
 from src.config.system_config import get_current_market_session
@@ -83,6 +83,8 @@ class CoreOrchestrator:
         self.strategy_perf_tracker = StrategyPerformanceTracker()
         self.market_data_hub = None
         if self.run_mode == RunMode.LIVE_READ_ONLY:
+            from src.brokers import IbkrBroker
+
             if IbkrBroker is None:
                 raise RuntimeError(
                     "LIVE_READ_ONLY requires IbkrBroker for market data snapshots."
@@ -94,16 +96,18 @@ class CoreOrchestrator:
             )
             self.price_feed = MarketDataPriceFeed(self.market_data_hub)
             print("[MARKET_DATA] Market data source: IBKR (READ_ONLY)")
-        elif (
-            self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO}
-            and IbkrBroker is not None
-        ):
-            self.market_data_hub = MarketDataHub(
-                event_collector=self.event_collector,
-                broker=IbkrBroker(),
-                max_symbols_per_cycle=get_config("IBKR_MAX_SYMBOLS_PER_CYCLE"),
-            )
-            self.price_feed = MarketDataPriceFeed(self.market_data_hub)
+        elif self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO}:
+            from src.brokers import IbkrBroker
+
+            if IbkrBroker is not None:
+                self.market_data_hub = MarketDataHub(
+                    event_collector=self.event_collector,
+                    broker=IbkrBroker(),
+                    max_symbols_per_cycle=get_config("IBKR_MAX_SYMBOLS_PER_CYCLE"),
+                )
+                self.price_feed = MarketDataPriceFeed(self.market_data_hub)
+            else:
+                self.price_feed = DeterministicPriceFeed()
         else:
             self.price_feed = DeterministicPriceFeed()
         self.scanner_mode = get_config("SCANNER_MODE")
