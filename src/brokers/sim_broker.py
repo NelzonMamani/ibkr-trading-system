@@ -14,7 +14,7 @@ from src.execution.slippage_model import SlippageModel
 from src.execution.exit_plan import compute_stop_price, compute_take_profit_price
 from src.models.execution_result import ExecutionResult
 from src.sim.price_feed import PriceFeed
-from utils.price_math import (
+from src.utils.price_math import (
     apply_slippage,
     apply_spread_mid_to_quote,
     choose_execution_reference_price,

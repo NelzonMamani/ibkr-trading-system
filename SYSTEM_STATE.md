@@ -16,7 +16,7 @@ Phase 24 focused on scanner hardening and observability:
 - Field audit + mechanical checklist artifacts are produced under docs/.
 
 ### Phase 25 Objective (Active)
-Phase 25 focuses on execution-layer import hygiene and orchestrator boot integrity.
+Phase 25 focuses on execution-layer import hygiene, orchestrator boot integrity, and scanner cap sanity.
 
 #### Triggering Evidence (Observed)
 Running:
@@ -40,6 +40,7 @@ Origin:
 3) Orchestrator can enter at least one teaching cycle in SIM/LIVE_READ_ONLY.
 4) Broker/execution modules do not import optional dependencies at import-time unless guarded.
 5) Any remaining execution limitations are explicitly logged and do not crash the process.
+6) Scanner teaching cap defaults to disabled (0), so non-teaching runs resolve symbol limits from SCANNER_TOP_GAINERS_COUNT and IBKR_MAX_SYMBOLS_PER_CYCLE.
 
 ### Known Degradations (Allowed During Phase 25)
 - Execution pathways may remain disabled or stubbed (by design) while imports are fixed.
@@ -56,4 +57,4 @@ Origin:
 - Watchlists: `output/watchlists/watchlist_RossMomentum_<timestamp>.txt`
 - Scanner audit artifacts: `docs/PHASE_24_SCANNER_FIELD_AUDIT.json`, `docs/PHASE_24_SCANNER_MECHANICAL_CHECKLIST.md`
 
-Last updated: 2026-01-10T08:16:16Z
+Last updated: 2026-01-10T09:30:00Z

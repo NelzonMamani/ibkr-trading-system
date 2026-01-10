@@ -215,7 +215,7 @@ class ExecutionEngine:
         if requested_quantity != required_quantity:
             rationale = (
                 "LIVE_MICRO_BLOCK: quantity must be exactly "
-                f\"{required_quantity} share(s) (requested={requested_quantity}).\"
+                f"{required_quantity} share(s) (requested={requested_quantity})."
             )
             print(f"[SAFETY] {rationale}")
             self.event_collector.emit(
