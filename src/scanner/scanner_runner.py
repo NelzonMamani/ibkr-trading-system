@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional
@@ -17,7 +18,13 @@ from src.news.news_normalizer import normalize_headlines
 from src.news.verified_sources import load_verified_rss_sources
 
 from src.scanner.audit import audit_field_population, write_field_audit, write_mechanical_checklist
-from src.scanner.contracts import SCANNER_GIT_SHA, SCANNER_VERSION, ScannerRow54, validate_row
+from src.scanner.contracts import (
+    SCANNER_GIT_SHA,
+    SCANNER_VERSION,
+    ScannerArtifact,
+    ScannerRow54,
+    validate_row,
+)
 from src.scanner.field_mapper import build_scanner_row54
 from src.scanner.filters import evaluate_filters
 from src.scanner.print_contract_54 import format_watchlist_lines, print_master, print_watchlist_compact
@@ -274,7 +281,7 @@ def _apply_filters(
     return ranked[:limit], exclusion_reasons, len(filtered)
 
 
-def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
+def run_scanner_cycle(mode: str = "integrated") -> ScannerArtifact:
     utc_now = _utc_now()
     session_label = _market_session_label_utc(utc_now)
     rows: List[ScannerRow54] = []
@@ -376,6 +383,8 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
     watchlist_dir.mkdir(parents=True, exist_ok=True)
     file_path = watchlist_dir / f"watchlist_RossMomentum_{ts}.txt"
     exclusion_summary = exclusion_reasons.most_common(3)
+    if not exclusion_summary and not watchlist_symbols:
+        exclusion_summary = [("no_candidates", 0)]
     exclusion_summary_str = ", ".join(
         f"{reason}:{count}" for reason, count in exclusion_summary
     )
@@ -394,28 +403,75 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
         "\n".join(header_lines + [""] + watchlist_lines) + "\n", encoding="utf-8"
     )
 
-    return {
-        "scanner_version": SCANNER_VERSION,
-        "scanner_git_sha": SCANNER_GIT_SHA,
-        "timestamp_utc": utc_now.isoformat(),
-        "symbols": watchlist_symbols,
-        "watchlist": watchlist_symbols,
-        "watchlist_rows": watchlist,
-        "unfiltered_rows": rows,
-        "audit": report,
-        "diagnostics": diagnostics,
-    }
+    news_diag = diagnostics.get("news", {})
+    news_degraded_reason = None
+    if news_diag.get("news_degraded") or news_diag.get("rss_failure_reason"):
+        news_degraded_reason = news_diag.get("rss_failure_reason") or "news_degraded"
+    provider_fallback_reason = None
+    if diagnostics.get("provider_fallback"):
+        provider_fallback_reason = diagnostics["provider_fallback"].get("reason")
+    price_truth_labels = sorted(
+        {
+            row.price_truth_source_label
+            for row in rows
+            if row.price_truth_source_label is not None
+        }
+    )
+    artifact = ScannerArtifact(
+        timestamp_utc=utc_now.isoformat(),
+        scanner_version=SCANNER_VERSION,
+        scanner_git_sha=SCANNER_GIT_SHA,
+        provider_source=diagnostics.get("provider_source", "UNKNOWN"),
+        run_mode=str(get_config("RUN_MODE_EFFECTIVE")),
+        price_truth_source_labels=price_truth_labels,
+        candidates_count=len(symbols),
+        enriched_count=len(rows),
+        excluded_count=excluded_count,
+        watchlist_count=len(watchlist_symbols),
+        total_candidates=len(symbols),
+        filtered_candidates=filtered_count,
+        watchlist=watchlist_symbols,
+        top_exclusion_reasons=[
+            {"reason": reason, "count": count} for reason, count in exclusion_summary
+        ],
+        symbol_rows=rows,
+        row_validations=diagnostics.get("row_validations", {}),
+        news_degraded_reason=news_degraded_reason,
+        provider_fallback_reason=provider_fallback_reason,
+        diagnostics=diagnostics,
+    )
+    artifact_dir = Path("output/scanner")
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = artifact_dir / f"scanner_artifact_{ts}.json"
+    artifact.artifact_path = str(artifact_path)
+    artifact_path.write_text(
+        json.dumps(artifact.to_dict(), indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+
+    print(
+        "[SCANNER][SUMMARY] "
+        f"candidates={artifact.candidates_count} enriched={artifact.enriched_count} "
+        f"excluded={artifact.excluded_count} watchlist={artifact.watchlist_count} "
+        f"provider={artifact.provider_source} news_degraded={bool(news_degraded_reason)}"
+    )
+    if artifact.watchlist_count == 0:
+        print(
+            "[SCANNER][SUMMARY] watchlist empty — "
+            f"exclusion_reasons={exclusion_summary_str or 'no_candidates'}"
+        )
+    return artifact
 
 
 if __name__ == "__main__":
-    payload = run_scanner_cycle(mode="standalone")
+    artifact = run_scanner_cycle(mode="standalone")
 
     print("\n[SCANNER] Standalone scan complete")
-    print(f"[SCANNER] Version: {payload.get('scanner_version')}")
-    print(f"[SCANNER] Timestamp (UTC): {payload.get('timestamp_utc')}")
-    print(f"[SCANNER] Symbols scanned: {len(payload.get('unfiltered_rows', []))}")
-    print(f"[SCANNER] Watchlist size: {len(payload.get('watchlist', []))}")
-    diagnostics = payload.get("diagnostics", {})
+    print(f"[SCANNER] Version: {artifact.scanner_version}")
+    print(f"[SCANNER] Timestamp (UTC): {artifact.timestamp_utc}")
+    print(f"[SCANNER] Symbols scanned: {len(artifact.symbol_rows)}")
+    print(f"[SCANNER] Watchlist size: {len(artifact.watchlist)}")
+    diagnostics = artifact.diagnostics
     news_diag = diagnostics.get("news", {})
     if news_diag:
         print(
@@ -427,7 +483,9 @@ if __name__ == "__main__":
         print(f"[SCANNER][NEWS] News gate bypassed: {news_diag.get('news_gate_bypassed')}")
 
     print("\n[WATCHLIST]")
-    for symbol in payload.get("watchlist", []):
+    for symbol in artifact.watchlist:
         print(f" - {symbol}")
-    print_watchlist_compact(payload.get("watchlist_rows", []))
-    print_master(payload.get("unfiltered_rows", []))
+    print_watchlist_compact(
+        [row for row in artifact.symbol_rows if row.symbol in set(artifact.watchlist)]
+    )
+    print_master(artifact.symbol_rows)

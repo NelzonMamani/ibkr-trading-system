@@ -88,6 +88,11 @@ class RiskEngine:
             if overlay_decision is not None:
                 return overlay_decision
 
+        print(
+            "[RISK] No scanner data quality flags detected; proceeding with confidence check "
+            f"confidence={trade_intent.confidence:.2f}"
+        )
+
         trader_type = getattr(trade_intent, "trader_type", "MANUAL").upper()
         current_active = self.trade_registry.count_active_by_trader(trader_type)
         print(
@@ -183,9 +188,9 @@ class RiskEngine:
             )
 
         rationale = (
-            "Teaching-only decision: allow intent, cap size at 1 share, "
-            f"and set risk level to {risk_level} based on confidence for {trader_type} "
-            "within strategy limits."
+            "Teaching-only decision: allow intent with no scanner data quality flags, "
+            f"cap size at {max_position_size} share(s), and set risk level to {risk_level} "
+            f"based on confidence ({confidence:.2f}) for {trader_type} within strategy limits."
         )
 
         return RiskDecision(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.config.config_resolver import get_config
@@ -181,6 +181,53 @@ class ScannerRow54:
     scanner_version: Optional[str]
     debug_notes: Optional[str]
 
+
+@dataclass
+class ScannerArtifact:
+    timestamp_utc: str
+    scanner_version: str
+    scanner_git_sha: str
+    provider_source: str
+    run_mode: str
+    price_truth_source_labels: List[str]
+    candidates_count: int
+    enriched_count: int
+    excluded_count: int
+    watchlist_count: int
+    total_candidates: int
+    filtered_candidates: int
+    watchlist: List[str]
+    top_exclusion_reasons: List[Dict[str, Any]]
+    symbol_rows: List[ScannerRow54]
+    row_validations: Dict[str, Any]
+    news_degraded_reason: Optional[str] = None
+    provider_fallback_reason: Optional[str] = None
+    diagnostics: Dict[str, Any] = field(default_factory=dict)
+    artifact_path: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "timestamp_utc": self.timestamp_utc,
+            "scanner_version": self.scanner_version,
+            "scanner_git_sha": self.scanner_git_sha,
+            "provider_source": self.provider_source,
+            "run_mode": self.run_mode,
+            "price_truth_source_labels": list(self.price_truth_source_labels),
+            "candidates_count": self.candidates_count,
+            "enriched_count": self.enriched_count,
+            "excluded_count": self.excluded_count,
+            "watchlist_count": self.watchlist_count,
+            "total_candidates": self.total_candidates,
+            "filtered_candidates": self.filtered_candidates,
+            "watchlist": list(self.watchlist),
+            "top_exclusion_reasons": list(self.top_exclusion_reasons),
+            "symbol_rows": [asdict(row) for row in self.symbol_rows],
+            "row_validations": dict(self.row_validations),
+            "news_degraded_reason": self.news_degraded_reason,
+            "provider_fallback_reason": self.provider_fallback_reason,
+            "diagnostics": dict(self.diagnostics),
+            "artifact_path": self.artifact_path,
+        }
 
 def validate_row(
     row: ScannerRow54,
