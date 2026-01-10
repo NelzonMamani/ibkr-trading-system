@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import asdict
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional
@@ -17,7 +19,13 @@ from src.news.news_normalizer import normalize_headlines
 from src.news.verified_sources import load_verified_rss_sources
 
 from src.scanner.audit import audit_field_population, write_field_audit, write_mechanical_checklist
-from src.scanner.contracts import SCANNER_GIT_SHA, SCANNER_VERSION, ScannerRow54, validate_row
+from src.scanner.contracts import (
+    SCANNER_GIT_SHA,
+    SCANNER_VERSION,
+    ScannerArtifact,
+    ScannerRow54,
+    validate_row,
+)
 from src.scanner.field_mapper import build_scanner_row54
 from src.scanner.filters import evaluate_filters
 from src.scanner.print_contract_54 import format_watchlist_lines, print_master, print_watchlist_compact
@@ -274,7 +282,7 @@ def _apply_filters(
     return ranked[:limit], exclusion_reasons, len(filtered)
 
 
-def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
+def run_scanner_cycle(mode: str = "integrated") -> ScannerArtifact:
     utc_now = _utc_now()
     session_label = _market_session_label_utc(utc_now)
     rows: List[ScannerRow54] = []
@@ -394,28 +402,40 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
         "\n".join(header_lines + [""] + watchlist_lines) + "\n", encoding="utf-8"
     )
 
-    return {
-        "scanner_version": SCANNER_VERSION,
-        "scanner_git_sha": SCANNER_GIT_SHA,
-        "timestamp_utc": utc_now.isoformat(),
-        "symbols": watchlist_symbols,
-        "watchlist": watchlist_symbols,
-        "watchlist_rows": watchlist,
-        "unfiltered_rows": rows,
-        "audit": report,
-        "diagnostics": diagnostics,
-    }
+    scanner_dir = Path("output/scanner")
+    scanner_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = scanner_dir / f"scanner_artifact_{ts}.json"
+    row_validations = diagnostics.get("row_validations", {})
+    artifact = ScannerArtifact(
+        scanner_version=SCANNER_VERSION,
+        scanner_git_sha=SCANNER_GIT_SHA,
+        timestamp_utc=utc_now.isoformat(),
+        artifact_path=str(artifact_path),
+        symbols=watchlist_symbols,
+        candidates_count=len(rows),
+        watchlist_count=len(watchlist_symbols),
+        symbol_rows=rows,
+        watchlist_rows=watchlist,
+        row_validations=row_validations,
+        audit=report,
+        diagnostics=diagnostics,
+    )
+    artifact_path.write_text(
+        json.dumps(asdict(artifact), indent=2, default=str),
+        encoding="utf-8",
+    )
+    return artifact
 
 
 if __name__ == "__main__":
     payload = run_scanner_cycle(mode="standalone")
 
     print("\n[SCANNER] Standalone scan complete")
-    print(f"[SCANNER] Version: {payload.get('scanner_version')}")
-    print(f"[SCANNER] Timestamp (UTC): {payload.get('timestamp_utc')}")
-    print(f"[SCANNER] Symbols scanned: {len(payload.get('unfiltered_rows', []))}")
-    print(f"[SCANNER] Watchlist size: {len(payload.get('watchlist', []))}")
-    diagnostics = payload.get("diagnostics", {})
+    print(f"[SCANNER] Version: {payload.scanner_version}")
+    print(f"[SCANNER] Timestamp (UTC): {payload.timestamp_utc}")
+    print(f"[SCANNER] Symbols scanned: {len(payload.symbol_rows)}")
+    print(f"[SCANNER] Watchlist size: {len(payload.symbols)}")
+    diagnostics = payload.diagnostics
     news_diag = diagnostics.get("news", {})
     if news_diag:
         print(
@@ -427,7 +447,7 @@ if __name__ == "__main__":
         print(f"[SCANNER][NEWS] News gate bypassed: {news_diag.get('news_gate_bypassed')}")
 
     print("\n[WATCHLIST]")
-    for symbol in payload.get("watchlist", []):
+    for symbol in payload.symbols:
         print(f" - {symbol}")
-    print_watchlist_compact(payload.get("watchlist_rows", []))
-    print_master(payload.get("unfiltered_rows", []))
+    print_watchlist_compact(payload.watchlist_rows)
+    print_master(payload.symbol_rows)
