@@ -9,7 +9,6 @@ from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
-from src.brokers import IbkrBroker, IbkrLiveBroker, SimBroker
 from src.config.config_resolver import emit_config_event, get_config
 from src.config.runtime_config import EventReplayMode, RunMode
 from src.config.system_config import get_current_market_session
@@ -24,9 +23,6 @@ from src.core.faults import (
 from src.core.stop_controller import StopController, StopMode
 from src.core.performance_registry import PerformanceRegistry
 from src.core.replay_engine import ReplayEngine
-from src.execution.execution_engine import ExecutionEngine
-from src.execution.order_gateway import OrderGateway
-from src.execution.trade_exit_engine import TradeExitEngine
 from src.ibkr.market_data_client import MarketDataClient
 from src.market_data.market_data_hub import MarketDataHub
 from src.market_data.market_data_price_feed import MarketDataPriceFeed
@@ -83,6 +79,8 @@ class CoreOrchestrator:
         self.strategy_perf_tracker = StrategyPerformanceTracker()
         self.market_data_hub = None
         if self.run_mode == RunMode.LIVE_READ_ONLY:
+            from src.brokers import IbkrBroker
+
             if IbkrBroker is None:
                 raise RuntimeError(
                     "LIVE_READ_ONLY requires IbkrBroker for market data snapshots."
@@ -96,14 +94,18 @@ class CoreOrchestrator:
             print("[MARKET_DATA] Market data source: IBKR (READ_ONLY)")
         elif (
             self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO}
-            and IbkrBroker is not None
         ):
-            self.market_data_hub = MarketDataHub(
-                event_collector=self.event_collector,
-                broker=IbkrBroker(),
-                max_symbols_per_cycle=get_config("IBKR_MAX_SYMBOLS_PER_CYCLE"),
-            )
-            self.price_feed = MarketDataPriceFeed(self.market_data_hub)
+            from src.brokers import IbkrBroker
+
+            if IbkrBroker is not None:
+                self.market_data_hub = MarketDataHub(
+                    event_collector=self.event_collector,
+                    broker=IbkrBroker(),
+                    max_symbols_per_cycle=get_config("IBKR_MAX_SYMBOLS_PER_CYCLE"),
+                )
+                self.price_feed = MarketDataPriceFeed(self.market_data_hub)
+            else:
+                self.price_feed = DeterministicPriceFeed()
         else:
             self.price_feed = DeterministicPriceFeed()
         self.scanner_mode = get_config("SCANNER_MODE")
@@ -129,9 +131,15 @@ class CoreOrchestrator:
         print("[BOOT] SignalEngineV1 instantiated")
         self.strategy_runner = StrategyRunner(event_collector=self.event_collector)
         self.risk_engine = RiskEngine(trade_registry=self.trade_registry)
+        from src.execution.execution_engine import ExecutionEngine
+        from src.execution.trade_exit_engine import TradeExitEngine
+
         if not self.execution_enabled:
             broker = None
         elif self.run_mode == RunMode.SIM:
+            from src.brokers import SimBroker
+            from src.execution.order_gateway import OrderGateway
+
             broker = SimBroker(
                 gateway=OrderGateway(),
                 price_feed=self.price_feed,
@@ -140,6 +148,8 @@ class CoreOrchestrator:
                 run_mode=self.run_mode,
             )
         elif self.run_mode == RunMode.LIVE_MICRO:
+            from src.brokers import IbkrLiveBroker
+
             if IbkrLiveBroker is None:
                 raise RuntimeError("IBKR live broker unavailable; ibapi dependency missing.")
             broker = IbkrLiveBroker(
