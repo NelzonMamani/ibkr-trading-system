@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 import sys
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, Iterable, List, Optional
 
 if __package__ in {None, ""}:
     repo_root = Path(__file__).resolve().parents[2]
@@ -13,17 +16,74 @@ if __package__ in {None, ""}:
 
 from src.config.config_resolver import get_config, get_config_record
 from src.news.news_fetcher import Headline, fetch_headlines_for_symbols
-from src.news.news_normalizer import normalize_headlines
 from src.news.verified_sources import load_verified_rss_sources
 
-from src.scanner.audit import audit_field_population, write_field_audit, write_mechanical_checklist
-from src.scanner.contracts import SCANNER_GIT_SHA, SCANNER_VERSION, ScannerRow54, validate_row
-from src.scanner.field_mapper import build_scanner_row54
-from src.scanner.filters import evaluate_filters
-from src.scanner.print_contract_54 import format_watchlist_lines, print_master, print_watchlist_compact
+from src.scanner.contracts import SCANNER_GIT_SHA, SCANNER_VERSION
+from src.scanner.phase24_views import (
+    DeepViewRow,
+    FastViewRow,
+    format_fast_view_lines,
+    print_deep_view,
+    print_fast_view,
+)
 from src.scanner.providers.base import ScannerDataProvider
 from src.scanner.providers.factory import build_provider
 from src.scanner.providers.mock_provider import MockScannerProvider
+
+
+_FLOAT_CACHE_STATE: Dict[str, Any] = {
+    "as_of": None,
+    "data": {},
+}
+_FLOAT_CACHE_REQUESTED: set[str] = set()
+_HISTORY_CACHE: Dict[str, Dict[str, Any]] = {}
+_NEWS_CACHE: Dict[str, Dict[str, Any]] = {}
+
+FOCUS_LIST_LIMIT_DEFAULT = 5
+NEWS_AGE_MAX_MINUTES = 360
+
+CATALYST_KEYWORDS = {
+    "earnings": "earnings",
+    "guidance": "guidance",
+    "merger": "merger",
+    "acquisition": "acquisition",
+    "fda": "regulatory",
+    "approval": "regulatory",
+    "contract": "contract",
+    "partnership": "partnership",
+    "upgrade": "upgrade",
+    "downgrade": "downgrade",
+}
+DILUTION_KEYWORDS = {
+    "offering",
+    "dilution",
+    "s-1",
+    "s1",
+    "atm",
+    "registered direct",
+}
+
+
+@dataclass(frozen=True)
+class GateThresholds:
+    min_price: float
+    max_price: float
+    min_pct_change: float
+    min_rvol: float
+    min_volume: int
+    min_premarket_volume: int
+    max_float: int
+    spread_max_pct: Optional[float]
+
+
+@dataclass(frozen=True)
+class NewsDiagnostics:
+    news_degraded: bool
+    news_gate_bypassed: bool
+    failure_reason: Optional[str]
+    rss_sources: int
+    rss_failures: int
+    rss_failure_summary: Dict[str, Dict[str, int]]
 
 
 def _utc_now() -> datetime:
@@ -48,28 +108,6 @@ def _market_session_label_utc(now: datetime) -> str:
     if 21.5 <= h < 23.0:
         return "AFT"
     return "OVN"
-
-
-def _fmt_float_human(value: Optional[int]) -> Optional[str]:
-    if value is None:
-        return None
-    if value >= 1_000_000_000:
-        return f"{value / 1_000_000_000:.2f}B"
-    if value >= 1_000_000:
-        return f"{value / 1_000_000:.2f}M"
-    if value >= 1_000:
-        return f"{value / 1_000:.2f}K"
-    return str(value)
-
-
-def _categorize_float(value: Optional[int]) -> Optional[str]:
-    if value is None:
-        return None
-    if value <= 5_000_000:
-        return "LOW"
-    if value <= 20_000_000:
-        return "MID"
-    return "HIGH"
 
 
 def _print_symbol_limits(scanner_mode: str, provider_source: str) -> Dict[str, Any]:
@@ -99,112 +137,210 @@ def _print_symbol_limits(scanner_mode: str, provider_source: str) -> Dict[str, A
             reductions.append(f"ibkr_snapshot_cap({ibkr_cap})")
             resolved = ibkr_cap
 
+    watchlist_limit = int(records["SCANNER_WATCHLIST_LIMIT"].value)
+    focus_limit = min(max(3, FOCUS_LIST_LIMIT_DEFAULT), watchlist_limit or FOCUS_LIST_LIMIT_DEFAULT)
     print(
         "[SCANNER][LIMITS] Resolved symbol request limit="
         f"{resolved} reductions={reductions or ['none']}"
     )
+    print(f"[SCANNER][LIMITS] Focus list limit={focus_limit}")
     return {
         "resolved_symbol_limit": resolved,
         "reductions": reductions,
-        "watchlist_limit": int(records["SCANNER_WATCHLIST_LIMIT"].value),
+        "watchlist_limit": watchlist_limit,
+        "focus_limit": focus_limit,
     }
 
 
-def _build_symbol_context(
+def _load_float_cache(path: Path) -> Dict[str, int]:
+    try:
+        if not path.exists():
+            return {}
+        data = path.read_text(encoding="utf-8")
+        parsed = json.loads(data)
+        if isinstance(parsed, dict):
+            parsed.pop("_meta", None)
+            return {k: int(v) for k, v in parsed.items() if isinstance(v, (int, float))}
+    except Exception:
+        return {}
+    return {}
+
+
+def _persist_float_cache(path: Path, float_cache: Dict[str, int]) -> None:
+    try:
+        path.write_text(json.dumps(float_cache, sort_keys=True, indent=2), encoding="utf-8")
+    except Exception as exc:
+        print(f"[SCANNER][FLOAT] Failed to persist float cache: {exc}")
+
+
+def _bootstrap_float_cache(
+    symbols: Iterable[str],
     provider: ScannerDataProvider,
-    symbol: str,
-    session_label: str,
-    sort_rank: int,
-) -> Dict[str, Any]:
-    quote = provider.get_quote(symbol)
-    prev_close = quote.close if quote.close is not None else provider.get_prev_close(symbol)
-    intraday = provider.get_intraday_stats(symbol)
-    float_raw = provider.get_float(symbol)
-    open_price = quote.open
-    last_price = quote.last
-    bid = quote.bid
-    ask = quote.ask
-    mid = None
-    if bid is not None and ask is not None:
-        mid = round((bid + ask) / 2, 4)
-    spread = None
-    if bid is not None and ask is not None:
-        spread = round(ask - bid, 4)
+) -> Dict[str, int]:
+    global _FLOAT_CACHE_STATE
+    today = datetime.now(timezone.utc).date().isoformat()
+    cache_path = Path(get_config("SCANNER_FLOAT_CACHE_FILE"))
 
-    gap_pct = None
-    if prev_close and open_price:
-        gap_pct = round(((open_price - prev_close) / prev_close) * 100.0, 2)
+    if _FLOAT_CACHE_STATE.get("as_of") != today:
+        _FLOAT_CACHE_STATE = {"as_of": today, "data": _load_float_cache(cache_path)}
+        _FLOAT_CACHE_REQUESTED.clear()
 
-    pct_change = None
-    if prev_close and last_price:
-        pct_change = round(((last_price - prev_close) / prev_close) * 100.0, 2)
+    float_cache: Dict[str, int] = _FLOAT_CACHE_STATE.get("data", {})
+    updated = False
 
-    intraday_range_pct = None
-    if quote.high is not None and quote.low is not None and prev_close:
-        intraday_range_pct = round(((quote.high - quote.low) / prev_close) * 100.0, 2)
+    for symbol in symbols:
+        if symbol in float_cache or symbol in _FLOAT_CACHE_REQUESTED:
+            continue
+        _FLOAT_CACHE_REQUESTED.add(symbol)
+        try:
+            value = provider.get_float(symbol)
+        except Exception:
+            value = None
+        if value:
+            float_cache[symbol] = int(value)
+            updated = True
 
-    return {
-        "symbol": symbol,
-        "market_session_label": session_label,
-        "sort_rank_by_gap_desc": sort_rank,
-        "previous_close_price": prev_close,
-        "session_open_price": open_price,
-        "overnight_gap_percentage": gap_pct,
-        "last_trade_price": last_price,
-        "current_percentage_change_from_prior_close": pct_change,
-        "bid_price": bid,
-        "ask_price": ask,
-        "bid_ask_spread": spread,
-        "mid_price": mid,
-        "vwap_price": quote.vwap,
-        "day_high_price": quote.high,
-        "day_low_price": quote.low,
-        "intraday_range_percentage": intraday_range_pct,
-        "price_data_type_label": provider.source_name,
-        "price_truth_source_label": provider.source_name,
-        "daily_bars_count": None,
-        "float_shares_raw": float_raw,
-        "float_shares_formatted": _fmt_float_human(float_raw),
-        "float_category": _categorize_float(float_raw),
-        "float_shares_source": provider.source_name if float_raw is not None else None,
-        "float_cache_hit": float_raw is not None,
-        "current_intraday_volume": intraday.current_intraday_volume,
-        "current_volume_source_label": intraday.current_volume_source_label,
-        "average_daily_volume_20d": intraday.average_daily_volume_20d,
-        "average_daily_volume_window_days": intraday.average_daily_volume_window_days,
-        "relative_volume": intraday.relative_volume,
-        "relative_volume_category": intraday.relative_volume_category,
-        "volume_velocity_5m": intraday.volume_velocity_5m,
-        "volume_velocity_15m": intraday.volume_velocity_15m,
-        "volume_data_quality_flag": intraday.volume_data_quality_flag,
-    }
+    if updated:
+        _persist_float_cache(cache_path, float_cache)
+    _FLOAT_CACHE_STATE["data"] = float_cache
+    return float_cache
 
 
-def _mock_headlines_for_symbols(symbols: List[str]) -> Dict[str, List[Headline]]:
-    now_ts = datetime.now(timezone.utc).timestamp()
-    headlines: Dict[str, List[Headline]] = {symbol: [] for symbol in symbols}
-    for symbol in symbols[:20]:
-        headlines[symbol] = [
-            Headline(
-                title=f"{symbol} reports earnings beat and raises guidance",
-                source="MOCK_NEWS",
-                published_ts=now_ts - 300,
-                url="https://mock.news/earnings",
-            ),
-            Headline(
-                title=f"{symbol} announces new partnership",
-                source="MOCK_NEWS",
-                published_ts=now_ts - 900,
-                url="https://mock.news/partnership",
-            ),
-        ]
-    return headlines
+def _history_snapshot(symbol: str, provider: ScannerDataProvider) -> Dict[str, Any]:
+    cached = _HISTORY_CACHE.get(symbol)
+    if cached:
+        return cached
+    snapshot: Dict[str, Any] = {}
+    try:
+        snapshot["prev_close"] = provider.get_prev_close(symbol)
+    except Exception:
+        snapshot["prev_close"] = None
+    try:
+        intraday = provider.get_intraday_stats(symbol)
+        snapshot["average_daily_volume_20d"] = intraday.average_daily_volume_20d
+        snapshot["average_daily_volume_window_days"] = intraday.average_daily_volume_window_days
+    except Exception:
+        snapshot["average_daily_volume_20d"] = None
+        snapshot["average_daily_volume_window_days"] = None
+    _HISTORY_CACHE[symbol] = snapshot
+    return snapshot
+
+
+def _resolve_price(quote) -> Optional[float]:
+    if quote.last is not None:
+        return float(quote.last)
+    if quote.bid is not None and quote.ask is not None:
+        return float(round((quote.bid + quote.ask) / 2.0, 4))
+    if quote.bid is not None:
+        return float(quote.bid)
+    if quote.ask is not None:
+        return float(quote.ask)
+    return None
+
+
+def _spread_values(quote) -> tuple[Optional[float], Optional[float]]:
+    if quote.bid is None or quote.ask is None:
+        return None, None
+    spread = float(round(quote.ask - quote.bid, 4))
+    mid = float(round((quote.ask + quote.bid) / 2.0, 4))
+    if mid <= 0:
+        return spread, None
+    return spread, float(round(spread / mid, 4))
+
+
+def _pct_change(last_price: Optional[float], prev_close: Optional[float]) -> Optional[float]:
+    if last_price is None or prev_close is None or prev_close == 0:
+        return None
+    return round(((last_price - prev_close) / prev_close) * 100.0, 2)
+
+
+def _gate_thresholds() -> GateThresholds:
+    spread_max_pct = None
+    # TODO: add configured spread cap once available in config registry.
+    return GateThresholds(
+        min_price=float(get_config("ROSS_MIN_PRICE")),
+        max_price=float(get_config("ROSS_MAX_PRICE")),
+        min_pct_change=float(get_config("ROSS_MIN_PCT_CHANGE")),
+        min_rvol=float(get_config("ROSS_MIN_RVOL")),
+        min_volume=int(get_config("ROSS_MIN_VOLUME")),
+        min_premarket_volume=int(get_config("ROSS_MIN_PREMARKET_VOLUME")),
+        max_float=int(get_config("ROSS_MAX_FLOAT")),
+        spread_max_pct=spread_max_pct,
+    )
+
+
+def _evaluate_gates(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+) -> Optional[str]:
+    price = _safe_float(context.get("last_price"), None)
+    pct_change = _safe_float(context.get("pct_change"), None)
+    rvol = _safe_float(context.get("rvol"), None)
+    volume = _safe_float(context.get("volume"), None)
+    float_shares = context.get("float_shares")
+    session = (context.get("session") or "").upper()
+    spread_pct = _safe_float(context.get("spread_pct"), None)
+
+    if price is None:
+        return "DROP_MISSING_PRICE"
+    if pct_change is None:
+        return "DROP_MISSING_PCT_CHANGE"
+    if pct_change < thresholds.min_pct_change:
+        return "DROP_PCT_CHANGE"
+    if not (thresholds.min_price <= price <= thresholds.max_price):
+        return "DROP_PRICE_RANGE"
+    if rvol is None:
+        return "DROP_MISSING_RVOL"
+    if rvol < thresholds.min_rvol:
+        return "DROP_RVOL"
+    if volume is None:
+        return "DROP_MISSING_VOLUME"
+    if session in {"PRE", "OVN"}:
+        if volume < thresholds.min_premarket_volume:
+            return "DROP_PREMARKET_VOLUME"
+    elif volume < thresholds.min_volume:
+        return "DROP_VOLUME"
+    if float_shares is not None and float_shares > thresholds.max_float:
+        return "DROP_FLOAT_MAX"
+    if thresholds.spread_max_pct is not None:
+        if spread_pct is None:
+            return "DROP_MISSING_SPREAD"
+        if spread_pct > thresholds.spread_max_pct:
+            return "DROP_SPREAD"
+    return None
+
+
+def _attention_tier(vel5: int, vel10: int, vel30: int) -> str:
+    if vel5 >= 3 or vel10 >= 5:
+        return "T3"
+    if vel5 >= 2 or vel10 >= 3 or vel30 >= 5:
+        return "T2"
+    if vel5 >= 1 or vel10 >= 2 or vel30 >= 3:
+        return "T1"
+    return "T0"
+
+
+def _detect_catalyst_type(titles: Iterable[str]) -> Optional[str]:
+    for title in titles:
+        lowered = title.lower()
+        for keyword, label in CATALYST_KEYWORDS.items():
+            if keyword in lowered:
+                return label
+    return None
+
+
+def _detect_dilution(titles: Iterable[str]) -> bool:
+    for title in titles:
+        lowered = title.lower()
+        if any(keyword in lowered for keyword in DILUTION_KEYWORDS):
+            return True
+    return False
 
 
 def _enrich_news_context(
     symbols: List[str],
     provider_source: str,
-) -> tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
+) -> tuple[Dict[str, Dict[str, Any]], NewsDiagnostics]:
     sources = load_verified_rss_sources()
     headlines_by_symbol, summary = fetch_headlines_for_symbols(
         symbols,
@@ -215,74 +351,296 @@ def _enrich_news_context(
     all_failed = summary.total_sources > 0 and summary.failure_count >= summary.total_sources
     reason_override = summary.reason
     news_degraded = all_failed or bool(reason_override)
+
     if provider_source == "MOCK":
         if all(len(items) == 0 for items in headlines_by_symbol.values()):
-            headlines_by_symbol = _mock_headlines_for_symbols(symbols)
+            now_ts = datetime.now(timezone.utc).timestamp()
+            for symbol in symbols[:20]:
+                headlines_by_symbol[symbol] = [
+                    Headline(
+                        title=f"{symbol} reports earnings beat and raises guidance",
+                        source="MOCK_NEWS",
+                        published_ts=now_ts - 300,
+                        url="https://mock.news/earnings",
+                    ),
+                    Headline(
+                        title=f"{symbol} announces new partnership",
+                        source="MOCK_NEWS",
+                        published_ts=now_ts - 900,
+                        url="https://mock.news/partnership",
+                    ),
+                ]
             news_degraded = True
             reason_override = reason_override or "mock_headlines_injected"
 
     news_by_symbol: Dict[str, Dict[str, Any]] = {}
+    now_ts = time.time()
     for symbol, headlines in headlines_by_symbol.items():
-        news_context = normalize_headlines(headlines)
-        vel10 = news_context.get("news_velocity_10m") or 0
-        vel60 = news_context.get("news_velocity_60m") or 0
-        spike = bool(vel10 >= 2 or (vel60 and vel10 > (vel60 / 6.0)))
-        news_context["news_spike_indicator"] = spike
-        news_by_symbol[symbol] = news_context
+        signature = tuple(
+            sorted((headline.title.strip().lower(), headline.source.strip().lower()) for headline in headlines)
+        )
+        cached = _NEWS_CACHE.get(symbol)
+        if cached and cached.get("signature") == signature:
+            news_by_symbol[symbol] = cached["context"]
+            continue
+
+        if not headlines:
+            context = {
+                "news_present": False,
+                "first_seen_ts": None,
+                "news_age_minutes": None,
+                "velocity_5m": 0,
+                "velocity_10m": 0,
+                "velocity_30m": 0,
+                "attention_tier": "T0",
+                "top_domains": [],
+                "top_links": [],
+                "catalyst_type": None,
+                "dilution_flag": False,
+                "gam_ea_eligible": False,
+                "ross_catalyst_valid": False,
+                "ross_catalyst_notes": "No news present",
+            }
+            news_by_symbol[symbol] = context
+            _NEWS_CACHE[symbol] = {"signature": signature, "context": context}
+            continue
+
+        unique_map: Dict[str, Headline] = {}
+        for headline in headlines:
+            key = f"{headline.title.lower().strip()}|{headline.source.lower().strip()}"
+            unique_map.setdefault(key, headline)
+        unique_headlines = list(unique_map.values())
+
+        ages = [max(0.0, (now_ts - headline.published_ts) / 60.0) for headline in unique_headlines]
+        news_age_minutes = int(min(ages)) if ages else None
+        vel5 = sum(1 for headline in unique_headlines if now_ts - headline.published_ts <= 5 * 60)
+        vel10 = sum(1 for headline in unique_headlines if now_ts - headline.published_ts <= 10 * 60)
+        vel30 = sum(1 for headline in unique_headlines if now_ts - headline.published_ts <= 30 * 60)
+        attention_tier = _attention_tier(vel5, vel10, vel30)
+
+        titles = [headline.title for headline in unique_headlines]
+        catalyst_type = _detect_catalyst_type(titles)
+        dilution_flag = _detect_dilution(titles)
+        gam_ea_eligible = bool(
+            not dilution_flag
+            and news_age_minutes is not None
+            and news_age_minutes <= NEWS_AGE_MAX_MINUTES
+        )
+
+        domains: list[str] = []
+        links: list[str] = []
+        seen_domains = set()
+        for headline in unique_headlines:
+            domain = headline.url.split("/")[2] if "//" in headline.url else headline.url
+            if domain and domain not in seen_domains:
+                seen_domains.add(domain)
+                domains.append(domain)
+            if len(links) < 5 and headline.url:
+                links.append(headline.url)
+
+        ross_catalyst_valid = bool(not dilution_flag and news_age_minutes is not None)
+        ross_notes = "Catalyst present" if ross_catalyst_valid else "Catalyst missing or diluted"
+
+        context = {
+            "news_present": True,
+            "first_seen_ts": min(headline.published_ts for headline in unique_headlines),
+            "news_age_minutes": news_age_minutes,
+            "velocity_5m": vel5,
+            "velocity_10m": vel10,
+            "velocity_30m": vel30,
+            "attention_tier": attention_tier,
+            "top_domains": domains[:2],
+            "top_links": links[:5],
+            "catalyst_type": catalyst_type,
+            "dilution_flag": dilution_flag,
+            "gam_ea_eligible": gam_ea_eligible,
+            "ross_catalyst_valid": ross_catalyst_valid,
+            "ross_catalyst_notes": ross_notes,
+        }
+        news_by_symbol[symbol] = context
+        _NEWS_CACHE[symbol] = {"signature": signature, "context": context}
+
     news_gate_bypassed = all_failed or reason_override in {"no_sources", "feedparser_missing"}
-    diagnostics = {
-        "rss_sources": summary.total_sources,
-        "rss_failures": summary.failure_count,
-        "rss_failure_summary": summary.failures_by_domain,
-        "rss_failure_reason": reason_override,
-        "news_degraded": news_degraded,
-        "news_gate_bypassed": news_gate_bypassed,
-    }
+    diagnostics = NewsDiagnostics(
+        news_degraded=news_degraded,
+        news_gate_bypassed=news_gate_bypassed,
+        failure_reason=reason_override,
+        rss_sources=summary.total_sources,
+        rss_failures=summary.failure_count,
+        rss_failure_summary=summary.failures_by_domain,
+    )
     return news_by_symbol, diagnostics
 
 
-def _rank_watchlist(rows: List[ScannerRow54]) -> List[ScannerRow54]:
-    scored: List[tuple[float, ScannerRow54]] = []
-    for row in rows:
-        momentum = _safe_float(row.composite_momentum_score, 0.0) or 0.0
-        news_score = _safe_float(row.composite_news_score, 0.0) or 0.0
-        rank_score = (momentum * 0.7) + (news_score * 0.3)
-        scored.append((rank_score, row))
-    scored.sort(key=lambda item: item[0], reverse=True)
-    return [row for _, row in scored]
+def _rank_candidates(contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def sort_key(item: Dict[str, Any]) -> tuple:
+        pct = _safe_float(item.get("pct_change"), -10**9)
+        rvol = _safe_float(item.get("rvol"), -10**9)
+        dvol = _safe_float(item.get("dollar_volume"), -10**9)
+        float_missing = item.get("float_shares") is None
+        symbol = item.get("symbol", "")
+        return (float_missing, -pct, -rvol, -dvol, symbol)
+
+    return sorted(contexts, key=sort_key)
 
 
-def _apply_filters(
-    rows: List[ScannerRow54],
-    limit: int,
-    bypass_news_gates: bool,
-    require_news_override: Optional[bool],
-) -> tuple[List[ScannerRow54], Counter, int]:
-    filtered: List[ScannerRow54] = []
-    exclusion_reasons: Counter = Counter()
-    for row in rows:
-        passed, reasons = evaluate_filters(
-            row,
-            require_news_override=require_news_override,
-            bypass_news_gates=bypass_news_gates,
+def _build_fast_rows(
+    contexts: List[Dict[str, Any]],
+    news_by_symbol: Dict[str, Dict[str, Any]],
+) -> List[FastViewRow]:
+    rows: List[FastViewRow] = []
+    for rank, context in enumerate(contexts, start=1):
+        symbol = context["symbol"]
+        news_context = news_by_symbol.get(symbol, {})
+        rows.append(
+            FastViewRow(
+                symbol=symbol,
+                session=context.get("session", ""),
+                last_price=context.get("last_price"),
+                pct_change=context.get("pct_change"),
+                volume=context.get("volume"),
+                dollar_volume=context.get("dollar_volume"),
+                bid=context.get("bid"),
+                ask=context.get("ask"),
+                spread=context.get("spread"),
+                spread_pct=context.get("spread_pct"),
+                rvol=context.get("rvol"),
+                float_shares=context.get("float_shares"),
+                scanner_rank=rank,
+                scanner_score=context.get("scanner_score"),
+                drop_reason=None,
+                data_quality_flags=context.get("data_quality_flags", []),
+                news_present=bool(news_context.get("news_present")),
+                catalyst_type=news_context.get("catalyst_type"),
+                dilution_flag=bool(news_context.get("dilution_flag")),
+                news_age_minutes=news_context.get("news_age_minutes"),
+                velocity_5m=news_context.get("velocity_5m"),
+                velocity_10m=news_context.get("velocity_10m"),
+                velocity_30m=news_context.get("velocity_30m"),
+                attention_tier=news_context.get("attention_tier"),
+                gam_ea_eligible=news_context.get("gam_ea_eligible"),
+            )
         )
-        if passed:
-            filtered.append(row)
+    return rows
+
+
+def _build_deep_rows(
+    contexts: List[Dict[str, Any]],
+    news_by_symbol: Dict[str, Dict[str, Any]],
+) -> List[DeepViewRow]:
+    rows: List[DeepViewRow] = []
+    for rank, context in enumerate(contexts, start=1):
+        symbol = context["symbol"]
+        news_context = news_by_symbol.get(symbol, {})
+        catalyst = news_context.get("catalyst_type") or "Unknown catalyst"
+        age = news_context.get("news_age_minutes")
+        if age is not None:
+            catalyst_rationale = f"{catalyst} news within {age}m"
         else:
-            exclusion_reasons.update(reasons or ["excluded"])
-    ranked = _rank_watchlist(filtered)
-    return ranked[:limit], exclusion_reasons, len(filtered)
+            catalyst_rationale = f"{catalyst} news (age unknown)"
+        focus_reason = (
+            "Ranked high by pct_change, rvol, and dollar_volume "
+            f"(score={context.get('scanner_score')})"
+        )
+        rows.append(
+            DeepViewRow(
+                symbol=symbol,
+                focus_rank=rank,
+                links=news_context.get("top_links", []),
+                catalyst_rationale=catalyst_rationale,
+                focus_reason=focus_reason,
+            )
+        )
+    return rows
+
+
+def _score_context(context: Dict[str, Any]) -> float:
+    pct = _safe_float(context.get("pct_change"), 0.0) or 0.0
+    rvol = _safe_float(context.get("rvol"), 0.0) or 0.0
+    dvol = _safe_float(context.get("dollar_volume"), 0.0) or 0.0
+    pct_n = min(max(pct / 20.0, 0.0), 2.0)
+    rvol_n = min(max(rvol / 5.0, 0.0), 2.0)
+    dvol_n = min(max(dvol / 1_000_000.0, 0.0), 2.0)
+    score = (0.45 * pct_n) + (0.35 * rvol_n) + (0.20 * dvol_n)
+    return round(min(score, 1.0) * 100.0, 2)
+
+
+def _build_symbol_context(
+    provider: ScannerDataProvider,
+    symbol: str,
+    session_label: str,
+    float_cache: Dict[str, int],
+) -> Optional[Dict[str, Any]]:
+    try:
+        quote = provider.get_quote(symbol)
+    except Exception:
+        return None
+
+    data_quality_flags = list(getattr(quote, "data_quality_flags", []) or [])
+    last_price = _resolve_price(quote)
+    spread, spread_pct = _spread_values(quote)
+
+    intraday = None
+    try:
+        intraday = provider.get_intraday_stats(symbol)
+    except Exception:
+        intraday = None
+
+    volume = intraday.current_intraday_volume if intraday else None
+    rvol = intraday.relative_volume if intraday else None
+    if intraday is None:
+        data_quality_flags.append("VOLUME_UNKNOWN")
+    if volume is None:
+        data_quality_flags.append("MISSING_VOLUME")
+    if rvol is None:
+        data_quality_flags.append("RVOL_UNKNOWN")
+
+    prev_close = quote.close
+    if prev_close is None:
+        history = _history_snapshot(symbol, provider)
+        prev_close = history.get("prev_close")
+    if prev_close is None:
+        data_quality_flags.append("HISTORY_UNKNOWN")
+
+    pct_change = _pct_change(last_price, prev_close)
+    dollar_volume = None
+    if last_price is not None and volume is not None:
+        dollar_volume = round(last_price * volume, 2)
+
+    float_shares = float_cache.get(symbol)
+    if float_shares is None:
+        data_quality_flags.append("FLOAT_UNKNOWN")
+
+    if spread is None:
+        data_quality_flags.append("SPREAD_UNKNOWN")
+
+    return {
+        "symbol": symbol,
+        "session": session_label,
+        "last_price": last_price,
+        "pct_change": pct_change,
+        "volume": volume,
+        "dollar_volume": dollar_volume,
+        "bid": quote.bid,
+        "ask": quote.ask,
+        "spread": spread,
+        "spread_pct": spread_pct,
+        "rvol": rvol,
+        "float_shares": float_shares,
+        "data_quality_flags": data_quality_flags,
+    }
 
 
 def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
     utc_now = _utc_now()
     session_label = _market_session_label_utc(utc_now)
-    rows: List[ScannerRow54] = []
     diagnostics: Dict[str, Any] = {"mode": mode}
+    drop_ledger: Dict[str, str] = {}
     provider: ScannerDataProvider = build_provider()
     scanner_mode = str(get_config("SCANNER_MODE"))
     limits = _print_symbol_limits(scanner_mode, provider.source_name)
     diagnostics["symbol_limits"] = limits
+    print("[SCANNER][STAGE] bootstrap")
 
     try:
         try:
@@ -312,97 +670,98 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
             diagnostics["symbol_fallback"] = "MOCK_UNIVERSE"
         symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
 
-        news_by_symbol, news_diagnostics = (
-            _enrich_news_context(symbols, provider.source_name) if symbols else ({}, {})
-        )
-        diagnostics["news"] = news_diagnostics
-        bypass_news_gates = bool(news_diagnostics.get("news_gate_bypassed"))
+        float_cache = _bootstrap_float_cache(symbols, provider)
+        thresholds = _gate_thresholds()
+        candidates: List[Dict[str, Any]] = []
 
-        raw_contexts = []
-        for idx, symbol in enumerate(symbols, start=1):
-            try:
-                symbol_ctx = _build_symbol_context(provider, symbol, session_label, idx)
-            except Exception as exc:
-                diagnostics.setdefault("enrichment_errors", {})[symbol] = str(exc)
-                diagnostics.setdefault("degraded_symbols", {})[symbol] = "provider_error"
-                symbol_ctx = {
-                    "symbol": symbol,
-                    "market_session_label": session_label,
-                    "sort_rank_by_gap_desc": idx,
-                    "price_data_type_label": "ERROR",
-                    "price_truth_source_label": provider.source_name,
-                    "volume_data_quality_flag": "ERROR",
-                }
-            news_ctx = news_by_symbol.get(symbol, {})
-            raw_contexts.append({"symbol": symbol_ctx, "news": news_ctx})
+        print("[SCANNER][STAGE] gates")
+        for symbol in symbols:
+            context = _build_symbol_context(provider, symbol, session_label, float_cache)
+            if context is None:
+                drop_ledger.setdefault(symbol, "DROP_QUOTE_UNAVAILABLE")
+                print(f"[SCANNER][DROP] symbol={symbol} reason=DROP_QUOTE_UNAVAILABLE")
+                continue
+            drop_reason = _evaluate_gates(context, thresholds)
+            if drop_reason:
+                drop_ledger.setdefault(symbol, drop_reason)
+                print(f"[SCANNER][DROP] symbol={symbol} reason={drop_reason}")
+                continue
+            context["scanner_score"] = _score_context(context)
+            candidates.append(context)
 
-        raw_contexts.sort(
-            key=lambda item: (
-                item["symbol"].get("current_percentage_change_from_prior_close") is None,
-                -(item["symbol"].get("current_percentage_change_from_prior_close") or -10**9),
+        print("[SCANNER][STAGE] watchlist")
+        ranked = _rank_candidates(candidates)
+        watchlist_limit = limits["watchlist_limit"]
+        watchlist_contexts = ranked[:watchlist_limit] if watchlist_limit > 0 else []
+        for context in ranked[watchlist_limit:]:
+            drop_ledger.setdefault(context["symbol"], "DROP_RANK_BELOW_WATCHLIST")
+            print(
+                "[SCANNER][DROP] symbol="
+                f"{context['symbol']} reason=DROP_RANK_BELOW_WATCHLIST"
             )
+
+        print("[SCANNER][STAGE] enrich")
+        watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
+        news_by_symbol, news_diag = (
+            _enrich_news_context(watchlist_symbols, provider.source_name)
+            if watchlist_symbols
+            else ({}, NewsDiagnostics(False, False, None, 0, 0, {}))
         )
-        for idx, item in enumerate(raw_contexts, start=1):
-            item["symbol"]["sort_rank_by_gap_desc"] = idx
-            row = build_scanner_row54(item["symbol"], item["news"], {}, diagnostics)
-            missing_fields, non_allowed, _, integrity = validate_row(row)
-            diagnostics.setdefault("row_validations", {})[row.symbol or f"row_{idx}"] = {
-                "missing_fields": missing_fields,
-                "non_allowed_na_fields": non_allowed,
-                "integrity_score": integrity,
-            }
-            rows.append(row)
+        diagnostics["news"] = {
+            "news_degraded": news_diag.news_degraded,
+            "news_gate_bypassed": news_diag.news_gate_bypassed,
+            "rss_sources": news_diag.rss_sources,
+            "rss_failures": news_diag.rss_failures,
+            "rss_failure_summary": news_diag.rss_failure_summary,
+            "rss_failure_reason": news_diag.failure_reason,
+        }
+        if news_diag.news_degraded:
+            for context in watchlist_contexts:
+                flags = context.get("data_quality_flags", [])
+                if "NEWS_DELAYED" not in flags:
+                    flags.append("NEWS_DELAYED")
+
+        print("[SCANNER][STAGE] print")
+        fast_rows = _build_fast_rows(watchlist_contexts, news_by_symbol)
+        focus_limit = limits["focus_limit"]
+        focus_contexts = watchlist_contexts[:focus_limit]
+        deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
+
+        exclusion_counts = Counter(drop_ledger.values())
+        diagnostics["drop_ledger_summary"] = dict(exclusion_counts)
+        print(
+            "[SCANNER][SUMMARY] "
+            f"candidates={len(symbols)} gated={len(candidates)} "
+            f"watchlist={len(watchlist_contexts)} drops={dict(exclusion_counts)}"
+        )
+
+        watchlist_dir = Path("output/watchlists")
+        watchlist_dir.mkdir(parents=True, exist_ok=True)
+        ts = utc_now.strftime("%Y%m%d_%H%M%S_UTC")
+        file_path = watchlist_dir / f"watchlist_RossMomentum_{ts}.txt"
+        header_lines = [
+            f"# candidates_count={len(symbols)}",
+            f"# gated_count={len(candidates)}",
+            f"# watchlist_count={len(watchlist_contexts)}",
+            f"# drop_reasons={dict(exclusion_counts)}",
+        ]
+        file_path.write_text(
+            "\n".join(header_lines + [""] + format_fast_view_lines(fast_rows)) + "\n",
+            encoding="utf-8",
+        )
+
     finally:
         provider.disconnect()
-
-    watchlist, exclusion_reasons, filtered_count = _apply_filters(
-        rows,
-        limit=limits["watchlist_limit"],
-        bypass_news_gates=bypass_news_gates,
-        require_news_override=False if bypass_news_gates else None,
-    )
-    if limits["watchlist_limit"] <= 0 and rows:
-        exclusion_reasons.update(["watchlist_limit_zero"])
-    watchlist_symbols = [row.symbol for row in watchlist if row.symbol]
-    excluded_count = max(len(rows) - filtered_count, 0)
-
-    report = audit_field_population(rows)
-
-    docs_dir = Path("docs")
-    write_field_audit(report, docs_dir / "PHASE_24_SCANNER_FIELD_AUDIT.json")
-    write_mechanical_checklist(report, docs_dir / "PHASE_24_SCANNER_MECHANICAL_CHECKLIST.md")
-    ts = utc_now.strftime("%Y%m%d_%H%M%S_UTC")
-    watchlist_dir = Path("output/watchlists")
-    watchlist_dir.mkdir(parents=True, exist_ok=True)
-    file_path = watchlist_dir / f"watchlist_RossMomentum_{ts}.txt"
-    exclusion_summary = exclusion_reasons.most_common(3)
-    exclusion_summary_str = ", ".join(
-        f"{reason}:{count}" for reason, count in exclusion_summary
-    )
-    header_lines = [
-        f"# candidates_count={len(symbols)}",
-        f"# enriched_count={len(rows)}",
-        f"# excluded_count={excluded_count}",
-        f"# watchlist_count={len(watchlist_symbols)}",
-    ]
-    if not watchlist_symbols:
-        header_lines.append(
-            f"# exclusion_reasons={exclusion_summary_str or 'no_candidates'}"
-        )
-    watchlist_lines = format_watchlist_lines(watchlist)
-    file_path.write_text(
-        "\n".join(header_lines + [""] + watchlist_lines) + "\n", encoding="utf-8"
-    )
 
     return {
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
         "timestamp_utc": utc_now.isoformat(),
-        "symbols": watchlist_symbols,
-        "watchlist": watchlist_symbols,
-        "watchlist_rows": watchlist,
-        "unfiltered_rows": rows,
-        "audit": report,
+        "symbols": [row.symbol for row in fast_rows],
+        "watchlist": [row.symbol for row in fast_rows],
+        "watchlist_rows": fast_rows,
+        "focus_rows": deep_rows,
+        "drop_ledger": drop_ledger,
         "diagnostics": diagnostics,
     }
 
@@ -413,8 +772,8 @@ if __name__ == "__main__":
     print("\n[SCANNER] Standalone scan complete")
     print(f"[SCANNER] Version: {payload.get('scanner_version')}")
     print(f"[SCANNER] Timestamp (UTC): {payload.get('timestamp_utc')}")
-    print(f"[SCANNER] Symbols scanned: {len(payload.get('unfiltered_rows', []))}")
     print(f"[SCANNER] Watchlist size: {len(payload.get('watchlist', []))}")
+
     diagnostics = payload.get("diagnostics", {})
     news_diag = diagnostics.get("news", {})
     if news_diag:
@@ -426,8 +785,11 @@ if __name__ == "__main__":
         print(f"[SCANNER][NEWS] RSS failure summary: {news_diag.get('rss_failure_summary')}")
         print(f"[SCANNER][NEWS] News gate bypassed: {news_diag.get('news_gate_bypassed')}")
 
-    print("\n[WATCHLIST]")
-    for symbol in payload.get("watchlist", []):
-        print(f" - {symbol}")
-    print_watchlist_compact(payload.get("watchlist_rows", []))
-    print_master(payload.get("unfiltered_rows", []))
+    drop_ledger = payload.get("drop_ledger", {})
+    if drop_ledger:
+        print("\n[SCANNER][DROP_LEDGER]")
+        for symbol, reason in sorted(drop_ledger.items()):
+            print(f" - {symbol}: {reason}")
+
+    print_fast_view(payload.get("watchlist_rows", []))
+    print_deep_view(payload.get("focus_rows", []))
