@@ -1,50 +1,42 @@
-# SYSTEM_CONSTITUTION
-This document is permanent system law. It overrides code and all secondary documentation.
+# SYSTEM_CONSTITUTION.md
+## SYSTEM CONSTITUTION — IMMUTABLE LAW
 
-## 1. Mission
-Build a professional-grade modular trading system that supports multiple strategies (momentum, quant,
-mean reversion, scalping, etc.) without redesign. The system is orchestrator-centric and phase-governed.
+### Purpose
+This document defines the immutable laws governing the ibkr-trading-system.
+These laws exist to prevent architectural drift, unsafe execution, strategy contamination,
+and AI-induced scope corruption.
 
-## 2. Safety Is Non-Negotiable
-- Execution is HARD DISABLED unless explicitly enabled by configuration.
-- LIVE_READ_ONLY mode MUST NEVER route orders.
-- Scanner modules are intelligence-only and may not submit trades.
-- All LIVE modes must degrade safely on data or connectivity failure.
-- MOCK fallback is mandatory when IBKR or external data is unavailable.
+This system is a **Trading Operating System**, not a script, bot, or single-strategy algorithm.
 
-## 3. Orchestrator & Scanner Roles
-- The orchestrator is the authority for lifecycle, logging cadence, and phase gating.
-- Scanner output is advisory intelligence only, never an execution trigger by itself.
-- Scanner must never call order APIs (openOrders/completedOrders/order placement).
-- Scanner must produce canonical output regardless of news or broker availability.
-- The orchestrator must treat scanner inputs as data with provenance (source labels, timestamps, flags).
+### Core Principles (Non‑Negotiable)
+1. **Determinism** — identical inputs must produce identical outputs.
+2. **Explainability** — every decision must be human-readable and auditable.
+3. **Strategy Isolation** — strategies may not alter each other’s logic or data.
+4. **Risk First** — no execution without explicit risk approval.
+5. **No Silent Learning** — learning may observe, never mutate live rules.
 
-## 4. Data Trust & Provenance Policy
-- Market data priority: IBKR → MOCK (fallback).
-- Paid IBKR scanner subscriptions are not required or assumed.
-- News data is advisory, probabilistic, and non-blocking.
-- `verified_rss.txt` at repo root is the ONLY authoritative list of permitted RSS sources.
-- News unavailability must NEVER crash the scanner.
-- Trust is separate from availability.
+### Module Authority Hierarchy
+Scanner → Strategy → Risk → Execution → Storage  
+No module may bypass another.
 
-## 5. Phase Authority Model
-- The system advances through explicit phases.
-- A phase is complete only when its acceptance criteria are met.
-- No partial or implicit phase transitions are allowed.
-- Phase documents are authoritative over code when ambiguity exists.
+### Epoch Discipline
+Development proceeds in ordered Epochs.
+Each Epoch:
+- has a governance file
+- defines what is allowed and forbidden
+- must complete before the next begins
 
-## 6. Teaching-First & No Silent Failures
-- Teaching-first: explain degradations explicitly.
-- No silent failures: missing data must produce explicit logs and file headers.
-- Configuration mismatches must be surfaced in console output.
+### Authorized Epoch
+**Epoch 2 — Decision Intelligence** is authorized.
+Permitted:
+- Strategy modeling
+- Pattern detection
+- Candlestick libraries
+- Entry/exit intent modeling
 
-## 7. Logging & Configuration Authority
-- Configuration is resolved by `src/config/config_resolver.py` and is authoritative.
-- Configuration sources (ENV/DEFAULT/OVERRIDE) must be logged for key caps and safety gates.
-- Logging must be human-readable, concise, and summary-first (no spam).
+Forbidden until Epoch 3:
+- Order execution
+- Capital risk
+- Broker interaction
 
-## 8. AI & Automation Conduct Rules
-Automated agents (Codex, AI tools) must:
-- Read `SYSTEM_CONSTITUTION.md`, `SYSTEM_STATE.md`, and `README.md` before making changes.
-- NOT guess intent. Derive intent ONLY from those authoritative documents and existing code behavior.
-- Log assumptions, and prefer minimal, reversible changes.
+Violation of this constitution invalidates the system state.
