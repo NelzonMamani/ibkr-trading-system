@@ -223,15 +223,15 @@ def build_timeline_from_storage(
                 event_type=row.get("event_type", "UNKNOWN"),
                 source=row.get("source", "UNKNOWN"),
                 payload=parsed_payload,
+                tick=row.get("tick"),
+                seq=row.get("seq") or 0,
                 timestamp=resolved_time,
             )
         )
     events.sort(
         key=lambda event: (
-            getattr(event, "payload", {}).get("tick"),
-            event.timestamp,
-            event.event_type,
-            event.source,
+            event.tick if event.tick is not None else 0,
+            event.seq,
         )
     )
     return events

@@ -8,4 +8,6 @@ class SystemEvent:
     event_type: str
     source: str
     payload: Dict[str, Any]
+    tick: int | None = None
+    seq: int | None = None
     timestamp: datetime = field(default_factory=datetime.now)
