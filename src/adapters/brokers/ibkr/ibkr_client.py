@@ -73,7 +73,7 @@ class IbkrClient(EWrapper, EClient):
     # --- Connection management ---
     def connect(self) -> None:  # type: ignore[override]
         if not self.readonly_enabled:
-            print("[IBKR] Read-only disabled; trading-enabled connection requested.")
+            raise RuntimeError("IBKR read-only disabled by config")
 
         print(
             f"[IBKR] Connecting to host={self.host} port={self.port} client_id={self.client_id}"

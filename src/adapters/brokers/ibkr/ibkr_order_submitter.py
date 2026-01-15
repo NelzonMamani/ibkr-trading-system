@@ -70,17 +70,10 @@ class IbkrOrderSubmitter:
         self._log_settings()
         self._log_order(internal_order)
 
-        self._preflight(internal_order)
-
-        if not self.guard.can_submit():
-            reason = "Submission limit reached for this run"
-            self._emit_blocked(internal_order, reason)
-            return self._result(internal_order, status="BLOCKED", error=reason)
-
-        if self.guard.already_submitted(internal_order.client_order_id):
-            reason = "Duplicate client_order_id detected"
-            self._emit_blocked(internal_order, reason)
-            return self._result(internal_order, status="BLOCKED", error=reason)
+        blocked_reason = self._preflight(internal_order)
+        if blocked_reason:
+            self._emit_blocked(internal_order, blocked_reason)
+            return self._result(internal_order, status="BLOCKED", error=blocked_reason)
 
         self._log("[TRANSLATE] Translating internal order via IbkrOrderTranslator")
         contract, order = self.translator.translate(internal_order)
@@ -169,20 +162,23 @@ class IbkrOrderSubmitter:
                 self._log(f"[WARN] Disconnect raised: {exc}")
 
     # --- internals ---
-    def _preflight(self, internal_order: InternalOrder) -> None:
-        assert_read_only_allows("PLACE_ORDER")
-        run_mode = getattr(self.config.run_mode, "value", self.config.run_mode)
-        normalized_run_mode = str(run_mode).upper()
-        if normalized_run_mode not in {"SIM", "PAPER", "LIVE_MICRO"}:
-            raise RuntimeError(
-                "IBKR submission forbidden unless RUN_MODE is SIM, PAPER, or LIVE_MICRO"
-            )
-
+    def _preflight(self, internal_order: InternalOrder) -> Optional[str]:
         if not self.config.order_submission_enabled:
-            raise RuntimeError("IBKR submission disabled by config")
+            raise RuntimeError("disabled by config")
 
         if self.config.kill_switch:
-            raise RuntimeError("Kill-switch enabled; submission blocked")
+            raise RuntimeError("Kill-switch enabled")
+
+        run_mode = getattr(self.config.run_mode, "value", self.config.run_mode)
+        normalized_run_mode = str(run_mode).upper()
+        if normalized_run_mode != "SIM":
+            raise RuntimeError("IBKR submission requires RUN_MODE=SIM")
+
+        if not self.guard.can_submit():
+            return "Submission limit reached for this run"
+
+        if self.guard.already_submitted(internal_order.client_order_id):
+            return "Duplicate client_order_id detected"
 
         if self.config.paper_only_enforced and self.config.paper_port == self.config.live_port:
             raise RuntimeError("Live port detected; paper-only enforced")
@@ -201,6 +197,9 @@ class IbkrOrderSubmitter:
 
         if internal_order.quantity != 1:
             raise RuntimeError("LIVE_MICRO enforces quantity == 1 share")
+
+        assert_read_only_allows("PLACE_ORDER")
+        return None
 
     def _wait_for_ack(self, ibkr_order_id: int) -> tuple[Optional[str], Optional[datetime]]:
         status = self.ibkr_client.wait_for_order_status(
