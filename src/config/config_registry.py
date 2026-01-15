@@ -166,7 +166,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "IBKR_MARKET_DATA_TYPE": {
         "type": str,
-        "default": "LIVE",
+        "default": "DELAYED",
         "env": ["IBKR_MARKET_DATA_TYPE"],
         "affects": ["MarketDataHub", "Scanner", "StorageEngine"],
         "enforcement": "HARD",
@@ -397,11 +397,20 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     "LIVE_MICRO_REQUIRED_QUANTITY": {
         "type": int,
         "default": 1,
-        "env": [],
+        "env": ["LIVE_MICRO_REQUIRED_QUANTITY"],
         "affects": ["ExecutionEngine"],
         "enforcement": "HARD",
         "mutable": "static",
         "description": "Required order quantity for LIVE_MICRO submissions.",
+    },
+    "LIVE_MICRO_MAX_SYMBOLS_PER_CYCLE": {
+        "type": int,
+        "default": 5,
+        "env": ["LIVE_MICRO_MAX_SYMBOLS_PER_CYCLE"],
+        "affects": ["ExecutionEngine", "RiskEngine"],
+        "enforcement": "HARD",
+        "mutable": "static",
+        "description": "Maximum unique symbols allowed per cycle in LIVE_MICRO.",
     },
     # =========================
     # Scanner controls

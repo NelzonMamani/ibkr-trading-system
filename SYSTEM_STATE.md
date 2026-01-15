@@ -9,7 +9,7 @@
 ## Epoch progress
 - Epoch 1 — Market Perception: COMPLETE
 - Epoch 2 — Decision Intelligence: COMPLETE (Phases 25–30 implemented)
-- Epoch 3 — Risk & Execution: NEXT (not opened yet)
+- Epoch 3 — Risk & Execution: COMPLETE (Phases 31–34 implemented)
 
 ## What is enabled right now
 - Market data: allowed in LIVE_READ_ONLY when configured
@@ -17,9 +17,9 @@
 - Replay: locked down in LIVE/LIVE_READ_ONLY/LIVE_MICRO by safety policy
 
 ## Immediate next actions (authoritative)
-1) Draft and approve `EPOCH_03_RISK_AND_EXECUTION_GOVERNANCE.md`
-2) Define Epoch 3 phases and deliverables (risk gates, execution translation, staged rollout)
-3) Implement Epoch 3 strictly phase-by-phase, preserving Epoch 1–2 contracts
+1) Prepare Epoch 4 governance and phase definitions
+2) Validate storage and replay readiness for Trade Storage Canonical Schema
+3) Maintain safety self-tests as Epoch 4 work begins
 
 ## Notes
 - Any discrepancy between code and this file must be resolved in favour of this file.
