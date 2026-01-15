@@ -1,0 +1,75 @@
+"""Event and artifact contracts for Epoch 5 orchestration."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, List
+
+from src.core_engine.health import HealthSnapshot
+from src.core_engine.state import CycleContext
+
+
+@dataclass
+class ScannerArtifact:
+    context: CycleContext
+    topn_count: int
+    survivors_count: int
+    watchlist_k: List[str]
+    focus_m: List[str]
+    drop_reason_summary: Dict[str, int]
+    new_symbols: List[str]
+    continuing_symbols: List[str]
+    dropped_symbols: List[str]
+    raw_payload: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class PatternSummary:
+    symbol: str
+    best_setup: str
+    confidence: float
+    rationale: str
+    all_patterns: List[Dict[str, Any]]
+
+
+@dataclass
+class TradeIntentRecord:
+    symbol: str
+    intent_id: str
+    setup_id: str
+    side: str
+    entry: str
+    stop: str
+    rationale: str
+    tags: List[str] = field(default_factory=list)
+
+
+@dataclass
+class RiskDecisionRecord:
+    symbol: str
+    intent_id: str
+    decision: str
+    max_position_size: int
+    constraints: List[str]
+    triggered_rules: List[str]
+    rationale: str
+
+
+@dataclass
+class ExecutionEvent:
+    symbol: str
+    intent_id: str
+    action: str
+    detail: str
+
+
+@dataclass
+class CycleSummary:
+    context: CycleContext
+    scanner: ScannerArtifact
+    pattern_summaries: List[PatternSummary]
+    intents: List[TradeIntentRecord]
+    risk_decisions: List[RiskDecisionRecord]
+    execution_events: List[ExecutionEvent]
+    health: HealthSnapshot
+    stage_order: List[str]

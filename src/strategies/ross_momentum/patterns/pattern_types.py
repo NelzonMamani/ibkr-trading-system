@@ -25,15 +25,18 @@ class Direction(str, Enum):
 
 @dataclass(frozen=True)
 class PatternResult:
+    setup_id: str
     pattern_name: str
     pattern_family: PatternFamily
     detected: bool
     direction: Direction
     confidence: float
     setup_quality_tags: List[str]
-    entry_zone: Optional[str]
-    stop_suggestion: Optional[str]
-    target_suggestion: Optional[str]
-    rationale_text: str
+    tags: List[str] = field(default_factory=list)
+    entry_zone: Optional[str] = None
+    stop_suggestion: Optional[str] = None
+    target_suggestion: Optional[str] = None
+    rationale_text: str = ""
     risk_flags: List[str] = field(default_factory=list)
+    data_quality_flags: List[str] = field(default_factory=list)
     rejection_reason: Optional[str] = None

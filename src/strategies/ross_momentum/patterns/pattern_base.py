@@ -31,17 +31,20 @@ class PatternBase(ABC):
             f"[PATTERN] {inputs.symbol} {self.name} not detected (reason={reason})"
         )
         return PatternResult(
+            setup_id=self.name,
             pattern_name=self.name,
             pattern_family=self.family,
             detected=False,
             direction=dir_value,
             confidence=confidence,
             setup_quality_tags=[],
+            tags=[],
             entry_zone=None,
             stop_suggestion=None,
             target_suggestion=None,
             rationale_text=rationale,
             risk_flags=[],
+            data_quality_flags=inputs.data_quality_flags,
             rejection_reason=reason,
         )
 
@@ -59,6 +62,10 @@ class PatternBase(ABC):
     ) -> PatternResult:
         setup_quality_tags = setup_quality_tags or []
         risk_flags = risk_flags or []
+        vwap = inputs.indicators.vwap
+        if vwap is not None and inputs.candles:
+            last_close = inputs.candles[-1].close
+            setup_quality_tags.append("VWAP_ABOVE" if last_close >= vwap else "VWAP_BELOW")
         print(
             f"[PATTERN] {inputs.symbol} {self.name} DETECTED {direction.value} "
             f"conf={confidence:.2f}"
@@ -66,15 +73,18 @@ class PatternBase(ABC):
         for line in rationale.split("\n"):
             print(f"  - {line}")
         return PatternResult(
+            setup_id=self.name,
             pattern_name=self.name,
             pattern_family=self.family,
             detected=True,
             direction=direction,
             confidence=confidence,
             setup_quality_tags=setup_quality_tags,
+            tags=setup_quality_tags,
             entry_zone=entry_zone,
             stop_suggestion=stop_suggestion,
             target_suggestion=target_suggestion,
             rationale_text=rationale,
             risk_flags=risk_flags,
+            data_quality_flags=inputs.data_quality_flags,
         )

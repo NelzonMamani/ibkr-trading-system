@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -26,6 +27,7 @@ from src.scanner.phase24_views import (
     print_deep_view,
     print_fast_view,
 )
+from src.scanner.print_contract import print_scanner_contract, summarize_drop_reasons
 from src.scanner.providers.base import ScannerDataProvider
 from src.scanner.providers.factory import build_provider
 from src.scanner.providers.mock_provider import MockScannerProvider
@@ -38,6 +40,7 @@ _FLOAT_CACHE_STATE: Dict[str, Any] = {
 _FLOAT_CACHE_REQUESTED: set[str] = set()
 _HISTORY_CACHE: Dict[str, Dict[str, Any]] = {}
 _NEWS_CACHE: Dict[str, Dict[str, Any]] = {}
+_PREV_WATCHLIST: set[str] = set()
 
 FOCUS_LIST_LIMIT_DEFAULT = 5
 NEWS_AGE_MAX_MINUTES = 360
@@ -104,10 +107,10 @@ def _market_session_label_utc(now: datetime) -> str:
     if 12.0 <= h < 14.0:
         return "PRE"
     if 14.0 <= h < 21.5:
-        return "RTH"
+        return "REG"
     if 21.5 <= h < 23.0:
-        return "AFT"
-    return "OVN"
+        return "AFTER"
+    return "AFTER"
 
 
 def _print_symbol_limits(scanner_mode: str, provider_source: str) -> Dict[str, Any]:
@@ -636,6 +639,7 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
     session_label = _market_session_label_utc(utc_now)
     diagnostics: Dict[str, Any] = {"mode": mode}
     drop_ledger: Dict[str, str] = {}
+    print(f"[SCANNER] MODE={mode} SESSION={session_label}")
     scanner_mode = str(get_config("SCANNER_MODE"))
     if scanner_mode == "TEACHING":
         limits = _print_symbol_limits(scanner_mode, "TEACHING")
@@ -689,11 +693,29 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
             )
             for idx, row in enumerate(fast_rows[:focus_limit], start=1)
         ]
+        drop_summary = summarize_drop_reasons(drop_ledger)
         print(
             "[SCANNER][SUMMARY] "
             f"candidates={len(symbols)} gated={len(symbols)} "
-            f"watchlist={len(fast_rows)} drops={dict(drop_ledger)}"
+            f"watchlist={len(fast_rows)} drops={drop_summary}"
         )
+        watchlist_symbols = [row.symbol for row in fast_rows]
+        focus_symbols = [row.symbol for row in deep_rows]
+        new_symbols = sorted(set(watchlist_symbols) - _PREV_WATCHLIST)
+        continuing_symbols = sorted(set(watchlist_symbols) & _PREV_WATCHLIST)
+        dropped_symbols = sorted(_PREV_WATCHLIST - set(watchlist_symbols))
+        print_scanner_contract(
+            topn_count=len(symbols),
+            survivors_count=len(symbols),
+            watchlist_k=watchlist_symbols,
+            focus_m=focus_symbols,
+            drop_summary=drop_summary,
+            new_symbols=new_symbols,
+            continuing_symbols=continuing_symbols,
+            dropped_symbols=dropped_symbols,
+        )
+        _PREV_WATCHLIST.clear()
+        _PREV_WATCHLIST.update(watchlist_symbols)
         return {
             "scanner_version": SCANNER_VERSION,
             "scanner_git_sha": SCANNER_GIT_SHA,
@@ -703,6 +725,17 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
             "watchlist_rows": fast_rows,
             "focus_rows": deep_rows,
             "drop_ledger": drop_ledger,
+            "watchlist_k": watchlist_symbols,
+            "focus_m": focus_symbols,
+            "topn_count": len(symbols),
+            "survivors_count": len(symbols),
+            "new_symbols": new_symbols,
+            "continuing_symbols": continuing_symbols,
+            "dropped_symbols": dropped_symbols,
+            "drop_reason_summary": drop_summary,
+            "data_quality_by_symbol": {
+                row.symbol: list(row.data_quality_flags or []) for row in fast_rows
+            },
             "diagnostics": diagnostics,
         }
 
@@ -797,11 +830,12 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
         deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
 
         exclusion_counts = Counter(drop_ledger.values())
-        diagnostics["drop_ledger_summary"] = dict(exclusion_counts)
+        drop_summary = dict(exclusion_counts)
+        diagnostics["drop_ledger_summary"] = drop_summary
         print(
             "[SCANNER][SUMMARY] "
             f"candidates={len(symbols)} gated={len(candidates)} "
-            f"watchlist={len(watchlist_contexts)} drops={dict(exclusion_counts)}"
+            f"watchlist={len(watchlist_contexts)} drops={drop_summary}"
         )
 
         watchlist_dir = Path("output/watchlists")
@@ -822,6 +856,24 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
     finally:
         provider.disconnect()
 
+    watchlist_symbols = [row.symbol for row in fast_rows]
+    focus_symbols = [row.symbol for row in deep_rows]
+    new_symbols = sorted(set(watchlist_symbols) - _PREV_WATCHLIST)
+    continuing_symbols = sorted(set(watchlist_symbols) & _PREV_WATCHLIST)
+    dropped_symbols = sorted(_PREV_WATCHLIST - set(watchlist_symbols))
+    print_scanner_contract(
+        topn_count=len(symbols),
+        survivors_count=len(candidates),
+        watchlist_k=watchlist_symbols,
+        focus_m=focus_symbols,
+        drop_summary=drop_summary,
+        new_symbols=new_symbols,
+        continuing_symbols=continuing_symbols,
+        dropped_symbols=dropped_symbols,
+    )
+    _PREV_WATCHLIST.clear()
+    _PREV_WATCHLIST.update(watchlist_symbols)
+
     return {
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
@@ -831,12 +883,30 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
         "watchlist_rows": fast_rows,
         "focus_rows": deep_rows,
         "drop_ledger": drop_ledger,
+        "watchlist_k": watchlist_symbols,
+        "focus_m": focus_symbols,
+        "topn_count": len(symbols),
+        "survivors_count": len(candidates),
+        "new_symbols": new_symbols,
+        "continuing_symbols": continuing_symbols,
+        "dropped_symbols": dropped_symbols,
+        "drop_reason_summary": drop_summary,
+        "data_quality_by_symbol": {
+            row.symbol: list(row.data_quality_flags or []) for row in fast_rows
+        },
         "diagnostics": diagnostics,
     }
 
 
 if __name__ == "__main__":
-    payload = run_scanner_cycle(mode="standalone")
+    parser = argparse.ArgumentParser(description="Scanner runner")
+    parser.add_argument("--mode", default="READONLY")
+    parser.add_argument("--cycles", type=int, default=1)
+    args = parser.parse_args()
+
+    payload = {}
+    for _ in range(args.cycles):
+        payload = run_scanner_cycle(mode=args.mode)
 
     print("\n[SCANNER] Standalone scan complete")
     print(f"[SCANNER] Version: {payload.get('scanner_version')}")

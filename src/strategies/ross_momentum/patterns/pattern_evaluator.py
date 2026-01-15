@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from typing import List, Optional
 
-from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
+from src.strategies.ross_momentum.patterns.pattern_inputs import (
+    IndicatorSet,
+    LevelSet,
+    LiquidityContext,
+    PatternInputs,
+)
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternResult
+from src.strategies.common.candles.candle_types import Candle
+from src.strategies.strategy_contracts import SessionContext
 
 
 @dataclass(frozen=True)
@@ -77,3 +85,52 @@ class PatternEvaluator:
         if not candidates:
             return None
         return max(candidates, key=lambda result: result.confidence)
+
+
+def _sample_inputs(symbol: str) -> PatternInputs:
+    candles = []
+    for idx in range(10):
+        base = 10 + idx * 0.2
+        candles.append(
+            Candle(
+                open=base,
+                high=base + 0.1,
+                low=base - 0.1,
+                close=base + (0.05 if idx % 2 == 0 else -0.03),
+                volume=1000 + idx * 100,
+            )
+        )
+    indicators = IndicatorSet(ema9=11.2, ema20=11.0, vwap=11.1)
+    levels = LevelSet(premarket_high=11.3, hod=11.6, prior_close=10.0)
+    liquidity = LiquidityContext(spread=0.02, float_millions=12.0, rvol=2.0)
+    return PatternInputs(
+        symbol=symbol,
+        timeframe="1m",
+        candles=candles,
+        session_context=SessionContext.PRE,
+        levels=levels,
+        indicators=indicators,
+        liquidity_context=liquidity,
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Ross pattern evaluator")
+    parser.add_argument("--symbol", default="TEST")
+    parser.add_argument("--mode", default="SIM")
+    args = parser.parse_args()
+    evaluator = PatternEvaluator()
+    summary = evaluator.evaluate([_sample_inputs(args.symbol)])
+    best = summary.best_long_setup or summary.best_short_setup
+    if best:
+        print(
+            f"[PATTERN][SUMMARY] best={best.pattern_name} conf={best.confidence:.2f} "
+            f"rationale={best.rationale_text}"
+        )
+    else:
+        print("[PATTERN][SUMMARY] No setups detected")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -37,6 +37,6 @@ class FailedBreakoutPattern(PatternBase):
             entry_zone="Below failed breakout level",
             stop_suggestion="Above failed breakout level",
             target_suggestion="Back to VWAP / consolidation",
-            setup_quality_tags=["failed_breakout"],
-            risk_flags=["caution_reversal"],
+            setup_quality_tags=["failed_breakout", "avoid_entry"],
+            risk_flags=["FAILED_BREAKOUT", "AVOID_ENTRY"],
         )
