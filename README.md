@@ -26,7 +26,7 @@ This repository is governed by a strict hierarchy. If any file conflicts with a 
 - Epoch 1 — Market Perception: **COMPLETE**
 - Epoch 2 — Decision Intelligence: **COMPLETE**
 - Epoch 3 — Risk & Execution: **COMPLETE** (safety-first gating; execution remains disabled by default)
-- Epoch 4 — Trade Lifecycle & Persistence: **ACTIVE** (trade storage schema + replay + reporting)
+- Epoch 4 — Trade Lifecycle & Persistence: **COMPLETE** (trade storage schema + replay + reporting + CLI exports)
 
 ---
 

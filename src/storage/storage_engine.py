@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import getpass
+import hashlib
 import json
 import os
 import socket
@@ -98,21 +99,30 @@ class StorageEngine:
             return
         run_mode = get_run_mode()
         event_replay_mode = get_event_replay_mode(run_mode)
+        resolved_config = get_config_snapshot()
+        resolved_config_json = canonical_json(
+            resolved_config,
+            allow_fallback=True,
+        )
+        config_fingerprint = hashlib.sha256(resolved_config_json.encode("utf-8")).hexdigest()
+        started_at = now_iso()
         run_data = {
             "run_id": self.run_id,
-            "started_at": now_iso(),
+            "started_at": started_at,
+            "started_at_utc": started_at,
             "ended_at": None,
+            "ended_at_utc": None,
             "hostname": socket.gethostname(),
             "user": getpass.getuser(),
             "app_version": get_config("APP_VERSION"),
             "git_sha": get_config("GIT_SHA"),
             "run_mode": run_mode.value,
+            "effective_run_mode": run_mode.value,
             "event_replay_mode": event_replay_mode.value,
-            "resolved_config_json": canonical_json(
-                get_config_snapshot(),
-                allow_fallback=True,
-            ),
+            "resolved_config_json": resolved_config_json,
+            "config_fingerprint": config_fingerprint,
             "schema_version": SCHEMA_VERSION,
+            "system_version": get_config("APP_VERSION"),
             "created_at": now_iso(),
         }
         self._store.insert_run(run_data)
@@ -168,25 +178,36 @@ class StorageEngine:
         session = cycle_context.get("session") or get_current_market_session()
         cycle_started_at = cycle_context.get("cycle_started_at")
         cycle_ended_at = cycle_context.get("cycle_ended_at")
+        warnings_json = canonical_json(warnings, allow_fallback=True)
         cycle_data = {
             "cycle_id": cycle_id,
             "run_id": self.run_id,
             "tick": tick,
             "session": session,
+            "market_session": session,
             "cycle_started_at": _ensure_iso(cycle_started_at),
             "cycle_ended_at": _ensure_iso(cycle_ended_at),
             "scanner_n": len(trade_record.scanner_output or []),
+            "scanner_candidates_count": len(trade_record.scanner_output or []),
             "patterns_n": len(trade_record.pattern_output or []),
+            "patterns_count": len(trade_record.pattern_output or []),
+            "signals_count": 0,
             "intents_n": len(trade_record.strategy_output or []),
+            "intents_count": len(trade_record.strategy_output or []),
             "risk_n": len(trade_record.risk_output or []),
+            "risk_decisions_count": len(trade_record.risk_output or []),
             "exec_n": len(trade_record.execution_output or []),
+            "execution_results_count": len(trade_record.execution_output or []),
             "closed_n": len(trade_record.trade_outcomes or []),
+            "trade_outcomes_count": len(trade_record.trade_outcomes or []),
+            "warnings_json": warnings_json,
             "created_at": now_iso(),
         }
         try:
             self._store.insert_cycle(cycle_data)
             persisted_events = self._persist_events(
                 cycle_id,
+                tick,
                 events or [],
                 warnings,
                 fallback_handler,
@@ -205,6 +226,31 @@ class StorageEngine:
                 fallback_handler,
                 cycle_ended_at,
             )
+            execution_persisted = self._persist_execution_results(
+                cycle_id,
+                trade_record,
+                warnings,
+                fallback_handler,
+            )
+            outcomes_persisted = self._persist_trade_outcomes(
+                cycle_id,
+                trade_record,
+                warnings,
+                fallback_handler,
+                cycle_ended_at,
+            )
+            snapshot_persisted = self._persist_performance_snapshot(
+                cycle_id,
+                trade_record,
+                tick,
+                warnings,
+                fallback_handler,
+            )
+            if warnings and self._store:
+                self._store.update_cycle_warnings(
+                    cycle_id,
+                    canonical_json(warnings, allow_fallback=True),
+                )
         except Exception as exc:
             print(f"[STORAGE][ERROR] Persistence failure: {exc}")
             return StorageResult(
@@ -224,12 +270,25 @@ class StorageEngine:
             cycle_id=cycle_id,
             trade_record_id=trade_record_id,
             events_persisted=persisted_events,
-            warnings=warnings + ([f"Trades persisted: {trades_persisted}"] if trades_persisted else []),
+            warnings=warnings
+            + ([f"Trades persisted: {trades_persisted}"] if trades_persisted else [])
+            + (
+                [f"Execution results persisted: {execution_persisted}"]
+                if execution_persisted
+                else []
+            )
+            + ([f"Trade outcomes persisted: {outcomes_persisted}"] if outcomes_persisted else [])
+            + (
+                [f"Performance snapshots persisted: {snapshot_persisted}"]
+                if snapshot_persisted
+                else []
+            ),
         )
 
     def _persist_events(
         self,
         cycle_id: str,
+        tick: int | None,
         events: list[Any],
         warnings: list[str],
         fallback_handler,
@@ -265,10 +324,15 @@ class StorageEngine:
                     "event_id": str(uuid4()),
                     "run_id": self.run_id,
                     "cycle_id": cycle_id,
+                    "tick": tick,
                     "event_type": event.event_type,
                     "source": event.source,
                     "timestamp": event_payload["timestamp"],
                     "payload_json": payload_json,
+                    "schema_version": 1,
+                    "payload_hash": hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+                    if payload_json
+                    else None,
                     "seq": self._seq,
                     "prev_hash": prev_hash,
                     "event_hash": event_hash,
@@ -398,6 +462,121 @@ class StorageEngine:
         self._store.insert_trades(trades_rows)
         return len(trades_rows)
 
+    def _persist_execution_results(
+        self,
+        cycle_id: str,
+        trade_record: TradeRecord,
+        warnings: list[str],
+        fallback_handler,
+    ) -> int:
+        if not trade_record.execution_output or not self._store:
+            return 0
+        rows = []
+        for result in trade_record.execution_output:
+            payload = to_jsonable(
+                result,
+                allow_fallback=True,
+                fallback_handler=fallback_handler,
+            )
+            rows.append(
+                {
+                    "execution_result_id": str(uuid4()),
+                    "run_id": self.run_id,
+                    "cycle_id": cycle_id,
+                    "symbol": payload.get("symbol"),
+                    "trader_type": payload.get("trader_type"),
+                    "status": payload.get("status"),
+                    "attempted": int(bool(payload.get("attempted"))),
+                    "direction": payload.get("direction"),
+                    "requested_quantity": payload.get("requested_quantity"),
+                    "filled_quantity": payload.get("filled_quantity"),
+                    "remaining_quantity": payload.get("remaining_quantity"),
+                    "fill_status": payload.get("fill_status"),
+                    "entry_price": payload.get("entry_price"),
+                    "exit_price": payload.get("exit_price"),
+                    "gross_realised_pnl": payload.get("gross_realised_pnl"),
+                    "commission": payload.get("commission"),
+                    "net_realised_pnl": payload.get("net_realised_pnl"),
+                    "slippage_applied": payload.get("slippage_applied"),
+                    "rejection_reason": payload.get("rejection_reason"),
+                    "payload_json": canonical_json(payload, allow_fallback=True),
+                    "created_at": now_iso(),
+                }
+            )
+        if rows:
+            self._store.insert_execution_results(rows)
+        return len(rows)
+
+    def _persist_trade_outcomes(
+        self,
+        cycle_id: str,
+        trade_record: TradeRecord,
+        warnings: list[str],
+        fallback_handler,
+        cycle_ended_at: Any | None,
+    ) -> int:
+        if not trade_record.trade_outcomes or not self._store:
+            return 0
+        closed_at = _ensure_iso(cycle_ended_at) or now_iso()
+        rows = []
+        for outcome in trade_record.trade_outcomes:
+            payload = to_jsonable(
+                outcome,
+                allow_fallback=True,
+                fallback_handler=fallback_handler,
+            )
+            rows.append(
+                {
+                    "trade_outcome_id": str(uuid4()),
+                    "run_id": self.run_id,
+                    "cycle_id": cycle_id,
+                    "symbol": payload.get("symbol"),
+                    "trader_type": payload.get("trader_type"),
+                    "strategy_name": payload.get("strategy_name"),
+                    "direction": payload.get("direction"),
+                    "entry_price": payload.get("entry_price"),
+                    "exit_price": payload.get("exit_price"),
+                    "quantity": payload.get("quantity"),
+                    "gross_realised_pnl": payload.get("gross_realised_pnl"),
+                    "commission": payload.get("commission"),
+                    "net_realised_pnl": payload.get("net_realised_pnl"),
+                    "duration_ticks": payload.get("duration_ticks"),
+                    "outcome": payload.get("outcome"),
+                    "closed_at": closed_at,
+                    "payload_json": canonical_json(payload, allow_fallback=True),
+                    "created_at": now_iso(),
+                }
+            )
+        if rows:
+            self._store.insert_trade_outcomes(rows)
+        return len(rows)
+
+    def _persist_performance_snapshot(
+        self,
+        cycle_id: str,
+        trade_record: TradeRecord,
+        tick: int | None,
+        warnings: list[str],
+        fallback_handler,
+    ) -> int:
+        if trade_record.performance_snapshot is None or not self._store:
+            return 0
+        payload = to_jsonable(
+            trade_record.performance_snapshot,
+            allow_fallback=True,
+            fallback_handler=fallback_handler,
+        )
+        snapshot = {
+            "performance_snapshot_id": str(uuid4()),
+            "run_id": self.run_id,
+            "cycle_id": cycle_id,
+            "tick": tick,
+            "payload_json": canonical_json(payload, allow_fallback=True),
+            "created_at": now_iso(),
+        }
+        self._store.insert_performance_snapshot(snapshot)
+        return 1
+
     def shutdown(self) -> None:
         if self._store:
             self._store.close()
@@ -459,4 +638,3 @@ def _append_jsonl(path: str, record: dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-

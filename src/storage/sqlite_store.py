@@ -10,7 +10,7 @@ from typing import Any, Iterable
 from src.storage.serialization import compute_audit_hash
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass
@@ -36,18 +36,27 @@ class SQLiteStore:
         cursor = self.connection.cursor()
         cursor.executescript(
             """
+            CREATE TABLE IF NOT EXISTS schema_meta (
+                version INTEGER PRIMARY KEY,
+                applied_at_utc TEXT
+            );
             CREATE TABLE IF NOT EXISTS runs (
                 run_id TEXT PRIMARY KEY,
                 started_at TEXT,
+                started_at_utc TEXT,
                 ended_at TEXT,
+                ended_at_utc TEXT,
                 hostname TEXT,
                 user TEXT,
                 app_version TEXT,
                 git_sha TEXT,
                 run_mode TEXT,
+                effective_run_mode TEXT,
                 event_replay_mode TEXT,
                 resolved_config_json TEXT,
+                config_fingerprint TEXT,
                 schema_version INTEGER,
+                system_version TEXT,
                 created_at TEXT
             );
             CREATE TABLE IF NOT EXISTS cycles (
@@ -55,14 +64,23 @@ class SQLiteStore:
                 run_id TEXT,
                 tick INTEGER,
                 session TEXT,
+                market_session TEXT,
                 cycle_started_at TEXT,
                 cycle_ended_at TEXT,
                 scanner_n INTEGER,
+                scanner_candidates_count INTEGER,
                 patterns_n INTEGER,
+                patterns_count INTEGER,
+                signals_count INTEGER,
                 intents_n INTEGER,
+                intents_count INTEGER,
                 risk_n INTEGER,
+                risk_decisions_count INTEGER,
                 exec_n INTEGER,
+                execution_results_count INTEGER,
                 closed_n INTEGER,
+                trade_outcomes_count INTEGER,
+                warnings_json TEXT,
                 created_at TEXT,
                 FOREIGN KEY(run_id) REFERENCES runs(run_id)
             );
@@ -70,10 +88,13 @@ class SQLiteStore:
                 event_id TEXT PRIMARY KEY,
                 run_id TEXT,
                 cycle_id TEXT,
+                tick INTEGER,
                 event_type TEXT,
                 source TEXT,
                 timestamp TEXT,
                 payload_json TEXT,
+                schema_version INTEGER,
+                payload_hash TEXT,
                 seq INTEGER,
                 prev_hash TEXT,
                 event_hash TEXT,
@@ -119,35 +140,135 @@ class SQLiteStore:
                 created_at TEXT,
                 FOREIGN KEY(run_id) REFERENCES runs(run_id)
             );
+            CREATE TABLE IF NOT EXISTS execution_results (
+                execution_result_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                cycle_id TEXT,
+                symbol TEXT,
+                trader_type TEXT,
+                status TEXT,
+                attempted INTEGER,
+                direction TEXT,
+                requested_quantity INTEGER,
+                filled_quantity INTEGER,
+                remaining_quantity INTEGER,
+                fill_status TEXT,
+                entry_price REAL,
+                exit_price REAL,
+                gross_realised_pnl REAL,
+                commission REAL,
+                net_realised_pnl REAL,
+                slippage_applied REAL,
+                rejection_reason TEXT,
+                payload_json TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id),
+                FOREIGN KEY(cycle_id) REFERENCES cycles(cycle_id)
+            );
+            CREATE TABLE IF NOT EXISTS trade_outcomes (
+                trade_outcome_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                cycle_id TEXT,
+                symbol TEXT,
+                trader_type TEXT,
+                strategy_name TEXT,
+                direction TEXT,
+                entry_price REAL,
+                exit_price REAL,
+                quantity INTEGER,
+                gross_realised_pnl REAL,
+                commission REAL,
+                net_realised_pnl REAL,
+                duration_ticks INTEGER,
+                outcome TEXT,
+                closed_at TEXT,
+                payload_json TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id),
+                FOREIGN KEY(cycle_id) REFERENCES cycles(cycle_id)
+            );
+            CREATE TABLE IF NOT EXISTS performance_snapshots (
+                performance_snapshot_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                cycle_id TEXT,
+                tick INTEGER,
+                payload_json TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id),
+                FOREIGN KEY(cycle_id) REFERENCES cycles(cycle_id)
+            );
             CREATE INDEX IF NOT EXISTS idx_cycles_run_id ON cycles(run_id);
             CREATE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq);
+            CREATE INDEX IF NOT EXISTS idx_events_run_tick ON events(run_id, tick);
             CREATE INDEX IF NOT EXISTS idx_events_cycle_id ON events(cycle_id);
             CREATE INDEX IF NOT EXISTS idx_trade_records_run_id ON trade_records(run_id);
             CREATE INDEX IF NOT EXISTS idx_trades_run_id ON trades(run_id);
+            CREATE INDEX IF NOT EXISTS idx_execution_results_run_id ON execution_results(run_id);
+            CREATE INDEX IF NOT EXISTS idx_trade_outcomes_run_id ON trade_outcomes(run_id);
+            CREATE INDEX IF NOT EXISTS idx_performance_snapshots_run_id ON performance_snapshots(run_id);
             """
         )
+        self._ensure_columns(
+            "runs",
+            {
+                "started_at_utc": "TEXT",
+                "ended_at_utc": "TEXT",
+                "effective_run_mode": "TEXT",
+                "config_fingerprint": "TEXT",
+                "system_version": "TEXT",
+            },
+        )
+        self._ensure_columns(
+            "cycles",
+            {
+                "market_session": "TEXT",
+                "scanner_candidates_count": "INTEGER",
+                "patterns_count": "INTEGER",
+                "signals_count": "INTEGER",
+                "intents_count": "INTEGER",
+                "risk_decisions_count": "INTEGER",
+                "execution_results_count": "INTEGER",
+                "trade_outcomes_count": "INTEGER",
+                "warnings_json": "TEXT",
+            },
+        )
+        self._ensure_columns(
+            "events",
+            {
+                "tick": "INTEGER",
+                "schema_version": "INTEGER",
+                "payload_hash": "TEXT",
+            },
+        )
+        self._record_schema_version()
         self.connection.commit()
 
     def insert_run(self, run_data: dict[str, Any]) -> None:
         self.connection.execute(
             """
-            INSERT INTO runs (
-                run_id, started_at, ended_at, hostname, user, app_version, git_sha,
-                run_mode, event_replay_mode, resolved_config_json, schema_version, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR IGNORE INTO runs (
+                run_id, started_at, started_at_utc, ended_at, ended_at_utc, hostname, user, app_version,
+                git_sha, run_mode, effective_run_mode, event_replay_mode, resolved_config_json,
+                config_fingerprint, schema_version, system_version, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_data["run_id"],
                 run_data.get("started_at"),
+                run_data.get("started_at_utc"),
                 run_data.get("ended_at"),
+                run_data.get("ended_at_utc"),
                 run_data.get("hostname"),
                 run_data.get("user"),
                 run_data.get("app_version"),
                 run_data.get("git_sha"),
                 run_data.get("run_mode"),
+                run_data.get("effective_run_mode"),
                 run_data.get("event_replay_mode"),
                 run_data.get("resolved_config_json"),
+                run_data.get("config_fingerprint"),
                 run_data.get("schema_version"),
+                run_data.get("system_version"),
                 run_data.get("created_at"),
             ),
         )
@@ -157,10 +278,13 @@ class SQLiteStore:
     def insert_cycle(self, cycle_data: dict[str, Any]) -> None:
         self.connection.execute(
             """
-            INSERT INTO cycles (
+            INSERT OR IGNORE INTO cycles (
                 cycle_id, run_id, tick, session, cycle_started_at, cycle_ended_at,
-                scanner_n, patterns_n, intents_n, risk_n, exec_n, closed_n, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                scanner_n, patterns_n, intents_n, risk_n, exec_n, closed_n, created_at,
+                market_session, scanner_candidates_count, patterns_count, signals_count,
+                intents_count, risk_decisions_count, execution_results_count,
+                trade_outcomes_count, warnings_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 cycle_data["cycle_id"],
@@ -176,6 +300,15 @@ class SQLiteStore:
                 cycle_data.get("exec_n"),
                 cycle_data.get("closed_n"),
                 cycle_data.get("created_at"),
+                cycle_data.get("market_session"),
+                cycle_data.get("scanner_candidates_count"),
+                cycle_data.get("patterns_count"),
+                cycle_data.get("signals_count"),
+                cycle_data.get("intents_count"),
+                cycle_data.get("risk_decisions_count"),
+                cycle_data.get("execution_results_count"),
+                cycle_data.get("trade_outcomes_count"),
+                cycle_data.get("warnings_json"),
             ),
         )
         if self.commit_each_write:
@@ -184,20 +317,23 @@ class SQLiteStore:
     def insert_events(self, events: Iterable[dict[str, Any]]) -> None:
         self.connection.executemany(
             """
-            INSERT INTO events (
-                event_id, run_id, cycle_id, event_type, source, timestamp,
-                payload_json, seq, prev_hash, event_hash, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR IGNORE INTO events (
+                event_id, run_id, cycle_id, tick, event_type, source, timestamp,
+                payload_json, schema_version, payload_hash, seq, prev_hash, event_hash, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
                     event["event_id"],
                     event["run_id"],
                     event.get("cycle_id"),
+                    event.get("tick"),
                     event["event_type"],
                     event["source"],
                     event["timestamp"],
                     event.get("payload_json"),
+                    event.get("schema_version"),
+                    event.get("payload_hash"),
                     event.get("seq"),
                     event.get("prev_hash"),
                     event.get("event_hash"),
@@ -212,7 +348,7 @@ class SQLiteStore:
     def insert_trade_record(self, trade_record: dict[str, Any]) -> None:
         self.connection.execute(
             """
-            INSERT INTO trade_records (
+            INSERT OR IGNORE INTO trade_records (
                 trade_record_id, run_id, cycle_id, tick,
                 scanner_output_json, pattern_output_json, strategy_output_json,
                 risk_output_json, execution_output_json, trade_outcomes_json,
@@ -240,7 +376,7 @@ class SQLiteStore:
     def insert_trades(self, trades: Iterable[dict[str, Any]]) -> None:
         self.connection.executemany(
             """
-            INSERT INTO trades (
+            INSERT OR IGNORE INTO trades (
                 trade_id, run_id, symbol, trader_type, strategy_name, direction,
                 entry_tick, entry_price, exit_tick, exit_price, quantity,
                 gross_pnl, commission, net_pnl, status, pattern_name,
@@ -275,9 +411,123 @@ class SQLiteStore:
         if self.commit_each_write:
             self.connection.commit()
 
+    def insert_execution_results(self, results: Iterable[dict[str, Any]]) -> None:
+        self.connection.executemany(
+            """
+            INSERT OR IGNORE INTO execution_results (
+                execution_result_id, run_id, cycle_id, symbol, trader_type, status,
+                attempted, direction, requested_quantity, filled_quantity, remaining_quantity,
+                fill_status, entry_price, exit_price, gross_realised_pnl, commission,
+                net_realised_pnl, slippage_applied, rejection_reason, payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    result["execution_result_id"],
+                    result["run_id"],
+                    result.get("cycle_id"),
+                    result.get("symbol"),
+                    result.get("trader_type"),
+                    result.get("status"),
+                    result.get("attempted"),
+                    result.get("direction"),
+                    result.get("requested_quantity"),
+                    result.get("filled_quantity"),
+                    result.get("remaining_quantity"),
+                    result.get("fill_status"),
+                    result.get("entry_price"),
+                    result.get("exit_price"),
+                    result.get("gross_realised_pnl"),
+                    result.get("commission"),
+                    result.get("net_realised_pnl"),
+                    result.get("slippage_applied"),
+                    result.get("rejection_reason"),
+                    result.get("payload_json"),
+                    result.get("created_at"),
+                )
+                for result in results
+            ],
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_trade_outcomes(self, outcomes: Iterable[dict[str, Any]]) -> None:
+        self.connection.executemany(
+            """
+            INSERT OR IGNORE INTO trade_outcomes (
+                trade_outcome_id, run_id, cycle_id, symbol, trader_type, strategy_name,
+                direction, entry_price, exit_price, quantity, gross_realised_pnl,
+                commission, net_realised_pnl, duration_ticks, outcome, closed_at,
+                payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    outcome["trade_outcome_id"],
+                    outcome["run_id"],
+                    outcome.get("cycle_id"),
+                    outcome.get("symbol"),
+                    outcome.get("trader_type"),
+                    outcome.get("strategy_name"),
+                    outcome.get("direction"),
+                    outcome.get("entry_price"),
+                    outcome.get("exit_price"),
+                    outcome.get("quantity"),
+                    outcome.get("gross_realised_pnl"),
+                    outcome.get("commission"),
+                    outcome.get("net_realised_pnl"),
+                    outcome.get("duration_ticks"),
+                    outcome.get("outcome"),
+                    outcome.get("closed_at"),
+                    outcome.get("payload_json"),
+                    outcome.get("created_at"),
+                )
+                for outcome in outcomes
+            ],
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_performance_snapshot(self, snapshot: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            INSERT OR IGNORE INTO performance_snapshots (
+                performance_snapshot_id, run_id, cycle_id, tick, payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                snapshot["performance_snapshot_id"],
+                snapshot["run_id"],
+                snapshot.get("cycle_id"),
+                snapshot.get("tick"),
+                snapshot.get("payload_json"),
+                snapshot.get("created_at"),
+            ),
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
     def list_runs(self) -> list[dict[str, Any]]:
         cursor = self.connection.execute(
-            "SELECT run_id, started_at, ended_at, run_mode, event_replay_mode FROM runs"
+            "SELECT run_id, started_at, started_at_utc, ended_at, ended_at_utc, "
+            "run_mode, effective_run_mode, event_replay_mode FROM runs"
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def list_runs_with_cycle_counts(self) -> list[dict[str, Any]]:
+        cursor = self.connection.execute(
+            """
+            SELECT runs.run_id,
+                   runs.started_at_utc,
+                   runs.run_mode,
+                   runs.effective_run_mode,
+                   runs.event_replay_mode,
+                   COUNT(cycles.cycle_id) as cycles
+            FROM runs
+            LEFT JOIN cycles ON cycles.run_id = runs.run_id
+            GROUP BY runs.run_id
+            ORDER BY runs.started_at_utc
+            """
         )
         return [dict(row) for row in cursor.fetchall()]
 
@@ -299,8 +549,79 @@ class SQLiteStore:
         )
         return [dict(row) for row in cursor.fetchall()]
 
+    def fetch_cycles(self, run_id: str) -> list[dict[str, Any]]:
+        cursor = self.connection.execute(
+            "SELECT * FROM cycles WHERE run_id = ? ORDER BY tick ASC",
+            (run_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def fetch_events(
+        self,
+        run_id: str,
+        *,
+        cycle_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if cycle_id:
+            cursor = self.connection.execute(
+                """
+                SELECT * FROM events
+                WHERE run_id = ? AND cycle_id = ?
+                ORDER BY tick ASC, timestamp ASC, event_type ASC, source ASC, seq ASC
+                """,
+                (run_id, cycle_id),
+            )
+        else:
+            cursor = self.connection.execute(
+                """
+                SELECT * FROM events
+                WHERE run_id = ?
+                ORDER BY tick ASC, timestamp ASC, event_type ASC, source ASC, seq ASC
+                """,
+                (run_id,),
+            )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def fetch_trade_records(self, run_id: str) -> list[dict[str, Any]]:
+        cursor = self.connection.execute(
+            "SELECT * FROM trade_records WHERE run_id = ? ORDER BY tick ASC",
+            (run_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def fetch_trade_outcomes(self, run_id: str) -> list[dict[str, Any]]:
+        cursor = self.connection.execute(
+            "SELECT * FROM trade_outcomes WHERE run_id = ? ORDER BY closed_at ASC",
+            (run_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def fetch_performance_snapshots(self, run_id: str) -> list[dict[str, Any]]:
+        cursor = self.connection.execute(
+            "SELECT * FROM performance_snapshots WHERE run_id = ? ORDER BY created_at ASC",
+            (run_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def update_cycle_warnings(self, cycle_id: str, warnings_json: str) -> None:
+        self.connection.execute(
+            "UPDATE cycles SET warnings_json = ? WHERE cycle_id = ?",
+            (warnings_json, cycle_id),
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
     def export_run(self, run_id: str, fmt: str, out_path: str) -> list[str]:
-        tables = ["runs", "cycles", "events", "trade_records", "trades"]
+        tables = [
+            "runs",
+            "cycles",
+            "events",
+            "trade_records",
+            "trades",
+            "execution_results",
+            "trade_outcomes",
+            "performance_snapshots",
+        ]
         fmt = fmt.lower()
         created_files: list[str] = []
         if fmt == "jsonl":
@@ -328,6 +649,29 @@ class SQLiteStore:
                     handle.write(",".join(_csv_escape(row.get(field) for field in fieldnames)) + "\n")
             created_files.append(table_path)
         return created_files
+
+    def export_events(self, run_id: str, fmt: str, out_path: str) -> list[str]:
+        fmt = fmt.lower()
+        events = self.fetch_events(run_id)
+        if fmt == "jsonl":
+            _write_jsonl(out_path, events)
+            return [out_path]
+        if fmt != "csv":
+            raise ValueError(f"Unsupported export format: {fmt}")
+        _write_csv(out_path, events)
+        return [out_path]
+
+    def export_trade_records(self, run_id: str, fmt: str, out_path: str) -> list[str]:
+        fmt = fmt.lower()
+        records = self.fetch_trade_records(run_id)
+        if fmt == "json":
+            with open(out_path, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps(records, ensure_ascii=False, sort_keys=True))
+            return [out_path]
+        if fmt != "csv":
+            raise ValueError(f"Unsupported export format: {fmt}")
+        _write_csv(out_path, records)
+        return [out_path]
 
     def verify_audit_chain(self, run_id: str) -> AuditVerificationResult:
         cursor = self.connection.execute(
@@ -363,6 +707,29 @@ class SQLiteStore:
             prev_hash = row["event_hash"]
         return AuditVerificationResult(ok=True, first_bad_seq=None, reason="ok")
 
+    def _record_schema_version(self) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO schema_meta (version, applied_at_utc)
+            SELECT ?, ?
+            WHERE NOT EXISTS (SELECT 1 FROM schema_meta WHERE version = ?)
+            """,
+            (SCHEMA_VERSION, now_iso(), SCHEMA_VERSION),
+        )
+
+    def _ensure_columns(self, table: str, columns: dict[str, str]) -> None:
+        existing = self._column_names(table)
+        for column, col_type in columns.items():
+            if column in existing:
+                continue
+            self.connection.execute(
+                f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"
+            )
+
+    def _column_names(self, table: str) -> set[str]:
+        cursor = self.connection.execute(f"PRAGMA table_info({table})")
+        return {row["name"] for row in cursor.fetchall()}
+
 
 def _csv_escape(values: Iterable[Any]) -> list[str]:
     escaped: list[str] = []
@@ -375,6 +742,26 @@ def _csv_escape(values: Iterable[Any]) -> list[str]:
             text = '"' + text.replace("\"", '""') + '"'
         escaped.append(text)
     return escaped
+
+
+def _write_jsonl(path: str, rows: list[dict[str, Any]]) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _write_csv(path: str, rows: list[dict[str, Any]]) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    if not rows:
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("")
+        return
+    fieldnames = list(rows[0].keys())
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(",".join(fieldnames) + "\n")
+        for row in rows:
+            handle.write(",".join(_csv_escape(row.get(field) for field in fieldnames)) + "\n")
 
 
 def now_iso() -> str:

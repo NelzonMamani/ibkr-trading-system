@@ -8,7 +8,7 @@ from uuid import uuid4
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from storage.serialization import canonical_json, compute_audit_hash
-from storage.sqlite_store import SQLiteStore, now_iso
+from storage.sqlite_store import SCHEMA_VERSION, SQLiteStore, now_iso
 
 
 def _insert_sample_run(store: SQLiteStore, run_id: str) -> None:
@@ -16,15 +16,19 @@ def _insert_sample_run(store: SQLiteStore, run_id: str) -> None:
         {
             "run_id": run_id,
             "started_at": now_iso(),
+            "started_at_utc": now_iso(),
             "ended_at": None,
             "hostname": "host",
             "user": "tester",
             "app_version": "TEST",
             "git_sha": "deadbeef",
             "run_mode": "SIM",
+            "effective_run_mode": "SIM",
             "event_replay_mode": "CYCLE",
             "resolved_config_json": canonical_json({"sample": True}),
-            "schema_version": 1,
+            "config_fingerprint": "fingerprint",
+            "schema_version": SCHEMA_VERSION,
+            "system_version": "TEST",
             "created_at": now_iso(),
         }
     )

@@ -10,7 +10,7 @@ If code or other documents disagree with this file, this file wins.
 - Epoch 1 — Market Perception: COMPLETE
 - Epoch 2 — Decision Intelligence: COMPLETE
 - Epoch 3 — Risk & Execution: COMPLETE
-- Epoch 4 — Trade Lifecycle & Persistence: ACTIVE (not yet completed)
+- Epoch 4 — Trade Lifecycle & Persistence: COMPLETE
 
 ---
 
@@ -49,14 +49,8 @@ The result is a deterministic, queryable record of each orchestrator cycle and e
 
 ## Immediate next actions (authoritative)
 
-1) Implement Phase 35 end-to-end: storage schema + persistence adapters + tests.
-2) Implement Phase 36: replay uses stored records/events to reconstruct the full timeline deterministically.
-3) Implement Phase 37: reports read from storage (no ad-hoc calculations that bypass storage).
-4) Implement Phase 38: CLI tools + export formats for audits and debugging.
-5) Update this file to mark Epoch 4 COMPLETE only when all four phases have:
-   - deterministic behavior
-   - passing tests
-   - documented acceptance criteria satisfied
+1) Preserve Epoch 4 storage/timeline/reporting determinism and safety gates.
+2) Proceed with the next epoch only after governance updates.
 
 ---
 
