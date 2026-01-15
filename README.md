@@ -27,7 +27,7 @@ The repository is governed by a strict hierarchy:
 ## Current status (authoritative summary)
 - Epoch 1 — Market Perception: COMPLETE
 - Epoch 2 — Decision Intelligence: COMPLETE
-- Epoch 3 — Risk & Execution: NEXT
+- Epoch 3 — Risk & Execution: COMPLETE
 
 ## Reference strategy
 The initial reference implementation is **Ross Cameron-style Retail Confirmation Momentum**.

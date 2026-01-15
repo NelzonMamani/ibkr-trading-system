@@ -11,6 +11,7 @@ from config.runtime_config import (  # noqa: E402
     get_event_replay_mode,
     get_run_mode,
 )
+from config.config_resolver import set_config_overrides  # noqa: E402
 
 
 def test_module_imports_survive_phase8_precheck():
@@ -26,6 +27,7 @@ def test_live_run_mode_forces_event_replay_off(monkeypatch: pytest.MonkeyPatch):
     LIVE must always resolve EVENT_REPLAY_MODE to OFF, even if env requests replay.
     """
 
+    set_config_overrides(None)
     monkeypatch.setenv("RUN_MODE", RunMode.LIVE.value)
     monkeypatch.setenv("EVENT_REPLAY_MODE", "CYCLE")
 
@@ -37,6 +39,7 @@ def test_live_run_mode_forces_event_replay_off(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_sim_defaults_to_cycle_when_not_overridden(monkeypatch: pytest.MonkeyPatch):
+    set_config_overrides(None)
     monkeypatch.delenv("RUN_MODE", raising=False)
     monkeypatch.delenv("EVENT_REPLAY_MODE", raising=False)
     monkeypatch.delenv("REPLAY_MODE", raising=False)

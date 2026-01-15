@@ -132,7 +132,10 @@ class CoreOrchestrator:
         self.signal_engine_v1 = SignalEngineV1()
         print("[BOOT] SignalEngineV1 instantiated")
         self.strategy_runner = StrategyRunner(event_collector=self.event_collector)
-        self.risk_engine = RiskEngine(trade_registry=self.trade_registry)
+        self.risk_engine = RiskEngine(
+            trade_registry=self.trade_registry,
+            stop_controller=self.stop_controller,
+        )
         if not self.execution_enabled:
             broker = None
         elif self.run_mode == RunMode.SIM:
@@ -158,11 +161,13 @@ class CoreOrchestrator:
             trade_registry=self.trade_registry,
             event_collector=self.event_collector,
             price_feed=self.price_feed,
+            stop_controller=self.stop_controller,
         )
         self.trade_exit_engine = TradeExitEngine(
             trade_registry=self.trade_registry,
             event_collector=self.event_collector,
             price_feed=self.price_feed,
+            stop_controller=self.stop_controller,
         )
         self.storage_engine = StorageEngine()
         self._halted = False
@@ -186,6 +191,10 @@ class CoreOrchestrator:
         if self.run_mode != RunMode.LIVE_MICRO:
             return True
 
+        if self.stop_controller.is_breaker_tripped():
+            print("[CIRCUIT_BREAKER] Latched breaker active — execution remains disabled.")
+            return False
+
         net_realised_pnl = self.event_collector.sum_realised_pnl()
         trades_submitted = self.event_collector.count("ORDER_SUBMITTED")
         consecutive_losses = self.event_collector.consecutive_losses()
@@ -207,25 +216,40 @@ class CoreOrchestrator:
         if not breaches:
             return True
 
-        self.event_collector.emit(
-            event_type="CIRCUIT_BREAKER_TRIGGERED",
-            source="CoreOrchestrator",
-            payload={
-                "run_mode": self.run_mode.value,
-                "breaches": breaches,
-                "limits": {
-                    "daily_max_loss": max_daily_loss,
-                    "max_trades_per_day": max_trades,
-                    "max_consecutive_losses": max_consecutive_losses,
-                },
-                "metrics": {
-                    "net_realised_pnl": net_realised_pnl,
-                    "trades_submitted": trades_submitted,
-                    "consecutive_losses": consecutive_losses,
-                },
-                "timestamp": datetime.utcnow().isoformat(),
+        breaker_details = {
+            "limits": {
+                "daily_max_loss": max_daily_loss,
+                "max_trades_per_day": max_trades,
+                "max_consecutive_losses": max_consecutive_losses,
             },
-        )
+            "metrics": {
+                "net_realised_pnl": net_realised_pnl,
+                "trades_submitted": trades_submitted,
+                "consecutive_losses": consecutive_losses,
+            },
+            "breaches": breaches,
+        }
+
+        for breach in breaches:
+            breaker_id = f"LIVE_MICRO_{breach.split(' ')[0]}"
+            if not self.stop_controller.is_breaker_tripped(breaker_id):
+                self.stop_controller.trip_breaker(
+                    breaker_id=breaker_id,
+                    reason=breach,
+                    source="CircuitBreaker",
+                    details=breaker_details,
+                )
+                self.event_collector.emit(
+                    event_type="CIRCUIT_BREAKER_TRIGGERED",
+                    source="CoreOrchestrator",
+                    payload={
+                        "run_mode": self.run_mode.value,
+                        "breaches": breaches,
+                        "limits": breaker_details["limits"],
+                        "metrics": breaker_details["metrics"],
+                        "timestamp": datetime.utcnow().isoformat(),
+                    },
+                )
         reason = "Circuit breaker triggered: " + "; ".join(breaches)
         print(f"[CIRCUIT_BREAKER] {reason}")
         self._request_stop(
@@ -749,6 +773,7 @@ class CoreOrchestrator:
                 run_mode=self.run_mode,
                 tick=tick,
                 exit_signals=exit_signals,
+                breaker_tripped=self.stop_controller.is_breaker_tripped(),
             )
         except Exception as exc:
             self._evaluate_runtime_safety(

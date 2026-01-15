@@ -39,7 +39,7 @@ def test_exit_precedence_matrix_honours_highest_priority_condition():
 
     scenarios = [
         {
-            "name": "Max hold overrides price exits and strategy signals",
+            "name": "Stop-loss overrides time-based exits and strategy signals",
             "trade": _build_trade(
                 stop_loss_price=110.0,
                 take_profit_price=90.0,
@@ -48,8 +48,8 @@ def test_exit_precedence_matrix_honours_highest_priority_condition():
             "current_price": 90.0,
             "strategy_exit_signal": True,
             "expected": ExitDecision(
-                category="EXIT_TIME",
-                reason="Max hold duration reached",
+                category="EXIT_FAILED_SETUP",
+                reason="Pattern invalidation / failed breakout — stop-loss breached",
                 exit_tick=5,
                 exit_price=90.0,
             ),
