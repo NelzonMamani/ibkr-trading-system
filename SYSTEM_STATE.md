@@ -23,8 +23,8 @@ Top N gainers → hard gates → Watchlist K → Focus M
 - Focus M default 3–5 (configurable up to 10)  
 - Empty watchlist is valid output (must include clear drop reasons)
 
-### Epoch 5 — ACTIVE (Planned Roadmap Locked)
-Epoch 5 is the active build epoch and is fully planned as a gated, Codex-safe “one-go” PR approach:
+### Epoch 5 — COMPLETE (Closed)
+Epoch 5 is complete. The Trading OS now supports the full deterministic pipeline and operator-grade outputs:
 - Part A: Stabilisation & Contracts
 - Part B: End-to-End Trading OS Completion
 - Part C: Hardening, UX, Tests, Cleanup
@@ -52,7 +52,7 @@ It is isolated by design (different cadence and data), but shares the same OS go
 
 ---
 
-## Epoch 5 Roadmap Summary (Implementation Order)
+## Epoch 5 Roadmap Summary (Implementation Order — Completed)
 ### Part A — Stabilisation & Contracts (3 phases)
 **A1** Governance anchor updates  
 - Update `README.md`, `SYSTEM_STATE.md`, and create/confirm `RUNBOOK.md`
@@ -113,5 +113,5 @@ These are frozen for Epoch 5 implementation execution:
 ---
 
 ## Next Action (Operational)
-1. Ensure `README.md` and this file are merged and reflect reality.
-2. Proceed to Epoch 5 Part A implementation with strict gates and console proofs.
+1. Use `RUNBOOK.md` for canonical run commands (doctor, scanner, orchestrator).
+2. Continue with post-Epoch 5 maintenance and defect fixes only.

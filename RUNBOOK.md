@@ -1,0 +1,35 @@
+# RUNBOOK — Epoch 5 Operations
+
+## Canonical Run Commands (from repo root)
+
+### Doctor / Bootstrap (READONLY scanner validation)
+```
+python -m src.core_engine.doctor
+```
+
+### Scanner Standalone (READONLY, single cycle)
+```
+python -m src.scanner.scanner_runner --mode READONLY --cycles 1
+```
+
+### Orchestrator (SIM)
+```
+python -m src.core_engine.orchestrator --mode SIM --cycles 1
+```
+
+### Orchestrator (READONLY)
+```
+python -m src.core_engine.orchestrator --mode READONLY --cycles 1
+```
+
+### Orchestrator (LIVE_1SHARE) — Safety Warning
+LIVE_1SHARE submits orders only when explicitly enabled and risk-approved.
+Ensure IBKR connectivity and confirm all safety flags before running:
+```
+python -m src.core_engine.orchestrator --mode LIVE_1SHARE --cycles 1
+```
+
+## Troubleshooting
+- **Import errors**: run `python -c "import src"` to verify package visibility.
+- **Scanner empty**: empty watchlists are valid; verify drop reasons in console output.
+- **IBKR connection**: READONLY/SIM do not require IBKR; LIVE_1SHARE expects a configured gateway.
