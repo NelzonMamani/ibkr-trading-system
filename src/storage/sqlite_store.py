@@ -197,15 +197,6 @@ class SQLiteStore:
                 FOREIGN KEY(run_id) REFERENCES runs(run_id),
                 FOREIGN KEY(cycle_id) REFERENCES cycles(cycle_id)
             );
-            CREATE INDEX IF NOT EXISTS idx_cycles_run_id ON cycles(run_id);
-            CREATE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq);
-            CREATE INDEX IF NOT EXISTS idx_events_run_tick ON events(run_id, tick);
-            CREATE INDEX IF NOT EXISTS idx_events_cycle_id ON events(cycle_id);
-            CREATE INDEX IF NOT EXISTS idx_trade_records_run_id ON trade_records(run_id);
-            CREATE INDEX IF NOT EXISTS idx_trades_run_id ON trades(run_id);
-            CREATE INDEX IF NOT EXISTS idx_execution_results_run_id ON execution_results(run_id);
-            CREATE INDEX IF NOT EXISTS idx_trade_outcomes_run_id ON trade_outcomes(run_id);
-            CREATE INDEX IF NOT EXISTS idx_performance_snapshots_run_id ON performance_snapshots(run_id);
             """
         )
         self._ensure_columns(
@@ -221,6 +212,7 @@ class SQLiteStore:
         self._ensure_columns(
             "cycles",
             {
+                "tick": "INTEGER",
                 "market_session": "TEXT",
                 "scanner_candidates_count": "INTEGER",
                 "patterns_count": "INTEGER",
@@ -239,6 +231,31 @@ class SQLiteStore:
                 "schema_version": "INTEGER",
                 "payload_hash": "TEXT",
             },
+        )
+        self._ensure_columns(
+            "trade_records",
+            {
+                "tick": "INTEGER",
+            },
+        )
+        self._ensure_columns(
+            "performance_snapshots",
+            {
+                "tick": "INTEGER",
+            },
+        )
+        cursor.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS idx_cycles_run_id ON cycles(run_id);
+            CREATE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq);
+            CREATE INDEX IF NOT EXISTS idx_events_run_tick ON events(run_id, tick);
+            CREATE INDEX IF NOT EXISTS idx_events_cycle_id ON events(cycle_id);
+            CREATE INDEX IF NOT EXISTS idx_trade_records_run_id ON trade_records(run_id);
+            CREATE INDEX IF NOT EXISTS idx_trades_run_id ON trades(run_id);
+            CREATE INDEX IF NOT EXISTS idx_execution_results_run_id ON execution_results(run_id);
+            CREATE INDEX IF NOT EXISTS idx_trade_outcomes_run_id ON trade_outcomes(run_id);
+            CREATE INDEX IF NOT EXISTS idx_performance_snapshots_run_id ON performance_snapshots(run_id);
+            """
         )
         self._record_schema_version()
         self.connection.commit()
