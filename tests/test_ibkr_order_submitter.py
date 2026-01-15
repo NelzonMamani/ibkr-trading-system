@@ -40,31 +40,37 @@ class FakeTrade:
 
 
 class FakeIbkrClient:
-    def __init__(
-        self,
-        raise_on_connect: bool = False,
-        raise_on_place_order: bool = False,
-        ack_status: str = "Submitted",
-    ):
+    def __init__(self, raise_on_connect=False, raise_on_place_order=False):
         self.raise_on_connect = raise_on_connect
         self.raise_on_place_order = raise_on_place_order
-        self.ack_status = ack_status
         self.connected = False
-        self.place_order_calls = 0
+        self.next_order_id = 1001
 
-    def connect(self):
+    def connect(self, *args, **kwargs):
         if self.raise_on_connect:
-            raise RuntimeError("connect failed")
+            raise RuntimeError("Fake connect failure")
         self.connected = True
+        return True
+
+    def submit_order(self, contract, order):
+        if self.raise_on_place_order:
+            raise RuntimeError("Fake submit_order failure")
+
+        order_id = self.next_order_id
+        self.next_order_id += 1
+        return order_id
+
+    def wait_for_order_status(self, order_id, timeout_seconds=5):
+        return {"status": "ACKED"}
 
     def disconnect(self):
         self.connected = False
+    def commission_for_order(self, order_id):
+        # Deterministic test value
+        return 0.0
 
-    def placeOrder(self, contract, order):
-        self.place_order_calls += 1
-        if self.raise_on_place_order:
-            raise RuntimeError("placeOrder failed")
-        return FakeTrade(FakeOrderStatus(status=self.ack_status))
+
+
 
 
 def make_settings(

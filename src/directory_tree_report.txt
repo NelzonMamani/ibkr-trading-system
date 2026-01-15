@@ -1,4 +1,13 @@
 ibkr-trading-system/
+├── .pytest_cache
+│   ├── v
+│   │   └── cache
+│   │       ├── lastfailed
+│   │       ├── nodeids
+│   │       └── stepwise
+│   ├── .gitignore
+│   ├── CACHEDIR.TAG
+│   └── README.md
 ├── data
 │   └── ibkr_system.db
 ├── docs
@@ -11,29 +20,30 @@ ibkr-trading-system/
 │   ├── PHASE_24_SCANNER_IMPLEMENTATION_REPORT.md
 │   └── PHASE_24_SCANNER_MECHANICAL_CHECKLIST.md
 ├── output
-│   └── watchlists
-│       ├── watchlist_RossMomentum_20260114_214718_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_003532_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_101853_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_102214_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_102527_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_102843_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_103151_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_103508_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_103829_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_104206_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_104542_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_104902_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_105218_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_105544_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_105855_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_110223_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_110602_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_110921_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_124336_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_124345_UTC.txt
-│       ├── watchlist_RossMomentum_20260115_130931_UTC.txt
-│       └── watchlist_RossMomentum_20260115_145318_UTC.txt
+│   ├── watchlists
+│   │   ├── watchlist_RossMomentum_20260114_214718_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_003532_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_101853_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_102214_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_102527_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_102843_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_103151_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_103508_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_103829_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_104206_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_104542_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_104902_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_105218_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_105544_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_105855_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_110223_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_110602_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_110921_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_124336_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_124345_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260115_130931_UTC.txt
+│   │   └── watchlist_RossMomentum_20260115_145318_UTC.txt
+│   └── trade_store.jsonl
 ├── scripts
 │   ├── smoke_main.ps1
 │   ├── smoke_scanner.ps1
@@ -80,6 +90,14 @@ ibkr-trading-system/
 │   │   ├── run_event_timeline.py
 │   │   ├── stop_controller.py
 │   │   └── trade_outcome_factory.py
+│   ├── core_engine
+│   │   ├── __init__.py
+│   │   ├── bootstrap.py
+│   │   ├── doctor.py
+│   │   ├── events.py
+│   │   ├── health.py
+│   │   ├── orchestrator.py
+│   │   └── state.py
 │   ├── data
 │   │   ├── ibkr_system.db
 │   │   └── ibkr_system.sqlite
@@ -104,10 +122,13 @@ ibkr-trading-system/
 │   │   ├── commission_model.py
 │   │   ├── execution_engine.py
 │   │   ├── exit_plan.py
+│   │   ├── exits.py
 │   │   ├── liquidity_engine.py
 │   │   ├── liquidity_model.py
 │   │   ├── order_gateway.py
 │   │   ├── order_models.py
+│   │   ├── order_router.py
+│   │   ├── order_tracker.py
 │   │   ├── slippage_model.py
 │   │   └── trade_exit_engine.py
 │   ├── ibkr
@@ -141,6 +162,7 @@ ibkr-trading-system/
 │   │   └── strategy_performance.py
 │   ├── risk
 │   │   ├── __init__.py
+│   │   ├── risk_audit.py
 │   │   └── risk_engine.py
 │   ├── scanner
 │   │   ├── docs
@@ -166,6 +188,7 @@ ibkr-trading-system/
 │   │   ├── mock_universe.txt
 │   │   ├── news_engine.py
 │   │   ├── phase24_views.py
+│   │   ├── print_contract.py
 │   │   ├── print_contract_54.py
 │   │   ├── scanner.py
 │   │   ├── scanner_config.py
@@ -196,9 +219,12 @@ ibkr-trading-system/
 │   │   └── price_feed.py
 │   ├── storage
 │   │   ├── __init__.py
+│   │   ├── review_queries.py
+│   │   ├── schema_map.py
 │   │   ├── serialization.py
 │   │   ├── sqlite_store.py
-│   │   └── storage_engine.py
+│   │   ├── storage_engine.py
+│   │   └── trade_store.py
 │   ├── strategies
 │   │   ├── common
 │   │   │   └── candles
@@ -247,12 +273,20 @@ ibkr-trading-system/
 │   │   └── storage_cli.py
 │   ├── utils
 │   │   ├── __init__.py
+│   │   ├── logging.py
 │   │   ├── price_math.py
-│   │   └── teacher_logs.py
+│   │   ├── teacher_logs.py
+│   │   ├── time_utils.py
+│   │   └── validation.py
 │   ├── __init__.py
 │   ├── directory_tree_report.py
+│   ├── directory_tree_report.txt
 │   └── main.py
 ├── tests
+│   ├── smoke
+│   │   ├── test_imports.py
+│   │   ├── test_orchestrator_cycle.py
+│   │   └── test_scanner_contract.py
 │   ├── test_config_sanity.py
 │   ├── test_epoch3_risk_execution.py
 │   ├── test_event_collector_snapshot_policy.py
@@ -279,6 +313,28 @@ ibkr-trading-system/
 ├── EPOCH_02_DECISION_INTELLIGENCE_GOVERNANCE.md
 ├── EPOCH_03_RISK_AND_EXECUTION_GOVERNANCE.md
 ├── EPOCH_04_TRADE_LIFECYCLE_GOVERNANCE.md
+├── EPOCH_05_GOVERNANCE.md
+├── GLOBAL_FUNCTIONAL_REQUIREMENTS.md
+├── MODULE_REQUIREMENTS_core_engine.md
+├── MODULE_REQUIREMENTS_execution.md
+├── MODULE_REQUIREMENTS_patterns.md
+├── MODULE_REQUIREMENTS_risk.md
+├── MODULE_REQUIREMENTS_scanner.md
+├── MODULE_REQUIREMENTS_storage.md
+├── PHASE_05A_01_governance_and_charter_alignment.md
+├── PHASE_05A_02_packaging_and_import_stabilisation.md
+├── PHASE_05A_03_run_modes_and_doctor_bootstrap.md
+├── PHASE_05B_01_orchestrator_deterministic_cycle.md
+├── PHASE_05B_02_scanner_authoritative_output.md
+├── PHASE_05B_03_ross_core_pattern_engine.md
+├── PHASE_05B_04_strategy_trade_intent_policy.md
+├── PHASE_05B_05_risk_engine_final_gate.md
+├── PHASE_05B_06_execution_and_storage_integration.md
+├── PHASE_05C_01_system_health_and_data_quality.md
+├── PHASE_05C_02_scanner_state_and_drop_reason_transparency.md
+├── PHASE_05C_03_console_ux_and_operator_clarity.md
+├── PHASE_05C_04_smoke_and_contract_tests.md
+├── PHASE_05C_05_epoch_5_freeze_and_handover.md
 ├── PHASE_24_CODEX_INSTRUCTIONS_SCANNER_FINALISATION.md
 ├── PHASE_24_CODEX_INSTRUCTIONS_SCANNER_FINALISATION_ADDENDUM.md
 ├── PHASE_24_SCANNER_BLUEPRINT_GAM_EA_v1_1.md
@@ -300,8 +356,13 @@ ibkr-trading-system/
 ├── PHASE_38_STORAGE_CLI_AND_AUDIT_EXPORTS.md
 ├── README.md
 ├── requirements.txt
+├── ROSS_MOMENTUM_PATTERN_DETECTION_BLUEPRINT.md
+├── ROSS_MOMENTUM_PATTERN_REFERENCE.md
+├── RUNBOOK.md
+├── STRATEGY_SPEC_ROSS_CAMERON_MOMENTUM.md
 ├── SYSTEM_CONSTITUTION.md
 ├── SYSTEM_ROADMAP_EPOCH_02_TO_COMPLETION.md
 ├── SYSTEM_STATE.md
 ├── SYSTEM_STRATEGY_TUNABLE_PARAMETER_FRAMEWORK.md
+├── SYSTEM_TREE_AND_MODULE_MAP.md
 └── verified_rss.txt
