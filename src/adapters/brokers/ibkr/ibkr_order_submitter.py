@@ -198,7 +198,10 @@ class IbkrOrderSubmitter:
         if internal_order.quantity != 1:
             raise RuntimeError("LIVE_MICRO enforces quantity == 1 share")
 
-        assert_read_only_allows("PLACE_ORDER")
+        # Execution safety guard applies ONLY outside SIM
+        if normalized_run_mode != "SIM":
+            assert_read_only_allows("PLACE_ORDER")
+
         return None
 
     def _wait_for_ack(self, ibkr_order_id: int) -> tuple[Optional[str], Optional[datetime]]:
