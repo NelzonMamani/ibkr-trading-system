@@ -9,6 +9,10 @@ import sys
 import time
 from typing import Any, Dict, Iterable, List, Optional
 
+from src.config.system_config import get_current_market_session
+from src.scanner.print_contract import print_scanner_contract, print_scanner_state
+from src.utils.logging import normalize_mode_label, print_mode_banner
+
 if __package__ in {None, ""}:
     repo_root = Path(__file__).resolve().parents[2]
     if str(repo_root) not in sys.path:
@@ -38,6 +42,10 @@ _FLOAT_CACHE_STATE: Dict[str, Any] = {
 _FLOAT_CACHE_REQUESTED: set[str] = set()
 _HISTORY_CACHE: Dict[str, Dict[str, Any]] = {}
 _NEWS_CACHE: Dict[str, Dict[str, Any]] = {}
+_SCANNER_STATE: Dict[str, Any] = {
+    "watchlist_prev": [],
+    "focus_prev": [],
+}
 
 FOCUS_LIST_LIMIT_DEFAULT = 5
 NEWS_AGE_MAX_MINUTES = 360
@@ -631,11 +639,31 @@ def _build_symbol_context(
     }
 
 
+def _classify_cycle_state(watchlist: List[str]) -> Dict[str, Any]:
+    previous_watchlist = set(_SCANNER_STATE.get("watchlist_prev", []))
+    current_watchlist = set(watchlist)
+    new_symbols = sorted(current_watchlist - previous_watchlist)
+    continuing_symbols = sorted(current_watchlist & previous_watchlist)
+    dropped_symbols = sorted(previous_watchlist - current_watchlist)
+    return {
+        "new_symbols": new_symbols,
+        "continuing_symbols": continuing_symbols,
+        "dropped_symbols": dropped_symbols,
+    }
+
+
+def _update_cycle_state(watchlist: List[str], focus: List[str]) -> None:
+    _SCANNER_STATE["watchlist_prev"] = list(watchlist)
+    _SCANNER_STATE["focus_prev"] = list(focus)
+
+
 def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
     utc_now = _utc_now()
     session_label = _market_session_label_utc(utc_now)
     diagnostics: Dict[str, Any] = {"mode": mode}
     drop_ledger: Dict[str, str] = {}
+    topn_count = 0
+    survivors_count = 0
     scanner_mode = str(get_config("SCANNER_MODE"))
     if scanner_mode == "TEACHING":
         limits = _print_symbol_limits(scanner_mode, "TEACHING")
@@ -678,6 +706,8 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
                     gam_ea_eligible=None,
                 )
             )
+        topn_count = len(symbols)
+        survivors_count = len(symbols)
         focus_limit = limits["focus_limit"]
         deep_rows = [
             DeepViewRow(
@@ -689,20 +719,27 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
             )
             for idx, row in enumerate(fast_rows[:focus_limit], start=1)
         ]
+        drop_summary = dict(Counter(drop_ledger.values()))
         print(
             "[SCANNER][SUMMARY] "
             f"candidates={len(symbols)} gated={len(symbols)} "
-            f"watchlist={len(fast_rows)} drops={dict(drop_ledger)}"
+            f"watchlist={len(fast_rows)} drops={drop_summary}"
         )
+        cycle_state = _classify_cycle_state([row.symbol for row in fast_rows])
+        _update_cycle_state([row.symbol for row in fast_rows], [row.symbol for row in deep_rows])
         return {
             "scanner_version": SCANNER_VERSION,
             "scanner_git_sha": SCANNER_GIT_SHA,
             "timestamp_utc": utc_now.isoformat(),
+            "topn_count": topn_count,
+            "survivors_count": survivors_count,
             "symbols": [row.symbol for row in fast_rows],
             "watchlist": [row.symbol for row in fast_rows],
             "watchlist_rows": fast_rows,
             "focus_rows": deep_rows,
             "drop_ledger": drop_ledger,
+            "drop_ledger_summary": drop_summary,
+            "cycle_state": cycle_state,
             "diagnostics": diagnostics,
         }
 
@@ -739,6 +776,7 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
             diagnostics["symbol_fallback"] = "MOCK_UNIVERSE"
         symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
 
+        topn_count = len(symbols)
         float_cache = _bootstrap_float_cache(symbols, provider)
         thresholds = _gate_thresholds()
         candidates: List[Dict[str, Any]] = []
@@ -758,6 +796,7 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
             context["scanner_score"] = _score_context(context)
             candidates.append(context)
 
+        survivors_count = len(candidates)
         print("[SCANNER][STAGE] watchlist")
         ranked = _rank_candidates(candidates)
         watchlist_limit = limits["watchlist_limit"]
@@ -797,11 +836,12 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
         deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
 
         exclusion_counts = Counter(drop_ledger.values())
-        diagnostics["drop_ledger_summary"] = dict(exclusion_counts)
+        drop_summary = dict(exclusion_counts)
+        diagnostics["drop_ledger_summary"] = drop_summary
         print(
             "[SCANNER][SUMMARY] "
             f"candidates={len(symbols)} gated={len(candidates)} "
-            f"watchlist={len(watchlist_contexts)} drops={dict(exclusion_counts)}"
+            f"watchlist={len(watchlist_contexts)} drops={drop_summary}"
         )
 
         watchlist_dir = Path("output/watchlists")
@@ -822,27 +862,31 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
     finally:
         provider.disconnect()
 
+    cycle_state = _classify_cycle_state([row.symbol for row in fast_rows])
+    _update_cycle_state([row.symbol for row in fast_rows], [row.symbol for row in deep_rows])
     return {
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
         "timestamp_utc": utc_now.isoformat(),
+        "topn_count": topn_count,
+        "survivors_count": survivors_count,
         "symbols": [row.symbol for row in fast_rows],
         "watchlist": [row.symbol for row in fast_rows],
         "watchlist_rows": fast_rows,
         "focus_rows": deep_rows,
         "drop_ledger": drop_ledger,
+        "drop_ledger_summary": drop_summary,
+        "cycle_state": cycle_state,
         "diagnostics": diagnostics,
     }
 
 
-if __name__ == "__main__":
-    payload = run_scanner_cycle(mode="standalone")
+def print_cycle_summary(payload: Dict[str, Any]) -> None:
+    print_scanner_contract(payload)
+    print_scanner_state(payload)
 
-    print("\n[SCANNER] Standalone scan complete")
-    print(f"[SCANNER] Version: {payload.get('scanner_version')}")
-    print(f"[SCANNER] Timestamp (UTC): {payload.get('timestamp_utc')}")
-    print(f"[SCANNER] Watchlist size: {len(payload.get('watchlist', []))}")
 
+def _print_post_cycle_details(payload: Dict[str, Any]) -> None:
     diagnostics = payload.get("diagnostics", {})
     news_diag = diagnostics.get("news", {})
     if news_diag:
@@ -862,3 +906,37 @@ if __name__ == "__main__":
 
     print_fast_view(payload.get("watchlist_rows", []))
     print_deep_view(payload.get("focus_rows", []))
+
+
+def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run scanner cycles.")
+    parser.add_argument(
+        "--mode",
+        default="READONLY",
+        help="Run mode label (SIM/READONLY/LIVE_1SHARE).",
+    )
+    parser.add_argument(
+        "--cycles",
+        type=int,
+        default=1,
+        help="Number of scanner cycles to run.",
+    )
+    args = parser.parse_args()
+
+    session_label = get_current_market_session()
+    mode_label = normalize_mode_label(args.mode)
+    print_mode_banner(mode_label, session_label)
+
+    cycles = max(1, args.cycles)
+    for cycle in range(1, cycles + 1):
+        print(f"[SCANNER][CYCLE] {cycle}/{cycles} starting")
+        payload = run_scanner_cycle(mode="standalone")
+        print_cycle_summary(payload)
+        _print_post_cycle_details(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

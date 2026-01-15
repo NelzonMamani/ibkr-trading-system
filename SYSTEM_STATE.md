@@ -23,8 +23,8 @@ Top N gainers → hard gates → Watchlist K → Focus M
 - Focus M default 3–5 (configurable up to 10)  
 - Empty watchlist is valid output (must include clear drop reasons)
 
-### Epoch 5 — ACTIVE (Planned Roadmap Locked)
-Epoch 5 is the active build epoch and is fully planned as a gated, Codex-safe “one-go” PR approach:
+### Epoch 5 — COMPLETE (Closed)
+Epoch 5 is complete and frozen. It was delivered as a gated, Codex-safe “one-go” PR approach:
 - Part A: Stabilisation & Contracts
 - Part B: End-to-End Trading OS Completion
 - Part C: Hardening, UX, Tests, Cleanup
@@ -112,6 +112,11 @@ These are frozen for Epoch 5 implementation execution:
 
 ---
 
+## Post-Epoch 5 Freeze
+- Scanner contract, patterns, strategy intents, risk gating, execution mode law, and storage persistence are frozen.
+- Orchestrator and console UX outputs are frozen to the current operator-grade format.
+- Any future changes require explicit governance updates and tests.
+
 ## Next Action (Operational)
-1. Ensure `README.md` and this file are merged and reflect reality.
-2. Proceed to Epoch 5 Part A implementation with strict gates and console proofs.
+1. Maintain Epoch 5 freeze; only defect fixes allowed with explicit governance justification.
+2. Begin planning for Epoch 6 (isolated long-horizon strategy work) without touching intraday momentum paths.

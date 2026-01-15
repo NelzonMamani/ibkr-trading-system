@@ -5,6 +5,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Optional
 
+
+def _slugify(value: str) -> str:
+    return value.strip().lower().replace(" ", "_").replace("-", "_")
+
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
 
@@ -31,18 +35,21 @@ class PatternBase(ABC):
             f"[PATTERN] {inputs.symbol} {self.name} not detected (reason={reason})"
         )
         return PatternResult(
-            pattern_name=self.name,
-            pattern_family=self.family,
+            symbol=inputs.symbol,
+            setup_id=_slugify(self.name),
             detected=False,
             direction=dir_value,
             confidence=confidence,
-            setup_quality_tags=[],
+            rationale_text=rationale,
             entry_zone=None,
             stop_suggestion=None,
             target_suggestion=None,
-            rationale_text=rationale,
+            setup_quality_tags=[],
             risk_flags=[],
+            data_quality_flags=list(inputs.data_quality_flags),
             rejection_reason=reason,
+            pattern_name=self.name,
+            pattern_family=self.family,
         )
 
     def _detected(
@@ -59,6 +66,11 @@ class PatternBase(ABC):
     ) -> PatternResult:
         setup_quality_tags = setup_quality_tags or []
         risk_flags = risk_flags or []
+        if inputs.candles and inputs.indicators.vwap is not None:
+            last_close = inputs.candles[-1].close
+            vwap_tag = "VWAP_ABOVE" if last_close >= inputs.indicators.vwap else "VWAP_BELOW"
+            if vwap_tag not in setup_quality_tags:
+                setup_quality_tags.append(vwap_tag)
         print(
             f"[PATTERN] {inputs.symbol} {self.name} DETECTED {direction.value} "
             f"conf={confidence:.2f}"
@@ -66,15 +78,18 @@ class PatternBase(ABC):
         for line in rationale.split("\n"):
             print(f"  - {line}")
         return PatternResult(
-            pattern_name=self.name,
-            pattern_family=self.family,
+            symbol=inputs.symbol,
+            setup_id=_slugify(self.name),
             detected=True,
             direction=direction,
             confidence=confidence,
-            setup_quality_tags=setup_quality_tags,
+            rationale_text=rationale,
             entry_zone=entry_zone,
             stop_suggestion=stop_suggestion,
             target_suggestion=target_suggestion,
-            rationale_text=rationale,
+            setup_quality_tags=setup_quality_tags,
             risk_flags=risk_flags,
+            data_quality_flags=list(inputs.data_quality_flags),
+            pattern_name=self.name,
+            pattern_family=self.family,
         )

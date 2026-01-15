@@ -27,6 +27,11 @@ from src.strategies.ross_momentum.ross_momentum_risk_overlay import (
     RossMomentumRiskOverlay,
 )
 from src.strategies.strategy_contracts import StrategyRiskPayload, TradeIntent as StrategyTradeIntent
+from src.utils.logging import normalize_mode_label
+from src.risk.limits import RiskDecision as EpochRiskDecision
+from src.risk.limits import RiskDecisionType, RiskLimitConfig
+from src.risk.position_sizing import size_for_mode
+from src.risk.risk_audit import log_risk_decision
 
 
 class RiskEngine:
@@ -396,3 +401,97 @@ class RiskEngine:
             pattern_name=getattr(trade_intent, "pattern_name", None),
             invalidation_level=getattr(trade_intent, "invalidation_level", None),
         )
+
+
+class Epoch5RiskEngine:
+    """Epoch 5 risk engine with explicit ALLOW/BLOCK decisions."""
+
+    def __init__(self, limit_config: RiskLimitConfig | None = None) -> None:
+        self.limit_config = limit_config or RiskLimitConfig()
+        self._trade_count = 0
+
+    def evaluate_intents(
+        self,
+        intents: List[StrategyTradeIntent],
+        mode_label: str,
+        health_status: str = "OK",
+    ) -> List[EpochRiskDecision]:
+        normalized_mode = normalize_mode_label(mode_label)
+        decisions: List[EpochRiskDecision] = []
+
+        for intent in intents:
+            triggered_rules: List[str] = []
+            constraints: List[str] = []
+            rationale = ""
+
+            if health_status == "CRITICAL":
+                triggered_rules.append("HEALTH_CRITICAL")
+            if normalized_mode in {"SIM", "READONLY"}:
+                triggered_rules.append("MODE_BLOCK")
+            if self._trade_count >= self.limit_config.max_trades_per_day:
+                triggered_rules.append("MAX_TRADES_REACHED")
+            if intent.risk_flags:
+                if "FAILED_BREAKOUT" in {flag.upper() for flag in intent.risk_flags}:
+                    triggered_rules.append("FAILED_BREAKOUT")
+
+            size = size_for_mode(normalized_mode)
+            decision_type = (
+                RiskDecisionType.ALLOW if not triggered_rules else RiskDecisionType.BLOCK
+            )
+            if decision_type == RiskDecisionType.BLOCK:
+                size = 0
+                rationale = "blocked by risk rules"
+            else:
+                rationale = "risk checks passed"
+
+            decision = EpochRiskDecision(
+                symbol=intent.symbol,
+                decision=decision_type,
+                max_position_size_allowed=size,
+                constraints=constraints,
+                triggered_rules=triggered_rules,
+                rationale_text=rationale,
+                risk_flags=intent.risk_flags,
+            )
+            log_risk_decision(decision)
+            decisions.append(decision)
+            if decision.decision == RiskDecisionType.ALLOW:
+                self._trade_count += 1
+        return decisions
+
+
+def _sample_intent() -> StrategyTradeIntent:
+    return StrategyTradeIntent(
+        intent_id="sample-intent",
+        symbol="TEST",
+        direction="LONG",
+        entry_model="Breakout above 10.00",
+        stop_model="Below 9.80",
+        target_model="10.50",
+        time_in_force_policy="DAY",
+        invalidations=[],
+        rationale_text="Sample intent",
+        risk_flags=[],
+    )
+
+
+def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Epoch 5 risk engine harness")
+    parser.add_argument("--mode", default="SIM")
+    parser.add_argument("--sample_intent", action="store_true")
+    args = parser.parse_args()
+
+    intents: List[StrategyTradeIntent] = []
+    if args.sample_intent:
+        intents.append(_sample_intent())
+    engine = Epoch5RiskEngine()
+    decisions = engine.evaluate_intents(intents, mode_label=args.mode)
+    if not decisions:
+        print("RISK BLOCK size=0 reason=no intents")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
