@@ -10,7 +10,7 @@ If code or other documents disagree with this file, this file wins.
 - Epoch 1 — Market Perception: COMPLETE
 - Epoch 2 — Decision Intelligence: COMPLETE
 - Epoch 3 — Risk & Execution: COMPLETE
-- Epoch 4 — Trade Lifecycle & Persistence: COMPLETE
+- Epoch 4 — Trade Lifecycle & Persistence: COMPLETE (LOCKED)
 
 ---
 

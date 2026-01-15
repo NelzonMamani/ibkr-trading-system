@@ -84,7 +84,7 @@ def test_replay_from_storage_epoch4_orders_events(tmp_path):
             "event_type": "EXECUTION_COMPLETE",
             "source": "ExecutionEngine",
             "timestamp": now_iso(),
-            "payload_json": canonical_json({"results": 0, "tick": 2}),
+            "payload_json": canonical_json({"results": 0, "tick": 999}),
             "seq": 2,
             "prev_hash": "GENESIS",
             "event_hash": "hash2",
@@ -98,7 +98,7 @@ def test_replay_from_storage_epoch4_orders_events(tmp_path):
             "event_type": "CYCLE_START",
             "source": "Orchestrator",
             "timestamp": now_iso(),
-            "payload_json": canonical_json({"run_mode": "SIM", "tick": 1}),
+            "payload_json": canonical_json({"run_mode": "SIM", "tick": 0}),
             "seq": 1,
             "prev_hash": "GENESIS",
             "event_hash": "hash1",
@@ -114,6 +114,7 @@ def test_replay_from_storage_epoch4_orders_events(tmp_path):
     finally:
         set_config_overrides(None)
 
+    assert [(event.tick, event.seq) for event in replayed] == [(1, 1), (2, 2)]
     assert [event.event_type for event in replayed] == [
         "CYCLE_START",
         "EXECUTION_COMPLETE",
