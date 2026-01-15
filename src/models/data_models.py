@@ -121,6 +121,18 @@ class TradeIntent:
 
 
 @dataclass
+class IntentRiskDecision:
+    """Per-intent risk decision with explicit reason tags."""
+
+    intent_id: str
+    symbol: str
+    allowed: bool
+    max_position_size: int
+    reason_tags: List[str] = field(default_factory=list)
+    rationale: Optional[str] = None
+
+
+@dataclass
 class RiskDecision:
     """
     Teaching-first risk output that intentionally stops short of being an order.
@@ -143,6 +155,15 @@ class RiskDecision:
     pattern_name: Optional[str] = None
     invalidation_level: Optional[float] = None
     reason_code: Optional[str] = None
+    intent_id: Optional[str] = None
+    created_tick: Optional[int] = None
+    idempotency_key: Optional[str] = None
+    overall_action: str = "ALLOW"
+    per_intent: List[IntentRiskDecision] = field(default_factory=list)
+    risk_reasons: List[str] = field(default_factory=list)
+    sizing: dict = field(default_factory=dict)
+    circuit_breaker_tripped: bool = False
+    execution_blocked: bool = False
 
 
 @dataclass

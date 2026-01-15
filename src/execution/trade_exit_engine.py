@@ -4,6 +4,7 @@ from datetime import datetime
 
 from src.config.runtime_config import RunMode, RuntimeConfig
 from src.core.active_trade_registry import ActiveTradeRegistry
+from src.core.stop_controller import StopController
 from src.models.data_models import ExecutionResult
 from src.core.trade_outcome_factory import TradeOutcomeFactory
 from src.domain.trade_outcome import TradeOutcome
@@ -40,10 +41,12 @@ class TradeExitEngine:
         trade_registry: ActiveTradeRegistry,
         event_collector,
         price_feed: Optional[PriceFeed] = None,
+        stop_controller: Optional[StopController] = None,
     ):
         self.trade_registry = trade_registry
         self.event_collector = event_collector
         self.price_feed = price_feed or DeterministicPriceFeed()
+        self.stop_controller = stop_controller or StopController()
         self._last_tick: Optional[int] = None
         self._last_runtime_config: Optional[RuntimeConfig] = None
 
@@ -63,6 +66,8 @@ class TradeExitEngine:
         current_price: float,
         strategy_exit_signal: bool,
         config,
+        breaker_tripped: bool = False,
+        risk_exit_signal: bool = False,
     ) -> Optional[ExitDecision]:
         """
         Pure decision function to determine the highest-priority exit outcome.
@@ -93,10 +98,10 @@ class TradeExitEngine:
             fallback=self._resolve_threshold(config, "MAX_HOLD_TICKS", "max_hold_ticks"),
         )
 
-        if hold_duration_ticks >= max_hold_ticks:
+        if breaker_tripped:
             return ExitDecision(
-                category="EXIT_TIME",
-                reason="Max hold duration reached",
+                category="EXIT_BREAKER",
+                reason="Circuit breaker kill-switch triggered",
                 exit_tick=current_tick,
                 exit_price=current_price,
             )
@@ -139,10 +144,37 @@ class TradeExitEngine:
                 exit_price=current_price,
             )
 
+        if risk_exit_signal:
+            return ExitDecision(
+                category="EXIT_RISK",
+                reason="Risk engine veto requested immediate exit",
+                exit_tick=current_tick,
+                exit_price=current_price,
+            )
+
         if take_profit_triggered:
             return ExitDecision(
                 category="EXIT_TARGET",
                 reason="Profit target reached",
+                exit_tick=current_tick,
+                exit_price=current_price,
+            )
+
+        if hold_duration_ticks < min_hold_ticks:
+            return None
+
+        if strategy_exit_signal:
+            return ExitDecision(
+                category="EXIT_STRATEGY",
+                reason="Strategy requested exit",
+                exit_tick=current_tick,
+                exit_price=current_price,
+            )
+
+        if hold_duration_ticks >= max_hold_ticks:
+            return ExitDecision(
+                category="EXIT_TIME",
+                reason="Max hold duration reached",
                 exit_tick=current_tick,
                 exit_price=current_price,
             )
@@ -170,17 +202,6 @@ class TradeExitEngine:
                 exit_price=current_price,
             )
 
-        if hold_duration_ticks < min_hold_ticks:
-            return None
-
-        if strategy_exit_signal:
-            return ExitDecision(
-                category="EXIT_STRATEGY",
-                reason="Strategy requested exit",
-                exit_tick=current_tick,
-                exit_price=current_price,
-            )
-
         return None
 
     def evaluate_and_close_trades(
@@ -189,6 +210,8 @@ class TradeExitEngine:
         tick: int,
         exit_signals: Optional[List[ExitSignal]] = None,
         config: Optional[RuntimeConfig] = None,
+        risk_exit_requests: Optional[set[tuple[str, str]]] = None,
+        breaker_tripped: Optional[bool] = None,
     ) -> Tuple[List[ExecutionResult], List[TradeOutcome]]:
         """
         Evaluate open trades and close them using the authoritative exit path.
@@ -213,6 +236,13 @@ class TradeExitEngine:
         active_trades = self.trade_registry.snapshot()
 
         min_hold_ticks = self._resolve_threshold(runtime_config, "MIN_HOLD_TICKS", "min_hold_ticks")
+
+        breaker_active = (
+            breaker_tripped
+            if breaker_tripped is not None
+            else self.stop_controller.is_breaker_tripped()
+        )
+        risk_exit_requests = risk_exit_requests or set()
 
         for trade in active_trades:
             symbol = getattr(trade, "symbol", None)
@@ -298,6 +328,8 @@ class TradeExitEngine:
                 current_price=exit_price,
                 strategy_exit_signal=selected_signal is not None,
                 config=runtime_config,
+                breaker_tripped=breaker_active,
+                risk_exit_signal=(symbol, trader_type) in risk_exit_requests,
             )
 
             if decision is None:
@@ -347,6 +379,16 @@ class TradeExitEngine:
                     "Exit condition met: take-profit price reached via TradeExitEngine "
                     f"(direction={normalized_direction or 'UNKNOWN'} price={exit_price} "
                     f"take_profit_price={take_profit_price}; micro-safe full exit logged)"
+                )
+            elif decision.category == "EXIT_RISK":
+                rationale = (
+                    "Exit condition met: risk engine veto enforced via TradeExitEngine "
+                    f"(reason={decision.reason})"
+                )
+            elif decision.category == "EXIT_BREAKER":
+                rationale = (
+                    "Exit condition met: circuit breaker enforced via TradeExitEngine "
+                    f"(reason={decision.reason})"
                 )
             elif decision.category == "EXIT_STRATEGY" and selected_signal is not None:
                 rationale = (

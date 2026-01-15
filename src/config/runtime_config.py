@@ -164,6 +164,10 @@ def get_live_micro_max_consecutive_losses(default: int = 1) -> int:
     return int(_with_default("LIVE_MICRO_MAX_CONSECUTIVE_LOSSES", default))
 
 
+def get_live_micro_max_symbols_per_cycle(default: int = 5) -> int:
+    return int(_with_default("LIVE_MICRO_MAX_SYMBOLS_PER_CYCLE", default))
+
+
 def get_ibkr_submit_only_symbol(default: str | None = None) -> str | None:
     value = get_config("IBKR_SUBMIT_ONLY_SYMBOL")
     return default if value is None else str(value)

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from typing import Any, Dict, Iterable
@@ -37,6 +38,12 @@ def set_config_overrides(overrides: Dict[str, Any] | None) -> None:
     global _CONFIG_OVERRIDES, _CONFIG_CACHE
     _CONFIG_OVERRIDES = overrides or {}
     _CONFIG_CACHE = None
+    for alias in ("src.config.config_resolver", "config.config_resolver"):
+        module = sys.modules.get(alias)
+        if module is None or module is sys.modules.get(__name__):
+            continue
+        module._CONFIG_OVERRIDES = _CONFIG_OVERRIDES
+        module._CONFIG_CACHE = None
 
 
 def _normalize(value: Any, normalizer: str | None) -> Any:
@@ -248,7 +255,7 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
 
     resolved["EXECUTION_ENABLED_EFFECTIVE"] = ConfigRecord(
         name="EXECUTION_ENABLED_EFFECTIVE",
-        value=bool(execution_enabled and effective_run_mode == "LIVE_MICRO"),
+        value=bool(execution_enabled and effective_run_mode in {"SIM", "LIVE_MICRO", "LIVE"}),
         source="DERIVED",
         env=None,
     )
