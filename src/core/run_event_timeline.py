@@ -224,14 +224,16 @@ def build_timeline_from_storage(
                 source=row.get("source", "UNKNOWN"),
                 payload=parsed_payload,
                 timestamp=resolved_time,
+                tick=row.get("tick"),
+                seq=row.get("seq"),
             )
         )
-    events.sort(
-        key=lambda event: (
-            getattr(event, "payload", {}).get("tick"),
-            event.timestamp,
-            event.event_type,
-            event.source,
-        )
-    )
+
+    def _safe_tick(event: SystemEvent) -> int:
+        return event.tick if event.tick is not None else 0
+
+    def _safe_seq(event: SystemEvent) -> int:
+        return event.seq if event.seq is not None else 0
+
+    events.sort(key=lambda event: (_safe_tick(event), _safe_seq(event)))
     return events
