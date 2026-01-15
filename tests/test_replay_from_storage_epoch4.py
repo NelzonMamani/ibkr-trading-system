@@ -84,10 +84,24 @@ def test_replay_from_storage_epoch4_orders_events(tmp_path):
             "event_type": "EXECUTION_COMPLETE",
             "source": "ExecutionEngine",
             "timestamp": now_iso(),
-            "payload_json": canonical_json({"results": 0, "tick": 2}),
-            "seq": 2,
+            "payload_json": canonical_json({"results": 0, "tick": 99}),
+            "seq": 1,
             "prev_hash": "GENESIS",
             "event_hash": "hash2",
+            "created_at": now_iso(),
+        },
+        {
+            "event_id": str(uuid4()),
+            "run_id": run_id,
+            "cycle_id": cycle_id,
+            "tick": 1,
+            "event_type": "ORDER_PLACED",
+            "source": "ExecutionEngine",
+            "timestamp": now_iso(),
+            "payload_json": canonical_json({"results": 0}),
+            "seq": 2,
+            "prev_hash": "GENESIS",
+            "event_hash": "hash3",
             "created_at": now_iso(),
         },
         {
@@ -116,6 +130,7 @@ def test_replay_from_storage_epoch4_orders_events(tmp_path):
 
     assert [event.event_type for event in replayed] == [
         "CYCLE_START",
+        "ORDER_PLACED",
         "EXECUTION_COMPLETE",
     ]
     store.close()
