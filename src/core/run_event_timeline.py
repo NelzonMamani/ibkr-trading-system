@@ -3,6 +3,9 @@ from typing import Optional
 import json
 import hashlib
 
+from src.core.events import SystemEvent
+from src.storage.sqlite_store import SQLiteStore
+
 
 class RunEventTimeline:
     """
@@ -188,3 +191,47 @@ class RunEventTimeline:
         }
         snapshot["checksum"] = self.generate_checksum(snapshot)
         return snapshot
+
+
+def build_timeline_from_storage(
+    store: SQLiteStore,
+    run_id: str,
+    *,
+    cycle_id: str | None = None,
+    event_type: str | None = None,
+    source: str | None = None,
+) -> list[SystemEvent]:
+    rows = store.fetch_events(run_id, cycle_id=cycle_id)
+    events: list[SystemEvent] = []
+    for row in rows:
+        if event_type and row.get("event_type") != event_type:
+            continue
+        if source and row.get("source") != source:
+            continue
+        payload = row.get("payload_json")
+        parsed_payload = json.loads(payload) if payload else {}
+        timestamp = row.get("timestamp")
+        if isinstance(timestamp, str):
+            try:
+                resolved_time = datetime.fromisoformat(timestamp)
+            except ValueError:
+                resolved_time = datetime.utcnow()
+        else:
+            resolved_time = datetime.utcnow()
+        events.append(
+            SystemEvent(
+                event_type=row.get("event_type", "UNKNOWN"),
+                source=row.get("source", "UNKNOWN"),
+                payload=parsed_payload,
+                timestamp=resolved_time,
+            )
+        )
+    events.sort(
+        key=lambda event: (
+            getattr(event, "payload", {}).get("tick"),
+            event.timestamp,
+            event.event_type,
+            event.source,
+        )
+    )
+    return events

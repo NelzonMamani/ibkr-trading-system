@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
+from src.config.runtime_config import RunMode, get_run_mode
+from src.core.run_event_timeline import build_timeline_from_storage
 from src.events.event_invariants import check_invariants, EventInvariantError
+from src.events.event_schema import EventSchemaError, validate_event
+from src.storage.sqlite_store import SQLiteStore
 
 
 @dataclass
@@ -44,6 +48,29 @@ class ReplayEngine:
         except EventInvariantError as exc:
             print(f"[REPLAY][INVARIANTS] FAILED: {exc}")
         print("[REPLAY] Replay complete")
+
+    def replay_from_storage(
+        self,
+        store: SQLiteStore,
+        run_id: str,
+        *,
+        cycle_id: str | None = None,
+    ) -> list[Any]:
+        run_mode = get_run_mode()
+        if run_mode != RunMode.SIM:
+            raise RuntimeError(
+                f"Replay is disabled outside SIM mode (current={run_mode.value})"
+            )
+        events = build_timeline_from_storage(store, run_id, cycle_id=cycle_id)
+        for event in events:
+            try:
+                validate_event(event.event_type, event.payload)
+            except EventSchemaError as exc:
+                raise EventSchemaError(
+                    f"Replay schema validation failed for {event.event_type}: {exc}"
+                ) from exc
+        self.replay(events)
+        return events
 
     def _log_event(self, event: Any) -> None:
         print(
