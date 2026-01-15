@@ -636,8 +636,77 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
     session_label = _market_session_label_utc(utc_now)
     diagnostics: Dict[str, Any] = {"mode": mode}
     drop_ledger: Dict[str, str] = {}
-    provider: ScannerDataProvider = build_provider()
     scanner_mode = str(get_config("SCANNER_MODE"))
+    if scanner_mode == "TEACHING":
+        limits = _print_symbol_limits(scanner_mode, "TEACHING")
+        diagnostics["symbol_limits"] = limits
+        diagnostics["provider_source"] = "TEACHING"
+        print("[SCANNER][STAGE] teaching")
+        print("[SCANNER][TEACHING] Static watchlist — no IBKR connection or market data calls")
+        symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS") or [])
+        if not symbols:
+            symbols = ["AAPL"]
+        symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
+        fast_rows: List[FastViewRow] = []
+        for idx, symbol in enumerate(symbols, start=1):
+            fast_rows.append(
+                FastViewRow(
+                    symbol=symbol,
+                    session=session_label,
+                    last_price=None,
+                    pct_change=None,
+                    volume=None,
+                    dollar_volume=None,
+                    bid=None,
+                    ask=None,
+                    spread=None,
+                    spread_pct=None,
+                    rvol=None,
+                    float_shares=None,
+                    scanner_rank=idx,
+                    scanner_score=None,
+                    drop_reason=None,
+                    data_quality_flags=["TEACHING_STATIC"],
+                    news_present=False,
+                    catalyst_type=None,
+                    dilution_flag=False,
+                    news_age_minutes=None,
+                    velocity_5m=None,
+                    velocity_10m=None,
+                    velocity_30m=None,
+                    attention_tier=None,
+                    gam_ea_eligible=None,
+                )
+            )
+        focus_limit = limits["focus_limit"]
+        deep_rows = [
+            DeepViewRow(
+                symbol=row.symbol,
+                focus_rank=idx,
+                links=[],
+                catalyst_rationale="Teaching mode static candidate.",
+                focus_reason="Teaching mode static watchlist.",
+            )
+            for idx, row in enumerate(fast_rows[:focus_limit], start=1)
+        ]
+        print(
+            "[SCANNER][SUMMARY] "
+            f"candidates={len(symbols)} gated={len(symbols)} "
+            f"watchlist={len(fast_rows)} drops={dict(drop_ledger)}"
+        )
+        return {
+            "scanner_version": SCANNER_VERSION,
+            "scanner_git_sha": SCANNER_GIT_SHA,
+            "timestamp_utc": utc_now.isoformat(),
+            "symbols": [row.symbol for row in fast_rows],
+            "watchlist": [row.symbol for row in fast_rows],
+            "watchlist_rows": fast_rows,
+            "focus_rows": deep_rows,
+            "drop_ledger": drop_ledger,
+            "diagnostics": diagnostics,
+        }
+
+    provider: ScannerDataProvider = build_provider()
     limits = _print_symbol_limits(scanner_mode, provider.source_name)
     diagnostics["symbol_limits"] = limits
     print("[SCANNER][STAGE] bootstrap")

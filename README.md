@@ -70,7 +70,7 @@ python -m src.main
 
 ### 3) Run tests
 ```powershell
-pytest -q
+python -m pytest -q
 ```
 
 ---

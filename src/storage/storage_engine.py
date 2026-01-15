@@ -81,9 +81,8 @@ class StorageEngine:
         print("[BOOT] StorageEngine initialised")
 
     def _resolve_sqlite_path(self) -> str:
-        resolved = os.path.abspath(
-            get_persistence_sqlite_path(default="data/ibkr_system.db")
-        )
+        raw_path = get_persistence_sqlite_path(default="data/ibkr_system.db")
+        resolved = self._resolve_repo_relative_path(raw_path)
         if resolved.endswith("ibkr_system.db"):
             legacy = resolved.replace("ibkr_system.db", "ibkr_system.sqlite")
             if not os.path.exists(resolved) and os.path.exists(legacy):
@@ -93,6 +92,25 @@ class StorageEngine:
                 )
                 return legacy
         return resolved
+
+    @staticmethod
+    def _resolve_repo_relative_path(path: str) -> str:
+        if os.path.isabs(path):
+            return os.path.abspath(path)
+        repo_root = StorageEngine._find_repo_root()
+        return os.path.abspath(os.path.join(repo_root, path))
+
+    @staticmethod
+    def _find_repo_root() -> str:
+        current = os.path.abspath(os.path.dirname(__file__))
+        while True:
+            marker = os.path.join(current, "SYSTEM_STATE.md")
+            if os.path.exists(marker):
+                return current
+            parent = os.path.dirname(current)
+            if parent == current:
+                return os.path.abspath(os.path.dirname(__file__))
+            current = parent
 
     def _insert_run(self) -> None:
         if not self._store:
