@@ -9,3 +9,5 @@ class SystemEvent:
     source: str
     payload: Dict[str, Any]
     timestamp: datetime = field(default_factory=datetime.now)
+    tick: int | None = None
+    seq: int | None = None
