@@ -226,12 +226,4 @@ def build_timeline_from_storage(
                 timestamp=resolved_time,
             )
         )
-    events.sort(
-        key=lambda event: (
-            getattr(event, "payload", {}).get("tick"),
-            event.timestamp,
-            event.event_type,
-            event.source,
-        )
-    )
     return events

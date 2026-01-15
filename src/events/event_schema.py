@@ -42,6 +42,12 @@ SCAN_COMPLETE_SCHEMA = {
     "candidates": int,
 }
 
+SCANNER_WATCHLIST_SCHEMA = {
+    "scanner_version": (str, type(None)),
+    "timestamp_utc": (str, type(None)),
+    "symbols": list,
+}
+
 STRATEGY_COMPLETE_SCHEMA = {
     "trade_intents": int,
 }
@@ -315,6 +321,7 @@ SHUTDOWN_HOOK_FAILED_SCHEMA = {
 EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
     "CYCLE_START": CYCLE_START_SCHEMA,
     "SCAN_COMPLETE": SCAN_COMPLETE_SCHEMA,
+    "SCANNER_WATCHLIST": SCANNER_WATCHLIST_SCHEMA,
     "STRATEGY_COMPLETE": STRATEGY_COMPLETE_SCHEMA,
     "EXECUTION_COMPLETE": EXECUTION_COMPLETE_SCHEMA,
     "PROTECTIVE_STOP_PLACED": PROTECTIVE_STOP_PLACED_SCHEMA,
@@ -501,6 +508,7 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
 REQUIRED_FIELDS: Dict[str, Set[str]] = {
     "CYCLE_START": {"run_mode"},
     "SCAN_COMPLETE": {"candidates"},
+    "SCANNER_WATCHLIST": set(),
     "STRATEGY_COMPLETE": {"trade_intents"},
     "EXECUTION_COMPLETE": {"results"},
     "PROTECTIVE_STOP_PLACED": {
@@ -871,6 +879,7 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
 
 
 OPTIONAL_FIELDS: Dict[str, Set[str]] = {
+    "SCANNER_WATCHLIST": {"scanner_version", "timestamp_utc", "symbols"},
     "TRADE_OPENED": {"gateway_decision", "pattern_name"},
     "TRADE_NOT_FILLED": {"client_order_id", "attempt_number", "gateway_decision"},
     "TRADE_CLOSED": {
