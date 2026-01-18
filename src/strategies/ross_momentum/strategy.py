@@ -19,10 +19,10 @@ from src.utils.teacher_logs import (
 )
 
 
-class RetailConfirmationMomentumStrategy(StrategyBase):
-    strategy_id = "Retail_Confirmation_Momentum"
-    strategy_name = "Retail Confirmation Momentum"
-    version = "2.0"
+class RossMomentumStrategy(StrategyBase):
+    strategy_id = "ross_momentum"
+    strategy_name = "Ross Momentum"
+    version = "2.1"
 
     def __init__(self, policy_config: IntentPolicyConfig | None = None) -> None:
         self._evaluator = PatternEvaluator()

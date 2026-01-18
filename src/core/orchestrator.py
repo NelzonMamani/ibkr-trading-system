@@ -44,6 +44,7 @@ from src.storage.storage_engine import StorageEngine
 from src.strategy.strategy_runner import StrategyRunner
 from src.strategy.exit_signal import ExitSignal
 from src.events.event_invariants import check_invariants, EventInvariantError
+from src.utils.time_utils import market_session_phase, to_ny_time, to_uk_time
 
 
 class RuntimeSafetyError(RuntimeError):
@@ -428,6 +429,14 @@ class CoreOrchestrator:
     def _run_once_inner(self) -> bool:
         print("[INFO] Starting orchestrator cycle (teaching-only).")
         cycle_started_at = datetime.now(timezone.utc)
+        ny_time = to_ny_time(cycle_started_at)
+        uk_time = to_uk_time(cycle_started_at)
+        session_phase = market_session_phase(cycle_started_at)
+        print(
+            "[SESSION] "
+            f"phase={session_phase} ny_time={ny_time.isoformat()} "
+            f"uk_time={uk_time.isoformat()} utc={cycle_started_at.isoformat()}"
+        )
         tick = self.sim_clock.tick()
         print(f"[CYCLE_CTX] tick={tick} run_mode={self.run_mode.value}")
         self.execution_engine.current_tick = tick

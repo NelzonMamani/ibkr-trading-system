@@ -3,9 +3,10 @@ System-level configuration (logging, sessions, persistence).
 """
 
 from __future__ import annotations
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 
 from src.config.config_resolver import get_config
+from src.utils.time_utils import to_ny_time
 
 
 # Sleep interval (in seconds) between orchestrator cycles.
@@ -17,10 +18,10 @@ ACTIVE_SESSIONS = list(get_config("ACTIVE_SESSIONS"))
 
 def get_current_market_session(now: datetime | None = None) -> str:
     """Return a simple market session indicator based on local time."""
-
-    current_dt = now or datetime.now()
-    today = current_dt.date()
-    now_time = current_dt.time()
+    current_dt = now or datetime.now(timezone.utc)
+    ny_dt = to_ny_time(current_dt)
+    today = ny_dt.date()
+    now_time = ny_dt.time()
 
     holidays = set(get_config("MARKET_HOLIDAYS"))
     half_days = set(get_config("MARKET_HALF_DAYS"))

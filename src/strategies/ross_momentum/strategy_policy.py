@@ -188,9 +188,31 @@ class RossMomentumPolicy:
     market_close_time_et: str = "16:00"
 
 
+SESSION_PHASE_TO_MODE = {
+    "PREMARKET": RossTradingMode.OPENING_DRIVE,
+    "OPENING_0_30": RossTradingMode.OPENING_DRIVE,
+    "MORNING": RossTradingMode.OPENING_DRIVE,
+    "MIDDAY": RossTradingMode.MIDDAY,
+    "LATE": RossTradingMode.LATE_DAY,
+    "POWER_HOUR": RossTradingMode.LATE_DAY,
+    "CLOSED": RossTradingMode.MIDDAY,
+}
+
+
 def timeframe_plan_for_mode(policy: RossMomentumPolicy, mode: RossTradingMode) -> TimeframePlan:
     if mode == RossTradingMode.OPENING_DRIVE:
         return policy.timeframe_opening
     if mode == RossTradingMode.LATE_DAY:
         return policy.timeframe_late_day
     return policy.timeframe_midday
+
+
+def mode_for_session_phase(session_phase: str) -> RossTradingMode:
+    return SESSION_PHASE_TO_MODE.get(session_phase, RossTradingMode.MIDDAY)
+
+
+def timeframe_plan_for_session_phase(
+    policy: RossMomentumPolicy,
+    session_phase: str,
+) -> TimeframePlan:
+    return timeframe_plan_for_mode(policy, mode_for_session_phase(session_phase))
