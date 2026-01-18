@@ -237,6 +237,7 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   └── strategy.py
 │   │   ├── ross_momentum
+│   │   │   ├── fixtures
 │   │   │   ├── patterns
 │   │   │   │   ├── __init__.py
 │   │   │   │   ├── breakout_patterns.py
@@ -247,10 +248,20 @@ ibkr-trading-system/
 │   │   │   │   ├── pattern_registry.py
 │   │   │   │   ├── pattern_types.py
 │   │   │   │   └── reversal_patterns.py
+│   │   │   ├── policy
+│   │   │   ├── reports
+│   │   │   │   └── REPORT__READING_CANDLESTICKS_3_STEP_TRICK.md
+│   │   │   ├── schemas
 │   │   │   ├── __init__.py
+│   │   │   ├── CONSTITUTION.md
 │   │   │   ├── decision_policy.py
+│   │   │   ├── ROSS_MOMENTUM_EXECUTION_SPEC.md
 │   │   │   ├── ross_momentum_risk_overlay.py
-│   │   │   └── strategy.py
+│   │   │   ├── SETUP_FAMILIES_AND_PATTERNS.md
+│   │   │   ├── strategy.py
+│   │   │   ├── strategy_context_schema.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── TRADE_PERMISSION_MATRIX.md
 │   │   ├── __init__.py
 │   │   ├── ross_momentum_strategy_v1.py
 │   │   ├── strategy_base.py
@@ -354,6 +365,7 @@ ibkr-trading-system/
 ├── PHASE_36_REPLAY_AND_TIMELINE_AUTHORITY.md
 ├── PHASE_37_PERFORMANCE_REPORTS_FROM_STORAGE.md
 ├── PHASE_38_STORAGE_CLI_AND_AUDIT_EXPORTS.md
+├── pytest.ini
 ├── README.md
 ├── requirements.txt
 ├── ROSS_MOMENTUM_PATTERN_DETECTION_BLUEPRINT.md

@@ -1,0 +1,196 @@
+"""strategies/ross_momentum/strategy_policy.py
+
+Ross Momentum Strategy Policy (machine-readable)
+
+This policy is intended to be imported by the Orchestrator.
+
+Separation of concerns
+- StrategyPolicy: requirements + rules (this file)
+- StrategyContext: live facts built by Orchestrator (see strategy_context_schema.py)
+- StrategyRunner: evaluates Policy × Context -> intents/actions
+
+Discretionary-to-mechanical translation
+- Some Warrior Trading concepts are described as "weak" / "strong".
+  This policy expresses those as measured thresholds where possible.
+- Where Ross does not publish an exact numeric threshold (e.g., "big red volume"),
+  this policy treats the signal as a *telemetry feature* that may be used for
+  learning/analytics and optionally enabled with a calibrated threshold.
+
+Sources
+- This repository's Ross strategy documents and transcripts.
+- Public Warrior Trading educational material (e.g., the "How to Trade a Micro Pullback" article).
+
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Optional, Sequence
+
+
+class RossTradingMode(str, Enum):
+    """Time-of-day / cadence presets.
+
+    Ross trades the open aggressively with fast execution, and slows down later.
+    We model this as *cadence presets* rather than different strategies.
+    """
+
+    OPENING_DRIVE = "OPENING_DRIVE"   # ~09:30-10:15 ET
+    MIDDAY = "MIDDAY"                 # ~10:15-14:30 ET (typically reduced aggression)
+    LATE_DAY = "LATE_DAY"             # ~14:30-16:00 ET (slower structure)
+
+
+@dataclass(frozen=True)
+class TimeframePlan:
+    """Which timeframes are used for what, per mode."""
+
+    bias_tf: str
+    setup_tf: str
+    structure_tf: str
+    execution_tf: str
+
+
+@dataclass(frozen=True)
+class MicroPullbackSpec:
+    """Micro pullback re-entry (execution timeframe).
+
+    Core idea
+    - Impulse leg up establishes momentum.
+    - 2-3 small red candles pull back with "weak" selling.
+    - Re-entry trigger: first green candle that breaks the high of the last red.
+
+    The *impulse candle* used for normalization is mode-dependent:
+    - OPENING_DRIVE: impulse is typically the 1-minute impulse leg.
+    - LATE_DAY: impulse is typically the 5-minute impulse leg.
+    """
+
+    pullback_red_candles: Sequence[int] = (2, 3)
+
+    # Body-size weakness (mechanical proxy for "small" red candles)
+    # These are expressed as ratios of each red candle's body to the impulse body's size.
+    max_each_red_body_to_impulse_body: float = 0.30
+
+    # Total pullback depth (mechanical proxy for "controlled" pullback)
+    # Expressed as pullback range vs impulse range (range = high-low).
+    max_pullback_range_to_impulse_range: float = 0.50
+
+    # Hold-above rules (setup/structure context)
+    must_hold_above: Sequence[str] = ("VWAP", "EMA9", "EMA20")
+
+    # Volume weakness (telemetry-first; threshold disabled by default)
+    # If enabled, pause/reject when avg red volume is greater than
+    # (red_volume_pause_ratio * impulse green volume).
+    red_volume_pause_ratio: Optional[float] = None  # e.g., 0.40 .. 0.80 after calibration
+
+    # Entry trigger
+    # Enter when the first green candle after the red sequence breaks the last red high.
+    require_break_last_red_high: bool = True
+
+
+@dataclass(frozen=True)
+class ToppingRiskSpec:
+    """Top/reversal risk management.
+
+    Ross repeatedly emphasises avoiding/recognising topping tails and reversals.
+
+    Mechanical mapping:
+    - PAUSE new entries when a candle shows a large upper wick relative to the body.
+    - HALT new entries (and consider de-risking) when a *confirmed* reversal candle
+      appears (e.g., clear shooting star / topping tail with failure).
+
+    The exact "shooting star" definition varies by trader; this policy provides
+    explicit ratios and keeps them configurable.
+    """
+
+    # Soft warning: upper wick >= 50% of body => pause new entries
+    topping_wick_ratio_pause: float = 0.50
+
+    # Hard warning: upper wick >= 100% of body AND candle closes red => halt new entries
+    topping_wick_ratio_halt: float = 1.00
+
+    # Timeframe where topping-risk is monitored (mode-dependent):
+    # - OPENING_DRIVE: structure_tf (usually 1m)
+    # - LATE_DAY: structure_tf (usually 5m) and execution_tf (1m)
+    monitor_timeframes: Sequence[str] = ("STRUCTURE",)
+
+
+@dataclass(frozen=True)
+class IndicatorGates:
+    """Indicator gates that Ross commonly references."""
+
+    # MACD
+    require_macd_positive_for_entries: bool = True
+
+    # Optional: if MACD crosses against the position, treat as a warning/halt
+    halt_on_macd_cross_against: bool = True
+
+
+@dataclass(frozen=True)
+class RiskAndPermissions:
+    """Trade-permission controls.
+
+    IMPORTANT
+    - Ross does NOT publish a fixed "max trades per symbol". He may take many
+      re-entries in a single name while it is in play.
+    - Therefore: we do not hard-cap per-symbol trades here.
+
+    Hard stops belong in the global risk engine / stop controller.
+    """
+
+    # Global safety (typical Ross rule of thumb: stop after 3 losses)
+    max_consecutive_losses: int = 3
+
+    # Strategy-specific guardrail (optional; default None means "no hard cap")
+    max_trades_per_symbol: Optional[int] = None
+
+    # Optional: max re-entries per symbol per *active move* (telemetry-first)
+    max_reentries_per_symbol: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class RossMomentumPolicy:
+    """Top-level policy used by the Orchestrator and Runner."""
+
+    name: str = "ROSS_MOMENTUM"
+
+    # Timeframe plans per mode
+    timeframe_opening: TimeframePlan = TimeframePlan(
+        bias_tf="DAILY",
+        setup_tf="5MIN",
+        structure_tf="1MIN",
+        execution_tf="10SEC",
+    )
+    timeframe_midday: TimeframePlan = TimeframePlan(
+        bias_tf="DAILY",
+        setup_tf="5MIN",
+        structure_tf="1MIN",
+        execution_tf="10SEC",
+    )
+    timeframe_late_day: TimeframePlan = TimeframePlan(
+        bias_tf="DAILY",
+        setup_tf="15MIN",
+        structure_tf="5MIN",
+        execution_tf="1MIN",
+    )
+
+    micro_pullback: MicroPullbackSpec = MicroPullbackSpec()
+    topping_risk: ToppingRiskSpec = ToppingRiskSpec()
+    indicator_gates: IndicatorGates = IndicatorGates()
+    risk: RiskAndPermissions = RiskAndPermissions()
+
+    # Level 2 / Tape reading (optional; can be disabled without subscriptions)
+    # These are left as telemetry flags / hooks.
+    level2_iceberg_detection_enabled: bool = False
+
+    # Market hours assumptions
+    market_open_time_et: str = "09:30"
+    market_close_time_et: str = "16:00"
+
+
+def timeframe_plan_for_mode(policy: RossMomentumPolicy, mode: RossTradingMode) -> TimeframePlan:
+    if mode == RossTradingMode.OPENING_DRIVE:
+        return policy.timeframe_opening
+    if mode == RossTradingMode.LATE_DAY:
+        return policy.timeframe_late_day
+    return policy.timeframe_midday
