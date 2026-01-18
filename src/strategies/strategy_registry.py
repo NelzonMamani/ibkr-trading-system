@@ -7,6 +7,7 @@ from typing import Dict, Iterable, List, Optional
 
 from src.strategies.strategy_base import StrategyBase
 from src.strategies.strategy_contracts import StrategyDecision, StrategyInput
+from src.strategies.ross_momentum.strategy import RossMomentumStrategy
 
 
 @dataclass
@@ -34,3 +35,11 @@ class StrategyRegistry:
         for strategy in self.enabled_strategies():
             decisions.append(strategy.evaluate(symbol, inputs))
         return decisions
+
+
+def build_default_registry(
+    enabled_strategy_ids: Optional[List[str]] = None,
+) -> StrategyRegistry:
+    registry = StrategyRegistry(enabled_strategy_ids=enabled_strategy_ids)
+    registry.register(RossMomentumStrategy())
+    return registry

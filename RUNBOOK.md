@@ -2,6 +2,14 @@
 
 ## Canonical Run Commands (from repo root)
 
+### Track A (Ross Momentum) — Orchestrator via `src.main`
+```
+python -m src.main --mode SIM --strategy ross_momentum --cycles 1
+python -m src.main --mode READONLY --strategy ross_momentum --cycles 1
+python -m src.main --mode PAPER --strategy ross_momentum --cycles 1
+python -m src.main --mode LIVE_1SHARE --strategy ross_momentum --cycles 1
+```
+
 ### Doctor / Bootstrap (READONLY scanner validation)
 ```
 python -m src.core_engine.doctor

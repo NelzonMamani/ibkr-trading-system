@@ -7,7 +7,11 @@ avoids importing other project modules, performing any trading logic, loading
 configuration, or connecting to brokers or data sources.
 """
 
-from src.config.config_resolver import get_config
+from __future__ import annotations
+
+import argparse
+
+from src.config.config_resolver import get_config, set_config_overrides
 from src.config.runtime_config import (
     DEFAULT_EVENT_REPLAY_MODE,
     DEFAULT_RUN_MODE,
@@ -38,8 +42,40 @@ from src.adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
 from src.ibkr.read_only_guard import validate_read_only_guard
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="IBKR Trading System entrypoint")
+    parser.add_argument(
+        "--mode",
+        choices=["SIM", "READONLY", "PAPER", "LIVE_1SHARE", "LIVE", "LIVE_READ_ONLY", "LIVE_MICRO"],
+        help="Run mode override (SIM, READONLY, PAPER, LIVE_1SHARE).",
+    )
+    parser.add_argument(
+        "--strategy",
+        choices=["ross_momentum"],
+        help="Strategy key to enable (currently ross_momentum).",
+    )
+    parser.add_argument("--cycles", type=int, default=None, help="Max cycles to run.")
+    return parser.parse_args()
+
+
+def _apply_cli_overrides(args: argparse.Namespace) -> None:
+    overrides: dict[str, object] = {}
+    if args.mode:
+        mode_map = {
+            "READONLY": "LIVE_READ_ONLY",
+            "LIVE_1SHARE": "LIVE_MICRO",
+        }
+        overrides["RUN_MODE"] = mode_map.get(args.mode, args.mode)
+    if args.strategy == "ross_momentum":
+        overrides["ROSS_MOMENTUM_STRATEGY_ENABLED"] = True
+    if overrides:
+        set_config_overrides(overrides)
+
+
 def main() -> None:
     """Run the minimal teaching-first entry point."""
+    args = _parse_args()
+    _apply_cli_overrides(args)
     print("[BOOT] Starting the IBKR Trading System skeleton.")
     run_mode = get_run_mode()
     if run_mode == RunMode.LIVE_READ_ONLY:
@@ -183,7 +219,7 @@ def main() -> None:
     orchestrator = CoreOrchestrator()
     print("[LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.")
 
-    orchestrator.run_forever()
+    orchestrator.run_forever(max_cycles=args.cycles)
 
     print("[SHUTDOWN] Exiting gracefully. Goodbye!")
 

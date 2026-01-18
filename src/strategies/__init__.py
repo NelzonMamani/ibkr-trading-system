@@ -1,5 +1,5 @@
 __all__ = [
     "EarlyEntryMomentumStrategy",
-    "RetailConfirmationMomentumStrategy",
+    "RossMomentumStrategy",
     "RossMomentumStrategyV1",
 ]

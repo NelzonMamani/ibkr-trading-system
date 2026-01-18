@@ -1,3 +1,8 @@
 """Ross Momentum strategy package."""
 
-__all__ = ["RossMomentumRiskOverlay", "RetailConfirmationMomentumStrategy"]
+from src.strategies.ross_momentum.ross_momentum_risk_overlay import (
+    RossMomentumRiskOverlay,
+)
+from src.strategies.ross_momentum.strategy import RossMomentumStrategy
+
+__all__ = ["RossMomentumRiskOverlay", "RossMomentumStrategy"]

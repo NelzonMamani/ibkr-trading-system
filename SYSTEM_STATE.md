@@ -40,3 +40,8 @@ No shared cadence or data with intraday trading.
 ---
 ## Next Action
 Proceed with Track A phased live rollout per `for_track_A/PHASE_INDEX.md`.
+
+## Track A Authority Note
+Track A strategy integrations are authoritative under `src/strategies/*`.
+Legacy adapters in `src/strategy/*` remain for compatibility only and should
+not be used for new Ross Momentum wiring.
