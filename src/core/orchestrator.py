@@ -45,6 +45,7 @@ from src.strategy.strategy_runner import StrategyRunner
 from src.strategy.exit_signal import ExitSignal
 from src.events.event_invariants import check_invariants, EventInvariantError
 from src.utils.time_utils import market_session_phase, to_ny_time, to_uk_time
+from src.regime.layer import RegimeLayer
 
 
 class RuntimeSafetyError(RuntimeError):
@@ -87,16 +88,19 @@ class CoreOrchestrator:
             from src.brokers import IbkrBroker
 
             if IbkrBroker is None:
-                raise RuntimeError(
-                    "LIVE_READ_ONLY requires IbkrBroker for market data snapshots."
+                print(
+                    "[MARKET_DATA][WARN] IbkrBroker unavailable; "
+                    "falling back to deterministic price feed in LIVE_READ_ONLY."
                 )
-            self.market_data_hub = MarketDataHub(
-                event_collector=self.event_collector,
-                broker=IbkrBroker(),
-                max_symbols_per_cycle=get_config("IBKR_MAX_SYMBOLS_PER_CYCLE"),
-            )
-            self.price_feed = MarketDataPriceFeed(self.market_data_hub)
-            print("[MARKET_DATA] Market data source: IBKR (READ_ONLY)")
+                self.price_feed = DeterministicPriceFeed()
+            else:
+                self.market_data_hub = MarketDataHub(
+                    event_collector=self.event_collector,
+                    broker=IbkrBroker(),
+                    max_symbols_per_cycle=get_config("IBKR_MAX_SYMBOLS_PER_CYCLE"),
+                )
+                self.price_feed = MarketDataPriceFeed(self.market_data_hub)
+                print("[MARKET_DATA] Market data source: IBKR (READ_ONLY)")
         elif self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO}:
             from src.brokers import IbkrBroker
 
@@ -112,8 +116,10 @@ class CoreOrchestrator:
         else:
             self.price_feed = DeterministicPriceFeed()
         self.scanner_mode = get_config("SCANNER_MODE")
-        if self.run_mode == RunMode.LIVE_READ_ONLY:
+        if self.run_mode == RunMode.LIVE_READ_ONLY and self.market_data_hub is not None:
             self.scanner_mode = "LIVE_READONLY"
+        elif self.run_mode == RunMode.LIVE_READ_ONLY:
+            print("[SCAN][WARN] LIVE_READ_ONLY fallback to teaching scanner mode.")
         self.last_scanner_watchlist_payload = {}
         self.market_data_client = None
         if self.scanner_mode == "LIVE_READONLY":
@@ -133,6 +139,7 @@ class CoreOrchestrator:
         self.signal_engine_v1 = SignalEngineV1()
         print("[BOOT] SignalEngineV1 instantiated")
         self.strategy_runner = StrategyRunner(event_collector=self.event_collector)
+        self.regime_layer = RegimeLayer(event_collector=self.event_collector)
         self.risk_engine = RiskEngine(
             trade_registry=self.trade_registry,
             stop_controller=self.stop_controller,
@@ -576,14 +583,30 @@ class CoreOrchestrator:
         print(event)
         print("[TEACH] <<< Signals stage complete — moving to strategy stage.")
 
+        regime_snapshot = None
+        regime_policy_decision = None
+        if self.regime_layer.enabled:
+            print("[TEACH] >>> Regime stage — classify market regime (adaptive layer).")
+            regime_snapshot, regime_policy_decision = self.regime_layer.evaluate(
+                candidates=scanner_results or [],
+                session=get_current_market_session(),
+            )
+            print("[TEACH] <<< Regime stage complete — moving to strategy stage.")
+
         print("[TEACH] >>> Strategy stage — decide on trade ideas (conceptual).")
         try:
             strategy_intents = self.strategy_runner.generate_trade_intents(
                 pattern_results or [],
+                policy_decision=regime_policy_decision,
                 signals=signals,
             )
             strategy_output = self.strategy_runner.run_from_intents(strategy_intents)
             strategy_output = self._merge_trade_intents([], strategy_output)
+            strategy_output = self._annotate_trade_intents_with_regime(
+                strategy_output,
+                regime_snapshot,
+                regime_policy_decision,
+            )
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="STRATEGY",
@@ -635,6 +658,11 @@ class CoreOrchestrator:
         print("[TEACH] >>> Risk stage — check sizing and limits (conceptual).")
         risk_output: List[RiskDecision] = []
         blocked_symbols: set[str] = set()
+        risk_multiplier = (
+            regime_policy_decision.risk_multiplier
+            if regime_policy_decision and regime_policy_decision.applied
+            else None
+        )
         if not strategy_output:
             print("[RISK] No risk decision produced — placeholder outcome.")
         else:
@@ -655,7 +683,10 @@ class CoreOrchestrator:
                     )
                     if getattr(trade_intent, "tick", None) is None:
                         trade_intent.tick = tick
-                    decision = self.risk_engine.evaluate_trade_intent(trade_intent)
+                    decision = self.risk_engine.evaluate_trade_intent(
+                        trade_intent,
+                        risk_multiplier=risk_multiplier,
+                    )
                     decision.trader_type = getattr(trade_intent, "trader_type", "MANUAL")
                     if not decision.allowed or decision.risk_level == "BLOCKED":
                         blocked_symbols.add(trade_intent.symbol)
@@ -919,6 +950,10 @@ class CoreOrchestrator:
                 execution_output=execution_output or [],
                 trade_outcomes=trade_outcomes or [],
                 performance_snapshot=performance_snapshot,
+                regime_snapshot=regime_snapshot.to_payload() if regime_snapshot else None,
+                regime_policy_decision=(
+                    regime_policy_decision.to_payload() if regime_policy_decision else None
+                ),
             )
         except Exception as exc:
             self._evaluate_runtime_safety(
@@ -1147,6 +1182,31 @@ class CoreOrchestrator:
 
         return [merged[key] for key in sorted(merged.keys())]
 
+    def _annotate_trade_intents_with_regime(
+        self,
+        intents: List[TradeIntent],
+        snapshot,
+        policy_decision,
+    ) -> List[TradeIntent]:
+        if not snapshot:
+            return intents
+        annotated: List[TradeIntent] = []
+        for intent in intents:
+            annotated.append(
+                replace(
+                    intent,
+                    regime_label=snapshot.label.value,
+                    regime_confidence=snapshot.confidence,
+                    regime_policy_applied=bool(
+                        policy_decision.applied if policy_decision else False
+                    ),
+                    regime_notes=list(policy_decision.notes)
+                    if policy_decision
+                    else [],
+                )
+            )
+        return annotated
+
     def _normalize_trade_intents(self, intents: List[TradeIntent]) -> List[TradeIntent]:
         intents_to_process = list(intents)
         injected_duplicates = 0
@@ -1240,6 +1300,8 @@ class CoreOrchestrator:
             market_data_source = "SIM"
         elif self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO, RunMode.PAPER}:
             market_data_source = "IBKR"
+            if self.run_mode == RunMode.LIVE_READ_ONLY and self.market_data_hub is None:
+                market_data_source = "SIM_FALLBACK"
         else:
             market_data_source = "SIM"
         execution_policy = "ALLOWED" if self.execution_enabled else "HARD DISABLED"
@@ -1271,7 +1333,9 @@ class CoreOrchestrator:
                 raise RuntimeError(
                     "RUN_MODE=SIM is invalid when IBKR live/read-only settings are active."
                 )
-            if "SIM" in market_data_source:
+            if market_data_source == "SIM_FALLBACK":
+                print("[VALIDATION][WARN] LIVE_READ_ONLY using SIM fallback market data.")
+            elif "SIM" in market_data_source:
                 raise RuntimeError(
                     "Market data source resolved to SIM under LIVE_READ_ONLY conditions."
                 )
@@ -1280,12 +1344,16 @@ class CoreOrchestrator:
         if self.run_mode == RunMode.LIVE_READ_ONLY:
             print("[VALIDATION] LIVE_READ_ONLY: live data enabled")
             print("[VALIDATION] LIVE_READ_ONLY: execution disabled by design")
-            if not isinstance(self.scanner, LiveReadOnlyScanner):
-                raise RuntimeError("LIVE_READ_ONLY must use LiveReadOnlyScanner")
             if self.market_data_hub is None:
-                raise RuntimeError("LIVE_READ_ONLY requires MarketDataHub for IBKR data")
-            if not isinstance(self.price_feed, MarketDataPriceFeed):
-                raise RuntimeError("LIVE_READ_ONLY must use MarketDataPriceFeed")
+                print(
+                    "[VALIDATION][WARN] LIVE_READ_ONLY fallback active: "
+                    "MarketDataHub unavailable."
+                )
+            else:
+                if not isinstance(self.scanner, LiveReadOnlyScanner):
+                    raise RuntimeError("LIVE_READ_ONLY must use LiveReadOnlyScanner")
+                if not isinstance(self.price_feed, MarketDataPriceFeed):
+                    raise RuntimeError("LIVE_READ_ONLY must use MarketDataPriceFeed")
         if self.storage_engine.enabled and self.storage_engine.backend == "sqlite":
             if self.storage_engine._store is None:
                 raise RuntimeError("Storage engine failed to open SQLite store")

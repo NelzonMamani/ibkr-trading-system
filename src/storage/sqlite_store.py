@@ -10,7 +10,7 @@ from typing import Any, Iterable
 from src.storage.serialization import compute_audit_hash
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 @dataclass
@@ -114,6 +114,8 @@ class SQLiteStore:
                 execution_output_json TEXT,
                 trade_outcomes_json TEXT,
                 performance_snapshot_json TEXT,
+                regime_snapshot_json TEXT,
+                regime_policy_decision_json TEXT,
                 created_at TEXT,
                 FOREIGN KEY(run_id) REFERENCES runs(run_id),
                 FOREIGN KEY(cycle_id) REFERENCES cycles(cycle_id)
@@ -236,6 +238,8 @@ class SQLiteStore:
             "trade_records",
             {
                 "tick": "INTEGER",
+                "regime_snapshot_json": "TEXT",
+                "regime_policy_decision_json": "TEXT",
             },
         )
         self._ensure_columns(
@@ -369,8 +373,9 @@ class SQLiteStore:
                 trade_record_id, run_id, cycle_id, tick,
                 scanner_output_json, pattern_output_json, strategy_output_json,
                 risk_output_json, execution_output_json, trade_outcomes_json,
-                performance_snapshot_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                performance_snapshot_json, regime_snapshot_json, regime_policy_decision_json,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 trade_record["trade_record_id"],
@@ -384,6 +389,8 @@ class SQLiteStore:
                 trade_record.get("execution_output_json"),
                 trade_record.get("trade_outcomes_json"),
                 trade_record.get("performance_snapshot_json"),
+                trade_record.get("regime_snapshot_json"),
+                trade_record.get("regime_policy_decision_json"),
                 trade_record.get("created_at"),
             ),
         )

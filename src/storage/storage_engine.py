@@ -429,6 +429,16 @@ class StorageEngine:
                 allow_fallback=True,
                 fallback_handler=fallback_handler,
             ),
+            "regime_snapshot_json": canonical_json(
+                trade_record_payload.get("regime_snapshot"),
+                allow_fallback=True,
+                fallback_handler=fallback_handler,
+            ),
+            "regime_policy_decision_json": canonical_json(
+                trade_record_payload.get("regime_policy_decision"),
+                allow_fallback=True,
+                fallback_handler=fallback_handler,
+            ),
             "created_at": now_iso(),
         }
         if warnings:

@@ -183,7 +183,12 @@ class RiskEngine:
             rationale="Intent approved by RiskEngine." if allowed else "Intent blocked by RiskEngine.",
         )
 
-    def evaluate_trade_intent(self, trade_intent: TradeIntent) -> RiskDecision:
+    def evaluate_trade_intent(
+        self,
+        trade_intent: TradeIntent,
+        *,
+        risk_multiplier: float | None = None,
+    ) -> RiskDecision:
         """
         Evaluate a TradeIntent using deterministic, conservative rules.
 
@@ -359,6 +364,23 @@ class RiskEngine:
             "[RISK] Max position size capped at "
             f"{max_position_size} share(s) for safety and simplicity"
         )
+        applied_multiplier = None
+        if risk_multiplier is not None:
+            applied_multiplier = max(0.0, float(risk_multiplier))
+            max_position_size = int(round(max_position_size * applied_multiplier))
+            if applied_multiplier <= 0 or max_position_size <= 0:
+                rationale = "Regime risk multiplier reduced size to zero."
+                return RiskDecision(
+                    symbol=trade_intent.symbol,
+                    allowed=False,
+                    max_position_size=0,
+                    risk_level="BLOCKED",
+                    rationale=rationale,
+                    trader_type=trader_type,
+                    strategy_name=trade_intent.strategy_name,
+                    direction=trade_intent.direction,
+                    reason_code="REGIME_RISK_MULTIPLIER",
+                )
 
         confidence = trade_intent.confidence
         low_threshold = float(get_config("RISK_CONFIDENCE_LOW_THRESHOLD"))
@@ -386,7 +408,7 @@ class RiskEngine:
             "within strategy limits."
         )
 
-        return RiskDecision(
+        decision = RiskDecision(
             symbol=trade_intent.symbol,
             allowed=allowed,
             max_position_size=max_position_size,
@@ -400,6 +422,11 @@ class RiskEngine:
             pattern_name=getattr(trade_intent, "pattern_name", None),
             invalidation_level=getattr(trade_intent, "invalidation_level", None),
         )
+        if applied_multiplier is not None:
+            decision.risk_reasons.append(
+                f"REGIME_RISK_MULTIPLIER:{applied_multiplier:.2f}"
+            )
+        return decision
 
 
 def evaluate_trade_intents(

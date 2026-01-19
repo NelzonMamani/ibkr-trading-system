@@ -246,6 +246,29 @@ INTENT_DROPPED_DUPLICATE_SCHEMA = {
     "reason": str,
 }
 
+REGIME_SNAPSHOT_SCHEMA = {
+    "label": str,
+    "confidence": (float, int),
+    "session": str,
+    "features": dict,
+    "evidence": list,
+    "data_quality_flags": list,
+    "baseline_stats": dict,
+    "timestamp_utc": (str, type(None)),
+}
+
+REGIME_POLICY_DECISION_SCHEMA = {
+    "label": str,
+    "confidence": (float, int),
+    "applied": bool,
+    "eligible_strategies": list,
+    "strategy_weights": dict,
+    "risk_multiplier": (float, int),
+    "notes": list,
+    "data_quality_flags": list,
+    "timestamp_utc": (str, type(None)),
+}
+
 PERF_SNAPSHOT_SCHEMA = {
     "total_trades": int,
     "closed_trades": int,
@@ -439,6 +462,8 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
     },
     "INTENT_NORMALISED": INTENT_NORMALISED_SCHEMA,
     "INTENT_DROPPED_DUPLICATE": INTENT_DROPPED_DUPLICATE_SCHEMA,
+    "REGIME_SNAPSHOT": REGIME_SNAPSHOT_SCHEMA,
+    "REGIME_POLICY_DECISION": REGIME_POLICY_DECISION_SCHEMA,
     "SIGNALS_GENERATED": {
         "signals": int,
     },
@@ -853,6 +878,8 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
         "dropped_confidence",
         "reason",
     },
+    "REGIME_SNAPSHOT": {"label", "confidence", "session", "features"},
+    "REGIME_POLICY_DECISION": {"label", "confidence", "applied", "risk_multiplier"},
     "SIGNALS_GENERATED": {"signals"},
     "SIGNAL_EMITTED": {"symbol", "signal_type", "decision", "confidence"},
     "SIGNAL_INVALID": {"symbol", "signal_type", "decision", "confidence"},

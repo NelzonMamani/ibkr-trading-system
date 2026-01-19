@@ -55,6 +55,16 @@ def _parse_args() -> argparse.Namespace:
         help="Strategy key to enable (currently ross_momentum).",
     )
     parser.add_argument("--cycles", type=int, default=None, help="Max cycles to run.")
+    parser.add_argument(
+        "--regime-layer",
+        action="store_true",
+        help="Enable the adaptive regime/microstructure layer.",
+    )
+    parser.add_argument(
+        "--regime-policy",
+        action="store_true",
+        help="Enable regime policy application (requires --regime-layer).",
+    )
     return parser.parse_args()
 
 
@@ -68,6 +78,10 @@ def _apply_cli_overrides(args: argparse.Namespace) -> None:
         overrides["RUN_MODE"] = mode_map.get(args.mode, args.mode)
     if args.strategy == "ross_momentum":
         overrides["ROSS_MOMENTUM_STRATEGY_ENABLED"] = True
+    if args.regime_layer:
+        overrides["ADAPTIVE_REGIME_LAYER_ENABLED"] = True
+    if args.regime_policy:
+        overrides["ADAPTIVE_REGIME_POLICY_ENABLED"] = True
     if overrides:
         set_config_overrides(overrides)
 
@@ -114,6 +128,14 @@ def main() -> None:
     print(f"  - SCANNER_MODE: {get_scanner_mode()}")
     print(f"  - SCANNER_SYMBOLS: {get_scanner_symbols()}")
     print(f"  - INTENT_DEDUP_SELFTEST_ENABLED: {get_intent_dedup_selftest_enabled()}")
+    print(
+        "  - ADAPTIVE_REGIME_LAYER_ENABLED: "
+        f"{bool(get_config('ADAPTIVE_REGIME_LAYER_ENABLED'))}"
+    )
+    print(
+        "  - ADAPTIVE_REGIME_POLICY_ENABLED: "
+        f"{bool(get_config('ADAPTIVE_REGIME_POLICY_ENABLED'))}"
+    )
     ibkr_order_translation_enabled = get_ibkr_order_translation_enabled()
     print(f"  - IBKR_ORDER_TRANSLATION_ENABLED: {ibkr_order_translation_enabled}")
     ibkr_default_exchange = get_ibkr_default_exchange()

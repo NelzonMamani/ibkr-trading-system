@@ -118,6 +118,10 @@ class TradeIntent:
     float_millions: Optional[float] = None
     tick: Optional[int] = None
     data_quality_flags: List[str] = field(default_factory=list)
+    regime_label: Optional[str] = None
+    regime_confidence: Optional[float] = None
+    regime_policy_applied: Optional[bool] = None
+    regime_notes: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -219,6 +223,8 @@ class TradeRecord:
         "execution_output",
         "trade_outcomes",
         "performance_snapshot",
+        "regime_snapshot",
+        "regime_policy_decision",
     )
 
     scanner_output: List = field(default_factory=list)
@@ -228,6 +234,8 @@ class TradeRecord:
     execution_output: List[ExecutionResult] = field(default_factory=list)
     trade_outcomes: List[TradeOutcome] = field(default_factory=list)
     performance_snapshot: Optional[PerformanceSnapshot] = None
+    regime_snapshot: Optional[dict] = None
+    regime_policy_decision: Optional[dict] = None
 
     def __post_init__(self) -> None:
         print(
@@ -236,7 +244,9 @@ class TradeRecord:
             f"{len(self.strategy_output)} intents, {len(self.risk_output)} risk decisions, "
             f"{len(self.execution_output)} execution results, "
             f"{len(self.trade_outcomes)} trade outcomes, "
-            f"performance_snapshot={'present' if self.performance_snapshot else 'absent'}."
+            f"performance_snapshot={'present' if self.performance_snapshot else 'absent'}, "
+            f"regime_snapshot={'present' if self.regime_snapshot else 'absent'}, "
+            f"regime_policy_decision={'present' if self.regime_policy_decision else 'absent'}."
         )
 
     @classmethod
