@@ -153,6 +153,7 @@ class RossMomentumPolicy:
     """Top-level policy used by the Orchestrator and Runner."""
 
     name: str = "ROSS_MOMENTUM"
+    version: str = "v1"
 
     # Timeframe plans per mode
     timeframe_opening: TimeframePlan = TimeframePlan(
@@ -179,6 +180,11 @@ class RossMomentumPolicy:
     indicator_gates: IndicatorGates = IndicatorGates()
     risk: RiskAndPermissions = RiskAndPermissions()
 
+    # Scanner/Universe policy belongs here; orchestrator imports it and passes it to scanner.
+    stock_selection: "RossStockSelectionPolicy" = field(
+        default_factory=lambda: RossStockSelectionPolicy()
+    )
+
     # Level 2 / Tape reading (optional; can be disabled without subscriptions)
     # These are left as telemetry flags / hooks.
     level2_iceberg_detection_enabled: bool = False
@@ -186,6 +192,32 @@ class RossMomentumPolicy:
     # Market hours assumptions
     market_open_time_et: str = "09:30"
     market_close_time_et: str = "16:00"
+
+
+@dataclass(frozen=True)
+class RossStockSelectionPolicy:
+    """Ross Momentum stock selection policy (Ross 5 pillars + tradability gates)."""
+
+    price_min: float = 1.0
+    price_max: float = 20.0
+    gap_min_pct: float = 10.0
+    gap_max_pct: Optional[float] = None
+    rvol_min: float = 5.0
+    float_max_millions: float = 20.0
+    liquidity_min_dollar_volume: Optional[float] = None
+    min_volume: int = 1_000_000
+    min_premarket_volume: int = 100_000
+    spread_max: Optional[float] = None
+    require_catalyst: bool = True
+    allow_halts: bool = False
+    allow_ssr: bool = True
+    data_quality_require_price: bool = True
+    data_quality_require_bid_ask: bool = False
+    watchlist_limit_k: int = 15
+    focus_limit_m: int = 5
+    top_gainers_n: int = 50
+    max_symbols_per_cycle: int = 50
+    session_allowlist: Sequence[str] = ("PRE", "REG", "AFTER")
 
 
 SESSION_PHASE_TO_MODE = {
@@ -216,3 +248,11 @@ def timeframe_plan_for_session_phase(
     session_phase: str,
 ) -> TimeframePlan:
     return timeframe_plan_for_mode(policy, mode_for_session_phase(session_phase))
+
+
+def stock_selection_policy_for_session_phase(
+    policy: RossMomentumPolicy,
+    session_phase: str,
+) -> RossStockSelectionPolicy:
+    _ = session_phase
+    return policy.stock_selection

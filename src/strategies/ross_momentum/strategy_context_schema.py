@@ -93,6 +93,7 @@ class SymbolContext:
 
     l2_icebergs: List[L2Iceberg] = field(default_factory=list)
     halted: bool = False
+    data_quality_flags: List[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -109,3 +110,5 @@ class StrategyContext:
     unrealized_pnl: float = 0.0
     consecutive_losses: int = 0
     safety_flags: Dict[str, bool] = field(default_factory=dict)
+    watchlist_k: List[str] = field(default_factory=list)
+    focus_m: List[str] = field(default_factory=list)

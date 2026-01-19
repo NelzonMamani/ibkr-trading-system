@@ -26,3 +26,9 @@ implicit defaults, hidden environment dependencies, and runtime ambiguity.
 1. Add a new entry to `CONFIG_REGISTRY` with type, default, env overrides, and metadata.
 2. Add enforcement rules or validation in `config_resolver` if needed.
 3. Regenerate documentation by running the config docs generator.
+
+## Scanner authority (Ross Momentum)
+
+* Stock selection thresholds now live in `RossMomentumPolicy.stock_selection`.
+* The orchestrator loads the strategy policy and delegates that stock selection policy to the scanner.
+* The scanner executes the provided policy and reports watchlist/focus outputs back to the orchestrator.
