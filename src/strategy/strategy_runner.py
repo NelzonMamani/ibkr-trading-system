@@ -93,6 +93,27 @@ class StrategyRunner:
         print(f"[STRATEGY] Aggregated TradeIntents from all strategies: {len(all_intents)} total")
         return all_intents
 
+    def filter_pattern_results(
+        self,
+        pattern_results: List[PatternResult],
+        focus_symbols: Optional[Sequence[str]] = None,
+    ) -> List[PatternResult]:
+        focus_list = list(focus_symbols or [])
+        if not focus_list:
+            symbols_for_eval = sorted({result.symbol for result in pattern_results})
+            print(
+                "[RUNNER] symbols_for_evaluation="
+                f"{symbols_for_eval} source=ALL_CANDIDATES"
+            )
+            return pattern_results
+        focus_set = set(focus_list)
+        filtered = [result for result in pattern_results if result.symbol in focus_set]
+        print(
+            "[RUNNER] symbols_for_evaluation="
+            f"{focus_list} source=FOCUS_M"
+        )
+        return filtered
+
     def generate_trade_intent(
         self,
         pattern_results: List[PatternResult],

@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from src.config.config_resolver import get_config
+from src.scanner.contracts import StockSelectionPolicy
 
 
 def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
@@ -21,7 +22,18 @@ def _get_value(entry: Any, key: str) -> Any:
     return getattr(entry, key, None)
 
 
-def _ross_5_pillars() -> dict:
+def _ross_5_pillars(policy: StockSelectionPolicy | None = None) -> dict:
+    if policy is not None:
+        return {
+            "min_pct_change": float(policy.gap_min_pct),
+            "min_price": float(policy.price_min),
+            "max_price": float(policy.price_max),
+            "max_float": int(policy.float_max_millions * 1_000_000),
+            "min_rvol": float(policy.rvol_min),
+            "min_volume": int(policy.min_volume),
+            "min_premarket_volume": int(policy.min_premarket_volume),
+            "require_news": bool(policy.require_catalyst),
+        }
     return {
         "min_pct_change": float(get_config("ROSS_MIN_PCT_CHANGE")),
         "min_price": float(get_config("ROSS_MIN_PRICE")),
@@ -42,8 +54,12 @@ def _news_gates() -> dict:
     }
 
 
-def evaluate_ross_5_pillars(entry: Any, require_news_override: Optional[bool] = None) -> tuple[bool, list[str]]:
-    pillars = _ross_5_pillars()
+def evaluate_ross_5_pillars(
+    entry: Any,
+    require_news_override: Optional[bool] = None,
+    policy: StockSelectionPolicy | None = None,
+) -> tuple[bool, list[str]]:
+    pillars = _ross_5_pillars(policy=policy)
     if require_news_override is not None:
         pillars["require_news"] = require_news_override
     pct = _safe_float(_get_value(entry, "current_percentage_change_from_prior_close"), None)
@@ -79,8 +95,16 @@ def evaluate_ross_5_pillars(entry: Any, require_news_override: Optional[bool] = 
     return (len(reasons) == 0), reasons
 
 
-def passes_ross_5_pillars(entry: Any, require_news_override: Optional[bool] = None) -> bool:
-    passed, _ = evaluate_ross_5_pillars(entry, require_news_override=require_news_override)
+def passes_ross_5_pillars(
+    entry: Any,
+    require_news_override: Optional[bool] = None,
+    policy: StockSelectionPolicy | None = None,
+) -> bool:
+    passed, _ = evaluate_ross_5_pillars(
+        entry,
+        require_news_override=require_news_override,
+        policy=policy,
+    )
     return passed
 
 
@@ -116,9 +140,10 @@ def evaluate_filters(
     entry: Any,
     require_news_override: Optional[bool] = None,
     bypass_news_gates: bool = False,
+    policy: StockSelectionPolicy | None = None,
 ) -> tuple[bool, list[str]]:
     passed_pillars, pillar_reasons = evaluate_ross_5_pillars(
-        entry, require_news_override=require_news_override
+        entry, require_news_override=require_news_override, policy=policy
     )
     if not passed_pillars:
         return False, pillar_reasons

@@ -19,7 +19,12 @@ from src.config.config_resolver import get_config, get_config_record
 from src.news.news_fetcher import Headline, fetch_headlines_for_symbols
 from src.news.verified_sources import load_verified_rss_sources
 
-from src.scanner.contracts import SCANNER_GIT_SHA, SCANNER_VERSION
+from src.scanner.contracts import (
+    SCANNER_GIT_SHA,
+    SCANNER_VERSION,
+    StockSelectionPolicy,
+    policy_from_config,
+)
 from src.scanner.phase24_views import (
     DeepViewRow,
     FastViewRow,
@@ -41,8 +46,6 @@ _FLOAT_CACHE_REQUESTED: set[str] = set()
 _HISTORY_CACHE: Dict[str, Dict[str, Any]] = {}
 _NEWS_CACHE: Dict[str, Dict[str, Any]] = {}
 _PREV_WATCHLIST: set[str] = set()
-
-FOCUS_LIST_LIMIT_DEFAULT = 5
 NEWS_AGE_MAX_MINUTES = 360
 
 CATALYST_KEYWORDS = {
@@ -72,11 +75,15 @@ class GateThresholds:
     min_price: float
     max_price: float
     min_pct_change: float
+    max_pct_change: Optional[float]
     min_rvol: float
     min_volume: int
     min_premarket_volume: int
     max_float: int
     spread_max_pct: Optional[float]
+    min_dollar_volume: Optional[float]
+    require_price: bool
+    require_bid_ask: bool
 
 
 @dataclass(frozen=True)
@@ -113,12 +120,14 @@ def _market_session_label_utc(now: datetime) -> str:
     return "AFTER"
 
 
-def _print_symbol_limits(scanner_mode: str, provider_source: str) -> Dict[str, Any]:
+def _print_symbol_limits(
+    scanner_mode: str,
+    provider_source: str,
+    policy: StockSelectionPolicy,
+) -> Dict[str, Any]:
     limit_keys = [
-        "SCANNER_TOP_GAINERS_COUNT",
         "IBKR_MAX_SYMBOLS_PER_CYCLE",
         "SCANNER_TEACHING_SYMBOL_CAP",
-        "SCANNER_WATCHLIST_LIMIT",
     ]
     records = {key: get_config_record(key) for key in limit_keys}
     print("[SCANNER][LIMITS] Symbol limits (value/source/env)")
@@ -126,9 +135,19 @@ def _print_symbol_limits(scanner_mode: str, provider_source: str) -> Dict[str, A
         record = records[key]
         env = record.env or "-"
         print(f"[SCANNER][LIMITS] {key}={record.value} source={record.source} env={env}")
+    print(
+        "[SCANNER][LIMITS] Policy caps "
+        f"top_gainers_n={policy.top_gainers_n} "
+        f"watchlist_k={policy.watchlist_limit_k} "
+        f"focus_m={policy.focus_limit_m} "
+        f"max_symbols_per_cycle={policy.max_symbols_per_cycle}"
+    )
 
-    resolved = int(records["SCANNER_TOP_GAINERS_COUNT"].value)
+    resolved = int(policy.top_gainers_n)
     reductions: list[str] = []
+    if policy.max_symbols_per_cycle and resolved > policy.max_symbols_per_cycle:
+        reductions.append(f"policy_max_symbols({policy.max_symbols_per_cycle})")
+        resolved = policy.max_symbols_per_cycle
     if scanner_mode == "TEACHING":
         teaching_cap = int(records["SCANNER_TEACHING_SYMBOL_CAP"].value)
         if teaching_cap and resolved > teaching_cap:
@@ -140,8 +159,10 @@ def _print_symbol_limits(scanner_mode: str, provider_source: str) -> Dict[str, A
             reductions.append(f"ibkr_snapshot_cap({ibkr_cap})")
             resolved = ibkr_cap
 
-    watchlist_limit = int(records["SCANNER_WATCHLIST_LIMIT"].value)
-    focus_limit = min(max(3, FOCUS_LIST_LIMIT_DEFAULT), watchlist_limit or FOCUS_LIST_LIMIT_DEFAULT)
+    watchlist_limit = int(policy.watchlist_limit_k)
+    focus_limit = int(policy.focus_limit_m)
+    if watchlist_limit and focus_limit > watchlist_limit:
+        focus_limit = watchlist_limit
     print(
         "[SCANNER][LIMITS] Resolved symbol request limit="
         f"{resolved} reductions={reductions or ['none']}"
@@ -257,18 +278,20 @@ def _pct_change(last_price: Optional[float], prev_close: Optional[float]) -> Opt
     return round(((last_price - prev_close) / prev_close) * 100.0, 2)
 
 
-def _gate_thresholds() -> GateThresholds:
-    spread_max_pct = None
-    # TODO: add configured spread cap once available in config registry.
+def _gate_thresholds(policy: StockSelectionPolicy) -> GateThresholds:
     return GateThresholds(
-        min_price=float(get_config("ROSS_MIN_PRICE")),
-        max_price=float(get_config("ROSS_MAX_PRICE")),
-        min_pct_change=float(get_config("ROSS_MIN_PCT_CHANGE")),
-        min_rvol=float(get_config("ROSS_MIN_RVOL")),
-        min_volume=int(get_config("ROSS_MIN_VOLUME")),
-        min_premarket_volume=int(get_config("ROSS_MIN_PREMARKET_VOLUME")),
-        max_float=int(get_config("ROSS_MAX_FLOAT")),
-        spread_max_pct=spread_max_pct,
+        min_price=policy.price_min,
+        max_price=policy.price_max,
+        min_pct_change=policy.gap_min_pct,
+        max_pct_change=policy.gap_max_pct,
+        min_rvol=policy.rvol_min,
+        min_volume=policy.min_volume,
+        min_premarket_volume=policy.min_premarket_volume,
+        max_float=int(policy.float_max_millions * 1_000_000),
+        spread_max_pct=policy.spread_max,
+        min_dollar_volume=policy.liquidity_min_dollar_volume,
+        require_price=policy.data_quality_require_price,
+        require_bid_ask=policy.data_quality_require_bid_ask,
     )
 
 
@@ -280,17 +303,22 @@ def _evaluate_gates(
     pct_change = _safe_float(context.get("pct_change"), None)
     rvol = _safe_float(context.get("rvol"), None)
     volume = _safe_float(context.get("volume"), None)
+    dollar_volume = _safe_float(context.get("dollar_volume"), None)
     float_shares = context.get("float_shares")
     session = (context.get("session") or "").upper()
     spread_pct = _safe_float(context.get("spread_pct"), None)
+    bid = _safe_float(context.get("bid"), None)
+    ask = _safe_float(context.get("ask"), None)
 
-    if price is None:
+    if thresholds.require_price and price is None:
         return "DROP_MISSING_PRICE"
     if pct_change is None:
         return "DROP_MISSING_PCT_CHANGE"
     if pct_change < thresholds.min_pct_change:
         return "DROP_PCT_CHANGE"
-    if not (thresholds.min_price <= price <= thresholds.max_price):
+    if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
+        return "DROP_PCT_CHANGE_MAX"
+    if price is not None and not (thresholds.min_price <= price <= thresholds.max_price):
         return "DROP_PRICE_RANGE"
     if rvol is None:
         return "DROP_MISSING_RVOL"
@@ -303,6 +331,11 @@ def _evaluate_gates(
             return "DROP_PREMARKET_VOLUME"
     elif volume < thresholds.min_volume:
         return "DROP_VOLUME"
+    if thresholds.min_dollar_volume is not None:
+        if dollar_volume is None:
+            return "DROP_MISSING_DOLLAR_VOLUME"
+        if dollar_volume < thresholds.min_dollar_volume:
+            return "DROP_DOLLAR_VOLUME"
     if float_shares is not None and float_shares > thresholds.max_float:
         return "DROP_FLOAT_MAX"
     if thresholds.spread_max_pct is not None:
@@ -310,6 +343,8 @@ def _evaluate_gates(
             return "DROP_MISSING_SPREAD"
         if spread_pct > thresholds.spread_max_pct:
             return "DROP_SPREAD"
+    if thresholds.require_bid_ask and (bid is None or ask is None):
+        return "DROP_MISSING_BID_ASK"
     return None
 
 
@@ -634,15 +669,36 @@ def _build_symbol_context(
     }
 
 
-def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
+def run_scanner_cycle(
+    mode: str = "integrated",
+    policy: StockSelectionPolicy | None = None,
+) -> Dict[str, Any]:
     utc_now = _utc_now()
     session_label = _market_session_label_utc(utc_now)
     diagnostics: Dict[str, Any] = {"mode": mode}
     drop_ledger: Dict[str, str] = {}
     print(f"[SCANNER] MODE={mode} SESSION={session_label}")
     scanner_mode = str(get_config("SCANNER_MODE"))
+    policy_source = "strategy" if policy is not None else "config_fallback"
+    resolved_policy = policy or policy_from_config()
+    print(
+        "[SCANNER][POLICY] source={source} policy_name={policy_name} price={price_min}-{price_max} "
+        "gap_min={gap_min} rvol_min={rvol_min} float_max_millions={float_max} "
+        "spread_max={spread_max} watchlist_k={watchlist_k} focus_m={focus_m}".format(
+            source=policy_source,
+            policy_name=resolved_policy.policy_name,
+            price_min=resolved_policy.price_min,
+            price_max=resolved_policy.price_max,
+            gap_min=resolved_policy.gap_min_pct,
+            rvol_min=resolved_policy.rvol_min,
+            float_max=resolved_policy.float_max_millions,
+            spread_max=resolved_policy.spread_max,
+            watchlist_k=resolved_policy.watchlist_limit_k,
+            focus_m=resolved_policy.focus_limit_m,
+        )
+    )
     if scanner_mode == "TEACHING":
-        limits = _print_symbol_limits(scanner_mode, "TEACHING")
+        limits = _print_symbol_limits(scanner_mode, "TEACHING", resolved_policy)
         diagnostics["symbol_limits"] = limits
         diagnostics["provider_source"] = "TEACHING"
         print("[SCANNER][STAGE] teaching")
@@ -682,6 +738,15 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
                     gam_ea_eligible=None,
                 )
             )
+        watchlist_limit = limits["watchlist_limit"]
+        if watchlist_limit and len(fast_rows) > watchlist_limit:
+            for row in fast_rows[watchlist_limit:]:
+                drop_ledger.setdefault(row.symbol, "DROP_RANK_BELOW_WATCHLIST")
+                print(
+                    "[SCANNER][DROP] symbol="
+                    f"{row.symbol} reason=DROP_RANK_BELOW_WATCHLIST"
+                )
+            fast_rows = fast_rows[:watchlist_limit]
         focus_limit = limits["focus_limit"]
         deep_rows = [
             DeepViewRow(
@@ -740,7 +805,7 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
         }
 
     provider: ScannerDataProvider = build_provider()
-    limits = _print_symbol_limits(scanner_mode, provider.source_name)
+    limits = _print_symbol_limits(scanner_mode, provider.source_name, resolved_policy)
     diagnostics["symbol_limits"] = limits
     print("[SCANNER][STAGE] bootstrap")
 
@@ -757,7 +822,7 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
                 }
                 provider.disconnect()
                 provider = MockScannerProvider()
-                limits = _print_symbol_limits(scanner_mode, provider.source_name)
+                limits = _print_symbol_limits(scanner_mode, provider.source_name, resolved_policy)
                 diagnostics["symbol_limits"] = limits
             symbols = provider.get_top_gainers(limits["resolved_symbol_limit"])
 
@@ -773,7 +838,7 @@ def run_scanner_cycle(mode: str = "integrated") -> Dict[str, Any]:
         symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
 
         float_cache = _bootstrap_float_cache(symbols, provider)
-        thresholds = _gate_thresholds()
+        thresholds = _gate_thresholds(resolved_policy)
         candidates: List[Dict[str, Any]] = []
 
         print("[SCANNER][STAGE] gates")

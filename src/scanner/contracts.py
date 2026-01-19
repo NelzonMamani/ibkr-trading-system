@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.config.config_resolver import get_config
 
@@ -180,6 +180,57 @@ class ScannerRow54:
     strategy_trade_bias: Optional[str]
     scanner_version: Optional[str]
     debug_notes: Optional[str]
+
+
+@dataclass(frozen=True)
+class StockSelectionPolicy:
+    policy_name: str
+    price_min: float
+    price_max: float
+    gap_min_pct: float
+    gap_max_pct: Optional[float]
+    rvol_min: float
+    float_max_millions: float
+    liquidity_min_dollar_volume: Optional[float]
+    min_volume: int
+    min_premarket_volume: int
+    spread_max: Optional[float]
+    require_catalyst: bool
+    allow_halts: bool
+    allow_ssr: bool
+    data_quality_require_price: bool
+    data_quality_require_bid_ask: bool
+    watchlist_limit_k: int
+    focus_limit_m: int
+    top_gainers_n: int
+    max_symbols_per_cycle: int
+    session_allowlist: Sequence[str]
+
+
+def policy_from_config() -> StockSelectionPolicy:
+    return StockSelectionPolicy(
+        policy_name="CONFIG_DEFAULTS",
+        price_min=float(get_config("ROSS_MIN_PRICE")),
+        price_max=float(get_config("ROSS_MAX_PRICE")),
+        gap_min_pct=float(get_config("ROSS_MIN_PCT_CHANGE")),
+        gap_max_pct=None,
+        rvol_min=float(get_config("ROSS_MIN_RVOL")),
+        float_max_millions=float(get_config("ROSS_MAX_FLOAT")) / 1_000_000.0,
+        liquidity_min_dollar_volume=None,
+        min_volume=int(get_config("ROSS_MIN_VOLUME")),
+        min_premarket_volume=int(get_config("ROSS_MIN_PREMARKET_VOLUME")),
+        spread_max=None,
+        require_catalyst=bool(get_config("ROSS_REQUIRE_NEWS")),
+        allow_halts=False,
+        allow_ssr=True,
+        data_quality_require_price=True,
+        data_quality_require_bid_ask=False,
+        watchlist_limit_k=int(get_config("SCANNER_WATCHLIST_LIMIT")),
+        focus_limit_m=5,
+        top_gainers_n=int(get_config("SCANNER_TOP_GAINERS_COUNT")),
+        max_symbols_per_cycle=int(get_config("IBKR_MAX_SYMBOLS_PER_CYCLE")),
+        session_allowlist=("PRE", "REG", "AFTER"),
+    )
 
 
 def validate_row(

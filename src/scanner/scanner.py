@@ -16,6 +16,7 @@ from src.config.config_resolver import get_config
 from src.core.event_collector import EventCollector
 from src.market_data.market_data_hub import MarketDataHub
 from src.models.data_models import ScannerCandidate
+from src.scanner.contracts import StockSelectionPolicy, policy_from_config
 
 
 class RunMode(Enum):
@@ -73,7 +74,9 @@ class Scanner:
         symbols = get_config("SCANNER_SYMBOLS")
         return list(symbols or [])
 
-    def run_scan_cycle(self) -> List[ScannerCandidate]:
+    def run_scan_cycle(
+        self, policy: StockSelectionPolicy | None = None
+    ) -> List[ScannerCandidate]:
         """
         Demonstrate how a scan cycle would be invoked in a real system.
 
@@ -84,15 +87,33 @@ class Scanner:
         self.last_data_quality_flags = {}
         self.last_connectivity_issue = None
         self.last_fallback_reason = None
+        policy_source = "strategy" if policy is not None else "config_fallback"
+        resolved_policy = policy or policy_from_config()
+        print(
+            "[SCANNER][POLICY] source={source} policy_name={policy_name} price={price_min}-{price_max} "
+            "gap_min={gap_min} rvol_min={rvol_min} float_max_millions={float_max} "
+            "spread_max={spread_max} watchlist_k={watchlist_k} focus_m={focus_m}".format(
+                source=policy_source,
+                policy_name=resolved_policy.policy_name,
+                price_min=resolved_policy.price_min,
+                price_max=resolved_policy.price_max,
+                gap_min=resolved_policy.gap_min_pct,
+                rvol_min=resolved_policy.rvol_min,
+                float_max=resolved_policy.float_max_millions,
+                spread_max=resolved_policy.spread_max,
+                watchlist_k=resolved_policy.watchlist_limit_k,
+                focus_m=resolved_policy.focus_limit_m,
+            )
+        )
         if self.run_mode == RunMode.LIVE_READ_ONLY and self.scan_symbols:
-            return self._run_live_readonly_scan()
+            return self._run_live_readonly_scan(resolved_policy)
         if self.run_mode == RunMode.LIVE_READ_ONLY and not self.scan_symbols:
             reason = "No IBKR_SCAN_SYMBOLS provided; falling back to static scan list."
             print(f"[SCAN] {reason}")
             self._emit_market_data_fallback(reason)
             return self._fallback_candidates() if self.fallback_enabled else []
         if self.run_mode == RunMode.LIVE_MICRO and self.scan_symbols:
-            return self._run_live_readonly_scan()
+            return self._run_live_readonly_scan(resolved_policy)
 
         print("[SCAN] Teaching scan started — using static, fake symbols only")
         print(
@@ -101,7 +122,9 @@ class Scanner:
         )
         return self._static_candidates()
 
-    def _run_live_readonly_scan(self) -> List[ScannerCandidate]:
+    def _run_live_readonly_scan(
+        self, policy: StockSelectionPolicy
+    ) -> List[ScannerCandidate]:
         mode_label = "LIVE MICRO" if self.run_mode == RunMode.LIVE_MICRO else "LIVE READ-ONLY"
         print(f"[SCAN] {mode_label} scan started — using IBKR market snapshots")
         if IbkrBroker is None and self.market_data_hub is None:
@@ -117,12 +140,17 @@ class Scanner:
         session = _current_market_session()
         candidates: List[ScannerCandidate] = []
         symbols = list(self.scan_symbols)
-        if self.max_symbols_per_cycle and len(symbols) > self.max_symbols_per_cycle:
+        max_policy_symbols = policy.max_symbols_per_cycle or self.max_symbols_per_cycle
+        max_symbols = min(
+            max_policy_symbols,
+            self.max_symbols_per_cycle,
+        )
+        if max_symbols and len(symbols) > max_symbols:
             print(
                 "[SCAN] Limiting scan symbols "
-                f"max={self.max_symbols_per_cycle} total={len(symbols)}"
+                f"max={max_symbols} total={len(symbols)}"
             )
-            symbols = symbols[: self.max_symbols_per_cycle]
+            symbols = symbols[:max_symbols]
         try:
             hub.connect()
             health = broker.health() if broker is not None else {"connected": False}

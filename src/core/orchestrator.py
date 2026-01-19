@@ -34,6 +34,7 @@ from src.performance.strategy_performance import StrategyPerformanceTracker
 from src.models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
 from src.patterns.pattern_engine import PatternEngine
 from src.risk.risk_engine import RiskEngine
+from src.scanner.contracts import StockSelectionPolicy
 from src.scanner.scanner_live_readonly import LiveReadOnlyScanner
 from src.scanner.scanner import Scanner
 from src.scanner.scanner_runner import run_scanner_cycle
@@ -44,6 +45,16 @@ from src.storage.storage_engine import StorageEngine
 from src.strategy.strategy_runner import StrategyRunner
 from src.strategy.exit_signal import ExitSignal
 from src.events.event_invariants import check_invariants, EventInvariantError
+from src.strategies.ross_momentum.strategy_context_schema import (
+    StrategyContext,
+    SymbolContext,
+    SymbolIndicators,
+    SymbolMarketData,
+)
+from src.strategies.ross_momentum.strategy_policy import (
+    RossMomentumPolicy,
+    stock_selection_policy_for_session_phase,
+)
 from src.utils.time_utils import market_session_phase, to_ny_time, to_uk_time
 from src.regime.layer import RegimeLayer
 
@@ -183,6 +194,91 @@ class CoreOrchestrator:
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
         self._run_startup_validations()
+
+    @staticmethod
+    def _strategy_mode_for_session_phase(session_phase: str) -> str:
+        if session_phase in {"PREMARKET", "OPENING_0_30", "MORNING"}:
+            return "OPEN_FAST"
+        if session_phase in {"LATE", "POWER_HOUR"}:
+            return "LATE_SLOW"
+        return "MIDDAY_SLOW"
+
+    @staticmethod
+    def _build_scanner_policy(session_phase: str) -> tuple[RossMomentumPolicy, StockSelectionPolicy]:
+        strategy_policy = RossMomentumPolicy()
+        stock_policy = stock_selection_policy_for_session_phase(strategy_policy, session_phase)
+        scanner_policy = StockSelectionPolicy(
+            policy_name=strategy_policy.name,
+            price_min=stock_policy.price_min,
+            price_max=stock_policy.price_max,
+            gap_min_pct=stock_policy.gap_min_pct,
+            gap_max_pct=stock_policy.gap_max_pct,
+            rvol_min=stock_policy.rvol_min,
+            float_max_millions=stock_policy.float_max_millions,
+            liquidity_min_dollar_volume=stock_policy.liquidity_min_dollar_volume,
+            min_volume=stock_policy.min_volume,
+            min_premarket_volume=stock_policy.min_premarket_volume,
+            spread_max=stock_policy.spread_max,
+            require_catalyst=stock_policy.require_catalyst,
+            allow_halts=stock_policy.allow_halts,
+            allow_ssr=stock_policy.allow_ssr,
+            data_quality_require_price=stock_policy.data_quality_require_price,
+            data_quality_require_bid_ask=stock_policy.data_quality_require_bid_ask,
+            watchlist_limit_k=stock_policy.watchlist_limit_k,
+            focus_limit_m=stock_policy.focus_limit_m,
+            top_gainers_n=stock_policy.top_gainers_n,
+            max_symbols_per_cycle=stock_policy.max_symbols_per_cycle,
+            session_allowlist=stock_policy.session_allowlist,
+        )
+        return strategy_policy, scanner_policy
+
+    def _build_strategy_context(
+        self,
+        *,
+        now: datetime,
+        ny_time: datetime,
+        uk_time: datetime,
+        session_phase: str,
+        watchlist_rows: List[object],
+        watchlist_k: List[str],
+        focus_m: List[str],
+    ) -> StrategyContext:
+        mode = self._strategy_mode_for_session_phase(session_phase)
+        symbols: Dict[str, SymbolContext] = {}
+        for row in watchlist_rows:
+            symbol = getattr(row, "symbol", None)
+            if not symbol:
+                continue
+            md = SymbolMarketData(
+                last=getattr(row, "last_price", None),
+                bid=getattr(row, "bid", None),
+                ask=getattr(row, "ask", None),
+                spread=getattr(row, "spread", None),
+                day_volume=getattr(row, "volume", None),
+                rel_volume=getattr(row, "rvol", None),
+            )
+            ind = SymbolIndicators(
+                rvol=getattr(row, "rvol", None),
+                float_shares=getattr(row, "float_shares", None),
+            )
+            symbols[symbol] = SymbolContext(
+                symbol=symbol,
+                timestamp=now,
+                mode=mode,
+                md=md,
+                ind=ind,
+                data_quality_flags=list(getattr(row, "data_quality_flags", []) or []),
+            )
+        return StrategyContext(
+            now=now,
+            ny_time=ny_time,
+            uk_time=uk_time,
+            session_phase=session_phase,
+            mode=mode,
+            symbols=symbols,
+            watchlist_k=watchlist_k,
+            focus_m=focus_m,
+        )
 
     def replay_events(self, events):
         self.replay_engine.replay(events)
@@ -444,6 +540,18 @@ class CoreOrchestrator:
             f"phase={session_phase} ny_time={ny_time.isoformat()} "
             f"uk_time={uk_time.isoformat()} utc={cycle_started_at.isoformat()}"
         )
+        strategy_policy, scanner_policy = self._build_scanner_policy(session_phase)
+        print(
+            "[ORCH][POLICY] loaded strategy=ross_momentum "
+            f"version={strategy_policy.version} policy={strategy_policy.name} "
+            "stock_selection=ENABLED"
+        )
+        print(
+            "[ORCH][POLICY] delegating to scanner "
+            f"watchlist_k={scanner_policy.watchlist_limit_k} "
+            f"focus_m={scanner_policy.focus_limit_m} "
+            f"top_n={scanner_policy.top_gainers_n}"
+        )
         tick = self.sim_clock.tick()
         print(f"[CYCLE_CTX] tick={tick} run_mode={self.run_mode.value}")
         self.execution_engine.current_tick = tick
@@ -465,7 +573,7 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Scanner stage — gather candidates (conceptual).")
         try:
-            scanner_results = self.scanner.run_scan_cycle()
+            scanner_results = self.scanner.run_scan_cycle(policy=scanner_policy)
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="SCANNER",
@@ -474,7 +582,10 @@ class CoreOrchestrator:
             return False
         scanner_watchlist_payload = {}
         try:
-            scanner_watchlist_payload = run_scanner_cycle(mode="integrated")
+            scanner_watchlist_payload = run_scanner_cycle(
+                mode="integrated",
+                policy=scanner_policy,
+            )
             self.last_scanner_watchlist_payload = scanner_watchlist_payload
             self.event_collector.emit(
                 event_type="SCANNER_WATCHLIST",
@@ -526,6 +637,31 @@ class CoreOrchestrator:
                 ]
         if self._stop_requested_at_boundary("SCANNER"):
             return False
+        watchlist_k = list(scanner_watchlist_payload.get("watchlist_k", []))
+        focus_m = list(scanner_watchlist_payload.get("focus_m", []))
+        watchlist_rows = list(scanner_watchlist_payload.get("watchlist_rows", []))
+        strategy_context = self._build_strategy_context(
+            now=cycle_started_at,
+            ny_time=ny_time,
+            uk_time=uk_time,
+            session_phase=session_phase,
+            watchlist_rows=watchlist_rows,
+            watchlist_k=watchlist_k,
+            focus_m=focus_m,
+        )
+        print(
+            "[ORCH][CTX] "
+            f"watchlist_k={len(strategy_context.watchlist_k)} "
+            f"focus_m={len(strategy_context.focus_m)} "
+            f"symbols_in_context={len(strategy_context.symbols)}"
+        )
+        focus_set = set(strategy_context.focus_m)
+        if focus_set:
+            scanner_results = [
+                candidate for candidate in (scanner_results or [])
+                if candidate.symbol in focus_set
+            ]
+
         event = self.event_collector.emit(
             event_type="SCAN_COMPLETE",
             source="Scanner",
@@ -595,8 +731,12 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Strategy stage — decide on trade ideas (conceptual).")
         try:
-            strategy_intents = self.strategy_runner.generate_trade_intents(
+            filtered_pattern_results = self.strategy_runner.filter_pattern_results(
                 pattern_results or [],
+                strategy_context.focus_m,
+            )
+            strategy_intents = self.strategy_runner.generate_trade_intents(
+                filtered_pattern_results,
                 policy_decision=regime_policy_decision,
                 signals=signals,
             )

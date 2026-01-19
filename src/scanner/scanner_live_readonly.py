@@ -8,6 +8,7 @@ from src.config.config_resolver import get_config
 from src.core.event_collector import EventCollector
 from src.ibkr.market_data_client import MarketDataClient
 from src.models.data_models import ScannerCandidate
+from src.scanner.contracts import StockSelectionPolicy, policy_from_config
 from src.scanner.providers.mock_provider import MockScannerProvider
 
 
@@ -82,17 +83,41 @@ class LiveReadOnlyScanner:
             self._fallback_provider = MockScannerProvider()
             return None
 
-    def run_scan_cycle(self) -> List[ScannerCandidate]:
+    def run_scan_cycle(
+        self, policy: StockSelectionPolicy | None = None
+    ) -> List[ScannerCandidate]:
         self.last_data_quality_flags = {}
         self.last_connectivity_issue = None
         self.last_snapshot_success_count = 0
         self.last_snapshot_attempted_count = 0
         if self._fallback_provider is not None:
             return self._run_mock_cycle()
+        policy_source = "strategy" if policy is not None else "config_fallback"
+        resolved_policy = policy or policy_from_config()
+        print(
+            "[SCANNER][POLICY] source={source} policy_name={policy_name} price={price_min}-{price_max} "
+            "gap_min={gap_min} rvol_min={rvol_min} float_max_millions={float_max} "
+            "spread_max={spread_max} watchlist_k={watchlist_k} focus_m={focus_m}".format(
+                source=policy_source,
+                policy_name=resolved_policy.policy_name,
+                price_min=resolved_policy.price_min,
+                price_max=resolved_policy.price_max,
+                gap_min=resolved_policy.gap_min_pct,
+                rvol_min=resolved_policy.rvol_min,
+                float_max=resolved_policy.float_max_millions,
+                spread_max=resolved_policy.spread_max,
+                watchlist_k=resolved_policy.watchlist_limit_k,
+                focus_m=resolved_policy.focus_limit_m,
+            )
+        )
+        max_policy_symbols = resolved_policy.max_symbols_per_cycle or self.max_symbols_per_cycle
         symbols = self._resolve_symbols()
         if not symbols:
             print("[SCAN] LiveReadOnlyScanner has no symbols to query")
             return []
+        max_symbols = min(max_policy_symbols, self.max_symbols_per_cycle)
+        if max_symbols and len(symbols) > max_symbols:
+            symbols = symbols[:max_symbols]
 
         session = _current_market_session()
         candidates: List[ScannerCandidate] = []

@@ -18,6 +18,7 @@ from src.core_engine.health import HealthStatus, combine_health
 from src.core_engine.state import CycleContext, resolve_session_state
 from src.execution.order_router import execute_intents
 from src.risk.risk_audit import evaluate_trade_intents
+from src.scanner.contracts import StockSelectionPolicy
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.storage.trade_store import TradeStore
 from src.strategies.ross_momentum.decision_policy import build_trade_intents
@@ -30,6 +31,10 @@ from src.strategies.ross_momentum.patterns.pattern_inputs import (
     PatternInputs,
 )
 from src.strategies.strategy_contracts import SessionContext
+from src.strategies.ross_momentum.strategy_policy import (
+    RossMomentumPolicy,
+    stock_selection_policy_for_session_phase,
+)
 from src.utils.logging import print_section, print_watchlist_focus
 from src.utils.time_utils import utc_now
 from src.utils.validation import asdict_safe
@@ -53,6 +58,46 @@ def _session_context(session: str) -> SessionContext:
     if session == "REG":
         return SessionContext.REGULAR
     return SessionContext.AFTER
+
+
+def _policy_session_phase(session: str) -> str:
+    if session == "PRE":
+        return "PREMARKET"
+    if session == "REG":
+        return "MORNING"
+    return "LATE"
+
+
+def _scanner_policy_for_session(session: str) -> tuple[RossMomentumPolicy, StockSelectionPolicy]:
+    strategy_policy = RossMomentumPolicy()
+    stock_policy = stock_selection_policy_for_session_phase(
+        strategy_policy,
+        _policy_session_phase(session),
+    )
+    scanner_policy = StockSelectionPolicy(
+        policy_name=strategy_policy.name,
+        price_min=stock_policy.price_min,
+        price_max=stock_policy.price_max,
+        gap_min_pct=stock_policy.gap_min_pct,
+        gap_max_pct=stock_policy.gap_max_pct,
+        rvol_min=stock_policy.rvol_min,
+        float_max_millions=stock_policy.float_max_millions,
+        liquidity_min_dollar_volume=stock_policy.liquidity_min_dollar_volume,
+        min_volume=stock_policy.min_volume,
+        min_premarket_volume=stock_policy.min_premarket_volume,
+        spread_max=stock_policy.spread_max,
+        require_catalyst=stock_policy.require_catalyst,
+        allow_halts=stock_policy.allow_halts,
+        allow_ssr=stock_policy.allow_ssr,
+        data_quality_require_price=stock_policy.data_quality_require_price,
+        data_quality_require_bid_ask=stock_policy.data_quality_require_bid_ask,
+        watchlist_limit_k=stock_policy.watchlist_limit_k,
+        focus_limit_m=stock_policy.focus_limit_m,
+        top_gainers_n=stock_policy.top_gainers_n,
+        max_symbols_per_cycle=stock_policy.max_symbols_per_cycle,
+        session_allowlist=stock_policy.session_allowlist,
+    )
+    return strategy_policy, scanner_policy
 
 
 def _build_synthetic_inputs(
@@ -106,7 +151,19 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
     )
 
     print_section(f"CYCLE {cycle_id} MODE={mode.value} SESSION={session.value}")
-    scanner_payload = run_scanner_cycle(mode=mode.value)
+    strategy_policy, scanner_policy = _scanner_policy_for_session(session.value)
+    print(
+        "[ORCH][POLICY] loaded strategy=ross_momentum "
+        f"version={strategy_policy.version} policy={strategy_policy.name} "
+        "stock_selection=ENABLED"
+    )
+    print(
+        "[ORCH][POLICY] delegating to scanner "
+        f"watchlist_k={scanner_policy.watchlist_limit_k} "
+        f"focus_m={scanner_policy.focus_limit_m} "
+        f"top_n={scanner_policy.top_gainers_n}"
+    )
+    scanner_payload = run_scanner_cycle(mode=mode.value, policy=scanner_policy)
     watchlist = scanner_payload.get("watchlist_k", scanner_payload.get("watchlist", []))
     focus = scanner_payload.get("focus_m", [])
     drop_summary = scanner_payload.get("drop_reason_summary", {})
