@@ -2,61 +2,58 @@
 Last updated: 2026-01-19
 
 ## Purpose
-This file is the **single source of operational truth**.
-It defines what is frozen, what is active, and what is permitted to execute.
+This file is the single source of operational truth.
+It defines what is frozen, what is active, and what execution is allowed.
 
 ---
 ## Epoch Status
-
 ### Epoch 4 — COMPLETE (Frozen)
 Scanner contract finalized:
-Top N gainers → hard gates → Watchlist K → Focus M  
+Top N gainers → hard gates → Watchlist K → Focus M
 Empty watchlists are valid and must be explained.
 
 ### Epoch 5 — COMPLETE (Frozen)
 Trading OS end-to-end pipeline complete:
 Scanner → Patterns → Strategy → Risk → Execution → Storage
-
-Includes:
-- Deterministic orchestration
-- Explainability at every stage
-- Safety enforcement across all run modes
-- Full event capture and replay
+Includes determinism, explainability, and safety enforcement.
 
 ### Track A — Ross Momentum Live Track (ACTIVE)
-Operationalization of Ross Cameron–style momentum trading:
-- Multiple momentum families (gap-and-go, continuation, pullback)
-- Time-of-day aware behaviour
-- Teaching-first → LIVE_MICRO progression
-- Live wiring verified; semantic refinement ongoing
+Track A operationalizes Ross Momentum for live trading:
+- Time-of-day aware policies (morning / mid / late)
+- Micro-pullback, breakout, and continuation families
+- Paper → LIVE_1SHARE progression required
+- Manual verification ongoing post-Epoch 5
+- Note: gaps in pattern coverage or wiring discovered during validation must be addressed as Track A fixes (without violating frozen contracts).
 
-### Adaptive Regime / Microstructure Layer — PLANNED (Governed)
-A cross-strategy intelligence layer designed to:
-- Observe market regime and microstructure conditions
-- Adjust strategy weights, confidence, and gating
-- Never mutate or override strategy rules
-- Remain deterministic across SIM and LIVE_READ_ONLY
+### Track B — Adaptive Regime / Microstructure Layer (PLANNED)
+A governed, sandboxed layer that:
+- Observes market regime deterministically
+- Produces regime artifacts and optional policy decisions
+- May adjust strategy weighting/eligibility and bounded risk multipliers
+- Never mutates strategy rules silently
 
-This layer is **not yet implemented** and introduces **no execution risk**.
+Implementation is intended to live under:
+- ADAPTIVE_REGIME_MICROSTRUCTURE_LAYER/ (instruction bundle)
+- src/regime/* (implementation modules)
 
 ### Epoch 6 — FUTURE (Isolated)
 Long-horizon / Buffett-style strategies.
-Separate cadence, data, and risk profile.
-No shared execution path with intraday strategies.
+No shared cadence or data with intraday trading.
 
 ---
 ## Frozen Truths (Non-Negotiable)
 - Scanner never trades
-- Strategies emit TradeIntent only
+- Strategy emits TradeIntent only
 - Risk is final authority
-- Execution obeys run-mode constraints
+- Execution obeys mode and constraints
 - Storage is mandatory for all outcomes
 
 ---
 ## Next Action
-Implement the **Adaptive Regime / Microstructure Layer** under explicit phase governance,
-then resume semantic refinement of Track A strategies.
+Proceed with Track A phased live rollout per for_track_A/PHASE_INDEX.md.
+If commencing Track B work, follow the instruction bundle under ADAPTIVE_REGIME_MICROSTRUCTURE_LAYER/.
 
-## Authority Note
-Intraday strategy implementations under `src/strategies/*` are authoritative.
-Legacy adapters remain for compatibility only and must not be extended.
+## Track A Authority Note
+Track A strategy integrations are authoritative under src/strategies/*.
+Legacy adapters in src/strategy/* remain for compatibility only and should
+not be used for new Ross Momentum wiring.
