@@ -10,6 +10,27 @@ python -m src.main --mode PAPER --strategy ross_momentum --cycles 1
 python -m src.main --mode LIVE_1SHARE --strategy ross_momentum --cycles 1
 ```
 
+### Track B (Adaptive Regime Layer) — SIM / LIVE_READ_ONLY
+SIM (policy off):
+```
+python -m src.main --mode SIM --strategy ross_momentum --cycles 1 --regime-layer
+```
+
+SIM (policy on):
+```
+python -m src.main --mode SIM --strategy ross_momentum --cycles 1 --regime-layer --regime-policy
+```
+
+LIVE_READ_ONLY (policy off):
+```
+python -m src.main --mode READONLY --strategy ross_momentum --cycles 1 --regime-layer
+```
+
+LIVE_READ_ONLY (policy on):
+```
+python -m src.main --mode READONLY --strategy ross_momentum --cycles 1 --regime-layer --regime-policy
+```
+
 ### Doctor / Bootstrap (READONLY scanner validation)
 ```
 python -m src.core_engine.doctor

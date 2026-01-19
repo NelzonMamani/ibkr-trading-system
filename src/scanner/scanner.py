@@ -237,6 +237,9 @@ class Scanner:
                 source="Scanner",
                 payload={
                     "reason": reason,
+                    "fallback_source": self.fallback_source or "UNKNOWN",
+                    "data_mode": self.market_data_type or "UNKNOWN",
+                    "request_source": "Scanner",
                     "symbols": symbols or [],
                 },
             )

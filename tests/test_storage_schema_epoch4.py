@@ -56,6 +56,11 @@ def test_storage_schema_epoch4_tables_and_columns(tmp_path):
     events_cols = _column_names(store, "events")
     assert {"tick", "schema_version", "payload_hash"}.issubset(events_cols)
 
+    trade_record_cols = _column_names(store, "trade_records")
+    assert {"regime_snapshot_json", "regime_policy_decision_json"}.issubset(
+        trade_record_cols
+    )
+
     execution_cols = _column_names(store, "execution_results")
     assert {"execution_result_id", "fill_status", "payload_json"}.issubset(execution_cols)
 
