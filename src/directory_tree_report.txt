@@ -8,6 +8,17 @@ ibkr-trading-system/
 │   ├── .gitignore
 │   ├── CACHEDIR.TAG
 │   └── README.md
+├── ADAPTIVE_REGIME_MICROSTRUCTURE_LAYER
+│   ├── 00_READ_ORDER.md
+│   ├── 01_OVERVIEW_AND_DESIGN_CONSTRAINTS.md
+│   ├── 02_PHASE_1_REGIME_TAXONOMY_AND_CONTRACTS.md
+│   ├── 03_PHASE_2_OBSERVERS_PURE_MEASUREMENT.md
+│   ├── 04_PHASE_3_STATISTICAL_BASELINES.md
+│   ├── 05_PHASE_4_REGIME_CLASSIFIER.md
+│   ├── 06_PHASE_5_STRATEGY_INTERACTION_LAYER.md
+│   ├── 07_PHASE_6_RISK_AND_EXECUTION_INTEGRATION.md
+│   ├── 08_PHASE_7_STORAGE_REPLAY_AND_AUDIT.md
+│   └── 09_PHASE_8_VALIDATION_AND_INVARIANTS.md
 ├── data
 │   └── ibkr_system.db
 ├── docs
@@ -328,11 +339,13 @@ ibkr-trading-system/
 │   ├── test_ibkr_readonly.py
 │   ├── test_liquidity_execution.py
 │   ├── test_market_data_validation.py
+│   ├── test_market_session_phase.py
 │   ├── test_orchestrator_shutdown.py
 │   ├── test_order_gateway_retry.py
 │   ├── test_performance_reports_epoch4.py
 │   ├── test_replay_from_storage_epoch4.py
 │   ├── test_replay_locked_in_live_modes_epoch4.py
+│   ├── test_ross_strategy_registry.py
 │   ├── test_scanner_contract_54.py
 │   ├── test_signal_adapter.py
 │   ├── test_sqlite_persistence.py

@@ -1030,7 +1030,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "ROSS_MOMENTUM_STRATEGY_ENABLED": {
         "type": bool,
-        "default": False,
+        "default": True,   # default was False
         "env": ["ROSS_MOMENTUM_STRATEGY_ENABLED"],
         "affects": ["Strategies"],
         "enforcement": "SOFT",

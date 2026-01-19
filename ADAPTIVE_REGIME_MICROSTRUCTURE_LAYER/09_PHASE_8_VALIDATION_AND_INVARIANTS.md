@@ -1,0 +1,1 @@
+Hard invariants and test requirements.

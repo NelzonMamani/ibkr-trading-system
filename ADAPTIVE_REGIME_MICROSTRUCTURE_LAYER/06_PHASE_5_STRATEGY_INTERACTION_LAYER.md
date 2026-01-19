@@ -1,0 +1,1 @@
+Expose regime metadata to StrategyRunner.

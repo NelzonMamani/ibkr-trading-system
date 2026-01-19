@@ -1,0 +1,1 @@
+Define regime enums and RegimeContext dataclass.

@@ -1,0 +1,1 @@
+Adaptive Regime / Microstructure Layer — full deterministic regime observer.
