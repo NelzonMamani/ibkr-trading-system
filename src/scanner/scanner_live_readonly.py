@@ -92,12 +92,12 @@ class LiveReadOnlyScanner:
         self.last_snapshot_attempted_count = 0
         if self._fallback_provider is not None:
             return self._run_mock_cycle()
-        policy_source = "strategy" if policy is not None else "config_fallback"
+        policy_source = "STRATEGY" if policy is not None else "CONFIG_DEFAULTS"
         resolved_policy = policy or policy_from_config()
         print(
             "[SCANNER][POLICY] source={source} policy_name={policy_name} price={price_min}-{price_max} "
             "gap_min={gap_min} rvol_min={rvol_min} float_max_millions={float_max} "
-            "spread_max={spread_max} watchlist_k={watchlist_k} focus_m={focus_m}".format(
+            "spread_max_pct={spread_max_pct} watchlist_k={watchlist_k} focus_m={focus_m}".format(
                 source=policy_source,
                 policy_name=resolved_policy.policy_name,
                 price_min=resolved_policy.price_min,
@@ -105,7 +105,7 @@ class LiveReadOnlyScanner:
                 gap_min=resolved_policy.gap_min_pct,
                 rvol_min=resolved_policy.rvol_min,
                 float_max=resolved_policy.float_max_millions,
-                spread_max=resolved_policy.spread_max,
+                spread_max_pct=resolved_policy.spread_max_pct,
                 watchlist_k=resolved_policy.watchlist_limit_k,
                 focus_m=resolved_policy.focus_limit_m,
             )
