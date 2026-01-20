@@ -11,7 +11,12 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from src.brokers import IbkrLiveBroker, SimBroker
 from src.config.config_resolver import emit_config_event, get_config
-from src.config.runtime_config import EventReplayMode, RunMode
+from src.config.runtime_config import (
+    EventReplayMode,
+    RunMode,
+    get_daily_loss_hard_limit,
+    get_daily_loss_warning_limit,
+)
 from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
@@ -39,7 +44,7 @@ from src.scanner.contracts import StockSelectionPolicy
 from src.scanner.scanner_live_readonly import LiveReadOnlyScanner
 from src.scanner.scanner import Scanner
 from src.scanner.scanner_runner import run_scanner_cycle
-from src.sim.clock import SimClock
+from src.sim.clock import SimClock, WallClock
 from src.sim.price_feed import DeterministicPriceFeed
 from src.signals.signal_engine_v1 import SignalEngineV1
 from src.storage.storage_engine import StorageEngine
@@ -86,7 +91,13 @@ class CoreOrchestrator:
         if self.run_mode == RunMode.LIVE_MICRO:
             print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
             print("[SAFETY] 1-SHARE LIMIT ENFORCED")
-        self.sim_clock = SimClock()
+        if self.run_mode == RunMode.PAPER:
+            print("[SAFETY] PAPER-EXECUTION MODE ACTIVE")
+            print("[SAFETY] 1-SHARE LIMIT ENFORCED")
+        if self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO, RunMode.PAPER}:
+            self.sim_clock = WallClock()
+        else:
+            self.sim_clock = SimClock()
         self.event_collector = EventCollector()
         emit_config_event(self.event_collector)
         self.stop_controller = StopController()
@@ -113,7 +124,7 @@ class CoreOrchestrator:
                 )
                 self.price_feed = MarketDataPriceFeed(self.market_data_hub)
                 print("[MARKET_DATA] Market data source: IBKR (READ_ONLY)")
-        elif self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO}:
+        elif self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO, RunMode.PAPER}:
             from src.brokers import IbkrBroker
 
             if IbkrBroker is not None:
@@ -154,6 +165,7 @@ class CoreOrchestrator:
         self.regime_layer = RegimeLayer(event_collector=self.event_collector)
         self.risk_engine = RiskEngine(
             trade_registry=self.trade_registry,
+            event_collector=self.event_collector,
             stop_controller=self.stop_controller,
         )
         if not self.execution_enabled:
@@ -166,7 +178,7 @@ class CoreOrchestrator:
                 event_collector=self.event_collector,
                 run_mode=self.run_mode,
             )
-        elif self.run_mode == RunMode.LIVE_MICRO:
+        elif self.run_mode in {RunMode.LIVE_MICRO, RunMode.PAPER}:
             if IbkrLiveBroker is None:
                 raise RuntimeError("IBKR live broker unavailable; ibapi dependency missing.")
             broker = IbkrLiveBroker(
@@ -193,6 +205,8 @@ class CoreOrchestrator:
         self._halted = False
         self._degraded = False
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
+        self._daily_loss_warning_date: Optional[str] = None
+        self._daily_loss_hard_stop_date: Optional[str] = None
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
         self._run_startup_validations()
 
@@ -275,19 +289,16 @@ class CoreOrchestrator:
 
         if self.stop_controller.is_breaker_tripped():
             print("[CIRCUIT_BREAKER] Latched breaker active — execution remains disabled.")
-            return False
+            return True
 
         net_realised_pnl = self.event_collector.sum_realised_pnl()
         trades_submitted = self.event_collector.count("ORDER_SUBMITTED")
         consecutive_losses = self.event_collector.consecutive_losses()
 
-        max_daily_loss = abs(get_config("LIVE_MICRO_DAILY_MAX_LOSS"))
         max_trades = get_config("LIVE_MICRO_MAX_TRADES_PER_DAY")
         max_consecutive_losses = get_config("LIVE_MICRO_MAX_CONSECUTIVE_LOSSES")
 
         breaches = []
-        if net_realised_pnl <= -max_daily_loss:
-            breaches.append(f"DAILY_MAX_LOSS (net_pnl={net_realised_pnl:.2f})")
         if trades_submitted >= max_trades:
             breaches.append(f"MAX_TRADES_PER_DAY (submitted={trades_submitted})")
         if consecutive_losses >= max_consecutive_losses:
@@ -300,7 +311,6 @@ class CoreOrchestrator:
 
         breaker_details = {
             "limits": {
-                "daily_max_loss": max_daily_loss,
                 "max_trades_per_day": max_trades,
                 "max_consecutive_losses": max_consecutive_losses,
             },
@@ -334,13 +344,67 @@ class CoreOrchestrator:
                 )
         reason = "Circuit breaker triggered: " + "; ".join(breaches)
         print(f"[CIRCUIT_BREAKER] {reason}")
-        self._request_stop(
-            StopMode.PANIC,
-            reason=reason,
-            source="CircuitBreaker",
-        )
-        self._shutdown(self.stop_controller.stop_mode() or StopMode.PANIC)
-        return False
+        return True
+
+    def _check_daily_loss_limits(self, ny_date: str) -> None:
+        if self.run_mode not in {RunMode.LIVE_MICRO, RunMode.PAPER}:
+            return
+
+        daily_pnl = self.event_collector.daily_realised_pnl()
+        warning_limit = abs(get_daily_loss_warning_limit())
+        hard_limit = abs(get_daily_loss_hard_limit())
+
+        if warning_limit > 0 and daily_pnl <= -warning_limit:
+            if self._daily_loss_warning_date != ny_date:
+                self._daily_loss_warning_date = ny_date
+                print(
+                    "[RISK][WARN] Daily loss warning threshold reached "
+                    f"pnl={daily_pnl:.2f} limit=-{warning_limit:.2f}"
+                )
+                self.event_collector.emit(
+                    event_type="DAILY_LOSS_WARNING",
+                    source="CoreOrchestrator",
+                    payload={
+                        "run_mode": self.run_mode.value,
+                        "daily_pnl": daily_pnl,
+                        "warning_limit": warning_limit,
+                        "timestamp": datetime.utcnow().isoformat(),
+                    },
+                )
+
+        if hard_limit > 0 and daily_pnl <= -hard_limit:
+            if self._daily_loss_hard_stop_date != ny_date:
+                self._daily_loss_hard_stop_date = ny_date
+                breaker_id = "DAILY_MAX_LOSS"
+                if not self.stop_controller.is_breaker_tripped(breaker_id):
+                    self.stop_controller.trip_breaker(
+                        breaker_id=breaker_id,
+                        reason=(
+                            "Daily loss hard stop reached "
+                            f"(pnl={daily_pnl:.2f}, limit=-{hard_limit:.2f})"
+                        ),
+                        source="RiskEngine",
+                        details={
+                            "daily_pnl": daily_pnl,
+                            "hard_limit": hard_limit,
+                            "run_mode": self.run_mode.value,
+                        },
+                    )
+                print(
+                    "[CIRCUIT_BREAKER] Daily loss hard stop triggered "
+                    f"pnl={daily_pnl:.2f} limit=-{hard_limit:.2f}"
+                )
+                self.event_collector.emit(
+                    event_type="CIRCUIT_BREAKER_TRIGGERED",
+                    source="CoreOrchestrator",
+                    payload={
+                        "run_mode": self.run_mode.value,
+                        "breaches": ["DAILY_MAX_LOSS"],
+                        "limits": {"daily_loss_hard_limit": hard_limit},
+                        "metrics": {"daily_pnl": daily_pnl},
+                        "timestamp": datetime.utcnow().isoformat(),
+                    },
+                )
 
     def _stop_payload(self, mode: Optional[StopMode] = None) -> dict:
         resolved_mode = mode or self.stop_controller.stop_mode() or StopMode.GRACEFUL
@@ -550,6 +614,16 @@ class CoreOrchestrator:
         print(f"[CYCLE_CTX] tick={tick} run_mode={self.run_mode.value}")
         self.execution_engine.current_tick = tick
         self.event_collector.clear_cycle()
+        self.event_collector.roll_daily_pnl(cycle_started_at)
+        ny_date = self.event_collector.daily_pnl_date()
+        if ny_date and self._daily_loss_hard_stop_date and self._daily_loss_hard_stop_date != ny_date:
+            if self.stop_controller.reset_breakers(
+                open_positions=self.trade_registry.count_active(),
+                reason="New trading day",
+                source="CoreOrchestrator",
+            ):
+                self._daily_loss_warning_date = None
+                self._daily_loss_hard_stop_date = None
         if self.market_data_hub is not None:
             self.market_data_hub.reset_cycle()
         event = self.event_collector.emit(
@@ -558,6 +632,8 @@ class CoreOrchestrator:
             payload={"run_mode": self.run_mode}
         )
         print(event)
+        if ny_date:
+            self._check_daily_loss_limits(ny_date)
         self._evaluate_runtime_safety(
             cycle_stage="CYCLE_START",
             stage_exception=None,

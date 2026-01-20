@@ -156,7 +156,7 @@ def get_live_micro_max_trades_per_day(default: int = 3) -> int:
     return int(_with_default("LIVE_MICRO_MAX_TRADES_PER_DAY", default))
 
 
-def get_live_micro_daily_max_loss(default: float = 5.0) -> float:
+def get_live_micro_daily_max_loss(default: float = 10.0) -> float:
     return float(_with_default("LIVE_MICRO_DAILY_MAX_LOSS", default))
 
 
@@ -166,6 +166,18 @@ def get_live_micro_max_consecutive_losses(default: int = 1) -> int:
 
 def get_live_micro_max_symbols_per_cycle(default: int = 5) -> int:
     return int(_with_default("LIVE_MICRO_MAX_SYMBOLS_PER_CYCLE", default))
+
+
+def get_paper_max_concurrent_trades(default: int = 5) -> int:
+    return int(_with_default("PAPER_MAX_CONCURRENT_TRADES", default))
+
+
+def get_daily_loss_warning_limit(default: float = 5.0) -> float:
+    return float(_with_default("DAILY_LOSS_WARNING_LIMIT", default))
+
+
+def get_daily_loss_hard_limit(default: float = 10.0) -> float:
+    return float(_with_default("DAILY_LOSS_HARD_LIMIT", default))
 
 
 def get_ibkr_submit_only_symbol(default: str | None = None) -> str | None:

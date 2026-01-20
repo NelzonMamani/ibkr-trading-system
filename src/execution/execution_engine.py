@@ -13,6 +13,7 @@ from src.config.runtime_config import (
     get_ibkr_readonly_enabled,
     get_ibkr_submit_only_symbol,
     get_live_micro_max_symbols_per_cycle,
+    get_paper_max_concurrent_trades,
 )
 from src.config.trading_config import is_strategy_enabled
 from src.core.active_trade_registry import ActiveTradeRegistry
@@ -39,9 +40,14 @@ class ExecutionEngine:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
         self.run_mode: RunMode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
         self.execution_enabled = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
-        if get_config("EXECUTION_ENABLED") and self.run_mode not in {RunMode.SIM, RunMode.LIVE_MICRO, RunMode.LIVE}:
+        if get_config("EXECUTION_ENABLED") and self.run_mode not in {
+            RunMode.SIM,
+            RunMode.PAPER,
+            RunMode.LIVE_MICRO,
+            RunMode.LIVE,
+        }:
             print(
-                "[SAFETY] EXECUTION_ENABLED ignored unless RUN_MODE is SIM/LIVE_MICRO/LIVE; "
+                "[SAFETY] EXECUTION_ENABLED ignored unless RUN_MODE is SIM/PAPER/LIVE_MICRO/LIVE; "
                 f"run_mode={self.run_mode.value}"
             )
         if not self.execution_enabled:
@@ -51,6 +57,9 @@ class ExecutionEngine:
             print("[EXECUTION] Broker submission: DISABLED")
         elif self.run_mode == RunMode.LIVE_MICRO:
             print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
+            print("[SAFETY] 1-SHARE LIMIT ENFORCED")
+        elif self.run_mode == RunMode.PAPER:
+            print("[SAFETY] PAPER-EXECUTION MODE ACTIVE")
             print("[SAFETY] 1-SHARE LIMIT ENFORCED")
         self.trade_registry = trade_registry or ActiveTradeRegistry()
         self.event_collector = event_collector or EventCollector()
@@ -146,6 +155,8 @@ class ExecutionEngine:
 
         if self.run_mode == RunMode.LIVE_MICRO:
             return self._execute_live_micro(risk_decision)
+        if self.run_mode == RunMode.PAPER:
+            return self._execute_paper(risk_decision)
 
         order = self._order_from_risk_decision(risk_decision, tick)
         return self._route_order(order)
@@ -161,7 +172,7 @@ class ExecutionEngine:
                 risk_decision,
                 rationale="LIVE_READ_ONLY_BLOCK",
             )
-        if self.run_mode not in {RunMode.SIM, RunMode.LIVE_MICRO, RunMode.LIVE}:
+        if self.run_mode not in {RunMode.SIM, RunMode.PAPER, RunMode.LIVE_MICRO, RunMode.LIVE}:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale=f"RUN_MODE_BLOCK:{self.run_mode.value}",
@@ -404,6 +415,75 @@ class ExecutionEngine:
             )
             return ExecutionResult(
                 symbol=risk_decision.symbol,
+                trader_type=risk_decision.trader_type,
+                attempted=False,
+                status="BLOCKED",
+                rationale=rationale,
+                direction=risk_decision.direction,
+                quantity=requested_quantity,
+                stop_loss_price=risk_decision.stop_loss_price,
+                take_profit_price=risk_decision.take_profit_price,
+            )
+
+        tick = self.current_tick if self.current_tick is not None else 0
+        order = self._order_from_risk_decision(risk_decision, tick)
+        return self._route_order(order)
+
+    def _execute_paper(self, risk_decision: RiskDecision) -> ExecutionResult:
+        symbol = risk_decision.symbol
+        max_concurrent = get_paper_max_concurrent_trades()
+        active_count = self.trade_registry.count_active()
+        if active_count >= max_concurrent:
+            rationale = (
+                "PAPER_BLOCK: max concurrent trade limit reached "
+                f"({active_count}/{max_concurrent})."
+            )
+            print(f"[SAFETY] {rationale}")
+            self.event_collector.emit(
+                event_type="TRADE_BLOCKED",
+                source="ExecutionEngine",
+                payload={
+                    "symbol": symbol,
+                    "trader_type": risk_decision.trader_type,
+                    "strategy_name": risk_decision.strategy_name,
+                    "reason_code": "MAX_CONCURRENT_TRADES",
+                    "human_readable_rationale": rationale,
+                    "reason": rationale,
+                },
+            )
+            return ExecutionResult(
+                symbol=symbol,
+                trader_type=risk_decision.trader_type,
+                attempted=False,
+                status="BLOCKED",
+                rationale=rationale,
+                direction=risk_decision.direction,
+                quantity=getattr(risk_decision, "max_position_size", 1) or 1,
+                stop_loss_price=risk_decision.stop_loss_price,
+                take_profit_price=risk_decision.take_profit_price,
+            )
+
+        requested_quantity = int(getattr(risk_decision, "max_position_size", 1) or 1)
+        if requested_quantity != 1:
+            rationale = (
+                "PAPER_BLOCK: quantity must be exactly 1 share "
+                f"(requested={requested_quantity})."
+            )
+            print(f"[SAFETY] {rationale}")
+            self.event_collector.emit(
+                event_type="TRADE_BLOCKED",
+                source="ExecutionEngine",
+                payload={
+                    "symbol": symbol,
+                    "trader_type": risk_decision.trader_type,
+                    "strategy_name": risk_decision.strategy_name,
+                    "reason_code": "PAPER_SIZE_LIMIT",
+                    "human_readable_rationale": rationale,
+                    "reason": rationale,
+                },
+            )
+            return ExecutionResult(
+                symbol=symbol,
                 trader_type=risk_decision.trader_type,
                 attempted=False,
                 status="BLOCKED",

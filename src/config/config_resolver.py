@@ -255,7 +255,10 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
 
     resolved["EXECUTION_ENABLED_EFFECTIVE"] = ConfigRecord(
         name="EXECUTION_ENABLED_EFFECTIVE",
-        value=bool(execution_enabled and effective_run_mode in {"SIM", "LIVE_MICRO", "LIVE"}),
+        value=bool(
+            execution_enabled
+            and effective_run_mode in {"SIM", "PAPER", "LIVE_MICRO", "LIVE"}
+        ),
         source="DERIVED",
         env=None,
     )

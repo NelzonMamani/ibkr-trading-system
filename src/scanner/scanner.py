@@ -105,15 +105,14 @@ class Scanner:
                 focus_m=resolved_policy.focus_limit_m,
             )
         )
-        if self.run_mode == RunMode.LIVE_READ_ONLY and self.scan_symbols:
-            return self._run_live_readonly_scan(resolved_policy)
-        if self.run_mode == RunMode.LIVE_READ_ONLY and not self.scan_symbols:
-            reason = "No IBKR_SCAN_SYMBOLS provided; falling back to static scan list."
-            print(f"[SCAN] {reason}")
+        if self.run_mode in {RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO, RunMode.PAPER}:
+            if self.scan_symbols:
+                return self._run_live_readonly_scan(resolved_policy)
+            reason = "No SCANNER_SYMBOLS provided; live scan requires explicit symbols."
+            print(f"[SCAN][ERROR] {reason}")
+            self.last_connectivity_issue = reason
             self._emit_market_data_fallback(reason)
-            return self._fallback_candidates() if self.fallback_enabled else []
-        if self.run_mode == RunMode.LIVE_MICRO and self.scan_symbols:
-            return self._run_live_readonly_scan(resolved_policy)
+            return []
 
         print("[SCAN] Teaching scan started — using static, fake symbols only")
         print(
@@ -128,9 +127,11 @@ class Scanner:
         mode_label = "LIVE MICRO" if self.run_mode == RunMode.LIVE_MICRO else "LIVE READ-ONLY"
         print(f"[SCAN] {mode_label} scan started — using IBKR market snapshots")
         if IbkrBroker is None and self.market_data_hub is None:
-            print("[SCAN] IBKR broker unavailable; falling back to static candidates.")
-            self._emit_market_data_fallback("IBKR broker unavailable", symbols=self.scan_symbols)
-            return self._static_candidates()
+            reason = "IBKR broker unavailable; live scan requires IBKR connectivity."
+            print(f"[SCAN][ERROR] {reason}")
+            self.last_connectivity_issue = reason
+            self._emit_market_data_fallback(reason, symbols=self.scan_symbols)
+            return []
         hub = self.market_data_hub or MarketDataHub(
             event_collector=self.event_collector,
             broker=IbkrBroker() if IbkrBroker is not None else None,
@@ -157,19 +158,17 @@ class Scanner:
             print(f"[SCAN] IBKR health status: {health}")
             if not health.get("connected", False):
                 self.last_connectivity_issue = "IBKR health reported disconnected"
-                print(f"[SCAN] Connectivity issue: {self.last_connectivity_issue}")
+                print(f"[SCAN][ERROR] Connectivity issue: {self.last_connectivity_issue}")
                 self._emit_market_data_fallback(self.last_connectivity_issue, symbols=symbols)
-                return self._fallback_candidates() if self.fallback_enabled else []
+                return []
             for symbol in symbols:
                 try:
                     observation = hub.snapshot(symbol, request_source="Scanner")
                     snapshot = observation.snapshot
                 except Exception as exc:
                     self.last_connectivity_issue = f"Snapshot failure symbol={symbol} err={exc}"
-                    print(f"[SCAN] Connectivity issue: {self.last_connectivity_issue}")
+                    print(f"[SCAN][ERROR] Connectivity issue: {self.last_connectivity_issue}")
                     self._emit_market_data_fallback(self.last_connectivity_issue, symbols=symbols)
-                    if self.fallback_enabled:
-                        return self._fallback_candidates()
                     continue
                 bid = snapshot.bid
                 ask = snapshot.ask
