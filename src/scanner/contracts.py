@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, replace
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.config.config_resolver import get_config
+from src.strategies.ross_momentum.strategy_policy import StockSelectionSpec
 
 SCANNER_VERSION = "v2026-01-04-11"
 SCANNER_GIT_SHA = str(get_config("SCANNER_GIT_SHA") or "")
@@ -182,33 +183,41 @@ class ScannerRow54:
     debug_notes: Optional[str]
 
 
-@dataclass(frozen=True)
-class StockSelectionPolicy:
-    policy_name: str
-    price_min: float
-    price_max: float
-    gap_min_pct: float
-    gap_max_pct: Optional[float]
-    rvol_min: float
-    float_max_millions: float
-    liquidity_min_dollar_volume: Optional[float]
-    min_volume: int
-    min_premarket_volume: int
-    spread_max: Optional[float]
-    require_catalyst: bool
-    allow_halts: bool
-    allow_ssr: bool
-    data_quality_require_price: bool
-    data_quality_require_bid_ask: bool
-    watchlist_limit_k: int
-    focus_limit_m: int
-    top_gainers_n: int
-    max_symbols_per_cycle: int
-    session_allowlist: Sequence[str]
+StockSelectionPolicy = StockSelectionSpec
+
+STOCK_SELECTION_FIELD_ORDER: List[str] = [
+    "policy_name",
+    "universe_source",
+    "exchange_allowlist",
+    "top_gainers_n",
+    "watchlist_limit_k",
+    "focus_limit_m",
+    "price_min",
+    "price_max",
+    "gap_min_pct",
+    "gap_max_pct",
+    "rvol_min",
+    "float_max_millions",
+    "min_volume",
+    "min_premarket_volume",
+    "liquidity_min_dollar_volume",
+    "spread_max_pct",
+    "require_catalyst",
+    "allow_halts",
+    "allow_ssr",
+    "data_quality_require_price",
+    "data_quality_require_bid_ask",
+    "max_symbols_per_cycle",
+    "session_allowlist",
+    "ranking_intent",
+    "soft_preferences",
+]
 
 
 def policy_from_config() -> StockSelectionPolicy:
-    return StockSelectionPolicy(
+    base = StockSelectionPolicy()
+    return replace(
+        base,
         policy_name="CONFIG_DEFAULTS",
         price_min=float(get_config("ROSS_MIN_PRICE")),
         price_max=float(get_config("ROSS_MAX_PRICE")),
@@ -219,7 +228,7 @@ def policy_from_config() -> StockSelectionPolicy:
         liquidity_min_dollar_volume=None,
         min_volume=int(get_config("ROSS_MIN_VOLUME")),
         min_premarket_volume=int(get_config("ROSS_MIN_PREMARKET_VOLUME")),
-        spread_max=None,
+        spread_max_pct=None,
         require_catalyst=bool(get_config("ROSS_REQUIRE_NEWS")),
         allow_halts=False,
         allow_ssr=True,
@@ -231,6 +240,10 @@ def policy_from_config() -> StockSelectionPolicy:
         max_symbols_per_cycle=int(get_config("IBKR_MAX_SYMBOLS_PER_CYCLE")),
         session_allowlist=("PRE", "REG", "AFTER"),
     )
+
+
+def stock_selection_policy_fields() -> List[str]:
+    return [field.name for field in fields(StockSelectionPolicy)]
 
 
 def validate_row(

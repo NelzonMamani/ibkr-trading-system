@@ -1,7 +1,13 @@
 import inspect
 
 from src.news.news_heat import compute_fire_indicator
-from src.scanner.contracts import CANONICAL_FIELDS, ScannerRow54, validate_row
+from src.scanner.contracts import (
+    CANONICAL_FIELDS,
+    STOCK_SELECTION_FIELD_ORDER,
+    ScannerRow54,
+    stock_selection_policy_fields,
+    validate_row,
+)
 
 
 def _blank_row() -> ScannerRow54:
@@ -83,3 +89,9 @@ def test_validate_row_flags_non_allowed_na_fields():
 def test_fire_indicator_signature_only_accepts_news_context():
     signature = inspect.signature(compute_fire_indicator)
     assert len(signature.parameters) == 1
+
+
+def test_stock_selection_policy_fields_unique_and_ordered():
+    fields = stock_selection_policy_fields()
+    assert fields == STOCK_SELECTION_FIELD_ORDER
+    assert len(fields) == len(set(fields))

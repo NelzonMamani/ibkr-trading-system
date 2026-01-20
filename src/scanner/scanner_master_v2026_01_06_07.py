@@ -46,7 +46,7 @@ from ib_insync import IB, ScannerSubscription, Stock, util
 
 from src.news.news_heat import compute_fire_indicator
 
-from .filters import passes_catalyst_eligibility, passes_ross_5_pillars
+from .filters import passes_catalyst_eligibility, passes_mechanical_stock_selection_gates
 from src.config.config_resolver import get_config
 
 from .news_engine import NEWS_MAX_TOP_HEADLINES, get_news_truth
@@ -1116,7 +1116,7 @@ def build_filtered_watchlist(entries: List[Dict[str, Any]], limit: int = 15) -> 
     filtered = [
         entry
         for entry in entries
-        if passes_ross_5_pillars(entry) and passes_catalyst_eligibility(entry)
+        if passes_mechanical_stock_selection_gates(entry) and passes_catalyst_eligibility(entry)
     ]
     filtered = sorted(
         filtered,
