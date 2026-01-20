@@ -16,14 +16,25 @@ ibkr-trading-system/
 │   ├── 04_PHASE_3_STATISTICAL_BASELINES.md
 │   ├── 05_PHASE_4_REGIME_CLASSIFIER.md
 │   ├── 06_PHASE_5_STRATEGY_INTERACTION_LAYER.md
-│   ├── 07_PHASE_6_RISK_AND_EXECUTION_INTEGRATION.md
-│   ├── 08_PHASE_7_STORAGE_REPLAY_AND_AUDIT.md
-│   └── 09_PHASE_8_VALIDATION_AND_INVARIANTS.md
+│   ├── 07_PHASE_6_STORAGE_AND_EVENT_SCHEMA.md
+│   ├── 08_PHASE_7_TESTS_DETERMINISM_AND_REPLAY.md
+│   ├── 09_PHASE_8_DOCS_RUNBOOK_AND_HOUSEKEEPING.md
+│   └── PHASE_INDEX.md
+├── CODEX_STOCK_SELECTION_AUTHORITY_v2
+│   ├── PHASE_0_CONCEPT_LOCK.md
+│   ├── PHASE_1_POLICY_CANONICALIZATION.md
+│   ├── PHASE_2_SCANNER_CONTRACT.md
+│   ├── PHASE_3_ORCHESTRATOR_WIRING.md
+│   ├── PHASE_4_SCANNER_EXECUTION.md
+│   ├── PHASE_5_VERIFICATION.md
+│   └── README_MASTER_ORDER.md
 ├── data
-│   └── ibkr_system.db
+│   ├── ibkr_system.db
+│   └── regime_baselines.json
 ├── docs
 │   ├── phases
 │   │   └── PHASE_22_COMPLETE_LIVE_READ_ONLY_MARKET_DATA.md
+│   ├── ADAPTIVE_REGIME_LAYER.md
 │   ├── CONFIGURATION_REFERENCE.md
 │   ├── ENVIRONMENT_VARIABLES_CHECKLIST.md
 │   ├── PHASE_24_CONFIGURATION_AUTHORITY.md
@@ -192,6 +203,14 @@ ibkr-trading-system/
 │   │   ├── performance_registry.py
 │   │   ├── storage_reports.py
 │   │   └── strategy_performance.py
+│   ├── regime
+│   │   ├── __init__.py
+│   │   ├── baselines.py
+│   │   ├── classifier.py
+│   │   ├── contracts.py
+│   │   ├── layer.py
+│   │   ├── observers.py
+│   │   └── policy.py
 │   ├── risk
 │   │   ├── __init__.py
 │   │   ├── risk_audit.py
@@ -313,6 +332,7 @@ ibkr-trading-system/
 │   │   └── test_exit_precedence.py
 │   ├── tools
 │   │   ├── __init__.py
+│   │   ├── regime_dump.py
 │   │   └── storage_cli.py
 │   ├── utils
 │   │   ├── __init__.py
@@ -343,6 +363,15 @@ ibkr-trading-system/
 │   ├── test_orchestrator_shutdown.py
 │   ├── test_order_gateway_retry.py
 │   ├── test_performance_reports_epoch4.py
+│   ├── test_regime_baselines.py
+│   ├── test_regime_classifier.py
+│   ├── test_regime_contracts.py
+│   ├── test_regime_determinism.py
+│   ├── test_regime_live_readonly_missingness.py
+│   ├── test_regime_observers.py
+│   ├── test_regime_orchestrator_integration.py
+│   ├── test_regime_policy_application.py
+│   ├── test_regime_storage.py
 │   ├── test_replay_from_storage_epoch4.py
 │   ├── test_replay_locked_in_live_modes_epoch4.py
 │   ├── test_ross_strategy_registry.py
@@ -361,6 +390,7 @@ ibkr-trading-system/
 ├── EPOCH_05_GOVERNANCE.md
 ├── EPOCH_05_GOVERNANCE_UPDATE.md
 ├── GLOBAL_FUNCTIONAL_REQUIREMENTS.md
+├── HOUSEKEEPING.md
 ├── MODULE_REQUIREMENTS_core_engine.md
 ├── MODULE_REQUIREMENTS_execution.md
 ├── MODULE_REQUIREMENTS_patterns.md

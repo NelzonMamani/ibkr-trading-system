@@ -1,3 +1,4 @@
+# strategy.py
 """Ross Cameron Retail Confirmation Momentum strategy."""
 
 from __future__ import annotations
