@@ -42,6 +42,12 @@ SCAN_COMPLETE_SCHEMA = {
     "candidates": int,
 }
 
+SCANNER_WATCHLIST_SCHEMA = {
+    "scanner_version": (str, type(None)),
+    "timestamp_utc": (str, type(None)),
+    "symbols": list,
+}
+
 STRATEGY_COMPLETE_SCHEMA = {
     "trade_intents": int,
 }
@@ -344,6 +350,7 @@ SHUTDOWN_HOOK_FAILED_SCHEMA = {
 
 EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
     "CYCLE_START": CYCLE_START_SCHEMA,
+    "SCANNER_WATCHLIST": SCANNER_WATCHLIST_SCHEMA,
     "SCAN_COMPLETE": SCAN_COMPLETE_SCHEMA,
     "STRATEGY_COMPLETE": STRATEGY_COMPLETE_SCHEMA,
     "EXECUTION_COMPLETE": EXECUTION_COMPLETE_SCHEMA,
@@ -533,6 +540,7 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
 # Conservative schemas focused on consistency for teaching purposes.
 REQUIRED_FIELDS: Dict[str, Set[str]] = {
     "CYCLE_START": {"run_mode"},
+    "SCANNER_WATCHLIST": {"symbols"},
     "SCAN_COMPLETE": {"candidates"},
     "STRATEGY_COMPLETE": {"trade_intents"},
     "EXECUTION_COMPLETE": {"results"},
