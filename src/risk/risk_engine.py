@@ -11,7 +11,11 @@ from src.core_engine.health import HealthStatus
 from src.core_engine.state import RunMode as Epoch5Mode
 
 from src.config.config_resolver import get_config
-from src.config.runtime_config import RunMode, get_ibkr_readonly_enabled
+from src.config.runtime_config import (
+    RunMode,
+    get_daily_loss_hard_limit,
+    get_ibkr_readonly_enabled,
+)
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.core.stop_controller import StopController
@@ -87,6 +91,11 @@ class RiskEngine:
 
         if run_mode == RunMode.LIVE_READ_ONLY:
             risk_reasons.append(LIVE_READ_ONLY_BLOCK)
+        if run_mode in {RunMode.PAPER, RunMode.LIVE_MICRO}:
+            daily_pnl = self.event_collector.daily_realised_pnl()
+            hard_limit = abs(get_daily_loss_hard_limit())
+            if hard_limit > 0 and daily_pnl <= -hard_limit:
+                risk_reasons.append("DAILY_MAX_LOSS_HARD_STOP")
         if not execution_enabled:
             risk_reasons.append(EXECUTION_DISABLED)
         if get_ibkr_readonly_enabled() and run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO}:
@@ -170,7 +179,10 @@ class RiskEngine:
             reason_tags.extend(risk_reasons)
 
         allowed = not reason_tags and execution_enabled
-        size = 1 if run_mode == RunMode.LIVE_MICRO else int(get_config("RISK_MAX_POSITION_SIZE"))
+        if run_mode in {RunMode.LIVE_MICRO, RunMode.PAPER}:
+            size = 1
+        else:
+            size = int(get_config("RISK_MAX_POSITION_SIZE"))
         if not allowed:
             size = 0
 
@@ -248,6 +260,28 @@ class RiskEngine:
                 risk_reasons=[EXECUTION_DISABLED],
                 execution_blocked=True,
             )
+        if run_mode in {RunMode.PAPER, RunMode.LIVE_MICRO}:
+            daily_pnl = self.event_collector.daily_realised_pnl()
+            hard_limit = abs(get_daily_loss_hard_limit())
+            if hard_limit > 0 and daily_pnl <= -hard_limit:
+                rationale = (
+                    "Daily loss hard stop reached — blocking new executions "
+                    f"(daily_pnl={daily_pnl:.2f}, limit=-{hard_limit:.2f})."
+                )
+                return RiskDecision(
+                    symbol=trade_intent.symbol,
+                    allowed=False,
+                    max_position_size=0,
+                    risk_level="BLOCKED",
+                    rationale=rationale,
+                    trader_type=trade_intent.trader_type,
+                    strategy_name=trade_intent.strategy_name,
+                    direction=trade_intent.direction,
+                    reason_code="DAILY_MAX_LOSS_HARD_STOP",
+                    overall_action="BLOCK",
+                    risk_reasons=["DAILY_MAX_LOSS_HARD_STOP"],
+                    execution_blocked=True,
+                )
 
         data_quality_flags = getattr(trade_intent, "data_quality_flags", [])
         if data_quality_flags:
@@ -359,7 +393,10 @@ class RiskEngine:
                 "no blocking logic implemented"
             )
 
-        max_position_size = int(get_config("RISK_MAX_POSITION_SIZE"))
+        if run_mode in {RunMode.LIVE_MICRO, RunMode.PAPER}:
+            max_position_size = 1
+        else:
+            max_position_size = int(get_config("RISK_MAX_POSITION_SIZE"))
         print(
             "[RISK] Max position size capped at "
             f"{max_position_size} share(s) for safety and simplicity"

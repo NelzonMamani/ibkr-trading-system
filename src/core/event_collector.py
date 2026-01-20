@@ -1,6 +1,9 @@
+from datetime import datetime
+
 from src.core.run_event_timeline import RunEventTimeline
 from src.core.events import SystemEvent
 from src.events.event_schema import validate_event
+from src.utils.time_utils import to_ny_time
 
 
 class EventCollector:
@@ -12,12 +15,38 @@ class EventCollector:
     def __init__(self):
         self._cycle_events = []
         self._run_timeline = RunEventTimeline()
+        self._daily_realised_pnl = 0.0
+        self._daily_pnl_date = None
+
+    @staticmethod
+    def _resolve_ny_date(timestamp: datetime) -> str:
+        ny_time = to_ny_time(timestamp)
+        return ny_time.date().isoformat()
+
+    def _roll_daily_pnl(self, timestamp: datetime) -> None:
+        resolved_date = self._resolve_ny_date(timestamp)
+        if self._daily_pnl_date != resolved_date:
+            self._daily_realised_pnl = 0.0
+            self._daily_pnl_date = resolved_date
+
+    def roll_daily_pnl(self, now: datetime | None = None) -> None:
+        timestamp = now or datetime.utcnow()
+        self._roll_daily_pnl(timestamp)
 
     def clear_cycle(self):
         print("[EVENT_COLLECTOR] Clearing cycle-scoped events")
         self._cycle_events.clear()
 
     def record_event(self, event, include_cycle: bool = True):
+        if event.event_type == "TRADE_CLOSED":
+            self._roll_daily_pnl(event.timestamp)
+            payload = event.payload or {}
+            pnl_value = payload.get("net_realised_pnl", payload.get("realised_pnl", 0.0))
+            try:
+                pnl_float = float(pnl_value)
+            except (TypeError, ValueError):
+                pnl_float = 0.0
+            self._daily_realised_pnl = round(self._daily_realised_pnl + pnl_float, 2)
         if include_cycle:
             self._cycle_events.append(event)
         self._run_timeline.record(event)
@@ -119,6 +148,12 @@ class EventCollector:
                 "net_realised_pnl", payload.get("realised_pnl", 0.0)
             )
         return round(realised_pnl, 2)
+
+    def daily_realised_pnl(self) -> float:
+        return round(self._daily_realised_pnl, 2)
+
+    def daily_pnl_date(self) -> str | None:
+        return self._daily_pnl_date
 
     def cycle_count(self, event_type: str = None):
         if event_type is None:

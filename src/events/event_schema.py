@@ -293,6 +293,13 @@ CIRCUIT_BREAKER_TRIGGERED_SCHEMA = {
     "timestamp": str,
 }
 
+DAILY_LOSS_WARNING_SCHEMA = {
+    "run_mode": str,
+    "daily_pnl": (float, int),
+    "warning_limit": (float, int),
+    "timestamp": str,
+}
+
 RUNTIME_SAFETY_VIOLATION_SCHEMA = {
     "stage": str,
     "run_mode": str,
@@ -502,6 +509,7 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
     },
     "PERF_SNAPSHOT": PERF_SNAPSHOT_SCHEMA,
     "CIRCUIT_BREAKER_TRIGGERED": CIRCUIT_BREAKER_TRIGGERED_SCHEMA,
+    "DAILY_LOSS_WARNING": DAILY_LOSS_WARNING_SCHEMA,
     "RUNTIME_SAFETY_VIOLATION": RUNTIME_SAFETY_VIOLATION_SCHEMA,
     "FAULT_DETECTED": FAULT_DETECTED_SCHEMA,
     "FAULT_ACTION_TAKEN": FAULT_ACTION_TAKEN_SCHEMA,
@@ -678,6 +686,7 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
     "STRATEGY_PERF_SNAPSHOT": {"strategies"},
     "PERF_SNAPSHOT": {"total_trades"},
     "CIRCUIT_BREAKER_TRIGGERED": {"run_mode", "breaches", "limits", "metrics", "timestamp"},
+    "DAILY_LOSS_WARNING": {"run_mode", "daily_pnl", "warning_limit", "timestamp"},
     "TRADE_BLOCKED": {
         "symbol",
         "trader_type",
