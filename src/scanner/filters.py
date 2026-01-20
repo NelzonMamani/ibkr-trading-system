@@ -22,7 +22,9 @@ def _get_value(entry: Any, key: str) -> Any:
     return getattr(entry, key, None)
 
 
-def _ross_5_pillars(policy: StockSelectionPolicy | None = None) -> dict:
+def _mechanical_stock_selection_gates(
+    policy: StockSelectionPolicy | None = None,
+) -> dict:
     if policy is not None:
         return {
             "min_pct_change": float(policy.gap_min_pct),
@@ -32,7 +34,7 @@ def _ross_5_pillars(policy: StockSelectionPolicy | None = None) -> dict:
             "min_rvol": float(policy.rvol_min),
             "min_volume": int(policy.min_volume),
             "min_premarket_volume": int(policy.min_premarket_volume),
-            "require_news": bool(policy.require_catalyst),
+            "require_catalyst": bool(policy.require_catalyst),
         }
     return {
         "min_pct_change": float(get_config("ROSS_MIN_PCT_CHANGE")),
@@ -42,7 +44,7 @@ def _ross_5_pillars(policy: StockSelectionPolicy | None = None) -> dict:
         "min_rvol": float(get_config("ROSS_MIN_RVOL")),
         "min_volume": int(get_config("ROSS_MIN_VOLUME")),
         "min_premarket_volume": int(get_config("ROSS_MIN_PREMARKET_VOLUME")),
-        "require_news": bool(get_config("ROSS_REQUIRE_NEWS")),
+        "require_catalyst": bool(get_config("ROSS_REQUIRE_NEWS")),
     }
 
 
@@ -54,14 +56,14 @@ def _news_gates() -> dict:
     }
 
 
-def evaluate_ross_5_pillars(
+def evaluate_stock_selection_gates(
     entry: Any,
-    require_news_override: Optional[bool] = None,
+    require_catalyst_override: Optional[bool] = None,
     policy: StockSelectionPolicy | None = None,
 ) -> tuple[bool, list[str]]:
-    pillars = _ross_5_pillars(policy=policy)
-    if require_news_override is not None:
-        pillars["require_news"] = require_news_override
+    gates = _mechanical_stock_selection_gates(policy=policy)
+    if require_catalyst_override is not None:
+        gates["require_catalyst"] = require_catalyst_override
     pct = _safe_float(_get_value(entry, "current_percentage_change_from_prior_close"), None)
     px = _safe_float(_get_value(entry, "last_trade_price"), None)
     flt = _get_value(entry, "float_shares_raw")
@@ -74,35 +76,35 @@ def evaluate_ross_5_pillars(
     if pct is None or px is None or rvol is None or vol is None:
         reasons.append("missing_core_metrics")
         return False, reasons
-    if pct < pillars["min_pct_change"]:
+    if pct < gates["min_pct_change"]:
         reasons.append("pct_change_below_min")
-    if not (pillars["min_price"] <= px <= pillars["max_price"]):
+    if not (gates["min_price"] <= px <= gates["max_price"]):
         reasons.append("price_out_of_range")
     if flt is None or flt <= 0:
         reasons.append("float_missing")
-    elif flt > pillars["max_float"]:
+    elif flt > gates["max_float"]:
         reasons.append("float_above_max")
-    if rvol < pillars["min_rvol"]:
+    if rvol < gates["min_rvol"]:
         reasons.append("rvol_below_min")
     if session_label in {"PRE", "OVN"}:
-        if vol < pillars["min_premarket_volume"]:
+        if vol < gates["min_premarket_volume"]:
             reasons.append("premarket_volume_below_min")
-    elif vol < pillars["min_volume"]:
+    elif vol < gates["min_volume"]:
         reasons.append("volume_below_min")
-    if pillars["require_news"] and news_total <= 0:
+    if gates["require_catalyst"] and news_total <= 0:
         reasons.append("news_required_missing")
 
     return (len(reasons) == 0), reasons
 
 
-def passes_ross_5_pillars(
+def passes_stock_selection_gates(
     entry: Any,
-    require_news_override: Optional[bool] = None,
+    require_catalyst_override: Optional[bool] = None,
     policy: StockSelectionPolicy | None = None,
 ) -> bool:
-    passed, _ = evaluate_ross_5_pillars(
+    passed, _ = evaluate_stock_selection_gates(
         entry,
-        require_news_override=require_news_override,
+        require_catalyst_override=require_catalyst_override,
         policy=policy,
     )
     return passed
@@ -138,15 +140,15 @@ def passes_catalyst_eligibility(entry: Any, bypass: bool = False) -> bool:
 
 def evaluate_filters(
     entry: Any,
-    require_news_override: Optional[bool] = None,
+    require_catalyst_override: Optional[bool] = None,
     bypass_news_gates: bool = False,
     policy: StockSelectionPolicy | None = None,
 ) -> tuple[bool, list[str]]:
-    passed_pillars, pillar_reasons = evaluate_ross_5_pillars(
-        entry, require_news_override=require_news_override, policy=policy
+    passed_gates, gate_reasons = evaluate_stock_selection_gates(
+        entry, require_catalyst_override=require_catalyst_override, policy=policy
     )
-    if not passed_pillars:
-        return False, pillar_reasons
+    if not passed_gates:
+        return False, gate_reasons
     passed_catalyst, catalyst_reasons = evaluate_catalyst_eligibility(
         entry, bypass=bypass_news_gates
     )

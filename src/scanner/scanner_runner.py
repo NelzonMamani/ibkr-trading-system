@@ -75,13 +75,11 @@ class GateThresholds:
     min_price: float
     max_price: float
     min_pct_change: float
-    max_pct_change: Optional[float]
     min_rvol: float
     min_volume: int
     min_premarket_volume: int
     max_float: int
     spread_max_pct: Optional[float]
-    min_dollar_volume: Optional[float]
     require_price: bool
     require_bid_ask: bool
 
@@ -283,13 +281,11 @@ def _gate_thresholds(policy: StockSelectionPolicy) -> GateThresholds:
         min_price=policy.price_min,
         max_price=policy.price_max,
         min_pct_change=policy.gap_min_pct,
-        max_pct_change=policy.gap_max_pct,
         min_rvol=policy.rvol_min,
         min_volume=policy.min_volume,
         min_premarket_volume=policy.min_premarket_volume,
         max_float=int(policy.float_max_millions * 1_000_000),
-        spread_max_pct=policy.spread_max,
-        min_dollar_volume=policy.liquidity_min_dollar_volume,
+        spread_max_pct=policy.spread_max_pct,
         require_price=policy.data_quality_require_price,
         require_bid_ask=policy.data_quality_require_bid_ask,
     )
@@ -316,8 +312,6 @@ def _evaluate_gates(
         return "DROP_MISSING_PCT_CHANGE"
     if pct_change < thresholds.min_pct_change:
         return "DROP_PCT_CHANGE"
-    if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
-        return "DROP_PCT_CHANGE_MAX"
     if price is not None and not (thresholds.min_price <= price <= thresholds.max_price):
         return "DROP_PRICE_RANGE"
     if rvol is None:
@@ -331,11 +325,6 @@ def _evaluate_gates(
             return "DROP_PREMARKET_VOLUME"
     elif volume < thresholds.min_volume:
         return "DROP_VOLUME"
-    if thresholds.min_dollar_volume is not None:
-        if dollar_volume is None:
-            return "DROP_MISSING_DOLLAR_VOLUME"
-        if dollar_volume < thresholds.min_dollar_volume:
-            return "DROP_DOLLAR_VOLUME"
     if float_shares is not None and float_shares > thresholds.max_float:
         return "DROP_FLOAT_MAX"
     if thresholds.spread_max_pct is not None:
@@ -681,10 +670,12 @@ def run_scanner_cycle(
     scanner_mode = str(get_config("SCANNER_MODE"))
     policy_source = "strategy" if policy is not None else "config_fallback"
     resolved_policy = policy or policy_from_config()
+    universe_source = str(resolved_policy.universe_source or "").upper()
+    diagnostics["universe_source"] = universe_source
     print(
         "[SCANNER][POLICY] source={source} policy_name={policy_name} price={price_min}-{price_max} "
         "gap_min={gap_min} rvol_min={rvol_min} float_max_millions={float_max} "
-        "spread_max={spread_max} watchlist_k={watchlist_k} focus_m={focus_m}".format(
+        "spread_max_pct={spread_max_pct} watchlist_k={watchlist_k} focus_m={focus_m}".format(
             source=policy_source,
             policy_name=resolved_policy.policy_name,
             price_min=resolved_policy.price_min,
@@ -692,7 +683,7 @@ def run_scanner_cycle(
             gap_min=resolved_policy.gap_min_pct,
             rvol_min=resolved_policy.rvol_min,
             float_max=resolved_policy.float_max_millions,
-            spread_max=resolved_policy.spread_max,
+            spread_max_pct=resolved_policy.spread_max_pct,
             watchlist_k=resolved_policy.watchlist_limit_k,
             focus_m=resolved_policy.focus_limit_m,
         )
@@ -810,31 +801,39 @@ def run_scanner_cycle(
     print("[SCANNER][STAGE] bootstrap")
 
     try:
-        try:
-            symbols = provider.get_top_gainers(limits["resolved_symbol_limit"])
-        except Exception as exc:
-            diagnostics["provider_error"] = str(exc)
-            if provider.source_name != "MOCK":
-                diagnostics["provider_fallback"] = {
-                    "from": provider.source_name,
-                    "to": "MOCK",
-                    "reason": str(exc),
-                }
-                provider.disconnect()
-                provider = MockScannerProvider()
-                limits = _print_symbol_limits(scanner_mode, provider.source_name, resolved_policy)
-                diagnostics["symbol_limits"] = limits
-            symbols = provider.get_top_gainers(limits["resolved_symbol_limit"])
+        if universe_source == "CUSTOM":
+            symbols = list(get_config("SCANNER_SYMBOLS") or [])
+            if not symbols:
+                symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS") or [])
+                diagnostics["symbol_fallback"] = "SCANNER_DEFAULT_SYMBOLS"
+            diagnostics["provider_source"] = provider.source_name
+            diagnostics["symbol_count"] = len(symbols)
+        else:
+            try:
+                symbols = provider.get_top_gainers(limits["resolved_symbol_limit"])
+            except Exception as exc:
+                diagnostics["provider_error"] = str(exc)
+                if provider.source_name != "MOCK":
+                    diagnostics["provider_fallback"] = {
+                        "from": provider.source_name,
+                        "to": "MOCK",
+                        "reason": str(exc),
+                    }
+                    provider.disconnect()
+                    provider = MockScannerProvider()
+                    limits = _print_symbol_limits(scanner_mode, provider.source_name, resolved_policy)
+                    diagnostics["symbol_limits"] = limits
+                symbols = provider.get_top_gainers(limits["resolved_symbol_limit"])
 
-        diagnostics["provider_source"] = provider.source_name
-        diagnostics["symbol_count"] = len(symbols)
-        if not symbols:
-            symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS"))
-            diagnostics["symbol_fallback"] = "SCANNER_DEFAULT_SYMBOLS"
-        if not symbols:
-            fallback_provider = MockScannerProvider()
-            symbols = fallback_provider.get_top_gainers(limits["resolved_symbol_limit"])
-            diagnostics["symbol_fallback"] = "MOCK_UNIVERSE"
+            diagnostics["provider_source"] = provider.source_name
+            diagnostics["symbol_count"] = len(symbols)
+            if not symbols:
+                symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS") or [])
+                diagnostics["symbol_fallback"] = "SCANNER_DEFAULT_SYMBOLS"
+            if not symbols:
+                fallback_provider = MockScannerProvider()
+                symbols = fallback_provider.get_top_gainers(limits["resolved_symbol_limit"])
+                diagnostics["symbol_fallback"] = "MOCK_UNIVERSE"
         symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
 
         float_cache = _bootstrap_float_cache(symbols, provider)

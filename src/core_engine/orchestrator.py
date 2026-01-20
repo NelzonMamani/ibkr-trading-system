@@ -68,32 +68,35 @@ def _policy_session_phase(session: str) -> str:
     return "LATE"
 
 
-def _scanner_policy_for_session(session: str) -> tuple[RossMomentumPolicy, StockSelectionPolicy]:
-    strategy_policy = RossMomentumPolicy()
+def _scanner_policy_for_session(
+    session: str,
+    strategy_policy: RossMomentumPolicy | None = None,
+) -> tuple[RossMomentumPolicy, StockSelectionPolicy]:
+    strategy_policy = strategy_policy or RossMomentumPolicy()
     stock_policy = stock_selection_policy_for_session_phase(
         strategy_policy,
         _policy_session_phase(session),
     )
     scanner_policy = StockSelectionPolicy(
         policy_name=strategy_policy.name,
+        universe_source=stock_policy.universe_source,
+        exchange_allowlist=stock_policy.exchange_allowlist,
+        top_gainers_n=stock_policy.top_gainers_n,
+        watchlist_limit_k=stock_policy.watchlist_limit_k,
+        focus_limit_m=stock_policy.focus_limit_m,
         price_min=stock_policy.price_min,
         price_max=stock_policy.price_max,
         gap_min_pct=stock_policy.gap_min_pct,
-        gap_max_pct=stock_policy.gap_max_pct,
         rvol_min=stock_policy.rvol_min,
         float_max_millions=stock_policy.float_max_millions,
-        liquidity_min_dollar_volume=stock_policy.liquidity_min_dollar_volume,
         min_volume=stock_policy.min_volume,
         min_premarket_volume=stock_policy.min_premarket_volume,
-        spread_max=stock_policy.spread_max,
+        spread_max_pct=stock_policy.spread_max_pct,
         require_catalyst=stock_policy.require_catalyst,
         allow_halts=stock_policy.allow_halts,
         allow_ssr=stock_policy.allow_ssr,
         data_quality_require_price=stock_policy.data_quality_require_price,
         data_quality_require_bid_ask=stock_policy.data_quality_require_bid_ask,
-        watchlist_limit_k=stock_policy.watchlist_limit_k,
-        focus_limit_m=stock_policy.focus_limit_m,
-        top_gainers_n=stock_policy.top_gainers_n,
         max_symbols_per_cycle=stock_policy.max_symbols_per_cycle,
         session_allowlist=stock_policy.session_allowlist,
     )
@@ -153,9 +156,8 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
     print_section(f"CYCLE {cycle_id} MODE={mode.value} SESSION={session.value}")
     strategy_policy, scanner_policy = _scanner_policy_for_session(session.value)
     print(
-        "[ORCH][POLICY] loaded strategy=ross_momentum "
-        f"version={strategy_policy.version} policy={strategy_policy.name} "
-        "stock_selection=ENABLED"
+        f"[ORCH][POLICY] loaded strategy=ross_momentum version={strategy_policy.version} "
+        f"policy={strategy_policy.name} stock_selection=ENABLED (mechanical policy)"
     )
     print(
         "[ORCH][POLICY] delegating to scanner "

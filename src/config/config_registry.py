@@ -697,7 +697,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "affects": ["ScannerFilters", "RossMomentum"],
         "enforcement": "SOFT",
         "mutable": "dynamic",
-        "description": "Minimum percent change for Ross 5 pillars filter.",
+        "description": "Minimum percent change for mechanical stock-selection gates.",
     },
     "ROSS_MIN_PRICE": {
         "type": float,
@@ -706,7 +706,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "affects": ["ScannerFilters", "RossMomentum"],
         "enforcement": "SOFT",
         "mutable": "dynamic",
-        "description": "Minimum price for Ross 5 pillars filter.",
+        "description": "Minimum price for mechanical stock-selection gates.",
     },
     "ROSS_MAX_PRICE": {
         "type": float,
@@ -715,7 +715,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "affects": ["ScannerFilters", "RossMomentum"],
         "enforcement": "SOFT",
         "mutable": "dynamic",
-        "description": "Maximum price for Ross 5 pillars filter.",
+        "description": "Maximum price for mechanical stock-selection gates.",
     },
     "ROSS_MAX_FLOAT": {
         "type": int,
@@ -724,7 +724,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "affects": ["ScannerFilters", "RossMomentum"],
         "enforcement": "SOFT",
         "mutable": "dynamic",
-        "description": "Max float shares for Ross 5 pillars filter.",
+        "description": "Max float shares for mechanical stock-selection gates.",
     },
     "ROSS_MIN_RVOL": {
         "type": float,
@@ -733,7 +733,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "affects": ["ScannerFilters", "RossMomentum"],
         "enforcement": "SOFT",
         "mutable": "dynamic",
-        "description": "Minimum relative volume for Ross 5 pillars filter.",
+        "description": "Minimum relative volume for mechanical stock-selection gates.",
     },
     "ROSS_MIN_VOLUME": {
         "type": int,
@@ -742,7 +742,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "affects": ["ScannerFilters", "RossMomentum"],
         "enforcement": "SOFT",
         "mutable": "dynamic",
-        "description": "Minimum volume during regular session for Ross filter.",
+        "description": "Minimum volume during regular session for mechanical stock-selection gates.",
     },
     "ROSS_MIN_PREMARKET_VOLUME": {
         "type": int,
@@ -751,7 +751,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "affects": ["ScannerFilters", "RossMomentum"],
         "enforcement": "SOFT",
         "mutable": "dynamic",
-        "description": "Minimum volume during premarket/overnight for Ross filter.",
+        "description": "Minimum volume during premarket/overnight for mechanical stock-selection gates.",
     },
     "ROSS_REQUIRE_NEWS": {
         "type": bool,
@@ -760,7 +760,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "affects": ["ScannerFilters", "NewsEngine"],
         "enforcement": "SOFT",
         "mutable": "dynamic",
-        "description": "Require news headlines to pass Ross 5 pillars filter.",
+        "description": "Require news headlines to pass mechanical stock-selection gates.",
     },
     "NEWS_MAX_AGE_SECONDS": {
         "type": int,
