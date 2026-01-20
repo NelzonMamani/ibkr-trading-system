@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from src.config.config_resolver import get_config
-from src.scanner.contracts import StockSelectionPolicy
+from src.scanner.contracts import StockSelectionPolicy, policy_from_config
 
 
 def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
@@ -23,27 +23,90 @@ def _get_value(entry: Any, key: str) -> Any:
 
 
 def _ross_5_pillars(policy: StockSelectionPolicy | None = None) -> dict:
-    if policy is not None:
-        return {
-            "min_pct_change": float(policy.gap_min_pct),
-            "min_price": float(policy.price_min),
-            "max_price": float(policy.price_max),
-            "max_float": int(policy.float_max_millions * 1_000_000),
-            "min_rvol": float(policy.rvol_min),
-            "min_volume": int(policy.min_volume),
-            "min_premarket_volume": int(policy.min_premarket_volume),
-            "require_news": bool(policy.require_catalyst),
-        }
+    resolved = policy if policy is not None else policy_from_config()
     return {
-        "min_pct_change": float(get_config("ROSS_MIN_PCT_CHANGE")),
-        "min_price": float(get_config("ROSS_MIN_PRICE")),
-        "max_price": float(get_config("ROSS_MAX_PRICE")),
-        "max_float": int(get_config("ROSS_MAX_FLOAT")),
-        "min_rvol": float(get_config("ROSS_MIN_RVOL")),
-        "min_volume": int(get_config("ROSS_MIN_VOLUME")),
-        "min_premarket_volume": int(get_config("ROSS_MIN_PREMARKET_VOLUME")),
-        "require_news": bool(get_config("ROSS_REQUIRE_NEWS")),
+        "min_pct_change": float(resolved.gap_min_pct),
+        "min_price": float(resolved.price_min),
+        "max_price": float(resolved.price_max),
+        "max_float": int(resolved.float_max_millions * 1_000_000),
+        "min_rvol": float(resolved.rvol_min),
+        "min_volume": int(resolved.min_volume),
+        "min_premarket_volume": int(resolved.min_premarket_volume),
+        "require_news": bool(resolved.require_catalyst),
     }
+
+
+def _mechanical_stock_selection_gates(policy: StockSelectionPolicy | None = None) -> dict:
+    resolved = policy if policy is not None else policy_from_config()
+    return {
+        "min_pct_change": float(resolved.gap_min_pct),
+        "max_pct_change": resolved.gap_max_pct,
+        "min_price": float(resolved.price_min),
+        "max_price": float(resolved.price_max),
+        "max_float": int(resolved.float_max_millions * 1_000_000),
+        "min_rvol": float(resolved.rvol_min),
+        "min_volume": int(resolved.min_volume),
+        "min_premarket_volume": int(resolved.min_premarket_volume),
+        "min_dollar_volume": resolved.liquidity_min_dollar_volume,
+        "spread_max_pct": resolved.spread_max_pct,
+        "require_news": bool(resolved.require_catalyst),
+        "allow_halts": bool(resolved.allow_halts),
+        "allow_ssr": bool(resolved.allow_ssr),
+        "session_allowlist": tuple(resolved.session_allowlist),
+    }
+
+
+def evaluate_mechanical_stock_selection_gates(
+    entry: Any,
+    policy: StockSelectionPolicy | None = None,
+) -> tuple[bool, list[str]]:
+    gates = _mechanical_stock_selection_gates(policy=policy)
+    pct = _safe_float(_get_value(entry, "current_percentage_change_from_prior_close"), None)
+    px = _safe_float(_get_value(entry, "last_trade_price"), None)
+    flt = _get_value(entry, "float_shares_raw")
+    rvol = _safe_float(_get_value(entry, "relative_volume"), None)
+    vol = _safe_float(_get_value(entry, "current_intraday_volume"), None)
+    session_label = (_get_value(entry, "market_session_label") or "").upper()
+    spread = _safe_float(_get_value(entry, "bid_ask_spread"), None)
+    reasons: list[str] = []
+
+    if pct is None or px is None or rvol is None or vol is None:
+        reasons.append("missing_core_metrics")
+        return False, reasons
+    if pct < gates["min_pct_change"]:
+        reasons.append("pct_change_below_min")
+    if gates["max_pct_change"] is not None and pct > gates["max_pct_change"]:
+        reasons.append("pct_change_above_max")
+    if not (gates["min_price"] <= px <= gates["max_price"]):
+        reasons.append("price_out_of_range")
+    if flt is None or flt <= 0:
+        reasons.append("float_missing")
+    elif flt > gates["max_float"]:
+        reasons.append("float_above_max")
+    if rvol < gates["min_rvol"]:
+        reasons.append("rvol_below_min")
+    if session_label in {"PRE", "OVN"}:
+        if vol < gates["min_premarket_volume"]:
+            reasons.append("premarket_volume_below_min")
+    elif vol < gates["min_volume"]:
+        reasons.append("volume_below_min")
+    if gates["min_dollar_volume"] is not None:
+        dollar_volume = px * vol
+        if dollar_volume < gates["min_dollar_volume"]:
+            reasons.append("dollar_volume_below_min")
+    if gates["spread_max_pct"] is not None and spread is not None:
+        spread_pct = spread / px if px else None
+        if spread_pct is not None and spread_pct > gates["spread_max_pct"]:
+            reasons.append("spread_above_max")
+    return (len(reasons) == 0), reasons
+
+
+def passes_mechanical_stock_selection_gates(
+    entry: Any,
+    policy: StockSelectionPolicy | None = None,
+) -> bool:
+    passed, _ = evaluate_mechanical_stock_selection_gates(entry, policy=policy)
+    return passed
 
 
 def _news_gates() -> dict:

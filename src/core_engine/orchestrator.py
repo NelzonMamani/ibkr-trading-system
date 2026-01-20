@@ -16,6 +16,7 @@ from src.core_engine.events import (
 )
 from src.core_engine.health import HealthStatus, combine_health
 from src.core_engine.state import CycleContext, resolve_session_state
+from src.core.intent import build_execution_intent
 from src.execution.order_router import execute_intents
 from src.risk.risk_audit import evaluate_trade_intents
 from src.scanner.contracts import StockSelectionPolicy
@@ -74,30 +75,7 @@ def _scanner_policy_for_session(session: str) -> tuple[RossMomentumPolicy, Stock
         strategy_policy,
         _policy_session_phase(session),
     )
-    scanner_policy = StockSelectionPolicy(
-        policy_name=strategy_policy.name,
-        price_min=stock_policy.price_min,
-        price_max=stock_policy.price_max,
-        gap_min_pct=stock_policy.gap_min_pct,
-        gap_max_pct=stock_policy.gap_max_pct,
-        rvol_min=stock_policy.rvol_min,
-        float_max_millions=stock_policy.float_max_millions,
-        liquidity_min_dollar_volume=stock_policy.liquidity_min_dollar_volume,
-        min_volume=stock_policy.min_volume,
-        min_premarket_volume=stock_policy.min_premarket_volume,
-        spread_max=stock_policy.spread_max,
-        require_catalyst=stock_policy.require_catalyst,
-        allow_halts=stock_policy.allow_halts,
-        allow_ssr=stock_policy.allow_ssr,
-        data_quality_require_price=stock_policy.data_quality_require_price,
-        data_quality_require_bid_ask=stock_policy.data_quality_require_bid_ask,
-        watchlist_limit_k=stock_policy.watchlist_limit_k,
-        focus_limit_m=stock_policy.focus_limit_m,
-        top_gainers_n=stock_policy.top_gainers_n,
-        max_symbols_per_cycle=stock_policy.max_symbols_per_cycle,
-        session_allowlist=stock_policy.session_allowlist,
-    )
-    return strategy_policy, scanner_policy
+    return strategy_policy, stock_policy
 
 
 def _build_synthetic_inputs(
@@ -152,6 +130,13 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
 
     print_section(f"CYCLE {cycle_id} MODE={mode.value} SESSION={session.value}")
     strategy_policy, scanner_policy = _scanner_policy_for_session(session.value)
+    execution_intent = build_execution_intent(
+        strategy_name=strategy_policy.name,
+        mode=mode.value,
+        session_phase=session.value,
+        policy=scanner_policy,
+        execution_enabled=True,
+    )
     print(
         "[ORCH][POLICY] loaded strategy=ross_momentum "
         f"version={strategy_policy.version} policy={strategy_policy.name} "
@@ -162,6 +147,15 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
         f"watchlist_k={scanner_policy.watchlist_limit_k} "
         f"focus_m={scanner_policy.focus_limit_m} "
         f"top_n={scanner_policy.top_gainers_n}"
+    )
+    print(
+        "[INTENT] "
+        f"strategy={execution_intent.strategy_name} "
+        f"mode={execution_intent.mode} "
+        f"session_phase={execution_intent.session_phase} "
+        f"trade_enabled={execution_intent.trade_enabled} "
+        f"scan_only={execution_intent.scan_only} "
+        f"enforcement={execution_intent.enforcement}"
     )
     scanner_payload = run_scanner_cycle(mode=mode.value, policy=scanner_policy)
     watchlist = scanner_payload.get("watchlist_k", scanner_payload.get("watchlist", []))
@@ -273,9 +267,13 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
             health_triggers.append((HealthStatus.CRITICAL, "risk_block"))
 
     print_section("EXECUTION")
-    execution_events = execute_intents(mode=mode, decisions=risk_decisions)
-    for event in execution_events:
-        print(f"[EXECUTION] {event.symbol} {event.action} ({event.detail})")
+    if execution_intent.scan_only:
+        print("[EXECUTION] Execution stage skipped — intent scan_only.")
+        execution_events = []
+    else:
+        execution_events = execute_intents(mode=mode, decisions=risk_decisions)
+        for event in execution_events:
+            print(f"[EXECUTION] {event.symbol} {event.action} ({event.detail})")
 
     store = TradeStore()
     storage_ok = store.persist_cycle(
