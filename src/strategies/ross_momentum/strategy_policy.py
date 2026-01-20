@@ -148,6 +148,47 @@ class RiskAndPermissions:
     max_reentries_per_symbol: Optional[int] = None
 
 
+# Stock Selection (Scanner Authority)
+# N=top_gainers_n (default 50) -> Stage A universe size
+# K=watchlist_limit_k (default 15) -> Stage B hard-gate survivors
+# M=focus_limit_m (default 5; typical 3–5) -> Stage C compression
+# Stage A/B/C allow empty results. News is diagnostic; not padding.
+@dataclass(frozen=True)
+class StockSelectionSpec:
+    """Authoritative stock-selection contract used by the scanner.
+
+    Phase 24 simplification: replace the prior 54-field heuristic dependency
+    with a mechanical stock-selection approximation via price, gap, relative
+    volume, float, liquidity/spread, and diagnostic news signals.
+    """
+
+    universe_source: str = "TOP_GAINERS"
+    exchange_allowlist: Sequence[str] = ("NYSE", "NASDAQ", "AMEX")
+    top_gainers_n: int = 50
+    watchlist_limit_k: int = 15
+    focus_limit_m: int = 5
+
+    price_min: float = 1.0
+    price_max: float = 20.0
+    gap_min_pct: float = 10.0
+    gap_max_pct: Optional[float] = None
+    rvol_min: float = 5.0
+    float_max_millions: float = 20.0
+    min_volume: int = 1_000_000
+    min_premarket_volume: int = 100_000
+    spread_max: Optional[float] = None
+    liquidity_min_dollar_volume: Optional[float] = None
+
+    require_catalyst: bool = True
+    allow_halts: bool = False
+    allow_ssr: bool = True
+    data_quality_require_price: bool = True
+    data_quality_require_bid_ask: bool = False
+
+    max_symbols_per_cycle: int = 50
+    session_allowlist: Sequence[str] = ("PRE", "REG", "AFTER")
+
+
 @dataclass(frozen=True)
 class RossMomentumPolicy:
     """Top-level policy used by the Orchestrator and Runner."""
@@ -180,10 +221,8 @@ class RossMomentumPolicy:
     indicator_gates: IndicatorGates = IndicatorGates()
     risk: RiskAndPermissions = RiskAndPermissions()
 
-    # Scanner/Universe policy belongs here; orchestrator imports it and passes it to scanner.
-    stock_selection: "RossStockSelectionPolicy" = field(
-        default_factory=lambda: RossStockSelectionPolicy()
-    )
+    # Authoritative stock-selection contract for the scanner (Phase 24 simplification).
+    stock_selection: StockSelectionSpec = field(default_factory=StockSelectionSpec)
 
     # Level 2 / Tape reading (optional; can be disabled without subscriptions)
     # These are left as telemetry flags / hooks.
@@ -192,32 +231,6 @@ class RossMomentumPolicy:
     # Market hours assumptions
     market_open_time_et: str = "09:30"
     market_close_time_et: str = "16:00"
-
-
-@dataclass(frozen=True)
-class RossStockSelectionPolicy:
-    """Ross Momentum stock selection policy (Ross 5 pillars + tradability gates)."""
-
-    price_min: float = 1.0
-    price_max: float = 20.0
-    gap_min_pct: float = 10.0
-    gap_max_pct: Optional[float] = None
-    rvol_min: float = 5.0
-    float_max_millions: float = 20.0
-    liquidity_min_dollar_volume: Optional[float] = None
-    min_volume: int = 1_000_000
-    min_premarket_volume: int = 100_000
-    spread_max: Optional[float] = None
-    require_catalyst: bool = True
-    allow_halts: bool = False
-    allow_ssr: bool = True
-    data_quality_require_price: bool = True
-    data_quality_require_bid_ask: bool = False
-    watchlist_limit_k: int = 15
-    focus_limit_m: int = 5
-    top_gainers_n: int = 50
-    max_symbols_per_cycle: int = 50
-    session_allowlist: Sequence[str] = ("PRE", "REG", "AFTER")
 
 
 SESSION_PHASE_TO_MODE = {
@@ -253,6 +266,6 @@ def timeframe_plan_for_session_phase(
 def stock_selection_policy_for_session_phase(
     policy: RossMomentumPolicy,
     session_phase: str,
-) -> RossStockSelectionPolicy:
+) -> StockSelectionSpec:
     _ = session_phase
     return policy.stock_selection

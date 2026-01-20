@@ -184,7 +184,11 @@ class ScannerRow54:
 
 @dataclass(frozen=True)
 class StockSelectionPolicy:
-    policy_name: str
+    universe_source: str
+    exchange_allowlist: Sequence[str]
+    top_gainers_n: int
+    watchlist_limit_k: int
+    focus_limit_m: int
     price_min: float
     price_max: float
     gap_min_pct: float
@@ -200,16 +204,18 @@ class StockSelectionPolicy:
     allow_ssr: bool
     data_quality_require_price: bool
     data_quality_require_bid_ask: bool
-    watchlist_limit_k: int
-    focus_limit_m: int
-    top_gainers_n: int
     max_symbols_per_cycle: int
     session_allowlist: Sequence[str]
 
 
 def policy_from_config() -> StockSelectionPolicy:
+    """CONFIG_DEFAULTS (non-authoritative fallback for non-strategy runs)."""
     return StockSelectionPolicy(
-        policy_name="CONFIG_DEFAULTS",
+        universe_source="TOP_GAINERS",
+        exchange_allowlist=("NYSE", "NASDAQ", "AMEX"),
+        top_gainers_n=int(get_config("SCANNER_TOP_GAINERS_COUNT")),
+        watchlist_limit_k=int(get_config("SCANNER_WATCHLIST_LIMIT")),
+        focus_limit_m=5,
         price_min=float(get_config("ROSS_MIN_PRICE")),
         price_max=float(get_config("ROSS_MAX_PRICE")),
         gap_min_pct=float(get_config("ROSS_MIN_PCT_CHANGE")),
@@ -225,9 +231,6 @@ def policy_from_config() -> StockSelectionPolicy:
         allow_ssr=True,
         data_quality_require_price=True,
         data_quality_require_bid_ask=False,
-        watchlist_limit_k=int(get_config("SCANNER_WATCHLIST_LIMIT")),
-        focus_limit_m=5,
-        top_gainers_n=int(get_config("SCANNER_TOP_GAINERS_COUNT")),
         max_symbols_per_cycle=int(get_config("IBKR_MAX_SYMBOLS_PER_CYCLE")),
         session_allowlist=("PRE", "REG", "AFTER"),
     )

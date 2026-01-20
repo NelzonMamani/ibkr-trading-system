@@ -22,7 +22,7 @@ def _get_value(entry: Any, key: str) -> Any:
     return getattr(entry, key, None)
 
 
-def _ross_5_pillars(policy: StockSelectionPolicy | None = None) -> dict:
+def _mechanical_stock_selection_gates(policy: StockSelectionPolicy | None = None) -> dict:
     if policy is not None:
         return {
             "min_pct_change": float(policy.gap_min_pct),
@@ -54,12 +54,12 @@ def _news_gates() -> dict:
     }
 
 
-def evaluate_ross_5_pillars(
+def evaluate_stock_selection_gates(
     entry: Any,
     require_news_override: Optional[bool] = None,
     policy: StockSelectionPolicy | None = None,
 ) -> tuple[bool, list[str]]:
-    pillars = _ross_5_pillars(policy=policy)
+    pillars = _mechanical_stock_selection_gates(policy=policy)
     if require_news_override is not None:
         pillars["require_news"] = require_news_override
     pct = _safe_float(_get_value(entry, "current_percentage_change_from_prior_close"), None)
@@ -95,12 +95,12 @@ def evaluate_ross_5_pillars(
     return (len(reasons) == 0), reasons
 
 
-def passes_ross_5_pillars(
+def passes_stock_selection_gates(
     entry: Any,
     require_news_override: Optional[bool] = None,
     policy: StockSelectionPolicy | None = None,
 ) -> bool:
-    passed, _ = evaluate_ross_5_pillars(
+    passed, _ = evaluate_stock_selection_gates(
         entry,
         require_news_override=require_news_override,
         policy=policy,
@@ -142,7 +142,7 @@ def evaluate_filters(
     bypass_news_gates: bool = False,
     policy: StockSelectionPolicy | None = None,
 ) -> tuple[bool, list[str]]:
-    passed_pillars, pillar_reasons = evaluate_ross_5_pillars(
+    passed_pillars, pillar_reasons = evaluate_stock_selection_gates(
         entry, require_news_override=require_news_override, policy=policy
     )
     if not passed_pillars:

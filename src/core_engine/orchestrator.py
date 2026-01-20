@@ -75,7 +75,11 @@ def _scanner_policy_for_session(session: str) -> tuple[RossMomentumPolicy, Stock
         _policy_session_phase(session),
     )
     scanner_policy = StockSelectionPolicy(
-        policy_name=strategy_policy.name,
+        universe_source=stock_policy.universe_source,
+        exchange_allowlist=stock_policy.exchange_allowlist,
+        top_gainers_n=stock_policy.top_gainers_n,
+        watchlist_limit_k=stock_policy.watchlist_limit_k,
+        focus_limit_m=stock_policy.focus_limit_m,
         price_min=stock_policy.price_min,
         price_max=stock_policy.price_max,
         gap_min_pct=stock_policy.gap_min_pct,
@@ -91,9 +95,6 @@ def _scanner_policy_for_session(session: str) -> tuple[RossMomentumPolicy, Stock
         allow_ssr=stock_policy.allow_ssr,
         data_quality_require_price=stock_policy.data_quality_require_price,
         data_quality_require_bid_ask=stock_policy.data_quality_require_bid_ask,
-        watchlist_limit_k=stock_policy.watchlist_limit_k,
-        focus_limit_m=stock_policy.focus_limit_m,
-        top_gainers_n=stock_policy.top_gainers_n,
         max_symbols_per_cycle=stock_policy.max_symbols_per_cycle,
         session_allowlist=stock_policy.session_allowlist,
     )
@@ -155,7 +156,7 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
     print(
         "[ORCH][POLICY] loaded strategy=ross_momentum "
         f"version={strategy_policy.version} policy={strategy_policy.name} "
-        "stock_selection=ENABLED"
+        "stock_selection=ENABLED (mechanical policy)"
     )
     print(
         "[ORCH][POLICY] delegating to scanner "

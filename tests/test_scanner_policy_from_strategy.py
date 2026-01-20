@@ -7,7 +7,11 @@ from src.strategies.ross_momentum.strategy_policy import RossMomentumPolicy
 
 def _to_scanner_policy(stock_policy) -> StockSelectionPolicy:
     return StockSelectionPolicy(
-        policy_name="ROSS_MOMENTUM",
+        universe_source=stock_policy.universe_source,
+        exchange_allowlist=stock_policy.exchange_allowlist,
+        top_gainers_n=stock_policy.top_gainers_n,
+        watchlist_limit_k=stock_policy.watchlist_limit_k,
+        focus_limit_m=stock_policy.focus_limit_m,
         price_min=stock_policy.price_min,
         price_max=stock_policy.price_max,
         gap_min_pct=stock_policy.gap_min_pct,
@@ -23,9 +27,6 @@ def _to_scanner_policy(stock_policy) -> StockSelectionPolicy:
         allow_ssr=stock_policy.allow_ssr,
         data_quality_require_price=stock_policy.data_quality_require_price,
         data_quality_require_bid_ask=stock_policy.data_quality_require_bid_ask,
-        watchlist_limit_k=stock_policy.watchlist_limit_k,
-        focus_limit_m=stock_policy.focus_limit_m,
-        top_gainers_n=stock_policy.top_gainers_n,
         max_symbols_per_cycle=stock_policy.max_symbols_per_cycle,
         session_allowlist=stock_policy.session_allowlist,
     )

@@ -95,11 +95,13 @@ class LiveReadOnlyScanner:
         policy_source = "strategy" if policy is not None else "config_fallback"
         resolved_policy = policy or policy_from_config()
         print(
-            "[SCANNER][POLICY] source={source} policy_name={policy_name} price={price_min}-{price_max} "
-            "gap_min={gap_min} rvol_min={rvol_min} float_max_millions={float_max} "
-            "spread_max={spread_max} watchlist_k={watchlist_k} focus_m={focus_m}".format(
+            "[SCANNER][POLICY] source={source} universe={universe} top_n={top_n} "
+            "price={price_min}-{price_max} gap_min={gap_min} rvol_min={rvol_min} "
+            "float_max_millions={float_max} spread_max={spread_max} "
+            "watchlist_k={watchlist_k} focus_m={focus_m}".format(
                 source=policy_source,
-                policy_name=resolved_policy.policy_name,
+                universe=resolved_policy.universe_source,
+                top_n=resolved_policy.top_gainers_n,
                 price_min=resolved_policy.price_min,
                 price_max=resolved_policy.price_max,
                 gap_min=resolved_policy.gap_min_pct,

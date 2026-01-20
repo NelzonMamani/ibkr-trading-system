@@ -682,11 +682,13 @@ def run_scanner_cycle(
     policy_source = "strategy" if policy is not None else "config_fallback"
     resolved_policy = policy or policy_from_config()
     print(
-        "[SCANNER][POLICY] source={source} policy_name={policy_name} price={price_min}-{price_max} "
-        "gap_min={gap_min} rvol_min={rvol_min} float_max_millions={float_max} "
-        "spread_max={spread_max} watchlist_k={watchlist_k} focus_m={focus_m}".format(
+        "[SCANNER][POLICY] source={source} universe={universe} top_n={top_n} "
+        "price={price_min}-{price_max} gap_min={gap_min} rvol_min={rvol_min} "
+        "float_max_millions={float_max} spread_max={spread_max} "
+        "watchlist_k={watchlist_k} focus_m={focus_m}".format(
             source=policy_source,
-            policy_name=resolved_policy.policy_name,
+            universe=resolved_policy.universe_source,
+            top_n=resolved_policy.top_gainers_n,
             price_min=resolved_policy.price_min,
             price_max=resolved_policy.price_max,
             gap_min=resolved_policy.gap_min_pct,
@@ -781,6 +783,7 @@ def run_scanner_cycle(
         )
         _PREV_WATCHLIST.clear()
         _PREV_WATCHLIST.update(watchlist_symbols)
+        drop_reasons_by_symbol = {symbol: [reason] for symbol, reason in drop_ledger.items()}
         return {
             "scanner_version": SCANNER_VERSION,
             "scanner_git_sha": SCANNER_GIT_SHA,
@@ -790,6 +793,7 @@ def run_scanner_cycle(
             "watchlist_rows": fast_rows,
             "focus_rows": deep_rows,
             "drop_ledger": drop_ledger,
+            "drop_reasons_by_symbol": drop_reasons_by_symbol,
             "watchlist_k": watchlist_symbols,
             "focus_m": focus_symbols,
             "topn_count": len(symbols),
@@ -811,7 +815,14 @@ def run_scanner_cycle(
 
     try:
         try:
-            symbols = provider.get_top_gainers(limits["resolved_symbol_limit"])
+            if resolved_policy.universe_source == "CUSTOM":
+                symbols = list(get_config("SCANNER_SYMBOLS") or [])
+                if not symbols:
+                    symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS") or [])
+                diagnostics["universe_source"] = "CUSTOM"
+            else:
+                symbols = provider.get_top_gainers(limits["resolved_symbol_limit"])
+                diagnostics["universe_source"] = "TOP_GAINERS"
         except Exception as exc:
             diagnostics["provider_error"] = str(exc)
             if provider.source_name != "MOCK":
@@ -825,6 +836,7 @@ def run_scanner_cycle(
                 limits = _print_symbol_limits(scanner_mode, provider.source_name, resolved_policy)
                 diagnostics["symbol_limits"] = limits
             symbols = provider.get_top_gainers(limits["resolved_symbol_limit"])
+            diagnostics["universe_source"] = "TOP_GAINERS"
 
         diagnostics["provider_source"] = provider.source_name
         diagnostics["symbol_count"] = len(symbols)
@@ -939,6 +951,7 @@ def run_scanner_cycle(
     _PREV_WATCHLIST.clear()
     _PREV_WATCHLIST.update(watchlist_symbols)
 
+    drop_reasons_by_symbol = {symbol: [reason] for symbol, reason in drop_ledger.items()}
     return {
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
@@ -948,6 +961,7 @@ def run_scanner_cycle(
         "watchlist_rows": fast_rows,
         "focus_rows": deep_rows,
         "drop_ledger": drop_ledger,
+        "drop_reasons_by_symbol": drop_reasons_by_symbol,
         "watchlist_k": watchlist_symbols,
         "focus_m": focus_symbols,
         "topn_count": len(symbols),
