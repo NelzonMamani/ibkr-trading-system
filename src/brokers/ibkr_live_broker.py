@@ -59,24 +59,28 @@ class IbkrLiveBroker(BaseBroker):
 
     def __post_init__(self) -> None:
         if not is_execution_enabled(self.run_mode):
-            raise RuntimeError("EXECUTION_ENABLED must be True for LIVE_MICRO execution.")
-        if not get_live_micro_ack():
-            raise RuntimeError("LIVE_MICRO_ACK must be True for LIVE_MICRO execution.")
-        if not get_live_micro_1_share_only():
-            raise RuntimeError("LIVE_MICRO_1_SHARE_ONLY must be True for LIVE_MICRO execution.")
-        if get_ibkr_readonly_enabled():
-            raise RuntimeError(
-                "IBKR_READONLY_ENABLED must be False for LIVE_MICRO execution."
-            )
+            raise RuntimeError("EXECUTION_ENABLED must be True for broker execution.")
+        if self.run_mode == RunMode.LIVE_MICRO:
+            if not get_live_micro_ack():
+                raise RuntimeError("LIVE_MICRO_ACK must be True for LIVE_MICRO execution.")
+            if not get_live_micro_1_share_only():
+                raise RuntimeError("LIVE_MICRO_1_SHARE_ONLY must be True for LIVE_MICRO execution.")
+            if get_ibkr_readonly_enabled():
+                raise RuntimeError(
+                    "IBKR_READONLY_ENABLED must be False for LIVE_MICRO execution."
+                )
         if not get_ibkr_order_translation_enabled():
             raise RuntimeError("IBKR order translation disabled; cannot submit live orders.")
         if not get_ibkr_order_submission_enabled(default=False):
             raise RuntimeError("IBKR order submission disabled; enable IBKR_ORDER_SUBMISSION_ENABLED.")
 
         if self.client is None:
+            port = get_ibkr_live_port()
+            if self.run_mode == RunMode.PAPER:
+                port = get_ibkr_paper_port()
             self.client = IbkrClient(
                 host=get_ibkr_host(),
-                port=get_ibkr_live_port(),
+                port=port,
                 client_id=get_ibkr_client_id_order_submit(),
                 snapshot_timeout_seconds=get_ibkr_snapshot_timeout_seconds(),
                 market_data_type=get_ibkr_market_data_type(),
@@ -122,7 +126,7 @@ class IbkrLiveBroker(BaseBroker):
         return True
 
     def place_order(self, request: BrokerOrderRequest) -> ExecutionResult:
-        if request.quantity != 1:
+        if self.run_mode == RunMode.LIVE_MICRO and request.quantity != 1:
             rationale = "LIVE_MICRO_BLOCK: quantity must be exactly 1 share."
             return ExecutionResult(
                 symbol=request.symbol,

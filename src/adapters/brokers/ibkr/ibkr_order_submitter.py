@@ -13,6 +13,7 @@ from src.events.event_types import (
     ORDER_FILL_RECORDED,
 )
 from src.ibkr.read_only_guard import assert_read_only_allows
+from src.config.runtime_config import broker_orders_allowed
 
 
 @dataclass(frozen=True)
@@ -171,8 +172,10 @@ class IbkrOrderSubmitter:
 
         run_mode = getattr(self.config.run_mode, "value", self.config.run_mode)
         normalized_run_mode = str(run_mode).upper()
-        if normalized_run_mode != "SIM":
-            raise RuntimeError("IBKR submission requires RUN_MODE=SIM")
+        if not broker_orders_allowed(normalized_run_mode):
+            raise RuntimeError(
+                "IBKR submission requires RUN_MODE in {LIVE, LIVE_MICRO, PAPER}"
+            )
 
         if not self.guard.can_submit():
             return "Submission limit reached for this run"
@@ -195,7 +198,7 @@ class IbkrOrderSubmitter:
         if not self.config.allow_shorting and internal_order.direction.upper() == "SHORT":
             raise RuntimeError("Shorting is blocked for IBKR submission mode")
 
-        if internal_order.quantity != 1:
+        if normalized_run_mode == "LIVE_MICRO" and internal_order.quantity != 1:
             raise RuntimeError("LIVE_MICRO enforces quantity == 1 share")
 
         # Execution safety guard applies ONLY outside SIM
@@ -264,7 +267,8 @@ class IbkrOrderSubmitter:
         if hasattr(self.ibkr_client, "host") and hasattr(self.ibkr_client, "port"):
             return self.ibkr_client.host, self.ibkr_client.port
         run_mode = getattr(self.config.run_mode, "value", self.config.run_mode)
-        if str(run_mode).upper() == "LIVE_MICRO":
+        normalized_run_mode = str(run_mode).upper()
+        if normalized_run_mode in {"LIVE", "LIVE_MICRO"}:
             return self.config.paper_host, self.config.live_port
         return self.config.paper_host, self.config.paper_port
 

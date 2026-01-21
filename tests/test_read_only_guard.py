@@ -23,9 +23,7 @@ def _reset_config_overrides():
 def test_read_only_guard_blocks_when_readonly_enabled():
     set_config_overrides(
         {
-            "IBKR_READONLY_ENABLED": True,
-            "EXECUTION_ENABLED": True,
-            "RUN_MODE": "LIVE_MICRO",
+            "RUN_MODE": "LIVE_READ_ONLY",
         }
     )
     with pytest.raises(RuntimeError, match="IBKR read-only enabled"):

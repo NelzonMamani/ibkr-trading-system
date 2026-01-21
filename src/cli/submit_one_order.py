@@ -50,6 +50,8 @@ def validate_runtime() -> RunMode:
         abort(
             "RUN_MODE=LIVE, LIVE_READ_ONLY, or LIVE_MICRO detected — live submission is forbidden for this CLI."
         )
+    if run_mode == RunMode.SIM:
+        abort("RUN_MODE=SIM detected — IBKR submission CLI requires RUN_MODE=PAPER.")
 
     if not get_ibkr_order_translation_enabled():
         abort("IBKR order translation disabled — enable IBKR_ORDER_TRANSLATION_ENABLED.")
@@ -163,7 +165,7 @@ def main() -> None:
         # IBKR_READONLY_ENABLED must be False before proceeding.
         readonly_enabled=True,
     )
-    settings = build_settings(run_mode=RunMode.SIM if run_mode == RunMode.PAPER else run_mode)
+    settings = build_settings(run_mode=run_mode)
     submitter = IbkrOrderSubmitter(
         ibkr_client=ibkr_client,
         translator=translator,

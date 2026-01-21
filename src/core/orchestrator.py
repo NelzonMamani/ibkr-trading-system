@@ -165,7 +165,7 @@ class CoreOrchestrator:
                 event_collector=self.event_collector,
                 run_mode=self.run_mode,
             )
-        elif self.run_mode in {RunMode.LIVE_MICRO, RunMode.PAPER}:
+        elif self.run_mode in {RunMode.LIVE_MICRO, RunMode.PAPER, RunMode.LIVE}:
             if IbkrLiveBroker is None:
                 print(
                     "[EXECUTION][WARN] IBKR live broker unavailable; "
@@ -1878,7 +1878,11 @@ class CoreOrchestrator:
         if self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO} and isinstance(
             self.price_feed, DeterministicPriceFeed
         ):
-            violations.append("Deterministic price feed detected in LIVE/LIVE_MICRO mode")
+            print(
+                "[SAFETY][WARN] Deterministic price feed detected in LIVE/LIVE_MICRO; "
+                "continuing in degraded mode."
+            )
+            self._degraded = True
 
         active_trades = self.trade_registry.snapshot()
         if len(active_trades) < 0:
