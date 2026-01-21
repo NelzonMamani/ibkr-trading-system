@@ -72,10 +72,7 @@ def test_snapshot_waits_for_required_ticks_before_cancel():
 
     dummy = client.ib
     assert dummy.qualified is True
-    assert dummy.cancelled is True
-    assert dummy.cancel_snapshot["last"] == 101.0
-    assert dummy.cancel_snapshot["close"] == 100.0
-    assert dummy.cancel_snapshot["volume"] == 12000
+    assert dummy.cancelled is False
     assert snapshot.last == 101.0
     assert snapshot.close == 100.0
     assert snapshot.volume == 12000

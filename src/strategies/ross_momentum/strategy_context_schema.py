@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Literal
 
+from src.scanner.result_models import CandidateMetrics
+
 Timeframe = Literal["D1", "M5", "M1", "S10"]
 SessionMode = Literal["OPEN_FAST", "MIDDAY_SLOW", "LATE_SLOW"]
 SessionPhase = Literal[
@@ -111,5 +113,5 @@ class StrategyContext:
     unrealized_pnl: float = 0.0
     consecutive_losses: int = 0
     safety_flags: Dict[str, bool] = field(default_factory=dict)
-    watchlist_k: List[str] = field(default_factory=list)
-    focus_m: List[str] = field(default_factory=list)
+    watchlist_k: List[CandidateMetrics] = field(default_factory=list)
+    focus_m: List[CandidateMetrics] = field(default_factory=list)

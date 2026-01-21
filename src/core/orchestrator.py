@@ -47,6 +47,7 @@ from src.risk.risk_engine import RiskEngine
 from src.core.intent import build_execution_intent
 from src.scanner.contracts import StockSelectionPolicy
 from src.scanner.scanner_contract import ScannerRequest, scanner_request_from_policy
+from src.scanner.result_models import CandidateMetrics
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.sim.clock import SimClock, WallClock
 from src.sim.price_feed import DeterministicPriceFeed
@@ -238,8 +239,8 @@ class CoreOrchestrator:
         uk_time: datetime,
         session_phase: str,
         watchlist_rows: List[object],
-        watchlist_k: List[str],
-        focus_m: List[str],
+        watchlist_k: List[CandidateMetrics],
+        focus_m: List[CandidateMetrics],
     ) -> StrategyContext:
         mode = self._strategy_mode_for_session_phase(session_phase)
         symbols: Dict[str, SymbolContext] = {}
@@ -277,6 +278,21 @@ class CoreOrchestrator:
             watchlist_k=watchlist_k,
             focus_m=focus_m,
         )
+
+    @staticmethod
+    def _symbols_from_candidates(candidates: List[object]) -> List[str]:
+        symbols: List[str] = []
+        for candidate in candidates or []:
+            symbol = None
+            if isinstance(candidate, str):
+                symbol = candidate
+            elif isinstance(candidate, dict):
+                symbol = candidate.get("symbol")
+            else:
+                symbol = getattr(candidate, "symbol", None)
+            if symbol:
+                symbols.append(symbol)
+        return symbols
 
     def replay_events(self, events):
         self.replay_engine.replay(events)
@@ -678,12 +694,20 @@ class CoreOrchestrator:
                 "symbols": scanner_watchlist_payload.get("symbols", []),
             },
         )
+        watchlist_k = list(scanner_watchlist_payload.get("watchlist_k", []))
+        focus_m = list(scanner_watchlist_payload.get("focus_m", []))
+        watchlist_symbols = list(scanner_watchlist_payload.get("watchlist_k_symbols", []))
+        focus_symbols = list(scanner_watchlist_payload.get("focus_m_symbols", []))
+        if not watchlist_symbols:
+            watchlist_symbols = self._symbols_from_candidates(watchlist_k)
+        if not focus_symbols:
+            focus_symbols = self._symbols_from_candidates(focus_m)
         try:
             stored = self.storage_engine.store_watchlist(
                 strategy_name=str(scanner_policy.policy_name),
                 session_phase=session_phase,
-                watchlist_symbols=list(scanner_watchlist_payload.get("watchlist_k", [])),
-                focus_symbols=list(scanner_watchlist_payload.get("focus_m", [])),
+                watchlist_symbols=watchlist_symbols,
+                focus_symbols=focus_symbols,
                 metrics_payload={
                     "watchlist_rows": scanner_watchlist_payload.get("watchlist_rows", []),
                     "focus_rows": scanner_watchlist_payload.get("focus_rows", []),
@@ -740,8 +764,6 @@ class CoreOrchestrator:
                 self._degraded = True
         if self._stop_requested_at_boundary("SCANNER"):
             return False
-        watchlist_k = list(scanner_watchlist_payload.get("watchlist_k", []))
-        focus_m = list(scanner_watchlist_payload.get("focus_m", []))
         watchlist_rows = list(scanner_watchlist_payload.get("watchlist_rows", []))
         strategy_context = self._build_strategy_context(
             now=cycle_started_at,
@@ -758,7 +780,7 @@ class CoreOrchestrator:
             f"focus_m={len(strategy_context.focus_m)} "
             f"symbols_in_context={len(strategy_context.symbols)}"
         )
-        focus_set = set(strategy_context.focus_m)
+        focus_set = set(self._symbols_from_candidates(strategy_context.focus_m))
         if focus_set:
             scanner_results = [
                 candidate for candidate in (scanner_results or [])
@@ -1686,8 +1708,16 @@ class CoreOrchestrator:
                 commissions += float(payload.get("commission", 0.0))
             except (TypeError, ValueError):
                 continue
-        watchlist = self.last_scanner_watchlist_payload.get("watchlist_k", [])
-        focus = self.last_scanner_watchlist_payload.get("focus_m", [])
+        watchlist = list(self.last_scanner_watchlist_payload.get("watchlist_k_symbols", []))
+        focus = list(self.last_scanner_watchlist_payload.get("focus_m_symbols", []))
+        if not watchlist:
+            watchlist = self._symbols_from_candidates(
+                list(self.last_scanner_watchlist_payload.get("watchlist_k", []))
+            )
+        if not focus:
+            focus = self._symbols_from_candidates(
+                list(self.last_scanner_watchlist_payload.get("focus_m", []))
+            )
         ny_date = to_ny_time(datetime.now(timezone.utc)).date().isoformat()
         summary = {
             "asof_date_ny": ny_date,
