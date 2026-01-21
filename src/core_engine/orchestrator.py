@@ -180,21 +180,36 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
         scanner_request=scanner_request,
     )
     watchlist = scanner_payload.get("watchlist_k", scanner_payload.get("watchlist", []))
-    focus = scanner_payload.get("focus_m", [])
+    focus = scanner_payload.get("focus_m_symbols", scanner_payload.get("focus_m", []))
+    focus_symbols: list[str] = []
+    if isinstance(focus, list):
+        for item in focus:
+            if isinstance(item, str):
+                focus_symbols.append(item)
+            elif isinstance(item, dict):
+                symbol = item.get("symbol")
+                if symbol:
+                    focus_symbols.append(str(symbol))
+            else:
+                symbol = getattr(item, "symbol", None)
+                if symbol:
+                    focus_symbols.append(str(symbol))
+    if not focus_symbols and isinstance(focus, list):
+        focus_symbols = focus
     drop_summary = scanner_payload.get("drop_reason_summary", {})
     print(
         f"Scanner: TopN={scanner_payload.get('topn_count', len(scanner_payload.get('symbols', [])))} "
         f"Survivors={scanner_payload.get('survivors_count', len(watchlist))} "
-        f"K={len(watchlist)} M={len(focus)}"
+        f"K={len(watchlist)} M={len(focus_symbols)}"
     )
-    print_watchlist_focus(watchlist, focus, drop_summary)
+    print_watchlist_focus(watchlist, focus_symbols, drop_summary)
 
     scanner_artifact = ScannerArtifact(
         context=context,
         topn_count=int(scanner_payload.get("topn_count", len(scanner_payload.get("symbols", [])))),
         survivors_count=int(scanner_payload.get("survivors_count", len(watchlist))),
         watchlist_k=watchlist,
-        focus_m=focus,
+        focus_m=focus_symbols,
         drop_reason_summary=drop_summary,
         new_symbols=scanner_payload.get("new_symbols", []),
         continuing_symbols=scanner_payload.get("continuing_symbols", []),
@@ -211,17 +226,17 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
     if any(data_quality_flags.values()):
         health_triggers.append((HealthStatus.DEGRADED, "data_quality"))
 
-    if not focus:
+    if not focus_symbols:
         print_section("DATA")
         print("No focus symbols; skipping data hydration.")
         print_section("PATTERNS")
         print("No focus symbols; skipping pattern evaluation.")
     else:
         print_section("DATA")
-        print(f"Hydrating data for focus symbols: {focus}")
+        print(f"Hydrating data for focus symbols: {focus_symbols}")
         print_section("PATTERNS")
         evaluator = PatternEvaluator()
-        for symbol in focus:
+        for symbol in focus_symbols:
             data_quality = scanner_payload.get("data_quality_by_symbol", {}).get(symbol, [])
             inputs = _build_synthetic_inputs(symbol, data_quality, session.value)
             summary = evaluator.evaluate([inputs])

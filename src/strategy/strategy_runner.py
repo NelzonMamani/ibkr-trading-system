@@ -96,9 +96,21 @@ class StrategyRunner:
     def filter_pattern_results(
         self,
         pattern_results: List[PatternResult],
-        focus_symbols: Optional[Sequence[str]] = None,
+        focus_symbols: Optional[Sequence[object]] = None,
     ) -> List[PatternResult]:
-        focus_list = list(focus_symbols or [])
+        focus_list: List[str] = []
+        for item in focus_symbols or []:
+            if isinstance(item, str):
+                focus_list.append(item)
+                continue
+            if isinstance(item, dict):
+                symbol = item.get("symbol")
+                if symbol:
+                    focus_list.append(str(symbol))
+                continue
+            symbol = getattr(item, "symbol", None)
+            if symbol:
+                focus_list.append(str(symbol))
         if not focus_list:
             symbols_for_eval = sorted({result.symbol for result in pattern_results})
             print(

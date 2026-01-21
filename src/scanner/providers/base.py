@@ -46,7 +46,15 @@ class ScannerDataProvider(Protocol):
     def disconnect(self) -> None:
         ...
 
-    def get_top_gainers(self, limit: int) -> list[str]:
+    def get_top_gainers(
+        self,
+        limit: int,
+        *,
+        scan_code: str | None = None,
+        region: str | None = None,
+        instrument: str | None = None,
+        exchanges: Sequence[str] | None = None,
+    ) -> list[str]:
         ...
 
     def get_quote(self, symbol: str) -> QuoteData:

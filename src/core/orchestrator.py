@@ -74,6 +74,28 @@ class RuntimeSafetyError(RuntimeError):
     """Raised when a runtime safety gate is violated."""
 
 
+def _focus_symbols_from_payload(payload: Dict[str, object]) -> List[str]:
+    focus_symbols = payload.get("focus_m_symbols")
+    if isinstance(focus_symbols, list) and focus_symbols:
+        return [str(symbol) for symbol in focus_symbols]
+    focus_items = payload.get("focus_m", [])
+    symbols: List[str] = []
+    if isinstance(focus_items, list):
+        for item in focus_items:
+            if isinstance(item, str):
+                symbols.append(item)
+                continue
+            if isinstance(item, dict):
+                symbol = item.get("symbol")
+                if symbol:
+                    symbols.append(str(symbol))
+                continue
+            symbol = getattr(item, "symbol", None)
+            if symbol:
+                symbols.append(str(symbol))
+    return symbols
+
+
 class CoreOrchestrator:
     def __init__(self):
         print("[INFO] Core Orchestrator initialised.")
@@ -678,12 +700,14 @@ class CoreOrchestrator:
                 "symbols": scanner_watchlist_payload.get("symbols", []),
             },
         )
+        focus_symbols = _focus_symbols_from_payload(scanner_watchlist_payload)
+        focus_objects = list(scanner_watchlist_payload.get("focus_m", []))
         try:
             stored = self.storage_engine.store_watchlist(
                 strategy_name=str(scanner_policy.policy_name),
                 session_phase=session_phase,
                 watchlist_symbols=list(scanner_watchlist_payload.get("watchlist_k", [])),
-                focus_symbols=list(scanner_watchlist_payload.get("focus_m", [])),
+                focus_symbols=focus_symbols,
                 metrics_payload={
                     "watchlist_rows": scanner_watchlist_payload.get("watchlist_rows", []),
                     "focus_rows": scanner_watchlist_payload.get("focus_rows", []),
@@ -741,7 +765,7 @@ class CoreOrchestrator:
         if self._stop_requested_at_boundary("SCANNER"):
             return False
         watchlist_k = list(scanner_watchlist_payload.get("watchlist_k", []))
-        focus_m = list(scanner_watchlist_payload.get("focus_m", []))
+        focus_m = focus_symbols
         watchlist_rows = list(scanner_watchlist_payload.get("watchlist_rows", []))
         strategy_context = self._build_strategy_context(
             now=cycle_started_at,
@@ -836,7 +860,7 @@ class CoreOrchestrator:
         try:
             filtered_pattern_results = self.strategy_runner.filter_pattern_results(
                 pattern_results or [],
-                strategy_context.focus_m,
+                focus_objects or strategy_context.focus_m,
             )
             strategy_intents = self.strategy_runner.generate_trade_intents(
                 filtered_pattern_results,
@@ -1687,7 +1711,7 @@ class CoreOrchestrator:
             except (TypeError, ValueError):
                 continue
         watchlist = self.last_scanner_watchlist_payload.get("watchlist_k", [])
-        focus = self.last_scanner_watchlist_payload.get("focus_m", [])
+        focus = _focus_symbols_from_payload(self.last_scanner_watchlist_payload)
         ny_date = to_ny_time(datetime.now(timezone.utc)).date().isoformat()
         summary = {
             "asof_date_ny": ny_date,

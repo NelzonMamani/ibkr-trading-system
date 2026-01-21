@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import random
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from src.config.config_resolver import get_config
 from .base import IntradayStats, QuoteData, ScannerDataProvider
@@ -112,7 +112,16 @@ class MockScannerProvider(ScannerDataProvider):
     def disconnect(self) -> None:
         return None
 
-    def get_top_gainers(self, limit: int) -> list[str]:
+    def get_top_gainers(
+        self,
+        limit: int,
+        *,
+        scan_code: str | None = None,
+        region: str | None = None,
+        instrument: str | None = None,
+        exchanges: Optional[Sequence[str]] = None,
+    ) -> list[str]:
+        _ = (scan_code, region, instrument, exchanges)
         return self.symbols[:limit]
 
     def get_quote(self, symbol: str) -> QuoteData:

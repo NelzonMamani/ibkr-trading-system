@@ -7,7 +7,7 @@ import time
 from typing import Optional
 import threading
 
-from ib_insync import IB, Stock
+from ib_insync import IB, ScannerSubscription, Stock
 
 from src.config.runtime_config import (
     get_ibkr_client_id,
@@ -179,12 +179,21 @@ class MarketDataClient:
         timeout_at = time.time() + self.snapshot_timeout_seconds
         while time.time() < timeout_at:
             self.ib.waitOnUpdate(timeout=0.2)
+            if getattr(ticker, "snapshotEnd", False):
+                break
             if self._ticker_has_required_snapshot(ticker):
                 break
         else:
             flags.append("MD_TIMEOUT")
 
-        self.ib.cancelMktData(contract)
+        connected = True
+        if hasattr(self.ib, "isConnected"):
+            connected = self.ib.isConnected()
+        if connected and not getattr(ticker, "snapshotEnd", False):
+            try:
+                self.ib.cancelMktData(contract)
+            except Exception:
+                flags.append("MD_CANCEL_ERROR")
         if "MD_TIMEOUT" in flags and not self._ticker_has_data(ticker):
             return self._empty_snapshot(symbol, flags)
 
@@ -273,3 +282,55 @@ class MarketDataClient:
 
     def snapshot_for_symbol(self, symbol: str) -> MarketDataSnapshot:
         return self.snapshot_stock(symbol)
+
+    def scan_top_gainers(
+        self,
+        *,
+        scan_code: str,
+        limit: int,
+        region: str | None = None,
+        instrument: str | None = None,
+        exchanges: list[str] | None = None,
+    ) -> list[dict[str, Optional[object]]]:
+        if not self.ib.isConnected():
+            self.connect()
+        instrument_code = (instrument or "STK").upper()
+        location_code = f"{instrument_code}.US.MAJOR"
+        if exchanges:
+            location_code = f"{instrument_code}.{exchanges[0].upper()}"
+        elif region:
+            normalized_region = region.upper()
+            if normalized_region == "US":
+                location_code = f"{instrument_code}.US.MAJOR"
+            else:
+                location_code = f"{instrument_code}.{normalized_region}"
+        subscription = ScannerSubscription(
+            instrument=instrument_code,
+            locationCode=location_code,
+            scanCode=scan_code,
+            numberOfRows=limit,
+        )
+        scan_data = self.ib.reqScannerData(subscription)
+        results: list[dict[str, Optional[object]]] = []
+        for item in scan_data or []:
+            contract_details = getattr(item, "contractDetails", None)
+            contract = getattr(contract_details, "contract", None) if contract_details else None
+            if contract is None:
+                continue
+            symbol = getattr(contract, "symbol", None)
+            if not symbol:
+                continue
+            exchange = getattr(contract, "primaryExchange", None) or getattr(
+                contract, "exchange", None
+            )
+            results.append(
+                {
+                    "symbol": str(symbol).upper(),
+                    "conId": getattr(contract, "conId", None),
+                    "exchange": exchange,
+                    "rank": getattr(item, "rank", None),
+                    "scan_code": scan_code,
+                    "location_code": location_code,
+                }
+            )
+        return results

@@ -401,6 +401,8 @@ def _evaluate_gates(
     bid = _safe_float(context.get("bid"), None)
     ask = _safe_float(context.get("ask"), None)
 
+    if context.get("snapshot_timeout"):
+        return "DROP_SNAPSHOT_TIMEOUT"
     if thresholds.require_price and price is None:
         return "DROP_MISSING_PRICE"
     if pct_change is None:
@@ -889,6 +891,11 @@ def _build_symbol_context(
         data_quality_flags.append("HISTORY_UNKNOWN")
 
     pct_change = _pct_change(last_price, prev_close)
+    snapshot_timeout = "MD_TIMEOUT" in data_quality_flags and (
+        last_price is None or prev_close is None
+    )
+    if snapshot_timeout:
+        data_quality_flags.append("SNAPSHOT_TIMEOUT")
     dollar_volume = None
     if last_price is not None and volume is not None:
         dollar_volume = round(last_price * volume, 2)
@@ -914,6 +921,7 @@ def _build_symbol_context(
         "spread_pct": spread_pct,
         "rvol": rvol,
         "float_shares": float_shares,
+        "snapshot_timeout": snapshot_timeout,
         "data_quality_flags": data_quality_flags,
     }
 
@@ -934,7 +942,32 @@ def _resolve_universe_symbols(
         "exchanges": list(request.exchanges or []),
     }
     if request.universe_source == UniverseSource.IBKR_TOP_GAINERS:
-        return provider.get_top_gainers(limits["resolved_symbol_limit"])
+        raw_universe = provider.get_top_gainers(
+            limits["resolved_symbol_limit"],
+            scan_code=request.ibkr_scan_code,
+            region=request.region,
+            instrument=request.instrument,
+            exchanges=list(request.exchanges or []),
+        )
+        raw_universe = raw_universe or []
+        universe_top_n: list[dict[str, Any]] = []
+        symbols: list[str] = []
+        for item in raw_universe:
+            symbol = None
+            if isinstance(item, str):
+                symbol = item
+                universe_top_n.append({"symbol": symbol})
+            elif isinstance(item, dict):
+                symbol = item.get("symbol")
+                universe_top_n.append(dict(item))
+            else:
+                symbol = getattr(item, "symbol", None)
+                if symbol is not None:
+                    universe_top_n.append({"symbol": symbol})
+            if symbol:
+                symbols.append(str(symbol).upper())
+        diagnostics["universe_top_n"] = universe_top_n
+        return symbols
 
     if request.universe_source == UniverseSource.CONFIG_SYMBOLS:
         symbols = list(request.optional_symbols_override or [])
@@ -955,6 +988,7 @@ def _resolve_universe_symbols(
             diagnostics["symbol_fallback"] = "MOCK_UNIVERSE"
             fallback_provider = MockScannerProvider()
             symbols = fallback_provider.get_top_gainers(limits["resolved_symbol_limit"])
+        diagnostics["universe_top_n"] = [{"symbol": symbol} for symbol in symbols]
         return symbols
 
     print(
@@ -965,6 +999,7 @@ def _resolve_universe_symbols(
     symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS") or [])
     if not symbols:
         symbols = ["AAPL", "TSLA", "NVDA", "AMD", "SPY"]
+    diagnostics["universe_top_n"] = [{"symbol": symbol} for symbol in symbols]
     return symbols
 
 
@@ -1015,6 +1050,7 @@ def run_scanner_cycle(
         if not symbols:
             symbols = ["AAPL"]
         symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
+        diagnostics["universe_top_n"] = [{"symbol": symbol} for symbol in symbols]
         all_rows: List[FastViewRow] = []
         for idx, symbol in enumerate(symbols, start=1):
             all_rows.append(
@@ -1162,13 +1198,15 @@ def run_scanner_cycle(
             "scanner_version": SCANNER_VERSION,
             "scanner_git_sha": SCANNER_GIT_SHA,
             "timestamp_utc": utc_now.isoformat(),
+            "universe_top_n": diagnostics.get("universe_top_n", []),
             "symbols": [row.symbol for row in fast_rows],
             "watchlist": [row.symbol for row in fast_rows],
             "watchlist_rows": fast_rows,
             "focus_rows": deep_rows,
             "drop_ledger": drop_ledger,
             "watchlist_k": watchlist_symbols,
-            "focus_m": focus_symbols,
+            "focus_m": focus_metrics,
+            "focus_m_symbols": focus_symbols,
             "candidates": scanner_candidates,
             "candidate_metrics": candidate_metrics,
             "scanner_result": ScannerResult(
@@ -1435,13 +1473,15 @@ def run_scanner_cycle(
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
         "timestamp_utc": utc_now.isoformat(),
+        "universe_top_n": diagnostics.get("universe_top_n", []),
         "symbols": [row.symbol for row in fast_rows],
         "watchlist": [row.symbol for row in fast_rows],
         "watchlist_rows": fast_rows,
         "focus_rows": deep_rows,
         "drop_ledger": drop_ledger,
         "watchlist_k": watchlist_symbols,
-        "focus_m": focus_symbols,
+        "focus_m": focus_metrics,
+        "focus_m_symbols": focus_symbols,
         "candidates": scanner_candidates,
         "candidate_metrics": candidate_metrics,
         "scanner_result": ScannerResult(
