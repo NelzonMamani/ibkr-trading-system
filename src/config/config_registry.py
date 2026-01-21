@@ -44,7 +44,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     # =========================
     "RUN_MODE": {
         "type": str,
-        "default": "SIM",
+        "default": "LIVE",
         "env": ["RUN_MODE"],
         "affects": ["CoreOrchestrator", "ExecutionEngine", "Scanner", "StorageEngine"],
         "enforcement": "HARD",
@@ -95,7 +95,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "affects": ["ExecutionEngine", "CoreOrchestrator"],
         "enforcement": "HARD",
         "mutable": "static",
-        "description": "Master execution enable flag (honored in SIM, PAPER, LIVE_MICRO, LIVE).",
+        "description": "Legacy execution enable flag (execution is now derived from RUN_MODE).",
     },
     "EXECUTION_ENABLED_EFFECTIVE": {
         "type": bool,

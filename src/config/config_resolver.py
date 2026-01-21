@@ -222,12 +222,8 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
 
     run_mode = resolved["RUN_MODE"].value
     market_data_type = resolved["IBKR_MARKET_DATA_TYPE"].value
-    ibkr_api_write_allowed = resolved["IBKR_API_WRITE_ALLOWED"].value
-    execution_enabled = resolved["EXECUTION_ENABLED"].value
 
     effective_run_mode = run_mode
-    if market_data_type == "LIVE" and ibkr_api_write_allowed and not execution_enabled:
-        effective_run_mode = "LIVE_READ_ONLY"
 
     if effective_run_mode == "SIM" and market_data_type == "LIVE":
         raise ConfigResolutionError(
@@ -257,6 +253,46 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         env=None,
     )
 
+    scanner_data_source = "MOCK" if effective_run_mode == "SIM" else "IBKR"
+    resolved["SCANNER_DATA_SOURCE"] = ConfigRecord(
+        name="SCANNER_DATA_SOURCE",
+        value=scanner_data_source,
+        source="DERIVED",
+        env=None,
+    )
+
+    ibkr_readonly_enabled = effective_run_mode in {"SIM", "LIVE_READ_ONLY"}
+    resolved["IBKR_READONLY_ENABLED"] = ConfigRecord(
+        name="IBKR_READONLY_ENABLED",
+        value=ibkr_readonly_enabled,
+        source="DERIVED",
+        env=None,
+    )
+
+    ibkr_submission_enabled = effective_run_mode in {"PAPER", "LIVE", "LIVE_MICRO"}
+    resolved["IBKR_ORDER_SUBMISSION_ENABLED"] = ConfigRecord(
+        name="IBKR_ORDER_SUBMISSION_ENABLED",
+        value=ibkr_submission_enabled,
+        source="DERIVED",
+        env=None,
+    )
+
+    ibkr_translation_enabled = effective_run_mode in {"PAPER", "LIVE", "LIVE_MICRO"}
+    resolved["IBKR_ORDER_TRANSLATION_ENABLED"] = ConfigRecord(
+        name="IBKR_ORDER_TRANSLATION_ENABLED",
+        value=ibkr_translation_enabled,
+        source="DERIVED",
+        env=None,
+    )
+
+    ibkr_kill_switch = effective_run_mode == "LIVE_READ_ONLY"
+    resolved["IBKR_KILL_SWITCH"] = ConfigRecord(
+        name="IBKR_KILL_SWITCH",
+        value=ibkr_kill_switch,
+        source="DERIVED",
+        env=None,
+    )
+
     requested_replay = resolved["EVENT_REPLAY_MODE"].value
     if effective_run_mode in {"LIVE", "LIVE_READ_ONLY", "LIVE_MICRO"}:
         replay_mode = "OFF"
@@ -271,10 +307,7 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
 
     resolved["EXECUTION_ENABLED_EFFECTIVE"] = ConfigRecord(
         name="EXECUTION_ENABLED_EFFECTIVE",
-        value=bool(
-            execution_enabled
-            and effective_run_mode in {"SIM", "PAPER", "LIVE_MICRO", "LIVE"}
-        ),
+        value=effective_run_mode in {"SIM", "PAPER", "LIVE_MICRO", "LIVE"},
         source="DERIVED",
         env=None,
     )

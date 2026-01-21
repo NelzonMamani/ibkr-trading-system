@@ -5,9 +5,11 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from core.orchestrator import CoreOrchestrator  # noqa: E402
 from models.data_models import TradeIntent  # noqa: E402
+from config.config_resolver import set_config_overrides  # noqa: E402
 
 
 def test_market_data_validation_teaching_is_na(monkeypatch):
+    set_config_overrides(None)
     monkeypatch.delenv("SCANNER_MODE", raising=False)
     monkeypatch.setenv("RUN_MODE", "SIM")
     orchestrator = CoreOrchestrator()
@@ -19,6 +21,7 @@ def test_market_data_validation_teaching_is_na(monkeypatch):
 
 
 def test_dedup_normalisation_drops_duplicates(monkeypatch):
+    set_config_overrides(None)
     monkeypatch.setenv("RUN_MODE", "SIM")
     monkeypatch.setenv("INTENT_DEDUP_SELFTEST_ENABLED", "false")
     orchestrator = CoreOrchestrator()

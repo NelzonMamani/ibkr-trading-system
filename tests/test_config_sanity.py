@@ -47,5 +47,5 @@ def test_sim_defaults_to_cycle_when_not_overridden(monkeypatch: pytest.MonkeyPat
     run_mode = get_run_mode()
     replay_mode = get_event_replay_mode(run_mode)
 
-    assert run_mode == RunMode.SIM
-    assert replay_mode == EventReplayMode.CYCLE
+    assert run_mode == RunMode.LIVE
+    assert replay_mode == EventReplayMode.OFF

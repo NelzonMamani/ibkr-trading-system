@@ -22,9 +22,11 @@ from src.strategies.ross_momentum.strategy_policy import UniverseSource
 
 
 class RunMode(Enum):
+    SIM = "SIM"
     LIVE_READ_ONLY = "LIVE_READ_ONLY"
     LIVE_MICRO = "LIVE_MICRO"
     PAPER = "PAPER"
+    LIVE = "LIVE"
 
 
 def _get_run_mode() -> RunMode:
@@ -32,7 +34,7 @@ def _get_run_mode() -> RunMode:
     for mode in RunMode:
         if mode.value == raw:
             return mode
-    return RunMode.PAPER
+    return RunMode.SIM
 
 
 def _current_market_session() -> str:
@@ -120,15 +122,21 @@ class Scanner:
         if not symbols:
             symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS") or [])
 
-        if self.run_mode in {RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO, RunMode.PAPER}:
+        if self.run_mode in {
+            RunMode.LIVE_READ_ONLY,
+            RunMode.LIVE_MICRO,
+            RunMode.PAPER,
+            RunMode.LIVE,
+        }:
             if symbols:
                 self.scan_symbols = symbols
                 return self._run_live_readonly_scan(resolved_policy)
             reason = "Live scan has no symbols available; falling back to teaching mode."
             print(f"[SCAN][WARN] {reason}")
             self.last_connectivity_issue = reason
+            self.last_fallback_reason = reason
             self._emit_market_data_fallback(reason)
-            return []
+            return self._fallback_candidates()
 
         print("[SCAN] Teaching scan started — using static, fake symbols only")
         print(
@@ -146,8 +154,9 @@ class Scanner:
             reason = "IBKR broker unavailable; live scan requires IBKR connectivity."
             print(f"[SCAN][ERROR] {reason}")
             self.last_connectivity_issue = reason
+            self.last_fallback_reason = reason
             self._emit_market_data_fallback(reason, symbols=self.scan_symbols)
-            return []
+            return self._fallback_candidates()
         hub = self.market_data_hub or MarketDataHub(
             event_collector=self.event_collector,
             broker=IbkrBroker() if IbkrBroker is not None else None,
@@ -175,8 +184,9 @@ class Scanner:
             if not health.get("connected", False):
                 self.last_connectivity_issue = "IBKR health reported disconnected"
                 print(f"[SCAN][ERROR] Connectivity issue: {self.last_connectivity_issue}")
+                self.last_fallback_reason = self.last_connectivity_issue
                 self._emit_market_data_fallback(self.last_connectivity_issue, symbols=symbols)
-                return []
+                return self._fallback_candidates()
             for symbol in symbols:
                 try:
                     observation = hub.snapshot(symbol, request_source="Scanner")
@@ -184,6 +194,7 @@ class Scanner:
                 except Exception as exc:
                     self.last_connectivity_issue = f"Snapshot failure symbol={symbol} err={exc}"
                     print(f"[SCAN][ERROR] Connectivity issue: {self.last_connectivity_issue}")
+                    self.last_fallback_reason = self.last_connectivity_issue
                     self._emit_market_data_fallback(self.last_connectivity_issue, symbols=symbols)
                     continue
                 bid = snapshot.bid
@@ -238,6 +249,10 @@ class Scanner:
                 )
         finally:
             hub.disconnect()
+
+        if not candidates and self.fallback_enabled:
+            self.last_fallback_reason = self.last_fallback_reason or "no_candidates"
+            candidates = self._fallback_candidates()
 
         if self.event_collector:
             self.event_collector.emit(

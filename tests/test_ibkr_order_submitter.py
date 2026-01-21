@@ -75,7 +75,7 @@ class FakeIbkrClient:
 
 def make_settings(
     *,
-    run_mode=RunMode.SIM,
+    run_mode=RunMode.PAPER,
     enabled=True,
     kill_switch=False,
     max_orders=1,
@@ -144,10 +144,10 @@ def test_submission_blocked_when_kill_switch_true():
 
 
 def test_submission_blocked_when_run_mode_not_sim():
-    settings = make_settings(run_mode=RunMode.LIVE)
+    settings = make_settings(run_mode=RunMode.SIM)
     submitter = make_submitter(settings)
 
-    with pytest.raises(RuntimeError, match="RUN_MODE=SIM"):
+    with pytest.raises(RuntimeError, match="RUN_MODE in \\{LIVE, LIVE_MICRO, PAPER\\}"):
         submitter.submit_once(make_order())
 
 

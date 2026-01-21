@@ -20,7 +20,7 @@ class RunMode(str, Enum):
     LIVE_MICRO = "LIVE_MICRO"
 
 
-DEFAULT_RUN_MODE: RunMode = RunMode.SIM
+DEFAULT_RUN_MODE: RunMode = RunMode.LIVE
 
 
 class RuntimeConfigError(RuntimeError):
@@ -62,11 +62,22 @@ def get_ibkr_api_write_allowed(default: bool = True) -> bool:
 
 
 def get_execution_enabled(default: bool = False) -> bool:
-    return bool(_with_default("EXECUTION_ENABLED", default))
+    return execution_allowed(get_run_mode())
 
 
 def is_execution_enabled(run_mode: RunMode | None = None) -> bool:
-    return bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
+    resolved_mode = run_mode or get_run_mode()
+    return execution_allowed(resolved_mode)
+
+
+def execution_allowed(run_mode: RunMode | str | None) -> bool:
+    normalized = str(getattr(run_mode, "value", run_mode) or "").upper()
+    return normalized in {"LIVE", "LIVE_MICRO", "PAPER", "SIM"}
+
+
+def broker_orders_allowed(run_mode: RunMode | str | None) -> bool:
+    normalized = str(getattr(run_mode, "value", run_mode) or "").upper()
+    return normalized in {"LIVE", "LIVE_MICRO", "PAPER"}
 
 
 def get_ibkr_host(default: str = "127.0.0.1") -> str:

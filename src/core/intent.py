@@ -32,8 +32,8 @@ def build_execution_intent(
     execution_enabled: bool,
 ) -> ExecutionIntent:
     trade_allowed_by_mode = _mode_allows_trading(mode)
-    trade_enabled = trade_allowed_by_mode
-    scan_only = not trade_enabled
+    trade_enabled = trade_allowed_by_mode and execution_enabled
+    scan_only = not trade_allowed_by_mode
     ranking_intent = getattr(policy, "ranking_intent", "ROSS_MOMENTUM_STOCK_SELECTION")
     enforcement = {
         "watchlist_limit_k": int(getattr(policy, "watchlist_limit_k", 0)),

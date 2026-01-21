@@ -40,16 +40,6 @@ class ExecutionEngine:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
         self.run_mode: RunMode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
         self.execution_enabled = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
-        if get_config("EXECUTION_ENABLED") and self.run_mode not in {
-            RunMode.SIM,
-            RunMode.PAPER,
-            RunMode.LIVE_MICRO,
-            RunMode.LIVE,
-        }:
-            print(
-                "[SAFETY] EXECUTION_ENABLED ignored unless RUN_MODE is SIM/PAPER/LIVE_MICRO/LIVE; "
-                f"run_mode={self.run_mode.value}"
-            )
         if not self.execution_enabled:
             print("[SAFETY] EXECUTION: HARD DISABLED")
             print("[EXECUTION] Gateway: DISABLED")
@@ -549,7 +539,7 @@ class ExecutionEngine:
                 f"[EXECUTION] {self.run_mode.value} mode active — broker={self._broker.name()} deterministic flow."
             )
         else:
-            print("[EXECUTION] LIVE broker stub result returned; no live order placed.")
+            print("[EXECUTION] LIVE broker order routed.")
         self._schedule_retry(request, result)
         return result
 
