@@ -48,6 +48,7 @@ from src.core.intent import build_execution_intent
 from src.scanner.contracts import StockSelectionPolicy
 from src.scanner.scanner_live_readonly import LiveReadOnlyScanner
 from src.scanner.scanner import Scanner
+from src.scanner.scanner_contract import ScannerRequest, scanner_request_from_policy
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.sim.clock import SimClock, WallClock
 from src.sim.price_feed import DeterministicPriceFeed
@@ -64,6 +65,7 @@ from src.strategies.ross_momentum.strategy_context_schema import (
 )
 from src.strategies.ross_momentum.strategy_policy import (
     RossMomentumPolicy,
+    UniverseSource,
     stock_selection_policy_for_session_phase,
 )
 from src.utils.time_utils import market_session_phase, to_ny_time, to_uk_time
@@ -240,6 +242,13 @@ class CoreOrchestrator:
         strategy_policy = RossMomentumPolicy()
         stock_policy = stock_selection_policy_for_session_phase(strategy_policy, session_phase)
         return strategy_policy, stock_policy
+
+    @staticmethod
+    def _build_scanner_request(stock_policy: StockSelectionPolicy) -> ScannerRequest:
+        override_symbols = None
+        if stock_policy.universe.source == UniverseSource.CONFIG_SYMBOLS:
+            override_symbols = get_config("SCANNER_SYMBOLS")
+        return scanner_request_from_policy(stock_policy, optional_symbols_override=override_symbols)
 
     def _build_strategy_context(
         self,
@@ -600,6 +609,7 @@ class CoreOrchestrator:
             f"uk_time={uk_time.isoformat()} utc={cycle_started_at.isoformat()}"
         )
         strategy_policy, scanner_policy = self._build_scanner_policy(session_phase)
+        scanner_request = self._build_scanner_request(scanner_policy)
         execution_intent = build_execution_intent(
             strategy_name=strategy_policy.name,
             mode=self.run_mode.value,
@@ -617,6 +627,12 @@ class CoreOrchestrator:
             f"watchlist_k={scanner_policy.watchlist_limit_k} "
             f"focus_m={scanner_policy.focus_limit_m} "
             f"top_n={scanner_policy.top_gainers_n}"
+        )
+        print(
+            "[ORCH][POLICY] scanner_universe="
+            f"{scanner_request.universe_source.value} "
+            f"scan_code={scanner_request.ibkr_scan_code} "
+            f"top_n={scanner_request.requested_top_n}"
         )
         print(
             "[INTENT] "
@@ -660,7 +676,10 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Scanner stage — gather candidates (conceptual).")
         try:
-            scanner_results = self.scanner.run_scan_cycle(policy=scanner_policy)
+            scanner_results = self.scanner.run_scan_cycle(
+                policy=scanner_policy,
+                scanner_request=scanner_request,
+            )
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="SCANNER",
@@ -672,6 +691,7 @@ class CoreOrchestrator:
             scanner_watchlist_payload = run_scanner_cycle(
                 mode="integrated",
                 policy=scanner_policy,
+                scanner_request=scanner_request,
             )
             self.last_scanner_watchlist_payload = scanner_watchlist_payload
             self.event_collector.emit(

@@ -11,6 +11,7 @@ This repository contains a modular, live-capable Trading OS designed to:
 
 ## Governance & Safety
 - Scanner observes, never trades
+- Scanner universe is policy-driven; SCANNER_SYMBOLS is a testing override only
 - Strategies emit intent only
 - Risk is final authority
 - Execution is guarded by mode and caps

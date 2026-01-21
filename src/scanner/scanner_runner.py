@@ -27,6 +27,8 @@ from src.scanner.contracts import (
     StockSelectionPolicy,
     policy_from_config,
 )
+from src.scanner.scanner_contract import ScannerRequest, scanner_request_from_policy
+from src.strategies.ross_momentum.strategy_policy import UniverseSource
 from src.scanner.phase24_views import (
     DeepViewRow,
     FastViewRow,
@@ -132,6 +134,7 @@ def _print_symbol_limits(
     scanner_mode: str,
     provider_source: str,
     policy: StockSelectionPolicy,
+    requested_top_n: Optional[int] = None,
 ) -> Dict[str, Any]:
     limit_keys = [
         "IBKR_MAX_SYMBOLS_PER_CYCLE",
@@ -143,6 +146,7 @@ def _print_symbol_limits(
         record = records[key]
         env = record.env or "-"
         print(f"[SCANNER][LIMITS] {key}={record.value} source={record.source} env={env}")
+    resolved_top_n = int(requested_top_n or policy.top_gainers_n)
     print(
         "[SCANNER][LIMITS] Policy caps "
         f"top_gainers_n={policy.top_gainers_n} "
@@ -150,8 +154,10 @@ def _print_symbol_limits(
         f"focus_m={policy.focus_limit_m} "
         f"max_symbols_per_cycle={policy.max_symbols_per_cycle}"
     )
+    if requested_top_n and requested_top_n != policy.top_gainers_n:
+        print(f"[SCANNER][LIMITS] Universe override top_n={requested_top_n}")
 
-    resolved = int(policy.top_gainers_n)
+    resolved = resolved_top_n
     reductions: list[str] = []
     if policy.max_symbols_per_cycle and resolved > policy.max_symbols_per_cycle:
         reductions.append(f"policy_max_symbols({policy.max_symbols_per_cycle})")
@@ -883,9 +889,60 @@ def _build_symbol_context(
     }
 
 
+def _resolve_universe_symbols(
+    *,
+    provider: ScannerDataProvider,
+    request: ScannerRequest,
+    limits: Dict[str, Any],
+    diagnostics: Dict[str, Any],
+) -> List[str]:
+    diagnostics["universe_request"] = {
+        "source": request.universe_source.value,
+        "scan_code": request.ibkr_scan_code,
+        "requested_top_n": request.requested_top_n,
+        "region": request.region,
+        "instrument": request.instrument,
+        "exchanges": list(request.exchanges or []),
+    }
+    if request.universe_source == UniverseSource.IBKR_TOP_GAINERS:
+        return provider.get_top_gainers(limits["resolved_symbol_limit"])
+
+    if request.universe_source == UniverseSource.CONFIG_SYMBOLS:
+        symbols = list(request.optional_symbols_override or [])
+        if not symbols:
+            symbols = list(get_config("SCANNER_SYMBOLS") or [])
+        if not symbols:
+            print(
+                "[SCANNER][WARN] CONFIG_SYMBOLS requested but no symbols provided; "
+                "falling back to SCANNER_DEFAULT_SYMBOLS"
+            )
+            diagnostics["symbol_fallback"] = "SCANNER_DEFAULT_SYMBOLS"
+            symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS") or [])
+        if not symbols:
+            print(
+                "[SCANNER][WARN] CONFIG_SYMBOLS requested but no symbols provided; "
+                "falling back to MOCK_UNIVERSE"
+            )
+            diagnostics["symbol_fallback"] = "MOCK_UNIVERSE"
+            fallback_provider = MockScannerProvider()
+            symbols = fallback_provider.get_top_gainers(limits["resolved_symbol_limit"])
+        return symbols
+
+    print(
+        "[SCANNER][ERROR] Unknown universe source "
+        f"{request.universe_source}; falling back to TEACHING static watchlist"
+    )
+    diagnostics["symbol_fallback"] = "TEACHING_STATIC"
+    symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS") or [])
+    if not symbols:
+        symbols = ["AAPL", "TSLA", "NVDA", "AMD", "SPY"]
+    return symbols
+
+
 def run_scanner_cycle(
     mode: str = "integrated",
     policy: StockSelectionPolicy | None = None,
+    scanner_request: ScannerRequest | None = None,
 ) -> Dict[str, Any]:
     global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE
     _SCAN_CYCLE_COUNT += 1
@@ -913,8 +970,14 @@ def run_scanner_cycle(
             focus_m=resolved_policy.focus_limit_m,
         )
     )
+    request = scanner_request or scanner_request_from_policy(resolved_policy)
     if scanner_mode == "TEACHING":
-        limits = _print_symbol_limits(scanner_mode, "TEACHING", resolved_policy)
+        limits = _print_symbol_limits(
+            scanner_mode,
+            "TEACHING",
+            resolved_policy,
+            requested_top_n=request.requested_top_n,
+        )
         diagnostics["symbol_limits"] = limits
         diagnostics["provider_source"] = "TEACHING"
         print("[SCANNER][STAGE] teaching")
@@ -1097,13 +1160,23 @@ def run_scanner_cycle(
         }
 
     provider: ScannerDataProvider = build_provider()
-    limits = _print_symbol_limits(scanner_mode, provider.source_name, resolved_policy)
+    limits = _print_symbol_limits(
+        scanner_mode,
+        provider.source_name,
+        resolved_policy,
+        requested_top_n=request.requested_top_n,
+    )
     diagnostics["symbol_limits"] = limits
     print("[SCANNER][STAGE] bootstrap")
 
     try:
         try:
-            symbols = provider.get_top_gainers(limits["resolved_symbol_limit"])
+            symbols = _resolve_universe_symbols(
+                provider=provider,
+                request=request,
+                limits=limits,
+                diagnostics=diagnostics,
+            )
         except Exception as exc:
             diagnostics["provider_error"] = str(exc)
             if provider.source_name != "MOCK":
@@ -1114,9 +1187,19 @@ def run_scanner_cycle(
                 }
                 provider.disconnect()
                 provider = MockScannerProvider()
-                limits = _print_symbol_limits(scanner_mode, provider.source_name, resolved_policy)
+                limits = _print_symbol_limits(
+                    scanner_mode,
+                    provider.source_name,
+                    resolved_policy,
+                    requested_top_n=request.requested_top_n,
+                )
                 diagnostics["symbol_limits"] = limits
-            symbols = provider.get_top_gainers(limits["resolved_symbol_limit"])
+            symbols = _resolve_universe_symbols(
+                provider=provider,
+                request=request,
+                limits=limits,
+                diagnostics=diagnostics,
+            )
 
         diagnostics["provider_source"] = provider.source_name
         diagnostics["symbol_count"] = len(symbols)
