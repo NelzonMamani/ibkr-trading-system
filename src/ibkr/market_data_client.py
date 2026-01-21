@@ -138,7 +138,23 @@ class MarketDataClient:
 
     def qualify_contract(self, symbol: str):
         contract = Stock(symbol, self.default_exchange, self.default_currency)
-        qualified = self.ib.qualifyContracts(contract)
+        try:
+            import asyncio
+
+            async def _coro():
+                return await self.ib.qualifyContractsAsync(contract)
+
+            runner = getattr(self.ib, "run", None)
+            if callable(runner):
+                qualified = runner(
+                    asyncio.wait_for(_coro(), timeout=self.snapshot_timeout_seconds)
+                )
+            else:
+                qualified = asyncio.run(
+                    asyncio.wait_for(_coro(), timeout=self.snapshot_timeout_seconds)
+                )
+        except Exception:
+            return None
         if not qualified:
             return None
         return qualified[0]
@@ -163,7 +179,7 @@ class MarketDataClient:
         timeout_at = time.time() + self.snapshot_timeout_seconds
         while time.time() < timeout_at:
             self.ib.waitOnUpdate(timeout=0.2)
-            if self._ticker_has_data(ticker):
+            if self._ticker_has_required_snapshot(ticker):
                 break
         else:
             flags.append("MD_TIMEOUT")
@@ -187,6 +203,12 @@ class MarketDataClient:
         spread = (ask - bid) if bid is not None and ask is not None else None
         if bid is None and ask is None and last is None:
             flags.append("MD_EMPTY")
+        if last is None:
+            flags.append("MD_MISSING_LAST")
+        if close is None:
+            flags.append("MD_MISSING_CLOSE")
+        if volume is None:
+            flags.append("MD_MISSING_VOLUME")
 
         return MarketDataSnapshot(
             symbol=symbol,
@@ -214,6 +236,13 @@ class MarketDataClient:
             if value is not None:
                 return True
         return False
+
+    @staticmethod
+    def _ticker_has_required_snapshot(ticker) -> bool:
+        last = _clean(getattr(ticker, "last", None))
+        close = _clean(getattr(ticker, "close", None))
+        volume = _clean(getattr(ticker, "volume", None))
+        return last is not None and close is not None and volume is not None
 
     def _empty_snapshot(
         self,
