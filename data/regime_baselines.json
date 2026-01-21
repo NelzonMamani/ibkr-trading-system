@@ -5,8 +5,8 @@
     "median_rvol": 0.0,
     "median_spread_bps": 0.0,
     "news_density_proxy": 0.0,
-    "pct_missing_prices": 0.3992571084800001,
-    "pct_missing_volume": 0.60074289152
+    "pct_missing_prices": 0.4555245494272001,
+    "pct_missing_volume": 0.7444754505728002
   },
   "version": 1,
   "window": 60,
@@ -17,9 +17,11 @@
       0.0,
       0.0,
       0.0,
+      0.0,
       0.0
     ],
     "median_rvol": [
+      0.0,
       0.0,
       0.0,
       0.0,
@@ -49,6 +51,8 @@
       0.0,
       0.0,
       0.0,
+      0.0,
+      0.0,
       0.0
     ],
     "pct_missing_prices": [
@@ -64,7 +68,9 @@
       1.0,
       0.0,
       0.0,
-      0.0
+      0.0,
+      0.0,
+      1.0
     ],
     "pct_missing_volume": [
       1.0,
@@ -77,6 +83,8 @@
       0.0,
       0.0,
       0.0,
+      1.0,
+      1.0,
       1.0,
       1.0,
       1.0

@@ -40,7 +40,8 @@ ibkr-trading-system/
 │   ├── PHASE_24_CONFIGURATION_AUTHORITY.md
 │   ├── PHASE_24_SCANNER_FIELD_AUDIT.json
 │   ├── PHASE_24_SCANNER_IMPLEMENTATION_REPORT.md
-│   └── PHASE_24_SCANNER_MECHANICAL_CHECKLIST.md
+│   ├── PHASE_24_SCANNER_MECHANICAL_CHECKLIST.md
+│   └── PR_VERIFICATION_REPORT.md
 ├── for_track_A
 │   ├── docs
 │   │   ├── LIVE_READINESS_CHECKLIST_ROSS.md
@@ -62,6 +63,20 @@ ibkr-trading-system/
 │   ├── README.md
 │   ├── RUNBOOK_UPDATE.md
 │   └── SYSTEM_STATE_UPDATE.md
+├── IBKR_Stabilisation_and_Parallel_Learning_Epoch_Bundle
+│   ├── 00_INDEX.md
+│   ├── 01_FIX_LIVE_MICRO_SCANNER_READONLY_VIOLATION.md
+│   ├── 02_SCANNER_OUTPUT_PRINTS_AND_WATCHLIST_LIFECYCLE.md
+│   ├── 03_SYSTEM_HEALTH_DB_RECOVERY_CLEANUP_AND_GOVERNANCE.md
+│   ├── 10_EPOCH_PARALLEL_LEARNING_GOVERNANCE.md
+│   ├── 11_LEARNING_DATA_MODEL_STORAGE_AND_BACKFILL.md
+│   ├── 12_REPORTING_ENGINE_DAILY_WEEKLY_MONTHLY_YEARLY.md
+│   ├── 13_TRADE_REVIEW_AND_COACHING_FEEDBACK.md
+│   ├── 14_POLICY_PROPOSAL_ENGINE_NO_AUTO_MUTATION.md
+│   ├── 15_POLICY_COMPARISON_APPROVAL_AND_ACTIVATION_WORKFLOW.md
+│   ├── 16_LEARNING_SCHEDULER_TRIGGERS_AND_RECOVERY.md
+│   ├── 17_TESTS_SAFETY_BOUNDARIES_AND_VERIFICATION.md
+│   └── 99_MANDATORY_VERIFICATION_COMMANDS.md
 ├── output
 │   ├── watchlists
 │   │   ├── watchlist_RossMomentum_20260114_214718_UTC.txt
@@ -116,6 +131,7 @@ ibkr-trading-system/
 │   │   └── submit_one_order.py
 │   ├── config
 │   │   ├── config_docs.py
+│   │   ├── config_dump.py
 │   │   ├── config_registry.py
 │   │   ├── config_resolver.py
 │   │   ├── runtime_config.py
@@ -127,6 +143,7 @@ ibkr-trading-system/
 │   │   ├── event_collector.py
 │   │   ├── events.py
 │   │   ├── faults.py
+│   │   ├── intent.py
 │   │   ├── orchestrator.py
 │   │   ├── performance_registry.py
 │   │   ├── replay_engine.py
@@ -353,6 +370,7 @@ ibkr-trading-system/
 │   ├── test_config_sanity.py
 │   ├── test_epoch3_risk_execution.py
 │   ├── test_event_collector_snapshot_policy.py
+│   ├── test_execution_intent_modes.py
 │   ├── test_faults.py
 │   ├── test_ibkr_order_submitter.py
 │   ├── test_ibkr_order_translator.py
@@ -376,6 +394,7 @@ ibkr-trading-system/
 │   ├── test_replay_locked_in_live_modes_epoch4.py
 │   ├── test_ross_strategy_registry.py
 │   ├── test_scanner_contract_54.py
+│   ├── test_scanner_policy_from_strategy.py
 │   ├── test_signal_adapter.py
 │   ├── test_sqlite_persistence.py
 │   ├── test_stop_controller.py
@@ -430,6 +449,7 @@ ibkr-trading-system/
 ├── PHASE_36_REPLAY_AND_TIMELINE_AUTHORITY.md
 ├── PHASE_37_PERFORMANCE_REPORTS_FROM_STORAGE.md
 ├── PHASE_38_STORAGE_CLI_AND_AUDIT_EXPORTS.md
+├── PR_VERIFICATION_REPORT.md
 ├── pytest.ini
 ├── README.md
 ├── requirements.txt
