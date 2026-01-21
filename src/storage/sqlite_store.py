@@ -10,7 +10,7 @@ from typing import Any, Iterable
 from src.storage.serialization import compute_audit_hash
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 @dataclass
@@ -199,6 +199,53 @@ class SQLiteStore:
                 FOREIGN KEY(run_id) REFERENCES runs(run_id),
                 FOREIGN KEY(cycle_id) REFERENCES cycles(cycle_id)
             );
+            CREATE TABLE IF NOT EXISTS watchlists (
+                watchlist_id TEXT PRIMARY KEY,
+                strategy_name TEXT,
+                asof_date TEXT,
+                session_phase TEXT,
+                created_at_utc TEXT,
+                symbols_json TEXT,
+                focus_json TEXT,
+                watchlist_hash TEXT,
+                metrics_json TEXT
+            );
+            CREATE TABLE IF NOT EXISTS learning_runs (
+                run_id TEXT PRIMARY KEY,
+                started_at_utc TEXT,
+                completed_at_utc TEXT,
+                ok INTEGER,
+                error TEXT,
+                strategy_name TEXT,
+                window_start_utc TEXT,
+                window_end_utc TEXT,
+                inputs_hash TEXT,
+                outputs_hash TEXT
+            );
+            CREATE TABLE IF NOT EXISTS learning_reports (
+                report_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                report_type TEXT,
+                asof_date_ny TEXT,
+                strategy_name TEXT,
+                payload_json TEXT,
+                summary_text TEXT
+            );
+            CREATE TABLE IF NOT EXISTS policy_proposals (
+                proposal_id TEXT PRIMARY KEY,
+                created_at_utc TEXT,
+                strategy_name TEXT,
+                baseline_policy_version TEXT,
+                min_trades_required INTEGER,
+                trades_used INTEGER,
+                proposal_json TEXT,
+                diff_json TEXT,
+                rationale_json TEXT,
+                status TEXT,
+                approved_by TEXT,
+                approved_at_utc TEXT,
+                rejection_reason TEXT
+            );
             """
         )
         self._ensure_columns(
@@ -248,6 +295,12 @@ class SQLiteStore:
                 "tick": "INTEGER",
             },
         )
+        self._ensure_columns(
+            "policy_proposals",
+            {
+                "rejection_reason": "TEXT",
+            },
+        )
         cursor.executescript(
             """
             CREATE INDEX IF NOT EXISTS idx_cycles_run_id ON cycles(run_id);
@@ -259,6 +312,9 @@ class SQLiteStore:
             CREATE INDEX IF NOT EXISTS idx_execution_results_run_id ON execution_results(run_id);
             CREATE INDEX IF NOT EXISTS idx_trade_outcomes_run_id ON trade_outcomes(run_id);
             CREATE INDEX IF NOT EXISTS idx_performance_snapshots_run_id ON performance_snapshots(run_id);
+            CREATE INDEX IF NOT EXISTS idx_watchlists_strategy_date ON watchlists(strategy_name, asof_date);
+            CREATE INDEX IF NOT EXISTS idx_learning_reports_date ON learning_reports(strategy_name, asof_date_ny);
+            CREATE INDEX IF NOT EXISTS idx_policy_proposals_strategy ON policy_proposals(strategy_name, created_at_utc);
             """
         )
         self._record_schema_version()
@@ -530,6 +586,42 @@ class SQLiteStore:
         )
         if self.commit_each_write:
             self.connection.commit()
+
+    def insert_watchlist(self, watchlist: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            INSERT OR REPLACE INTO watchlists (
+                watchlist_id, strategy_name, asof_date, session_phase,
+                created_at_utc, symbols_json, focus_json, watchlist_hash, metrics_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                watchlist.get("watchlist_id"),
+                watchlist.get("strategy_name"),
+                watchlist.get("asof_date"),
+                watchlist.get("session_phase"),
+                watchlist.get("created_at_utc"),
+                watchlist.get("symbols_json"),
+                watchlist.get("focus_json"),
+                watchlist.get("watchlist_hash"),
+                watchlist.get("metrics_json"),
+            ),
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def fetch_latest_watchlist(self, strategy_name: str, asof_date: str) -> dict[str, Any] | None:
+        cursor = self.connection.execute(
+            """
+            SELECT * FROM watchlists
+            WHERE strategy_name = ? AND asof_date = ?
+            ORDER BY created_at_utc DESC
+            LIMIT 1
+            """,
+            (strategy_name, asof_date),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
     def list_runs(self) -> list[dict[str, Any]]:
         cursor = self.connection.execute(

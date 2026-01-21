@@ -10,6 +10,7 @@ configuration, or connecting to brokers or data sources.
 from __future__ import annotations
 
 import argparse
+import os
 
 from src.config.config_resolver import get_config, set_config_overrides
 from src.config.runtime_config import (
@@ -27,9 +28,16 @@ from src.config.runtime_config import (
     get_ibkr_default_exchange,
     get_ibkr_port,
     get_ibkr_order_translation_enabled,
+    get_ibkr_order_submission_enabled,
     get_ibkr_readonly_enabled,
     get_ibkr_snapshot_timeout_seconds,
     get_intent_dedup_selftest_enabled,
+    get_live_micro_ack,
+    get_live_micro_1_share_only,
+    get_live_micro_daily_max_loss,
+    get_live_micro_max_concurrent_trades,
+    get_live_micro_max_trades_per_day,
+    get_persistence_sqlite_path,
     get_run_mode,
     get_scanner_mode,
     get_scanner_symbols,
@@ -40,6 +48,8 @@ from src.domain.models.internal_order import InternalOrder
 from src.core.orchestrator import CoreOrchestrator
 from src.adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
 from src.ibkr.read_only_guard import validate_read_only_guard
+from src.storage.sqlite_store import SCHEMA_VERSION
+from src.storage.storage_engine import StorageEngine
 
 
 def _parse_args() -> argparse.Namespace:
@@ -86,6 +96,36 @@ def _apply_cli_overrides(args: argparse.Namespace) -> None:
         set_config_overrides(overrides)
 
 
+def _print_startup_banner(run_mode: RunMode, event_replay_mode) -> None:
+    sqlite_raw = get_persistence_sqlite_path()
+    sqlite_path = StorageEngine._resolve_repo_relative_path(sqlite_raw)
+    db_exists = os.path.exists(sqlite_path)
+    print("[STARTUP] Runtime banner")
+    print(f"[STARTUP] Run mode: {run_mode.value}")
+    print(f"[STARTUP] Event replay: {event_replay_mode.value}")
+    print(f"[STARTUP] Active sessions: {', '.join(ACTIVE_SESSIONS)}")
+    print("[STARTUP] Execution flags")
+    print(f"  - EXECUTION_ENABLED: {get_execution_enabled()}")
+    print(f"  - IBKR_READONLY_ENABLED: {get_ibkr_readonly_enabled()}")
+    print(f"  - IBKR_ORDER_TRANSLATION_ENABLED: {get_ibkr_order_translation_enabled()}")
+    print(f"  - IBKR_ORDER_SUBMISSION_ENABLED: {get_ibkr_order_submission_enabled()}")
+    print("[STARTUP] LIVE_MICRO guardrails")
+    print(f"  - LIVE_MICRO_ACK: {get_live_micro_ack()}")
+    print(f"  - LIVE_MICRO_1_SHARE_ONLY: {get_live_micro_1_share_only()}")
+    print(f"  - LIVE_MICRO_MAX_POSITIONS: {get_live_micro_max_concurrent_trades()}")
+    print(f"  - LIVE_MICRO_MAX_TRADES_PER_DAY: {get_live_micro_max_trades_per_day()}")
+    print(f"  - LIVE_MICRO_MAX_DAILY_LOSS: {get_live_micro_daily_max_loss()}")
+    print("[STARTUP] Broker connectivity")
+    print(f"  - IBKR_HOST: {get_ibkr_host()}")
+    print(f"  - IBKR_PORT: {get_ibkr_port()}")
+    print(f"  - IBKR_CLIENT_ID: {get_ibkr_client_id()}")
+    print(f"  - IBKR_MARKET_DATA_TYPE: {get_ibkr_market_data_type()}")
+    print("[STARTUP] Storage")
+    print(f"  - SQLITE_PATH: {sqlite_path}")
+    print(f"  - SCHEMA_VERSION: {SCHEMA_VERSION}")
+    print(f"  - DB_EXISTS: {'Y' if db_exists else 'N'}")
+
+
 def main() -> None:
     """Run the minimal teaching-first entry point."""
     args = _parse_args()
@@ -113,6 +153,7 @@ def main() -> None:
         print(f"  - EVENT_REPLAY_MODE: {event_replay_mode.value} (resolved)")
     print(f"  - CYCLE_SLEEP_SECONDS: {CYCLE_SLEEP_SECONDS}")
     print(f"  - ACTIVE_SESSIONS: {', '.join(ACTIVE_SESSIONS)}")
+    _print_startup_banner(run_mode, event_replay_mode)
     ibkr_readonly_enabled = get_ibkr_readonly_enabled()
     ibkr_api_write_allowed = get_ibkr_api_write_allowed()
     execution_enabled = is_execution_enabled(run_mode)

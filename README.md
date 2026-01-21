@@ -21,8 +21,8 @@ This repository contains a modular, live-capable Trading OS designed to:
 - Epoch 4: Scanner contract — frozen
 - Epoch 5: Trading OS — frozen
 - Track A: Ross Momentum LIVE_MICRO rollout — active
-- Stabilisation: scanner, DB, health, observability — active
-- Parallel Learning Epoch — planned (isolated)
+- Stabilisation: scanner, DB, health, observability — complete
+- Parallel Learning Epoch — active (isolated, proposal-only)
 - Epoch 6 (Buffett) — future
 
 ## Operating Modes
@@ -34,6 +34,7 @@ This repository contains a modular, live-capable Trading OS designed to:
 - RUNBOOK.md
 - SYSTEM_STATE.md
 - for_track_A/
+- `python -m src.learning.cli --help` (parallel learning reports/proposals)
 
 ## Contribution Rules
 - Respect frozen contracts

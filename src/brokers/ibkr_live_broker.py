@@ -32,6 +32,8 @@ from src.config.runtime_config import (
     get_ibkr_readonly_enabled,
     get_ibkr_snapshot_timeout_seconds,
     is_execution_enabled,
+    get_live_micro_ack,
+    get_live_micro_1_share_only,
 )
 from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.event_collector import EventCollector
@@ -58,6 +60,10 @@ class IbkrLiveBroker(BaseBroker):
     def __post_init__(self) -> None:
         if not is_execution_enabled(self.run_mode):
             raise RuntimeError("EXECUTION_ENABLED must be True for LIVE_MICRO execution.")
+        if not get_live_micro_ack():
+            raise RuntimeError("LIVE_MICRO_ACK must be True for LIVE_MICRO execution.")
+        if not get_live_micro_1_share_only():
+            raise RuntimeError("LIVE_MICRO_1_SHARE_ONLY must be True for LIVE_MICRO execution.")
         if get_ibkr_readonly_enabled():
             raise RuntimeError(
                 "IBKR_READONLY_ENABLED must be False for LIVE_MICRO execution."

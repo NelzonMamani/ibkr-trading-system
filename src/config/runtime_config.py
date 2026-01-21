@@ -120,6 +120,10 @@ def get_scanner_symbols(default: list[str] | None = None) -> list[str]:
     return list(resolved)
 
 
+def get_watchlist_print_every_n_cycles(default: int = 20) -> int:
+    return int(_with_default("WATCHLIST_PRINT_EVERY_N_CYCLES", default))
+
+
 def get_intent_dedup_selftest_enabled(default: bool = False) -> bool:
     return bool(_with_default("INTENT_DEDUP_SELFTEST_ENABLED", default))
 
@@ -156,6 +160,14 @@ def get_live_micro_max_trades_per_day(default: int = 3) -> int:
     return int(_with_default("LIVE_MICRO_MAX_TRADES_PER_DAY", default))
 
 
+def get_live_micro_ack(default: bool = False) -> bool:
+    return bool(_with_default("LIVE_MICRO_ACK", default))
+
+
+def get_live_micro_1_share_only(default: bool = True) -> bool:
+    return bool(_with_default("LIVE_MICRO_1_SHARE_ONLY", default))
+
+
 def get_live_micro_daily_max_loss(default: float = 10.0) -> float:
     return float(_with_default("LIVE_MICRO_DAILY_MAX_LOSS", default))
 
@@ -177,6 +189,8 @@ def get_daily_loss_warning_limit(default: float = 5.0) -> float:
 
 
 def get_daily_loss_hard_limit(default: float = 10.0) -> float:
+    if get_run_mode() == RunMode.LIVE_MICRO:
+        return float(_with_default("LIVE_MICRO_DAILY_MAX_LOSS", default))
     return float(_with_default("DAILY_LOSS_HARD_LIMIT", default))
 
 

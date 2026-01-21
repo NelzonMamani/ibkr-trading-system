@@ -40,6 +40,7 @@ from src.config.system_config import ACTIVE_SESSIONS, CYCLE_SLEEP_SECONDS, get_c
 from src.models.data_models import TradeRecord
 from src.storage.serialization import canonical_json, compute_audit_hash, to_jsonable
 from src.storage.sqlite_store import SCHEMA_VERSION, SQLiteStore, now_iso
+from src.utils.time_utils import to_ny_time
 
 
 @dataclass
@@ -67,6 +68,7 @@ class StorageEngine:
         self.run_id = str(uuid4())
         self._seq = 0
         self._last_hash = "GENESIS"
+        self.last_watchlist_hash: str | None = None
         self._store: SQLiteStore | None = None
         if self.enabled and self.backend == "sqlite":
             print(f"[STORAGE] SQLite path resolved to {self.sqlite_path}")
@@ -302,6 +304,48 @@ class StorageEngine:
                 else []
             ),
         )
+
+    def store_watchlist(
+        self,
+        *,
+        strategy_name: str,
+        session_phase: str,
+        watchlist_symbols: list[str],
+        focus_symbols: list[str],
+        metrics_payload: dict[str, Any] | None = None,
+    ) -> bool:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return False
+        asof_date = to_ny_time(datetime.now(timezone.utc)).date().isoformat()
+        watchlist_hash = hashlib.sha256(
+            canonical_json(
+                {"watchlist": watchlist_symbols, "focus": focus_symbols},
+                allow_fallback=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        latest = self._store.fetch_latest_watchlist(strategy_name, asof_date)
+        is_premarket = session_phase.upper() in {"PREMARKET", "PRE"}
+        if latest and latest.get("watchlist_hash") == watchlist_hash and not is_premarket:
+            return False
+        record = {
+            "watchlist_id": str(uuid4()),
+            "strategy_name": strategy_name,
+            "asof_date": asof_date,
+            "session_phase": session_phase,
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+            "symbols_json": canonical_json(watchlist_symbols, allow_fallback=True),
+            "focus_json": canonical_json(focus_symbols, allow_fallback=True),
+            "watchlist_hash": watchlist_hash,
+            "metrics_json": canonical_json(metrics_payload or {}, allow_fallback=True),
+        }
+        self._store.insert_watchlist(record)
+        self._store.connection.execute(
+            "DELETE FROM watchlists WHERE strategy_name = ? AND asof_date = ? AND watchlist_id <> ?",
+            (strategy_name, asof_date, record["watchlist_id"]),
+        )
+        self._store.commit()
+        self.last_watchlist_hash = watchlist_hash
+        return True
 
     def _persist_events(
         self,

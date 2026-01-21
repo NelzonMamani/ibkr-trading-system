@@ -33,6 +33,10 @@ def test_storage_schema_epoch4_tables_and_columns(tmp_path):
         "execution_results",
         "trade_outcomes",
         "performance_snapshots",
+        "watchlists",
+        "learning_runs",
+        "learning_reports",
+        "policy_proposals",
     }
     cursor = store.connection.execute(
         "SELECT name FROM sqlite_master WHERE type='table'"
@@ -69,6 +73,17 @@ def test_storage_schema_epoch4_tables_and_columns(tmp_path):
 
     snapshot_cols = _column_names(store, "performance_snapshots")
     assert {"performance_snapshot_id", "payload_json"}.issubset(snapshot_cols)
+
+    watchlist_cols = _column_names(store, "watchlists")
+    assert {"watchlist_id", "strategy_name", "symbols_json", "watchlist_hash"}.issubset(
+        watchlist_cols
+    )
+
+    report_cols = _column_names(store, "learning_reports")
+    assert {"report_id", "report_type", "payload_json"}.issubset(report_cols)
+
+    proposal_cols = _column_names(store, "policy_proposals")
+    assert {"proposal_id", "proposal_json", "status"}.issubset(proposal_cols)
 
     store.close()
 
