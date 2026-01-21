@@ -7,6 +7,8 @@ the system stages and their order easy to follow during this teaching phase.
 """
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
+import json
+import os
 from typing import Dict, List, Optional, Set, Tuple
 
 from src.brokers import IbkrLiveBroker, SimBroker
@@ -16,6 +18,8 @@ from src.config.runtime_config import (
     RunMode,
     get_daily_loss_hard_limit,
     get_daily_loss_warning_limit,
+    get_live_micro_ack,
+    get_live_micro_1_share_only,
 )
 from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTradeRegistry
@@ -33,6 +37,7 @@ from src.execution.execution_engine import ExecutionEngine
 from src.execution.order_gateway import OrderGateway
 from src.execution.trade_exit_engine import TradeExitEngine
 from src.ibkr.market_data_client import MarketDataClient
+from src.learning.scheduler import LearningScheduler
 from src.market_data.market_data_hub import MarketDataHub
 from src.market_data.market_data_price_feed import MarketDataPriceFeed
 from src.performance.strategy_performance import StrategyPerformanceTracker
@@ -180,12 +185,18 @@ class CoreOrchestrator:
             )
         elif self.run_mode in {RunMode.LIVE_MICRO, RunMode.PAPER}:
             if IbkrLiveBroker is None:
-                raise RuntimeError("IBKR live broker unavailable; ibapi dependency missing.")
-            broker = IbkrLiveBroker(
-                event_collector=self.event_collector,
-                trade_registry=self.trade_registry,
-                run_mode=self.run_mode,
-            )
+                print(
+                    "[EXECUTION][WARN] IBKR live broker unavailable; "
+                    "forcing execution disabled for safety."
+                )
+                self.execution_enabled = False
+                broker = None
+            else:
+                broker = IbkrLiveBroker(
+                    event_collector=self.event_collector,
+                    trade_registry=self.trade_registry,
+                    run_mode=self.run_mode,
+                )
         else:
             broker = None
         self.execution_engine = ExecutionEngine(
@@ -195,6 +206,7 @@ class CoreOrchestrator:
             price_feed=self.price_feed,
             stop_controller=self.stop_controller,
         )
+        self.execution_enabled = self.execution_engine.execution_enabled
         self.trade_exit_engine = TradeExitEngine(
             trade_registry=self.trade_registry,
             event_collector=self.event_collector,
@@ -202,6 +214,7 @@ class CoreOrchestrator:
             stop_controller=self.stop_controller,
         )
         self.storage_engine = StorageEngine()
+        self.learning_scheduler = LearningScheduler()
         self._halted = False
         self._degraded = False
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
@@ -209,6 +222,10 @@ class CoreOrchestrator:
         self._daily_loss_hard_stop_date: Optional[str] = None
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
         self._run_startup_validations()
+        try:
+            self.learning_scheduler.on_startup()
+        except Exception as exc:
+            print(f"[LEARNING][SCHEDULER] Startup check failed: {exc}")
 
     @staticmethod
     def _strategy_mode_for_session_phase(session_phase: str) -> str:
@@ -666,6 +683,28 @@ class CoreOrchestrator:
                     "symbols": scanner_watchlist_payload.get("symbols", []),
                 },
             )
+            try:
+                stored = self.storage_engine.store_watchlist(
+                    strategy_name=str(scanner_policy.policy_name),
+                    session_phase=session_phase,
+                    watchlist_symbols=list(scanner_watchlist_payload.get("watchlist_k", [])),
+                    focus_symbols=list(scanner_watchlist_payload.get("focus_m", [])),
+                    metrics_payload={
+                        "watchlist_rows": scanner_watchlist_payload.get("watchlist_rows", []),
+                        "focus_rows": scanner_watchlist_payload.get("focus_rows", []),
+                        "drop_reason_summary": scanner_watchlist_payload.get(
+                            "drop_reason_summary", {}
+                        ),
+                        "timestamp_utc": scanner_watchlist_payload.get("timestamp_utc"),
+                    },
+                )
+                if stored:
+                    print(
+                        "[SCANNER][STORAGE] Watchlist persisted "
+                        f"strategy={scanner_policy.policy_name} session={session_phase}"
+                    )
+            except Exception as exc:
+                print(f"[SCANNER][STORAGE] Watchlist persistence failed: {exc}")
         except Exception as exc:
             print(f"[SCANNER] Integrated watchlist failed: {exc}")
         self._evaluate_runtime_safety(
@@ -1531,6 +1570,11 @@ class CoreOrchestrator:
             "[VALIDATION] ORDER ROUTING: "
             f"{'ALLOWED' if self.execution_enabled else 'BLOCKED'}"
         )
+        if self.run_mode == RunMode.LIVE_MICRO and self.execution_enabled:
+            if not get_live_micro_ack():
+                raise RuntimeError("LIVE_MICRO_ACK required for LIVE_MICRO execution.")
+            if not get_live_micro_1_share_only():
+                raise RuntimeError("LIVE_MICRO_1_SHARE_ONLY required for LIVE_MICRO execution.")
         if market_data_source == "IBKR":
             print("[VALIDATION] MARKET DATA: LIVE IBKR")
         broker_adapter = getattr(self.execution_engine, "broker", None)
@@ -1641,6 +1685,54 @@ class CoreOrchestrator:
             return False
         return False
 
+    def _emit_ops_summary(self) -> None:
+        opened = self.event_collector.count("TRADE_OPENED")
+        closed = self.event_collector.count("TRADE_CLOSED")
+        intents = self.event_collector.count("INTENT_NORMALISED")
+        if not any([opened, closed, intents]):
+            return
+        realised_pnl = self.event_collector.sum_realised_pnl()
+        commissions = 0.0
+        for event in self.event_collector.filter_by_type("TRADE_CLOSED"):
+            payload = event.payload or {}
+            try:
+                commissions += float(payload.get("commission", 0.0))
+            except (TypeError, ValueError):
+                continue
+        watchlist = self.last_scanner_watchlist_payload.get("watchlist_k", [])
+        focus = self.last_scanner_watchlist_payload.get("focus_m", [])
+        ny_date = to_ny_time(datetime.now(timezone.utc)).date().isoformat()
+        summary = {
+            "asof_date_ny": ny_date,
+            "run_mode": self.run_mode.value,
+            "scanner": {
+                "symbols_scanned": len(self.last_scanner_watchlist_payload.get("symbols", [])),
+                "watchlist_size": len(watchlist),
+                "focus_size": len(focus),
+                "last_watchlist_hash": self.storage_engine.last_watchlist_hash,
+            },
+            "trades": {
+                "opened": opened,
+                "closed": closed,
+                "realised_pnl": realised_pnl,
+                "commissions": round(commissions, 2),
+            },
+            "risk": {
+                "daily_loss_warning_date": self._daily_loss_warning_date,
+                "daily_loss_hard_stop_date": self._daily_loss_hard_stop_date,
+                "circuit_breakers_tripped": len(self.stop_controller.breaker_snapshot()),
+            },
+        }
+        print("[OPS][SUMMARY]", summary)
+        report_dir = "data/reports/ops"
+        os.makedirs(report_dir, exist_ok=True)
+        report_path = os.path.join(report_dir, f"{ny_date}_ops_summary.json")
+        try:
+            with open(report_path, "w", encoding="utf-8") as handle:
+                json.dump(summary, handle, indent=2, sort_keys=True)
+        except Exception as exc:
+            print(f"[OPS][SUMMARY] Failed to write report: {exc}")
+
     def _shutdown(self, mode: StopMode) -> None:
         """
         Structured shutdown sequence with hook isolation.
@@ -1658,6 +1750,14 @@ class CoreOrchestrator:
             payload=start_payload,
             include_cycle=False,
         )
+        try:
+            self._emit_ops_summary()
+        except Exception as exc:
+            print(f"[OPS][SUMMARY] Failed to emit ops summary: {exc}")
+        try:
+            self.learning_scheduler.on_shutdown()
+        except Exception as exc:
+            print(f"[LEARNING][SCHEDULER] Shutdown check failed: {exc}")
         if resolved_mode == StopMode.PANIC:
             print("[SHUTDOWN] Panic stop — running minimal hooks.")
             try:

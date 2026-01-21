@@ -96,10 +96,14 @@ class ExecutionEngine:
                 self._broker = None
             else:
                 if broker is None:
-                    raise RuntimeError(
-                        "ExecutionEngine requires broker adapter in non-SIM modes."
+                    print(
+                        "[EXECUTION][WARN] Broker adapter missing; "
+                        "forcing execution disabled for safety."
                     )
-                self._broker = broker
+                    self.execution_enabled = False
+                    self._broker = None
+                else:
+                    self._broker = broker
         self.broker: Optional[BaseBroker] = self._broker
 
     @staticmethod

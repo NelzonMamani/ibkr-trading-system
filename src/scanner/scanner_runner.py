@@ -4,6 +4,7 @@ import argparse
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -16,6 +17,7 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(repo_root))
 
 from src.config.config_resolver import get_config, get_config_record
+from src.config.runtime_config import get_watchlist_print_every_n_cycles
 from src.news.news_fetcher import Headline, fetch_headlines_for_symbols
 from src.news.verified_sources import load_verified_rss_sources
 
@@ -36,6 +38,7 @@ from src.scanner.print_contract import print_scanner_contract, summarize_drop_re
 from src.scanner.providers.base import ScannerDataProvider
 from src.scanner.providers.factory import build_provider
 from src.scanner.providers.mock_provider import MockScannerProvider
+from src.scanner.result_models import CandidateMetrics, ScannerResult
 
 
 _FLOAT_CACHE_STATE: Dict[str, Any] = {
@@ -46,6 +49,10 @@ _FLOAT_CACHE_REQUESTED: set[str] = set()
 _HISTORY_CACHE: Dict[str, Dict[str, Any]] = {}
 _NEWS_CACHE: Dict[str, Dict[str, Any]] = {}
 _PREV_WATCHLIST: set[str] = set()
+_WATCHLIST_HASH: Optional[str] = None
+_LAST_SESSION_LABEL: Optional[str] = None
+_SCAN_CYCLE_COUNT = 0
+_LAST_PRINT_CYCLE = 0
 NEWS_AGE_MAX_MINUTES = 360
 
 CATALYST_KEYWORDS = {
@@ -84,6 +91,7 @@ class GateThresholds:
     min_dollar_volume: Optional[float]
     require_price: bool
     require_bid_ask: bool
+    require_catalyst: bool
 
 
 @dataclass(frozen=True)
@@ -174,6 +182,25 @@ def _print_symbol_limits(
         "watchlist_limit": watchlist_limit,
         "focus_limit": focus_limit,
     }
+
+
+def _watchlist_hash(symbols: list[str], focus: list[str]) -> str:
+    payload = json.dumps({"watchlist": symbols, "focus": focus}, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _should_print_watchlist(
+    *,
+    watchlist_changed: bool,
+    session_label: str,
+    cycle_count: int,
+) -> bool:
+    global _LAST_PRINT_CYCLE, _LAST_SESSION_LABEL
+    every_n = max(int(get_watchlist_print_every_n_cycles()), 1)
+    session_changed = _LAST_SESSION_LABEL is not None and session_label != _LAST_SESSION_LABEL
+    if watchlist_changed or session_changed:
+        return True
+    return (cycle_count - _LAST_PRINT_CYCLE) >= every_n
 
 
 def _load_float_cache(path: Path) -> Dict[str, int]:
@@ -292,7 +319,64 @@ def _gate_thresholds(policy: StockSelectionPolicy) -> GateThresholds:
         min_dollar_volume=policy.liquidity_min_dollar_volume,
         require_price=policy.data_quality_require_price,
         require_bid_ask=policy.data_quality_require_bid_ask,
+        require_catalyst=policy.require_catalyst,
     )
+
+
+def _gate_checks(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+    *,
+    catalyst_present: Optional[bool] = None,
+) -> Dict[str, bool]:
+    price = _safe_float(context.get("last_price"), None)
+    pct_change = _safe_float(context.get("pct_change"), None)
+    rvol = _safe_float(context.get("rvol"), None)
+    volume = _safe_float(context.get("volume"), None)
+    dollar_volume = _safe_float(context.get("dollar_volume"), None)
+    float_shares = context.get("float_shares")
+    session = (context.get("session") or "").upper()
+    spread_pct = _safe_float(context.get("spread_pct"), None)
+    bid = _safe_float(context.get("bid"), None)
+    ask = _safe_float(context.get("ask"), None)
+
+    price_ok = price is not None and thresholds.min_price <= price <= thresholds.max_price
+    gap_ok = pct_change is not None and pct_change >= thresholds.min_pct_change
+    if thresholds.max_pct_change is not None:
+        gap_ok = gap_ok and pct_change is not None and pct_change <= thresholds.max_pct_change
+    rvol_ok = rvol is not None and rvol >= thresholds.min_rvol
+    volume_ok = volume is not None and volume >= thresholds.min_volume
+    pm_volume_ok = volume is not None and volume >= thresholds.min_premarket_volume
+    if session in {"PRE", "OVN"}:
+        volume_ok = pm_volume_ok
+    dollar_volume_ok = True
+    if thresholds.min_dollar_volume is not None:
+        dollar_volume_ok = (
+            dollar_volume is not None and dollar_volume >= thresholds.min_dollar_volume
+        )
+    float_ok = float_shares is None or float_shares <= thresholds.max_float
+    spread_ok = True
+    if thresholds.spread_max_pct is not None:
+        spread_ok = spread_pct is not None and spread_pct <= thresholds.spread_max_pct
+    bid_ask_ok = True
+    if thresholds.require_bid_ask:
+        bid_ask_ok = bid is not None and ask is not None
+    catalyst_ok = True
+    if thresholds.require_catalyst:
+        catalyst_ok = bool(catalyst_present)
+
+    return {
+        "price_range_ok": price_ok,
+        "gap_ok": gap_ok,
+        "rvol_ok": rvol_ok,
+        "volume_ok": volume_ok,
+        "pm_volume_ok": pm_volume_ok,
+        "dollar_volume_ok": dollar_volume_ok,
+        "float_ok": float_ok,
+        "spread_ok": spread_ok,
+        "bid_ask_ok": bid_ask_ok,
+        "catalyst_ok": catalyst_ok,
+    }
 
 
 def _evaluate_gates(
@@ -592,15 +676,144 @@ def _build_deep_rows(
     return rows
 
 
-def _score_context(context: Dict[str, Any]) -> float:
+def _format_value(value: Optional[float], digits: int = 2) -> str:
+    if value is None:
+        return "NA"
+    return f"{value:.{digits}f}"
+
+
+def _format_int(value: Optional[int]) -> str:
+    if value is None:
+        return "NA"
+    return str(value)
+
+
+def _format_float_millions(value: Optional[float]) -> str:
+    if value is None:
+        return "NA"
+    return f"{value:.2f}M"
+
+
+def _candidate_from_context(
+    context: Dict[str, Any],
+    news_context: Dict[str, Any],
+    thresholds: GateThresholds,
+    *,
+    drop_reason: Optional[str],
+    timestamp_utc: str,
+) -> CandidateMetrics:
+    float_shares = context.get("float_shares")
+    float_millions = (
+        round(float_shares / 1_000_000.0, 2) if float_shares is not None else None
+    )
+    session = (context.get("session") or "").upper()
+    volume = context.get("volume")
+    premarket_volume = volume if session in {"PRE", "OVN"} else None
+    catalyst_present = bool(
+        news_context.get("ross_catalyst_valid") or news_context.get("news_present")
+    )
+    catalyst_type = news_context.get("catalyst_type")
+    news_age = news_context.get("news_age_minutes")
+    catalyst_summary = None
+    if catalyst_type:
+        catalyst_summary = (
+            f"{catalyst_type} age={news_age}m"
+            if news_age is not None
+            else f"{catalyst_type} age=NA"
+        )
+    gate_checks = _gate_checks(
+        context,
+        thresholds,
+        catalyst_present=catalyst_present,
+    )
+    data_quality_flags = list(context.get("data_quality_flags", []) or [])
+    return CandidateMetrics(
+        symbol=context.get("symbol"),
+        last_price=context.get("last_price"),
+        prev_close=context.get("prev_close"),
+        gap_pct=context.get("pct_change"),
+        pct_change=context.get("pct_change"),
+        rvol=context.get("rvol"),
+        float_shares=float_shares,
+        float_millions=float_millions,
+        volume=volume,
+        premarket_volume=premarket_volume,
+        dollar_volume=context.get("dollar_volume"),
+        spread_pct=context.get("spread_pct"),
+        halted=None,
+        ssr=None,
+        catalyst_present=catalyst_present,
+        catalyst_summary=catalyst_summary,
+        data_quality_ok=not data_quality_flags,
+        drop_reasons=[drop_reason] if drop_reason else [],
+        rank_score=context.get("scanner_score"),
+        rank_components=context.get("scanner_score_components"),
+        timestamp_utc=timestamp_utc,
+        gate_checks=gate_checks,
+    )
+
+
+def _format_watchlist_line(candidate: CandidateMetrics) -> str:
+    dq = "OK" if candidate.data_quality_ok else "BAD"
+    catalyst = "YES" if candidate.catalyst_present else "NO"
+    summary = candidate.catalyst_summary or "NA"
+    if len(summary) > 80:
+        summary = summary[:77] + "..."
+    return (
+        f"{candidate.symbol} price=${_format_value(candidate.last_price)} "
+        f"gap={_format_value(candidate.gap_pct)}% chg={_format_value(candidate.pct_change)}% "
+        f"rvol={_format_value(candidate.rvol)} float={_format_float_millions(candidate.float_millions)} "
+        f"vol={_format_int(candidate.volume)} pm={_format_int(candidate.premarket_volume)} "
+        f"spread={_format_value(candidate.spread_pct, 4)}% catalyst={catalyst} "
+        f"summary={summary} "
+        f"halted={candidate.halted if candidate.halted is not None else 'NA'} "
+        f"ssr={candidate.ssr if candidate.ssr is not None else 'NA'} dq={dq} "
+        f"score={_format_value(candidate.rank_score)}"
+    )
+
+
+def _format_focus_line(candidate: CandidateMetrics) -> str:
+    gates = candidate.gate_checks or {}
+    gate_summary = " ".join(
+        f"{name}={'OK' if passed else 'FAIL'}" for name, passed in gates.items()
+    )
+    components = candidate.rank_components or {}
+    comp_summary = ",".join(f"{key}={value:.1f}" for key, value in components.items())
+    return (
+        f"{_format_watchlist_line(candidate)} "
+        f"components={comp_summary or 'NA'} gates={gate_summary or 'NA'} "
+        f"why={candidate.catalyst_summary or 'NA'}"
+    )
+
+
+def _print_watchlist_and_focus(
+    watchlist: list[CandidateMetrics],
+    focus: list[CandidateMetrics],
+    *,
+    session_label: str,
+) -> None:
+    print(f"[SCANNER][WATCHLIST] session={session_label} count={len(watchlist)}")
+    for candidate in watchlist:
+        print(_format_watchlist_line(candidate))
+    print(f"[SCANNER][FOCUS] session={session_label} count={len(focus)}")
+    for candidate in focus:
+        print(_format_focus_line(candidate))
+
+
+def _score_context(context: Dict[str, Any]) -> tuple[float, dict[str, float]]:
     pct = _safe_float(context.get("pct_change"), 0.0) or 0.0
     rvol = _safe_float(context.get("rvol"), 0.0) or 0.0
     dvol = _safe_float(context.get("dollar_volume"), 0.0) or 0.0
     pct_n = min(max(pct / 20.0, 0.0), 2.0)
     rvol_n = min(max(rvol / 5.0, 0.0), 2.0)
     dvol_n = min(max(dvol / 1_000_000.0, 0.0), 2.0)
-    score = (0.45 * pct_n) + (0.35 * rvol_n) + (0.20 * dvol_n)
-    return round(min(score, 1.0) * 100.0, 2)
+    components = {
+        "pct_change": round(0.45 * pct_n * 100.0, 2),
+        "rvol": round(0.35 * rvol_n * 100.0, 2),
+        "dollar_volume": round(0.20 * dvol_n * 100.0, 2),
+    }
+    score = sum(components.values()) / 100.0
+    return round(min(score, 1.0) * 100.0, 2), components
 
 
 def _build_symbol_context(
@@ -656,6 +869,7 @@ def _build_symbol_context(
         "symbol": symbol,
         "session": session_label,
         "last_price": last_price,
+        "prev_close": prev_close,
         "pct_change": pct_change,
         "volume": volume,
         "dollar_volume": dollar_volume,
@@ -673,6 +887,8 @@ def run_scanner_cycle(
     mode: str = "integrated",
     policy: StockSelectionPolicy | None = None,
 ) -> Dict[str, Any]:
+    global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE
+    _SCAN_CYCLE_COUNT += 1
     utc_now = _utc_now()
     session_label = _market_session_label_utc(utc_now)
     diagnostics: Dict[str, Any] = {"mode": mode}
@@ -707,9 +923,9 @@ def run_scanner_cycle(
         if not symbols:
             symbols = ["AAPL"]
         symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
-        fast_rows: List[FastViewRow] = []
+        all_rows: List[FastViewRow] = []
         for idx, symbol in enumerate(symbols, start=1):
-            fast_rows.append(
+            all_rows.append(
                 FastViewRow(
                     symbol=symbol,
                     session=session_label,
@@ -738,6 +954,7 @@ def run_scanner_cycle(
                     gam_ea_eligible=None,
                 )
             )
+        fast_rows = list(all_rows)
         watchlist_limit = limits["watchlist_limit"]
         if watchlist_limit and len(fast_rows) > watchlist_limit:
             for row in fast_rows[watchlist_limit:]:
@@ -779,6 +996,70 @@ def run_scanner_cycle(
             continuing_symbols=continuing_symbols,
             dropped_symbols=dropped_symbols,
         )
+        print(
+            "[SCANNER][DROP_SUMMARY] "
+            f"topn={len(symbols)} evaluated={len(symbols)} dropped={len(drop_ledger)} "
+            f"reasons={drop_summary}"
+        )
+        thresholds = _gate_thresholds(resolved_policy)
+        candidate_metrics: List[CandidateMetrics] = []
+        for row in all_rows:
+            news_context = {
+                "news_present": row.news_present,
+                "catalyst_type": row.catalyst_type,
+                "news_age_minutes": row.news_age_minutes,
+                "ross_catalyst_valid": row.news_present,
+            }
+            context = {
+                "symbol": row.symbol,
+                "session": row.session,
+                "last_price": row.last_price,
+                "prev_close": None,
+                "pct_change": row.pct_change,
+                "rvol": row.rvol,
+                "float_shares": row.float_shares,
+                "volume": row.volume,
+                "dollar_volume": row.dollar_volume,
+                "spread_pct": row.spread_pct,
+                "data_quality_flags": row.data_quality_flags,
+                "scanner_score": row.scanner_score,
+                "scanner_score_components": {},
+            }
+            candidate_metrics.append(
+                _candidate_from_context(
+                    context,
+                    news_context,
+                    thresholds,
+                    drop_reason=drop_ledger.get(row.symbol),
+                    timestamp_utc=utc_now.isoformat(),
+                )
+            )
+        candidate_lookup = {candidate.symbol: candidate for candidate in candidate_metrics}
+        watchlist_metrics = [
+            candidate_lookup[symbol]
+            for symbol in watchlist_symbols
+            if symbol in candidate_lookup
+        ]
+        focus_metrics = [
+            candidate_lookup[symbol]
+            for symbol in focus_symbols
+            if symbol in candidate_lookup
+        ]
+        watchlist_hash = _watchlist_hash(watchlist_symbols, focus_symbols)
+        watchlist_changed = watchlist_hash != _WATCHLIST_HASH
+        if _should_print_watchlist(
+            watchlist_changed=watchlist_changed,
+            session_label=session_label,
+            cycle_count=_SCAN_CYCLE_COUNT,
+        ):
+            _print_watchlist_and_focus(
+                watchlist_metrics,
+                focus_metrics,
+                session_label=session_label,
+            )
+            _LAST_PRINT_CYCLE = _SCAN_CYCLE_COUNT
+        _WATCHLIST_HASH = watchlist_hash
+        _LAST_SESSION_LABEL = session_label
         _PREV_WATCHLIST.clear()
         _PREV_WATCHLIST.update(watchlist_symbols)
         return {
@@ -792,6 +1073,17 @@ def run_scanner_cycle(
             "drop_ledger": drop_ledger,
             "watchlist_k": watchlist_symbols,
             "focus_m": focus_symbols,
+            "candidates": candidate_metrics,
+            "scanner_result": ScannerResult(
+                top_n_symbols=symbols,
+                candidates=candidate_metrics,
+                watchlist_k=watchlist_metrics,
+                focus_m=focus_metrics,
+                drops_by_reason=drop_summary,
+                new_symbols=new_symbols,
+                continuing_symbols=continuing_symbols,
+                dropped_symbols=dropped_symbols,
+            ),
             "topn_count": len(symbols),
             "survivors_count": len(symbols),
             "new_symbols": new_symbols,
@@ -840,6 +1132,7 @@ def run_scanner_cycle(
         float_cache = _bootstrap_float_cache(symbols, provider)
         thresholds = _gate_thresholds(resolved_policy)
         candidates: List[Dict[str, Any]] = []
+        evaluated_contexts: List[Dict[str, Any]] = []
 
         print("[SCANNER][STAGE] gates")
         for symbol in symbols:
@@ -847,14 +1140,25 @@ def run_scanner_cycle(
             if context is None:
                 drop_ledger.setdefault(symbol, "DROP_QUOTE_UNAVAILABLE")
                 print(f"[SCANNER][DROP] symbol={symbol} reason=DROP_QUOTE_UNAVAILABLE")
+                evaluated_contexts.append(
+                    {
+                        "symbol": symbol,
+                        "session": session_label,
+                        "data_quality_flags": ["QUOTE_UNAVAILABLE"],
+                    }
+                )
                 continue
             drop_reason = _evaluate_gates(context, thresholds)
             if drop_reason:
                 drop_ledger.setdefault(symbol, drop_reason)
                 print(f"[SCANNER][DROP] symbol={symbol} reason={drop_reason}")
+                evaluated_contexts.append(context)
                 continue
-            context["scanner_score"] = _score_context(context)
+            score, components = _score_context(context)
+            context["scanner_score"] = score
+            context["scanner_score_components"] = components
             candidates.append(context)
+            evaluated_contexts.append(context)
 
         print("[SCANNER][STAGE] watchlist")
         ranked = _rank_candidates(candidates)
@@ -903,26 +1207,80 @@ def run_scanner_cycle(
             f"watchlist={len(watchlist_contexts)} drops={drop_summary}"
         )
 
-        watchlist_dir = Path("output/watchlists")
-        watchlist_dir.mkdir(parents=True, exist_ok=True)
-        ts = utc_now.strftime("%Y%m%d_%H%M%S_UTC")
-        file_path = watchlist_dir / f"watchlist_RossMomentum_{ts}.txt"
-        header_lines = [
-            f"# candidates_count={len(symbols)}",
-            f"# gated_count={len(candidates)}",
-            f"# watchlist_count={len(watchlist_contexts)}",
-            f"# drop_reasons={dict(exclusion_counts)}",
-        ]
-        file_path.write_text(
-            "\n".join(header_lines + [""] + format_fast_view_lines(fast_rows)) + "\n",
-            encoding="utf-8",
+        watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
+        focus_symbols = [row.symbol for row in deep_rows]
+        watchlist_hash = _watchlist_hash(watchlist_symbols, focus_symbols)
+        watchlist_changed = watchlist_hash != _WATCHLIST_HASH
+        print(
+            "[SCANNER][DROP_SUMMARY] "
+            f"topn={len(symbols)} evaluated={len(evaluated_contexts)} "
+            f"dropped={len(drop_ledger)} reasons={drop_summary}"
         )
+        candidate_metrics: List[CandidateMetrics] = []
+        for context in evaluated_contexts:
+            symbol = context.get("symbol")
+            news_context = news_by_symbol.get(symbol, {})
+            candidate_metrics.append(
+                _candidate_from_context(
+                    context,
+                    news_context,
+                    thresholds,
+                    drop_reason=drop_ledger.get(symbol),
+                    timestamp_utc=utc_now.isoformat(),
+                )
+            )
+        candidate_lookup = {candidate.symbol: candidate for candidate in candidate_metrics}
+        watchlist_metrics = [
+            candidate_lookup[symbol]
+            for symbol in watchlist_symbols
+            if symbol in candidate_lookup
+        ]
+        focus_metrics = [
+            candidate_lookup[symbol]
+            for symbol in focus_symbols
+            if symbol in candidate_lookup
+        ]
+        if _should_print_watchlist(
+            watchlist_changed=watchlist_changed,
+            session_label=session_label,
+            cycle_count=_SCAN_CYCLE_COUNT,
+        ):
+            _print_watchlist_and_focus(
+                watchlist_metrics,
+                focus_metrics,
+                session_label=session_label,
+            )
+            _LAST_PRINT_CYCLE = _SCAN_CYCLE_COUNT
+        _WATCHLIST_HASH = watchlist_hash
+        _LAST_SESSION_LABEL = session_label
+
+        if watchlist_changed or session_label == "PRE":
+            watchlist_dir = Path("output/watchlists")
+            watchlist_dir.mkdir(parents=True, exist_ok=True)
+            ts = utc_now.strftime("%Y%m%d_%H%M%S_UTC")
+            file_path = watchlist_dir / f"watchlist_RossMomentum_{ts}.txt"
+            header_lines = [
+                f"# candidates_count={len(symbols)}",
+                f"# gated_count={len(candidates)}",
+                f"# watchlist_count={len(watchlist_contexts)}",
+                f"# drop_reasons={dict(exclusion_counts)}",
+            ]
+            file_path.write_text(
+                "\n".join(header_lines + [""] + format_fast_view_lines(fast_rows)) + "\n",
+                encoding="utf-8",
+            )
+            date_prefix = utc_now.strftime("%Y%m%d_")
+            for existing in watchlist_dir.glob(f"watchlist_RossMomentum_{date_prefix}*"):
+                if existing == file_path:
+                    continue
+                try:
+                    existing.unlink()
+                except OSError:
+                    continue
 
     finally:
         provider.disconnect()
 
-    watchlist_symbols = [row.symbol for row in fast_rows]
-    focus_symbols = [row.symbol for row in deep_rows]
     new_symbols = sorted(set(watchlist_symbols) - _PREV_WATCHLIST)
     continuing_symbols = sorted(set(watchlist_symbols) & _PREV_WATCHLIST)
     dropped_symbols = sorted(_PREV_WATCHLIST - set(watchlist_symbols))
@@ -950,6 +1308,17 @@ def run_scanner_cycle(
         "drop_ledger": drop_ledger,
         "watchlist_k": watchlist_symbols,
         "focus_m": focus_symbols,
+        "candidates": candidate_metrics,
+        "scanner_result": ScannerResult(
+            top_n_symbols=symbols,
+            candidates=candidate_metrics,
+            watchlist_k=watchlist_metrics,
+            focus_m=focus_metrics,
+            drops_by_reason=drop_summary,
+            new_symbols=new_symbols,
+            continuing_symbols=continuing_symbols,
+            dropped_symbols=dropped_symbols,
+        ),
         "topn_count": len(symbols),
         "survivors_count": len(candidates),
         "new_symbols": new_symbols,

@@ -1,5 +1,5 @@
 # SYSTEM_STATE — Authoritative Project Status
-Last updated: 2026-01-21
+Last updated: 2026-02-01
 
 ## Purpose
 This file is the single source of operational truth.
@@ -24,16 +24,17 @@ Operational live rollout of Ross Momentum:
 - Time-of-day aware behaviour
 - Manual verification and incremental hardening ongoing
 
-### Stabilisation Phase — ACTIVE
-- LIVE_MICRO scanner + execution alignment
-- Watchlist lifecycle governance
-- DB recovery, health, and observability
-- Mandatory verification command enforcement
+### Stabilisation Phase — COMPLETE (Frozen)
+- LIVE_MICRO scanner market data alignment (read-only no longer blocks snapshots)
+- Watchlist lifecycle governance + print observability
+- DB auto-recovery, startup banner, and ops summary hooks
+- Mandatory verification commands enforced as the gate
 
-### Parallel Learning Epoch — PLANNED (Isolated)
+### Parallel Learning Epoch — ACTIVE (Isolated)
 - Read-only analysis of events and trades
-- Daily/weekly/monthly/yearly reports
+- Daily/weekly/monthly/yearly reports + trade reviews
 - Policy proposals only — never auto-applied
+- Scheduler catches missed reports on startup/shutdown
 
 ### Track B — Adaptive Regime / Microstructure Layer (PLANNED)
 Sandboxed, deterministic, non-mutating observational layer.
@@ -52,5 +53,5 @@ Long-horizon / Buffett-style strategies.
 
 ---
 ## Next Action
-Complete stabilisation documents (01–03), re-run all mandatory verification commands,
-then proceed with controlled Track A live rollout.
+Run mandatory verification commands and proceed with controlled Track A live rollout,
+keeping Parallel Learning outputs in proposal-only mode.

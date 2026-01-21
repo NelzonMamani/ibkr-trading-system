@@ -11,6 +11,7 @@ try:
     from brokers.base_broker import BrokerOrderRequest  # noqa: E402
     from brokers.ibkr_broker import IbkrBroker, READONLY_ERROR  # noqa: E402
     from domain.market_snapshot import MarketSnapshot  # noqa: E402
+    from ibapi.client import EClient  # noqa: E402
 except ModuleNotFoundError:
     pytest.skip("ibapi dependency missing; skipping IBKR read-only tests", allow_module_level=True)
 
@@ -69,7 +70,24 @@ def test_market_snapshot_dataclass():
     assert snapshot.source == "IBKR"
 
 
-def test_ibkr_client_disabled_by_config():
+def test_ibkr_client_connect_allows_non_readonly(monkeypatch):
+    def _noop_connect(self, host, port, clientId):  # noqa: N802 - ibapi signature
+        return None
+
+    def _noop_req_market_data_type(self, _code):
+        return None
+
+    def _fast_loop(self):
+        self._connection_event.set()
+
+    def _noop_disconnect(self):
+        return None
+
+    monkeypatch.setattr(EClient, "connect", _noop_connect)
+    monkeypatch.setattr(EClient, "disconnect", _noop_disconnect)
+    monkeypatch.setattr(IbkrClient, "reqMarketDataType", _noop_req_market_data_type)
+    monkeypatch.setattr(IbkrClient, "_run_loop", _fast_loop)
+
     client = IbkrClient(
         host="127.0.0.1",
         port=4000,
@@ -78,6 +96,5 @@ def test_ibkr_client_disabled_by_config():
         market_data_type="LIVE",
         readonly_enabled=False,
     )
-
-    with pytest.raises(RuntimeError, match="IBKR read-only disabled by config"):
-        client.connect()
+    client.connect()
+    client.disconnect()
