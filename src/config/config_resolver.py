@@ -241,6 +241,22 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         env=None,
     )
 
+    scanner_mode_record = resolved["SCANNER_MODE"]
+    scanner_mode = scanner_mode_record.value
+    scanner_mode_source = scanner_mode_record.source
+    if effective_run_mode in {"LIVE", "LIVE_READ_ONLY", "LIVE_MICRO", "PAPER"}:
+        effective_scanner_mode = "LIVE_READONLY"
+    elif effective_run_mode == "SIM" and scanner_mode_source in {"DEFAULT"}:
+        effective_scanner_mode = "TEACHING"
+    else:
+        effective_scanner_mode = scanner_mode
+    resolved["SCANNER_MODE_EFFECTIVE"] = ConfigRecord(
+        name="SCANNER_MODE_EFFECTIVE",
+        value=effective_scanner_mode,
+        source="DERIVED",
+        env=None,
+    )
+
     requested_replay = resolved["EVENT_REPLAY_MODE"].value
     if effective_run_mode in {"LIVE", "LIVE_READ_ONLY", "LIVE_MICRO"}:
         replay_mode = "OFF"

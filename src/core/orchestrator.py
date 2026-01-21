@@ -20,6 +20,7 @@ from src.config.runtime_config import (
     get_daily_loss_warning_limit,
     get_live_micro_ack,
     get_live_micro_1_share_only,
+    get_scanner_mode,
 )
 from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTradeRegistry
@@ -36,7 +37,6 @@ from src.core.replay_engine import ReplayEngine
 from src.execution.execution_engine import ExecutionEngine
 from src.execution.order_gateway import OrderGateway
 from src.execution.trade_exit_engine import TradeExitEngine
-from src.ibkr.market_data_client import MarketDataClient
 from src.learning.scheduler import LearningScheduler
 from src.market_data.market_data_hub import MarketDataHub
 from src.market_data.market_data_price_feed import MarketDataPriceFeed
@@ -46,8 +46,6 @@ from src.patterns.pattern_engine import PatternEngine
 from src.risk.risk_engine import RiskEngine
 from src.core.intent import build_execution_intent
 from src.scanner.contracts import StockSelectionPolicy
-from src.scanner.scanner_live_readonly import LiveReadOnlyScanner
-from src.scanner.scanner import Scanner
 from src.scanner.scanner_contract import ScannerRequest, scanner_request_from_policy
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.sim.clock import SimClock, WallClock
@@ -145,26 +143,8 @@ class CoreOrchestrator:
                 self.price_feed = DeterministicPriceFeed()
         else:
             self.price_feed = DeterministicPriceFeed()
-        self.scanner_mode = get_config("SCANNER_MODE")
-        if self.run_mode == RunMode.LIVE_READ_ONLY and self.market_data_hub is not None:
-            self.scanner_mode = "LIVE_READONLY"
-        elif self.run_mode == RunMode.LIVE_READ_ONLY:
-            print("[SCAN][WARN] LIVE_READ_ONLY fallback to teaching scanner mode.")
+        self.scanner_mode = get_scanner_mode()
         self.last_scanner_watchlist_payload = {}
-        self.market_data_client = None
-        if self.scanner_mode == "LIVE_READONLY":
-            self.market_data_client = MarketDataClient()
-            self.scanner = LiveReadOnlyScanner(
-                market_data_client=self.market_data_client,
-                event_collector=self.event_collector,
-            )
-            print("[SCAN] LiveReadOnlyScanner enabled — using IBKR read-only market data")
-            print("[SCAN] Scanner type: LiveReadOnlyScanner")
-        else:
-            self.scanner = Scanner(
-                event_collector=self.event_collector,
-                market_data_hub=self.market_data_hub,
-            )
         self.pattern_engine = PatternEngine()
         self.signal_engine_v1 = SignalEngineV1()
         print("[BOOT] SignalEngineV1 instantiated")
@@ -676,7 +656,8 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Scanner stage — gather candidates (conceptual).")
         try:
-            scanner_results = self.scanner.run_scan_cycle(
+            scanner_watchlist_payload = run_scanner_cycle(
+                mode="integrated",
                 policy=scanner_policy,
                 scanner_request=scanner_request,
             )
@@ -686,59 +667,57 @@ class CoreOrchestrator:
                 stage_exception=exc,
             )
             return False
-        scanner_watchlist_payload = {}
+        self.last_scanner_watchlist_payload = scanner_watchlist_payload
+        scanner_results = list(scanner_watchlist_payload.get("candidates", []))
+        self.event_collector.emit(
+            event_type="SCANNER_WATCHLIST",
+            source="Scanner",
+            payload={
+                "scanner_version": scanner_watchlist_payload.get("scanner_version"),
+                "timestamp_utc": scanner_watchlist_payload.get("timestamp_utc"),
+                "symbols": scanner_watchlist_payload.get("symbols", []),
+            },
+        )
         try:
-            scanner_watchlist_payload = run_scanner_cycle(
-                mode="integrated",
-                policy=scanner_policy,
-                scanner_request=scanner_request,
-            )
-            self.last_scanner_watchlist_payload = scanner_watchlist_payload
-            self.event_collector.emit(
-                event_type="SCANNER_WATCHLIST",
-                source="Scanner",
-                payload={
-                    "scanner_version": scanner_watchlist_payload.get("scanner_version"),
+            stored = self.storage_engine.store_watchlist(
+                strategy_name=str(scanner_policy.policy_name),
+                session_phase=session_phase,
+                watchlist_symbols=list(scanner_watchlist_payload.get("watchlist_k", [])),
+                focus_symbols=list(scanner_watchlist_payload.get("focus_m", [])),
+                metrics_payload={
+                    "watchlist_rows": scanner_watchlist_payload.get("watchlist_rows", []),
+                    "focus_rows": scanner_watchlist_payload.get("focus_rows", []),
+                    "drop_reason_summary": scanner_watchlist_payload.get(
+                        "drop_reason_summary", {}
+                    ),
                     "timestamp_utc": scanner_watchlist_payload.get("timestamp_utc"),
-                    "symbols": scanner_watchlist_payload.get("symbols", []),
                 },
             )
-            try:
-                stored = self.storage_engine.store_watchlist(
-                    strategy_name=str(scanner_policy.policy_name),
-                    session_phase=session_phase,
-                    watchlist_symbols=list(scanner_watchlist_payload.get("watchlist_k", [])),
-                    focus_symbols=list(scanner_watchlist_payload.get("focus_m", [])),
-                    metrics_payload={
-                        "watchlist_rows": scanner_watchlist_payload.get("watchlist_rows", []),
-                        "focus_rows": scanner_watchlist_payload.get("focus_rows", []),
-                        "drop_reason_summary": scanner_watchlist_payload.get(
-                            "drop_reason_summary", {}
-                        ),
-                        "timestamp_utc": scanner_watchlist_payload.get("timestamp_utc"),
-                    },
+            if stored:
+                print(
+                    "[SCANNER][STORAGE] Watchlist persisted "
+                    f"strategy={scanner_policy.policy_name} session={session_phase}"
                 )
-                if stored:
-                    print(
-                        "[SCANNER][STORAGE] Watchlist persisted "
-                        f"strategy={scanner_policy.policy_name} session={session_phase}"
-                    )
-            except Exception as exc:
-                print(f"[SCANNER][STORAGE] Watchlist persistence failed: {exc}")
         except Exception as exc:
-            print(f"[SCANNER] Integrated watchlist failed: {exc}")
+            print(f"[SCANNER][STORAGE] Watchlist persistence failed: {exc}")
         self._evaluate_runtime_safety(
             cycle_stage="SCANNER",
             stage_exception=None,
             scanner_results=scanner_results,
         )
-        if self.run_mode == RunMode.LIVE_READ_ONLY:
-            if self.scanner.last_connectivity_issue:
+        diagnostics = scanner_watchlist_payload.get("diagnostics", {})
+        provider_source = diagnostics.get("provider_source")
+        provider_error = diagnostics.get("provider_error")
+        provider_fallback = diagnostics.get("provider_fallback")
+        data_quality_flags = scanner_watchlist_payload.get("data_quality_by_symbol", {})
+        auto_lockdown_enabled = bool(get_config("IBKR_AUTO_LOCKDOWN_ENABLED"))
+        if self.run_mode in {RunMode.LIVE_READ_ONLY, RunMode.LIVE, RunMode.LIVE_MICRO, RunMode.PAPER}:
+            if provider_error or provider_fallback or provider_source == "MOCK":
                 print(
                     "[CONNECTIVITY] IBKR issue detected "
-                    f"details={self.scanner.last_connectivity_issue}"
+                    f"source={provider_source} error={provider_error} fallback={provider_fallback}"
                 )
-                if self.scanner.auto_lockdown_enabled:
+                if auto_lockdown_enabled:
                     self._request_stop(
                         StopMode.PANIC,
                         reason="Connectivity degradation detected",
@@ -746,12 +725,12 @@ class CoreOrchestrator:
                     )
                     return False
                 self._degraded = True
-            if self.scanner.last_data_quality_flags:
+            if data_quality_flags:
                 print(
                     "[DATA_QUALITY] Flags detected in live scan "
-                    f"symbols={list(self.scanner.last_data_quality_flags.keys())}"
+                    f"symbols={list(data_quality_flags.keys())}"
                 )
-                if self.scanner.auto_lockdown_enabled:
+                if auto_lockdown_enabled:
                     self._request_stop(
                         StopMode.PANIC,
                         reason="Data quality degradation detected",
@@ -759,11 +738,6 @@ class CoreOrchestrator:
                     )
                     return False
                 self._degraded = True
-                scanner_results = [
-                    candidate
-                    for candidate in scanner_results
-                    if not candidate.data_quality_flags
-                ]
         if self._stop_requested_at_boundary("SCANNER"):
             return False
         watchlist_k = list(scanner_watchlist_payload.get("watchlist_k", []))
@@ -1566,7 +1540,8 @@ class CoreOrchestrator:
         print("[VALIDATION] Running startup validations")
         print("[VALIDATION] Config resolved")
         print(f"[VALIDATION] Effective run mode: {self.run_mode.value}")
-        print(f"[VALIDATION] Scanner type selected: {type(self.scanner).__name__}")
+        print(f"[VALIDATION] Scanner mode resolved: {self.scanner_mode}")
+        print(f"[VALIDATION] Scanner data source: {get_config('SCANNER_DATA_SOURCE')}")
         if self.run_mode == RunMode.SIM:
             market_data_source = "SIM"
         elif self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO, RunMode.PAPER}:
@@ -1625,34 +1600,26 @@ class CoreOrchestrator:
                     "[VALIDATION][WARN] LIVE_READ_ONLY fallback active: "
                     "MarketDataHub unavailable."
                 )
-            else:
-                if not isinstance(self.scanner, LiveReadOnlyScanner):
-                    raise RuntimeError("LIVE_READ_ONLY must use LiveReadOnlyScanner")
-                if not isinstance(self.price_feed, MarketDataPriceFeed):
-                    raise RuntimeError("LIVE_READ_ONLY must use MarketDataPriceFeed")
+            elif not isinstance(self.price_feed, MarketDataPriceFeed):
+                raise RuntimeError("LIVE_READ_ONLY must use MarketDataPriceFeed")
         if self.storage_engine.enabled and self.storage_engine.backend == "sqlite":
             if self.storage_engine._store is None:
                 raise RuntimeError("Storage engine failed to open SQLite store")
             print("[VALIDATION] Storage OK — SQLite opened")
-        if self.scanner_mode == "LIVE_READONLY":
-            if not hasattr(self.scanner, "validate_startup"):
-                raise RuntimeError("LiveReadOnlyScanner missing startup validation hook")
-            self.scanner.validate_startup()
-            print("[VALIDATION] Market data connectivity OK")
 
     def _resolve_market_data_status(self) -> tuple[str, bool]:
         if self.scanner_mode == "TEACHING":
             return "N/A", True
-        if self.scanner_mode != "LIVE_READONLY":
-            return "OK", True
-        if self.scanner.last_connectivity_issue:
-            return "FAIL", False
-        success_count = getattr(self.scanner, "last_snapshot_success_count", 0)
-        attempt_count = getattr(self.scanner, "last_snapshot_attempted_count", 0)
-        if success_count > 0:
-            return "OK", True
-        if attempt_count > 0:
+        diagnostics = self.last_scanner_watchlist_payload.get("diagnostics", {})
+        provider_source = diagnostics.get("provider_source")
+        provider_error = diagnostics.get("provider_error")
+        provider_fallback = diagnostics.get("provider_fallback")
+        if provider_error or provider_fallback:
             return "DEGRADED", True
+        if provider_source == "MOCK":
+            return "DEGRADED", True
+        if provider_source:
+            return "OK", True
         return "DEGRADED", True
 
     def _handle_fault(self, exc: Exception) -> bool:

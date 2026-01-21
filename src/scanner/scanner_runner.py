@@ -17,7 +17,7 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(repo_root))
 
 from src.config.config_resolver import get_config, get_config_record
-from src.config.runtime_config import get_watchlist_print_every_n_cycles
+from src.config.runtime_config import get_scanner_mode, get_watchlist_print_every_n_cycles
 from src.news.news_fetcher import Headline, fetch_headlines_for_symbols
 from src.news.verified_sources import load_verified_rss_sources
 
@@ -37,7 +37,8 @@ from src.scanner.phase24_views import (
     print_fast_view,
 )
 from src.scanner.print_contract import print_scanner_contract, summarize_drop_reasons
-from src.scanner.providers.base import ScannerDataProvider
+from src.scanner.providers.base import ProviderConnectionError, ScannerDataProvider
+from src.models.data_models import ScannerCandidate
 from src.scanner.providers.factory import build_provider
 from src.scanner.providers.mock_provider import MockScannerProvider
 from src.scanner.result_models import CandidateMetrics, ScannerResult
@@ -759,6 +760,34 @@ def _candidate_from_context(
     )
 
 
+def _scanner_candidate_from_context(
+    context: Dict[str, Any],
+    *,
+    drop_reason: Optional[str],
+) -> ScannerCandidate:
+    float_shares = context.get("float_shares")
+    float_millions = (
+        round(float_shares / 1_000_000.0, 2) if float_shares is not None else None
+    )
+    data_quality_flags = list(context.get("data_quality_flags", []) or [])
+    if drop_reason:
+        data_quality_flags.append(drop_reason)
+    return ScannerCandidate(
+        symbol=context.get("symbol"),
+        price=context.get("last_price"),
+        gap_percent=context.get("pct_change"),
+        rvol=context.get("rvol"),
+        float_millions=float_millions,
+        rationale="scanner_runner candidate",
+        session=context.get("session"),
+        bid=context.get("bid"),
+        ask=context.get("ask"),
+        spread=context.get("spread"),
+        volume=context.get("volume"),
+        data_quality_flags=data_quality_flags,
+    )
+
+
 def _format_watchlist_line(candidate: CandidateMetrics) -> str:
     dq = "OK" if candidate.data_quality_ok else "BAD"
     catalyst = "YES" if candidate.catalyst_present else "NO"
@@ -951,7 +980,7 @@ def run_scanner_cycle(
     diagnostics: Dict[str, Any] = {"mode": mode}
     drop_ledger: Dict[str, str] = {}
     print(f"[SCANNER] MODE={mode} SESSION={session_label}")
-    scanner_mode = str(get_config("SCANNER_MODE"))
+    scanner_mode = get_scanner_mode()
     policy_source = "STRATEGY" if policy is not None else "CONFIG_DEFAULTS"
     resolved_policy = policy or policy_from_config()
     print(
@@ -1066,6 +1095,7 @@ def run_scanner_cycle(
         )
         thresholds = _gate_thresholds(resolved_policy)
         candidate_metrics: List[CandidateMetrics] = []
+        scanner_candidates: List[ScannerCandidate] = []
         for row in all_rows:
             news_context = {
                 "news_present": row.news_present,
@@ -1088,6 +1118,9 @@ def run_scanner_cycle(
                 "scanner_score": row.scanner_score,
                 "scanner_score_components": {},
             }
+            scanner_candidates.append(
+                _scanner_candidate_from_context(context, drop_reason=drop_ledger.get(row.symbol))
+            )
             candidate_metrics.append(
                 _candidate_from_context(
                     context,
@@ -1136,7 +1169,8 @@ def run_scanner_cycle(
             "drop_ledger": drop_ledger,
             "watchlist_k": watchlist_symbols,
             "focus_m": focus_symbols,
-            "candidates": candidate_metrics,
+            "candidates": scanner_candidates,
+            "candidate_metrics": candidate_metrics,
             "scanner_result": ScannerResult(
                 top_n_symbols=symbols,
                 candidates=candidate_metrics,
@@ -1159,7 +1193,20 @@ def run_scanner_cycle(
             "diagnostics": diagnostics,
         }
 
-    provider: ScannerDataProvider = build_provider()
+    try:
+        provider: ScannerDataProvider = build_provider()
+    except ProviderConnectionError as exc:
+        diagnostics["provider_error"] = str(exc)
+        diagnostics["provider_fallback"] = {
+            "from": "IBKR",
+            "to": "MOCK",
+            "reason": str(exc),
+        }
+        print(
+            "[SCANNER][WARN] Provider connection failed — "
+            f"falling back to MOCK reason={exc}"
+        )
+        provider = MockScannerProvider()
     limits = _print_symbol_limits(
         scanner_mode,
         provider.source_name,
@@ -1300,9 +1347,13 @@ def run_scanner_cycle(
             f"dropped={len(drop_ledger)} reasons={drop_summary}"
         )
         candidate_metrics: List[CandidateMetrics] = []
+        scanner_candidates: List[ScannerCandidate] = []
         for context in evaluated_contexts:
             symbol = context.get("symbol")
             news_context = news_by_symbol.get(symbol, {})
+            scanner_candidates.append(
+                _scanner_candidate_from_context(context, drop_reason=drop_ledger.get(symbol))
+            )
             candidate_metrics.append(
                 _candidate_from_context(
                     context,
@@ -1391,7 +1442,8 @@ def run_scanner_cycle(
         "drop_ledger": drop_ledger,
         "watchlist_k": watchlist_symbols,
         "focus_m": focus_symbols,
-        "candidates": candidate_metrics,
+        "candidates": scanner_candidates,
+        "candidate_metrics": candidate_metrics,
         "scanner_result": ScannerResult(
             top_n_symbols=symbols,
             candidates=candidate_metrics,
