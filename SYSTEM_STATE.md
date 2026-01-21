@@ -29,6 +29,7 @@ Operational live rollout of Ross Momentum:
 - Watchlist lifecycle governance + print observability
 - DB auto-recovery, startup banner, and ops summary hooks
 - Mandatory verification commands enforced as the gate
+- Policy-driven scanner universe sourcing (SCANNER_SYMBOLS is override-only)
 
 ### Parallel Learning Epoch — ACTIVE (Isolated)
 - Read-only analysis of events and trades

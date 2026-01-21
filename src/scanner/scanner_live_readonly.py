@@ -9,6 +9,7 @@ from src.core.event_collector import EventCollector
 from src.ibkr.market_data_client import MarketDataClient
 from src.models.data_models import ScannerCandidate
 from src.scanner.contracts import StockSelectionPolicy, policy_from_config
+from src.scanner.scanner_contract import ScannerRequest
 from src.scanner.providers.mock_provider import MockScannerProvider
 
 
@@ -21,7 +22,9 @@ class LiveReadOnlyScannerConfig:
     max_symbols_per_cycle: int
 
 
-def _get_scanner_symbols() -> List[str]:
+def _get_scanner_symbols(override: Optional[List[str]] = None) -> List[str]:
+    if override:
+        return list(override)
     symbols = get_config("SCANNER_SYMBOLS")
     return list(symbols or [])
 
@@ -84,7 +87,9 @@ class LiveReadOnlyScanner:
             return None
 
     def run_scan_cycle(
-        self, policy: StockSelectionPolicy | None = None
+        self,
+        policy: StockSelectionPolicy | None = None,
+        scanner_request: ScannerRequest | None = None,
     ) -> List[ScannerCandidate]:
         self.last_data_quality_flags = {}
         self.last_connectivity_issue = None
@@ -111,7 +116,10 @@ class LiveReadOnlyScanner:
             )
         )
         max_policy_symbols = resolved_policy.max_symbols_per_cycle or self.max_symbols_per_cycle
-        symbols = self._resolve_symbols()
+        override_symbols = None
+        if scanner_request is not None:
+            override_symbols = list(scanner_request.optional_symbols_override or [])
+        symbols = self._resolve_symbols(override_symbols)
         if not symbols:
             print("[SCAN] LiveReadOnlyScanner has no symbols to query")
             return []
@@ -225,8 +233,8 @@ class LiveReadOnlyScanner:
             )
         return candidates
 
-    def _resolve_symbols(self) -> List[str]:
-        symbols = list(self.config.symbols)
+    def _resolve_symbols(self, override: Optional[List[str]] = None) -> List[str]:
+        symbols = list(_get_scanner_symbols(override) or self.config.symbols)
         if self.max_symbols_per_cycle and len(symbols) > self.max_symbols_per_cycle:
             symbols = symbols[: self.max_symbols_per_cycle]
         return symbols

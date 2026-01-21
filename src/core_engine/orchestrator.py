@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from typing import List
 
+from src.config.config_resolver import get_config
 from src.core_engine.bootstrap import resolve_mode
 from src.core_engine.events import (
     CycleSummary,
@@ -20,6 +21,7 @@ from src.core.intent import build_execution_intent
 from src.execution.order_router import execute_intents
 from src.risk.risk_audit import evaluate_trade_intents
 from src.scanner.contracts import StockSelectionPolicy
+from src.scanner.scanner_contract import scanner_request_from_policy
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.storage.trade_store import TradeStore
 from src.strategies.ross_momentum.decision_policy import build_trade_intents
@@ -34,6 +36,7 @@ from src.strategies.ross_momentum.patterns.pattern_inputs import (
 from src.strategies.strategy_contracts import SessionContext
 from src.strategies.ross_momentum.strategy_policy import (
     RossMomentumPolicy,
+    UniverseSource,
     stock_selection_policy_for_session_phase,
 )
 from src.utils.logging import print_section, print_watchlist_focus
@@ -76,6 +79,13 @@ def _scanner_policy_for_session(session: str) -> tuple[RossMomentumPolicy, Stock
         _policy_session_phase(session),
     )
     return strategy_policy, stock_policy
+
+
+def _scanner_request_for_policy(stock_policy: StockSelectionPolicy):
+    override_symbols = None
+    if stock_policy.universe.source == UniverseSource.CONFIG_SYMBOLS:
+        override_symbols = get_config("SCANNER_SYMBOLS")
+    return scanner_request_from_policy(stock_policy, optional_symbols_override=override_symbols)
 
 
 def _build_synthetic_inputs(
@@ -130,6 +140,7 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
 
     print_section(f"CYCLE {cycle_id} MODE={mode.value} SESSION={session.value}")
     strategy_policy, scanner_policy = _scanner_policy_for_session(session.value)
+    scanner_request = _scanner_request_for_policy(scanner_policy)
     execution_intent = build_execution_intent(
         strategy_name=strategy_policy.name,
         mode=mode.value,
@@ -149,6 +160,12 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
         f"top_n={scanner_policy.top_gainers_n}"
     )
     print(
+        "[ORCH][POLICY] scanner_universe="
+        f"{scanner_request.universe_source.value} "
+        f"scan_code={scanner_request.ibkr_scan_code} "
+        f"top_n={scanner_request.requested_top_n}"
+    )
+    print(
         "[INTENT] "
         f"strategy={execution_intent.strategy_name} "
         f"mode={execution_intent.mode} "
@@ -157,7 +174,11 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
         f"scan_only={execution_intent.scan_only} "
         f"enforcement={execution_intent.enforcement}"
     )
-    scanner_payload = run_scanner_cycle(mode=mode.value, policy=scanner_policy)
+    scanner_payload = run_scanner_cycle(
+        mode=mode.value,
+        policy=scanner_policy,
+        scanner_request=scanner_request,
+    )
     watchlist = scanner_payload.get("watchlist_k", scanner_payload.get("watchlist", []))
     focus = scanner_payload.get("focus_m", [])
     drop_summary = scanner_payload.get("drop_reason_summary", {})

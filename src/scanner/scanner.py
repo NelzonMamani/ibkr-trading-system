@@ -17,6 +17,8 @@ from src.core.event_collector import EventCollector
 from src.market_data.market_data_hub import MarketDataHub
 from src.models.data_models import ScannerCandidate
 from src.scanner.contracts import StockSelectionPolicy, policy_from_config
+from src.scanner.scanner_contract import ScannerRequest
+from src.strategies.ross_momentum.strategy_policy import UniverseSource
 
 
 class RunMode(Enum):
@@ -75,7 +77,9 @@ class Scanner:
         return list(symbols or [])
 
     def run_scan_cycle(
-        self, policy: StockSelectionPolicy | None = None
+        self,
+        policy: StockSelectionPolicy | None = None,
+        scanner_request: ScannerRequest | None = None,
     ) -> List[ScannerCandidate]:
         """
         Demonstrate how a scan cycle would be invoked in a real system.
@@ -105,11 +109,23 @@ class Scanner:
                 focus_m=resolved_policy.focus_limit_m,
             )
         )
+        symbols = list(self.scan_symbols)
+        if scanner_request is not None:
+            if scanner_request.universe_source == UniverseSource.CONFIG_SYMBOLS:
+                symbols = list(scanner_request.optional_symbols_override or [])
+                if not symbols:
+                    symbols = list(get_config("SCANNER_SYMBOLS") or [])
+            elif scanner_request.universe_source == UniverseSource.IBKR_TOP_GAINERS:
+                symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS") or [])
+        if not symbols:
+            symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS") or [])
+
         if self.run_mode in {RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO, RunMode.PAPER}:
-            if self.scan_symbols:
+            if symbols:
+                self.scan_symbols = symbols
                 return self._run_live_readonly_scan(resolved_policy)
-            reason = "No SCANNER_SYMBOLS provided; live scan requires explicit symbols."
-            print(f"[SCAN][ERROR] {reason}")
+            reason = "Live scan has no symbols available; falling back to teaching mode."
+            print(f"[SCAN][WARN] {reason}")
             self.last_connectivity_issue = reason
             self._emit_market_data_fallback(reason)
             return []

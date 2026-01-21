@@ -43,6 +43,21 @@ class RossTradingMode(str, Enum):
     LATE_DAY = "LATE_DAY"             # ~14:30-16:00 ET (slower structure)
 
 
+class UniverseSource(str, Enum):
+    IBKR_TOP_GAINERS = "IBKR_TOP_GAINERS"
+    CONFIG_SYMBOLS = "CONFIG_SYMBOLS"
+
+
+@dataclass(frozen=True)
+class UniverseSpec:
+    source: UniverseSource = UniverseSource.IBKR_TOP_GAINERS
+    ibkr_scan_code: str = "TOP_PERC_GAIN"
+    top_n: Optional[int] = None
+    region: Optional[str] = None
+    instrument: Optional[str] = None
+    exchanges: Sequence[str] = ()
+
+
 @dataclass(frozen=True)
 class TimeframePlan:
     """Which timeframes are used for what, per mode."""
@@ -201,6 +216,7 @@ class StockSelectionSpec:
     """Ross Momentum stock selection policy (Ross 5 pillars + tradability gates)."""
 
     policy_name: str = "ROSS_MOMENTUM"
+    universe: UniverseSpec = field(default_factory=UniverseSpec)
     price_min: float = 1.0
     price_max: float = 20.0
     gap_min_pct: float = 10.0
