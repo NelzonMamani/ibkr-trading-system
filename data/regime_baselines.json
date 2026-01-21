@@ -1,12 +1,12 @@
 {
   "alpha": 0.2,
   "ewma": {
-    "median_gap_pct": 0.0,
-    "median_rvol": 0.0,
-    "median_spread_bps": 0.0,
+    "median_gap_pct": 5.562,
+    "median_rvol": 1.788,
+    "median_spread_bps": 14.8148148,
     "news_density_proxy": 0.0,
-    "pct_missing_prices": 0.4555245494272001,
-    "pct_missing_volume": 0.7444754505728002
+    "pct_missing_prices": 0.3644196395417601,
+    "pct_missing_volume": 0.5955803604582401
   },
   "version": 1,
   "window": 60,
@@ -18,7 +18,8 @@
       0.0,
       0.0,
       0.0,
-      0.0
+      0.0,
+      27.81
     ],
     "median_rvol": [
       0.0,
@@ -27,7 +28,8 @@
       0.0,
       0.0,
       0.0,
-      0.0
+      0.0,
+      8.94
     ],
     "median_spread_bps": [
       0.0,
@@ -36,9 +38,11 @@
       0.0,
       0.0,
       0.0,
-      0.0
+      0.0,
+      74.074074
     ],
     "news_density_proxy": [
+      0.0,
       0.0,
       0.0,
       0.0,
@@ -70,7 +74,8 @@
       0.0,
       0.0,
       0.0,
-      1.0
+      1.0,
+      0.0
     ],
     "pct_missing_volume": [
       1.0,
@@ -87,7 +92,8 @@
       1.0,
       1.0,
       1.0,
-      1.0
+      1.0,
+      0.0
     ]
   }
 }

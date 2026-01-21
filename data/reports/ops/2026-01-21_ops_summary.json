@@ -7,10 +7,10 @@
   },
   "run_mode": "LIVE_READ_ONLY",
   "scanner": {
-    "focus_size": 5,
-    "last_watchlist_hash": "90d7bb7b813fa3ca4e3e51aedbd07e62c03494bf3869ef5a3c21ac84e21cb8a2",
-    "symbols_scanned": 15,
-    "watchlist_size": 15
+    "focus_size": 0,
+    "last_watchlist_hash": null,
+    "symbols_scanned": 0,
+    "watchlist_size": 0
   },
   "trades": {
     "closed": 0,
