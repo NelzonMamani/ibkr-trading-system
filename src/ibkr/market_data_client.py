@@ -177,14 +177,20 @@ class MarketDataClient:
             regulatorySnapshot=False,
         )
         timeout_at = time.time() + self.snapshot_timeout_seconds
+        snapshot_complete = False
         while time.time() < timeout_at:
             self.ib.waitOnUpdate(timeout=0.2)
             if self._ticker_has_required_snapshot(ticker):
+                snapshot_complete = True
+                break
+            if self._ticker_snapshot_complete(ticker):
+                snapshot_complete = True
                 break
         else:
             flags.append("MD_TIMEOUT")
 
-        self.ib.cancelMktData(contract)
+        if not snapshot_complete:
+            self.ib.cancelMktData(contract)
         if "MD_TIMEOUT" in flags and not self._ticker_has_data(ticker):
             return self._empty_snapshot(symbol, flags)
 
@@ -243,6 +249,10 @@ class MarketDataClient:
         close = _clean(getattr(ticker, "close", None))
         volume = _clean(getattr(ticker, "volume", None))
         return last is not None and close is not None and volume is not None
+
+    @staticmethod
+    def _ticker_snapshot_complete(ticker) -> bool:
+        return bool(getattr(ticker, "snapshotEnd", False))
 
     def _empty_snapshot(
         self,

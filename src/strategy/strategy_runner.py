@@ -96,9 +96,9 @@ class StrategyRunner:
     def filter_pattern_results(
         self,
         pattern_results: List[PatternResult],
-        focus_symbols: Optional[Sequence[str]] = None,
+        focus_symbols: Optional[Sequence[object]] = None,
     ) -> List[PatternResult]:
-        focus_list = list(focus_symbols or [])
+        focus_list = self._symbols_from_focus(focus_symbols)
         if not focus_list:
             symbols_for_eval = sorted({result.symbol for result in pattern_results})
             print(
@@ -113,6 +113,21 @@ class StrategyRunner:
             f"{focus_list} source=FOCUS_M"
         )
         return filtered
+
+    @staticmethod
+    def _symbols_from_focus(focus_symbols: Optional[Sequence[object]]) -> List[str]:
+        symbols: List[str] = []
+        for entry in focus_symbols or []:
+            symbol = None
+            if isinstance(entry, str):
+                symbol = entry
+            elif isinstance(entry, dict):
+                symbol = entry.get("symbol")
+            else:
+                symbol = getattr(entry, "symbol", None)
+            if symbol:
+                symbols.append(symbol)
+        return symbols
 
     def generate_trade_intent(
         self,

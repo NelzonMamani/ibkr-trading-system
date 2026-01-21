@@ -23,6 +23,7 @@ class CandidateMetrics:
     catalyst_present: Optional[bool]
     catalyst_summary: Optional[str]
     data_quality_ok: bool
+    data_quality_flags: list[str] = field(default_factory=list)
     drop_reasons: list[str] = field(default_factory=list)
     rank_score: Optional[float] = None
     rank_components: Optional[dict[str, float]] = None

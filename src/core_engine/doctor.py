@@ -30,8 +30,24 @@ def run_doctor() -> int:
         return 1
 
     payload = run_scanner_cycle(mode=mode.value)
-    watchlist = payload.get("watchlist_k", payload.get("watchlist", []))
-    focus = payload.get("focus_m", [])
+    watchlist = payload.get("watchlist_k_symbols", [])
+    focus = payload.get("focus_m_symbols", [])
+    if not watchlist:
+        watchlist = payload.get("watchlist", [])
+    if not watchlist:
+        watchlist = [
+            getattr(candidate, "symbol", None) or candidate.get("symbol")
+            for candidate in payload.get("watchlist_k", [])
+            if isinstance(candidate, dict) or hasattr(candidate, "symbol")
+        ]
+        watchlist = [symbol for symbol in watchlist if symbol]
+    if not focus:
+        focus = [
+            getattr(candidate, "symbol", None) or candidate.get("symbol")
+            for candidate in payload.get("focus_m", [])
+            if isinstance(candidate, dict) or hasattr(candidate, "symbol")
+        ]
+        focus = [symbol for symbol in focus if symbol]
     drop_summary = payload.get("drop_reason_summary", {})
     print_section("SCANNER RESULT")
     print_watchlist_focus(watchlist, focus, drop_summary)

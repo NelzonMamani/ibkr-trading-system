@@ -95,6 +95,8 @@ class GateThresholds:
     require_price: bool
     require_bid_ask: bool
     require_catalyst: bool
+    allow_halts: bool
+    allow_ssr: bool
 
 
 @dataclass(frozen=True)
@@ -327,6 +329,8 @@ def _gate_thresholds(policy: StockSelectionPolicy) -> GateThresholds:
         require_price=policy.data_quality_require_price,
         require_bid_ask=policy.data_quality_require_bid_ask,
         require_catalyst=policy.require_catalyst,
+        allow_halts=policy.allow_halts,
+        allow_ssr=policy.allow_ssr,
     )
 
 
@@ -346,6 +350,8 @@ def _gate_checks(
     spread_pct = _safe_float(context.get("spread_pct"), None)
     bid = _safe_float(context.get("bid"), None)
     ask = _safe_float(context.get("ask"), None)
+    halted = context.get("halted")
+    ssr = context.get("ssr")
 
     price_ok = price is not None and thresholds.min_price <= price <= thresholds.max_price
     gap_ok = pct_change is not None and pct_change >= thresholds.min_pct_change
@@ -371,6 +377,12 @@ def _gate_checks(
     catalyst_ok = True
     if thresholds.require_catalyst:
         catalyst_ok = bool(catalyst_present)
+    halt_ok = True
+    if halted is True and not thresholds.allow_halts:
+        halt_ok = False
+    ssr_ok = True
+    if ssr is True and not thresholds.allow_ssr:
+        ssr_ok = False
 
     return {
         "price_range_ok": price_ok,
@@ -383,6 +395,8 @@ def _gate_checks(
         "spread_ok": spread_ok,
         "bid_ask_ok": bid_ask_ok,
         "catalyst_ok": catalyst_ok,
+        "halt_ok": halt_ok,
+        "ssr_ok": ssr_ok,
     }
 
 
@@ -400,9 +414,15 @@ def _evaluate_gates(
     spread_pct = _safe_float(context.get("spread_pct"), None)
     bid = _safe_float(context.get("bid"), None)
     ask = _safe_float(context.get("ask"), None)
+    halted = context.get("halted")
+    ssr = context.get("ssr")
 
     if thresholds.require_price and price is None:
         return "DROP_MISSING_PRICE"
+    if halted is True and not thresholds.allow_halts:
+        return "DROP_HALTED"
+    if ssr is True and not thresholds.allow_ssr:
+        return "DROP_SSR"
     if pct_change is None:
         return "DROP_MISSING_PCT_CHANGE"
     if pct_change < thresholds.min_pct_change:
@@ -747,11 +767,12 @@ def _candidate_from_context(
         premarket_volume=premarket_volume,
         dollar_volume=context.get("dollar_volume"),
         spread_pct=context.get("spread_pct"),
-        halted=None,
-        ssr=None,
+        halted=context.get("halted"),
+        ssr=context.get("ssr"),
         catalyst_present=catalyst_present,
         catalyst_summary=catalyst_summary,
         data_quality_ok=not data_quality_flags,
+        data_quality_flags=data_quality_flags,
         drop_reasons=[drop_reason] if drop_reason else [],
         rank_score=context.get("scanner_score"),
         rank_components=context.get("scanner_score_components"),
@@ -856,6 +877,8 @@ def _build_symbol_context(
     symbol: str,
     session_label: str,
     float_cache: Dict[str, int],
+    *,
+    universe_rank: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     try:
         quote = provider.get_quote(symbol)
@@ -865,6 +888,7 @@ def _build_symbol_context(
     data_quality_flags = list(getattr(quote, "data_quality_flags", []) or [])
     last_price = _resolve_price(quote)
     spread, spread_pct = _spread_values(quote)
+    snapshot_timeout = "MD_TIMEOUT" in data_quality_flags
 
     intraday = None
     try:
@@ -914,7 +938,11 @@ def _build_symbol_context(
         "spread_pct": spread_pct,
         "rvol": rvol,
         "float_shares": float_shares,
+        "halted": None,
+        "ssr": None,
         "data_quality_flags": data_quality_flags,
+        "snapshot_timeout": snapshot_timeout,
+        "universe_rank": universe_rank,
     }
 
 
@@ -968,6 +996,20 @@ def _resolve_universe_symbols(
     return symbols
 
 
+def _build_universe_entries(symbols: list[str]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for rank, symbol in enumerate(symbols, start=1):
+        entries.append(
+            {
+                "symbol": symbol,
+                "conId": None,
+                "exchange": None,
+                "rank": rank,
+            }
+        )
+    return entries
+
+
 def run_scanner_cycle(
     mode: str = "integrated",
     policy: StockSelectionPolicy | None = None,
@@ -979,6 +1021,7 @@ def run_scanner_cycle(
     session_label = _market_session_label_utc(utc_now)
     diagnostics: Dict[str, Any] = {"mode": mode}
     drop_ledger: Dict[str, str] = {}
+    universe_top_n: list[dict[str, Any]] = []
     print(f"[SCANNER] MODE={mode} SESSION={session_label}")
     scanner_mode = get_scanner_mode()
     policy_source = "STRATEGY" if policy is not None else "CONFIG_DEFAULTS"
@@ -1000,198 +1043,6 @@ def run_scanner_cycle(
         )
     )
     request = scanner_request or scanner_request_from_policy(resolved_policy)
-    if scanner_mode == "TEACHING":
-        limits = _print_symbol_limits(
-            scanner_mode,
-            "TEACHING",
-            resolved_policy,
-            requested_top_n=request.requested_top_n,
-        )
-        diagnostics["symbol_limits"] = limits
-        diagnostics["provider_source"] = "TEACHING"
-        print("[SCANNER][STAGE] teaching")
-        print("[SCANNER][TEACHING] Static watchlist — no IBKR connection or market data calls")
-        symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS") or [])
-        if not symbols:
-            symbols = ["AAPL"]
-        symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
-        all_rows: List[FastViewRow] = []
-        for idx, symbol in enumerate(symbols, start=1):
-            all_rows.append(
-                FastViewRow(
-                    symbol=symbol,
-                    session=session_label,
-                    last_price=None,
-                    pct_change=None,
-                    volume=None,
-                    dollar_volume=None,
-                    bid=None,
-                    ask=None,
-                    spread=None,
-                    spread_pct=None,
-                    rvol=None,
-                    float_shares=None,
-                    scanner_rank=idx,
-                    scanner_score=None,
-                    drop_reason=None,
-                    data_quality_flags=["TEACHING_STATIC"],
-                    news_present=False,
-                    catalyst_type=None,
-                    dilution_flag=False,
-                    news_age_minutes=None,
-                    velocity_5m=None,
-                    velocity_10m=None,
-                    velocity_30m=None,
-                    attention_tier=None,
-                    gam_ea_eligible=None,
-                )
-            )
-        fast_rows = list(all_rows)
-        watchlist_limit = limits["watchlist_limit"]
-        if watchlist_limit and len(fast_rows) > watchlist_limit:
-            for row in fast_rows[watchlist_limit:]:
-                drop_ledger.setdefault(row.symbol, "DROP_RANK_BELOW_WATCHLIST")
-                print(
-                    "[SCANNER][DROP] symbol="
-                    f"{row.symbol} reason=DROP_RANK_BELOW_WATCHLIST"
-                )
-            fast_rows = fast_rows[:watchlist_limit]
-        focus_limit = limits["focus_limit"]
-        deep_rows = [
-            DeepViewRow(
-                symbol=row.symbol,
-                focus_rank=idx,
-                links=[],
-                catalyst_rationale="Teaching mode static candidate.",
-                focus_reason="Teaching mode static watchlist.",
-            )
-            for idx, row in enumerate(fast_rows[:focus_limit], start=1)
-        ]
-        drop_summary = summarize_drop_reasons(drop_ledger)
-        print(
-            "[SCANNER][SUMMARY] "
-            f"candidates={len(symbols)} gated={len(symbols)} "
-            f"watchlist={len(fast_rows)} drops={drop_summary}"
-        )
-        watchlist_symbols = [row.symbol for row in fast_rows]
-        focus_symbols = [row.symbol for row in deep_rows]
-        new_symbols = sorted(set(watchlist_symbols) - _PREV_WATCHLIST)
-        continuing_symbols = sorted(set(watchlist_symbols) & _PREV_WATCHLIST)
-        dropped_symbols = sorted(_PREV_WATCHLIST - set(watchlist_symbols))
-        print_scanner_contract(
-            topn_count=len(symbols),
-            survivors_count=len(symbols),
-            watchlist_k=watchlist_symbols,
-            focus_m=focus_symbols,
-            drop_summary=drop_summary,
-            new_symbols=new_symbols,
-            continuing_symbols=continuing_symbols,
-            dropped_symbols=dropped_symbols,
-        )
-        print(
-            "[SCANNER][DROP_SUMMARY] "
-            f"topn={len(symbols)} evaluated={len(symbols)} dropped={len(drop_ledger)} "
-            f"reasons={drop_summary}"
-        )
-        thresholds = _gate_thresholds(resolved_policy)
-        candidate_metrics: List[CandidateMetrics] = []
-        scanner_candidates: List[ScannerCandidate] = []
-        for row in all_rows:
-            news_context = {
-                "news_present": row.news_present,
-                "catalyst_type": row.catalyst_type,
-                "news_age_minutes": row.news_age_minutes,
-                "ross_catalyst_valid": row.news_present,
-            }
-            context = {
-                "symbol": row.symbol,
-                "session": row.session,
-                "last_price": row.last_price,
-                "prev_close": None,
-                "pct_change": row.pct_change,
-                "rvol": row.rvol,
-                "float_shares": row.float_shares,
-                "volume": row.volume,
-                "dollar_volume": row.dollar_volume,
-                "spread_pct": row.spread_pct,
-                "data_quality_flags": row.data_quality_flags,
-                "scanner_score": row.scanner_score,
-                "scanner_score_components": {},
-            }
-            scanner_candidates.append(
-                _scanner_candidate_from_context(context, drop_reason=drop_ledger.get(row.symbol))
-            )
-            candidate_metrics.append(
-                _candidate_from_context(
-                    context,
-                    news_context,
-                    thresholds,
-                    drop_reason=drop_ledger.get(row.symbol),
-                    timestamp_utc=utc_now.isoformat(),
-                )
-            )
-        candidate_lookup = {candidate.symbol: candidate for candidate in candidate_metrics}
-        watchlist_metrics = [
-            candidate_lookup[symbol]
-            for symbol in watchlist_symbols
-            if symbol in candidate_lookup
-        ]
-        focus_metrics = [
-            candidate_lookup[symbol]
-            for symbol in focus_symbols
-            if symbol in candidate_lookup
-        ]
-        watchlist_hash = _watchlist_hash(watchlist_symbols, focus_symbols)
-        watchlist_changed = watchlist_hash != _WATCHLIST_HASH
-        if _should_print_watchlist(
-            watchlist_changed=watchlist_changed,
-            session_label=session_label,
-            cycle_count=_SCAN_CYCLE_COUNT,
-        ):
-            _print_watchlist_and_focus(
-                watchlist_metrics,
-                focus_metrics,
-                session_label=session_label,
-            )
-            _LAST_PRINT_CYCLE = _SCAN_CYCLE_COUNT
-        _WATCHLIST_HASH = watchlist_hash
-        _LAST_SESSION_LABEL = session_label
-        _PREV_WATCHLIST.clear()
-        _PREV_WATCHLIST.update(watchlist_symbols)
-        return {
-            "scanner_version": SCANNER_VERSION,
-            "scanner_git_sha": SCANNER_GIT_SHA,
-            "timestamp_utc": utc_now.isoformat(),
-            "symbols": [row.symbol for row in fast_rows],
-            "watchlist": [row.symbol for row in fast_rows],
-            "watchlist_rows": fast_rows,
-            "focus_rows": deep_rows,
-            "drop_ledger": drop_ledger,
-            "watchlist_k": watchlist_symbols,
-            "focus_m": focus_symbols,
-            "candidates": scanner_candidates,
-            "candidate_metrics": candidate_metrics,
-            "scanner_result": ScannerResult(
-                top_n_symbols=symbols,
-                candidates=candidate_metrics,
-                watchlist_k=watchlist_metrics,
-                focus_m=focus_metrics,
-                drops_by_reason=drop_summary,
-                new_symbols=new_symbols,
-                continuing_symbols=continuing_symbols,
-                dropped_symbols=dropped_symbols,
-            ),
-            "topn_count": len(symbols),
-            "survivors_count": len(symbols),
-            "new_symbols": new_symbols,
-            "continuing_symbols": continuing_symbols,
-            "dropped_symbols": dropped_symbols,
-            "drop_reason_summary": drop_summary,
-            "data_quality_by_symbol": {
-                row.symbol: list(row.data_quality_flags or []) for row in fast_rows
-            },
-            "diagnostics": diagnostics,
-        }
 
     try:
         provider: ScannerDataProvider = build_provider()
@@ -1258,6 +1109,7 @@ def run_scanner_cycle(
             symbols = fallback_provider.get_top_gainers(limits["resolved_symbol_limit"])
             diagnostics["symbol_fallback"] = "MOCK_UNIVERSE"
         symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
+        universe_top_n = _build_universe_entries(symbols)
 
         float_cache = _bootstrap_float_cache(symbols, provider)
         thresholds = _gate_thresholds(resolved_policy)
@@ -1265,8 +1117,14 @@ def run_scanner_cycle(
         evaluated_contexts: List[Dict[str, Any]] = []
 
         print("[SCANNER][STAGE] gates")
-        for symbol in symbols:
-            context = _build_symbol_context(provider, symbol, session_label, float_cache)
+        for rank, symbol in enumerate(symbols, start=1):
+            context = _build_symbol_context(
+                provider,
+                symbol,
+                session_label,
+                float_cache,
+                universe_rank=rank,
+            )
             if context is None:
                 drop_ledger.setdefault(symbol, "DROP_QUOTE_UNAVAILABLE")
                 print(f"[SCANNER][DROP] symbol={symbol} reason=DROP_QUOTE_UNAVAILABLE")
@@ -1277,6 +1135,11 @@ def run_scanner_cycle(
                         "data_quality_flags": ["QUOTE_UNAVAILABLE"],
                     }
                 )
+                continue
+            if context.get("snapshot_timeout"):
+                drop_ledger.setdefault(symbol, "DROP_SNAPSHOT_TIMEOUT")
+                print(f"[SCANNER][DROP] symbol={symbol} reason=DROP_SNAPSHOT_TIMEOUT")
+                evaluated_contexts.append(context)
                 continue
             drop_reason = _evaluate_gates(context, thresholds)
             if drop_reason:
@@ -1369,11 +1232,7 @@ def run_scanner_cycle(
             for symbol in watchlist_symbols
             if symbol in candidate_lookup
         ]
-        focus_metrics = [
-            candidate_lookup[symbol]
-            for symbol in focus_symbols
-            if symbol in candidate_lookup
-        ]
+        focus_metrics = watchlist_metrics[: len(focus_symbols)]
         if _should_print_watchlist(
             watchlist_changed=watchlist_changed,
             session_label=session_label,
@@ -1435,13 +1294,16 @@ def run_scanner_cycle(
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
         "timestamp_utc": utc_now.isoformat(),
+        "universe_top_n": universe_top_n,
         "symbols": [row.symbol for row in fast_rows],
         "watchlist": [row.symbol for row in fast_rows],
         "watchlist_rows": fast_rows,
         "focus_rows": deep_rows,
         "drop_ledger": drop_ledger,
-        "watchlist_k": watchlist_symbols,
-        "focus_m": focus_symbols,
+        "watchlist_k": watchlist_metrics,
+        "focus_m": focus_metrics,
+        "watchlist_k_symbols": watchlist_symbols,
+        "focus_m_symbols": focus_symbols,
         "candidates": scanner_candidates,
         "candidate_metrics": candidate_metrics,
         "scanner_result": ScannerResult(

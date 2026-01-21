@@ -24,3 +24,4 @@ def test_scanner_policy_limits_applied_in_teaching_mode():
 
     assert len(payload.get("watchlist_k", [])) == 3
     assert len(payload.get("focus_m", [])) == 2
+    assert len(payload.get("focus_m_symbols", [])) == 2

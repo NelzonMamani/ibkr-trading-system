@@ -179,8 +179,24 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
         policy=scanner_policy,
         scanner_request=scanner_request,
     )
-    watchlist = scanner_payload.get("watchlist_k", scanner_payload.get("watchlist", []))
-    focus = scanner_payload.get("focus_m", [])
+    watchlist = scanner_payload.get("watchlist_k_symbols", [])
+    focus = scanner_payload.get("focus_m_symbols", [])
+    if not watchlist:
+        watchlist = scanner_payload.get("watchlist", [])
+    if not watchlist:
+        watchlist = [
+            getattr(candidate, "symbol", None) or candidate.get("symbol")
+            for candidate in scanner_payload.get("watchlist_k", [])
+            if isinstance(candidate, dict) or hasattr(candidate, "symbol")
+        ]
+        watchlist = [symbol for symbol in watchlist if symbol]
+    if not focus:
+        focus = [
+            getattr(candidate, "symbol", None) or candidate.get("symbol")
+            for candidate in scanner_payload.get("focus_m", [])
+            if isinstance(candidate, dict) or hasattr(candidate, "symbol")
+        ]
+        focus = [symbol for symbol in focus if symbol]
     drop_summary = scanner_payload.get("drop_reason_summary", {})
     print(
         f"Scanner: TopN={scanner_payload.get('topn_count', len(scanner_payload.get('symbols', [])))} "
