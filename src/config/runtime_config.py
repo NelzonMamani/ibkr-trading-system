@@ -110,7 +110,7 @@ def get_ibkr_auto_lockdown_enabled(default: bool = False) -> bool:
 
 
 def get_scanner_mode(default: str = "TEACHING") -> str:
-    return str(_with_default("SCANNER_MODE", default))
+    return str(_with_default("SCANNER_MODE_EFFECTIVE", default))
 
 
 def get_scanner_symbols(default: list[str] | None = None) -> list[str]:

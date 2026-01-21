@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import math
 import time
 from typing import Optional
+import threading
 
 from ib_insync import IB, Stock
 
@@ -114,9 +115,26 @@ class MarketDataClient:
         self.ib.reqMarketDataType(data_type_code)
 
     def disconnect(self) -> None:
-        if self.ib.isConnected():
+        if not self.ib.isConnected():
+            return
+        try:
+            client = getattr(self.ib, "client", None)
+            thread = getattr(client, "_thread", None)
+            if thread is not None and thread is threading.current_thread():
+                print("[IBKR][MD] Disconnect skipped to avoid joining current thread")
+                if client is not None:
+                    client.disconnect()
+                return
             self.ib.disconnect()
             print("[IBKR][MD] Disconnected")
+        except RuntimeError as exc:
+            if "cannot join current thread" in str(exc):
+                print("[IBKR][MD] Disconnect skipped to avoid joining current thread")
+                client = getattr(self.ib, "client", None)
+                if client is not None:
+                    client.disconnect()
+                return
+            raise
 
     def qualify_contract(self, symbol: str):
         contract = Stock(symbol, self.default_exchange, self.default_currency)
