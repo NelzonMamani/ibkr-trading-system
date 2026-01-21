@@ -1,5 +1,5 @@
 # SYSTEM_STATE — Authoritative Project Status
-Last updated: 2026-01-19
+Last updated: 2026-01-21
 
 ## Purpose
 This file is the single source of operational truth.
@@ -18,27 +18,28 @@ Scanner → Patterns → Strategy → Risk → Execution → Storage
 Includes determinism, explainability, and safety enforcement.
 
 ### Track A — Ross Momentum Live Track (ACTIVE)
-Track A operationalizes Ross Momentum for live trading:
-- Time-of-day aware policies (morning / mid / late)
-- Micro-pullback, breakout, and continuation families
-- Paper → LIVE_1SHARE progression required
-- Manual verification ongoing post-Epoch 5
-- Note: gaps in pattern coverage or wiring discovered during validation must be addressed as Track A fixes (without violating frozen contracts).
+Operational live rollout of Ross Momentum:
+- Strategy-driven stock selection enforced
+- LIVE_MICRO (1 share) supported with hard risk caps
+- Time-of-day aware behaviour
+- Manual verification and incremental hardening ongoing
+
+### Stabilisation Phase — ACTIVE
+- LIVE_MICRO scanner + execution alignment
+- Watchlist lifecycle governance
+- DB recovery, health, and observability
+- Mandatory verification command enforcement
+
+### Parallel Learning Epoch — PLANNED (Isolated)
+- Read-only analysis of events and trades
+- Daily/weekly/monthly/yearly reports
+- Policy proposals only — never auto-applied
 
 ### Track B — Adaptive Regime / Microstructure Layer (PLANNED)
-A governed, sandboxed layer that:
-- Observes market regime deterministically
-- Produces regime artifacts and optional policy decisions
-- May adjust strategy weighting/eligibility and bounded risk multipliers
-- Never mutates strategy rules silently
-
-Implementation is intended to live under:
-- ADAPTIVE_REGIME_MICROSTRUCTURE_LAYER/ (instruction bundle)
-- src/regime/* (implementation modules)
+Sandboxed, deterministic, non-mutating observational layer.
 
 ### Epoch 6 — FUTURE (Isolated)
 Long-horizon / Buffett-style strategies.
-No shared cadence or data with intraday trading.
 
 ---
 ## Frozen Truths (Non-Negotiable)
@@ -47,13 +48,9 @@ No shared cadence or data with intraday trading.
 - Risk is final authority
 - Execution obeys mode and constraints
 - Storage is mandatory for all outcomes
+- Learning never mutates live logic automatically
 
 ---
 ## Next Action
-Proceed with Track A phased live rollout per for_track_A/PHASE_INDEX.md.
-If commencing Track B work, follow the instruction bundle under ADAPTIVE_REGIME_MICROSTRUCTURE_LAYER/.
-
-## Track A Authority Note
-Track A strategy integrations are authoritative under src/strategies/*.
-Legacy adapters in src/strategy/* remain for compatibility only and should
-not be used for new Ross Momentum wiring.
+Complete stabilisation documents (01–03), re-run all mandatory verification commands,
+then proceed with controlled Track A live rollout.

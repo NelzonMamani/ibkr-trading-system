@@ -1,46 +1,41 @@
-# ibkr-trading-system — Public Charter (README)
+# ibkr-trading-system — Public Charter
 
 ## Purpose
-This repository contains a modular, live-testable trading system (“Trading OS”) designed to:
-- Scan the US equity market (NYSE/NASDAQ/AMEX)
-- Produce a tradable watchlist and a smaller focus list
-- Generate strategy signals as intent (not orders)
-- Enforce risk gating and circuit breakers
-- Execute via IBKR/TWS only when approved
-- Persist full context for audit, review, and improvement
+This repository contains a modular, live-capable Trading OS designed to:
+- Scan the US equity market (NYSE / NASDAQ / AMEX)
+- Produce a tradable watchlist and focus list
+- Generate TradeIntent (never orders)
+- Enforce risk, safety, and execution guards
+- Execute via IBKR only when explicitly allowed
+- Persist all decisions for audit and learning
 
-The first-class intraday strategy is Ross Cameron–style Momentum.
-The architecture is strategy-agnostic, allowing additional strategies without redesign.
+## Governance & Safety
+- Scanner observes, never trades
+- Strategies emit intent only
+- Risk is final authority
+- Execution is guarded by mode and caps
+- Storage is mandatory
+- Deterministic, explainable behaviour required
 
-## Governance & Safety (Non-Negotiable)
-- Scanner observes and explains — it never trades
-- Strategies emit TradeIntent, never broker orders
-- Risk is final authority and may block anything with rationale
-- Execution submits broker orders only when approved
-- Storage is mandatory for all decisions and outcomes
-
-The system is live-first but safety-bound:
-- SIM → LIVE_READ_ONLY → LIVE_1SHARE progression
-- Circuit breakers enforce daily loss, trade count, and health limits
-- Deterministic, explainable behaviour is mandatory
-
-## Project Status (Authoritative summaries only)
-- Epoch 4: Scanner contract — complete and frozen
-- Epoch 5: Trading OS completion — complete and frozen
-- Track A: Ross Momentum live execution track — active validation and rollout
-- Track B: Adaptive Regime / Microstructure Layer — planned enhancement (governed; sandboxed)
-- Epoch 6: Long-horizon / Buffett-style strategies — future, isolated
+## Project Status
+- Epoch 4: Scanner contract — frozen
+- Epoch 5: Trading OS — frozen
+- Track A: Ross Momentum LIVE_MICRO rollout — active
+- Stabilisation: scanner, DB, health, observability — active
+- Parallel Learning Epoch — planned (isolated)
+- Epoch 6 (Buffett) — future
 
 ## Operating Modes
-- SIM — simulation only (no broker routing)
-- LIVE_READ_ONLY — live broker data, orders blocked
-- LIVE_1SHARE — live execution, strictly bounded
+- SIM
+- LIVE_READ_ONLY
+- LIVE_MICRO (1 share, capped risk)
 
 ## Entry Points
-- See RUNBOOK.md for canonical run commands
-- See SYSTEM_STATE.md for authoritative operational status and what is frozen/active
+- RUNBOOK.md
+- SYSTEM_STATE.md
+- for_track_A/
 
 ## Contribution Rules
-- Respect module boundaries and frozen contracts
-- Small, verifiable changes only
-- Any new behaviour must be deterministic, logged, and persisted
+- Respect frozen contracts
+- No silent changes
+- Learning may propose, never auto-apply
