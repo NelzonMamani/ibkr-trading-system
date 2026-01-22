@@ -334,7 +334,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "IBKR_FALLBACK_ENABLED": {
         "type": bool,
-        "default": True,
+        "default": False,
         "env": ["IBKR_FALLBACK_ENABLED"],
         "affects": ["Scanner", "LiveReadOnlyScanner"],
         "enforcement": "SOFT",
@@ -359,6 +359,24 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "enforcement": "SOFT",
         "mutable": "dynamic",
         "description": "Enable automatic lockdown when data quality fails.",
+    },
+    "DEBUG_MARKET_DATA": {
+        "type": bool,
+        "default": False,
+        "env": ["DEBUG_MARKET_DATA"],
+        "affects": ["MarketDataHub", "Scanner", "LiveReadOnlyScanner"],
+        "enforcement": "SOFT",
+        "mutable": "per-cycle",
+        "description": "Enable verbose market data diagnostics logging.",
+    },
+    "DEBUG_SCANNER": {
+        "type": bool,
+        "default": False,
+        "env": ["DEBUG_SCANNER"],
+        "affects": ["Scanner", "LiveReadOnlyScanner"],
+        "enforcement": "SOFT",
+        "mutable": "per-cycle",
+        "description": "Enable verbose scanner diagnostics logging.",
     },
     "IBKR_DEFAULT_EXCHANGE": {
         "type": str,

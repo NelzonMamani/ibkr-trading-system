@@ -108,7 +108,7 @@ def get_ibkr_max_symbols_per_cycle(default: int = 50) -> int:
     return int(_with_default("IBKR_MAX_SYMBOLS_PER_CYCLE", default))
 
 
-def get_ibkr_fallback_enabled(default: bool = True) -> bool:
+def get_ibkr_fallback_enabled(default: bool = False) -> bool:
     return bool(_with_default("IBKR_FALLBACK_ENABLED", default))
 
 
