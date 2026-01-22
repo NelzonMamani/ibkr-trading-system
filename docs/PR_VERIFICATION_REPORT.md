@@ -553,3 +553,88 @@ scanner_main.py
 scanner_runner.py
 scanner_master_v2026_01_06_07.py
 ```
+
+---
+
+# Step 3 — Ross Adapter-Only Verification (2026-01-22)
+
+## Pre-change baseline
+- Baseline runs captured on this branch before verification re-runs. Behaviour observed:
+  - Strategy selection remained RossMomentumStrategyV1.
+  - No TradeIntent emissions with zero signals in SIM/READONLY.
+
+## Summary of changes
+- Added Ross adapter in `src/strategy_portfolio/adapters/` and mapping reason code.
+- Routed Ross TradeIntent output through adapter to emit interface-native intents (event-only).
+- Added adapter unit tests.
+
+## Why safe
+- Adapter performs pure translation only; no Ross thresholds or decision rules changed.
+- Orchestrator continues to use existing TradeIntent flow; adapter output is logged only.
+
+## Files changed
+- src/strategy_portfolio/adapters/__init__.py
+- src/strategy_portfolio/adapters/ross_momentum_adapter.py
+- src/strategy_portfolio/reason_codes.py
+- src/core/orchestrator.py
+- tests/strategy_portfolio/test_ross_adapter.py
+
+## Mandatory verification commands & outputs (excerpts)
+1) `python -m compileall -q src`
+```
+(no output)
+```
+
+2) `pytest -q`
+```
+122 passed, 7 skipped, 4 warnings in 9.73s
+```
+
+3) `python -m src.main --mode SIM --cycles 1`
+```
+[ORCH][POLICY] loaded strategy=ross_momentum version=v1 policy=ROSS_MOMENTUM
+[STRATEGY] Strategy 'RossMomentumStrategyV1' returned 0 TradeIntent(s)
+SystemEvent(event_type='STRATEGY_INTERFACE_INTENTS', source='RossMomentumAdapter', payload={'count': 0}, ...)
+[SUMMARY] scanner=5 | patterns=0 | trade_intents=0 | risk_decisions=0 | execution_results=0
+```
+
+4) `python -m src.main --mode READONLY --cycles 1`
+```
+[VALIDATION] Effective run mode: LIVE_READ_ONLY
+[STRATEGY] Strategy 'RossMomentumStrategyV1' returned 0 TradeIntent(s)
+SystemEvent(event_type='STRATEGY_INTERFACE_INTENTS', source='RossMomentumAdapter', payload={'count': 0}, ...)
+[SUMMARY] scanner=5 | patterns=0 | trade_intents=0 | risk_decisions=0 | execution_results=0
+```
+
+5) `python -m src.main --mode PAPER --cycles 1`
+```
+[VALIDATION] Effective run mode: PAPER
+[STRATEGY] Strategy 'RossMomentumStrategyV1' returned 0 TradeIntent(s)
+SystemEvent(event_type='STRATEGY_INTERFACE_INTENTS', source='RossMomentumAdapter', payload={'count': 0}, ...)
+[SUMMARY] scanner=5 | patterns=0 | trade_intents=0 | risk_decisions=0 | execution_results=0
+```
+
+6) `python -m src.main --mode LIVE_MICRO --cycles 1`
+```
+[VALIDATION] Effective run mode: LIVE_MICRO
+[GATE] RUN_MODE is LIVE/LIVE_MICRO while session is CLOSED. Skipping orchestrator.run_once()
+^C[SHUTDOWN] KeyboardInterrupt — requesting graceful stop.
+```
+
+7) LIVE_MICRO with explicit ACK vars (1-share) — cycles 3
+Command:
+```
+LIVE_MICRO_ACK=true LIVE_MICRO_1_SHARE_ONLY=true python -m src.main --mode LIVE_MICRO --cycles 3
+```
+Output excerpt:
+```
+[STARTUP] LIVE_MICRO guardrails
+  - LIVE_MICRO_ACK: True
+  - LIVE_MICRO_1_SHARE_ONLY: True
+[GATE] RUN_MODE is LIVE/LIVE_MICRO while session is CLOSED. Skipping orchestrator.run_once()
+^C[SHUTDOWN] KeyboardInterrupt — requesting graceful stop.
+```
+
+## Notes
+- LIVE_MICRO runs remain gated in this environment due to CLOSED session; manual interrupt used after verifying guardrails.
+- ACK env vars used: `LIVE_MICRO_ACK=true`, `LIVE_MICRO_1_SHARE_ONLY=true`.
