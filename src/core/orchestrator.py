@@ -55,6 +55,9 @@ from src.signals.signal_engine_v1 import SignalEngineV1
 from src.storage.storage_engine import StorageEngine
 from src.strategy.strategy_runner import StrategyRunner
 from src.strategy.exit_signal import ExitSignal
+from src.strategy_portfolio.adapters.ross_momentum_adapter import (
+    ross_trade_intents_to_decision_intents,
+)
 from src.events.event_invariants import check_invariants, EventInvariantError
 from src.strategies.ross_momentum.strategy_context_schema import (
     StrategyContext,
@@ -872,6 +875,13 @@ class CoreOrchestrator:
                 regime_snapshot,
                 regime_policy_decision,
             )
+            interface_intents = ross_trade_intents_to_decision_intents(strategy_output)
+            interface_event = self.event_collector.emit(
+                event_type="STRATEGY_INTERFACE_INTENTS",
+                source="RossMomentumAdapter",
+                payload={"count": len(interface_intents)},
+            )
+            print(interface_event)
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="STRATEGY",
