@@ -17,7 +17,12 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(repo_root))
 
 from src.config.config_resolver import get_config, get_config_record
-from src.config.runtime_config import get_scanner_mode, get_watchlist_print_every_n_cycles
+from src.config.runtime_config import (
+    RunMode,
+    get_run_mode,
+    get_scanner_mode,
+    get_watchlist_print_every_n_cycles,
+)
 from src.news.news_fetcher import Headline, fetch_headlines_for_symbols
 from src.news.verified_sources import load_verified_rss_sources
 
@@ -400,6 +405,81 @@ def _gate_checks(
     }
 
 
+def _evaluate_price_gate(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+) -> Optional[str]:
+    price = _safe_float(context.get("last_price"), None)
+    if thresholds.require_price and price is None:
+        return "DROP_MISSING_PRICE"
+    if price is not None and not (thresholds.min_price <= price <= thresholds.max_price):
+        return "DROP_PRICE_RANGE"
+    return None
+
+
+def _populate_pct_change(
+    context: Dict[str, Any],
+    provider: ScannerDataProvider,
+) -> None:
+    if context.get("pct_change") is not None:
+        return
+    last_price = _safe_float(context.get("last_price"), None)
+    prev_close = _safe_float(context.get("prev_close"), None)
+    if prev_close is None:
+        history = _history_snapshot(context["symbol"], provider)
+        prev_close = history.get("prev_close")
+        context["prev_close"] = prev_close
+        if prev_close is None:
+            context.setdefault("data_quality_flags", []).append("HISTORY_UNKNOWN")
+    pct_change = _pct_change(last_price, prev_close)
+    if last_price is None:
+        context.setdefault("data_quality_flags", []).append("MISSING_LAST")
+    if prev_close is None:
+        context.setdefault("data_quality_flags", []).append("MISSING_PREV_CLOSE")
+    if pct_change is None:
+        context.setdefault("data_quality_flags", []).append("MISSING_PCT_CHANGE")
+    context["pct_change"] = pct_change
+    if get_config("DEBUG_MARKET_DATA"):
+        print(
+            "[SCANNER][MD][DEBUG] pct_change "
+            f"symbol={context['symbol']} last={last_price} prev_close={prev_close} "
+            f"pct_change={pct_change}"
+        )
+
+
+def _missingness_map(drop_reason: str, context: Dict[str, Any]) -> Dict[str, bool]:
+    if drop_reason in {"DROP_PCT_CHANGE", "DROP_PCT_CHANGE_MAX", "DROP_MISSING_PCT_CHANGE"}:
+        return {
+            "close": context.get("close") is None,
+            "prev_close": context.get("prev_close") is None,
+            "last": context.get("last_price") is None,
+        }
+    if drop_reason in {"DROP_PRICE_RANGE", "DROP_MISSING_PRICE"}:
+        return {
+            "last": context.get("last_price") is None,
+            "bid": context.get("bid") is None,
+            "ask": context.get("ask") is None,
+        }
+    if drop_reason in {"DROP_MISSING_RVOL", "DROP_RVOL"}:
+        return {"rvol": context.get("rvol") is None}
+    if drop_reason in {"DROP_MISSING_VOLUME", "DROP_VOLUME", "DROP_PREMARKET_VOLUME"}:
+        return {"volume": context.get("volume") is None}
+    if drop_reason in {"DROP_MISSING_BID_ASK"}:
+        return {"bid": context.get("bid") is None, "ask": context.get("ask") is None}
+    if drop_reason in {"DROP_MISSING_SPREAD", "DROP_SPREAD"}:
+        return {
+            "spread_pct": context.get("spread_pct") is None,
+            "bid": context.get("bid") is None,
+            "ask": context.get("ask") is None,
+        }
+    return {
+        "last": context.get("last_price") is None,
+        "prev_close": context.get("prev_close") is None,
+        "pct_change": context.get("pct_change") is None,
+        "volume": context.get("volume") is None,
+    }
+
+
 def _evaluate_gates(
     context: Dict[str, Any],
     thresholds: GateThresholds,
@@ -423,14 +503,14 @@ def _evaluate_gates(
         return "DROP_HALTED"
     if ssr is True and not thresholds.allow_ssr:
         return "DROP_SSR"
+    if price is not None and not (thresholds.min_price <= price <= thresholds.max_price):
+        return "DROP_PRICE_RANGE"
     if pct_change is None:
         return "DROP_MISSING_PCT_CHANGE"
     if pct_change < thresholds.min_pct_change:
         return "DROP_PCT_CHANGE"
     if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
         return "DROP_PCT_CHANGE_MAX"
-    if price is not None and not (thresholds.min_price <= price <= thresholds.max_price):
-        return "DROP_PRICE_RANGE"
     if rvol is None:
         return "DROP_MISSING_RVOL"
     if rvol < thresholds.min_rvol:
@@ -879,6 +959,7 @@ def _build_symbol_context(
     float_cache: Dict[str, int],
     *,
     universe_rank: Optional[int] = None,
+    include_pct_change: bool = True,
 ) -> Optional[Dict[str, Any]]:
     try:
         quote = provider.get_quote(symbol)
@@ -889,6 +970,12 @@ def _build_symbol_context(
     last_price = _resolve_price(quote)
     spread, spread_pct = _spread_values(quote)
     snapshot_timeout = "MD_TIMEOUT" in data_quality_flags
+    if get_config("DEBUG_MARKET_DATA"):
+        print(
+            "[SCANNER][MD][DEBUG] ticks "
+            f"symbol={symbol} bid={quote.bid} ask={quote.ask} last={quote.last} "
+            f"close={quote.close} volume={quote.volume} vwap={quote.vwap}"
+        )
 
     intraday = None
     try:
@@ -906,13 +993,13 @@ def _build_symbol_context(
         data_quality_flags.append("RVOL_UNKNOWN")
 
     prev_close = quote.close
-    if prev_close is None:
+    if include_pct_change and prev_close is None:
         history = _history_snapshot(symbol, provider)
         prev_close = history.get("prev_close")
-    if prev_close is None:
+    if include_pct_change and prev_close is None:
         data_quality_flags.append("HISTORY_UNKNOWN")
 
-    pct_change = _pct_change(last_price, prev_close)
+    pct_change = _pct_change(last_price, prev_close) if include_pct_change else None
     dollar_volume = None
     if last_price is not None and volume is not None:
         dollar_volume = round(last_price * volume, 2)
@@ -923,11 +1010,26 @@ def _build_symbol_context(
 
     if spread is None:
         data_quality_flags.append("SPREAD_UNKNOWN")
+    if last_price is None:
+        data_quality_flags.append("MISSING_LAST")
+    if quote.close is None:
+        data_quality_flags.append("MISSING_CLOSE_TICK")
+    if include_pct_change and prev_close is None:
+        data_quality_flags.append("MISSING_PREV_CLOSE")
+    if include_pct_change and pct_change is None:
+        data_quality_flags.append("MISSING_PCT_CHANGE")
+    if get_config("DEBUG_MARKET_DATA"):
+        print(
+            "[SCANNER][MD][DEBUG] snapshot "
+            f"symbol={symbol} last={last_price} close={quote.close} "
+            f"prev_close={prev_close} volume={volume} pct_change={pct_change}"
+        )
 
     return {
         "symbol": symbol,
         "session": session_label,
         "last_price": last_price,
+        "close": quote.close,
         "prev_close": prev_close,
         "pct_change": pct_change,
         "volume": volume,
@@ -1044,9 +1146,13 @@ def run_scanner_cycle(
     )
     request = scanner_request or scanner_request_from_policy(resolved_policy)
 
+    run_mode = get_run_mode()
+    fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
     try:
         provider: ScannerDataProvider = build_provider()
     except ProviderConnectionError as exc:
+        if run_mode in {RunMode.PAPER, RunMode.LIVE_READ_ONLY} and not fallback_enabled:
+            raise
         diagnostics["provider_error"] = str(exc)
         diagnostics["provider_fallback"] = {
             "from": "IBKR",
@@ -1124,6 +1230,7 @@ def run_scanner_cycle(
                 session_label,
                 float_cache,
                 universe_rank=rank,
+                include_pct_change=False,
             )
             if context is None:
                 drop_ledger.setdefault(symbol, "DROP_QUOTE_UNAVAILABLE")
@@ -1141,10 +1248,29 @@ def run_scanner_cycle(
                 print(f"[SCANNER][DROP] symbol={symbol} reason=DROP_SNAPSHOT_TIMEOUT")
                 evaluated_contexts.append(context)
                 continue
+            price_gate_reason = _evaluate_price_gate(context, thresholds)
+            if price_gate_reason:
+                drop_ledger.setdefault(symbol, price_gate_reason)
+                print(f"[SCANNER][DROP] symbol={symbol} reason={price_gate_reason}")
+                if get_config("DEBUG_SCANNER"):
+                    missingness = _missingness_map(price_gate_reason, context)
+                    print(
+                        "[SCANNER][DEBUG] "
+                        f"symbol={symbol} reason={price_gate_reason} missing={missingness}"
+                    )
+                evaluated_contexts.append(context)
+                continue
+            _populate_pct_change(context, provider)
             drop_reason = _evaluate_gates(context, thresholds)
             if drop_reason:
                 drop_ledger.setdefault(symbol, drop_reason)
                 print(f"[SCANNER][DROP] symbol={symbol} reason={drop_reason}")
+                if get_config("DEBUG_SCANNER"):
+                    missingness = _missingness_map(drop_reason, context)
+                    print(
+                        "[SCANNER][DEBUG] "
+                        f"symbol={symbol} reason={drop_reason} missing={missingness}"
+                    )
                 evaluated_contexts.append(context)
                 continue
             score, components = _score_context(context)

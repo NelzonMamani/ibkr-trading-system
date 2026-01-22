@@ -9,6 +9,7 @@ import threading
 
 from ib_insync import IB, Stock
 
+from src.config.config_resolver import get_config
 from src.config.runtime_config import (
     get_ibkr_client_id,
     get_ibkr_default_currency,
@@ -206,6 +207,12 @@ class MarketDataClient:
         low = _clean(getattr(ticker, "low", None))
         close = _clean(getattr(ticker, "close", None))
         open_price = _clean(getattr(ticker, "open", None))
+        if get_config("DEBUG_MARKET_DATA"):
+            print(
+                "[IBKR][MD][DEBUG] ticks "
+                f"symbol={symbol} bid={bid} ask={ask} last={last} close={close} "
+                f"volume={volume} vwap={vwap} high={high} low={low} open={open_price}"
+            )
         spread = (ask - bid) if bid is not None and ask is not None else None
         if bid is None and ask is None and last is None:
             flags.append("MD_EMPTY")
@@ -253,6 +260,30 @@ class MarketDataClient:
     @staticmethod
     def _ticker_snapshot_complete(ticker) -> bool:
         return bool(getattr(ticker, "snapshotEnd", False))
+
+    def prev_close_from_history(self, symbol: str) -> Optional[float]:
+        try:
+            contract = self.qualify_contract(symbol)
+        except Exception:
+            return None
+        if contract is None:
+            return None
+        try:
+            bars = self.ib.reqHistoricalData(
+                contract,
+                endDateTime="",
+                durationStr="3 D",
+                barSizeSetting="1 day",
+                whatToShow="TRADES",
+                useRTH=False,
+                formatDate=1,
+            )
+        except Exception:
+            return None
+        if not bars:
+            return None
+        latest = bars[-1]
+        return _clean(getattr(latest, "close", None))
 
     def _empty_snapshot(
         self,

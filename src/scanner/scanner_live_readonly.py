@@ -79,6 +79,8 @@ class LiveReadOnlyScanner:
             self.market_data_client.disconnect()
         except Exception as exc:
             self.last_connectivity_issue = f"IBKR market data error: {exc}"
+            if not self.fallback_enabled:
+                raise RuntimeError(self.last_connectivity_issue) from exc
             print(
                 "[SCAN][FALLBACK] IBKR unavailable — switching to MOCK provider "
                 f"reason={exc}"

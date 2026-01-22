@@ -34,6 +34,7 @@ def test_scanner_fallback_on_provider_connect_failure(monkeypatch):
         {
             "RUN_MODE": "LIVE_READ_ONLY",
             "SCANNER_DATA_SOURCE": "IBKR",
+            "IBKR_FALLBACK_ENABLED": True,
         }
     )
 
