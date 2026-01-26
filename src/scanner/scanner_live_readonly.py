@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from src.config.config_resolver import get_config
+from src.config.runtime_config import RunMode, get_run_mode
 from src.core.event_collector import EventCollector
 from src.ibkr.market_data_client import MarketDataClient
 from src.models.data_models import ScannerCandidate
@@ -79,6 +80,8 @@ class LiveReadOnlyScanner:
             self.market_data_client.disconnect()
         except Exception as exc:
             self.last_connectivity_issue = f"IBKR market data error: {exc}"
+            if get_run_mode() in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
+                raise RuntimeError(self.last_connectivity_issue) from exc
             if not self.fallback_enabled:
                 raise RuntimeError(self.last_connectivity_issue) from exc
             print(

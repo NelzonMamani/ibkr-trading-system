@@ -285,6 +285,36 @@ class MarketDataClient:
         latest = bars[-1]
         return _clean(getattr(latest, "close", None))
 
+    def average_daily_volume(self, symbol: str, days: int = 20) -> Optional[int]:
+        try:
+            contract = self.qualify_contract(symbol)
+        except Exception:
+            return None
+        if contract is None:
+            return None
+        try:
+            bars = self.ib.reqHistoricalData(
+                contract,
+                endDateTime="",
+                durationStr=f"{days} D",
+                barSizeSetting="1 day",
+                whatToShow="TRADES",
+                useRTH=False,
+                formatDate=1,
+            )
+        except Exception:
+            return None
+        if not bars:
+            return None
+        volumes = [
+            _clean(getattr(bar, "volume", None))
+            for bar in bars
+            if _clean(getattr(bar, "volume", None)) is not None
+        ]
+        if not volumes:
+            return None
+        return int(sum(volumes) / len(volumes))
+
     def _empty_snapshot(
         self,
         symbol: str,

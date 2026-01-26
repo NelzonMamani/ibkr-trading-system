@@ -56,12 +56,16 @@ class IbkrScannerProvider(ScannerDataProvider):
     def get_intraday_stats(self, symbol: str) -> IntradayStats:
         snapshot = self.market_data_client.snapshot_stock(symbol)
         volume = int(snapshot.volume) if snapshot.volume is not None else None
+        avg_volume = self.market_data_client.average_daily_volume(symbol)
+        relative_volume = None
+        if volume is not None and avg_volume:
+            relative_volume = round(volume / avg_volume, 2)
         return IntradayStats(
             current_intraday_volume=volume,
             current_volume_source_label="IBKR_SNAPSHOT",
-            average_daily_volume_20d=None,
-            average_daily_volume_window_days=None,
-            relative_volume=None,
+            average_daily_volume_20d=avg_volume,
+            average_daily_volume_window_days=20 if avg_volume is not None else None,
+            relative_volume=relative_volume,
             relative_volume_category=None,
             volume_velocity_5m=None,
             volume_velocity_15m=None,

@@ -325,7 +325,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "IBKR_MAX_SYMBOLS_PER_CYCLE": {
         "type": int,
-        "default": 50,
+        "default": 300,
         "env": ["IBKR_MAX_SYMBOLS_PER_CYCLE"],
         "affects": ["MarketDataHub", "Scanner", "LiveReadOnlyScanner"],
         "enforcement": "HARD",

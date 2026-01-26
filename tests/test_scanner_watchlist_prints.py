@@ -28,7 +28,9 @@ def _reset_scanner_state():
 def test_watchlist_print_format(capsys):
     set_config_overrides(
         {
+            "RUN_MODE": "SIM",
             "SCANNER_MODE": "TEACHING",
+            "SCANNER_DATA_SOURCE": "MOCK",
             "SCANNER_DEFAULT_SYMBOLS": ["AAPL", "TSLA"],
         }
     )
@@ -44,7 +46,9 @@ def test_watchlist_print_format(capsys):
 def test_watchlist_print_suppressed_when_unchanged(capsys):
     set_config_overrides(
         {
+            "RUN_MODE": "SIM",
             "SCANNER_MODE": "TEACHING",
+            "SCANNER_DATA_SOURCE": "MOCK",
             "SCANNER_DEFAULT_SYMBOLS": ["AAPL", "TSLA"],
             "WATCHLIST_PRINT_EVERY_N_CYCLES": 99,
         }

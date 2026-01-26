@@ -25,7 +25,7 @@ def _reset_scanner_state():
     set_config_overrides({})
 
 
-def test_scanner_fallback_on_provider_connect_failure(monkeypatch):
+def test_scanner_live_mode_connect_failure_raises(monkeypatch):
     def _fail_build_provider():
         raise scanner_runner.ProviderConnectionError("connect failed")
 
@@ -33,6 +33,23 @@ def test_scanner_fallback_on_provider_connect_failure(monkeypatch):
     set_config_overrides(
         {
             "RUN_MODE": "LIVE_READ_ONLY",
+            "SCANNER_DATA_SOURCE": "IBKR",
+            "IBKR_FALLBACK_ENABLED": True,
+        }
+    )
+
+    with pytest.raises(scanner_runner.ProviderConnectionError):
+        scanner_runner.run_scanner_cycle(mode="integrated")
+
+
+def test_scanner_sim_fallback_on_provider_connect_failure(monkeypatch):
+    def _fail_build_provider():
+        raise scanner_runner.ProviderConnectionError("connect failed")
+
+    monkeypatch.setattr(scanner_runner, "build_provider", _fail_build_provider)
+    set_config_overrides(
+        {
+            "RUN_MODE": "SIM",
             "SCANNER_DATA_SOURCE": "IBKR",
             "IBKR_FALLBACK_ENABLED": True,
         }

@@ -234,8 +234,8 @@ class StockSelectionSpec:
     data_quality_require_bid_ask: bool = False
     watchlist_limit_k: int = 15
     focus_limit_m: int = 5
-    top_gainers_n: int = 50
-    max_symbols_per_cycle: int = 50
+    top_gainers_n: int = 300
+    max_symbols_per_cycle: int = 300
     session_allowlist: Sequence[str] = ("PRE", "REG", "AFTER")
     ranking_intent: str = "ROSS_MOMENTUM_STOCK_SELECTION"
 

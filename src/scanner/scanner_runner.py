@@ -985,12 +985,22 @@ def _build_symbol_context(
 
     volume = intraday.current_intraday_volume if intraday else None
     rvol = intraday.relative_volume if intraday else None
+    avg_volume = intraday.average_daily_volume_20d if intraday else None
+    avg_window = intraday.average_daily_volume_window_days if intraday else None
+    if avg_volume is None:
+        history = _history_snapshot(symbol, provider)
+        avg_volume = history.get("average_daily_volume_20d")
+        avg_window = history.get("average_daily_volume_window_days")
+    if rvol is None and volume is not None and avg_volume:
+        rvol = round(volume / avg_volume, 2)
     if intraday is None:
         data_quality_flags.append("VOLUME_UNKNOWN")
     if volume is None:
         data_quality_flags.append("MISSING_VOLUME")
     if rvol is None:
         data_quality_flags.append("RVOL_UNKNOWN")
+        if avg_volume is None:
+            data_quality_flags.append("MISSING_RVOL_BASELINE")
 
     prev_close = quote.close
     if include_pct_change and prev_close is None:
@@ -1034,6 +1044,8 @@ def _build_symbol_context(
         "pct_change": pct_change,
         "volume": volume,
         "dollar_volume": dollar_volume,
+        "average_daily_volume_20d": avg_volume,
+        "average_daily_volume_window_days": avg_window,
         "bid": quote.bid,
         "ask": quote.ask,
         "spread": spread,
@@ -1083,8 +1095,9 @@ def _resolve_universe_symbols(
                 "falling back to MOCK_UNIVERSE"
             )
             diagnostics["symbol_fallback"] = "MOCK_UNIVERSE"
-            fallback_provider = MockScannerProvider()
-            symbols = fallback_provider.get_top_gainers(limits["resolved_symbol_limit"])
+            if get_run_mode() == RunMode.SIM and bool(get_config("IBKR_FALLBACK_ENABLED")):
+                fallback_provider = MockScannerProvider()
+                symbols = fallback_provider.get_top_gainers(limits["resolved_symbol_limit"])
         return symbols
 
     print(
@@ -1151,19 +1164,22 @@ def run_scanner_cycle(
     try:
         provider: ScannerDataProvider = build_provider()
     except ProviderConnectionError as exc:
-        if run_mode in {RunMode.PAPER, RunMode.LIVE_READ_ONLY} and not fallback_enabled:
+        if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
             raise
-        diagnostics["provider_error"] = str(exc)
-        diagnostics["provider_fallback"] = {
-            "from": "IBKR",
-            "to": "MOCK",
-            "reason": str(exc),
-        }
-        print(
-            "[SCANNER][WARN] Provider connection failed — "
-            f"falling back to MOCK reason={exc}"
-        )
-        provider = MockScannerProvider()
+        if run_mode == RunMode.SIM and fallback_enabled:
+            diagnostics["provider_error"] = str(exc)
+            diagnostics["provider_fallback"] = {
+                "from": "IBKR",
+                "to": "MOCK",
+                "reason": str(exc),
+            }
+            print(
+                "[SCANNER][WARN] Provider connection failed — "
+                f"falling back to MOCK reason={exc}"
+            )
+            provider = MockScannerProvider()
+        else:
+            raise
     limits = _print_symbol_limits(
         scanner_mode,
         provider.source_name,
@@ -1183,7 +1199,9 @@ def run_scanner_cycle(
             )
         except Exception as exc:
             diagnostics["provider_error"] = str(exc)
-            if provider.source_name != "MOCK":
+            if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
+                raise
+            if run_mode == RunMode.SIM and provider.source_name != "MOCK" and fallback_enabled:
                 diagnostics["provider_fallback"] = {
                     "from": provider.source_name,
                     "to": "MOCK",
@@ -1198,19 +1216,21 @@ def run_scanner_cycle(
                     requested_top_n=request.requested_top_n,
                 )
                 diagnostics["symbol_limits"] = limits
-            symbols = _resolve_universe_symbols(
-                provider=provider,
-                request=request,
-                limits=limits,
-                diagnostics=diagnostics,
-            )
+                symbols = _resolve_universe_symbols(
+                    provider=provider,
+                    request=request,
+                    limits=limits,
+                    diagnostics=diagnostics,
+                )
+            else:
+                raise
 
         diagnostics["provider_source"] = provider.source_name
         diagnostics["symbol_count"] = len(symbols)
         if not symbols:
             symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS"))
             diagnostics["symbol_fallback"] = "SCANNER_DEFAULT_SYMBOLS"
-        if not symbols:
+        if not symbols and run_mode == RunMode.SIM and fallback_enabled:
             fallback_provider = MockScannerProvider()
             symbols = fallback_provider.get_top_gainers(limits["resolved_symbol_limit"])
             diagnostics["symbol_fallback"] = "MOCK_UNIVERSE"

@@ -1,3 +1,4 @@
+from src.config.config_resolver import set_config_overrides
 from src.core_engine.orchestrator import run_cycles
 from src.core_engine.events import TradeIntentRecord
 from src.core_engine.state import RunMode
@@ -6,7 +7,11 @@ from src.risk.risk_audit import evaluate_trade_intents
 
 
 def test_orchestrator_readonly_cycle():
-    summaries = run_cycles(mode="READONLY", cycles=1)
+    set_config_overrides({"RUN_MODE": "SIM", "SCANNER_DATA_SOURCE": "MOCK"})
+    try:
+        summaries = run_cycles(mode="READONLY", cycles=1)
+    finally:
+        set_config_overrides({})
     summary = summaries[0]
     assert summary.stage_order == [
         "Scanner",

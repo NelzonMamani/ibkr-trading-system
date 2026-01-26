@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from src.strategies.ross_momentum.strategy_policy import (
+    StockSelectionSpec,
+    UniverseSource,
+    UniverseSpec as RossUniverseSpec,
+)
+
 from src.strategy_portfolio.contracts import StrategyIdentity
 
 
@@ -88,6 +94,51 @@ def policy_identity(policy: StatisticalIntradayMomentumPolicy) -> StrategyIdenti
         strategy_id=policy.name,
         strategy_version=policy.version,
         strategy_family="statistical_intraday",
+    )
+
+
+def stock_selection_policy_from_statistical(
+    policy: StatisticalIntradayMomentumPolicy,
+) -> StockSelectionSpec:
+    universe = policy.universe
+    spread_max_pct = None
+    if universe.max_spread_bps is not None:
+        spread_max_pct = round(universe.max_spread_bps / 100.0, 4)
+    session_map = {"REGULAR": "REG"}
+    session_allowlist = tuple(
+        session_map.get(session, session) for session in universe.allowed_sessions
+    )
+    return StockSelectionSpec(
+        policy_name="STATISTICAL_INTRADAY_MOMENTUM",
+        universe=RossUniverseSpec(
+            source=UniverseSource.IBKR_TOP_GAINERS,
+            ibkr_scan_code="TOP_PERC_GAIN",
+            top_n=200,
+            region=None,
+            instrument=None,
+            exchanges=(),
+        ),
+        price_min=universe.min_price,
+        price_max=universe.max_price,
+        gap_min_pct=0.0,
+        gap_max_pct=None,
+        rvol_min=1.0,
+        float_max_millions=1_000.0,
+        liquidity_min_dollar_volume=universe.min_dollar_volume,
+        min_volume=0,
+        min_premarket_volume=0,
+        spread_max_pct=spread_max_pct,
+        require_catalyst=False,
+        allow_halts=False,
+        allow_ssr=True,
+        data_quality_require_price=True,
+        data_quality_require_bid_ask=True,
+        watchlist_limit_k=15,
+        focus_limit_m=5,
+        top_gainers_n=200,
+        max_symbols_per_cycle=200,
+        session_allowlist=session_allowlist or ("REG",),
+        ranking_intent="STATISTICAL_INTRADAY_MOMENTUM_STOCK_SELECTION",
     )
 
 
