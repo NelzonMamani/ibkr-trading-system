@@ -1,0 +1,21 @@
+{
+  "asof_date_ny": "2026-01-25",
+  "risk": {
+    "circuit_breakers_tripped": 0,
+    "daily_loss_hard_stop_date": null,
+    "daily_loss_warning_date": null
+  },
+  "run_mode": "LIVE_MICRO",
+  "scanner": {
+    "focus_size": 0,
+    "last_watchlist_hash": "b9cf3acf1068d483e1e15d460da5a280bc4b5e3de68169c33a8ca5423335f3c5",
+    "symbols_scanned": 0,
+    "watchlist_size": 0
+  },
+  "trades": {
+    "closed": 0,
+    "commissions": 0.0,
+    "opened": 0,
+    "realised_pnl": 0.0
+  }
+}

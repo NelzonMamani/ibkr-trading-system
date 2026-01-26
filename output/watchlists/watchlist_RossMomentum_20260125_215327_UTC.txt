@@ -1,0 +1,5 @@
+# candidates_count=5
+# gated_count=0
+# watchlist_count=0
+# drop_reasons={'DROP_SNAPSHOT_TIMEOUT': 5}
+

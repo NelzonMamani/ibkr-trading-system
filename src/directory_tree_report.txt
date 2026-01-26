@@ -23,7 +23,9 @@ ibkr-trading-system/
 ├── data
 │   ├── reports
 │   │   └── ops
-│   │       └── 2026-01-21_ops_summary.json
+│   │       ├── 2026-01-21_ops_summary.json
+│   │       ├── 2026-01-22_ops_summary.json
+│   │       └── 2026-01-25_ops_summary.json
 │   ├── ibkr_system.db
 │   └── regime_baselines.json
 ├── docs
@@ -60,6 +62,12 @@ ibkr-trading-system/
 │   └── STEP_03_REWIRE_ROSS_ADAPTER_ONLY_CODEX_INSTRUCTIONS
 │       ├── 03_00_REWIRE_ROSS_ADAPTER_ONLY.md
 │       └── 03_99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+├── for_ross_and_statistical
+│   ├── STATISTICAL_STRATEGY_READY_TO_TRADE_CODEX_PACKAGE
+│   │   ├── PHASE_STATISTICAL_INTRADAY_MOMENTUM_WIRING_AND_READINESS_CODEX_FINAL.md
+│   │   ├── README_VERIFY.md
+│   │   └── VERIFY_STATISTICAL_ALL_MODES.ps1
+│   └── PHASE_RM_FINAL_INSTRUCTIONS_v1_0.md
 ├── for_track_A
 │   ├── docs
 │   │   ├── LIVE_READINESS_CHECKLIST_ROSS.md
@@ -119,12 +127,17 @@ ibkr-trading-system/
 │   │   ├── watchlist_RossMomentum_20260115_124345_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260115_130931_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260115_145318_UTC.txt
-│   │   └── watchlist_RossMomentum_20260121_224057_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260121_224057_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260122_192049_UTC.txt
+│   │   └── watchlist_RossMomentum_20260125_215327_UTC.txt
 │   └── trade_store.jsonl
 ├── scripts
 │   ├── smoke_main.ps1
 │   ├── smoke_scanner.ps1
 │   └── smoke_scanner.sh
+├── secret
+│   ├── momentum_scanner_5pillars_updated.py
+│   └── us_top_gainers_list.py
 ├── src
 │   ├── adapters
 │   │   ├── brokers
@@ -333,6 +346,8 @@ ibkr-trading-system/
 │   │   ├── early_entry_momentum
 │   │   │   ├── __init__.py
 │   │   │   └── strategy.py
+│   │   ├── mean_reversion_strategy
+│   │   │   └── mean_reversion_strategy.py
 │   │   ├── ross_momentum
 │   │   │   ├── fixtures
 │   │   │   ├── patterns
@@ -359,6 +374,19 @@ ibkr-trading-system/
 │   │   │   ├── strategy_context_schema.py
 │   │   │   ├── strategy_policy.py
 │   │   │   └── TRADE_PERMISSION_MATRIX.md
+│   │   ├── statistical_intraday_momentum
+│   │   │   ├── signal_engine
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── features.py
+│   │   │   │   ├── regime.py
+│   │   │   │   ├── scoring.py
+│   │   │   │   └── signal_decision.py
+│   │   │   ├── __init__.py
+│   │   │   ├── README.md
+│   │   │   ├── risk_policy.py
+│   │   │   ├── strategy_assumptions.md
+│   │   │   ├── strategy_policy.py
+│   │   │   └── telemetry.py
 │   │   ├── __init__.py
 │   │   ├── ross_momentum_strategy_v1.py
 │   │   ├── strategy_base.py
@@ -373,6 +401,17 @@ ibkr-trading-system/
 │   │   ├── ross_momentum_strategy_v1.py
 │   │   ├── signal_adapter.py
 │   │   └── strategy_runner.py
+│   ├── strategy_portfolio
+│   │   ├── adapters
+│   │   │   ├── __init__.py
+│   │   │   └── ross_momentum_adapter.py
+│   │   ├── __init__.py
+│   │   ├── allocation.py
+│   │   ├── arbitration.py
+│   │   ├── contracts.py
+│   │   ├── normaliser.py
+│   │   ├── reason_codes.py
+│   │   └── registry.py
 │   ├── tests
 │   │   ├── __init__.py
 │   │   └── test_exit_precedence.py
@@ -396,6 +435,24 @@ ibkr-trading-system/
 │   │   ├── test_imports.py
 │   │   ├── test_orchestrator_cycle.py
 │   │   └── test_scanner_contract.py
+│   ├── strategies
+│   │   └── statistical_intraday_momentum
+│   │       ├── test_contract_compliance.py
+│   │       ├── test_intraday_end_to_end_smoke.py
+│   │       ├── test_policy_imports.py
+│   │       ├── test_regime_gates.py
+│   │       ├── test_risk_policy.py
+│   │       ├── test_safe_defaults.py
+│   │       └── test_scoring_determinism.py
+│   ├── strategy_portfolio
+│   │   ├── test_allocation.py
+│   │   ├── test_arbitration.py
+│   │   ├── test_contracts.py
+│   │   ├── test_end_to_end_smoke.py
+│   │   ├── test_non_interference.py
+│   │   ├── test_normaliser_defaults.py
+│   │   ├── test_registry.py
+│   │   └── test_ross_adapter.py
 │   ├── test_config_sanity.py
 │   ├── test_epoch3_risk_execution.py
 │   ├── test_event_collector_snapshot_policy.py
@@ -429,6 +486,7 @@ ibkr-trading-system/
 │   ├── test_replay_locked_in_live_modes_epoch4.py
 │   ├── test_ross_strategy_registry.py
 │   ├── test_scanner_contract_54.py
+│   ├── test_scanner_pct_change_fallback.py
 │   ├── test_scanner_policy_from_strategy.py
 │   ├── test_scanner_provider_fallback.py
 │   ├── test_scanner_universe_request.py

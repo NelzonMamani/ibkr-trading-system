@@ -12,3 +12,4 @@ $env:IBKR_MARKET_DATA_TYPE="LIVE"
 $env:IBKR_PORT="7496"
 
 python -m src.main --mode LIVE_MICRO
+.\RUN_LIVE_MICRO_1SHARE.ps1
