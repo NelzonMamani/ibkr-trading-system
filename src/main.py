@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 
 from src.config.config_resolver import get_config, set_config_overrides
 from src.config.runtime_config import (
@@ -46,6 +47,7 @@ from src.config.runtime_config import (
 from src.config.system_config import ACTIVE_SESSIONS, CYCLE_SLEEP_SECONDS
 from src.domain.models.internal_order import InternalOrder
 from src.core.orchestrator import CoreOrchestrator
+from src.core.readiness import run_readiness_check
 from src.adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
 from src.ibkr.read_only_guard import validate_read_only_guard
 from src.storage.sqlite_store import SCHEMA_VERSION
@@ -61,8 +63,8 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--strategy",
-        choices=["ross_momentum"],
-        help="Strategy key to enable (currently ross_momentum).",
+        choices=["ross_momentum", "statistical_intraday_momentum"],
+        help="Strategy key to enable.",
     )
     parser.add_argument("--cycles", type=int, default=None, help="Max cycles to run.")
     parser.add_argument(
@@ -75,6 +77,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable regime policy application (requires --regime-layer).",
     )
+    parser.add_argument(
+        "--readiness-check",
+        action="store_true",
+        help="Run readiness checks and exit with status code.",
+    )
     return parser.parse_args()
 
 
@@ -86,8 +93,12 @@ def _apply_cli_overrides(args: argparse.Namespace) -> None:
             "LIVE_1SHARE": "LIVE_MICRO",
         }
         overrides["RUN_MODE"] = mode_map.get(args.mode, args.mode)
+    if args.strategy:
+        overrides["SELECTED_STRATEGY"] = args.strategy
     if args.strategy == "ross_momentum":
         overrides["ROSS_MOMENTUM_STRATEGY_ENABLED"] = True
+    if args.strategy == "statistical_intraday_momentum":
+        overrides["STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"] = True
     if args.regime_layer:
         overrides["ADAPTIVE_REGIME_LAYER_ENABLED"] = True
     if args.regime_policy:
@@ -130,6 +141,10 @@ def main() -> None:
     """Run the minimal teaching-first entry point."""
     args = _parse_args()
     _apply_cli_overrides(args)
+    if args.readiness_check:
+        report = run_readiness_check()
+        print(report.to_text())
+        raise SystemExit(0 if report.is_pass else 1)
     print("[BOOT] Starting the IBKR Trading System skeleton.")
     run_mode = get_run_mode()
     if run_mode == RunMode.LIVE_READ_ONLY:

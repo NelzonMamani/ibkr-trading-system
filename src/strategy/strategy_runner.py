@@ -3,12 +3,19 @@
 from dataclasses import replace
 from typing import List, Optional, Sequence
 
-from src.config.trading_config import ENABLED_STRATEGIES, ROSS_MOMENTUM_STRATEGY_ENABLED
+from src.config.trading_config import (
+    ENABLED_STRATEGIES,
+    ROSS_MOMENTUM_STRATEGY_ENABLED,
+    STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED,
+)
 from src.core.event_collector import EventCollector
 from src.models.data_models import PatternResult, TradeIntent
 from src.strategy.gap_and_go_strategy import GapAndGoStrategy
 from src.strategy.momentum_continuation_strategy import MomentumContinuationStrategy
 from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
+from src.strategies.statistical_intraday_momentum.strategy import (
+    StatisticalIntradayMomentum,
+)
 from src.strategy.exit_signal import ExitSignal
 from src.core.active_trade_registry import ActiveTrade
 from src.signals.signal_event import SignalEvent
@@ -28,9 +35,17 @@ class StrategyRunner:
             ("GapAndGoStrategy", GapAndGoStrategy),
             ("MomentumContinuationStrategy", MomentumContinuationStrategy),
             ("RossMomentumStrategyV1", RossMomentumStrategyV1),
+            ("StatisticalIntradayMomentum", StatisticalIntradayMomentum),
         ]
         self.strategies = []
         self.event_collector = event_collector
+
+        selected_strategy_key = str(get_config("SELECTED_STRATEGY") or "").strip().lower()
+        selected_map = {
+            "ross_momentum": "RossMomentumStrategyV1",
+            "statistical_intraday_momentum": "StatisticalIntradayMomentum",
+        }
+        selected_strategy_name = selected_map.get(selected_strategy_key)
 
         if strategies is not None:
             self.strategies = list(strategies)
@@ -39,10 +54,22 @@ class StrategyRunner:
             return
 
         for strategy_name, strategy_class in configured_strategies:
+            if selected_strategy_name and strategy_name != selected_strategy_name:
+                print(
+                    f"[BOOT] Strategy '{strategy_name}' skipped due to selection "
+                    f"(selected={selected_strategy_name})."
+                )
+                continue
             if strategy_name == "RossMomentumStrategyV1":
                 enabled = ROSS_MOMENTUM_STRATEGY_ENABLED
                 reason = (
                     f"ROSS_MOMENTUM_STRATEGY_ENABLED={ROSS_MOMENTUM_STRATEGY_ENABLED}"
+                )
+            elif strategy_name == "StatisticalIntradayMomentum":
+                enabled = STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED
+                reason = (
+                    "STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED="
+                    f"{STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED}"
                 )
             else:
                 enabled = ENABLED_STRATEGIES.get(strategy_name, False)

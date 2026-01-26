@@ -1,0 +1,14 @@
+........................................................sssss........... [ 55%]
+.........................................................                [100%]
+=============================== warnings summary ===============================
+tests/test_scanner_policy_from_strategy.py::test_scanner_policy_limits_applied_in_teaching_mode
+tests/test_scanner_universe_request.py::test_scanner_request_ibkr_top_gainers_skips_scanner_symbols_error
+tests/test_scanner_watchlist_prints.py::test_watchlist_print_format
+tests/test_scanner_watchlist_prints.py::test_watchlist_print_suppressed_when_unchanged
+  /workspace/ibkr-trading-system/src/scanner/scanner_runner.py:1166: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
+    provider = MockScannerProvider()
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+124 passed, 7 skipped, 4 warnings in 7.03s

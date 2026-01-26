@@ -1,76 +1,104 @@
 # PR Verification Report
 
 ## Summary
-- Objective: verify pct_change fallback behavior, scanner gate ordering, and mode parity updates with required commands.
-- Status: mandatory commands executed; LIVE_READ_ONLY/LIVE_MICRO runs degraded due to IBKR connection refusal in this environment.
+- Objective: execute mandatory verification commands for statistical readiness and live-mode scripts.
+- Status: Python verification commands passed; PowerShell scripts could not run because `powershell` is not installed in this environment.
+
+## Log Directory
+- `output/verification/`
 
 ---
 
-# Phase 1 — Mandatory Verification Commands
+## Mandatory Verification Commands
 
 1) Command:
 ```
 python -m compileall -q src
 ```
-Output:
+Result: PASS
+Log: `output/verification/compileall.log`
+Excerpt:
 ```
-(no output; success)
+(no output)
 ```
 
 2) Command:
 ```
 pytest -q
 ```
-Output (condensed):
+Result: PASS
+Log: `output/verification/pytest.log`
+Excerpt:
 ```
-124 passed, 7 skipped, 4 warnings in 10.21s
-```
-Warnings (condensed):
-```
-RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
+124 passed, 7 skipped, 4 warnings in 7.03s
 ```
 
 3) Command:
 ```
-python -m src.main --mode SIM --cycles 1
+powershell -ExecutionPolicy Bypass -File .\RUN_LIVE_READ_ONLY.ps1
 ```
-Output (condensed):
+Result: FAIL (environment)
+Log: `output/verification/RUN_LIVE_READ_ONLY.log`
+Excerpt:
 ```
-[CONFIG] Resolved runtime configuration (authoritative):
-  - RUN_MODE: SIM (resolved)
-[SCANNER] MODE=integrated SESSION=REG
-[SHUTDOWN] Exiting gracefully. Goodbye!
-```
-
-4) Command (with debug flags):
-```
-DEBUG_MARKET_DATA=true DEBUG_SCANNER=true python -m src.main --mode READONLY --cycles 1
-```
-Output (condensed):
-```
-[CONFIG] Resolved runtime configuration (authoritative):
-  - RUN_MODE: LIVE_READ_ONLY (resolved)
-[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=7
-API connection failed: ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 7497)")
-[SAFETY] LIVE/LIVE_READ_ONLY/LIVE_MICRO mode violation — entering deterministic safe halt.
-[SHUTDOWN] Exiting gracefully. Goodbye!
+bash: command not found: powershell
 ```
 
-5) Command (with debug flags):
+4) Command:
 ```
-DEBUG_MARKET_DATA=true DEBUG_SCANNER=true LIVE_MICRO_ACK=true LIVE_MICRO_1_SHARE_ONLY=true python -m src.main --mode LIVE_MICRO --cycles 1
+powershell -ExecutionPolicy Bypass -File .\RUN_LIVE_MICRO_1SHARE.ps1
 ```
-Output (condensed):
+Result: FAIL (environment)
+Log: `output/verification/RUN_LIVE_MICRO_1SHARE.log`
+Excerpt:
 ```
-[CONFIG] Resolved runtime configuration (authoritative):
-  - RUN_MODE: LIVE_MICRO (resolved)
-[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=7
-API connection failed: ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 7497)")
-[SCANNER][WARN] Provider connection failed — falling back to MOCK reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
-[SHUTDOWN] Exiting gracefully. Goodbye!
+bash: command not found: powershell
+```
+
+5) Command:
+```
+powershell -ExecutionPolicy Bypass -File .\RUN_PAPER_TRADING.ps1
+```
+Result: FAIL (environment)
+Log: `output/verification/RUN_PAPER_TRADING.log`
+Excerpt:
+```
+bash: command not found: powershell
+```
+
+6) Command:
+```
+powershell -ExecutionPolicy Bypass -File .\RUN_SIMULATION.ps1
+```
+Result: FAIL (environment)
+Log: `output/verification/RUN_SIMULATION.log`
+Excerpt:
+```
+bash: command not found: powershell
+```
+
+7) Command:
+```
+powershell -ExecutionPolicy Bypass -File .\VERIFY_STATISTICAL_ALL_MODES.ps1
+```
+Result: FAIL (environment)
+Log: `output/verification/VERIFY_STATISTICAL_ALL_MODES.log`
+Excerpt:
+```
+bash: command not found: powershell
 ```
 
 ---
 
-## Notes
-- IBKR connectivity is unavailable in this environment (connection refused on port 7497), so LIVE_READ_ONLY/LIVE_MICRO runs halted or degraded accordingly.
+## Supplemental Checks
+
+8) Command:
+```
+python -m src.main --strategy statistical_intraday_momentum --mode SIM --readiness-check
+```
+Result: PASS
+Log: `output/verification/readiness_SIM.log`
+Excerpt:
+```
+[READINESS] status=PASS
+```
