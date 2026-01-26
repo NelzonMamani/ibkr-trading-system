@@ -1,6 +1,8 @@
 # stock_selection_scanner_25_jan_2026.py
 
 from ib_insync import IB, ScannerSubscription, Stock
+from datetime import datetime, timezone
+from pathlib import Path
 import math
 import requests
 import yfinance as yf
@@ -12,18 +14,21 @@ import xml.etree.ElementTree as ET
 # Basic numeric hygiene and formatting
 # ======================================================
 
-def sanitize_numeric(value):
+def sanitize_numeric(value, min_value=None, allow_zero=True):
     if value is None:
         return None
-    if isinstance(value, float) and math.isnan(value):
+    if isinstance(value, (int, float)) and not math.isfinite(value):
         return None
-    if isinstance(value, (int, float)) and value <= 0:
-        return None
+    if isinstance(value, (int, float)) and min_value is not None:
+        if allow_zero and value < min_value:
+            return None
+        if not allow_zero and value <= min_value:
+            return None
     return value
 
 
 def format_price_value(value):
-    value = sanitize_numeric(value)
+    value = sanitize_numeric(value, min_value=0, allow_zero=False)
     return "N/A" if value is None else f"{value:.2f}"
 
 
@@ -33,13 +38,13 @@ def format_percentage_value(value):
 
 
 def format_ratio_value(value):
-    value = sanitize_numeric(value)
+    value = sanitize_numeric(value, min_value=0, allow_zero=False)
     return "N/A" if value is None else f"{value:.2f}"
 
 
 def calculate_percent_change(current_value, reference_value):
     current_value = sanitize_numeric(current_value)
-    reference_value = sanitize_numeric(reference_value)
+    reference_value = sanitize_numeric(reference_value, min_value=0, allow_zero=False)
     if current_value is None or reference_value is None:
         return None
     return ((current_value - reference_value) / reference_value) * 100.0
@@ -49,21 +54,23 @@ def calculate_percent_change(current_value, reference_value):
 # Historical price retrieval (weekend logic)
 # ======================================================
 
-def fetch_last_two_session_closes(ib: IB, contract: Stock):
-    daily_bars = ib.reqHistoricalData(
+def fetch_daily_bars(ib: IB, contract: Stock, duration_days: int):
+    return ib.reqHistoricalData(
         contract,
         endDateTime="",
-        durationStr="10 D",
+        durationStr=f"{duration_days} D",
         barSizeSetting="1 day",
         whatToShow="TRADES",
         useRTH=True
     )
 
+
+def fetch_last_two_session_closes(daily_bars):
     if not daily_bars or len(daily_bars) < 2:
         return None, None
 
-    most_recent_close = sanitize_numeric(daily_bars[-1].close)
-    prior_session_close = sanitize_numeric(daily_bars[-2].close)
+    most_recent_close = sanitize_numeric(daily_bars[-1].close, min_value=0, allow_zero=False)
+    prior_session_close = sanitize_numeric(daily_bars[-2].close, min_value=0, allow_zero=False)
 
     return most_recent_close, prior_session_close
 
@@ -72,20 +79,7 @@ def fetch_last_two_session_closes(ib: IB, contract: Stock):
 # Relative volume calculations
 # ======================================================
 
-def calculate_relative_volume_vs_20_day_average(
-    ib: IB,
-    contract: Stock,
-    average_window_days: int = 20
-):
-    daily_bars = ib.reqHistoricalData(
-        contract,
-        endDateTime="",
-        durationStr=f"{average_window_days + 5} D",
-        barSizeSetting="1 day",
-        whatToShow="TRADES",
-        useRTH=True
-    )
-
+def calculate_relative_volume_vs_20_day_average(daily_bars, average_window_days: int = 20):
     valid_bars = [b for b in daily_bars if b.volume and b.volume > 0]
     if len(valid_bars) < average_window_days + 1:
         return None
@@ -100,21 +94,12 @@ def calculate_relative_volume_vs_20_day_average(
     return latest_session.volume / average_volume
 
 
-def calculate_relative_volume_vs_previous_day(ib: IB, contract: Stock):
-    daily_bars = ib.reqHistoricalData(
-        contract,
-        endDateTime="",
-        durationStr="5 D",
-        barSizeSetting="1 day",
-        whatToShow="TRADES",
-        useRTH=True
-    )
-
+def calculate_relative_volume_vs_previous_day(daily_bars):
     if not daily_bars or len(daily_bars) < 2:
         return None
 
-    today_volume = sanitize_numeric(daily_bars[-1].volume)
-    previous_day_volume = sanitize_numeric(daily_bars[-2].volume)
+    today_volume = sanitize_numeric(daily_bars[-1].volume, min_value=0, allow_zero=False)
+    previous_day_volume = sanitize_numeric(daily_bars[-2].volume, min_value=0, allow_zero=False)
 
     if today_volume is None or previous_day_volume is None:
         return None
@@ -191,7 +176,23 @@ def fetch_latest_news_headline(symbol: str):
             return item.text.strip()[:80]
     except Exception:
         pass
-    return "-"
+    return "N/A"
+
+
+# ======================================================
+# Output handling
+# ======================================================
+
+def build_output_path(run_timestamp_utc: str) -> Path:
+    output_dir = Path("troubleshooting/stock_selection/output")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"stock_selection_scanner_{run_timestamp_utc}.txt"
+    return output_dir / filename
+
+
+def emit_line(line, output_lines):
+    print(line)
+    output_lines.append(line)
 
 
 # ======================================================
@@ -200,12 +201,20 @@ def fetch_latest_news_headline(symbol: str):
 
 def main():
     ib = IB()
+    output_lines = []
+    run_timestamp = datetime.now(timezone.utc)
+    run_timestamp_label = run_timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
+    run_timestamp_filename = run_timestamp.strftime("%Y_%m_%d_%H%M%S_UTC")
 
-    print("\n==================")
-    print("CONNECTING TO IBKR")
-    print("==================")
-    ib.connect("127.0.0.1", 7496, clientId=99, timeout=10)
-    print("Connected:", ib.isConnected())
+    ibkr_host = "127.0.0.1"
+    ibkr_port = 7496
+    ibkr_client_id = 99
+
+    emit_line("\n==================", output_lines)
+    emit_line("CONNECTING TO IBKR", output_lines)
+    emit_line("==================", output_lines)
+    ib.connect(ibkr_host, ibkr_port, clientId=ibkr_client_id, timeout=10)
+    emit_line(f"Connected: {ib.isConnected()}", output_lines)
 
     scanner_definition = ScannerSubscription(
         instrument="STK",
@@ -218,21 +227,36 @@ def main():
 
     scanner_results = ib.reqScannerData(scanner_definition)
 
-    print("\n=========================")
-    print(f"SCANNER RESULTS — {len(scanner_results)} ROWS")
-    print("=========================")
-
-    print(
+    emit_line("\n=========================", output_lines)
+    emit_line(f"SCANNER RESULTS — {len(scanner_results)} ROWS", output_lines)
+    emit_line("=========================", output_lines)
+    emit_line("RUN HEADER", output_lines)
+    emit_line(f"Run Timestamp (UTC): {run_timestamp_label}", output_lines)
+    emit_line(
+        f"IBKR Connection: host={ibkr_host} port={ibkr_port} clientId={ibkr_client_id}",
+        output_lines
+    )
+    emit_line(
+        "Scanner Definition: "
+        f"scanCode={scanner_definition.scanCode} "
+        f"abovePrice={scanner_definition.abovePrice} "
+        f"belowPrice={scanner_definition.belowPrice} "
+        f"rows={scanner_definition.numberOfRows}",
+        output_lines
+    )
+    emit_line("-------------------------", output_lines)
+    emit_line(
         f"{'SYM':<6} "
-        f"{'FRI':>7} "
-        f"{'THU':>7} "
-        f"{'%FRIvsTHU':>12} "
+        f"{'LAST':>7} "
+        f"{'PRIOR':>7} "
+        f"{'%CHG':>12} "
         f"{'RV20':>6} "
         f"{'RV1D':>6} "
         f"{'FLOAT':>8} "
-        f"NEWS"
+        f"NEWS",
+        output_lines
     )
-    print("-" * 140)
+    emit_line("-" * 140, output_lines)
 
     for row in scanner_results:
         contract_details = row.contractDetails
@@ -248,32 +272,38 @@ def main():
         )
         ib.qualifyContracts(contract)
 
-        friday_close, thursday_close = fetch_last_two_session_closes(ib, contract)
-        weekend_price_change = calculate_percent_change(friday_close, thursday_close)
+        daily_bars = fetch_daily_bars(ib, contract, duration_days=30)
 
-        relative_volume_20_day = calculate_relative_volume_vs_20_day_average(ib, contract)
-        relative_volume_vs_yesterday = calculate_relative_volume_vs_previous_day(ib, contract)
+        last_close, prior_close = fetch_last_two_session_closes(daily_bars)
+        session_percent_change = calculate_percent_change(last_close, prior_close)
+
+        relative_volume_20_day = calculate_relative_volume_vs_20_day_average(daily_bars)
+        relative_volume_vs_yesterday = calculate_relative_volume_vs_previous_day(daily_bars)
 
         float_shares = fetch_float_shares_best_effort(symbol)
         float_display = format_float_for_display(float_shares)
 
         headline = fetch_latest_news_headline(symbol)
 
-        print(
+        emit_line(
             f"{symbol:<6} "
-            f"{format_price_value(friday_close):>7} "
-            f"{format_price_value(thursday_close):>7} "
-            f"{format_percentage_value(weekend_price_change):>12} "
+            f"{format_price_value(last_close):>7} "
+            f"{format_price_value(prior_close):>7} "
+            f"{format_percentage_value(session_percent_change):>12} "
             f"{format_ratio_value(relative_volume_20_day):>6} "
             f"{format_ratio_value(relative_volume_vs_yesterday):>6} "
             f"{float_display:>8} "
-            f"{headline}"
+            f"{headline}",
+            output_lines
         )
 
     ib.disconnect()
-    print("\n============")
-    print("DISCONNECTED")
-    print("============")
+    emit_line("\n============", output_lines)
+    emit_line("DISCONNECTED", output_lines)
+    emit_line("============", output_lines)
+
+    output_path = build_output_path(run_timestamp_filename)
+    output_path.write_text("\n".join(output_lines) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":
