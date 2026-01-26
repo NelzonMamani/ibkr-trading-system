@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ib_insync import ScannerSubscription
+
 from src.config.runtime_config import get_scanner_symbols
 from src.ibkr.market_data_client import MarketDataClient
 
@@ -24,6 +26,30 @@ class IbkrScannerProvider(ScannerDataProvider):
         self.market_data_client.disconnect()
 
     def get_top_gainers(self, limit: int) -> list[str]:
+        effective_rows = min(limit, 10)
+
+        subscription = ScannerSubscription(
+            instrument="STK",
+            locationCode="STK.US",
+            scanCode="TOP_PERC_GAIN",
+            numberOfRows=effective_rows,
+        )
+
+        print(
+            "[SCANNER][IBKR][SUBSCRIPTION] "
+            f"instrument=STK location=STK.US "
+            f"scanCode=TOP_PERC_GAIN numberOfRows={effective_rows}"
+        )
+
+        scan_data = self.market_data_client.ib.reqScannerData(subscription)
+        symbols = [
+            item.contractDetails.contract.symbol.upper()
+            for item in scan_data
+            if item.contractDetails and item.contractDetails.contract
+        ]
+        if symbols:
+            return symbols
+
         symbols = get_scanner_symbols(default=[])
         if not symbols:
             symbols = ["AAPL", "MSFT", "NVDA", "AMD", "TSLA"]
