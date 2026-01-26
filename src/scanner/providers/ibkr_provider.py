@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from src.config.runtime_config import get_scanner_symbols
+from ib_insync import ScannerSubscription
+
 from src.ibkr.market_data_client import MarketDataClient
 
 from .base import IntradayStats, ProviderConnectionError, QuoteData, ScannerDataProvider
@@ -24,10 +25,25 @@ class IbkrScannerProvider(ScannerDataProvider):
         self.market_data_client.disconnect()
 
     def get_top_gainers(self, limit: int) -> list[str]:
-        symbols = get_scanner_symbols(default=[])
-        if not symbols:
-            symbols = ["AAPL", "MSFT", "NVDA", "AMD", "TSLA"]
-        return [symbol.upper() for symbol in symbols][:limit]
+        number_of_rows = 10
+        subscription = ScannerSubscription(
+            instrument="STK",
+            locationCode="STK.US",
+            scanCode="TOP_PERC_GAIN",
+            numberOfRows=number_of_rows,
+        )
+        print(
+            "[SCANNER][IBKR][SUBSCRIPTION] instrument=STK location=STK.US "
+            "scanCode=TOP_PERC_GAIN numberOfRows=10"
+        )
+        scan_data = self.market_data_client.ib.reqScannerData(subscription)
+        symbols: list[str] = []
+        for item in scan_data:
+            contract = item.contractDetails.contract
+            symbol = getattr(contract, "symbol", None)
+            if symbol:
+                symbols.append(symbol.upper())
+        return symbols[:number_of_rows]
 
     def get_quote(self, symbol: str) -> QuoteData:
         snapshot = self.market_data_client.snapshot_stock(symbol)
