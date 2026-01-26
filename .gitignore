@@ -10,3 +10,8 @@ __pycache__/
 
 # Environment variables
 .env
+
+# SQLite data and backups
+data/ibkr_system.db
+data/ibkr_system.sqlite
+data/backups/
