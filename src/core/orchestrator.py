@@ -6,9 +6,10 @@ no real trading logic, integrations, or data handling. It exists solely to make
 the system stages and their order easy to follow during this teaching phase.
 """
 from dataclasses import asdict, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import os
+from uuid import uuid4
 from typing import Dict, List, Optional, Set, Tuple
 
 from src.brokers import IbkrLiveBroker, SimBroker
@@ -34,6 +35,7 @@ from src.core.faults import (
 from src.core.stop_controller import StopController, StopMode
 from src.core.performance_registry import PerformanceRegistry
 from src.core.replay_engine import ReplayEngine
+from src.core.trace_bus import TraceBus
 from src.execution.execution_engine import ExecutionEngine
 from src.execution.order_gateway import OrderGateway
 from src.execution.trade_exit_engine import TradeExitEngine
@@ -49,6 +51,7 @@ from src.scanner.contracts import StockSelectionPolicy
 from src.scanner.scanner_contract import ScannerRequest, scanner_request_from_policy
 from src.scanner.result_models import CandidateMetrics
 from src.scanner.scanner_runner import run_scanner_cycle
+from src.scanner.providers.base import ProviderConnectionError
 from src.sim.clock import SimClock, WallClock
 from src.sim.price_feed import DeterministicPriceFeed
 from src.signals.signal_engine_v1 import SignalEngineV1
@@ -73,6 +76,7 @@ from src.strategies.ross_momentum.strategy_policy import (
 )
 from src.strategies.statistical_intraday_momentum.strategy_policy import (
     StatisticalIntradayMomentumPolicy,
+    statistical_stock_selection_spec,
 )
 from src.utils.time_utils import market_session_phase, to_ny_time, to_uk_time
 from src.regime.layer import RegimeLayer
@@ -211,6 +215,9 @@ class CoreOrchestrator:
         self.learning_scheduler = LearningScheduler()
         self._halted = False
         self._degraded = False
+        self._current_cycle_id: Optional[str] = None
+        self._last_halt_reason: Optional[dict] = None
+        self.trace_bus = TraceBus()
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
         self._daily_loss_warning_date: Optional[str] = None
         self._daily_loss_hard_stop_date: Optional[str] = None
@@ -237,7 +244,7 @@ class CoreOrchestrator:
         )
         if selected_strategy == "statistical_intraday_momentum":
             strategy_policy = StatisticalIntradayMomentumPolicy()
-            stock_policy = StockSelectionSpec()
+            stock_policy = statistical_stock_selection_spec()
             return strategy_policy, stock_policy
         strategy_policy = RossMomentumPolicy()
         stock_policy = stock_selection_policy_for_session_phase(strategy_policy, session_phase)
@@ -312,6 +319,70 @@ class CoreOrchestrator:
             if symbol:
                 symbols.append(symbol)
         return symbols
+
+    @staticmethod
+    def _cap_list(items: List[str], limit: int) -> List[str]:
+        if len(items) > limit:
+            return items[:limit] + ["..."]
+        return items
+
+    def _ensure_cycle_id(self) -> str:
+        if not self._current_cycle_id:
+            self._current_cycle_id = str(uuid4())
+        return self._current_cycle_id
+
+    def _trace_event(self, stage: str, payload: dict, summary: Optional[str] = None) -> None:
+        cycle_id = self._ensure_cycle_id()
+        self.trace_bus.trace_event(
+            stage,
+            payload,
+            cycle_id=cycle_id,
+            run_mode=self.run_mode.value,
+            strategy=self.selected_strategy_key,
+            summary=summary,
+        )
+
+    def _trace_halt(
+        self,
+        *,
+        reason_code: str,
+        message: str,
+        stage: Optional[str] = None,
+        details: Optional[dict] = None,
+    ) -> None:
+        payload = {
+            "reason_code": reason_code,
+            "message": message,
+            "stage": stage,
+            "details": details or {},
+        }
+        self._last_halt_reason = payload
+        self._trace_event("HALT", payload)
+
+    def _selection_spec_summary(self, policy: StockSelectionPolicy) -> dict:
+        base = StockSelectionSpec()
+        relaxed_gates: list[str] = []
+        if policy.gap_min_pct < base.gap_min_pct:
+            relaxed_gates.append("gap_min_pct")
+        if policy.rvol_min < base.rvol_min:
+            relaxed_gates.append("rvol_min")
+        if policy.float_max_millions > base.float_max_millions:
+            relaxed_gates.append("float_max_millions")
+        if policy.min_volume < base.min_volume:
+            relaxed_gates.append("min_volume")
+        if policy.min_premarket_volume < base.min_premarket_volume:
+            relaxed_gates.append("min_premarket_volume")
+        if policy.require_catalyst is False and base.require_catalyst:
+            relaxed_gates.append("require_catalyst")
+        if policy.price_max > base.price_max:
+            relaxed_gates.append("price_max")
+        return {
+            "policy_name": policy.policy_name,
+            "top_gainers_n": policy.top_gainers_n,
+            "max_symbols_per_cycle": policy.max_symbols_per_cycle,
+            "session_allowlist": list(policy.session_allowlist),
+            "relaxed_gates": relaxed_gates,
+        }
 
     def replay_events(self, events):
         self.replay_engine.replay(events)
@@ -488,11 +559,22 @@ class CoreOrchestrator:
                 f"— mode={mode.value}"
             )
             self._halted = True
+            self._trace_halt(
+                reason_code="STOP_REQUESTED",
+                message=f"Stop requested at stage boundary {stage_label}",
+                stage=stage_label,
+                details={"mode": mode.value},
+            )
             return True
         if self._halted:
             print(
                 f"[STOP] Orchestrator halted prior to stage '{stage_label}' "
                 "— exiting cycle safely."
+            )
+            self._trace_halt(
+                reason_code="HALTED",
+                message=f"Orchestrator halted prior to stage {stage_label}",
+                stage=stage_label,
             )
             return True
         return False
@@ -537,6 +619,7 @@ class CoreOrchestrator:
             CYCLE_SLEEP_SECONDS if cycle_sleep_seconds is None else cycle_sleep_seconds
         )
         cycles_run = 0
+        retry_count = 0
         performed_shutdown = False
 
         while True:
@@ -576,6 +659,7 @@ class CoreOrchestrator:
                     )
                     should_continue = self.run_once()
                     cycles_run += 1
+                    retry_count = 0
                     if should_continue is False:
                         if not self.stop_controller.is_stop_requested():
                             self._request_stop(
@@ -589,6 +673,27 @@ class CoreOrchestrator:
 
                 print(f"[SLEEP] Sleeping for {sleep_seconds} seconds before next cycle.")
                 time.sleep(sleep_seconds)
+            except (ProviderConnectionError, ConnectionError, TimeoutError) as exc:
+                retry_count += 1
+                self._degraded = True
+                backoff_seconds = min(60, max(1, int(2 ** (retry_count - 1))))
+                next_attempt = datetime.now(timezone.utc) + timedelta(seconds=backoff_seconds)
+                print(
+                    "[CONNECTIVITY] "
+                    f"STATE=DEGRADED retry={retry_count} backoff={backoff_seconds}s "
+                    f"next_attempt={next_attempt.isoformat()}"
+                )
+                self._trace_halt(
+                    reason_code="CONNECTIVITY_RETRY",
+                    message=str(exc),
+                    stage="CONNECTIVITY",
+                    details={
+                        "retry": retry_count,
+                        "backoff_seconds": backoff_seconds,
+                        "next_attempt": next_attempt.isoformat(),
+                    },
+                )
+                time.sleep(backoff_seconds)
             except KeyboardInterrupt:
                 self._handle_keyboard_interrupt()
                 continue
@@ -607,6 +712,8 @@ class CoreOrchestrator:
             return False
         try:
             return self._run_once_inner()
+        except ProviderConnectionError:
+            raise
         except SystemExit:
             raise
         except Exception as exc:
@@ -614,6 +721,8 @@ class CoreOrchestrator:
 
     def _run_once_inner(self) -> bool:
         print("[INFO] Starting orchestrator cycle (teaching-only).")
+        self._current_cycle_id = str(uuid4())
+        self._last_halt_reason = None
         cycle_started_at = datetime.now(timezone.utc)
         ny_time = to_ny_time(cycle_started_at)
         uk_time = to_uk_time(cycle_started_at)
@@ -624,6 +733,7 @@ class CoreOrchestrator:
             f"uk_time={uk_time.isoformat()} utc={cycle_started_at.isoformat()}"
         )
         strategy_policy, scanner_policy = self._build_scanner_policy(session_phase)
+        selection_spec_summary = self._selection_spec_summary(scanner_policy)
         scanner_request = self._build_scanner_request(scanner_policy)
         execution_intent = build_execution_intent(
             strategy_name=strategy_policy.name,
@@ -696,12 +806,63 @@ class CoreOrchestrator:
                 policy=scanner_policy,
                 scanner_request=scanner_request,
             )
+        except ProviderConnectionError as exc:
+            self._trace_halt(
+                reason_code="SCANNER_CONNECTIVITY",
+                message=str(exc),
+                stage="SCANNER",
+            )
+            raise
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="SCANNER",
                 stage_exception=exc,
             )
+            self._trace_halt(
+                reason_code="SCANNER_EXCEPTION",
+                message=str(exc),
+                stage="SCANNER",
+            )
             return False
+        universe_entries = list(scanner_watchlist_payload.get("universe_top_n", []))
+        candidate_metrics = list(scanner_watchlist_payload.get("candidate_metrics", []))
+        metrics_by_symbol = {row.symbol: row for row in candidate_metrics}
+        enriched_universe = []
+        for entry in universe_entries:
+            symbol = entry.get("symbol") if isinstance(entry, dict) else getattr(entry, "symbol", None)
+            if not symbol:
+                continue
+            metrics = metrics_by_symbol.get(symbol)
+            enriched_universe.append(
+                {
+                    "symbol": symbol,
+                    "rank": entry.get("rank") if isinstance(entry, dict) else getattr(entry, "rank", None),
+                    "last_price": getattr(metrics, "last_price", None),
+                    "gap_pct": getattr(metrics, "gap_pct", None),
+                    "pct_change": getattr(metrics, "pct_change", None),
+                    "rvol": getattr(metrics, "rvol", None),
+                    "volume": getattr(metrics, "volume", None),
+                    "spread_pct": getattr(metrics, "spread_pct", None),
+                }
+            )
+        universe_symbols = [entry.get("symbol") for entry in enriched_universe]
+        self._trace_event(
+            "UNIVERSE",
+            {
+                "selection_spec": selection_spec_summary,
+                "scan_request": {
+                    "universe_source": scanner_request.universe_source.value,
+                    "scan_code": scanner_request.ibkr_scan_code,
+                    "requested_top_n": scanner_request.requested_top_n,
+                },
+                "universe": enriched_universe,
+            },
+            summary=(
+                "top_n="
+                f"{len(enriched_universe)} symbols="
+                f"{self._cap_list(universe_symbols, 50)}"
+            ),
+        )
         self.last_scanner_watchlist_payload = scanner_watchlist_payload
         scanner_results = list(scanner_watchlist_payload.get("candidates", []))
         self.event_collector.emit(
@@ -721,6 +882,21 @@ class CoreOrchestrator:
             watchlist_symbols = self._symbols_from_candidates(watchlist_k)
         if not focus_symbols:
             focus_symbols = self._symbols_from_candidates(focus_m)
+        drop_reason_summary = scanner_watchlist_payload.get("drop_reason_summary", {})
+        self._trace_event(
+            "WATCHLIST",
+            {
+                "selection_spec": selection_spec_summary,
+                "watchlist_symbols": watchlist_symbols,
+                "drop_reason_summary": drop_reason_summary,
+            },
+            summary=(
+                "watchlist="
+                f"{len(watchlist_symbols)} symbols="
+                f"{self._cap_list(watchlist_symbols, 15)} "
+                f"drop_reasons={drop_reason_summary}"
+            ),
+        )
         try:
             stored = self.storage_engine.store_watchlist(
                 strategy_name=str(scanner_policy.policy_name),
@@ -730,9 +906,7 @@ class CoreOrchestrator:
                 metrics_payload={
                     "watchlist_rows": scanner_watchlist_payload.get("watchlist_rows", []),
                     "focus_rows": scanner_watchlist_payload.get("focus_rows", []),
-                    "drop_reason_summary": scanner_watchlist_payload.get(
-                        "drop_reason_summary", {}
-                    ),
+                    "drop_reason_summary": drop_reason_summary,
                     "timestamp_utc": scanner_watchlist_payload.get("timestamp_utc"),
                 },
             )
@@ -756,18 +930,24 @@ class CoreOrchestrator:
         auto_lockdown_enabled = bool(get_config("IBKR_AUTO_LOCKDOWN_ENABLED"))
         if self.run_mode in {RunMode.LIVE_READ_ONLY, RunMode.LIVE, RunMode.LIVE_MICRO, RunMode.PAPER}:
             if provider_error or provider_fallback or provider_source == "MOCK":
-                print(
-                    "[CONNECTIVITY] IBKR issue detected "
+                message = (
+                    "IBKR connectivity degraded "
                     f"source={provider_source} error={provider_error} fallback={provider_fallback}"
                 )
-                if auto_lockdown_enabled:
-                    self._request_stop(
-                        StopMode.PANIC,
-                        reason="Connectivity degradation detected",
-                        source="Scanner",
-                    )
-                    return False
+                print(f"[CONNECTIVITY] {message}")
                 self._degraded = True
+                if self.run_mode in {RunMode.LIVE_READ_ONLY, RunMode.LIVE, RunMode.LIVE_MICRO}:
+                    self._trace_halt(
+                        reason_code="IBKR_CONNECTIVITY",
+                        message=message,
+                        stage="SCANNER",
+                        details={
+                            "provider_source": provider_source,
+                            "provider_error": provider_error,
+                            "provider_fallback": provider_fallback,
+                        },
+                    )
+                    raise ProviderConnectionError(message)
             if data_quality_flags:
                 print(
                     "[DATA_QUALITY] Flags detected in live scan "
@@ -778,6 +958,12 @@ class CoreOrchestrator:
                         StopMode.PANIC,
                         reason="Data quality degradation detected",
                         source="Scanner",
+                    )
+                    self._trace_halt(
+                        reason_code="DATA_QUALITY_LOCKDOWN",
+                        message="Data quality degradation detected",
+                        stage="SCANNER",
+                        details={"symbols": list(data_quality_flags.keys())},
                     )
                     return False
                 self._degraded = True
@@ -798,6 +984,43 @@ class CoreOrchestrator:
             f"watchlist_k={len(strategy_context.watchlist_k)} "
             f"focus_m={len(strategy_context.focus_m)} "
             f"symbols_in_context={len(strategy_context.symbols)}"
+        )
+        focus_payload = []
+        for candidate in strategy_context.focus_m:
+            focus_payload.append(
+                {
+                    "symbol": candidate.symbol,
+                    "gap_pct": candidate.gap_pct,
+                    "pct_change": candidate.pct_change,
+                    "rvol": candidate.rvol,
+                    "dollar_volume": candidate.dollar_volume,
+                    "rank_score": candidate.rank_score,
+                }
+            )
+        focus_symbols_set = {entry["symbol"] for entry in focus_payload}
+        rejected_payload = []
+        for candidate in candidate_metrics:
+            if candidate.symbol in focus_symbols_set:
+                continue
+            reasons = list(candidate.drop_reasons or [])
+            rejected_payload.append(
+                {
+                    "symbol": candidate.symbol,
+                    "reasons": reasons[:2],
+                }
+            )
+        self._trace_event(
+            "FOCUS",
+            {
+                "selection_spec": selection_spec_summary,
+                "strategy_policy": strategy_policy.name,
+                "focus": focus_payload,
+                "rejected": rejected_payload,
+            },
+            summary=(
+                "focus="
+                f"{len(focus_payload)} symbols={self._cap_list(list(focus_symbols_set), 5)}"
+            ),
         )
         focus_set = set(self._symbols_from_candidates(strategy_context.focus_m))
         if focus_set:
@@ -836,6 +1059,11 @@ class CoreOrchestrator:
                     cycle_stage="PATTERN",
                     stage_exception=exc,
                     scanner_results=scanner_results,
+                )
+                self._trace_halt(
+                    reason_code="PATTERN_EXCEPTION",
+                    message=str(exc),
+                    stage="PATTERN",
                 )
                 return False
             self._evaluate_runtime_safety(
@@ -923,6 +1151,11 @@ class CoreOrchestrator:
                 scanner_results=scanner_results,
                 pattern_results=pattern_results,
             )
+            self._trace_halt(
+                reason_code="STRATEGY_EXCEPTION",
+                message=str(exc),
+                stage="STRATEGY",
+            )
             return False
         self._evaluate_runtime_safety(
             cycle_stage="STRATEGY",
@@ -953,6 +1186,11 @@ class CoreOrchestrator:
                 scanner_results=scanner_results,
                 pattern_results=pattern_results,
                 strategy_output=strategy_output,
+            )
+            self._trace_halt(
+                reason_code="INTENT_NORMALISATION_EXCEPTION",
+                message=str(exc),
+                stage="INTENT_NORMALISATION",
             )
             return False
         self._evaluate_runtime_safety(
@@ -1008,6 +1246,11 @@ class CoreOrchestrator:
                     pattern_results=pattern_results,
                     strategy_output=strategy_output,
                 )
+                self._trace_halt(
+                    reason_code="RISK_EXCEPTION",
+                    message=str(exc),
+                    stage="RISK",
+                )
                 return False
             if not risk_output:
                 print("[RISK] No risk decision produced — placeholder outcome.")
@@ -1058,6 +1301,11 @@ class CoreOrchestrator:
                             strategy_output=strategy_output,
                             risk_output=risk_output,
                         )
+                        self._trace_halt(
+                            reason_code="EXECUTION_EXCEPTION",
+                            message=str(exc),
+                            stage="EXECUTION",
+                        )
                         return False
                 if not execution_output:
                     print("[EXECUTION] No execution results captured — placeholder outcome.")
@@ -1071,6 +1319,41 @@ class CoreOrchestrator:
             strategy_output=strategy_output,
             risk_output=risk_output,
             execution_output=execution_output,
+        )
+        orders_payload = [
+            {
+                "symbol": result.symbol,
+                "side": result.direction,
+                "qty": result.quantity,
+                "order_type": "MKT",
+                "status": result.status,
+            }
+            for result in execution_output
+            if getattr(result, "attempted", False)
+        ]
+        if self.run_mode == RunMode.LIVE_READ_ONLY:
+            action_label = "READONLY_NO_ORDERS"
+            action_reason = "READONLY mode blocks order routing"
+        elif execution_intent.scan_only:
+            action_label = "SCAN_ONLY"
+            action_reason = "Execution intent set to scan_only"
+        elif not self.execution_enabled:
+            action_label = "EXECUTION_DISABLED"
+            action_reason = "Execution disabled"
+        elif orders_payload:
+            action_label = "ORDERS_PLACED"
+            action_reason = "Orders routed to execution engine"
+        else:
+            action_label = "NO_ORDERS"
+            action_reason = "No eligible orders to place"
+        self._trace_event(
+            "ACTION",
+            {
+                "action": action_label,
+                "reason": action_reason,
+                "orders": orders_payload,
+            },
+            summary=f"action={action_label} orders={len(orders_payload)}",
         )
         print("[TEACH] <<< Execution stage complete — moving to strategy exit stage.")
         if self._stop_requested_at_boundary("EXECUTION"):
@@ -1093,6 +1376,11 @@ class CoreOrchestrator:
                 strategy_output=strategy_output,
                 risk_output=risk_output,
                 execution_output=execution_output,
+            )
+            self._trace_halt(
+                reason_code="EXIT_SIGNALS_EXCEPTION",
+                message=str(exc),
+                stage="EXIT_SIGNALS",
             )
             return False
         self._evaluate_runtime_safety(
@@ -1135,6 +1423,11 @@ class CoreOrchestrator:
                 strategy_output=strategy_output,
                 risk_output=risk_output,
                 execution_output=execution_output,
+            )
+            self._trace_halt(
+                reason_code="TRADE_EXIT_EXCEPTION",
+                message=str(exc),
+                stage="TRADE_EXIT",
             )
             return False
         self._evaluate_runtime_safety(
@@ -1241,6 +1534,11 @@ class CoreOrchestrator:
         )
         print(strategy_perf_event)
         if not self._check_live_micro_circuit_breakers():
+            self._trace_halt(
+                reason_code="LIVE_MICRO_CIRCUIT_BREAKER",
+                message="Live micro circuit breaker triggered",
+                stage="RISK",
+            )
             return False
 
         print("[TEACH] >>> Storage stage — record decisions/results (conceptual).")
@@ -1278,6 +1576,11 @@ class CoreOrchestrator:
                 exit_results=exit_results,
                 trade_outcomes=trade_outcomes,
             )
+            self._trace_halt(
+                reason_code="STORAGE_RECORD_EXCEPTION",
+                message=str(exc),
+                stage="STORAGE",
+            )
             return False
         print("[TEACH] TradeRecord encapsulates the journey for teaching purposes.")
         try:
@@ -1298,6 +1601,11 @@ class CoreOrchestrator:
                 exit_results=exit_results,
                 trade_outcomes=trade_outcomes,
                 trade_record=trade_record,
+            )
+            self._trace_halt(
+                reason_code="STORAGE_PERSIST_EXCEPTION",
+                message=str(exc),
+                stage="STORAGE",
             )
             return False
         if storage_result is None:
@@ -1429,6 +1737,11 @@ class CoreOrchestrator:
                 exit_results=exit_results,
                 trade_outcomes=trade_outcomes,
                 trade_record=trade_record,
+            )
+            self._trace_halt(
+                reason_code="INVARIANT_FAILURE",
+                message=str(exc),
+                stage="INVARIANTS",
             )
             return False
         print(
@@ -1709,9 +2022,19 @@ class CoreOrchestrator:
             return True
         if action == RecoveryAction.RETRY:
             print("[FAULT] Action=RETRY — bounded retry not implemented; aborting cycle.")
+            self._trace_halt(
+                reason_code="FAULT_RETRY_NOT_IMPLEMENTED",
+                message=fault.message,
+                stage="FAULT",
+            )
             return False
         if action == RecoveryAction.SKIP_STAGE:
             print("[FAULT] Action=SKIP_STAGE — skipping stage not implemented; aborting cycle.")
+            self._trace_halt(
+                reason_code="FAULT_SKIP_STAGE_NOT_IMPLEMENTED",
+                message=fault.message,
+                stage="FAULT",
+            )
             return False
         if action == RecoveryAction.SKIP_CYCLE:
             print("[FAULT] Action=SKIP_CYCLE — skipping the remainder of this cycle.")
@@ -1722,6 +2045,11 @@ class CoreOrchestrator:
             return True
         if action == RecoveryAction.ABORT_CYCLE:
             print("[FAULT] Action=ABORT_CYCLE — aborting current cycle safely.")
+            self._trace_halt(
+                reason_code="FAULT_ABORT_CYCLE",
+                message=fault.message,
+                stage="FAULT",
+            )
             return False
         if action == RecoveryAction.HALT_SYSTEM:
             print("[FAULT] Action=HALT_SYSTEM — halting orchestrator safely.")
@@ -1734,6 +2062,11 @@ class CoreOrchestrator:
                 mode,
                 reason=f"Fault: {fault.message}",
                 source="FaultRecovery",
+            )
+            self._trace_halt(
+                reason_code="FAULT_HALT_SYSTEM",
+                message=fault.message,
+                stage="FAULT",
             )
             return False
         return False
@@ -2007,6 +2340,11 @@ class CoreOrchestrator:
         if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
             print(
                 "[SAFETY] LIVE/LIVE_READ_ONLY/LIVE_MICRO mode violation — entering deterministic safe halt."
+            )
+            self._trace_halt(
+                reason_code="RUNTIME_SAFETY_VIOLATION",
+                message="; ".join(violations),
+                stage=stage_label,
             )
             self._request_stop(
                 StopMode.PANIC,
