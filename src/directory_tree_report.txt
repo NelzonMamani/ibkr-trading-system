@@ -21,11 +21,17 @@ ibkr-trading-system/
 │   ├── 09_PHASE_8_DOCS_RUNBOOK_AND_HOUSEKEEPING.md
 │   └── PHASE_INDEX.md
 ├── data
+│   ├── cache
+│   │   └── statistical_intraday_momentum
+│   │       ├── baseline_universe_2026-01-26.json
+│   │       ├── intraday_distributions_2026-01-26.json
+│   │       └── session_readiness_2026-01-26.json
 │   ├── reports
 │   │   └── ops
 │   │       ├── 2026-01-21_ops_summary.json
 │   │       ├── 2026-01-22_ops_summary.json
-│   │       └── 2026-01-25_ops_summary.json
+│   │       ├── 2026-01-25_ops_summary.json
+│   │       └── 2026-01-26_ops_summary.json
 │   ├── ibkr_system.db
 │   └── regime_baselines.json
 ├── docs
@@ -103,7 +109,18 @@ ibkr-trading-system/
 │   ├── 16_LEARNING_SCHEDULER_TRIGGERS_AND_RECOVERY.md
 │   ├── 17_TESTS_SAFETY_BOUNDARIES_AND_VERIFICATION.md
 │   └── 99_MANDATORY_VERIFICATION_COMMANDS.md
+├── logs
+│   └── trace_20260126.jsonl
 ├── output
+│   ├── verification
+│   │   ├── compileall.log
+│   │   ├── pytest.log
+│   │   ├── readiness_SIM.log
+│   │   ├── RUN_LIVE_MICRO_1SHARE.log
+│   │   ├── RUN_LIVE_READ_ONLY.log
+│   │   ├── RUN_PAPER_TRADING.log
+│   │   ├── RUN_SIMULATION.log
+│   │   └── VERIFY_STATISTICAL_ALL_MODES.log
 │   ├── watchlists
 │   │   ├── watchlist_RossMomentum_20260114_214718_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260115_003532_UTC.txt
@@ -129,7 +146,8 @@ ibkr-trading-system/
 │   │   ├── watchlist_RossMomentum_20260115_145318_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260121_224057_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260122_192049_UTC.txt
-│   │   └── watchlist_RossMomentum_20260125_215327_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260125_215327_UTC.txt
+│   │   └── watchlist_RossMomentum_20260126_212034_UTC.txt
 │   └── trade_store.jsonl
 ├── scripts
 │   ├── smoke_main.ps1
@@ -178,9 +196,11 @@ ibkr-trading-system/
 │   │   ├── intent.py
 │   │   ├── orchestrator.py
 │   │   ├── performance_registry.py
+│   │   ├── readiness.py
 │   │   ├── replay_engine.py
 │   │   ├── run_event_timeline.py
 │   │   ├── stop_controller.py
+│   │   ├── trace_bus.py
 │   │   └── trade_outcome_factory.py
 │   ├── core_engine
 │   │   ├── __init__.py
@@ -384,6 +404,7 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── README.md
 │   │   │   ├── risk_policy.py
+│   │   │   ├── strategy.py
 │   │   │   ├── strategy_assumptions.md
 │   │   │   ├── strategy_policy.py
 │   │   │   └── telemetry.py
@@ -498,12 +519,19 @@ ibkr-trading-system/
 │   ├── test_storage_recovery.py
 │   ├── test_storage_schema_epoch4.py
 │   ├── test_storage_serialization.py
+│   ├── test_traceability.py
 │   └── test_trade_exit_engine.py
+├── troubleshooting
+│   └── stock_selection
+│       └── stock_selection_scanner_25_jan_2026.py
 ├── .gitignore
 ├── HOUSEKEEPING.md
+├── PHASE_RM_FINAL_INSTRUCTIONS_v1_0.md
+├── PHASE_STATISTICAL_INTRADAY_MOMENTUM_WIRING_AND_READINESS_CODEX_FINAL.md
 ├── PR_VERIFICATION_REPORT.md
 ├── pytest.ini
 ├── README.md
+├── README_VERIFY.md
 ├── requirements.txt
 ├── ROSS_MOMENTUM_PATTERN_DETECTION_BLUEPRINT.md
 ├── ROSS_MOMENTUM_PATTERN_REFERENCE.md
@@ -518,4 +546,5 @@ ibkr-trading-system/
 ├── SYSTEM_CONSTITUTION.md
 ├── SYSTEM_STATE.md
 ├── SYSTEM_TREE_AND_MODULE_MAP.md
-└── verified_rss.txt
+├── verified_rss.txt
+└── VERIFY_STATISTICAL_ALL_MODES.ps1
