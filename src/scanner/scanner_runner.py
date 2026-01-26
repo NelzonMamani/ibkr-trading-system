@@ -1064,7 +1064,34 @@ def _resolve_universe_symbols(
         "exchanges": list(request.exchanges or []),
     }
     if request.universe_source == UniverseSource.IBKR_TOP_GAINERS:
-        return provider.get_top_gainers(limits["resolved_symbol_limit"])
+        symbols = provider.get_top_gainers(limits["resolved_symbol_limit"])
+        ibkr_returned_count = len(symbols)
+        requested_top_n = int(request.requested_top_n)
+        truncation = ibkr_returned_count != requested_top_n
+        reasons: list[str] = []
+        if limits.get("reductions"):
+            reasons.extend(limits["reductions"])
+        if ibkr_returned_count < limits["resolved_symbol_limit"]:
+            reasons.append("ibkr_returned_fewer_than_requested")
+        diagnostics["ibkr_universe"] = {
+            "ibkr_returned_count": ibkr_returned_count,
+            "requested_top_n": requested_top_n,
+            "truncation": truncation,
+            "reasons": reasons,
+        }
+        print(
+            "[SCANNER][IBKR] universe_return "
+            f"ibkr_returned_count={ibkr_returned_count} "
+            f"requested_top_n={requested_top_n} "
+            f"truncation={truncation} "
+            f"reasons={reasons or ['none']}"
+        )
+        if truncation and not reasons:
+            print(
+                "[SCANNER][WARN] IBKR universe mismatch without explicit reason "
+                f"requested_top_n={requested_top_n} ibkr_returned_count={ibkr_returned_count}"
+            )
+        return symbols
 
     if request.universe_source == UniverseSource.CONFIG_SYMBOLS:
         symbols = list(request.optional_symbols_override or [])
@@ -1145,6 +1172,23 @@ def run_scanner_cycle(
         )
     )
     request = scanner_request or scanner_request_from_policy(resolved_policy)
+    print(
+        "[SCANNER][ENTRY] "
+        f"strategy={resolved_policy.policy_name} "
+        f"requested_top_n={request.requested_top_n} "
+        f"watchlist_k={resolved_policy.watchlist_limit_k} "
+        f"focus_m={resolved_policy.focus_limit_m} "
+        f"universe={request.universe_source.value} "
+        f"scan_code={request.ibkr_scan_code}"
+    )
+    diagnostics["selection_spec"] = {
+        "strategy": resolved_policy.policy_name,
+        "requested_top_n": request.requested_top_n,
+        "watchlist_k": resolved_policy.watchlist_limit_k,
+        "focus_m": resolved_policy.focus_limit_m,
+        "universe": request.universe_source.value,
+        "scan_code": request.ibkr_scan_code,
+    }
 
     run_mode = get_run_mode()
     fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))

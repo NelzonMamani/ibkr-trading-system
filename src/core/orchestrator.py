@@ -748,6 +748,10 @@ class CoreOrchestrator:
             "stock_selection=ENABLED"
         )
         print(
+            "[ORCH][POLICY] stock_selection_spec="
+            f"{json.dumps(asdict(scanner_policy), sort_keys=True)}"
+        )
+        print(
             "[ORCH][POLICY] delegating to scanner "
             f"watchlist_k={scanner_policy.watchlist_limit_k} "
             f"focus_m={scanner_policy.focus_limit_m} "
