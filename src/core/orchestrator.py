@@ -67,8 +67,12 @@ from src.strategies.ross_momentum.strategy_context_schema import (
 )
 from src.strategies.ross_momentum.strategy_policy import (
     RossMomentumPolicy,
+    StockSelectionSpec,
     UniverseSource,
     stock_selection_policy_for_session_phase,
+)
+from src.strategies.statistical_intraday_momentum.strategy_policy import (
+    StatisticalIntradayMomentumPolicy,
 )
 from src.utils.time_utils import market_session_phase, to_ny_time, to_uk_time
 from src.regime.layer import RegimeLayer
@@ -116,6 +120,10 @@ class CoreOrchestrator:
         self.trade_registry = ActiveTradeRegistry()
         self.strategy_perf_tracker = StrategyPerformanceTracker()
         self.market_data_hub = None
+        self.selected_strategy_key = (
+            str(get_config("SELECTED_STRATEGY") or "ross_momentum").strip().lower()
+            or "ross_momentum"
+        )
         if self.run_mode == RunMode.LIVE_READ_ONLY:
             from src.brokers import IbkrBroker
 
@@ -222,7 +230,15 @@ class CoreOrchestrator:
         return "MIDDAY_SLOW"
 
     @staticmethod
-    def _build_scanner_policy(session_phase: str) -> tuple[RossMomentumPolicy, StockSelectionPolicy]:
+    def _build_scanner_policy(session_phase: str) -> tuple[object, StockSelectionPolicy]:
+        selected_strategy = (
+            str(get_config("SELECTED_STRATEGY") or "ross_momentum").strip().lower()
+            or "ross_momentum"
+        )
+        if selected_strategy == "statistical_intraday_momentum":
+            strategy_policy = StatisticalIntradayMomentumPolicy()
+            stock_policy = StockSelectionSpec()
+            return strategy_policy, stock_policy
         strategy_policy = RossMomentumPolicy()
         stock_policy = stock_selection_policy_for_session_phase(strategy_policy, session_phase)
         return strategy_policy, stock_policy
@@ -617,7 +633,7 @@ class CoreOrchestrator:
             execution_enabled=self.execution_enabled,
         )
         print(
-            "[ORCH][POLICY] loaded strategy=ross_momentum "
+            f"[ORCH][POLICY] loaded strategy={strategy_policy.name} "
             f"version={strategy_policy.version} policy={strategy_policy.name} "
             "stock_selection=ENABLED"
         )
@@ -802,50 +818,60 @@ class CoreOrchestrator:
             print(f"[SCAN] Scanner produced candidates: {scanner_results}")
         print("[TEACH] <<< Scanner stage complete — moving to pattern stage.")
 
-        print("[TEACH] >>> Pattern stage — evaluate shapes/behaviors (conceptual).")
-        try:
-            pattern_results = self.pattern_engine.evaluate_patterns(scanner_results or [])
-        except Exception as exc:
+        pattern_results = []
+        signals = []
+        if self.selected_strategy_key == "statistical_intraday_momentum":
+            print(
+                "[TEACH] >>> Pattern stage skipped — statistical strategy does not use Ross patterns."
+            )
+            print(
+                "[TEACH] >>> Signals stage skipped — statistical strategy uses statistical signals."
+            )
+        else:
+            print("[TEACH] >>> Pattern stage — evaluate shapes/behaviors (conceptual).")
+            try:
+                pattern_results = self.pattern_engine.evaluate_patterns(scanner_results or [])
+            except Exception as exc:
+                self._evaluate_runtime_safety(
+                    cycle_stage="PATTERN",
+                    stage_exception=exc,
+                    scanner_results=scanner_results,
+                )
+                return False
             self._evaluate_runtime_safety(
                 cycle_stage="PATTERN",
-                stage_exception=exc,
+                stage_exception=None,
                 scanner_results=scanner_results,
+                pattern_results=pattern_results,
             )
-            return False
-        self._evaluate_runtime_safety(
-            cycle_stage="PATTERN",
-            stage_exception=None,
-            scanner_results=scanner_results,
-            pattern_results=pattern_results,
-        )
-        if not pattern_results:
-            print("[PATTERN] No patterns detected — placeholder outcome.")
-        else:
-            print(f"[PATTERN] Patterns evaluated: {pattern_results}")
-        print("[TEACH] <<< Pattern stage complete — moving to signals stage.")
-        if self._stop_requested_at_boundary("PATTERN"):
-            return False
+            if not pattern_results:
+                print("[PATTERN] No patterns detected — placeholder outcome.")
+            else:
+                print(f"[PATTERN] Patterns evaluated: {pattern_results}")
+            print("[TEACH] <<< Pattern stage complete — moving to signals stage.")
+            if self._stop_requested_at_boundary("PATTERN"):
+                return False
 
-        print("[TEACH] >>> Signals stage — evaluate momentum triggers (teaching).")
-        signals = self.signal_engine_v1.generate(
-            scanner_output=scanner_results or [],
-            pattern_output=pattern_results or [],
-            tick=tick,
-        )
-        print(f"[SIGNALS] total={len(signals)}")
-        for signal in signals:
-            print(
-                "[SIGNAL] "
-                f"symbol={signal.symbol} type={signal.signal_type.value} "
-                f"strength={signal.strength:.2f}"
+            print("[TEACH] >>> Signals stage — evaluate momentum triggers (teaching).")
+            signals = self.signal_engine_v1.generate(
+                scanner_output=scanner_results or [],
+                pattern_output=pattern_results or [],
+                tick=tick,
             )
-        event = self.event_collector.emit(
-            event_type="SIGNALS_GENERATED",
-            source="SignalEngineV1",
-            payload={"signals": len(signals)},
-        )
-        print(event)
-        print("[TEACH] <<< Signals stage complete — moving to strategy stage.")
+            print(f"[SIGNALS] total={len(signals)}")
+            for signal in signals:
+                print(
+                    "[SIGNAL] "
+                    f"symbol={signal.symbol} type={signal.signal_type.value} "
+                    f"strength={signal.strength:.2f}"
+                )
+            event = self.event_collector.emit(
+                event_type="SIGNALS_GENERATED",
+                source="SignalEngineV1",
+                payload={"signals": len(signals)},
+            )
+            print(event)
+            print("[TEACH] <<< Signals stage complete — moving to strategy stage.")
 
         regime_snapshot = None
         regime_policy_decision = None
@@ -875,12 +901,20 @@ class CoreOrchestrator:
                 regime_snapshot,
                 regime_policy_decision,
             )
-            interface_intents = ross_trade_intents_to_decision_intents(strategy_output)
-            interface_event = self.event_collector.emit(
-                event_type="STRATEGY_INTERFACE_INTENTS",
-                source="RossMomentumAdapter",
-                payload={"count": len(interface_intents)},
-            )
+            if self.selected_strategy_key == "statistical_intraday_momentum":
+                interface_intents = []
+                interface_event = self.event_collector.emit(
+                    event_type="STRATEGY_INTERFACE_INTENTS",
+                    source="StatisticalIntradayMomentum",
+                    payload={"count": len(interface_intents)},
+                )
+            else:
+                interface_intents = ross_trade_intents_to_decision_intents(strategy_output)
+                interface_event = self.event_collector.emit(
+                    event_type="STRATEGY_INTERFACE_INTENTS",
+                    source="RossMomentumAdapter",
+                    payload={"count": len(interface_intents)},
+                )
             print(interface_event)
         except Exception as exc:
             self._evaluate_runtime_safety(

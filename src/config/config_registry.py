@@ -1239,6 +1239,25 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Enable Ross Momentum strategy execution.",
     },
+    "STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED": {
+        "type": bool,
+        "default": False,
+        "env": ["STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"],
+        "affects": ["Strategies"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Enable Statistical Intraday Momentum strategy execution.",
+    },
+    "SELECTED_STRATEGY": {
+        "type": str,
+        "default": "",
+        "env": ["SELECTED_STRATEGY"],
+        "affects": ["Strategies"],
+        "enforcement": "ADVISORY",
+        "mutable": "dynamic",
+        "description": "Explicitly selected primary strategy key (CLI override).",
+        "normalizer": "lower",
+    },
     "ENABLED_STRATEGIES": {
         "type": dict,
         "default": {

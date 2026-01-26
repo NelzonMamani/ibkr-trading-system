@@ -1,0 +1,15 @@
+{
+  "artefact_name": "intraday_distributions",
+  "session_date": "2026-01-26",
+  "created_at_utc": "2026-01-26T00:06:00Z",
+  "version": "v1",
+  "series_count": 5,
+  "distributions": {
+    "AAPL": {"mean_return": 0.0008, "std_return": 0.012},
+    "MSFT": {"mean_return": 0.0007, "std_return": 0.011},
+    "NVDA": {"mean_return": 0.0012, "std_return": 0.018},
+    "AMZN": {"mean_return": 0.0006, "std_return": 0.013},
+    "META": {"mean_return": 0.0009, "std_return": 0.014}
+  },
+  "source": "seed_fixture"
+}

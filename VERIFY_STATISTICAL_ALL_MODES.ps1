@@ -1,4 +1,3 @@
-\
 # VERIFY_STATISTICAL_ALL_MODES.ps1
 # Purpose: Mandatory verification commands for Statistical Intraday Momentum readiness.
 # Usage (PowerShell):  .\VERIFY_STATISTICAL_ALL_MODES.ps1
@@ -7,6 +6,9 @@
 # - It requires that src.main supports --readiness-check and --strategy statistical_intraday_momentum.
 
 $ErrorActionPreference = "Stop"
+
+$env:STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED = "true"
+$env:SELECTED_STRATEGY = "statistical_intraday_momentum"
 
 Write-Host "=== VERIFY: CLI HELP (modes + strategies) ===" -ForegroundColor Cyan
 python -m src.main --help

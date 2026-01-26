@@ -1,0 +1,18 @@
+[CONFIG] Loaded 142 variables
+[CONFIG] HARD enforced: 34
+[CONFIG] Optional: 107
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+[IBKR][TRANSLATOR] ibapi dependency missing; translation unavailable.
+[READINESS] Statistical Intraday Momentum readiness report
+[READINESS] strategy=statistical_intraday_momentum mode=SIM session_date=2026-01-26
+[READINESS] status=PASS
+[READINESS][ARTEFACT] name=baseline_universe status=LOADED path=/workspace/ibkr-trading-system/data/cache/statistical_intraday_momentum/baseline_universe_2026-01-26.json
+[READINESS][ARTEFACT] session_date=2026-01-26 created_at_utc=2026-01-26T00:05:00Z version=v1 count=5
+[READINESS][ARTEFACT] notes=sample_symbols=['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META']
+[READINESS][ARTEFACT] name=intraday_distributions status=LOADED path=/workspace/ibkr-trading-system/data/cache/statistical_intraday_momentum/intraday_distributions_2026-01-26.json
+[READINESS][ARTEFACT] session_date=2026-01-26 created_at_utc=2026-01-26T00:06:00Z version=v1 count=5
+[READINESS][ARTEFACT] name=session_readiness status=LOADED path=/workspace/ibkr-trading-system/data/cache/statistical_intraday_momentum/session_readiness_2026-01-26.json
+[READINESS][ARTEFACT] session_date=2026-01-26 created_at_utc=2026-01-26T00:07:00Z version=v1 count=5
+[READINESS][ARTEFACT] notes=session_phase=REGULAR allow_trading=True
