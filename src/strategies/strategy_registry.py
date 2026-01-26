@@ -8,6 +8,9 @@ from typing import Dict, Iterable, List, Optional
 from src.strategies.strategy_base import StrategyBase
 from src.strategies.strategy_contracts import StrategyDecision, StrategyInput
 from src.strategies.ross_momentum.strategy import RossMomentumStrategy
+from src.strategies.statistical_intraday_momentum.strategy import (
+    StatisticalIntradayMomentumStrategy,
+)
 
 
 @dataclass
@@ -42,4 +45,5 @@ def build_default_registry(
 ) -> StrategyRegistry:
     registry = StrategyRegistry(enabled_strategy_ids=enabled_strategy_ids)
     registry.register(RossMomentumStrategy())
+    registry.register(StatisticalIntradayMomentumStrategy())
     return registry

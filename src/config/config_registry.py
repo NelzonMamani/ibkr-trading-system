@@ -1212,6 +1212,17 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     # =========================
     # Strategy governance
     # =========================
+    "STRATEGY_KEY": {
+        "type": str,
+        "default": "ross_momentum",
+        "env": ["STRATEGY_KEY"],
+        "affects": ["CoreOrchestrator", "StrategyRunner", "Readiness"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Active strategy key (ross_momentum or statistical_intraday_momentum).",
+        "choices": ["ross_momentum", "statistical_intraday_momentum"],
+        "normalizer": "lower",
+    },
     "MIN_HOLD_TICKS": {
         "type": int,
         "default": 2,
@@ -1238,6 +1249,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "enforcement": "SOFT",
         "mutable": "dynamic",
         "description": "Enable Ross Momentum strategy execution.",
+    },
+    "STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED": {
+        "type": bool,
+        "default": False,
+        "env": ["STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"],
+        "affects": ["Strategies", "Readiness"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Enable Statistical Intraday Momentum strategy execution.",
     },
     "ENABLED_STRATEGIES": {
         "type": dict,

@@ -46,6 +46,10 @@ Risk → Execution → Storage
 - `for_track_A/`
 - `python -m src.learning.cli --help` (parallel learning reports/proposals)
 
+## Verification (Statistical Intraday Momentum)
+- `python -m src.main --strategy statistical_intraday_momentum --mode PAPER --readiness-check`
+- `.\VERIFY_STATISTICAL_ALL_MODES.ps1` (PowerShell)
+
 ## Contribution Rules
 - Respect frozen contracts and epochs
 - No silent changes to live logic

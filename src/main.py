@@ -61,8 +61,13 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--strategy",
-        choices=["ross_momentum"],
-        help="Strategy key to enable (currently ross_momentum).",
+        choices=["ross_momentum", "statistical_intraday_momentum"],
+        help="Strategy key to enable (ross_momentum or statistical_intraday_momentum).",
+    )
+    parser.add_argument(
+        "--readiness-check",
+        action="store_true",
+        help="Run readiness check and exit (no continuous loop).",
     )
     parser.add_argument("--cycles", type=int, default=None, help="Max cycles to run.")
     parser.add_argument(
@@ -86,8 +91,14 @@ def _apply_cli_overrides(args: argparse.Namespace) -> None:
             "LIVE_1SHARE": "LIVE_MICRO",
         }
         overrides["RUN_MODE"] = mode_map.get(args.mode, args.mode)
+    if args.strategy:
+        overrides["STRATEGY_KEY"] = args.strategy
     if args.strategy == "ross_momentum":
         overrides["ROSS_MOMENTUM_STRATEGY_ENABLED"] = True
+        overrides["STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"] = False
+    if args.strategy == "statistical_intraday_momentum":
+        overrides["ROSS_MOMENTUM_STRATEGY_ENABLED"] = False
+        overrides["STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"] = True
     if args.regime_layer:
         overrides["ADAPTIVE_REGIME_LAYER_ENABLED"] = True
     if args.regime_policy:
@@ -130,6 +141,12 @@ def main() -> None:
     """Run the minimal teaching-first entry point."""
     args = _parse_args()
     _apply_cli_overrides(args)
+    if args.readiness_check:
+        from src.core.readiness import run_readiness_check
+
+        report = run_readiness_check()
+        print(report.to_text())
+        raise SystemExit(0 if report.is_pass else 1)
     print("[BOOT] Starting the IBKR Trading System skeleton.")
     run_mode = get_run_mode()
     if run_mode == RunMode.LIVE_READ_ONLY:

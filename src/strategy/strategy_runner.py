@@ -10,6 +10,9 @@ from src.strategy.gap_and_go_strategy import GapAndGoStrategy
 from src.strategy.momentum_continuation_strategy import MomentumContinuationStrategy
 from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
 from src.strategy.exit_signal import ExitSignal
+from src.strategy.statistical_intraday_momentum_strategy import (
+    StatisticalIntradayMomentumStrategy,
+)
 from src.core.active_trade_registry import ActiveTrade
 from src.signals.signal_event import SignalEvent
 from src.regime.contracts import RegimePolicyDecision
@@ -28,6 +31,7 @@ class StrategyRunner:
             ("GapAndGoStrategy", GapAndGoStrategy),
             ("MomentumContinuationStrategy", MomentumContinuationStrategy),
             ("RossMomentumStrategyV1", RossMomentumStrategyV1),
+            ("StatisticalIntradayMomentumStrategy", StatisticalIntradayMomentumStrategy),
         ]
         self.strategies = []
         self.event_collector = event_collector
@@ -38,11 +42,30 @@ class StrategyRunner:
             print(f"[BOOT] StrategyRunner instantiated with injected strategies: {registered}")
             return
 
+        strategy_key = str(get_config("STRATEGY_KEY") or "").strip().lower()
+        selected_mapping = {
+            "ross_momentum": "RossMomentumStrategyV1",
+            "statistical_intraday_momentum": "StatisticalIntradayMomentumStrategy",
+        }
+        selected_strategy_name = selected_mapping.get(strategy_key)
+
         for strategy_name, strategy_class in configured_strategies:
+            if selected_strategy_name and strategy_name != selected_strategy_name:
+                print(
+                    f"[BOOT] Strategy '{strategy_name}' skipped "
+                    f"(selected strategy={selected_strategy_name})."
+                )
+                continue
             if strategy_name == "RossMomentumStrategyV1":
                 enabled = ROSS_MOMENTUM_STRATEGY_ENABLED
                 reason = (
                     f"ROSS_MOMENTUM_STRATEGY_ENABLED={ROSS_MOMENTUM_STRATEGY_ENABLED}"
+                )
+            elif strategy_name == "StatisticalIntradayMomentumStrategy":
+                enabled = bool(get_config("STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"))
+                reason = (
+                    "STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED="
+                    f"{enabled}"
                 )
             else:
                 enabled = ENABLED_STRATEGIES.get(strategy_name, False)
@@ -60,7 +83,9 @@ class StrategyRunner:
 
             strategy = strategy_class()
             self.strategies.append(strategy)
-            print(f"[BOOT] Strategy '{strategy_name}' ENABLED via config and registered.")
+            print(
+                f"[BOOT] Strategy '{strategy.name}' ENABLED via config and registered."
+            )
 
         registered = ", ".join(strategy.name for strategy in self.strategies)
         print(f"[BOOT] StrategyRunner instantiated with strategies: {registered}")

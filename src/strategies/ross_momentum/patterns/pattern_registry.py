@@ -9,8 +9,24 @@ from src.strategies.ross_momentum.patterns.breakout_patterns import (
     OpeningRangeBreakoutPattern,
     PremarketHighBreakPattern,
 )
+from src.strategies.ross_momentum.patterns.additional_patterns import (
+    ABCDContinuationPattern,
+    BreakOfKeyLevelPattern,
+    CupAndHandlePattern,
+    FlatTopBreakoutPattern,
+    GapAndGoPattern,
+    GreenToRedPattern,
+    HalfDollarBreakPattern,
+    HaltResumeContinuationPattern,
+    MomentumReclaimPattern,
+    ParabolicExhaustionPattern,
+    RedToGreenPattern,
+    FirstPullbackPattern,
+    WholeDollarBreakPattern,
+)
 from src.strategies.ross_momentum.patterns.momentum_patterns import (
     BullFlagPattern,
+    HighTightFlagPattern,
     MicroPullbackPattern,
 )
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
@@ -22,11 +38,25 @@ from src.strategies.ross_momentum.patterns.reversal_patterns import FailedBreako
 class RossPatternRegistry:
     def __init__(self) -> None:
         self._patterns: List[PatternBase] = [
+            GapAndGoPattern(),
             PremarketHighBreakPattern(),
             OpeningRangeBreakoutPattern(),
+            FirstPullbackPattern(),
             MicroPullbackPattern(),
             BullFlagPattern(),
+            HighTightFlagPattern(),
             ConsolidationBreakoutPattern(),
+            BreakOfKeyLevelPattern(),
+            ABCDContinuationPattern(),
+            CupAndHandlePattern(),
+            MomentumReclaimPattern(),
+            FlatTopBreakoutPattern(),
+            RedToGreenPattern(),
+            GreenToRedPattern(),
+            HalfDollarBreakPattern(),
+            WholeDollarBreakPattern(),
+            HaltResumeContinuationPattern(),
+            ParabolicExhaustionPattern(),
             FailedBreakoutPattern(),
         ]
 

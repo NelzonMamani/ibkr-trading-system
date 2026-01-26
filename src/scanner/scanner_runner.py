@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -34,6 +34,7 @@ from src.scanner.contracts import (
 )
 from src.scanner.scanner_contract import ScannerRequest, scanner_request_from_policy
 from src.strategies.ross_momentum.strategy_policy import UniverseSource
+from src.strategies.ross_momentum.stock_selection import apply_ross_stock_selection
 from src.scanner.phase24_views import (
     DeepViewRow,
     FastViewRow,
@@ -431,19 +432,28 @@ def _populate_pct_change(
         context["prev_close"] = prev_close
         if prev_close is None:
             context.setdefault("data_quality_flags", []).append("HISTORY_UNKNOWN")
-    pct_change = _pct_change(last_price, prev_close)
+    session_label = (context.get("session") or "").upper()
+    baseline_price = prev_close
+    baseline_label = "prior_close"
+    rth_close = _safe_float(context.get("close"), None)
+    if session_label == "AFTER" and rth_close is not None:
+        baseline_price = rth_close
+        baseline_label = "rth_close"
+    pct_change = _pct_change(last_price, baseline_price)
     if last_price is None:
         context.setdefault("data_quality_flags", []).append("MISSING_LAST")
-    if prev_close is None:
+    if baseline_price is None:
         context.setdefault("data_quality_flags", []).append("MISSING_PREV_CLOSE")
     if pct_change is None:
         context.setdefault("data_quality_flags", []).append("MISSING_PCT_CHANGE")
     context["pct_change"] = pct_change
+    context["pct_change_baseline_label"] = baseline_label
+    context["pct_change_baseline_price"] = baseline_price
     if get_config("DEBUG_MARKET_DATA"):
         print(
             "[SCANNER][MD][DEBUG] pct_change "
-            f"symbol={context['symbol']} last={last_price} prev_close={prev_close} "
-            f"pct_change={pct_change}"
+            f"symbol={context['symbol']} last={last_price} baseline={baseline_price} "
+            f"label={baseline_label} pct_change={pct_change}"
         )
 
 
@@ -719,26 +729,26 @@ def _build_fast_rows(
 ) -> List[FastViewRow]:
     rows: List[FastViewRow] = []
     for rank, context in enumerate(contexts, start=1):
-        symbol = context["symbol"]
+        symbol = context.get("symbol") if isinstance(context, dict) else getattr(context, "symbol", None)
         news_context = news_by_symbol.get(symbol, {})
         rows.append(
             FastViewRow(
                 symbol=symbol,
-                session=context.get("session", ""),
-                last_price=context.get("last_price"),
-                pct_change=context.get("pct_change"),
-                volume=context.get("volume"),
-                dollar_volume=context.get("dollar_volume"),
-                bid=context.get("bid"),
-                ask=context.get("ask"),
-                spread=context.get("spread"),
-                spread_pct=context.get("spread_pct"),
-                rvol=context.get("rvol"),
-                float_shares=context.get("float_shares"),
+                session=context.get("session", "") if isinstance(context, dict) else getattr(context, "session", ""),
+                last_price=context.get("last_price") if isinstance(context, dict) else getattr(context, "last_price", None),
+                pct_change=context.get("pct_change") if isinstance(context, dict) else getattr(context, "pct_change", None),
+                volume=context.get("volume") if isinstance(context, dict) else getattr(context, "volume", None),
+                dollar_volume=context.get("dollar_volume") if isinstance(context, dict) else getattr(context, "dollar_volume", None),
+                bid=context.get("bid") if isinstance(context, dict) else getattr(context, "bid", None),
+                ask=context.get("ask") if isinstance(context, dict) else getattr(context, "ask", None),
+                spread=context.get("spread") if isinstance(context, dict) else getattr(context, "spread", None),
+                spread_pct=context.get("spread_pct") if isinstance(context, dict) else getattr(context, "spread_pct", None),
+                rvol=context.get("rvol") if isinstance(context, dict) else getattr(context, "rvol", None),
+                float_shares=context.get("float_shares") if isinstance(context, dict) else getattr(context, "float_shares", None),
                 scanner_rank=rank,
-                scanner_score=context.get("scanner_score"),
+                scanner_score=context.get("scanner_score") if isinstance(context, dict) else getattr(context, "rank_score", None),
                 drop_reason=None,
-                data_quality_flags=context.get("data_quality_flags", []),
+                data_quality_flags=context.get("data_quality_flags", []) if isinstance(context, dict) else getattr(context, "data_quality_flags", []),
                 news_present=bool(news_context.get("news_present")),
                 catalyst_type=news_context.get("catalyst_type"),
                 dilution_flag=bool(news_context.get("dilution_flag")),
@@ -759,7 +769,7 @@ def _build_deep_rows(
 ) -> List[DeepViewRow]:
     rows: List[DeepViewRow] = []
     for rank, context in enumerate(contexts, start=1):
-        symbol = context["symbol"]
+        symbol = context.get("symbol") if isinstance(context, dict) else getattr(context, "symbol", None)
         news_context = news_by_symbol.get(symbol, {})
         catalyst = news_context.get("catalyst_type") or "Unknown catalyst"
         age = news_context.get("news_age_minutes")
@@ -769,7 +779,7 @@ def _build_deep_rows(
             catalyst_rationale = f"{catalyst} news (age unknown)"
         focus_reason = (
             "Ranked high by pct_change, rvol, and dollar_volume "
-            f"(score={context.get('scanner_score')})"
+            f"(score={context.get('scanner_score') if isinstance(context, dict) else getattr(context, 'rank_score', None)})"
         )
         rows.append(
             DeepViewRow(
@@ -841,6 +851,8 @@ def _candidate_from_context(
         gap_pct=context.get("pct_change"),
         pct_change=context.get("pct_change"),
         rvol=context.get("rvol"),
+        rvol_20d=context.get("rvol_20d"),
+        rvol_1d=context.get("rvol_1d"),
         float_shares=float_shares,
         float_millions=float_millions,
         volume=volume,
@@ -985,6 +997,11 @@ def _build_symbol_context(
 
     volume = intraday.current_intraday_volume if intraday else None
     rvol = intraday.relative_volume if intraday else None
+    avg_volume_20d = intraday.average_daily_volume_20d if intraday else None
+    rvol_20d = None
+    if volume is not None and avg_volume_20d:
+        rvol_20d = round(volume / avg_volume_20d, 4)
+    rvol_1d = None
     if intraday is None:
         data_quality_flags.append("VOLUME_UNKNOWN")
     if volume is None:
@@ -1039,6 +1056,8 @@ def _build_symbol_context(
         "spread": spread,
         "spread_pct": spread_pct,
         "rvol": rvol,
+        "rvol_20d": rvol_20d,
+        "rvol_1d": rvol_1d,
         "float_shares": float_shares,
         "halted": None,
         "ssr": None,
@@ -1222,7 +1241,7 @@ def run_scanner_cycle(
         candidates: List[Dict[str, Any]] = []
         evaluated_contexts: List[Dict[str, Any]] = []
 
-        print("[SCANNER][STAGE] gates")
+        print("[SCANNER][STAGE] data")
         for rank, symbol in enumerate(symbols, start=1):
             context = _build_symbol_context(
                 provider,
@@ -1248,53 +1267,18 @@ def run_scanner_cycle(
                 print(f"[SCANNER][DROP] symbol={symbol} reason=DROP_SNAPSHOT_TIMEOUT")
                 evaluated_contexts.append(context)
                 continue
-            price_gate_reason = _evaluate_price_gate(context, thresholds)
-            if price_gate_reason:
-                drop_ledger.setdefault(symbol, price_gate_reason)
-                print(f"[SCANNER][DROP] symbol={symbol} reason={price_gate_reason}")
-                if get_config("DEBUG_SCANNER"):
-                    missingness = _missingness_map(price_gate_reason, context)
-                    print(
-                        "[SCANNER][DEBUG] "
-                        f"symbol={symbol} reason={price_gate_reason} missing={missingness}"
-                    )
-                evaluated_contexts.append(context)
-                continue
             _populate_pct_change(context, provider)
-            drop_reason = _evaluate_gates(context, thresholds)
-            if drop_reason:
-                drop_ledger.setdefault(symbol, drop_reason)
-                print(f"[SCANNER][DROP] symbol={symbol} reason={drop_reason}")
-                if get_config("DEBUG_SCANNER"):
-                    missingness = _missingness_map(drop_reason, context)
-                    print(
-                        "[SCANNER][DEBUG] "
-                        f"symbol={symbol} reason={drop_reason} missing={missingness}"
-                    )
-                evaluated_contexts.append(context)
-                continue
             score, components = _score_context(context)
             context["scanner_score"] = score
             context["scanner_score_components"] = components
             candidates.append(context)
             evaluated_contexts.append(context)
 
-        print("[SCANNER][STAGE] watchlist")
-        ranked = _rank_candidates(candidates)
-        watchlist_limit = limits["watchlist_limit"]
-        watchlist_contexts = ranked[:watchlist_limit] if watchlist_limit > 0 else []
-        for context in ranked[watchlist_limit:]:
-            drop_ledger.setdefault(context["symbol"], "DROP_RANK_BELOW_WATCHLIST")
-            print(
-                "[SCANNER][DROP] symbol="
-                f"{context['symbol']} reason=DROP_RANK_BELOW_WATCHLIST"
-            )
-
         print("[SCANNER][STAGE] enrich")
-        watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
+        candidate_symbols = [context["symbol"] for context in candidates]
         news_by_symbol, news_diag = (
-            _enrich_news_context(watchlist_symbols, provider.source_name)
-            if watchlist_symbols
+            _enrich_news_context(candidate_symbols, provider.source_name)
+            if candidate_symbols
             else ({}, NewsDiagnostics(False, False, None, 0, 0, {}))
         )
         diagnostics["news"] = {
@@ -1306,35 +1290,12 @@ def run_scanner_cycle(
             "rss_failure_reason": news_diag.failure_reason,
         }
         if news_diag.news_degraded:
-            for context in watchlist_contexts:
+            for context in candidates:
                 flags = context.get("data_quality_flags", [])
                 if "NEWS_DELAYED" not in flags:
                     flags.append("NEWS_DELAYED")
 
-        print("[SCANNER][STAGE] print")
-        fast_rows = _build_fast_rows(watchlist_contexts, news_by_symbol)
-        focus_limit = limits["focus_limit"]
-        focus_contexts = watchlist_contexts[:focus_limit]
-        deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
-
-        exclusion_counts = Counter(drop_ledger.values())
-        drop_summary = dict(exclusion_counts)
-        diagnostics["drop_ledger_summary"] = drop_summary
-        print(
-            "[SCANNER][SUMMARY] "
-            f"candidates={len(symbols)} gated={len(candidates)} "
-            f"watchlist={len(watchlist_contexts)} drops={drop_summary}"
-        )
-
-        watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
-        focus_symbols = [row.symbol for row in deep_rows]
-        watchlist_hash = _watchlist_hash(watchlist_symbols, focus_symbols)
-        watchlist_changed = watchlist_hash != _WATCHLIST_HASH
-        print(
-            "[SCANNER][DROP_SUMMARY] "
-            f"topn={len(symbols)} evaluated={len(evaluated_contexts)} "
-            f"dropped={len(drop_ledger)} reasons={drop_summary}"
-        )
+        print("[SCANNER][STAGE] selection")
         candidate_metrics: List[CandidateMetrics] = []
         scanner_candidates: List[ScannerCandidate] = []
         for context in evaluated_contexts:
@@ -1352,13 +1313,56 @@ def run_scanner_cycle(
                     timestamp_utc=utc_now.isoformat(),
                 )
             )
-        candidate_lookup = {candidate.symbol: candidate for candidate in candidate_metrics}
+        selection = apply_ross_stock_selection(
+            resolved_policy,
+            candidate_metrics,
+            session_label,
+        )
+        drop_ledger.update(selection["drop_ledger"])
+        exclusion_counts = Counter(drop_ledger.values())
+        drop_summary = dict(exclusion_counts)
+        diagnostics["drop_ledger_summary"] = drop_summary
+        watchlist_metrics = selection["watchlist_k"]
+        focus_metrics = selection["focus_m"]
+        watchlist_symbols = [candidate.symbol for candidate in watchlist_metrics]
+        focus_symbols = [candidate.symbol for candidate in focus_metrics]
+
+        print("[SCANNER][STAGE] print")
+        fast_rows = _build_fast_rows(watchlist_metrics, news_by_symbol)
+        deep_rows = _build_deep_rows(focus_metrics, news_by_symbol)
+
+        print(
+            "[SCANNER][SUMMARY] "
+            f"candidates={len(symbols)} evaluated={len(candidate_metrics)} "
+            f"watchlist={len(watchlist_metrics)} drops={drop_summary}"
+        )
+        watchlist_hash = _watchlist_hash(watchlist_symbols, focus_symbols)
+        watchlist_changed = watchlist_hash != _WATCHLIST_HASH
+        print(
+            "[SCANNER][DROP_SUMMARY] "
+            f"topn={len(symbols)} evaluated={len(evaluated_contexts)} "
+            f"dropped={len(drop_ledger)} reasons={drop_summary}"
+        )
+        candidate_lookup = {
+            candidate.symbol: replace(
+                candidate,
+                drop_reasons=[drop_ledger[candidate.symbol]]
+                if candidate.symbol in drop_ledger
+                else [],
+            )
+            for candidate in candidate_metrics
+        }
+        candidate_metrics = list(candidate_lookup.values())
         watchlist_metrics = [
             candidate_lookup[symbol]
             for symbol in watchlist_symbols
             if symbol in candidate_lookup
         ]
-        focus_metrics = watchlist_metrics[: len(focus_symbols)]
+        focus_metrics = [
+            candidate_lookup[symbol]
+            for symbol in focus_symbols
+            if symbol in candidate_lookup
+        ]
         if _should_print_watchlist(
             watchlist_changed=watchlist_changed,
             session_label=session_label,
@@ -1380,8 +1384,8 @@ def run_scanner_cycle(
             file_path = watchlist_dir / f"watchlist_RossMomentum_{ts}.txt"
             header_lines = [
                 f"# candidates_count={len(symbols)}",
-                f"# gated_count={len(candidates)}",
-                f"# watchlist_count={len(watchlist_contexts)}",
+                f"# gated_count={len(candidate_metrics)}",
+                f"# watchlist_count={len(watchlist_metrics)}",
                 f"# drop_reasons={dict(exclusion_counts)}",
             ]
             file_path.write_text(

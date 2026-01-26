@@ -70,8 +70,15 @@ from src.strategies.ross_momentum.strategy_policy import (
     UniverseSource,
     stock_selection_policy_for_session_phase,
 )
+from src.strategies.statistical_intraday_momentum.strategy_policy import (
+    StatisticalIntradayMomentumPolicy,
+)
+from src.strategies.statistical_intraday_momentum.scanner_policy import (
+    statistical_stock_selection_policy,
+)
 from src.utils.time_utils import market_session_phase, to_ny_time, to_uk_time
 from src.regime.layer import RegimeLayer
+from src.core.readiness import run_readiness_check
 
 
 class RuntimeSafetyError(RuntimeError):
@@ -85,6 +92,9 @@ class CoreOrchestrator:
         self.execution_enabled = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
         self.ibkr_api_write_allowed = bool(get_config("IBKR_API_WRITE_ALLOWED"))
         self.replay_mode = EventReplayMode(get_config("EVENT_REPLAY_MODE_EFFECTIVE"))
+        self.strategy_key = str(get_config("STRATEGY_KEY") or "ross_momentum").strip().lower()
+        self.readiness_report = run_readiness_check()
+        print(self.readiness_report.to_text())
         if (
             self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
             and self.replay_mode != EventReplayMode.OFF
@@ -149,7 +159,11 @@ class CoreOrchestrator:
             self.price_feed = DeterministicPriceFeed()
         self.scanner_mode = get_scanner_mode()
         self.last_scanner_watchlist_payload = {}
-        self.pattern_engine = PatternEngine()
+        if self.strategy_key == "statistical_intraday_momentum":
+            self.pattern_engine = None
+            print("[BOOT] PatternEngine skipped for statistical strategy.")
+        else:
+            self.pattern_engine = PatternEngine()
         self.signal_engine_v1 = SignalEngineV1()
         print("[BOOT] SignalEngineV1 instantiated")
         self.strategy_runner = StrategyRunner(event_collector=self.event_collector)
@@ -193,6 +207,7 @@ class CoreOrchestrator:
             stop_controller=self.stop_controller,
         )
         self.execution_enabled = self.execution_engine.execution_enabled
+        self._apply_readiness_gate()
         self.trade_exit_engine = TradeExitEngine(
             trade_registry=self.trade_registry,
             event_collector=self.event_collector,
@@ -221,8 +236,33 @@ class CoreOrchestrator:
             return "LATE_SLOW"
         return "MIDDAY_SLOW"
 
+    def _apply_readiness_gate(self) -> None:
+        if self.readiness_report.is_pass:
+            return
+        if self.run_mode in {
+            RunMode.LIVE,
+            RunMode.LIVE_MICRO,
+            RunMode.LIVE_READ_ONLY,
+            RunMode.PAPER,
+        }:
+            self.execution_enabled = False
+            if self.execution_engine is not None:
+                self.execution_engine.execution_enabled = False
+            print(
+                "[READINESS][GATE] Execution disabled due to readiness failure "
+                f"strategy={self.readiness_report.strategy_key}"
+            )
+
     @staticmethod
-    def _build_scanner_policy(session_phase: str) -> tuple[RossMomentumPolicy, StockSelectionPolicy]:
+    def _build_scanner_policy(
+        session_phase: str,
+        strategy_key: str | None = None,
+    ) -> tuple[object, StockSelectionPolicy]:
+        resolved_key = (strategy_key or str(get_config("STRATEGY_KEY") or "")).lower()
+        if resolved_key == "statistical_intraday_momentum":
+            strategy_policy = StatisticalIntradayMomentumPolicy()
+            stock_policy = statistical_stock_selection_policy(strategy_policy)
+            return strategy_policy, stock_policy
         strategy_policy = RossMomentumPolicy()
         stock_policy = stock_selection_policy_for_session_phase(strategy_policy, session_phase)
         return strategy_policy, stock_policy
@@ -607,18 +647,23 @@ class CoreOrchestrator:
             f"phase={session_phase} ny_time={ny_time.isoformat()} "
             f"uk_time={uk_time.isoformat()} utc={cycle_started_at.isoformat()}"
         )
-        strategy_policy, scanner_policy = self._build_scanner_policy(session_phase)
+        strategy_policy, scanner_policy = self._build_scanner_policy(
+            session_phase,
+            strategy_key=self.strategy_key,
+        )
         scanner_request = self._build_scanner_request(scanner_policy)
         execution_intent = build_execution_intent(
-            strategy_name=strategy_policy.name,
+            strategy_name=str(getattr(strategy_policy, "name", self.strategy_key)),
             mode=self.run_mode.value,
             session_phase=session_phase,
             policy=scanner_policy,
             execution_enabled=self.execution_enabled,
         )
         print(
-            "[ORCH][POLICY] loaded strategy=ross_momentum "
-            f"version={strategy_policy.version} policy={strategy_policy.name} "
+            "[ORCH][POLICY] loaded strategy="
+            f"{getattr(strategy_policy, 'name', self.strategy_key)} "
+            f"version={getattr(strategy_policy, 'version', 'unknown')} "
+            f"policy={getattr(strategy_policy, 'name', self.strategy_key)} "
             "stock_selection=ENABLED"
         )
         print(
@@ -804,7 +849,11 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Pattern stage — evaluate shapes/behaviors (conceptual).")
         try:
-            pattern_results = self.pattern_engine.evaluate_patterns(scanner_results or [])
+            if self.pattern_engine is None:
+                pattern_results = []
+                print("[PATTERN] Skipped — no pattern engine for selected strategy.")
+            else:
+                pattern_results = self.pattern_engine.evaluate_patterns(scanner_results or [])
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="PATTERN",
@@ -875,13 +924,19 @@ class CoreOrchestrator:
                 regime_snapshot,
                 regime_policy_decision,
             )
-            interface_intents = ross_trade_intents_to_decision_intents(strategy_output)
-            interface_event = self.event_collector.emit(
-                event_type="STRATEGY_INTERFACE_INTENTS",
-                source="RossMomentumAdapter",
-                payload={"count": len(interface_intents)},
-            )
-            print(interface_event)
+            if self.strategy_key == "ross_momentum":
+                interface_intents = ross_trade_intents_to_decision_intents(strategy_output)
+                interface_event = self.event_collector.emit(
+                    event_type="STRATEGY_INTERFACE_INTENTS",
+                    source="RossMomentumAdapter",
+                    payload={"count": len(interface_intents)},
+                )
+                print(interface_event)
+            else:
+                print(
+                    "[STRATEGY][ADAPTER] Skipping Ross adapter for "
+                    f"strategy={self.strategy_key}"
+                )
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="STRATEGY",

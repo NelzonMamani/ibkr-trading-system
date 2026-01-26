@@ -36,7 +36,8 @@ class PatternEvaluator:
         all_results: List[PatternResult] = []
         veto_flags: List[str] = []
         for inputs in inputs_list:
-            all_results.extend(self._registry.run(inputs))
+            results = self._registry.run(inputs)
+            all_results.extend(results)
             if inputs.liquidity_context.spread > 0.05:
                 veto_flags.append("wide_spread")
             if inputs.data_quality_flags:
@@ -44,6 +45,9 @@ class PatternEvaluator:
             if inputs.liquidity_context.float_millions is not None:
                 if inputs.liquidity_context.float_millions < 5:
                     veto_flags.append("low_float")
+            for result in results:
+                if result.detected and any(flag.startswith("VETO") for flag in result.risk_flags):
+                    veto_flags.extend(result.risk_flags)
 
         best_long = self._best_setup(all_results, Direction.LONG)
         best_short = self._best_setup(all_results, Direction.SHORT)

@@ -36,6 +36,8 @@ def build_trade_intents(
     intents: List[TradeIntent] = []
     if summary.conflict_flag:
         return intents
+    if any(flag.startswith("VETO") for flag in summary.veto_flags):
+        return intents
 
     for setup in [summary.best_long_setup, summary.best_short_setup]:
         if setup is None:

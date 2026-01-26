@@ -24,6 +24,9 @@ MAX_HOLD_TICKS: int = int(get_config("MAX_HOLD_TICKS"))
 # ==========================================================
 
 ROSS_MOMENTUM_STRATEGY_ENABLED: bool = bool(get_config("ROSS_MOMENTUM_STRATEGY_ENABLED"))
+STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED: bool = bool(
+    get_config("STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED")
+)
 
 ENABLED_STRATEGIES = dict(get_config("ENABLED_STRATEGIES"))
 
@@ -31,4 +34,6 @@ ENABLED_STRATEGIES = dict(get_config("ENABLED_STRATEGIES"))
 def is_strategy_enabled(strategy_name: str) -> bool:
     if strategy_name == "RossMomentumStrategyV1":
         return ROSS_MOMENTUM_STRATEGY_ENABLED
+    if strategy_name == "StatisticalIntradayMomentumStrategy":
+        return STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED
     return ENABLED_STRATEGIES.get(strategy_name or "", False)
