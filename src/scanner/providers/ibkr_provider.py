@@ -42,7 +42,8 @@ class IbkrScannerProvider(ScannerDataProvider):
         )
 
         scan_data = self.market_data_client.ib.reqScannerData(subscription)
-        returned_rows = len(scan_data or [])
+        scan_items = scan_data or []
+        returned_rows = len(scan_items)
         print(
             "[SCANNER][IBKR] "
             f"requested_rows={resolved_requested_top_n} returned_rows={returned_rows}"
@@ -55,16 +56,34 @@ class IbkrScannerProvider(ScannerDataProvider):
 
         symbols = [
             item.contractDetails.contract.symbol.upper()
-            for item in (scan_data or [])
+            for item in scan_items
             if item.contractDetails and item.contractDetails.contract
         ]
         if symbols:
+            print(f"RAW_SCAN_SYMBOLS (N={len(symbols)}): {symbols}")
+            for idx, item in enumerate(scan_items, start=1):
+                details = getattr(item, "contractDetails", None)
+                contract = details.contract if details else None
+                symbol = contract.symbol.upper() if contract and contract.symbol else "NA"
+                con_id = getattr(contract, "conId", None) if contract else None
+                primary_exchange = (
+                    getattr(contract, "primaryExchange", None) if contract else None
+                )
+                trading_class = getattr(contract, "tradingClass", None) if contract else None
+                rank = getattr(item, "rank", None) or idx
+                print(
+                    "[SCANNER][IBKR][ROW] "
+                    f"rank={rank} symbol={symbol} conId={con_id} "
+                    f"primaryExchange={primary_exchange} tradingClass={trading_class}"
+                )
             return symbols
 
         symbols = get_scanner_symbols(default=[])
         if not symbols:
             symbols = ["AAPL", "MSFT", "NVDA", "AMD", "TSLA"]
-        return [symbol.upper() for symbol in symbols][:limit]
+        symbols = [symbol.upper() for symbol in symbols][:limit]
+        print(f"RAW_SCAN_SYMBOLS (N={len(symbols)}): {symbols}")
+        return symbols
 
     def get_quote(self, symbol: str) -> QuoteData:
         snapshot = self.market_data_client.snapshot_stock(symbol)

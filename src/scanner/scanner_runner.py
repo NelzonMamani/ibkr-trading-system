@@ -131,6 +131,20 @@ def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
         return default
 
 
+def _is_unsubscribed_market_data_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if not message:
+        return False
+    keywords = (
+        "market data subscription",
+        "not subscribed",
+        "no market data",
+        "market data permissions",
+        "not authorized",
+    )
+    return any(keyword in message for keyword in keywords)
+
+
 def _market_session_label_utc(now: datetime) -> str:
     h = now.hour + now.minute / 60.0
     if 12.0 <= h < 14.0:
@@ -976,7 +990,14 @@ def _build_symbol_context(
 ) -> Optional[Dict[str, Any]]:
     try:
         quote = provider.get_quote(symbol)
-    except Exception:
+    except Exception as exc:
+        if _is_unsubscribed_market_data_error(exc):
+            return {
+                "symbol": symbol,
+                "session": session_label,
+                "data_quality_flags": ["UNSUBSCRIBED_MARKET_DATA"],
+                "snapshot_error": "UNSUBSCRIBED_MARKET_DATA",
+            }
         return None
 
     data_quality_flags = list(getattr(quote, "data_quality_flags", []) or [])
@@ -1317,6 +1338,14 @@ def run_scanner_cycle(
                     }
                 )
                 continue
+            if context.get("snapshot_error") == "UNSUBSCRIBED_MARKET_DATA":
+                drop_ledger.setdefault(symbol, "DROP_UNSUBSCRIBED_MARKET_DATA")
+                print(
+                    "[SCANNER][DROP] "
+                    f"symbol={symbol} reason=DROP_UNSUBSCRIBED_MARKET_DATA"
+                )
+                evaluated_contexts.append(context)
+                continue
             if context.get("snapshot_timeout"):
                 drop_ledger.setdefault(symbol, "DROP_SNAPSHOT_TIMEOUT")
                 print(f"[SCANNER][DROP] symbol={symbol} reason=DROP_SNAPSHOT_TIMEOUT")
@@ -1351,6 +1380,23 @@ def run_scanner_cycle(
             context["scanner_score"] = score
             context["scanner_score_components"] = components
             candidates.append(context)
+            keep_parts = [
+                f"[SCANNER][KEEP] symbol={symbol}",
+                f"last={_format_value(context.get('last_price'))}",
+                f"final_pct={_format_value(context.get('pct_change'))}",
+                f"pct_source={context.get('pct_source') or 'NA'}",
+                f"vol={_format_int(context.get('volume'))}",
+            ]
+            bid = context.get("bid")
+            ask = context.get("ask")
+            spread = context.get("spread")
+            if bid is not None:
+                keep_parts.append(f"bid={_format_value(bid)}")
+            if ask is not None:
+                keep_parts.append(f"ask={_format_value(ask)}")
+            if spread is not None:
+                keep_parts.append(f"spread={_format_value(spread, 4)}")
+            print(" ".join(keep_parts))
             evaluated_contexts.append(context)
 
         missing_pct = sum(1 for context in evaluated_contexts if context.get("pct_change") is None)
@@ -1359,6 +1405,10 @@ def run_scanner_cycle(
                 "[SCANNER][WARN] Percent change missing for many symbols "
                 f"missing={missing_pct} total={len(evaluated_contexts)}"
             )
+        after_gates_symbols = [context["symbol"] for context in candidates]
+        print(
+            f"AFTER_GATES_SYMBOLS (N={len(after_gates_symbols)}): {after_gates_symbols}"
+        )
 
         # Watchlist gate is created here from the raw scanner universe (cheap metrics only).
         print("[SCANNER][STAGE] watchlist")
@@ -1374,6 +1424,9 @@ def run_scanner_cycle(
 
         print("[SCANNER][STAGE] enrich")
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
+        print(
+            f"WATCHLIST_K_SELECTED (K={len(watchlist_symbols)}): {watchlist_symbols}"
+        )
         allow_news = bool(get_config("NEWS_ENABLED")) and run_mode not in {
             RunMode.LIVE,
             RunMode.LIVE_READ_ONLY,
