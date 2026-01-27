@@ -61,6 +61,7 @@ class MarketDataSnapshot:
     high: Optional[float]
     low: Optional[float]
     close: Optional[float]
+    change_percent: Optional[float]
     spread: Optional[float]
     timestamp_utc: str
     data_quality_flags: list[str] = field(default_factory=list)
@@ -207,6 +208,7 @@ class MarketDataClient:
         low = _clean(getattr(ticker, "low", None))
         close = _clean(getattr(ticker, "close", None))
         open_price = _clean(getattr(ticker, "open", None))
+        change_percent = _clean(getattr(ticker, "changePercent", None))
         if get_config("DEBUG_MARKET_DATA"):
             print(
                 "[IBKR][MD][DEBUG] ticks "
@@ -237,6 +239,7 @@ class MarketDataClient:
             high=high,
             low=low,
             close=close,
+            change_percent=change_percent,
             spread=spread,
             timestamp_utc=datetime.now(timezone.utc).isoformat(),
             data_quality_flags=flags,
@@ -261,7 +264,7 @@ class MarketDataClient:
     def _ticker_snapshot_complete(ticker) -> bool:
         return bool(getattr(ticker, "snapshotEnd", False))
 
-    def prev_close_from_history(self, symbol: str) -> Optional[float]:
+    def prev_close_from_history(self, symbol: str, use_rth: bool = True) -> Optional[float]:
         try:
             contract = self.qualify_contract(symbol)
         except Exception:
@@ -275,7 +278,7 @@ class MarketDataClient:
                 durationStr="3 D",
                 barSizeSetting="1 day",
                 whatToShow="TRADES",
-                useRTH=False,
+                useRTH=use_rth,
                 formatDate=1,
             )
         except Exception:
@@ -307,6 +310,7 @@ class MarketDataClient:
             high=None,
             low=None,
             close=None,
+            change_percent=None,
             spread=None,
             timestamp_utc=datetime.now(timezone.utc).isoformat(),
             data_quality_flags=flags,

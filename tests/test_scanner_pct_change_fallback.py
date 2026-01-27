@@ -29,6 +29,7 @@ class _FallbackProvider(ScannerDataProvider):
             high=111.0,
             low=107.5,
             close=None,
+            change_percent=None,
             volume=150000,
             timestamp_utc="2025-01-01T00:00:00Z",
             data_quality_flags=(),

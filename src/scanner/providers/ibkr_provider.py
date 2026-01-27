@@ -67,13 +67,14 @@ class IbkrScannerProvider(ScannerDataProvider):
             high=snapshot.high,
             low=snapshot.low,
             close=snapshot.close,
+            change_percent=snapshot.change_percent,
             volume=snapshot.volume,
             timestamp_utc=snapshot.timestamp_utc,
             data_quality_flags=tuple(snapshot.data_quality_flags),
         )
 
     def get_prev_close(self, symbol: str) -> Optional[float]:
-        prev_close = self.market_data_client.prev_close_from_history(symbol)
+        prev_close = self.market_data_client.prev_close_from_history(symbol, use_rth=True)
         if prev_close is not None:
             return prev_close
         snapshot = self.market_data_client.snapshot_stock(symbol)

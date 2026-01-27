@@ -21,6 +21,7 @@ class DummyTicker:
         self.low = None
         self.close = None
         self.open = None
+        self.changePercent = None
 
 
 class DummyIB:
