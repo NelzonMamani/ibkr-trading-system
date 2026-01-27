@@ -1,0 +1,31 @@
+
+==================
+CONNECTING TO IBKR
+==================
+Connected: True
+
+=========================
+SCANNER RESULTS — 10 ROWS
+=========================
+RUN HEADER
+Run Timestamp (UTC): 2026-01-27 15:09:58 UTC
+IBKR Connection: host=127.0.0.1 port=7496 clientId=99
+Scanner Definition: scanCode=TOP_PERC_GAIN abovePrice=1.0 belowPrice=20.0 rows=10
+Derived From: stock_selection_scanner_25_jan_2026.py
+-------------------------
+SYM    SESS      LAST   PRIOR     %CHG        VOL  $VOL(M)   RV20   RV1D  FLOAT(M)  NEWS?
+--------------------------------------------------------------------------------------------------------------------------------------------
+GITS   REG       5.71    1.91 +198.95%      71150     0.41   1.63   0.29      2.46      N
+NUWE   REG       3.88    2.15  +80.56%     933202     3.62 167.71  76.13      1.54      N
+KNDYF  REG       1.00    0.56  +78.57%        N/A      N/A    N/A    N/A     16.76      N
+PHGE   REG       6.58    4.10  +60.61%     199089     1.31 165.67   3.24      1.08      N
+XHLD   REG       1.79    1.27  +40.94%     125512     0.22 118.81   1.12      1.27      N
+IVF    REG       1.67    1.21  +38.02%     518347     0.87   2.12   0.39      1.70      N
+NETG   REG      14.59   11.43  +27.65%       1007     0.01   5.93   0.09       N/A      N
+RDW    REG      13.96   10.96  +27.42%     454016     6.34   1.33   0.01    101.21      N
+ASPC   REG      15.49   12.33  +25.63%       5395     0.08   0.29   0.20      1.79      N
+SUPX   REG      16.33   13.21  +23.62%       4045     0.07   1.65   0.05     11.59      N
+
+============
+DISCONNECTED
+============

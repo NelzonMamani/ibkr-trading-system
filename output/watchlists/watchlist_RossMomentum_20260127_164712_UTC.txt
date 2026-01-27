@@ -1,0 +1,6 @@
+# candidates_count=50
+# gated_count=1
+# watchlist_count=1
+# drop_reasons={'DROP_VOLUME': 49}
+
+rank=01 symbol=NUWE session=REG last=3.75 pct_change=74.4 volume=1014892 dollar_vol=3805743.51 bid=3.74 ask=3.75 spread=0.0100 spread_pct=0.0027 rvol=N/A float=N/A score=100.00 news_present=false catalyst=N/A dilution=false news_age_min=N/A vel5=N/A vel10=N/A vel30=N/A attention=N/A gam_ea_eligible=none flags=RVOL_UNKNOWN,FLOAT_UNKNOWN

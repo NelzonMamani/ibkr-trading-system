@@ -31,7 +31,8 @@ ibkr-trading-system/
 │   │       ├── 2026-01-21_ops_summary.json
 │   │       ├── 2026-01-22_ops_summary.json
 │   │       ├── 2026-01-25_ops_summary.json
-│   │       └── 2026-01-26_ops_summary.json
+│   │       ├── 2026-01-26_ops_summary.json
+│   │       └── 2026-01-27_ops_summary.json
 │   ├── ibkr_system.db
 │   └── regime_baselines.json
 ├── docs
@@ -95,6 +96,14 @@ ibkr-trading-system/
 │   ├── README.md
 │   ├── RUNBOOK_UPDATE.md
 │   └── SYSTEM_STATE_UPDATE.md
+├── for_updates001
+│   ├── 01_CONTEXT_AND_OBJECTIVES.md
+│   ├── 02_SCANNER_EVENT_MODEL.md
+│   ├── 03_BACKGROUND_PREMARKET_PREPARATION.md
+│   ├── 04_ORCHESTRATOR_EVENT_FLOW.md
+│   ├── 05_STORAGE_AND_DATA_HYGIENE.md
+│   ├── 06_CODEX_IMPLEMENTATION_INSTRUCTIONS.md
+│   └── 07_SUCCESS_CRITERIA.md
 ├── IBKR_Stabilisation_and_Parallel_Learning_Epoch_Bundle
 │   ├── 00_INDEX.md
 │   ├── 01_FIX_LIVE_MICRO_SCANNER_READONLY_VIOLATION.md
@@ -110,7 +119,8 @@ ibkr-trading-system/
 │   ├── 17_TESTS_SAFETY_BOUNDARIES_AND_VERIFICATION.md
 │   └── 99_MANDATORY_VERIFICATION_COMMANDS.md
 ├── logs
-│   └── trace_20260126.jsonl
+│   ├── trace_20260126.jsonl
+│   └── trace_20260127.jsonl
 ├── output
 │   ├── verification
 │   │   ├── compileall.log
@@ -147,7 +157,8 @@ ibkr-trading-system/
 │   │   ├── watchlist_RossMomentum_20260121_224057_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260122_192049_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260125_215327_UTC.txt
-│   │   └── watchlist_RossMomentum_20260126_212034_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260126_212034_UTC.txt
+│   │   └── watchlist_RossMomentum_20260127_164712_UTC.txt
 │   └── trade_store.jsonl
 ├── scripts
 │   ├── smoke_main.ps1
@@ -325,7 +336,8 @@ ibkr-trading-system/
 │   │   ├── scanner_live_readonly.py
 │   │   ├── scanner_main.py
 │   │   ├── scanner_master_v2026_01_06_07.py
-│   │   └── scanner_runner.py
+│   │   ├── scanner_runner.py
+│   │   └── session_pct_change.py
 │   ├── signals
 │   │   ├── impl
 │   │   │   ├── __init__.py
@@ -349,6 +361,7 @@ ibkr-trading-system/
 │   │   └── price_feed.py
 │   ├── storage
 │   │   ├── __init__.py
+│   │   ├── db_admin.py
 │   │   ├── review_queries.py
 │   │   ├── schema_map.py
 │   │   ├── serialization.py
@@ -522,7 +535,28 @@ ibkr-trading-system/
 │   ├── test_traceability.py
 │   └── test_trade_exit_engine.py
 ├── troubleshooting
+│   ├── backup
+│   │   └── stock_selection_scanner_25_jan_2026.py
 │   └── stock_selection
+│       ├── troubleshooting
+│       │   └── stock_selection
+│       │       └── output
+│       │           ├── ross_stock_selection_2026_01_27_002540_UTC.txt
+│       │           ├── ross_stock_selection_v1_2026_01_27_005101_UTC.txt
+│       │           ├── ross_stock_selection_v1_2026_01_27_112005_UTC.txt
+│       │           ├── ross_stock_selection_v1_2026_01_27_150958_UTC.txt
+│       │           ├── ross_stock_selection_v2_2026_01_27_110714_UTC.txt
+│       │           ├── ross_stock_selection_v2_2026_01_27_151136_UTC.txt
+│       │           ├── stock_selection_scanner_2026_01_26_234146_UTC.txt
+│       │           ├── stock_selection_scanner_2026_01_27_002820_UTC.txt
+│       │           ├── stock_selection_scanner_2026_01_27_110033_UTC.txt
+│       │           ├── stock_selection_scanner_2026_01_27_111927_UTC.txt
+│       │           ├── stock_selection_scanner_2026_01_27_151043_UTC.txt
+│       │           └── stock_selection_scanner_2026_01_27_153520_UTC.txt
+│       ├── ross_stock_selection_2026_01_27_001734_UTC.py
+│       ├── ross_stock_selection_scanner_v1_2026_01_27_003749_UTC.py
+│       ├── ross_stock_selection_scanner_v2_1_2026_01_27_143909_UTC.py
+│       ├── ross_stock_selection_scanner_v2_2026_01_27_014955_UTC.py
 │       └── stock_selection_scanner_25_jan_2026.py
 ├── .gitignore
 ├── HOUSEKEEPING.md
@@ -532,6 +566,7 @@ ibkr-trading-system/
 ├── pytest.ini
 ├── README.md
 ├── README_VERIFY.md
+├── repo_size_report.py
 ├── requirements.txt
 ├── ROSS_MOMENTUM_PATTERN_DETECTION_BLUEPRINT.md
 ├── ROSS_MOMENTUM_PATTERN_REFERENCE.md

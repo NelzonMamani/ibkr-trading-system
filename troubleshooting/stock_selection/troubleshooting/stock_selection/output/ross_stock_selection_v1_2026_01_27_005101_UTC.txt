@@ -1,0 +1,31 @@
+
+==================
+CONNECTING TO IBKR
+==================
+Connected: True
+
+=========================
+SCANNER RESULTS — 10 ROWS
+=========================
+RUN HEADER
+Run Timestamp (UTC): 2026-01-27 00:51:01 UTC
+IBKR Connection: host=127.0.0.1 port=7496 clientId=99
+Scanner Definition: scanCode=TOP_PERC_GAIN abovePrice=1.0 belowPrice=20.0 rows=10
+Derived From: stock_selection_scanner_25_jan_2026.py
+-------------------------
+SYM    SESS      LAST   PRIOR     %CHG        VOL  $VOL(M)   RV20   RV1D  FLOAT(M)  NEWS?
+--------------------------------------------------------------------------------------------------------------------------------------------
+BATL   PRE       3.99    1.28 +211.72%    2162131     8.63 611.31  21.85      6.34      N
+MBAI   PRE       3.16    1.49 +112.08%    1426936     4.51 6055.78 105.18      4.45      N
+SLGB   PRE       2.48    1.22 +103.28%     458495     1.14  27.18   1.22      0.98      N
+COPR   PRE      10.00    5.55  +80.18%        N/A      N/A    N/A    N/A       N/A      N
+SNLGF  PRE       1.50    0.88  +69.97%        N/A      N/A   6.22    N/A     67.36      N
+TMRC   PRE       1.54    0.95  +62.57%        N/A      N/A  14.94    N/A     58.18      N
+GAUZ   PRE       1.74    1.09  +59.63%      19963     0.03   6.36   0.24     11.85      N
+SGDH   PRE       1.00    0.65  +53.85%        N/A      N/A    N/A    N/A       N/A      N
+SBDS   PRE       8.90    6.22  +43.09%       2016     0.02   7.77   0.12      0.43      N
+DRMA   PRE       3.08    2.17  +41.94%     276421     0.85  27.79   1.51      0.02      N
+
+============
+DISCONNECTED
+============

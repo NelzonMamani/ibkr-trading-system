@@ -1,0 +1,31 @@
+
+==================
+CONNECTING TO IBKR
+==================
+Connected: True
+
+=========================
+SCANNER RESULTS — 10 ROWS
+=========================
+RUN HEADER
+Run Timestamp (UTC): 2026-01-27 00:25:40 UTC
+IBKR Connection: host=127.0.0.1 port=7496 clientId=99
+Scanner Definition: scanCode=TOP_PERC_GAIN abovePrice=1.0 belowPrice=20.0 rows=10
+Session Inference: REG (ET 19:25)
+-------------------------
+SYM    SESS    LAST   PRIOR      %CHG        VOL   $VOL(M)   RV20   RV1D  FLOAT(M) NEWS?
+--------------------------------------------------------------------------------------------------------------------------------------------
+BATL    REG    3.11    3.99   -22.06%  2,161,256      6.72   0.57   0.03      6.34     N
+MBAI    REG    3.16    3.16    +0.00%  1,426,234      4.51   0.23   0.01      4.45     N
+SLGB    REG    2.05    2.48   -17.34%    458,389      0.94   0.13   0.01      0.98     N
+COPR    REG     N/A   10.00       N/A        N/A       N/A    N/A    N/A       N/A     N
+SNLGF   REG     N/A    1.50       N/A        N/A       N/A    N/A    N/A     67.36     N
+TMRC    REG    1.54    1.54    +0.00%          0      0.00   0.00   0.00     58.18     N
+GAUZ    REG    1.52    1.74   -12.64%     19,921      0.03   0.06   0.01     11.85     N
+SGDH    REG     N/A    1.00       N/A        N/A       N/A    N/A    N/A       N/A     N
+SBDS    REG    8.21    8.90    -7.75%      2,011      0.02   0.07   0.01      0.43     N
+DRMA    REG    3.15    3.08    +2.27%    276,206      0.87   0.15   0.01      0.02     N
+
+============
+DISCONNECTED
+============

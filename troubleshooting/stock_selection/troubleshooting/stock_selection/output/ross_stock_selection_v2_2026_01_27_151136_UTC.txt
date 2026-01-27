@@ -1,0 +1,78 @@
+
+==================
+CONNECTING TO IBKR
+==================
+Connected: True
+
+=========================
+SCANNER RESULTS — 50 ROWS
+=========================
+RUN HEADER
+Script Filename: ross_stock_selection_scanner_v2_2026_01_27_014955_UTC.py
+Version: v2
+Run Timestamp (UTC): 2026-01-27 15:11:36 UTC
+Market Session: RTH
+IBKR Connection: host=127.0.0.1 port=7496 clientId=99
+Scanner Definition: scanCode=TOP_PERC_GAIN abovePrice=1.0 belowPrice=20.0 rows=50
+Derived From: ross_stock_selection_scanner_v1_2026_01_27_003749_UTC.py
+-------------------------
+SYM    SESS      LAST   PRIOR     %CHG        VOL  $VOL(M)   RV20   RV1D  FLOAT(M)  NEWS? SPREAD_ABS SPREAD_PCT LIQ_SHARES_MIN  LIQ_USD_MIN  DATA_MODE  SUBSCRIPTION_OK   IBKR_ERROR_FLAGS  EXCHANGE_CLASS   HALTED    SSR
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+GITS   RTH       5.71    1.91 +198.95%      71150     0.41   1.63   0.29      2.46      N        N/A     +0.00%            100          571       LIVE                Y                N/A             N/A        N      N
+KNDYF  RTH       1.00    0.56  +78.57%        N/A      N/A    N/A    N/A     16.76      N        N/A        N/A            N/A          N/A      MIXED                N                354             N/A        N      N
+NUWE   RTH       3.83    2.15  +77.92%     938347     3.59 172.38  76.55      1.54      N     0.0200     +0.52%            700        2,681       LIVE                Y                N/A             N/A        N      N
+PHGE   RTH       6.80    4.10  +65.92%     201689     1.37 169.03   3.28      1.08      N     0.0300     +0.44%            100          678       LIVE                Y                N/A             N/A        N      N
+XHLD   RTH       1.75    1.27  +37.80%     129055     0.23 122.48   1.16      1.27      N     0.0100     +0.57%            500          870       LIVE                Y                N/A             N/A        N      N
+IVF    RTH       1.65    1.21  +35.95%     519585     0.85   2.14   0.39      1.70      N     0.0100     +0.61%           4200        6,909       LIVE                Y                N/A             N/A        N      N
+RDW    RTH      14.14   10.96  +29.01%     466745     6.60   1.38   0.01    101.21      N     0.0100     +0.07%            100        1,412       LIVE                Y                N/A             N/A        N      N
+NETG   RTH      14.59   11.43  +27.65%       1007     0.01   5.93   0.09       N/A      N     0.0300     +0.21%            100        1,459       LIVE                Y                N/A             N/A        N      N
+ASPC   RTH      15.46   12.33  +25.39%       5426     0.08   0.29   0.20      1.79      N     0.2300     +1.49%            100        1,546       LIVE                Y                N/A             N/A        N      N
+SUPX   RTH      16.20   13.21  +22.63%       4155     0.07   1.70   0.05     11.59      N     0.1900     +1.17%            200        3,242       LIVE                Y                N/A             N/A        N      N
+HUYA   RTH       4.32    3.57  +20.97%      48959     0.21   2.38   0.01     74.93      N     0.0100     +0.23%           1200        5,182       LIVE                Y                N/A             N/A        N      N
+RR     RTH       4.52    3.81  +18.64%     375029     1.70   0.73   0.02    132.69      N     0.0100     +0.22%           8300       37,433       LIVE                Y                N/A             N/A        N      N
+CRWG   RTH       5.74    4.87  +17.86%     106236     0.61   0.35   0.00       N/A      N     0.0100     +0.17%          15000       86,100       LIVE                Y                N/A             N/A        N      N
+CRWU   RTH      10.66    9.06  +17.66%       6984     0.07   0.35   0.00       N/A      N     0.0300     +0.28%           5200       55,380       LIVE                Y                N/A             N/A        N      N
+BPCGY  RTH      11.93   10.15  +17.48%        N/A      N/A    N/A    N/A   8831.55      N        N/A        N/A            N/A          N/A      MIXED                N                354             N/A        N      N
+GLXG   RTH       2.23    1.91  +16.75%        742     0.00   0.85   0.02      0.55      N     0.0800     +3.59%            100          223       LIVE                Y                N/A             N/A        N      N
+FOSL   RTH       4.10    3.53  +16.15%       9781     0.04   2.64   0.03     43.94      N     0.0100     +0.24%            300        1,230       LIVE                Y                N/A             N/A        N      N
+ABOS   RTH       2.42    2.08  +16.11%      18980     0.05   2.37   0.00     35.16      N     0.0100     +0.41%            200          483       LIVE                Y                N/A             N/A        N      N
+FIEE   RTH       5.49    4.74  +15.82%        401     0.00   0.85   0.01      1.64      N     0.0400     +0.73%            100          549       LIVE                Y                N/A             N/A        N      N
+BNZI   RTH       1.28    1.11  +15.77%      16037     0.02   1.38   0.02      6.03      N     0.0100     +0.78%            800        1,028       LIVE                Y                N/A             N/A        N      N
+APUS   RTH       1.85    1.60  +15.62%        426     0.00   0.33   0.00       N/A      N     0.0800     +4.32%            100          185       LIVE                Y                N/A             N/A        N      N
+ONEG   RTH       3.78    3.27  +15.60%        844     0.00   0.38   0.00      7.00      N     0.0500     +1.32%            100          378       LIVE                Y                N/A             N/A        N      N
+ISRLF  RTH      13.80   12.10  +14.05%        N/A      N/A    N/A    N/A      1.16      N        N/A        N/A            N/A          N/A      MIXED                N                354             N/A        N      N
+OCC    RTH       4.98    4.38  +13.70%        988     0.00   1.09   0.03      5.72      N     0.0800     +1.61%           2300       11,454       LIVE                Y                N/A             N/A        N      N
+PURR   RTH       4.22    3.74  +12.83%      15998     0.07   0.87   0.01       N/A      N     0.0500     +1.19%            100          420       LIVE                Y                N/A             N/A        N      N
+ALBKY  RTH       1.19    1.05  +12.80%        N/A      N/A   0.05    N/A   2079.64      N        N/A        N/A            N/A          N/A       LIVE                Y                N/A             N/A        N      N
+SHFS   RTH       1.17    1.04  +12.10%        736     0.00   0.36   0.01      1.32      N     0.0200     +1.72%            500          583       LIVE                Y                N/A             N/A        N      N
+KC     RTH      14.90   13.34  +11.69%      15058     0.22   1.30   0.01   2338.65      N     0.0200     +0.13%            300        4,470       LIVE                Y                N/A             N/A        N      N
+NBIL   RTH      11.50   10.33  +11.33%       3642     0.04   0.32   0.00       N/A      N     0.0400     +0.35%           2200       25,300       LIVE                Y                N/A             N/A        N      N
+NBIG   RTH       8.18    7.35  +11.29%       3325     0.03   0.49   0.00       N/A      N     0.0300     +0.37%           6700       54,806       LIVE                Y                N/A             N/A        N      N
+LKSPR  RTH       1.78    1.61  +10.56%         62     0.00    N/A   0.03     11.79      N     0.1800    +10.11%            500          890       LIVE                Y                N/A             N/A        N      N
+BSEM   RTH       7.22    6.54  +10.48%          5     0.00   0.55   0.00       N/A      N        N/A        N/A            N/A          N/A       LIVE                Y                N/A             N/A        N      N
+FLYT   RTH      16.99   15.38  +10.47%        356     0.01   0.42   0.00       N/A      N     0.1100     +0.65%           3700       62,863       LIVE                Y                N/A             N/A        N      N
+NTLA   RTH      15.41   13.95  +10.47%      69632     1.07   0.91   0.02    110.02      N     0.0400     +0.26%            400        6,172       LIVE                Y                N/A             N/A        N      N
+ATCX   RTH      10.35    9.40  +10.11%        418     0.00   0.35   0.00       N/A      N     0.3000     +2.90%            100        1,035       LIVE                Y                N/A             N/A        N      N
+HYPR   RTH       1.31    1.19  +10.08%       3792     0.00   0.67   0.01     77.87      N     0.0100     +0.76%            300          393       LIVE                Y                N/A             N/A        N      N
+LSTA   RTH       4.48    4.07  +10.07%       1909     0.01   0.43   0.01      7.06      N     0.0400     +0.89%            300        1,344       LIVE                Y                N/A             N/A        N      N
+CIFG   RTH      11.63   10.57  +10.03%        163     0.00   0.17   0.00       N/A      N     0.1000     +0.86%           1200       13,956       LIVE                Y                N/A             N/A        N      N
+ONDG   RTH      11.36   10.34   +9.86%        397     0.00    N/A   0.00       N/A      N     0.0700     +0.62%           1200       13,644       LIVE                Y                N/A             N/A        N      N
+UMC    RTH      12.43   11.33   +9.66%      81995     1.02   0.78   0.01  11683.49      N     0.0100     +0.08%           7400       91,797       LIVE                Y                N/A             N/A        N      N
+PUMSY  RTH       2.74    2.50   +9.60%         46     0.00   1.44   0.00    101.87      N     0.0200     +0.73%           2700        7,425       LIVE                Y                N/A             N/A        N      N
+TE     RTH       8.88    8.14   +9.15%      46695     0.41   0.21   0.00    126.29      N     0.0100     +0.11%            800        7,116       LIVE                Y                N/A             N/A        N      N
+AONC   RTH      12.00   11.00   +9.09%        N/A      N/A    N/A    N/A      9.65      N        N/A        N/A            N/A          N/A      MIXED                N                354             N/A        N      N
+IRE    RTH      11.38   10.44   +9.00%      44358     0.50   0.23   0.00       N/A      N     0.0100     +0.09%            600        6,834       LIVE                Y                N/A             N/A        N      N
+LEGT U RTH      12.00   11.03   +8.79%          1     0.00    N/A    N/A       N/A      N     1.2800    +10.67%            100        1,200       LIVE                Y                N/A             N/A        N      N
+IREX   RTH      19.45   17.88   +8.78%       4973     0.10   0.21   0.00       N/A      N     0.0300     +0.15%           1200       23,376       LIVE                Y                N/A             N/A        N      N
+TLX    RTH       8.32    7.65   +8.76%       1143     0.01   0.40   0.01    275.40      N     0.0200     +0.24%            400        3,328       LIVE                Y                N/A             N/A        N      N
+ONDU   RTH      18.59   17.13   +8.52%        465     0.01    N/A   0.00       N/A      N     0.0700     +0.38%            100        1,864       LIVE                Y                N/A             N/A        N      N
+PAANF  RTH       0.99    0.93   +5.75%        N/A      N/A   0.96    N/A     25.49      N        N/A        N/A            N/A          N/A      MIXED                N                354             N/A        N      N
+WYTC   RTH       1.62    1.90  -14.74%        N/A      N/A   0.96    N/A     12.90      N        N/A        N/A            N/A          N/A      MIXED                N                354             N/A        N      N
+
+FILTERED VIEW — TOP 15 (DISPLAY ONLY, NO DATA REMOVAL)
+Purpose: visual explanation only.
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+============
+DISCONNECTED
+============
