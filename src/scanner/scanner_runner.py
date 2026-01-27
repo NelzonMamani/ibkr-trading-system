@@ -1188,6 +1188,35 @@ def _build_universe_entries(symbols: list[str]) -> list[dict[str, Any]]:
     return entries
 
 
+def _apply_non_tradable_universe_gate(
+    symbols: list[str],
+    provider: ScannerDataProvider,
+    drop_ledger: Dict[str, str],
+) -> list[str]:
+    blocked_trading_classes = {"EXPERT", "OTCID", "LIMITED"}
+    scan_details = getattr(provider, "last_scan_details", {}) or {}
+    filtered: list[str] = []
+    for symbol in symbols:
+        details = scan_details.get(symbol, {})
+        trading_class = details.get("tradingClass")
+        primary_exchange = details.get("primaryExchange")
+        trading_class_upper = (
+            trading_class.upper() if isinstance(trading_class, str) else None
+        )
+        primary_exchange_upper = (
+            primary_exchange.upper() if isinstance(primary_exchange, str) else None
+        )
+        if trading_class_upper in blocked_trading_classes or primary_exchange_upper == "PINK":
+            drop_ledger.setdefault(symbol, "DROP_NON_TRADABLE_UNIVERSE")
+            print(
+                "[SCANNER][DROP] "
+                f"symbol={symbol} reason=DROP_NON_TRADABLE_UNIVERSE"
+            )
+            continue
+        filtered.append(symbol)
+    return filtered
+
+
 def run_scanner_cycle(
     mode: str = "integrated",
     policy: StockSelectionPolicy | None = None,
@@ -1308,9 +1337,11 @@ def run_scanner_cycle(
             symbols = fallback_provider.get_top_gainers(limits["resolved_symbol_limit"])
             diagnostics["symbol_fallback"] = "MOCK_UNIVERSE"
         symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
-        universe_top_n = _build_universe_entries(symbols)
         requested_top_n = int(request.requested_top_n or len(symbols))
         print(f"SCANNER_RAW_N={requested_top_n} returned {len(symbols)} symbols")
+
+        symbols = _apply_non_tradable_universe_gate(symbols, provider, drop_ledger)
+        universe_top_n = _build_universe_entries(symbols)
 
         float_cache = _bootstrap_float_cache(symbols, provider)
         thresholds = _gate_thresholds(resolved_policy)

@@ -15,6 +15,7 @@ class IbkrScannerProvider(ScannerDataProvider):
 
     def __init__(self, market_data_client: Optional[MarketDataClient] = None) -> None:
         self.market_data_client = market_data_client or MarketDataClient()
+        self.last_scan_details: dict[str, dict[str, Optional[str]]] = {}
 
     def connect(self) -> None:
         try:
@@ -30,19 +31,23 @@ class IbkrScannerProvider(ScannerDataProvider):
 
         subscription = ScannerSubscription(
             instrument="STK",
-            locationCode="STK.US",
+            locationCode="STK.US.MAJOR",
             scanCode="TOP_PERC_GAIN",
             numberOfRows=resolved_requested_top_n,
+            abovePrice=1,
+            belowPrice=20,
         )
 
         print(
             "[SCANNER][IBKR][SUBSCRIPTION] "
-            f"instrument=STK location=STK.US "
-            f"scanCode=TOP_PERC_GAIN numberOfRows={resolved_requested_top_n}"
+            f"instrument=STK location=STK.US.MAJOR "
+            f"scanCode=TOP_PERC_GAIN numberOfRows={resolved_requested_top_n} "
+            "abovePrice=1 belowPrice=20"
         )
 
         scan_data = self.market_data_client.ib.reqScannerData(subscription)
         scan_items = scan_data or []
+        self.last_scan_details = {}
         returned_rows = len(scan_items)
         print(
             "[SCANNER][IBKR] "
@@ -54,11 +59,17 @@ class IbkrScannerProvider(ScannerDataProvider):
                 f"requested_rows={resolved_requested_top_n} returned_rows={returned_rows}"
             )
 
-        symbols = [
-            item.contractDetails.contract.symbol.upper()
-            for item in scan_items
-            if item.contractDetails and item.contractDetails.contract
-        ]
+        symbols = []
+        for item in scan_items:
+            if not item.contractDetails or not item.contractDetails.contract:
+                continue
+            contract = item.contractDetails.contract
+            symbol = contract.symbol.upper()
+            symbols.append(symbol)
+            self.last_scan_details[symbol] = {
+                "tradingClass": getattr(contract, "tradingClass", None),
+                "primaryExchange": getattr(contract, "primaryExchange", None),
+            }
         if symbols:
             print(f"RAW_SCAN_SYMBOLS (N={len(symbols)}): {symbols}")
             for idx, item in enumerate(scan_items, start=1):
