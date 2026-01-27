@@ -47,6 +47,10 @@ from src.models.data_models import ScannerCandidate
 from src.scanner.providers.factory import build_provider
 from src.scanner.providers.mock_provider import MockScannerProvider
 from src.scanner.result_models import CandidateMetrics, ScannerResult
+from src.scanner.session_pct_change import (
+    compute_session_aligned_pct_change,
+    normalize_session_label,
+)
 
 
 _FLOAT_CACHE_STATE: Dict[str, Any] = {
@@ -313,12 +317,6 @@ def _spread_values(quote) -> tuple[Optional[float], Optional[float]]:
     return spread, float(round(spread / mid, 4))
 
 
-def _pct_change(last_price: Optional[float], prev_close: Optional[float]) -> Optional[float]:
-    if last_price is None or prev_close is None or prev_close == 0:
-        return None
-    return round(((last_price - prev_close) / prev_close) * 100.0, 2)
-
-
 def _gate_thresholds(policy: StockSelectionPolicy) -> GateThresholds:
     return GateThresholds(
         min_price=policy.price_min,
@@ -431,19 +429,27 @@ def _populate_pct_change(
         context["prev_close"] = prev_close
         if prev_close is None:
             context.setdefault("data_quality_flags", []).append("HISTORY_UNKNOWN")
-    pct_change = _pct_change(last_price, prev_close)
+    pct_payload = compute_session_aligned_pct_change(
+        session_label=str(context.get("session") or ""),
+        cur_last=last_price,
+        ref_close_rth=prev_close,
+        ibkr_change_pct=_safe_float(context.get("ibkr_change_pct"), None),
+    )
     if last_price is None:
         context.setdefault("data_quality_flags", []).append("MISSING_LAST")
     if prev_close is None:
-        context.setdefault("data_quality_flags", []).append("MISSING_PREV_CLOSE")
-    if pct_change is None:
+        context.setdefault("data_quality_flags", []).append("MISSING_REF_CLOSE_RTH")
+    if pct_payload.final_pct is None:
         context.setdefault("data_quality_flags", []).append("MISSING_PCT_CHANGE")
-    context["pct_change"] = pct_change
+    context["pct_change"] = pct_payload.final_pct
+    context["ref_close_rth"] = pct_payload.ref_close_rth
+    context["ibkr_change_pct"] = pct_payload.ibkr_change_pct
+    context["pct_source"] = pct_payload.pct_source
     if get_config("DEBUG_MARKET_DATA"):
         print(
             "[SCANNER][MD][DEBUG] pct_change "
-            f"symbol={context['symbol']} last={last_price} prev_close={prev_close} "
-            f"pct_change={pct_change}"
+            f"symbol={context['symbol']} last={last_price} ref_close={prev_close} "
+            f"pct_change={context.get('pct_change')} source={context.get('pct_source')}"
         )
 
 
@@ -511,16 +517,12 @@ def _evaluate_gates(
         return "DROP_PCT_CHANGE"
     if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
         return "DROP_PCT_CHANGE_MAX"
-    if rvol is None:
-        return "DROP_MISSING_RVOL"
-    if rvol < thresholds.min_rvol:
+    if rvol is not None and rvol < thresholds.min_rvol:
         return "DROP_RVOL"
-    if volume is None:
-        return "DROP_MISSING_VOLUME"
     if session in {"PRE", "OVN"}:
-        if volume < thresholds.min_premarket_volume:
+        if volume is not None and volume < thresholds.min_premarket_volume:
             return "DROP_PREMARKET_VOLUME"
-    elif volume < thresholds.min_volume:
+    elif volume is not None and volume < thresholds.min_volume:
         return "DROP_VOLUME"
     if thresholds.min_dollar_volume is not None:
         if dollar_volume is None:
@@ -836,10 +838,14 @@ def _candidate_from_context(
     data_quality_flags = list(context.get("data_quality_flags", []) or [])
     return CandidateMetrics(
         symbol=context.get("symbol"),
+        session_label=context.get("session"),
         last_price=context.get("last_price"),
         prev_close=context.get("prev_close"),
+        ref_close_rth=context.get("ref_close_rth"),
         gap_pct=context.get("pct_change"),
         pct_change=context.get("pct_change"),
+        ibkr_change_pct=context.get("ibkr_change_pct"),
+        pct_source=context.get("pct_source"),
         rvol=context.get("rvol"),
         float_shares=float_shares,
         float_millions=float_millions,
@@ -895,8 +901,14 @@ def _format_watchlist_line(candidate: CandidateMetrics) -> str:
     summary = candidate.catalyst_summary or "NA"
     if len(summary) > 80:
         summary = summary[:77] + "..."
+    session_label = normalize_session_label(candidate.session_label or "")
+    ref_close = candidate.ref_close_rth if candidate.ref_close_rth is not None else candidate.prev_close
     return (
-        f"{candidate.symbol} price=${_format_value(candidate.last_price)} "
+        f"{candidate.symbol} session={session_label} price=${_format_value(candidate.last_price)} "
+        f"ref_close_rth={_format_value(ref_close)} "
+        f"ibkr_pct={_format_value(candidate.ibkr_change_pct)}% "
+        f"final_pct={_format_value(candidate.pct_change)}% "
+        f"pct_source={candidate.pct_source or 'NA'} "
         f"gap={_format_value(candidate.gap_pct)}% chg={_format_value(candidate.pct_change)}% "
         f"rvol={_format_value(candidate.rvol)} float={_format_float_millions(candidate.float_millions)} "
         f"vol={_format_int(candidate.volume)} pm={_format_int(candidate.premarket_volume)} "
@@ -928,10 +940,11 @@ def _print_watchlist_and_focus(
     *,
     session_label: str,
 ) -> None:
-    print(f"[SCANNER][WATCHLIST] session={session_label} count={len(watchlist)}")
+    session_display = normalize_session_label(session_label)
+    print(f"[SCANNER][WATCHLIST] session={session_display} count={len(watchlist)}")
     for candidate in watchlist:
         print(_format_watchlist_line(candidate))
-    print(f"[SCANNER][FOCUS] session={session_label} count={len(focus)}")
+    print(f"[SCANNER][FOCUS] session={session_display} count={len(focus)}")
     for candidate in focus:
         print(_format_focus_line(candidate))
 
@@ -999,7 +1012,18 @@ def _build_symbol_context(
     if include_pct_change and prev_close is None:
         data_quality_flags.append("HISTORY_UNKNOWN")
 
-    pct_change = _pct_change(last_price, prev_close) if include_pct_change else None
+    ibkr_change_pct = _safe_float(getattr(quote, "change_percent", None), None)
+    pct_change = None
+    pct_source = None
+    if include_pct_change:
+        pct_payload = compute_session_aligned_pct_change(
+            session_label=session_label,
+            cur_last=last_price,
+            ref_close_rth=prev_close,
+            ibkr_change_pct=ibkr_change_pct,
+        )
+        pct_change = pct_payload.final_pct
+        pct_source = pct_payload.pct_source
     dollar_volume = None
     if last_price is not None and volume is not None:
         dollar_volume = round(last_price * volume, 2)
@@ -1015,14 +1039,15 @@ def _build_symbol_context(
     if quote.close is None:
         data_quality_flags.append("MISSING_CLOSE_TICK")
     if include_pct_change and prev_close is None:
-        data_quality_flags.append("MISSING_PREV_CLOSE")
+        data_quality_flags.append("MISSING_REF_CLOSE_RTH")
     if include_pct_change and pct_change is None:
         data_quality_flags.append("MISSING_PCT_CHANGE")
     if get_config("DEBUG_MARKET_DATA"):
         print(
             "[SCANNER][MD][DEBUG] snapshot "
             f"symbol={symbol} last={last_price} close={quote.close} "
-            f"prev_close={prev_close} volume={volume} pct_change={pct_change}"
+            f"ref_close={prev_close} volume={volume} pct_change={pct_change} "
+            f"source={pct_source}"
         )
 
     return {
@@ -1031,7 +1056,10 @@ def _build_symbol_context(
         "last_price": last_price,
         "close": quote.close,
         "prev_close": prev_close,
+        "ref_close_rth": prev_close,
         "pct_change": pct_change,
+        "pct_source": pct_source,
+        "ibkr_change_pct": ibkr_change_pct,
         "volume": volume,
         "dollar_volume": dollar_volume,
         "bid": quote.bid,
@@ -1260,6 +1288,8 @@ def run_scanner_cycle(
             diagnostics["symbol_fallback"] = "MOCK_UNIVERSE"
         symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
         universe_top_n = _build_universe_entries(symbols)
+        requested_top_n = int(request.requested_top_n or len(symbols))
+        print(f"SCANNER_RAW_N={requested_top_n} returned {len(symbols)} symbols")
 
         float_cache = _bootstrap_float_cache(symbols, provider)
         thresholds = _gate_thresholds(resolved_policy)
@@ -1323,6 +1353,14 @@ def run_scanner_cycle(
             candidates.append(context)
             evaluated_contexts.append(context)
 
+        missing_pct = sum(1 for context in evaluated_contexts if context.get("pct_change") is None)
+        if evaluated_contexts and missing_pct >= max(1, len(evaluated_contexts) // 2):
+            print(
+                "[SCANNER][WARN] Percent change missing for many symbols "
+                f"missing={missing_pct} total={len(evaluated_contexts)}"
+            )
+
+        # Watchlist gate is created here from the raw scanner universe (cheap metrics only).
         print("[SCANNER][STAGE] watchlist")
         ranked = _rank_candidates(candidates)
         watchlist_limit = limits["watchlist_limit"]
@@ -1336,11 +1374,19 @@ def run_scanner_cycle(
 
         print("[SCANNER][STAGE] enrich")
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
-        news_by_symbol, news_diag = (
-            _enrich_news_context(watchlist_symbols, provider.source_name)
-            if watchlist_symbols
-            else ({}, NewsDiagnostics(False, False, None, 0, 0, {}))
-        )
+        allow_news = bool(get_config("NEWS_ENABLED")) and run_mode not in {
+            RunMode.LIVE,
+            RunMode.LIVE_READ_ONLY,
+            RunMode.LIVE_MICRO,
+            RunMode.PAPER,
+        }
+        if watchlist_symbols and allow_news:
+            news_by_symbol, news_diag = _enrich_news_context(
+                watchlist_symbols, provider.source_name
+            )
+        else:
+            news_by_symbol = {}
+            news_diag = NewsDiagnostics(False, False, None, 0, 0, {})
         diagnostics["news"] = {
             "news_degraded": news_diag.news_degraded,
             "news_gate_bypassed": news_diag.news_gate_bypassed,
@@ -1348,6 +1394,7 @@ def run_scanner_cycle(
             "rss_failures": news_diag.rss_failures,
             "rss_failure_summary": news_diag.rss_failure_summary,
             "rss_failure_reason": news_diag.failure_reason,
+            "news_skipped": not allow_news,
         }
         if news_diag.news_degraded:
             for context in watchlist_contexts:

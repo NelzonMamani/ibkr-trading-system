@@ -9,6 +9,7 @@ from src.config.trading_config import (
     STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED,
 )
 from src.core.event_collector import EventCollector
+from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import PatternResult, TradeIntent
 from src.strategy.gap_and_go_strategy import GapAndGoStrategy
 from src.strategy.momentum_continuation_strategy import MomentumContinuationStrategy
@@ -39,6 +40,8 @@ class StrategyRunner:
         ]
         self.strategies = []
         self.event_collector = event_collector
+        self.last_watchlist_symbols: List[str] = []
+        self.last_watchlist_snapshots: dict[str, MarketSnapshot] = {}
 
         selected_strategy_key = str(get_config("SELECTED_STRATEGY") or "").strip().lower()
         selected_map = {
@@ -91,6 +94,22 @@ class StrategyRunner:
 
         registered = ", ".join(strategy.name for strategy in self.strategies)
         print(f"[BOOT] StrategyRunner instantiated with strategies: {registered}")
+
+    def receive_watchlist_snapshot(
+        self,
+        *,
+        watchlist_symbols: Sequence[str],
+        snapshots: Optional[dict[str, MarketSnapshot]] = None,
+        session_label: str,
+        timestamp_utc: str,
+    ) -> None:
+        self.last_watchlist_symbols = list(watchlist_symbols)
+        self.last_watchlist_snapshots = dict(snapshots or {})
+        print(
+            "STRATEGY_RUNNER_RECEIVED "
+            f"K={len(self.last_watchlist_symbols)} session={session_label} "
+            f"timestamp_utc={timestamp_utc}"
+        )
 
     def generate_trade_intents(
         self,

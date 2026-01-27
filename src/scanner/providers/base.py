@@ -19,6 +19,7 @@ class QuoteData:
     high: Optional[float]
     low: Optional[float]
     close: Optional[float]
+    change_percent: Optional[float]
     volume: Optional[float]
     timestamp_utc: Optional[str]
     data_quality_flags: Sequence[str]

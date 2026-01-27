@@ -43,6 +43,7 @@ from src.learning.scheduler import LearningScheduler
 from src.market_data.market_data_hub import MarketDataHub
 from src.market_data.market_data_price_feed import MarketDataPriceFeed
 from src.performance.strategy_performance import StrategyPerformanceTracker
+from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
 from src.patterns.pattern_engine import PatternEngine
 from src.risk.risk_engine import RiskEngine
@@ -52,6 +53,7 @@ from src.scanner.scanner_contract import ScannerRequest, scanner_request_from_po
 from src.scanner.result_models import CandidateMetrics
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.scanner.providers.base import ProviderConnectionError
+from src.scanner.session_pct_change import normalize_session_label
 from src.sim.clock import SimClock, WallClock
 from src.sim.price_feed import DeterministicPriceFeed
 from src.signals.signal_engine_v1 import SignalEngineV1
@@ -267,6 +269,7 @@ class CoreOrchestrator:
         watchlist_rows: List[object],
         watchlist_k: List[CandidateMetrics],
         focus_m: List[CandidateMetrics],
+        snapshots_by_symbol: Optional[Dict[str, MarketSnapshot]] = None,
     ) -> StrategyContext:
         mode = self._strategy_mode_for_session_phase(session_phase)
         symbols: Dict[str, SymbolContext] = {}
@@ -274,12 +277,23 @@ class CoreOrchestrator:
             symbol = getattr(row, "symbol", None)
             if not symbol:
                 continue
+            snapshot = (snapshots_by_symbol or {}).get(symbol)
+            last_price = getattr(row, "last_price", None)
+            bid = getattr(row, "bid", None)
+            ask = getattr(row, "ask", None)
+            spread = getattr(row, "spread", None)
+            day_volume = getattr(row, "volume", None)
+            if snapshot is not None:
+                last_price = snapshot.last or last_price
+                bid = snapshot.bid if snapshot.bid is not None else bid
+                ask = snapshot.ask if snapshot.ask is not None else ask
+                day_volume = snapshot.volume if snapshot.volume is not None else day_volume
             md = SymbolMarketData(
-                last=getattr(row, "last_price", None),
-                bid=getattr(row, "bid", None),
-                ask=getattr(row, "ask", None),
-                spread=getattr(row, "spread", None),
-                day_volume=getattr(row, "volume", None),
+                last=last_price,
+                bid=bid,
+                ask=ask,
+                spread=spread,
+                day_volume=day_volume,
                 rel_volume=getattr(row, "rvol", None),
             )
             ind = SymbolIndicators(
@@ -304,6 +318,54 @@ class CoreOrchestrator:
             watchlist_k=watchlist_k,
             focus_m=focus_m,
         )
+
+    def _snapshot_watchlist(
+        self,
+        watchlist_symbols: List[str],
+        watchlist_rows: List[object],
+    ) -> Dict[str, MarketSnapshot]:
+        """Batch snapshots for the watchlist; this is the orchestrator handoff point."""
+        if not watchlist_symbols:
+            return {}
+        snapshots: Dict[str, MarketSnapshot] = {}
+        failures: List[str] = []
+        if self.market_data_hub is None:
+            now_utc = datetime.now(timezone.utc)
+            row_lookup = {
+                getattr(row, "symbol", ""): row for row in watchlist_rows if getattr(row, "symbol", None)
+            }
+            for symbol in watchlist_symbols:
+                row = row_lookup.get(symbol)
+                if row is None:
+                    failures.append(symbol)
+                    continue
+                snapshots[symbol] = MarketSnapshot(
+                    symbol=symbol,
+                    bid=getattr(row, "bid", None),
+                    ask=getattr(row, "ask", None),
+                    last=getattr(row, "last_price", None),
+                    volume=getattr(row, "volume", None),
+                    asof_utc=now_utc,
+                    source="SCANNER_SNAPSHOT",
+                    market_data_type="SIM",
+                )
+            print("[ORCH][SNAPSHOT] MarketDataHub unavailable; using scanner rows")
+        else:
+            self.market_data_hub.reset_cycle()
+            for symbol in watchlist_symbols:
+                try:
+                    observation = self.market_data_hub.snapshot(
+                        symbol, request_source="Orchestrator"
+                    )
+                    snapshots[symbol] = observation.snapshot
+                except Exception as exc:
+                    failures.append(symbol)
+                    print(f"[ORCH][SNAPSHOT][WARN] symbol={symbol} err={exc}")
+        print(
+            "ORCHESTRATOR_SNAPSHOT_BATCH completed "
+            f"for K={len(watchlist_symbols)} success={len(snapshots)} failed={len(failures)}"
+        )
+        return snapshots
 
     @staticmethod
     def _symbols_from_candidates(candidates: List[object]) -> List[str]:
@@ -886,6 +948,7 @@ class CoreOrchestrator:
             watchlist_symbols = self._symbols_from_candidates(watchlist_k)
         if not focus_symbols:
             focus_symbols = self._symbols_from_candidates(focus_m)
+        print(f"WATCHLIST_K_SELECTED (K={len(watchlist_symbols)}): {watchlist_symbols}")
         drop_reason_summary = scanner_watchlist_payload.get("drop_reason_summary", {})
         self._trace_event(
             "WATCHLIST",
@@ -974,6 +1037,23 @@ class CoreOrchestrator:
         if self._stop_requested_at_boundary("SCANNER"):
             return False
         watchlist_rows = list(scanner_watchlist_payload.get("watchlist_rows", []))
+        # Orchestrator snapshot batch occurs here (post-watchlist gate).
+        snapshots_by_symbol = self._snapshot_watchlist(
+            watchlist_symbols=watchlist_symbols,
+            watchlist_rows=watchlist_rows,
+        )
+        session_label = normalize_session_label(
+            (getattr(watchlist_rows[0], "session", "") if watchlist_rows else session_phase)
+        )
+        timestamp_utc = scanner_watchlist_payload.get("timestamp_utc") or datetime.now(
+            timezone.utc
+        ).isoformat()
+        self.strategy_runner.receive_watchlist_snapshot(
+            watchlist_symbols=watchlist_symbols,
+            snapshots=snapshots_by_symbol,
+            session_label=session_label,
+            timestamp_utc=timestamp_utc,
+        )
         strategy_context = self._build_strategy_context(
             now=cycle_started_at,
             ny_time=ny_time,
@@ -982,6 +1062,7 @@ class CoreOrchestrator:
             watchlist_rows=watchlist_rows,
             watchlist_k=watchlist_k,
             focus_m=focus_m,
+            snapshots_by_symbol=snapshots_by_symbol,
         )
         print(
             "[ORCH][CTX] "

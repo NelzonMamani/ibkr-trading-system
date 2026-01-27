@@ -7,10 +7,14 @@ from typing import Optional
 @dataclass(frozen=True)
 class CandidateMetrics:
     symbol: str
+    session_label: Optional[str]
     last_price: Optional[float]
     prev_close: Optional[float]
+    ref_close_rth: Optional[float]
     gap_pct: Optional[float]
     pct_change: Optional[float]
+    ibkr_change_pct: Optional[float]
+    pct_source: Optional[str]
     rvol: Optional[float]
     float_shares: Optional[int]
     float_millions: Optional[float]

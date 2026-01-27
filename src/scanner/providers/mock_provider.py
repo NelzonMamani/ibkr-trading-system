@@ -139,6 +139,7 @@ class MockScannerProvider(ScannerDataProvider):
             high=high,
             low=low,
             close=prev_close,
+            change_percent=pct_change,
             volume=volume,
             timestamp_utc=None,
             data_quality_flags=("MOCK",),
