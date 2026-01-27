@@ -4,7 +4,7 @@ from typing import Optional
 
 from ib_insync import ScannerSubscription
 
-from src.config.runtime_config import get_scanner_symbols
+from src.config.runtime_config import get_ibkr_max_symbols_per_cycle, get_scanner_symbols
 from src.ibkr.market_data_client import MarketDataClient
 
 from .base import IntradayStats, ProviderConnectionError, QuoteData, ScannerDataProvider
@@ -26,25 +26,36 @@ class IbkrScannerProvider(ScannerDataProvider):
         self.market_data_client.disconnect()
 
     def get_top_gainers(self, limit: int) -> list[str]:
-        effective_rows = min(limit, 10)
+        resolved_requested_top_n = min(limit, get_ibkr_max_symbols_per_cycle())
 
         subscription = ScannerSubscription(
             instrument="STK",
             locationCode="STK.US",
             scanCode="TOP_PERC_GAIN",
-            numberOfRows=effective_rows,
+            numberOfRows=resolved_requested_top_n,
         )
 
         print(
             "[SCANNER][IBKR][SUBSCRIPTION] "
             f"instrument=STK location=STK.US "
-            f"scanCode=TOP_PERC_GAIN numberOfRows={effective_rows}"
+            f"scanCode=TOP_PERC_GAIN numberOfRows={resolved_requested_top_n}"
         )
 
         scan_data = self.market_data_client.ib.reqScannerData(subscription)
+        returned_rows = len(scan_data or [])
+        print(
+            "[SCANNER][IBKR] "
+            f"requested_rows={resolved_requested_top_n} returned_rows={returned_rows}"
+        )
+        if returned_rows < resolved_requested_top_n:
+            print(
+                "[SCANNER][IBKR][WARN] "
+                f"requested_rows={resolved_requested_top_n} returned_rows={returned_rows}"
+            )
+
         symbols = [
             item.contractDetails.contract.symbol.upper()
-            for item in scan_data
+            for item in (scan_data or [])
             if item.contractDetails and item.contractDetails.contract
         ]
         if symbols:
