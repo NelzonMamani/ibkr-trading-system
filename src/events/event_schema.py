@@ -48,6 +48,67 @@ SCANNER_WATCHLIST_SCHEMA = {
     "symbols": list,
 }
 
+SCANNER_UNIVERSE_SNAPSHOT_SCHEMA = {
+    "symbols": list,
+    "requested_rows": int,
+    "returned_rows": int,
+    "session": str,
+    "timestamp": str,
+}
+
+RAW_SCAN_SYMBOLS_SCHEMA = {
+    "symbols": list,
+    "requested_rows": int,
+    "returned_rows": int,
+    "session": str,
+    "timestamp": str,
+}
+
+AFTER_GATES_SYMBOLS_SCHEMA = {
+    "symbols": list,
+    "count": int,
+    "session": str,
+    "timestamp": str,
+}
+
+SCANNER_SYMBOL_DROPPED_SCHEMA = {
+    "symbol": str,
+    "drop_reason": str,
+    "metric_value": (int, float, str, dict, list, type(None)),
+    "threshold": (int, float, str, dict, list, type(None)),
+}
+
+SCANNER_WATCHLIST_K_READY_SCHEMA = {
+    "watchlist_k": list,
+    "K": int,
+    "policy_name": str,
+}
+
+WATCHLIST_K_SELECTED_SCHEMA = {
+    "watchlist_k": list,
+    "K": int,
+    "policy_name": str,
+}
+
+PREP_UPDATED_SCHEMA = {
+    "symbols": list,
+    "count": int,
+    "reason": str,
+    "timestamp_utc": str,
+}
+
+PREP_CACHE_UPDATED_SCHEMA = {
+    "symbols": list,
+    "count": int,
+    "reason": str,
+    "timestamp_utc": str,
+}
+
+PREP_RESET_SCHEMA = {
+    "reset_date": str,
+    "reason": str,
+}
+
 STRATEGY_COMPLETE_SCHEMA = {
     "trade_intents": int,
 }
@@ -351,6 +412,15 @@ SHUTDOWN_HOOK_FAILED_SCHEMA = {
 EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
     "CYCLE_START": CYCLE_START_SCHEMA,
     "SCANNER_WATCHLIST": SCANNER_WATCHLIST_SCHEMA,
+    "SCANNER_UNIVERSE_SNAPSHOT": SCANNER_UNIVERSE_SNAPSHOT_SCHEMA,
+    "RAW_SCAN_SYMBOLS": RAW_SCAN_SYMBOLS_SCHEMA,
+    "AFTER_GATES_SYMBOLS": AFTER_GATES_SYMBOLS_SCHEMA,
+    "SCANNER_SYMBOL_DROPPED": SCANNER_SYMBOL_DROPPED_SCHEMA,
+    "SCANNER_WATCHLIST_K_READY": SCANNER_WATCHLIST_K_READY_SCHEMA,
+    "WATCHLIST_K_SELECTED": WATCHLIST_K_SELECTED_SCHEMA,
+    "PREP_UPDATED": PREP_UPDATED_SCHEMA,
+    "PREP_CACHE_UPDATED": PREP_CACHE_UPDATED_SCHEMA,
+    "PREP_RESET": PREP_RESET_SCHEMA,
     "SCAN_COMPLETE": SCAN_COMPLETE_SCHEMA,
     "STRATEGY_COMPLETE": STRATEGY_COMPLETE_SCHEMA,
     "EXECUTION_COMPLETE": EXECUTION_COMPLETE_SCHEMA,
@@ -541,6 +611,15 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
 REQUIRED_FIELDS: Dict[str, Set[str]] = {
     "CYCLE_START": {"run_mode"},
     "SCANNER_WATCHLIST": {"symbols"},
+    "SCANNER_UNIVERSE_SNAPSHOT": {"symbols", "requested_rows", "returned_rows", "session", "timestamp"},
+    "RAW_SCAN_SYMBOLS": {"symbols", "requested_rows", "returned_rows", "session", "timestamp"},
+    "AFTER_GATES_SYMBOLS": {"symbols", "count", "session", "timestamp"},
+    "SCANNER_SYMBOL_DROPPED": {"symbol", "drop_reason"},
+    "SCANNER_WATCHLIST_K_READY": {"watchlist_k", "K", "policy_name"},
+    "WATCHLIST_K_SELECTED": {"watchlist_k", "K", "policy_name"},
+    "PREP_UPDATED": {"symbols", "count", "reason", "timestamp_utc"},
+    "PREP_CACHE_UPDATED": {"symbols", "count", "reason", "timestamp_utc"},
+    "PREP_RESET": {"reset_date", "reason"},
     "SCAN_COMPLETE": {"candidates"},
     "STRATEGY_COMPLETE": {"trade_intents"},
     "EXECUTION_COMPLETE": {"results"},
@@ -915,6 +994,7 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
 
 
 OPTIONAL_FIELDS: Dict[str, Set[str]] = {
+    "SCANNER_SYMBOL_DROPPED": {"metric_value", "threshold"},
     "TRADE_OPENED": {"gateway_decision", "pattern_name"},
     "TRADE_NOT_FILLED": {"client_order_id", "attempt_number", "gateway_decision"},
     "TRADE_CLOSED": {
