@@ -63,6 +63,7 @@ from src.strategy.exit_signal import ExitSignal
 from src.strategy_portfolio.adapters.ross_momentum_adapter import (
     ross_trade_intents_to_decision_intents,
 )
+from src.prep.premarket_prep import PreMarketPrepEngine
 from src.events.event_invariants import check_invariants, EventInvariantError
 from src.strategies.ross_momentum.strategy_context_schema import (
     StrategyContext,
@@ -126,6 +127,7 @@ class CoreOrchestrator:
         self.trade_registry = ActiveTradeRegistry()
         self.strategy_perf_tracker = StrategyPerformanceTracker()
         self.market_data_hub = None
+        self.prep_engine = PreMarketPrepEngine(event_collector=self.event_collector)
         self.selected_strategy_key = (
             str(get_config("SELECTED_STRATEGY") or "ross_momentum").strip().lower()
             or "ross_momentum"
@@ -288,6 +290,12 @@ class CoreOrchestrator:
                 bid = snapshot.bid if snapshot.bid is not None else bid
                 ask = snapshot.ask if snapshot.ask is not None else ask
                 day_volume = snapshot.volume if snapshot.volume is not None else day_volume
+            prep_snapshot = self.prep_engine.get_snapshot(symbol)
+            data_quality_flags = list(getattr(row, "data_quality_flags", []) or [])
+            if prep_snapshot is None:
+                data_quality_flags.append("PREP_SNAPSHOT_MODE")
+            elif prep_snapshot.data_quality_flags:
+                data_quality_flags.extend(prep_snapshot.data_quality_flags)
             md = SymbolMarketData(
                 last=last_price,
                 bid=bid,
@@ -296,9 +304,15 @@ class CoreOrchestrator:
                 day_volume=day_volume,
                 rel_volume=getattr(row, "rvol", None),
             )
+            float_shares = getattr(row, "float_shares", None)
+            if prep_snapshot and prep_snapshot.float_shares is not None:
+                float_shares = prep_snapshot.float_shares
             ind = SymbolIndicators(
                 rvol=getattr(row, "rvol", None),
-                float_shares=getattr(row, "float_shares", None),
+                float_shares=float_shares,
+                ema50=prep_snapshot.levels.ema50 if prep_snapshot else None,
+                ema200=prep_snapshot.levels.ema200 if prep_snapshot else None,
+                vwap=prep_snapshot.levels.vwap_anchor if prep_snapshot else None,
             )
             symbols[symbol] = SymbolContext(
                 symbol=symbol,
@@ -306,7 +320,13 @@ class CoreOrchestrator:
                 mode=mode,
                 md=md,
                 ind=ind,
-                data_quality_flags=list(getattr(row, "data_quality_flags", []) or []),
+                premarket_high=(
+                    prep_snapshot.levels.prior_high if prep_snapshot else None
+                ),
+                premarket_low=(
+                    prep_snapshot.levels.prior_low if prep_snapshot else None
+                ),
+                data_quality_flags=data_quality_flags,
             )
         return StrategyContext(
             now=now,
@@ -871,6 +891,7 @@ class CoreOrchestrator:
                 mode="integrated",
                 policy=scanner_policy,
                 scanner_request=scanner_request,
+                event_collector=self.event_collector,
             )
         except ProviderConnectionError as exc:
             self._trace_halt(
@@ -964,6 +985,43 @@ class CoreOrchestrator:
                 f"drop_reasons={drop_reason_summary}"
             ),
         )
+        prep_symbols: list[str] = []
+        for entry in universe_entries:
+            if isinstance(entry, dict):
+                symbol = entry.get("symbol")
+            else:
+                symbol = getattr(entry, "symbol", None)
+            if symbol:
+                prep_symbols.append(symbol)
+        if prep_symbols:
+            last_price_by_symbol = {
+                row.symbol: row.last_price
+                for row in candidate_metrics
+                if getattr(row, "symbol", None)
+            }
+            float_by_symbol = {
+                row.symbol: row.float_shares
+                for row in candidate_metrics
+                if getattr(row, "symbol", None)
+            }
+            prior_close_by_symbol = {
+                row.symbol: (row.prev_close or row.ref_close_rth)
+                for row in candidate_metrics
+                if getattr(row, "symbol", None)
+            }
+            gap_pct_by_symbol = {
+                row.symbol: row.gap_pct
+                for row in candidate_metrics
+                if getattr(row, "symbol", None)
+            }
+            self.prep_engine.update_from_universe(
+                prep_symbols,
+                last_price_by_symbol=last_price_by_symbol,
+                float_by_symbol=float_by_symbol,
+                prior_close_by_symbol=prior_close_by_symbol,
+                gap_pct_by_symbol=gap_pct_by_symbol,
+                reason="SCANNER_UNIVERSE_SNAPSHOT",
+            )
         try:
             stored = self.storage_engine.store_watchlist(
                 strategy_name=str(scanner_policy.policy_name),
@@ -1003,7 +1061,7 @@ class CoreOrchestrator:
                 )
                 print(f"[CONNECTIVITY] {message}")
                 self._degraded = True
-                if self.run_mode in {RunMode.LIVE_READ_ONLY, RunMode.LIVE, RunMode.LIVE_MICRO}:
+                if self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO}:
                     self._trace_halt(
                         reason_code="IBKR_CONNECTIVITY",
                         message=message,

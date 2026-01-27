@@ -23,6 +23,7 @@ from src.config.runtime_config import (
     get_scanner_mode,
     get_watchlist_print_every_n_cycles,
 )
+from src.core.event_collector import EventCollector
 from src.news.news_fetcher import Headline, fetch_headlines_for_symbols
 from src.news.verified_sources import load_verified_rss_sources
 
@@ -1192,6 +1193,7 @@ def _apply_non_tradable_universe_gate(
     symbols: list[str],
     provider: ScannerDataProvider,
     drop_ledger: Dict[str, str],
+    event_collector: EventCollector | None = None,
 ) -> list[str]:
     blocked_trading_classes = {"EXPERT", "OTCID", "LIMITED"}
     scan_details = getattr(provider, "last_scan_details", {}) or {}
@@ -1212,6 +1214,17 @@ def _apply_non_tradable_universe_gate(
                 "[SCANNER][DROP] "
                 f"symbol={symbol} reason=DROP_NON_TRADABLE_UNIVERSE"
             )
+            if event_collector is not None:
+                event_collector.emit(
+                    event_type="SCANNER_SYMBOL_DROPPED",
+                    source="Scanner",
+                    payload={
+                        "symbol": symbol,
+                        "drop_reason": "DROP_NON_TRADABLE_UNIVERSE",
+                        "metric_value": trading_class_upper or primary_exchange_upper,
+                        "threshold": "MAJOR_US_LISTING_ONLY",
+                    },
+                )
             continue
         filtered.append(symbol)
     return filtered
@@ -1221,6 +1234,7 @@ def run_scanner_cycle(
     mode: str = "integrated",
     policy: StockSelectionPolicy | None = None,
     scanner_request: ScannerRequest | None = None,
+    event_collector: EventCollector | None = None,
 ) -> Dict[str, Any]:
     global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE
     _SCAN_CYCLE_COUNT += 1
@@ -1270,10 +1284,11 @@ def run_scanner_cycle(
 
     run_mode = get_run_mode()
     fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
+    allow_fallback = fallback_enabled or run_mode == RunMode.LIVE_READ_ONLY
     try:
         provider: ScannerDataProvider = build_provider()
     except ProviderConnectionError as exc:
-        if run_mode in {RunMode.PAPER, RunMode.LIVE_READ_ONLY} and not fallback_enabled:
+        if run_mode == RunMode.PAPER and not allow_fallback:
             raise
         diagnostics["provider_error"] = str(exc)
         diagnostics["provider_fallback"] = {
@@ -1339,8 +1354,28 @@ def run_scanner_cycle(
         symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
         requested_top_n = int(request.requested_top_n or len(symbols))
         print(f"SCANNER_RAW_N={requested_top_n} returned {len(symbols)} symbols")
+        if event_collector is not None:
+            event_payload = {
+                "symbols": list(symbols),
+                "requested_rows": requested_top_n,
+                "returned_rows": len(symbols),
+                "session": session_label,
+                "timestamp": utc_now.isoformat(),
+            }
+            event_collector.emit(
+                event_type="SCANNER_UNIVERSE_SNAPSHOT",
+                source="Scanner",
+                payload=event_payload,
+            )
+            event_collector.emit(
+                event_type="RAW_SCAN_SYMBOLS",
+                source="Scanner",
+                payload=event_payload,
+            )
 
-        symbols = _apply_non_tradable_universe_gate(symbols, provider, drop_ledger)
+        symbols = _apply_non_tradable_universe_gate(
+            symbols, provider, drop_ledger, event_collector=event_collector
+        )
         universe_top_n = _build_universe_entries(symbols)
 
         float_cache = _bootstrap_float_cache(symbols, provider)
@@ -1361,6 +1396,17 @@ def run_scanner_cycle(
             if context is None:
                 drop_ledger.setdefault(symbol, "DROP_QUOTE_UNAVAILABLE")
                 print(f"[SCANNER][DROP] symbol={symbol} reason=DROP_QUOTE_UNAVAILABLE")
+                if event_collector is not None:
+                    event_collector.emit(
+                        event_type="SCANNER_SYMBOL_DROPPED",
+                        source="Scanner",
+                        payload={
+                            "symbol": symbol,
+                            "drop_reason": "DROP_QUOTE_UNAVAILABLE",
+                            "metric_value": None,
+                            "threshold": None,
+                        },
+                    )
                 evaluated_contexts.append(
                     {
                         "symbol": symbol,
@@ -1375,17 +1421,53 @@ def run_scanner_cycle(
                     "[SCANNER][DROP] "
                     f"symbol={symbol} reason=DROP_UNSUBSCRIBED_MARKET_DATA"
                 )
+                if event_collector is not None:
+                    event_collector.emit(
+                        event_type="SCANNER_SYMBOL_DROPPED",
+                        source="Scanner",
+                        payload={
+                            "symbol": symbol,
+                            "drop_reason": "DROP_UNSUBSCRIBED_MARKET_DATA",
+                            "metric_value": None,
+                            "threshold": None,
+                        },
+                    )
                 evaluated_contexts.append(context)
                 continue
             if context.get("snapshot_timeout"):
                 drop_ledger.setdefault(symbol, "DROP_SNAPSHOT_TIMEOUT")
                 print(f"[SCANNER][DROP] symbol={symbol} reason=DROP_SNAPSHOT_TIMEOUT")
+                if event_collector is not None:
+                    event_collector.emit(
+                        event_type="SCANNER_SYMBOL_DROPPED",
+                        source="Scanner",
+                        payload={
+                            "symbol": symbol,
+                            "drop_reason": "DROP_SNAPSHOT_TIMEOUT",
+                            "metric_value": None,
+                            "threshold": None,
+                        },
+                    )
                 evaluated_contexts.append(context)
                 continue
             price_gate_reason = _evaluate_price_gate(context, thresholds)
             if price_gate_reason:
                 drop_ledger.setdefault(symbol, price_gate_reason)
                 print(f"[SCANNER][DROP] symbol={symbol} reason={price_gate_reason}")
+                if event_collector is not None:
+                    event_collector.emit(
+                        event_type="SCANNER_SYMBOL_DROPPED",
+                        source="Scanner",
+                        payload={
+                            "symbol": symbol,
+                            "drop_reason": price_gate_reason,
+                            "metric_value": context.get("last_price"),
+                            "threshold": {
+                                "min_price": thresholds.min_price,
+                                "max_price": thresholds.max_price,
+                            },
+                        },
+                    )
                 if get_config("DEBUG_SCANNER"):
                     missingness = _missingness_map(price_gate_reason, context)
                     print(
@@ -1399,6 +1481,32 @@ def run_scanner_cycle(
             if drop_reason:
                 drop_ledger.setdefault(symbol, drop_reason)
                 print(f"[SCANNER][DROP] symbol={symbol} reason={drop_reason}")
+                if event_collector is not None:
+                    event_collector.emit(
+                        event_type="SCANNER_SYMBOL_DROPPED",
+                        source="Scanner",
+                        payload={
+                            "symbol": symbol,
+                            "drop_reason": drop_reason,
+                            "metric_value": {
+                                "last_price": context.get("last_price"),
+                                "pct_change": context.get("pct_change"),
+                                "rvol": context.get("rvol"),
+                                "volume": context.get("volume"),
+                                "float_shares": context.get("float_shares"),
+                                "spread_pct": context.get("spread_pct"),
+                            },
+                            "threshold": {
+                                "min_pct_change": thresholds.min_pct_change,
+                                "max_pct_change": thresholds.max_pct_change,
+                                "min_rvol": thresholds.min_rvol,
+                                "min_volume": thresholds.min_volume,
+                                "min_premarket_volume": thresholds.min_premarket_volume,
+                                "max_float": thresholds.max_float,
+                                "spread_max_pct": thresholds.spread_max_pct,
+                            },
+                        },
+                    )
                 if get_config("DEBUG_SCANNER"):
                     missingness = _missingness_map(drop_reason, context)
                     print(
@@ -1440,6 +1548,17 @@ def run_scanner_cycle(
         print(
             f"AFTER_GATES_SYMBOLS (N={len(after_gates_symbols)}): {after_gates_symbols}"
         )
+        if event_collector is not None:
+            event_collector.emit(
+                event_type="AFTER_GATES_SYMBOLS",
+                source="Scanner",
+                payload={
+                    "symbols": after_gates_symbols,
+                    "count": len(after_gates_symbols),
+                    "session": session_label,
+                    "timestamp": utc_now.isoformat(),
+                },
+            )
 
         # Watchlist gate is created here from the raw scanner universe (cheap metrics only).
         print("[SCANNER][STAGE] watchlist")
@@ -1452,12 +1571,65 @@ def run_scanner_cycle(
                 "[SCANNER][DROP] symbol="
                 f"{context['symbol']} reason=DROP_RANK_BELOW_WATCHLIST"
             )
+            if event_collector is not None:
+                event_collector.emit(
+                    event_type="SCANNER_SYMBOL_DROPPED",
+                    source="Scanner",
+                    payload={
+                        "symbol": context["symbol"],
+                        "drop_reason": "DROP_RANK_BELOW_WATCHLIST",
+                        "metric_value": context.get("scanner_rank"),
+                        "threshold": watchlist_limit,
+                    },
+                )
+        if watchlist_limit > 0 and len(watchlist_contexts) < watchlist_limit:
+            ranked_all = _rank_candidates(evaluated_contexts)
+            existing = {context["symbol"] for context in watchlist_contexts}
+            for context in ranked_all:
+                symbol = context.get("symbol")
+                if not symbol or symbol in existing:
+                    continue
+                drop_reason = drop_ledger.get(symbol)
+                if drop_reason and not drop_reason.startswith("DROP_MISSING_"):
+                    continue
+                flags = context.setdefault("data_quality_flags", [])
+                if "BACKFILL_OPTIONAL_DATA" not in flags:
+                    flags.append("BACKFILL_OPTIONAL_DATA")
+                if drop_reason:
+                    drop_ledger.pop(symbol, None)
+                watchlist_contexts.append(context)
+                existing.add(symbol)
+                print(
+                    "[SCANNER][BACKFILL] symbol="
+                    f"{symbol} reason={drop_reason or 'OPTIONAL_DATA'}"
+                )
+                if len(watchlist_contexts) >= watchlist_limit:
+                    break
 
         print("[SCANNER][STAGE] enrich")
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
         print(
             f"WATCHLIST_K_SELECTED (K={len(watchlist_symbols)}): {watchlist_symbols}"
         )
+        if event_collector is not None:
+            event_collector.emit(
+                event_type="WATCHLIST_K_SELECTED",
+                source="Scanner",
+                payload={
+                    "watchlist_k": watchlist_symbols,
+                    "K": watchlist_limit,
+                    "policy_name": resolved_policy.policy_name,
+                },
+            )
+            event_collector.emit(
+                event_type="SCANNER_WATCHLIST_K_READY",
+                source="Scanner",
+                payload={
+                    "watchlist_k": watchlist_symbols,
+                    "K": watchlist_limit,
+                    "policy_name": resolved_policy.policy_name,
+                },
+            )
         allow_news = bool(get_config("NEWS_ENABLED")) and run_mode not in {
             RunMode.LIVE,
             RunMode.LIVE_READ_ONLY,
