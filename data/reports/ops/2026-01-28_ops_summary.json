@@ -1,16 +1,16 @@
 {
-  "asof_date_ny": "2026-01-27",
+  "asof_date_ny": "2026-01-28",
   "risk": {
     "circuit_breakers_tripped": 0,
     "daily_loss_hard_stop_date": null,
     "daily_loss_warning_date": null
   },
-  "run_mode": "LIVE_READ_ONLY",
+  "run_mode": "SIM",
   "scanner": {
     "focus_size": 5,
-    "last_watchlist_hash": null,
-    "symbols_scanned": 15,
-    "watchlist_size": 15
+    "last_watchlist_hash": "5f7d152dfb16d8092e1d9ae9e95b55d143f8492037cbd40337879c5c8cc004ae",
+    "symbols_scanned": 20,
+    "watchlist_size": 20
   },
   "trades": {
     "closed": 0,
