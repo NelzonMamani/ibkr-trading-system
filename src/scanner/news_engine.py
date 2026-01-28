@@ -28,6 +28,8 @@ if importlib.util.find_spec("requests"):
 else:  # pragma: no cover
     requests = None
 
+logging.getLogger("feedparser").setLevel(logging.ERROR)
+
 from src.config.config_resolver import get_config
 
 NEWS_REFRESH_SECONDS = int(get_config("NEWS_REFRESH_SECONDS"))

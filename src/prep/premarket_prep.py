@@ -33,6 +33,9 @@ class PrepSnapshot:
     levels_asof: Optional[datetime] = None
     news: list[Headline] = field(default_factory=list)
     news_asof: Optional[datetime] = None
+    last_news_timestamp: Optional[float] = None
+    news_age_minutes: Optional[int] = None
+    has_recent_news: bool = False
     data_quality_flags: list[str] = field(default_factory=list)
 
 
@@ -43,6 +46,12 @@ class PreMarketPrepEngine:
     NEWS_TTL = timedelta(hours=6)
     LEVELS_TTL = timedelta(hours=48)
     FLOAT_TTL = timedelta(days=7)
+    FLAG_FLOAT_STALE = "PREP_FLOAT_STALE"
+    FLAG_LEVELS_STALE = "PREP_LEVELS_STALE"
+    FLAG_NEWS_STALE = "PREP_NEWS_STALE"
+    FLAG_FLOAT_MISSING = "PREP_FLOAT_MISSING"
+    FLAG_LEVELS_MISSING = "PREP_LEVELS_MISSING"
+    FLAG_NEWS_MISSING = "PREP_NEWS_MISSING"
 
     def __init__(self, event_collector: EventCollector | None = None) -> None:
         self._cache: OrderedDict[str, PrepSnapshot] = OrderedDict()
@@ -61,7 +70,7 @@ class PreMarketPrepEngine:
     ) -> None:
         now = datetime.now(timezone.utc)
         self._full_reset_if_friday(now)
-        self._cleanup_expired(now)
+        self._refresh_cache_flags(now)
 
         requested = [symbol.upper() for symbol in symbols if symbol]
         limited = requested[: self.MAX_SYMBOLS]
@@ -91,12 +100,17 @@ class PreMarketPrepEngine:
                 news_failure = str(exc)
 
         updated_symbols: list[str] = []
+        skipped_symbols: list[str] = []
         for symbol in limited:
             snapshot = self._cache.get(symbol)
             if snapshot is None:
+                if len(self._cache) >= self.MAX_SYMBOLS:
+                    skipped_symbols.append(symbol)
+                    continue
                 snapshot = PrepSnapshot(symbol=symbol)
                 self._cache[symbol] = snapshot
             self._cache.move_to_end(symbol)
+            self._refresh_snapshot_flags(snapshot, now)
 
             last_price = (last_price_by_symbol or {}).get(symbol)
             float_value = (float_by_symbol or {}).get(symbol)
@@ -117,32 +131,75 @@ class PreMarketPrepEngine:
                 )
                 snapshot.levels_asof = now
                 if last_price is None:
-                    snapshot.data_quality_flags.append("PREP_LEVELS_APPROX")
+                    if "PREP_LEVELS_APPROX" not in snapshot.data_quality_flags:
+                        snapshot.data_quality_flags.append("PREP_LEVELS_APPROX")
 
             if allow_news and self._news_expired(snapshot, now):
                 snapshot.news = news_lookup.get(symbol, [])
                 snapshot.news_asof = now
+                if snapshot.news:
+                    last_ts = max(headline.published_ts for headline in snapshot.news)
+                    snapshot.last_news_timestamp = last_ts
+                    snapshot.news_age_minutes = int(
+                        max((now.timestamp() - last_ts) / 60.0, 0.0)
+                    )
+                    snapshot.has_recent_news = snapshot.news_age_minutes <= int(
+                        self.NEWS_TTL.total_seconds() / 60.0
+                    )
+                else:
+                    snapshot.last_news_timestamp = None
+                    snapshot.news_age_minutes = None
+                    snapshot.has_recent_news = False
                 if news_failure:
-                    snapshot.data_quality_flags.append("NEWS_STALE")
+                    if "NEWS_STALE" not in snapshot.data_quality_flags:
+                        snapshot.data_quality_flags.append("NEWS_STALE")
 
+            self._refresh_snapshot_flags(snapshot, now)
             updated_symbols.append(symbol)
 
-        self._evict_excess()
+        if skipped_symbols:
+            print(
+                "[PREP][WARN] Extended watchlist cache full; "
+                f"skipping {len(skipped_symbols)} symbols "
+                f"sample={skipped_symbols[:10]}"
+            )
         self._emit_update_event(updated_symbols, reason=reason)
 
     def get_snapshot(self, symbol: str) -> Optional[PrepSnapshot]:
         if not symbol:
             return None
-        return self._cache.get(symbol.upper())
+        snapshot = self._cache.get(symbol.upper())
+        if snapshot is not None:
+            self._refresh_snapshot_flags(snapshot, datetime.now(timezone.utc))
+        return snapshot
 
-    def _cleanup_expired(self, now: datetime) -> None:
-        for symbol, snapshot in list(self._cache.items()):
-            if (
-                self._float_expired(snapshot, now)
-                and self._levels_expired(snapshot, now)
-                and self._news_expired(snapshot, now)
-            ):
-                self._cache.pop(symbol, None)
+    def _refresh_cache_flags(self, now: datetime) -> None:
+        for snapshot in self._cache.values():
+            self._refresh_snapshot_flags(snapshot, now)
+
+    def _refresh_snapshot_flags(self, snapshot: PrepSnapshot, now: datetime) -> None:
+        float_missing = snapshot.float_asof is None
+        levels_missing = snapshot.levels_asof is None
+        news_missing = snapshot.news_asof is None
+        if snapshot.last_news_timestamp is not None:
+            age_minutes = int(max((now.timestamp() - snapshot.last_news_timestamp) / 60.0, 0.0))
+            snapshot.news_age_minutes = age_minutes
+            snapshot.has_recent_news = age_minutes <= int(self.NEWS_TTL.total_seconds() / 60.0)
+        self._set_flag(snapshot, self.FLAG_FLOAT_STALE, bool(snapshot.float_asof and self._float_expired(snapshot, now)))
+        self._set_flag(snapshot, self.FLAG_LEVELS_STALE, bool(snapshot.levels_asof and self._levels_expired(snapshot, now)))
+        self._set_flag(snapshot, self.FLAG_NEWS_STALE, bool(snapshot.news_asof and self._news_expired(snapshot, now)))
+        self._set_flag(snapshot, self.FLAG_FLOAT_MISSING, float_missing)
+        self._set_flag(snapshot, self.FLAG_LEVELS_MISSING, levels_missing)
+        self._set_flag(snapshot, self.FLAG_NEWS_MISSING, news_missing)
+
+    @staticmethod
+    def _set_flag(snapshot: PrepSnapshot, flag: str, present: bool) -> None:
+        if present:
+            if flag not in snapshot.data_quality_flags:
+                snapshot.data_quality_flags.append(flag)
+        else:
+            if flag in snapshot.data_quality_flags:
+                snapshot.data_quality_flags.remove(flag)
 
     def _float_expired(self, snapshot: PrepSnapshot, now: datetime) -> bool:
         if snapshot.float_asof is None:
@@ -158,10 +215,6 @@ class PreMarketPrepEngine:
         if snapshot.news_asof is None:
             return True
         return (now - snapshot.news_asof) > self.NEWS_TTL
-
-    def _evict_excess(self) -> None:
-        while len(self._cache) > self.MAX_SYMBOLS:
-            self._cache.popitem(last=False)
 
     def _full_reset_if_friday(self, now: datetime) -> None:
         ny_time = to_ny_time(now)

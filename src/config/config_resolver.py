@@ -11,7 +11,7 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from typing import Any, Dict, Iterable
 
 from src.config.config_registry import CONFIG_REGISTRY
@@ -426,7 +426,7 @@ def get_config_snapshot() -> Dict[str, Any]:
     resolved = resolve_config()
     _emit_config_summary_once(resolved)
     snapshot = {
-        "resolved_at": datetime.utcnow().isoformat(),
+        "resolved_at": datetime.now(timezone.utc).isoformat(),
         "total": len(resolved),
         "hard": sum(1 for entry in CONFIG_REGISTRY.values() if entry.get("enforcement") == "HARD"),
         "soft": sum(1 for entry in CONFIG_REGISTRY.values() if entry.get("enforcement") == "SOFT"),

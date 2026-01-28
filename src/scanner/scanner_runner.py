@@ -627,13 +627,30 @@ def _enrich_news_context(
         )
         cached = _NEWS_CACHE.get(symbol)
         if cached and cached.get("signature") == signature:
-            news_by_symbol[symbol] = cached["context"]
+            context = dict(cached["context"])
+            last_ts = context.get("last_news_timestamp")
+            if last_ts:
+                age_minutes = int(max((now_ts - last_ts) / 60.0, 0.0))
+                context["news_age_minutes"] = age_minutes
+                context["has_recent_news"] = age_minutes <= NEWS_AGE_MAX_MINUTES
+                if context.get("gam_ea_eligible") is not None:
+                    context["gam_ea_eligible"] = bool(
+                        context.get("has_recent_news") and not context.get("dilution_flag")
+                    )
+                if context.get("ross_catalyst_valid") is not None:
+                    context["ross_catalyst_valid"] = bool(
+                        context.get("has_recent_news") and not context.get("dilution_flag")
+                    )
+            news_by_symbol[symbol] = context
+            cached["context"] = context
             continue
 
         if not headlines:
             context = {
                 "news_present": False,
                 "first_seen_ts": None,
+                "last_news_timestamp": None,
+                "has_recent_news": False,
                 "news_age_minutes": None,
                 "velocity_5m": 0,
                 "velocity_10m": 0,
@@ -658,6 +675,7 @@ def _enrich_news_context(
         unique_headlines = list(unique_map.values())
 
         ages = [max(0.0, (now_ts - headline.published_ts) / 60.0) for headline in unique_headlines]
+        last_ts = max(headline.published_ts for headline in unique_headlines)
         news_age_minutes = int(min(ages)) if ages else None
         vel5 = sum(1 for headline in unique_headlines if now_ts - headline.published_ts <= 5 * 60)
         vel10 = sum(1 for headline in unique_headlines if now_ts - headline.published_ts <= 10 * 60)
@@ -667,6 +685,9 @@ def _enrich_news_context(
         titles = [headline.title for headline in unique_headlines]
         catalyst_type = _detect_catalyst_type(titles)
         dilution_flag = _detect_dilution(titles)
+        has_recent_news = bool(
+            news_age_minutes is not None and news_age_minutes <= NEWS_AGE_MAX_MINUTES
+        )
         gam_ea_eligible = bool(
             not dilution_flag
             and news_age_minutes is not None
@@ -684,12 +705,14 @@ def _enrich_news_context(
             if len(links) < 5 and headline.url:
                 links.append(headline.url)
 
-        ross_catalyst_valid = bool(not dilution_flag and news_age_minutes is not None)
+        ross_catalyst_valid = bool(not dilution_flag and has_recent_news)
         ross_notes = "Catalyst present" if ross_catalyst_valid else "Catalyst missing or diluted"
 
         context = {
             "news_present": True,
             "first_seen_ts": min(headline.published_ts for headline in unique_headlines),
+            "last_news_timestamp": last_ts,
+            "has_recent_news": has_recent_news,
             "news_age_minutes": news_age_minutes,
             "velocity_5m": vel5,
             "velocity_10m": vel10,
@@ -1238,6 +1261,7 @@ def run_scanner_cycle(
 ) -> Dict[str, Any]:
     global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE
     _SCAN_CYCLE_COUNT += 1
+    event_bus = event_collector or EventCollector()
     utc_now = _utc_now()
     session_label = _market_session_label_utc(utc_now)
     diagnostics: Dict[str, Any] = {"mode": mode}
@@ -1284,11 +1308,11 @@ def run_scanner_cycle(
 
     run_mode = get_run_mode()
     fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
-    allow_fallback = fallback_enabled or run_mode == RunMode.LIVE_READ_ONLY
+    allow_fallback = fallback_enabled
     try:
         provider: ScannerDataProvider = build_provider()
     except ProviderConnectionError as exc:
-        if run_mode == RunMode.PAPER and not allow_fallback:
+        if run_mode in {RunMode.PAPER, RunMode.LIVE_READ_ONLY} and not allow_fallback:
             raise
         diagnostics["provider_error"] = str(exc)
         diagnostics["provider_fallback"] = {
@@ -1321,6 +1345,8 @@ def run_scanner_cycle(
         except Exception as exc:
             diagnostics["provider_error"] = str(exc)
             if provider.source_name != "MOCK":
+                if not allow_fallback and run_mode in {RunMode.PAPER, RunMode.LIVE_READ_ONLY}:
+                    raise
                 diagnostics["provider_fallback"] = {
                     "from": provider.source_name,
                     "to": "MOCK",
@@ -1354,7 +1380,8 @@ def run_scanner_cycle(
         symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
         requested_top_n = int(request.requested_top_n or len(symbols))
         print(f"SCANNER_RAW_N={requested_top_n} returned {len(symbols)} symbols")
-        if event_collector is not None:
+        print(f"RAW_SCAN_SYMBOLS (N={len(symbols)}): {symbols}")
+        if event_bus is not None:
             event_payload = {
                 "symbols": list(symbols),
                 "requested_rows": requested_top_n,
@@ -1362,19 +1389,19 @@ def run_scanner_cycle(
                 "session": session_label,
                 "timestamp": utc_now.isoformat(),
             }
-            event_collector.emit(
+            event_bus.emit(
                 event_type="SCANNER_UNIVERSE_SNAPSHOT",
                 source="Scanner",
                 payload=event_payload,
             )
-            event_collector.emit(
+            event_bus.emit(
                 event_type="RAW_SCAN_SYMBOLS",
                 source="Scanner",
                 payload=event_payload,
             )
 
         symbols = _apply_non_tradable_universe_gate(
-            symbols, provider, drop_ledger, event_collector=event_collector
+            symbols, provider, drop_ledger, event_collector=event_bus
         )
         universe_top_n = _build_universe_entries(symbols)
 
@@ -1396,8 +1423,8 @@ def run_scanner_cycle(
             if context is None:
                 drop_ledger.setdefault(symbol, "DROP_QUOTE_UNAVAILABLE")
                 print(f"[SCANNER][DROP] symbol={symbol} reason=DROP_QUOTE_UNAVAILABLE")
-                if event_collector is not None:
-                    event_collector.emit(
+                if event_bus is not None:
+                    event_bus.emit(
                         event_type="SCANNER_SYMBOL_DROPPED",
                         source="Scanner",
                         payload={
@@ -1421,8 +1448,8 @@ def run_scanner_cycle(
                     "[SCANNER][DROP] "
                     f"symbol={symbol} reason=DROP_UNSUBSCRIBED_MARKET_DATA"
                 )
-                if event_collector is not None:
-                    event_collector.emit(
+                if event_bus is not None:
+                    event_bus.emit(
                         event_type="SCANNER_SYMBOL_DROPPED",
                         source="Scanner",
                         payload={
@@ -1437,8 +1464,8 @@ def run_scanner_cycle(
             if context.get("snapshot_timeout"):
                 drop_ledger.setdefault(symbol, "DROP_SNAPSHOT_TIMEOUT")
                 print(f"[SCANNER][DROP] symbol={symbol} reason=DROP_SNAPSHOT_TIMEOUT")
-                if event_collector is not None:
-                    event_collector.emit(
+                if event_bus is not None:
+                    event_bus.emit(
                         event_type="SCANNER_SYMBOL_DROPPED",
                         source="Scanner",
                         payload={
@@ -1454,8 +1481,8 @@ def run_scanner_cycle(
             if price_gate_reason:
                 drop_ledger.setdefault(symbol, price_gate_reason)
                 print(f"[SCANNER][DROP] symbol={symbol} reason={price_gate_reason}")
-                if event_collector is not None:
-                    event_collector.emit(
+                if event_bus is not None:
+                    event_bus.emit(
                         event_type="SCANNER_SYMBOL_DROPPED",
                         source="Scanner",
                         payload={
@@ -1481,8 +1508,8 @@ def run_scanner_cycle(
             if drop_reason:
                 drop_ledger.setdefault(symbol, drop_reason)
                 print(f"[SCANNER][DROP] symbol={symbol} reason={drop_reason}")
-                if event_collector is not None:
-                    event_collector.emit(
+                if event_bus is not None:
+                    event_bus.emit(
                         event_type="SCANNER_SYMBOL_DROPPED",
                         source="Scanner",
                         payload={
@@ -1548,8 +1575,8 @@ def run_scanner_cycle(
         print(
             f"AFTER_GATES_SYMBOLS (N={len(after_gates_symbols)}): {after_gates_symbols}"
         )
-        if event_collector is not None:
-            event_collector.emit(
+        if event_bus is not None:
+            event_bus.emit(
                 event_type="AFTER_GATES_SYMBOLS",
                 source="Scanner",
                 payload={
@@ -1571,17 +1598,16 @@ def run_scanner_cycle(
                 "[SCANNER][DROP] symbol="
                 f"{context['symbol']} reason=DROP_RANK_BELOW_WATCHLIST"
             )
-            if event_collector is not None:
-                event_collector.emit(
-                    event_type="SCANNER_SYMBOL_DROPPED",
-                    source="Scanner",
-                    payload={
-                        "symbol": context["symbol"],
-                        "drop_reason": "DROP_RANK_BELOW_WATCHLIST",
-                        "metric_value": context.get("scanner_rank"),
-                        "threshold": watchlist_limit,
-                    },
-                )
+            event_bus.emit(
+                event_type="SCANNER_SYMBOL_DROPPED",
+                source="Scanner",
+                payload={
+                    "symbol": context["symbol"],
+                    "drop_reason": "DROP_RANK_BELOW_WATCHLIST",
+                    "metric_value": context.get("scanner_rank"),
+                    "threshold": watchlist_limit,
+                },
+            )
         if watchlist_limit > 0 and len(watchlist_contexts) < watchlist_limit:
             ranked_all = _rank_candidates(evaluated_contexts)
             existing = {context["symbol"] for context in watchlist_contexts}
@@ -1611,8 +1637,8 @@ def run_scanner_cycle(
         print(
             f"WATCHLIST_K_SELECTED (K={len(watchlist_symbols)}): {watchlist_symbols}"
         )
-        if event_collector is not None:
-            event_collector.emit(
+        if event_bus is not None:
+            event_bus.emit(
                 event_type="WATCHLIST_K_SELECTED",
                 source="Scanner",
                 payload={
@@ -1621,7 +1647,7 @@ def run_scanner_cycle(
                     "policy_name": resolved_policy.policy_name,
                 },
             )
-            event_collector.emit(
+            event_bus.emit(
                 event_type="SCANNER_WATCHLIST_K_READY",
                 source="Scanner",
                 payload={

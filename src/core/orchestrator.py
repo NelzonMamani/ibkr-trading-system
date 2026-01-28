@@ -533,7 +533,7 @@ class CoreOrchestrator:
                         "breaches": breaches,
                         "limits": breaker_details["limits"],
                         "metrics": breaker_details["metrics"],
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     },
                 )
         reason = "Circuit breaker triggered: " + "; ".join(breaches)
@@ -562,7 +562,7 @@ class CoreOrchestrator:
                         "run_mode": self.run_mode.value,
                         "daily_pnl": daily_pnl,
                         "warning_limit": warning_limit,
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     },
                 )
 
@@ -596,7 +596,7 @@ class CoreOrchestrator:
                         "breaches": ["DAILY_MAX_LOSS"],
                         "limits": {"daily_loss_hard_limit": hard_limit},
                         "metrics": {"daily_pnl": daily_pnl},
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     },
                 )
 

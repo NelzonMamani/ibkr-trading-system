@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import os
 
@@ -102,8 +102,8 @@ def _handle_report(args: argparse.Namespace) -> None:
     storage.insert_learning_run(
         LearningRunRecord(
             run_id=run_id,
-            started_at_utc=datetime.utcnow().isoformat(),
-            completed_at_utc=datetime.utcnow().isoformat(),
+            started_at_utc=datetime.now(timezone.utc).isoformat(),
+            completed_at_utc=datetime.now(timezone.utc).isoformat(),
             ok=True,
             error=None,
             strategy_name=args.strategy,

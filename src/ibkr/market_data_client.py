@@ -98,7 +98,27 @@ class MarketDataClient:
             "[IBKR][MD] Connecting "
             f"host={self.host} port={self.port} client_id={self.client_id}"
         )
-        if not self.ib.connect(self.host, self.port, clientId=self.client_id, timeout=5):
+        import asyncio
+
+        async def _connect():
+            return await self.ib.connectAsync(
+                self.host,
+                self.port,
+                clientId=self.client_id,
+                timeout=5,
+            )
+
+        runner = getattr(self.ib, "run", None)
+        connect_coro = _connect()
+        try:
+            if callable(runner):
+                connected = runner(connect_coro)
+            else:
+                connected = asyncio.run(connect_coro)
+        except Exception:
+            connect_coro.close()
+            raise
+        if not connected:
             raise RuntimeError("IBKR market data connection failed")
         server_version = None
         try:

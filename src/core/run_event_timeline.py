@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import json
 import hashlib
@@ -215,9 +215,9 @@ def build_timeline_from_storage(
             try:
                 resolved_time = datetime.fromisoformat(timestamp)
             except ValueError:
-                resolved_time = datetime.utcnow()
+                resolved_time = datetime.now(timezone.utc)
         else:
-            resolved_time = datetime.utcnow()
+            resolved_time = datetime.now(timezone.utc)
         events.append(
             SystemEvent(
                 event_type=row.get("event_type", "UNKNOWN"),

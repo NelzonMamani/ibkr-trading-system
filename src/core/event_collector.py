@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.core.run_event_timeline import RunEventTimeline
 from src.core.events import SystemEvent
@@ -30,7 +30,7 @@ class EventCollector:
             self._daily_pnl_date = resolved_date
 
     def roll_daily_pnl(self, now: datetime | None = None) -> None:
-        timestamp = now or datetime.utcnow()
+        timestamp = now or datetime.now(timezone.utc)
         self._roll_daily_pnl(timestamp)
 
     def clear_cycle(self):

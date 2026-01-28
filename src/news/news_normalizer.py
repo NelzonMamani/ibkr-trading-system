@@ -51,6 +51,7 @@ CATALYST_KEYWORDS = {
     "upgrade",
 }
 
+NEWS_STALE_MINUTES = 360
 
 def _domain_from_url(url: str) -> str:
     try:
@@ -114,6 +115,9 @@ def normalize_headlines(
             "news_velocity_10m": 0,
             "news_velocity_60m": 0,
             "seconds_since_latest_news": None,
+            "last_news_timestamp": None,
+            "news_age_minutes": None,
+            "has_recent_news": False,
             "news_freshest_age_minutes": None,
             "freshness_bucket": "N/A",
             "news_average_sentiment": 0.0,
@@ -152,6 +156,8 @@ def normalize_headlines(
     vel_60m = _velocity(headlines, 60, now_ts)
     latest_ts = max(headline.published_ts for headline in headlines)
     seconds_since_latest = max(now_ts - latest_ts, 0.0)
+    news_age_minutes = int(round(seconds_since_latest / 60.0))
+    has_recent_news = seconds_since_latest <= (NEWS_STALE_MINUTES * 60.0)
 
     sentiments = [(_sentiment_score(headline.title), headline) for headline in headlines]
     avg_sentiment = sum(score for score, _ in sentiments) / max(len(sentiments), 1)
@@ -197,6 +203,9 @@ def normalize_headlines(
         "news_velocity_10m": vel_10m,
         "news_velocity_60m": vel_60m,
         "seconds_since_latest_news": seconds_since_latest,
+        "last_news_timestamp": latest_ts,
+        "news_age_minutes": news_age_minutes,
+        "has_recent_news": has_recent_news,
         "news_freshest_age_minutes": int(round(seconds_since_latest / 60.0)),
         "freshness_bucket": _freshness_bucket(seconds_since_latest),
         "news_average_sentiment": round(avg_sentiment, 3),

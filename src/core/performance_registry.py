@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable
 
 from src.config.runtime_config import get_live_micro_daily_max_loss
@@ -62,7 +62,7 @@ class PerformanceRegistry:
         hold_duration_ticks = int(payload.get("hold_duration_ticks", 0) or 0)
         exit_category = payload.get("exit_category", "UNKNOWN")
         exit_reason = payload.get("exit_reason", "UNKNOWN")
-        timestamp = event.timestamp or datetime.utcnow()
+        timestamp = event.timestamp or datetime.now(timezone.utc)
         session = get_current_market_session(timestamp)
         volatility_regime = payload.get("volatility_regime", "UNKNOWN")
         market_direction = payload.get("market_direction", "UNKNOWN")

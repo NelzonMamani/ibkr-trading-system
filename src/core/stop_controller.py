@@ -8,7 +8,7 @@ safe when called from exception blocks.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from threading import Lock
 from typing import Optional
@@ -92,7 +92,7 @@ class StopController:
                 breaker_id=breaker_id,
                 reason=reason,
                 source=source,
-                tripped_at=datetime.utcnow().isoformat(),
+                tripped_at=datetime.now(timezone.utc).isoformat(),
                 details=details or {},
             )
             self._circuit_breakers[breaker_id] = state

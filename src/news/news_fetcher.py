@@ -19,6 +19,8 @@ if importlib.util.find_spec("requests"):
 else:  # pragma: no cover - optional dependency
     requests = None
 
+logging.getLogger("feedparser").setLevel(logging.ERROR)
+
 
 @dataclass(frozen=True)
 class Headline:

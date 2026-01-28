@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import json
 from typing import Any
@@ -155,7 +155,7 @@ class LearningStorage:
             """,
             (
                 proposal_id,
-                datetime.utcnow().isoformat(),
+                datetime.now(timezone.utc).isoformat(),
                 strategy_name,
                 baseline_policy_version,
                 min_trades_required,
@@ -186,7 +186,7 @@ class LearningStorage:
             (
                 status,
                 approved_by,
-                datetime.utcnow().isoformat() if approved_by else None,
+                datetime.now(timezone.utc).isoformat() if approved_by else None,
                 rejection_reason,
                 proposal_id,
             ),

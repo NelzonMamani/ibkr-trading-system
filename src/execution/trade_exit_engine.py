@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.config.runtime_config import RunMode, RuntimeConfig
 from src.core.active_trade_registry import ActiveTradeRegistry
@@ -460,7 +460,7 @@ class TradeExitEngine:
                     "quantity": quantity,
                     "state_history": getattr(trade, "state_history", []),
                 },
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
 
             closed_result = ExecutionResult(
@@ -658,7 +658,7 @@ class TradeExitEngine:
                     "quantity": quantity,
                     "state_history": getattr(trade, "state_history", []),
                 },
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
 
     def shutdown(self, current_tick: Optional[int] = None) -> None:
