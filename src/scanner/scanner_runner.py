@@ -1288,6 +1288,7 @@ def run_scanner_cycle(
     try:
         provider: ScannerDataProvider = build_provider()
     except ProviderConnectionError as exc:
+
         if run_mode == RunMode.PAPER and not allow_fallback:
             raise
         diagnostics["provider_error"] = str(exc)
@@ -1296,6 +1297,7 @@ def run_scanner_cycle(
             "to": "MOCK",
             "reason": str(exc),
         }
+        print("STATE=DEGRADED")
         print(
             "[SCANNER][WARN] Provider connection failed — "
             f"falling back to MOCK reason={exc}"
