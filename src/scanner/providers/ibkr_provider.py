@@ -21,6 +21,7 @@ class IbkrScannerProvider(ScannerDataProvider):
         try:
             self.market_data_client.connect()
         except Exception as exc:
+            print("STATE=DEGRADED")
             raise ProviderConnectionError(str(exc)) from exc
 
     def disconnect(self) -> None:
