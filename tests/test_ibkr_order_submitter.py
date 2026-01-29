@@ -147,7 +147,11 @@ def test_submission_blocked_when_run_mode_not_sim():
     settings = make_settings(run_mode=RunMode.SIM)
     submitter = make_submitter(settings)
 
-    with pytest.raises(RuntimeError, match="RUN_MODE in \\{LIVE, LIVE_MICRO, PAPER\\}"):
+    # with pytest.raises(RuntimeError, match="RUN_MODE in \\{LIVE, LIVE_MICRO, PAPER\\}"):
+    with pytest.raises(
+            RuntimeError,
+            match=r"RUN_MODE in \{LIVE, LIVE_MICRO, LIVE_ONE_SHARE, PAPER\}"
+    ):
         submitter.submit_once(make_order())
 
 

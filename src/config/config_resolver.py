@@ -328,6 +328,21 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         env=None,
     )
 
+    selected_strategy = str(resolved["SELECTED_STRATEGY"].value or "").strip().lower()
+    if selected_strategy == "statistical_intraday_momentum":
+        current_enabled = resolved["STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"].value
+        if not current_enabled:
+            resolved["STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"] = ConfigRecord(
+                name="STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED",
+                value=True,
+                source="DERIVED",
+                env=None,
+            )
+            print(
+                "[CONFIG] Selected strategy=statistical_intraday_momentum; "
+                "forcing STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True"
+            )
+
     if resolved["GIT_SHA"].value is None:
         resolved["GIT_SHA"] = ConfigRecord(
             name="GIT_SHA",

@@ -19,6 +19,22 @@ class RunEventTimeline:
     def record(self, event):
         self._events.append(event)
 
+    def emit(self, payload):
+        normalized = payload if isinstance(payload, dict) else {"message": str(payload)}
+        stage = normalized.get("stage", "TRACE")
+        cycle_id = normalized.get("cycle_id")
+        run_mode = normalized.get("run_mode")
+        strategy = normalized.get("strategy")
+        summary = normalized.get("summary", "")
+        if summary:
+            summary = f" {summary}"
+        print(
+            "[TRACE] "
+            f"stage={stage} cycle_id={cycle_id} run_mode={run_mode} "
+            f"strategy={strategy}{summary}"
+        )
+        return normalized
+
     def snapshot(self):
         return list(self._events)
 
