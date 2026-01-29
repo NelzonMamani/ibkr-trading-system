@@ -6,7 +6,6 @@ from typing import List, Optional, Sequence
 from src.config.trading_config import (
     ENABLED_STRATEGIES,
     ROSS_MOMENTUM_STRATEGY_ENABLED,
-    STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED,
 )
 from src.core.event_collector import EventCollector
 from src.domain.market_snapshot import MarketSnapshot
@@ -69,10 +68,10 @@ class StrategyRunner:
                     f"ROSS_MOMENTUM_STRATEGY_ENABLED={ROSS_MOMENTUM_STRATEGY_ENABLED}"
                 )
             elif strategy_name == "StatisticalIntradayMomentum":
-                enabled = STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED
+                enabled = bool(get_config("STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"))
                 reason = (
                     "STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED="
-                    f"{STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED}"
+                    f"{enabled}"
                 )
                 print(
                     "[BOOT][STRATEGY] StatisticalIntradayMomentum "

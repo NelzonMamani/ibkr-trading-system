@@ -961,9 +961,16 @@ class CoreOrchestrator:
             session_label=session_label,
             timestamp_utc=timestamp_utc,
         )
+        strategy_watchlist = watchlist
+        if self.selected_strategy_key == "statistical_intraday_momentum":
+            strategy_watchlist = focus_rows
+            print(
+                "[STRATEGY][FOCUS] "
+                f"statistical_intraday_momentum using focus_m={len(focus_rows)}"
+            )
         strategy_output = self.strategy_runner.process(
             strategy_key=self.selected_strategy_key,
-            watchlist=watchlist,
+            watchlist=strategy_watchlist,
             snapshots=snapshots_by_symbol,
             session_label=session_label,
             timestamp_utc=timestamp_utc,

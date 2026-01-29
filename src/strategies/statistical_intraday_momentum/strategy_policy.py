@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterable
 
+from src.config.runtime_config import RunMode
+from src.domain.market_snapshot import MarketSnapshot
+from src.models.data_models import TradeIntent
+from src.scanner.result_models import CandidateMetrics
 from src.strategy_portfolio.contracts import StrategyIdentity
 from src.strategies.ross_momentum.strategy_policy import (
     StockSelectionSpec,
@@ -132,3 +137,114 @@ def statistical_stock_selection_spec() -> StockSelectionSpec:
         session_allowlist=("REG",),
         ranking_intent="STATISTICAL_INTRADAY_MOMENTUM_STOCK_SELECTION",
     )
+
+
+def decide_trade_intent(
+    *,
+    candidate: CandidateMetrics,
+    snapshot: MarketSnapshot | None,
+    policy: StatisticalIntradayMomentumPolicy,
+    mode: RunMode,
+    strategy_name: str,
+    trader_type: str,
+) -> tuple[TradeIntent | None, list[str]]:
+    reasons: list[str] = []
+    flags = list(candidate.data_quality_flags or [])
+    if flags:
+        blocked_flags = _blocked_data_quality_flags(flags, mode)
+        if blocked_flags:
+            reasons.append(f"DATA_QUALITY_BLOCKED:{','.join(blocked_flags)}")
+    if reasons:
+        return None, reasons
+
+    last_price = candidate.last_price
+    if snapshot is not None and snapshot.last is not None:
+        last_price = snapshot.last
+    if last_price is None:
+        return None, ["INSUFFICIENT_DATA_LAST"]
+
+    gap_pct = candidate.gap_pct if candidate.gap_pct is not None else candidate.pct_change
+    rvol = candidate.rvol if candidate.rvol is not None else candidate.relative_volume
+    dollar_volume = candidate.dollar_volume
+    if gap_pct is None or gap_pct < 2.0:
+        reasons.append("GAP_BELOW_MIN")
+    if rvol is None or rvol < 1.5:
+        reasons.append("RVOL_BELOW_MIN")
+    if dollar_volume is None or dollar_volume < policy.universe.min_dollar_volume:
+        reasons.append("LIQUIDITY_BELOW_MIN")
+
+    bid = candidate.bid
+    ask = candidate.ask
+    spread = candidate.spread
+    if snapshot is not None:
+        if snapshot.bid is not None:
+            bid = snapshot.bid
+        if snapshot.ask is not None:
+            ask = snapshot.ask
+    if bid is not None and ask is not None:
+        spread = ask - bid
+    if spread is not None and last_price:
+        spread_bps = (spread / last_price) * 10000.0
+        if spread_bps > policy.universe.max_spread_bps and mode != RunMode.SIM:
+            reasons.append("SPREAD_TOO_WIDE")
+
+    if reasons:
+        return None, reasons
+
+    stop_distance = max(last_price * 0.01, 0.01)
+    stop_loss_price = round(max(last_price - stop_distance, 0.01), 4)
+    take_profit_price = round(last_price + (2.0 * stop_distance), 4)
+    confidence = _confidence_score(gap_pct, rvol)
+    rationale_parts = [
+        f"gap_pct={gap_pct}",
+        f"rvol={rvol}",
+        f"dollar_volume={dollar_volume}",
+        "rule=gap>=2 rvol>=1.5 liquidity>=min",
+    ]
+    if "MOCK" in flags and mode == RunMode.SIM:
+        rationale_parts.append("data_quality=MOCK_SIM_OK")
+    rationale = " | ".join(rationale_parts)
+
+    intent = TradeIntent(
+        symbol=candidate.symbol,
+        direction="LONG",
+        strategy_name=strategy_name,
+        confidence=confidence,
+        rationale=rationale,
+        trader_type=trader_type,
+        stop_loss_price=stop_loss_price,
+        take_profit_price=take_profit_price,
+        gap_percent=gap_pct,
+        rvol=rvol,
+        float_millions=candidate.float_millions,
+        data_quality_flags=flags,
+    )
+    return intent, []
+
+
+def _blocked_data_quality_flags(flags: Iterable[str], mode: RunMode) -> list[str]:
+    critical_flags = {
+        "MISSING_LAST",
+        "MISSING_PRICE",
+        "INCOMPLETE_BID_ASK",
+        "MD_TIMEOUT",
+        "CONTRACT_QUALIFY_FAILED",
+        "QUOTE_UNAVAILABLE",
+    }
+    blocked = []
+    for flag in flags:
+        if flag == "MOCK" and mode == RunMode.SIM:
+            continue
+        if flag == "MOCK" and mode != RunMode.SIM:
+            blocked.append(flag)
+            continue
+        if flag in critical_flags:
+            blocked.append(flag)
+    return blocked
+
+
+def _confidence_score(gap_pct: float | None, rvol: float | None) -> float:
+    gap_score = min(max((gap_pct or 0.0) / 10.0, 0.0), 1.0)
+    rvol_score = min(max((rvol or 0.0) / 3.0, 0.0), 1.0)
+    score = (0.6 * gap_score) + (0.4 * rvol_score)
+    return round(min(max(score, 0.0), 1.0), 2)

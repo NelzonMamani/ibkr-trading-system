@@ -46,6 +46,20 @@ class ConnectionManager:
         base_client_id = get_ibkr_client_id()
         host = get_ibkr_host()
         port = get_ibkr_port()
+        host_fallback = "127.0.0.1"
+        port_fallback = 7497
+        if not host or str(host).strip().lower() in {"none", "null"}:
+            print(
+                "[IBKR][CONNECT][WARN] host missing; "
+                f"falling back to {host_fallback}"
+            )
+            host = host_fallback
+        if not port:
+            print(
+                "[IBKR][CONNECT][WARN] port missing; "
+                f"falling back to {port_fallback}"
+            )
+            port = port_fallback
         market_data_type = get_ibkr_market_data_type()
         snapshot_timeout = get_ibkr_snapshot_timeout_seconds()
 
