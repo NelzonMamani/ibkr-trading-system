@@ -1,0 +1,13 @@
+"""
+Cadence definition for Long Horizon Value Strategy.
+All runs are off-hours only.
+"""
+
+DAILY_LIGHT_CHECK = "DAILY_LIGHT_CHECK"
+MONTHLY_REFRESH = "MONTHLY_REFRESH"
+QUARTERLY_REUNDERWRITE = "QUARTERLY_REUNDERWRITE"
+
+ALLOWED_RUN_WINDOWS = [
+    "WEEKEND",
+    "AFTER_HOURS",
+]
