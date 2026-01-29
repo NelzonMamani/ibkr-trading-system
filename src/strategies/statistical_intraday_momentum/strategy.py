@@ -82,11 +82,16 @@ class StatisticalIntradayMomentum(BaseStrategy):
                 )
                 return []
 
-        activation_allowed = policy.activation.allow or mode in {
-            RunMode.SIM,
-            RunMode.PAPER,
-            RunMode.LIVE_READ_ONLY,
-        }
+        # activation_allowed = policy.activation.allow or mode in {
+        #     RunMode.SIM,
+        #     RunMode.PAPER,
+        #     RunMode.LIVE_READ_ONLY,
+        # }
+        activation_allowed = (
+                policy.activation.allow
+                or mode == RunMode.SIM
+        )
+
         if not activation_allowed:
             print(
                 "[SIMOM][SKIP] activation disabled by policy "
