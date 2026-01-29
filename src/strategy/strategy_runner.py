@@ -74,6 +74,11 @@ class StrategyRunner:
                     "STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED="
                     f"{STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED}"
                 )
+                print(
+                    "[BOOT][STRATEGY] StatisticalIntradayMomentum "
+                    f"enabled={enabled} selected={selected_strategy_name == 'StatisticalIntradayMomentum'} "
+                    f"reason={reason}"
+                )
             else:
                 enabled = ENABLED_STRATEGIES.get(strategy_name, False)
                 reason = (
@@ -86,6 +91,11 @@ class StrategyRunner:
                     f"[BOOT] Strategy '{strategy_name}' DISABLED via config "
                     f"({reason}); skipping."
                 )
+                if strategy_name == "StatisticalIntradayMomentum":
+                    print(
+                        "[BOOT][STRATEGY] "
+                        "Set STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True to enable."
+                    )
                 continue
 
             strategy = strategy_class()
@@ -110,6 +120,47 @@ class StrategyRunner:
             f"K={len(self.last_watchlist_symbols)} session={session_label} "
             f"timestamp_utc={timestamp_utc}"
         )
+
+    def process(
+        self,
+        *,
+        strategy_key: str,
+        watchlist: Sequence[object],
+        snapshots: dict[str, MarketSnapshot],
+        session_label: str,
+        timestamp_utc: str,
+        mode,
+        session_phase: str,
+    ) -> List[TradeIntent]:
+        strategies = list(self.strategies)
+        print(
+            "[STRATEGY][PROCESS] "
+            f"strategy_key={strategy_key} strategies={len(strategies)} "
+            f"watchlist={len(watchlist)} session={session_label} phase={session_phase}"
+        )
+        if not strategies:
+            print("[STRATEGY][PROCESS] No registered strategies; returning [].")
+            return []
+        results: List[TradeIntent] = []
+        for strategy in strategies:
+            handler = getattr(strategy, "process_watchlist", None)
+            if callable(handler):
+                results.extend(
+                    handler(
+                        watchlist=watchlist,
+                        snapshots=snapshots,
+                        session_label=session_label,
+                        timestamp_utc=timestamp_utc,
+                        mode=mode,
+                        session_phase=session_phase,
+                    )
+                )
+                continue
+            print(
+                "[STRATEGY][PROCESS] "
+                f"Strategy '{strategy.name}' has no watchlist handler; skipping."
+            )
+        return results
 
     def generate_trade_intents(
         self,

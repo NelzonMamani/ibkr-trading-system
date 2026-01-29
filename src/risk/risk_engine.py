@@ -91,14 +91,18 @@ class RiskEngine:
 
         if run_mode == RunMode.LIVE_READ_ONLY:
             risk_reasons.append(LIVE_READ_ONLY_BLOCK)
-        if run_mode in {RunMode.PAPER, RunMode.LIVE_MICRO}:
+        if run_mode in {RunMode.PAPER, RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE}:
             daily_pnl = self.event_collector.daily_realised_pnl()
             hard_limit = abs(get_daily_loss_hard_limit())
             if hard_limit > 0 and daily_pnl <= -hard_limit:
                 risk_reasons.append("DAILY_MAX_LOSS_HARD_STOP")
         if not execution_enabled:
             risk_reasons.append(EXECUTION_DISABLED)
-        if get_ibkr_readonly_enabled() and run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO}:
+        if get_ibkr_readonly_enabled() and run_mode in {
+            RunMode.LIVE,
+            RunMode.LIVE_MICRO,
+            RunMode.LIVE_ONE_SHARE,
+        }:
             risk_reasons.append(BROKER_READONLY_BLOCK)
 
         normalized_risk_flags = {flag.lower() for flag in payload.risk_flags}
@@ -166,20 +170,24 @@ class RiskEngine:
             reason_tags.append(INTENT_MISSING_FIELDS)
 
         intent_ids.add(intent.intent_id)
-        if run_mode == RunMode.LIVE_MICRO:
+        if run_mode in {RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE}:
             live_micro_symbols.add(intent.symbol)
             if len(live_micro_symbols) > max_symbols:
                 reason_tags.append(LIVE_MICRO_SYMBOL_CAP)
 
         intent_flags = {flag.lower() for flag in intent.risk_flags}
-        if "data_quality" in intent_flags and run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO}:
+        if "data_quality" in intent_flags and run_mode in {
+            RunMode.LIVE,
+            RunMode.LIVE_MICRO,
+            RunMode.LIVE_ONE_SHARE,
+        }:
             reason_tags.append(DATA_QUALITY_BLOCK)
 
         if risk_reasons:
             reason_tags.extend(risk_reasons)
 
         allowed = not reason_tags and execution_enabled
-        if run_mode in {RunMode.LIVE_MICRO, RunMode.PAPER}:
+        if run_mode in {RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE, RunMode.PAPER}:
             size = 1
         else:
             size = int(get_config("RISK_MAX_POSITION_SIZE"))
@@ -260,7 +268,7 @@ class RiskEngine:
                 risk_reasons=[EXECUTION_DISABLED],
                 execution_blocked=True,
             )
-        if run_mode in {RunMode.PAPER, RunMode.LIVE_MICRO}:
+        if run_mode in {RunMode.PAPER, RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE}:
             daily_pnl = self.event_collector.daily_realised_pnl()
             hard_limit = abs(get_daily_loss_hard_limit())
             if hard_limit > 0 and daily_pnl <= -hard_limit:
@@ -393,7 +401,7 @@ class RiskEngine:
                 "no blocking logic implemented"
             )
 
-        if run_mode in {RunMode.LIVE_MICRO, RunMode.PAPER}:
+        if run_mode in {RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE, RunMode.PAPER}:
             max_position_size = 1
         else:
             max_position_size = int(get_config("RISK_MAX_POSITION_SIZE"))

@@ -20,7 +20,14 @@ def _mode_allows_trading(mode_value: str) -> bool:
     normalized = mode_value.strip().upper()
     if normalized in {"READONLY", "READ_ONLY", "LIVE_READ_ONLY", "LIVE_READONLY"}:
         return False
-    return normalized in {"SIM", "PAPER", "LIVE", "LIVE_MICRO", "LIVE_1SHARE"}
+    return normalized in {
+        "SIM",
+        "PAPER",
+        "LIVE",
+        "LIVE_MICRO",
+        "LIVE_ONE_SHARE",
+        "LIVE_1SHARE",
+    }
 
 
 def build_execution_intent(

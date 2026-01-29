@@ -17,7 +17,7 @@ class RunMode(str, Enum):
         if not value:
             return cls.READONLY
         normalized = value.strip().upper()
-        if normalized in {"LIVE_1SHARE", "LIVE-1SHARE", "LIVE_MICRO"}:
+        if normalized in {"LIVE_1SHARE", "LIVE-1SHARE", "LIVE_MICRO", "LIVE_ONE_SHARE"}:
             return cls.LIVE_1SHARE
         if normalized in {"READONLY", "READ_ONLY", "LIVE_READ_ONLY", "LIVE_READONLY"}:
             return cls.READONLY

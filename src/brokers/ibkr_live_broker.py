@@ -69,6 +69,11 @@ class IbkrLiveBroker(BaseBroker):
                 raise RuntimeError(
                     "IBKR_READONLY_ENABLED must be False for LIVE_MICRO execution."
                 )
+        if self.run_mode == RunMode.LIVE_ONE_SHARE:
+            if get_ibkr_readonly_enabled():
+                raise RuntimeError(
+                    "IBKR_READONLY_ENABLED must be False for LIVE_ONE_SHARE execution."
+                )
         if not get_ibkr_order_translation_enabled():
             raise RuntimeError("IBKR order translation disabled; cannot submit live orders.")
         if not get_ibkr_order_submission_enabled(default=False):
@@ -126,7 +131,7 @@ class IbkrLiveBroker(BaseBroker):
         return True
 
     def place_order(self, request: BrokerOrderRequest) -> ExecutionResult:
-        if self.run_mode == RunMode.LIVE_MICRO and request.quantity != 1:
+        if self.run_mode in {RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE} and request.quantity != 1:
             rationale = "LIVE_MICRO_BLOCK: quantity must be exactly 1 share."
             return ExecutionResult(
                 symbol=request.symbol,

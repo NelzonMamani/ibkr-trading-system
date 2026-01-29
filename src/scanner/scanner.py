@@ -25,6 +25,7 @@ class RunMode(Enum):
     SIM = "SIM"
     LIVE_READ_ONLY = "LIVE_READ_ONLY"
     LIVE_MICRO = "LIVE_MICRO"
+    LIVE_ONE_SHARE = "LIVE_ONE_SHARE"
     PAPER = "PAPER"
     LIVE = "LIVE"
 
@@ -125,6 +126,7 @@ class Scanner:
         if self.run_mode in {
             RunMode.LIVE_READ_ONLY,
             RunMode.LIVE_MICRO,
+            RunMode.LIVE_ONE_SHARE,
             RunMode.PAPER,
             RunMode.LIVE,
         }:
@@ -148,7 +150,13 @@ class Scanner:
     def _run_live_readonly_scan(
         self, policy: StockSelectionPolicy
     ) -> List[ScannerCandidate]:
-        mode_label = "LIVE MICRO" if self.run_mode == RunMode.LIVE_MICRO else "LIVE READ-ONLY"
+        mode_label = (
+            "LIVE MICRO"
+            if self.run_mode == RunMode.LIVE_MICRO
+            else "LIVE ONE-SHARE"
+            if self.run_mode == RunMode.LIVE_ONE_SHARE
+            else "LIVE READ-ONLY"
+        )
         print(f"[SCAN] {mode_label} scan started — using IBKR market snapshots")
         if IbkrBroker is None and self.market_data_hub is None:
             reason = "IBKR broker unavailable; live scan requires IBKR connectivity."

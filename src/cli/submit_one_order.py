@@ -46,9 +46,15 @@ def abort(message: str) -> None:
 
 def validate_runtime() -> RunMode:
     run_mode = get_run_mode()
-    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
+    if run_mode in {
+        RunMode.LIVE,
+        RunMode.LIVE_READ_ONLY,
+        RunMode.LIVE_MICRO,
+        RunMode.LIVE_ONE_SHARE,
+    }:
         abort(
-            "RUN_MODE=LIVE, LIVE_READ_ONLY, or LIVE_MICRO detected — live submission is forbidden for this CLI."
+            "RUN_MODE=LIVE, LIVE_READ_ONLY, LIVE_MICRO, or LIVE_ONE_SHARE detected — "
+            "live submission is forbidden for this CLI."
         )
     if run_mode == RunMode.SIM:
         abort("RUN_MODE=SIM detected — IBKR submission CLI requires RUN_MODE=PAPER.")

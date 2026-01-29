@@ -45,7 +45,7 @@ class ExecutionEngine:
             print("[EXECUTION] Gateway: DISABLED")
             print("[EXECUTION] Liquidity checks: DISABLED")
             print("[EXECUTION] Broker submission: DISABLED")
-        elif self.run_mode == RunMode.LIVE_MICRO:
+        elif self.run_mode in {RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE}:
             print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
             print("[SAFETY] 1-SHARE LIMIT ENFORCED")
         elif self.run_mode == RunMode.PAPER:
@@ -147,7 +147,7 @@ class ExecutionEngine:
             return self._duplicate_result(risk_decision, idempotency_key)
         risk_decision.idempotency_key = idempotency_key
 
-        if self.run_mode == RunMode.LIVE_MICRO:
+        if self.run_mode in {RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE}:
             return self._execute_live_micro(risk_decision)
         if self.run_mode == RunMode.PAPER:
             return self._execute_paper(risk_decision)
@@ -166,7 +166,13 @@ class ExecutionEngine:
                 risk_decision,
                 rationale="LIVE_READ_ONLY_BLOCK",
             )
-        if self.run_mode not in {RunMode.SIM, RunMode.PAPER, RunMode.LIVE_MICRO, RunMode.LIVE}:
+        if self.run_mode not in {
+            RunMode.SIM,
+            RunMode.PAPER,
+            RunMode.LIVE_MICRO,
+            RunMode.LIVE_ONE_SHARE,
+            RunMode.LIVE,
+        }:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale=f"RUN_MODE_BLOCK:{self.run_mode.value}",
@@ -176,7 +182,11 @@ class ExecutionEngine:
                 risk_decision,
                 rationale="EXECUTION_DISABLED",
             )
-        if get_ibkr_readonly_enabled() and self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO}:
+        if get_ibkr_readonly_enabled() and self.run_mode in {
+            RunMode.LIVE,
+            RunMode.LIVE_MICRO,
+            RunMode.LIVE_ONE_SHARE,
+        }:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="BROKER_READONLY_BLOCK",

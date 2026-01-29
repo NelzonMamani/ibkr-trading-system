@@ -240,7 +240,7 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
     scanner_mode_record = resolved["SCANNER_MODE"]
     scanner_mode = scanner_mode_record.value
     scanner_mode_source = scanner_mode_record.source
-    if effective_run_mode in {"LIVE", "LIVE_READ_ONLY", "LIVE_MICRO", "PAPER"}:
+    if effective_run_mode in {"LIVE", "LIVE_READ_ONLY", "LIVE_MICRO", "LIVE_ONE_SHARE", "PAPER"}:
         effective_scanner_mode = "LIVE_READONLY"
     elif effective_run_mode == "SIM" and scanner_mode_source in {"DEFAULT"}:
         effective_scanner_mode = "TEACHING"
@@ -269,7 +269,12 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         env=None,
     )
 
-    ibkr_submission_enabled = effective_run_mode in {"PAPER", "LIVE", "LIVE_MICRO"}
+    ibkr_submission_enabled = effective_run_mode in {
+        "PAPER",
+        "LIVE",
+        "LIVE_MICRO",
+        "LIVE_ONE_SHARE",
+    }
     resolved["IBKR_ORDER_SUBMISSION_ENABLED"] = ConfigRecord(
         name="IBKR_ORDER_SUBMISSION_ENABLED",
         value=ibkr_submission_enabled,
@@ -277,7 +282,12 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         env=None,
     )
 
-    ibkr_translation_enabled = effective_run_mode in {"PAPER", "LIVE", "LIVE_MICRO"}
+    ibkr_translation_enabled = effective_run_mode in {
+        "PAPER",
+        "LIVE",
+        "LIVE_MICRO",
+        "LIVE_ONE_SHARE",
+    }
     resolved["IBKR_ORDER_TRANSLATION_ENABLED"] = ConfigRecord(
         name="IBKR_ORDER_TRANSLATION_ENABLED",
         value=ibkr_translation_enabled,
@@ -294,7 +304,7 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
     )
 
     requested_replay = resolved["EVENT_REPLAY_MODE"].value
-    if effective_run_mode in {"LIVE", "LIVE_READ_ONLY", "LIVE_MICRO"}:
+    if effective_run_mode in {"LIVE", "LIVE_READ_ONLY", "LIVE_MICRO", "LIVE_ONE_SHARE"}:
         replay_mode = "OFF"
     else:
         replay_mode = requested_replay
@@ -307,7 +317,13 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
 
     resolved["EXECUTION_ENABLED_EFFECTIVE"] = ConfigRecord(
         name="EXECUTION_ENABLED_EFFECTIVE",
-        value=effective_run_mode in {"SIM", "PAPER", "LIVE_MICRO", "LIVE"},
+        value=effective_run_mode in {
+            "SIM",
+            "PAPER",
+            "LIVE_MICRO",
+            "LIVE_ONE_SHARE",
+            "LIVE",
+        },
         source="DERIVED",
         env=None,
     )

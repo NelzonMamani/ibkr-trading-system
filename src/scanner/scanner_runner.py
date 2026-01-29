@@ -290,7 +290,20 @@ def _bootstrap_float_cache(
     return float_cache
 
 
+def _allow_history_enrichment(provider: ScannerDataProvider | None = None) -> bool:
+    run_mode = get_run_mode()
+    if run_mode in {RunMode.SIM, RunMode.PAPER}:
+        return True
+    if provider is not None:
+        provider_name = type(provider).__name__
+        if provider_name != "IbkrScannerProvider":
+            return True
+    return bool(get_config("HISTORICAL_ENRICH_ENABLED"))
+
+
 def _history_snapshot(symbol: str, provider: ScannerDataProvider) -> Dict[str, Any]:
+    if not _allow_history_enrichment(provider):
+        return {"prev_close": None, "average_daily_volume_20d": None, "average_daily_volume_window_days": None}
     cached = _HISTORY_CACHE.get(symbol)
     if cached:
         return cached
@@ -853,6 +866,8 @@ def _candidate_from_context(
     data_quality_flags = list(context.get("data_quality_flags", []) or [])
     return CandidateMetrics(
         symbol=context.get("symbol"),
+        con_id=context.get("con_id"),
+        exchange=context.get("exchange"),
         session_label=context.get("session"),
         last_price=context.get("last_price"),
         prev_close=context.get("prev_close"),
@@ -862,11 +877,16 @@ def _candidate_from_context(
         ibkr_change_pct=context.get("ibkr_change_pct"),
         pct_source=context.get("pct_source"),
         rvol=context.get("rvol"),
+        relative_volume=context.get("relative_volume"),
+        avg_volume_20d=context.get("avg_volume_20d"),
         float_shares=float_shares,
         float_millions=float_millions,
         volume=volume,
         premarket_volume=premarket_volume,
         dollar_volume=context.get("dollar_volume"),
+        bid=context.get("bid"),
+        ask=context.get("ask"),
+        spread=context.get("spread"),
         spread_pct=context.get("spread_pct"),
         halted=context.get("halted"),
         ssr=context.get("ssr"),
@@ -1020,6 +1040,7 @@ def _build_symbol_context(
 
     volume = intraday.current_intraday_volume if intraday else None
     rvol = intraday.relative_volume if intraday else None
+    avg_volume_20d = intraday.average_daily_volume_20d if intraday else None
     if intraday is None:
         data_quality_flags.append("VOLUME_UNKNOWN")
     if volume is None:
@@ -1031,6 +1052,8 @@ def _build_symbol_context(
     if include_pct_change and prev_close is None:
         history = _history_snapshot(symbol, provider)
         prev_close = history.get("prev_close")
+        if prev_close is None and not _allow_history_enrichment(provider):
+            data_quality_flags.append("HISTORY_DISABLED")
     if include_pct_change and prev_close is None:
         data_quality_flags.append("HISTORY_UNKNOWN")
 
@@ -1072,9 +1095,13 @@ def _build_symbol_context(
             f"source={pct_source}"
         )
 
+    scan_details = getattr(provider, "last_scan_details", {}) or {}
+    scan_detail = scan_details.get(symbol, {}) if isinstance(scan_details, dict) else {}
     return {
         "symbol": symbol,
         "session": session_label,
+        "con_id": scan_detail.get("conId"),
+        "exchange": scan_detail.get("primaryExchange"),
         "last_price": last_price,
         "close": quote.close,
         "prev_close": prev_close,
@@ -1083,12 +1110,14 @@ def _build_symbol_context(
         "pct_source": pct_source,
         "ibkr_change_pct": ibkr_change_pct,
         "volume": volume,
+        "avg_volume_20d": avg_volume_20d,
         "dollar_volume": dollar_volume,
         "bid": quote.bid,
         "ask": quote.ask,
         "spread": spread,
         "spread_pct": spread_pct,
         "rvol": rvol,
+        "relative_volume": rvol,
         "float_shares": float_shares,
         "halted": None,
         "ssr": None,
@@ -1235,6 +1264,9 @@ def run_scanner_cycle(
     policy: StockSelectionPolicy | None = None,
     scanner_request: ScannerRequest | None = None,
     event_collector: EventCollector | None = None,
+    provider: ScannerDataProvider | None = None,
+    disconnect_provider: bool | None = None,
+    market_data_client: object | None = None,
 ) -> Dict[str, Any]:
     global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE
     _SCAN_CYCLE_COUNT += 1
@@ -1285,8 +1317,15 @@ def run_scanner_cycle(
     run_mode = get_run_mode()
     fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
     allow_fallback = fallback_enabled or run_mode == RunMode.LIVE_READ_ONLY
+    using_external_provider = provider is not None
     try:
-        provider: ScannerDataProvider = build_provider()
+        if provider is None:
+            if market_data_client is None:
+                provider = build_provider()
+            else:
+                provider = build_provider(market_data_client=market_data_client)
+        else:
+            provider.connect()
     except ProviderConnectionError as exc:
 
         if run_mode == RunMode.PAPER and not allow_fallback:
@@ -1636,6 +1675,7 @@ def run_scanner_cycle(
             RunMode.LIVE,
             RunMode.LIVE_READ_ONLY,
             RunMode.LIVE_MICRO,
+            RunMode.LIVE_ONE_SHARE,
             RunMode.PAPER,
         }
         if watchlist_symbols and allow_news:
@@ -1747,7 +1787,10 @@ def run_scanner_cycle(
                     continue
 
     finally:
-        provider.disconnect()
+        if disconnect_provider is None:
+            disconnect_provider = not using_external_provider
+        if disconnect_provider and provider is not None:
+            provider.disconnect()
 
     new_symbols = sorted(set(watchlist_symbols) - _PREV_WATCHLIST)
     continuing_symbols = sorted(set(watchlist_symbols) & _PREV_WATCHLIST)
