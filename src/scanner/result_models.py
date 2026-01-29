@@ -7,6 +7,8 @@ from typing import Optional
 @dataclass(frozen=True)
 class CandidateMetrics:
     symbol: str
+    con_id: Optional[int]
+    exchange: Optional[str]
     session_label: Optional[str]
     last_price: Optional[float]
     prev_close: Optional[float]
@@ -16,11 +18,16 @@ class CandidateMetrics:
     ibkr_change_pct: Optional[float]
     pct_source: Optional[str]
     rvol: Optional[float]
+    relative_volume: Optional[float]
+    avg_volume_20d: Optional[int]
     float_shares: Optional[int]
     float_millions: Optional[float]
     volume: Optional[int]
     premarket_volume: Optional[int]
     dollar_volume: Optional[float]
+    bid: Optional[float]
+    ask: Optional[float]
+    spread: Optional[float]
     spread_pct: Optional[float]
     halted: Optional[bool]
     ssr: Optional[bool]

@@ -37,6 +37,12 @@ from src.core.performance_registry import PerformanceRegistry
 from src.core.replay_engine import ReplayEngine
 from src.core.trace_bus import TraceBus
 from src.execution.execution_engine import ExecutionEngine
+from src.core.managers import (
+    ConnectionManager,
+    MarketDataSnapshotManager,
+    RuntimeModeManager,
+    ScannerDiagnosticsManager,
+)
 from src.execution.order_gateway import OrderGateway
 from src.execution.trade_exit_engine import TradeExitEngine
 from src.learning.scheduler import LearningScheduler
@@ -53,6 +59,7 @@ from src.scanner.scanner_contract import ScannerRequest, scanner_request_from_po
 from src.scanner.result_models import CandidateMetrics
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.scanner.providers.base import ProviderConnectionError
+from src.scanner.providers.mock_provider import MockScannerProvider
 from src.scanner.session_pct_change import normalize_session_label
 from src.sim.clock import SimClock, WallClock
 from src.sim.price_feed import DeterministicPriceFeed
@@ -75,6 +82,7 @@ from src.strategies.ross_momentum.strategy_policy import (
     RossMomentumPolicy,
     StockSelectionSpec,
     UniverseSource,
+    select_watchlist,
     stock_selection_policy_for_session_phase,
 )
 from src.strategies.statistical_intraday_momentum.strategy_policy import (
@@ -92,29 +100,30 @@ class RuntimeSafetyError(RuntimeError):
 class CoreOrchestrator:
     def __init__(self):
         print("[INFO] Core Orchestrator initialised.")
-        self.run_mode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
-        self.execution_enabled = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
+        self.runtime_mode_manager = RuntimeModeManager.resolve()
+        self.run_mode = self.runtime_mode_manager.resolved_mode
+        self.execution_enabled = self.runtime_mode_manager.allow_orders
         self.ibkr_api_write_allowed = bool(get_config("IBKR_API_WRITE_ALLOWED"))
-        self.replay_mode = EventReplayMode(get_config("EVENT_REPLAY_MODE_EFFECTIVE"))
-        if (
-            self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
-            and self.replay_mode != EventReplayMode.OFF
-        ):
-            print(
-                "[SAFETY] Replay request detected in LIVE/LIVE_READ_ONLY/LIVE_MICRO. "
-                "Forcing EVENT_REPLAY_MODE=OFF."
-            )
-            self.replay_mode = EventReplayMode.OFF
+        self.replay_mode = self.runtime_mode_manager.event_replay_mode
+        print(f"[BOOT] Runtime mode resolved: {self.runtime_mode_manager.describe()}")
         if not self.execution_enabled:
             print("[SAFETY] EXECUTION: HARD DISABLED")
             print("[SAFETY] ORDER ROUTING: BLOCKED")
         if self.run_mode == RunMode.LIVE_MICRO:
             print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
             print("[SAFETY] 1-SHARE LIMIT ENFORCED")
+        if self.run_mode == RunMode.LIVE_ONE_SHARE:
+            print("[SAFETY] LIVE ONE-SHARE MODE ACTIVE")
+            print("[SAFETY] 1-SHARE LIMIT ENFORCED")
         if self.run_mode == RunMode.PAPER:
             print("[SAFETY] PAPER-EXECUTION MODE ACTIVE")
             print("[SAFETY] 1-SHARE LIMIT ENFORCED")
-        if self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO, RunMode.PAPER}:
+        if self.run_mode in {
+            RunMode.LIVE,
+            RunMode.LIVE_MICRO,
+            RunMode.LIVE_ONE_SHARE,
+            RunMode.PAPER,
+        }:
             self.sim_clock = WallClock()
         else:
             self.sim_clock = SimClock()
@@ -128,6 +137,9 @@ class CoreOrchestrator:
         self.strategy_perf_tracker = StrategyPerformanceTracker()
         self.market_data_hub = None
         self.prep_engine = PreMarketPrepEngine(event_collector=self.event_collector)
+        self.connection_manager = ConnectionManager(self.run_mode)
+        self.scanner_diagnostics_manager = ScannerDiagnosticsManager()
+        self.market_data_snapshot_manager: MarketDataSnapshotManager | None = None
         self.selected_strategy_key = (
             str(get_config("SELECTED_STRATEGY") or "ross_momentum").strip().lower()
             or "ross_momentum"
@@ -149,7 +161,12 @@ class CoreOrchestrator:
                 )
                 self.price_feed = MarketDataPriceFeed(self.market_data_hub)
                 print("[MARKET_DATA] Market data source: IBKR (READ_ONLY)")
-        elif self.run_mode in {RunMode.LIVE, RunMode.LIVE_MICRO, RunMode.PAPER}:
+        elif self.run_mode in {
+            RunMode.LIVE,
+            RunMode.LIVE_MICRO,
+            RunMode.LIVE_ONE_SHARE,
+            RunMode.PAPER,
+        }:
             from src.brokers import IbkrBroker
 
             if IbkrBroker is not None:
@@ -185,7 +202,12 @@ class CoreOrchestrator:
                 event_collector=self.event_collector,
                 run_mode=self.run_mode,
             )
-        elif self.run_mode in {RunMode.LIVE_MICRO, RunMode.PAPER, RunMode.LIVE}:
+        elif self.run_mode in {
+            RunMode.LIVE_MICRO,
+            RunMode.LIVE_ONE_SHARE,
+            RunMode.PAPER,
+            RunMode.LIVE,
+        }:
             if IbkrLiveBroker is None:
                 print(
                     "[EXECUTION][WARN] IBKR live broker unavailable; "
@@ -814,6 +836,218 @@ class CoreOrchestrator:
             f"phase={session_phase} ny_time={ny_time.isoformat()} "
             f"uk_time={uk_time.isoformat()} utc={cycle_started_at.isoformat()}"
         )
+        return self._run_manager_pipeline(
+            cycle_started_at=cycle_started_at,
+            ny_time=ny_time,
+            uk_time=uk_time,
+            session_phase=session_phase,
+        )
+
+    def _run_manager_pipeline(
+        self,
+        *,
+        cycle_started_at: datetime,
+        ny_time: datetime,
+        uk_time: datetime,
+        session_phase: str,
+    ) -> bool:
+        self.runtime_mode_manager = RuntimeModeManager.resolve()
+        mode_manager = self.runtime_mode_manager
+        print(f"[RUNTIME] {mode_manager.describe()}")
+        strategy_policy, scanner_policy = self._build_scanner_policy(session_phase)
+        scanner_request = self._build_scanner_request(scanner_policy)
+        force_mock_provider = False
+        try:
+            self.connection_manager.ensure_connected()
+        except Exception as exc:
+            print("STATE=DEGRADED")
+            print(f"[CONNECTIVITY] IBKR connection failed: {exc}")
+            self._trace_halt(
+                reason_code="CONNECTIVITY_FAILURE",
+                message=str(exc),
+                stage="CONNECTIVITY",
+            )
+            force_mock_provider = True
+        if self.market_data_snapshot_manager is None:
+            self.market_data_snapshot_manager = MarketDataSnapshotManager(
+                self.connection_manager.optional_client
+            )
+        provider_override = MockScannerProvider() if force_mock_provider else None
+        scanner_payload = run_scanner_cycle(
+            mode="integrated",
+            policy=scanner_policy,
+            scanner_request=scanner_request,
+            event_collector=self.event_collector,
+            provider=provider_override,
+            market_data_client=self.connection_manager.optional_client,
+            disconnect_provider=provider_override is not None,
+        )
+        observations = list(scanner_payload.get("candidate_metrics", []))
+        universe_entries = list(scanner_payload.get("universe_top_n", []))
+        universe_symbols = [
+            entry.get("symbol") for entry in universe_entries if isinstance(entry, dict)
+        ]
+        selection_spec_summary = self._selection_spec_summary(scanner_policy)
+        self._trace_event(
+            "UNIVERSE",
+            {
+                "selection_spec": selection_spec_summary,
+                "scan_request": {
+                    "universe_source": scanner_request.universe_source.value,
+                    "scan_code": scanner_request.ibkr_scan_code,
+                    "requested_top_n": scanner_request.requested_top_n,
+                },
+                "universe": universe_entries,
+            },
+            summary=(
+                "top_n="
+                f"{len(universe_entries)} symbols={self._cap_list(universe_symbols, 50)}"
+            ),
+        )
+        self.scanner_diagnostics_manager.print_top_50(observations)
+        if isinstance(strategy_policy, RossMomentumPolicy):
+            watchlist = select_watchlist(observations, policy=strategy_policy)
+        else:
+            watchlist = self._select_watchlist_for_policy(
+                observations,
+                scanner_policy,
+                enforce_session_allowlist=False,
+            )
+        self.scanner_diagnostics_manager.print_watchlist(watchlist, observations)
+        watchlist_symbols = [row.symbol for row in watchlist if row.symbol]
+        focus_limit = int(scanner_policy.focus_limit_m)
+        focus_rows = watchlist[:focus_limit] if focus_limit > 0 else []
+        focus_symbols = [row.symbol for row in focus_rows if row.symbol]
+        self._trace_event(
+            "WATCHLIST",
+            {
+                "selection_spec": selection_spec_summary,
+                "watchlist_symbols": watchlist_symbols,
+            },
+            summary=(
+                "watchlist="
+                f"{len(watchlist_symbols)} symbols={self._cap_list(watchlist_symbols, 15)}"
+            ),
+        )
+        self._trace_event(
+            "FOCUS",
+            {
+                "selection_spec": selection_spec_summary,
+                "focus_symbols": focus_symbols,
+            },
+            summary=(
+                "focus="
+                f"{len(focus_symbols)} symbols={self._cap_list(focus_symbols, 5)}"
+            ),
+        )
+        if watchlist_symbols:
+            print(
+                f"[WATCHLIST] size={len(watchlist_symbols)} symbols={watchlist_symbols}"
+            )
+        else:
+            print("[WATCHLIST] empty watchlist accepted")
+        snapshots_by_symbol, snapshot_quality = self.market_data_snapshot_manager.batch_snapshots(
+            watchlist_symbols
+        )
+        timestamp_utc = scanner_payload.get("timestamp_utc") or datetime.now(
+            timezone.utc
+        ).isoformat()
+        session_label = normalize_session_label(
+            (watchlist[0].session_label if watchlist else session_phase)
+        )
+        self.strategy_runner.receive_watchlist_snapshot(
+            watchlist_symbols=watchlist_symbols,
+            snapshots=snapshots_by_symbol,
+            session_label=session_label,
+            timestamp_utc=timestamp_utc,
+        )
+        strategy_output = self.strategy_runner.process(
+            strategy_key=self.selected_strategy_key,
+            watchlist=watchlist,
+            snapshots=snapshots_by_symbol,
+            session_label=session_label,
+            timestamp_utc=timestamp_utc,
+            mode=self.run_mode,
+            session_phase=session_phase,
+        )
+        if self.regime_layer.enabled:
+            self.regime_layer.evaluate(
+                candidates=scanner_payload.get("candidates", []),
+                session=get_current_market_session(),
+            )
+        diagnostics = scanner_payload.get("diagnostics", {})
+        provider_error = diagnostics.get("provider_error")
+        provider_fallback = diagnostics.get("provider_fallback")
+        if provider_error or provider_fallback:
+            message = f"provider_error={provider_error} provider_fallback={provider_fallback}"
+            print(f"[CONNECTIVITY] STATE=DEGRADED {message}")
+            self._trace_halt(
+                reason_code="SCANNER_CONNECTIVITY",
+                message=message,
+                stage="SCANNER",
+            )
+        if mode_manager.allow_orders:
+            print("[EXECUTION] Orders allowed — execution path enabled (dry-run).")
+        else:
+            print("[EXECUTION] dry-run (orders disabled by mode)")
+        self._trace_event(
+            "ACTION",
+            {
+                "trade_intents": len(strategy_output or []),
+                "allow_orders": mode_manager.allow_orders,
+            },
+            summary=f"intents={len(strategy_output or [])}",
+        )
+        if snapshot_quality:
+            missing = {
+                symbol: quality.missing_fields
+                for symbol, quality in snapshot_quality.items()
+                if quality.missing_fields
+            }
+            if missing:
+                print(
+                    "[SNAPSHOT][SUMMARY] missing_required_fields="
+                    f"{missing}"
+                )
+        if not strategy_output:
+            print("[STRATEGY] No trade intents generated.")
+        return True
+
+    @staticmethod
+    def _select_watchlist_for_policy(
+        observations: list[CandidateMetrics],
+        scanner_policy: StockSelectionPolicy,
+        *,
+        enforce_session_allowlist: bool = True,
+    ) -> list[CandidateMetrics]:
+        session_allowlist = {session.upper() for session in scanner_policy.session_allowlist}
+        eligible = []
+        for observation in observations:
+            session_label = (observation.session_label or "").upper()
+            if (
+                enforce_session_allowlist
+                and session_allowlist
+                and session_label
+                and session_label not in session_allowlist
+            ):
+                continue
+            gate_checks = observation.gate_checks or {}
+            if any(not passed for passed in gate_checks.values()):
+                continue
+            eligible.append(observation)
+        ranked = sorted(
+            eligible,
+            key=lambda row: (
+                row.rank_score or 0.0,
+                row.pct_change or 0.0,
+                row.dollar_volume or 0.0,
+            ),
+            reverse=True,
+        )
+        watchlist_limit = int(scanner_policy.watchlist_limit_k)
+        if watchlist_limit <= 0:
+            return []
+        return ranked[:watchlist_limit]
         strategy_policy, scanner_policy = self._build_scanner_policy(session_phase)
         selection_spec_summary = self._selection_spec_summary(scanner_policy)
         scanner_request = self._build_scanner_request(scanner_policy)

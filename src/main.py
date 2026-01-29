@@ -44,6 +44,7 @@ from src.config.runtime_config import (
     get_scanner_symbols,
     is_execution_enabled,
 )
+from src.core.managers.runtime_mode_manager import RuntimeModeManager
 from src.config.system_config import ACTIVE_SESSIONS, CYCLE_SLEEP_SECONDS
 from src.domain.models.internal_order import InternalOrder
 from src.core.orchestrator import CoreOrchestrator
@@ -58,7 +59,16 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="IBKR Trading System entrypoint")
     parser.add_argument(
         "--mode",
-        choices=["SIM", "READONLY", "PAPER", "LIVE_1SHARE", "LIVE", "LIVE_READ_ONLY", "LIVE_MICRO"],
+        choices=[
+            "SIM",
+            "READONLY",
+            "PAPER",
+            "LIVE_1SHARE",
+            "LIVE_ONE_SHARE",
+            "LIVE",
+            "LIVE_READ_ONLY",
+            "LIVE_MICRO",
+        ],
         help="Run mode override (SIM, READONLY, PAPER, LIVE_1SHARE).",
     )
     parser.add_argument(
@@ -90,15 +100,13 @@ def _apply_cli_overrides(args: argparse.Namespace) -> None:
     if args.mode:
         mode_map = {
             "READONLY": "LIVE_READ_ONLY",
-            "LIVE_1SHARE": "LIVE_MICRO",
+            "LIVE_1SHARE": "LIVE_ONE_SHARE",
         }
         overrides["RUN_MODE"] = mode_map.get(args.mode, args.mode)
     if args.strategy:
         overrides["SELECTED_STRATEGY"] = args.strategy
     if args.strategy == "ross_momentum":
         overrides["ROSS_MOMENTUM_STRATEGY_ENABLED"] = True
-    if args.strategy == "statistical_intraday_momentum":
-        overrides["STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"] = True
     if args.regime_layer:
         overrides["ADAPTIVE_REGIME_LAYER_ENABLED"] = True
     if args.regime_policy:
@@ -157,15 +165,19 @@ def main() -> None:
     print(f"  - RUN_MODE: {DEFAULT_RUN_MODE.value} (baseline)")
     print(f"  - EVENT_REPLAY_MODE: {DEFAULT_EVENT_REPLAY_MODE.value} (baseline)")
     event_replay_mode = get_event_replay_mode(run_mode)
+    mode_manager = RuntimeModeManager.resolve()
     print("[CONFIG] Resolved runtime configuration (authoritative):")
     print(f"  - RUN_MODE: {run_mode.value} (resolved)")
-    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
+    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE}:
         print(
             f"  - EVENT_REPLAY_MODE: {event_replay_mode.value} "
-            "(resolved; forced OFF in LIVE/LIVE_READ_ONLY/LIVE_MICRO for safety)"
+            "(resolved; forced OFF in live-like modes for safety)"
         )
     else:
         print(f"  - EVENT_REPLAY_MODE: {event_replay_mode.value} (resolved)")
+    print(f"[CONFIG] Runtime mode manager: {mode_manager.describe()}")
+    if mode_manager.is_live_like:
+        print("[STARTUP] EVENT_REPLAY_MODE forced OFF for live-like modes")
     print(f"  - CYCLE_SLEEP_SECONDS: {CYCLE_SLEEP_SECONDS}")
     print(f"  - ACTIVE_SESSIONS: {', '.join(ACTIVE_SESSIONS)}")
     _print_startup_banner(run_mode, event_replay_mode)
@@ -205,7 +217,7 @@ def main() -> None:
     if not execution_enabled:
         print("[SAFETY] EXECUTION: HARD DISABLED")
         print("[SAFETY] ORDER ROUTING: BLOCKED")
-    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
+    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE}:
         print("[SAFETY] MARKET DATA: LIVE IBKR")
     if ibkr_readonly_enabled:
         print(
@@ -217,6 +229,9 @@ def main() -> None:
         print("[SAFETY] LIVE DATA — READ ONLY MODE")
     if run_mode == RunMode.LIVE_MICRO:
         print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
+        print("[SAFETY] 1-SHARE LIMIT ENFORCED")
+    if run_mode == RunMode.LIVE_ONE_SHARE:
+        print("[SAFETY] LIVE ONE-SHARE MODE ACTIVE")
         print("[SAFETY] 1-SHARE LIMIT ENFORCED")
     if run_mode == RunMode.LIVE and ibkr_readonly_enabled:
         print("[SAFETY] LIVE DATA — READ ONLY MODE")
@@ -266,7 +281,13 @@ def main() -> None:
 
     smoke_symbol = str(get_config("IBKR_SMOKE_SYMBOL") or "").strip().upper()
     if (
-        run_mode in {RunMode.SIM, RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}
+        run_mode in {
+            RunMode.SIM,
+            RunMode.LIVE,
+            RunMode.LIVE_READ_ONLY,
+            RunMode.LIVE_MICRO,
+            RunMode.LIVE_ONE_SHARE,
+        }
         and ibkr_readonly_enabled
         and smoke_symbol
     ):

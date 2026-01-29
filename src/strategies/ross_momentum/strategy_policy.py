@@ -26,9 +26,11 @@ Sources
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Optional, Sequence
+
+from src.scanner.result_models import CandidateMetrics
 
 
 class RossTradingMode(str, Enum):
@@ -238,6 +240,45 @@ class StockSelectionSpec:
     max_symbols_per_cycle: int = 50
     session_allowlist: Sequence[str] = ("PRE", "REG", "AFTER")
     ranking_intent: str = "ROSS_MOMENTUM_STOCK_SELECTION"
+
+
+def select_watchlist(
+    observations: Sequence[CandidateMetrics],
+    policy: RossMomentumPolicy | None = None,
+) -> list[CandidateMetrics]:
+    resolved_policy = policy or RossMomentumPolicy()
+    spec = resolved_policy.stock_selection
+    session_allowlist = {session.upper() for session in spec.session_allowlist}
+    eligible: list[CandidateMetrics] = []
+    for observation in observations:
+        reasons: list[str] = []
+        session_label = (observation.session_label or "").upper()
+        if session_allowlist and session_label and session_label not in session_allowlist:
+            reasons.append("SESSION_NOT_ALLOWED")
+        gate_checks = observation.gate_checks or {}
+        failed_gates = [name for name, passed in gate_checks.items() if not passed]
+        if failed_gates:
+            reasons.extend([f"GATE_FAIL:{name}" for name in failed_gates])
+        if reasons:
+            observation = replace(
+                observation,
+                drop_reasons=list({*observation.drop_reasons, *reasons}),
+            )
+        else:
+            eligible.append(observation)
+    ranked = sorted(
+        eligible,
+        key=lambda row: (
+            row.rank_score or 0.0,
+            row.pct_change or 0.0,
+            row.dollar_volume or 0.0,
+        ),
+        reverse=True,
+    )
+    watchlist_limit = int(spec.watchlist_limit_k)
+    if watchlist_limit <= 0:
+        return []
+    return ranked[:watchlist_limit]
 
 
 RossStockSelectionPolicy = StockSelectionSpec

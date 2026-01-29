@@ -68,6 +68,7 @@ class IbkrScannerProvider(ScannerDataProvider):
             symbol = contract.symbol.upper()
             symbols.append(symbol)
             self.last_scan_details[symbol] = {
+                "conId": getattr(contract, "conId", None),
                 "tradingClass": getattr(contract, "tradingClass", None),
                 "primaryExchange": getattr(contract, "primaryExchange", None),
             }

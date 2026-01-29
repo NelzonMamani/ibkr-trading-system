@@ -105,7 +105,12 @@ def classify_exception(exc: Exception) -> FaultEvent:
 def decide_recovery_action(fault: FaultEvent, run_mode: RunMode) -> RecoveryAction:
     """Deterministically map fault categories to recovery actions by run mode."""
 
-    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO}:
+    if run_mode in {
+        RunMode.LIVE,
+        RunMode.LIVE_READ_ONLY,
+        RunMode.LIVE_MICRO,
+        RunMode.LIVE_ONE_SHARE,
+    }:
         mapping = {
             FaultCategory.SAFETY: RecoveryAction.HALT_SYSTEM,
             FaultCategory.CONFIG: RecoveryAction.HALT_SYSTEM,

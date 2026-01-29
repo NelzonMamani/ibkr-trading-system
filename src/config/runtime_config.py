@@ -18,6 +18,7 @@ class RunMode(str, Enum):
     LIVE = "LIVE"
     LIVE_READ_ONLY = "LIVE_READ_ONLY"
     LIVE_MICRO = "LIVE_MICRO"
+    LIVE_ONE_SHARE = "LIVE_ONE_SHARE"
 
 
 DEFAULT_RUN_MODE: RunMode = RunMode.LIVE
@@ -72,12 +73,12 @@ def is_execution_enabled(run_mode: RunMode | None = None) -> bool:
 
 def execution_allowed(run_mode: RunMode | str | None) -> bool:
     normalized = str(getattr(run_mode, "value", run_mode) or "").upper()
-    return normalized in {"LIVE", "LIVE_MICRO", "PAPER", "SIM"}
+    return normalized in {"LIVE", "LIVE_MICRO", "LIVE_ONE_SHARE", "PAPER", "SIM"}
 
 
 def broker_orders_allowed(run_mode: RunMode | str | None) -> bool:
     normalized = str(getattr(run_mode, "value", run_mode) or "").upper()
-    return normalized in {"LIVE", "LIVE_MICRO", "PAPER"}
+    return normalized in {"LIVE", "LIVE_MICRO", "LIVE_ONE_SHARE", "PAPER"}
 
 
 def get_ibkr_host(default: str = "127.0.0.1") -> str:

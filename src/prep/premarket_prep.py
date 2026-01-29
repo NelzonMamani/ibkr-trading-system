@@ -72,6 +72,7 @@ class PreMarketPrepEngine:
             RunMode.LIVE,
             RunMode.LIVE_READ_ONLY,
             RunMode.LIVE_MICRO,
+            RunMode.LIVE_ONE_SHARE,
             RunMode.PAPER,
         }
         news_lookup: dict[str, list[Headline]] = {}
