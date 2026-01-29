@@ -225,9 +225,25 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
 
     effective_run_mode = run_mode
 
+    # if effective_run_mode == "SIM" and market_data_type == "LIVE":
+    #     raise ConfigResolutionError(
+    #         "RUN_MODE=SIM is invalid when IBKR_MARKET_DATA_TYPE=LIVE."
+    #     )
+    #
+    # resolved["RUN_MODE_EFFECTIVE"] = ConfigRecord(
+    #     name="RUN_MODE_EFFECTIVE",
+    #     value=effective_run_mode,
+    #     source="DERIVED",
+    #     env=None,
+    # )
     if effective_run_mode == "SIM" and market_data_type == "LIVE":
-        raise ConfigResolutionError(
-            "RUN_MODE=SIM is invalid when IBKR_MARKET_DATA_TYPE=LIVE."
+        # SIM with live market data is allowed for diagnostics, scanner validation,
+        # and read-only observation. Execution must be forcibly disabled.
+        resolved["EXECUTION_ENABLED"] = ConfigRecord(
+            name="EXECUTION_ENABLED",
+            value=False,
+            source="DERIVED",
+            env=None,
         )
 
     resolved["RUN_MODE_EFFECTIVE"] = ConfigRecord(

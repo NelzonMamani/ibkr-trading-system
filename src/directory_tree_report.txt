@@ -32,7 +32,8 @@ ibkr-trading-system/
 │   │       ├── 2026-01-22_ops_summary.json
 │   │       ├── 2026-01-25_ops_summary.json
 │   │       ├── 2026-01-26_ops_summary.json
-│   │       └── 2026-01-27_ops_summary.json
+│   │       ├── 2026-01-27_ops_summary.json
+│   │       └── 2026-01-29_ops_summary.json
 │   ├── ibkr_system.db
 │   └── regime_baselines.json
 ├── docs
@@ -120,7 +121,9 @@ ibkr-trading-system/
 │   └── 99_MANDATORY_VERIFICATION_COMMANDS.md
 ├── logs
 │   ├── trace_20260126.jsonl
-│   └── trace_20260127.jsonl
+│   ├── trace_20260127.jsonl
+│   ├── trace_20260128.jsonl
+│   └── trace_20260129.jsonl
 ├── output
 │   ├── verification
 │   │   ├── compileall.log
@@ -158,7 +161,9 @@ ibkr-trading-system/
 │   │   ├── watchlist_RossMomentum_20260122_192049_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260125_215327_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260126_212034_UTC.txt
-│   │   └── watchlist_RossMomentum_20260127_164712_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260127_234953_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260128_003017_UTC.txt
+│   │   └── watchlist_RossMomentum_20260129_202323_UTC.txt
 │   └── trade_store.jsonl
 ├── scripts
 │   ├── smoke_main.ps1
@@ -199,6 +204,12 @@ ibkr-trading-system/
 │   │   ├── system_config.py
 │   │   └── trading_config.py
 │   ├── core
+│   │   ├── managers
+│   │   │   ├── __init__.py
+│   │   │   ├── connection_manager.py
+│   │   │   ├── market_data_snapshot_manager.py
+│   │   │   ├── runtime_mode_manager.py
+│   │   │   └── scanner_diagnostics_manager.py
 │   │   ├── __init__.py
 │   │   ├── active_trade_registry.py
 │   │   ├── event_collector.py
@@ -291,6 +302,8 @@ ibkr-trading-system/
 │   │   ├── performance_registry.py
 │   │   ├── storage_reports.py
 │   │   └── strategy_performance.py
+│   ├── prep
+│   │   └── premarket_prep.py
 │   ├── regime
 │   │   ├── __init__.py
 │   │   ├── baselines.py
@@ -379,6 +392,16 @@ ibkr-trading-system/
 │   │   ├── early_entry_momentum
 │   │   │   ├── __init__.py
 │   │   │   └── strategy.py
+│   │   ├── long_horizon_value
+│   │   │   ├── contracts
+│   │   │   │   ├── intents.py
+│   │   │   │   ├── types.py
+│   │   │   │   └── watchlist.py
+│   │   │   ├── cadence.py
+│   │   │   ├── config.py
+│   │   │   ├── README.md
+│   │   │   ├── runner.py
+│   │   │   └── strategy_policy.py
 │   │   ├── mean_reversion_strategy
 │   │   │   └── mean_reversion_strategy.py
 │   │   ├── ross_momentum
@@ -559,12 +582,15 @@ ibkr-trading-system/
 │       ├── ross_stock_selection_scanner_v2_2026_01_27_014955_UTC.py
 │       └── stock_selection_scanner_25_jan_2026.py
 ├── .gitignore
+├── CODEX_IMPLEMENTATION_INSTRUCTIONS.md
+├── CODEX_STATISTICAL_INTRADAY_MOMENTUM_ALIGNMENT_AND_FIX.md
 ├── HOUSEKEEPING.md
 ├── PHASE_RM_FINAL_INSTRUCTIONS_v1_0.md
 ├── PHASE_STATISTICAL_INTRADAY_MOMENTUM_WIRING_AND_READINESS_CODEX_FINAL.md
 ├── PR_VERIFICATION_REPORT.md
 ├── pytest.ini
 ├── README.md
+├── README_LOCKED_ARCH.md
 ├── README_VERIFY.md
 ├── repo_size_report.py
 ├── requirements.txt
@@ -578,6 +604,7 @@ ibkr-trading-system/
 ├── RUNBOOK.md
 ├── RUNBOOK_UPDATE.md
 ├── STRATEGY_SPEC_ROSS_CAMERON_MOMENTUM.md
+├── SYSTEM_ARCHITECTURE.md
 ├── SYSTEM_CONSTITUTION.md
 ├── SYSTEM_STATE.md
 ├── SYSTEM_TREE_AND_MODULE_MAP.md
