@@ -9,6 +9,7 @@ from src.strategies.ross_momentum.strategy_policy import RossMomentumPolicy
 def test_scanner_request_ibkr_top_gainers_skips_scanner_symbols_error(capsys):
     set_config_overrides(
         {
+            "RUN_MODE": "SIM",
             "SCANNER_MODE": "LIVE_READONLY",
             "SCANNER_DATA_SOURCE": "MOCK",
             "SCANNER_SYMBOLS": [],
@@ -29,5 +30,10 @@ def test_scanner_request_ibkr_top_gainers_skips_scanner_symbols_error(capsys):
         diagnostics = payload.get("diagnostics", {})
         universe_request = diagnostics.get("universe_request", {})
         assert universe_request.get("source") == "IBKR_TOP_GAINERS"
+        assert universe_request.get("scan_code") == "TOP_PERC_GAIN"
+        assert universe_request.get("instrument") == "STK"
+        assert universe_request.get("location_code") == "STK.US.MAJOR"
+        assert universe_request.get("above_price") == policy.price_min
+        assert universe_request.get("below_price") == policy.price_max
     finally:
         set_config_overrides({})

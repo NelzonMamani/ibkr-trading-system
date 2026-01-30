@@ -6,6 +6,7 @@ from ib_insync import ScannerSubscription
 
 from src.config.runtime_config import get_ibkr_max_symbols_per_cycle, get_scanner_symbols
 from src.ibkr.market_data_client import MarketDataClient
+from src.scanner.scanner_contract import ScannerRequest
 
 from .base import IntradayStats, ProviderConnectionError, QuoteData, ScannerDataProvider
 
@@ -27,23 +28,42 @@ class IbkrScannerProvider(ScannerDataProvider):
     def disconnect(self) -> None:
         self.market_data_client.disconnect()
 
-    def get_top_gainers(self, limit: int) -> list[str]:
+    def get_top_gainers(
+        self,
+        limit: int,
+        request: ScannerRequest | None = None,
+    ) -> list[str]:
         resolved_requested_top_n = min(limit, get_ibkr_max_symbols_per_cycle())
 
+        instrument = request.instrument if request and request.instrument else "STK"
+        location_code = (
+            request.location_code if request and request.location_code else "STK.US.MAJOR"
+        )
+        scan_code = request.ibkr_scan_code if request and request.ibkr_scan_code else "TOP_PERC_GAIN"
+        above_price = (
+            request.above_price
+            if request and request.above_price is not None
+            else 1
+        )
+        below_price = (
+            request.below_price
+            if request and request.below_price is not None
+            else 20
+        )
         subscription = ScannerSubscription(
-            instrument="STK",
-            locationCode="STK.US.MAJOR",
-            scanCode="TOP_PERC_GAIN",
+            instrument=instrument,
+            locationCode=location_code,
+            scanCode=scan_code,
             numberOfRows=resolved_requested_top_n,
-            abovePrice=1,
-            belowPrice=20,
+            abovePrice=above_price,
+            belowPrice=below_price,
         )
 
         print(
             "[SCANNER][IBKR][SUBSCRIPTION] "
-            f"instrument=STK location=STK.US.MAJOR "
-            f"scanCode=TOP_PERC_GAIN numberOfRows={resolved_requested_top_n} "
-            "abovePrice=1 belowPrice=20"
+            f"instrument={instrument} location={location_code} "
+            f"scanCode={scan_code} numberOfRows={resolved_requested_top_n} "
+            f"abovePrice={above_price} belowPrice={below_price}"
         )
 
         scan_data = self.market_data_client.ib.reqScannerData(subscription)

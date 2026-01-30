@@ -47,7 +47,7 @@ class ScannerDataProvider(Protocol):
     def disconnect(self) -> None:
         ...
 
-    def get_top_gainers(self, limit: int) -> list[str]:
+    def get_top_gainers(self, limit: int, request=None) -> list[str]:
         ...
 
     def get_quote(self, symbol: str) -> QuoteData:

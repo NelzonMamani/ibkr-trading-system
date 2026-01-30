@@ -991,6 +991,16 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "description": "Market sessions considered active for safety checks.",
         "normalizer": "upper",
     },
+    "SESSION_PHASE_OVERRIDE": {
+        "type": str,
+        "default": None,
+        "env": ["SESSION_PHASE_OVERRIDE"],
+        "affects": ["CoreOrchestrator"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Force a market session phase label (e.g., PREMARKET, CLOSED).",
+        "normalizer": "upper",
+    },
     "MARKET_HOLIDAYS": {
         "type": set,
         "item_type": "date",

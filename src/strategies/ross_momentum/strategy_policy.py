@@ -56,7 +56,8 @@ class UniverseSpec:
     ibkr_scan_code: str = "TOP_PERC_GAIN"
     top_n: Optional[int] = None
     region: Optional[str] = None
-    instrument: Optional[str] = None
+    instrument: Optional[str] = "STK"
+    location_code: Optional[str] = "STK.US.MAJOR"
     exchanges: Sequence[str] = ()
 
 
@@ -244,10 +245,14 @@ class StockSelectionSpec:
 
 def select_watchlist(
     observations: Sequence[CandidateMetrics],
-    policy: RossMomentumPolicy | None = None,
+    policy: RossMomentumPolicy | StockSelectionSpec | None = None,
 ) -> list[CandidateMetrics]:
-    resolved_policy = policy or RossMomentumPolicy()
-    spec = resolved_policy.stock_selection
+    if policy is None:
+        spec = RossMomentumPolicy().stock_selection
+    elif hasattr(policy, "stock_selection"):
+        spec = policy.stock_selection
+    else:
+        spec = policy
     session_allowlist = {session.upper() for session in spec.session_allowlist}
     eligible: list[CandidateMetrics] = []
     for observation in observations:
@@ -318,5 +323,8 @@ def stock_selection_policy_for_session_phase(
     policy: RossMomentumPolicy,
     session_phase: str,
 ) -> StockSelectionSpec:
-    _ = session_phase
+    normalized = (session_phase or "").upper()
+    if normalized in {"PRE", "PREMARKET", "CLOSED"}:
+        if policy.stock_selection.top_gainers_n == 50:
+            return replace(policy.stock_selection, top_gainers_n=150)
     return policy.stock_selection
