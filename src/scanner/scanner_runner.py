@@ -390,15 +390,11 @@ def _gate_checks(
     if thresholds.max_pct_change is not None:
         gap_ok = gap_ok and pct_change is not None and pct_change <= thresholds.max_pct_change
     rvol_ok = rvol is None or rvol >= thresholds.min_rvol
-    volume_ok = volume is None or volume >= thresholds.min_volume
-    pm_volume_ok = volume is None or volume >= thresholds.min_premarket_volume
+    volume_ok = volume is None or volume > 0
+    pm_volume_ok = volume is None or volume > 0
     if session in {"PRE", "OVN"}:
         volume_ok = pm_volume_ok
-    dollar_volume_ok = True
-    if thresholds.min_dollar_volume is not None:
-        dollar_volume_ok = (
-            dollar_volume is not None and dollar_volume >= thresholds.min_dollar_volume
-        )
+    dollar_volume_ok = dollar_volume is None or dollar_volume > 0
     float_ok = float_shares is None or float_shares <= thresholds.max_float
     spread_ok = True
     if thresholds.spread_max_pct is not None:
@@ -546,18 +542,13 @@ def _evaluate_gates(
         return "DROP_PCT_CHANGE"
     if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
         return "DROP_PCT_CHANGE_MAX"
-    if rvol is not None and rvol < thresholds.min_rvol:
-        return "DROP_RVOL"
-    if session in {"PRE", "OVN"}:
-        if volume is not None and volume < thresholds.min_premarket_volume:
-            return "DROP_PREMARKET_VOLUME"
-    elif volume is not None and volume < thresholds.min_volume:
+    active_trading = any(value is not None for value in (price, bid, ask))
+    if volume is not None and volume <= 0:
         return "DROP_VOLUME"
-    if thresholds.min_dollar_volume is not None:
-        if dollar_volume is None:
-            return "DROP_MISSING_DOLLAR_VOLUME"
-        if dollar_volume < thresholds.min_dollar_volume:
-            return "DROP_DOLLAR_VOLUME"
+    if dollar_volume is not None and dollar_volume <= 0:
+        return "DROP_VOLUME"
+    if not active_trading:
+        return "DROP_VOLUME"
     if float_shares is not None and float_shares > thresholds.max_float:
         return "DROP_FLOAT_MAX"
     if thresholds.spread_max_pct is not None:
