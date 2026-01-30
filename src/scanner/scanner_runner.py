@@ -25,7 +25,8 @@ from src.config.runtime_config import (
 )
 from src.core.event_collector import EventCollector
 from src.news.news_fetcher import Headline, fetch_headlines_for_symbols
-from src.news.verified_sources import load_verified_rss_sources
+from src.news.rss_registry import RSS_FAST_TRADING
+from src.scanner.news_engine import fast_trading_news_flags
 
 from src.scanner.contracts import (
     SCANNER_GIT_SHA,
@@ -47,7 +48,6 @@ from src.scanner.providers.base import ProviderConnectionError, ScannerDataProvi
 from src.models.data_models import ScannerCandidate
 from src.scanner.providers.factory import build_provider
 from src.scanner.providers.mock_provider import MockScannerProvider
-from src.scanner.ranking_registry import resolve_watchlist_selector
 from src.scanner.result_models import CandidateMetrics, ScannerResult
 from src.scanner.session_pct_change import (
     compute_session_aligned_pct_change,
@@ -390,27 +390,15 @@ def _gate_checks(
     if thresholds.max_pct_change is not None:
         gap_ok = gap_ok and pct_change is not None and pct_change <= thresholds.max_pct_change
     rvol_ok = rvol is None or rvol >= thresholds.min_rvol
-    volume_ok = volume is None or volume > 0
-    pm_volume_ok = volume is None or volume > 0
-    if session in {"PRE", "OVN"}:
-        volume_ok = pm_volume_ok
-    dollar_volume_ok = dollar_volume is None or dollar_volume > 0
-    float_ok = float_shares is None or float_shares <= thresholds.max_float
+    volume_ok = True
+    pm_volume_ok = True
+    dollar_volume_ok = True
+    float_ok = float_shares is not None and float_shares > 0 and float_shares <= thresholds.max_float
     spread_ok = True
-    if thresholds.spread_max_pct is not None:
-        spread_ok = spread_pct is not None and spread_pct <= thresholds.spread_max_pct
     bid_ask_ok = True
-    if thresholds.require_bid_ask:
-        bid_ask_ok = bid is not None and ask is not None
     catalyst_ok = True
-    if thresholds.require_catalyst:
-        catalyst_ok = bool(catalyst_present)
     halt_ok = True
-    if halted is True and not thresholds.allow_halts:
-        halt_ok = False
     ssr_ok = True
-    if ssr is True and not thresholds.allow_ssr:
-        ssr_ok = False
 
     return {
         "price_range_ok": price_ok,
@@ -437,6 +425,57 @@ def _evaluate_price_gate(
         return "DROP_MISSING_PRICE"
     if price is not None and not (thresholds.min_price <= price <= thresholds.max_price):
         return "DROP_PRICE_RANGE"
+    return None
+
+
+def _evaluate_watchlist_gates(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+) -> Optional[str]:
+    pct_change = _safe_float(context.get("pct_change"), None)
+    rvol = _safe_float(context.get("rvol"), None)
+    float_shares = context.get("float_shares")
+
+    if pct_change is None:
+        return "DROP_MISSING_PCT_CHANGE"
+    if pct_change < thresholds.min_pct_change:
+        return "DROP_PCT_CHANGE"
+    if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
+        return "DROP_PCT_CHANGE_MAX"
+    if rvol is not None and rvol < thresholds.min_rvol:
+        return "DROP_RVOL"
+    if float_shares is None or float_shares <= 0:
+        return "DROP_FLOAT_MISSING"
+    if float_shares > thresholds.max_float:
+        return "DROP_FLOAT_MAX"
+    return None
+
+
+def _evaluate_focus_gates(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+) -> Optional[str]:
+    volume = _safe_float(context.get("volume"), None)
+    session = (context.get("session") or "").upper()
+    spread_pct = _safe_float(context.get("spread_pct"), None)
+    halted = context.get("halted")
+    ssr = context.get("ssr")
+
+    if halted is True and not thresholds.allow_halts:
+        return "DROP_HALTED"
+    if ssr is True and not thresholds.allow_ssr:
+        return "DROP_SSR"
+    if volume is not None:
+        if session in {"PRE", "OVN"}:
+            if volume < thresholds.min_premarket_volume:
+                return "DROP_PREMARKET_VOLUME"
+        elif volume < thresholds.min_volume:
+            return "DROP_VOLUME"
+    if thresholds.spread_max_pct is not None:
+        if spread_pct is None:
+            return "DROP_MISSING_SPREAD"
+        if spread_pct > thresholds.spread_max_pct:
+            return "DROP_SPREAD"
     return None
 
 
@@ -493,6 +532,8 @@ def _missingness_map(drop_reason: str, context: Dict[str, Any]) -> Dict[str, boo
         }
     if drop_reason in {"DROP_MISSING_RVOL", "DROP_RVOL"}:
         return {"rvol": context.get("rvol") is None}
+    if drop_reason in {"DROP_FLOAT_MISSING", "DROP_FLOAT_MAX"}:
+        return {"float_shares": context.get("float_shares") is None}
     if drop_reason in {"DROP_MISSING_VOLUME", "DROP_VOLUME", "DROP_PREMARKET_VOLUME"}:
         return {"volume": context.get("volume") is None}
     if drop_reason in {"DROP_MISSING_BID_ASK"}:
@@ -592,7 +633,7 @@ def _enrich_news_context(
     symbols: List[str],
     provider_source: str,
 ) -> tuple[Dict[str, Dict[str, Any]], NewsDiagnostics]:
-    sources = load_verified_rss_sources()
+    sources = list(RSS_FAST_TRADING)
     headlines_by_symbol, summary = fetch_headlines_for_symbols(
         symbols,
         sources,
@@ -1572,7 +1613,7 @@ def run_scanner_cycle(
                 evaluated_contexts.append(context)
                 continue
             _populate_pct_change(context, provider)
-            drop_reason = _evaluate_gates(context, thresholds)
+            drop_reason = _evaluate_watchlist_gates(context, thresholds)
             if drop_reason:
                 drop_ledger.setdefault(symbol, drop_reason)
                 print(f"[SCANNER][DROP] symbol={symbol} reason={drop_reason}")
@@ -1595,10 +1636,7 @@ def run_scanner_cycle(
                                 "min_pct_change": thresholds.min_pct_change,
                                 "max_pct_change": thresholds.max_pct_change,
                                 "min_rvol": thresholds.min_rvol,
-                                "min_volume": thresholds.min_volume,
-                                "min_premarket_volume": thresholds.min_premarket_volume,
                                 "max_float": thresholds.max_float,
-                                "spread_max_pct": thresholds.spread_max_pct,
                             },
                         },
                     )
@@ -1639,43 +1677,24 @@ def run_scanner_cycle(
                 "[SCANNER][WARN] Percent change missing for many symbols "
                 f"missing={missing_pct} total={len(evaluated_contexts)}"
             )
-        ranking_intent = request.ranking_intent or resolved_policy.ranking_intent
-        selector = resolve_watchlist_selector(ranking_intent)
         watchlist_limit = limits["watchlist_limit"]
-        allow_news = bool(get_config("NEWS_ENABLED")) and run_mode not in {
+        news_enabled = bool(get_config("NEWS_ENABLED"))
+        allow_news = news_enabled and run_mode not in {
             RunMode.LIVE,
             RunMode.LIVE_READ_ONLY,
             RunMode.LIVE_MICRO,
             RunMode.LIVE_ONE_SHARE,
             RunMode.PAPER,
         }
-        context_by_symbol = {
-            context.get("symbol"): context for context in evaluated_contexts
-        }
-        candidate_symbols = [
-            symbol for symbol in context_by_symbol.keys() if symbol
-        ]
-        news_by_symbol = {}
-        news_diag = NewsDiagnostics(False, False, None, 0, 0, {})
-        if selector is not None and allow_news and candidate_symbols:
-            news_by_symbol, news_diag = _enrich_news_context(
-                candidate_symbols,
-                provider_source,
-            )
-        candidate_metrics_for_ranking: List[CandidateMetrics] = []
-        for context in evaluated_contexts:
+        context_by_symbol = {context.get("symbol"): context for context in evaluated_contexts}
+        candidate_symbols = [context.get("symbol") for context in candidates if context.get("symbol")]
+        news_flags: Dict[str, bool] = {}
+        if news_enabled and candidate_symbols:
+            news_flags = fast_trading_news_flags(candidate_symbols)
+        for context in candidates:
             symbol = context.get("symbol")
-            if not symbol:
-                continue
-            candidate_metrics_for_ranking.append(
-                _candidate_from_context(
-                    context,
-                    news_by_symbol.get(symbol, {}),
-                    thresholds,
-                    drop_reason=drop_ledger.get(symbol),
-                    timestamp_utc=utc_now.isoformat(),
-                )
-            )
+            if symbol:
+                context["news_flag"] = bool(news_flags.get(symbol))
         after_gates_symbols = [context["symbol"] for context in candidates]
         print(
             f"AFTER_GATES_SYMBOLS (N={len(after_gates_symbols)}): {after_gates_symbols}"
@@ -1694,67 +1713,32 @@ def run_scanner_cycle(
 
         # Watchlist gate is created here from the raw scanner universe (cheap metrics only).
         print("[SCANNER][STAGE] watchlist")
-        if selector is not None:
-            # Strategy-owned ranking authority.
-            watchlist_metrics_for_ranking = selector(
-                candidate_metrics_for_ranking, resolved_policy
-            )
-            watchlist_symbols = [
-                row.symbol for row in watchlist_metrics_for_ranking if row.symbol
-            ]
-            watchlist_contexts = [
-                context_by_symbol[symbol]
-                for symbol in watchlist_symbols
-                if symbol in context_by_symbol
-            ]
-            watchlist_symbol_set = set(watchlist_symbols)
-            for context in candidates:
-                symbol = context.get("symbol")
-                if symbol and symbol not in watchlist_symbol_set:
-                    drop_ledger.setdefault(symbol, "DROP_RANK_BELOW_WATCHLIST")
-        else:
-            ranked = _rank_candidates(candidates)
-            watchlist_contexts = ranked[:watchlist_limit] if watchlist_limit > 0 else []
-            for context in ranked[watchlist_limit:]:
-                drop_ledger.setdefault(context["symbol"], "DROP_RANK_BELOW_WATCHLIST")
+        ranked = sorted(
+            candidates,
+            key=lambda item: _safe_float(item.get("pct_change"), -10**9),
+            reverse=True,
+        )
+        watchlist_contexts = ranked[:watchlist_limit] if watchlist_limit > 0 else []
+        watchlist_symbol_set = {context.get("symbol") for context in watchlist_contexts}
+        for context in candidates:
+            symbol = context.get("symbol")
+            if symbol and symbol not in watchlist_symbol_set:
+                drop_ledger.setdefault(symbol, "DROP_RANK_BELOW_WATCHLIST")
                 print(
                     "[SCANNER][DROP] symbol="
-                    f"{context['symbol']} reason=DROP_RANK_BELOW_WATCHLIST"
+                    f"{symbol} reason=DROP_RANK_BELOW_WATCHLIST"
                 )
                 if event_collector is not None:
                     event_collector.emit(
                         event_type="SCANNER_SYMBOL_DROPPED",
                         source="Scanner",
                         payload={
-                            "symbol": context["symbol"],
+                            "symbol": symbol,
                             "drop_reason": "DROP_RANK_BELOW_WATCHLIST",
                             "metric_value": context.get("scanner_rank"),
                             "threshold": watchlist_limit,
                         },
                     )
-            if watchlist_limit > 0 and len(watchlist_contexts) < watchlist_limit:
-                ranked_all = _rank_candidates(evaluated_contexts)
-                existing = {context["symbol"] for context in watchlist_contexts}
-                for context in ranked_all:
-                    symbol = context.get("symbol")
-                    if not symbol or symbol in existing:
-                        continue
-                    drop_reason = drop_ledger.get(symbol)
-                    if drop_reason and not drop_reason.startswith("DROP_MISSING_"):
-                        continue
-                    flags = context.setdefault("data_quality_flags", [])
-                    if "BACKFILL_OPTIONAL_DATA" not in flags:
-                        flags.append("BACKFILL_OPTIONAL_DATA")
-                    if drop_reason:
-                        drop_ledger.pop(symbol, None)
-                    watchlist_contexts.append(context)
-                    existing.add(symbol)
-                    print(
-                        "[SCANNER][BACKFILL] symbol="
-                        f"{symbol} reason={drop_reason or 'OPTIONAL_DATA'}"
-                    )
-                    if len(watchlist_contexts) >= watchlist_limit:
-                        break
 
         print("[SCANNER][STAGE] enrich")
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
@@ -1780,14 +1764,28 @@ def run_scanner_cycle(
                     "policy_name": resolved_policy.policy_name,
                 },
             )
-        if selector is None:
-            if watchlist_symbols and allow_news:
-                news_by_symbol, news_diag = _enrich_news_context(
-                    watchlist_symbols, provider_source
-                )
-            else:
-                news_by_symbol = {}
-                news_diag = NewsDiagnostics(False, False, None, 0, 0, {})
+        if watchlist_symbols and allow_news:
+            news_by_symbol, news_diag = _enrich_news_context(
+                watchlist_symbols, provider_source
+            )
+        else:
+            news_by_symbol = {
+                symbol: {
+                    "news_present": bool(news_flags.get(symbol)),
+                    "ross_catalyst_valid": bool(news_flags.get(symbol)),
+                    "news_age_minutes": None,
+                    "velocity_5m": 0,
+                    "velocity_10m": 0,
+                    "velocity_30m": 0,
+                    "attention_tier": "T0",
+                    "catalyst_type": None,
+                    "dilution_flag": False,
+                    "gam_ea_eligible": False,
+                    "top_links": [],
+                }
+                for symbol in watchlist_symbols
+            }
+            news_diag = NewsDiagnostics(False, False, None, 0, 0, {})
         diagnostics["news"] = {
             "news_degraded": news_diag.news_degraded,
             "news_gate_bypassed": news_diag.news_gate_bypassed,
@@ -1806,7 +1804,17 @@ def run_scanner_cycle(
         print("[SCANNER][STAGE] print")
         fast_rows = _build_fast_rows(watchlist_contexts, news_by_symbol)
         focus_limit = limits["focus_limit"]
-        focus_contexts = watchlist_contexts[:focus_limit]
+        focus_candidates = [
+            context
+            for context in watchlist_contexts
+            if _evaluate_focus_gates(context, thresholds) is None
+        ]
+        focus_ranked = sorted(
+            focus_candidates,
+            key=lambda item: _safe_float(item.get("pct_change"), -10**9),
+            reverse=True,
+        )
+        focus_contexts = focus_ranked[:focus_limit]
         deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
 
         exclusion_counts = Counter(drop_ledger.values())

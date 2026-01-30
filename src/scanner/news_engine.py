@@ -15,8 +15,8 @@ from .scanner_config import (
     NEWS_LOOKBACK_HOURS,
     NEWS_MAX_ENTRIES_PER_SYMBOL,
     NEWS_REQUEST_TIMEOUT_S,
-    VERIFIED_RSS_PATH,
 )
+from src.news.rss_registry import RSS_FAST_TRADING
 
 if importlib.util.find_spec("feedparser"):
     feedparser = importlib.import_module("feedparser")  # type: ignore
@@ -167,7 +167,7 @@ def _refresh_news_cache_if_needed(now_ts: float) -> None:
         _NEWS_CACHE["items"] = []
         return
 
-    rss_urls = _load_verified_rss_urls(str(VERIFIED_RSS_PATH))
+    rss_urls = list(RSS_FAST_TRADING)
     _NEWS_CACHE["rss_urls"] = rss_urls
 
     if not rss_urls:
@@ -253,6 +253,51 @@ def _matches_symbol(text: str, symbol: str) -> bool:
         return False
     pattern = re.compile(rf"(?<![A-Z0-9]){re.escape(symbol)}(?![A-Z0-9])", re.IGNORECASE)
     return pattern.search(text) is not None
+
+
+def _compile_symbol_patterns(symbols: list[str]) -> dict[str, re.Pattern[str]]:
+    patterns: dict[str, re.Pattern[str]] = {}
+    for symbol in symbols:
+        escaped = re.escape(symbol)
+        patterns[symbol] = re.compile(rf"(?<![A-Z0-9]){escaped}(?![A-Z0-9])", re.IGNORECASE)
+    return patterns
+
+
+def fast_trading_news_flags(symbols: list[str]) -> dict[str, bool]:
+    flags = {symbol: False for symbol in symbols}
+    if not NEWS_ENABLED or feedparser is None or not symbols:
+        return flags
+
+    now_ts = time.time()
+    lookback_minutes = NEWS_LOOKBACK_HOURS * 60.0
+    patterns = _compile_symbol_patterns(symbols)
+    remaining = set(symbols)
+
+    for url in RSS_FAST_TRADING:
+        if not remaining:
+            break
+        feed = _fetch_feed(url)
+        if feed is None:
+            continue
+        for entry in getattr(feed, "entries", []) or []:
+            title = (getattr(entry, "title", "") or "").strip()
+            if not title:
+                continue
+            ts = _published_ts_from_entry(entry)
+            if lookback_minutes > 0 and ts is not None:
+                age_minutes = max(0.0, (now_ts - ts) / 60.0)
+                if age_minutes > lookback_minutes:
+                    continue
+            for symbol in list(remaining):
+                if patterns[symbol].search(title):
+                    flags[symbol] = True
+                    remaining.remove(symbol)
+                    if not remaining:
+                        break
+            if not remaining:
+                break
+
+    return flags
 
 
 def get_news_truth(symbol: str) -> dict:
