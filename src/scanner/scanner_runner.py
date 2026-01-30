@@ -24,8 +24,8 @@ from src.config.runtime_config import (
     get_watchlist_print_every_n_cycles,
 )
 from src.core.event_collector import EventCollector
-from src.news.news_fetcher import Headline, fetch_headlines_for_symbols
-from src.news.verified_sources import load_verified_rss_sources
+from src.news.news_fetcher import Headline, fetch_fast_headlines_for_symbols
+from src.news.rss_registry import RSS_FAST_TRADING
 
 from src.scanner.contracts import (
     SCANNER_GIT_SHA,
@@ -51,7 +51,9 @@ from src.scanner.ranking_registry import resolve_watchlist_selector
 from src.scanner.result_models import CandidateMetrics, ScannerResult
 from src.scanner.session_pct_change import (
     compute_session_aligned_pct_change,
+    compute_session_relative_volume,
     normalize_session_label,
+    resolve_market_session_label,
 )
 
 
@@ -148,14 +150,7 @@ def _is_unsubscribed_market_data_error(exc: Exception) -> bool:
 
 
 def _market_session_label_utc(now: datetime) -> str:
-    h = now.hour + now.minute / 60.0
-    if 12.0 <= h < 14.0:
-        return "PRE"
-    if 14.0 <= h < 21.5:
-        return "REG"
-    if 21.5 <= h < 23.0:
-        return "AFTER"
-    return "AFTER"
+    return resolve_market_session_label(now)
 
 
 def _print_symbol_limits(
@@ -372,59 +367,22 @@ def _gate_checks(
     *,
     catalyst_present: Optional[bool] = None,
 ) -> Dict[str, bool]:
-    price = _safe_float(context.get("last_price"), None)
-    pct_change = _safe_float(context.get("pct_change"), None)
-    rvol = _safe_float(context.get("rvol"), None)
-    volume = _safe_float(context.get("volume"), None)
-    dollar_volume = _safe_float(context.get("dollar_volume"), None)
-    float_shares = context.get("float_shares")
-    session = (context.get("session") or "").upper()
-    spread_pct = _safe_float(context.get("spread_pct"), None)
-    bid = _safe_float(context.get("bid"), None)
-    ask = _safe_float(context.get("ask"), None)
-    halted = context.get("halted")
-    ssr = context.get("ssr")
-
-    price_ok = price is not None and thresholds.min_price <= price <= thresholds.max_price
-    gap_ok = pct_change is not None and pct_change >= thresholds.min_pct_change
-    if thresholds.max_pct_change is not None:
-        gap_ok = gap_ok and pct_change is not None and pct_change <= thresholds.max_pct_change
-    rvol_ok = rvol is None or rvol >= thresholds.min_rvol
-    volume_ok = volume is None or volume > 0
-    pm_volume_ok = volume is None or volume > 0
-    if session in {"PRE", "OVN"}:
-        volume_ok = pm_volume_ok
-    dollar_volume_ok = dollar_volume is None or dollar_volume > 0
-    float_ok = float_shares is None or float_shares <= thresholds.max_float
-    spread_ok = True
-    if thresholds.spread_max_pct is not None:
-        spread_ok = spread_pct is not None and spread_pct <= thresholds.spread_max_pct
-    bid_ask_ok = True
-    if thresholds.require_bid_ask:
-        bid_ask_ok = bid is not None and ask is not None
+    watchlist_checks = _watchlist_gate_checks(context, thresholds)
+    focus_checks = _focus_gate_checks(context, thresholds)
     catalyst_ok = True
     if thresholds.require_catalyst:
         catalyst_ok = bool(catalyst_present)
-    halt_ok = True
-    if halted is True and not thresholds.allow_halts:
-        halt_ok = False
-    ssr_ok = True
-    if ssr is True and not thresholds.allow_ssr:
-        ssr_ok = False
-
     return {
-        "price_range_ok": price_ok,
-        "gap_ok": gap_ok,
-        "rvol_ok": rvol_ok,
-        "volume_ok": volume_ok,
-        "pm_volume_ok": pm_volume_ok,
-        "dollar_volume_ok": dollar_volume_ok,
-        "float_ok": float_ok,
-        "spread_ok": spread_ok,
-        "bid_ask_ok": bid_ask_ok,
+        "watch_pct_change": watchlist_checks.get("pct_change_ok", False),
+        "watch_rvol": watchlist_checks.get("rvol_ok", False),
+        "watch_float": watchlist_checks.get("float_ok", False),
+        "focus_volume": focus_checks.get("volume_ok", False),
+        "focus_spread": focus_checks.get("spread_ok", False),
+        "focus_bid_ask": focus_checks.get("bid_ask_ok", False),
+        "focus_halt": focus_checks.get("halt_ok", False),
+        "focus_ssr": focus_checks.get("ssr_ok", False),
+        "focus_dollar_volume": focus_checks.get("dollar_volume_ok", False),
         "catalyst_ok": catalyst_ok,
-        "halt_ok": halt_ok,
-        "ssr_ok": ssr_ok,
     }
 
 
@@ -435,9 +393,72 @@ def _evaluate_price_gate(
     price = _safe_float(context.get("last_price"), None)
     if thresholds.require_price and price is None:
         return "DROP_MISSING_PRICE"
-    if price is not None and not (thresholds.min_price <= price <= thresholds.max_price):
-        return "DROP_PRICE_RANGE"
     return None
+
+
+def _watchlist_gate_checks(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+) -> Dict[str, bool]:
+    pct_change = _safe_float(context.get("pct_change"), None)
+    rvol = _safe_float(context.get("rvol"), None)
+    float_shares = context.get("float_shares")
+
+    pct_ok = pct_change is not None and pct_change >= thresholds.min_pct_change
+    if thresholds.max_pct_change is not None:
+        pct_ok = pct_ok and pct_change is not None and pct_change <= thresholds.max_pct_change
+    rvol_ok = rvol is not None and rvol >= thresholds.min_rvol
+    float_ok = float_shares is not None and float_shares <= thresholds.max_float
+
+    return {
+        "pct_change_ok": pct_ok,
+        "rvol_ok": rvol_ok,
+        "float_ok": float_ok,
+    }
+
+
+def _focus_gate_checks(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+) -> Dict[str, bool]:
+    volume = _safe_float(context.get("volume"), None)
+    dollar_volume = _safe_float(context.get("dollar_volume"), None)
+    session = normalize_session_label(str(context.get("session") or ""))
+    spread_pct = _safe_float(context.get("spread_pct"), None)
+    bid = _safe_float(context.get("bid"), None)
+    ask = _safe_float(context.get("ask"), None)
+    halted = context.get("halted")
+    ssr = context.get("ssr")
+
+    volume_ok = volume is not None and volume > 0
+    if session in {"PRE", "OVN"}:
+        volume_ok = volume is not None and volume >= thresholds.min_premarket_volume
+    else:
+        volume_ok = volume is not None and volume >= thresholds.min_volume
+
+    dollar_volume_ok = True
+    if thresholds.min_dollar_volume is not None:
+        dollar_volume_ok = dollar_volume is not None and dollar_volume >= thresholds.min_dollar_volume
+
+    spread_ok = True
+    if thresholds.spread_max_pct is not None:
+        spread_ok = spread_pct is not None and spread_pct <= thresholds.spread_max_pct
+
+    bid_ask_ok = True
+    if thresholds.require_bid_ask:
+        bid_ask_ok = bid is not None and ask is not None
+
+    halt_ok = not (halted is True and not thresholds.allow_halts)
+    ssr_ok = not (ssr is True and not thresholds.allow_ssr)
+
+    return {
+        "volume_ok": volume_ok,
+        "dollar_volume_ok": dollar_volume_ok,
+        "spread_ok": spread_ok,
+        "bid_ask_ok": bid_ask_ok,
+        "halt_ok": halt_ok,
+        "ssr_ok": ssr_ok,
+    }
 
 
 def _populate_pct_change(
@@ -458,6 +479,8 @@ def _populate_pct_change(
         session_label=str(context.get("session") or ""),
         cur_last=last_price,
         ref_close_rth=prev_close,
+        rth_open_price=_safe_float(context.get("rth_open_price"), None),
+        rth_close_price=_safe_float(context.get("rth_close_price"), None),
         ibkr_change_pct=_safe_float(context.get("ibkr_change_pct"), None),
     )
     if last_price is None:
@@ -468,13 +491,16 @@ def _populate_pct_change(
         context.setdefault("data_quality_flags", []).append("MISSING_PCT_CHANGE")
     context["pct_change"] = pct_payload.final_pct
     context["ref_close_rth"] = pct_payload.ref_close_rth
+    context["reference_price"] = pct_payload.reference_price
+    context["reference_label"] = pct_payload.reference_label
     context["ibkr_change_pct"] = pct_payload.ibkr_change_pct
     context["pct_source"] = pct_payload.pct_source
     if get_config("DEBUG_MARKET_DATA"):
         print(
             "[SCANNER][MD][DEBUG] pct_change "
-            f"symbol={context['symbol']} last={last_price} ref_close={prev_close} "
-            f"pct_change={context.get('pct_change')} source={context.get('pct_source')}"
+            f"symbol={context['symbol']} last={last_price} ref_price={context.get('reference_price')} "
+            f"ref_label={context.get('reference_label')} pct_change={context.get('pct_change')} "
+            f"source={context.get('pct_source')}"
         )
 
 
@@ -493,8 +519,12 @@ def _missingness_map(drop_reason: str, context: Dict[str, Any]) -> Dict[str, boo
         }
     if drop_reason in {"DROP_MISSING_RVOL", "DROP_RVOL"}:
         return {"rvol": context.get("rvol") is None}
+    if drop_reason in {"DROP_MISSING_DOLLAR_VOLUME", "DROP_DOLLAR_VOLUME"}:
+        return {"dollar_volume": context.get("dollar_volume") is None}
     if drop_reason in {"DROP_MISSING_VOLUME", "DROP_VOLUME", "DROP_PREMARKET_VOLUME"}:
         return {"volume": context.get("volume") is None}
+    if drop_reason in {"DROP_FLOAT_MISSING", "DROP_FLOAT_MAX"}:
+        return {"float_shares": context.get("float_shares") is None}
     if drop_reason in {"DROP_MISSING_BID_ASK"}:
         return {"bid": context.get("bid") is None, "ask": context.get("ask") is None}
     if drop_reason in {"DROP_MISSING_SPREAD", "DROP_SPREAD"}:
@@ -511,17 +541,39 @@ def _missingness_map(drop_reason: str, context: Dict[str, Any]) -> Dict[str, boo
     }
 
 
-def _evaluate_gates(
+def _evaluate_watchlist_gates(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+) -> Optional[str]:
+    pct_change = _safe_float(context.get("pct_change"), None)
+    rvol = _safe_float(context.get("rvol"), None)
+    float_shares = context.get("float_shares")
+
+    if pct_change is None:
+        return "DROP_MISSING_PCT_CHANGE"
+    if pct_change < thresholds.min_pct_change:
+        return "DROP_PCT_CHANGE"
+    if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
+        return "DROP_PCT_CHANGE_MAX"
+    if rvol is None:
+        return "DROP_MISSING_RVOL"
+    if rvol < thresholds.min_rvol:
+        return "DROP_RVOL"
+    if float_shares is None:
+        return "DROP_FLOAT_MISSING"
+    if float_shares > thresholds.max_float:
+        return "DROP_FLOAT_MAX"
+    return None
+
+
+def _evaluate_focus_gates(
     context: Dict[str, Any],
     thresholds: GateThresholds,
 ) -> Optional[str]:
     price = _safe_float(context.get("last_price"), None)
-    pct_change = _safe_float(context.get("pct_change"), None)
-    rvol = _safe_float(context.get("rvol"), None)
     volume = _safe_float(context.get("volume"), None)
     dollar_volume = _safe_float(context.get("dollar_volume"), None)
-    float_shares = context.get("float_shares")
-    session = (context.get("session") or "").upper()
+    session = normalize_session_label(str(context.get("session") or ""))
     spread_pct = _safe_float(context.get("spread_pct"), None)
     bid = _safe_float(context.get("bid"), None)
     ask = _safe_float(context.get("ask"), None)
@@ -534,23 +586,19 @@ def _evaluate_gates(
         return "DROP_HALTED"
     if ssr is True and not thresholds.allow_ssr:
         return "DROP_SSR"
-    if price is not None and not (thresholds.min_price <= price <= thresholds.max_price):
-        return "DROP_PRICE_RANGE"
-    if pct_change is None:
-        return "DROP_MISSING_PCT_CHANGE"
-    if pct_change < thresholds.min_pct_change:
-        return "DROP_PCT_CHANGE"
-    if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
-        return "DROP_PCT_CHANGE_MAX"
-    active_trading = any(value is not None for value in (price, bid, ask))
-    if volume is not None and volume <= 0:
-        return "DROP_VOLUME"
-    if dollar_volume is not None and dollar_volume <= 0:
-        return "DROP_VOLUME"
-    if not active_trading:
-        return "DROP_VOLUME"
-    if float_shares is not None and float_shares > thresholds.max_float:
-        return "DROP_FLOAT_MAX"
+    if volume is None:
+        return "DROP_MISSING_VOLUME"
+    if session in {"PRE", "OVN"}:
+        if volume < thresholds.min_premarket_volume:
+            return "DROP_PREMARKET_VOLUME"
+    else:
+        if volume < thresholds.min_volume:
+            return "DROP_VOLUME"
+    if thresholds.min_dollar_volume is not None:
+        if dollar_volume is None:
+            return "DROP_MISSING_DOLLAR_VOLUME"
+        if dollar_volume < thresholds.min_dollar_volume:
+            return "DROP_DOLLAR_VOLUME"
     if thresholds.spread_max_pct is not None:
         if spread_pct is None:
             return "DROP_MISSING_SPREAD"
@@ -592,8 +640,8 @@ def _enrich_news_context(
     symbols: List[str],
     provider_source: str,
 ) -> tuple[Dict[str, Dict[str, Any]], NewsDiagnostics]:
-    sources = load_verified_rss_sources()
-    headlines_by_symbol, summary = fetch_headlines_for_symbols(
+    sources = list(RSS_FAST_TRADING)
+    headlines_by_symbol, summary = fetch_fast_headlines_for_symbols(
         symbols,
         sources,
         lookback_hours=float(get_config("NEWS_LOOKBACK_HOURS")),
@@ -728,9 +776,8 @@ def _rank_candidates(contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         pct = _safe_float(item.get("pct_change"), -10**9)
         rvol = _safe_float(item.get("rvol"), -10**9)
         dvol = _safe_float(item.get("dollar_volume"), -10**9)
-        float_missing = item.get("float_shares") is None
         symbol = item.get("symbol", "")
-        return (float_missing, -pct, -rvol, -dvol, symbol)
+        return (-pct, -rvol, -dvol, symbol)
 
     return sorted(contexts, key=sort_key)
 
@@ -864,6 +911,8 @@ def _candidate_from_context(
         last_price=context.get("last_price"),
         prev_close=context.get("prev_close"),
         ref_close_rth=context.get("ref_close_rth"),
+        reference_price=context.get("reference_price"),
+        reference_label=context.get("reference_label"),
         gap_pct=context.get("pct_change"),
         pct_change=context.get("pct_change"),
         ibkr_change_pct=context.get("ibkr_change_pct"),
@@ -929,17 +978,24 @@ def _format_watchlist_line(candidate: CandidateMetrics) -> str:
     if len(summary) > 80:
         summary = summary[:77] + "..."
     session_label = normalize_session_label(candidate.session_label or "")
-    ref_close = candidate.ref_close_rth if candidate.ref_close_rth is not None else candidate.prev_close
+    reference_price = (
+        candidate.reference_price
+        if candidate.reference_price is not None
+        else candidate.ref_close_rth
+        if candidate.ref_close_rth is not None
+        else candidate.prev_close
+    )
+    reference_label = candidate.reference_label or "REF"
     return (
         f"{candidate.symbol} session={session_label} price=${_format_value(candidate.last_price)} "
-        f"ref_close_rth={_format_value(ref_close)} "
+        f"{reference_label}={_format_value(reference_price)} "
         f"ibkr_pct={_format_value(candidate.ibkr_change_pct)}% "
         f"final_pct={_format_value(candidate.pct_change)}% "
         f"pct_source={candidate.pct_source or 'NA'} "
         f"gap={_format_value(candidate.gap_pct)}% chg={_format_value(candidate.pct_change)}% "
         f"rvol={_format_value(candidate.rvol)} float={_format_float_millions(candidate.float_millions)} "
         f"vol={_format_int(candidate.volume)} pm={_format_int(candidate.premarket_volume)} "
-        f"spread={_format_value(candidate.spread_pct, 4)}% catalyst={catalyst} "
+        f"spread={_format_value(candidate.spread_pct, 4)}% news_flag={catalyst} "
         f"summary={summary} "
         f"halted={candidate.halted if candidate.halted is not None else 'NA'} "
         f"ssr={candidate.ssr if candidate.ssr is not None else 'NA'} dq={dq} "
@@ -1031,8 +1087,14 @@ def _build_symbol_context(
         intraday = None
 
     volume = intraday.current_intraday_volume if intraday else None
-    rvol = intraday.relative_volume if intraday else None
     avg_volume_20d = intraday.average_daily_volume_20d if intraday else None
+    rvol = compute_session_relative_volume(
+        session_label=session_label,
+        session_volume=volume,
+        avg_volume_20d=avg_volume_20d,
+    )
+    if rvol is None:
+        rvol = intraday.relative_volume if intraday else None
     if intraday is None:
         data_quality_flags.append("VOLUME_UNKNOWN")
     if volume is None:
@@ -1040,7 +1102,9 @@ def _build_symbol_context(
     if rvol is None:
         data_quality_flags.append("RVOL_UNKNOWN")
 
-    prev_close = quote.close
+    session_open = _safe_float(getattr(quote, "open", None), None)
+    session_close = _safe_float(getattr(quote, "close", None), None)
+    prev_close = session_close
     if include_pct_change and prev_close is None:
         history = _history_snapshot(symbol, provider)
         prev_close = history.get("prev_close")
@@ -1052,15 +1116,22 @@ def _build_symbol_context(
     ibkr_change_pct = _safe_float(getattr(quote, "change_percent", None), None)
     pct_change = None
     pct_source = None
+    reference_price = None
+    reference_label = None
     if include_pct_change:
+        rth_close_price = session_close if session_label == "AH" else prev_close
         pct_payload = compute_session_aligned_pct_change(
             session_label=session_label,
             cur_last=last_price,
             ref_close_rth=prev_close,
+            rth_open_price=session_open,
+            rth_close_price=rth_close_price,
             ibkr_change_pct=ibkr_change_pct,
         )
         pct_change = pct_payload.final_pct
         pct_source = pct_payload.pct_source
+        reference_price = pct_payload.reference_price
+        reference_label = pct_payload.reference_label
     dollar_volume = None
     if last_price is not None and volume is not None:
         dollar_volume = round(last_price * volume, 2)
@@ -1098,6 +1169,10 @@ def _build_symbol_context(
         "close": quote.close,
         "prev_close": prev_close,
         "ref_close_rth": prev_close,
+        "rth_open_price": session_open,
+        "rth_close_price": session_close,
+        "reference_price": reference_price,
+        "reference_label": reference_label,
         "pct_change": pct_change,
         "pct_source": pct_source,
         "ibkr_change_pct": ibkr_change_pct,
@@ -1572,7 +1647,7 @@ def run_scanner_cycle(
                 evaluated_contexts.append(context)
                 continue
             _populate_pct_change(context, provider)
-            drop_reason = _evaluate_gates(context, thresholds)
+            drop_reason = _evaluate_watchlist_gates(context, thresholds)
             if drop_reason:
                 drop_ledger.setdefault(symbol, drop_reason)
                 print(f"[SCANNER][DROP] symbol={symbol} reason={drop_reason}")
@@ -1695,66 +1770,51 @@ def run_scanner_cycle(
         # Watchlist gate is created here from the raw scanner universe (cheap metrics only).
         print("[SCANNER][STAGE] watchlist")
         if selector is not None:
-            # Strategy-owned ranking authority.
-            watchlist_metrics_for_ranking = selector(
-                candidate_metrics_for_ranking, resolved_policy
+            print("[SCANNER][WARN] Ranking selector bypassed for watchlist compliance")
+        ranked = _rank_candidates(candidates)
+        watchlist_contexts = ranked[:watchlist_limit] if watchlist_limit > 0 else []
+        for context in ranked[watchlist_limit:]:
+            drop_ledger.setdefault(context["symbol"], "DROP_RANK_BELOW_WATCHLIST")
+            print(
+                "[SCANNER][DROP] symbol="
+                f"{context['symbol']} reason=DROP_RANK_BELOW_WATCHLIST"
             )
-            watchlist_symbols = [
-                row.symbol for row in watchlist_metrics_for_ranking if row.symbol
-            ]
-            watchlist_contexts = [
-                context_by_symbol[symbol]
-                for symbol in watchlist_symbols
-                if symbol in context_by_symbol
-            ]
-            watchlist_symbol_set = set(watchlist_symbols)
-            for context in candidates:
-                symbol = context.get("symbol")
-                if symbol and symbol not in watchlist_symbol_set:
-                    drop_ledger.setdefault(symbol, "DROP_RANK_BELOW_WATCHLIST")
-        else:
-            ranked = _rank_candidates(candidates)
-            watchlist_contexts = ranked[:watchlist_limit] if watchlist_limit > 0 else []
-            for context in ranked[watchlist_limit:]:
-                drop_ledger.setdefault(context["symbol"], "DROP_RANK_BELOW_WATCHLIST")
-                print(
-                    "[SCANNER][DROP] symbol="
-                    f"{context['symbol']} reason=DROP_RANK_BELOW_WATCHLIST"
+            if event_collector is not None:
+                event_collector.emit(
+                    event_type="SCANNER_SYMBOL_DROPPED",
+                    source="Scanner",
+                    payload={
+                        "symbol": context["symbol"],
+                        "drop_reason": "DROP_RANK_BELOW_WATCHLIST",
+                        "metric_value": context.get("scanner_rank"),
+                        "threshold": watchlist_limit,
+                    },
                 )
-                if event_collector is not None:
-                    event_collector.emit(
-                        event_type="SCANNER_SYMBOL_DROPPED",
-                        source="Scanner",
-                        payload={
-                            "symbol": context["symbol"],
-                            "drop_reason": "DROP_RANK_BELOW_WATCHLIST",
-                            "metric_value": context.get("scanner_rank"),
-                            "threshold": watchlist_limit,
-                        },
-                    )
-            if watchlist_limit > 0 and len(watchlist_contexts) < watchlist_limit:
-                ranked_all = _rank_candidates(evaluated_contexts)
-                existing = {context["symbol"] for context in watchlist_contexts}
-                for context in ranked_all:
-                    symbol = context.get("symbol")
-                    if not symbol or symbol in existing:
-                        continue
-                    drop_reason = drop_ledger.get(symbol)
-                    if drop_reason and not drop_reason.startswith("DROP_MISSING_"):
-                        continue
-                    flags = context.setdefault("data_quality_flags", [])
-                    if "BACKFILL_OPTIONAL_DATA" not in flags:
-                        flags.append("BACKFILL_OPTIONAL_DATA")
-                    if drop_reason:
-                        drop_ledger.pop(symbol, None)
-                    watchlist_contexts.append(context)
-                    existing.add(symbol)
-                    print(
-                        "[SCANNER][BACKFILL] symbol="
-                        f"{symbol} reason={drop_reason or 'OPTIONAL_DATA'}"
-                    )
-                    if len(watchlist_contexts) >= watchlist_limit:
-                        break
+        if watchlist_limit > 0 and len(watchlist_contexts) < watchlist_limit:
+            ranked_all = _rank_candidates(evaluated_contexts)
+            existing = {context["symbol"] for context in watchlist_contexts}
+            for context in ranked_all:
+                symbol = context.get("symbol")
+                if not symbol or symbol in existing:
+                    continue
+                drop_reason = drop_ledger.get(symbol)
+                if drop_reason and not drop_reason.startswith("DROP_MISSING_"):
+                    continue
+                flags = context.setdefault("data_quality_flags", [])
+                if "BACKFILL_OPTIONAL_DATA" not in flags:
+                    flags.append("BACKFILL_OPTIONAL_DATA")
+                if drop_reason:
+                    drop_ledger.pop(symbol, None)
+                watchlist_contexts.append(context)
+                existing.add(symbol)
+                print(
+                    "[SCANNER][BACKFILL] symbol="
+                    f"{symbol} reason={drop_reason or 'OPTIONAL_DATA'}"
+                )
+                if len(watchlist_contexts) >= watchlist_limit:
+                    break
+
+        watchlist_contexts = _rank_candidates(watchlist_contexts)
 
         print("[SCANNER][STAGE] enrich")
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
@@ -1806,7 +1866,18 @@ def run_scanner_cycle(
         print("[SCANNER][STAGE] print")
         fast_rows = _build_fast_rows(watchlist_contexts, news_by_symbol)
         focus_limit = limits["focus_limit"]
-        focus_contexts = watchlist_contexts[:focus_limit]
+        focus_candidates: list[Dict[str, Any]] = []
+        for context in watchlist_contexts:
+            focus_drop = _evaluate_focus_gates(context, thresholds)
+            if focus_drop:
+                context["focus_drop_reason"] = focus_drop
+                print(
+                    "[SCANNER][FOCUS_DROP] symbol="
+                    f"{context.get('symbol')} reason={focus_drop}"
+                )
+                continue
+            focus_candidates.append(context)
+        focus_contexts = _rank_candidates(focus_candidates)[:focus_limit]
         deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
 
         exclusion_counts = Counter(drop_ledger.values())

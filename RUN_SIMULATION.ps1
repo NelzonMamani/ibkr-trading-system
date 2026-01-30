@@ -13,4 +13,4 @@ Remove-Item Env:IBKR_MARKET_DATA_TYPE -ErrorAction SilentlyContinue
 $env:RUN_MODE="SIM"
 
 # ---- Launch ----
-python -m src.main
+python -m src.main --cycles 1

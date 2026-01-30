@@ -62,10 +62,12 @@ class ConnectionManager:
             port = port_fallback
         market_data_type = get_ibkr_market_data_type()
         snapshot_timeout = get_ibkr_snapshot_timeout_seconds()
+        fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
+        candidate_ids = self._candidate_client_ids(base_client_id)
+        if fallback_enabled and self.run_mode == RunMode.LIVE_READ_ONLY:
+            candidate_ids = [base_client_id]
 
-        for attempt_index, candidate_id in enumerate(
-            self._candidate_client_ids(base_client_id), start=1
-        ):
+        for attempt_index, candidate_id in enumerate(candidate_ids, start=1):
             print(
                 "[IBKR][CONNECT] attempt={attempt} host={host} port={port} client_id={client_id}".format(
                     attempt=attempt_index,

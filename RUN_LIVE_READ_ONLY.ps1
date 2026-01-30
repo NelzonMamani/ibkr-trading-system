@@ -10,6 +10,7 @@ Remove-Item Env:LIVE_MICRO_1_SHARE_ONLY -ErrorAction SilentlyContinue
 $env:RUN_MODE = "LIVE_READ_ONLY"
 $env:IBKR_MARKET_DATA_TYPE = "LIVE"
 $env:IBKR_PORT = "7496"
+$env:IBKR_FALLBACK_ENABLED = "1"
 
 # ---- Launch (NO recursion) ----
-python -m src.main --mode LIVE_READ_ONLY
+python -m src.main --mode LIVE_READ_ONLY --cycles 1

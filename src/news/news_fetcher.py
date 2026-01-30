@@ -164,3 +164,72 @@ def fetch_headlines_for_symbols(
     summary = RssFailureSummary(len(sources), failures, failures_by_domain, None)
     _summarize_failures(summary)
     return headlines, summary
+
+
+def fetch_fast_headlines_for_symbols(
+    symbols: List[str],
+    sources: List[str],
+    lookback_hours: float = 24.0,
+    request_timeout_s: float = 5.0,
+) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
+    headlines: Dict[str, List[Headline]] = {symbol: [] for symbol in symbols}
+    failures_by_domain: Dict[str, Dict[str, int]] = {}
+    if not symbols:
+        return headlines, RssFailureSummary(0, 0, failures_by_domain, "no_symbols")
+    if not sources:
+        return headlines, RssFailureSummary(0, 0, failures_by_domain, "no_sources")
+    if feedparser is None:
+        for url in sources:
+            _record_failure(failures_by_domain, _domain_for_url(url), "DEPENDENCY_MISSING")
+        summary = RssFailureSummary(len(sources), len(sources), failures_by_domain, "feedparser_missing")
+        _summarize_failures(summary)
+        return headlines, summary
+
+    now = time.time()
+    min_ts = now - (lookback_hours * 3600)
+    patterns = _compile_symbol_patterns(symbols)
+    remaining = set(symbols)
+    failures = 0
+    for url in sources:
+        if not remaining:
+            break
+        try:
+            feed = _fetch_feed(url, request_timeout_s)
+        except Exception as exc:
+            failures += 1
+            _record_failure(failures_by_domain, _domain_for_url(url), _failure_code(exc))
+            continue
+        if feed is None:
+            failures += 1
+            _record_failure(failures_by_domain, _domain_for_url(url), _failure_code(None, feed_missing=True))
+            continue
+        source_name = ""
+        try:
+            source_name = (feed.feed.get("title") or "").strip()
+        except Exception:
+            source_name = ""
+        for entry in getattr(feed, "entries", []) or []:
+            if not remaining:
+                break
+            title = (getattr(entry, "title", "") or "").strip()
+            link = (getattr(entry, "link", "") or "").strip()
+            if not title:
+                continue
+            ts = _entry_timestamp(entry)
+            if ts < min_ts:
+                continue
+            for symbol in list(remaining):
+                pattern = patterns.get(symbol)
+                if pattern and pattern.search(title.upper()):
+                    headlines[symbol].append(
+                        Headline(
+                            title=title,
+                            source=source_name or url,
+                            published_ts=ts,
+                            url=link,
+                        )
+                    )
+                    remaining.discard(symbol)
+    summary = RssFailureSummary(len(sources), failures, failures_by_domain, None)
+    _summarize_failures(summary)
+    return headlines, summary
