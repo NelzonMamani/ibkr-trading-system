@@ -163,7 +163,8 @@ ibkr-trading-system/
 │   │   ├── watchlist_RossMomentum_20260126_212034_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260127_234953_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260128_003017_UTC.txt
-│   │   └── watchlist_RossMomentum_20260129_202323_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260129_214528_UTC.txt
+│   │   └── watchlist_RossMomentum_20260130_123733_UTC.txt
 │   └── trade_store.jsonl
 ├── scripts
 │   ├── smoke_main.ps1
@@ -559,6 +560,12 @@ ibkr-trading-system/
 │   └── test_trade_exit_engine.py
 ├── troubleshooting
 │   ├── backup
+│   │   ├── troubleshooting
+│   │   │   └── stock_selection
+│   │   │       └── output
+│   │   │           ├── stock_selection_scanner_2026_01_30_011727_UTC.txt
+│   │   │           ├── stock_selection_scanner_2026_01_30_104800_UTC.txt
+│   │   │           └── stock_selection_scanner_2026_01_30_123821_UTC.txt
 │   │   └── stock_selection_scanner_25_jan_2026.py
 │   └── stock_selection
 │       ├── troubleshooting

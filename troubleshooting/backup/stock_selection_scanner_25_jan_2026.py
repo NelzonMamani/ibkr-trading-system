@@ -222,7 +222,7 @@ def main():
         scanCode="TOP_PERC_GAIN",
         numberOfRows=10,
         abovePrice=1,
-        belowPrice=60
+        belowPrice=20
     )
 
     scanner_results = ib.reqScannerData(scanner_definition)

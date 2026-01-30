@@ -1,0 +1,30 @@
+
+==================
+CONNECTING TO IBKR
+==================
+Connected: True
+
+=========================
+SCANNER RESULTS — 10 ROWS
+=========================
+RUN HEADER
+Run Timestamp (UTC): 2026-01-30 01:17:27 UTC
+IBKR Connection: host=127.0.0.1 port=7496 clientId=99
+Scanner Definition: scanCode=TOP_PERC_GAIN abovePrice=1 belowPrice=60 rows=10
+-------------------------
+SYM       LAST   PRIOR         %CHG   RV20   RV1D    FLOAT NEWS
+--------------------------------------------------------------------------------------------------------------------------------------------
+FATBB     0.32    0.62      -48.10%   2.47   0.53    5.96M N/A
+VIVS      1.70    1.73       -1.73%   0.58   1.07    2.58M N/A
+GKOR      1.49    0.76      +96.05%    N/A    N/A      N/A N/A
+EFGXY    25.85   13.56      +90.63%    N/A    N/A   94.95M N/A
+ANL       6.53    3.47      +88.18%  14.11   8.45   66.71M N/A
+LRHC      2.99    3.16       -5.38%   0.34   1.26     123K N/A
+MGLD      0.99    0.94       +5.11%   0.60   0.42   16.06M N/A
+OBNK      2.50    1.68      +48.81%    N/A   0.20      N/A N/A
+INNPF     7.43    5.07      +46.69%    N/A  28.77    3.58M N/A
+NOWG      1.00    0.69      +44.93%  20.03    N/A      N/A N/A
+
+============
+DISCONNECTED
+============
