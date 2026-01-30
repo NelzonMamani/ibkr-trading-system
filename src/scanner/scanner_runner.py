@@ -47,6 +47,7 @@ from src.scanner.providers.base import ProviderConnectionError, ScannerDataProvi
 from src.models.data_models import ScannerCandidate
 from src.scanner.providers.factory import build_provider
 from src.scanner.providers.mock_provider import MockScannerProvider
+from src.scanner.ranking_registry import resolve_watchlist_selector
 from src.scanner.result_models import CandidateMetrics, ScannerResult
 from src.scanner.session_pct_change import (
     compute_session_aligned_pct_change,
@@ -388,9 +389,9 @@ def _gate_checks(
     gap_ok = pct_change is not None and pct_change >= thresholds.min_pct_change
     if thresholds.max_pct_change is not None:
         gap_ok = gap_ok and pct_change is not None and pct_change <= thresholds.max_pct_change
-    rvol_ok = rvol is not None and rvol >= thresholds.min_rvol
-    volume_ok = volume is not None and volume >= thresholds.min_volume
-    pm_volume_ok = volume is not None and volume >= thresholds.min_premarket_volume
+    rvol_ok = rvol is None or rvol >= thresholds.min_rvol
+    volume_ok = volume is None or volume >= thresholds.min_volume
+    pm_volume_ok = volume is None or volume >= thresholds.min_premarket_volume
     if session in {"PRE", "OVN"}:
         volume_ok = pm_volume_ok
     dollar_volume_ok = True
@@ -1133,6 +1134,7 @@ def _resolve_universe_symbols(
     request: ScannerRequest,
     limits: Dict[str, Any],
     diagnostics: Dict[str, Any],
+    allow_mock_fallback: bool,
 ) -> List[str]:
     diagnostics["universe_request"] = {
         "source": request.universe_source.value,
@@ -1140,10 +1142,16 @@ def _resolve_universe_symbols(
         "requested_top_n": request.requested_top_n,
         "region": request.region,
         "instrument": request.instrument,
+        "location_code": request.location_code,
+        "above_price": request.above_price,
+        "below_price": request.below_price,
         "exchanges": list(request.exchanges or []),
     }
     if request.universe_source == UniverseSource.IBKR_TOP_GAINERS:
-        symbols = provider.get_top_gainers(limits["resolved_symbol_limit"])
+        symbols = provider.get_top_gainers(
+            limits["resolved_symbol_limit"],
+            request=request,
+        )
         ibkr_returned_count = len(symbols)
         requested_top_n = int(request.requested_top_n)
         truncation = ibkr_returned_count != requested_top_n
@@ -1184,6 +1192,13 @@ def _resolve_universe_symbols(
             diagnostics["symbol_fallback"] = "SCANNER_DEFAULT_SYMBOLS"
             symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS") or [])
         if not symbols:
+            if not allow_mock_fallback:
+                print(
+                    "[SCANNER][WARN] CONFIG_SYMBOLS requested but no symbols provided; "
+                    "MOCK fallback disabled in this run mode"
+                )
+                diagnostics["symbol_fallback"] = "EMPTY_UNIVERSE"
+                return []
             print(
                 "[SCANNER][WARN] CONFIG_SYMBOLS requested but no symbols provided; "
                 "falling back to MOCK_UNIVERSE"
@@ -1220,12 +1235,12 @@ def _build_universe_entries(symbols: list[str]) -> list[dict[str, Any]]:
 
 def _apply_non_tradable_universe_gate(
     symbols: list[str],
-    provider: ScannerDataProvider,
+    provider: ScannerDataProvider | None,
     drop_ledger: Dict[str, str],
     event_collector: EventCollector | None = None,
 ) -> list[str]:
     blocked_trading_classes = {"EXPERT", "OTCID", "LIMITED"}
-    scan_details = getattr(provider, "last_scan_details", {}) or {}
+    scan_details = getattr(provider, "last_scan_details", {}) if provider else {}
     filtered: list[str] = []
     for symbol in symbols:
         details = scan_details.get(symbol, {})
@@ -1303,7 +1318,11 @@ def run_scanner_cycle(
         f"watchlist_k={resolved_policy.watchlist_limit_k} "
         f"focus_m={resolved_policy.focus_limit_m} "
         f"universe={request.universe_source.value} "
-        f"scan_code={request.ibkr_scan_code}"
+        f"scan_code={request.ibkr_scan_code} "
+        f"instrument={request.instrument} "
+        f"location={request.location_code} "
+        f"above_price={request.above_price} "
+        f"below_price={request.below_price}"
     )
     diagnostics["selection_spec"] = {
         "strategy": resolved_policy.policy_name,
@@ -1312,12 +1331,23 @@ def run_scanner_cycle(
         "focus_m": resolved_policy.focus_limit_m,
         "universe": request.universe_source.value,
         "scan_code": request.ibkr_scan_code,
+        "instrument": request.instrument,
+        "location_code": request.location_code,
+        "above_price": request.above_price,
+        "below_price": request.below_price,
+        "ranking_intent": request.ranking_intent,
+        "session_phase": request.session_phase,
     }
 
     run_mode = get_run_mode()
     fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
-    allow_fallback = fallback_enabled or run_mode == RunMode.LIVE_READ_ONLY
+    explicit_mock = str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
+    allow_mock_fallback = run_mode in {RunMode.SIM, RunMode.PAPER} or explicit_mock
+    allow_symbol_fallback = allow_mock_fallback
     using_external_provider = provider is not None
+    provider_error: Optional[str] = None
+    provider_fallback: Optional[dict[str, str | None]] = None
+    provider_source = "IBKR"
     try:
         if provider is None:
             if market_data_client is None:
@@ -1327,24 +1357,42 @@ def run_scanner_cycle(
         else:
             provider.connect()
     except ProviderConnectionError as exc:
-
-        if run_mode == RunMode.PAPER and not allow_fallback:
-            raise
-        diagnostics["provider_error"] = str(exc)
-        diagnostics["provider_fallback"] = {
-            "from": "IBKR",
-            "to": "MOCK",
-            "reason": str(exc),
-        }
-        print("STATE=DEGRADED")
-        print(
-            "[SCANNER][WARN] Provider connection failed — "
-            f"falling back to MOCK reason={exc}"
-        )
-        provider = MockScannerProvider()
+        provider_error = str(exc)
+        diagnostics["provider_error"] = provider_error
+        if allow_mock_fallback:
+            provider_fallback = {
+                "from": "IBKR",
+                "to": "MOCK",
+                "reason": provider_error,
+            }
+            diagnostics["provider_fallback"] = provider_fallback
+            print("STATE=DEGRADED")
+            print(
+                "[SCANNER][WARN] Provider connection failed — "
+                f"falling back to MOCK reason={exc}"
+            )
+            provider = MockScannerProvider()
+        else:
+            allow_symbol_fallback = False
+            provider = None
+    if provider is not None:
+        provider_source = provider.source_name
+    fallback_reason = (
+        provider_error
+        if provider_error
+        else provider_fallback["reason"]
+        if provider_fallback
+        else "SCANNER_DATA_SOURCE=MOCK"
+        if explicit_mock and provider_source == "MOCK"
+        else None
+    )
+    print(
+        "[SCANNER][PROVIDER] "
+        f"provider={provider_source} fallback_reason={fallback_reason or 'none'}"
+    )
     limits = _print_symbol_limits(
         scanner_mode,
-        provider.source_name,
+        provider_source,
         resolved_policy,
         requested_top_n=request.requested_top_n,
     )
@@ -1353,44 +1401,59 @@ def run_scanner_cycle(
 
     try:
         try:
-            symbols = _resolve_universe_symbols(
-                provider=provider,
-                request=request,
-                limits=limits,
-                diagnostics=diagnostics,
-            )
+            if provider is None:
+                symbols = []
+                diagnostics["symbol_fallback"] = "EMPTY_UNIVERSE"
+            else:
+                symbols = _resolve_universe_symbols(
+                    provider=provider,
+                    request=request,
+                    limits=limits,
+                    diagnostics=diagnostics,
+                    allow_mock_fallback=allow_mock_fallback,
+                )
         except Exception as exc:
             diagnostics["provider_error"] = str(exc)
-            if provider.source_name != "MOCK":
-                diagnostics["provider_fallback"] = {
-                    "from": provider.source_name,
-                    "to": "MOCK",
-                    "reason": str(exc),
-                }
-                provider.disconnect()
-                provider = MockScannerProvider()
-                limits = _print_symbol_limits(
-                    scanner_mode,
-                    provider.source_name,
-                    resolved_policy,
-                    requested_top_n=request.requested_top_n,
-                )
-                diagnostics["symbol_limits"] = limits
-            symbols = _resolve_universe_symbols(
-                provider=provider,
-                request=request,
-                limits=limits,
-                diagnostics=diagnostics,
-            )
+            if provider is not None and provider.source_name != "MOCK":
+                if allow_mock_fallback:
+                    diagnostics["provider_fallback"] = {
+                        "from": provider.source_name,
+                        "to": "MOCK",
+                        "reason": str(exc),
+                    }
+                    provider.disconnect()
+                    provider = MockScannerProvider()
+                    provider_source = provider.source_name
+                    limits = _print_symbol_limits(
+                        scanner_mode,
+                        provider_source,
+                        resolved_policy,
+                        requested_top_n=request.requested_top_n,
+                    )
+                    diagnostics["symbol_limits"] = limits
+                    symbols = _resolve_universe_symbols(
+                        provider=provider,
+                        request=request,
+                        limits=limits,
+                        diagnostics=diagnostics,
+                        allow_mock_fallback=allow_mock_fallback,
+                    )
+                else:
+                    allow_symbol_fallback = False
+                    symbols = []
+            else:
+                symbols = []
 
-        diagnostics["provider_source"] = provider.source_name
+        diagnostics["provider_source"] = provider_source
         diagnostics["symbol_count"] = len(symbols)
-        if not symbols:
+        if not symbols and allow_symbol_fallback:
             symbols = list(get_config("SCANNER_DEFAULT_SYMBOLS"))
             diagnostics["symbol_fallback"] = "SCANNER_DEFAULT_SYMBOLS"
-        if not symbols:
+        if not symbols and allow_symbol_fallback:
             fallback_provider = MockScannerProvider()
-            symbols = fallback_provider.get_top_gainers(limits["resolved_symbol_limit"])
+            symbols = fallback_provider.get_top_gainers(
+                limits["resolved_symbol_limit"]
+            )
             diagnostics["symbol_fallback"] = "MOCK_UNIVERSE"
         symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
         requested_top_n = int(request.requested_top_n or len(symbols))
@@ -1585,6 +1648,43 @@ def run_scanner_cycle(
                 "[SCANNER][WARN] Percent change missing for many symbols "
                 f"missing={missing_pct} total={len(evaluated_contexts)}"
             )
+        ranking_intent = request.ranking_intent or resolved_policy.ranking_intent
+        selector = resolve_watchlist_selector(ranking_intent)
+        watchlist_limit = limits["watchlist_limit"]
+        allow_news = bool(get_config("NEWS_ENABLED")) and run_mode not in {
+            RunMode.LIVE,
+            RunMode.LIVE_READ_ONLY,
+            RunMode.LIVE_MICRO,
+            RunMode.LIVE_ONE_SHARE,
+            RunMode.PAPER,
+        }
+        context_by_symbol = {
+            context.get("symbol"): context for context in evaluated_contexts
+        }
+        candidate_symbols = [
+            symbol for symbol in context_by_symbol.keys() if symbol
+        ]
+        news_by_symbol = {}
+        news_diag = NewsDiagnostics(False, False, None, 0, 0, {})
+        if selector is not None and allow_news and candidate_symbols:
+            news_by_symbol, news_diag = _enrich_news_context(
+                candidate_symbols,
+                provider_source,
+            )
+        candidate_metrics_for_ranking: List[CandidateMetrics] = []
+        for context in evaluated_contexts:
+            symbol = context.get("symbol")
+            if not symbol:
+                continue
+            candidate_metrics_for_ranking.append(
+                _candidate_from_context(
+                    context,
+                    news_by_symbol.get(symbol, {}),
+                    thresholds,
+                    drop_reason=drop_ledger.get(symbol),
+                    timestamp_utc=utc_now.isoformat(),
+                )
+            )
         after_gates_symbols = [context["symbol"] for context in candidates]
         print(
             f"AFTER_GATES_SYMBOLS (N={len(after_gates_symbols)}): {after_gates_symbols}"
@@ -1599,53 +1699,71 @@ def run_scanner_cycle(
                     "session": session_label,
                     "timestamp": utc_now.isoformat(),
                 },
-            )
+        )
 
         # Watchlist gate is created here from the raw scanner universe (cheap metrics only).
         print("[SCANNER][STAGE] watchlist")
-        ranked = _rank_candidates(candidates)
-        watchlist_limit = limits["watchlist_limit"]
-        watchlist_contexts = ranked[:watchlist_limit] if watchlist_limit > 0 else []
-        for context in ranked[watchlist_limit:]:
-            drop_ledger.setdefault(context["symbol"], "DROP_RANK_BELOW_WATCHLIST")
-            print(
-                "[SCANNER][DROP] symbol="
-                f"{context['symbol']} reason=DROP_RANK_BELOW_WATCHLIST"
+        if selector is not None:
+            # Strategy-owned ranking authority.
+            watchlist_metrics_for_ranking = selector(
+                candidate_metrics_for_ranking, resolved_policy
             )
-            if event_collector is not None:
-                event_collector.emit(
-                    event_type="SCANNER_SYMBOL_DROPPED",
-                    source="Scanner",
-                    payload={
-                        "symbol": context["symbol"],
-                        "drop_reason": "DROP_RANK_BELOW_WATCHLIST",
-                        "metric_value": context.get("scanner_rank"),
-                        "threshold": watchlist_limit,
-                    },
-                )
-        if watchlist_limit > 0 and len(watchlist_contexts) < watchlist_limit:
-            ranked_all = _rank_candidates(evaluated_contexts)
-            existing = {context["symbol"] for context in watchlist_contexts}
-            for context in ranked_all:
+            watchlist_symbols = [
+                row.symbol for row in watchlist_metrics_for_ranking if row.symbol
+            ]
+            watchlist_contexts = [
+                context_by_symbol[symbol]
+                for symbol in watchlist_symbols
+                if symbol in context_by_symbol
+            ]
+            watchlist_symbol_set = set(watchlist_symbols)
+            for context in candidates:
                 symbol = context.get("symbol")
-                if not symbol or symbol in existing:
-                    continue
-                drop_reason = drop_ledger.get(symbol)
-                if drop_reason and not drop_reason.startswith("DROP_MISSING_"):
-                    continue
-                flags = context.setdefault("data_quality_flags", [])
-                if "BACKFILL_OPTIONAL_DATA" not in flags:
-                    flags.append("BACKFILL_OPTIONAL_DATA")
-                if drop_reason:
-                    drop_ledger.pop(symbol, None)
-                watchlist_contexts.append(context)
-                existing.add(symbol)
+                if symbol and symbol not in watchlist_symbol_set:
+                    drop_ledger.setdefault(symbol, "DROP_RANK_BELOW_WATCHLIST")
+        else:
+            ranked = _rank_candidates(candidates)
+            watchlist_contexts = ranked[:watchlist_limit] if watchlist_limit > 0 else []
+            for context in ranked[watchlist_limit:]:
+                drop_ledger.setdefault(context["symbol"], "DROP_RANK_BELOW_WATCHLIST")
                 print(
-                    "[SCANNER][BACKFILL] symbol="
-                    f"{symbol} reason={drop_reason or 'OPTIONAL_DATA'}"
+                    "[SCANNER][DROP] symbol="
+                    f"{context['symbol']} reason=DROP_RANK_BELOW_WATCHLIST"
                 )
-                if len(watchlist_contexts) >= watchlist_limit:
-                    break
+                if event_collector is not None:
+                    event_collector.emit(
+                        event_type="SCANNER_SYMBOL_DROPPED",
+                        source="Scanner",
+                        payload={
+                            "symbol": context["symbol"],
+                            "drop_reason": "DROP_RANK_BELOW_WATCHLIST",
+                            "metric_value": context.get("scanner_rank"),
+                            "threshold": watchlist_limit,
+                        },
+                    )
+            if watchlist_limit > 0 and len(watchlist_contexts) < watchlist_limit:
+                ranked_all = _rank_candidates(evaluated_contexts)
+                existing = {context["symbol"] for context in watchlist_contexts}
+                for context in ranked_all:
+                    symbol = context.get("symbol")
+                    if not symbol or symbol in existing:
+                        continue
+                    drop_reason = drop_ledger.get(symbol)
+                    if drop_reason and not drop_reason.startswith("DROP_MISSING_"):
+                        continue
+                    flags = context.setdefault("data_quality_flags", [])
+                    if "BACKFILL_OPTIONAL_DATA" not in flags:
+                        flags.append("BACKFILL_OPTIONAL_DATA")
+                    if drop_reason:
+                        drop_ledger.pop(symbol, None)
+                    watchlist_contexts.append(context)
+                    existing.add(symbol)
+                    print(
+                        "[SCANNER][BACKFILL] symbol="
+                        f"{symbol} reason={drop_reason or 'OPTIONAL_DATA'}"
+                    )
+                    if len(watchlist_contexts) >= watchlist_limit:
+                        break
 
         print("[SCANNER][STAGE] enrich")
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
@@ -1671,20 +1789,14 @@ def run_scanner_cycle(
                     "policy_name": resolved_policy.policy_name,
                 },
             )
-        allow_news = bool(get_config("NEWS_ENABLED")) and run_mode not in {
-            RunMode.LIVE,
-            RunMode.LIVE_READ_ONLY,
-            RunMode.LIVE_MICRO,
-            RunMode.LIVE_ONE_SHARE,
-            RunMode.PAPER,
-        }
-        if watchlist_symbols and allow_news:
-            news_by_symbol, news_diag = _enrich_news_context(
-                watchlist_symbols, provider.source_name
-            )
-        else:
-            news_by_symbol = {}
-            news_diag = NewsDiagnostics(False, False, None, 0, 0, {})
+        if selector is None:
+            if watchlist_symbols and allow_news:
+                news_by_symbol, news_diag = _enrich_news_context(
+                    watchlist_symbols, provider_source
+                )
+            else:
+                news_by_symbol = {}
+                news_diag = NewsDiagnostics(False, False, None, 0, 0, {})
         diagnostics["news"] = {
             "news_degraded": news_diag.news_degraded,
             "news_gate_bypassed": news_diag.news_gate_bypassed,
@@ -1762,29 +1874,53 @@ def run_scanner_cycle(
         _WATCHLIST_HASH = watchlist_hash
         _LAST_SESSION_LABEL = session_label
 
-        if watchlist_changed or session_label == "PRE":
-            watchlist_dir = Path("output/watchlists")
-            watchlist_dir.mkdir(parents=True, exist_ok=True)
-            ts = utc_now.strftime("%Y%m%d_%H%M%S_UTC")
-            file_path = watchlist_dir / f"watchlist_RossMomentum_{ts}.txt"
-            header_lines = [
-                f"# candidates_count={len(symbols)}",
-                f"# gated_count={len(candidates)}",
-                f"# watchlist_count={len(watchlist_contexts)}",
-                f"# drop_reasons={dict(exclusion_counts)}",
-            ]
-            file_path.write_text(
-                "\n".join(header_lines + [""] + format_fast_view_lines(fast_rows)) + "\n",
-                encoding="utf-8",
-            )
-            date_prefix = utc_now.strftime("%Y%m%d_")
-            for existing in watchlist_dir.glob(f"watchlist_RossMomentum_{date_prefix}*"):
-                if existing == file_path:
-                    continue
-                try:
-                    existing.unlink()
-                except OSError:
-                    continue
+        watchlist_dir = Path("output/watchlists")
+        watchlist_dir.mkdir(parents=True, exist_ok=True)
+        ts = utc_now.strftime("%Y%m%d_%H%M%S_UTC")
+        file_path = watchlist_dir / f"watchlist_RossMomentum_{ts}.txt"
+        watchlist_empty_reason = None
+        if not watchlist_contexts:
+            if not symbols:
+                watchlist_empty_reason = "EMPTY_UNIVERSE"
+            elif not candidates:
+                watchlist_empty_reason = "NO_GATED_SURVIVORS"
+            else:
+                watchlist_empty_reason = "NO_WATCHLIST_SELECTED"
+        header_lines = [
+            f"# session={session_label}",
+            f"# provider={provider_source}",
+            f"# provider_fallback_reason={fallback_reason or 'none'}",
+            "# subscription="
+            f"instrument={request.instrument} "
+            f"locationCode={request.location_code} "
+            f"scanCode={request.ibkr_scan_code} "
+            f"numberOfRows={request.requested_top_n} "
+            f"abovePrice={request.above_price} "
+            f"belowPrice={request.below_price}",
+            f"# requested_top_n={request.requested_top_n} returned_top_n={len(symbols)}",
+            f"# policy_source={policy_source}",
+            f"# policy_name={resolved_policy.policy_name}",
+            f"# ranking_intent={request.ranking_intent}",
+            f"# candidates_count={len(symbols)}",
+            f"# gated_count={len(candidates)}",
+            f"# watchlist_count={len(watchlist_contexts)}",
+            f"# watchlist_k={len(watchlist_symbols)} focus_m={len(focus_symbols)}",
+            f"# drop_reasons={dict(exclusion_counts)}",
+        ]
+        if watchlist_empty_reason:
+            header_lines.append(f"# watchlist_empty_reason={watchlist_empty_reason}")
+        file_path.write_text(
+            "\n".join(header_lines + [""] + format_fast_view_lines(fast_rows)) + "\n",
+            encoding="utf-8",
+        )
+        date_prefix = utc_now.strftime("%Y%m%d_")
+        for existing in watchlist_dir.glob(f"watchlist_RossMomentum_{date_prefix}*"):
+            if existing == file_path:
+                continue
+            try:
+                existing.unlink()
+            except OSError:
+                continue
 
     finally:
         if disconnect_provider is None:

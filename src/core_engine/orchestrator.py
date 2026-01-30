@@ -81,11 +81,21 @@ def _scanner_policy_for_session(session: str) -> tuple[RossMomentumPolicy, Stock
     return strategy_policy, stock_policy
 
 
-def _scanner_request_for_policy(stock_policy: StockSelectionPolicy):
+def _scanner_request_for_policy(
+    stock_policy: StockSelectionPolicy,
+    *,
+    strategy_name: str,
+    session_phase: str,
+):
     override_symbols = None
     if stock_policy.universe.source == UniverseSource.CONFIG_SYMBOLS:
         override_symbols = get_config("SCANNER_SYMBOLS")
-    return scanner_request_from_policy(stock_policy, optional_symbols_override=override_symbols)
+    return scanner_request_from_policy(
+        stock_policy,
+        optional_symbols_override=override_symbols,
+        strategy_name=strategy_name,
+        session_phase=session_phase,
+    )
 
 
 def _build_synthetic_inputs(
@@ -140,7 +150,11 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
 
     print_section(f"CYCLE {cycle_id} MODE={mode.value} SESSION={session.value}")
     strategy_policy, scanner_policy = _scanner_policy_for_session(session.value)
-    scanner_request = _scanner_request_for_policy(scanner_policy)
+    scanner_request = _scanner_request_for_policy(
+        scanner_policy,
+        strategy_name="ross_momentum",
+        session_phase=_policy_session_phase(session),
+    )
     execution_intent = build_execution_intent(
         strategy_name=strategy_policy.name,
         mode=mode.value,

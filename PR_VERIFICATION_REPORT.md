@@ -1,5 +1,73 @@
 # PR Verification Report
 
+## Update — Ross Scanner Contract Lock (2026-01-30)
+
+### Summary
+- Objective: lock Ross scanner contract, enforce strategy-sourced request, and prevent live-mode MOCK fallback.
+- Status: Python checks passed; IBKR connection-dependent commands ran but could not connect in this environment.
+
+### Mandatory Verification Commands (Ross Scanner Contract Lock)
+
+1) Command:
+```
+python -m compileall -q src
+```
+Result: PASS
+
+2) Command:
+```
+pytest -q
+```
+Result: PASS (1 warning about IBKR connect coroutine)
+
+3) Command:
+```
+$env:IBKR_PORT="7496"
+python -m src.scanner.scanner_main --strategy ross_momentum --session PRE --topn 150
+```
+Result: WARN (IBKR connection refused in this environment; scanner emitted empty universe)
+Excerpt:
+```
+[SCANNER][POLICY] source=STRATEGY policy_name=ROSS_MOMENTUM price=1.0-20.0 ...
+[SCANNER][ENTRY] strategy=ROSS_MOMENTUM requested_top_n=150 watchlist_k=15 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=1.0 below_price=20.0
+[SCANNER][PROVIDER] provider=IBKR fallback_reason=[Errno 111] Connect call failed ('127.0.0.1', 7496)
+WATCHLIST_K_SELECTED (K=0): []
+```
+
+4) Command:
+```
+$env:IBKR_PORT="7497"
+python -m src.scanner.scanner_main --strategy ross_momentum --session PRE --topn 150
+```
+Result: WARN (IBKR connection refused in this environment; scanner emitted empty universe)
+Excerpt:
+```
+[SCANNER][ENTRY] strategy=ROSS_MOMENTUM requested_top_n=150 watchlist_k=15 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=1.0 below_price=20.0
+[SCANNER][PROVIDER] provider=IBKR fallback_reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+WATCHLIST_K_SELECTED (K=0): []
+```
+
+5) Command:
+```
+$env:IBKR_PORT="7496"
+python -m src.main --mode LIVE_READ_ONLY --cycles 1 --strategy ross_momentum
+```
+Result: WARN (IBKR connection refused in this environment; scanner emitted empty universe)
+Excerpt:
+```
+[ORCH][SCANNER_REQUEST] strategy=ross_momentum policy=ROSS_MOMENTUM instrument=STK locationCode=STK.US.MAJOR scanCode=TOP_PERC_GAIN numberOfRows=150 abovePrice=1.0 belowPrice=20.0
+[SCANNER][PROVIDER] provider=IBKR fallback_reason=[Errno 111] Connect call failed ('127.0.0.1', 7496)
+WATCHLIST_K_SELECTED (K=0): []
+```
+
+6) Command:
+```
+python -m src.main --mode SIM --cycles 1 --strategy ross_momentum --session CLOSED
+```
+Result: PASS
+
+---
+
 ## Summary
 - Objective: verify traceability additions, supervised retry loop, and strategy-specific selection specs.
 - Status: Required Python verification commands executed successfully; pytest emitted pre-existing mock-provider warnings.

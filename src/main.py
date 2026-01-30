@@ -78,6 +78,10 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--cycles", type=int, default=None, help="Max cycles to run.")
     parser.add_argument(
+        "--session",
+        help="Force a market session phase (e.g., PREMARKET, MORNING, CLOSED).",
+    )
+    parser.add_argument(
         "--regime-layer",
         action="store_true",
         help="Enable the adaptive regime/microstructure layer.",
@@ -111,6 +115,8 @@ def _apply_cli_overrides(args: argparse.Namespace) -> None:
         overrides["ADAPTIVE_REGIME_LAYER_ENABLED"] = True
     if args.regime_policy:
         overrides["ADAPTIVE_REGIME_POLICY_ENABLED"] = True
+    if args.session:
+        overrides["SESSION_PHASE_OVERRIDE"] = str(args.session).upper()
     if overrides:
         set_config_overrides(overrides)
 

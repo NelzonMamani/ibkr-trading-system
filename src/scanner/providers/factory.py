@@ -35,7 +35,14 @@ def build_provider(
             provider.connect()
             return provider
         except ProviderConnectionError as exc:
-            if run_mode in {RunMode.PAPER, RunMode.LIVE_READ_ONLY} and not fallback_enabled:
+            if run_mode in {
+                RunMode.LIVE,
+                RunMode.LIVE_READ_ONLY,
+                RunMode.LIVE_MICRO,
+                RunMode.LIVE_ONE_SHARE,
+            }:
+                raise
+            if run_mode == RunMode.PAPER and not fallback_enabled:
                 raise
             logging.getLogger(__name__).warning(
                 "[SCAN][FALLBACK] IBKR unavailable — switching to MOCK provider reason=%s",

@@ -112,7 +112,7 @@ class MockScannerProvider(ScannerDataProvider):
     def disconnect(self) -> None:
         return None
 
-    def get_top_gainers(self, limit: int) -> list[str]:
+    def get_top_gainers(self, limit: int, request=None) -> list[str]:
         return self.symbols[:limit]
 
     def get_quote(self, symbol: str) -> QuoteData:

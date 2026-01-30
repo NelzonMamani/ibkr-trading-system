@@ -56,6 +56,7 @@ from src.risk.risk_engine import RiskEngine
 from src.core.intent import build_execution_intent
 from src.scanner.contracts import StockSelectionPolicy
 from src.scanner.scanner_contract import ScannerRequest, scanner_request_from_policy
+from src.scanner.ranking_registry import resolve_watchlist_selector
 from src.scanner.result_models import CandidateMetrics
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.scanner.providers.base import ProviderConnectionError
@@ -82,7 +83,6 @@ from src.strategies.ross_momentum.strategy_policy import (
     RossMomentumPolicy,
     StockSelectionSpec,
     UniverseSource,
-    select_watchlist,
     stock_selection_policy_for_session_phase,
 )
 from src.strategies.statistical_intraday_momentum.strategy_policy import (
@@ -277,11 +277,30 @@ class CoreOrchestrator:
         return strategy_policy, stock_policy
 
     @staticmethod
-    def _build_scanner_request(stock_policy: StockSelectionPolicy) -> ScannerRequest:
+    def _build_scanner_request(
+        stock_policy: StockSelectionPolicy,
+        *,
+        strategy_name: str,
+        session_phase: str,
+    ) -> ScannerRequest:
         override_symbols = None
         if stock_policy.universe.source == UniverseSource.CONFIG_SYMBOLS:
             override_symbols = get_config("SCANNER_SYMBOLS")
-        return scanner_request_from_policy(stock_policy, optional_symbols_override=override_symbols)
+        request = scanner_request_from_policy(
+            stock_policy,
+            optional_symbols_override=override_symbols,
+            strategy_name=strategy_name,
+            session_phase=session_phase,
+        )
+        if request.policy_name == "ROSS_MOMENTUM":
+            print(
+                "[ORCH][SCANNER_REQUEST] "
+                f"strategy={request.strategy_name} policy={request.policy_name} "
+                f"instrument={request.instrument} locationCode={request.location_code} "
+                f"scanCode={request.ibkr_scan_code} numberOfRows={request.requested_top_n} "
+                f"abovePrice={request.above_price} belowPrice={request.below_price}"
+            )
+        return request
 
     def _build_strategy_context(
         self,
@@ -830,7 +849,8 @@ class CoreOrchestrator:
         cycle_started_at = datetime.now(timezone.utc)
         ny_time = to_ny_time(cycle_started_at)
         uk_time = to_uk_time(cycle_started_at)
-        session_phase = market_session_phase(cycle_started_at)
+        session_override = str(get_config("SESSION_PHASE_OVERRIDE") or "").strip().upper()
+        session_phase = session_override or market_session_phase(cycle_started_at)
         print(
             "[SESSION] "
             f"phase={session_phase} ny_time={ny_time.isoformat()} "
@@ -855,7 +875,11 @@ class CoreOrchestrator:
         mode_manager = self.runtime_mode_manager
         print(f"[RUNTIME] {mode_manager.describe()}")
         strategy_policy, scanner_policy = self._build_scanner_policy(session_phase)
-        scanner_request = self._build_scanner_request(scanner_policy)
+        scanner_request = self._build_scanner_request(
+            scanner_policy,
+            strategy_name=self.selected_strategy_key,
+            session_phase=session_phase,
+        )
         force_mock_provider = False
         try:
             self.connection_manager.ensure_connected()
@@ -867,7 +891,9 @@ class CoreOrchestrator:
                 message=str(exc),
                 stage="CONNECTIVITY",
             )
-            force_mock_provider = True
+            force_mock_provider = self.run_mode in {RunMode.SIM, RunMode.PAPER} or (
+                str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
+            )
         if self.market_data_snapshot_manager is None:
             self.market_data_snapshot_manager = MarketDataSnapshotManager(
                 self.connection_manager.optional_client
@@ -905,8 +931,10 @@ class CoreOrchestrator:
             ),
         )
         self.scanner_diagnostics_manager.print_top_50(observations)
-        if isinstance(strategy_policy, RossMomentumPolicy):
-            watchlist = select_watchlist(observations, policy=strategy_policy)
+        selector = resolve_watchlist_selector(scanner_policy.ranking_intent)
+        if selector is not None:
+            # Strategy-owned ranking authority for Ross Momentum.
+            watchlist = selector(observations, scanner_policy)
         else:
             watchlist = self._select_watchlist_for_policy(
                 observations,
@@ -1057,7 +1085,11 @@ class CoreOrchestrator:
         return ranked[:watchlist_limit]
         strategy_policy, scanner_policy = self._build_scanner_policy(session_phase)
         selection_spec_summary = self._selection_spec_summary(scanner_policy)
-        scanner_request = self._build_scanner_request(scanner_policy)
+        scanner_request = self._build_scanner_request(
+            scanner_policy,
+            strategy_name=self.selected_strategy_key,
+            session_phase=session_phase,
+        )
         execution_intent = build_execution_intent(
             strategy_name=strategy_policy.name,
             mode=self.run_mode.value,
