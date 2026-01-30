@@ -19,6 +19,7 @@ from src.models.data_models import ScannerCandidate
 from src.scanner.contracts import StockSelectionPolicy, policy_from_config
 from src.scanner.scanner_contract import ScannerRequest
 from src.strategies.ross_momentum.strategy_policy import UniverseSource
+from src.scanner.session_pct_change import resolve_market_session_label
 
 
 class RunMode(Enum):
@@ -39,16 +40,7 @@ def _get_run_mode() -> RunMode:
 
 
 def _current_market_session() -> str:
-    now = datetime.now(timezone.utc)
-    h = now.hour + now.minute / 60.0
-    windows = get_config("SCANNER_SESSION_WINDOWS_UTC")
-    if windows["PRE_START"] <= h < windows["RTH_START"]:
-        return "PRE"
-    if windows["RTH_START"] <= h < windows["AFT_START"]:
-        return "RTH"
-    if windows["AFT_START"] <= h < windows["AFT_END"]:
-        return "AFT"
-    return "OVN"
+    return resolve_market_session_label(datetime.now(timezone.utc))
 
 
 class Scanner:

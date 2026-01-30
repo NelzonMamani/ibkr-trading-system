@@ -801,6 +801,20 @@ class CoreOrchestrator:
                 self._degraded = True
                 backoff_seconds = min(60, max(1, int(2 ** (retry_count - 1))))
                 next_attempt = datetime.now(timezone.utc) + timedelta(seconds=backoff_seconds)
+                if max_cycles is not None:
+                    print(
+                        "[CONNECTIVITY] "
+                        "Max cycles set; aborting after connectivity error."
+                    )
+                    if not self.stop_controller.is_stop_requested():
+                        self._request_stop(
+                            StopMode.GRACEFUL,
+                            reason="Connectivity error with max_cycles",
+                            source="CoreOrchestrator",
+                        )
+                    self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
+                    performed_shutdown = True
+                    break
                 print(
                     "[CONNECTIVITY] "
                     f"STATE=DEGRADED retry={retry_count} backoff={backoff_seconds}s "
@@ -891,8 +905,11 @@ class CoreOrchestrator:
                 message=str(exc),
                 stage="CONNECTIVITY",
             )
-            force_mock_provider = self.run_mode in {RunMode.SIM, RunMode.PAPER} or (
-                str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
+            fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
+            force_mock_provider = (
+                fallback_enabled
+                or self.run_mode in {RunMode.SIM, RunMode.PAPER}
+                or str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
             )
         if self.market_data_snapshot_manager is None:
             self.market_data_snapshot_manager = MarketDataSnapshotManager(

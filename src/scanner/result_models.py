@@ -13,6 +13,8 @@ class CandidateMetrics:
     last_price: Optional[float]
     prev_close: Optional[float]
     ref_close_rth: Optional[float]
+    reference_price: Optional[float]
+    reference_label: Optional[str]
     gap_pct: Optional[float]
     pct_change: Optional[float]
     ibkr_change_pct: Optional[float]

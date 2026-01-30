@@ -48,6 +48,7 @@ from src.news.news_heat import compute_fire_indicator
 
 from .filters import passes_catalyst_eligibility, passes_ross_5_pillars
 from src.config.config_resolver import get_config
+from src.scanner.session_pct_change import resolve_market_session_label
 
 from .news_engine import NEWS_MAX_TOP_HEADLINES, get_news_truth
 from .scanner_config import FLOAT_CACHE_FILE, IB_CONNECT_TIMEOUT, IB_HOST, IB_PORT, TOP_GAINERS_COUNT
@@ -312,15 +313,7 @@ def market_session_label_utc(now: Optional[datetime] = None) -> str:
     This is used only as a label; it does not gate calculations.
     """
     now = now or datetime.now(timezone.utc)
-    h = now.hour + now.minute / 60.0
-    # Conservative bands (covers DST shifts):
-    if 12.0 <= h < 14.0:
-        return "PRE"
-    if 14.0 <= h < 21.5:
-        return "RTH"
-    if 21.5 <= h < 23.0:
-        return "AFT"
-    return "OVN"
+    return resolve_market_session_label(now)
 
 
 def load_json_file(path: str | Path, default: Any) -> Any:
