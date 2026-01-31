@@ -123,7 +123,8 @@ ibkr-trading-system/
 │   ├── trace_20260126.jsonl
 │   ├── trace_20260127.jsonl
 │   ├── trace_20260128.jsonl
-│   └── trace_20260129.jsonl
+│   ├── trace_20260129.jsonl
+│   └── trace_20260130.jsonl
 ├── output
 │   ├── verification
 │   │   ├── compileall.log
@@ -164,8 +165,17 @@ ibkr-trading-system/
 │   │   ├── watchlist_RossMomentum_20260127_234953_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260128_003017_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260129_214528_UTC.txt
-│   │   └── watchlist_RossMomentum_20260130_123733_UTC.txt
+│   │   └── watchlist_RossMomentum_20260130_153214_UTC.txt
 │   └── trade_store.jsonl
+├── ross_scanner_contract_lock_pack
+│   ├── 00_READ_ORDER.md
+│   ├── 01_CONTEXT_AND_TARGET_BEHAVIOR.md
+│   ├── 02_REQUIRED_CONTRACTS.md
+│   ├── 03_IMPLEMENTATION_TASKS.md
+│   ├── 04_MANDATORY_VERIFICATION_COMMANDS.md
+│   ├── 05_SUCCESS_CRITERIA.md
+│   ├── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   └── README.md
 ├── scripts
 │   ├── smoke_main.ps1
 │   ├── smoke_scanner.ps1
@@ -291,6 +301,7 @@ ibkr-trading-system/
 │   │   ├── news_fetcher.py
 │   │   ├── news_heat.py
 │   │   ├── news_normalizer.py
+│   │   ├── rss_registry.py
 │   │   └── verified_sources.py
 │   ├── output
 │   │   └── watchlists
@@ -343,6 +354,7 @@ ibkr-trading-system/
 │   │   ├── phase24_views.py
 │   │   ├── print_contract.py
 │   │   ├── print_contract_54.py
+│   │   ├── ranking_registry.py
 │   │   ├── result_models.py
 │   │   ├── scanner.py
 │   │   ├── scanner_config.py
@@ -547,7 +559,9 @@ ibkr-trading-system/
 │   ├── test_scanner_pct_change_fallback.py
 │   ├── test_scanner_policy_from_strategy.py
 │   ├── test_scanner_provider_fallback.py
+│   ├── test_scanner_ranking_authority.py
 │   ├── test_scanner_universe_request.py
+│   ├── test_scanner_watchlist_artifact_empty.py
 │   ├── test_scanner_watchlist_prints.py
 │   ├── test_signal_adapter.py
 │   ├── test_sqlite_persistence.py
@@ -588,6 +602,13 @@ ibkr-trading-system/
 │       ├── ross_stock_selection_scanner_v2_1_2026_01_27_143909_UTC.py
 │       ├── ross_stock_selection_scanner_v2_2026_01_27_014955_UTC.py
 │       └── stock_selection_scanner_25_jan_2026.py
+├── verification_concole_commands
+│   ├── RESET_ENV.ps1
+│   ├── RUN_LIVE_MICRO.ps1
+│   ├── RUN_LIVE_READ_ONLY.ps1
+│   ├── RUN_PAPER.ps1
+│   ├── RUN_SIM.ps1
+│   └── VERIFY_STATIC.ps1
 ├── .gitignore
 ├── CODEX_IMPLEMENTATION_INSTRUCTIONS.md
 ├── CODEX_STATISTICAL_INTRADAY_MOMENTUM_ALIGNMENT_AND_FIX.md
