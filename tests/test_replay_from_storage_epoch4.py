@@ -28,8 +28,8 @@ def _insert_run(store: SQLiteStore, run_id: str) -> None:
             "user": "tester",
             "app_version": "TEST",
             "git_sha": "deadbeef",
-            "run_mode": "SIM",
-            "effective_run_mode": "SIM",
+            "run_mode": "PAPER",
+            "effective_run_mode": "PAPER",
             "event_replay_mode": "RUN",
             "resolved_config_json": canonical_json({"sample": True}),
             "config_fingerprint": "fingerprint",
@@ -53,8 +53,8 @@ def test_replay_from_storage_epoch4_orders_events(tmp_path):
             "cycle_id": cycle_id,
             "run_id": run_id,
             "tick": 1,
-            "session": "REGULAR",
-            "market_session": "REGULAR",
+            "session": "RTH",
+            "market_session": "RTH",
             "cycle_started_at": now_iso(),
             "cycle_ended_at": now_iso(),
             "scanner_n": 0,
@@ -98,7 +98,7 @@ def test_replay_from_storage_epoch4_orders_events(tmp_path):
             "event_type": "CYCLE_START",
             "source": "Orchestrator",
             "timestamp": now_iso(),
-            "payload_json": canonical_json({"run_mode": "SIM", "tick": 0}),
+            "payload_json": canonical_json({"run_mode": "PAPER", "tick": 0}),
             "seq": 1,
             "prev_hash": "GENESIS",
             "event_hash": "hash1",
@@ -107,7 +107,7 @@ def test_replay_from_storage_epoch4_orders_events(tmp_path):
     ]
     store.insert_events(events)
 
-    set_config_overrides({"RUN_MODE": "SIM"})
+    set_config_overrides({"RUN_MODE": "PAPER"})
     try:
         engine = ReplayEngine()
         replayed = engine.replay_from_storage(store, run_id)
@@ -135,8 +135,8 @@ def test_replay_from_storage_epoch4_schema_validation(tmp_path):
             "cycle_id": cycle_id,
             "run_id": run_id,
             "tick": 1,
-            "session": "REGULAR",
-            "market_session": "REGULAR",
+            "session": "RTH",
+            "market_session": "RTH",
             "cycle_started_at": now_iso(),
             "cycle_ended_at": now_iso(),
             "scanner_n": 0,
@@ -176,7 +176,7 @@ def test_replay_from_storage_epoch4_schema_validation(tmp_path):
         ]
     )
 
-    set_config_overrides({"RUN_MODE": "SIM"})
+    set_config_overrides({"RUN_MODE": "PAPER"})
     try:
         engine = ReplayEngine()
         with pytest.raises(Exception):

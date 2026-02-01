@@ -33,7 +33,7 @@ def _find_tick_for_decision(symbol: str, trader_type: str, decision: GatewayDeci
 
 
 def test_gateway_rejections_and_retries():
-    set_config_overrides({"RUN_MODE": "SIM", "EXECUTION_ENABLED": True})
+    set_config_overrides({"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True})
     try:
         registry = ActiveTradeRegistry()
         events = EventCollector()

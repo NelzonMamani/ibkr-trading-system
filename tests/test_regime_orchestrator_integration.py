@@ -9,7 +9,7 @@ def test_orchestrator_emits_regime_snapshot(tmp_path):
         "ADAPTIVE_REGIME_LAYER_ENABLED": True,
         "ADAPTIVE_REGIME_POLICY_ENABLED": False,
         "EVENT_REPLAY_MODE": "CYCLE",
-        "RUN_MODE": "SIM",
+        "RUN_MODE": "PAPER",
         "PERSISTENCE_SQLITE_PATH": str(tmp_path / "regime_orch.db"),
     }
     set_config_overrides(overrides)

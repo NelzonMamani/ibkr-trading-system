@@ -30,7 +30,7 @@ def _reset_scanner_state():
 def test_scanner_uses_strategy_ranking_for_ross():
     set_config_overrides(
         {
-            "RUN_MODE": "SIM",
+            "RUN_MODE": "PAPER",
             "SCANNER_MODE": "LIVE_READONLY",
             "SCANNER_DATA_SOURCE": "MOCK",
         }

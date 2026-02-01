@@ -28,10 +28,11 @@ def _reset_scanner_state():
 def test_watchlist_print_format(capsys):
     set_config_overrides(
         {
-            "RUN_MODE": "SIM",
+            "RUN_MODE": "PAPER",
             "SCANNER_DATA_SOURCE": "MOCK",
             "SCANNER_MODE": "TEACHING",
             "SCANNER_DEFAULT_SYMBOLS": ["AAPL", "TSLA"],
+            "ROSS_REQUIRE_NEWS": False,
         }
     )
     scanner_runner.run_scanner_cycle(mode="READONLY")
@@ -46,7 +47,7 @@ def test_watchlist_print_format(capsys):
 def test_watchlist_print_suppressed_when_unchanged(capsys):
     set_config_overrides(
         {
-            "RUN_MODE": "SIM",
+            "RUN_MODE": "PAPER",
             "SCANNER_DATA_SOURCE": "MOCK",
             "SCANNER_MODE": "TEACHING",
             "SCANNER_DEFAULT_SYMBOLS": ["AAPL", "TSLA"],

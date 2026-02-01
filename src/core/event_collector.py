@@ -155,6 +155,17 @@ class EventCollector:
     def daily_pnl_date(self) -> str | None:
         return self._daily_pnl_date
 
+    def daily_trade_count(self, now: datetime | None = None) -> int:
+        timestamp = now or datetime.utcnow()
+        target_date = self._resolve_ny_date(timestamp)
+        count = 0
+        for event in self._run_timeline.snapshot():
+            if event.event_type != "TRADE_CLOSED":
+                continue
+            if self._resolve_ny_date(event.timestamp) == target_date:
+                count += 1
+        return count
+
     def cycle_count(self, event_type: str = None):
         if event_type is None:
             return len(self._cycle_events)

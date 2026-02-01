@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Iterable
 
-from src.config.runtime_config import get_live_micro_daily_max_loss
+from src.config.risk_profiles import RISK_PROFILES
+from src.config.runtime_config import get_risk_account_equity, get_risk_profile_name
 from src.config.system_config import get_current_market_session
 from src.core.events import SystemEvent
 from src.domain.performance_snapshot import PerformanceSnapshot
@@ -374,7 +375,12 @@ class PerformanceRegistry:
             if flags.get("exit_discipline_breached"):
                 exit_discipline_violations += 1
 
-        max_daily_loss = abs(get_live_micro_daily_max_loss())
+        profile_name = str(get_risk_profile_name() or "NORMAL").upper()
+        profile = RISK_PROFILES.get(profile_name, RISK_PROFILES["NORMAL"])
+        max_daily_loss = 0.0
+        if profile.daily_max_loss_pct is not None:
+            equity = float(get_risk_account_equity())
+            max_daily_loss = abs(equity * (float(profile.daily_max_loss_pct) / 100.0))
         max_loss_breached = max_daily_loss > 0 and net_pnl <= -max_daily_loss
         near_max_loss = max_daily_loss > 0 and net_pnl <= -(0.8 * max_daily_loss)
 

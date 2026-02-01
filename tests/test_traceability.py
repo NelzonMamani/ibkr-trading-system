@@ -27,7 +27,7 @@ def test_trace_event_order_sim(monkeypatch, tmp_path):
     monkeypatch.setenv("TRACE_LOG_DIR", str(tmp_path))
     set_config_overrides(
         {
-            "RUN_MODE": "SIM",
+            "RUN_MODE": "PAPER",
             "SELECTED_STRATEGY": "ross_momentum",
         }
     )

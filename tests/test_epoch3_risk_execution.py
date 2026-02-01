@@ -61,8 +61,8 @@ def test_risk_engine_blocks_live_read_only():
         set_config_overrides(None)
 
 
-def test_sim_pipeline_runs_without_broker_routing():
-    set_config_overrides({"RUN_MODE": "SIM", "EXECUTION_ENABLED": True})
+def test_paper_pipeline_runs_without_broker_routing():
+    set_config_overrides({"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True})
     try:
         stop_controller = StopController()
         risk_engine = RiskEngine(stop_controller=stop_controller)
@@ -106,7 +106,7 @@ def test_live_read_only_blocks_execution_engine():
 
 
 def test_idempotency_prevents_duplicate_submissions():
-    set_config_overrides({"RUN_MODE": "SIM", "EXECUTION_ENABLED": True})
+    set_config_overrides({"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True})
     try:
         stop_controller = StopController()
         risk_engine = RiskEngine(stop_controller=stop_controller)
@@ -127,7 +127,7 @@ def test_idempotency_prevents_duplicate_submissions():
 
 
 def test_execution_blocks_when_breaker_tripped():
-    set_config_overrides({"RUN_MODE": "SIM", "EXECUTION_ENABLED": True})
+    set_config_overrides({"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True})
     try:
         stop_controller = StopController()
         stop_controller.trip_breaker(

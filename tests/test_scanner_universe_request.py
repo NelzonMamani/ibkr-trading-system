@@ -9,7 +9,7 @@ from src.strategies.ross_momentum.strategy_policy import RossMomentumPolicy
 def test_scanner_request_ibkr_top_gainers_skips_scanner_symbols_error(capsys):
     set_config_overrides(
         {
-            "RUN_MODE": "SIM",
+        "RUN_MODE": "PAPER",
             "SCANNER_MODE": "LIVE_READONLY",
             "SCANNER_DATA_SOURCE": "MOCK",
             "SCANNER_SYMBOLS": [],

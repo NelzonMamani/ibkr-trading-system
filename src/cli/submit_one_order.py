@@ -46,18 +46,10 @@ def abort(message: str) -> None:
 
 def validate_runtime() -> RunMode:
     run_mode = get_run_mode()
-    if run_mode in {
-        RunMode.LIVE,
-        RunMode.LIVE_READ_ONLY,
-        RunMode.LIVE_MICRO,
-        RunMode.LIVE_ONE_SHARE,
-    }:
+    if run_mode != RunMode.PAPER:
         abort(
-            "RUN_MODE=LIVE, LIVE_READ_ONLY, LIVE_MICRO, or LIVE_ONE_SHARE detected — "
-            "live submission is forbidden for this CLI."
+            "RUN_MODE must be PAPER — live submission is forbidden for this CLI."
         )
-    if run_mode == RunMode.SIM:
-        abort("RUN_MODE=SIM detected — IBKR submission CLI requires RUN_MODE=PAPER.")
 
     if not get_ibkr_order_translation_enabled():
         abort("IBKR order translation disabled — enable IBKR_ORDER_TRANSLATION_ENABLED.")
@@ -148,7 +140,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     run_mode = validate_runtime()
 
-    print("IBKR SINGLE-ORDER CLI — SIM/PAPER ONLY — NO ORCHESTRATOR INVOCATION")
+    print("IBKR SINGLE-ORDER CLI — PAPER ONLY — NO ORCHESTRATOR INVOCATION")
     print("[INIT] Loading isolated submission components")
 
     translator = IbkrOrderTranslator(
