@@ -179,15 +179,6 @@ ibkr-trading-system/
 │   ├── 06_MANDATORY_VERIFICATION_COMMANDS.md
 │   ├── 07_SUCCESS_CRITERIA.md
 │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
-├── ross_scanner_contract_lock_pack
-│   ├── 00_READ_ORDER.md
-│   ├── 01_CONTEXT_AND_TARGET_BEHAVIOR.md
-│   ├── 02_REQUIRED_CONTRACTS.md
-│   ├── 03_IMPLEMENTATION_TASKS.md
-│   ├── 04_MANDATORY_VERIFICATION_COMMANDS.md
-│   ├── 05_SUCCESS_CRITERIA.md
-│   ├── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
-│   └── README.md
 ├── scripts
 │   ├── smoke_main.ps1
 │   ├── smoke_scanner.ps1
@@ -279,6 +270,7 @@ ibkr-trading-system/
 │   │   ├── __init__.py
 │   │   ├── commission_model.py
 │   │   ├── execution_engine.py
+│   │   ├── execution_providers.py
 │   │   ├── exit_plan.py
 │   │   ├── exits.py
 │   │   ├── liquidity_engine.py
@@ -631,6 +623,7 @@ ibkr-trading-system/
 │   ├── verify_db_readiness.py
 │   ├── verify_focus_injection.py
 │   ├── verify_ibkr_spot_check.py
+│   ├── verify_paper_execution_harness.py
 │   ├── verify_paper_trade_lifecycle.py
 │   ├── verify_runtime_wiring.py
 │   ├── verify_session_detection.py
