@@ -124,7 +124,8 @@ ibkr-trading-system/
 │   ├── trace_20260127.jsonl
 │   ├── trace_20260128.jsonl
 │   ├── trace_20260129.jsonl
-│   └── trace_20260130.jsonl
+│   ├── trace_20260130.jsonl
+│   └── trace_20260131.jsonl
 ├── output
 │   ├── verification
 │   │   ├── compileall.log
@@ -165,8 +166,19 @@ ibkr-trading-system/
 │   │   ├── watchlist_RossMomentum_20260127_234953_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260128_003017_UTC.txt
 │   │   ├── watchlist_RossMomentum_20260129_214528_UTC.txt
-│   │   └── watchlist_RossMomentum_20260130_153214_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260130_185457_UTC.txt
+│   │   └── watchlist_RossMomentum_20260131_143831_UTC.txt
 │   └── trade_store.jsonl
+├── ROSS_PAPER_SCANNER_SETUPS_FIX_PACK
+│   ├── 00_READ_ORDER.md
+│   ├── 01_CONTEXT_AND_GOALS.md
+│   ├── 02_ARCHITECTURE_LOCKS_MODES_SESSIONS.md
+│   ├── 03_SCANNER_SESSION_CONTRACT.md
+│   ├── 04_PAPER_EXECUTION_AND_VERIFICATION.md
+│   ├── 05_ROSS_SETUPS_IMPLEMENTATION.md
+│   ├── 06_MANDATORY_VERIFICATION_COMMANDS.md
+│   ├── 07_SUCCESS_CRITERIA.md
+│   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
 ├── ross_scanner_contract_lock_pack
 │   ├── 00_READ_ORDER.md
 │   ├── 01_CONTEXT_AND_TARGET_BEHAVIOR.md
@@ -211,6 +223,7 @@ ibkr-trading-system/
 │   │   ├── config_dump.py
 │   │   ├── config_registry.py
 │   │   ├── config_resolver.py
+│   │   ├── risk_profiles.py
 │   │   ├── runtime_config.py
 │   │   ├── system_config.py
 │   │   └── trading_config.py
@@ -609,6 +622,21 @@ ibkr-trading-system/
 │   ├── RUN_PAPER.ps1
 │   ├── RUN_SIM.ps1
 │   └── VERIFY_STATIC.ps1
+├── verification_scripts
+│   ├── logs
+│   ├── __init__.py
+│   ├── run_first.py
+│   ├── verify_all.py
+│   ├── verify_db.py
+│   ├── verify_db_readiness.py
+│   ├── verify_focus_injection.py
+│   ├── verify_ibkr_spot_check.py
+│   ├── verify_paper_trade_lifecycle.py
+│   ├── verify_runtime_wiring.py
+│   ├── verify_session_detection.py
+│   ├── verify_strategy_wiring.py
+│   ├── verify_system_reality.py
+│   └── verify_system_reality_v2.py
 ├── .gitignore
 ├── CODEX_IMPLEMENTATION_INSTRUCTIONS.md
 ├── CODEX_STATISTICAL_INTRADAY_MOMENTUM_ALIGNMENT_AND_FIX.md
