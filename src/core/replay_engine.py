@@ -57,9 +57,10 @@ class ReplayEngine:
         cycle_id: str | None = None,
     ) -> list[Any]:
         run_mode = get_run_mode()
-        if run_mode != RunMode.SIM:
+        if run_mode not in {RunMode.SIM, RunMode.PAPER}:
             raise RuntimeError(
-                f"Replay is disabled outside SIM mode (current={run_mode.value})"
+                "Replay is disabled outside SIM/PAPER mode "
+                f"(current={run_mode.value})"
             )
         events = build_timeline_from_storage(store, run_id, cycle_id=cycle_id)
         for event in events:

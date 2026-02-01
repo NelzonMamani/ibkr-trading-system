@@ -2318,6 +2318,8 @@ class CoreOrchestrator:
             print("[VALIDATION] Storage OK — SQLite opened")
 
     def _resolve_market_data_status(self) -> tuple[str, bool]:
+        if self.run_mode == RunMode.PAPER:
+            return "N/A", True
         if self.scanner_mode == "TEACHING":
             return "N/A", True
         diagnostics = self.last_scanner_watchlist_payload.get("diagnostics", {})

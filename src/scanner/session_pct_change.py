@@ -110,8 +110,8 @@ def compute_session_aligned_pct_change(
         reference_price = ref_close_rth
         reference_label = "LAST_RTH_CLOSE"
     elif normalized_session == "RTH":
-        reference_price = rth_open_price or ref_close_rth
-        reference_label = "RTH_OPEN" if rth_open_price is not None else "LAST_RTH_CLOSE"
+        reference_price = ref_close_rth or rth_open_price
+        reference_label = "LAST_RTH_CLOSE" if ref_close_rth is not None else "RTH_OPEN"
     elif normalized_session == "AH":
         reference_price = rth_close_price or ref_close_rth
         reference_label = "RTH_CLOSE" if rth_close_price is not None else "LAST_RTH_CLOSE"

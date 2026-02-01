@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import Optional
 
 from src.scanner.providers.base import IntradayStats, QuoteData, ScannerDataProvider
-from src.scanner.scanner_runner import GateThresholds, _build_symbol_context, _evaluate_gates
+from src.scanner.scanner_runner import (
+    GateThresholds,
+    _build_symbol_context,
+    _evaluate_watchlist_gates,
+)
 
 
 class _FallbackProvider(ScannerDataProvider):
@@ -86,4 +90,4 @@ def test_scanner_does_not_drop_pct_change_when_prev_close_present() -> None:
     )
 
     assert context is not None
-    assert _evaluate_gates(context, thresholds) is None
+    assert _evaluate_watchlist_gates(context, thresholds) is None

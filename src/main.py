@@ -73,7 +73,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--strategy",
-        choices=["ross_momentum", "statistical_intraday_momentum"],
+        choices=["ross_momentum", "statistical_intraday_momentum", "long_horizon_value"],
         help="Strategy key to enable.",
     )
     parser.add_argument("--cycles", type=int, default=None, help="Max cycles to run.")
@@ -111,6 +111,8 @@ def _apply_cli_overrides(args: argparse.Namespace) -> None:
         overrides["SELECTED_STRATEGY"] = args.strategy
     if args.strategy == "ross_momentum":
         overrides["ROSS_MOMENTUM_STRATEGY_ENABLED"] = True
+    if args.strategy == "long_horizon_value":
+        overrides["LONG_HORIZON_VALUE_STRATEGY_ENABLED"] = True
     if args.regime_layer:
         overrides["ADAPTIVE_REGIME_LAYER_ENABLED"] = True
     if args.regime_policy:

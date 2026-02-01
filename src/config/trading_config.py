@@ -27,6 +27,9 @@ ROSS_MOMENTUM_STRATEGY_ENABLED: bool = bool(get_config("ROSS_MOMENTUM_STRATEGY_E
 STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED: bool = bool(
     get_config("STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED")
 )
+LONG_HORIZON_VALUE_STRATEGY_ENABLED: bool = bool(
+    get_config("LONG_HORIZON_VALUE_STRATEGY_ENABLED")
+)
 
 ENABLED_STRATEGIES = dict(get_config("ENABLED_STRATEGIES"))
 
@@ -36,4 +39,6 @@ def is_strategy_enabled(strategy_name: str) -> bool:
         return ROSS_MOMENTUM_STRATEGY_ENABLED
     if strategy_name == "StatisticalIntradayMomentum":
         return STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED
+    if strategy_name == "LongHorizonValue":
+        return LONG_HORIZON_VALUE_STRATEGY_ENABLED
     return ENABLED_STRATEGIES.get(strategy_name or "", False)

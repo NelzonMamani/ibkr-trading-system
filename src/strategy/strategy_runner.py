@@ -16,6 +16,7 @@ from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
 from src.strategies.statistical_intraday_momentum.strategy import (
     StatisticalIntradayMomentum,
 )
+from src.strategies.long_horizon_value.strategy import LongHorizonValueStrategy
 from src.strategy.exit_signal import ExitSignal
 from src.core.active_trade_registry import ActiveTrade
 from src.signals.signal_event import SignalEvent
@@ -36,6 +37,7 @@ class StrategyRunner:
             ("MomentumContinuationStrategy", MomentumContinuationStrategy),
             ("RossMomentumStrategyV1", RossMomentumStrategyV1),
             ("StatisticalIntradayMomentum", StatisticalIntradayMomentum),
+            ("LongHorizonValue", LongHorizonValueStrategy),
         ]
         self.strategies = []
         self.event_collector = event_collector
@@ -46,6 +48,7 @@ class StrategyRunner:
         selected_map = {
             "ross_momentum": "RossMomentumStrategyV1",
             "statistical_intraday_momentum": "StatisticalIntradayMomentum",
+            "long_horizon_value": "LongHorizonValue",
         }
         selected_strategy_name = selected_map.get(selected_strategy_key)
 
@@ -77,6 +80,12 @@ class StrategyRunner:
                     "[BOOT][STRATEGY] StatisticalIntradayMomentum "
                     f"enabled={enabled} selected={selected_strategy_name == 'StatisticalIntradayMomentum'} "
                     f"reason={reason}"
+                    )
+            elif strategy_name == "LongHorizonValue":
+                enabled = bool(get_config("LONG_HORIZON_VALUE_STRATEGY_ENABLED"))
+                reason = (
+                    "LONG_HORIZON_VALUE_STRATEGY_ENABLED="
+                    f"{enabled}"
                 )
             else:
                 enabled = ENABLED_STRATEGIES.get(strategy_name, False)

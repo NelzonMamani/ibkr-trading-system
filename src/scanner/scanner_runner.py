@@ -370,7 +370,7 @@ def _gate_checks(
     watchlist_checks = _watchlist_gate_checks(context, thresholds)
     focus_checks = _focus_gate_checks(context, thresholds)
     catalyst_ok = True
-    if thresholds.require_catalyst:
+    if thresholds.require_catalyst and catalyst_present is not None:
         catalyst_ok = bool(catalyst_present)
     return {
         "watch_pct_change": watchlist_checks.get("pct_change_ok", False),
@@ -408,7 +408,7 @@ def _watchlist_gate_checks(
     if thresholds.max_pct_change is not None:
         pct_ok = pct_ok and pct_change is not None and pct_change <= thresholds.max_pct_change
     rvol_ok = rvol is not None and rvol >= thresholds.min_rvol
-    float_ok = float_shares is not None and float_shares <= thresholds.max_float
+    float_ok = float_shares is None or float_shares <= thresholds.max_float
 
     return {
         "pct_change_ok": pct_ok,
@@ -559,9 +559,7 @@ def _evaluate_watchlist_gates(
         return "DROP_MISSING_RVOL"
     if rvol < thresholds.min_rvol:
         return "DROP_RVOL"
-    if float_shares is None:
-        return "DROP_FLOAT_MISSING"
-    if float_shares > thresholds.max_float:
+    if float_shares is not None and float_shares > thresholds.max_float:
         return "DROP_FLOAT_MAX"
     return None
 
@@ -885,9 +883,11 @@ def _candidate_from_context(
     session = (context.get("session") or "").upper()
     volume = context.get("volume")
     premarket_volume = volume if session in {"PRE", "OVN"} else None
-    catalyst_present = bool(
-        news_context.get("ross_catalyst_valid") or news_context.get("news_present")
-    )
+    catalyst_present = None
+    if news_context:
+        catalyst_present = bool(
+            news_context.get("ross_catalyst_valid") or news_context.get("news_present")
+        )
     catalyst_type = news_context.get("catalyst_type")
     news_age = news_context.get("news_age_minutes")
     catalyst_summary = None
@@ -1406,6 +1406,8 @@ def run_scanner_cycle(
     }
 
     run_mode = get_run_mode()
+    if run_mode in {RunMode.SIM, RunMode.PAPER} and session_label == "CLOSED":
+        session_label = "REG"
     fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
     explicit_mock = str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
     allow_mock_fallback = run_mode in {RunMode.SIM, RunMode.PAPER} or explicit_mock
@@ -1770,8 +1772,15 @@ def run_scanner_cycle(
         # Watchlist gate is created here from the raw scanner universe (cheap metrics only).
         print("[SCANNER][STAGE] watchlist")
         if selector is not None:
-            print("[SCANNER][WARN] Ranking selector bypassed for watchlist compliance")
-        ranked = _rank_candidates(candidates)
+            ranked_metrics = selector(candidate_metrics_for_ranking, policy=resolved_policy)
+            ranked_symbols = [row.symbol for row in ranked_metrics]
+            ranked = [
+                context_by_symbol[symbol]
+                for symbol in ranked_symbols
+                if symbol in context_by_symbol
+            ]
+        else:
+            ranked = _rank_candidates(candidates)
         watchlist_contexts = ranked[:watchlist_limit] if watchlist_limit > 0 else []
         for context in ranked[watchlist_limit:]:
             drop_ledger.setdefault(context["symbol"], "DROP_RANK_BELOW_WATCHLIST")
@@ -1790,7 +1799,7 @@ def run_scanner_cycle(
                         "threshold": watchlist_limit,
                     },
                 )
-        if watchlist_limit > 0 and len(watchlist_contexts) < watchlist_limit:
+        if selector is None and watchlist_limit > 0 and len(watchlist_contexts) < watchlist_limit:
             ranked_all = _rank_candidates(evaluated_contexts)
             existing = {context["symbol"] for context in watchlist_contexts}
             for context in ranked_all:

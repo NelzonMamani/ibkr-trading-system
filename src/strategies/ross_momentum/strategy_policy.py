@@ -261,7 +261,11 @@ def select_watchlist(
         if session_allowlist and session_label and session_label not in session_allowlist:
             reasons.append("SESSION_NOT_ALLOWED")
         gate_checks = observation.gate_checks or {}
-        failed_gates = [name for name, passed in gate_checks.items() if not passed]
+        failed_gates = [
+            name
+            for name, passed in gate_checks.items()
+            if not passed and (name.startswith("watch_") or name == "catalyst_ok")
+        ]
         if failed_gates:
             reasons.extend([f"GATE_FAIL:{name}" for name in failed_gates])
         if reasons:

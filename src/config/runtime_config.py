@@ -13,9 +13,12 @@ from src.config.trading_config import MAX_HOLD_TICKS, MIN_HOLD_TICKS
 
 
 class RunMode(str, Enum):
+    SIM = "SIM"
     PAPER = "PAPER"
     LIVE = "LIVE"
     LIVE_READ_ONLY = "LIVE_READ_ONLY"
+    LIVE_MICRO = "LIVE_MICRO"
+    LIVE_ONE_SHARE = "LIVE_ONE_SHARE"
 
 
 DEFAULT_RUN_MODE: RunMode = RunMode.LIVE
@@ -70,12 +73,32 @@ def is_execution_enabled(run_mode: RunMode | None = None) -> bool:
 
 def execution_allowed(run_mode: RunMode | str | None) -> bool:
     normalized = str(getattr(run_mode, "value", run_mode) or "").upper()
-    return normalized in {"LIVE", "PAPER"}
+    return normalized in {"LIVE", "PAPER", "LIVE_MICRO", "LIVE_ONE_SHARE"}
 
 
 def broker_orders_allowed(run_mode: RunMode | str | None) -> bool:
     normalized = str(getattr(run_mode, "value", run_mode) or "").upper()
-    return normalized in {"LIVE", "PAPER"}
+    return normalized in {"LIVE", "PAPER", "LIVE_MICRO", "LIVE_ONE_SHARE"}
+
+
+def get_live_micro_ack(default: bool = False) -> bool:
+    return bool(_with_default("LIVE_MICRO_ACK", default))
+
+
+def get_live_micro_1_share_only(default: bool = True) -> bool:
+    return bool(_with_default("LIVE_MICRO_1_SHARE_ONLY", default))
+
+
+def get_live_micro_max_concurrent_trades(default: int = 1) -> int:
+    return int(_with_default("LIVE_MICRO_MAX_CONCURRENT_TRADES", default))
+
+
+def get_live_micro_max_trades_per_day(default: int = 3) -> int:
+    return int(_with_default("LIVE_MICRO_MAX_TRADES_PER_DAY", default))
+
+
+def get_live_micro_daily_max_loss(default: float = 5.0) -> float:
+    return float(_with_default("LIVE_MICRO_MAX_DAILY_LOSS", default))
 
 
 def get_ibkr_host(default: str = "127.0.0.1") -> str:
