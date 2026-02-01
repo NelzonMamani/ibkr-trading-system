@@ -5,7 +5,7 @@ from src.scanner.scanner_runner import run_scanner_cycle
 def test_scanner_contract_prints_lists(capsys):
     set_config_overrides(
         {
-            "RUN_MODE": "SIM",
+            "RUN_MODE": "PAPER",
             "SCANNER_DATA_SOURCE": "MOCK",
         }
     )

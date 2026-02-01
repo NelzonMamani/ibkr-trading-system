@@ -14,7 +14,7 @@ def _to_scanner_policy(stock_policy) -> StockSelectionPolicy:
 def test_scanner_policy_limits_applied_in_teaching_mode():
     set_config_overrides(
         {
-            "RUN_MODE": "SIM",
+        "RUN_MODE": "PAPER",
             "SCANNER_DATA_SOURCE": "MOCK",
         }
     )

@@ -5,21 +5,16 @@ Execution engine that routes through a broker adapter with deterministic retry s
 import hashlib
 from typing import List, Optional
 
-from src.brokers.base_broker import BaseBroker, BrokerOrderRequest
-from src.brokers.sim_broker import SimBroker
+from src.brokers.base_broker import BrokerOrderRequest
 from src.config.config_resolver import get_config
 from src.config.runtime_config import (
     RunMode,
     get_ibkr_readonly_enabled,
-    get_ibkr_submit_only_symbol,
-    get_live_micro_max_symbols_per_cycle,
-    get_paper_max_concurrent_trades,
 )
-from src.config.trading_config import is_strategy_enabled
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.core.stop_controller import StopController
-from src.execution.order_gateway import OrderGateway
+from src.execution.execution_providers import ExecutionProvider, PaperExecutionProvider
 from src.execution.order_models import PendingOrderBook
 from src.models.execution_result import ExecutionResult
 from src.models.data_models import RiskDecision
@@ -31,7 +26,7 @@ class ExecutionEngine:
 
     def __init__(
         self,
-        broker: Optional[BaseBroker] = None,
+        provider: Optional[ExecutionProvider] = None,
         trade_registry: Optional[ActiveTradeRegistry] = None,
         event_collector: Optional[EventCollector] = None,
         price_feed: Optional[PriceFeed] = None,
@@ -45,12 +40,8 @@ class ExecutionEngine:
             print("[EXECUTION] Gateway: DISABLED")
             print("[EXECUTION] Liquidity checks: DISABLED")
             print("[EXECUTION] Broker submission: DISABLED")
-        elif self.run_mode in {RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE}:
-            print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
-            print("[SAFETY] 1-SHARE LIMIT ENFORCED")
         elif self.run_mode == RunMode.PAPER:
             print("[SAFETY] PAPER-EXECUTION MODE ACTIVE")
-            print("[SAFETY] 1-SHARE LIMIT ENFORCED")
         self.trade_registry = trade_registry or ActiveTradeRegistry()
         self.event_collector = event_collector or EventCollector()
         self.stop_controller = stop_controller or StopController()
@@ -59,42 +50,36 @@ class ExecutionEngine:
         self.current_tick: Optional[int] = None
         self._idempotency_cache: dict[int, set[str]] = {}
         self._last_idempotency_tick: Optional[int] = None
-        self._live_micro_symbols_this_cycle: set[str] = set()
-        if self.run_mode == RunMode.SIM:
-            if self.execution_enabled:
-                if broker is not None and not isinstance(broker, SimBroker):
-                    print("[EXECUTION][SIM] Overriding non-SIM broker with SIM broker")
-                self._broker = SimBroker(
-                    gateway=OrderGateway(),
-                    price_feed=self.price_feed,
-                    trade_registry=self.trade_registry,
-                    event_collector=self.event_collector,
-                    run_mode=self.run_mode,
+        self._provider = self._resolve_provider(provider)
+        self.provider: Optional[ExecutionProvider] = self._provider
+        self.broker = getattr(self._provider, "broker", None)
+
+    def _resolve_provider(
+        self, provider: Optional[ExecutionProvider]
+    ) -> Optional[ExecutionProvider]:
+        if not self.execution_enabled:
+            if provider is not None:
+                raise RuntimeError(
+                    "Execution disabled; execution providers must not be instantiated."
                 )
-            else:
-                if broker is not None:
-                    raise RuntimeError(
-                        "Execution disabled; broker adapters must not be instantiated."
-                    )
-                self._broker = None
-        else:
-            if not self.execution_enabled:
-                if broker is not None:
-                    raise RuntimeError(
-                        "Execution disabled; broker adapters must not be instantiated."
-                    )
-                self._broker = None
-            else:
-                if broker is None:
-                    print(
-                        "[EXECUTION][WARN] Broker adapter missing; "
-                        "forcing execution disabled for safety."
-                    )
-                    self.execution_enabled = False
-                    self._broker = None
-                else:
-                    self._broker = broker
-        self.broker: Optional[BaseBroker] = self._broker
+            return None
+        if self.run_mode == RunMode.PAPER:
+            if provider is not None and not isinstance(provider, PaperExecutionProvider):
+                print("[EXECUTION][PAPER] Overriding non-paper provider with PaperExecutionProvider")
+            return provider if isinstance(provider, PaperExecutionProvider) else PaperExecutionProvider(
+                price_feed=self.price_feed,
+                trade_registry=self.trade_registry,
+                event_collector=self.event_collector,
+                run_mode=self.run_mode,
+            )
+        if provider is None:
+            print(
+                "[EXECUTION][WARN] Execution provider missing; "
+                "forcing execution disabled for safety."
+            )
+            self.execution_enabled = False
+            return None
+        return provider
 
     @staticmethod
     def _max_attempts(trader_type: str) -> int:
@@ -147,11 +132,6 @@ class ExecutionEngine:
             return self._duplicate_result(risk_decision, idempotency_key)
         risk_decision.idempotency_key = idempotency_key
 
-        if self.run_mode in {RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE}:
-            return self._execute_live_micro(risk_decision)
-        if self.run_mode == RunMode.PAPER:
-            return self._execute_paper(risk_decision)
-
         order = self._order_from_risk_decision(risk_decision, tick)
         return self._route_order(order)
 
@@ -166,13 +146,7 @@ class ExecutionEngine:
                 risk_decision,
                 rationale="LIVE_READ_ONLY_BLOCK",
             )
-        if self.run_mode not in {
-            RunMode.SIM,
-            RunMode.PAPER,
-            RunMode.LIVE_MICRO,
-            RunMode.LIVE_ONE_SHARE,
-            RunMode.LIVE,
-        }:
+        if self.run_mode not in {RunMode.PAPER, RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale=f"RUN_MODE_BLOCK:{self.run_mode.value}",
@@ -182,11 +156,7 @@ class ExecutionEngine:
                 risk_decision,
                 rationale="EXECUTION_DISABLED",
             )
-        if get_ibkr_readonly_enabled() and self.run_mode in {
-            RunMode.LIVE,
-            RunMode.LIVE_MICRO,
-            RunMode.LIVE_ONE_SHARE,
-        }:
+        if get_ibkr_readonly_enabled() and self.run_mode == RunMode.LIVE:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="BROKER_READONLY_BLOCK",
@@ -265,243 +235,6 @@ class ExecutionEngine:
             client_order_id=idempotency_key,
         )
 
-    def _execute_live_micro(self, risk_decision: RiskDecision) -> ExecutionResult:
-        tick = self.current_tick if self.current_tick is not None else 0
-        if self._last_idempotency_tick != tick:
-            self._live_micro_symbols_this_cycle = set()
-
-        symbol = risk_decision.symbol
-        self._live_micro_symbols_this_cycle.add(symbol)
-        max_symbols = get_live_micro_max_symbols_per_cycle()
-        if len(self._live_micro_symbols_this_cycle) > max_symbols:
-            rationale = (
-                "LIVE_MICRO_BLOCK: max symbols per cycle exceeded "
-                f"({len(self._live_micro_symbols_this_cycle)}/{max_symbols})."
-            )
-            print(f"[SAFETY] {rationale}")
-            self.event_collector.emit(
-                event_type="TRADE_BLOCKED",
-                source="ExecutionEngine",
-                payload={
-                    "symbol": symbol,
-                    "trader_type": risk_decision.trader_type,
-                    "strategy_name": risk_decision.strategy_name,
-                    "reason_code": "LIVE_MICRO_SYMBOL_CAP",
-                    "human_readable_rationale": rationale,
-                    "reason": rationale,
-                },
-            )
-            return ExecutionResult(
-                symbol=symbol,
-                trader_type=risk_decision.trader_type,
-                attempted=False,
-                status="BLOCKED",
-                rationale=rationale,
-                direction=risk_decision.direction,
-                quantity=getattr(risk_decision, "max_position_size", 1) or 1,
-                stop_loss_price=risk_decision.stop_loss_price,
-                take_profit_price=risk_decision.take_profit_price,
-            )
-
-        max_concurrent = get_config("LIVE_MICRO_MAX_CONCURRENT_TRADES")
-        active_count = self.trade_registry.count_active()
-        if active_count >= max_concurrent:
-            rationale = (
-                "LIVE_MICRO_BLOCK: max concurrent trade limit reached "
-                f"({active_count}/{max_concurrent})."
-            )
-            print(f"[SAFETY] {rationale}")
-            self.event_collector.emit(
-                event_type="TRADE_BLOCKED",
-                source="ExecutionEngine",
-                payload={
-                    "symbol": risk_decision.symbol,
-                    "trader_type": risk_decision.trader_type,
-                    "strategy_name": risk_decision.strategy_name,
-                    "reason_code": "MAX_CONCURRENT_TRADES",
-                    "human_readable_rationale": rationale,
-                    "reason": rationale,
-                },
-            )
-            return ExecutionResult(
-                symbol=risk_decision.symbol,
-                trader_type=risk_decision.trader_type,
-                attempted=False,
-                status="BLOCKED",
-                rationale=rationale,
-                direction=risk_decision.direction,
-                quantity=getattr(risk_decision, "max_position_size", 1) or 1,
-                stop_loss_price=risk_decision.stop_loss_price,
-                take_profit_price=risk_decision.take_profit_price,
-            )
-
-        strategy_name = risk_decision.strategy_name or "UNKNOWN"
-        if not is_strategy_enabled(strategy_name):
-            rationale = (
-                "LIVE_MICRO_BLOCK: strategy not approved for live micro-execution "
-                f"(strategy={strategy_name})."
-            )
-            print(f"[SAFETY] {rationale}")
-            self.event_collector.emit(
-                event_type="TRADE_BLOCKED",
-                source="ExecutionEngine",
-                payload={
-                    "symbol": risk_decision.symbol,
-                    "trader_type": risk_decision.trader_type,
-                    "strategy_name": strategy_name,
-                    "reason_code": "STRATEGY_NOT_APPROVED",
-                    "human_readable_rationale": rationale,
-                    "reason": rationale,
-                },
-            )
-            return ExecutionResult(
-                symbol=risk_decision.symbol,
-                trader_type=risk_decision.trader_type,
-                attempted=False,
-                status="BLOCKED",
-                rationale=rationale,
-                direction=risk_decision.direction,
-                quantity=getattr(risk_decision, "max_position_size", 1) or 1,
-                stop_loss_price=risk_decision.stop_loss_price,
-                take_profit_price=risk_decision.take_profit_price,
-            )
-
-        requested_quantity = int(getattr(risk_decision, "max_position_size", 1) or 1)
-        required_quantity = int(get_config("LIVE_MICRO_REQUIRED_QUANTITY"))
-        if requested_quantity != required_quantity:
-            rationale = (
-                "LIVE_MICRO_BLOCK: quantity must be exactly "
-                f"{required_quantity} share(s) (requested={requested_quantity})."
-            )
-            print(f"[SAFETY] {rationale}")
-            self.event_collector.emit(
-                event_type="TRADE_BLOCKED",
-                source="ExecutionEngine",
-                payload={
-                    "symbol": risk_decision.symbol,
-                    "trader_type": risk_decision.trader_type,
-                    "strategy_name": strategy_name,
-                    "reason_code": "LIVE_MICRO_SIZE_LIMIT",
-                    "human_readable_rationale": rationale,
-                    "reason": rationale,
-                },
-            )
-            return ExecutionResult(
-                symbol=risk_decision.symbol,
-                trader_type=risk_decision.trader_type,
-                attempted=False,
-                status="BLOCKED",
-                rationale=rationale,
-                direction=risk_decision.direction,
-                quantity=requested_quantity,
-                stop_loss_price=risk_decision.stop_loss_price,
-                take_profit_price=risk_decision.take_profit_price,
-            )
-
-        submit_only_symbol = get_ibkr_submit_only_symbol()
-        if submit_only_symbol and submit_only_symbol != risk_decision.symbol:
-            rationale = (
-                "LIVE_MICRO_BLOCK: symbol not on allowlist "
-                f"(symbol={risk_decision.symbol} allowed={submit_only_symbol})."
-            )
-            print(f"[SAFETY] {rationale}")
-            self.event_collector.emit(
-                event_type="TRADE_BLOCKED",
-                source="ExecutionEngine",
-                payload={
-                    "symbol": risk_decision.symbol,
-                    "trader_type": risk_decision.trader_type,
-                    "strategy_name": strategy_name,
-                    "reason_code": "LIVE_MICRO_SYMBOL_ALLOWLIST",
-                    "human_readable_rationale": rationale,
-                    "reason": rationale,
-                },
-            )
-            return ExecutionResult(
-                symbol=risk_decision.symbol,
-                trader_type=risk_decision.trader_type,
-                attempted=False,
-                status="BLOCKED",
-                rationale=rationale,
-                direction=risk_decision.direction,
-                quantity=requested_quantity,
-                stop_loss_price=risk_decision.stop_loss_price,
-                take_profit_price=risk_decision.take_profit_price,
-            )
-
-        tick = self.current_tick if self.current_tick is not None else 0
-        order = self._order_from_risk_decision(risk_decision, tick)
-        return self._route_order(order)
-
-    def _execute_paper(self, risk_decision: RiskDecision) -> ExecutionResult:
-        symbol = risk_decision.symbol
-        max_concurrent = get_paper_max_concurrent_trades()
-        active_count = self.trade_registry.count_active()
-        if active_count >= max_concurrent:
-            rationale = (
-                "PAPER_BLOCK: max concurrent trade limit reached "
-                f"({active_count}/{max_concurrent})."
-            )
-            print(f"[SAFETY] {rationale}")
-            self.event_collector.emit(
-                event_type="TRADE_BLOCKED",
-                source="ExecutionEngine",
-                payload={
-                    "symbol": symbol,
-                    "trader_type": risk_decision.trader_type,
-                    "strategy_name": risk_decision.strategy_name,
-                    "reason_code": "MAX_CONCURRENT_TRADES",
-                    "human_readable_rationale": rationale,
-                    "reason": rationale,
-                },
-            )
-            return ExecutionResult(
-                symbol=symbol,
-                trader_type=risk_decision.trader_type,
-                attempted=False,
-                status="BLOCKED",
-                rationale=rationale,
-                direction=risk_decision.direction,
-                quantity=getattr(risk_decision, "max_position_size", 1) or 1,
-                stop_loss_price=risk_decision.stop_loss_price,
-                take_profit_price=risk_decision.take_profit_price,
-            )
-
-        requested_quantity = int(getattr(risk_decision, "max_position_size", 1) or 1)
-        if requested_quantity != 1:
-            rationale = (
-                "PAPER_BLOCK: quantity must be exactly 1 share "
-                f"(requested={requested_quantity})."
-            )
-            print(f"[SAFETY] {rationale}")
-            self.event_collector.emit(
-                event_type="TRADE_BLOCKED",
-                source="ExecutionEngine",
-                payload={
-                    "symbol": symbol,
-                    "trader_type": risk_decision.trader_type,
-                    "strategy_name": risk_decision.strategy_name,
-                    "reason_code": "PAPER_SIZE_LIMIT",
-                    "human_readable_rationale": rationale,
-                    "reason": rationale,
-                },
-            )
-            return ExecutionResult(
-                symbol=symbol,
-                trader_type=risk_decision.trader_type,
-                attempted=False,
-                status="BLOCKED",
-                rationale=rationale,
-                direction=risk_decision.direction,
-                quantity=requested_quantity,
-                stop_loss_price=risk_decision.stop_loss_price,
-                take_profit_price=risk_decision.take_profit_price,
-            )
-
-        tick = self.current_tick if self.current_tick is not None else 0
-        order = self._order_from_risk_decision(risk_decision, tick)
-        return self._route_order(order)
-
     def _order_from_risk_decision(
         self, risk_decision: RiskDecision, tick: int
     ) -> BrokerOrderRequest:
@@ -541,12 +274,13 @@ class ExecutionEngine:
     def _route_order(self, request: BrokerOrderRequest) -> ExecutionResult:
         if not self.execution_enabled:
             raise RuntimeError("Execution disabled: refusing to route order.")
-        if self._broker is None:
-            raise RuntimeError("ExecutionEngine broker adapter missing for execution path.")
-        result = self._broker.place_order(request)
-        if not self._broker.is_live():
+        if self._provider is None:
+            raise RuntimeError("ExecutionEngine execution provider missing for execution path.")
+        result = self._provider.place_order(request)
+        if not self._provider.is_live():
             print(
-                f"[EXECUTION] {self.run_mode.value} mode active — broker={self._broker.name()} deterministic flow."
+                f"[EXECUTION] {self.run_mode.value} mode active — "
+                f"provider={self._provider.name()} deterministic flow."
             )
         else:
             print("[EXECUTION] LIVE broker order routed.")

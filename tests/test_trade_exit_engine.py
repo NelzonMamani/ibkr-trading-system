@@ -50,7 +50,7 @@ def test_trade_exit_engine_enforces_tick_based_exit_window():
 
     pre_min_tick = entry_tick + max(MIN_HOLD_TICKS - 1, 0)
     results, outcomes = exit_engine.evaluate_and_close_trades(
-        run_mode=RunMode.SIM, tick=pre_min_tick
+        run_mode=RunMode.PAPER, tick=pre_min_tick
     )
 
     assert results == []
@@ -59,7 +59,7 @@ def test_trade_exit_engine_enforces_tick_based_exit_window():
 
     mid_tick = entry_tick + MAX_HOLD_TICKS - 1
     results, outcomes = exit_engine.evaluate_and_close_trades(
-        run_mode=RunMode.SIM, tick=mid_tick
+        run_mode=RunMode.PAPER, tick=mid_tick
     )
 
     assert results == []
@@ -68,7 +68,7 @@ def test_trade_exit_engine_enforces_tick_based_exit_window():
 
     close_tick = entry_tick + MAX_HOLD_TICKS
     results, outcomes = exit_engine.evaluate_and_close_trades(
-        run_mode=RunMode.SIM, tick=close_tick
+        run_mode=RunMode.PAPER, tick=close_tick
     )
 
     expected_exit_price = price_feed.price_for(symbol, close_tick)
@@ -145,7 +145,7 @@ def test_exit_signal_honoured_after_minimum_hold():
 
     close_tick = entry_tick + MIN_HOLD_TICKS
     results, outcomes = exit_engine.evaluate_and_close_trades(
-        run_mode=RunMode.SIM, tick=close_tick, exit_signals=[exit_signal]
+        run_mode=RunMode.PAPER, tick=close_tick, exit_signals=[exit_signal]
     )
 
     assert len(results) == 1
@@ -200,7 +200,7 @@ def test_exit_signal_ignored_before_minimum_hold():
 
     pre_min_tick = entry_tick + max(MIN_HOLD_TICKS - 1, 0)
     results, outcomes = exit_engine.evaluate_and_close_trades(
-        run_mode=RunMode.SIM, tick=pre_min_tick, exit_signals=[exit_signal]
+        run_mode=RunMode.PAPER, tick=pre_min_tick, exit_signals=[exit_signal]
     )
 
     assert results == []
@@ -246,7 +246,7 @@ def test_stop_loss_exit_triggers_even_before_minimum_hold():
 
     trigger_tick = entry_tick + 1
     results, outcomes = exit_engine.evaluate_and_close_trades(
-        run_mode=RunMode.SIM, tick=trigger_tick
+        run_mode=RunMode.PAPER, tick=trigger_tick
     )
 
     assert len(results) == 1
@@ -298,7 +298,7 @@ def test_take_profit_exit_triggers_when_threshold_hit():
 
     trigger_tick = entry_tick + 1
     results, outcomes = exit_engine.evaluate_and_close_trades(
-        run_mode=RunMode.SIM, tick=trigger_tick
+        run_mode=RunMode.PAPER, tick=trigger_tick
     )
 
     assert len(results) == 1

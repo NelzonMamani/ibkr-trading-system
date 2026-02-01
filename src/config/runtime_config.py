@@ -13,12 +13,9 @@ from src.config.trading_config import MAX_HOLD_TICKS, MIN_HOLD_TICKS
 
 
 class RunMode(str, Enum):
-    SIM = "SIM"
     PAPER = "PAPER"
     LIVE = "LIVE"
     LIVE_READ_ONLY = "LIVE_READ_ONLY"
-    LIVE_MICRO = "LIVE_MICRO"
-    LIVE_ONE_SHARE = "LIVE_ONE_SHARE"
 
 
 DEFAULT_RUN_MODE: RunMode = RunMode.LIVE
@@ -73,12 +70,12 @@ def is_execution_enabled(run_mode: RunMode | None = None) -> bool:
 
 def execution_allowed(run_mode: RunMode | str | None) -> bool:
     normalized = str(getattr(run_mode, "value", run_mode) or "").upper()
-    return normalized in {"LIVE", "LIVE_MICRO", "LIVE_ONE_SHARE", "PAPER", "SIM"}
+    return normalized in {"LIVE", "PAPER"}
 
 
 def broker_orders_allowed(run_mode: RunMode | str | None) -> bool:
     normalized = str(getattr(run_mode, "value", run_mode) or "").upper()
-    return normalized in {"LIVE", "LIVE_MICRO", "LIVE_ONE_SHARE", "PAPER"}
+    return normalized in {"LIVE", "PAPER"}
 
 
 def get_ibkr_host(default: str = "127.0.0.1") -> str:
@@ -164,36 +161,12 @@ def get_ibkr_max_orders_per_run(default: int = 1) -> int:
     return int(_with_default("IBKR_MAX_ORDERS_PER_RUN", default))
 
 
-def get_live_micro_max_concurrent_trades(default: int = 1) -> int:
-    return int(_with_default("LIVE_MICRO_MAX_CONCURRENT_TRADES", default))
+def get_risk_profile_name(default: str = "NORMAL") -> str:
+    return str(_with_default("RISK_PROFILE", default))
 
 
-def get_live_micro_max_trades_per_day(default: int = 3) -> int:
-    return int(_with_default("LIVE_MICRO_MAX_TRADES_PER_DAY", default))
-
-
-def get_live_micro_ack(default: bool = False) -> bool:
-    return bool(_with_default("LIVE_MICRO_ACK", default))
-
-
-def get_live_micro_1_share_only(default: bool = True) -> bool:
-    return bool(_with_default("LIVE_MICRO_1_SHARE_ONLY", default))
-
-
-def get_live_micro_daily_max_loss(default: float = 10.0) -> float:
-    return float(_with_default("LIVE_MICRO_DAILY_MAX_LOSS", default))
-
-
-def get_live_micro_max_consecutive_losses(default: int = 1) -> int:
-    return int(_with_default("LIVE_MICRO_MAX_CONSECUTIVE_LOSSES", default))
-
-
-def get_live_micro_max_symbols_per_cycle(default: int = 5) -> int:
-    return int(_with_default("LIVE_MICRO_MAX_SYMBOLS_PER_CYCLE", default))
-
-
-def get_paper_max_concurrent_trades(default: int = 5) -> int:
-    return int(_with_default("PAPER_MAX_CONCURRENT_TRADES", default))
+def get_risk_account_equity(default: float = 100000.0) -> float:
+    return float(_with_default("RISK_ACCOUNT_EQUITY", default))
 
 
 def get_daily_loss_warning_limit(default: float = 5.0) -> float:
@@ -201,8 +174,6 @@ def get_daily_loss_warning_limit(default: float = 5.0) -> float:
 
 
 def get_daily_loss_hard_limit(default: float = 10.0) -> float:
-    if get_run_mode() == RunMode.LIVE_MICRO:
-        return float(_with_default("LIVE_MICRO_DAILY_MAX_LOSS", default))
     return float(_with_default("DAILY_LOSS_HARD_LIMIT", default))
 
 

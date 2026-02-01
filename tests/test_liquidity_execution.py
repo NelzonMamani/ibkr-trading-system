@@ -28,7 +28,7 @@ def _build_risk_decision(symbol: str, trader_type: str, quantity: int) -> RiskDe
 
 
 def test_deterministic_liquidity_outcomes_and_replay():
-    set_config_overrides({"RUN_MODE": "SIM", "EXECUTION_ENABLED": True})
+    set_config_overrides({"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True})
     try:
         registry = ActiveTradeRegistry()
         events = EventCollector()
@@ -66,7 +66,7 @@ def test_deterministic_liquidity_outcomes_and_replay():
         assert registry.count_active_by_trader(trader_type) == 1
 
         exit_results, _ = exit_engine.evaluate_and_close_trades(
-            run_mode=RunMode.SIM,
+            run_mode=RunMode.PAPER,
             tick=tick_one + 20,
             config=RuntimeConfig(min_hold_ticks=0, max_hold_ticks=1),
         )
@@ -86,7 +86,7 @@ def test_deterministic_liquidity_outcomes_and_replay():
         assert registry.count_active_by_trader(trader_type) == 1
 
         exit_results, _ = exit_engine.evaluate_and_close_trades(
-            run_mode=RunMode.SIM,
+            run_mode=RunMode.PAPER,
             tick=tick_one + 22,
             config=RuntimeConfig(min_hold_ticks=0, max_hold_ticks=1),
         )

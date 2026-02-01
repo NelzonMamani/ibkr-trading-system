@@ -11,7 +11,7 @@ from config.config_resolver import set_config_overrides  # noqa: E402
 def test_market_data_validation_teaching_is_na(monkeypatch):
     set_config_overrides(None)
     monkeypatch.delenv("SCANNER_MODE", raising=False)
-    monkeypatch.setenv("RUN_MODE", "SIM")
+    monkeypatch.setenv("RUN_MODE", "PAPER")
     orchestrator = CoreOrchestrator()
 
     status, ok = orchestrator._resolve_market_data_status()
@@ -22,7 +22,7 @@ def test_market_data_validation_teaching_is_na(monkeypatch):
 
 def test_dedup_normalisation_drops_duplicates(monkeypatch):
     set_config_overrides(None)
-    monkeypatch.setenv("RUN_MODE", "SIM")
+    monkeypatch.setenv("RUN_MODE", "PAPER")
     monkeypatch.setenv("INTENT_DEDUP_SELFTEST_ENABLED", "false")
     orchestrator = CoreOrchestrator()
 

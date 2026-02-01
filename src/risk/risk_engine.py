@@ -13,9 +13,11 @@ from src.core_engine.state import RunMode as Epoch5Mode
 from src.config.config_resolver import get_config
 from src.config.runtime_config import (
     RunMode,
-    get_daily_loss_hard_limit,
     get_ibkr_readonly_enabled,
+    get_risk_account_equity,
+    get_risk_profile_name,
 )
+from src.config.risk_profiles import RISK_PROFILES, RiskProfile
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.core.stop_controller import StopController
@@ -26,7 +28,6 @@ from src.models.risk_decision import (
     DUPLICATE_INTENT_ID,
     EXECUTION_DISABLED,
     INTENT_MISSING_FIELDS,
-    LIVE_MICRO_SYMBOL_CAP,
     LIVE_READ_ONLY_BLOCK,
     STRATEGY_LIMIT_REACHED,
 )
@@ -58,6 +59,42 @@ class RiskEngine:
         }
         self.strategy_limits = dict(get_config("RISK_STRATEGY_LIMITS"))
 
+    @staticmethod
+    def _resolve_profile_size(profile: RiskProfile) -> int:
+        base_size = int(get_config("RISK_MAX_POSITION_SIZE"))
+        if profile.max_shares is not None:
+            base_size = min(base_size, int(profile.max_shares))
+        return max(0, base_size)
+
+    @staticmethod
+    def _resolve_daily_loss_limit(profile: RiskProfile) -> float | None:
+        if profile.daily_max_loss_pct is None:
+            return None
+        equity = float(get_risk_account_equity())
+        return round(equity * (float(profile.daily_max_loss_pct) / 100.0), 2)
+
+    def _resolve_risk_profile(self) -> RiskProfile:
+        profile_name = str(get_risk_profile_name() or "NORMAL").upper()
+        profile = RISK_PROFILES.get(profile_name)
+        if profile is None:
+            print(f"[RISK][WARN] Unknown risk profile '{profile_name}', defaulting to NORMAL.")
+            return RISK_PROFILES["NORMAL"]
+        return profile
+
+    def _profile_risk_reasons(self, profile: RiskProfile) -> List[str]:
+        reasons: List[str] = []
+        daily_loss_limit = self._resolve_daily_loss_limit(profile)
+        if daily_loss_limit is not None:
+            daily_pnl = self.event_collector.daily_realised_pnl()
+            if daily_pnl <= -daily_loss_limit:
+                reasons.append("RISK_PROFILE_DAILY_MAX_LOSS")
+        daily_trade_limit = profile.daily_max_trades
+        if daily_trade_limit is not None:
+            daily_trades = self.event_collector.daily_trade_count()
+            if daily_trades >= int(daily_trade_limit):
+                reasons.append("RISK_PROFILE_DAILY_MAX_TRADES")
+        return reasons
+
     def evaluate_strategy_payload(self, payload: StrategyRiskPayload) -> RiskDecision:
         """
         Canonical RiskEngine path for Epoch 3 strategy payloads.
@@ -70,6 +107,7 @@ class RiskEngine:
         risk_reasons: List[str] = []
         per_intent: List[IntentRiskDecision] = []
         sizing: dict = {}
+        risk_profile = self._resolve_risk_profile()
 
         if payload.decision_type.name == "NO_ACTION" or not payload.intents:
             return RiskDecision(
@@ -91,18 +129,10 @@ class RiskEngine:
 
         if run_mode == RunMode.LIVE_READ_ONLY:
             risk_reasons.append(LIVE_READ_ONLY_BLOCK)
-        if run_mode in {RunMode.PAPER, RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE}:
-            daily_pnl = self.event_collector.daily_realised_pnl()
-            hard_limit = abs(get_daily_loss_hard_limit())
-            if hard_limit > 0 and daily_pnl <= -hard_limit:
-                risk_reasons.append("DAILY_MAX_LOSS_HARD_STOP")
+        risk_reasons.extend(self._profile_risk_reasons(risk_profile))
         if not execution_enabled:
             risk_reasons.append(EXECUTION_DISABLED)
-        if get_ibkr_readonly_enabled() and run_mode in {
-            RunMode.LIVE,
-            RunMode.LIVE_MICRO,
-            RunMode.LIVE_ONE_SHARE,
-        }:
+        if get_ibkr_readonly_enabled() and run_mode == RunMode.LIVE:
             risk_reasons.append(BROKER_READONLY_BLOCK)
 
         normalized_risk_flags = {flag.lower() for flag in payload.risk_flags}
@@ -110,8 +140,6 @@ class RiskEngine:
             risk_reasons.append(DATA_QUALITY_BLOCK)
 
         intent_ids: set[str] = set()
-        live_micro_symbols: set[str] = set()
-        max_symbols = int(get_config("LIVE_MICRO_MAX_SYMBOLS_PER_CYCLE"))
 
         for intent in payload.intents:
             decision = self._evaluate_intent(
@@ -120,9 +148,8 @@ class RiskEngine:
                 run_mode=run_mode,
                 risk_reasons=risk_reasons,
                 intent_ids=intent_ids,
-                live_micro_symbols=live_micro_symbols,
-                max_symbols=max_symbols,
                 execution_enabled=execution_enabled,
+                risk_profile=risk_profile,
             )
             per_intent.append(decision)
             sizing[decision.intent_id] = decision.max_position_size
@@ -157,9 +184,8 @@ class RiskEngine:
         run_mode: RunMode,
         risk_reasons: List[str],
         intent_ids: set[str],
-        live_micro_symbols: set[str],
-        max_symbols: int,
         execution_enabled: bool,
+        risk_profile: RiskProfile,
     ) -> IntentRiskDecision:
         reason_tags: List[str] = []
         if not intent.intent_id or not intent.symbol:
@@ -170,27 +196,16 @@ class RiskEngine:
             reason_tags.append(INTENT_MISSING_FIELDS)
 
         intent_ids.add(intent.intent_id)
-        if run_mode in {RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE}:
-            live_micro_symbols.add(intent.symbol)
-            if len(live_micro_symbols) > max_symbols:
-                reason_tags.append(LIVE_MICRO_SYMBOL_CAP)
 
         intent_flags = {flag.lower() for flag in intent.risk_flags}
-        if "data_quality" in intent_flags and run_mode in {
-            RunMode.LIVE,
-            RunMode.LIVE_MICRO,
-            RunMode.LIVE_ONE_SHARE,
-        }:
+        if "data_quality" in intent_flags and run_mode == RunMode.LIVE:
             reason_tags.append(DATA_QUALITY_BLOCK)
 
         if risk_reasons:
             reason_tags.extend(risk_reasons)
 
         allowed = not reason_tags and execution_enabled
-        if run_mode in {RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE, RunMode.PAPER}:
-            size = 1
-        else:
-            size = int(get_config("RISK_MAX_POSITION_SIZE"))
+        size = self._resolve_profile_size(risk_profile)
         if not allowed:
             size = 0
 
@@ -219,6 +234,7 @@ class RiskEngine:
         print(f"[RISK] Evaluating TradeIntent for symbol={trade_intent.symbol}")
         run_mode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
         execution_enabled = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
+        risk_profile = self._resolve_risk_profile()
         if self.stop_controller.is_breaker_tripped():
             rationale = "Circuit breaker active — blocking intent."
             return RiskDecision(
@@ -268,28 +284,23 @@ class RiskEngine:
                 risk_reasons=[EXECUTION_DISABLED],
                 execution_blocked=True,
             )
-        if run_mode in {RunMode.PAPER, RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE}:
-            daily_pnl = self.event_collector.daily_realised_pnl()
-            hard_limit = abs(get_daily_loss_hard_limit())
-            if hard_limit > 0 and daily_pnl <= -hard_limit:
-                rationale = (
-                    "Daily loss hard stop reached — blocking new executions "
-                    f"(daily_pnl={daily_pnl:.2f}, limit=-{hard_limit:.2f})."
-                )
-                return RiskDecision(
-                    symbol=trade_intent.symbol,
-                    allowed=False,
-                    max_position_size=0,
-                    risk_level="BLOCKED",
-                    rationale=rationale,
-                    trader_type=trade_intent.trader_type,
-                    strategy_name=trade_intent.strategy_name,
-                    direction=trade_intent.direction,
-                    reason_code="DAILY_MAX_LOSS_HARD_STOP",
-                    overall_action="BLOCK",
-                    risk_reasons=["DAILY_MAX_LOSS_HARD_STOP"],
-                    execution_blocked=True,
-                )
+        profile_reasons = self._profile_risk_reasons(risk_profile)
+        if profile_reasons:
+            rationale = "Risk profile blocked intent: " + ", ".join(profile_reasons)
+            return RiskDecision(
+                symbol=trade_intent.symbol,
+                allowed=False,
+                max_position_size=0,
+                risk_level="BLOCKED",
+                rationale=rationale,
+                trader_type=trade_intent.trader_type,
+                strategy_name=trade_intent.strategy_name,
+                direction=trade_intent.direction,
+                reason_code=profile_reasons[0],
+                overall_action="BLOCK",
+                risk_reasons=profile_reasons,
+                execution_blocked=True,
+            )
 
         data_quality_flags = getattr(trade_intent, "data_quality_flags", [])
         if data_quality_flags:
@@ -324,6 +335,62 @@ class RiskEngine:
                 direction=trade_intent.direction,
                 reason_code=DATA_QUALITY_BLOCK,
             )
+
+        resolved_stop_loss = trade_intent.stop_loss_price or trade_intent.invalidation_level
+        if risk_profile.enforce_hard_stops and resolved_stop_loss is None:
+            rationale = "Risk profile requires hard stop; intent missing stop_loss_price."
+            return RiskDecision(
+                symbol=trade_intent.symbol,
+                allowed=False,
+                max_position_size=0,
+                risk_level="BLOCKED",
+                rationale=rationale,
+                trader_type=trade_intent.trader_type,
+                strategy_name=trade_intent.strategy_name,
+                direction=trade_intent.direction,
+                reason_code="RISK_PROFILE_HARD_STOP_REQUIRED",
+                overall_action="BLOCK",
+                risk_reasons=["RISK_PROFILE_HARD_STOP_REQUIRED"],
+                execution_blocked=True,
+            )
+
+        active_trade = self.trade_registry.get_trade(
+            trade_intent.symbol,
+            trade_intent.trader_type,
+        )
+        if active_trade is not None and not risk_profile.allow_scaling:
+            rationale = "Risk profile blocks scaling into existing positions."
+            return RiskDecision(
+                symbol=trade_intent.symbol,
+                allowed=False,
+                max_position_size=0,
+                risk_level="BLOCKED",
+                rationale=rationale,
+                trader_type=trade_intent.trader_type,
+                strategy_name=trade_intent.strategy_name,
+                direction=trade_intent.direction,
+                reason_code="RISK_PROFILE_SCALING_DISABLED",
+                overall_action="BLOCK",
+                risk_reasons=["RISK_PROFILE_SCALING_DISABLED"],
+                execution_blocked=True,
+            )
+        if active_trade is not None and risk_profile.max_adds is not None:
+            if int(risk_profile.max_adds) <= 0:
+                rationale = "Risk profile blocks adds; max_adds reached."
+                return RiskDecision(
+                    symbol=trade_intent.symbol,
+                    allowed=False,
+                    max_position_size=0,
+                    risk_level="BLOCKED",
+                    rationale=rationale,
+                    trader_type=trade_intent.trader_type,
+                    strategy_name=trade_intent.strategy_name,
+                    direction=trade_intent.direction,
+                    reason_code="RISK_PROFILE_MAX_ADDS_REACHED",
+                    overall_action="BLOCK",
+                    risk_reasons=["RISK_PROFILE_MAX_ADDS_REACHED"],
+                    execution_blocked=True,
+                )
 
         if trade_intent.strategy_name in self._ross_strategy_names:
             overlay_context = RiskContext(
@@ -401,10 +468,7 @@ class RiskEngine:
                 "no blocking logic implemented"
             )
 
-        if run_mode in {RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE, RunMode.PAPER}:
-            max_position_size = 1
-        else:
-            max_position_size = int(get_config("RISK_MAX_POSITION_SIZE"))
+        max_position_size = self._resolve_profile_size(risk_profile)
         print(
             "[RISK] Max position size capped at "
             f"{max_position_size} share(s) for safety and simplicity"
@@ -462,7 +526,7 @@ class RiskEngine:
             trader_type=trader_type,
             strategy_name=trade_intent.strategy_name,
             direction=trade_intent.direction,
-            stop_loss_price=getattr(trade_intent, "stop_loss_price", None),
+            stop_loss_price=resolved_stop_loss,
             take_profit_price=getattr(trade_intent, "take_profit_price", None),
             pattern_name=getattr(trade_intent, "pattern_name", None),
             invalidation_level=getattr(trade_intent, "invalidation_level", None),
@@ -497,21 +561,16 @@ def evaluate_trade_intents(
             max_size = 0
             triggered_rules.append("DATA_QUALITY")
 
-        if mode == Epoch5Mode.SIM:
-            decision = "ALLOW_WITH_CONSTRAINTS"
-            max_size = 0
-            constraints.append("SIMULATED_NO_EXECUTION")
-            triggered_rules.append("MODE_SIM")
-
-        if mode == Epoch5Mode.READONLY:
+        if mode == Epoch5Mode.LIVE_READ_ONLY:
             decision = "ALLOW_WITH_CONSTRAINTS"
             max_size = 0
             constraints.append("READONLY_NO_EXECUTION")
-            triggered_rules.append("MODE_READONLY")
+            triggered_rules.append("MODE_LIVE_READ_ONLY")
 
-        if mode == Epoch5Mode.LIVE_1SHARE and decision != "BLOCK":
+        if mode == Epoch5Mode.PAPER and decision != "BLOCK":
             decision = "ALLOW"
             max_size = 1
+            triggered_rules.append("MODE_PAPER")
 
         rationale = "Risk evaluation complete."
         if triggered_rules:
