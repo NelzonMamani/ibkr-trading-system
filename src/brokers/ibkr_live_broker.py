@@ -31,10 +31,10 @@ from src.config.runtime_config import (
     get_ibkr_paper_port,
     get_ibkr_readonly_enabled,
     get_ibkr_snapshot_timeout_seconds,
+    get_risk_profile_name,
     is_execution_enabled,
-    get_live_micro_ack,
-    get_live_micro_1_share_only,
 )
+from src.config.risk_profiles import RISK_PROFILES
 from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.domain.models.internal_order import InternalOrder
@@ -45,14 +45,12 @@ from src.models.execution_result import ExecutionResult
 @dataclass
 class IbkrLiveBroker(BaseBroker):
     """
-    Live micro-execution broker for Phase 16.
-
-    Submits real IBKR orders under strict micro-execution constraints.
+    Live execution broker for Phase 16.
     """
 
     event_collector: EventCollector
     trade_registry: ActiveTradeRegistry
-    run_mode: RunMode = RunMode.LIVE_MICRO
+    run_mode: RunMode = RunMode.LIVE
     client: Optional[IbkrClient] = field(default=None)
     translator: Optional[IbkrOrderTranslator] = field(default=None)
     submitter: Optional[IbkrOrderSubmitter] = field(default=None)
@@ -60,20 +58,8 @@ class IbkrLiveBroker(BaseBroker):
     def __post_init__(self) -> None:
         if not is_execution_enabled(self.run_mode):
             raise RuntimeError("EXECUTION_ENABLED must be True for broker execution.")
-        if self.run_mode == RunMode.LIVE_MICRO:
-            if not get_live_micro_ack():
-                raise RuntimeError("LIVE_MICRO_ACK must be True for LIVE_MICRO execution.")
-            if not get_live_micro_1_share_only():
-                raise RuntimeError("LIVE_MICRO_1_SHARE_ONLY must be True for LIVE_MICRO execution.")
-            if get_ibkr_readonly_enabled():
-                raise RuntimeError(
-                    "IBKR_READONLY_ENABLED must be False for LIVE_MICRO execution."
-                )
-        if self.run_mode == RunMode.LIVE_ONE_SHARE:
-            if get_ibkr_readonly_enabled():
-                raise RuntimeError(
-                    "IBKR_READONLY_ENABLED must be False for LIVE_ONE_SHARE execution."
-                )
+        if get_ibkr_readonly_enabled() and self.run_mode == RunMode.LIVE:
+            raise RuntimeError("IBKR_READONLY_ENABLED must be False for LIVE execution.")
         if not get_ibkr_order_translation_enabled():
             raise RuntimeError("IBKR order translation disabled; cannot submit live orders.")
         if not get_ibkr_order_submission_enabled(default=False):
@@ -131,8 +117,10 @@ class IbkrLiveBroker(BaseBroker):
         return True
 
     def place_order(self, request: BrokerOrderRequest) -> ExecutionResult:
-        if self.run_mode in {RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE} and request.quantity != 1:
-            rationale = "LIVE_MICRO_BLOCK: quantity must be exactly 1 share."
+        profile_name = str(get_risk_profile_name() or "NORMAL").upper()
+        profile = RISK_PROFILES.get(profile_name)
+        if profile and profile.max_shares is not None and request.quantity > profile.max_shares:
+            rationale = f"RISK_PROFILE_{profile_name}_SIZE_LIMIT"
             return ExecutionResult(
                 symbol=request.symbol,
                 trader_type=request.trader_type or "UNKNOWN",
@@ -145,8 +133,8 @@ class IbkrLiveBroker(BaseBroker):
                 filled_quantity=0,
                 remaining_quantity=request.quantity,
                 fill_status="NONE",
-                note="LIVE_MICRO_SIZE_LIMIT",
-                rejection_reason="LIVE_MICRO_SIZE_LIMIT",
+                note=rationale,
+                rejection_reason=rationale,
                 client_order_id=request.client_order_id,
                 attempt_number=request.attempt_number,
             )
@@ -185,7 +173,7 @@ class IbkrLiveBroker(BaseBroker):
         try:
             result = self.submitter.submit_once(internal_order)
         except Exception as exc:
-            rationale = f"LIVE_MICRO_SUBMISSION_FAILED: {exc}"
+            rationale = f"LIVE_SUBMISSION_FAILED: {exc}"
             return ExecutionResult(
                 symbol=request.symbol,
                 trader_type=request.trader_type or "UNKNOWN",
@@ -304,7 +292,7 @@ class IbkrLiveBroker(BaseBroker):
                         "fill_status": fill_status,
                         "client_order_id": request.client_order_id,
                         "attempt_number": request.attempt_number,
-                        "gateway_decision": "LIVE_MICRO",
+                        "gateway_decision": "LIVE",
                         "pattern_name": pattern_name,
                     },
                 )
@@ -329,7 +317,7 @@ class IbkrLiveBroker(BaseBroker):
             fill_status=fill_status,
             average_fill_price=average_fill_price,
             commission=result.commission or 0.0,
-            note="LIVE_MICRO_EXECUTION",
+            note="LIVE_EXECUTION",
             attempt_number=request.attempt_number,
             client_order_id=request.client_order_id,
             retry_scheduled=False,
@@ -337,7 +325,7 @@ class IbkrLiveBroker(BaseBroker):
         )
 
     def cancel_order(self, client_order_id: str) -> None:
-        raise RuntimeError("Live order cancellation not implemented in LIVE_MICRO.")
+        raise RuntimeError("Live order cancellation not implemented in LIVE mode.")
 
     def replace_order(self, client_order_id: str, new_request: BrokerOrderRequest) -> None:
-        raise RuntimeError("Live order replace not implemented in LIVE_MICRO.")
+        raise RuntimeError("Live order replace not implemented in LIVE mode.")

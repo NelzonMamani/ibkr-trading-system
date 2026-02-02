@@ -109,7 +109,7 @@ class CoreOrchestrator:
             print("[SAFETY] ORDER ROUTING: BLOCKED")
         if self.run_mode == RunMode.PAPER:
             print("[SAFETY] PAPER-EXECUTION MODE ACTIVE")
-        if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.PAPER}:
+        if self.run_mode in {RunMode.LIVE, RunMode.READ_ONLY, RunMode.PAPER}:
             self.sim_clock = WallClock()
         else:
             self.sim_clock = SimClock()
@@ -130,13 +130,13 @@ class CoreOrchestrator:
             str(get_config("SELECTED_STRATEGY") or "ross_momentum").strip().lower()
             or "ross_momentum"
         )
-        if self.run_mode == RunMode.LIVE_READ_ONLY:
+        if self.run_mode == RunMode.READ_ONLY:
             from src.brokers import IbkrBroker
 
             if IbkrBroker is None:
                 print(
                     "[MARKET_DATA][WARN] IbkrBroker unavailable; "
-                    "falling back to deterministic price feed in LIVE_READ_ONLY."
+                    "falling back to deterministic price feed in READ_ONLY."
                 )
                 self.price_feed = DeterministicPriceFeed()
             else:
@@ -1260,7 +1260,7 @@ class CoreOrchestrator:
         provider_fallback = diagnostics.get("provider_fallback")
         data_quality_flags = scanner_watchlist_payload.get("data_quality_by_symbol", {})
         auto_lockdown_enabled = bool(get_config("IBKR_AUTO_LOCKDOWN_ENABLED"))
-        if self.run_mode in {RunMode.LIVE_READ_ONLY, RunMode.LIVE, RunMode.PAPER}:
+        if self.run_mode in {RunMode.READ_ONLY, RunMode.LIVE, RunMode.PAPER}:
             if provider_error or provider_fallback or provider_source == "MOCK":
                 message = (
                     "IBKR connectivity degraded "
@@ -1681,7 +1681,7 @@ class CoreOrchestrator:
             for result in execution_output
             if getattr(result, "attempted", False)
         ]
-        if self.run_mode == RunMode.LIVE_READ_ONLY:
+        if self.run_mode == RunMode.READ_ONLY:
             action_label = "READONLY_NO_ORDERS"
             action_reason = "READONLY mode blocks order routing"
         elif execution_intent.scan_only:
@@ -2090,9 +2090,9 @@ class CoreOrchestrator:
             f"[REPLAY] Replay selection — mode={self.replay_mode.value} "
             f"run_mode={run_mode_value}"
         )
-        if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
+        if self.run_mode in {RunMode.LIVE, RunMode.READ_ONLY}:
             print(
-                "[REPLAY] Replay is locked down in LIVE/LIVE_READ_ONLY — skipping replay"
+                "[REPLAY] Replay is locked down in LIVE/READ_ONLY — skipping replay"
             )
             return True
         events_for_replay = self.event_collector.get_events_for_replay(
@@ -2263,9 +2263,9 @@ class CoreOrchestrator:
         print(f"[VALIDATION] Effective run mode: {self.run_mode.value}")
         print(f"[VALIDATION] Scanner mode resolved: {self.scanner_mode}")
         print(f"[VALIDATION] Scanner data source: {get_config('SCANNER_DATA_SOURCE')}")
-        if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.PAPER}:
+        if self.run_mode in {RunMode.LIVE, RunMode.READ_ONLY, RunMode.PAPER}:
             market_data_source = "IBKR"
-            if self.run_mode == RunMode.LIVE_READ_ONLY and self.market_data_hub is None:
+            if self.run_mode == RunMode.READ_ONLY and self.market_data_hub is None:
                 market_data_source = "MOCK_FALLBACK"
         else:
             market_data_source = "MOCK"
@@ -2293,32 +2293,32 @@ class CoreOrchestrator:
             else type(broker_adapter).__name__ if broker_adapter is not None else "NONE"
         )
         print(f"[VALIDATION] Broker adapter in use: {broker_name}")
-        if self.run_mode == RunMode.LIVE_READ_ONLY:
+        if self.run_mode == RunMode.READ_ONLY:
             if market_data_source == "MOCK_FALLBACK":
-                print("[VALIDATION][WARN] LIVE_READ_ONLY using MOCK fallback market data.")
+                print("[VALIDATION][WARN] READ_ONLY using MOCK fallback market data.")
             elif "MOCK" in market_data_source:
                 raise RuntimeError(
-                    "Market data source resolved to MOCK under LIVE_READ_ONLY conditions."
+                    "Market data source resolved to MOCK under READ_ONLY conditions."
                 )
             if isinstance(broker_adapter, SimBroker):
-                raise RuntimeError("SimBroker instantiated under LIVE_READ_ONLY conditions.")
-        if self.run_mode == RunMode.LIVE_READ_ONLY:
-            print("[VALIDATION] LIVE_READ_ONLY: live data enabled")
-            print("[VALIDATION] LIVE_READ_ONLY: execution disabled by design")
+                raise RuntimeError("SimBroker instantiated under READ_ONLY conditions.")
+        if self.run_mode == RunMode.READ_ONLY:
+            print("[VALIDATION] READ_ONLY: live data enabled")
+            print("[VALIDATION] READ_ONLY: execution disabled by design")
             if self.market_data_hub is None:
                 print(
-                    "[VALIDATION][WARN] LIVE_READ_ONLY fallback active: "
+                    "[VALIDATION][WARN] READ_ONLY fallback active: "
                     "MarketDataHub unavailable."
                 )
             elif not isinstance(self.price_feed, MarketDataPriceFeed):
-                raise RuntimeError("LIVE_READ_ONLY must use MarketDataPriceFeed")
+                raise RuntimeError("READ_ONLY must use MarketDataPriceFeed")
         if self.storage_engine.enabled and self.storage_engine.backend == "sqlite":
             if self.storage_engine._store is None:
                 raise RuntimeError("Storage engine failed to open SQLite store")
             print("[VALIDATION] Storage OK — SQLite opened")
 
     def _resolve_market_data_status(self) -> tuple[str, bool]:
-        if self.scanner_mode == "TEACHING":
+        if self.scanner_mode == "TEACHING" or self.run_mode in {RunMode.SIM, RunMode.PAPER}:
             return "N/A", True
         diagnostics = self.last_scanner_watchlist_payload.get("diagnostics", {})
         provider_source = diagnostics.get("provider_source")
@@ -2386,7 +2386,7 @@ class CoreOrchestrator:
             print("[FAULT] Action=HALT_SYSTEM — halting orchestrator safely.")
             mode = (
                 StopMode.PANIC
-                if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}
+                if self.run_mode in {RunMode.LIVE, RunMode.READ_ONLY}
                 else StopMode.GRACEFUL
             )
             self._request_stop(
@@ -2605,10 +2605,10 @@ class CoreOrchestrator:
         stage_label = cycle_stage or "UNKNOWN"
 
         if (
-            self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}
+            self.run_mode in {RunMode.LIVE, RunMode.READ_ONLY}
             and self.replay_mode != EventReplayMode.OFF
         ):
-            violations.append("Replay requested while in LIVE/LIVE_READ_ONLY mode")
+            violations.append("Replay requested while in LIVE/READ_ONLY mode")
         if self.run_mode == RunMode.LIVE and isinstance(
             self.sim_clock, SimClock
         ):
@@ -2668,9 +2668,9 @@ class CoreOrchestrator:
         )
         print(violation_event)
 
-        if self.run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
+        if self.run_mode in {RunMode.LIVE, RunMode.READ_ONLY}:
             print(
-                "[SAFETY] LIVE/LIVE_READ_ONLY mode violation — entering deterministic safe halt."
+                "[SAFETY] LIVE/READ_ONLY mode violation — entering deterministic safe halt."
             )
             self._trace_halt(
                 reason_code="RUNTIME_SAFETY_VIOLATION",

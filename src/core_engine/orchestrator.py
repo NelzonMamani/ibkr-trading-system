@@ -336,7 +336,7 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
     )
     print_section("STORAGE")
     print("Storage: OK" if storage_ok else "Storage: FAIL")
-    if not storage_ok and mode.value == "LIVE_1SHARE":
+    if not storage_ok and mode.value == "LIVE":
         health_triggers.append((HealthStatus.CRITICAL, "storage_failure"))
     elif not storage_ok:
         health_triggers.append((HealthStatus.DEGRADED, "storage_failure"))
@@ -367,7 +367,7 @@ def run_cycles(mode: str, cycles: int) -> List[CycleSummary]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Epoch 5 orchestrator.")
-    parser.add_argument("--mode", default="READONLY", help="SIM/READONLY/LIVE_1SHARE")
+    parser.add_argument("--mode", default="READ_ONLY", help="SIM/READ_ONLY/PAPER/LIVE")
     parser.add_argument("--cycles", type=int, default=1)
     args = parser.parse_args()
 

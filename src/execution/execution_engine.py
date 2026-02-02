@@ -141,12 +141,12 @@ class ExecutionEngine:
                 risk_decision,
                 rationale="CIRCUIT_BREAKER_TRIPPED",
             )
-        if self.run_mode == RunMode.LIVE_READ_ONLY:
+        if self.run_mode == RunMode.READ_ONLY:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="LIVE_READ_ONLY_BLOCK",
             )
-        if self.run_mode not in {RunMode.PAPER, RunMode.LIVE, RunMode.LIVE_READ_ONLY}:
+        if self.run_mode not in {RunMode.PAPER, RunMode.LIVE, RunMode.READ_ONLY}:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale=f"RUN_MODE_BLOCK:{self.run_mode.value}",

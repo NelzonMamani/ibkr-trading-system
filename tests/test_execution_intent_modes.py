@@ -17,7 +17,7 @@ def test_execution_intent_modes() -> None:
 
     live_intent = build_execution_intent(
         strategy_name="ROSS_MOMENTUM",
-        mode="LIVE_MICRO",
+        mode="LIVE",
         session_phase="PREMARKET",
         policy=policy,
         execution_enabled=True,
