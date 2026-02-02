@@ -33,11 +33,7 @@ from src.config.runtime_config import (
     get_ibkr_readonly_enabled,
     get_ibkr_snapshot_timeout_seconds,
     get_intent_dedup_selftest_enabled,
-    get_live_micro_ack,
-    get_live_micro_1_share_only,
-    get_live_micro_daily_max_loss,
-    get_live_micro_max_concurrent_trades,
-    get_live_micro_max_trades_per_day,
+    get_risk_profile_name,
     get_persistence_sqlite_path,
     get_run_mode,
     get_scanner_mode,
@@ -62,14 +58,11 @@ def _parse_args() -> argparse.Namespace:
         choices=[
             "SIM",
             "READONLY",
+            "READ_ONLY",
             "PAPER",
-            "LIVE_1SHARE",
-            "LIVE_ONE_SHARE",
             "LIVE",
-            "LIVE_READ_ONLY",
-            "LIVE_MICRO",
         ],
-        help="Run mode override (SIM, READONLY, PAPER, LIVE_1SHARE).",
+        help="Run mode override (SIM, READ_ONLY, PAPER, LIVE).",
     )
     parser.add_argument(
         "--strategy",
@@ -103,8 +96,7 @@ def _apply_cli_overrides(args: argparse.Namespace) -> None:
     overrides: dict[str, object] = {}
     if args.mode:
         mode_map = {
-            "READONLY": "LIVE_READ_ONLY",
-            "LIVE_1SHARE": "LIVE_ONE_SHARE",
+            "READONLY": "READ_ONLY",
         }
         overrides["RUN_MODE"] = mode_map.get(args.mode, args.mode)
     if args.strategy:
@@ -134,12 +126,8 @@ def _print_startup_banner(run_mode: RunMode, event_replay_mode) -> None:
     print(f"  - IBKR_READONLY_ENABLED: {get_ibkr_readonly_enabled()}")
     print(f"  - IBKR_ORDER_TRANSLATION_ENABLED: {get_ibkr_order_translation_enabled()}")
     print(f"  - IBKR_ORDER_SUBMISSION_ENABLED: {get_ibkr_order_submission_enabled()}")
-    print("[STARTUP] LIVE_MICRO guardrails")
-    print(f"  - LIVE_MICRO_ACK: {get_live_micro_ack()}")
-    print(f"  - LIVE_MICRO_1_SHARE_ONLY: {get_live_micro_1_share_only()}")
-    print(f"  - LIVE_MICRO_MAX_POSITIONS: {get_live_micro_max_concurrent_trades()}")
-    print(f"  - LIVE_MICRO_MAX_TRADES_PER_DAY: {get_live_micro_max_trades_per_day()}")
-    print(f"  - LIVE_MICRO_MAX_DAILY_LOSS: {get_live_micro_daily_max_loss()}")
+    print("[STARTUP] Risk profile guardrails")
+    print(f"  - RISK_PROFILE: {get_risk_profile_name()}")
     print("[STARTUP] Broker connectivity")
     print(f"  - IBKR_HOST: {get_ibkr_host()}")
     print(f"  - IBKR_PORT: {get_ibkr_port()}")
@@ -161,7 +149,7 @@ def main() -> None:
         raise SystemExit(0 if report.is_pass else 1)
     print("[BOOT] Starting the IBKR Trading System skeleton.")
     run_mode = get_run_mode()
-    if run_mode == RunMode.LIVE_READ_ONLY:
+    if run_mode == RunMode.READ_ONLY:
         print("[PHASE] PHASE 23 — Live Read-Only Runtime (Authoritative).")
         print("[INTENT] Enforce live read-only runtime authority and IBKR data access.")
     else:
@@ -174,7 +162,7 @@ def main() -> None:
     mode_manager = RuntimeModeManager.resolve()
     print("[CONFIG] Resolved runtime configuration (authoritative):")
     print(f"  - RUN_MODE: {run_mode.value} (resolved)")
-    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE}:
+    if run_mode in {RunMode.LIVE, RunMode.READ_ONLY}:
         print(
             f"  - EVENT_REPLAY_MODE: {event_replay_mode.value} "
             "(resolved; forced OFF in live-like modes for safety)"
@@ -223,22 +211,16 @@ def main() -> None:
     if not execution_enabled:
         print("[SAFETY] EXECUTION: HARD DISABLED")
         print("[SAFETY] ORDER ROUTING: BLOCKED")
-    if run_mode in {RunMode.LIVE, RunMode.LIVE_READ_ONLY, RunMode.LIVE_MICRO, RunMode.LIVE_ONE_SHARE}:
+    if run_mode in {RunMode.LIVE, RunMode.READ_ONLY}:
         print("[SAFETY] MARKET DATA: LIVE IBKR")
     if ibkr_readonly_enabled:
         print(
             "[CONFIG] IBKR_READONLY_ENABLED=True — broker order routing to IBKR "
             "is disabled. SIM execution is internal-only."
         )
-    if run_mode == RunMode.LIVE_READ_ONLY:
+    if run_mode == RunMode.READ_ONLY:
         print("[SAFETY] LIVE READ-ONLY MODE ACTIVE")
         print("[SAFETY] LIVE DATA — READ ONLY MODE")
-    if run_mode == RunMode.LIVE_MICRO:
-        print("[SAFETY] LIVE MICRO-EXECUTION MODE ACTIVE")
-        print("[SAFETY] 1-SHARE LIMIT ENFORCED")
-    if run_mode == RunMode.LIVE_ONE_SHARE:
-        print("[SAFETY] LIVE ONE-SHARE MODE ACTIVE")
-        print("[SAFETY] 1-SHARE LIMIT ENFORCED")
     if run_mode == RunMode.LIVE and ibkr_readonly_enabled:
         print("[SAFETY] LIVE DATA — READ ONLY MODE")
         print("[SAFETY] NO ORDERS WILL BE SENT")
@@ -290,9 +272,7 @@ def main() -> None:
         run_mode in {
             RunMode.SIM,
             RunMode.LIVE,
-            RunMode.LIVE_READ_ONLY,
-            RunMode.LIVE_MICRO,
-            RunMode.LIVE_ONE_SHARE,
+            RunMode.READ_ONLY,
         }
         and ibkr_readonly_enabled
         and smoke_symbol

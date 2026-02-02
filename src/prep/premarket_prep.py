@@ -70,9 +70,7 @@ class PreMarketPrepEngine:
 
         allow_news = bool(get_config("NEWS_ENABLED")) and get_run_mode() not in {
             RunMode.LIVE,
-            RunMode.LIVE_READ_ONLY,
-            RunMode.LIVE_MICRO,
-            RunMode.LIVE_ONE_SHARE,
+            RunMode.READ_ONLY,
             RunMode.PAPER,
         }
         news_lookup: dict[str, list[Headline]] = {}

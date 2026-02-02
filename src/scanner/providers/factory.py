@@ -37,9 +37,7 @@ def build_provider(
         except ProviderConnectionError as exc:
             if run_mode in {
                 RunMode.LIVE,
-                RunMode.LIVE_READ_ONLY,
-                RunMode.LIVE_MICRO,
-                RunMode.LIVE_ONE_SHARE,
+                RunMode.READ_ONLY,
             }:
                 raise
             if run_mode == RunMode.PAPER and not fallback_enabled:

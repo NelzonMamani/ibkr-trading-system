@@ -107,9 +107,7 @@ def decide_recovery_action(fault: FaultEvent, run_mode: RunMode) -> RecoveryActi
 
     if run_mode in {
         RunMode.LIVE,
-        RunMode.LIVE_READ_ONLY,
-        RunMode.LIVE_MICRO,
-        RunMode.LIVE_ONE_SHARE,
+        RunMode.READ_ONLY,
     }:
         mapping = {
             FaultCategory.SAFETY: RecoveryAction.HALT_SYSTEM,

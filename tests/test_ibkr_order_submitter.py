@@ -144,7 +144,7 @@ def test_submission_blocked_when_kill_switch_true():
 
 
 def test_submission_blocked_when_run_mode_not_tradeable():
-    settings = make_settings(run_mode=RunMode.LIVE_READ_ONLY)
+    settings = make_settings(run_mode=RunMode.READ_ONLY)
     submitter = make_submitter(settings)
 
     with pytest.raises(

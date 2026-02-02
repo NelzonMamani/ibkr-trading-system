@@ -85,7 +85,7 @@ class StatisticalIntradayMomentum(BaseStrategy):
         # activation_allowed = policy.activation.allow or mode in {
         #     RunMode.SIM,
         #     RunMode.PAPER,
-        #     RunMode.LIVE_READ_ONLY,
+        #     RunMode.READ_ONLY,
         # }
         activation_allowed = (
                 policy.activation.allow
@@ -136,9 +136,9 @@ class StatisticalIntradayMomentum(BaseStrategy):
                 f"symbol={symbol} decision={decision} reasons={reasons or ['NONE']}"
             )
 
-        if mode == RunMode.LIVE_READ_ONLY:
+        if mode == RunMode.READ_ONLY:
             print(
-                "[SIMOM][ORDERS] HARD_DISABLED mode=LIVE_READ_ONLY "
+                "[SIMOM][ORDERS] HARD_DISABLED mode=READ_ONLY "
                 f"signals={len(intents)}"
             )
         elif mode == RunMode.PAPER:

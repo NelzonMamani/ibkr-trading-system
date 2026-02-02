@@ -10,7 +10,7 @@ from src.utils.logging import print_section, print_watchlist_focus
 
 
 def run_doctor() -> int:
-    mode = resolve_mode("READONLY")
+    mode = resolve_mode("READ_ONLY")
     session = resolve_session_state()
     print_section("DOCTOR START")
     print(f"MODE={mode.value} SESSION={session.value}")

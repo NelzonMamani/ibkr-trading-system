@@ -32,7 +32,7 @@ def test_scanner_fallback_on_provider_connect_failure(monkeypatch):
     monkeypatch.setattr(scanner_runner, "build_provider", _fail_build_provider)
     set_config_overrides(
         {
-            "RUN_MODE": "LIVE_READ_ONLY",
+            "RUN_MODE": "READ_ONLY",
             "SCANNER_DATA_SOURCE": "IBKR",
             "IBKR_FALLBACK_ENABLED": True,
         }

@@ -37,7 +37,7 @@ def test_risk_blocks_on_critical():
     ]
     decisions = evaluate_trade_intents(
         intents=intents,
-        mode=RunMode.LIVE_1SHARE,
+        mode=RunMode.LIVE,
         health_status=HealthStatus.CRITICAL,
     )
     assert decisions[0].decision == "BLOCK"

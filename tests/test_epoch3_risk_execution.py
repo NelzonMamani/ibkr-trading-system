@@ -47,7 +47,7 @@ def _payload(intent_id: str = "intent-1", symbol: str = "ABC") -> StrategyRiskPa
 
 
 def test_risk_engine_blocks_live_read_only():
-    set_config_overrides({"RUN_MODE": "LIVE_READ_ONLY", "EXECUTION_ENABLED": True})
+    set_config_overrides({"RUN_MODE": "READ_ONLY", "EXECUTION_ENABLED": True})
     try:
         stop_controller = StopController()
         risk_engine = RiskEngine(stop_controller=stop_controller)
@@ -87,7 +87,7 @@ def test_paper_pipeline_runs_without_broker_routing():
 
 
 def test_live_read_only_blocks_execution_engine():
-    set_config_overrides({"RUN_MODE": "LIVE_READ_ONLY", "EXECUTION_ENABLED": True})
+    set_config_overrides({"RUN_MODE": "READ_ONLY", "EXECUTION_ENABLED": True})
     try:
         stop_controller = StopController()
         risk_engine = RiskEngine(stop_controller=stop_controller)
@@ -95,7 +95,7 @@ def test_live_read_only_blocks_execution_engine():
 
         events = EventCollector()
         engine = ExecutionEngine(event_collector=events, stop_controller=stop_controller)
-        engine.run_mode = RunMode.LIVE_READ_ONLY
+        engine.run_mode = RunMode.READ_ONLY
 
         result = engine.execute_trade(decision)
 

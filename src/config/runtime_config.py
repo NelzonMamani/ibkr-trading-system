@@ -13,9 +13,10 @@ from src.config.trading_config import MAX_HOLD_TICKS, MIN_HOLD_TICKS
 
 
 class RunMode(str, Enum):
+    SIM = "SIM"
+    READ_ONLY = "READ_ONLY"
     PAPER = "PAPER"
     LIVE = "LIVE"
-    LIVE_READ_ONLY = "LIVE_READ_ONLY"
 
 
 DEFAULT_RUN_MODE: RunMode = RunMode.LIVE
@@ -44,7 +45,7 @@ def get_run_mode() -> RunMode:
 
 
 def is_live_read_only_required() -> bool:
-    return get_run_mode() == RunMode.LIVE_READ_ONLY
+    return get_run_mode() == RunMode.READ_ONLY
 
 
 def get_event_replay_mode(run_mode: RunMode | None = None) -> EventReplayMode:

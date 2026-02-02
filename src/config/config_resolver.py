@@ -56,7 +56,12 @@ def _normalize(value: Any, normalizer: str | None) -> Any:
             return value.strip().lower()
         if normalizer == "strip":
             return value.strip()
-    if isinstance(value, list) and normalizer in {"upper", "lower", "strip"}:
+        if normalizer == "run_mode":
+            normalized = value.strip().upper()
+            if normalized in {"READONLY", "READ_ONLY", "LIVE_READ_ONLY", "LIVE_READONLY"}:
+                return "READ_ONLY"
+            return normalized
+    if isinstance(value, list) and normalizer in {"upper", "lower", "strip", "run_mode"}:
         normalized = []
         for item in value:
             if not isinstance(item, str):
@@ -256,7 +261,7 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
     scanner_mode_record = resolved["SCANNER_MODE"]
     scanner_mode = scanner_mode_record.value
     scanner_mode_source = scanner_mode_record.source
-    if effective_run_mode in {"LIVE", "LIVE_READ_ONLY", "LIVE_MICRO", "LIVE_ONE_SHARE", "PAPER"}:
+    if effective_run_mode in {"LIVE", "READ_ONLY", "PAPER"}:
         effective_scanner_mode = "LIVE_READONLY"
     elif effective_run_mode == "SIM" and scanner_mode_source in {"DEFAULT"}:
         effective_scanner_mode = "TEACHING"
@@ -277,7 +282,7 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         env=None,
     )
 
-    ibkr_readonly_enabled = effective_run_mode in {"SIM", "LIVE_READ_ONLY"}
+    ibkr_readonly_enabled = effective_run_mode in {"SIM", "READ_ONLY"}
     resolved["IBKR_READONLY_ENABLED"] = ConfigRecord(
         name="IBKR_READONLY_ENABLED",
         value=ibkr_readonly_enabled,
@@ -285,12 +290,7 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         env=None,
     )
 
-    ibkr_submission_enabled = effective_run_mode in {
-        "PAPER",
-        "LIVE",
-        "LIVE_MICRO",
-        "LIVE_ONE_SHARE",
-    }
+    ibkr_submission_enabled = effective_run_mode in {"PAPER", "LIVE"}
     resolved["IBKR_ORDER_SUBMISSION_ENABLED"] = ConfigRecord(
         name="IBKR_ORDER_SUBMISSION_ENABLED",
         value=ibkr_submission_enabled,
@@ -298,12 +298,7 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         env=None,
     )
 
-    ibkr_translation_enabled = effective_run_mode in {
-        "PAPER",
-        "LIVE",
-        "LIVE_MICRO",
-        "LIVE_ONE_SHARE",
-    }
+    ibkr_translation_enabled = effective_run_mode in {"PAPER", "LIVE"}
     resolved["IBKR_ORDER_TRANSLATION_ENABLED"] = ConfigRecord(
         name="IBKR_ORDER_TRANSLATION_ENABLED",
         value=ibkr_translation_enabled,
@@ -311,7 +306,7 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         env=None,
     )
 
-    ibkr_kill_switch = effective_run_mode == "LIVE_READ_ONLY"
+    ibkr_kill_switch = effective_run_mode == "READ_ONLY"
     resolved["IBKR_KILL_SWITCH"] = ConfigRecord(
         name="IBKR_KILL_SWITCH",
         value=ibkr_kill_switch,
@@ -320,7 +315,7 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
     )
 
     requested_replay = resolved["EVENT_REPLAY_MODE"].value
-    if effective_run_mode in {"LIVE", "LIVE_READ_ONLY", "LIVE_MICRO", "LIVE_ONE_SHARE"}:
+    if effective_run_mode in {"LIVE", "READ_ONLY"}:
         replay_mode = "OFF"
     else:
         replay_mode = requested_replay
@@ -333,13 +328,7 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
 
     resolved["EXECUTION_ENABLED_EFFECTIVE"] = ConfigRecord(
         name="EXECUTION_ENABLED_EFFECTIVE",
-        value=effective_run_mode in {
-            "SIM",
-            "PAPER",
-            "LIVE_MICRO",
-            "LIVE_ONE_SHARE",
-            "LIVE",
-        },
+        value=effective_run_mode in {"PAPER", "LIVE"},
         source="DERIVED",
         env=None,
     )
