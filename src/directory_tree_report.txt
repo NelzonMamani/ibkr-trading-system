@@ -148,6 +148,17 @@ ibkr-trading-system/
 │   ├── trace_20260129.jsonl
 │   ├── trace_20260130.jsonl
 │   └── trace_20260131.jsonl
+├── mean_reversion_codex_instructions
+│   ├── 00_READ_ORDER.md
+│   ├── 01_CONTEXT_AND_SCOPE.md
+│   ├── 02_SOURCE_OF_TRUTH.md
+│   ├── 03_IMPLEMENTATION_PHASES.md
+│   ├── 04_DETAILED_TASKS_BY_PHASE.md
+│   ├── 05_MODE_REQUIREMENTS.md
+│   ├── 06_INTEGRATION_POINTS.md
+│   ├── 07_MANDATORY_VERIFICATION_COMMANDS.md
+│   ├── 08_SUCCESS_CRITERIA.md
+│   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
 ├── output
 │   ├── verification
 │   │   ├── compileall.log
@@ -442,8 +453,43 @@ ibkr-trading-system/
 │   │   │   ├── README.md
 │   │   │   ├── runner.py
 │   │   │   └── strategy_policy.py
-│   │   ├── mean_reversion_strategy
-│   │   │   └── mean_reversion_strategy.py
+│   │   ├── mean_reversion
+│   │   │   ├── governance
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_STRATEGY_OVERVIEW.md
+│   │   │   │   ├── 02_CONTRACT_AND_GATES.md
+│   │   │   │   ├── 03_DATA_CONTRACT_SCANNER_FACTS.md
+│   │   │   │   ├── 04_DECISION_WORKFLOW_ALGORITHM.md
+│   │   │   │   ├── 05_SETUP_LIBRARY.md
+│   │   │   │   ├── 06_RISK_AND_POSITION_MANAGEMENT.md
+│   │   │   │   ├── 07_REGIME_FILTERS.md
+│   │   │   │   ├── 08_FAILURE_MODES_AND_SAFETIES.md
+│   │   │   │   ├── 09_TESTING_AND_VERIFICATION.md
+│   │   │   │   ├── 10_PHASED_IMPLEMENTATION_ROADMAP.md
+│   │   │   │   └── EXAMPLE_WORKFLOW.md
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── test_entry_models.py
+│   │   │   │   ├── test_exhaustion.py
+│   │   │   │   ├── test_exit_models.py
+│   │   │   │   ├── test_mean_models.py
+│   │   │   │   ├── test_overextension.py
+│   │   │   │   └── test_policy_contract.py
+│   │   │   ├── __init__.py
+│   │   │   ├── CONTRACT.md
+│   │   │   ├── entry_models.py
+│   │   │   ├── exhaustion_models.py
+│   │   │   ├── exit_models.py
+│   │   │   ├── indicators_contract.py
+│   │   │   ├── mean_models.py
+│   │   │   ├── MEAN_REVERSION_MASTER_GOVERNANCE.md
+│   │   │   ├── mean_reversion_strategy_policy.py
+│   │   │   ├── overextension_models.py
+│   │   │   ├── parameters.py
+│   │   │   ├── README.md
+│   │   │   ├── regime_permissions.py
+│   │   │   ├── state.py
+│   │   │   └── telemetry.py
 │   │   ├── ross_momentum
 │   │   │   ├── fixtures
 │   │   │   ├── patterns

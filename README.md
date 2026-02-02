@@ -1,53 +1,14 @@
-# ibkr-trading-system — Public Charter
+# IBKR Trading System
 
-## Purpose
-This repository contains a modular, live-capable **Trading OS** designed to:
-- Scan the US equity market (NYSE / NASDAQ / AMEX)
-- Produce a tradable **Watchlist** and **Focus List**
-- Generate **TradeIntent** (never orders)
-- Enforce risk, safety, and execution guards
-- Execute via IBKR **only when explicitly allowed**
-- Persist all decisions for audit, replay, and learning
+A modular, multi-strategy algorithmic trading system designed for Interactive Brokers (IBKR).
 
-## Governance & Safety (Non‑Negotiable)
-- Scanner observes, never trades
-- Scanner universe is policy‑driven; `SCANNER_SYMBOLS` is **testing override only**
-- Strategies emit **intent only**
-- Strategy intent is normalized via a **Strategy Interface**
-- Risk is the **final authority**
-- Execution is guarded by **mode**, **caps**, and **explicit acknowledgements**
-- Storage is mandatory for all outcomes
-- Deterministic, explainable behaviour is required at every layer
+## Implemented Strategies
 
-## Architecture (High Level)
-Scanner → Strategy (Intent) → Interface (Normalization) →
-Portfolio Governance (Registry / Arbitration / Capital Allocation) →
-Risk → Execution → Storage
+- Ross Momentum — Intraday momentum trading (LIVE)
+- Statistical Intraday Momentum — Quantitative intraday continuation/reversion (PAPER/LIVE)
+- Long Horizon Value — Fundamental investing (execution locked)
+- Mean Reversion — Intraday exhaustion-based mean reversion (implemented, execution locked)
 
-## Project Status
-- Epoch 4: Scanner contract — **FROZEN**
-- Epoch 5: Trading OS core — **FROZEN**
-- Epoch 9: Strategy Portfolio Governance (interface, registry, arbitration) — **IMPLEMENTED / SAFE**
-- Epoch 10: Statistical Intraday Momentum (interface‑native strategy) — **IN PROGRESS**
-- Track A: Ross Momentum LIVE_MICRO rollout — **ACTIVE**
-- Stabilisation: scanner, DB, health, observability — **COMPLETE**
-- Parallel Learning Epoch — **ACTIVE (isolated, proposal‑only)**
-- Epoch 6 (Buffett / long‑horizon) — **FUTURE (isolated)**
+Mean Reversion is governed, tested, and integrated, but not yet enabled for live execution.
 
-## Operating Modes
-- SIM
-- LIVE_READ_ONLY
-- PAPER
-- LIVE_MICRO (1 share, capped risk, explicit ACK required)
-
-## Entry Points
-- `RUNBOOK.md`
-- `SYSTEM_STATE.md`
-- `for_track_A/`
-- `python -m src.learning.cli --help` (parallel learning reports/proposals)
-
-## Contribution Rules
-- Respect frozen contracts and epochs
-- No silent changes to live logic
-- New strategies must conform to the Strategy Interface
-- Learning may propose changes, **never auto‑apply**
+Refer to SYSTEM_STATE.md for authoritative runtime status.
