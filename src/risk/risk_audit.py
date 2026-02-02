@@ -37,15 +37,14 @@ def evaluate_trade_intents(
             constraints.append("SIMULATED_NO_EXECUTION")
             triggered_rules.append("MODE_SIM")
 
-        if mode == RunMode.READONLY:
+        if mode == RunMode.READ_ONLY:
             decision = "ALLOW_WITH_CONSTRAINTS"
             max_size = 0
             constraints.append("READONLY_NO_EXECUTION")
             triggered_rules.append("MODE_READONLY")
 
-        if mode == RunMode.LIVE_1SHARE and decision != "BLOCK":
+        if mode == RunMode.LIVE and decision != "BLOCK":
             decision = "ALLOW"
-            max_size = 1
 
         rationale = "Risk evaluation complete."
         if triggered_rules:

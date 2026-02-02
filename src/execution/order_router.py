@@ -14,7 +14,7 @@ def execute_intents(
 ) -> List[ExecutionEvent]:
     events: List[ExecutionEvent] = []
     for decision in decisions:
-        if mode in {RunMode.SIM, RunMode.READONLY}:
+        if mode in {RunMode.SIM, RunMode.READ_ONLY}:
             action = "WOULD_PLACE"
             detail = f"mode={mode.value}; decision={decision.decision}"
         elif decision.decision == "ALLOW":

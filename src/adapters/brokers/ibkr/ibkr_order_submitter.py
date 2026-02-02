@@ -13,7 +13,8 @@ from src.events.event_types import (
     ORDER_FILL_RECORDED,
 )
 from src.ibkr.read_only_guard import assert_read_only_allows
-from src.config.runtime_config import broker_orders_allowed
+from src.config.runtime_config import broker_orders_allowed, get_risk_profile_name
+from src.config.risk_profiles import RISK_PROFILES
 
 
 @dataclass(frozen=True)
@@ -174,7 +175,7 @@ class IbkrOrderSubmitter:
         normalized_run_mode = str(run_mode).upper()
         if not broker_orders_allowed(normalized_run_mode):
             raise RuntimeError(
-                "IBKR submission requires RUN_MODE in {LIVE, LIVE_MICRO, LIVE_ONE_SHARE, PAPER}"
+                "IBKR submission requires RUN_MODE in {LIVE, PAPER}"
             )
 
         if not self.guard.can_submit():
@@ -198,8 +199,12 @@ class IbkrOrderSubmitter:
         if not self.config.allow_shorting and internal_order.direction.upper() == "SHORT":
             raise RuntimeError("Shorting is blocked for IBKR submission mode")
 
-        if normalized_run_mode in {"LIVE_MICRO", "LIVE_ONE_SHARE"} and internal_order.quantity != 1:
-            raise RuntimeError("LIVE_MICRO enforces quantity == 1 share")
+        profile_name = str(get_risk_profile_name() or "NORMAL").upper()
+        profile = RISK_PROFILES.get(profile_name)
+        if profile and profile.max_shares is not None and internal_order.quantity > profile.max_shares:
+            raise RuntimeError(
+                f"RISK_PROFILE_{profile_name} enforces quantity <= {profile.max_shares} share(s)"
+            )
 
         # Execution safety guard applies ONLY outside SIM
         if normalized_run_mode != "SIM":
@@ -268,7 +273,7 @@ class IbkrOrderSubmitter:
             return self.ibkr_client.host, self.ibkr_client.port
         run_mode = getattr(self.config.run_mode, "value", self.config.run_mode)
         normalized_run_mode = str(run_mode).upper()
-        if normalized_run_mode in {"LIVE", "LIVE_MICRO", "LIVE_ONE_SHARE"}:
+        if normalized_run_mode == "LIVE":
             return self.config.paper_host, self.config.live_port
         return self.config.paper_host, self.config.paper_port
 

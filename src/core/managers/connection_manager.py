@@ -64,7 +64,7 @@ class ConnectionManager:
         snapshot_timeout = get_ibkr_snapshot_timeout_seconds()
         fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
         candidate_ids = self._candidate_client_ids(base_client_id)
-        if fallback_enabled and self.run_mode == RunMode.LIVE_READ_ONLY:
+        if fallback_enabled and self.run_mode == RunMode.READ_ONLY:
             candidate_ids = [base_client_id]
 
         for attempt_index, candidate_id in enumerate(candidate_ids, start=1):

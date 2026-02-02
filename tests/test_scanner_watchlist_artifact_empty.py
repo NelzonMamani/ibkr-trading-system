@@ -34,7 +34,7 @@ def test_watchlist_artifact_written_when_universe_empty(monkeypatch):
     monkeypatch.setattr(scanner_runner, "build_provider", _fail_build_provider)
     set_config_overrides(
         {
-            "RUN_MODE": "LIVE_READ_ONLY",
+            "RUN_MODE": "READ_ONLY",
             "SCANNER_DATA_SOURCE": "IBKR",
             "SCANNER_MODE": "LIVE_READONLY",
         }

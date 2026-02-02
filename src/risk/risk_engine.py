@@ -29,6 +29,7 @@ from src.models.risk_decision import (
     EXECUTION_DISABLED,
     INTENT_MISSING_FIELDS,
     LIVE_READ_ONLY_BLOCK,
+    STRATEGY_READ_ONLY_EXECUTION_LOCK,
     STRATEGY_LIMIT_REACHED,
 )
 from src.strategies.ross_momentum.ross_momentum_risk_overlay import (
@@ -127,8 +128,29 @@ class RiskEngine:
                 execution_blocked=not execution_enabled,
             )
 
-        if run_mode == RunMode.LIVE_READ_ONLY:
+        if run_mode == RunMode.READ_ONLY:
             risk_reasons.append(LIVE_READ_ONLY_BLOCK)
+        if payload.strategy_id == "LongHorizonValue" and run_mode == RunMode.LIVE:
+            risk_reasons.append(STRATEGY_READ_ONLY_EXECUTION_LOCK)
+            print(
+                "[RISK] Strategy execution lock active for LongHorizonValue in LIVE mode."
+            )
+            for intent in payload.intents:
+                self.event_collector.emit(
+                    event_type="TRADE_BLOCKED",
+                    source="RiskEngine",
+                    payload={
+                        "symbol": payload.symbol,
+                        "trader_type": payload.trader_type,
+                        "strategy_name": payload.strategy_id,
+                        "reason": STRATEGY_READ_ONLY_EXECUTION_LOCK,
+                        "reason_code": STRATEGY_READ_ONLY_EXECUTION_LOCK,
+                        "human_readable_rationale": (
+                            "LongHorizonValue is READ_ONLY by policy in LIVE mode."
+                        ),
+                        "intent_id": intent.intent_id,
+                    },
+                )
         risk_reasons.extend(self._profile_risk_reasons(risk_profile))
         if not execution_enabled:
             risk_reasons.append(EXECUTION_DISABLED)
@@ -252,8 +274,8 @@ class RiskEngine:
                 circuit_breaker_tripped=True,
                 execution_blocked=True,
             )
-        if run_mode == RunMode.LIVE_READ_ONLY:
-            rationale = "LIVE_READ_ONLY: execution blocked by risk gate."
+        if run_mode == RunMode.READ_ONLY:
+            rationale = "READ_ONLY: execution blocked by risk gate."
             return RiskDecision(
                 symbol=trade_intent.symbol,
                 allowed=False,
@@ -266,6 +288,37 @@ class RiskEngine:
                 reason_code=LIVE_READ_ONLY_BLOCK,
                 overall_action="BLOCK",
                 risk_reasons=[LIVE_READ_ONLY_BLOCK],
+                execution_blocked=True,
+            )
+        if trade_intent.strategy_name == "LongHorizonValue" and run_mode == RunMode.LIVE:
+            rationale = "LongHorizonValue is READ_ONLY by policy in LIVE mode."
+            self.event_collector.emit(
+                event_type="TRADE_BLOCKED",
+                source="RiskEngine",
+                payload={
+                    "symbol": trade_intent.symbol,
+                    "trader_type": trade_intent.trader_type,
+                    "strategy_name": trade_intent.strategy_name,
+                    "reason": STRATEGY_READ_ONLY_EXECUTION_LOCK,
+                    "reason_code": STRATEGY_READ_ONLY_EXECUTION_LOCK,
+                    "human_readable_rationale": rationale,
+                },
+            )
+            print(
+                "[RISK] Strategy execution lock active for LongHorizonValue in LIVE mode."
+            )
+            return RiskDecision(
+                symbol=trade_intent.symbol,
+                allowed=False,
+                max_position_size=0,
+                risk_level="BLOCKED",
+                rationale=rationale,
+                trader_type=trade_intent.trader_type,
+                strategy_name=trade_intent.strategy_name,
+                direction=trade_intent.direction,
+                reason_code=STRATEGY_READ_ONLY_EXECUTION_LOCK,
+                overall_action="BLOCK",
+                risk_reasons=[STRATEGY_READ_ONLY_EXECUTION_LOCK],
                 execution_blocked=True,
             )
         if not execution_enabled:
@@ -561,11 +614,11 @@ def evaluate_trade_intents(
             max_size = 0
             triggered_rules.append("DATA_QUALITY")
 
-        if mode == Epoch5Mode.LIVE_READ_ONLY:
+        if mode == Epoch5Mode.READ_ONLY:
             decision = "ALLOW_WITH_CONSTRAINTS"
             max_size = 0
             constraints.append("READONLY_NO_EXECUTION")
-            triggered_rules.append("MODE_LIVE_READ_ONLY")
+            triggered_rules.append("MODE_READ_ONLY")
 
         if mode == Epoch5Mode.PAPER and decision != "BLOCK":
             decision = "ALLOW"

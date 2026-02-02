@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -394,6 +394,21 @@ def _evaluate_price_gate(
     if thresholds.require_price and price is None:
         return "DROP_MISSING_PRICE"
     return None
+
+
+def _evaluate_gates(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+) -> Optional[str]:
+    drop_reason = _evaluate_price_gate(context, thresholds)
+    if drop_reason:
+        return drop_reason
+    drop_reason = _evaluate_watchlist_gates(context, thresholds)
+    if drop_reason == "DROP_FLOAT_MISSING":
+        drop_reason = None
+    if drop_reason:
+        return drop_reason
+    return _evaluate_focus_gates(context, thresholds)
 
 
 def _watchlist_gate_checks(
@@ -877,17 +892,22 @@ def _candidate_from_context(
     *,
     drop_reason: Optional[str],
     timestamp_utc: str,
+    catalyst_present_override: Optional[bool] = None,
+    session_label_override: Optional[str] = None,
 ) -> CandidateMetrics:
     float_shares = context.get("float_shares")
     float_millions = (
         round(float_shares / 1_000_000.0, 2) if float_shares is not None else None
     )
-    session = (context.get("session") or "").upper()
+    session_value = session_label_override if session_label_override is not None else context.get("session")
+    session = (session_value or "").upper()
     volume = context.get("volume")
     premarket_volume = volume if session in {"PRE", "OVN"} else None
     catalyst_present = bool(
         news_context.get("ross_catalyst_valid") or news_context.get("news_present")
     )
+    if catalyst_present_override is not None:
+        catalyst_present = catalyst_present_override
     catalyst_type = news_context.get("catalyst_type")
     news_age = news_context.get("news_age_minutes")
     catalyst_summary = None
@@ -907,7 +927,7 @@ def _candidate_from_context(
         symbol=context.get("symbol"),
         con_id=context.get("con_id"),
         exchange=context.get("exchange"),
-        session_label=context.get("session"),
+        session_label=session_value,
         last_price=context.get("last_price"),
         prev_close=context.get("prev_close"),
         ref_close_rth=context.get("ref_close_rth"),
@@ -1119,12 +1139,16 @@ def _build_symbol_context(
     reference_price = None
     reference_label = None
     if include_pct_change:
-        rth_close_price = session_close if session_label == "AH" else prev_close
+        normalized_session = normalize_session_label(session_label)
+        rth_open_price = session_open
+        if normalized_session == "RTH" and ibkr_change_pct is None:
+            rth_open_price = None
+        rth_close_price = session_close if normalized_session == "AH" else prev_close
         pct_payload = compute_session_aligned_pct_change(
-            session_label=session_label,
+            session_label=normalized_session,
             cur_last=last_price,
             ref_close_rth=prev_close,
-            rth_open_price=session_open,
+            rth_open_price=rth_open_price,
             rth_close_price=rth_close_price,
             ibkr_change_pct=ibkr_change_pct,
         )
@@ -1719,11 +1743,11 @@ def run_scanner_cycle(
         watchlist_limit = limits["watchlist_limit"]
         allow_news = bool(get_config("NEWS_ENABLED")) and run_mode not in {
             RunMode.LIVE,
-            RunMode.LIVE_READ_ONLY,
-            RunMode.LIVE_MICRO,
-            RunMode.LIVE_ONE_SHARE,
+            RunMode.READ_ONLY,
             RunMode.PAPER,
         }
+        catalyst_override = None if allow_news else True
+        session_override = "" if session_label == "CLOSED" and run_mode != RunMode.LIVE else None
         context_by_symbol = {
             context.get("symbol"): context for context in evaluated_contexts
         }
@@ -1749,6 +1773,8 @@ def run_scanner_cycle(
                     thresholds,
                     drop_reason=drop_ledger.get(symbol),
                     timestamp_utc=utc_now.isoformat(),
+                    catalyst_present_override=catalyst_override,
+                    session_label_override=session_override,
                 )
             )
         after_gates_symbols = [context["symbol"] for context in candidates]
@@ -1769,11 +1795,29 @@ def run_scanner_cycle(
 
         # Watchlist gate is created here from the raw scanner universe (cheap metrics only).
         print("[SCANNER][STAGE] watchlist")
-        if selector is not None:
-            print("[SCANNER][WARN] Ranking selector bypassed for watchlist compliance")
         ranked = _rank_candidates(candidates)
-        watchlist_contexts = ranked[:watchlist_limit] if watchlist_limit > 0 else []
-        for context in ranked[watchlist_limit:]:
+        if selector is not None:
+            selection_metrics = candidate_metrics_for_ranking
+            if session_label == "CLOSED" and run_mode != RunMode.LIVE:
+                selection_metrics = [
+                    replace(metric, session_label=None)
+                    for metric in candidate_metrics_for_ranking
+                ]
+            selected_metrics = selector(selection_metrics, resolved_policy)
+            selected_symbols = [metric.symbol for metric in selected_metrics]
+            if watchlist_limit > 0:
+                selected_symbols = selected_symbols[:watchlist_limit]
+            watchlist_contexts = [
+                context_by_symbol[symbol]
+                for symbol in selected_symbols
+                if symbol in context_by_symbol
+            ]
+        else:
+            watchlist_contexts = ranked[:watchlist_limit] if watchlist_limit > 0 else []
+        watchlist_set = {context["symbol"] for context in watchlist_contexts}
+        for context in ranked:
+            if context["symbol"] in watchlist_set:
+                continue
             drop_ledger.setdefault(context["symbol"], "DROP_RANK_BELOW_WATCHLIST")
             print(
                 "[SCANNER][DROP] symbol="
@@ -1913,8 +1957,15 @@ def run_scanner_cycle(
                     thresholds,
                     drop_reason=drop_ledger.get(symbol),
                     timestamp_utc=utc_now.isoformat(),
+                    catalyst_present_override=catalyst_override,
+                    session_label_override=session_override,
                 )
             )
+        if session_override == "":
+            candidate_metrics = [
+                replace(candidate, session_label=None)
+                for candidate in candidate_metrics
+            ]
         candidate_lookup = {candidate.symbol: candidate for candidate in candidate_metrics}
         watchlist_metrics = [
             candidate_lookup[symbol]
@@ -2047,7 +2098,7 @@ def run_scanner_cycle(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Scanner runner")
-    parser.add_argument("--mode", default="READONLY")
+    parser.add_argument("--mode", default="READ_ONLY")
     parser.add_argument("--cycles", type=int, default=1)
     args = parser.parse_args()
 

@@ -18,21 +18,9 @@ class RuntimeModeManager:
     def resolve(cls) -> "RuntimeModeManager":
         resolved_mode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
         event_replay_mode = EventReplayMode(get_config("EVENT_REPLAY_MODE_EFFECTIVE"))
-        is_live_like = resolved_mode in {
-            RunMode.LIVE,
-            RunMode.LIVE_ONE_SHARE,
-            RunMode.LIVE_MICRO,
-        }
-        allow_orders = resolved_mode in {
-            RunMode.SIM,
-            RunMode.PAPER,
-            RunMode.LIVE,
-            RunMode.LIVE_ONE_SHARE,
-            RunMode.LIVE_MICRO,
-        }
-        max_shares_per_order = (
-            1 if resolved_mode in {RunMode.LIVE_ONE_SHARE, RunMode.LIVE_MICRO} else None
-        )
+        is_live_like = resolved_mode in {RunMode.LIVE, RunMode.READ_ONLY}
+        allow_orders = resolved_mode in {RunMode.PAPER, RunMode.LIVE}
+        max_shares_per_order = None
         if is_live_like and event_replay_mode != EventReplayMode.OFF:
             print(
                 "[SAFETY] Replay request detected in live-like mode. "

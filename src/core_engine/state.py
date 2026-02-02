@@ -9,18 +9,23 @@ from enum import Enum
 
 class RunMode(str, Enum):
     SIM = "SIM"
-    READONLY = "READONLY"
-    LIVE_1SHARE = "LIVE_1SHARE"
+    READ_ONLY = "READ_ONLY"
+    PAPER = "PAPER"
+    LIVE = "LIVE"
 
     @classmethod
     def from_value(cls, value: str | None) -> "RunMode":
         if not value:
-            return cls.READONLY
+            return cls.READ_ONLY
         normalized = value.strip().upper()
         if normalized in {"LIVE_1SHARE", "LIVE-1SHARE", "LIVE_MICRO", "LIVE_ONE_SHARE"}:
-            return cls.LIVE_1SHARE
+            return cls.LIVE
         if normalized in {"READONLY", "READ_ONLY", "LIVE_READ_ONLY", "LIVE_READONLY"}:
-            return cls.READONLY
+            return cls.READ_ONLY
+        if normalized in {"PAPER"}:
+            return cls.PAPER
+        if normalized in {"LIVE"}:
+            return cls.LIVE
         if normalized in {"SIM", "SIMULATION"}:
             return cls.SIM
         raise ValueError(f"Unknown run mode: {value}")

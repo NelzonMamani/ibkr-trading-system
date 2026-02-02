@@ -112,7 +112,7 @@ class IbkrExecutionProvider(ExecutionProvider):
         return True
 
     def place_order(self, request: BrokerOrderRequest) -> ExecutionResult:
-        if self.run_mode == RunMode.LIVE_READ_ONLY:
+        if self.run_mode == RunMode.READ_ONLY:
             return ExecutionResult(
                 symbol=request.symbol,
                 trader_type=request.trader_type or "UNKNOWN",

@@ -17,7 +17,7 @@ from src.domain.market_snapshot import MarketSnapshot
 from src.models.execution_result import ExecutionResult
 
 
-READONLY_ERROR = "IBKR READ-ONLY MODE: order submission disabled in LIVE_READ_ONLY."
+READONLY_ERROR = "IBKR READ-ONLY MODE: order submission disabled in READ_ONLY."
 
 
 @dataclass

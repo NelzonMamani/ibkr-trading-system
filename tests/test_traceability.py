@@ -56,7 +56,7 @@ def test_live_readonly_connectivity_retry(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("TRACE_LOG_DIR", str(tmp_path))
     set_config_overrides(
         {
-            "RUN_MODE": "LIVE_READ_ONLY",
+            "RUN_MODE": "READ_ONLY",
             "IBKR_FALLBACK_ENABLED": False,
         }
     )
