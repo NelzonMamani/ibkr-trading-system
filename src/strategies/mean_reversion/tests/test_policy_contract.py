@@ -1,4 +1,9 @@
-from mean_reversion.mean_reversion_strategy_policy import MeanReversionPolicyConfig, MeanReversionStrategyPolicy, ScannerFacts, MarketRegimeFacts
+from src.strategies.mean_reversion.mean_reversion_strategy_policy import (
+    MeanReversionPolicyConfig,
+    MeanReversionStrategyPolicy,
+    ScannerFacts,
+    MarketRegimeFacts,
+)
 
 def test_policy_instantiates():
     policy = MeanReversionStrategyPolicy(cfg=MeanReversionPolicyConfig(), risk_engine=None)

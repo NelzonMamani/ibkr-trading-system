@@ -1,0 +1,270 @@
+[CONFIG] Loaded 138 variables
+[CONFIG] HARD enforced: 26
+[CONFIG] Optional: 111
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+[IBKR][TRANSLATOR] ibapi dependency missing; translation unavailable.
+[BOOT] Starting the IBKR Trading System skeleton.
+[PHASE] PHASE 4 — Minimal Live-Capable System (Teaching-First).
+[INTENT] Demonstrate a clean, observable entry point without trading logic.
+[CONFIG] Baseline teaching defaults (pre-resolution):
+  - RUN_MODE: LIVE (baseline)
+  - EVENT_REPLAY_MODE: CYCLE (baseline)
+[CONFIG] Resolved runtime configuration (authoritative):
+  - RUN_MODE: LIVE (resolved)
+  - EVENT_REPLAY_MODE: OFF (resolved; forced OFF in live-like modes for safety)
+[CONFIG] Runtime mode manager: mode=LIVE live_like=True allow_orders=True max_shares_per_order=None event_replay=OFF
+[STARTUP] EVENT_REPLAY_MODE forced OFF for live-like modes
+  - CYCLE_SLEEP_SECONDS: 3
+  - ACTIVE_SESSIONS: PRE, RTH, AH
+[STARTUP] Runtime banner
+[STARTUP] Run mode: LIVE
+[STARTUP] Event replay: OFF
+[STARTUP] Active sessions: PRE, RTH, AH
+[STARTUP] Execution flags
+  - EXECUTION_ENABLED: True
+  - IBKR_READONLY_ENABLED: False
+  - IBKR_ORDER_TRANSLATION_ENABLED: True
+  - IBKR_ORDER_SUBMISSION_ENABLED: True
+[STARTUP] Risk profile guardrails
+  - RISK_PROFILE: NORMAL
+[STARTUP] Broker connectivity
+  - IBKR_HOST: 127.0.0.1
+  - IBKR_PORT: 7497
+  - IBKR_CLIENT_ID: 7
+  - IBKR_MARKET_DATA_TYPE: DELAYED
+[STARTUP] Storage
+  - SQLITE_PATH: /workspace/ibkr-trading-system/data/ibkr_system.db
+  - SCHEMA_VERSION: 4
+  - DB_EXISTS: Y
+  - IBKR_READONLY_ENABLED: False
+  - IBKR_API_WRITE_ALLOWED: True
+  - EXECUTION_ENABLED: True
+  - IBKR_HOST: 127.0.0.1
+  - IBKR_PORT: 7497
+  - IBKR_CLIENT_ID: 7
+  - IBKR_SNAPSHOT_TIMEOUT_SECONDS: 5
+  - IBKR_MARKET_DATA_TYPE: DELAYED
+  - IBKR_MAX_SYMBOLS_PER_CYCLE: 50
+  - SCANNER_MODE: LIVE_READONLY
+  - SCANNER_SYMBOLS: []
+  - INTENT_DEDUP_SELFTEST_ENABLED: False
+  - ADAPTIVE_REGIME_LAYER_ENABLED: False
+  - ADAPTIVE_REGIME_POLICY_ENABLED: False
+  - IBKR_ORDER_TRANSLATION_ENABLED: True
+  - IBKR_DEFAULT_EXCHANGE: SMART
+  - IBKR_DEFAULT_CURRENCY: USD
+[SAFETY] IBKR API WRITE: ENABLED
+[SAFETY] MARKET DATA: LIVE IBKR
+[CONFIG][VALIDATION] Execution enabled; guard allows broker actions
+[INFO] Core Orchestrator initialised.
+[BOOT] Runtime mode resolved: mode=LIVE live_like=True allow_orders=True max_shares_per_order=None event_replay=OFF
+[BOOT] EventCollector initialised
+[BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
+[BOOT] SignalEngineV1 instantiated
+[BOOT] Strategy 'GapAndGoStrategy' skipped due to selection (selected=MeanReversionStrategy).
+[BOOT] Strategy 'MomentumContinuationStrategy' skipped due to selection (selected=MeanReversionStrategy).
+[BOOT] Strategy 'RossMomentumStrategyV1' skipped due to selection (selected=MeanReversionStrategy).
+[BOOT] Strategy 'StatisticalIntradayMomentum' skipped due to selection (selected=MeanReversionStrategy).
+[BOOT][STRATEGY] MeanReversionStrategy enabled=True selected=True reason=MEAN_REVERSION_STRATEGY_ENABLED=True
+[BOOT] Strategy 'MeanReversionStrategy' ENABLED via config and registered.
+[BOOT] StrategyRunner instantiated with strategies: MeanReversionStrategy
+[BOOT] RiskEngine instantiated — phase 4 teaching rules active
+[EXECUTION][WARN] IBKR live broker unavailable; forcing execution disabled for safety.
+[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow
+[EXECUTION][WARN] Execution provider missing; forcing execution disabled for safety.
+[STORAGE] SQLite path resolved to /workspace/ibkr-trading-system/data/ibkr_system.db
+[BOOT] StorageEngine initialised
+[BOOT] Event replay mode resolved — mode=OFF
+[VALIDATION] Running startup validations
+[VALIDATION] Config resolved
+[VALIDATION] Effective run mode: LIVE
+[VALIDATION] Scanner mode resolved: LIVE_READONLY
+[VALIDATION] Scanner data source: IBKR
+[VALIDATION] Execution policy: HARD DISABLED
+[VALIDATION] Market data source: IBKR
+[VALIDATION] IBKR API WRITE: ENABLED
+[VALIDATION] EXECUTION: HARD DISABLED
+[VALIDATION] ORDER ROUTING: BLOCKED
+[VALIDATION] MARKET DATA: LIVE IBKR
+[VALIDATION] Broker adapter in use: NONE
+[VALIDATION] Storage OK — SQLite opened
+[LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[CYCLE] Starting orchestrator cycle.
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).

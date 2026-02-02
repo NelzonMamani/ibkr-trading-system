@@ -347,6 +347,19 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
                 "[CONFIG] Selected strategy=statistical_intraday_momentum; "
                 "forcing STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True"
             )
+    if selected_strategy == "mean_reversion":
+        current_enabled = resolved["MEAN_REVERSION_STRATEGY_ENABLED"].value
+        if not current_enabled:
+            resolved["MEAN_REVERSION_STRATEGY_ENABLED"] = ConfigRecord(
+                name="MEAN_REVERSION_STRATEGY_ENABLED",
+                value=True,
+                source="DERIVED",
+                env=None,
+            )
+            print(
+                "[CONFIG] Selected strategy=mean_reversion; "
+                "forcing MEAN_REVERSION_STRATEGY_ENABLED=True"
+            )
 
     if resolved["GIT_SHA"].value is None:
         resolved["GIT_SHA"] = ConfigRecord(

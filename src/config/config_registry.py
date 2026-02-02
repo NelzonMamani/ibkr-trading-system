@@ -1206,6 +1206,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Enable Statistical Intraday Momentum strategy execution.",
     },
+    "MEAN_REVERSION_STRATEGY_ENABLED": {
+        "type": bool,
+        "default": False,
+        "env": ["MEAN_REVERSION_STRATEGY_ENABLED"],
+        "affects": ["Strategies"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Enable Mean Reversion strategy execution.",
+    },
     "SELECTED_STRATEGY": {
         "type": str,
         "default": "",
