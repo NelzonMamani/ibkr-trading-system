@@ -1,106 +1,192 @@
-# SYSTEM_STATE — Authoritative Project Status
-Last updated: 2026-02-01
+SYSTEM_STATE.md
 
-## Purpose
-This file is the **single source of operational truth**.
-It defines what is frozen, what is active, what is prepared, and what execution is allowed.
+IBKR Trading System — Authoritative Runtime State
 
----
+Last Updated: 2026-02-02
+Status: ACTIVE DEVELOPMENT — LIVE-SAFE
+Authority Level: Canonical (supersedes prior SYSTEM_STATE versions)
 
-## Epoch Status
+1. SYSTEM OVERVIEW
 
-### Epoch 4 — COMPLETE (Frozen)
-Scanner contract finalized:
-Top N gainers → hard gates → Watchlist K → Focus M  
-Empty watchlists are valid and must be explained.
+The IBKR Trading System is a multi-strategy, multi-mode trading platform designed with strict separation between:
 
-### Epoch 5 — COMPLETE (Frozen)
-Trading OS end-to-end pipeline complete:
-Scanner → Strategy → Risk → Execution → Storage  
-Determinism, explainability, and safety enforced.
+Data acquisition
 
-### Epoch 9 — COMPLETE (Frozen)
-**Strategy Portfolio Governance layer introduced:**
-- Canonical Strategy Interface (intent normalization)
-- Strategy Registry (enable/disable, priority)
-- Deterministic arbitration (one strategy per symbol)
-- Capital allocation governance  
-This epoch is infrastructure-only and does **not** change strategy behaviour.
+Strategy decision logic
 
-### Epoch 10 — IN PROGRESS (Isolated)
-**Statistical Intraday Momentum strategy**
-- Interface-native strategy
-- Intended to trade once verification passes
-- Currently under validation and isolation
-- No impact on Ross or live paths until explicitly enabled
+Risk governance
 
----
+Execution routing
 
-## Active Trading Tracks
+The system enforces safety-first execution guarantees and supports multiple strategies operating concurrently under a unified orchestration layer.
 
-### Track A — Ross Momentum Live Track (ACTIVE)
-- Strategy-driven stock selection enforced
-- LIVE_MICRO (1 share) supported with hard risk caps
-- Time-of-day aware behaviour
-- Mandatory verification commands required
-- Adjustments in progress (scanner, modes, adapter)
-- Remains the primary live-capable strategy
+2. CANONICAL RUN MODES (LOCKED)
 
----
+The system operates under exactly three canonical run modes:
 
-## Implementation Steps in Progress
+Run Mode	Market Data	Trade Intents	Execution
+READ_ONLY	Live (IBKR)	Allowed	Hard-blocked
+PAPER	Live / Simulated	Allowed	Simulated only
+LIVE	Live (IBKR)	Allowed	Allowed (risk-governed)
 
-### Step 3 — Ross Interface Adapter (IN PROGRESS)
-- Pure mapping layer: Ross → Strategy Interface
-- **No logic change, no behaviour change**
-- Adapter only; minimal routing update
-- Ross remains live-ready throughout
+⚠️ SIM exists only for testing and replay and is not considered a trading mode.
 
----
+Explicitly Removed Concepts
 
-## Stabilisation & Learning
+The following are not run modes:
 
-### Stabilisation Phase — COMPLETE (Frozen)
-- Scanner market-data alignment
-- Watchlist lifecycle governance + observability
-- DB auto-recovery and ops summaries
-- Mandatory verification commands enforced
+LIVE_MICRO
 
-### Parallel Learning Epoch — ACTIVE (Isolated)
-- Read-only analysis of events and trades
-- Scheduled reports and reviews
-- Policy proposals only — never auto-applied
+LIVE_ONE_SHARE
 
----
+LIVE_READ_ONLY
 
-## Future / Prepared Epochs
+These are now modeled exclusively as risk profiles or execution constraints, not runtime modes.
 
-### Epoch 6 — PREPARED (Isolated / Non-Executable)
-**Long-horizon / Buffett-style strategies**
+3. RISK GOVERNANCE MODEL
 
-- Governance bundle present
-- Strategy scaffold present
-- Runs off-hours / weekends only
-- No live or paper execution permitted by default
-- Produces Watchlists, Focus Lists, and TradeIntents only
-- Must remain isolated from intraday strategies
-- Execution requires explicit future governance approval
+Execution eligibility is determined by Risk Engine decisions, not strategies.
 
----
+Risk evaluation considers:
 
-## Frozen Truths (Non-Negotiable)
-- Scanner never trades
-- Strategies emit **TradeIntent only**
-- Strategy Interface normalizes intent; no strategy executes orders
-- Risk is the final authority
-- Execution obeys mode, caps, and acknowledgements
-- Storage is mandatory for all outcomes
-- Learning never mutates live logic automatically
+Run mode
 
----
+Strategy-specific locks
 
-## Next Actions
-- Complete Step 3 (Ross → Interface adapter) with full verification
-- Continue Epoch 10 strategy development in isolation
-- Proceed with controlled Track A LIVE_MICRO rollout
-- Long Horizon Value strategy remains non-executable until explicitly unlocked
+Risk profile limits
+
+Circuit breakers
+
+Data quality
+
+System health
+
+Risk decisions are:
+
+Deterministic
+
+Logged
+
+Auditable
+
+Explainable via reason codes
+
+4. STRATEGY MATRIX (AUTHORITATIVE)
+4.1 Ross Momentum Strategy
+
+Purpose: Intraday momentum trading
+
+Mode	Behavior
+READ_ONLY	Scans, selects, emits intents (no execution)
+PAPER	Full simulated trading
+LIVE	Full live trading (risk-governed)
+
+Status:
+✅ Fully implemented
+✅ Execution-enabled
+✅ Production-ready (pending ongoing tuning)
+
+4.2 Statistical Intraday Momentum
+
+Purpose: Quantitative intraday continuation / reversion
+
+Mode	Behavior
+READ_ONLY	Signal generation only
+PAPER	Full simulated trading
+LIVE	Full live trading (risk-governed)
+
+Status:
+✅ Fully implemented
+✅ Execution-enabled
+⚠️ Still undergoing calibration and validation
+
+4.3 Long Horizon Value Strategy (Epoch 6)
+
+Purpose: Multi-month / multi-year fundamental value investing
+
+Hard Policy Locks (Non-Negotiable)
+
+Market-Closed Only
+
+Strategy will not run during PRE or RTH sessions
+
+Enforced at runner level
+
+Execution Lock in LIVE
+
+LIVE mode may emit TradeIntents
+
+Execution is hard-blocked by Risk Engine
+
+Manual or future explicit override is required to trade live
+
+Mode Behavior
+Mode	Behavior
+READ_ONLY	Universe discovery, valuation, focus list, reports
+PAPER	Simulated buying, allocation, compounding
+LIVE	TradeIntents emitted, execution blocked by policy
+Risk Enforcement
+
+LIVE execution blocked with reason code:
+STRATEGY_READ_ONLY_EXECUTION_LOCK
+
+Block events are emitted and logged
+
+No silent failures
+
+Status:
+🟡 Pipeline scaffold implemented
+🟡 Governance and safety locks complete
+🟡 Execution intentionally disabled by policy
+
+5. EXECUTION SAFETY GUARANTEES
+
+The system guarantees:
+
+No broker orders are sent in READ_ONLY
+
+No strategy can bypass Risk Engine
+
+Long Horizon Value cannot accidentally trade live
+
+All execution paths are logged
+
+All blocks produce explicit reason codes
+
+There are no implicit permissions anywhere in the system.
+
+6. CURRENT DEVELOPMENT FOCUS
+
+Active work is ongoing in:
+
+Scanner correctness & alignment
+
+Statistical strategy calibration
+
+Long Horizon Value pipeline completion
+
+Risk profile tuning
+
+Observability & diagnostics
+
+No further strategies will be allowed to trade live until:
+
+PAPER validation passes
+
+Risk thresholds are verified
+
+Execution audit trails are complete
+
+7. CONSTITUTIONAL NOTES
+
+This document reflects actual enforced behavior, not intent.
+
+Any deviation requires:
+
+Code change
+
+Test coverage
+
+Explicit SYSTEM_STATE update
+
+END OF SYSTEM_STATE.md
