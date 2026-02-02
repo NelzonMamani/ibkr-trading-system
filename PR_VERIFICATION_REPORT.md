@@ -1,5 +1,49 @@
 # PR Verification Report
 
+## Update — Mean Reversion Wiring (2026-02-02)
+
+### Summary
+- Objective: wire Mean Reversion strategy end-to-end and validate readiness across READ_ONLY/PAPER/LIVE.
+- Status: compileall + pytest passed; READ_ONLY/PAPER smoke runs completed with IBKR connection warnings; LIVE smoke required termination because LIVE mode loops when market session is CLOSED.
+
+### Mandatory Verification Commands (Mean Reversion)
+
+1) Command:
+```
+python -m compileall src > output/verification/compileall_mean_reversion.log
+```
+Result: PASS
+
+2) Command:
+```
+pytest -q > output/verification/pytest_mean_reversion.log
+```
+Result: PASS (warnings about IBKR connect coroutine)
+
+3) Command:
+```
+pytest -q src/strategies/mean_reversion/tests > output/verification/pytest_mean_reversion_strategy_local.log
+```
+Result: PASS
+
+4) Command:
+```
+python -m src.main --mode READ_ONLY --cycles 1 --strategy mean_reversion > output/verification/mean_reversion_READ_ONLY.log
+```
+Result: PASS (IBKR connection refused in this environment; fallback handled, no crash)
+
+5) Command:
+```
+python -m src.main --mode PAPER --cycles 1 --strategy mean_reversion > output/verification/mean_reversion_PAPER.log
+```
+Result: PASS (IBKR connection refused in this environment; fallback handled, no crash)
+
+6) Command:
+```
+python -m src.main --mode LIVE --cycles 1 --strategy mean_reversion > output/verification/mean_reversion_LIVE_smoke.log
+```
+Result: WARN (LIVE loop does not increment cycles when session is CLOSED; process was terminated after confirming startup wiring. Run during an open market session to complete.)
+
 ## Update — Ross Scanner Contract Lock (2026-01-30)
 
 ### Summary

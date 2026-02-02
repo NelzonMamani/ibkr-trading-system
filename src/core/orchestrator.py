@@ -87,6 +87,10 @@ from src.strategies.statistical_intraday_momentum.strategy_policy import (
     StatisticalIntradayMomentumPolicy,
     statistical_stock_selection_spec,
 )
+from src.strategies.mean_reversion.scanner_policy import (
+    MeanReversionScannerPolicy,
+    mean_reversion_stock_selection_spec,
+)
 from src.utils.time_utils import market_session_phase, to_ny_time, to_uk_time
 from src.regime.layer import RegimeLayer
 
@@ -251,6 +255,10 @@ class CoreOrchestrator:
         if selected_strategy == "statistical_intraday_momentum":
             strategy_policy = StatisticalIntradayMomentumPolicy()
             stock_policy = statistical_stock_selection_spec()
+            return strategy_policy, stock_policy
+        if selected_strategy == "mean_reversion":
+            strategy_policy = MeanReversionScannerPolicy()
+            stock_policy = mean_reversion_stock_selection_spec()
             return strategy_policy, stock_policy
         strategy_policy = RossMomentumPolicy()
         stock_policy = stock_selection_policy_for_session_phase(strategy_policy, session_phase)

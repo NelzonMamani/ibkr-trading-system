@@ -16,6 +16,7 @@ from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
 from src.strategies.statistical_intraday_momentum.strategy import (
     StatisticalIntradayMomentum,
 )
+from src.strategies.mean_reversion.strategy import MeanReversionStrategy
 from src.strategy.exit_signal import ExitSignal
 from src.core.active_trade_registry import ActiveTrade
 from src.signals.signal_event import SignalEvent
@@ -36,6 +37,7 @@ class StrategyRunner:
             ("MomentumContinuationStrategy", MomentumContinuationStrategy),
             ("RossMomentumStrategyV1", RossMomentumStrategyV1),
             ("StatisticalIntradayMomentum", StatisticalIntradayMomentum),
+            ("MeanReversionStrategy", MeanReversionStrategy),
         ]
         self.strategies = []
         self.event_collector = event_collector
@@ -46,6 +48,7 @@ class StrategyRunner:
         selected_map = {
             "ross_momentum": "RossMomentumStrategyV1",
             "statistical_intraday_momentum": "StatisticalIntradayMomentum",
+            "mean_reversion": "MeanReversionStrategy",
         }
         selected_strategy_name = selected_map.get(selected_strategy_key)
 
@@ -76,6 +79,14 @@ class StrategyRunner:
                 print(
                     "[BOOT][STRATEGY] StatisticalIntradayMomentum "
                     f"enabled={enabled} selected={selected_strategy_name == 'StatisticalIntradayMomentum'} "
+                    f"reason={reason}"
+                )
+            elif strategy_name == "MeanReversionStrategy":
+                enabled = bool(get_config("MEAN_REVERSION_STRATEGY_ENABLED"))
+                reason = f"MEAN_REVERSION_STRATEGY_ENABLED={enabled}"
+                print(
+                    "[BOOT][STRATEGY] MeanReversionStrategy "
+                    f"enabled={enabled} selected={selected_strategy_name == 'MeanReversionStrategy'} "
                     f"reason={reason}"
                 )
             else:
