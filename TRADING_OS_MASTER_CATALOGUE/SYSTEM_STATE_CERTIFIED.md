@@ -14,7 +14,7 @@
 Legend: NOT_STARTED / PARTIAL / IMPLEMENTED_UNCERTIFIED / CERTIFIED
 
 - E0_SYSTEM_LAW_TRUTH: CERTIFIED
-- E1_TRACEABILITY_OBSERVABILITY: IMPLEMENTED_UNCERTIFIED
+- E1_TRACEABILITY_OBSERVABILITY: CERTIFIED
 - E2_POSITION_LIFECYCLE_ENGINE: IMPLEMENTED_UNCERTIFIED
 - E3_RISK_ENGINE_COMPLETENESS: IMPLEMENTED_UNCERTIFIED
 - E4_DATA_QUALITY_MARKET_STATE: IMPLEMENTED_UNCERTIFIED
@@ -52,3 +52,4 @@ Legend: NOT_STARTED / PARTIAL / IMPLEMENTED_UNCERTIFIED / CERTIFIED
 ## Verification Notes
 - E0 verification executed compileall, pytest, and boot cycles for SIM, PAPER, READ_ONLY, and LIVE.
 - PAPER and READ_ONLY boot cycles reported IBKR connectivity warnings when no local TWS/IBG instance was available; system degraded safely without order routing.
+- E1 verification executed compileall, pytest, and boot cycles for SIM, PAPER, READ_ONLY, and LIVE; IBKR connectivity failures were captured as traceable HALT reasons.
