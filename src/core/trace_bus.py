@@ -6,6 +6,7 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from uuid import uuid4
 
 
 class TraceBus:
@@ -27,13 +28,23 @@ class TraceBus:
         summary: str | None = None,
     ) -> dict[str, Any]:
         timestamp = datetime.now(timezone.utc).isoformat()
+        component = payload.get("component", stage)
+        action = payload.get("action", stage)
+        decision = payload.get("decision") or payload.get("action") or "UNSPECIFIED"
+        reason_code = payload.get("reason_code") or payload.get("reason") or "UNSPECIFIED"
         record = {
+            "event_id": str(uuid4()),
             "timestamp": timestamp,
             "stage": stage,
+            "component": component,
+            "action": action,
+            "entity_id": self._extract_entity_id(payload),
+            "decision": decision,
+            "reason_code": reason_code,
             "cycle_id": cycle_id,
             "run_mode": run_mode,
             "strategy": strategy,
-            "payload": self._normalize(payload),
+            "metadata": self._normalize(payload),
         }
         log_path = self._log_path_for_date(timestamp)
         with log_path.open("a", encoding="utf-8") as handle:
@@ -89,3 +100,18 @@ class TraceBus:
         if isinstance(payload, tuple):
             return [self._normalize(item) for item in payload]
         return payload
+
+    @staticmethod
+    def _extract_entity_id(payload: dict[str, Any]) -> Any:
+        for key in (
+            "entity_id",
+            "symbol",
+            "client_order_id",
+            "order_id",
+            "trade_id",
+            "position_id",
+            "scanner_id",
+        ):
+            if key in payload:
+                return payload.get(key)
+        return None
