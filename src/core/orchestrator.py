@@ -701,6 +701,10 @@ class CoreOrchestrator:
                         "[GATE] Teaching note: PAPER would still run for education, "
                         "but LIVE waits for an open session."
                     )
+                    if max_cycles is not None:
+                        cycles_run += 1
+                        if cycles_run >= max_cycles:
+                            break
                 else:
                     print(
                         "[SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once()."
