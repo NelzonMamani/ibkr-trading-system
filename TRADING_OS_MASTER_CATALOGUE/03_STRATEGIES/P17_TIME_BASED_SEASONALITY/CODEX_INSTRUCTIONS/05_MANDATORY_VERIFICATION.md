@@ -1,0 +1,10 @@
+# P17_TIME_BASED_SEASONALITY — CODEX — 05_MANDATORY_VERIFICATION
+Run and record:
+- python -m compileall src
+- pytest -q
+- E21 SIM run including P17_TIME_BASED_SEASONALITY
+- E21 PAPER run including P17_TIME_BASED_SEASONALITY
+- READ_ONLY run including P17_TIME_BASED_SEASONALITY
+- LIVE safety check (no unintended orders)
+
+END

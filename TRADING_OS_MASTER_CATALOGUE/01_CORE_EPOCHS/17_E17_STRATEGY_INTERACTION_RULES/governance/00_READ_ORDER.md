@@ -1,0 +1,17 @@
+# E17_STRATEGY_INTERACTION_RULES — READ ORDER
+
+This folder contains the GOVERNANCE bundle for Epoch E17.
+
+Read order is mandatory:
+1. 01_EPOCH_OVERVIEW.md
+2. 02_PROBLEM_STATEMENT.md
+3. 03_INTERACTION_PRINCIPLES.md
+4. 04_CONFLICT_AND_PRIORITY_RULES.md
+5. 05_CAPABILITY_MATRIX.md
+6. 06_AUDIT_AND_ENFORCEMENT.md
+7. 07_CERTIFICATION_CRITERIA.md
+
+These documents define SYSTEM LAW.
+Implementation must conform exactly.
+
+END

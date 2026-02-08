@@ -1,0 +1,7 @@
+# S3 CONDITIONS & ZONES
+
+- C_*_PASS / FAIL
+- ZONE_*_ACTIVE
+- PRICE_*_ZONE_*
+
+END

@@ -1,0 +1,7 @@
+# S5 RISK & CONTROL
+
+- NO_TRADE_*
+- FAILURE_MODE_*
+- RISK_*
+
+END

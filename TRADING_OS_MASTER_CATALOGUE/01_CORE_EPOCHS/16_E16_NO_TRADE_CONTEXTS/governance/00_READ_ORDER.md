@@ -1,0 +1,17 @@
+# E16_NO_TRADE_CONTEXTS — READ ORDER
+
+This folder contains the GOVERNANCE bundle for Epoch E16.
+
+Read order is mandatory:
+1. 01_EPOCH_OVERVIEW.md
+2. 02_AUTHORITY_AND_SCOPE.md
+3. 03_NO_TRADE_CONTEXT_TAXONOMY.md
+4. 04_DETECTION_AND_GATING.md
+5. 05_STRATEGY_AND_ORCHESTRATOR_OBLIGATIONS.md
+6. 06_AUDIT_AND_ENFORCEMENT.md
+7. 07_CERTIFICATION_CRITERIA.md
+
+These documents define SYSTEM LAW.
+Implementation must conform exactly.
+
+END

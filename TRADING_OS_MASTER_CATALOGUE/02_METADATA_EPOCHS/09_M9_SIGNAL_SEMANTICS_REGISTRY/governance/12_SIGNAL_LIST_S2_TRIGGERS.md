@@ -1,0 +1,7 @@
+# S2 TRIGGER SIGNALS
+
+- XL_*_ARMED
+- XL_*_FIRED
+- XL_*_FAILED
+
+END

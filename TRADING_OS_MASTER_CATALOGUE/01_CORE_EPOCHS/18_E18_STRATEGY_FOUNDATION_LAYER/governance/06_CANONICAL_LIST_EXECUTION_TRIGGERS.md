@@ -1,0 +1,23 @@
+# E18 — CANONICAL LIST: EXECUTION TRIGGERS (LOCKED FROM TREE)
+
+Source: TRADING_OS_MASTER_CATALOGUE/03_STRATEGY_FOUNDATION/02_EXECUTION_TRIGGERS
+
+REQUIREMENT:
+All triggers below MUST exist as reusable, mechanical “trigger primitives”.
+Triggers do NOT decide strategy permission; they only detect a mechanical event.
+
+CHECKLIST (XL_*):
+[ ] 00_XL_MICRO_PULLBACK
+[ ] 01_XL_ORB_BREAK
+[ ] 02_XL_ORB_RETEST
+[ ] 03_XL_FLAG_BREAK
+[ ] 04_XL_FLAG_RECLAIM
+[ ] 05_XL_VWAP_RECLAIM
+[ ] 06_XL_EMA_RECLAIM
+[ ] 07_XL_HOD_BREAK
+[ ] 08_XL_RANGE_BREAK
+[ ] 09_XL_ABCD
+[ ] 10_XL_MEASURED_MOVE
+[ ] 11_XL_LIQUIDITY_SWEEP_RECLAIM
+
+END

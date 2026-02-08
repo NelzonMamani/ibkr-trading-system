@@ -1,0 +1,16 @@
+# MARKET STRUCTURE & INVALIDATION — CHECKLIST
+
+MARKET STRUCTURE STATES:
+- TREND_UP
+- TREND_DOWN
+- BALANCED
+- COMPRESSION
+- EXPANSION
+
+INVALIDATION SEMANTICS:
+- Soft Invalidation
+- Hard Invalidation
+- Setup Invalidation
+- Trade Invalidation
+
+END

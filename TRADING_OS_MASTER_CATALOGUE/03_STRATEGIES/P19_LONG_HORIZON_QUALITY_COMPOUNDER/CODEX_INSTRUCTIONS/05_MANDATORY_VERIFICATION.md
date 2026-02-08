@@ -1,0 +1,10 @@
+# P19_LONG_HORIZON_QUALITY_COMPOUNDER — CODEX — 05_MANDATORY_VERIFICATION
+Run and record:
+- python -m compileall src
+- pytest -q
+- E21 SIM run including P19_LONG_HORIZON_QUALITY_COMPOUNDER
+- E21 PAPER run including P19_LONG_HORIZON_QUALITY_COMPOUNDER
+- READ_ONLY run including P19_LONG_HORIZON_QUALITY_COMPOUNDER
+- LIVE safety check (no unintended orders)
+
+END

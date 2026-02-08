@@ -162,7 +162,13 @@ ibkr-trading-system/
 ├── output
 │   ├── verification
 │   │   ├── compileall.log
+│   │   ├── compileall_mean_reversion.log
+│   │   ├── mean_reversion_LIVE_smoke.log
+│   │   ├── mean_reversion_PAPER.log
+│   │   ├── mean_reversion_READ_ONLY.log
 │   │   ├── pytest.log
+│   │   ├── pytest_mean_reversion.log
+│   │   ├── pytest_mean_reversion_strategy_local.log
 │   │   ├── readiness_SIM.log
 │   │   ├── RUN_LIVE_MICRO_1SHARE.log
 │   │   ├── RUN_LIVE_READ_ONLY.log
@@ -202,6 +208,16 @@ ibkr-trading-system/
 │   │   ├── watchlist_RossMomentum_20260130_185457_UTC.txt
 │   │   └── watchlist_RossMomentum_20260131_143831_UTC.txt
 │   └── trade_store.jsonl
+├── planning
+│   ├── create_catalogue_strategies.py
+│   ├── create_src_strategies.py
+│   ├── create_trading_os_master_catalogue.py
+│   ├── create_trading_os_master_catalogue_MASTER.py
+│   ├── create_trading_os_master_catalogueREFERENCE.py
+│   ├── ibkr_trading_os_master_catalog.py
+│   ├── ibkr_trading_os_master_plan.py
+│   ├── strategy folder.py
+│   └── trading_os_epoch_blueprint.py
 ├── ROSS_PAPER_SCANNER_SETUPS_FIX_PACK
 │   ├── 00_READ_ORDER.md
 │   ├── 01_CONTEXT_AND_GOALS.md
@@ -326,6 +342,8 @@ ibkr-trading-system/
 │   │   ├── reporting.py
 │   │   ├── scheduler.py
 │   │   └── storage.py
+│   ├── logs
+│   │   └── trace_20260202.jsonl
 │   ├── market_data
 │   │   ├── __init__.py
 │   │   ├── market_data_hub.py
@@ -344,7 +362,8 @@ ibkr-trading-system/
 │   ├── output
 │   │   └── watchlists
 │   │       ├── watchlist_RossMomentum_20260114_214226_UTC.txt
-│   │       └── watchlist_RossMomentum_20260115_150416_UTC.txt
+│   │       ├── watchlist_RossMomentum_20260115_150416_UTC.txt
+│   │       └── watchlist_RossMomentum_20260202_100713_UTC.txt
 │   ├── patterns
 │   │   ├── __init__.py
 │   │   └── pattern_engine.py
@@ -440,9 +459,25 @@ ibkr-trading-system/
 │   │   │       ├── candle_types.py
 │   │   │       ├── multi_candle.py
 │   │   │       └── single_candle.py
+│   │   ├── cross_sectional_relative_strength_rotation
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
 │   │   ├── early_entry_momentum
 │   │   │   ├── __init__.py
 │   │   │   └── strategy.py
+│   │   ├── event_earnings_reaction
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
+│   │   ├── event_news_shock_continuation
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
+│   │   ├── long_horizon_quality_compounder
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
 │   │   ├── long_horizon_value
 │   │   │   ├── contracts
 │   │   │   │   ├── intents.py
@@ -469,6 +504,7 @@ ibkr-trading-system/
 │   │   │   │   └── EXAMPLE_WORKFLOW.md
 │   │   │   ├── tests
 │   │   │   │   ├── __init__.py
+│   │   │   │   ├── test_adapter_mapping.py
 │   │   │   │   ├── test_entry_models.py
 │   │   │   │   ├── test_exhaustion.py
 │   │   │   │   ├── test_exit_models.py
@@ -476,6 +512,7 @@ ibkr-trading-system/
 │   │   │   │   ├── test_overextension.py
 │   │   │   │   └── test_policy_contract.py
 │   │   │   ├── __init__.py
+│   │   │   ├── adapters.py
 │   │   │   ├── CONTRACT.md
 │   │   │   ├── entry_models.py
 │   │   │   ├── exhaustion_models.py
@@ -488,8 +525,31 @@ ibkr-trading-system/
 │   │   │   ├── parameters.py
 │   │   │   ├── README.md
 │   │   │   ├── regime_permissions.py
+│   │   │   ├── registry_adapter.py
+│   │   │   ├── scanner_policy.py
 │   │   │   ├── state.py
+│   │   │   ├── strategy.py
 │   │   │   └── telemetry.py
+│   │   ├── opening_drive
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
+│   │   ├── pairs_divergence_reversion
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
+│   │   ├── power_hour
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
+│   │   ├── range_bound_fade
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
+│   │   ├── regime_adaptive_meta_allocator
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
 │   │   ├── ross_momentum
 │   │   │   ├── fixtures
 │   │   │   ├── patterns
@@ -530,6 +590,34 @@ ibkr-trading-system/
 │   │   │   ├── strategy_assumptions.md
 │   │   │   ├── strategy_policy.py
 │   │   │   └── telemetry.py
+│   │   ├── support_resistance_channel
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
+│   │   ├── time_based_seasonality
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
+│   │   ├── trend_following_classic
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
+│   │   ├── volatility_carry_risk_premium
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
+│   │   ├── volatility_contraction_breakout
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
+│   │   ├── volatility_expansion
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
+│   │   ├── vwap_reclaim
+│   │   │   ├── __init__.py
+│   │   │   ├── ALGORITHM.md
+│   │   │   └── strategy_policy.py
 │   │   ├── __init__.py
 │   │   ├── ross_momentum_strategy_v1.py
 │   │   ├── strategy_base.py
@@ -645,6 +733,985 @@ ibkr-trading-system/
 │   ├── test_storage_serialization.py
 │   ├── test_traceability.py
 │   └── test_trade_exit_engine.py
+├── TRADING_OS_MASTER_CATALOGUE
+│   ├── 00_READ_FIRST
+│   │   ├── 00_READ_ORDER.md
+│   │   ├── 01_PROGRAM_RULES_LOCKED.md
+│   │   ├── 02_EPOCH_PROCESS_TEMPLATE.md
+│   │   ├── 03_GLOBAL_VERIFICATION_COMMANDS.md
+│   │   ├── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   └── CODEX_GLOBAL_EXECUTION_INSTRUCTIONS.md
+│   ├── 01_CORE_EPOCHS
+│   │   ├── 00_E0_SYSTEM_LAW_AND_PURPOSE
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_VERIFICATION_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_AND_ALLOWED_FIXES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT_AND_PURPOSE.md
+│   │   │       ├── 02_SYSTEM_LAW_AND_INVARIANTS.md
+│   │   │       ├── 03_AUTHORITY_AND_DECISION_HIERARCHY.md
+│   │   │       ├── 04_RUN_MODES_AND_MEANING.md
+│   │   │       ├── 05_TRACEABILITY_AND_AUDIT_PRINCIPLES.md
+│   │   │       ├── 06_CERTIFICATION_RULES.md
+│   │   │       └── 07_LOCK_AND_AMENDMENT_POLICY.md
+│   │   ├── 01_E1_TRACEABILITY_AND_OBSERVABILITY
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_AUDIT_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_RULES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT.md
+│   │   │       ├── 02_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_CORE_INVARIANTS.md
+│   │   │       ├── 04_TRACE_EVENT_MODEL.md
+│   │   │       ├── 05_EVENT_SPINE_AND_ORDERING.md
+│   │   │       ├── 06_LOGGING_AND_STORAGE_REQUIREMENTS.md
+│   │   │       ├── 07_MODE_BEHAVIOR.md
+│   │   │       ├── 08_VERIFICATION_REQUIREMENTS.md
+│   │   │       ├── 09_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 10_FORWARD_DEPENDENCIES.md
+│   │   ├── 02_E2_POSITION_LIFECYCLE_ENGINE
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_AUDIT_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_RULES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT.md
+│   │   │       ├── 02_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_POSITION_STATE_MODEL.md
+│   │   │       ├── 04_ALLOWED_TRANSITIONS.md
+│   │   │       ├── 05_LIFECYCLE_INVARIANTS.md
+│   │   │       ├── 06_MODE_SEMANTICS.md
+│   │   │       ├── 07_INTEGRATION_CONTRACTS.md
+│   │   │       ├── 08_ERROR_AND_REJECTION_HANDLING.md
+│   │   │       ├── 09_VERIFICATION_REQUIREMENTS.md
+│   │   │       ├── 10_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 11_FORWARD_DEPENDENCIES.md
+│   │   ├── 03_E3_RISK_ENGINE_COMPLETENESS
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_AUDIT_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_RULES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT.md
+│   │   │       ├── 02_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_CORE_INVARIANTS.md
+│   │   │       ├── 04_RISK_DECISION_MODEL.md
+│   │   │       ├── 05_MANDATORY_LIMITS.md
+│   │   │       ├── 06_KILL_AND_HALT_STATE.md
+│   │   │       ├── 07_MODE_SEMANTICS.md
+│   │   │       ├── 08_INTEGRATION_CONTRACTS.md
+│   │   │       ├── 09_TRACEABILITY_REQUIREMENTS.md
+│   │   │       ├── 10_VERIFICATION_REQUIREMENTS.md
+│   │   │       ├── 11_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 12_FORWARD_DEPENDENCIES.md
+│   │   ├── 04_E4_DATA_QUALITY_AND_MARKET_STATE
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_AUDIT_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_RULES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT.md
+│   │   │       ├── 02_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_CANONICAL_MARKET_STATES.md
+│   │   │       ├── 04_DATA_QUALITY_DIMENSIONS.md
+│   │   │       ├── 05_FROZEN_AND_DELAYED_DATA.md
+│   │   │       ├── 06_SESSION_AWARE_SEMANTICS.md
+│   │   │       ├── 07_READ_ONLY_AND_NO_TRADE_GATES.md
+│   │   │       ├── 08_INTEGRATION_CONTRACTS.md
+│   │   │       ├── 09_TRACEABILITY_REQUIREMENTS.md
+│   │   │       ├── 10_VERIFICATION_REQUIREMENTS.md
+│   │   │       ├── 11_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 12_FORWARD_DEPENDENCIES.md
+│   │   ├── 05_E5_EXECUTION_ENGINE_AUTHORITY
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_AUDIT_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_AND_ALLOWED_FIXES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT.md
+│   │   │       ├── 02_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_EXECUTION_AUTHORITY_AND_HIERARCHY.md
+│   │   │       ├── 04_CORE_INVARIANTS.md
+│   │   │       ├── 05_CANONICAL_ORDER_LIFECYCLE.md
+│   │   │       ├── 06_EXECUTION_PROVIDERS_AND_MODE_BINDING.md
+│   │   │       ├── 07_FILL_HANDLING_AND_RECONCILIATION.md
+│   │   │       ├── 08_ERROR_HANDLING_RETRY_AND_SAFETY.md
+│   │   │       ├── 09_TRACEABILITY_AND_AUDIT.md
+│   │   │       ├── 10_VERIFICATION_REQUIREMENTS.md
+│   │   │       ├── 11_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 12_FORWARD_DEPENDENCIES.md
+│   │   ├── 06_E6_SCANNER_STRATEGY_CONTRACT
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_AUDIT_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_AND_ALLOWED_FIXES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT_AND_PURPOSE.md
+│   │   │       ├── 02_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_SCANNER_RESPONSIBILITIES.md
+│   │   │       ├── 04_STRATEGY_CONSUMPTION_RULES.md
+│   │   │       ├── 05_SESSION_AND_MARKET_STATE_SEMANTICS.md
+│   │   │       ├── 06_DATA_QUALITY_AND_FACT_FLAGS.md
+│   │   │       ├── 07_WATCHLIST_AND_ARTIFACT_SEMANTICS.md
+│   │   │       ├── 08_INVARIANTS_AND_PROHIBITIONS.md
+│   │   │       ├── 09_TRACEABILITY_REQUIREMENTS.md
+│   │   │       ├── 10_VERIFICATION_REQUIREMENTS.md
+│   │   │       ├── 11_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 12_FORWARD_DEPENDENCIES.md
+│   │   ├── 07_E7_MODE_PARITY_AND_SAFETY
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_AUDIT_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_AND_ALLOWED_FIXES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT_AND_PURPOSE.md
+│   │   │       ├── 02_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_SUPPORTED_MODES_AND_DEFINITIONS.md
+│   │   │       ├── 04_ALLOWED_DIFFERENCES_BY_MODE.md
+│   │   │       ├── 05_SAFETY_INVARIANTS.md
+│   │   │       ├── 06_MODE_RESOLUTION_AND_LOCKING.md
+│   │   │       ├── 07_CROSS_MODE_TRACEABILITY.md
+│   │   │       ├── 08_FAILURE_MODES_AND_ESCALATION.md
+│   │   │       ├── 09_VERIFICATION_REQUIREMENTS.md
+│   │   │       ├── 10_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 11_FORWARD_DEPENDENCIES.md
+│   │   ├── 08_E8_REGIME_AND_MICROSTRUCTURE_LAYER
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_AUDIT_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_AND_ALLOWED_FIXES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT_AND_PURPOSE.md
+│   │   │       ├── 02_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_REGIME_TAXONOMY.md
+│   │   │       ├── 04_MICROSTRUCTURE_OBSERVERS.md
+│   │   │       ├── 05_REGIME_CLASSIFICATION_MODEL.md
+│   │   │       ├── 06_STRATEGY_INTEGRATION_CONTRACT.md
+│   │   │       ├── 07_INVARIANTS_AND_SAFETY.md
+│   │   │       ├── 08_TRACEABILITY_REQUIREMENTS.md
+│   │   │       ├── 09_VERIFICATION_REQUIREMENTS.md
+│   │   │       ├── 10_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 11_FORWARD_DEPENDENCIES.md
+│   │   ├── 09_E9_PERFORMANCE_ANALYTICS
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_AUDIT_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_AND_ALLOWED_FIXES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT_AND_PURPOSE.md
+│   │   │       ├── 02_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_ANALYTICS_DATA_SOURCES.md
+│   │   │       ├── 04_CORE_METRICS.md
+│   │   │       ├── 05_ATTRIBUTION_AND_SEGMENTATION.md
+│   │   │       ├── 06_INVARIANTS_AND_SAFETY.md
+│   │   │       ├── 07_TRACEABILITY_REQUIREMENTS.md
+│   │   │       ├── 08_VERIFICATION_REQUIREMENTS.md
+│   │   │       ├── 09_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 10_FORWARD_DEPENDENCIES.md
+│   │   ├── 10_E10_CAPITAL_ALLOCATION
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_AUDIT_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_RULES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT.md
+│   │   │       ├── 02_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_CORE_INVARIANTS.md
+│   │   │       ├── 04_ALLOCATION_MODEL.md
+│   │   │       ├── 05_MODE_SEMANTICS.md
+│   │   │       ├── 06_INTEGRATION_CONTRACTS.md
+│   │   │       ├── 07_TRACEABILITY_REQUIREMENTS.md
+│   │   │       ├── 08_VERIFICATION_REQUIREMENTS.md
+│   │   │       ├── 09_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 10_FORWARD_DEPENDENCIES.md
+│   │   ├── 11_E11_LEARNING_SYSTEM
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_AUDIT_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_RULES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT.md
+│   │   │       ├── 02_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_CORE_INVARIANTS.md
+│   │   │       ├── 04_LEARNING_PIPELINE_MODEL.md
+│   │   │       ├── 05_STORAGE_AND_DATA_LIFECYCLE.md
+│   │   │       ├── 06_MODE_SEMANTICS.md
+│   │   │       ├── 07_INTEGRATION_CONTRACTS.md
+│   │   │       ├── 08_TRACEABILITY_REQUIREMENTS.md
+│   │   │       ├── 09_VERIFICATION_REQUIREMENTS.md
+│   │   │       ├── 10_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 11_FORWARD_DEPENDENCIES.md
+│   │   ├── 12_E12_RECOVERY_AND_HOUSEKEEPING
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_AUDIT_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_RULES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT.md
+│   │   │       ├── 02_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_CORE_INVARIANTS.md
+│   │   │       ├── 04_DATABASE_GOVERNANCE.md
+│   │   │       ├── 05_EVENT_LOG_AND_ARTEFACT_CLEANUP.md
+│   │   │       ├── 06_LEGACY_FILES_AND_FOLDERS.md
+│   │   │       ├── 07_MODE_AND_SAFETY_CONSTRAINTS.md
+│   │   │       ├── 08_TRACEABILITY_REQUIREMENTS.md
+│   │   │       ├── 09_VERIFICATION_REQUIREMENTS.md
+│   │   │       ├── 10_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 11_FORWARD_DEPENDENCIES.md
+│   │   ├── 13_E13_STRATEGY_FACTORY_STANDARD
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_AUDIT_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_RULES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT.md
+│   │   │       ├── 02_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_CORE_INVARIANTS.md
+│   │   │       ├── 04_REQUIRED_STRUCTURE.md
+│   │   │       ├── 05_REGISTRATION_AND_DISCOVERY.md
+│   │   │       ├── 06_MODE_COMPATIBILITY.md
+│   │   │       ├── 07_TESTING_AND_VERIFICATION.md
+│   │   │       ├── 08_TRACEABILITY_REQUIREMENTS.md
+│   │   │       ├── 09_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 10_FORWARD_DEPENDENCIES.md
+│   │   ├── 14_E14_DECISION_ARTIFACTS
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REALITY_AUDIT_CHECKLIST.md
+│   │   │   │   ├── 03_GAP_ANALYSIS_RULES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT.md
+│   │   │       ├── 02_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_CORE_INVARIANTS.md
+│   │   │       ├── 04_ARTIFACT_TYPES.md
+│   │   │       ├── 05_SCHEMA_AND_STORAGE.md
+│   │   │       ├── 06_TRACEABILITY_REQUIREMENTS.md
+│   │   │       ├── 07_MODE_SEMANTICS.md
+│   │   │       ├── 08_VERIFICATION_REQUIREMENTS.md
+│   │   │       ├── 09_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 10_FORWARD_DEPENDENCIES.md
+│   │   ├── 15_E15_FAILURE_MODES
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_INTENT.md
+│   │   │   │   ├── 02_REQUIRED_DETECTORS.md
+│   │   │   │   ├── 03_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 04_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 05_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_EPOCH_OVERVIEW.md
+│   │   │       ├── 02_RUN_MODES_AND_AUTHORITY.md
+│   │   │       ├── 03_FAILURE_TAXONOMY.md
+│   │   │       ├── 04_DETECTION_AND_CONTAINMENT.md
+│   │   │       ├── 05_RECOVERY_AND_AUDIT.md
+│   │   │       └── 06_CERTIFICATION_CRITERIA.md
+│   │   ├── 16_E16_NO_TRADE_CONTEXTS
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_INTENT.md
+│   │   │   │   ├── 02_REQUIRED_NO_TRADE_CONTEXTS.md
+│   │   │   │   ├── 03_DETECTION_AND_GATING_TASKS.md
+│   │   │   │   ├── 04_INTEGRATION_OBLIGATIONS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_EPOCH_OVERVIEW.md
+│   │   │       ├── 02_AUTHORITY_AND_SCOPE.md
+│   │   │       ├── 03_NO_TRADE_CONTEXT_TAXONOMY.md
+│   │   │       ├── 04_DETECTION_AND_GATING.md
+│   │   │       ├── 05_STRATEGY_AND_ORCHESTRATOR_OBLIGATIONS.md
+│   │   │       ├── 06_AUDIT_AND_ENFORCEMENT.md
+│   │   │       └── 07_CERTIFICATION_CRITERIA.md
+│   │   ├── 17_E17_STRATEGY_INTERACTION_RULES
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_INTENT.md
+│   │   │   │   ├── 02_REQUIRED_INTERACTION_CONTRACTS.md
+│   │   │   │   ├── 03_CONFLICT_RESOLUTION_TASKS.md
+│   │   │   │   ├── 04_CAPITAL_ARBITRATION_TASKS.md
+│   │   │   │   ├── 05_INTEGRATION_OBLIGATIONS.md
+│   │   │   │   ├── 06_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 07_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_EPOCH_OVERVIEW.md
+│   │   │       ├── 02_PROBLEM_STATEMENT.md
+│   │   │       ├── 03_INTERACTION_PRINCIPLES.md
+│   │   │       ├── 04_CONFLICT_AND_PRIORITY_RULES.md
+│   │   │       ├── 05_CAPABILITY_MATRIX.md
+│   │   │       ├── 06_AUDIT_AND_ENFORCEMENT.md
+│   │   │       └── 07_CERTIFICATION_CRITERIA.md
+│   │   ├── 18_E18_STRATEGY_FOUNDATION_LAYER
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_NON_GOALS_AND_LIMITS.md
+│   │   │   │   ├── 03_REALITY_CERTIFICATION_STEPS.md
+│   │   │   │   ├── 04_REQUIRED_CONTRACTS_AND_REGISTRIES.md
+│   │   │   │   ├── 05_IMPLEMENTATION_PLAN_SETUP_FAMILIES.md
+│   │   │   │   ├── 06_IMPLEMENTATION_PLAN_EXECUTION_TRIGGERS.md
+│   │   │   │   ├── 07_IMPLEMENTATION_PLAN_CONDITIONS.md
+│   │   │   │   ├── 08_IMPLEMENTATION_PLAN_CONFIRMATIONS.md
+│   │   │   │   ├── 09_IMPLEMENTATION_PLAN_CANDLESTICKS.md
+│   │   │   │   ├── 10_IMPLEMENTATION_PLAN_LEVELS_ZONES_STRUCTURE_INVALIDATION.md
+│   │   │   │   ├── 11_SYMBOL_COMMITMENT_FAST_HYDRATION_TASKS.md
+│   │   │   │   ├── 12_DATA_LIFECYCLE_RESET_TASKS.md
+│   │   │   │   ├── 13_TRANSLATION_REPORTS_DRIFT_COMPATIBILITY_TASKS.md
+│   │   │   │   ├── 14_TESTS_EXPLAINABILITY_VERSIONING_TASKS.md
+│   │   │   │   ├── 15_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 16_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_EPOCH_OVERVIEW.md
+│   │   │       ├── 02_AUTHORITY_SCOPE_NON_GOALS.md
+│   │   │       ├── 02_FOUNDATION_SCOPE_AND_NON_GOALS.md
+│   │   │       ├── 03_POLICY_PRIMACY_AND_NEUTRALITY.md
+│   │   │       ├── 03_SETUP_FAMILIES_CHECKLIST.md
+│   │   │       ├── 04_EXECUTION_TRIGGERS_CHECKLIST.md
+│   │   │       ├── 04_FOUNDATION_COMPONENT_MODEL.md
+│   │   │       ├── 05_CANONICAL_LIST_SETUP_FAMILIES.md
+│   │   │       ├── 05_CONDITIONS_CHECKLIST.md
+│   │   │       ├── 06_CANONICAL_LIST_EXECUTION_TRIGGERS.md
+│   │   │       ├── 06_CONFIRMATIONS_CHECKLIST.md
+│   │   │       ├── 07_CANDLESTICK_FOUNDATION_SINGLE.md
+│   │   │       ├── 07_CANONICAL_LIST_CONDITIONS.md
+│   │   │       ├── 08_CANDLESTICK_FOUNDATION_MULTI.md
+│   │   │       ├── 08_CANONICAL_LIST_CONFIRMATIONS.md
+│   │   │       ├── 09_CANDLE_FUNCTIONAL_BEHAVIOURS.md
+│   │   │       ├── 09_CANDLESTICK_FOUNDATION_MODEL.md
+│   │   │       ├── 10_CANDLE_CONTEXTUAL_STATES.md
+│   │   │       ├── 10_CANDLESTICK_CHECKLIST_SINGLE_CANDLE.md
+│   │   │       ├── 11_CANDLESTICK_CHECKLIST_MULTI_CANDLE.md
+│   │   │       ├── 11_LEVELS_AND_ZONES_FOUNDATION.md
+│   │   │       ├── 12_CANDLESTICK_FUNCTIONAL_BEHAVIOURS.md
+│   │   │       ├── 12_MARKET_STRUCTURE_AND_INVALIDATION.md
+│   │   │       ├── 13_CANDLESTICK_CONTEXTUAL_STATES.md
+│   │   │       ├── 13_SYMBOL_COMMITMENT_AND_CONTEXT_HYDRATION.md
+│   │   │       ├── 14_DATA_LIFECYCLE_AND_RESET_SEMANTICS.md
+│   │   │       ├── 14_LEVELS_AND_ZONES_FOUNDATION.md
+│   │   │       ├── 15_MARKET_STRUCTURE_STATES.md
+│   │   │       ├── 15_STRATEGY_POLICY_TRANSLATION_AND_REPORTING.md
+│   │   │       ├── 16_INVALIDATION_SEMANTICS.md
+│   │   │       ├── 16_VERSIONING_AND_COMPATIBILITY.md
+│   │   │       ├── 17_CERTIFICATION_CRITERIA.md
+│   │   │       ├── 17_SYMBOL_COMMITMENT_AND_FAST_HYDRATION.md
+│   │   │       ├── 18_DATA_LIFECYCLE_RESET_RECOVERY.md
+│   │   │       ├── 19_TRANSLATION_REPORTS_DRIFT_COMPATIBILITY.md
+│   │   │       ├── 20_TESTABILITY_EXPLAINABILITY_VERSIONING.md
+│   │   │       ├── 21_EXPECTED_ARTIFACTS_AND_OUTPUTS.md
+│   │   │       ├── 22_CERTIFICATION_CRITERIA.md
+│   │   │       └── 23_STRATEGY_FOUNDATION_INTERFACE_CERTIFICATION.md
+│   │   ├── 19_E19_STRATEGY_INTERFACE_AND_CERTIFICATION
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 01_OBJECTIVE.md
+│   │   │   │   ├── 02_ALLOWED_ACTIONS.md
+│   │   │   │   ├── 03_IMPLEMENTATION_STEPS.md
+│   │   │   │   ├── 04_VERIFICATION_COMMANDS.md
+│   │   │   │   └── 05_SUCCESS_CRITERIA.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_PURPOSE_AND_SCOPE.md
+│   │   │       ├── 02_STRATEGY_SOVEREIGNTY_DOCTRINE.md
+│   │   │       ├── 03_SINGLE_MAPPING_POINT.md
+│   │   │       ├── 04_INPUTS_AND_OUTPUTS.md
+│   │   │       ├── 05_CERTIFICATION_CRITERIA.md
+│   │   │       ├── 06_PROHIBITED_ACTIONS.md
+│   │   │       └── 07_COMPLETION_GATE.md
+│   │   ├── 20_E20_STRATEGY_FOUNDATION_COMPLETION
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_REQUIRED_OUTPUT_ARTIFACTS.md
+│   │   │   │   ├── 03_IMPLEMENTATION_RULES.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 06_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_EPOCH_OVERVIEW.md
+│   │   │       ├── 02_AUTHORITY_AND_SCOPE.md
+│   │   │       ├── 03_REGISTRY_TYPES_AND_BOUNDARIES.md
+│   │   │       ├── 05_CANONICAL_LIST_SETUP_FAMILIES.md
+│   │   │       ├── 06_CANONICAL_LIST_EXECUTION_TRIGGERS.md
+│   │   │       ├── 07_CANONICAL_LIST_CONDITIONS.md
+│   │   │       ├── 07_CERTIFICATION_CRITERIA.md
+│   │   │       ├── 08_CANONICAL_LIST_CONFIRMATIONS.md
+│   │   │       ├── 10_CANDLESTICK_CHECKLIST_SINGLE_CANDLE.md
+│   │   │       ├── 11_CANDLESTICK_CHECKLIST_MULTI_CANDLE.md
+│   │   │       └── 14_LEVELS_AND_ZONES_FOUNDATION.md
+│   │   └── 21_E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION
+│   │       ├── codex_instructions
+│   │       │   ├── 00_READ_ORDER.md
+│   │       │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │       │   ├── 02_NON_NEGOTIABLE_RULES.md
+│   │       │   ├── 03_REQUIRED_HARNESS_ARTIFACTS.md
+│   │       │   ├── 04_SYNTHETIC_SCENARIO_IMPLEMENTATION.md
+│   │       │   ├── 05_FOUNDATION_COMPONENT_TESTS.md
+│   │       │   ├── 06_END_TO_END_PIPELINE_TESTS.md
+│   │       │   ├── 07_PAPER_TRADING_PARITY_TASKS.md
+│   │       │   ├── 08_FAILURE_INJECTION_TASKS.md
+│   │       │   ├── 09_NON_INTERFERENCE_TESTS.md
+│   │       │   ├── 10_REPORT_GENERATION_AND_EVIDENCE.md
+│   │       │   ├── 11_MANDATORY_VERIFICATION_COMMANDS.md
+│   │       │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │       └── governance
+│   │           ├── 00_READ_ORDER.md
+│   │           ├── 01_EPOCH_OVERVIEW.md
+│   │           ├── 02_AUTHORITY_SCOPE_AND_DEPENDENCIES.md
+│   │           ├── 03_DEFINITION_OF_TRADING_READY.md
+│   │           ├── 04_CERTIFICATION_MODEL_PASS_FAIL.md
+│   │           ├── 05_VERIFICATION_MATRIX_BY_MODE.md
+│   │           ├── 06_END_TO_END_HARNESS_ARCHITECTURE.md
+│   │           ├── 07_SYNTHETIC_SCENARIO_LIBRARY.md
+│   │           ├── 08_PAPER_TRADING_PARITY_REQUIREMENTS.md
+│   │           ├── 09_FAILURE_INJECTION_AND_RECOVERY_DRILLS.md
+│   │           ├── 10_NON_INTERFERENCE_AND_SAFETY_GUARANTEES.md
+│   │           ├── 11_REQUIRED_ARTIFACTS_AND_REPORTS.md
+│   │           └── 12_GOVERNANCE_LOCKS_AND_AMENDMENT_POLICY.md
+│   ├── 02_METADATA_EPOCHS
+│   │   ├── 00_M0_CANON_AND_SOURCES_OF_TRUTH
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 03_VERIFICATION_AND_PROOF.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_ARCHITECTURAL_INTENT.md
+│   │   │       ├── 02_CANONICAL_SOURCES_OF_TRUTH.md
+│   │   │       ├── 03_CANONICAL_NAMING_RULES.md
+│   │   │       ├── 04_CONFLICT_RESOLUTION_AND_PRECEDENCE.md
+│   │   │       ├── 05_ENFORCED_INVARIANTS.md
+│   │   │       ├── 06_EXPECTED_ARTIFACTS.md
+│   │   │       ├── 07_VERIFICATION_COMMANDS.md
+│   │   │       └── 08_AUDIT_REPORT.md
+│   │   ├── 01_M1_ARCHITECTURE_MAP
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 03_VERIFICATION_AND_PROOF.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_ARCHITECTURAL_INTENT.md
+│   │   │       ├── 02_SYSTEM_COMPONENT_MAP.md
+│   │   │       ├── 03_DATA_FLOW_AND_AUTHORITY.md
+│   │   │       ├── 04_BOUNDARIES_AND_NON_GOALS.md
+│   │   │       ├── 05_ENFORCED_INVARIANTS.md
+│   │   │       ├── 06_EXPECTED_ARTIFACTS.md
+│   │   │       ├── 07_VERIFICATION_COMMANDS.md
+│   │   │       └── 08_AUDIT_REPORT.md
+│   │   ├── 02_M2_CONTRACT_REGISTRY
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 03_VERIFICATION_AND_PROOF.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_ARCHITECTURAL_INTENT.md
+│   │   │       ├── 02_CONTRACT_SCOPE_AND_TYPES.md
+│   │   │       ├── 03_CANONICAL_CONTRACT_REGISTRY.md
+│   │   │       ├── 04_CONTRACT_VERSIONING_RULES.md
+│   │   │       ├── 05_ENFORCED_INVARIANTS.md
+│   │   │       ├── 06_EXPECTED_ARTIFACTS.md
+│   │   │       ├── 07_VERIFICATION_COMMANDS.md
+│   │   │       └── 08_AUDIT_REPORT.md
+│   │   ├── 03_M3_MODE_SEMANTICS_CERTIFICATION
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 03_VERIFICATION_AND_PROOF.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_ARCHITECTURAL_INTENT.md
+│   │   │       ├── 02_CANONICAL_MODES.md
+│   │   │       ├── 03_MODE_BEHAVIOR_MATRIX.md
+│   │   │       ├── 04_ENFORCED_INVARIANTS.md
+│   │   │       ├── 05_EXPECTED_ARTIFACTS.md
+│   │   │       ├── 06_VERIFICATION_COMMANDS.md
+│   │   │       └── 07_AUDIT_REPORT.md
+│   │   ├── 04_M4_TRACEABILITY_SEMANTICS
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 03_VERIFICATION_AND_PROOF.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_ARCHITECTURAL_INTENT.md
+│   │   │       ├── 02_TRACEABILITY_SCOPE.md
+│   │   │       ├── 03_TRACEABLE_ENTITIES.md
+│   │   │       ├── 04_TRACE_EVENT_MODEL.md
+│   │   │       ├── 05_ENFORCED_INVARIANTS.md
+│   │   │       ├── 06_EXPECTED_ARTIFACTS.md
+│   │   │       ├── 07_VERIFICATION_COMMANDS.md
+│   │   │       └── 08_AUDIT_REPORT.md
+│   │   ├── 05_M5_VERIFICATION_AUTHORITY
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 03_VERIFICATION_AND_PROOF.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_ARCHITECTURAL_INTENT.md
+│   │   │       ├── 02_VERIFICATION_AUTHORITY_SCOPE.md
+│   │   │       ├── 03_VERIFICATION_ROLES_AND_RIGHTS.md
+│   │   │       ├── 04_VERIFICATION_LEVELS.md
+│   │   │       ├── 05_ENFORCED_INVARIANTS.md
+│   │   │       ├── 06_EXPECTED_ARTIFACTS.md
+│   │   │       ├── 07_VERIFICATION_COMMANDS.md
+│   │   │       └── 08_AUDIT_REPORT.md
+│   │   ├── 06_M6_DATA_LIFECYCLE_GOVERNANCE
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 03_VERIFICATION_AND_PROOF.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_ARCHITECTURAL_INTENT.md
+│   │   │       ├── 02_DATA_CLASSES.md
+│   │   │       ├── 03_RETENTION_AND_DELETION_RULES.md
+│   │   │       ├── 04_RESET_AND_RECOVERY_SEMANTICS.md
+│   │   │       ├── 05_ENFORCED_INVARIANTS.md
+│   │   │       ├── 06_EXPECTED_ARTIFACTS.md
+│   │   │       ├── 07_VERIFICATION_COMMANDS.md
+│   │   │       └── 08_AUDIT_REPORT.md
+│   │   ├── 07_M7_EPOCH_AUDIT_AND_CERTIFICATION
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 03_VERIFICATION_AND_PROOF.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_ARCHITECTURAL_INTENT.md
+│   │   │       ├── 02_AUDIT_SCOPE.md
+│   │   │       ├── 03_CERTIFICATION_CRITERIA.md
+│   │   │       ├── 04_AUDIT_PROCESS.md
+│   │   │       ├── 05_ENFORCED_INVARIANTS.md
+│   │   │       ├── 06_EXPECTED_ARTIFACTS.md
+│   │   │       ├── 07_VERIFICATION_COMMANDS.md
+│   │   │       └── 08_AUDIT_REPORT.md
+│   │   ├── 08_M8_CHANGE_CONTROL
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 03_VERIFICATION_AND_PROOF.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_ARCHITECTURAL_INTENT.md
+│   │   │       ├── 02_CHANGE_CLASSIFICATION.md
+│   │   │       ├── 03_SCOPE_OF_AUTHORITY.md
+│   │   │       ├── 04_CHANGE_ARTIFACTS.md
+│   │   │       ├── 05_ENFORCEMENT_AND_ESCALATION.md
+│   │   │       ├── 06_ENFORCED_INVARIANTS.md
+│   │   │       ├── 07_EXPECTED_ARTIFACTS.md
+│   │   │       ├── 08_VERIFICATION_COMMANDS.md
+│   │   │       └── 09_AUDIT_REPORT.md
+│   │   ├── 09_M9_SIGNAL_SEMANTICS_REGISTRY
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT.md
+│   │   │   │   ├── 02_TASKS.md
+│   │   │   │   ├── 03_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_ARCHITECTURAL_INTENT.md
+│   │   │       ├── 02_SIGNAL_DEFINITION.md
+│   │   │       ├── 03_SIGNAL_CLASSES.md
+│   │   │       ├── 04_SIGNAL_ATTRIBUTES.md
+│   │   │       ├── 05_SIGNAL_TIMEFRAME_SEMANTICS.md
+│   │   │       ├── 06_SIGNAL_LIFECYCLE_AND_EXPIRY.md
+│   │   │       ├── 07_SIGNAL_VERSIONING_AND_COMPATIBILITY.md
+│   │   │       ├── 08_SIGNAL_CONFLICT_SEMANTICS.md
+│   │   │       ├── 09_SIGNAL_QUALITY_AND_CONFIDENCE.md
+│   │   │       ├── 10_SIGNAL_EXPECTATION_WINDOWS.md
+│   │   │       ├── 11_SIGNAL_LIST_S1_SETUP.md
+│   │   │       ├── 12_SIGNAL_LIST_S2_TRIGGERS.md
+│   │   │       ├── 13_SIGNAL_LIST_S3_CONDITIONS_AND_ZONES.md
+│   │   │       ├── 14_SIGNAL_LIST_S4_CONFIRMATIONS.md
+│   │   │       ├── 15_SIGNAL_LIST_S5_RISK_AND_CONTROL.md
+│   │   │       ├── 16_SIGNAL_LIST_S6_EXECUTION_AND_RATIONALE.md
+│   │   │       ├── 17_REGISTRY_ARTIFACTS.md
+│   │   │       ├── 18_ENFORCED_INVARIANTS.md
+│   │   │       ├── 19_VERIFICATION_COMMANDS.md
+│   │   │       └── 20_AUDIT_REPORT.md
+│   │   └── 10_M10_DATA_PROVENANCE_LEDGER
+│   │       ├── codex_instructions
+│   │       │   ├── 00_READ_ORDER.md
+│   │       │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │       │   ├── 02_SCOPE_AND_NON_GOALS.md
+│   │       │   ├── 03_IMPLEMENTATION_TASKS.md
+│   │       │   ├── 04_MANDATORY_VERIFICATION_COMMANDS.md
+│   │       │   ├── 05_SUCCESS_CRITERIA.md
+│   │       │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │       └── governance
+│   │           ├── 00_READ_ORDER.md
+│   │           ├── 01_ARCHITECTURAL_INTENT.md
+│   │           ├── 02_SOURCES_OF_TRUTH_AND_MODE_RELATIVITY.md
+│   │           ├── 03_PROVENANCE_EVENT_MODEL.md
+│   │           ├── 04_FRESHNESS_CONFIDENCE_AND_LIMITATIONS.md
+│   │           ├── 05_PREMARKET_PREPARATION_AND_HYDRATION.md
+│   │           ├── 06_SIGNAL_INTEGRATION_AND_QUALITY_BRIDGE.md
+│   │           ├── 07_LEDGER_ARTIFACTS_AND_RETENTION.md
+│   │           ├── 08_ENFORCED_INVARIANTS.md
+│   │           ├── 09_VERIFICATION_COMMANDS.md
+│   │           └── 10_AUDIT_REPORT.md
+│   ├── 03_STRATEGIES
+│   │   ├── 00_STRATEGY_EXECUTION_PROTOCOL.md
+│   │   │   └── 00_STRATEGY_EXECUTION_PROTOCOL.md
+│   │   ├── P01_ROSS_MOMENTUM
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 01_CONTEXT.md
+│   │   │   │   ├── 02_REQUIRED_MAPPINGS.md
+│   │   │   │   ├── 03_ALLOWED_CHANGES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P02_STATISTICAL_INTRADAY_MOMENTUM
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 01_CONTEXT.md
+│   │   │   │   ├── 02_REQUIRED_MAPPINGS.md
+│   │   │   │   ├── 03_ALLOWED_CHANGES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P03_MEAN_REVERSION
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 01_CONTEXT.md
+│   │   │   │   ├── 02_REQUIRED_MAPPINGS.md
+│   │   │   │   ├── 03_ALLOWED_CHANGES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P04_LONG_HORIZON_VALUE
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 01_CONTEXT.md
+│   │   │   │   ├── 02_REQUIRED_MAPPINGS.md
+│   │   │   │   ├── 03_ALLOWED_CHANGES.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P05_OPENING_DRIVE
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P06_VWAP_RECLAIM
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P07_POWER_HOUR
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P08_VOLATILITY_EXPANSION
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P09_RANGE_BOUND_FADE
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P10_SUPPORT_RESISTANCE_CHANNEL
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P11_EVENT_EARNINGS_REACTION
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P12_EVENT_NEWS_SHOCK_CONTINUATION
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P13_VOLATILITY_CONTRACTION_BREAKOUT
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P14_VOLATILITY_CARRY_RISK_PREMIUM
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P15_PAIRS_DIVERGENCE_REVERSION
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P16_CROSS_SECTIONAL_RELATIVE_STRENGTH_ROTATION
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P17_TIME_BASED_SEASONALITY
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P18_TREND_FOLLOWING_CLASSIC
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P19_LONG_HORIZON_QUALITY_COMPOUNDER
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── P20_REGIME_ADAPTIVE_META_ALLOCATOR
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── ALGORITHM.md
+│   │   │       ├── CERTIFICATION_CHECKLIST.md
+│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   ├── 00_CODEX_MASTER_SPRINT.md
+│   │   └── 00_READ_FIRST_GLOBAL.md
+│   ├── CODEX_GLOBAL_EXECUTION_INSTRUCTIONS.md
+│   ├── SYSTEM_CONSTITUTION.md
+│   └── SYSTEM_STATE.md
 ├── troubleshooting
 │   ├── backup
 │   │   ├── troubleshooting
