@@ -24,6 +24,7 @@ from src.core.event_collector import EventCollector
 from src.core.stop_controller import StopController
 from src.models.data_models import RiskDecision, TradeIntent, IntentRiskDecision
 from src.models.risk_decision import (
+    CIRCUIT_BREAKER_TRIPPED,
     DECISION_ARTIFACT_MISSING,
     BROKER_READONLY_BLOCK,
     DATA_QUALITY_BLOCK,
@@ -39,6 +40,7 @@ from src.models.risk_decision import (
     STRATEGY_READ_ONLY_EXECUTION_LOCK,
     STRATEGY_LIMIT_REACHED,
 )
+from src.risk.no_trade_contexts import evaluate_no_trade_contexts
 from src.strategies.ross_momentum.ross_momentum_risk_overlay import (
     RiskContext,
     RossMomentumRiskOverlay,
@@ -207,7 +209,7 @@ class RiskEngine:
                 direction="UNKNOWN",
                 overall_action="HALT",
                 decision_code="HALT",
-                risk_reasons=["CIRCUIT_BREAKER_TRIPPED"],
+                risk_reasons=[CIRCUIT_BREAKER_TRIPPED],
                 circuit_breaker_tripped=True,
                 execution_blocked=True,
                 run_mode=run_mode.value,
@@ -241,10 +243,16 @@ class RiskEngine:
             self._emit_risk_decision_event(decision)
             return decision
 
-        if run_mode == RunMode.READ_ONLY:
-            risk_reasons.append(LIVE_READ_ONLY_BLOCK)
-        if session_blocked:
-            risk_reasons.append(RISK_SESSION_BLOCK)
+        normalized_risk_flags = {flag.lower() for flag in payload.risk_flags}
+        no_trade_contexts = evaluate_no_trade_contexts(
+            run_mode=run_mode,
+            execution_enabled=execution_enabled,
+            session_blocked=session_blocked,
+            broker_readonly=get_ibkr_readonly_enabled(),
+            circuit_breaker_tripped=self.stop_controller.is_breaker_tripped(),
+            data_quality_block="data_quality" in normalized_risk_flags,
+        )
+        risk_reasons.extend(context.code for context in no_trade_contexts)
         if open_positions >= max_open_positions:
             risk_reasons.append(RISK_MAX_OPEN_POSITIONS)
         if total_exposure >= total_exposure_limit:
@@ -271,14 +279,6 @@ class RiskEngine:
                     },
                 )
         risk_reasons.extend(self._profile_risk_reasons(risk_profile))
-        if not execution_enabled:
-            risk_reasons.append(EXECUTION_DISABLED)
-        if get_ibkr_readonly_enabled() and run_mode == RunMode.LIVE:
-            risk_reasons.append(BROKER_READONLY_BLOCK)
-
-        normalized_risk_flags = {flag.lower() for flag in payload.risk_flags}
-        if "data_quality" in normalized_risk_flags:
-            risk_reasons.append(DATA_QUALITY_BLOCK)
 
         intent_ids: set[str] = set()
 
@@ -425,8 +425,17 @@ class RiskEngine:
                 timestamp=timestamp,
             )
             return self._finalize_decision(decision, decision_id)
-        if self.stop_controller.is_breaker_tripped():
-            rationale = "Circuit breaker active — blocking intent."
+        data_quality_flags = getattr(trade_intent, "data_quality_flags", [])
+        no_trade_contexts = evaluate_no_trade_contexts(
+            run_mode=run_mode,
+            execution_enabled=execution_enabled,
+            session_blocked=session_blocked,
+            broker_readonly=get_ibkr_readonly_enabled(),
+            circuit_breaker_tripped=self.stop_controller.is_breaker_tripped(),
+            data_quality_block=bool(data_quality_flags),
+        )
+        if no_trade_contexts:
+            rationale = "; ".join(context.rationale for context in no_trade_contexts)
             decision = RiskDecision(
                 symbol=trade_intent.symbol,
                 allowed=False,
@@ -436,32 +445,11 @@ class RiskEngine:
                 trader_type=trade_intent.trader_type,
                 strategy_name=trade_intent.strategy_name,
                 direction=trade_intent.direction,
-                reason_code="CIRCUIT_BREAKER_TRIPPED",
+                reason_code=no_trade_contexts[0].code,
                 overall_action="BLOCK",
-                decision_code="HALT",
-                risk_reasons=["CIRCUIT_BREAKER_TRIPPED"],
-                circuit_breaker_tripped=True,
-                execution_blocked=True,
-                run_mode=run_mode.value,
-                evaluated_limits=evaluated_limits,
-                timestamp=timestamp,
-            )
-            return self._finalize_decision(decision, decision_id)
-        if run_mode == RunMode.READ_ONLY:
-            rationale = "READ_ONLY: execution blocked by risk gate."
-            decision = RiskDecision(
-                symbol=trade_intent.symbol,
-                allowed=False,
-                max_position_size=0,
-                risk_level="BLOCKED",
-                rationale=rationale,
-                trader_type=trade_intent.trader_type,
-                strategy_name=trade_intent.strategy_name,
-                direction=trade_intent.direction,
-                reason_code=LIVE_READ_ONLY_BLOCK,
-                overall_action="BLOCK",
-                decision_code="REJECT",
-                risk_reasons=[LIVE_READ_ONLY_BLOCK],
+                decision_code="HALT" if self.stop_controller.is_breaker_tripped() else "REJECT",
+                risk_reasons=[context.code for context in no_trade_contexts],
+                circuit_breaker_tripped=self.stop_controller.is_breaker_tripped(),
                 execution_blocked=True,
                 run_mode=run_mode.value,
                 evaluated_limits=evaluated_limits,
@@ -498,48 +486,6 @@ class RiskEngine:
                 overall_action="BLOCK",
                 decision_code="REJECT",
                 risk_reasons=[STRATEGY_READ_ONLY_EXECUTION_LOCK],
-                execution_blocked=True,
-                run_mode=run_mode.value,
-                evaluated_limits=evaluated_limits,
-                timestamp=timestamp,
-            )
-            return self._finalize_decision(decision, decision_id)
-        if not execution_enabled:
-            rationale = "Execution disabled by configuration."
-            decision = RiskDecision(
-                symbol=trade_intent.symbol,
-                allowed=False,
-                max_position_size=0,
-                risk_level="BLOCKED",
-                rationale=rationale,
-                trader_type=trade_intent.trader_type,
-                strategy_name=trade_intent.strategy_name,
-                direction=trade_intent.direction,
-                reason_code=EXECUTION_DISABLED,
-                overall_action="BLOCK",
-                decision_code="REJECT",
-                risk_reasons=[EXECUTION_DISABLED],
-                execution_blocked=True,
-                run_mode=run_mode.value,
-                evaluated_limits=evaluated_limits,
-                timestamp=timestamp,
-            )
-            return self._finalize_decision(decision, decision_id)
-        if session_blocked:
-            rationale = "Market session not in ACTIVE_SESSIONS; blocking intent."
-            decision = RiskDecision(
-                symbol=trade_intent.symbol,
-                allowed=False,
-                max_position_size=0,
-                risk_level="BLOCKED",
-                rationale=rationale,
-                trader_type=trade_intent.trader_type,
-                strategy_name=trade_intent.strategy_name,
-                direction=trade_intent.direction,
-                reason_code=RISK_SESSION_BLOCK,
-                overall_action="BLOCK",
-                decision_code="REJECT",
-                risk_reasons=[RISK_SESSION_BLOCK],
                 execution_blocked=True,
                 run_mode=run_mode.value,
                 evaluated_limits=evaluated_limits,
@@ -611,7 +557,6 @@ class RiskEngine:
             )
             return self._finalize_decision(decision, decision_id)
 
-        data_quality_flags = getattr(trade_intent, "data_quality_flags", [])
         if data_quality_flags:
             rationale = (
                 "Trade intent blocked due to data quality flags: "

@@ -48,6 +48,14 @@ class FaultEvent:
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
 
+@dataclass(frozen=True)
+class FaultPolicy:
+    category: FaultCategory
+    severity: FaultSeverity
+    description: str
+    containment: str
+
+
 _CATEGORY_SEVERITY: Dict[FaultCategory, FaultSeverity] = {
     FaultCategory.SAFETY: FaultSeverity.CRITICAL,
     FaultCategory.CONFIG: FaultSeverity.CRITICAL,
@@ -59,9 +67,116 @@ _CATEGORY_SEVERITY: Dict[FaultCategory, FaultSeverity] = {
     FaultCategory.UNKNOWN: FaultSeverity.CRITICAL,
 }
 
+FAULT_TAXONOMY: Dict[FaultCategory, FaultPolicy] = {
+    FaultCategory.SAFETY: FaultPolicy(
+        category=FaultCategory.SAFETY,
+        severity=FaultSeverity.CRITICAL,
+        description="Safety invariants breached or safety gates violated.",
+        containment="Immediate halt or abort to preserve capital.",
+    ),
+    FaultCategory.CONFIG: FaultPolicy(
+        category=FaultCategory.CONFIG,
+        severity=FaultSeverity.CRITICAL,
+        description="Configuration invalid or missing required runtime inputs.",
+        containment="Fail fast; require operator remediation.",
+    ),
+    FaultCategory.STATE: FaultPolicy(
+        category=FaultCategory.STATE,
+        severity=FaultSeverity.CRITICAL,
+        description="State invariants violated or event stream corruption detected.",
+        containment="Halt system; block further execution to avoid divergence.",
+    ),
+    FaultCategory.LOGIC: FaultPolicy(
+        category=FaultCategory.LOGIC,
+        severity=FaultSeverity.CRITICAL,
+        description="Deterministic logic errors or unreachable conditions.",
+        containment="Abort or halt; do not continue with undefined behavior.",
+    ),
+    FaultCategory.IO: FaultPolicy(
+        category=FaultCategory.IO,
+        severity=FaultSeverity.ERROR,
+        description="I/O or storage faults impacting runtime operations.",
+        containment="Retry or abort cycle depending on run mode.",
+    ),
+    FaultCategory.DATA: FaultPolicy(
+        category=FaultCategory.DATA,
+        severity=FaultSeverity.WARNING,
+        description="Data integrity or completeness issues.",
+        containment="Skip stages or block intent to prevent unsafe execution.",
+    ),
+    FaultCategory.EXTERNAL: FaultPolicy(
+        category=FaultCategory.EXTERNAL,
+        severity=FaultSeverity.ERROR,
+        description="Upstream dependency or network service disruption.",
+        containment="Retry or abort cycle with explicit trace.",
+    ),
+    FaultCategory.UNKNOWN: FaultPolicy(
+        category=FaultCategory.UNKNOWN,
+        severity=FaultSeverity.CRITICAL,
+        description="Unclassified fault; treated as unsafe by default.",
+        containment="Halt to avoid silent degradation.",
+    ),
+}
+
+RECOVERY_ACTION_MATRIX: Dict[RunMode, Dict[FaultCategory, RecoveryAction]] = {
+    RunMode.LIVE: {
+        FaultCategory.SAFETY: RecoveryAction.HALT_SYSTEM,
+        FaultCategory.CONFIG: RecoveryAction.HALT_SYSTEM,
+        FaultCategory.STATE: RecoveryAction.HALT_SYSTEM,
+        FaultCategory.LOGIC: RecoveryAction.HALT_SYSTEM,
+        FaultCategory.IO: RecoveryAction.ABORT_CYCLE,
+        FaultCategory.DATA: RecoveryAction.SKIP_STAGE,
+        FaultCategory.EXTERNAL: RecoveryAction.ABORT_CYCLE,
+        FaultCategory.UNKNOWN: RecoveryAction.HALT_SYSTEM,
+    },
+    RunMode.READ_ONLY: {
+        FaultCategory.SAFETY: RecoveryAction.HALT_SYSTEM,
+        FaultCategory.CONFIG: RecoveryAction.HALT_SYSTEM,
+        FaultCategory.STATE: RecoveryAction.HALT_SYSTEM,
+        FaultCategory.LOGIC: RecoveryAction.HALT_SYSTEM,
+        FaultCategory.IO: RecoveryAction.ABORT_CYCLE,
+        FaultCategory.DATA: RecoveryAction.SKIP_STAGE,
+        FaultCategory.EXTERNAL: RecoveryAction.ABORT_CYCLE,
+        FaultCategory.UNKNOWN: RecoveryAction.HALT_SYSTEM,
+    },
+    RunMode.PAPER: {
+        FaultCategory.SAFETY: RecoveryAction.HALT_SYSTEM,
+        FaultCategory.CONFIG: RecoveryAction.HALT_SYSTEM,
+        FaultCategory.STATE: RecoveryAction.HALT_SYSTEM,
+        FaultCategory.LOGIC: RecoveryAction.HALT_SYSTEM,
+        FaultCategory.IO: RecoveryAction.RETRY,
+        FaultCategory.DATA: RecoveryAction.SKIP_STAGE,
+        FaultCategory.EXTERNAL: RecoveryAction.RETRY,
+        FaultCategory.UNKNOWN: RecoveryAction.ABORT_CYCLE,
+    },
+    RunMode.SIM: {
+        FaultCategory.SAFETY: RecoveryAction.HALT_SYSTEM,
+        FaultCategory.CONFIG: RecoveryAction.ABORT_CYCLE,
+        FaultCategory.STATE: RecoveryAction.ABORT_CYCLE,
+        FaultCategory.LOGIC: RecoveryAction.ABORT_CYCLE,
+        FaultCategory.IO: RecoveryAction.RETRY,
+        FaultCategory.DATA: RecoveryAction.SKIP_STAGE,
+        FaultCategory.EXTERNAL: RecoveryAction.RETRY,
+        FaultCategory.UNKNOWN: RecoveryAction.ABORT_CYCLE,
+    },
+}
+
 
 def _default_severity(category: FaultCategory) -> FaultSeverity:
     return _CATEGORY_SEVERITY.get(category, FaultSeverity.ERROR)
+
+
+def fault_policy_snapshot() -> Dict[str, Dict[str, str]]:
+    """Return an ordered snapshot of the fault taxonomy for audit evidence."""
+
+    return {
+        category.value: {
+            "severity": policy.severity.value,
+            "description": policy.description,
+            "containment": policy.containment,
+        }
+        for category, policy in FAULT_TAXONOMY.items()
+    }
 
 
 def classify_exception(exc: Exception) -> FaultEvent:
@@ -105,43 +220,7 @@ def classify_exception(exc: Exception) -> FaultEvent:
 def decide_recovery_action(fault: FaultEvent, run_mode: RunMode) -> RecoveryAction:
     """Deterministically map fault categories to recovery actions by run mode."""
 
-    if run_mode in {
-        RunMode.LIVE,
-        RunMode.READ_ONLY,
-    }:
-        mapping = {
-            FaultCategory.SAFETY: RecoveryAction.HALT_SYSTEM,
-            FaultCategory.CONFIG: RecoveryAction.HALT_SYSTEM,
-            FaultCategory.STATE: RecoveryAction.HALT_SYSTEM,
-            FaultCategory.LOGIC: RecoveryAction.HALT_SYSTEM,
-            FaultCategory.IO: RecoveryAction.ABORT_CYCLE,
-            FaultCategory.DATA: RecoveryAction.SKIP_STAGE,
-            FaultCategory.EXTERNAL: RecoveryAction.ABORT_CYCLE,
-            FaultCategory.UNKNOWN: RecoveryAction.HALT_SYSTEM,
-        }
-    elif run_mode == RunMode.PAPER:
-        mapping = {
-            FaultCategory.SAFETY: RecoveryAction.HALT_SYSTEM,
-            FaultCategory.CONFIG: RecoveryAction.HALT_SYSTEM,
-            FaultCategory.STATE: RecoveryAction.HALT_SYSTEM,
-            FaultCategory.LOGIC: RecoveryAction.HALT_SYSTEM,
-            FaultCategory.IO: RecoveryAction.RETRY,
-            FaultCategory.DATA: RecoveryAction.SKIP_STAGE,
-            FaultCategory.EXTERNAL: RecoveryAction.RETRY,
-            FaultCategory.UNKNOWN: RecoveryAction.ABORT_CYCLE,
-        }
-    else:
-        mapping = {
-            FaultCategory.SAFETY: RecoveryAction.HALT_SYSTEM,
-            FaultCategory.CONFIG: RecoveryAction.ABORT_CYCLE,
-            FaultCategory.STATE: RecoveryAction.ABORT_CYCLE,
-            FaultCategory.LOGIC: RecoveryAction.ABORT_CYCLE,
-            FaultCategory.IO: RecoveryAction.RETRY,
-            FaultCategory.DATA: RecoveryAction.SKIP_STAGE,
-            FaultCategory.EXTERNAL: RecoveryAction.RETRY,
-            FaultCategory.UNKNOWN: RecoveryAction.ABORT_CYCLE,
-        }
-
+    mapping = RECOVERY_ACTION_MATRIX.get(run_mode, {})
     return mapping.get(fault.category, RecoveryAction.ABORT_CYCLE)
 
 
