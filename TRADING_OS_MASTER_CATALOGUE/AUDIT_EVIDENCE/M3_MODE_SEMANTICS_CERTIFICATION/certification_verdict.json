@@ -1,0 +1,9 @@
+{
+  "epoch": "M3_MODE_SEMANTICS_CERTIFICATION",
+  "status": "NOT_CERTIFIED",
+  "summary": "Mode semantics verification failed; see violations for required remediation.",
+  "violations": [
+    "LIVE execution enablement is derived only from run mode; explicit enablement flag not enforced.",
+    "SIM broker isolation is conditional on MOCK data source; no hard block prevents live broker connections."
+  ]
+}

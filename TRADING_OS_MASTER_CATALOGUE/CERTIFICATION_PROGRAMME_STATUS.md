@@ -1,8 +1,8 @@
 # Trading OS Certification Programme Status
 
-- **Branch:** `codex/certify-m2-contract-registry`
-- **PR:** (pending) Certify M2 contract registry and add machine-verifiable contract checks
-- **Next target:** Metadata epochs (M3+)
+- **Branch:** `work`
+- **PR:** (pending) Certify M3 mode semantics
+- **Next target:** Remediate M3 violations, then proceed to M4
 - **Completed epochs this run:**
   - `M0_CANON_AND_SOURCES_OF_TRUTH` (2026-02-09)
   - `M1_ARCHITECTURE_MAP` (2026-02-10)
@@ -22,9 +22,12 @@
   - `E19_STRATEGY_INTERFACE_AND_CERTIFICATION` (2026-02-10)
   - `E20_STRATEGY_FOUNDATION_COMPLETION` (2026-02-10)
   - `E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION` (2026-02-09)
-- **Current blocker:** None
+- **Current blocker:** M3 violations (explicit LIVE execution enablement, SIM broker isolation hard block)
 
 ## Notes
 - Runtime smoke scripts (`RUN_SIMULATION.ps1`, `RUN_PAPER_TRADING.ps1`, `RUN_LIVE_READ_ONLY.ps1`) require PowerShell, which is unavailable in this environment.
 - E6 scanner request validation consolidation recorded under `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/BLOCKER_01/`.
 - E7 mode parity audit and tests recorded under `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/BLOCKER_02/`.
+- M3 audit evidence recorded under `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M3_MODE_SEMANTICS_CERTIFICATION/`.
+
+END

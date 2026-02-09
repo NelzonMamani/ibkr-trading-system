@@ -1,0 +1,17 @@
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+__________________ test_m3_mode_semantics_verification_passes __________________
+
+    def test_m3_mode_semantics_verification_passes() -> None:
+        results = evaluate_mode_semantics(Path(__file__).resolve().parents[2])
+>       assert results["violations"] == [], f"Violations detected: {results['violations']}"
+E       AssertionError: Violations detected: ['LIVE execution enablement is derived only from run mode; explicit enablement flag not enforced.', 'SIM broker isolation is conditional on MOCK data source; no hard block prevents live broker connections.']
+E       assert ['LIVE execut...connections.'] == []
+E         
+E         Left contains 2 more items, first extra item: 'LIVE execution enablement is derived only from run mode; explicit enablement flag not enforced.'
+E         Use -v to get more diff
+
+tests/metadata/test_m3_mode_semantics_verifier.py:17: AssertionError
+=========================== short test summary info ============================
+FAILED tests/metadata/test_m3_mode_semantics_verifier.py::test_m3_mode_semantics_verification_passes
+1 failed, 1 passed in 0.06s

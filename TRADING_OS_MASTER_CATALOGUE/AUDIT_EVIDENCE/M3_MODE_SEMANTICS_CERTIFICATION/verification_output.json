@@ -1,0 +1,50 @@
+{
+  "canonical_modes": [
+    "SIM",
+    "PAPER",
+    "READ_ONLY",
+    "LIVE"
+  ],
+  "checks": {
+    "config_registry": {
+      "run_mode_choices": "\"READ_ONLY\", \"PAPER\", \"LIVE\", \"SIM\"",
+      "run_mode_effective_choices": "\"READ_ONLY\", \"PAPER\", \"LIVE\", \"SIM\""
+    },
+    "execution_enablement": {
+      "execution_enabled_effective_expr": "effective_run_mode in {\"PAPER\", \"LIVE\"},",
+      "uses_explicit_flag": false
+    },
+    "paper_provider": {
+      "paper_provider_guard": true
+    },
+    "read_only_guards": {
+      "execution_engine_readonly_block": true,
+      "order_router_readonly_block": true
+    },
+    "run_mode_enums": {
+      "core_engine_state": [
+        "SIM",
+        "READ_ONLY",
+        "PAPER",
+        "LIVE"
+      ],
+      "runtime_config": [
+        "SIM",
+        "READ_ONLY",
+        "PAPER",
+        "LIVE"
+      ]
+    },
+    "sim_broker_isolation": {
+      "sim_guard_depends_on_mock": true,
+      "sim_mentions": true,
+      "sim_mock_guard": true
+    }
+  },
+  "notes": [],
+  "status": "FAIL",
+  "violations": [
+    "LIVE execution enablement is derived only from run mode; explicit enablement flag not enforced.",
+    "SIM broker isolation is conditional on MOCK data source; no hard block prevents live broker connections."
+  ]
+}

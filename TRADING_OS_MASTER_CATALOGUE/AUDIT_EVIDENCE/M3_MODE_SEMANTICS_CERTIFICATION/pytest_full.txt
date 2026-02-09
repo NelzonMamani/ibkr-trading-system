@@ -1,0 +1,46 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0 -- /root/.pyenv/versions/3.10.19/bin/python
+cachedir: .pytest_cache
+rootdir: /workspace/ibkr-trading-system
+configfile: pytest.ini
+collecting ... collected 2 items
+
+tests/metadata/test_m3_mode_semantics_verifier.py::test_m3_canonical_modes_declared PASSED [ 50%]
+tests/metadata/test_m3_mode_semantics_verifier.py::test_m3_mode_semantics_verification_passes FAILED [100%]
+
+=================================== FAILURES ===================================
+__________________ test_m3_mode_semantics_verification_passes __________________
+
+    def test_m3_mode_semantics_verification_passes() -> None:
+        results = evaluate_mode_semantics(Path(__file__).resolve().parents[2])
+>       assert results["violations"] == [], f"Violations detected: {results['violations']}"
+E       AssertionError: Violations detected: ['LIVE execution enablement is derived only from run mode; explicit enablement flag not enforced.', 'SIM broker isolation is conditional on MOCK data source; no hard block prevents live broker connections.']
+E       assert ['LIVE execution enablement is derived only from run mode; explicit enablement flag not enforced.', 'SIM broker isolation is conditional on MOCK data source; no hard block prevents live broker connections.'] == []
+E         
+E         Left contains 2 more items, first extra item: 'LIVE execution enablement is derived only from run mode; explicit enablement flag not enforced.'
+E         
+E         Full diff:
+E         - []
+E         + [
+E         +     'LIVE execution enablement is derived only from run mode; explicit '
+E         +     'enablement flag not enforced.',
+E         +     'SIM broker isolation is conditional on MOCK data source; no hard block '
+E         +     'prevents live broker connections.',
+E         + ]
+
+tests/metadata/test_m3_mode_semantics_verifier.py:17: AssertionError
+=========================== short test summary info ============================
+FAILED tests/metadata/test_m3_mode_semantics_verifier.py::test_m3_mode_semantics_verification_passes - AssertionError: Violations detected: ['LIVE execution enablement is derived only from run mode; explicit enablement flag not enforced.', 'SIM broker isolation is conditional on MOCK data source; no hard block prevents live broker connections.']
+assert ['LIVE execution enablement is derived only from run mode; explicit enablement flag not enforced.', 'SIM broker isolation is conditional on MOCK data source; no hard block prevents live broker connections.'] == []
+  
+  Left contains 2 more items, first extra item: 'LIVE execution enablement is derived only from run mode; explicit enablement flag not enforced.'
+  
+  Full diff:
+  - []
+  + [
+  +     'LIVE execution enablement is derived only from run mode; explicit '
+  +     'enablement flag not enforced.',
+  +     'SIM broker isolation is conditional on MOCK data source; no hard block '
+  +     'prevents live broker connections.',
+  + ]
+========================= 1 failed, 1 passed in 0.05s ==========================
