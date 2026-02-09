@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Dict, Iterable
 
-from .contracts import StrategyIdentity
+from .contracts import ExecutionMode, StrategyIdentity
 
 
 class StrategyState(str, Enum):
@@ -78,6 +78,17 @@ class StrategyRegistry:
             key=lambda entry: (-entry.priority, entry.identity.strategy_id),
         )
 
+    def list_enabled_for_mode(self, mode: ExecutionMode) -> Iterable[StrategyRegistryEntry]:
+        enabled = [
+            entry
+            for entry in self._entries.values()
+            if entry.state == StrategyState.ENABLED and self._supports_mode(entry, mode)
+        ]
+        return sorted(
+            enabled,
+            key=lambda entry: (-entry.priority, entry.identity.strategy_id),
+        )
+
     def get(self, strategy_id: str) -> StrategyRegistryEntry:
         return self._get_entry(strategy_id)
 
@@ -85,3 +96,12 @@ class StrategyRegistry:
         if strategy_id not in self._entries:
             raise KeyError(f"Strategy '{strategy_id}' is not registered")
         return self._entries[strategy_id]
+
+    @staticmethod
+    def _supports_mode(entry: StrategyRegistryEntry, mode: ExecutionMode) -> bool:
+        if not entry.supported_modes:
+            return True
+        return bool(
+            entry.supported_modes.get(mode.value)
+            or entry.supported_modes.get(mode)
+        )

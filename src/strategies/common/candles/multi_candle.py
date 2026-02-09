@@ -102,3 +102,126 @@ def detect_tweezer(candles: List[Candle]) -> Optional[CandleEvidence]:
             rationale="Matching lows across two candles",
         )
     return None
+
+
+def detect_inside_bar(candles: List[Candle]) -> Optional[CandleEvidence]:
+    pair = _last_n(candles, 2)
+    if len(pair) < 2:
+        return None
+    first, second = pair
+    if second.high <= first.high and second.low >= first.low:
+        return CandleEvidence(
+            pattern_name="Inside Bar",
+            direction=Direction.NEUTRAL,
+            confidence=0.4,
+            rationale="Second candle inside previous range",
+        )
+    return None
+
+
+def detect_outside_bar(candles: List[Candle]) -> Optional[CandleEvidence]:
+    pair = _last_n(candles, 2)
+    if len(pair) < 2:
+        return None
+    first, second = pair
+    if second.high >= first.high and second.low <= first.low:
+        direction = Direction.LONG if second.is_bullish else Direction.SHORT
+        return CandleEvidence(
+            pattern_name="Outside Bar",
+            direction=direction,
+            confidence=0.45,
+            rationale="Second candle engulfs prior range",
+        )
+    return None
+
+
+def detect_rising_falling_three_methods(candles: List[Candle]) -> Optional[CandleEvidence]:
+    sequence = _last_n(candles, 5)
+    if len(sequence) < 5:
+        return None
+    first, second, third, fourth, fifth = sequence
+    middle_bodies = [second, third, fourth]
+    if first.is_bullish and fifth.is_bullish:
+        if all(candle.close <= first.close for candle in middle_bodies) and fifth.close > first.close:
+            return CandleEvidence(
+                pattern_name="Rising Three Methods",
+                direction=Direction.LONG,
+                confidence=0.6,
+                rationale="Bullish continuation with controlled pullback",
+            )
+    if first.is_bearish and fifth.is_bearish:
+        if all(candle.close >= first.close for candle in middle_bodies) and fifth.close < first.close:
+            return CandleEvidence(
+                pattern_name="Falling Three Methods",
+                direction=Direction.SHORT,
+                confidence=0.6,
+                rationale="Bearish continuation with controlled pullback",
+            )
+    return None
+
+
+def detect_micro_pullback_sequence(candles: List[Candle]) -> Optional[CandleEvidence]:
+    trio = _last_n(candles, 3)
+    if len(trio) < 2:
+        return None
+    reds = [candle for candle in trio if candle.is_bearish]
+    if 1 <= len(reds) <= 2 and trio[-1].is_bullish:
+        return CandleEvidence(
+            pattern_name="Micro Pullback Sequence",
+            direction=Direction.LONG,
+            confidence=0.45,
+            rationale="Short pullback followed by bullish resumption",
+        )
+    return None
+
+
+def detect_tight_flag_compression(candles: List[Candle]) -> Optional[CandleEvidence]:
+    trio = _last_n(candles, 3)
+    if len(trio) < 3:
+        return None
+    ranges = [candle.range for candle in trio]
+    if max(ranges) > 0 and max(ranges) <= min(ranges) * 1.5:
+        return CandleEvidence(
+            pattern_name="Tight Flag Compression Sequence",
+            direction=Direction.NEUTRAL,
+            confidence=0.4,
+            rationale="Tight consolidation sequence",
+        )
+    return None
+
+
+def detect_gap_and_go_sequence(candles: List[Candle]) -> Optional[CandleEvidence]:
+    pair = _last_n(candles, 2)
+    if len(pair) < 2:
+        return None
+    first, second = pair
+    if second.open > first.high and second.close > second.open:
+        return CandleEvidence(
+            pattern_name="Gap-and-Go Opening Sequence",
+            direction=Direction.LONG,
+            confidence=0.55,
+            rationale="Gap up and continuation",
+        )
+    return None
+
+
+def detect_failed_break_sequence(candles: List[Candle], direction: Direction) -> Optional[CandleEvidence]:
+    pair = _last_n(candles, 2)
+    if len(pair) < 2:
+        return None
+    probe, failure = pair
+    if direction == Direction.LONG and failure.close < probe.close:
+        return CandleEvidence(
+            pattern_name="Failed Breakout Sequence",
+            direction=Direction.SHORT,
+            confidence=0.45,
+            rationale="Breakout failure",
+        )
+    if direction == Direction.SHORT and failure.close > probe.close:
+        return CandleEvidence(
+            pattern_name="Failed Breakdown Sequence",
+            direction=Direction.LONG,
+            confidence=0.45,
+            rationale="Breakdown failure",
+        )
+    return None

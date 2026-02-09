@@ -1,4 +1,4 @@
-from src.strategy_portfolio.contracts import StrategyIdentity
+from src.strategy_portfolio.contracts import ExecutionMode, StrategyIdentity
 from src.strategy_portfolio.registry import StrategyRegistry, StrategyRegistryEntry, StrategyState
 
 
@@ -39,3 +39,24 @@ def test_registry_register_idempotent():
     registry.register(_entry("alpha", priority=1))
     registry.register(_entry("alpha", priority=2))
     assert registry.get("alpha").priority == 2
+
+
+def test_registry_filters_by_mode():
+    registry = StrategyRegistry()
+    registry.register(
+        _entry(
+            "alpha",
+            priority=1,
+            state=StrategyState.ENABLED,
+        )
+    )
+    registry.register(
+        StrategyRegistryEntry(
+            identity=StrategyIdentity(strategy_id="beta", strategy_version="1.0"),
+            priority=2,
+            state=StrategyState.ENABLED,
+            supported_modes={ExecutionMode.SIM.value: True, ExecutionMode.LIVE.value: False},
+        )
+    )
+    enabled = [entry.identity.strategy_id for entry in registry.list_enabled_for_mode(ExecutionMode.SIM)]
+    assert enabled == ["beta", "alpha"]
