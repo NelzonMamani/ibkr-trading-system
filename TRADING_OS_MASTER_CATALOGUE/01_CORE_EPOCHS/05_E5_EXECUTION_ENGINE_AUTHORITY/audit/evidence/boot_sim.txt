@@ -1,0 +1,4 @@
+RUN_SIMULATION.ps1
+
+Result: SKIPPED
+Reason: PowerShell (pwsh) is not available in this environment, so the script could not be executed.

@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0
+rootdir: /workspace/ibkr-trading-system
+configfile: pytest.ini
+collected 1 item
+
+tests/test_order_gateway_retry.py .                                      [100%]
+
+============================== 1 passed in 0.18s ===============================

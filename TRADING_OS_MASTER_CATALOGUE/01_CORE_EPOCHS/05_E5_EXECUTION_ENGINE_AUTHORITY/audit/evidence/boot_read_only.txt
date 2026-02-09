@@ -1,0 +1,4 @@
+RUN_LIVE_READ_ONLY.ps1
+
+Result: SKIPPED
+Reason: PowerShell (pwsh) is not available in this environment, so the script could not be executed.

@@ -44,3 +44,19 @@
   - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/04_E4_DATA_QUALITY_AND_MARKET_STATE/audit/evidence/test_replay_from_storage_epoch4.txt
   - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/04_E4_DATA_QUALITY_AND_MARKET_STATE/audit/evidence/test_replay_locked_in_live_modes_epoch4.txt
 - Statement: E4 data quality and market state guarantees verified with explicit session-state transitions, holiday/half-day closures, delayed/frozen snapshot flagging, and data-quality-driven trade blocking with replayable evidence.
+
+## E5_EXECUTION_ENGINE_AUTHORITY — CERTIFIED
+- Date: 2026-02-09
+- Evidence:
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/05_E5_EXECUTION_ENGINE_AUTHORITY/audit/evidence/compileall.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/05_E5_EXECUTION_ENGINE_AUTHORITY/audit/evidence/pytest.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/05_E5_EXECUTION_ENGINE_AUTHORITY/audit/evidence/test_execution_intent_modes.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/05_E5_EXECUTION_ENGINE_AUTHORITY/audit/evidence/test_ibkr_readonly.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/05_E5_EXECUTION_ENGINE_AUTHORITY/audit/evidence/test_order_gateway_retry.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/05_E5_EXECUTION_ENGINE_AUTHORITY/audit/evidence/test_liquidity_execution.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/05_E5_EXECUTION_ENGINE_AUTHORITY/audit/evidence/test_exit_precedence.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/05_E5_EXECUTION_ENGINE_AUTHORITY/audit/evidence/test_execution_authority_epoch5.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/05_E5_EXECUTION_ENGINE_AUTHORITY/audit/evidence/boot_sim.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/05_E5_EXECUTION_ENGINE_AUTHORITY/audit/evidence/boot_paper.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/05_E5_EXECUTION_ENGINE_AUTHORITY/audit/evidence/boot_read_only.txt
+- Statement: E5 Execution Engine Authority verified with a single execution pathway, mode-aware blocking (READ_ONLY), deterministic paper execution, bounded retries, and traceable execution outcomes.
