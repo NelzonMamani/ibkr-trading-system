@@ -18,7 +18,7 @@ Map catalogue requirements to existing system components with explicit OK / PART
 | E9 Performance Analytics | Performance registry | `src/core/performance_registry.py`, `tests/test_performance_registry_epoch9.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_09/EPOCH_09_E9_PERFORMANCE_ANALYTICS.md` | OK |
 | E10 Capital Allocation | Allocation arbitration | `src/strategy_portfolio/allocation.py`, `tests/strategy_portfolio/test_allocation.py`, `tests/strategy_portfolio/test_arbitration.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_10/EPOCH_10_E10_CAPITAL_ALLOCATION.md` | OK |
 | E11 Learning System | Learning pipeline | `src/learning/`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_11/EPOCH_11_E11_LEARNING_SYSTEM.md` | OK |
-| E12 Recovery & Housekeeping | Storage + stop control | `src/storage/`, `src/core/stop_controller.py` | PARTIAL |
+| E12 Recovery & Housekeeping | Storage + stop control | `src/storage/`, `src/core/stop_controller.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_12/EPOCH_12_E12_RECOVERY_AND_HOUSEKEEPING.md` | OK |
 | E13 Strategy Factory Standard | Registry + base | `src/strategies/strategy_registry.py`, `src/strategies/strategy_base.py` | PARTIAL |
 | E14 Decision Artifacts | Intent + signal models | `src/core/intent.py`, `src/signals/` | PARTIAL |
 | E15 Failure Modes | Fault handling | `src/core/faults.py` | PARTIAL |
