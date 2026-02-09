@@ -163,6 +163,10 @@ class RiskDecision:
     created_tick: Optional[int] = None
     idempotency_key: Optional[str] = None
     overall_action: str = "ALLOW"
+    decision_code: str = "APPROVE"
+    run_mode: Optional[str] = None
+    evaluated_limits: dict = field(default_factory=dict)
+    timestamp: Optional[str] = None
     per_intent: List[IntentRiskDecision] = field(default_factory=list)
     risk_reasons: List[str] = field(default_factory=list)
     sizing: dict = field(default_factory=dict)

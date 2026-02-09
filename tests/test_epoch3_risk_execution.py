@@ -5,7 +5,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from config.config_resolver import set_config_overrides  # noqa: E402
 from config.runtime_config import RunMode  # noqa: E402
-from core.active_trade_registry import ActiveTradeRegistry  # noqa: E402
+from core.active_trade_registry import ActiveTrade, ActiveTradeRegistry  # noqa: E402
 from core.event_collector import EventCollector  # noqa: E402
 from core.stop_controller import StopController  # noqa: E402
 from execution.execution_engine import ExecutionEngine  # noqa: E402
@@ -145,5 +145,32 @@ def test_execution_blocks_when_breaker_tripped():
 
         assert result.status == "BLOCKED"
         assert "CIRCUIT_BREAKER" in result.rejection_reason
+    finally:
+        set_config_overrides(None)
+
+
+def test_risk_engine_blocks_max_open_positions():
+    set_config_overrides(
+        {"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True, "RISK_MAX_OPEN_POSITIONS": 1}
+    )
+    try:
+        registry = ActiveTradeRegistry()
+        registry.register_trade(
+            ActiveTrade(
+                symbol="ABC",
+                trader_type="MANUAL",
+                entry_tick=1,
+                entry_price=10.0,
+                direction="LONG",
+                quantity=1,
+                strategy_name="UnitTestStrategy",
+                stop_loss_price=9.5,
+            )
+        )
+        risk_engine = RiskEngine(trade_registry=registry, stop_controller=StopController())
+        decision = risk_engine.evaluate_strategy_payload(_payload())
+
+        assert decision.overall_action == "BLOCK"
+        assert "RISK_MAX_OPEN_POSITIONS" in decision.risk_reasons
     finally:
         set_config_overrides(None)

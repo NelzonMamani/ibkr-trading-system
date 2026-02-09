@@ -1,0 +1,71 @@
+[CONFIG] Loaded 140 variables
+[CONFIG] HARD enforced: 28
+[CONFIG] Optional: 111
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+
+=== CYCLE 1 MODE=PAPER SESSION=PRE ===
+[ORCH][POLICY] loaded strategy=ross_momentum version=v1 policy=ROSS_MOMENTUM stock_selection=ENABLED
+[ORCH][POLICY] delegating to scanner watchlist_k=15 focus_m=5 top_n=150
+[ORCH][POLICY] scanner_universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN top_n=150
+[INTENT] strategy=ROSS_MOMENTUM mode=PAPER session_phase=PRE trade_enabled=True scan_only=False enforcement={'watchlist_limit_k': 15, 'focus_limit_m': 5, 'top_gainers_n': 150, 'max_symbols_per_cycle': 50}
+[SCANNER] MODE=PAPER SESSION=PRE
+[SCANNER][POLICY] source=STRATEGY policy_name=ROSS_MOMENTUM price=1.0-20.0 gap_min=10.0 rvol_min=5.0 float_max_millions=20.0 spread_max_pct=None watchlist_k=15 focus_m=5
+[SCANNER][ENTRY] strategy=ROSS_MOMENTUM requested_top_n=150 watchlist_k=15 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=1.0 below_price=20.0
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=7
+STATE=DEGRADED
+[SCANNER][PROVIDER] provider=IBKR fallback_reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[SCANNER][LIMITS] Symbol limits (value/source/env)
+[SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=DEFAULT env=-
+[SCANNER][LIMITS] SCANNER_TEACHING_SYMBOL_CAP=0 source=DEFAULT env=-
+[SCANNER][LIMITS] Policy caps top_gainers_n=150 watchlist_k=15 focus_m=5 max_symbols_per_cycle=50
+[SCANNER][LIMITS] Resolved symbol request limit=50 reductions=['policy_max_symbols(50)']
+[SCANNER][LIMITS] Focus list limit=5
+[SCANNER][STAGE] bootstrap
+SCANNER_RAW_N=150 returned 0 symbols
+[SCANNER][STAGE] gates
+AFTER_GATES_SYMBOLS (N=0): []
+[SCANNER][STAGE] watchlist
+[SCANNER][STAGE] enrich
+WATCHLIST_K_SELECTED (K=0): []
+[SCANNER][STAGE] print
+[SCANNER][SUMMARY] candidates=0 gated=0 watchlist=0 drops={}
+[SCANNER][DROP_SUMMARY] topn=0 evaluated=0 dropped=0 reasons={}
+[SCANNER][WATCHLIST] session=PRE count=0
+[SCANNER][FOCUS] session=PRE count=0
+TopN: 0
+GatedSurvivors: 0
+DropReasons: {}
+EMPTY WATCHLIST (valid)
+WATCHLIST_K: []
+FOCUS_M: []
+NEW: []
+CONTINUING: []
+DROPPED: []
+Scanner: TopN=0 Survivors=0 K=0 M=0
+EMPTY WATCHLIST (valid)
+WATCHLIST_K: []
+FOCUS_M: []
+
+=== DATA ===
+No focus symbols; skipping data hydration.
+
+=== PATTERNS ===
+No focus symbols; skipping pattern evaluation.
+
+=== STRATEGY ===
+[INTENT] 0 intents generated.
+
+=== RISK ===
+
+=== EXECUTION ===
+
+=== STORAGE ===
+Storage: OK
+
+=== HEALTH ===
+Health: OK
+
+=== CYCLE SUMMARY ===
+CYCLE 1 health=OK intents=0 decisions=0 executions=0
