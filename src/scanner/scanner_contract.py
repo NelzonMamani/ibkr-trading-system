@@ -51,3 +51,26 @@ def scanner_request_from_policy(
         location_code=universe.location_code,
         exchanges=exchanges,
     )
+
+
+def validate_scanner_request(request: ScannerRequest) -> list[str]:
+    errors: list[str] = []
+    if not str(request.strategy_name or "").strip():
+        errors.append("strategy_name is required")
+    if not str(request.policy_name or "").strip():
+        errors.append("policy_name is required")
+    if not str(request.ranking_intent or "").strip():
+        errors.append("ranking_intent is required")
+    if request.requested_top_n <= 0:
+        errors.append("requested_top_n must be positive")
+    if request.universe_source == UniverseSource.IBKR_TOP_GAINERS:
+        if not str(request.ibkr_scan_code or "").strip():
+            errors.append("ibkr_scan_code is required for IBKR_TOP_GAINERS")
+        if not str(request.instrument or "").strip():
+            errors.append("instrument is required for IBKR_TOP_GAINERS")
+        if not str(request.location_code or "").strip():
+            errors.append("location_code is required for IBKR_TOP_GAINERS")
+    if request.above_price is not None and request.below_price is not None:
+        if request.above_price > request.below_price:
+            errors.append("above_price must be <= below_price")
+    return errors

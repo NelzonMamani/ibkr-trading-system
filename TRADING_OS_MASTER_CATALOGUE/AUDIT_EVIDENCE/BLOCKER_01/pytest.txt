@@ -1,0 +1,101 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0
+rootdir: /workspace/ibkr-trading-system
+configfile: pytest.ini
+testpaths: tests
+collected 148 items / 2 skipped
+
+tests/smoke/test_imports.py .                                            [  0%]
+tests/smoke/test_orchestrator_cycle.py ..                                [  2%]
+tests/smoke/test_scanner_contract.py .                                   [  2%]
+tests/strategies/statistical_intraday_momentum/test_contract_compliance.py . [  3%]
+                                                                         [  3%]
+tests/strategies/statistical_intraday_momentum/test_intraday_end_to_end_smoke.py . [  4%]
+                                                                         [  4%]
+tests/strategies/statistical_intraday_momentum/test_policy_imports.py .  [  4%]
+tests/strategies/statistical_intraday_momentum/test_regime_gates.py ..   [  6%]
+tests/strategies/statistical_intraday_momentum/test_risk_policy.py ..    [  7%]
+tests/strategies/statistical_intraday_momentum/test_safe_defaults.py .   [  8%]
+tests/strategies/statistical_intraday_momentum/test_scoring_determinism.py . [  8%]
+                                                                         [  8%]
+tests/strategy_portfolio/test_allocation.py ....                         [ 11%]
+tests/strategy_portfolio/test_arbitration.py .....                       [ 14%]
+tests/strategy_portfolio/test_contracts.py ....                          [ 17%]
+tests/strategy_portfolio/test_end_to_end_smoke.py .                      [ 18%]
+tests/strategy_portfolio/test_non_interference.py .                      [ 18%]
+tests/strategy_portfolio/test_normaliser_defaults.py ..                  [ 20%]
+tests/strategy_portfolio/test_registry.py ....                           [ 22%]
+tests/strategy_portfolio/test_ross_adapter.py .....                      [ 26%]
+tests/test_config_sanity.py ...                                          [ 28%]
+tests/test_epoch3_risk_execution.py ......                               [ 32%]
+tests/test_event_collector_snapshot_policy.py ...                        [ 34%]
+tests/test_execution_authority_epoch5.py ..                              [ 35%]
+tests/test_execution_intent_modes.py ..                                  [ 37%]
+tests/test_exit_precedence.py ..                                         [ 38%]
+tests/test_faults.py ....                                                [ 41%]
+tests/test_ibkr_order_translator.py sssss                                [ 44%]
+tests/test_learning_policy_proposal.py ..                                [ 45%]
+tests/test_learning_reporting.py ..                                      [ 47%]
+tests/test_liquidity_execution.py .                                      [ 47%]
+tests/test_market_data_client_disconnect.py .                            [ 48%]
+tests/test_market_data_client_snapshot.py ...                            [ 50%]
+tests/test_market_data_validation.py ..                                  [ 52%]
+tests/test_market_session_phase.py ....                                  [ 54%]
+tests/test_orchestrator_scanner_request.py .                             [ 55%]
+tests/test_orchestrator_shutdown.py ...                                  [ 57%]
+tests/test_order_gateway_retry.py .                                      [ 58%]
+tests/test_performance_reports_epoch4.py .                               [ 58%]
+tests/test_position_lifecycle_engine.py ....                             [ 61%]
+tests/test_position_lifecycle_persistence.py .                           [ 62%]
+tests/test_read_only_guard.py .                                          [ 62%]
+tests/test_regime_baselines.py .                                         [ 63%]
+tests/test_regime_classifier.py ..                                       [ 64%]
+tests/test_regime_contracts.py ...                                       [ 66%]
+tests/test_regime_determinism.py .                                       [ 67%]
+tests/test_regime_live_readonly_missingness.py .                         [ 68%]
+tests/test_regime_observers.py .                                         [ 68%]
+tests/test_regime_orchestrator_integration.py .                          [ 69%]
+tests/test_regime_policy_application.py .                                [ 70%]
+tests/test_regime_storage.py .                                           [ 70%]
+tests/test_replay_from_storage_epoch4.py ..                              [ 72%]
+tests/test_replay_locked_in_live_modes_epoch4.py .                       [ 72%]
+tests/test_ross_strategy_registry.py .                                   [ 73%]
+tests/test_scanner_contract_54.py ...                                    [ 75%]
+tests/test_scanner_pct_change_fallback.py ..                             [ 77%]
+tests/test_scanner_policy_from_strategy.py .                             [ 77%]
+tests/test_scanner_provider_fallback.py .                                [ 78%]
+tests/test_scanner_ranking_authority.py .                                [ 79%]
+tests/test_scanner_request_validation.py ..                              [ 80%]
+tests/test_scanner_universe_request.py .                                 [ 81%]
+tests/test_scanner_watchlist_artifact_empty.py .                         [ 81%]
+tests/test_scanner_watchlist_prints.py ..                                [ 83%]
+tests/test_signal_adapter.py ...                                         [ 85%]
+tests/test_sqlite_persistence.py ...                                     [ 87%]
+tests/test_stop_controller.py ..                                         [ 88%]
+tests/test_storage_cli_epoch4.py .                                       [ 89%]
+tests/test_storage_recovery.py .                                         [ 89%]
+tests/test_storage_schema_epoch4.py ..                                   [ 91%]
+tests/test_storage_serialization.py ...                                  [ 93%]
+tests/test_traceability.py ...                                           [ 95%]
+tests/test_trade_exit_engine.py .......                                  [100%]
+
+=============================== warnings summary ===============================
+tests/test_regime_orchestrator_integration.py::test_orchestrator_emits_regime_snapshot
+tests/test_traceability.py::test_trace_event_order_sim
+tests/test_traceability.py::test_live_readonly_connectivity_retry
+  /workspace/ibkr-trading-system/src/core/managers/connection_manager.py:102: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
+    continue
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_scanner_policy_from_strategy.py::test_scanner_policy_limits_applied_in_teaching_mode
+tests/test_scanner_ranking_authority.py::test_scanner_uses_strategy_ranking_for_ross
+tests/test_scanner_universe_request.py::test_scanner_request_ibkr_top_gainers_skips_scanner_symbols_error
+tests/test_scanner_watchlist_prints.py::test_watchlist_print_format
+tests/test_scanner_watchlist_prints.py::test_watchlist_print_suppressed_when_unchanged
+  /workspace/ibkr-trading-system/src/scanner/scanner_runner.py:-1: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================= 143 passed, 7 skipped, 8 warnings in 50.65s ==================

@@ -31,6 +31,7 @@ from enum import Enum
 from typing import Optional, Sequence
 
 from src.scanner.result_models import CandidateMetrics
+from src.scanner.session_pct_change import normalize_session_label
 
 
 class RossTradingMode(str, Enum):
@@ -253,11 +254,13 @@ def select_watchlist(
         spec = policy.stock_selection
     else:
         spec = policy
-    session_allowlist = {session.upper() for session in spec.session_allowlist}
+    session_allowlist = {
+        normalize_session_label(session) for session in spec.session_allowlist
+    }
     eligible: list[CandidateMetrics] = []
     for observation in observations:
         reasons: list[str] = []
-        session_label = (observation.session_label or "").upper()
+        session_label = normalize_session_label(observation.session_label or "")
         if session_allowlist and session_label and session_label not in session_allowlist:
             reasons.append("SESSION_NOT_ALLOWED")
         gate_checks = observation.gate_checks or {}

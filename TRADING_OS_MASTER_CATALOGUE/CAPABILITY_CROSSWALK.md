@@ -12,7 +12,7 @@ Map catalogue requirements to existing system components with explicit OK / PART
 | E3 Risk Engine Completeness | Risk gating | `src/risk/risk_engine.py` | PARTIAL |
 | E4 Data Quality & Market State | Market data hub | `src/market_data/market_data_hub.py` | PARTIAL |
 | E5 Execution Engine Authority | Execution router | `src/execution/execution_engine.py`, `src/execution/order_router.py` | PARTIAL |
-| E6 Scanner → Strategy Contract | Scanner contracts | `src/scanner/scanner_contract.py` | PARTIAL |
+| E6 Scanner → Strategy Contract | Scanner contracts | `src/scanner/scanner_contract.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/BLOCKER_01.md` | PARTIAL |
 | E7 Mode Parity & Safety | Mode scripts | `RUN_SIMULATION.ps1`, `RUN_LIVE_READ_ONLY.ps1` | PARTIAL |
 | E8 Regime & Microstructure | Regime layer | `src/regime/` | PARTIAL |
 | E9 Performance Analytics | Performance registry | `src/performance/performance_registry.py` | PARTIAL |

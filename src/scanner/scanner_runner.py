@@ -33,7 +33,11 @@ from src.scanner.contracts import (
     StockSelectionPolicy,
     policy_from_config,
 )
-from src.scanner.scanner_contract import ScannerRequest, scanner_request_from_policy
+from src.scanner.scanner_contract import (
+    ScannerRequest,
+    scanner_request_from_policy,
+    validate_scanner_request,
+)
 from src.strategies.ross_momentum.strategy_policy import UniverseSource
 from src.scanner.phase24_views import (
     DeepViewRow,
@@ -1401,6 +1405,48 @@ def run_scanner_cycle(
         )
     )
     request = scanner_request or scanner_request_from_policy(resolved_policy)
+    request_errors = validate_scanner_request(request)
+    if request_errors:
+        diagnostics["scanner_request_errors"] = request_errors
+        print(
+            "[SCANNER][ERROR] Invalid scanner request; "
+            f"errors={request_errors}"
+        )
+        return {
+            "scanner_version": SCANNER_VERSION,
+            "scanner_git_sha": SCANNER_GIT_SHA,
+            "timestamp_utc": utc_now.isoformat(),
+            "universe_top_n": [],
+            "symbols": [],
+            "watchlist": [],
+            "watchlist_rows": [],
+            "focus_rows": [],
+            "drop_ledger": {},
+            "watchlist_k": [],
+            "focus_m": [],
+            "watchlist_k_symbols": [],
+            "focus_m_symbols": [],
+            "candidates": [],
+            "candidate_metrics": [],
+            "scanner_result": ScannerResult(
+                top_n_symbols=[],
+                candidates=[],
+                watchlist_k=[],
+                focus_m=[],
+                drops_by_reason={},
+                new_symbols=[],
+                continuing_symbols=[],
+                dropped_symbols=[],
+            ),
+            "topn_count": 0,
+            "survivors_count": 0,
+            "new_symbols": [],
+            "continuing_symbols": [],
+            "dropped_symbols": [],
+            "drop_reason_summary": {},
+            "data_quality_by_symbol": {},
+            "diagnostics": diagnostics,
+        }
     print(
         "[SCANNER][ENTRY] "
         f"strategy={resolved_policy.policy_name} "
