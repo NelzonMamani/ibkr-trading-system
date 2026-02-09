@@ -106,7 +106,8 @@ class PerformanceRegistry:
         self._closed_trades.append(normalised_payload)
 
     def snapshot(self, open_trades: int | None = None) -> PerformanceSnapshot:
-        summary = self._summarize_trades(self._closed_trades)
+        ordered_trades = self._sorted_trades(self._closed_trades)
+        summary = self._summarize_trades(ordered_trades)
         total_trades = summary["total_trades"]
         closed_trades = total_trades
         open_trades_value = open_trades if open_trades is not None else 0
@@ -119,19 +120,19 @@ class PerformanceRegistry:
         win_rate = summary["win_rate"]
         avg_pnl_per_trade = summary["avg_pnl_per_trade"]
 
-        by_strategy = self._build_buckets(self._closed_trades, "strategy_name")
-        by_trader_type = self._build_buckets(self._closed_trades, "trader_type")
+        by_strategy = self._build_buckets(ordered_trades, "strategy_name")
+        by_trader_type = self._build_buckets(ordered_trades, "trader_type")
         by_pattern = self._build_buckets(
-            self._closed_trades, "pattern_name", include_failures=True
+            ordered_trades, "pattern_name", include_failures=True
         )
-        by_session = self._build_buckets(self._closed_trades, "session")
-        by_volatility = self._build_buckets(self._closed_trades, "volatility_regime")
-        by_market_direction = self._build_buckets(self._closed_trades, "market_direction")
+        by_session = self._build_buckets(ordered_trades, "session")
+        by_volatility = self._build_buckets(ordered_trades, "volatility_regime")
+        by_market_direction = self._build_buckets(ordered_trades, "market_direction")
         rule_adherence = self._build_rule_adherence_summary(
             net_pnl=net_pnl,
-            trades=self._closed_trades,
+            trades=ordered_trades,
         )
-        reports = self._build_reports(self._closed_trades)
+        reports = self._build_reports(ordered_trades)
 
         return PerformanceSnapshot(
             total_trades=total_trades,
@@ -151,7 +152,7 @@ class PerformanceRegistry:
             by_session=by_session,
             by_volatility_regime=by_volatility,
             by_market_direction=by_market_direction,
-            trade_outcomes=list(self._closed_trades),
+            trade_outcomes=ordered_trades,
             rule_adherence=rule_adherence,
             reports=reports,
         )
@@ -432,6 +433,23 @@ class PerformanceRegistry:
                 "summary_text": self._format_summary_text(key, summary),
             }
         return report
+
+    def _sorted_trades(self, trades: list[dict]) -> list[dict]:
+        return sorted(trades, key=self._trade_sort_key)
+
+    @staticmethod
+    def _trade_sort_key(trade: dict) -> tuple:
+        return (
+            trade.get("timestamp") or "",
+            trade.get("symbol") or "",
+            trade.get("strategy_name") or "",
+            trade.get("trader_type") or "",
+            trade.get("pattern_name") or "",
+            trade.get("direction") or "",
+            float(trade.get("entry_price") or 0.0),
+            float(trade.get("exit_price") or 0.0),
+            float(trade.get("realised_pnl") or 0.0),
+        )
 
     @staticmethod
     def _format_summary_text(label: str, summary: dict[str, float | int]) -> str:

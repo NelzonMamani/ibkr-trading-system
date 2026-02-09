@@ -15,7 +15,7 @@ Map catalogue requirements to existing system components with explicit OK / PART
 | E6 Scanner → Strategy Contract | Scanner contracts | `src/scanner/scanner_contract.py`, `tests/test_scanner_request_validation.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/BLOCKER_01/` | PARTIAL |
 | E7 Mode Parity & Safety | Mode scripts | `RUN_SIMULATION.ps1`, `RUN_LIVE_READ_ONLY.ps1`, `tests/test_mode_drift_guard.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/BLOCKER_02/` | PARTIAL |
 | E8 Regime & Microstructure | Regime layer | `src/regime/`, `tests/test_regime_classifier.py`, `tests/test_regime_observers.py`, `tests/test_regime_policy_application.py`, `tests/test_regime_live_readonly_missingness.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_08/` | OK |
-| E9 Performance Analytics | Performance registry | `src/performance/performance_registry.py` | PARTIAL |
+| E9 Performance Analytics | Performance registry | `src/core/performance_registry.py`, `tests/test_performance_registry_epoch9.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_09/EPOCH_09_E9_PERFORMANCE_ANALYTICS.md` | OK |
 | E10 Capital Allocation | Allocation arbitration | `src/strategy_portfolio/allocation.py` | PARTIAL |
 | E11 Learning System | Learning pipeline | `src/learning/` | PARTIAL |
 | E12 Recovery & Housekeeping | Storage + stop control | `src/storage/`, `src/core/stop_controller.py` | PARTIAL |
