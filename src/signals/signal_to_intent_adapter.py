@@ -84,6 +84,11 @@ class SignalToIntentAdapter:
                 payload=payload,
                 tick=tick,
             )
+            entry_price = (
+                float(event.entry_level)
+                if getattr(event, "entry_level", None) is not None
+                else None
+            )
             intents.append(
                 TradeIntent(
                     symbol=event.symbol,
@@ -94,6 +99,7 @@ class SignalToIntentAdapter:
                     trader_type=trader_type,
                     stop_loss_price=None,
                     take_profit_price=None,
+                    entry_price=entry_price,
                 )
             )
 

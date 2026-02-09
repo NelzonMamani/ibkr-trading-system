@@ -1,0 +1,17 @@
+[CONFIG] Loaded 140 variables
+[CONFIG] HARD enforced: 28
+[CONFIG] Optional: 111
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+[BOOT] RiskEngine instantiated — phase 4 teaching rules active
+[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow
+[SAFETY] EXECUTION: HARD DISABLED
+[EXECUTION] Gateway: DISABLED
+[EXECUTION] Liquidity checks: DISABLED
+[EXECUTION] Broker submission: DISABLED
+[RISK] Evaluating TradeIntent for symbol=AAPL
+[EXECUTION] Received risk decision for broker-routed flow
+[SCHEMA] event=ORDER_BLOCKED_READONLY has extra keys: execution_enabled
+decision RiskDecision(symbol='AAPL', allowed=False, max_position_size=0, risk_level='BLOCKED', rationale='READ_ONLY: execution blocked by risk gate.', trader_type='MANUAL', strategy_name='E3_READ_ONLY_CHECK', direction='LONG', stop_loss_price=None, take_profit_price=None, pattern_name=None, invalidation_level=None, reason_code='LIVE_READ_ONLY_BLOCK', intent_id=None, created_tick=None, idempotency_key=None, overall_action='BLOCK', per_intent=[], risk_reasons=['LIVE_READ_ONLY_BLOCK'], sizing={}, circuit_breaker_tripped=False, execution_blocked=True, run_mode='READ_ONLY', decision_time='2026-02-09T10:59:44.091331+00:00', evaluated_limits={'run_mode': 'READ_ONLY', 'active_session': 'RTH', 'allowed_sessions': ['PRE', 'RTH', 'AH'], 'execution_enabled': False, 'risk_profile': 'NORMAL', 'profile_limits': {'max_shares': None, 'max_position_value_pct': 5.0, 'max_risk_per_trade_pct': 1.0, 'daily_max_loss_pct': 3.0, 'daily_max_trades': None, 'enforce_hard_stops': True}, 'configured_limits': {'max_position_size': 1, 'max_open_positions': 6, 'max_total_exposure_pct': 20.0}, 'computed_limits': {'resolved_max_position_size': 1, 'total_exposure_limit_usd': 20000.0}, 'registry_snapshot': {'active_positions': 0, 'current_exposure_usd': 0}})
+result ExecutionResult(symbol='AAPL', trader_type='MANUAL', attempted=False, status='BLOCKED', rationale='LIVE_READ_ONLY_BLOCK', direction='LONG', quantity=0, entry_price=None, exit_price=None, raw_price=None, slippage_applied=Decimal('0.00'), entry_tick=None, exit_tick=None, stop_loss_price=None, take_profit_price=None, gross_realised_pnl=Decimal('0.00'), commission=Decimal('0.00'), net_realised_pnl=Decimal('0.00'), requested_quantity=0, filled_quantity=0, remaining_quantity=0, fill_status='NONE', average_fill_price=None, note='LIVE_READ_ONLY_BLOCK', gateway_decision=None, attempt_number=0, client_order_id=None, retry_scheduled=False, next_retry_tick=None, rejection_reason='LIVE_READ_ONLY_BLOCK', spread=None, bid_price=None, ask_price=None, reference_price=None, execution_price=None)

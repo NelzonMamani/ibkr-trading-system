@@ -145,6 +145,13 @@ class ActiveTradeRegistry:
     def count_active(self) -> int:
         return len(self._active_trades)
 
+    def total_exposure(self) -> float:
+        return sum(
+            float(trade.entry_price) * float(trade.quantity)
+            for trade in self._active_trades
+            if trade.entry_price is not None
+        )
+
     def snapshot(self):
         return list(self._active_trades)
 

@@ -113,6 +113,7 @@ class TradeIntent:
     take_profit_price: Optional[float] = None  # Optional profit target configured at entry time.
     pattern_name: Optional[str] = None
     invalidation_level: Optional[float] = None
+    entry_price: Optional[float] = None
     gap_percent: Optional[float] = None
     rvol: Optional[float] = None
     float_millions: Optional[float] = None
@@ -168,6 +169,9 @@ class RiskDecision:
     sizing: dict = field(default_factory=dict)
     circuit_breaker_tripped: bool = False
     execution_blocked: bool = False
+    run_mode: Optional[str] = None
+    decision_time: Optional[str] = None
+    evaluated_limits: dict = field(default_factory=dict)
 
 
 @dataclass

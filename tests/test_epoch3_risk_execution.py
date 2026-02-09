@@ -9,6 +9,7 @@ from core.active_trade_registry import ActiveTradeRegistry  # noqa: E402
 from core.event_collector import EventCollector  # noqa: E402
 from core.stop_controller import StopController  # noqa: E402
 from execution.execution_engine import ExecutionEngine  # noqa: E402
+from models.data_models import TradeIntent as ModelTradeIntent  # noqa: E402
 from risk.risk_engine import RiskEngine  # noqa: E402
 from strategies.strategy_contracts import (  # noqa: E402
     DecisionType,
@@ -145,5 +146,36 @@ def test_execution_blocks_when_breaker_tripped():
 
         assert result.status == "BLOCKED"
         assert "CIRCUIT_BREAKER" in result.rejection_reason
+    finally:
+        set_config_overrides(None)
+
+
+def test_session_gate_blocks_paper_intent():
+    set_config_overrides(
+        {
+            "RUN_MODE": "PAPER",
+            "EXECUTION_ENABLED": True,
+            "ACTIVE_SESSIONS": ["RTH"],
+            "SESSION_PHASE_OVERRIDE": "CLOSED",
+        }
+    )
+    try:
+        stop_controller = StopController()
+        risk_engine = RiskEngine(stop_controller=stop_controller)
+        decision = risk_engine.evaluate_trade_intent(
+            ModelTradeIntent(
+                symbol="ABC",
+                direction="LONG",
+                strategy_name="UnitTestStrategy",
+                confidence=0.9,
+                rationale="unit-test",
+                trader_type="MANUAL",
+                stop_loss_price=99.0,
+                entry_price=101.0,
+            )
+        )
+
+        assert decision.allowed is False
+        assert decision.reason_code == "SESSION_CLOSED"
     finally:
         set_config_overrides(None)

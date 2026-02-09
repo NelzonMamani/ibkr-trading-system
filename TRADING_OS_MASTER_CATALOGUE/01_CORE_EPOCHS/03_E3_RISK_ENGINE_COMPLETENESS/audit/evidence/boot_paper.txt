@@ -1,0 +1,25 @@
+[CONFIG] Loaded 140 variables
+[CONFIG] HARD enforced: 28
+[CONFIG] Optional: 111
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+[BOOT] RiskEngine instantiated — phase 4 teaching rules active
+[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow
+[SAFETY] PAPER-EXECUTION MODE ACTIVE
+[RISK] Evaluating TradeIntent for symbol=AAPL
+[RISK:REGISTRY] Active trades for MANUAL currently 0 (registry single source of truth)
+[RISK:STRATEGY] MANUAL has no configured limit — defaulting to ALLOW
+[RISK] Trade direction is LONG — teaching rule allows the idea to proceed
+[RISK] Max position size capped at 1 share(s) for safety and simplicity
+[RISK] Confidence >= 0.75 — assigning risk level LOW for teaching clarity
+[EXECUTION] Received risk decision for broker-routed flow
+[ORDER] submit id=5caa24220b2d symbol=AAPL qty=1 trader_type=MANUAL attempt=1
+[SIM_ORDER] Submitted symbol=AAPL direction=LONG quantity=1
+[SCHEMA] event=ORDER_SUBMITTED has extra keys: broker
+[GATEWAY] id=5caa24220b2d tick=10 attempt=1 decision=ACCEPT
+[PRICE_FEED] symbol=AAPL tick=10 price=10.0
+[LIQUIDITY] symbol=AAPL tick=10 trader_type=MANUAL requested=1 available=0 filled=0 remaining=1 status=NONE (no trade opened)
+[EXECUTION] PAPER mode active — provider=PAPER_EXECUTION_PROVIDER deterministic flow.
+decision RiskDecision(symbol='AAPL', allowed=True, max_position_size=1, risk_level='LOW', rationale='Teaching-only decision: allow intent, cap size at 1 share, and set risk level to LOW based on confidence for MANUAL within strategy limits.', trader_type='MANUAL', strategy_name='E3_PAPER_CHECK', direction='LONG', stop_loss_price=99.0, take_profit_price=None, pattern_name=None, invalidation_level=None, reason_code=None, intent_id=None, created_tick=None, idempotency_key='14cde68cfcb33452', overall_action='ALLOW', per_intent=[], risk_reasons=[], sizing={}, circuit_breaker_tripped=False, execution_blocked=False, run_mode='PAPER', decision_time='2026-02-09T10:59:35.583623+00:00', evaluated_limits={'run_mode': 'PAPER', 'active_session': 'RTH', 'allowed_sessions': ['PRE', 'RTH', 'AH'], 'execution_enabled': True, 'risk_profile': 'NORMAL', 'profile_limits': {'max_shares': None, 'max_position_value_pct': 5.0, 'max_risk_per_trade_pct': 1.0, 'daily_max_loss_pct': 3.0, 'daily_max_trades': None, 'enforce_hard_stops': True}, 'configured_limits': {'max_position_size': 1, 'max_open_positions': 6, 'max_total_exposure_pct': 20.0}, 'computed_limits': {'resolved_max_position_size': 1, 'total_exposure_limit_usd': 20000.0}, 'registry_snapshot': {'active_positions': 0, 'current_exposure_usd': 0}})
+result ExecutionResult(symbol='AAPL', trader_type='MANUAL', attempted=True, status='NOT_FILLED', rationale='Deterministic liquidity returned zero available volume.', direction='LONG', quantity=0, entry_price=None, exit_price=None, raw_price=Decimal('10.00'), slippage_applied=Decimal('0.00'), entry_tick=10, exit_tick=None, stop_loss_price=Decimal('99.00'), take_profit_price=None, gross_realised_pnl=Decimal('0.00'), commission=Decimal('0.00'), net_realised_pnl=Decimal('0.00'), requested_quantity=1, filled_quantity=0, remaining_quantity=1, fill_status='NONE', average_fill_price=None, note='No fill: liquidity zero for this tick/symbol combination.', gateway_decision='ACCEPT', attempt_number=1, client_order_id='5caa24220b2d', retry_scheduled=False, next_retry_tick=None, rejection_reason=None, spread=Decimal('0.05'), bid_price=Decimal('9.98'), ask_price=Decimal('10.03'), reference_price=Decimal('10.03'), execution_price=None)

@@ -88,6 +88,11 @@ class SignalToIntentAdapter:
             stop_loss_price = (
                 float(event.stop_level) if event.stop_level is not None else None
             )
+            entry_price = (
+                float(event.entry_level)
+                if getattr(event, "entry_level", None) is not None
+                else None
+            )
             intent = TradeIntent(
                 symbol=event.symbol,
                 direction="LONG",
@@ -97,6 +102,7 @@ class SignalToIntentAdapter:
                 trader_type=selection.trader_type,
                 stop_loss_price=stop_loss_price,
                 take_profit_price=None,
+                entry_price=entry_price,
                 pattern_name=event.signal_type.value,
                 invalidation_level=(
                     float(event.invalidation_level)
