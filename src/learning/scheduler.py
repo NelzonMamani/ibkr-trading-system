@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
 
+from src.config.runtime_config import get_learning_enabled
 from src.learning.models import LearningDataset
 from src.learning.reporting import (
     build_daily_report,
@@ -19,6 +20,9 @@ class LearningScheduler:
         self.strategy_name = strategy_name
 
     def on_startup(self) -> None:
+        if not get_learning_enabled():
+            print("[LEARNING][SCHEDULER] Learning disabled; skipping startup report.")
+            return
         now = datetime.now(timezone.utc)
         asof_date = _last_completed_trading_day(now)
         if not asof_date:
@@ -26,6 +30,9 @@ class LearningScheduler:
         self._ensure_daily_report(asof_date)
 
     def on_shutdown(self) -> None:
+        if not get_learning_enabled():
+            print("[LEARNING][SCHEDULER] Learning disabled; skipping shutdown report.")
+            return
         today = to_ny_time(datetime.now(timezone.utc)).date().isoformat()
         self._ensure_daily_report(today)
 

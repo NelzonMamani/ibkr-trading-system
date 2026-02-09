@@ -158,6 +158,13 @@ def get_ibkr_kill_switch(default: bool = True) -> bool:
     return bool(_with_default("IBKR_KILL_SWITCH", default))
 
 
+def get_learning_enabled(run_mode: RunMode | None = None) -> bool:
+    resolved_mode = run_mode or get_run_mode()
+    if resolved_mode == RunMode.LIVE:
+        return bool(_with_default("LEARNING_LIVE_ENABLED", False))
+    return bool(_with_default("LEARNING_ENABLED", True))
+
+
 def get_ibkr_max_orders_per_run(default: int = 1) -> int:
     return int(_with_default("IBKR_MAX_ORDERS_PER_RUN", default))
 

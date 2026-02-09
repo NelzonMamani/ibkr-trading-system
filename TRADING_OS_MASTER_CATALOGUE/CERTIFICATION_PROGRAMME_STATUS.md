@@ -1,13 +1,14 @@
 # Trading OS Certification Programme Status
 
-- **Branch:** `codex/certify-E10_capital_allocation`
-- **PR:** (pending) Certify E10 Capital Allocation
-- **Next target:** `E11_LEARNING_SYSTEM`
+- **Branch:** `codex/certify-E11_learning_system`
+- **PR:** (pending) Certify E11 Learning System
+- **Next target:** `E12_RECOVERY_AND_HOUSEKEEPING`
 - **Completed epochs this run:**
   - `E5_EXECUTION_ENGINE_AUTHORITY` (2026-02-09)
   - `E8_REGIME_AND_MICROSTRUCTURE_LAYER` (2026-02-09)
   - `E9_PERFORMANCE_ANALYTICS` (2026-02-09)
   - `E10_CAPITAL_ALLOCATION` (2026-02-09)
+  - `E11_LEARNING_SYSTEM` (2026-02-09)
 - **Current blocker:** None
 
 ## Notes
