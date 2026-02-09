@@ -92,12 +92,20 @@ from src.strategies.mean_reversion.scanner_policy import (
     MeanReversionScannerPolicy,
     mean_reversion_stock_selection_spec,
 )
+from src.strategies.strategy_registry import StrategyRegistry, build_default_registry
 from src.utils.time_utils import market_session_phase, to_ny_time, to_uk_time
 from src.regime.layer import RegimeLayer
 
 
 class RuntimeSafetyError(RuntimeError):
     """Raised when a runtime safety gate is violated."""
+
+
+def build_orchestrator_strategy_registry(
+    enabled_strategy_ids: Optional[List[str]] = None,
+) -> StrategyRegistry:
+    """Expose the canonical registry for orchestrator integration smoke tests."""
+    return build_default_registry(enabled_strategy_ids=enabled_strategy_ids)
 
 
 class CoreOrchestrator:

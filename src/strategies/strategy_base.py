@@ -3,15 +3,39 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Iterable, List
 
 from src.strategies.strategy_contracts import StrategyDecision, StrategyInput, StrategyRiskPayload
+
+
+@dataclass(frozen=True)
+class StrategyMetadata:
+    strategy_id: str
+    strategy_name: str
+    version: str
+    description: str | None = None
 
 
 class StrategyBase(ABC):
     strategy_id: str
     strategy_name: str
     version: str
+    description: str | None = None
+
+    @classmethod
+    def metadata(cls) -> StrategyMetadata:
+        """Return canonical strategy metadata."""
+        return StrategyMetadata(
+            strategy_id=cls.strategy_id,
+            strategy_name=cls.strategy_name,
+            version=cls.version,
+            description=getattr(cls, "description", None),
+        )
+
+    def get_metadata(self) -> StrategyMetadata:
+        """Return canonical strategy metadata for this instance."""
+        return self.__class__.metadata()
 
     def initialise(self, context: dict | None = None) -> None:
         """Hook for strategy initialisation (stateless by default)."""
