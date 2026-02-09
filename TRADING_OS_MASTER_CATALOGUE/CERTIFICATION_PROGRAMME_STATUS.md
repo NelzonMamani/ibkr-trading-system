@@ -1,11 +1,12 @@
 # Trading OS Certification Programme Status
 
-- **Branch:** `codex/execute-core-epoch-E8_REGIME_AND_MICROSTRUCTURE_LAYER-next`
-- **PR:** (pending) Certify E8 Regime & Microstructure Layer
-- **Next target:** `E9_PERFORMANCE_ANALYTICS`
+- **Branch:** `codex/certify-E9_performance_analytics`
+- **PR:** (pending) Certify E9 Performance Analytics
+- **Next target:** `E10_CAPITAL_ALLOCATION`
 - **Completed epochs this run:**
   - `E5_EXECUTION_ENGINE_AUTHORITY` (2026-02-09)
   - `E8_REGIME_AND_MICROSTRUCTURE_LAYER` (2026-02-09)
+  - `E9_PERFORMANCE_ANALYTICS` (2026-02-09)
 - **Current blocker:** None
 
 ## Notes
