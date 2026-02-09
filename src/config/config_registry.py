@@ -154,6 +154,24 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "static",
         "description": "Enable self-test to deduplicate intents during normalization.",
     },
+    "LEARNING_ENABLED": {
+        "type": bool,
+        "default": True,
+        "env": ["LEARNING_ENABLED"],
+        "affects": ["LearningScheduler", "LearningCLI"],
+        "enforcement": "SOFT",
+        "mutable": "static",
+        "description": "Master switch for learning outputs in non-LIVE modes.",
+    },
+    "LEARNING_LIVE_ENABLED": {
+        "type": bool,
+        "default": False,
+        "env": ["LEARNING_LIVE_ENABLED"],
+        "affects": ["LearningScheduler", "LearningCLI"],
+        "enforcement": "HARD",
+        "mutable": "static",
+        "description": "Explicit allowlist to permit learning outputs in LIVE mode.",
+    },
     # =========================
     # Adaptive regime layer
     # =========================
