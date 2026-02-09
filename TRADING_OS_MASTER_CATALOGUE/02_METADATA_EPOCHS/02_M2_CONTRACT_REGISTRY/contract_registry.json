@@ -1,0 +1,154 @@
+{
+  "epoch": "M2_CONTRACT_REGISTRY",
+  "version": "1.0",
+  "generated_at_utc": "2026-02-09T23:25:48Z",
+  "contracts": [
+    {
+      "id": "C_SCANNER_WATCHLIST_ARTIFACT",
+      "name": "Scanner Watchlist Artifact",
+      "type": "artifact",
+      "owner_component": "scanner",
+      "authority": "authoritative",
+      "paths": [
+        "src/scanner/scanner_runner.py",
+        "src/scanner/print_contract.py",
+        "output/watchlists"
+      ],
+      "applies_to_modes": ["SIM", "PAPER", "READ_ONLY", "LIVE"],
+      "status": "implemented",
+      "notes": "Scanner emits watchlist files and prints a watchlist contract for downstream orchestration."
+    },
+    {
+      "id": "C_WATCHLIST_FOCUS_SET",
+      "name": "Watchlist to Focus Set Payload",
+      "type": "schema",
+      "owner_component": "scanner",
+      "authority": "authoritative",
+      "paths": [
+        "src/core_engine/events.py",
+        "src/scanner/scanner_runner.py",
+        "src/core_engine/orchestrator.py"
+      ],
+      "applies_to_modes": ["SIM", "PAPER", "READ_ONLY", "LIVE"],
+      "status": "implemented",
+      "notes": "Defines the watchlist and focus set fields carried in scanner payloads and artifacts."
+    },
+    {
+      "id": "C_FOCUS_HYDRATION_SNAPSHOT",
+      "name": "Focus Set Hydration Snapshot Inputs",
+      "type": "schema",
+      "owner_component": "data",
+      "authority": "authoritative",
+      "paths": [
+        "src/core_engine/orchestrator.py",
+        "src/strategies/ross_momentum/patterns/pattern_inputs.py",
+        "src/market_data/market_data_hub.py",
+        "src/domain/market_snapshot.py"
+      ],
+      "applies_to_modes": ["SIM", "PAPER", "READ_ONLY", "LIVE"],
+      "status": "implemented",
+      "notes": "Focus symbols are hydrated into PatternInputs via synthetic or market snapshots."
+    },
+    {
+      "id": "C_PATTERN_RESULTS",
+      "name": "Pattern Evaluation Results",
+      "type": "schema",
+      "owner_component": "patterns",
+      "authority": "authoritative",
+      "paths": [
+        "src/strategies/ross_momentum/patterns/pattern_types.py",
+        "src/strategies/ross_momentum/patterns/pattern_evaluator.py"
+      ],
+      "applies_to_modes": ["SIM", "PAPER", "READ_ONLY", "LIVE"],
+      "status": "implemented",
+      "notes": "Pattern evaluator emits structured PatternResult records for strategy decisioning."
+    },
+    {
+      "id": "C_STRATEGY_INTENT_POLICY",
+      "name": "Strategy Policy Intent Contract",
+      "type": "schema",
+      "owner_component": "strategies",
+      "authority": "authoritative",
+      "paths": [
+        "src/strategies/strategy_contracts.py",
+        "src/strategies/ross_momentum/decision_policy.py"
+      ],
+      "applies_to_modes": ["SIM", "PAPER", "READ_ONLY", "LIVE"],
+      "status": "implemented",
+      "notes": "Strategy policy emits TradeIntent records for downstream risk evaluation."
+    },
+    {
+      "id": "C_INTENT_RISK_DECISION",
+      "name": "Intent to Risk Decision Record",
+      "type": "schema",
+      "owner_component": "risk",
+      "authority": "authoritative",
+      "paths": [
+        "src/risk/risk_engine.py",
+        "src/core_engine/events.py"
+      ],
+      "applies_to_modes": ["SIM", "PAPER", "READ_ONLY", "LIVE"],
+      "status": "implemented",
+      "notes": "Risk engine converts intent records into RiskDecisionRecord outputs with rationale."
+    },
+    {
+      "id": "C_RISK_EXECUTION_ORDER_REQUEST",
+      "name": "Risk Decision to Execution Order Request",
+      "type": "interface",
+      "owner_component": "execution",
+      "authority": "authoritative",
+      "paths": [
+        "src/execution/execution_engine.py",
+        "src/brokers/base_broker.py"
+      ],
+      "applies_to_modes": ["SIM", "PAPER", "READ_ONLY", "LIVE"],
+      "status": "implemented",
+      "notes": "Execution engine maps RiskDecision objects into BrokerOrderRequest submissions."
+    },
+    {
+      "id": "C_EXECUTION_BROKER_SUBMISSION",
+      "name": "Execution Provider to Broker Adapter Submission",
+      "type": "interface",
+      "owner_component": "brokers",
+      "authority": "authoritative",
+      "paths": [
+        "src/execution/execution_providers.py",
+        "src/brokers/base_broker.py",
+        "src/brokers/ibkr_broker.py",
+        "src/brokers/sim_broker.py"
+      ],
+      "applies_to_modes": ["SIM", "PAPER", "READ_ONLY", "LIVE"],
+      "status": "implemented",
+      "notes": "Execution providers translate order requests into broker adapter calls without policy logic."
+    },
+    {
+      "id": "C_STORAGE_AUDIT_EVENT",
+      "name": "Storage Trade Store Audit Event",
+      "type": "artifact",
+      "owner_component": "storage",
+      "authority": "authoritative",
+      "paths": [
+        "src/storage/trade_store.py",
+        "output/trade_store.jsonl"
+      ],
+      "applies_to_modes": ["SIM", "PAPER", "READ_ONLY", "LIVE"],
+      "status": "implemented",
+      "notes": "TradeStore persists per-cycle artifacts into a JSONL audit trail."
+    },
+    {
+      "id": "C_METADATA_EPOCH_AUDIT_EVIDENCE",
+      "name": "Metadata Epoch Audit Evidence Bundle",
+      "type": "artifact",
+      "owner_component": "metadata",
+      "authority": "authoritative",
+      "paths": [
+        "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY",
+        "TRADING_OS_MASTER_CATALOGUE/02_METADATA_EPOCHS/02_M2_CONTRACT_REGISTRY/governance/06_EXPECTED_ARTIFACTS.md",
+        "TRADING_OS_MASTER_CATALOGUE/02_METADATA_EPOCHS/02_M2_CONTRACT_REGISTRY/governance/07_VERIFICATION_COMMANDS.md"
+      ],
+      "applies_to_modes": ["SIM", "PAPER", "READ_ONLY", "LIVE"],
+      "status": "implemented",
+      "notes": "Defines the evidence bundle required to certify metadata epochs."
+    }
+  ]
+}

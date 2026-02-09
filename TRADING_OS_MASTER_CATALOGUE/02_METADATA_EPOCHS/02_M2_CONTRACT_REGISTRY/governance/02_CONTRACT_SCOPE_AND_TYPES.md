@@ -1,13 +1,17 @@
-# CONTRACT SCOPE AND TYPES
+# M2 — CONTRACT SCOPE AND TYPES
 
-Canonical contract types include:
+## Scope
+The M2 registry enumerates contracts that connect scanner outputs, focus hydration,
+pattern evaluation, strategy intents, risk decisions, execution submissions, and
+storage/audit trails. It also records metadata-epoch audit evidence contracts.
 
-- Data Contracts
-- Semantic Contracts
-- Strategy–Foundation Contracts
-- Execution Contracts
-- Verification Contracts
+## Contract Types
+- **interface**: formal call/response boundary between components
+- **schema**: structured payload or dataclass definition
+- **artifact**: persisted file or directory (watchlists, audit logs)
+- **protocol**: agreed procedural contract (limited to documentation references)
 
-Each contract must have an owner and scope.
+The contract registry must only describe existing behavior or declared catalogue
+artifacts; it must not invent new runtime behavior.
 
 END

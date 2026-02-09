@@ -1,8 +1,11 @@
 # M2 — ARCHITECTURAL INTENT
 
-This epoch establishes a single, authoritative registry of all semantic
-contracts used within the Trading OS.
+M2 establishes a single, authoritative registry for Trading OS contracts.
 
-Contracts define expectations between components without imposing behavior.
+Contracts capture the schemas, interfaces, and artifacts that bind components
+without dictating runtime policy. M2 is metadata-only and must not alter
+execution, risk, scanning, or strategy behavior.
+
+The registry is used for verification, audit evidence, and cross-epoch alignment.
 
 END
