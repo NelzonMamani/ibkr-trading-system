@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0
+rootdir: /workspace/ibkr-trading-system
+configfile: pytest.ini
+collected 6 items
+
+tests/metadata/test_m0_canonical_files_exist.py ..                       [ 33%]
+tests/metadata/test_m0_canonical_helpers.py ..                           [ 66%]
+tests/metadata/test_m0_invariant_enforcement.py ..                       [100%]
+
+============================== 6 passed in 0.07s ===============================

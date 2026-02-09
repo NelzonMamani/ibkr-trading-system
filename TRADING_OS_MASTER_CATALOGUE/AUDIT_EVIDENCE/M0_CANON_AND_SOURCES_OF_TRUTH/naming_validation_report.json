@@ -1,0 +1,20 @@
+{
+  "expected_prefixes": [
+    "SF_",
+    "XL_",
+    "C_",
+    "K_"
+  ],
+  "parsed_prefixes": [
+    "SF_",
+    "XL_",
+    "C_",
+    "K_"
+  ],
+  "prefixes_match": true,
+  "sample_validation": {
+    "duplicates": [],
+    "invalid_prefix": [],
+    "valid": true
+  }
+}
