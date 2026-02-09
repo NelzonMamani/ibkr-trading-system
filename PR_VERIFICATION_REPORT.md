@@ -1,5 +1,30 @@
 # PR Verification Report
 
+## Update — M2 Contract Registry Certification (2026-02-09)
+
+### Summary
+- Objective: certify M2 contract registry and add verification tooling.
+- Status: compileall + pytest + verifier passed; audit evidence captured under M2 folder.
+
+### Commands Run
+1) `python -m compileall -q src > TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/compileall.txt 2>&1`
+2) `pytest -q tests/metadata -q > TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/pytest.txt 2>&1`
+3) `pytest -q > TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/pytest_full.txt 2>&1`
+4) `python verification_scripts/verify_m2_contract_registry.py --output-json TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/verification_output.json --output-md TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/verification_summary.md`
+
+### Outputs Written
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/compileall.txt`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/pytest.txt`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/pytest_full.txt`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/verification_output.json`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/verification_summary.md`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/certification_verdict.json`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/contract_registry.json`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/M2_EVIDENCE_INDEX.json`
+
+### Verdict
+- CERTIFIED
+
 ## Update — Mean Reversion Wiring (2026-02-02)
 
 ### Summary

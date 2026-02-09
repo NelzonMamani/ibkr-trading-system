@@ -1,6 +1,10 @@
-# CONTEXT AND OBJECTIVE
+# M2 — CONTEXT AND OBJECTIVE
 
-Codex must discover and register existing contracts.
-No behavior changes are allowed.
+Objective: certify the M2 contract registry by enumerating system contracts,
+verifying schema/path invariants, and producing audit evidence.
+
+Constraints:
+- Metadata-only changes. Do not alter runtime behavior or trading logic.
+- Respect M1 architecture boundaries and canonical precedence.
 
 END

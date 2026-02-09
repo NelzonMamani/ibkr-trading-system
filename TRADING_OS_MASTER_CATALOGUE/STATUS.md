@@ -1,6 +1,6 @@
 # Trading OS Programme Status
 
-- **Active execution PR:** (pending) Execute E21 Trading-Ready Verification & End-to-End Simulation
+- **Active execution PR:** (pending) Certify M2 contract registry and add machine-verifiable contract checks
 - **Current blocker:** None
 - **Previous blocker:** BLOCKER_02 — E7 Mode Parity & Safety (run mode drift guard)
 
@@ -23,3 +23,4 @@
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_21/`
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M0_CANON_AND_SOURCES_OF_TRUTH/`
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M1_ARCHITECTURE_MAP/`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/`

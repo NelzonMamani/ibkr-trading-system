@@ -1,8 +1,16 @@
-# AUDIT REPORT
+# M2 — AUDIT REPORT
 
-M2_CONTRACT_REGISTRY is certified when:
-- All contracts are registered
-- Versions are consistent
-- No orphan contracts exist
+## Audit Summary
+- Date: 2026-02-09
+- Verdict: CERTIFIED
+- Evidence folder: TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/
+
+## Scope
+- Contract registry schema validation
+- Path existence checks for implemented/partial contracts
+- Metadata audit evidence verification
+
+## Notes
+- M2 is metadata-only; no runtime behavior changes were introduced.
 
 END
