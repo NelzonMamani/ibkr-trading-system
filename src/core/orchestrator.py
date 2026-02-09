@@ -121,6 +121,7 @@ class CoreOrchestrator:
         emit_config_event(self.event_collector)
         self.stop_controller = StopController()
         print("[BOOT] EventCollector initialised")
+        self._last_market_session: str | None = None
         self.replay_engine = ReplayEngine()
         self.performance_registry = PerformanceRegistry()
         self.trade_registry = ActiveTradeRegistry()
@@ -453,6 +454,25 @@ class CoreOrchestrator:
             summary=summary,
         )
 
+    def _emit_market_session_state(self, session: str, now: datetime | None = None) -> None:
+        if session == self._last_market_session:
+            return
+        timestamp = now or datetime.now(timezone.utc)
+        ny_time = to_ny_time(timestamp)
+        payload = {
+            "session": session,
+            "previous_session": self._last_market_session,
+            "timestamp_utc": timestamp.isoformat(),
+            "ny_time": ny_time.isoformat(),
+        }
+        self.event_collector.emit(
+            event_type="MARKET_SESSION_STATE",
+            source="SystemConfig",
+            payload=payload,
+        )
+        self._trace_event("MARKET_SESSION", payload)
+        self._last_market_session = session
+
     def _trace_halt(
         self,
         *,
@@ -682,6 +702,7 @@ class CoreOrchestrator:
 
                 print("[CYCLE] Starting orchestrator cycle.")
                 current_session = get_current_market_session()
+                self._emit_market_session_state(current_session)
                 print(f"[SESSION] Detected market session: {current_session}")
                 if current_session in ACTIVE_SESSIONS:
                     print(

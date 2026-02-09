@@ -33,3 +33,14 @@
   - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/02_E2_POSITION_LIFECYCLE_ENGINE/audit/evidence/boot_read_only.txt
   - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/02_E2_POSITION_LIFECYCLE_ENGINE/audit/evidence/boot_live.txt
 - Statement: E2 Position Lifecycle Engine guarantees verified with canonical state machine, explicit lifecycle intent events, mode-aware transitions, and persistent replayable lifecycle artifacts.
+
+## E4_DATA_QUALITY_MARKET_STATE — CERTIFIED
+- Date: 2026-02-09
+- Evidence:
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/04_E4_DATA_QUALITY_AND_MARKET_STATE/audit/evidence/compileall.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/04_E4_DATA_QUALITY_AND_MARKET_STATE/audit/evidence/pytest.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/04_E4_DATA_QUALITY_AND_MARKET_STATE/audit/evidence/test_market_session_phase.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/04_E4_DATA_QUALITY_AND_MARKET_STATE/audit/evidence/test_market_data_client_snapshot.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/04_E4_DATA_QUALITY_AND_MARKET_STATE/audit/evidence/test_replay_from_storage_epoch4.txt
+  - TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/04_E4_DATA_QUALITY_AND_MARKET_STATE/audit/evidence/test_replay_locked_in_live_modes_epoch4.txt
+- Statement: E4 data quality and market state guarantees verified with explicit session-state transitions, holiday/half-day closures, delayed/frozen snapshot flagging, and data-quality-driven trade blocking with replayable evidence.

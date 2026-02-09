@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0
+rootdir: /workspace/ibkr-trading-system
+configfile: pytest.ini
+collected 2 items
+
+tests/test_replay_from_storage_epoch4.py ..                              [100%]
+
+============================== 2 passed in 0.43s ===============================

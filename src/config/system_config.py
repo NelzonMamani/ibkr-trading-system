@@ -25,6 +25,8 @@ def get_current_market_session(now: datetime | None = None) -> str:
 
     holidays = set(get_config("MARKET_HOLIDAYS"))
     half_days = set(get_config("MARKET_HALF_DAYS"))
+    if ny_dt.weekday() >= 5:
+        return "CLOSED"
     if today in holidays:
         return "CLOSED"
 
@@ -42,7 +44,7 @@ def get_current_market_session(now: datetime | None = None) -> str:
     if pre_start <= now_time < regular_start:
         return "PRE"
     if regular_start <= now_time < regular_end:
-        return "REGULAR"
+        return "RTH"
     if regular_end <= now_time < after_end:
-        return "AFTER"
+        return "AH"
     return "CLOSED"

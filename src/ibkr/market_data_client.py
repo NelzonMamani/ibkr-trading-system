@@ -46,6 +46,25 @@ def _clean(value: Optional[float]) -> Optional[float]:
     return numeric
 
 
+def _market_data_type_flags(market_data_type: str | None) -> list[str]:
+    normalized = (market_data_type or "").upper()
+    flags: list[str] = []
+    if normalized in {"DELAYED", "DELAYED_FROZEN"}:
+        flags.append("MD_DELAYED")
+    if normalized in {"FROZEN", "DELAYED_FROZEN"}:
+        flags.append("MD_FROZEN")
+    return flags
+
+
+def _resolve_snapshot_timestamp(ticker, fallback: datetime) -> datetime:
+    raw_time = getattr(ticker, "time", None) or getattr(ticker, "lastTime", None)
+    if isinstance(raw_time, datetime):
+        if raw_time.tzinfo is None:
+            raw_time = raw_time.replace(tzinfo=timezone.utc)
+        return raw_time.astimezone(timezone.utc)
+    return fallback
+
+
 @dataclass(frozen=True)
 class MarketDataSnapshot:
     symbol: str
@@ -162,7 +181,8 @@ class MarketDataClient:
         return qualified[0]
 
     def snapshot_stock(self, symbol: str) -> MarketDataSnapshot:
-        flags: list[str] = []
+        now_utc = datetime.now(timezone.utc)
+        flags = _market_data_type_flags(self.market_data_type)
         try:
             contract = self.qualify_contract(symbol)
         except Exception as exc:
@@ -195,6 +215,12 @@ class MarketDataClient:
             self.ib.cancelMktData(contract)
         if "MD_TIMEOUT" in flags and not self._ticker_has_data(ticker):
             return self._empty_snapshot(symbol, flags)
+
+        snapshot_timestamp = _resolve_snapshot_timestamp(ticker, now_utc)
+        max_age_seconds = int(get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS"))
+        age_seconds = (now_utc - snapshot_timestamp).total_seconds()
+        if age_seconds > max_age_seconds:
+            flags.append("MD_STALE")
 
         bid = _clean(getattr(ticker, "bid", None))
         ask = _clean(getattr(ticker, "ask", None))
@@ -241,7 +267,7 @@ class MarketDataClient:
             close=close,
             change_percent=change_percent,
             spread=spread,
-            timestamp_utc=datetime.now(timezone.utc).isoformat(),
+            timestamp_utc=snapshot_timestamp.isoformat(),
             data_quality_flags=flags,
         )
 
