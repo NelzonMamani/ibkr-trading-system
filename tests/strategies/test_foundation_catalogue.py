@@ -2,17 +2,17 @@ from src.strategies.common import foundation
 
 
 def test_foundation_lists_include_required_items():
-    assert "00_SF_GAP_AND_GO" in foundation.SETUP_FAMILIES
+    assert "SF_GAP_AND_GO" in foundation.SETUP_FAMILIES
     assert "11_XL_LIQUIDITY_SWEEP_RECLAIM" in foundation.EXECUTION_TRIGGERS
-    assert "08_C_VOLATILITY_STATE" in foundation.CONDITIONS
-    assert "08_K_DATA_QUALITY_CONFIRM" in foundation.CONFIRMATIONS
+    assert "C_TREND_ALIGNMENT" in foundation.CONDITIONS
+    assert "K_DATA_QUALITY_CONFIRM" in foundation.CONFIRMATIONS
 
 
 def test_translation_report_flags_unknown_components():
     report = foundation.build_translation_report(
         strategy_id="test",
         foundation_version=foundation.FOUNDATION_VERSION,
-        setup_families=["00_SF_GAP_AND_GO", "UNKNOWN"],
+        setup_families=["SF_GAP_AND_GO", "UNKNOWN"],
     )
     assert report.compatible is True
     assert "UNKNOWN" in report.extra_components
