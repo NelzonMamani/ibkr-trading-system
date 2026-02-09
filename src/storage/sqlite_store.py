@@ -10,7 +10,7 @@ from typing import Any, Iterable
 from src.storage.serialization import compute_audit_hash
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 @dataclass
@@ -101,6 +101,29 @@ class SQLiteStore:
                 created_at TEXT,
                 FOREIGN KEY(run_id) REFERENCES runs(run_id),
                 FOREIGN KEY(cycle_id) REFERENCES cycles(cycle_id)
+            );
+            CREATE TABLE IF NOT EXISTS position_lifecycle_transitions (
+                transition_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                symbol TEXT,
+                trader_type TEXT,
+                from_state TEXT,
+                to_state TEXT,
+                intent TEXT,
+                reason_code TEXT,
+                reason TEXT,
+                mode TEXT,
+                requested_quantity INTEGER,
+                filled_quantity INTEGER,
+                quantity_before INTEGER,
+                quantity_after INTEGER,
+                fill_status TEXT,
+                execution_blocked INTEGER,
+                fill_latency_ms INTEGER,
+                transition_seq INTEGER,
+                timestamp TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id)
             );
             CREATE TABLE IF NOT EXISTS trade_records (
                 trade_record_id TEXT PRIMARY KEY,
@@ -307,6 +330,10 @@ class SQLiteStore:
             CREATE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq);
             CREATE INDEX IF NOT EXISTS idx_events_run_tick ON events(run_id, tick);
             CREATE INDEX IF NOT EXISTS idx_events_cycle_id ON events(cycle_id);
+            CREATE INDEX IF NOT EXISTS idx_lifecycle_run_seq
+                ON position_lifecycle_transitions(run_id, transition_seq);
+            CREATE INDEX IF NOT EXISTS idx_lifecycle_symbol
+                ON position_lifecycle_transitions(symbol, trader_type);
             CREATE INDEX IF NOT EXISTS idx_trade_records_run_id ON trade_records(run_id);
             CREATE INDEX IF NOT EXISTS idx_trades_run_id ON trades(run_id);
             CREATE INDEX IF NOT EXISTS idx_execution_results_run_id ON execution_results(run_id);
@@ -417,6 +444,45 @@ class SQLiteStore:
                     event.get("created_at"),
                 )
                 for event in events
+            ],
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_lifecycle_transitions(self, transitions: Iterable[dict[str, Any]]) -> None:
+        self.connection.executemany(
+            """
+            INSERT OR REPLACE INTO position_lifecycle_transitions (
+                transition_id, run_id, symbol, trader_type, from_state, to_state, intent,
+                reason_code, reason, mode, requested_quantity, filled_quantity, quantity_before,
+                quantity_after, fill_status, execution_blocked, fill_latency_ms, transition_seq,
+                timestamp, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    transition["transition_id"],
+                    transition["run_id"],
+                    transition.get("symbol"),
+                    transition.get("trader_type"),
+                    transition.get("from_state"),
+                    transition.get("to_state"),
+                    transition.get("intent"),
+                    transition.get("reason_code"),
+                    transition.get("reason"),
+                    transition.get("mode"),
+                    transition.get("requested_quantity"),
+                    transition.get("filled_quantity"),
+                    transition.get("quantity_before"),
+                    transition.get("quantity_after"),
+                    transition.get("fill_status"),
+                    transition.get("execution_blocked"),
+                    transition.get("fill_latency_ms"),
+                    transition.get("transition_seq"),
+                    transition.get("timestamp"),
+                    transition.get("created_at"),
+                )
+                for transition in transitions
             ],
         )
         if self.commit_each_write:
@@ -670,6 +736,25 @@ class SQLiteStore:
             "SELECT * FROM cycles WHERE run_id = ? ORDER BY tick ASC",
             (run_id,),
         )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def fetch_lifecycle_transitions(
+        self,
+        run_id: str,
+        *,
+        symbol: str | None = None,
+        trader_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM position_lifecycle_transitions WHERE run_id = ?"
+        params: list[Any] = [run_id]
+        if symbol:
+            query += " AND symbol = ?"
+            params.append(symbol)
+        if trader_type:
+            query += " AND trader_type = ?"
+            params.append(trader_type)
+        query += " ORDER BY transition_seq ASC"
+        cursor = self.connection.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
 
     def fetch_events(

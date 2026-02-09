@@ -7,6 +7,12 @@ from typing import Optional, Tuple
 from src.brokers.base_broker import BaseBroker, BrokerOrderRequest
 from src.config.runtime_config import RunMode, get_run_mode
 from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
+from src.core.position_lifecycle_engine import (
+    LifecycleIntent,
+    PositionLifecycle,
+    PositionLifecycleEngine,
+    PositionState,
+)
 from src.core.event_collector import EventCollector
 from src.execution.liquidity_engine import LiquidityEngine
 from src.execution.order_gateway import GatewayDecision, OrderGateway
@@ -438,7 +444,7 @@ class SimBroker(BaseBroker):
         self.trade_registry.register_trade(active_trade)
         if active_trade.state_history:
             last_transition = active_trade.state_history[-1]
-            if last_transition.get("to") == "PROTECTED":
+            if last_transition.get("to") == "OPEN":
                 self.event_collector.emit(
                     event_type="TRADE_STATE_UPDATED",
                     source="ExecutionEngine",
@@ -479,6 +485,22 @@ class SimBroker(BaseBroker):
                 "gateway_decision": GatewayDecision.ACCEPT.value,
                 "pattern_name": pattern_name,
             },
+        )
+        lifecycle_engine = PositionLifecycleEngine(event_collector=self.event_collector)
+        lifecycle_position = PositionLifecycle(
+            symbol=request.symbol,
+            trader_type=request.trader_type or "UNKNOWN",
+            quantity=0,
+            state=PositionState.FLAT,
+        )
+        lifecycle_engine.apply_intent(
+            lifecycle_position,
+            LifecycleIntent.OPEN,
+            requested_quantity=filled_quantity,
+            run_mode=self.run_mode if isinstance(self.run_mode, RunMode) else RunMode.SIM,
+            reason="Simulated open fill",
+            filled_quantity_override=filled_quantity,
+            fill_status_override=fill_status,
         )
         print(
             f"[EVENT] TRADE_OPENED emitted for "
