@@ -2,8 +2,9 @@
 
 - **Branch:** `codex/execute-e21-trading-ready-harness`
 - **PR:** (pending) Execute E21 Trading-Ready Verification & End-to-End Simulation
-- **Next target:** Metadata epochs (M0+)
+- **Next target:** Metadata epochs (M1+)
 - **Completed epochs this run:**
+  - `M0_CANON_AND_SOURCES_OF_TRUTH` (2026-02-09)
   - `E5_EXECUTION_ENGINE_AUTHORITY` (2026-02-09)
   - `E8_REGIME_AND_MICROSTRUCTURE_LAYER` (2026-02-09)
   - `E9_PERFORMANCE_ANALYTICS` (2026-02-09)
