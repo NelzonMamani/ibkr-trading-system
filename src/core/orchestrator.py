@@ -19,6 +19,7 @@ from src.config.runtime_config import (
     RunMode,
     get_daily_loss_hard_limit,
     get_daily_loss_warning_limit,
+    get_run_mode,
     get_scanner_mode,
 )
 from src.config.system_config import get_current_market_session
@@ -2642,6 +2643,12 @@ class CoreOrchestrator:
             and self.replay_mode != EventReplayMode.OFF
         ):
             violations.append("Replay requested while in LIVE/READ_ONLY mode")
+        current_mode = get_run_mode()
+        if current_mode != self.run_mode:
+            violations.append(
+                "Run mode drift detected "
+                f"(resolved={self.run_mode.value} current={current_mode.value})"
+            )
         if self.run_mode == RunMode.LIVE and isinstance(
             self.sim_clock, SimClock
         ):

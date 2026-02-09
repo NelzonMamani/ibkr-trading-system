@@ -33,7 +33,11 @@ from src.scanner.contracts import (
     StockSelectionPolicy,
     policy_from_config,
 )
-from src.scanner.scanner_contract import ScannerRequest, scanner_request_from_policy
+from src.scanner.scanner_contract import (
+    ScannerRequest,
+    scanner_request_from_policy,
+    validate_scanner_request,
+)
 from src.strategies.ross_momentum.strategy_policy import UniverseSource
 from src.scanner.phase24_views import (
     DeepViewRow,
@@ -1364,6 +1368,49 @@ def _apply_non_tradable_universe_gate(
     return filtered
 
 
+def _scanner_request_reject_payload(
+    *,
+    utc_now: datetime,
+    diagnostics: Dict[str, Any],
+) -> Dict[str, Any]:
+    empty_result = ScannerResult(
+        top_n_symbols=[],
+        candidates=[],
+        watchlist_k=[],
+        focus_m=[],
+        drops_by_reason={},
+        new_symbols=[],
+        continuing_symbols=[],
+        dropped_symbols=[],
+    )
+    return {
+        "scanner_version": SCANNER_VERSION,
+        "scanner_git_sha": SCANNER_GIT_SHA,
+        "timestamp_utc": utc_now.isoformat(),
+        "universe_top_n": [],
+        "symbols": [],
+        "watchlist": [],
+        "watchlist_rows": [],
+        "focus_rows": [],
+        "drop_ledger": {},
+        "watchlist_k": [],
+        "focus_m": [],
+        "watchlist_k_symbols": [],
+        "focus_m_symbols": [],
+        "candidates": [],
+        "candidate_metrics": [],
+        "scanner_result": empty_result,
+        "topn_count": 0,
+        "survivors_count": 0,
+        "new_symbols": [],
+        "continuing_symbols": [],
+        "dropped_symbols": [],
+        "drop_reason_summary": {},
+        "data_quality_by_symbol": {},
+        "diagnostics": diagnostics,
+    }
+
+
 def run_scanner_cycle(
     mode: str = "integrated",
     policy: StockSelectionPolicy | None = None,
@@ -1428,6 +1475,19 @@ def run_scanner_cycle(
         "ranking_intent": request.ranking_intent,
         "session_phase": request.session_phase,
     }
+
+    validation_errors = validate_scanner_request(request)
+    if validation_errors:
+        diagnostics["scanner_request_valid"] = False
+        diagnostics["scanner_request_errors"] = validation_errors
+        print("[SCANNER][ERROR] Invalid scanner request — aborting scan.")
+        for error in validation_errors:
+            print(f"[SCANNER][ERROR] {error}")
+        return _scanner_request_reject_payload(
+            utc_now=utc_now,
+            diagnostics=diagnostics,
+        )
+    diagnostics["scanner_request_valid"] = True
 
     run_mode = get_run_mode()
     fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
