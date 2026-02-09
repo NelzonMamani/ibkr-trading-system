@@ -26,19 +26,69 @@ class ArbitrationResult:
     exit_only: list[tuple[str, str]]
 
 
+_SIGNAL_INTENT_RANK = {
+    SignalIntent.ENTER_LONG: 0,
+    SignalIntent.ENTER_SHORT: 1,
+    SignalIntent.EXIT_ONLY: 2,
+    SignalIntent.HOLD: 3,
+    SignalIntent.NO_TRADE: 4,
+}
+
+
+def _dedupe_inputs(
+    inputs: Iterable[ArbitrationInput],
+) -> tuple[list[ArbitrationInput], list[tuple[str, str]]]:
+    """Ensure one intent per strategy per symbol, deterministically."""
+
+    by_strategy: dict[str, ArbitrationInput] = {}
+    denied: list[tuple[str, str]] = []
+    for entry in inputs:
+        current = by_strategy.get(entry.strategy_id)
+        if current is None:
+            by_strategy[entry.strategy_id] = entry
+            continue
+
+        candidate_rank = (-entry.priority, _SIGNAL_INTENT_RANK[entry.proposed_intent])
+        current_rank = (-current.priority, _SIGNAL_INTENT_RANK[current.proposed_intent])
+        if candidate_rank < current_rank:
+            denied.append((current.strategy_id, ReasonCode.ARBITRATION_DENY.value))
+            by_strategy[entry.strategy_id] = entry
+        else:
+            denied.append((entry.strategy_id, ReasonCode.ARBITRATION_DENY.value))
+
+    return list(by_strategy.values()), denied
+
+
 def arbitrate_symbol(
     inputs_for_symbol: Iterable[ArbitrationInput],
     loser_position_map: dict[str, bool] | None = None,
+    strategy_budget_map: dict[str, float] | None = None,
 ) -> ArbitrationResult:
     inputs = [entry for entry in inputs_for_symbol if entry.proposed_intent != SignalIntent.NO_TRADE]
     loser_position_map = loser_position_map or {}
+    strategy_budget_map = strategy_budget_map or {}
+    symbol = next((entry.symbol for entry in inputs_for_symbol), "")
+
+    inputs, denied = _dedupe_inputs(inputs)
+    budget_denied: list[tuple[str, str]] = []
+    if strategy_budget_map:
+        budgeted_inputs: list[ArbitrationInput] = []
+        for entry in inputs:
+            budget = strategy_budget_map.get(entry.strategy_id)
+            if budget is not None and budget <= 0:
+                budget_denied.append(
+                    (entry.strategy_id, ReasonCode.ALLOCATION_EXHAUSTED.value)
+                )
+            else:
+                budgeted_inputs.append(entry)
+        inputs = budgeted_inputs
 
     if not inputs:
         return ArbitrationResult(
-            symbol="",
+            symbol=symbol,
             winner_strategy_id=None,
             winner_intent=SignalIntent.NO_TRADE,
-            denied=[],
+            denied=denied + budget_denied,
             exit_only=[],
         )
 
@@ -47,7 +97,7 @@ def arbitrate_symbol(
         key=lambda entry: (-entry.priority, entry.strategy_id),
     )
     winner = sorted_inputs[0]
-    denied: list[tuple[str, str]] = []
+    denied = denied + budget_denied
     exit_only: list[tuple[str, str]] = []
 
     for loser in sorted_inputs[1:]:
@@ -69,6 +119,7 @@ def arbitrate_symbol(
 def arbitrate_all(
     inputs: Iterable[ArbitrationInput],
     loser_position_map: dict[str, bool] | None = None,
+    strategy_budget_map: dict[str, float] | None = None,
 ) -> list[ArbitrationResult]:
     grouped: dict[str, list[ArbitrationInput]] = {}
     for entry in inputs:
@@ -80,6 +131,7 @@ def arbitrate_all(
             arbitrate_symbol(
                 grouped[symbol],
                 loser_position_map=loser_position_map,
+                strategy_budget_map=strategy_budget_map,
             )
         )
     return results

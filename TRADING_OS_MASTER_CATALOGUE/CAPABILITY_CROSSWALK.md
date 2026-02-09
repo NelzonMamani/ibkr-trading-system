@@ -21,9 +21,9 @@ Map catalogue requirements to existing system components with explicit OK / PART
 | E12 Recovery & Housekeeping | Storage + stop control | `src/storage/`, `src/core/stop_controller.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_12/EPOCH_12_E12_RECOVERY_AND_HOUSEKEEPING.md` | OK |
 | E13 Strategy Factory Standard | Registry + base | `src/strategies/strategy_registry.py`, `src/strategies/strategy_base.py`, `tests/test_strategy_registry_epoch13.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_13/EPOCH_13_E13_STRATEGY_FACTORY_STANDARD.md` | OK |
 | E14 Decision Artifacts | Intent + signal models | `src/core/intent.py`, `src/models/data_models.py`, `src/execution/execution_engine.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_14/EPOCH_14_E14_DECISION_ARTIFACTS.md` | OK |
-| E15 Failure Modes | Fault handling | `src/core/faults.py` | PARTIAL |
-| E16 No-Trade Contexts | Risk/market gating | `src/risk/`, `src/market_data/` | PARTIAL |
-| E17 Strategy Interaction Rules | Arbitration | `src/strategy_portfolio/arbitration.py` | PARTIAL |
+| E15 Failure Modes | Fault handling | `src/core/faults.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_15/EPOCH_15_E15_FAILURE_MODES.md` | OK |
+| E16 No-Trade Contexts | Risk/market gating | `src/risk/no_trade_contexts.py`, `src/risk/risk_engine.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_16/EPOCH_16_E16_NO_TRADE_CONTEXTS.md` | OK |
+| E17 Strategy Interaction Rules | Arbitration | `src/strategy_portfolio/arbitration.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_17/EPOCH_17_E17_STRATEGY_INTERACTION_RULES.md` | OK |
 | E18 Strategy Foundation Layer | Common strategy utilities | `src/strategies/common/` | PARTIAL |
 | E19 Strategy Interface & Certification | Strategy contracts | `src/strategies/strategy_contracts.py` | PARTIAL |
 | E20 Strategy Foundation Completion | Strategy foundation | `src/strategies/` | PARTIAL |
