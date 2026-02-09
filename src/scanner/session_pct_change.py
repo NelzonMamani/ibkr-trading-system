@@ -49,6 +49,14 @@ def resolve_market_session_label(now: Optional[datetime] = None) -> str:
     ny_time = now_utc.astimezone(ZoneInfo("America/New_York"))
     if ny_time.weekday() >= 5:
         return "CLOSED"
+    holidays = set(get_config("MARKET_HOLIDAYS"))
+    half_days = set(get_config("MARKET_HALF_DAYS"))
+    if ny_time.date() in holidays:
+        return "CLOSED"
+    if ny_time.date() in half_days:
+        early_close = get_config("MARKET_EARLY_CLOSE_TIME")
+        if ny_time.time() >= early_close:
+            return "CLOSED"
 
     h = now_utc.hour + now_utc.minute / 60.0
     windows = get_config("SCANNER_SESSION_WINDOWS_UTC")

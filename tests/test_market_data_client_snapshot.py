@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 from src.ibkr.market_data_client import MarketDataClient
 from src.scanner.providers.ibkr_provider import IbkrScannerProvider
 from src.scanner.scanner_runner import _build_symbol_context
+from src.config.config_resolver import set_config_overrides
 
 
 class DummyTicker:
@@ -22,6 +24,7 @@ class DummyTicker:
         self.close = None
         self.open = None
         self.changePercent = None
+        self.time = None
 
 
 class DummyIB:
@@ -88,3 +91,19 @@ def test_live_snapshot_populates_pct_change_before_gating():
     assert context is not None
     assert context["pct_change"] is not None
     assert context["volume"] is not None
+
+
+def test_snapshot_flags_delayed_frozen_and_stale():
+    set_config_overrides({"IBKR_SNAPSHOT_MAX_AGE_SECONDS": 1})
+    try:
+        client = _client_with_dummy_ib()
+        client.market_data_type = "DELAYED_FROZEN"
+        client.ib.ticker.time = datetime.now(timezone.utc) - timedelta(seconds=120)
+
+        snapshot = client.snapshot_stock("AAPL")
+
+        assert "MD_DELAYED" in snapshot.data_quality_flags
+        assert "MD_FROZEN" in snapshot.data_quality_flags
+        assert "MD_STALE" in snapshot.data_quality_flags
+    finally:
+        set_config_overrides(None)

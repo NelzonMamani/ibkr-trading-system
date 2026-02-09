@@ -1,4 +1,6 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
+
+from src.config.config_resolver import set_config_overrides
 
 from src.utils.time_utils import market_session_phase, to_ny_time, to_uk_time
 
@@ -29,3 +31,21 @@ def test_time_conversions_include_uk_and_ny() -> None:
     uk_time = to_uk_time(sample)
     assert ny_time.tzinfo is not None
     assert uk_time.tzinfo is not None
+
+
+def test_market_session_phase_respects_holidays_and_half_days() -> None:
+    set_config_overrides(
+        {
+            "MARKET_HOLIDAYS": {date(2024, 1, 1)},
+            "MARKET_HALF_DAYS": {date(2024, 7, 3)},
+            "MARKET_EARLY_CLOSE_TIME": time(13, 0),
+        }
+    )
+    try:
+        holiday = datetime(2024, 1, 1, 15, 0, tzinfo=timezone.utc)
+        assert market_session_phase(holiday) == "CLOSED"
+
+        half_day = datetime(2024, 7, 3, 18, 0, tzinfo=timezone.utc)
+        assert market_session_phase(half_day) == "CLOSED"
+    finally:
+        set_config_overrides(None)

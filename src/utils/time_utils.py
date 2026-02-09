@@ -6,6 +6,7 @@ from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 from src.core_engine.state import SessionState
+from src.config.config_resolver import get_config
 
 NY_TZ = ZoneInfo("America/New_York")
 UK_TZ = ZoneInfo("Europe/London")
@@ -49,6 +50,10 @@ def market_session_phase(now_utc: datetime) -> str:
     ny_time = to_ny_time(now_utc)
     if ny_time.weekday() >= 5:
         return "CLOSED"
+    holidays = set(get_config("MARKET_HOLIDAYS"))
+    half_days = set(get_config("MARKET_HALF_DAYS"))
+    if ny_time.date() in holidays:
+        return "CLOSED"
 
     ny_t = ny_time.time()
     pre_start = time(4, 0)
@@ -58,6 +63,8 @@ def market_session_phase(now_utc: datetime) -> str:
     midday_end = time(14, 30)
     late_end = time(15, 0)
     close_time = time(16, 0)
+    if ny_time.date() in half_days:
+        close_time = get_config("MARKET_EARLY_CLOSE_TIME")
 
     if ny_t < pre_start or ny_t >= close_time:
         return "CLOSED"

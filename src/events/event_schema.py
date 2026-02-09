@@ -590,6 +590,12 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
         "request_source": str,
         "symbols": list,
     },
+    "MARKET_SESSION_STATE": {
+        "session": str,
+        "previous_session": (str, type(None)),
+        "timestamp_utc": str,
+        "ny_time": str,
+    },
     "INTENT_NORMALISED": INTENT_NORMALISED_SCHEMA,
     "INTENT_DROPPED_DUPLICATE": INTENT_DROPPED_DUPLICATE_SCHEMA,
     "REGIME_SNAPSHOT": REGIME_SNAPSHOT_SCHEMA,
@@ -1045,6 +1051,12 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
         "data_mode",
         "request_source",
         "symbols",
+    },
+    "MARKET_SESSION_STATE": {
+        "session",
+        "previous_session",
+        "timestamp_utc",
+        "ny_time",
     },
     "INTENT_NORMALISED": {"before_count", "after_count", "duplicates_dropped"},
     "INTENT_DROPPED_DUPLICATE": {
