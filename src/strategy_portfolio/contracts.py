@@ -26,6 +26,13 @@ class OrderConstraint(str, Enum):
     MARKET = "MARKET"
 
 
+class ExecutionMode(str, Enum):
+    SIM = "SIM"
+    PAPER = "PAPER"
+    LIVE = "LIVE"
+    READ_ONLY = "READ_ONLY"
+
+
 @dataclass(frozen=True)
 class StrategyIdentity:
     strategy_id: str

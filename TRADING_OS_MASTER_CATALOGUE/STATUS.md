@@ -1,6 +1,6 @@
 # Trading OS Programme Status
 
-- **Active execution PR:** (pending) Certify E15–E17 Safety Cluster
+- **Active execution PR:** (pending) Certify E18–E21 Strategy Foundation & Readiness Cluster
 - **Current blocker:** None
 - **Previous blocker:** BLOCKER_02 — E7 Mode Parity & Safety (run mode drift guard)
 
@@ -17,3 +17,7 @@
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_15/`
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_16/`
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_17/`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_18/`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_19/`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_20/`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_21/`

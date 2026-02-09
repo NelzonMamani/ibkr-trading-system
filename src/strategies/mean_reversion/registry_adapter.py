@@ -12,13 +12,28 @@ from src.strategies.mean_reversion.mean_reversion_strategy_policy import (
     ScannerFacts,
 )
 from src.strategies.strategy_base import StrategyBase
-from src.strategies.strategy_contracts import StrategyDecision, StrategyInput
+from src.strategies.strategy_contracts import (
+    ExecutionMode,
+    StrategyDecision,
+    StrategyExecutionProfile,
+    StrategyFoundationComponents,
+    StrategyInput,
+)
 
 
 class MeanReversionStrategyAdapter(StrategyBase):
     strategy_id = "mean_reversion"
     strategy_name = "Mean Reversion"
     version = "1.0"
+    foundation_components = StrategyFoundationComponents()
+    execution_profile = StrategyExecutionProfile(
+        supported_modes=[
+            ExecutionMode.SIM,
+            ExecutionMode.PAPER,
+            ExecutionMode.READ_ONLY,
+            ExecutionMode.LIVE,
+        ]
+    )
 
     def __init__(self, policy_config: Optional[MeanReversionPolicyConfig] = None) -> None:
         self._policy_config = policy_config or MeanReversionPolicyConfig()

@@ -11,7 +11,14 @@ from src.strategies.ross_momentum.decision_policy import (
 )
 from src.strategies.ross_momentum.patterns.pattern_evaluator import PatternEvaluator
 from src.strategies.strategy_base import StrategyBase
-from src.strategies.strategy_contracts import DecisionType, StrategyDecision, StrategyInput
+from src.strategies.strategy_contracts import (
+    DecisionType,
+    ExecutionMode,
+    StrategyDecision,
+    StrategyExecutionProfile,
+    StrategyFoundationComponents,
+    StrategyInput,
+)
 from src.utils.teacher_logs import (
     log_decision,
     log_intent_summary,
@@ -24,6 +31,15 @@ class RossMomentumStrategy(StrategyBase):
     strategy_id = "ross_momentum"
     strategy_name = "Ross Momentum"
     version = "2.1"
+    foundation_components = StrategyFoundationComponents()
+    execution_profile = StrategyExecutionProfile(
+        supported_modes=[
+            ExecutionMode.SIM,
+            ExecutionMode.PAPER,
+            ExecutionMode.READ_ONLY,
+            ExecutionMode.LIVE,
+        ]
+    )
 
     def __init__(self, policy_config: IntentPolicyConfig | None = None) -> None:
         self._evaluator = PatternEvaluator()

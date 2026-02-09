@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from .contracts import AllowState, DecisionIntent, SignalIntent
 from .reason_codes import ReasonCode
@@ -75,4 +75,26 @@ def derive_decision_intent(policy_obj: Any, context: Any) -> DecisionIntent:
         allow_state=AllowState.ALLOW,
         signal_intent=explicit_intent or SignalIntent.HOLD,
         reasons=[],
+    )
+
+
+def apply_no_trade_contexts(
+    decision: DecisionIntent,
+    contexts: Iterable[Any] | None,
+) -> DecisionIntent:
+    if not contexts:
+        return decision
+    reasons: list[str] = []
+    for context in contexts:
+        if isinstance(context, Mapping) and "code" in context:
+            reasons.append(str(context["code"]))
+        elif hasattr(context, "code"):
+            reasons.append(str(getattr(context, "code")))
+        else:
+            reasons.append(ReasonCode.RISK_VETO.value)
+    return DecisionIntent(
+        allow_state=AllowState.DISALLOW,
+        signal_intent=SignalIntent.NO_TRADE,
+        reasons=reasons,
+        metadata=dict(decision.metadata),
     )

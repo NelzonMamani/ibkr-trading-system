@@ -6,7 +6,16 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Iterable, List
 
-from src.strategies.strategy_contracts import StrategyDecision, StrategyInput, StrategyRiskPayload
+from src.strategies.common.foundation import FOUNDATION_VERSION
+from src.strategies.strategy_contracts import (
+    ExecutionMode,
+    StrategyContract,
+    StrategyDecision,
+    StrategyExecutionProfile,
+    StrategyFoundationComponents,
+    StrategyInput,
+    StrategyRiskPayload,
+)
 
 
 @dataclass(frozen=True)
@@ -22,6 +31,8 @@ class StrategyBase(ABC):
     strategy_name: str
     version: str
     description: str | None = None
+    foundation_components: StrategyFoundationComponents = StrategyFoundationComponents()
+    execution_profile: StrategyExecutionProfile = StrategyExecutionProfile()
 
     @classmethod
     def metadata(cls) -> StrategyMetadata:
@@ -36,6 +47,26 @@ class StrategyBase(ABC):
     def get_metadata(self) -> StrategyMetadata:
         """Return canonical strategy metadata for this instance."""
         return self.__class__.metadata()
+
+    @classmethod
+    def contract(cls) -> StrategyContract:
+        """Return the strategy foundation and execution contract."""
+        execution_profile = cls.execution_profile
+        if not execution_profile.supported_modes:
+            execution_profile = StrategyExecutionProfile(supported_modes=[ExecutionMode.SIM])
+        return StrategyContract(
+            strategy_id=cls.strategy_id,
+            strategy_name=cls.strategy_name,
+            version=cls.version,
+            description=getattr(cls, "description", None),
+            foundation_version=FOUNDATION_VERSION,
+            foundation_components=cls.foundation_components,
+            execution_profile=execution_profile,
+        )
+
+    def get_contract(self) -> StrategyContract:
+        """Return the contract for this instance."""
+        return self.__class__.contract()
 
     def initialise(self, context: dict | None = None) -> None:
         """Hook for strategy initialisation (stateless by default)."""

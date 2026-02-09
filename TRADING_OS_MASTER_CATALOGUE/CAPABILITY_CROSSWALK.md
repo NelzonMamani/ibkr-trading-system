@@ -24,10 +24,10 @@ Map catalogue requirements to existing system components with explicit OK / PART
 | E15 Failure Modes | Fault handling | `src/core/faults.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_15/EPOCH_15_E15_FAILURE_MODES.md` | OK |
 | E16 No-Trade Contexts | Risk/market gating | `src/risk/no_trade_contexts.py`, `src/risk/risk_engine.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_16/EPOCH_16_E16_NO_TRADE_CONTEXTS.md` | OK |
 | E17 Strategy Interaction Rules | Arbitration | `src/strategy_portfolio/arbitration.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_17/EPOCH_17_E17_STRATEGY_INTERACTION_RULES.md` | OK |
-| E18 Strategy Foundation Layer | Common strategy utilities | `src/strategies/common/` | PARTIAL |
-| E19 Strategy Interface & Certification | Strategy contracts | `src/strategies/strategy_contracts.py` | PARTIAL |
-| E20 Strategy Foundation Completion | Strategy foundation | `src/strategies/` | PARTIAL |
-| E21 Trading Ready Verification | Run scripts | `RUN_SIMULATION.ps1`, `RUN_PAPER_TRADING.ps1` | PARTIAL |
+| E18 Strategy Foundation Layer | Common strategy utilities | `src/strategies/common/`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_18/EPOCH_18_E18_STRATEGY_FOUNDATION_LAYER.md` | OK |
+| E19 Strategy Interface & Certification | Strategy contracts | `src/strategies/strategy_contracts.py`, `src/strategies/strategy_registry.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_19/EPOCH_19_E19_STRATEGY_INTERFACE_AND_CERTIFICATION.md` | OK |
+| E20 Strategy Foundation Completion | Strategy foundation | `src/strategies/common/foundation.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_20/EPOCH_20_E20_STRATEGY_FOUNDATION_COMPLETION.md` | OK |
+| E21 Trading Ready Verification | Run scripts | `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_21/EPOCH_21_E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION.md` | OK |
 
 ## Metadata Epoch Crosswalk
 | Catalogue Item | Capability Anchor | Evidence Pointer(s) | Status |

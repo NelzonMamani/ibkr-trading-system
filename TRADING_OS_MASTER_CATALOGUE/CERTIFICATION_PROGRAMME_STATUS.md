@@ -1,8 +1,8 @@
 # Trading OS Certification Programme Status
 
-- **Branch:** `codex/certify-E15-E16-E17-safety-cluster`
-- **PR:** (pending) Certify E15–E17 Safety Cluster
-- **Next target:** `E18_STRATEGY_FOUNDATION_LAYER`
+- **Branch:** `work`
+- **PR:** (pending) Certify E18–E21 Strategy Foundation & Readiness Cluster
+- **Next target:** Metadata epochs (M0+)
 - **Completed epochs this run:**
   - `E5_EXECUTION_ENGINE_AUTHORITY` (2026-02-09)
   - `E8_REGIME_AND_MICROSTRUCTURE_LAYER` (2026-02-09)
@@ -15,6 +15,10 @@
   - `E15_FAILURE_MODES` (2026-02-10)
   - `E16_NO_TRADE_CONTEXTS` (2026-02-10)
   - `E17_STRATEGY_INTERACTION_RULES` (2026-02-10)
+  - `E18_STRATEGY_FOUNDATION_LAYER` (2026-02-10)
+  - `E19_STRATEGY_INTERFACE_AND_CERTIFICATION` (2026-02-10)
+  - `E20_STRATEGY_FOUNDATION_COMPLETION` (2026-02-10)
+  - `E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION` (2026-02-10)
 - **Current blocker:** None
 
 ## Notes

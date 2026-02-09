@@ -6,7 +6,12 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable, List, Optional
 
 from src.strategies.strategy_base import StrategyBase, StrategyMetadata
-from src.strategies.strategy_contracts import StrategyDecision, StrategyInput
+from src.strategies.strategy_contracts import (
+    StrategyContract,
+    StrategyDecision,
+    StrategyInput,
+    validate_strategy_contract,
+)
 from src.strategies.ross_momentum.strategy import RossMomentumStrategy
 from src.strategies.mean_reversion.registry_adapter import MeanReversionStrategyAdapter
 
@@ -23,16 +28,20 @@ class StrategyRegistry:
     enabled_strategy_ids: Optional[List[str]] = None
     _strategies: Dict[str, StrategyBase] = field(default_factory=dict)
     _metadata: Dict[str, StrategyMetadata] = field(default_factory=dict)
+    _contracts: Dict[str, StrategyContract] = field(default_factory=dict)
 
     def register(self, strategy: StrategyBase) -> None:
         metadata = strategy.get_metadata()
+        contract = strategy.get_contract()
         self._validate_metadata(metadata)
+        self._validate_contract(contract)
         if metadata.strategy_id in self._strategies:
             raise ValueError(
                 f"Strategy '{metadata.strategy_id}' already registered in registry"
             )
         self._strategies[metadata.strategy_id] = strategy
         self._metadata[metadata.strategy_id] = metadata
+        self._contracts[metadata.strategy_id] = contract
 
     def register_factory(self, factory: StrategyFactory) -> StrategyBase:
         strategy = factory()
@@ -60,6 +69,9 @@ class StrategyRegistry:
     def list_metadata(self) -> List[StrategyMetadata]:
         return [self._metadata[key] for key in sorted(self._metadata)]
 
+    def list_contracts(self) -> List[StrategyContract]:
+        return [self._contracts[key] for key in sorted(self._contracts)]
+
     def evaluate_symbol(self, symbol: str, inputs: StrategyInput) -> List[StrategyDecision]:
         decisions: List[StrategyDecision] = []
         for strategy in self.enabled_strategies():
@@ -79,6 +91,15 @@ class StrategyRegistry:
             raise ValueError(
                 "Strategy metadata missing required field(s): "
                 + ", ".join(missing)
+            )
+
+    @staticmethod
+    def _validate_contract(contract: StrategyContract) -> None:
+        problems = validate_strategy_contract(contract)
+        if problems:
+            raise ValueError(
+                "Strategy contract invalid for "
+                f"'{contract.strategy_id}': {', '.join(problems)}"
             )
 
 

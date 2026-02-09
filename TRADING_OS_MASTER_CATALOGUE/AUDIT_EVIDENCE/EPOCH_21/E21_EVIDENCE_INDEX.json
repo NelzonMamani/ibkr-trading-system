@@ -1,0 +1,12 @@
+{
+  "compileall": "compileall.txt",
+  "pytest": "pytest.txt",
+  "reports": [
+    "E21_CERTIFICATION_REPORT.md",
+    "E21_MODE_PARITY_MATRIX.md",
+    "E21_SCENARIO_COVERAGE.md",
+    "E21_FAILURE_DRILLS_REPORT.md",
+    "E21_NON_INTERFERENCE_PROOF.md"
+  ],
+  "run_logs_dir": "E21_E2E_RUN_LOGS"
+}
