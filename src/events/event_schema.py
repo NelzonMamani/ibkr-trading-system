@@ -34,6 +34,44 @@ TRADE_OPENED_SCHEMA = {
     "pattern_name": (str, type(None)),
 }
 
+LIFECYCLE_INTENT_SCHEMA = {
+    "symbol": str,
+    "trader_type": str,
+    "intent": str,
+    "requested_quantity": int,
+    "mode": str,
+    "reason": str,
+}
+
+LIFECYCLE_TRANSITION_SCHEMA = {
+    "symbol": str,
+    "trader_type": str,
+    "from_state": str,
+    "to_state": str,
+    "intent": str,
+    "reason_code": str,
+    "reason": str,
+    "mode": str,
+    "requested_quantity": int,
+    "filled_quantity": int,
+    "quantity_before": int,
+    "quantity_after": int,
+    "fill_status": str,
+    "execution_blocked": bool,
+    "fill_latency_ms": (int, type(None)),
+    "transition_seq": int,
+}
+
+LIFECYCLE_TRANSITION_REJECTED_SCHEMA = {
+    "symbol": str,
+    "trader_type": str,
+    "from_state": str,
+    "intent": str,
+    "reason_code": str,
+    "reason": str,
+    "mode": str,
+}
+
 CYCLE_START_SCHEMA = {
     "run_mode": (RunMode, str),
 }
@@ -434,6 +472,9 @@ EVENT_SCHEMAS: Dict[str, Dict[str, Any]] = {
     "TRADE_CLOSED": TRADE_CLOSED_SCHEMA,
     "TRADE_STATE_UPDATED": TRADE_STATE_UPDATED_SCHEMA,
     "TRADE_NOT_FILLED": TRADE_NOT_FILLED_SCHEMA,
+    "LIFECYCLE_INTENT": LIFECYCLE_INTENT_SCHEMA,
+    "LIFECYCLE_TRANSITION": LIFECYCLE_TRANSITION_SCHEMA,
+    "LIFECYCLE_TRANSITION_REJECTED": LIFECYCLE_TRANSITION_REJECTED_SCHEMA,
     "TRADE_BLOCKED": {
         "symbol": str,
         "trader_type": str,
@@ -696,6 +737,40 @@ REQUIRED_FIELDS: Dict[str, Set[str]] = {
         "to_state",
         "tick",
         "reason",
+    },
+    "LIFECYCLE_INTENT": {
+        "symbol",
+        "trader_type",
+        "intent",
+        "requested_quantity",
+        "mode",
+        "reason",
+    },
+    "LIFECYCLE_TRANSITION": {
+        "symbol",
+        "trader_type",
+        "from_state",
+        "to_state",
+        "intent",
+        "reason_code",
+        "reason",
+        "mode",
+        "requested_quantity",
+        "filled_quantity",
+        "quantity_before",
+        "quantity_after",
+        "fill_status",
+        "execution_blocked",
+        "transition_seq",
+    },
+    "LIFECYCLE_TRANSITION_REJECTED": {
+        "symbol",
+        "trader_type",
+        "from_state",
+        "intent",
+        "reason_code",
+        "reason",
+        "mode",
     },
     "EXIT_STOP_LOSS": {
         "symbol",

@@ -305,6 +305,29 @@ class StorageEngine:
             ),
         )
 
+    def store_lifecycle_transition(self, transition: dict[str, Any]) -> None:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return
+        if "created_at" not in transition:
+            transition["created_at"] = now_iso()
+        self._store.insert_lifecycle_transitions([transition])
+
+    def fetch_lifecycle_transitions(
+        self,
+        *,
+        run_id: str | None = None,
+        symbol: str | None = None,
+        trader_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return []
+        resolved_run_id = run_id or self.run_id
+        return self._store.fetch_lifecycle_transitions(
+            resolved_run_id,
+            symbol=symbol,
+            trader_type=trader_type,
+        )
+
     def store_watchlist(
         self,
         *,

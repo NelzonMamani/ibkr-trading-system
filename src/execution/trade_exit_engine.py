@@ -4,6 +4,12 @@ from datetime import datetime
 
 from src.config.runtime_config import RunMode, RuntimeConfig
 from src.core.active_trade_registry import ActiveTradeRegistry
+from src.core.position_lifecycle_engine import (
+    LifecycleIntent,
+    PositionLifecycle,
+    PositionLifecycleEngine,
+    PositionState,
+)
 from src.core.stop_controller import StopController
 from src.models.data_models import ExecutionResult
 from src.core.trade_outcome_factory import TradeOutcomeFactory
@@ -130,8 +136,8 @@ class TradeExitEngine:
                 take_profit_triggered = current_price >= take_profit_price
 
         if stop_loss_triggered:
-            trade_state = getattr(trade, "state", "OPENED")
-            category = "EXIT_FAILED_SETUP" if trade_state != "IN_PROFIT" else "EXIT_STOP_LOSS"
+            trade_state = getattr(trade, "state", PositionState.OPEN)
+            category = "EXIT_STOP_LOSS" if trade_state == PositionState.CLOSING else "EXIT_FAILED_SETUP"
             reason = (
                 "Pattern invalidation / failed breakout — stop-loss breached"
                 if category == "EXIT_FAILED_SETUP"
@@ -299,17 +305,15 @@ class TradeExitEngine:
                 )
                 trade.take_profit_price = take_profit_price
 
-            if getattr(trade, "state", None) in {"OPENED", "PROTECTED"}:
+            if getattr(trade, "state", None) in {PositionState.OPEN, PositionState.SCALING_IN}:
                 if normalized_direction == "SHORT":
                     progress_r = (entry_price - exit_price) / risk_amount
                 else:
                     progress_r = (exit_price - entry_price) / risk_amount
                 if progress_r >= 0.5:
-                    self._transition_trade_state(
-                        trade,
-                        new_state="IN_PROFIT",
-                        tick=exit_tick,
-                        reason="Trade reached +0.5R unrealised gain",
+                    print(
+                        "[EXIT] Trade reached +0.5R unrealised gain "
+                        f"symbol={symbol} trader_type={trader_type}"
                     )
 
             signals_for_trade = exit_signal_map.get((symbol, trader_type), [])
@@ -402,18 +406,24 @@ class TradeExitEngine:
 
             self._transition_trade_state(
                 trade,
-                new_state="EXIT_PENDING",
+                new_state=PositionState.CLOSING,
                 tick=exit_tick,
                 reason=rationale,
             )
             self.trade_registry.unregister_trade(symbol, trader_type)
             self._transition_trade_state(
                 trade,
-                new_state="CLOSED",
+                new_state=PositionState.CLOSED,
                 tick=exit_tick,
                 reason="Trade closed by TradeExitEngine",
             )
 
+            self._emit_lifecycle_exit_intent(
+                decision=decision,
+                trade=trade,
+                run_mode=run_mode,
+                reason=rationale,
+            )
             self._emit_exit_event(
                 decision=decision,
                 trade=trade,
@@ -499,7 +509,7 @@ class TradeExitEngine:
 
         return results, trade_outcomes
 
-    def _transition_trade_state(self, trade, new_state: str, tick: int, reason: str) -> None:
+    def _transition_trade_state(self, trade, new_state: PositionState | str, tick: int, reason: str) -> None:
         if not hasattr(trade, "transition_state"):
             return
         previous_state = getattr(trade, "state", None)
@@ -515,8 +525,8 @@ class TradeExitEngine:
                 "symbol": getattr(trade, "symbol", "UNKNOWN"),
                 "trader_type": getattr(trade, "trader_type", "UNKNOWN"),
                 "strategy_name": getattr(trade, "strategy_name", "UNKNOWN"),
-                "from_state": previous_state,
-                "to_state": new_state,
+                "from_state": getattr(previous_state, "value", previous_state),
+                "to_state": getattr(new_state, "value", new_state),
                 "tick": tick,
                 "reason": reason,
             },
@@ -546,6 +556,43 @@ class TradeExitEngine:
                 "pnl": net_realised_pnl,
                 "hold_duration_ticks": hold_duration_ticks,
             },
+        )
+
+    def _emit_lifecycle_exit_intent(
+        self,
+        decision: ExitDecision,
+        trade,
+        run_mode: RunMode,
+        reason: str,
+    ) -> None:
+        intent_map = {
+            "EXIT_STOP_LOSS": LifecycleIntent.STOP_EXIT,
+            "EXIT_TIME": LifecycleIntent.TIME_EXIT,
+            "EXIT_RISK": LifecycleIntent.RISK_EXIT,
+            "EXIT_BREAKER": LifecycleIntent.SYSTEM_EXIT,
+            "EXIT_TARGET": LifecycleIntent.FULL_EXIT,
+            "EXIT_FAILED_SETUP": LifecycleIntent.STOP_EXIT,
+            "EXIT_STRATEGY": LifecycleIntent.FULL_EXIT,
+        }
+        intent = intent_map.get(decision.category)
+        if intent is None:
+            return
+        lifecycle_engine = PositionLifecycleEngine(event_collector=self.event_collector)
+        lifecycle_position = PositionLifecycle(
+            symbol=getattr(trade, "symbol", "UNKNOWN"),
+            trader_type=getattr(trade, "trader_type", "UNKNOWN"),
+            quantity=getattr(trade, "quantity", 0),
+            state=PositionState.OPEN,
+        )
+        lifecycle_engine.apply_intent(
+            lifecycle_position,
+            intent,
+            requested_quantity=max(getattr(trade, "quantity", 0), 1),
+            run_mode=run_mode,
+            reason=reason,
+            risk_approved=True,
+            filled_quantity_override=getattr(trade, "quantity", 0),
+            fill_status_override="FULL",
         )
 
     def _force_close_all_trades(self, resolved_tick: int, runtime_config: RuntimeConfig) -> None:
@@ -604,15 +651,21 @@ class TradeExitEngine:
             )
             self._transition_trade_state(
                 trade,
-                new_state="EXIT_PENDING",
+                new_state=PositionState.CLOSING,
                 tick=resolved_tick,
                 reason=rationale,
             )
             self._transition_trade_state(
                 trade,
-                new_state="CLOSED",
+                new_state=PositionState.CLOSED,
                 tick=resolved_tick,
                 reason="Forced shutdown close",
+            )
+            self._emit_lifecycle_exit_intent(
+                decision=forced_decision,
+                trade=trade,
+                run_mode=run_mode,
+                reason=rationale,
             )
             self._emit_exit_event(
                 decision=forced_decision,

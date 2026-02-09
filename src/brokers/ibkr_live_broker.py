@@ -36,6 +36,12 @@ from src.config.runtime_config import (
 )
 from src.config.risk_profiles import RISK_PROFILES
 from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
+from src.core.position_lifecycle_engine import (
+    LifecycleIntent,
+    PositionLifecycle,
+    PositionLifecycleEngine,
+    PositionState,
+)
 from src.core.event_collector import EventCollector
 from src.domain.models.internal_order import InternalOrder
 from src.execution.exit_plan import compute_stop_price, compute_take_profit_price
@@ -254,7 +260,7 @@ class IbkrLiveBroker(BaseBroker):
                 self.trade_registry.register_trade(active_trade)
                 if active_trade.state_history:
                     last_transition = active_trade.state_history[-1]
-                    if last_transition.get("to") == "PROTECTED":
+                    if last_transition.get("to") == "OPEN":
                         self.event_collector.emit(
                             event_type="TRADE_STATE_UPDATED",
                             source="IbkrLiveBroker",
@@ -295,6 +301,23 @@ class IbkrLiveBroker(BaseBroker):
                         "gateway_decision": "LIVE",
                         "pattern_name": pattern_name,
                     },
+                )
+                lifecycle_engine = PositionLifecycleEngine(event_collector=self.event_collector)
+                lifecycle_position = PositionLifecycle(
+                    symbol=request.symbol,
+                    trader_type=request.trader_type or "UNKNOWN",
+                    quantity=0,
+                    state=PositionState.FLAT,
+                )
+                lifecycle_engine.apply_intent(
+                    lifecycle_position,
+                    LifecycleIntent.OPEN,
+                    requested_quantity=filled_quantity,
+                    run_mode=self.run_mode,
+                    reason="Live fill recorded",
+                    risk_approved=True,
+                    filled_quantity_override=filled_quantity,
+                    fill_status_override=fill_status,
                 )
 
         status = "ACKED" if result.status == "ACKED" else result.status
