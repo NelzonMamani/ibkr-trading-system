@@ -18,6 +18,7 @@ from src.execution.execution_providers import ExecutionProvider, PaperExecutionP
 from src.execution.order_models import PendingOrderBook
 from src.models.execution_result import ExecutionResult
 from src.models.data_models import RiskDecision
+from src.models.risk_decision import DECISION_ARTIFACT_MISSING
 from src.sim.price_feed import DeterministicPriceFeed, PriceFeed
 
 
@@ -150,6 +151,11 @@ class ExecutionEngine:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale=f"RUN_MODE_BLOCK:{self.run_mode.value}",
+            )
+        if not getattr(risk_decision, "decision_id", None):
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale=DECISION_ARTIFACT_MISSING,
             )
         if not self.execution_enabled:
             return self._blocked_execution_from_risk_decision(

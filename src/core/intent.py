@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict
+from dataclasses import asdict, dataclass
+import hashlib
+import json
+from typing import Any, Dict, Iterable, List, Mapping
+
+from src.models.data_models import DecisionArtifact, TradeIntent
 
 
 @dataclass(frozen=True)
@@ -55,4 +59,59 @@ def build_execution_intent(
         ranking_intent=ranking_intent,
         enforcement=enforcement,
         notes=";".join(notes) if notes else "mode_allows_execution",
+    )
+
+
+def _normalize_intent_payload(intent: TradeIntent) -> Dict[str, Any]:
+    payload = asdict(intent)
+    for key in ("data_quality_flags", "regime_notes"):
+        if key in payload and isinstance(payload[key], list):
+            payload[key] = sorted(payload[key])
+    return payload
+
+
+def _sorted_intents(intents: Iterable[TradeIntent]) -> List[TradeIntent]:
+    return sorted(
+        intents,
+        key=lambda intent: (
+            intent.symbol,
+            intent.trader_type,
+            intent.direction,
+            intent.confidence,
+        ),
+    )
+
+
+def build_decision_artifact(
+    *,
+    strategy_name: str,
+    run_mode: str,
+    session_phase: str,
+    intents: Iterable[TradeIntent],
+    source: str,
+    created_at: str,
+    metadata: Mapping[str, Any] | None = None,
+) -> DecisionArtifact:
+    ordered_intents = _sorted_intents(intents)
+    payload = {
+        "strategy_name": strategy_name,
+        "run_mode": run_mode,
+        "session_phase": session_phase,
+        "source": source,
+        "created_at": created_at,
+        "intents": [_normalize_intent_payload(intent) for intent in ordered_intents],
+        "metadata": dict(metadata or {}),
+    }
+    encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    decision_hash = hashlib.sha256(encoded).hexdigest()[:16]
+    decision_id = f"DECISION-{decision_hash}"
+    return DecisionArtifact(
+        decision_id=decision_id,
+        strategy_name=strategy_name,
+        run_mode=run_mode,
+        session_phase=session_phase,
+        source=source,
+        created_at=created_at,
+        intents=list(ordered_intents),
+        metadata=dict(metadata or {}),
     )

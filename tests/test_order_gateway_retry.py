@@ -21,6 +21,7 @@ def _risk(symbol: str, trader_type: str, qty: int) -> RiskDecision:
         trader_type=trader_type,
         strategy_name="UnitTestStrategy",
         direction="LONG",
+        decision_id=f"decision-{symbol}-{trader_type}",
     )
 
 

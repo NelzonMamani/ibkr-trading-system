@@ -35,6 +35,7 @@ def _risk_decision() -> RiskDecision:
         trader_type="MANUAL",
         strategy_name="TEST",
         direction="LONG",
+        decision_id="decision-aapl",
     )
 
 

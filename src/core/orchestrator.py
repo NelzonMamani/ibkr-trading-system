@@ -52,7 +52,7 @@ from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
 from src.patterns.pattern_engine import PatternEngine
 from src.risk.risk_engine import RiskEngine
-from src.core.intent import build_execution_intent
+from src.core.intent import build_decision_artifact, build_execution_intent
 from src.scanner.contracts import StockSelectionPolicy
 from src.scanner.scanner_contract import ScannerRequest, scanner_request_from_policy
 from src.scanner.ranking_registry import resolve_watchlist_selector
@@ -1594,6 +1594,46 @@ class CoreOrchestrator:
         )
         print("[TEACH] <<< Intent normalization stage complete — moving to risk stage.")
 
+        decision_output = []
+        if strategy_output:
+            decision_timestamp = datetime.now(timezone.utc).isoformat()
+            decision_artifact = build_decision_artifact(
+                strategy_name=self.selected_strategy_key,
+                run_mode=self.run_mode.value,
+                session_phase=execution_intent.session_phase,
+                intents=strategy_output,
+                source="CoreOrchestrator",
+                created_at=decision_timestamp,
+                metadata={"tick": tick, "cycle_id": self._ensure_cycle_id()},
+            )
+            decision_output.append(decision_artifact)
+            for trade_intent in strategy_output:
+                trade_intent.decision_id = decision_artifact.decision_id
+            self.event_collector.emit(
+                event_type="DECISION_ARTIFACT_CREATED",
+                source="CoreOrchestrator",
+                payload={
+                    "decision_id": decision_artifact.decision_id,
+                    "strategy_name": decision_artifact.strategy_name,
+                    "intent_count": len(decision_artifact.intents),
+                    "run_mode": decision_artifact.run_mode,
+                    "session_phase": decision_artifact.session_phase,
+                    "created_at": decision_artifact.created_at,
+                },
+            )
+            self._trace_event(
+                "DECISION",
+                {
+                    "decision_id": decision_artifact.decision_id,
+                    "strategy_name": decision_artifact.strategy_name,
+                    "intent_count": len(decision_artifact.intents),
+                    "run_mode": decision_artifact.run_mode,
+                    "session_phase": decision_artifact.session_phase,
+                    "created_at": decision_artifact.created_at,
+                },
+                summary=f"decision_id={decision_artifact.decision_id} intents={len(decision_artifact.intents)}",
+            )
+
         print("[TEACH] >>> Risk stage — check sizing and limits (conceptual).")
         risk_output: List[RiskDecision] = []
         blocked_symbols: set[str] = set()
@@ -1939,6 +1979,7 @@ class CoreOrchestrator:
                 scanner_output=scanner_results or [],
                 pattern_output=pattern_results or [],
                 strategy_output=strategy_output or [],
+                decision_output=decision_output or [],
                 risk_output=risk_output or [],
                 execution_output=execution_output or [],
                 trade_outcomes=trade_outcomes or [],

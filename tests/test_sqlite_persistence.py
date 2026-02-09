@@ -101,6 +101,7 @@ def test_sqlite_persists_run_cycle_events_trade_record(tmp_path):
             "scanner_output_json": "[]",
             "pattern_output_json": "[]",
             "strategy_output_json": "[]",
+            "decision_output_json": "[]",
             "risk_output_json": "[]",
             "execution_output_json": "[]",
             "trade_outcomes_json": "[]",

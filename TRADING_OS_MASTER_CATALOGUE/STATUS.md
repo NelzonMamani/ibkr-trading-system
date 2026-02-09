@@ -1,6 +1,6 @@
 # Trading OS Programme Status
 
-- **Active execution PR:** (pending) Certify E13 Strategy Factory Standard
+- **Active execution PR:** (pending) Certify E14 Decision Artifacts
 - **Current blocker:** None
 - **Previous blocker:** BLOCKER_02 — E7 Mode Parity & Safety (run mode drift guard)
 
@@ -13,3 +13,4 @@
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_11/`
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_12/`
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_13/`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_14/`

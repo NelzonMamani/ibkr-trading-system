@@ -46,12 +46,17 @@ def _payload(intent_id: str = "intent-1", symbol: str = "ABC") -> StrategyRiskPa
     )
 
 
+def _attach_decision_id(decision, decision_id: str) -> None:
+    decision.decision_id = decision_id
+
+
 def test_risk_engine_blocks_live_read_only():
     set_config_overrides({"RUN_MODE": "READ_ONLY", "EXECUTION_ENABLED": True})
     try:
         stop_controller = StopController()
         risk_engine = RiskEngine(stop_controller=stop_controller)
         decision = risk_engine.evaluate_strategy_payload(_payload())
+        _attach_decision_id(decision, "decision-readonly")
 
         assert decision.overall_action == "BLOCK"
         assert decision.per_intent
@@ -67,6 +72,7 @@ def test_paper_pipeline_runs_without_broker_routing():
         stop_controller = StopController()
         risk_engine = RiskEngine(stop_controller=stop_controller)
         decision = risk_engine.evaluate_strategy_payload(_payload())
+        _attach_decision_id(decision, "decision-paper")
 
         registry = ActiveTradeRegistry()
         events = EventCollector()
@@ -92,6 +98,7 @@ def test_live_read_only_blocks_execution_engine():
         stop_controller = StopController()
         risk_engine = RiskEngine(stop_controller=stop_controller)
         decision = risk_engine.evaluate_strategy_payload(_payload())
+        _attach_decision_id(decision, "decision-readonly")
 
         events = EventCollector()
         engine = ExecutionEngine(event_collector=events, stop_controller=stop_controller)
@@ -111,6 +118,7 @@ def test_idempotency_prevents_duplicate_submissions():
         stop_controller = StopController()
         risk_engine = RiskEngine(stop_controller=stop_controller)
         decision = risk_engine.evaluate_strategy_payload(_payload(intent_id="dup-1"))
+        _attach_decision_id(decision, "decision-dup")
 
         events = EventCollector()
         engine = ExecutionEngine(event_collector=events, stop_controller=stop_controller)
@@ -138,6 +146,7 @@ def test_execution_blocks_when_breaker_tripped():
 
         risk_engine = RiskEngine(stop_controller=stop_controller)
         decision = risk_engine.evaluate_strategy_payload(_payload())
+        _attach_decision_id(decision, "decision-breaker")
 
         engine = ExecutionEngine(stop_controller=stop_controller)
         engine.current_tick = 5

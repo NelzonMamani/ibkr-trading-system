@@ -20,7 +20,7 @@ Map catalogue requirements to existing system components with explicit OK / PART
 | E11 Learning System | Learning pipeline | `src/learning/`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_11/EPOCH_11_E11_LEARNING_SYSTEM.md` | OK |
 | E12 Recovery & Housekeeping | Storage + stop control | `src/storage/`, `src/core/stop_controller.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_12/EPOCH_12_E12_RECOVERY_AND_HOUSEKEEPING.md` | OK |
 | E13 Strategy Factory Standard | Registry + base | `src/strategies/strategy_registry.py`, `src/strategies/strategy_base.py`, `tests/test_strategy_registry_epoch13.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_13/EPOCH_13_E13_STRATEGY_FACTORY_STANDARD.md` | OK |
-| E14 Decision Artifacts | Intent + signal models | `src/core/intent.py`, `src/signals/` | PARTIAL |
+| E14 Decision Artifacts | Intent + signal models | `src/core/intent.py`, `src/models/data_models.py`, `src/execution/execution_engine.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_14/EPOCH_14_E14_DECISION_ARTIFACTS.md` | OK |
 | E15 Failure Modes | Fault handling | `src/core/faults.py` | PARTIAL |
 | E16 No-Trade Contexts | Risk/market gating | `src/risk/`, `src/market_data/` | PARTIAL |
 | E17 Strategy Interaction Rules | Arbitration | `src/strategy_portfolio/arbitration.py` | PARTIAL |
