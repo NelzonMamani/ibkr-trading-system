@@ -1,0 +1,180 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0
+rootdir: /workspace/ibkr-trading-system
+configfile: pytest.ini
+testpaths: tests
+collected 146 items / 2 skipped
+
+tests/smoke/test_imports.py .                                            [  0%]
+tests/smoke/test_orchestrator_cycle.py ..                                [  2%]
+tests/smoke/test_scanner_contract.py .                                   [  2%]
+tests/strategies/statistical_intraday_momentum/test_contract_compliance.py . [  3%]
+                                                                         [  3%]
+tests/strategies/statistical_intraday_momentum/test_intraday_end_to_end_smoke.py . [  4%]
+                                                                         [  4%]
+tests/strategies/statistical_intraday_momentum/test_policy_imports.py .  [  4%]
+tests/strategies/statistical_intraday_momentum/test_regime_gates.py ..   [  6%]
+tests/strategies/statistical_intraday_momentum/test_risk_policy.py ..    [  7%]
+tests/strategies/statistical_intraday_momentum/test_safe_defaults.py .   [  8%]
+tests/strategies/statistical_intraday_momentum/test_scoring_determinism.py . [  8%]
+                                                                         [  8%]
+tests/strategy_portfolio/test_allocation.py ....                         [ 11%]
+tests/strategy_portfolio/test_arbitration.py .....                       [ 15%]
+tests/strategy_portfolio/test_contracts.py ....                          [ 17%]
+tests/strategy_portfolio/test_end_to_end_smoke.py .                      [ 18%]
+tests/strategy_portfolio/test_non_interference.py .                      [ 19%]
+tests/strategy_portfolio/test_normaliser_defaults.py ..                  [ 20%]
+tests/strategy_portfolio/test_registry.py ....                           [ 23%]
+tests/strategy_portfolio/test_ross_adapter.py .....                      [ 26%]
+tests/test_config_sanity.py ...                                          [ 28%]
+tests/test_epoch3_risk_execution.py ......                               [ 32%]
+tests/test_event_collector_snapshot_policy.py ...                        [ 34%]
+tests/test_execution_authority_epoch5.py ..                              [ 36%]
+tests/test_execution_intent_modes.py ..                                  [ 37%]
+tests/test_exit_precedence.py ..                                         [ 39%]
+tests/test_faults.py ....                                                [ 41%]
+tests/test_ibkr_order_translator.py sssss                                [ 45%]
+tests/test_learning_policy_proposal.py ..                                [ 46%]
+tests/test_learning_reporting.py ..                                      [ 47%]
+tests/test_liquidity_execution.py .                                      [ 48%]
+tests/test_market_data_client_disconnect.py .                            [ 49%]
+tests/test_market_data_client_snapshot.py ...                            [ 51%]
+tests/test_market_data_validation.py ..                                  [ 52%]
+tests/test_market_session_phase.py ....                                  [ 55%]
+tests/test_orchestrator_scanner_request.py .                             [ 56%]
+tests/test_orchestrator_shutdown.py ...                                  [ 58%]
+tests/test_order_gateway_retry.py .                                      [ 58%]
+tests/test_performance_reports_epoch4.py .                               [ 59%]
+tests/test_position_lifecycle_engine.py ....                             [ 62%]
+tests/test_position_lifecycle_persistence.py .                           [ 63%]
+tests/test_read_only_guard.py .                                          [ 63%]
+tests/test_regime_baselines.py .                                         [ 64%]
+tests/test_regime_classifier.py ..                                       [ 65%]
+tests/test_regime_contracts.py ...                                       [ 67%]
+tests/test_regime_determinism.py .                                       [ 68%]
+tests/test_regime_live_readonly_missingness.py .                         [ 69%]
+tests/test_regime_observers.py .                                         [ 69%]
+tests/test_regime_orchestrator_integration.py .                          [ 70%]
+tests/test_regime_policy_application.py .                                [ 71%]
+tests/test_regime_storage.py .                                           [ 71%]
+tests/test_replay_from_storage_epoch4.py ..                              [ 73%]
+tests/test_replay_locked_in_live_modes_epoch4.py .                       [ 73%]
+tests/test_ross_strategy_registry.py .                                   [ 74%]
+tests/test_scanner_contract_54.py ...                                    [ 76%]
+tests/test_scanner_pct_change_fallback.py ..                             [ 78%]
+tests/test_scanner_policy_from_strategy.py F                             [ 78%]
+tests/test_scanner_provider_fallback.py .                                [ 79%]
+tests/test_scanner_ranking_authority.py .                                [ 80%]
+tests/test_scanner_universe_request.py .                                 [ 80%]
+tests/test_scanner_watchlist_artifact_empty.py .                         [ 81%]
+tests/test_scanner_watchlist_prints.py ..                                [ 82%]
+tests/test_signal_adapter.py ...                                         [ 84%]
+tests/test_sqlite_persistence.py ...                                     [ 86%]
+tests/test_stop_controller.py ..                                         [ 88%]
+tests/test_storage_cli_epoch4.py .                                       [ 89%]
+tests/test_storage_recovery.py .                                         [ 89%]
+tests/test_storage_schema_epoch4.py ..                                   [ 91%]
+tests/test_storage_serialization.py ...                                  [ 93%]
+tests/test_traceability.py ...                                           [ 95%]
+tests/test_trade_exit_engine.py .......                                  [100%]
+
+=================================== FAILURES ===================================
+_____________ test_scanner_policy_limits_applied_in_teaching_mode ______________
+
+    def test_scanner_policy_limits_applied_in_teaching_mode():
+        set_config_overrides(
+            {
+            "RUN_MODE": "PAPER",
+                "SCANNER_DATA_SOURCE": "MOCK",
+            }
+        )
+        base_policy = RossMomentumPolicy()
+        tuned_stock_policy = replace(
+            base_policy.stock_selection,
+            watchlist_limit_k=3,
+            focus_limit_m=2,
+            top_gainers_n=5,
+            session_allowlist=("PRE", "REG", "AFTER", "OVN"),
+        )
+        tuned_policy = replace(base_policy, stock_selection=tuned_stock_policy)
+        scanner_policy = _to_scanner_policy(tuned_policy.stock_selection)
+    
+        try:
+            payload = run_scanner_cycle(mode="READONLY", policy=scanner_policy)
+        finally:
+            set_config_overrides({})
+    
+>       assert len(payload.get("watchlist_k", [])) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = len([])
+E        +    where [] = <built-in method get of dict object at 0x7fe2c0e94440>('watchlist_k', [])
+E        +      where <built-in method get of dict object at 0x7fe2c0e94440> = {'candidate_metrics': [CandidateMetrics(symbol='AAPL', con_id=None, exchange=None, session_label='RTH', last_price=12....ata_quality_flags=['MOCK', 'DROP_RANK_BELOW_WATCHLIST'])], 'continuing_symbols': [], 'data_quality_by_symbol': {}, ...}.get
+
+tests/test_scanner_policy_from_strategy.py:37: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[SCANNER] MODE=READONLY SESSION=RTH
+[SCANNER][POLICY] source=STRATEGY policy_name=ROSS_MOMENTUM price=1.0-20.0 gap_min=10.0 rvol_min=5.0 float_max_millions=20.0 spread_max_pct=None watchlist_k=3 focus_m=2
+[SCANNER][ENTRY] strategy=ROSS_MOMENTUM requested_top_n=5 watchlist_k=3 focus_m=2 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=1.0 below_price=20.0
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=7
+STATE=DEGRADED
+STATE=DEGRADED
+[SCANNER][WARN] Provider connection failed — falling back to MOCK reason=There is no current event loop in thread 'MainThread'.
+[SCANNER][PROVIDER] provider=MOCK fallback_reason=There is no current event loop in thread 'MainThread'.
+[SCANNER][LIMITS] Symbol limits (value/source/env)
+[SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=DEFAULT env=-
+[SCANNER][LIMITS] SCANNER_TEACHING_SYMBOL_CAP=0 source=DEFAULT env=-
+[SCANNER][LIMITS] Policy caps top_gainers_n=5 watchlist_k=3 focus_m=2 max_symbols_per_cycle=50
+[SCANNER][LIMITS] Resolved symbol request limit=5 reductions=['none']
+[SCANNER][LIMITS] Focus list limit=2
+[SCANNER][STAGE] bootstrap
+[SCANNER][IBKR] universe_return ibkr_returned_count=5 requested_top_n=5 truncation=False reasons=['none']
+SCANNER_RAW_N=5 returned 5 symbols
+[SCANNER][STAGE] gates
+[SCANNER][KEEP] symbol=AAPL last=12.07 final_pct=19.98 pct_source=CALC(SESSION_REF) vol=27515675 bid=12.05 ask=12.12 spread=0.0700
+[SCANNER][KEEP] symbol=MSFT last=7.93 final_pct=12.64 pct_source=CALC(SESSION_REF) vol=12731375 bid=7.92 ask=7.96 spread=0.0400
+[SCANNER][KEEP] symbol=NVDA last=11.61 final_pct=13.49 pct_source=CALC(SESSION_REF) vol=24154533 bid=11.58 ask=11.64 spread=0.0600
+[SCANNER][KEEP] symbol=AMD last=10.08 final_pct=18.87 pct_source=CALC(SESSION_REF) vol=22987348 bid=10.04 ask=10.10 spread=0.0600
+[SCANNER][KEEP] symbol=TSLA last=10.15 final_pct=21.41 pct_source=CALC(SESSION_REF) vol=21329714 bid=10.11 ask=10.19 spread=0.0800
+AFTER_GATES_SYMBOLS (N=5): ['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA']
+[SCANNER][STAGE] watchlist
+[SCANNER][DROP] symbol=TSLA reason=DROP_RANK_BELOW_WATCHLIST
+[SCANNER][DROP] symbol=AAPL reason=DROP_RANK_BELOW_WATCHLIST
+[SCANNER][DROP] symbol=AMD reason=DROP_RANK_BELOW_WATCHLIST
+[SCANNER][DROP] symbol=NVDA reason=DROP_RANK_BELOW_WATCHLIST
+[SCANNER][DROP] symbol=MSFT reason=DROP_RANK_BELOW_WATCHLIST
+[SCANNER][STAGE] enrich
+WATCHLIST_K_SELECTED (K=0): []
+[SCANNER][STAGE] print
+[SCANNER][SUMMARY] candidates=5 gated=5 watchlist=0 drops={'DROP_RANK_BELOW_WATCHLIST': 5}
+[SCANNER][DROP_SUMMARY] topn=5 evaluated=5 dropped=5 reasons={'DROP_RANK_BELOW_WATCHLIST': 5}
+TopN: 5
+GatedSurvivors: 5
+DropReasons: {'DROP_RANK_BELOW_WATCHLIST': 5}
+EMPTY WATCHLIST (valid)
+WATCHLIST_K: []
+FOCUS_M: []
+NEW: []
+CONTINUING: []
+DROPPED: []
+=============================== warnings summary ===============================
+tests/test_regime_orchestrator_integration.py::test_orchestrator_emits_regime_snapshot
+tests/test_traceability.py::test_trace_event_order_sim
+tests/test_traceability.py::test_live_readonly_connectivity_retry
+  /workspace/ibkr-trading-system/src/core/managers/connection_manager.py:102: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
+    continue
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_scanner_policy_from_strategy.py::test_scanner_policy_limits_applied_in_teaching_mode
+tests/test_scanner_ranking_authority.py::test_scanner_uses_strategy_ranking_for_ross
+tests/test_scanner_universe_request.py::test_scanner_request_ibkr_top_gainers_skips_scanner_symbols_error
+tests/test_scanner_watchlist_prints.py::test_watchlist_print_format
+tests/test_scanner_watchlist_prints.py::test_watchlist_print_suppressed_when_unchanged
+  /workspace/ibkr-trading-system/src/scanner/scanner_runner.py:-1: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_scanner_policy_from_strategy.py::test_scanner_policy_limits_applied_in_teaching_mode
+============ 1 failed, 140 passed, 7 skipped, 8 warnings in 51.63s =============
