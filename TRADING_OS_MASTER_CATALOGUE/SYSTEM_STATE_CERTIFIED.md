@@ -2,7 +2,7 @@
 # IBKR Trading OS — Observed State (Certified)
 
 **Status:** CERTIFIED (observed reality)
-**Last updated:** 2026-02-08
+**Last updated:** 2026-02-09
 
 ## Certified Run Modes
 - SIM
@@ -53,3 +53,4 @@ Legend: NOT_STARTED / PARTIAL / IMPLEMENTED_UNCERTIFIED / CERTIFIED
 - E0 verification executed compileall, pytest, and boot cycles for SIM, PAPER, READ_ONLY, and LIVE.
 - PAPER and READ_ONLY boot cycles reported IBKR connectivity warnings when no local TWS/IBG instance was available; system degraded safely without order routing.
 - E1 verification executed compileall, pytest, and boot cycles for SIM, PAPER, READ_ONLY, and LIVE; IBKR connectivity failures were captured as traceable HALT reasons.
+- E2 verification executed compileall; pytest stalled after `tests/test_traceability.py` and was terminated. Mode boot scripts were not executed because PowerShell (pwsh) was unavailable in the environment.
