@@ -1,4 +1,8 @@
 # E21 Non-Interference Proof
 
-- Strategy arbitration enforces deterministic single-winner selection per symbol.
-- Allocation and no-trade context gates do not alter strategy logic, only portfolio eligibility.
+## Summary
+Arbitration inputs remain unchanged after evaluation.
+
+## Evidence
+- inputs_unchanged=True
+- Strategy intents copied before arbitration; no mutation observed.

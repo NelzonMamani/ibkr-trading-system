@@ -1,7 +1,7 @@
 # Trading OS Certification Programme Status
 
-- **Branch:** `work`
-- **PR:** (pending) Certify E18–E21 Strategy Foundation & Readiness Cluster
+- **Branch:** `codex/execute-e21-trading-ready-harness`
+- **PR:** (pending) Execute E21 Trading-Ready Verification & End-to-End Simulation
 - **Next target:** Metadata epochs (M0+)
 - **Completed epochs this run:**
   - `E5_EXECUTION_ENGINE_AUTHORITY` (2026-02-09)
@@ -18,7 +18,7 @@
   - `E18_STRATEGY_FOUNDATION_LAYER` (2026-02-10)
   - `E19_STRATEGY_INTERFACE_AND_CERTIFICATION` (2026-02-10)
   - `E20_STRATEGY_FOUNDATION_COMPLETION` (2026-02-10)
-  - `E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION` (2026-02-10)
+  - `E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION` (2026-02-09)
 - **Current blocker:** None
 
 ## Notes

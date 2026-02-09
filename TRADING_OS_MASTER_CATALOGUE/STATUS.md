@@ -1,6 +1,6 @@
 # Trading OS Programme Status
 
-- **Active execution PR:** (pending) Certify E18–E21 Strategy Foundation & Readiness Cluster
+- **Active execution PR:** (pending) Execute E21 Trading-Ready Verification & End-to-End Simulation
 - **Current blocker:** None
 - **Previous blocker:** BLOCKER_02 — E7 Mode Parity & Safety (run mode drift guard)
 
