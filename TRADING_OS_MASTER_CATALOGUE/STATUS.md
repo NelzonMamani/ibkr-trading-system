@@ -1,6 +1,6 @@
 # Trading OS Programme Status
 
-- **Active execution PR:** (pending) Certify E11 Learning System
+- **Active execution PR:** (pending) Certify E12 Recovery & Housekeeping
 - **Current blocker:** None
 - **Previous blocker:** BLOCKER_02 — E7 Mode Parity & Safety (run mode drift guard)
 
@@ -11,3 +11,4 @@
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_09/`
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_10/`
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_11/`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_12/`
