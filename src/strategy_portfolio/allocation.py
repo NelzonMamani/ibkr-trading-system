@@ -42,9 +42,33 @@ def allocate(
     configs: list[AllocationConfig],
 ) -> list[AllocationResult]:
     results: list[AllocationResult] = []
-    for config in configs:
+    ordered_configs = sorted(configs, key=lambda entry: entry.strategy_id)
+    if global_budget_usd <= 0.0:
+        for config in ordered_configs:
+            if not config.enabled:
+                results.append(
+                    AllocationResult(
+                        strategy_id=config.strategy_id,
+                        enabled=False,
+                        budget_usd=0.0,
+                        reason_codes=[ReasonCode.ALLOCATION_DISABLED.value],
+                    )
+                )
+            else:
+                results.append(
+                    AllocationResult(
+                        strategy_id=config.strategy_id,
+                        enabled=True,
+                        budget_usd=0.0,
+                        reason_codes=[ReasonCode.ALLOCATION_EXHAUSTED.value],
+                    )
+                )
+        return results
+
+    preliminary: list[AllocationResult] = []
+    for config in ordered_configs:
         if not config.enabled:
-            results.append(
+            preliminary.append(
                 AllocationResult(
                     strategy_id=config.strategy_id,
                     enabled=False,
@@ -58,11 +82,35 @@ def allocate(
         if config.max_allocation_usd is not None:
             budget = min(budget, max(config.max_allocation_usd, 0.0))
 
-        results.append(
+        preliminary.append(
             AllocationResult(
                 strategy_id=config.strategy_id,
                 enabled=True,
                 budget_usd=budget,
             )
         )
+
+    total_allocated = sum(result.budget_usd for result in preliminary)
+    if total_allocated <= global_budget_usd or total_allocated <= 0.0:
+        return preliminary
+
+    scaling_ratio = global_budget_usd / total_allocated
+    for result in preliminary:
+        if not result.enabled:
+            results.append(result)
+            continue
+
+        scaled_budget = max(result.budget_usd * scaling_ratio, 0.0)
+        reason_codes = list(result.reason_codes)
+        if scaled_budget == 0.0:
+            reason_codes.append(ReasonCode.ALLOCATION_EXHAUSTED.value)
+        results.append(
+            AllocationResult(
+                strategy_id=result.strategy_id,
+                enabled=True,
+                budget_usd=scaled_budget,
+                reason_codes=reason_codes,
+            )
+        )
+
     return results

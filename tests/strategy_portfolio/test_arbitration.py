@@ -49,3 +49,18 @@ def test_arbitrate_symbol_exit_only_when_position():
     ]
     result = arbitrate_symbol(inputs, loser_position_map={"beta": True})
     assert result.exit_only == [("beta", ReasonCode.ARBITRATION_DENY_LOWER_PRIORITY.value)]
+
+
+def test_arbitrate_symbol_precedence_with_multiple_strategies():
+    inputs = [
+        ArbitrationInput("AAPL", "alpha", 5, SignalIntent.ENTER_LONG),
+        ArbitrationInput("AAPL", "gamma", 8, SignalIntent.ENTER_SHORT),
+        ArbitrationInput("AAPL", "beta", 8, SignalIntent.ENTER_LONG),
+    ]
+    result = arbitrate_symbol(inputs)
+    assert result.winner_strategy_id == "beta"
+    assert result.winner_intent == SignalIntent.ENTER_LONG
+    assert result.denied == [
+        ("gamma", ReasonCode.ARBITRATION_DENY_LOWER_PRIORITY.value),
+        ("alpha", ReasonCode.ARBITRATION_DENY_LOWER_PRIORITY.value),
+    ]

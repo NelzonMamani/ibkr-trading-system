@@ -38,5 +38,6 @@ def test_end_to_end_smoke():
             AllocationConfig(strategy_id="other", allocation_pct=0.4),
         ],
     )
-    assert allocations[0].budget_usd == 60.0
-    assert allocations[1].budget_usd == 40.0
+    allocation_map = {allocation.strategy_id: allocation for allocation in allocations}
+    assert allocation_map["stat_intraday"].budget_usd == 60.0
+    assert allocation_map["other"].budget_usd == 40.0
