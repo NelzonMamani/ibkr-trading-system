@@ -111,6 +111,7 @@ class TradeIntent:
     trader_type: str = "UNKNOWN"  # "SCALPER", "MOMENTUM", "QUANT", or "MANUAL" for routing the teaching flow.
     stop_loss_price: Optional[float] = None  # Optional price-based protection configured at entry time.
     take_profit_price: Optional[float] = None  # Optional profit target configured at entry time.
+    decision_id: Optional[str] = None
     pattern_name: Optional[str] = None
     invalidation_level: Optional[float] = None
     gap_percent: Optional[float] = None
@@ -122,6 +123,20 @@ class TradeIntent:
     regime_confidence: Optional[float] = None
     regime_policy_applied: Optional[bool] = None
     regime_notes: List[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class DecisionArtifact:
+    """Canonical decision artifact capturing explicit intents and trace metadata."""
+
+    decision_id: str
+    strategy_name: str
+    run_mode: str
+    session_phase: str
+    source: str
+    created_at: str
+    intents: List[TradeIntent] = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -160,6 +175,7 @@ class RiskDecision:
     invalidation_level: Optional[float] = None
     reason_code: Optional[str] = None
     intent_id: Optional[str] = None
+    decision_id: Optional[str] = None
     created_tick: Optional[int] = None
     idempotency_key: Optional[str] = None
     overall_action: str = "ALLOW"
@@ -223,6 +239,7 @@ class TradeRecord:
         "scanner_output",
         "pattern_output",
         "strategy_output",
+        "decision_output",
         "risk_output",
         "execution_output",
         "trade_outcomes",
@@ -234,6 +251,7 @@ class TradeRecord:
     scanner_output: List = field(default_factory=list)
     pattern_output: List = field(default_factory=list)
     strategy_output: List[TradeIntent] = field(default_factory=list)
+    decision_output: List[DecisionArtifact] = field(default_factory=list)
     risk_output: List[RiskDecision] = field(default_factory=list)
     execution_output: List[ExecutionResult] = field(default_factory=list)
     trade_outcomes: List[TradeOutcome] = field(default_factory=list)
@@ -245,7 +263,8 @@ class TradeRecord:
         print(
             "[STORAGE] TradeRecord instantiated — capturing lists for each stage with "
             f"{len(self.scanner_output)} scanner, {len(self.pattern_output)} patterns, "
-            f"{len(self.strategy_output)} intents, {len(self.risk_output)} risk decisions, "
+            f"{len(self.strategy_output)} intents, {len(self.decision_output)} decisions, "
+            f"{len(self.risk_output)} risk decisions, "
             f"{len(self.execution_output)} execution results, "
             f"{len(self.trade_outcomes)} trade outcomes, "
             f"performance_snapshot={'present' if self.performance_snapshot else 'absent'}, "

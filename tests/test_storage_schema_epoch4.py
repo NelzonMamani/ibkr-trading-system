@@ -61,7 +61,7 @@ def test_storage_schema_epoch4_tables_and_columns(tmp_path):
     assert {"tick", "schema_version", "payload_hash"}.issubset(events_cols)
 
     trade_record_cols = _column_names(store, "trade_records")
-    assert {"regime_snapshot_json", "regime_policy_decision_json"}.issubset(
+    assert {"decision_output_json", "regime_snapshot_json", "regime_policy_decision_json"}.issubset(
         trade_record_cols
     )
 
@@ -154,6 +154,7 @@ def test_storage_schema_epoch4_round_trip(tmp_path):
             "scanner_output_json": canonical_json(record_payload["scanner_output"]),
             "pattern_output_json": "[]",
             "strategy_output_json": "[]",
+            "decision_output_json": "[]",
             "risk_output_json": "[]",
             "execution_output_json": "[]",
             "trade_outcomes_json": "[]",

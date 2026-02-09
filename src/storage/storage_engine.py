@@ -476,6 +476,11 @@ class StorageEngine:
                 allow_fallback=True,
                 fallback_handler=fallback_handler,
             ),
+            "decision_output_json": canonical_json(
+                trade_record_payload.get("decision_output"),
+                allow_fallback=True,
+                fallback_handler=fallback_handler,
+            ),
             "risk_output_json": canonical_json(
                 trade_record_payload.get("risk_output"),
                 allow_fallback=True,

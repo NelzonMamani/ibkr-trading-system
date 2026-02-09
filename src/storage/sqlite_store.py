@@ -133,6 +133,7 @@ class SQLiteStore:
                 scanner_output_json TEXT,
                 pattern_output_json TEXT,
                 strategy_output_json TEXT,
+                decision_output_json TEXT,
                 risk_output_json TEXT,
                 execution_output_json TEXT,
                 trade_outcomes_json TEXT,
@@ -494,10 +495,10 @@ class SQLiteStore:
             INSERT OR IGNORE INTO trade_records (
                 trade_record_id, run_id, cycle_id, tick,
                 scanner_output_json, pattern_output_json, strategy_output_json,
-                risk_output_json, execution_output_json, trade_outcomes_json,
+                decision_output_json, risk_output_json, execution_output_json, trade_outcomes_json,
                 performance_snapshot_json, regime_snapshot_json, regime_policy_decision_json,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 trade_record["trade_record_id"],
@@ -507,6 +508,7 @@ class SQLiteStore:
                 trade_record.get("scanner_output_json"),
                 trade_record.get("pattern_output_json"),
                 trade_record.get("strategy_output_json"),
+                trade_record.get("decision_output_json"),
                 trade_record.get("risk_output_json"),
                 trade_record.get("execution_output_json"),
                 trade_record.get("trade_outcomes_json"),
