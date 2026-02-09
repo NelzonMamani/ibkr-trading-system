@@ -1,7 +1,7 @@
 # Trading OS Programme Status
 
-- **Active execution PR:** (pending) Certify E14 Decision Artifacts
-- **Current blocker:** None
+- **Active execution PR:** None (planning-only catalogue alignment)
+- **Current blocker:** Execution locked — planning phase forbids runtime verification or code execution
 - **Previous blocker:** BLOCKER_02 — E7 Mode Parity & Safety (run mode drift guard)
 
 ## Evidence
