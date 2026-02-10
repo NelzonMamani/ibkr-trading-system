@@ -16,6 +16,7 @@ class TraceBus:
         resolved_dir = log_dir or os.getenv("TRACE_LOG_DIR", "logs")
         self.log_dir = Path(resolved_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        self._last_event_by_cycle: dict[str, str] = {}
 
     def trace_event(
         self,
@@ -32,20 +33,26 @@ class TraceBus:
         action = payload.get("action", stage)
         decision = payload.get("decision") or payload.get("action") or "UNSPECIFIED"
         reason_code = payload.get("reason_code") or payload.get("reason") or "UNSPECIFIED"
+        parent_event_id = payload.get("parent_event_id") or payload.get("parent_event")
+        if parent_event_id is None:
+            parent_event_id = self._last_event_by_cycle.get(cycle_id)
         record = {
             "event_id": str(uuid4()),
             "timestamp": timestamp,
+            "event_type": stage,
             "stage": stage,
             "component": component,
             "action": action,
             "entity_id": self._extract_entity_id(payload),
             "decision": decision,
             "reason_code": reason_code,
+            "parent_event_id": parent_event_id,
             "cycle_id": cycle_id,
             "run_mode": run_mode,
             "strategy": strategy,
             "metadata": self._normalize(payload),
         }
+        self._last_event_by_cycle[cycle_id] = record["event_id"]
         log_path = self._log_path_for_date(timestamp)
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, sort_keys=True) + "\n")

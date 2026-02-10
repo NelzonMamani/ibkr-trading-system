@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "description": "M4 trace event schema for Trading OS trace bus",
+  "required_fields": {
+    "event_id": "uuid",
+    "timestamp": "iso8601_utc",
+    "event_type": "string",
+    "stage": "string",
+    "component": "string",
+    "entity_id": "string|number|null",
+    "parent_event_id": "uuid|null",
+    "cycle_id": "uuid",
+    "run_mode": "string",
+    "strategy": "string",
+    "metadata": "object"
+  },
+  "optional_fields": {
+    "action": "string",
+    "decision": "string",
+    "reason_code": "string"
+  },
+  "append_only": true
+}

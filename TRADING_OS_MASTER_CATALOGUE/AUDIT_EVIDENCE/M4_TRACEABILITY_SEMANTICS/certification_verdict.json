@@ -1,0 +1,15 @@
+{
+  "epoch": "M4_TRACEABILITY_SEMANTICS",
+  "verdict": "CERTIFIED",
+  "date_utc": "2026-02-10",
+  "reasons": [],
+  "evidence": [
+    "trace_schema.json",
+    "trace_completeness_report.md",
+    "reconstruction_proof.md",
+    "verification_output.json",
+    "verification_summary.md",
+    "pytest.txt",
+    "verification_commands.md"
+  ]
+}

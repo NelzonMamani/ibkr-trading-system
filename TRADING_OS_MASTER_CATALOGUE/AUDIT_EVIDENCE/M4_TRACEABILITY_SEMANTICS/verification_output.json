@@ -1,0 +1,31 @@
+{
+  "epoch": "M4_TRACEABILITY_SEMANTICS",
+  "generated_at_utc": "2026-02-10T00:34:08.180541+00:00",
+  "missing_stages": [],
+  "parent_chain_errors": [],
+  "reconstruction_chain": [
+    "HALT",
+    "UNIVERSE",
+    "WATCHLIST",
+    "FOCUS",
+    "ACTION"
+  ],
+  "reconstruction_ok": true,
+  "record_count": 5,
+  "required_fields": [
+    "component",
+    "cycle_id",
+    "entity_id",
+    "event_id",
+    "event_type",
+    "metadata",
+    "parent_event_id",
+    "run_mode",
+    "stage",
+    "strategy",
+    "timestamp"
+  ],
+  "schema_errors": [],
+  "valid": true,
+  "version": "1.0"
+}

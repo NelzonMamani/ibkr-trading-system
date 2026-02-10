@@ -52,6 +52,80 @@ def test_trace_event_order_sim(monkeypatch, tmp_path):
     assert stages.index("UNIVERSE") < stages.index("WATCHLIST") < stages.index("FOCUS") < stages.index("ACTION")
 
 
+def test_trace_schema_completeness_and_reconstruction(monkeypatch, tmp_path):
+    monkeypatch.setenv("TRACE_LOG_DIR", str(tmp_path))
+    set_config_overrides(
+        {
+            "RUN_MODE": "PAPER",
+            "SELECTED_STRATEGY": "ross_momentum",
+        }
+    )
+
+    orchestrator = CoreOrchestrator()
+    assert orchestrator.run_once() is True
+
+    log_files = list(tmp_path.glob("trace_*.jsonl"))
+    assert log_files, "trace log file missing"
+
+    cycle_id = orchestrator._current_cycle_id
+    records = []
+    for line in log_files[0].read_text(encoding="utf-8").splitlines():
+        record = json.loads(line)
+        if record.get("cycle_id") == cycle_id:
+            records.append(record)
+
+    assert records, "no trace records found for cycle"
+
+    required_fields = {
+        "event_id",
+        "timestamp",
+        "event_type",
+        "stage",
+        "component",
+        "entity_id",
+        "parent_event_id",
+        "cycle_id",
+        "run_mode",
+        "strategy",
+        "metadata",
+    }
+    seen_event_ids = set()
+    for record in records:
+        for field in required_fields:
+            assert field in record, f"missing trace field: {field}"
+        assert record["timestamp"], "missing timestamp"
+        if seen_event_ids:
+            assert record["parent_event_id"] in seen_event_ids
+        else:
+            assert record["parent_event_id"] is None
+        seen_event_ids.add(record["event_id"])
+
+    stages = [record.get("stage") for record in records]
+    for stage in ("UNIVERSE", "WATCHLIST", "FOCUS", "ACTION"):
+        assert stage in stages, f"missing trace stage: {stage}"
+
+    action_record = next(record for record in records if record.get("stage") == "ACTION")
+    record_map = {record["event_id"]: record for record in records}
+    chain_stages = []
+    current = action_record
+    visited = set()
+    while current and current["event_id"] not in visited:
+        visited.add(current["event_id"])
+        chain_stages.append(current["stage"])
+        parent_id = current.get("parent_event_id")
+        if parent_id is None:
+            break
+        current = record_map.get(parent_id)
+
+    ordered_chain = list(reversed(chain_stages))
+    last_index = -1
+    for stage in ("UNIVERSE", "WATCHLIST", "FOCUS", "ACTION"):
+        assert stage in ordered_chain, f"missing reconstructed stage: {stage}"
+        idx = ordered_chain.index(stage)
+        assert idx > last_index, f"trace stage out of order: {stage}"
+        last_index = idx
+
+
 def test_live_readonly_connectivity_retry(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("TRACE_LOG_DIR", str(tmp_path))
     set_config_overrides(

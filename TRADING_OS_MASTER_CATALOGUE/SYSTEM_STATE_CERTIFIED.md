@@ -41,7 +41,7 @@ Legend: NOT_STARTED / PARTIAL / IMPLEMENTED_UNCERTIFIED / CERTIFIED
 - M1_ARCHITECTURE_MAP: CERTIFIED
 - M2_CONTRACT_REGISTRY: CERTIFIED
 - M3_MODE_SEMANTICS_CERT: CERTIFIED
-- M4_TRACEABILITY_SEMANTICS: IMPLEMENTED_UNCERTIFIED
+- M4_TRACEABILITY_SEMANTICS: CERTIFIED
 - M5_VERIFICATION_AUTHORITY: IMPLEMENTED_UNCERTIFIED
 - M6_DATA_LIFECYCLE_GOV: IMPLEMENTED_UNCERTIFIED
 - M7_EPOCH_AUDIT_CERTIFICATION: NOT_STARTED
@@ -55,3 +55,4 @@ Legend: NOT_STARTED / PARTIAL / IMPLEMENTED_UNCERTIFIED / CERTIFIED
 - E1 verification executed compileall, pytest, and boot cycles for SIM, PAPER, READ_ONLY, and LIVE; IBKR connectivity failures were captured as traceable HALT reasons.
 - E4 verification executed compileall, pytest, and market session/data quality/replay tests with evidence captured under the E4 audit folder.
 - E3 verification executed compileall, pytest, and per-mode orchestrator cycles; IBKR connectivity warnings were captured when no local TWS/IBG instance was available.
+- M4 verification executed trace schema/completeness/reconstruction checks and pytest traceability suite with evidence captured under the M4 audit folder.

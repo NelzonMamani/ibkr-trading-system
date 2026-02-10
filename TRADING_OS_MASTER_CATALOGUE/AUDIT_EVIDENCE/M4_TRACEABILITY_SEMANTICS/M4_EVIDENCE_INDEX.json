@@ -1,0 +1,46 @@
+{
+  "epoch": "M4_TRACEABILITY_SEMANTICS",
+  "files": [
+    {
+      "file": "certification_verdict.json",
+      "bytes": 339,
+      "sha256": "2b2098b5a906033124dedf0af61f6eb3d9cb86bd3d2ecc227a6899d4ad81ef4e"
+    },
+    {
+      "file": "pytest.txt",
+      "bytes": 386,
+      "sha256": "909b4df261e1780477cce9d2ab97d783762e57ba4a8cda59a4a4988af8d834a5"
+    },
+    {
+      "file": "reconstruction_proof.md",
+      "bytes": 256,
+      "sha256": "23e7033f1db15ba54905b9b7010f1e429a623d04b66c14db583d6a880c567f68"
+    },
+    {
+      "file": "trace_completeness_report.md",
+      "bytes": 207,
+      "sha256": "41234b107ad7d8112aeb14470c7cddc9d0bf3111a59748f1cbb0024f5e9ab6cd"
+    },
+    {
+      "file": "trace_schema.json",
+      "bytes": 564,
+      "sha256": "460ad7bcd68323ee72e21dae1fea030ccf32af38b7427a236f6060e19a4fb444"
+    },
+    {
+      "file": "verification_commands.md",
+      "bytes": 281,
+      "sha256": "317b97f78e79526bf38020094a6a20b69e31bb747b8daf857afe1d588446c5d7"
+    },
+    {
+      "file": "verification_output.json",
+      "bytes": 579,
+      "sha256": "473310091de421c2a1ec8111ce36940d3b78cf75db7c6d3c9a8a83d461a657ef"
+    },
+    {
+      "file": "verification_summary.md",
+      "bytes": 80,
+      "sha256": "9d8c0e7e1b3f24d53223623ac155e35432357887db7454ad069250961ab0f1ad"
+    }
+  ],
+  "generated_at_utc": "2026-02-10T00:34:08Z"
+}
