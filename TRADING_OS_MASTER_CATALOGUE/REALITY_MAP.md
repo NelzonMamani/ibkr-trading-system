@@ -36,7 +36,7 @@ Reality-first catalogue map that records what exists now, what is partial, and w
 | M1 Architecture Map | `src/directory_tree_report.txt`, `SYSTEM_TREE_AND_MODULE_MAP.md` | PARTIAL | Architecture map exists but not fully synchronized with catalogue. |
 | M2 Contract Registry | `src/scanner/contracts.py`, `src/strategies/strategy_contracts.py` | PARTIAL | Contracts are implicit; registry is not consolidated. |
 | M3 Mode Semantics Certification | `RUN_*` scripts, `src/sim/` | PARTIAL | Mode scripts exist; certification evidence is incomplete. |
-| M4 Traceability Semantics | `src/events/event_schema.py`, `src/events/event_types.py` | PARTIAL | Schemas exist; traceability policy enforcement incomplete. |
+| M4 Traceability Semantics | `src/events/event_schema.py`, `src/events/event_types.py` | OK | Schemas exist; traceability semantics certified. |
 | M5 Verification Authority | `TRADING_OS_MASTER_CATALOGUE/00_READ_FIRST/01_PROGRAM_RULES_LOCKED.md` | PARTIAL | Authority is declared; operational governance still requires evidence. |
 | M6 Data Lifecycle Governance | `src/storage/`, `src/learning/storage.py` | PARTIAL | Storage tooling exists; lifecycle governance documentation incomplete. |
 | M7 Epoch Audit & Certification | `TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/*/audit/` | PARTIAL | Audit structure exists; uniform certification criteria incomplete. |
