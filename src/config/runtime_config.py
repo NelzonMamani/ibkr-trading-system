@@ -61,22 +61,27 @@ def get_ibkr_api_write_allowed(default: bool = True) -> bool:
 
 
 def get_execution_enabled(default: bool = False) -> bool:
-    return execution_allowed(get_run_mode())
+    return bool(_with_default("EXECUTION_ENABLED_EFFECTIVE", default))
 
 
 def is_execution_enabled(run_mode: RunMode | None = None) -> bool:
-    resolved_mode = run_mode or get_run_mode()
-    return execution_allowed(resolved_mode)
+    if run_mode is None:
+        return bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
+    return execution_allowed(run_mode)
 
 
 def execution_allowed(run_mode: RunMode | str | None) -> bool:
     normalized = str(getattr(run_mode, "value", run_mode) or "").upper()
-    return normalized in {"LIVE", "PAPER"}
+    if normalized == "LIVE":
+        return bool(get_config("EXECUTION_ENABLED"))
+    return normalized == "PAPER"
 
 
 def broker_orders_allowed(run_mode: RunMode | str | None) -> bool:
     normalized = str(getattr(run_mode, "value", run_mode) or "").upper()
-    return normalized in {"LIVE", "PAPER"}
+    if normalized == "LIVE":
+        return bool(get_config("EXECUTION_ENABLED"))
+    return normalized == "PAPER"
 
 
 def get_ibkr_host(default: str = "127.0.0.1") -> str:

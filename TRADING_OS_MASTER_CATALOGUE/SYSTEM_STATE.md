@@ -2,7 +2,7 @@
 # IBKR Trading OS — Declared State (Unverified Starting Snapshot)
 
 **Status:** DECLARED (non-authoritative)
-**Last updated:** 2026-02-09
+**Last updated:** 2026-02-10
 **Meaning:** This is a human-declared hypothesis about the current system. Codex must verify and then supersede with SYSTEM_STATE_CERTIFIED.md.
 
 ## Declared Run Modes (hypothesis)
@@ -36,7 +36,7 @@ Legend: NOT_STARTED / PARTIAL / IMPLEMENTED_UNCERTIFIED / CERTIFIED
 - M0_CANON: PARTIAL
 - M1_ARCHITECTURE_MAP: CERTIFIED
 - M2_CONTRACT_REGISTRY: CERTIFIED
-- M3_MODE_SEMANTICS_CERT: PARTIAL
+- M3_MODE_SEMANTICS_CERT: CERTIFIED
 - M4_TRACEABILITY_SEMANTICS: PARTIAL
 - M5_VERIFICATION_AUTHORITY: PARTIAL
 - M6_DATA_LIFECYCLE_GOV: PARTIAL

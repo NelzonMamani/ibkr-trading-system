@@ -2,11 +2,12 @@
 
 - **Branch:** `codex/certify-m2-contract-registry`
 - **PR:** (pending) Certify M2 contract registry and add machine-verifiable contract checks
-- **Next target:** Metadata epochs (M3+)
+- **Next target:** Metadata epochs (M4+)
 - **Completed epochs this run:**
   - `M0_CANON_AND_SOURCES_OF_TRUTH` (2026-02-09)
   - `M1_ARCHITECTURE_MAP` (2026-02-10)
   - `M2_CONTRACT_REGISTRY` (2026-02-09)
+  - `M3_MODE_SEMANTICS_CERTIFICATION` (2026-02-10)
   - `E5_EXECUTION_ENGINE_AUTHORITY` (2026-02-09)
   - `E8_REGIME_AND_MICROSTRUCTURE_LAYER` (2026-02-09)
   - `E9_PERFORMANCE_ANALYTICS` (2026-02-09)

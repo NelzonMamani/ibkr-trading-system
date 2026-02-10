@@ -41,6 +41,8 @@ class ConnectionManager:
         return self._client_id
 
     def connect(self) -> None:
+        if self.run_mode == RunMode.SIM:
+            raise RuntimeError("Live broker connections are forbidden in SIM mode")
         if self._connected and self._client is not None and self.client.ib.isConnected():
             return
         base_client_id = get_ibkr_client_id()
@@ -113,9 +115,8 @@ class ConnectionManager:
         )
 
     def ensure_connected(self) -> None:
-        if self.run_mode == RunMode.SIM and get_config("SCANNER_DATA_SOURCE") == "MOCK":
-            print("[IBKR][CONNECT] SIM mode with MOCK scanner; skipping IBKR connect.")
-            return
+        if self.run_mode == RunMode.SIM:
+            raise RuntimeError("Live broker connections are forbidden in SIM mode")
         if self._connected and self._client is not None and self.client.ib.isConnected():
             return
         self.connect()

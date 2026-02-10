@@ -1,6 +1,6 @@
 # Trading OS Programme Status
 
-- **Active execution PR:** (pending) Certify M2 contract registry and add machine-verifiable contract checks
+- **Active execution PR:** (pending) Certify M3 mode semantics and enforce execution gating
 - **Current blocker:** None
 - **Previous blocker:** BLOCKER_02 — E7 Mode Parity & Safety (run mode drift guard)
 
@@ -24,3 +24,4 @@
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M0_CANON_AND_SOURCES_OF_TRUTH/`
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M1_ARCHITECTURE_MAP/`
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M3_MODE_SEMANTICS_CERTIFICATION/`

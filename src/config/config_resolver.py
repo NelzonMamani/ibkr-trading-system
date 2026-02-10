@@ -290,7 +290,12 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         env=None,
     )
 
-    ibkr_submission_enabled = effective_run_mode in {"PAPER", "LIVE"}
+    execution_enabled_flag = bool(resolved["EXECUTION_ENABLED"].value)
+    live_execution_enabled = effective_run_mode == "LIVE" and execution_enabled_flag
+    paper_execution_enabled = effective_run_mode == "PAPER"
+    execution_enabled_effective = live_execution_enabled or paper_execution_enabled
+
+    ibkr_submission_enabled = execution_enabled_effective
     resolved["IBKR_ORDER_SUBMISSION_ENABLED"] = ConfigRecord(
         name="IBKR_ORDER_SUBMISSION_ENABLED",
         value=ibkr_submission_enabled,
@@ -298,7 +303,7 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         env=None,
     )
 
-    ibkr_translation_enabled = effective_run_mode in {"PAPER", "LIVE"}
+    ibkr_translation_enabled = execution_enabled_effective
     resolved["IBKR_ORDER_TRANSLATION_ENABLED"] = ConfigRecord(
         name="IBKR_ORDER_TRANSLATION_ENABLED",
         value=ibkr_translation_enabled,
@@ -328,7 +333,7 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
 
     resolved["EXECUTION_ENABLED_EFFECTIVE"] = ConfigRecord(
         name="EXECUTION_ENABLED_EFFECTIVE",
-        value=effective_run_mode in {"PAPER", "LIVE"},
+        value=execution_enabled_effective,
         source="DERIVED",
         env=None,
     )
