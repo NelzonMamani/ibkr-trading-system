@@ -95,7 +95,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "affects": ["ExecutionEngine", "CoreOrchestrator"],
         "enforcement": "HARD",
         "mutable": "static",
-        "description": "Legacy execution enable flag (execution is now derived from RUN_MODE).",
+        "description": "Execution enable flag required for LIVE order routing.",
     },
     "EXECUTION_ENABLED_EFFECTIVE": {
         "type": bool,

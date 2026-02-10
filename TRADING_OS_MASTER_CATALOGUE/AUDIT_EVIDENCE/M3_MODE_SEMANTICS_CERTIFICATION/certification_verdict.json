@@ -1,0 +1,13 @@
+{
+  "epoch": "M3_MODE_SEMANTICS_CERTIFICATION",
+  "verdict": "CERTIFIED",
+  "date_utc": "2026-02-10",
+  "reasons": [],
+  "evidence": [
+    "verification_output.json",
+    "verification_summary.md",
+    "compileall.txt",
+    "pytest.txt",
+    "pytest_full.txt"
+  ]
+}
