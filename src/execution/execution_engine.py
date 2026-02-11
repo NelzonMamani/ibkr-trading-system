@@ -49,8 +49,7 @@ class ExecutionEngine:
         self.price_feed = price_feed or DeterministicPriceFeed()
         self.pending_book = PendingOrderBook()
         self.current_tick: Optional[int] = None
-        self._idempotency_cache: dict[int, set[str]] = {}
-        self._last_idempotency_tick: Optional[int] = None
+        self._seen_idempotency_keys: set[str] = set()
         self._provider = self._resolve_provider(provider)
         self.provider: Optional[ExecutionProvider] = self._provider
         self.broker = getattr(self._provider, "broker", None)
@@ -123,15 +122,15 @@ class ExecutionEngine:
                 rationale="No risk decision provided; nothing to execute in teaching mode.",
             )
 
+        tick = self.current_tick if self.current_tick is not None else 0
+        idempotency_key = self._resolve_idempotency_key(risk_decision, tick)
+        if self._is_duplicate(idempotency_key):
+            return self._duplicate_result(risk_decision, idempotency_key)
+        risk_decision.idempotency_key = idempotency_key
+
         preflight_result = self._preflight_check(risk_decision)
         if preflight_result is not None:
             return preflight_result
-
-        tick = self.current_tick if self.current_tick is not None else 0
-        idempotency_key = self._resolve_idempotency_key(risk_decision, tick)
-        if self._is_duplicate(idempotency_key, tick):
-            return self._duplicate_result(risk_decision, idempotency_key)
-        risk_decision.idempotency_key = idempotency_key
 
         order = self._order_from_risk_decision(risk_decision, tick)
         return self._route_order(order)
@@ -182,25 +181,34 @@ class ExecutionEngine:
         return None
 
     def _resolve_idempotency_key(self, risk_decision: RiskDecision, tick: int) -> str:
-        intent_id = getattr(risk_decision, "intent_id", None)
-        if intent_id:
-            base = f"{intent_id}|{tick}"
+        payload = {
+            "symbol": risk_decision.symbol,
+            "trader_type": risk_decision.trader_type,
+            "strategy_name": risk_decision.strategy_name,
+            "direction": risk_decision.direction,
+            "requested_quantity": getattr(risk_decision, "max_position_size", 1),
+            "stop_loss_price": risk_decision.stop_loss_price,
+            "take_profit_price": risk_decision.take_profit_price,
+            "tick": tick,
+        }
+        payload_components = [f"{key}={payload[key]}" for key in sorted(payload)]
+        payload_fingerprint = "|".join(payload_components)
+
+        decision_id = getattr(risk_decision, "decision_id", None)
+        if decision_id:
+            base = f"decision:{decision_id}|{payload_fingerprint}"
         else:
-            base = (
-                f"{risk_decision.symbol}|{risk_decision.trader_type}|"
-                f"{risk_decision.strategy_name}|{risk_decision.direction}|"
-                f"{getattr(risk_decision, 'max_position_size', 1)}|{tick}"
-            )
+            intent_id = getattr(risk_decision, "intent_id", None)
+            if intent_id:
+                base = f"intent:{intent_id}|{payload_fingerprint}"
+            else:
+                base = f"payload:{payload_fingerprint}"
         return hashlib.sha256(base.encode("utf-8")).hexdigest()[:16]
 
-    def _is_duplicate(self, idempotency_key: str, tick: int) -> bool:
-        if self._last_idempotency_tick != tick:
-            self._idempotency_cache[tick] = set()
-            self._last_idempotency_tick = tick
-        seen = self._idempotency_cache.setdefault(tick, set())
-        if idempotency_key in seen:
+    def _is_duplicate(self, idempotency_key: str) -> bool:
+        if idempotency_key in self._seen_idempotency_keys:
             return True
-        seen.add(idempotency_key)
+        self._seen_idempotency_keys.add(idempotency_key)
         return False
 
     def _duplicate_result(

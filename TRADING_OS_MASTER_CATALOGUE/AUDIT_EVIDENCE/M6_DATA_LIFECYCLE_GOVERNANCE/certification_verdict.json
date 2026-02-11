@@ -1,0 +1,14 @@
+{
+  "epoch": "M6_DATA_LIFECYCLE_GOVERNANCE",
+  "verdict": "CERTIFIED",
+  "date_utc": "2026-02-11",
+  "reasons": [],
+  "evidence": [
+    "verification_output.json",
+    "verification_summary.md",
+    "compileall.txt",
+    "pytest.txt",
+    "pytest_full.txt",
+    "M6_EVIDENCE_INDEX.json"
+  ]
+}
