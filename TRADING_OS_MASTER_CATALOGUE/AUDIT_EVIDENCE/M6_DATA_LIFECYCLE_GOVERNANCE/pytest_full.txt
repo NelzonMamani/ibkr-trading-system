@@ -1,0 +1,25 @@
+$ /root/.pyenv/versions/3.10.19/bin/python -m pytest -q
+
+........................................................................ [ 35%]
+..................................sssss................................. [ 71%]
+..........................................................               [100%]
+=============================== warnings summary ===============================
+tests/test_regime_orchestrator_integration.py::test_orchestrator_emits_regime_snapshot
+tests/test_traceability.py::test_trace_event_order_sim
+tests/test_traceability.py::test_live_readonly_connectivity_retry
+  /workspace/ibkr-trading-system/src/core/managers/connection_manager.py:104: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
+    continue
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_scanner_policy_from_strategy.py::test_scanner_policy_limits_applied_in_teaching_mode
+tests/test_scanner_ranking_authority.py::test_scanner_uses_strategy_ranking_for_ross
+tests/test_scanner_universe_request.py::test_scanner_request_ibkr_top_gainers_skips_scanner_symbols_error
+tests/test_scanner_watchlist_prints.py::test_watchlist_print_format
+tests/test_scanner_watchlist_prints.py::test_watchlist_print_suppressed_when_unchanged
+  /workspace/ibkr-trading-system/src/scanner/scanner_runner.py:-1: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+197 passed, 7 skipped, 8 warnings in 49.42s

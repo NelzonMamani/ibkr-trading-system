@@ -1,0 +1,36 @@
+{
+  "epoch": "M6_DATA_LIFECYCLE_GOVERNANCE",
+  "files": [
+    {
+      "bytes": 293,
+      "file": "certification_verdict.json",
+      "sha256": "fecc2cccd3e2da451dbcd1db8910b84e5a5cff492b7e76d2278a89fddf4207b6"
+    },
+    {
+      "bytes": 64,
+      "file": "compileall.txt",
+      "sha256": "961c88b0dd879722b59024e3bc01f9815ac33d3d48b081ac9f3e72c4b493bcc8"
+    },
+    {
+      "bytes": 240,
+      "file": "pytest.txt",
+      "sha256": "db803c6057e81172673269f55f0955a47c985c760a20a78e4d129a9c13b2e872"
+    },
+    {
+      "bytes": 1772,
+      "file": "pytest_full.txt",
+      "sha256": "2e35eccc6424fdecd8cf430ad3d08f53f232f92ce6f9673d881678fe49573711"
+    },
+    {
+      "bytes": 946,
+      "file": "verification_output.json",
+      "sha256": "1392a968f805f3e8150cc58a90c233ec87dc4c2005da7d268675cd6c0e6e68b0"
+    },
+    {
+      "bytes": 70,
+      "file": "verification_summary.md",
+      "sha256": "653c5df6154da0a9ac7b6016d315e5ac4c66a285dc35da120207d3c1e8d00d91"
+    }
+  ],
+  "generated_at_utc": "2026-02-11T23:05:21Z"
+}
