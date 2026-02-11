@@ -1,14 +1,15 @@
 # Trading OS Certification Programme Status
 
-- **Branch:** `codex/certify-m5-verification-authority`
-- **PR:** (pending) Certify M5 verification authority
-- **Next target:** Metadata epochs (M6+)
+- **Branch:** `codex/certify-m6-data-lifecycle-governance`
+- **PR:** (pending) Certify M6 data lifecycle governance
+- **Next target:** M7_EPOCH_AUDIT_AND_CERTIFICATION
 - **Completed epochs this run:**
   - `M0_CANON_AND_SOURCES_OF_TRUTH` (2026-02-09)
   - `M1_ARCHITECTURE_MAP` (2026-02-10)
   - `M2_CONTRACT_REGISTRY` (2026-02-09)
   - `M3_MODE_SEMANTICS_CERTIFICATION` (2026-02-10)
   - `M5_VERIFICATION_AUTHORITY` (2026-02-10)
+  - `M6_DATA_LIFECYCLE_GOVERNANCE` (2026-02-10)
   - `E5_EXECUTION_ENGINE_AUTHORITY` (2026-02-09)
   - `E8_REGIME_AND_MICROSTRUCTURE_LAYER` (2026-02-09)
   - `E9_PERFORMANCE_ANALYTICS` (2026-02-09)

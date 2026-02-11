@@ -1,0 +1,11 @@
+{
+  "allow_overwrite": false,
+  "epoch": "M6_DATA_LIFECYCLE_GOVERNANCE",
+  "generated_at_utc": "2026-02-10T01:48:34Z",
+  "overwrite_protection": true,
+  "preexisting_files": [
+    "compileall.txt",
+    "pytest.txt",
+    "pytest_full.txt"
+  ]
+}

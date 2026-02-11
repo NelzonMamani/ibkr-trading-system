@@ -38,7 +38,7 @@ Map catalogue requirements to existing system components with explicit OK / PART
 | M3 Mode Semantics Certification | Mode scripts | `RUN_*` scripts, `src/sim/` | PARTIAL |
 | M4 Traceability Semantics | Event schema | `src/events/event_schema.py` | OK |
 | M5 Verification Authority | Programme rules | `TRADING_OS_MASTER_CATALOGUE/00_READ_FIRST/01_PROGRAM_RULES_LOCKED.md` | PARTIAL |
-| M6 Data Lifecycle Governance | Storage engine | `src/storage/storage_engine.py`, `src/learning/storage.py` | PARTIAL |
+| M6 Data Lifecycle Governance | Storage engine | `src/storage/storage_engine.py`, `src/learning/storage.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/` | OK |
 | M7 Epoch Audit & Certification | Audit folders | `TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/*/audit/` | PARTIAL |
 | M8 Change Control | Locked rules | `TRADING_OS_MASTER_CATALOGUE/00_READ_FIRST/04_IMPLEMENTATION_ENFORCEMENT.md` | PARTIAL |
 | M9 Signal Semantics Registry | Signal registry | `src/signals/registry.py` | PARTIAL |

@@ -38,7 +38,7 @@ Reality-first catalogue map that records what exists now, what is partial, and w
 | M3 Mode Semantics Certification | `RUN_*` scripts, `src/sim/` | PARTIAL | Mode scripts exist; certification evidence is incomplete. |
 | M4 Traceability Semantics | `src/events/event_schema.py`, `src/events/event_types.py` | OK | Schemas exist; traceability semantics certified. |
 | M5 Verification Authority | `TRADING_OS_MASTER_CATALOGUE/00_READ_FIRST/01_PROGRAM_RULES_LOCKED.md` | PARTIAL | Authority is declared; operational governance still requires evidence. |
-| M6 Data Lifecycle Governance | `src/storage/`, `src/learning/storage.py` | PARTIAL | Storage tooling exists; lifecycle governance documentation incomplete. |
+| M6 Data Lifecycle Governance | `src/storage/`, `src/learning/storage.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/` | OK | Lifecycle governance verification evidence captured. |
 | M7 Epoch Audit & Certification | `TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/*/audit/` | PARTIAL | Audit structure exists; uniform certification criteria incomplete. |
 | M8 Change Control | `TRADING_OS_MASTER_CATALOGUE/00_READ_FIRST/01_PROGRAM_RULES_LOCKED.md` | PARTIAL | Change control is policy-only; enforcement tooling missing. |
 | M9 Signal Semantics Registry | `src/signals/registry.py`, `src/signals/signal_types.py` | PARTIAL | Registry exists; canonical mapping to strategies incomplete. |

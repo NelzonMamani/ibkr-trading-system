@@ -1,6 +1,6 @@
 # Trading OS Programme Status
 
-- **Active execution PR:** (pending) Certify M5 verification authority
+- **Active execution PR:** (pending) Certify M6 data lifecycle governance
 - **Current blocker:** None
 - **Previous blocker:** BLOCKER_02 — E7 Mode Parity & Safety (run mode drift guard)
 
@@ -26,3 +26,4 @@
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/`
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M3_MODE_SEMANTICS_CERTIFICATION/`
 - `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY/`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/`

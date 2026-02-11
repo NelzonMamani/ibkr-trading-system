@@ -1,0 +1,554 @@
+{
+  "artifact_catalog": [
+    {
+      "created_at_utc": "2026-02-10T01:44:30.960166+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Audit evidence root; append-only governance artifacts.",
+      "owner": "governance",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:47:31.821333+00:00",
+      "deletion_allowed": true,
+      "lifecycle_class": "SESSION_BOUND",
+      "notes": "Session logs; may be purged after run completion.",
+      "owner": "logging",
+      "path": "logs"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:54:37.416197+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "PERSISTENT",
+      "notes": "SQLite persistence store; reset only via explicit db_admin tooling.",
+      "owner": "storage",
+      "path": "data/ibkr_system.db"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.593933+00:00",
+      "deletion_allowed": true,
+      "lifecycle_class": "SESSION_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/00_E0_SYSTEM_LAW_AND_PURPOSE/audit/evidence/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.593933+00:00",
+      "deletion_allowed": true,
+      "lifecycle_class": "SESSION_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/00_E0_SYSTEM_LAW_AND_PURPOSE/audit/evidence/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.597933+00:00",
+      "deletion_allowed": true,
+      "lifecycle_class": "SESSION_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/01_E1_TRACEABILITY_AND_OBSERVABILITY/audit/evidence/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.597933+00:00",
+      "deletion_allowed": true,
+      "lifecycle_class": "SESSION_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/01_E1_TRACEABILITY_AND_OBSERVABILITY/audit/evidence/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.597933+00:00",
+      "deletion_allowed": true,
+      "lifecycle_class": "SESSION_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/02_E2_POSITION_LIFECYCLE_ENGINE/audit/evidence/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.597933+00:00",
+      "deletion_allowed": true,
+      "lifecycle_class": "SESSION_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/02_E2_POSITION_LIFECYCLE_ENGINE/audit/evidence/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.601933+00:00",
+      "deletion_allowed": true,
+      "lifecycle_class": "SESSION_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/03_E3_RISK_ENGINE_COMPLETENESS/audit/evidence/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.601933+00:00",
+      "deletion_allowed": true,
+      "lifecycle_class": "SESSION_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/03_E3_RISK_ENGINE_COMPLETENESS/audit/evidence/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.605933+00:00",
+      "deletion_allowed": true,
+      "lifecycle_class": "SESSION_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/04_E4_DATA_QUALITY_AND_MARKET_STATE/audit/evidence/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.605933+00:00",
+      "deletion_allowed": true,
+      "lifecycle_class": "SESSION_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/04_E4_DATA_QUALITY_AND_MARKET_STATE/audit/evidence/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.605933+00:00",
+      "deletion_allowed": true,
+      "lifecycle_class": "SESSION_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/05_E5_EXECUTION_ENGINE_AUTHORITY/audit/evidence/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.605933+00:00",
+      "deletion_allowed": true,
+      "lifecycle_class": "SESSION_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/01_CORE_EPOCHS/05_E5_EXECUTION_ENGINE_AUTHORITY/audit/evidence/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.685934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/BLOCKER_01/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.685934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/BLOCKER_01/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.685934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/BLOCKER_02/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.685934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/BLOCKER_02/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.685934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_08/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.685934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_08/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.685934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_09/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.685934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_09/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.685934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_10/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.685934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_10/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.685934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_11/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.685934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_11/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.689934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_12/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.689934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_13/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.689934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_14/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.689934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_14/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.689934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_15/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.689934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_15/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.689934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_16/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.689934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_16/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.689934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_17/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.689934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_17/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.689934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_18/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.689934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_18/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.689934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_19/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-09T21:28:04.689934+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_19/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.974059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_20/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.974059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_20/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.974059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_20/pytest_full.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_21/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_21/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_21/pytest_full.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M0_CANON_AND_SOURCES_OF_TRUTH/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M0_CANON_AND_SOURCES_OF_TRUTH/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M0_CANON_AND_SOURCES_OF_TRUTH/pytest_full.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M1_ARCHITECTURE_MAP/verification_output.json"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/pytest_full.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/verification_output.json"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M3_MODE_SEMANTICS_CERTIFICATION/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M3_MODE_SEMANTICS_CERTIFICATION/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M3_MODE_SEMANTICS_CERTIFICATION/pytest_full.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M3_MODE_SEMANTICS_CERTIFICATION/verification_output.json"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY/pytest_full.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:39:12.978059+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY/verification_output.json"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:53:16.899657+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/compileall.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:53:40.207813+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/pytest.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:54:37.660198+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/pytest_full.txt"
+    },
+    {
+      "created_at_utc": "2026-02-10T01:54:43.092235+00:00",
+      "deletion_allowed": false,
+      "lifecycle_class": "AUDIT_BOUND",
+      "notes": "Verification output artifact.",
+      "owner": "verification",
+      "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/verification_output.json"
+    }
+  ],
+  "epoch": "M6_DATA_LIFECYCLE_GOVERNANCE",
+  "evidence_paths": [
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/certification_verdict.json",
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/verification_output.json",
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/verification_summary.md",
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/compileall.txt",
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/pytest.txt",
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/pytest_full.txt",
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/M6_EVIDENCE_INDEX.json"
+  ],
+  "generated_at_utc": "2026-02-10T01:55:01.900441+00:00",
+  "notes": "M6 data lifecycle governance invariants and evidence checks.",
+  "valid": true,
+  "violations": []
+}
