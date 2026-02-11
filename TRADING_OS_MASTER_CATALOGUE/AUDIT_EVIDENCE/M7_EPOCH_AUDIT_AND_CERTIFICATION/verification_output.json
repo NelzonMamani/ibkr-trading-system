@@ -1,0 +1,133 @@
+{
+  "audited_epochs": [
+    {
+      "epoch": "E0_SYSTEM_LAW_TRUTH",
+      "evidence_dir": null,
+      "valid": false
+    },
+    {
+      "epoch": "E1_TRACEABILITY_OBSERVABILITY",
+      "evidence_dir": null,
+      "valid": false
+    },
+    {
+      "epoch": "E2_POSITION_LIFECYCLE_ENGINE",
+      "evidence_dir": null,
+      "valid": false
+    },
+    {
+      "epoch": "E3_RISK_ENGINE_COMPLETENESS",
+      "evidence_dir": null,
+      "valid": false
+    },
+    {
+      "epoch": "E4_DATA_QUALITY_MARKET_STATE",
+      "evidence_dir": null,
+      "valid": false
+    },
+    {
+      "epoch": "E5_EXECUTION_ENGINE_AUTHORITY",
+      "evidence_dir": null,
+      "valid": false
+    },
+    {
+      "epoch": "M1_ARCHITECTURE_MAP",
+      "evidence_dir": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M1_ARCHITECTURE_MAP",
+      "valid": false
+    },
+    {
+      "epoch": "M2_CONTRACT_REGISTRY",
+      "evidence_dir": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY",
+      "valid": true
+    },
+    {
+      "epoch": "M3_MODE_SEMANTICS_CERT",
+      "evidence_dir": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M3_MODE_SEMANTICS_CERTIFICATION",
+      "valid": true
+    },
+    {
+      "epoch": "M4_TRACEABILITY_SEMANTICS",
+      "evidence_dir": null,
+      "valid": false
+    },
+    {
+      "epoch": "M5_VERIFICATION_AUTHORITY",
+      "evidence_dir": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY",
+      "valid": true
+    },
+    {
+      "epoch": "M6_DATA_LIFECYCLE_GOV",
+      "evidence_dir": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE",
+      "valid": true
+    }
+  ],
+  "certified_epochs_discovered": [
+    "E0_SYSTEM_LAW_TRUTH",
+    "E1_TRACEABILITY_OBSERVABILITY",
+    "E2_POSITION_LIFECYCLE_ENGINE",
+    "E3_RISK_ENGINE_COMPLETENESS",
+    "E4_DATA_QUALITY_MARKET_STATE",
+    "E5_EXECUTION_ENGINE_AUTHORITY",
+    "M1_ARCHITECTURE_MAP",
+    "M2_CONTRACT_REGISTRY",
+    "M3_MODE_SEMANTICS_CERT",
+    "M4_TRACEABILITY_SEMANTICS",
+    "M5_VERIFICATION_AUTHORITY",
+    "M6_DATA_LIFECYCLE_GOV"
+  ],
+  "epoch": "M7_EPOCH_AUDIT_AND_CERTIFICATION",
+  "evidence_paths": [
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M0_CANON_AND_SOURCES_OF_TRUTH/certification_verdict.json",
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M1_ARCHITECTURE_MAP/certification_verdict.json",
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M2_CONTRACT_REGISTRY/certification_verdict.json",
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M3_MODE_SEMANTICS_CERTIFICATION/certification_verdict.json",
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY/certification_verdict.json",
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/certification_verdict.json",
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M7_EPOCH_AUDIT_AND_CERTIFICATION/certification_verdict.json"
+  ],
+  "generated_at_utc": "2026-02-11T23:32:27.613765+00:00",
+  "notes": "M7 meta-certification authority checks certification integrity and drift.",
+  "valid": false,
+  "violations": [
+    {
+      "actual": "E0_SYSTEM_LAW_TRUTH:missing",
+      "check": "CERTIFIED_EPOCH_EVIDENCE_DIR_EXISTS",
+      "expected": "present"
+    },
+    {
+      "actual": "E1_TRACEABILITY_OBSERVABILITY:missing",
+      "check": "CERTIFIED_EPOCH_EVIDENCE_DIR_EXISTS",
+      "expected": "present"
+    },
+    {
+      "actual": "E2_POSITION_LIFECYCLE_ENGINE:missing",
+      "check": "CERTIFIED_EPOCH_EVIDENCE_DIR_EXISTS",
+      "expected": "present"
+    },
+    {
+      "actual": "E3_RISK_ENGINE_COMPLETENESS:missing",
+      "check": "CERTIFIED_EPOCH_EVIDENCE_DIR_EXISTS",
+      "expected": "present"
+    },
+    {
+      "actual": "E4_DATA_QUALITY_MARKET_STATE:missing",
+      "check": "CERTIFIED_EPOCH_EVIDENCE_DIR_EXISTS",
+      "expected": "present"
+    },
+    {
+      "actual": "E5_EXECUTION_ENGINE_AUTHORITY:missing",
+      "check": "CERTIFIED_EPOCH_EVIDENCE_DIR_EXISTS",
+      "expected": "present"
+    },
+    {
+      "actual": "M1_ARCHITECTURE_MAP:non_list",
+      "check": "EVIDENCE_INDEX_FILES",
+      "expected": "list"
+    },
+    {
+      "actual": "M4_TRACEABILITY_SEMANTICS:missing",
+      "check": "CERTIFIED_EPOCH_EVIDENCE_DIR_EXISTS",
+      "expected": "present"
+    }
+  ]
+}

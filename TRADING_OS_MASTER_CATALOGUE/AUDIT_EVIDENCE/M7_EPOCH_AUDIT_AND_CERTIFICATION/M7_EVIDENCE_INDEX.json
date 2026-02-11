@@ -1,0 +1,31 @@
+{
+  "epoch": "M7_EPOCH_AUDIT_AND_CERTIFICATION",
+  "files": [
+    {
+      "bytes": 891,
+      "file": "certification_verdict.json",
+      "sha256": "d04117a7ca096b76573fef810ec1f90afbf0bc6bf075dc9b501588b178d042ee"
+    },
+    {
+      "bytes": 64,
+      "file": "compileall.txt",
+      "sha256": "961c88b0dd879722b59024e3bc01f9815ac33d3d48b081ac9f3e72c4b493bcc8"
+    },
+    {
+      "bytes": 1772,
+      "file": "pytest_full.txt",
+      "sha256": "12d4a77d7e1922a4276210aa0ea75db0995d714cc51a9c43c04f4c29ca9a7502"
+    },
+    {
+      "bytes": 4203,
+      "file": "verification_output.json",
+      "sha256": "d676c72652dfa95ebe9aac4e77a160e17fb185b999641aed72d8b7eff33daa38"
+    },
+    {
+      "bytes": 924,
+      "file": "verification_summary.md",
+      "sha256": "78e333008933f9b92bfaf7250917a0fa71386f8917023467aec46e1522dde8f7"
+    }
+  ],
+  "generated_at_utc": "2026-02-11T23:32:27Z"
+}
