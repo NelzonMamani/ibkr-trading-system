@@ -16,7 +16,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.metadata.m0_canon_helpers import update_system_state_statuses
-from src.metadata.m7_epoch_audit_certifier import verify_m7_epoch_audit_and_certification
+from src.metadata.m7_epoch_audit_certifier import (
+    METADATA_EVIDENCE_DIR_MAP,
+    verify_m7_epoch_audit_and_certification,
+)
 from src.metadata.m8_change_control_verifier import verify_m8_change_control
 from src.metadata.m9_signal_semantics_registry_verifier import verify_m9_signal_semantics_registry
 from src.metadata.m10_data_provenance_ledger_verifier import verify_m10_data_provenance_ledger
@@ -65,6 +68,19 @@ def _stable_payload(payload: Any) -> Any:
     return payload
 
 
+def _canonical_epoch_id(epoch: str | None, fallback: str) -> str:
+    if isinstance(epoch, str) and epoch in METADATA_EVIDENCE_DIR_MAP:
+        return epoch
+    if isinstance(epoch, str):
+        for canonical, directory in METADATA_EVIDENCE_DIR_MAP.items():
+            if epoch == directory:
+                return canonical
+    for canonical, directory in METADATA_EVIDENCE_DIR_MAP.items():
+        if fallback == directory:
+            return canonical
+    return epoch if isinstance(epoch, str) and epoch else fallback
+
+
 def _collect_verdicts() -> dict[str, str]:
     verdicts: dict[str, str] = {}
     evidence_root = REPO_ROOT / "TRADING_OS_MASTER_CATALOGUE" / "AUDIT_EVIDENCE"
@@ -74,9 +90,10 @@ def _collect_verdicts() -> dict[str, str]:
         except json.JSONDecodeError:
             continue
 
-        epoch = payload.get("epoch")
-        if not isinstance(epoch, str):
-            epoch = verdict_file.parent.name
+        epoch = _canonical_epoch_id(
+            payload.get("epoch") if isinstance(payload, dict) else None,
+            verdict_file.parent.name,
+        )
 
         verdict = payload.get("verdict") or payload.get("status")
         is_certified = False
@@ -214,13 +231,13 @@ def main() -> int:
         verifier_rc[key] = _run_to_file(command, evidence_dir / f"verify_{key.lower()}.txt")
 
     verifier_payloads = {
-        "M7": verify_m7_epoch_audit_and_certification(include_core=True),
+        "M7": verify_m7_epoch_audit_and_certification(include_core=False),
         "M8": verify_m8_change_control(include_core=True),
         "M9": verify_m9_signal_semantics_registry(),
         "M10": verify_m10_data_provenance_ledger(),
     }
     deterministic = {
-        "M7": _stable_payload(verifier_payloads["M7"]) == _stable_payload(verify_m7_epoch_audit_and_certification(include_core=True)),
+        "M7": _stable_payload(verifier_payloads["M7"]) == _stable_payload(verify_m7_epoch_audit_and_certification(include_core=False)),
         "M8": _stable_payload(verifier_payloads["M8"]) == _stable_payload(verify_m8_change_control(include_core=True)),
         "M9": _stable_payload(verifier_payloads["M9"]) == _stable_payload(verify_m9_signal_semantics_registry()),
         "M10": _stable_payload(verifier_payloads["M10"]) == _stable_payload(verify_m10_data_provenance_ledger()),

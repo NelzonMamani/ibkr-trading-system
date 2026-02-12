@@ -5,5 +5,5 @@ $ /root/.pyenv/versions/3.10.19/bin/python verification_scripts/verify_m10_data_
   "valid": true,
   "violations": [],
   "m10_root": "TRADING_OS_MASTER_CATALOGUE/02_METADATA_EPOCHS/10_M10_DATA_PROVENANCE_LEDGER",
-  "generated_at_utc": "2026-02-12T09:52:14.126500+00:00"
+  "generated_at_utc": "2026-02-12T11:43:25.419582+00:00"
 }

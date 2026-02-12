@@ -100,35 +100,32 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode LIVE --cycles 1 --
 [LEARNING][SCHEDULER] Learning disabled; skipping startup report.
 [LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
 [CYCLE] Starting orchestrator cycle.
-[TRACE] stage=MARKET_SESSION cycle_id=f405a0ef-bff0-4435-b5c9-ff0591fcd085 run_mode=LIVE strategy=ross_momentum 
+[TRACE] stage=MARKET_SESSION cycle_id=d689b3d5-865c-4f4b-95f6-0d4f4196b840 run_mode=LIVE strategy=ross_momentum 
 [SESSION] Detected market session: PRE
 [SESSION] System WOULD consider trading allowed in this session (teaching-only).
 [SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().
 [INFO] Starting orchestrator cycle (teaching-only).
-[SESSION] phase=PREMARKET ny_time=2026-02-12T04:53:13.137476-05:00 uk_time=2026-02-12T09:53:13.137476+00:00 utc=2026-02-12T09:53:13.137476+00:00
+[SESSION] phase=PREMARKET ny_time=2026-02-12T06:44:24.556253-05:00 uk_time=2026-02-12T11:44:24.556253+00:00 utc=2026-02-12T11:44:24.556253+00:00
 [RUNTIME] mode=LIVE live_like=True allow_orders=True max_shares_per_order=None event_replay=OFF
 [ORCH][SCANNER_REQUEST] strategy=ross_momentum policy=ROSS_MOMENTUM instrument=STK locationCode=STK.US.MAJOR scanCode=TOP_PERC_GAIN numberOfRows=150 abovePrice=1.0 belowPrice=20.0
-[IBKR][CONNECT] attempt=1 host=127.0.0.1 port=7497 client_id=13
-[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=13
-[IBKR][CONNECT][WARN] connection failed; backoff=1s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
-[IBKR][CONNECT] attempt=2 host=127.0.0.1 port=7497 client_id=7
+[IBKR][CONNECT] attempt=1 host=127.0.0.1 port=7497 client_id=7
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=7
-[IBKR][CONNECT][WARN] connection failed; backoff=2s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
-[IBKR][CONNECT] attempt=3 host=127.0.0.1 port=7497 client_id=8
+[IBKR][CONNECT][WARN] connection failed; backoff=1s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[IBKR][CONNECT] attempt=2 host=127.0.0.1 port=7497 client_id=8
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=8
-[IBKR][CONNECT][WARN] connection failed; backoff=4s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
-[IBKR][CONNECT] attempt=4 host=127.0.0.1 port=7497 client_id=9
+[IBKR][CONNECT][WARN] connection failed; backoff=2s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[IBKR][CONNECT] attempt=3 host=127.0.0.1 port=7497 client_id=9
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=9
-[IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
-[IBKR][CONNECT] attempt=5 host=127.0.0.1 port=7497 client_id=10
+[IBKR][CONNECT][WARN] connection failed; backoff=4s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[IBKR][CONNECT] attempt=4 host=127.0.0.1 port=7497 client_id=10
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=10
 [IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
-[IBKR][CONNECT] attempt=6 host=127.0.0.1 port=7497 client_id=11
+[IBKR][CONNECT] attempt=5 host=127.0.0.1 port=7497 client_id=11
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=11
 [IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
 STATE=DEGRADED
 [CONNECTIVITY] IBKR connection failed: IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7
-[TRACE] stage=HALT cycle_id=3eee5711-d89e-4baa-b374-424aebc69828 run_mode=LIVE strategy=ross_momentum reason_code=CONNECTIVITY_FAILURE message=IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7
+[TRACE] stage=HALT cycle_id=3eb78335-7f7e-4aaf-88b5-238e2ad96dd2 run_mode=LIVE strategy=ross_momentum reason_code=CONNECTIVITY_FAILURE message=IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7
 [SCANNER] MODE=integrated SESSION=OVN
 [SCANNER][POLICY] source=STRATEGY policy_name=ROSS_MOMENTUM price=1.0-20.0 gap_min=10.0 rvol_min=5.0 float_max_millions=20.0 spread_max_pct=None watchlist_k=15 focus_m=5
 [SCANNER][ENTRY] strategy=ROSS_MOMENTUM requested_top_n=150 watchlist_k=15 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=1.0 below_price=20.0
@@ -162,20 +159,20 @@ FOCUS_M: []
 NEW: []
 CONTINUING: []
 DROPPED: []
-[TRACE] stage=UNIVERSE cycle_id=3eee5711-d89e-4baa-b374-424aebc69828 run_mode=LIVE strategy=ross_momentum top_n=0 symbols=[]
+[TRACE] stage=UNIVERSE cycle_id=3eb78335-7f7e-4aaf-88b5-238e2ad96dd2 run_mode=LIVE strategy=ross_momentum top_n=0 symbols=[]
 [SCANNER][DIAGNOSTICS] Top 50 observations (extended columns)
 [SCANNER][DIAGNOSTICS] Watchlist (top 15, same columns preserved)
 [SCANNER][DIAGNOSTICS] Drop reasons: none
-[TRACE] stage=WATCHLIST cycle_id=3eee5711-d89e-4baa-b374-424aebc69828 run_mode=LIVE strategy=ross_momentum watchlist=0 symbols=[]
-[TRACE] stage=FOCUS cycle_id=3eee5711-d89e-4baa-b374-424aebc69828 run_mode=LIVE strategy=ross_momentum focus=0 symbols=[]
+[TRACE] stage=WATCHLIST cycle_id=3eb78335-7f7e-4aaf-88b5-238e2ad96dd2 run_mode=LIVE strategy=ross_momentum watchlist=0 symbols=[]
+[TRACE] stage=FOCUS cycle_id=3eb78335-7f7e-4aaf-88b5-238e2ad96dd2 run_mode=LIVE strategy=ross_momentum focus=0 symbols=[]
 [WATCHLIST] empty watchlist accepted
-STRATEGY_RUNNER_RECEIVED K=0 session=PREMARKET timestamp_utc=2026-02-12T09:53:44.178832+00:00
+STRATEGY_RUNNER_RECEIVED K=0 session=PREMARKET timestamp_utc=2026-02-12T11:44:47.588557+00:00
 [STRATEGY][PROCESS] strategy_key=ross_momentum strategies=1 watchlist=0 session=PREMARKET phase=PREMARKET
 [STRATEGY][PROCESS] Strategy 'RossMomentumStrategyV1' has no watchlist handler; skipping.
 [CONNECTIVITY] STATE=DEGRADED provider_error=[Errno 111] Connect call failed ('127.0.0.1', 7497) provider_fallback=None
-[TRACE] stage=HALT cycle_id=3eee5711-d89e-4baa-b374-424aebc69828 run_mode=LIVE strategy=ross_momentum reason_code=SCANNER_CONNECTIVITY message=provider_error=[Errno 111] Connect call failed ('127.0.0.1', 7497) provider_fallback=None
+[TRACE] stage=HALT cycle_id=3eb78335-7f7e-4aaf-88b5-238e2ad96dd2 run_mode=LIVE strategy=ross_momentum reason_code=SCANNER_CONNECTIVITY message=provider_error=[Errno 111] Connect call failed ('127.0.0.1', 7497) provider_fallback=None
 [EXECUTION] Orders allowed — execution path enabled (dry-run).
-[TRACE] stage=ACTION cycle_id=3eee5711-d89e-4baa-b374-424aebc69828 run_mode=LIVE strategy=ross_momentum intents=0
+[TRACE] stage=ACTION cycle_id=3eb78335-7f7e-4aaf-88b5-238e2ad96dd2 run_mode=LIVE strategy=ross_momentum intents=0
 [STRATEGY] No trade intents generated.
 [SLEEP] Sleeping for 3 seconds before next cycle.
 [SHUTDOWN] Beginning GRACEFUL shutdown sequence.
@@ -188,8 +185,6 @@ STRATEGY_RUNNER_RECEIVED K=0 session=PREMARKET timestamp_utc=2026-02-12T09:53:44
 [REGISTRY] Verification passed — no active trades remain.
 [SHUTDOWN] Exiting gracefully. Goodbye!
 
-API connection failed: ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 7497)")
-Make sure API port on TWS/IBG is open
 API connection failed: ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 7497)")
 Make sure API port on TWS/IBG is open
 API connection failed: ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 7497)")

@@ -5,5 +5,5 @@ $ /root/.pyenv/versions/3.10.19/bin/python verification_scripts/verify_m9_signal
   "valid": true,
   "violations": [],
   "registry_file": "TRADING_OS_MASTER_CATALOGUE/02_METADATA_EPOCHS/09_M9_SIGNAL_SEMANTICS_REGISTRY/governance/SIGNAL_SEMANTICS_REGISTRY.json",
-  "generated_at_utc": "2026-02-12T09:51:22.923563+00:00"
+  "generated_at_utc": "2026-02-12T11:42:34.385795+00:00"
 }
