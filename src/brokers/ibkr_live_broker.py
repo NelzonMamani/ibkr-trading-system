@@ -62,7 +62,7 @@ class IbkrLiveBroker(BaseBroker):
     submitter: Optional[IbkrOrderSubmitter] = field(default=None)
 
     def __post_init__(self) -> None:
-        if not is_execution_enabled(self.run_mode):
+        if self.run_mode == RunMode.LIVE and not is_execution_enabled(self.run_mode):
             raise RuntimeError("EXECUTION_ENABLED must be True for broker execution.")
         if get_ibkr_readonly_enabled() and self.run_mode == RunMode.LIVE:
             raise RuntimeError("IBKR_READONLY_ENABLED must be False for LIVE execution.")

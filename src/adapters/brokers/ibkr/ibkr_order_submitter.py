@@ -13,7 +13,11 @@ from src.events.event_types import (
     ORDER_FILL_RECORDED,
 )
 from src.ibkr.read_only_guard import assert_read_only_allows
-from src.config.runtime_config import broker_orders_allowed, get_risk_profile_name
+from src.config.runtime_config import (
+    broker_orders_allowed,
+    get_risk_profile_name,
+    is_execution_enabled,
+)
 from src.config.risk_profiles import RISK_PROFILES
 
 
@@ -208,7 +212,11 @@ class IbkrOrderSubmitter:
 
         # Execution safety guard applies ONLY outside SIM
         if normalized_run_mode != "SIM":
-            assert_read_only_allows("PLACE_ORDER")
+            assert_read_only_allows(
+                "PLACE_ORDER",
+                run_mode_override=self.config.run_mode,
+                execution_enabled_override=is_execution_enabled(self.config.run_mode),
+            )
 
         return None
 
