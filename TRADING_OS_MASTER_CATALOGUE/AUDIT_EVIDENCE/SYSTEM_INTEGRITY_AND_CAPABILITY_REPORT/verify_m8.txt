@@ -1,4 +1,10 @@
+$ /root/.pyenv/versions/3.10.19/bin/python verification_scripts/verify_m8_change_control.py --allow-overwrite
+
 {
+  "epoch": "M8_CHANGE_CONTROL",
+  "valid": true,
+  "violations": [],
+  "include_core": false,
   "audited_state_certified_epochs": [
     "M0_CANON",
     "M10_DATA_PROVENANCE_LEDGER",
@@ -12,7 +18,6 @@
     "M8_CHANGE_CONTROL",
     "M9_SIGNAL_SEMANTICS_REGISTRY"
   ],
-  "epoch": "M8_CHANGE_CONTROL",
   "evidence_certified_epochs": [
     "E0_SYSTEM_LAW_TRUTH",
     "E1_TRACEABILITY_OBSERVABILITY",
@@ -44,8 +49,5 @@
     "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M7_EPOCH_AUDIT_CERTIFICATION",
     "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M8_CHANGE_CONTROL",
     "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M9_SIGNAL_SEMANTICS_REGISTRY"
-  ],
-  "include_core": false,
-  "valid": true,
-  "violations": []
+  ]
 }

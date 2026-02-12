@@ -1,6 +1,8 @@
+$ /root/.pyenv/versions/3.10.19/bin/python verification_scripts/verify_m7_epoch_audit_and_certification.py --allow-overwrite
+
 {
   "epoch": "M7_EPOCH_AUDIT_CERTIFICATION",
-  "generated_at_utc": "2026-02-12T09:50:31.729840+00:00",
+  "generated_at_utc": "2026-02-12T09:49:40.941375+00:00",
   "valid": true,
   "violations": [],
   "include_core": false,
