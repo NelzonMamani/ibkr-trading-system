@@ -48,6 +48,17 @@ def _record_violation(violations: list[dict], check: EvidenceCheck) -> None:
     violations.append({"check": check.check, "expected": check.expected, "actual": check.actual})
 
 
+def _sorted_violations(violations: list[dict]) -> list[dict]:
+    return sorted(
+        violations,
+        key=lambda item: (
+            str(item.get("check", "")),
+            str(item.get("actual", "")),
+            str(item.get("expected", "")),
+        ),
+    )
+
+
 def _read_json(path: Path) -> dict | list | None:
     if not path.exists():
         return None
@@ -114,6 +125,30 @@ def _discover_certified_epochs_from_verdicts(repo_root: Path) -> set[str]:
         if epoch:
             discovered.add(epoch)
     return discovered
+
+
+def _discover_certified_epoch_verdicts(repo_root: Path) -> dict[str, str]:
+    evidence_root = repo_root / "TRADING_OS_MASTER_CATALOGUE" / "AUDIT_EVIDENCE"
+    verdicts: dict[str, str] = {}
+    if not evidence_root.exists():
+        return verdicts
+    for verdict_path in sorted(evidence_root.glob("*/certification_verdict.json")):
+        payload = _read_json(verdict_path)
+        epoch = _normalize_epoch(
+            payload.get("epoch") if isinstance(payload, dict) else None,
+            fallback=verdict_path.parent.name,
+        )
+        if not epoch:
+            continue
+        if _is_certified_verdict(payload):
+            verdicts[epoch] = "CERTIFIED"
+        elif isinstance(payload, dict):
+            verdicts[epoch] = str(
+                payload.get("verdict") or payload.get("status") or payload.get("certified") or "UNKNOWN"
+            )
+        else:
+            verdicts[epoch] = "UNKNOWN"
+    return verdicts
 
 
 def _evidence_dir_for_epoch(repo_root: Path, epoch_name: str) -> Path:
@@ -269,16 +304,18 @@ def verify_m7_epoch_audit_and_certification(
         if evidence_dir.exists():
             evidence_paths.append(str(evidence_dir.relative_to(repo_root)))
 
+    sorted_violations = _sorted_violations(violations)
     return {
         "epoch": EPOCH,
         "generated_at_utc": _utc_now_iso(),
-        "valid": not violations,
-        "violations": violations,
+        "valid": not sorted_violations,
+        "violations": sorted_violations,
         "include_core": include_core,
         "audited_epochs": audited_epochs,
         "notes": {
             "metadata_certified_discovered_from_verdicts": metadata_discovered,
             "metadata_certified_in_system_state_but_not_evidence_certified": supplemental_state_metadata,
+            "certification_verdicts": _discover_certified_epoch_verdicts(repo_root),
         },
         "evidence_paths": sorted(evidence_paths),
     }

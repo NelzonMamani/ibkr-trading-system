@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -176,3 +177,29 @@ def sha256_for_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(8192), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def update_system_state_statuses(state_file: Path, updates: dict[str, str]) -> bool:
+    if not state_file.exists() or not updates:
+        return False
+
+    pattern = re.compile(r"^(\s*-\s+)([ME]\d+_[A-Z0-9_]+)(:\s+)([A-Z_]+)(\s*)$")
+    changed = False
+    rendered: list[str] = []
+    for raw_line in state_file.read_text(encoding="utf-8").splitlines():
+        match = pattern.match(raw_line)
+        if not match:
+            rendered.append(raw_line)
+            continue
+        epoch = match.group(2)
+        if epoch not in updates:
+            rendered.append(raw_line)
+            continue
+        next_status = updates[epoch]
+        if match.group(4) != next_status:
+            changed = True
+        rendered.append(f"{match.group(1)}{epoch}{match.group(3)}{next_status}{match.group(5)}")
+
+    if changed:
+        state_file.write_text("\n".join(rendered) + "\n", encoding="utf-8")
+    return changed

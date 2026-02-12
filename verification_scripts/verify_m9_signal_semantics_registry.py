@@ -12,6 +12,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+from src.metadata.m0_canon_helpers import update_system_state_statuses
 from src.metadata.m7_epoch_audit_certifier import verify_m7_epoch_audit_and_certification
 from src.metadata.m8_change_control_verifier import verify_m8_change_control
 from src.metadata.m0_canon_helpers import write_json
@@ -58,15 +59,7 @@ def _update_system_state_if_certified(repo_root: Path, certified: bool) -> None:
     if not certified:
         return
     state_file = repo_root / STATE_FILE_REL
-    if not state_file.exists():
-        return
-    updated: list[str] = []
-    for line in state_file.read_text(encoding="utf-8").splitlines():
-        if line.strip().startswith("- M9_SIGNAL_SEMANTICS_REGISTRY:"):
-            updated.append("- M9_SIGNAL_SEMANTICS_REGISTRY: CERTIFIED")
-        else:
-            updated.append(line)
-    state_file.write_text("\n".join(updated) + "\n", encoding="utf-8")
+    update_system_state_statuses(state_file, {"M9_SIGNAL_SEMANTICS_REGISTRY": "CERTIFIED"})
 
 
 def main() -> int:

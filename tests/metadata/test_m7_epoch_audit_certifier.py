@@ -86,3 +86,37 @@ def test_m7_evidence_index_legacy_artifacts_shape_is_accepted(tmp_path: Path) ->
     result = verify_m7_epoch_audit_and_certification(repo_root=tmp_path)
 
     assert result["valid"] is True
+
+
+def test_m7_missing_index_without_verdict_reference_is_graceful(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "TRADING_OS_MASTER_CATALOGUE" / "SYSTEM_STATE_CERTIFIED.md",
+        "- M1_ARCHITECTURE_MAP: CERTIFIED\n",
+    )
+    _write(
+        tmp_path
+        / "TRADING_OS_MASTER_CATALOGUE"
+        / "AUDIT_EVIDENCE"
+        / "M1_ARCHITECTURE_MAP"
+        / "certification_verdict.json",
+        {"epoch": "M1_ARCHITECTURE_MAP", "status": "CERTIFIED", "evidence": ["verification_output.json"]},
+    )
+
+    result = verify_m7_epoch_audit_and_certification(repo_root=tmp_path)
+
+    assert result["valid"] is True
+
+
+def test_m7_violations_are_sorted_deterministically(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "TRADING_OS_MASTER_CATALOGUE" / "SYSTEM_STATE_CERTIFIED.md",
+        "- E1_TRACEABILITY_OBSERVABILITY: CERTIFIED\n- E0_SYSTEM_LAW_TRUTH: CERTIFIED\n",
+    )
+
+    result = verify_m7_epoch_audit_and_certification(repo_root=tmp_path, include_core=True)
+
+    assert result["valid"] is False
+    assert result["violations"] == sorted(
+        result["violations"],
+        key=lambda v: (v["check"], v["actual"], v["expected"]),
+    )

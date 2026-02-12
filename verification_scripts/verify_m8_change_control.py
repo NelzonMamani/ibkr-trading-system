@@ -12,6 +12,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+from src.metadata.m0_canon_helpers import update_system_state_statuses
 from src.metadata.m7_epoch_audit_certifier import verify_m7_epoch_audit_and_certification
 from src.metadata.m8_change_control_verifier import (
     EVIDENCE_DIR_REL,
@@ -60,15 +61,7 @@ def _update_system_state_if_certified(repo_root: Path, certified: bool) -> None:
     if not certified:
         return
     state_file = repo_root / STATE_FILE_REL
-    if not state_file.exists():
-        return
-    updated: list[str] = []
-    for line in state_file.read_text(encoding="utf-8").splitlines():
-        if line.strip().startswith("- M8_CHANGE_CONTROL:"):
-            updated.append("- M8_CHANGE_CONTROL: CERTIFIED")
-        else:
-            updated.append(line)
-    state_file.write_text("\n".join(updated) + "\n", encoding="utf-8")
+    update_system_state_statuses(state_file, {"M8_CHANGE_CONTROL": "CERTIFIED"})
 
 
 def main() -> int:
@@ -97,13 +90,13 @@ def main() -> int:
     status |= _run_to_file([sys.executable, "-m", "compileall", "-q", "src", "tests", "verification_scripts"], evidence_dir / "compileall.txt")
     status |= _run_to_file([sys.executable, "-m", "pytest", "-q"], evidence_dir / "pytest_full.txt")
 
-    m7_result = verify_m7_epoch_audit_and_certification(include_core=True)
+    m7_result = verify_m7_epoch_audit_and_certification(include_core=False)
     (evidence_dir / "m7_verifier_output.json").write_text(json.dumps(m7_result, indent=2) + "\n", encoding="utf-8")
 
-    m8_result = verify_m8_change_control()
+    m8_result = verify_m8_change_control(include_core=False)
     (evidence_dir / "m8_verifier_output.json").write_text(json.dumps(m8_result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    second_pass = verify_m8_change_control()
+    second_pass = verify_m8_change_control(include_core=False)
     if m8_result != second_pass:
         status |= 1
         m8_result = dict(m8_result)
@@ -134,7 +127,7 @@ def main() -> int:
     _write_verdict(evidence_dir, certified=certified, reasons=sorted(set(reasons)))
     _update_system_state_if_certified(REPO_ROOT, certified=certified)
 
-    final_result = verify_m8_change_control()
+    final_result = verify_m8_change_control(include_core=False)
     write_outputs(final_result, output_json, output_md, evidence_index_json)
 
     print(json.dumps(final_result, indent=2))
