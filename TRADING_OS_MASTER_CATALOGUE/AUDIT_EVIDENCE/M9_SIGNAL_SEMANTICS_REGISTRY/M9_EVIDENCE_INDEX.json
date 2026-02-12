@@ -1,0 +1,26 @@
+{
+  "epoch": "M9_SIGNAL_SEMANTICS_REGISTRY",
+  "files": [
+    {
+      "bytes": 309,
+      "file": "certification_verdict.json"
+    },
+    {
+      "bytes": 91,
+      "file": "compileall.txt"
+    },
+    {
+      "bytes": 1772,
+      "file": "pytest_full.txt"
+    },
+    {
+      "bytes": 283,
+      "file": "verification_output.json"
+    },
+    {
+      "bytes": 208,
+      "file": "verification_summary.md"
+    }
+  ],
+  "generated_at_utc": "2026-02-12T01:46:10Z"
+}
