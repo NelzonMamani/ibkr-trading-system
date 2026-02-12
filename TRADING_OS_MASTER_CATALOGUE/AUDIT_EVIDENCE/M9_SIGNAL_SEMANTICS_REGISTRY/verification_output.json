@@ -1,0 +1,22 @@
+{
+  "counts": {
+    "classes": {
+      "RISK_CONTROL": 1,
+      "SETUP": 1
+    },
+    "signals": 2,
+    "timeframes": {
+      "INTRADAY": 1,
+      "SESSION": 1
+    }
+  },
+  "epoch": "M9_SIGNAL_SEMANTICS_REGISTRY",
+  "generated_at_utc": "mtime_ns:1770858111237548414",
+  "notes": {
+    "deterministic": true,
+    "validation_scope": "metadata_only"
+  },
+  "registry_path": "TRADING_OS_MASTER_CATALOGUE/02_METADATA_EPOCHS/09_M9_SIGNAL_SEMANTICS_REGISTRY/signal_registry.json",
+  "valid": true,
+  "violations": []
+}

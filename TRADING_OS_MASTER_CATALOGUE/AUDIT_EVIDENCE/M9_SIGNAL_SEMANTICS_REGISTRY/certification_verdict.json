@@ -1,0 +1,15 @@
+{
+  "date_utc": "2026-02-12",
+  "epoch": "M9_SIGNAL_SEMANTICS_REGISTRY",
+  "evidence": [
+    "verification_output.json",
+    "verification_summary.md",
+    "compileall.txt",
+    "pytest_full.txt",
+    "M9_EVIDENCE_INDEX.json"
+  ],
+  "reasons": [
+    "execution_checks_failed"
+  ],
+  "verdict": "NOT_CERTIFIED"
+}

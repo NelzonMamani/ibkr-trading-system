@@ -1,0 +1,52 @@
+{
+  "epoch": "M9_SIGNAL_SEMANTICS_REGISTRY",
+  "version": "1.0",
+  "signals": [
+    {
+      "name": "ROSS_PULLBACK_SETUP",
+      "class": "SETUP",
+      "timeframe": "INTRADAY",
+      "description": "Pullback setup context for Ross-style momentum continuation.",
+      "payload_schema": {
+        "symbol": "string",
+        "pullback_bars": "int",
+        "retracement_pct": "float"
+      },
+      "producer_strategies": [
+        "P01_ROSS_MOMENTUM"
+      ],
+      "lifecycle": {
+        "ttl_seconds": 300
+      },
+      "compatibility": {
+        "introduced": "2026-02-12",
+        "deprecated": null
+      }
+    },
+    {
+      "name": "SESSION_RISK_GUARD_ACTIVE",
+      "class": "RISK_CONTROL",
+      "timeframe": "SESSION",
+      "description": "Indicates session-level risk controls are currently active.",
+      "payload_schema": {
+        "symbol": "string",
+        "guard_reason": "enum",
+        "limits": {
+          "max_drawdown_pct": "float",
+          "max_open_positions": "int"
+        }
+      },
+      "producer_strategies": [
+        "P01_ROSS_MOMENTUM",
+        "P02_STATISTICAL_INTRADAY_MOMENTUM"
+      ],
+      "lifecycle": {
+        "expires": "SESSION_END"
+      },
+      "compatibility": {
+        "introduced": "2026-02-12",
+        "deprecated": null
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "epoch": "M9_SIGNAL_SEMANTICS_REGISTRY",
+  "files": [
+    {
+      "bytes": 91,
+      "file": "compileall.txt"
+    },
+    {
+      "bytes": 3749,
+      "file": "pytest_full.txt"
+    },
+    {
+      "bytes": 512,
+      "file": "verification_output.json"
+    },
+    {
+      "bytes": 83,
+      "file": "verification_summary.md"
+    }
+  ]
+}
