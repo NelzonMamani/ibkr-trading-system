@@ -1,0 +1,6 @@
+# M7 Epoch Audit & Certification Summary
+
+- Valid: True
+- Include core: False
+- Audited epochs: M0_CANON, M1_ARCHITECTURE_MAP, M2_CONTRACT_REGISTRY, M3_MODE_SEMANTICS_CERT, M5_VERIFICATION_AUTHORITY, M6_DATA_LIFECYCLE_GOV, M7_EPOCH_AUDIT_CERTIFICATION
+- Violations: 0
