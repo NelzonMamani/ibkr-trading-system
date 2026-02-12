@@ -98,17 +98,17 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode SIM --cycles 1 --s
 [VALIDATION] Storage OK — SQLite opened
 [LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
 [CYCLE] Starting orchestrator cycle.
-[TRACE] stage=MARKET_SESSION cycle_id=bca5e66a-76df-4c73-9f8d-f0cbaaf6c059 run_mode=SIM strategy=ross_momentum 
+[TRACE] stage=MARKET_SESSION cycle_id=ff8c5061-fc68-4299-b030-6cd1265d2f0a run_mode=SIM strategy=ross_momentum 
 [SESSION] Detected market session: PRE
 [SESSION] System WOULD consider trading allowed in this session (teaching-only).
 [SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().
 [INFO] Starting orchestrator cycle (teaching-only).
-[SESSION] phase=PREMARKET ny_time=2026-02-12T04:52:15.157696-05:00 uk_time=2026-02-12T09:52:15.157696+00:00 utc=2026-02-12T09:52:15.157696+00:00
+[SESSION] phase=PREMARKET ny_time=2026-02-12T06:43:26.422820-05:00 uk_time=2026-02-12T11:43:26.422820+00:00 utc=2026-02-12T11:43:26.422820+00:00
 [RUNTIME] mode=SIM live_like=False allow_orders=False max_shares_per_order=None event_replay=CYCLE
 [ORCH][SCANNER_REQUEST] strategy=ross_momentum policy=ROSS_MOMENTUM instrument=STK locationCode=STK.US.MAJOR scanCode=TOP_PERC_GAIN numberOfRows=150 abovePrice=1.0 belowPrice=20.0
 STATE=DEGRADED
 [CONNECTIVITY] IBKR connection failed: Live broker connections are forbidden in SIM mode
-[TRACE] stage=HALT cycle_id=817f7217-fc0a-4ebf-aefa-13d0b95d8eca run_mode=SIM strategy=ross_momentum reason_code=CONNECTIVITY_FAILURE message=Live broker connections are forbidden in SIM mode
+[TRACE] stage=HALT cycle_id=47ac1ad1-773f-4ece-b99a-e6b0e59dbf6f run_mode=SIM strategy=ross_momentum reason_code=CONNECTIVITY_FAILURE message=Live broker connections are forbidden in SIM mode
 [SCANNER] MODE=integrated SESSION=OVN
 [SCANNER][POLICY] source=STRATEGY policy_name=ROSS_MOMENTUM price=1.0-20.0 gap_min=10.0 rvol_min=5.0 float_max_millions=20.0 spread_max_pct=None watchlist_k=15 focus_m=5
 [SCANNER][ENTRY] strategy=ROSS_MOMENTUM requested_top_n=150 watchlist_k=15 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=1.0 below_price=20.0
@@ -241,7 +241,7 @@ FOCUS_M: []
 NEW: []
 CONTINUING: []
 DROPPED: []
-[TRACE] stage=UNIVERSE cycle_id=817f7217-fc0a-4ebf-aefa-13d0b95d8eca run_mode=SIM strategy=ross_momentum top_n=50 symbols=['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
+[TRACE] stage=UNIVERSE cycle_id=47ac1ad1-773f-4ece-b99a-e6b0e59dbf6f run_mode=SIM strategy=ross_momentum top_n=50 symbols=['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
 [SCANNER][DIAGNOSTICS] Top 50 observations (extended columns)
 [SCANNER][ROW] rank=1 symbol=AAPL conId=None exchange=None session=OVN last=12.07 ref_close=9.69 pct_change=24.56 pct_ref=CALC(SESSION_REF) volume=27515675 avg_volume_20d=3378599 rvol=8.14 bid=12.05 ask=12.12 spread=0.07 spread_pct=0.01 dollar_volume=332114197.25 float_m=12.59 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=2 symbol=MSFT conId=None exchange=None session=OVN last=7.93 ref_close=6.96 pct_change=13.94 pct_ref=CALC(SESSION_REF) volume=12731375 avg_volume_20d=2320893 rvol=5.49 bid=7.92 ask=7.96 spread=0.04 spread_pct=0.01 dollar_volume=100959803.75 float_m=3.38 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
@@ -345,14 +345,14 @@ DROPPED: []
 [SCANNER][DROP] symbol=BAC reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=C reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=WFC reason=DROP_RANK_BELOW_WATCHLIST
-[TRACE] stage=WATCHLIST cycle_id=817f7217-fc0a-4ebf-aefa-13d0b95d8eca run_mode=SIM strategy=ross_momentum watchlist=0 symbols=[]
-[TRACE] stage=FOCUS cycle_id=817f7217-fc0a-4ebf-aefa-13d0b95d8eca run_mode=SIM strategy=ross_momentum focus=0 symbols=[]
+[TRACE] stage=WATCHLIST cycle_id=47ac1ad1-773f-4ece-b99a-e6b0e59dbf6f run_mode=SIM strategy=ross_momentum watchlist=0 symbols=[]
+[TRACE] stage=FOCUS cycle_id=47ac1ad1-773f-4ece-b99a-e6b0e59dbf6f run_mode=SIM strategy=ross_momentum focus=0 symbols=[]
 [WATCHLIST] empty watchlist accepted
-STRATEGY_RUNNER_RECEIVED K=0 session=PREMARKET timestamp_utc=2026-02-12T09:52:15.158440+00:00
+STRATEGY_RUNNER_RECEIVED K=0 session=PREMARKET timestamp_utc=2026-02-12T11:43:26.423495+00:00
 [STRATEGY][PROCESS] strategy_key=ross_momentum strategies=1 watchlist=0 session=PREMARKET phase=PREMARKET
 [STRATEGY][PROCESS] Strategy 'RossMomentumStrategyV1' has no watchlist handler; skipping.
 [EXECUTION] dry-run (orders disabled by mode)
-[TRACE] stage=ACTION cycle_id=817f7217-fc0a-4ebf-aefa-13d0b95d8eca run_mode=SIM strategy=ross_momentum intents=0
+[TRACE] stage=ACTION cycle_id=47ac1ad1-773f-4ece-b99a-e6b0e59dbf6f run_mode=SIM strategy=ross_momentum intents=0
 [STRATEGY] No trade intents generated.
 [SLEEP] Sleeping for 3 seconds before next cycle.
 [SHUTDOWN] Beginning GRACEFUL shutdown sequence.

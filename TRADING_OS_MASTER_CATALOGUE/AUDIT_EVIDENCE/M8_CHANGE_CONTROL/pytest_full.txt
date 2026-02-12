@@ -23,4 +23,4 @@ tests/test_scanner_watchlist_prints.py::test_watchlist_print_suppressed_when_unc
   See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-215 passed, 7 skipped, 8 warnings in 50.00s
+215 passed, 7 skipped, 8 warnings in 50.80s

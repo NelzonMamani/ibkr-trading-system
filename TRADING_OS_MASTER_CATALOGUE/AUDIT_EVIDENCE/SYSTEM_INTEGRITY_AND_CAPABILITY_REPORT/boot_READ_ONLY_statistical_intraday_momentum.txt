@@ -109,34 +109,31 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode READ_ONLY --cycles
 [VALIDATION] Storage OK — SQLite opened
 [LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
 [CYCLE] Starting orchestrator cycle.
-[TRACE] stage=MARKET_SESSION cycle_id=d192751b-a549-4d49-94ab-55346cf9c5f6 run_mode=READ_ONLY strategy=statistical_intraday_momentum 
+[TRACE] stage=MARKET_SESSION cycle_id=8754a132-7005-48c6-91c2-001621c6409f run_mode=READ_ONLY strategy=statistical_intraday_momentum 
 [SESSION] Detected market session: PRE
 [SESSION] System WOULD consider trading allowed in this session (teaching-only).
 [SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().
 [INFO] Starting orchestrator cycle (teaching-only).
-[SESSION] phase=PREMARKET ny_time=2026-02-12T04:53:52.219555-05:00 uk_time=2026-02-12T09:53:52.219555+00:00 utc=2026-02-12T09:53:52.219555+00:00
+[SESSION] phase=PREMARKET ny_time=2026-02-12T06:44:55.520053-05:00 uk_time=2026-02-12T11:44:55.520053+00:00 utc=2026-02-12T11:44:55.520053+00:00
 [RUNTIME] mode=READ_ONLY live_like=True allow_orders=False max_shares_per_order=None event_replay=OFF
-[IBKR][CONNECT] attempt=1 host=127.0.0.1 port=7497 client_id=13
-[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=13
+[IBKR][CONNECT] attempt=1 host=127.0.0.1 port=7497 client_id=8
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=8
 [IBKR][CONNECT][WARN] connection failed; backoff=1s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
 [IBKR][CONNECT] attempt=2 host=127.0.0.1 port=7497 client_id=7
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=7
 [IBKR][CONNECT][WARN] connection failed; backoff=2s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
-[IBKR][CONNECT] attempt=3 host=127.0.0.1 port=7497 client_id=8
-[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=8
-[IBKR][CONNECT][WARN] connection failed; backoff=4s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
-[IBKR][CONNECT] attempt=4 host=127.0.0.1 port=7497 client_id=9
+[IBKR][CONNECT] attempt=3 host=127.0.0.1 port=7497 client_id=9
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=9
-[IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
-[IBKR][CONNECT] attempt=5 host=127.0.0.1 port=7497 client_id=10
+[IBKR][CONNECT][WARN] connection failed; backoff=4s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[IBKR][CONNECT] attempt=4 host=127.0.0.1 port=7497 client_id=10
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=10
 [IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
-[IBKR][CONNECT] attempt=6 host=127.0.0.1 port=7497 client_id=11
+[IBKR][CONNECT] attempt=5 host=127.0.0.1 port=7497 client_id=11
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=11
 [IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
 STATE=DEGRADED
 [CONNECTIVITY] IBKR connection failed: IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7
-[TRACE] stage=HALT cycle_id=ba9b146f-48a2-48d9-904e-a745b632be00 run_mode=READ_ONLY strategy=statistical_intraday_momentum reason_code=CONNECTIVITY_FAILURE message=IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7
+[TRACE] stage=HALT cycle_id=75edf347-d280-4832-8636-0d90d826c0b1 run_mode=READ_ONLY strategy=statistical_intraday_momentum reason_code=CONNECTIVITY_FAILURE message=IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7
 [SCANNER] MODE=integrated SESSION=OVN
 [SCANNER][POLICY] source=STRATEGY policy_name=STATISTICAL_INTRADAY_MOMENTUM price=5.0-200.0 gap_min=2.0 rvol_min=1.5 float_max_millions=200.0 spread_max_pct=None watchlist_k=20 focus_m=5
 [SCANNER][ENTRY] strategy=STATISTICAL_INTRADAY_MOMENTUM requested_top_n=75 watchlist_k=20 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=5.0 below_price=200.0
@@ -170,23 +167,23 @@ FOCUS_M: []
 NEW: []
 CONTINUING: []
 DROPPED: []
-[TRACE] stage=UNIVERSE cycle_id=ba9b146f-48a2-48d9-904e-a745b632be00 run_mode=READ_ONLY strategy=statistical_intraday_momentum top_n=0 symbols=[]
+[TRACE] stage=UNIVERSE cycle_id=75edf347-d280-4832-8636-0d90d826c0b1 run_mode=READ_ONLY strategy=statistical_intraday_momentum top_n=0 symbols=[]
 [SCANNER][DIAGNOSTICS] Top 50 observations (extended columns)
 [SCANNER][DIAGNOSTICS] Watchlist (top 15, same columns preserved)
 [SCANNER][DIAGNOSTICS] Drop reasons: none
-[TRACE] stage=WATCHLIST cycle_id=ba9b146f-48a2-48d9-904e-a745b632be00 run_mode=READ_ONLY strategy=statistical_intraday_momentum watchlist=0 symbols=[]
-[TRACE] stage=FOCUS cycle_id=ba9b146f-48a2-48d9-904e-a745b632be00 run_mode=READ_ONLY strategy=statistical_intraday_momentum focus=0 symbols=[]
+[TRACE] stage=WATCHLIST cycle_id=75edf347-d280-4832-8636-0d90d826c0b1 run_mode=READ_ONLY strategy=statistical_intraday_momentum watchlist=0 symbols=[]
+[TRACE] stage=FOCUS cycle_id=75edf347-d280-4832-8636-0d90d826c0b1 run_mode=READ_ONLY strategy=statistical_intraday_momentum focus=0 symbols=[]
 [WATCHLIST] empty watchlist accepted
-STRATEGY_RUNNER_RECEIVED K=0 session=PREMARKET timestamp_utc=2026-02-12T09:54:23.264629+00:00
+STRATEGY_RUNNER_RECEIVED K=0 session=PREMARKET timestamp_utc=2026-02-12T11:45:18.554885+00:00
 [STRATEGY][FOCUS] statistical_intraday_momentum using focus_m=0
 [STRATEGY][PROCESS] strategy_key=statistical_intraday_momentum strategies=1 watchlist=0 session=PREMARKET phase=PREMARKET
-[SIMOM][CYCLE] start timestamp=2026-02-12T09:54:23.264629+00:00 mode=READ_ONLY session=PREMARKET session_phase=PREMARKET ny_time=2026-02-12T04:54:23.264629-05:00
+[SIMOM][CYCLE] start timestamp=2026-02-12T11:45:18.554885+00:00 mode=READ_ONLY session=PREMARKET session_phase=PREMARKET ny_time=2026-02-12T06:45:18.554885-05:00
 [SIMOM][INPUT] watchlist_k=[] focus_m=[]
 [SIMOM][SKIP] focus_m empty; no intents evaluated
 [CONNECTIVITY] STATE=DEGRADED provider_error=[Errno 111] Connect call failed ('127.0.0.1', 7497) provider_fallback=None
-[TRACE] stage=HALT cycle_id=ba9b146f-48a2-48d9-904e-a745b632be00 run_mode=READ_ONLY strategy=statistical_intraday_momentum reason_code=SCANNER_CONNECTIVITY message=provider_error=[Errno 111] Connect call failed ('127.0.0.1', 7497) provider_fallback=None
+[TRACE] stage=HALT cycle_id=75edf347-d280-4832-8636-0d90d826c0b1 run_mode=READ_ONLY strategy=statistical_intraday_momentum reason_code=SCANNER_CONNECTIVITY message=provider_error=[Errno 111] Connect call failed ('127.0.0.1', 7497) provider_fallback=None
 [EXECUTION] dry-run (orders disabled by mode)
-[TRACE] stage=ACTION cycle_id=ba9b146f-48a2-48d9-904e-a745b632be00 run_mode=READ_ONLY strategy=statistical_intraday_momentum intents=0
+[TRACE] stage=ACTION cycle_id=75edf347-d280-4832-8636-0d90d826c0b1 run_mode=READ_ONLY strategy=statistical_intraday_momentum intents=0
 [STRATEGY] No trade intents generated.
 [SLEEP] Sleeping for 3 seconds before next cycle.
 [SHUTDOWN] Beginning GRACEFUL shutdown sequence.
@@ -198,8 +195,6 @@ STRATEGY_RUNNER_RECEIVED K=0 session=PREMARKET timestamp_utc=2026-02-12T09:54:23
 [REGISTRY] Verification passed — no active trades remain.
 [SHUTDOWN] Exiting gracefully. Goodbye!
 
-API connection failed: ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 7497)")
-Make sure API port on TWS/IBG is open
 API connection failed: ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 7497)")
 Make sure API port on TWS/IBG is open
 API connection failed: ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 7497)")

@@ -162,19 +162,22 @@ class MarketDataClient:
         try:
             import asyncio
 
-            async def _coro():
-                return await self.ib.qualifyContractsAsync(contract)
+            async def _qualify_with_timeout():
+                return await asyncio.wait_for(
+                    self.ib.qualifyContractsAsync(contract),
+                    timeout=self.snapshot_timeout_seconds,
+                )
+
+            qualify_coro = _qualify_with_timeout()
 
             runner = getattr(self.ib, "run", None)
             if callable(runner):
-                qualified = runner(
-                    asyncio.wait_for(_coro(), timeout=self.snapshot_timeout_seconds)
-                )
+                qualified = runner(qualify_coro)
             else:
-                qualified = asyncio.run(
-                    asyncio.wait_for(_coro(), timeout=self.snapshot_timeout_seconds)
-                )
+                qualified = asyncio.run(qualify_coro)
         except Exception:
+            if "qualify_coro" in locals():
+                qualify_coro.close()
             return None
         if not qualified:
             return None

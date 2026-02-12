@@ -100,16 +100,16 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode SIM --cycles 1 --s
 [VALIDATION] Storage OK — SQLite opened
 [LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
 [CYCLE] Starting orchestrator cycle.
-[TRACE] stage=MARKET_SESSION cycle_id=89144f3f-d70e-49c6-9dc2-900589f9ba2c run_mode=SIM strategy=statistical_intraday_momentum 
+[TRACE] stage=MARKET_SESSION cycle_id=08e06c99-fb49-4522-82f3-686a2c89c3b0 run_mode=SIM strategy=statistical_intraday_momentum 
 [SESSION] Detected market session: PRE
 [SESSION] System WOULD consider trading allowed in this session (teaching-only).
 [SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().
 [INFO] Starting orchestrator cycle (teaching-only).
-[SESSION] phase=PREMARKET ny_time=2026-02-12T04:53:48.089250-05:00 uk_time=2026-02-12T09:53:48.089250+00:00 utc=2026-02-12T09:53:48.089250+00:00
+[SESSION] phase=PREMARKET ny_time=2026-02-12T06:44:51.499910-05:00 uk_time=2026-02-12T11:44:51.499910+00:00 utc=2026-02-12T11:44:51.499910+00:00
 [RUNTIME] mode=SIM live_like=False allow_orders=False max_shares_per_order=None event_replay=CYCLE
 STATE=DEGRADED
 [CONNECTIVITY] IBKR connection failed: Live broker connections are forbidden in SIM mode
-[TRACE] stage=HALT cycle_id=9922d4fb-f880-463e-a32d-9d5d87c14ff9 run_mode=SIM strategy=statistical_intraday_momentum reason_code=CONNECTIVITY_FAILURE message=Live broker connections are forbidden in SIM mode
+[TRACE] stage=HALT cycle_id=c11e4ce1-bc8f-4e87-b909-e4b138179b3b run_mode=SIM strategy=statistical_intraday_momentum reason_code=CONNECTIVITY_FAILURE message=Live broker connections are forbidden in SIM mode
 [SCANNER] MODE=integrated SESSION=OVN
 [SCANNER][POLICY] source=STRATEGY policy_name=STATISTICAL_INTRADAY_MOMENTUM price=5.0-200.0 gap_min=2.0 rvol_min=1.5 float_max_millions=200.0 spread_max_pct=None watchlist_k=20 focus_m=5
 [SCANNER][ENTRY] strategy=STATISTICAL_INTRADAY_MOMENTUM requested_top_n=75 watchlist_k=20 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=5.0 below_price=200.0
@@ -248,7 +248,7 @@ FOCUS_M: ['ROKU', 'GME', 'NFLX', 'MU', 'BAC']
 NEW: ['AAPL', 'AMD', 'AMZN', 'BAC', 'CLSK', 'CRWD', 'CVX', 'GME', 'JPM', 'MARA', 'META', 'MU', 'NFLX', 'PLTR', 'RIOT', 'RIVN', 'ROKU', 'SNOW', 'SPOT', 'TSLA']
 CONTINUING: []
 DROPPED: []
-[TRACE] stage=UNIVERSE cycle_id=9922d4fb-f880-463e-a32d-9d5d87c14ff9 run_mode=SIM strategy=statistical_intraday_momentum top_n=50 symbols=['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
+[TRACE] stage=UNIVERSE cycle_id=c11e4ce1-bc8f-4e87-b909-e4b138179b3b run_mode=SIM strategy=statistical_intraday_momentum top_n=50 symbols=['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
 [SCANNER][DIAGNOSTICS] Top 50 observations (extended columns)
 [SCANNER][ROW] rank=1 symbol=AAPL conId=None exchange=None session=OVN last=12.07 ref_close=9.69 pct_change=24.56 pct_ref=CALC(SESSION_REF) volume=27515675 avg_volume_20d=3378599 rvol=8.14 bid=12.05 ask=12.12 spread=0.07 spread_pct=0.01 dollar_volume=332114197.25 float_m=12.59 halted=None ssr=None data_quality=MOCK,NEWS_DELAYED drop_reasons=-
 [SCANNER][ROW] rank=2 symbol=MSFT conId=None exchange=None session=OVN last=7.93 ref_close=6.96 pct_change=13.94 pct_ref=CALC(SESSION_REF) volume=12731375 avg_volume_20d=2320893 rvol=5.49 bid=7.92 ask=7.96 spread=0.04 spread_pct=0.01 dollar_volume=100959803.75 float_m=3.38 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
@@ -352,8 +352,8 @@ DROPPED: []
 [SCANNER][DROP] symbol=XOM reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=C reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=WFC reason=DROP_RANK_BELOW_WATCHLIST
-[TRACE] stage=WATCHLIST cycle_id=9922d4fb-f880-463e-a32d-9d5d87c14ff9 run_mode=SIM strategy=statistical_intraday_momentum watchlist=20 symbols=['ROKU', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'AMZN', 'RIOT', 'RIVN', 'META', '...']
-[TRACE] stage=FOCUS cycle_id=9922d4fb-f880-463e-a32d-9d5d87c14ff9 run_mode=SIM strategy=statistical_intraday_momentum focus=5 symbols=['ROKU', 'GME', 'NFLX', 'MU', 'BAC']
+[TRACE] stage=WATCHLIST cycle_id=c11e4ce1-bc8f-4e87-b909-e4b138179b3b run_mode=SIM strategy=statistical_intraday_momentum watchlist=20 symbols=['ROKU', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'AMZN', 'RIOT', 'RIVN', 'META', '...']
+[TRACE] stage=FOCUS cycle_id=c11e4ce1-bc8f-4e87-b909-e4b138179b3b run_mode=SIM strategy=statistical_intraday_momentum focus=5 symbols=['ROKU', 'GME', 'NFLX', 'MU', 'BAC']
 [WATCHLIST] size=20 symbols=['ROKU', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'AMZN', 'RIOT', 'RIVN', 'META', 'TSLA', 'CRWD', 'SPOT', 'PATH', 'GE']
 [SNAPSHOT][QUALITY] symbol=ROKU missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=GME missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
@@ -375,10 +375,10 @@ DROPPED: []
 [SNAPSHOT][QUALITY] symbol=SPOT missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=PATH missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=GE missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-STRATEGY_RUNNER_RECEIVED K=20 session=OVN timestamp_utc=2026-02-12T09:53:48.089838+00:00
+STRATEGY_RUNNER_RECEIVED K=20 session=OVN timestamp_utc=2026-02-12T11:44:51.500842+00:00
 [STRATEGY][FOCUS] statistical_intraday_momentum using focus_m=5
 [STRATEGY][PROCESS] strategy_key=statistical_intraday_momentum strategies=1 watchlist=5 session=OVN phase=PREMARKET
-[SIMOM][CYCLE] start timestamp=2026-02-12T09:53:48.089838+00:00 mode=SIM session=OVN session_phase=PREMARKET ny_time=2026-02-12T04:53:48.089838-05:00
+[SIMOM][CYCLE] start timestamp=2026-02-12T11:44:51.500842+00:00 mode=SIM session=OVN session_phase=PREMARKET ny_time=2026-02-12T06:44:51.500842-05:00
 [SIMOM][INPUT] watchlist_k=['ROKU', 'GME', 'NFLX', 'MU', 'BAC'] focus_m=['ROKU', 'GME', 'NFLX', 'MU', 'BAC']
 [SIMOM][WARN] SIM override — session not in allowlist; session=OVN allowlist=['RTH']
 [SIMOM][SIGNAL] symbol=ROKU side=LONG type=CONTINUATION confidence=1.00 stop=12.0285 target=12.393
@@ -394,7 +394,7 @@ STRATEGY_RUNNER_RECEIVED K=20 session=OVN timestamp_utc=2026-02-12T09:53:48.0898
 [SIMOM][ORDERS] intents_ready mode=SIM
 [SIMOM][SUMMARY] considered=5 signals=5 orders=0 skipped=0
 [EXECUTION] dry-run (orders disabled by mode)
-[TRACE] stage=ACTION cycle_id=9922d4fb-f880-463e-a32d-9d5d87c14ff9 run_mode=SIM strategy=statistical_intraday_momentum intents=5
+[TRACE] stage=ACTION cycle_id=c11e4ce1-bc8f-4e87-b909-e4b138179b3b run_mode=SIM strategy=statistical_intraday_momentum intents=5
 [SNAPSHOT][SUMMARY] missing_required_fields={'AAPL': ['last', 'close', 'volume'], 'GME': ['last', 'close', 'volume'], 'RIOT': ['last', 'close', 'volume'], 'MU': ['last', 'close', 'volume'], 'ROKU': ['last', 'close', 'volume'], 'BAC': ['last', 'close', 'volume'], 'JPM': ['last', 'close', 'volume'], 'NFLX': ['last', 'close', 'volume'], 'META': ['last', 'close', 'volume'], 'AMZN': ['last', 'close', 'volume'], 'MARA': ['last', 'close', 'volume'], 'AMD': ['last', 'close', 'volume'], 'RIVN': ['last', 'close', 'volume'], 'CVX': ['last', 'close', 'volume'], 'PLTR': ['last', 'close', 'volume'], 'TSLA': ['last', 'close', 'volume'], 'CRWD': ['last', 'close', 'volume'], 'SPOT': ['last', 'close', 'volume'], 'PATH': ['last', 'close', 'volume'], 'GE': ['last', 'close', 'volume']}
 [SLEEP] Sleeping for 3 seconds before next cycle.
 [SHUTDOWN] Beginning GRACEFUL shutdown sequence.
