@@ -1,0 +1,30 @@
+{
+  "epoch": "M10_DATA_PROVENANCE_LEDGER",
+  "files": [
+    {
+      "bytes": 642,
+      "file": "PR_VERIFICATION_REPORT.md"
+    },
+    {
+      "bytes": 308,
+      "file": "certification_verdict.json"
+    },
+    {
+      "bytes": 91,
+      "file": "compileall.txt"
+    },
+    {
+      "bytes": 1856,
+      "file": "pytest_full.txt"
+    },
+    {
+      "bytes": 232,
+      "file": "verification_output.json"
+    },
+    {
+      "bytes": 157,
+      "file": "verification_summary.md"
+    }
+  ],
+  "generated_at_utc": "2026-02-12T08:06:37Z"
+}

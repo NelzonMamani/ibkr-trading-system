@@ -1,0 +1,1 @@
+$ /root/.pyenv/versions/3.10.19/bin/python -m compileall -q src tests verification_scripts
