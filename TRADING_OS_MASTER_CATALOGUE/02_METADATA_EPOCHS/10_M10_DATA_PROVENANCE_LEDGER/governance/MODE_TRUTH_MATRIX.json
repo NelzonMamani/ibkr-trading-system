@@ -1,0 +1,24 @@
+{
+  "modes": {
+    "SIM": {
+      "expected_sources": ["HIST_BARS", "CACHE_DB"],
+      "expected_latency": "DELAYED",
+      "allowed_fallbacks": ["SYNTHETIC", "FALLBACK_PROVIDER"]
+    },
+    "PAPER": {
+      "expected_sources": ["IBKR_SNAPSHOT", "IBKR_STREAM"],
+      "expected_latency": "DELAYED",
+      "allowed_fallbacks": ["CACHE_DB", "FALLBACK_PROVIDER"]
+    },
+    "READ_ONLY": {
+      "expected_sources": ["IBKR_STREAM", "IBKR_SNAPSHOT"],
+      "expected_latency": "REALTIME",
+      "allowed_fallbacks": ["CACHE_DB", "FALLBACK_PROVIDER"]
+    },
+    "LIVE": {
+      "expected_sources": ["IBKR_STREAM", "IBKR_SNAPSHOT"],
+      "expected_latency": "REALTIME",
+      "allowed_fallbacks": ["CACHE_DB", "FALLBACK_PROVIDER"]
+    }
+  }
+}

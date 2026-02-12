@@ -1,0 +1,17 @@
+{
+  "epoch": "M10_DATA_PROVENANCE_LEDGER",
+  "verdict": "NOT_CERTIFIED",
+  "date_utc": "2026-02-12",
+  "reasons": [
+    "m7_verifier_failed",
+    "m8_verifier_failed"
+  ],
+  "evidence": [
+    "verification_output.json",
+    "verification_summary.md",
+    "compileall.txt",
+    "pytest_full.txt",
+    "M10_EVIDENCE_INDEX.json",
+    "certification_verdict.json"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "required_fields": [
+    "event_id",
+    "symbol",
+    "data_type",
+    "timeframe_scope",
+    "timeframe_resolution",
+    "source_id",
+    "mode",
+    "session_state",
+    "timestamp_observed",
+    "timestamp_used",
+    "freshness_class",
+    "confidence_level",
+    "known_limitations",
+    "checksum_or_fingerprint",
+    "linkage"
+  ],
+  "linkage_required_fields": [
+    "signal_ids",
+    "decision_ids"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "hydration_events": [
+    {
+      "event_name": "SYMBOL_COMMITTED",
+      "description": "Symbol moved to committed set and hydration context opened."
+    },
+    {
+      "event_name": "DATA_HYDRATION_REQUESTED",
+      "description": "Hydration datasets requested for mode/session aware readiness."
+    },
+    {
+      "event_name": "DATA_HYDRATION_PARTIAL",
+      "description": "At least one required dataset failed or degraded before first decision."
+    },
+    {
+      "event_name": "DATA_HYDRATION_READY",
+      "description": "Hydration reached minimum readiness for first decision context."
+    },
+    {
+      "event_name": "DATA_SOURCE_DEGRADED",
+      "description": "Data source switched to fallback/degraded state with limitations noted."
+    },
+    {
+      "event_name": "DATA_STALE",
+      "description": "Data exceeded configured TTL for timeframe resolution."
+    }
+  ]
+}

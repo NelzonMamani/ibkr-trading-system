@@ -1,0 +1,49 @@
+{
+  "sources": [
+    {
+      "source_id": "IBKR_STREAM",
+      "source_class": "PRIMARY",
+      "expected_latency": "REALTIME",
+      "availability_constraints": [
+        "market_hours",
+        "subscriptions"
+      ]
+    },
+    {
+      "source_id": "IBKR_SNAPSHOT",
+      "source_class": "PRIMARY",
+      "expected_latency": "UNKNOWN",
+      "availability_constraints": [
+        "market_state_dependent",
+        "subscriptions"
+      ]
+    },
+    {
+      "source_id": "HIST_BARS",
+      "source_class": "DERIVED",
+      "expected_latency": "DELAYED",
+      "availability_constraints": [
+        "provider_history_window",
+        "backfill_variance"
+      ]
+    },
+    {
+      "source_id": "CACHE_DB",
+      "source_class": "CACHED",
+      "expected_latency": "UNKNOWN",
+      "availability_constraints": [
+        "retention_window",
+        "cache_ttl"
+      ]
+    },
+    {
+      "source_id": "FALLBACK_PROVIDER",
+      "source_class": "FALLBACK",
+      "expected_latency": "UNKNOWN",
+      "availability_constraints": [
+        "provider_outage",
+        "coverage_partial"
+      ]
+    }
+  ]
+}

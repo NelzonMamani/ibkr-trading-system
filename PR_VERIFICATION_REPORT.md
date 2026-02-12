@@ -1,3 +1,25 @@
+## Update — M10 Data Provenance Ledger (2026-02-12)
+
+### Summary
+- Objective: implement M10 metadata verifier, governance registries/templates, and certification automation artifacts.
+- Status: compileall + pytest + M10 verifier executed; M10 verifier is valid but certification is NOT_CERTIFIED due to pre-existing M7/M8 non-regression failures from missing historical evidence directories.
+
+### Commands Run
+1) `python -m compileall -q src tests verification_scripts`
+2) `python -m pytest -q`
+3) `python verification_scripts/verify_m10_data_provenance_ledger.py --allow-overwrite`
+
+### Outputs Written
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M10_DATA_PROVENANCE_LEDGER/compileall.txt`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M10_DATA_PROVENANCE_LEDGER/pytest_full.txt`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M10_DATA_PROVENANCE_LEDGER/verification_output.json`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M10_DATA_PROVENANCE_LEDGER/verification_summary.md`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M10_DATA_PROVENANCE_LEDGER/M10_EVIDENCE_INDEX.json`
+- `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M10_DATA_PROVENANCE_LEDGER/certification_verdict.json`
+
+### Verdict
+- NOT_CERTIFIED (blocked by non-regression verifier failures: M7 and M8).
+
 # PR Verification Report
 
 ## Update — M2 Contract Registry Certification (2026-02-09)
