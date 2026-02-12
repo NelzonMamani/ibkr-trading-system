@@ -282,6 +282,7 @@ ibkr-trading-system/
 │   │   ├── intent.py
 │   │   ├── orchestrator.py
 │   │   ├── performance_registry.py
+│   │   ├── position_lifecycle_engine.py
 │   │   ├── readiness.py
 │   │   ├── replay_engine.py
 │   │   ├── run_event_timeline.py
@@ -310,6 +311,11 @@ ibkr-trading-system/
 │   │   ├── market_snapshot.py
 │   │   ├── performance_snapshot.py
 │   │   └── trade_outcome.py
+│   ├── e21
+│   │   ├── __init__.py
+│   │   ├── harness.py
+│   │   ├── reporting.py
+│   │   └── scenarios.py
 │   ├── events
 │   │   ├── __init__.py
 │   │   ├── event_invariants.py
@@ -348,6 +354,19 @@ ibkr-trading-system/
 │   │   ├── __init__.py
 │   │   ├── market_data_hub.py
 │   │   └── market_data_price_feed.py
+│   ├── metadata
+│   │   ├── __init__.py
+│   │   ├── m0_canon_helpers.py
+│   │   ├── m0_canon_verifier.py
+│   │   ├── m10_data_provenance_ledger_verifier.py
+│   │   ├── m2_contract_registry.py
+│   │   ├── m2_contract_verifier.py
+│   │   ├── m3_mode_semantics_verifier.py
+│   │   ├── m5_verification_authority_verifier.py
+│   │   ├── m6_data_lifecycle_governance_verifier.py
+│   │   ├── m7_epoch_audit_certifier.py
+│   │   ├── m8_change_control_verifier.py
+│   │   └── m9_signal_semantics_registry_verifier.py
 │   ├── models
 │   │   ├── data_models.py
 │   │   ├── execution_result.py
@@ -383,6 +402,7 @@ ibkr-trading-system/
 │   │   └── policy.py
 │   ├── risk
 │   │   ├── __init__.py
+│   │   ├── no_trade_contexts.py
 │   │   ├── risk_audit.py
 │   │   └── risk_engine.py
 │   ├── scanner
@@ -453,12 +473,17 @@ ibkr-trading-system/
 │   │   └── trade_store.py
 │   ├── strategies
 │   │   ├── common
-│   │   │   └── candles
-│   │   │       ├── __init__.py
-│   │   │       ├── candle_evidence.py
-│   │   │       ├── candle_types.py
-│   │   │       ├── multi_candle.py
-│   │   │       └── single_candle.py
+│   │   │   ├── candles
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── candle_evidence.py
+│   │   │   │   ├── candle_types.py
+│   │   │   │   ├── contextual_states.py
+│   │   │   │   ├── functional.py
+│   │   │   │   ├── multi_candle.py
+│   │   │   │   └── single_candle.py
+│   │   │   ├── __init__.py
+│   │   │   ├── foundation.py
+│   │   │   └── foundation_detectors.py
 │   │   ├── cross_sectional_relative_strength_rotation
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
@@ -551,7 +576,6 @@ ibkr-trading-system/
 │   │   │   ├── ALGORITHM.md
 │   │   │   └── strategy_policy.py
 │   │   ├── ross_momentum
-│   │   │   ├── fixtures
 │   │   │   ├── patterns
 │   │   │   │   ├── __init__.py
 │   │   │   │   ├── breakout_patterns.py
@@ -562,10 +586,8 @@ ibkr-trading-system/
 │   │   │   │   ├── pattern_registry.py
 │   │   │   │   ├── pattern_types.py
 │   │   │   │   └── reversal_patterns.py
-│   │   │   ├── policy
 │   │   │   ├── reports
 │   │   │   │   └── REPORT__READING_CANDLESTICKS_3_STEP_TRICK.md
-│   │   │   ├── schemas
 │   │   │   ├── __init__.py
 │   │   │   ├── CONSTITUTION.md
 │   │   │   ├── decision_policy.py
@@ -648,6 +670,7 @@ ibkr-trading-system/
 │   │   └── test_exit_precedence.py
 │   ├── tools
 │   │   ├── __init__.py
+│   │   ├── certification_programme_runner.py
 │   │   ├── regime_dump.py
 │   │   └── storage_cli.py
 │   ├── utils
@@ -662,36 +685,65 @@ ibkr-trading-system/
 │   ├── directory_tree_report.txt
 │   └── main.py
 ├── tests
+│   ├── e21
+│   │   ├── test_e21_harness_reports.py
+│   │   ├── test_e21_no_trade_context_veto.py
+│   │   ├── test_e21_non_interference.py
+│   │   ├── test_e21_scenarios_are_deterministic.py
+│   │   └── test_e21_setup_detector_coverage.py
+│   ├── metadata
+│   │   ├── test_m0_canonical_files_exist.py
+│   │   ├── test_m0_canonical_helpers.py
+│   │   ├── test_m0_invariant_enforcement.py
+│   │   ├── test_m2_contract_registry_invariants.py
+│   │   ├── test_m2_contract_registry_paths.py
+│   │   ├── test_m2_contract_registry_schema.py
+│   │   ├── test_m3_mode_semantics_verifier.py
+│   │   ├── test_m5_verification_authority_verifier.py
+│   │   ├── test_m6_data_lifecycle_governance_verifier.py
+│   │   ├── test_m7_epoch_audit_certifier.py
+│   │   ├── test_m8_change_control_verifier.py
+│   │   └── test_m9_signal_semantics_registry_verifier.py
 │   ├── smoke
 │   │   ├── test_imports.py
 │   │   ├── test_orchestrator_cycle.py
 │   │   └── test_scanner_contract.py
 │   ├── strategies
-│   │   └── statistical_intraday_momentum
-│   │       ├── test_contract_compliance.py
-│   │       ├── test_intraday_end_to_end_smoke.py
-│   │       ├── test_policy_imports.py
-│   │       ├── test_regime_gates.py
-│   │       ├── test_risk_policy.py
-│   │       ├── test_safe_defaults.py
-│   │       └── test_scoring_determinism.py
+│   │   ├── statistical_intraday_momentum
+│   │   │   ├── test_contract_compliance.py
+│   │   │   ├── test_intraday_end_to_end_smoke.py
+│   │   │   ├── test_policy_imports.py
+│   │   │   ├── test_regime_gates.py
+│   │   │   ├── test_risk_policy.py
+│   │   │   ├── test_safe_defaults.py
+│   │   │   └── test_scoring_determinism.py
+│   │   ├── test_candlestick_foundation.py
+│   │   ├── test_foundation_catalogue.py
+│   │   └── test_setup_detectors.py
 │   ├── strategy_portfolio
 │   │   ├── test_allocation.py
 │   │   ├── test_arbitration.py
 │   │   ├── test_contracts.py
 │   │   ├── test_end_to_end_smoke.py
+│   │   ├── test_no_trade_contexts.py
 │   │   ├── test_non_interference.py
 │   │   ├── test_normaliser_defaults.py
 │   │   ├── test_registry.py
 │   │   └── test_ross_adapter.py
 │   ├── test_config_sanity.py
+│   ├── test_decision_artifacts_epoch14.py
+│   ├── test_epoch12_recovery_housekeeping.py
+│   ├── test_epoch15_17_safety_cluster.py
 │   ├── test_epoch3_risk_execution.py
 │   ├── test_event_collector_snapshot_policy.py
+│   ├── test_execution_authority_epoch5.py
 │   ├── test_execution_intent_modes.py
+│   ├── test_exit_precedence.py
 │   ├── test_faults.py
 │   ├── test_ibkr_order_submitter.py
 │   ├── test_ibkr_order_translator.py
 │   ├── test_ibkr_readonly.py
+│   ├── test_learning_controls.py
 │   ├── test_learning_policy_proposal.py
 │   ├── test_learning_reporting.py
 │   ├── test_liquidity_execution.py
@@ -699,10 +751,14 @@ ibkr-trading-system/
 │   ├── test_market_data_client_snapshot.py
 │   ├── test_market_data_validation.py
 │   ├── test_market_session_phase.py
+│   ├── test_mode_drift_guard.py
 │   ├── test_orchestrator_scanner_request.py
 │   ├── test_orchestrator_shutdown.py
 │   ├── test_order_gateway_retry.py
+│   ├── test_performance_registry_epoch9.py
 │   ├── test_performance_reports_epoch4.py
+│   ├── test_position_lifecycle_engine.py
+│   ├── test_position_lifecycle_persistence.py
 │   ├── test_read_only_guard.py
 │   ├── test_regime_baselines.py
 │   ├── test_regime_classifier.py
@@ -721,6 +777,7 @@ ibkr-trading-system/
 │   ├── test_scanner_policy_from_strategy.py
 │   ├── test_scanner_provider_fallback.py
 │   ├── test_scanner_ranking_authority.py
+│   ├── test_scanner_request_validation.py
 │   ├── test_scanner_universe_request.py
 │   ├── test_scanner_watchlist_artifact_empty.py
 │   ├── test_scanner_watchlist_prints.py
@@ -731,18 +788,33 @@ ibkr-trading-system/
 │   ├── test_storage_recovery.py
 │   ├── test_storage_schema_epoch4.py
 │   ├── test_storage_serialization.py
+│   ├── test_strategy_registry_epoch13.py
 │   ├── test_traceability.py
 │   └── test_trade_exit_engine.py
+├── tools
+│   ├── RUN_E21_HARNESS.ps1
+│   └── RUN_E21_HARNESS.sh
 ├── TRADING_OS_MASTER_CATALOGUE
 │   ├── 00_READ_FIRST
 │   │   ├── 00_READ_ORDER.md
 │   │   ├── 01_PROGRAM_RULES_LOCKED.md
 │   │   ├── 02_EPOCH_PROCESS_TEMPLATE.md
 │   │   ├── 03_GLOBAL_VERIFICATION_COMMANDS.md
+│   │   ├── 04_IMPLEMENTATION_ENFORCEMENT.md
 │   │   ├── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
 │   │   └── CODEX_GLOBAL_EXECUTION_INSTRUCTIONS.md
 │   ├── 01_CORE_EPOCHS
 │   │   ├── 00_E0_SYSTEM_LAW_AND_PURPOSE
+│   │   │   ├── audit
+│   │   │   │   ├── evidence
+│   │   │   │   │   ├── boot_live.txt
+│   │   │   │   │   ├── boot_paper.txt
+│   │   │   │   │   ├── boot_read_only.txt
+│   │   │   │   │   ├── boot_sim.txt
+│   │   │   │   │   ├── compileall.txt
+│   │   │   │   │   └── pytest.txt
+│   │   │   │   ├── 06_GAP_ANALYSIS.md
+│   │   │   │   └── E0_AUDIT_REPORT.md
 │   │   │   ├── codex_instructions
 │   │   │   │   ├── 00_READ_ORDER.md
 │   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
@@ -762,6 +834,16 @@ ibkr-trading-system/
 │   │   │       ├── 06_CERTIFICATION_RULES.md
 │   │   │       └── 07_LOCK_AND_AMENDMENT_POLICY.md
 │   │   ├── 01_E1_TRACEABILITY_AND_OBSERVABILITY
+│   │   │   ├── audit
+│   │   │   │   ├── evidence
+│   │   │   │   │   ├── boot_live.txt
+│   │   │   │   │   ├── boot_paper.txt
+│   │   │   │   │   ├── boot_read_only.txt
+│   │   │   │   │   ├── boot_sim.txt
+│   │   │   │   │   ├── compileall.txt
+│   │   │   │   │   └── pytest.txt
+│   │   │   │   ├── 06_GAP_ANALYSIS.md
+│   │   │   │   └── E1_AUDIT_REPORT.md
 │   │   │   ├── codex_instructions
 │   │   │   │   ├── 00_READ_ORDER.md
 │   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
@@ -784,6 +866,16 @@ ibkr-trading-system/
 │   │   │       ├── 09_ACCEPTANCE_CRITERIA.md
 │   │   │       └── 10_FORWARD_DEPENDENCIES.md
 │   │   ├── 02_E2_POSITION_LIFECYCLE_ENGINE
+│   │   │   ├── audit
+│   │   │   │   ├── evidence
+│   │   │   │   │   ├── boot_live.txt
+│   │   │   │   │   ├── boot_paper.txt
+│   │   │   │   │   ├── boot_read_only.txt
+│   │   │   │   │   ├── boot_sim.txt
+│   │   │   │   │   ├── compileall.txt
+│   │   │   │   │   └── pytest.txt
+│   │   │   │   ├── 06_GAP_ANALYSIS.md
+│   │   │   │   └── E2_AUDIT_REPORT.md
 │   │   │   ├── codex_instructions
 │   │   │   │   ├── 00_READ_ORDER.md
 │   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
@@ -807,6 +899,18 @@ ibkr-trading-system/
 │   │   │       ├── 10_ACCEPTANCE_CRITERIA.md
 │   │   │       └── 11_FORWARD_DEPENDENCIES.md
 │   │   ├── 03_E3_RISK_ENGINE_COMPLETENESS
+│   │   │   ├── audit
+│   │   │   │   ├── evidence
+│   │   │   │   │   ├── compileall.txt
+│   │   │   │   │   ├── intent_live.txt
+│   │   │   │   │   ├── intent_paper.txt
+│   │   │   │   │   ├── intent_read_only.txt
+│   │   │   │   │   ├── intent_sim.txt
+│   │   │   │   │   ├── pytest.txt
+│   │   │   │   │   └── test_risk_engine_unit.txt
+│   │   │   │   ├── 00_REALITY_AUDIT.md
+│   │   │   │   ├── 01_GAP_ANALYSIS.md
+│   │   │   │   └── 02_VERIFICATION_SUMMARY.md
 │   │   │   ├── codex_instructions
 │   │   │   │   ├── 00_READ_ORDER.md
 │   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
@@ -831,6 +935,17 @@ ibkr-trading-system/
 │   │   │       ├── 11_ACCEPTANCE_CRITERIA.md
 │   │   │       └── 12_FORWARD_DEPENDENCIES.md
 │   │   ├── 04_E4_DATA_QUALITY_AND_MARKET_STATE
+│   │   │   ├── audit
+│   │   │   │   ├── evidence
+│   │   │   │   │   ├── compileall.txt
+│   │   │   │   │   ├── pytest.txt
+│   │   │   │   │   ├── test_market_data_client_snapshot.txt
+│   │   │   │   │   ├── test_market_session_phase.txt
+│   │   │   │   │   ├── test_replay_from_storage_epoch4.txt
+│   │   │   │   │   └── test_replay_locked_in_live_modes_epoch4.txt
+│   │   │   │   ├── 01_REALITY_AUDIT.md
+│   │   │   │   ├── 02_GAP_ANALYSIS.md
+│   │   │   │   └── 03_VERIFICATION_SUMMARY.md
 │   │   │   ├── codex_instructions
 │   │   │   │   ├── 00_READ_ORDER.md
 │   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
@@ -855,6 +970,22 @@ ibkr-trading-system/
 │   │   │       ├── 11_ACCEPTANCE_CRITERIA.md
 │   │   │       └── 12_FORWARD_DEPENDENCIES.md
 │   │   ├── 05_E5_EXECUTION_ENGINE_AUTHORITY
+│   │   │   ├── audit
+│   │   │   │   ├── evidence
+│   │   │   │   │   ├── boot_paper.txt
+│   │   │   │   │   ├── boot_read_only.txt
+│   │   │   │   │   ├── boot_sim.txt
+│   │   │   │   │   ├── compileall.txt
+│   │   │   │   │   ├── pytest.txt
+│   │   │   │   │   ├── test_execution_authority_epoch5.txt
+│   │   │   │   │   ├── test_execution_intent_modes.txt
+│   │   │   │   │   ├── test_exit_precedence.txt
+│   │   │   │   │   ├── test_ibkr_readonly.txt
+│   │   │   │   │   ├── test_liquidity_execution.txt
+│   │   │   │   │   └── test_order_gateway_retry.txt
+│   │   │   │   ├── 00_REALITY_AUDIT.md
+│   │   │   │   ├── 01_GAP_ANALYSIS.md
+│   │   │   │   └── 02_VERIFICATION_SUMMARY.md
 │   │   │   ├── codex_instructions
 │   │   │   │   ├── 00_READ_ORDER.md
 │   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
@@ -1239,35 +1370,59 @@ ibkr-trading-system/
 │   │   │       ├── 10_CANDLESTICK_CHECKLIST_SINGLE_CANDLE.md
 │   │   │       ├── 11_CANDLESTICK_CHECKLIST_MULTI_CANDLE.md
 │   │   │       └── 14_LEVELS_AND_ZONES_FOUNDATION.md
-│   │   └── 21_E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION
+│   │   ├── 21_E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_NON_NEGOTIABLE_RULES.md
+│   │   │   │   ├── 03_REQUIRED_HARNESS_ARTIFACTS.md
+│   │   │   │   ├── 04_SYNTHETIC_SCENARIO_IMPLEMENTATION.md
+│   │   │   │   ├── 05_FOUNDATION_COMPONENT_TESTS.md
+│   │   │   │   ├── 06_END_TO_END_PIPELINE_TESTS.md
+│   │   │   │   ├── 07_PAPER_TRADING_PARITY_TASKS.md
+│   │   │   │   ├── 08_FAILURE_INJECTION_TASKS.md
+│   │   │   │   ├── 09_NON_INTERFERENCE_TESTS.md
+│   │   │   │   ├── 10_REPORT_GENERATION_AND_EVIDENCE.md
+│   │   │   │   ├── 11_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_EPOCH_OVERVIEW.md
+│   │   │       ├── 02_AUTHORITY_SCOPE_AND_DEPENDENCIES.md
+│   │   │       ├── 03_DEFINITION_OF_TRADING_READY.md
+│   │   │       ├── 04_CERTIFICATION_MODEL_PASS_FAIL.md
+│   │   │       ├── 05_VERIFICATION_MATRIX_BY_MODE.md
+│   │   │       ├── 06_END_TO_END_HARNESS_ARCHITECTURE.md
+│   │   │       ├── 07_SYNTHETIC_SCENARIO_LIBRARY.md
+│   │   │       ├── 08_PAPER_TRADING_PARITY_REQUIREMENTS.md
+│   │   │       ├── 09_FAILURE_INJECTION_AND_RECOVERY_DRILLS.md
+│   │   │       ├── 10_NON_INTERFERENCE_AND_SAFETY_GUARANTEES.md
+│   │   │       ├── 11_REQUIRED_ARTIFACTS_AND_REPORTS.md
+│   │   │       └── 12_GOVERNANCE_LOCKS_AND_AMENDMENT_POLICY.md
+│   │   └── 22_E22_STRATEGY_SCALABILITY_AND_ARBITRATION_LAYER
 │   │       ├── codex_instructions
 │   │       │   ├── 00_READ_ORDER.md
-│   │       │   ├── 01_CONTEXT_AND_OBJECTIVE.md
-│   │       │   ├── 02_NON_NEGOTIABLE_RULES.md
-│   │       │   ├── 03_REQUIRED_HARNESS_ARTIFACTS.md
-│   │       │   ├── 04_SYNTHETIC_SCENARIO_IMPLEMENTATION.md
-│   │       │   ├── 05_FOUNDATION_COMPONENT_TESTS.md
-│   │       │   ├── 06_END_TO_END_PIPELINE_TESTS.md
-│   │       │   ├── 07_PAPER_TRADING_PARITY_TASKS.md
-│   │       │   ├── 08_FAILURE_INJECTION_TASKS.md
-│   │       │   ├── 09_NON_INTERFERENCE_TESTS.md
-│   │       │   ├── 10_REPORT_GENERATION_AND_EVIDENCE.md
-│   │       │   ├── 11_MANDATORY_VERIFICATION_COMMANDS.md
-│   │       │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │       │   ├── 01_REALITY_VERIFICATION.md
+│   │       │   ├── 02_GAP_ANALYSIS.md
+│   │       │   ├── 03_IMPLEMENTATION_TASKS.md
+│   │       │   ├── 04_TEST_AND_VERIFICATION_PLAN.md
+│   │       │   ├── 05_MANDATORY_VERIFICATION_COMMANDS.md
+│   │       │   ├── 06_SUCCESS_CRITERIA.md
+│   │       │   ├── 07_AUDIT_APPEND_ONLY_RULES.md
+│   │       │   ├── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │       │   └── README.md
 │   │       └── governance
 │   │           ├── 00_READ_ORDER.md
-│   │           ├── 01_EPOCH_OVERVIEW.md
-│   │           ├── 02_AUTHORITY_SCOPE_AND_DEPENDENCIES.md
-│   │           ├── 03_DEFINITION_OF_TRADING_READY.md
-│   │           ├── 04_CERTIFICATION_MODEL_PASS_FAIL.md
-│   │           ├── 05_VERIFICATION_MATRIX_BY_MODE.md
-│   │           ├── 06_END_TO_END_HARNESS_ARCHITECTURE.md
-│   │           ├── 07_SYNTHETIC_SCENARIO_LIBRARY.md
-│   │           ├── 08_PAPER_TRADING_PARITY_REQUIREMENTS.md
-│   │           ├── 09_FAILURE_INJECTION_AND_RECOVERY_DRILLS.md
-│   │           ├── 10_NON_INTERFERENCE_AND_SAFETY_GUARANTEES.md
-│   │           ├── 11_REQUIRED_ARTIFACTS_AND_REPORTS.md
-│   │           └── 12_GOVERNANCE_LOCKS_AND_AMENDMENT_POLICY.md
+│   │           ├── 01_CONTEXT_AND_PROBLEM_STATEMENT.md
+│   │           ├── 02_INTENT_AND_SCOPE.md
+│   │           ├── 03_ARCHITECTURE_AND_COMPONENTS.md
+│   │           ├── 04_CANONICAL_CONTRACTS.md
+│   │           ├── 05_INVARIANTS_AND_FAILURE_MODES.md
+│   │           ├── 06_VERIFICATION_AND_CERTIFICATION.md
+│   │           ├── 07_AUDIT_EVIDENCE_SPEC.md
+│   │           ├── 08_MIGRATION_AND_COMPATIBILITY.md
+│   │           ├── 99_GLOSSARY_AND_APPENDICES.md
+│   │           └── README.md
 │   ├── 02_METADATA_EPOCHS
 │   │   ├── 00_M0_CANON_AND_SOURCES_OF_TRUTH
 │   │   │   ├── codex_instructions
@@ -1293,16 +1448,20 @@ ibkr-trading-system/
 │   │   │   │   ├── 02_IMPLEMENTATION_TASKS.md
 │   │   │   │   ├── 03_VERIFICATION_AND_PROOF.md
 │   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
-│   │   │   └── governance
-│   │   │       ├── 00_READ_ORDER.md
-│   │   │       ├── 01_ARCHITECTURAL_INTENT.md
-│   │   │       ├── 02_SYSTEM_COMPONENT_MAP.md
-│   │   │       ├── 03_DATA_FLOW_AND_AUTHORITY.md
-│   │   │       ├── 04_BOUNDARIES_AND_NON_GOALS.md
-│   │   │       ├── 05_ENFORCED_INVARIANTS.md
-│   │   │       ├── 06_EXPECTED_ARTIFACTS.md
-│   │   │       ├── 07_VERIFICATION_COMMANDS.md
-│   │   │       └── 08_AUDIT_REPORT.md
+│   │   │   ├── governance
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_ARCHITECTURAL_INTENT.md
+│   │   │   │   ├── 02_SYSTEM_COMPONENT_MAP.md
+│   │   │   │   ├── 03_DATA_FLOW_AND_AUTHORITY.md
+│   │   │   │   ├── 04_BOUNDARIES_AND_NON_GOALS.md
+│   │   │   │   ├── 05_ENFORCED_INVARIANTS.md
+│   │   │   │   ├── 06_EXPECTED_ARTIFACTS.md
+│   │   │   │   ├── 07_VERIFICATION_COMMANDS.md
+│   │   │   │   └── 08_AUDIT_REPORT.md
+│   │   │   ├── ARCHITECTURE_MAP.md
+│   │   │   ├── AUTHORITY_BOUNDARIES.md
+│   │   │   ├── CERTIFICATION_VERDICT.md
+│   │   │   └── DATA_FLOW_MAP.md
 │   │   ├── 02_M2_CONTRACT_REGISTRY
 │   │   │   ├── codex_instructions
 │   │   │   │   ├── 00_READ_ORDER.md
@@ -1310,16 +1469,17 @@ ibkr-trading-system/
 │   │   │   │   ├── 02_IMPLEMENTATION_TASKS.md
 │   │   │   │   ├── 03_VERIFICATION_AND_PROOF.md
 │   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
-│   │   │   └── governance
-│   │   │       ├── 00_READ_ORDER.md
-│   │   │       ├── 01_ARCHITECTURAL_INTENT.md
-│   │   │       ├── 02_CONTRACT_SCOPE_AND_TYPES.md
-│   │   │       ├── 03_CANONICAL_CONTRACT_REGISTRY.md
-│   │   │       ├── 04_CONTRACT_VERSIONING_RULES.md
-│   │   │       ├── 05_ENFORCED_INVARIANTS.md
-│   │   │       ├── 06_EXPECTED_ARTIFACTS.md
-│   │   │       ├── 07_VERIFICATION_COMMANDS.md
-│   │   │       └── 08_AUDIT_REPORT.md
+│   │   │   ├── governance
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_ARCHITECTURAL_INTENT.md
+│   │   │   │   ├── 02_CONTRACT_SCOPE_AND_TYPES.md
+│   │   │   │   ├── 03_CANONICAL_CONTRACT_REGISTRY.md
+│   │   │   │   ├── 04_CONTRACT_VERSIONING_RULES.md
+│   │   │   │   ├── 05_ENFORCED_INVARIANTS.md
+│   │   │   │   ├── 06_EXPECTED_ARTIFACTS.md
+│   │   │   │   ├── 07_VERIFICATION_COMMANDS.md
+│   │   │   │   └── 08_AUDIT_REPORT.md
+│   │   │   └── contract_registry.json
 │   │   ├── 03_M3_MODE_SEMANTICS_CERTIFICATION
 │   │   │   ├── codex_instructions
 │   │   │   │   ├── 00_READ_ORDER.md
@@ -1450,7 +1610,8 @@ ibkr-trading-system/
 │   │   │       ├── 17_REGISTRY_ARTIFACTS.md
 │   │   │       ├── 18_ENFORCED_INVARIANTS.md
 │   │   │       ├── 19_VERIFICATION_COMMANDS.md
-│   │   │       └── 20_AUDIT_REPORT.md
+│   │   │       ├── 20_AUDIT_REPORT.md
+│   │   │       └── SIGNAL_SEMANTICS_REGISTRY.json
 │   │   └── 10_M10_DATA_PROVENANCE_LEDGER
 │   │       ├── codex_instructions
 │   │       │   ├── 00_READ_ORDER.md
@@ -1709,9 +1870,220 @@ ibkr-trading-system/
 │   │   │       └── STRATEGY_GOVERNANCE.md
 │   │   ├── 00_CODEX_MASTER_SPRINT.md
 │   │   └── 00_READ_FIRST_GLOBAL.md
+│   ├── AUDIT_EVIDENCE
+│   │   ├── BLOCKER_01
+│   │   │   ├── compileall.txt
+│   │   │   ├── pytest.txt
+│   │   │   └── SCAN_REQUEST_VALIDATION_SUMMARY.md
+│   │   ├── BLOCKER_02
+│   │   │   ├── compileall.txt
+│   │   │   ├── E7_MODE_PARITY_AUDIT.md
+│   │   │   └── pytest.txt
+│   │   ├── EPOCH_00
+│   │   │   └── certification_verdict.json
+│   │   ├── EPOCH_01
+│   │   │   └── certification_verdict.json
+│   │   ├── EPOCH_02
+│   │   │   └── certification_verdict.json
+│   │   ├── EPOCH_03
+│   │   │   └── certification_verdict.json
+│   │   ├── EPOCH_04
+│   │   │   └── certification_verdict.json
+│   │   ├── EPOCH_05
+│   │   │   └── certification_verdict.json
+│   │   ├── EPOCH_08
+│   │   │   ├── compileall.txt
+│   │   │   ├── EPOCH_08_E8_REGIME_AND_MICROSTRUCTURE_LAYER.md
+│   │   │   └── pytest.txt
+│   │   ├── EPOCH_09
+│   │   │   ├── compileall.txt
+│   │   │   ├── EPOCH_09_E9_PERFORMANCE_ANALYTICS.md
+│   │   │   └── pytest.txt
+│   │   ├── EPOCH_10
+│   │   │   ├── compileall.txt
+│   │   │   ├── EPOCH_10_E10_CAPITAL_ALLOCATION.md
+│   │   │   └── pytest.txt
+│   │   ├── EPOCH_11
+│   │   │   ├── compileall.txt
+│   │   │   ├── EPOCH_11_E11_LEARNING_SYSTEM.md
+│   │   │   └── pytest.txt
+│   │   ├── EPOCH_12
+│   │   │   ├── compileall_src.txt
+│   │   │   ├── EPOCH_12_E12_RECOVERY_AND_HOUSEKEEPING.md
+│   │   │   └── pytest.txt
+│   │   ├── EPOCH_13
+│   │   │   ├── compileall_src.txt
+│   │   │   ├── EPOCH_13_E13_STRATEGY_FACTORY_STANDARD.md
+│   │   │   └── pytest.txt
+│   │   ├── EPOCH_14
+│   │   │   ├── compileall.txt
+│   │   │   ├── EPOCH_14_E14_DECISION_ARTIFACTS.md
+│   │   │   └── pytest.txt
+│   │   ├── EPOCH_15
+│   │   │   ├── compileall.txt
+│   │   │   ├── EPOCH_15_E15_FAILURE_MODES.md
+│   │   │   └── pytest.txt
+│   │   ├── EPOCH_16
+│   │   │   ├── compileall.txt
+│   │   │   ├── EPOCH_16_E16_NO_TRADE_CONTEXTS.md
+│   │   │   └── pytest.txt
+│   │   ├── EPOCH_17
+│   │   │   ├── compileall.txt
+│   │   │   ├── EPOCH_17_E17_STRATEGY_INTERACTION_RULES.md
+│   │   │   └── pytest.txt
+│   │   ├── EPOCH_18
+│   │   │   ├── compileall.txt
+│   │   │   ├── EPOCH_18_E18_STRATEGY_FOUNDATION_LAYER.md
+│   │   │   └── pytest.txt
+│   │   ├── EPOCH_19
+│   │   │   ├── compileall.txt
+│   │   │   ├── EPOCH_19_E19_STRATEGY_INTERFACE_AND_CERTIFICATION.md
+│   │   │   └── pytest.txt
+│   │   ├── EPOCH_20
+│   │   │   ├── compileall.txt
+│   │   │   ├── E20_FOUNDATION_REGISTRY_AUDIT_REPORT.md
+│   │   │   ├── EPOCH_20_E20_STRATEGY_FOUNDATION_COMPLETION.md
+│   │   │   ├── pytest.txt
+│   │   │   └── pytest_full.txt
+│   │   ├── EPOCH_21
+│   │   │   ├── E21_E2E_RUN_LOGS
+│   │   │   │   └── .gitkeep
+│   │   │   ├── compileall.txt
+│   │   │   ├── E21_CERTIFICATION_REPORT.md
+│   │   │   ├── E21_EVIDENCE_INDEX.json
+│   │   │   ├── E21_FAILURE_DRILLS_REPORT.md
+│   │   │   ├── E21_MODE_PARITY_MATRIX.md
+│   │   │   ├── E21_NON_INTERFERENCE_PROOF.md
+│   │   │   ├── E21_SCENARIO_COVERAGE.md
+│   │   │   ├── EPOCH_21_E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION.md
+│   │   │   ├── harness_report.json
+│   │   │   ├── harness_report.md
+│   │   │   ├── harness_run.txt
+│   │   │   ├── pytest.txt
+│   │   │   └── pytest_full.txt
+│   │   ├── M0_CANON_AND_SOURCES_OF_TRUTH
+│   │   │   ├── canonical_registry.json
+│   │   │   ├── certification_verdict.json
+│   │   │   ├── compileall.txt
+│   │   │   ├── conflict_detection_report.json
+│   │   │   ├── M0_CERTIFICATION_REPORT.md
+│   │   │   ├── M0_EVIDENCE_INDEX.json
+│   │   │   ├── M0_VERIFICATION_SUMMARY.md
+│   │   │   ├── naming_validation_report.json
+│   │   │   ├── pytest.txt
+│   │   │   └── pytest_full.txt
+│   │   ├── M10_DATA_PROVENANCE_LEDGER
+│   │   │   ├── certification_verdict.json
+│   │   │   ├── compileall.txt
+│   │   │   ├── M10_EVIDENCE_INDEX.json
+│   │   │   ├── PR_VERIFICATION_REPORT.md
+│   │   │   ├── pytest_full.txt
+│   │   │   ├── verification_output.json
+│   │   │   └── verification_summary.md
+│   │   ├── M1_ARCHITECTURE_MAP
+│   │   │   ├── certification_verdict.json
+│   │   │   ├── M1_ARCHITECTURE_MAP_EVIDENCE_INDEX.json
+│   │   │   ├── verification_commands.md
+│   │   │   ├── verification_output.json
+│   │   │   └── verification_summary.md
+│   │   ├── M2_CONTRACT_REGISTRY
+│   │   │   ├── certification_verdict.json
+│   │   │   ├── compileall.txt
+│   │   │   ├── contract_registry.json
+│   │   │   ├── M2_EVIDENCE_INDEX.json
+│   │   │   ├── pytest.txt
+│   │   │   ├── pytest_full.txt
+│   │   │   ├── verification_commands.md
+│   │   │   ├── verification_output.json
+│   │   │   └── verification_summary.md
+│   │   ├── M3_MODE_SEMANTICS_CERTIFICATION
+│   │   │   ├── certification_verdict.json
+│   │   │   ├── compileall.txt
+│   │   │   ├── M3_EVIDENCE_INDEX.json
+│   │   │   ├── pytest.txt
+│   │   │   ├── pytest_full.txt
+│   │   │   ├── verification_output.json
+│   │   │   └── verification_summary.md
+│   │   ├── M4_TRACEABILITY_SEMANTICS
+│   │   │   ├── certification_verdict.json
+│   │   │   ├── M4_EVIDENCE_INDEX.json
+│   │   │   ├── verification_output.json
+│   │   │   └── verification_summary.md
+│   │   ├── M5_VERIFICATION_AUTHORITY
+│   │   │   ├── certification_verdict.json
+│   │   │   ├── compileall.txt
+│   │   │   ├── M5_EVIDENCE_INDEX.json
+│   │   │   ├── pytest.txt
+│   │   │   ├── pytest_full.txt
+│   │   │   ├── verification_output.json
+│   │   │   └── verification_summary.md
+│   │   ├── M6_DATA_LIFECYCLE_GOVERNANCE
+│   │   │   ├── certification_verdict.json
+│   │   │   ├── compileall.txt
+│   │   │   ├── M6_EVIDENCE_INDEX.json
+│   │   │   ├── pytest.txt
+│   │   │   ├── pytest_full.txt
+│   │   │   ├── verification_output.json
+│   │   │   └── verification_summary.md
+│   │   ├── M7_EPOCH_AUDIT_CERTIFICATION
+│   │   │   ├── certification_verdict.json
+│   │   │   ├── M7_EVIDENCE_INDEX.json
+│   │   │   ├── verification_output.json
+│   │   │   └── verification_summary.md
+│   │   ├── M8_CHANGE_CONTROL
+│   │   │   ├── certification_verdict.json
+│   │   │   ├── compileall.txt
+│   │   │   ├── m7_verifier_output.json
+│   │   │   ├── M8_EVIDENCE_INDEX.json
+│   │   │   ├── m8_verifier_output.json
+│   │   │   ├── pytest_full.txt
+│   │   │   ├── verification_output.json
+│   │   │   └── verification_summary.md
+│   │   ├── M9_SIGNAL_SEMANTICS_REGISTRY
+│   │   │   ├── certification_verdict.json
+│   │   │   ├── compileall.txt
+│   │   │   ├── M9_EVIDENCE_INDEX.json
+│   │   │   ├── pytest_full.txt
+│   │   │   ├── verification_output.json
+│   │   │   └── verification_summary.md
+│   │   └── SYSTEM_INTEGRITY_AND_CAPABILITY_REPORT
+│   │       ├── boot_LIVE.txt
+│   │       ├── boot_PAPER.txt
+│   │       ├── boot_READ_ONLY.txt
+│   │       ├── boot_READ_ONLY_statistical_intraday_momentum.txt
+│   │       ├── boot_SIM.txt
+│   │       ├── boot_SIM_statistical_intraday_momentum.txt
+│   │       ├── capability_report.json
+│   │       ├── capability_report.md
+│   │       ├── certification_verdict.json
+│   │       ├── compileall.txt
+│   │       ├── EVIDENCE_INDEX.json
+│   │       ├── integrity_report.json
+│   │       ├── integrity_report.md
+│   │       ├── pytest_full.txt
+│   │       ├── verify_m10.txt
+│   │       ├── verify_m7.txt
+│   │       ├── verify_m8.txt
+│   │       └── verify_m9.txt
+│   ├── CONTRACTS
+│   │   ├── RISK_PERMISSION_GATING_CONTRACT.md
+│   │   ├── SCANNER_TO_STRATEGY_CONTRACT.md
+│   │   └── STRATEGY_TO_EXECUTION_INTENT_CONTRACT.md
+│   ├── CAPABILITY_CROSSWALK.md
+│   ├── CAPABILITY_CROSSWALK_DERIVED.md
+│   ├── CERTIFICATION_PROGRAMME_STATUS.md
 │   ├── CODEX_GLOBAL_EXECUTION_INSTRUCTIONS.md
+│   ├── PROGRAMME_EXECUTION_PLAN.md
+│   ├── PROGRAMME_REALIGNMENT_AND_CONTINUITY_PLAN.md
+│   ├── REALITY_MAP.md
+│   ├── STATUS.md
 │   ├── SYSTEM_CONSTITUTION.md
-│   └── SYSTEM_STATE.md
+│   ├── SYSTEM_CONSTITUTION_CERTIFIED.md
+│   ├── SYSTEM_STATE.md
+│   ├── SYSTEM_STATE_CERTIFIED.md
+│   ├── TRUTH_SOURCE_REGISTRY.md
+│   ├── VERIFICATION_RUNBOOK.md
+│   └── VERIFICATION_SUMMARY.md
 ├── troubleshooting
 │   ├── backup
 │   │   ├── troubleshooting
@@ -1750,14 +2122,24 @@ ibkr-trading-system/
 │   ├── RUN_SIM.ps1
 │   └── VERIFY_STATIC.ps1
 ├── verification_scripts
-│   ├── logs
 │   ├── __init__.py
 │   ├── run_first.py
+│   ├── system_integrity_and_capability_report.py
 │   ├── verify_all.py
+│   ├── verify_all_epochs.py
 │   ├── verify_db.py
 │   ├── verify_db_readiness.py
 │   ├── verify_focus_injection.py
 │   ├── verify_ibkr_spot_check.py
+│   ├── verify_m10_data_provenance_ledger.py
+│   ├── verify_m1_architecture_map.py
+│   ├── verify_m2_contract_registry.py
+│   ├── verify_m3_mode_semantics.py
+│   ├── verify_m5_verification_authority.py
+│   ├── verify_m6_data_lifecycle_governance.py
+│   ├── verify_m7_epoch_audit_and_certification.py
+│   ├── verify_m8_change_control.py
+│   ├── verify_m9_signal_semantics_registry.py
 │   ├── verify_paper_execution_harness.py
 │   ├── verify_paper_trade_lifecycle.py
 │   ├── verify_runtime_wiring.py
