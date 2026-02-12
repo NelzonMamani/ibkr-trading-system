@@ -1,0 +1,7 @@
+{
+  "epoch": "M10_DATA_PROVENANCE_LEDGER",
+  "generated_at_utc": "2026-02-12T02:03:40.204908+00:00",
+  "sample_ledger": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M10_DATA_PROVENANCE_LEDGER/sample_data_provenance_ledger.jsonl",
+  "valid": true,
+  "violations": []
+}

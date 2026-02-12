@@ -1,0 +1,15 @@
+{
+  "epoch": "M10_DATA_PROVENANCE_LEDGER",
+  "verdict": "CERTIFIED",
+  "date_utc": "2026-02-12",
+  "reasons": [],
+  "evidence": [
+    "verification_output.json",
+    "verification_summary.md",
+    "compileall.txt",
+    "pytest_full.txt",
+    "M10_EVIDENCE_INDEX.json",
+    "sample_data_provenance_ledger.jsonl",
+    "certification_verdict.json"
+  ]
+}
