@@ -6,13 +6,13 @@
       "file": "certification_verdict.json"
     },
     {
-      "bytes": 1354,
+      "bytes": 2912,
       "file": "verification_output.json"
     },
     {
-      "bytes": 268,
+      "bytes": 496,
       "file": "verification_summary.md"
     }
   ],
-  "generated_at_utc": "2026-02-11T23:59:44Z"
+  "generated_at_utc": "2026-02-12T03:02:45Z"
 }

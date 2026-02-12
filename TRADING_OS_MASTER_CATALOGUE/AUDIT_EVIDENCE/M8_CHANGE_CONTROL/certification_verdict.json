@@ -1,0 +1,15 @@
+{
+  "epoch": "M8_CHANGE_CONTROL",
+  "verdict": "CERTIFIED",
+  "date_utc": "2026-02-12",
+  "reasons": [],
+  "evidence": [
+    "verification_output.json",
+    "verification_summary.md",
+    "compileall.txt",
+    "pytest_full.txt",
+    "m7_verifier_output.json",
+    "m8_verifier_output.json",
+    "M8_EVIDENCE_INDEX.json"
+  ]
+}

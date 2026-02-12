@@ -11,6 +11,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+from src.metadata.m0_canon_helpers import update_system_state_statuses
 from src.metadata.m7_epoch_audit_certifier import (
     EVIDENCE_DIR_REL,
     STATE_FILE_REL,
@@ -40,17 +41,7 @@ def _update_m7_state_if_certified(repo_root: Path, certified: bool) -> None:
     if not certified:
         return
     state_file = repo_root / STATE_FILE_REL
-    if not state_file.exists():
-        return
-    lines = state_file.read_text(encoding="utf-8").splitlines()
-    updated = []
-    pattern = "- M7_EPOCH_AUDIT_CERTIFICATION:"
-    for line in lines:
-        if line.strip().startswith(pattern):
-            updated.append("- M7_EPOCH_AUDIT_CERTIFICATION: CERTIFIED")
-        else:
-            updated.append(line)
-    state_file.write_text("\n".join(updated) + "\n", encoding="utf-8")
+    update_system_state_statuses(state_file, {"M7_EPOCH_AUDIT_CERTIFICATION": "CERTIFIED"})
 
 
 def main() -> int:

@@ -99,3 +99,38 @@ def test_valid_scenario_passes_clean(tmp_path: Path) -> None:
 
     assert result["valid"]
     assert result["violations"] == []
+
+
+def test_core_epochs_ignored_by_default_for_legacy_drift(tmp_path: Path) -> None:
+    _write_state(tmp_path, _state_lines("- E0_SYSTEM_LAW_TRUTH: CERTIFIED"))
+
+    result = verify_m8_change_control(tmp_path)
+
+    assert result["valid"]
+    assert result["audited_state_certified_epochs"] == []
+
+
+def test_include_core_detects_missing_core_evidence_directory(tmp_path: Path) -> None:
+    _write_state(tmp_path, _state_lines("- E0_SYSTEM_LAW_TRUTH: CERTIFIED"))
+
+    result = verify_m8_change_control(tmp_path, include_core=True)
+
+    assert not result["valid"]
+    assert any(v["actual"].startswith("missing:E0_SYSTEM_LAW_TRUTH") for v in result["violations"])
+
+
+def test_m8_violations_sorted_deterministically(tmp_path: Path) -> None:
+    _write_state(
+        tmp_path,
+        _state_lines(
+            "- M2_CONTRACT_REGISTRY: CERTIFIED",
+            "- M1_ARCHITECTURE_MAP: CERTIFIED",
+        ),
+    )
+
+    result = verify_m8_change_control(tmp_path)
+
+    assert result["violations"] == sorted(
+        result["violations"],
+        key=lambda v: (v["check"], v["actual"], v["expected"]),
+    )

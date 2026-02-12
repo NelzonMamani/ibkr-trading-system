@@ -1,8 +1,8 @@
 {
-  "epoch": "M9_SIGNAL_SEMANTICS_REGISTRY",
+  "epoch": "M8_CHANGE_CONTROL",
   "files": [
     {
-      "bytes": 309,
+      "bytes": 326,
       "file": "certification_verdict.json"
     },
     {
@@ -10,17 +10,25 @@
       "file": "compileall.txt"
     },
     {
+      "bytes": 2352,
+      "file": "m7_verifier_output.json"
+    },
+    {
+      "bytes": 1638,
+      "file": "m8_verifier_output.json"
+    },
+    {
       "bytes": 1852,
       "file": "pytest_full.txt"
     },
     {
-      "bytes": 283,
+      "bytes": 1755,
       "file": "verification_output.json"
     },
     {
-      "bytes": 208,
+      "bytes": 90,
       "file": "verification_summary.md"
     }
   ],
-  "generated_at_utc": "2026-02-12T03:04:36Z"
+  "generated_at_utc": "2026-02-12T03:03:41Z"
 }

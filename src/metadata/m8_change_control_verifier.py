@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,6 +28,17 @@ def _record(violations: list[dict], violation: ChangeControlViolation) -> None:
             "expected": violation.expected,
             "actual": violation.actual,
         }
+    )
+
+
+def _sorted_violations(violations: list[dict]) -> list[dict]:
+    return sorted(
+        violations,
+        key=lambda item: (
+            str(item.get("check", "")),
+            str(item.get("actual", "")),
+            str(item.get("expected", "")),
+        ),
     )
 
 
@@ -115,14 +127,16 @@ def _discover_certified_epochs_from_verdicts(repo_root: Path) -> set[str]:
     return discovered
 
 
-def verify_m8_change_control(repo_root: Path | None = None) -> dict:
+def verify_m8_change_control(repo_root: Path | None = None, include_core: bool = False) -> dict:
     repo_root = get_repo_root(repo_root)
     violations: list[dict] = []
 
     state_certified = _state_certified_epochs(repo_root)
     evidence_certified = _discover_certified_epochs_from_verdicts(repo_root)
 
-    audited_epochs = sorted(state_certified)
+    audited_epochs = sorted(
+        epoch for epoch in state_certified if include_core or epoch.startswith("M")
+    )
     for epoch in audited_epochs:
         evidence_dir = _epoch_to_evidence_dir(repo_root, epoch)
         if not evidence_dir.exists():
@@ -180,10 +194,13 @@ def verify_m8_change_control(repo_root: Path | None = None) -> dict:
             ),
         )
 
+    sorted_violations = _sorted_violations(violations)
+
     return {
         "epoch": EPOCH,
-        "valid": not violations,
-        "violations": violations,
+        "valid": not sorted_violations,
+        "violations": sorted_violations,
+        "include_core": include_core,
         "audited_state_certified_epochs": audited_epochs,
         "evidence_certified_epochs": sorted(evidence_certified),
         "evidence_paths": sorted(
@@ -204,6 +221,7 @@ def build_evidence_index(files: list[Path]) -> dict:
             }
             for path in sorted(files, key=lambda p: p.name)
         ],
+        "generated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
 

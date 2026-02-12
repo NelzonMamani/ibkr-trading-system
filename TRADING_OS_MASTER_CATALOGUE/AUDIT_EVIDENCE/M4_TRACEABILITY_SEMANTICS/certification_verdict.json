@@ -1,0 +1,11 @@
+{
+  "epoch": "M4_TRACEABILITY_SEMANTICS",
+  "verdict": "CERTIFIED",
+  "date_utc": "2026-02-12",
+  "reasons": [],
+  "evidence": [
+    "verification_output.json",
+    "verification_summary.md",
+    "M4_EVIDENCE_INDEX.json"
+  ]
+}
