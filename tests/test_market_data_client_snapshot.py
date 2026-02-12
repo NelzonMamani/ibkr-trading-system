@@ -39,6 +39,10 @@ class DummyIB:
         self.qualified = True
         return [contract]
 
+
+    async def connectAsync(self, host, port, clientId, timeout=5):  # noqa: N802 - IBKR naming
+        return True
+
     def run(self, awaitable):
         return asyncio.run(awaitable)
 

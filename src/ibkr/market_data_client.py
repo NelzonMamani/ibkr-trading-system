@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import asyncio
 import math
 import time
 from typing import Optional
@@ -117,7 +118,32 @@ class MarketDataClient:
             "[IBKR][MD] Connecting "
             f"host={self.host} port={self.port} client_id={self.client_id}"
         )
-        if not self.ib.connect(self.host, self.port, clientId=self.client_id, timeout=5):
+        async def _connect() -> bool:
+            return await self.ib.connectAsync(
+                self.host,
+                self.port,
+                clientId=self.client_id,
+                timeout=5,
+            )
+
+        runner = getattr(self.ib, "run", None)
+        connect_coro = _connect()
+        timed_coro = asyncio.wait_for(connect_coro, timeout=5)
+        try:
+            if callable(runner):
+                connected = runner(timed_coro)
+            else:
+                connected = asyncio.run(timed_coro)
+        except Exception:
+            timed_coro.close()
+            connect_coro.close()
+            raise
+        finally:
+            if hasattr(timed_coro, "close"):
+                timed_coro.close()
+            if hasattr(connect_coro, "close"):
+                connect_coro.close()
+        if not connected:
             raise RuntimeError("IBKR market data connection failed")
         server_version = None
         try:

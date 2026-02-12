@@ -15,6 +15,9 @@ class DummyClient:
 
 
 class DummyIB:
+    async def connectAsync(self, host, port, clientId, timeout=5):  # noqa: N802 - IBKR naming
+        return True
+
     def __init__(self) -> None:
         self.client = DummyClient()
 

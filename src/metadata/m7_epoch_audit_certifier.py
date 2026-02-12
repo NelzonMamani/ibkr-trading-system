@@ -333,11 +333,14 @@ def build_evidence_index(files: list[Path]) -> dict:
 
 
 def write_summary(result: dict, output_md: Path) -> None:
+    include_core = bool(result.get("include_core"))
+    scope_note = "metadata + core" if include_core else "metadata-only"
     lines = [
         "# M7 Epoch Audit & Certification Summary",
         "",
         f"- Valid: {result.get('valid')}",
-        f"- Include core: {result.get('include_core')}",
+        f"- Include core: {include_core}",
+        f"- Scope mode: {scope_note}",
         f"- Audited epochs: {', '.join(result.get('audited_epochs', [])) or 'none'}",
         f"- Violations: {len(result.get('violations', []))}",
     ]

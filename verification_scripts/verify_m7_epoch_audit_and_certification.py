@@ -47,7 +47,7 @@ def _update_m7_state_if_certified(repo_root: Path, certified: bool) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify M7 epoch audit and certification")
     parser.add_argument("--allow-overwrite", action="store_true")
-    parser.add_argument("--include-core", action="store_true", default=False)
+    parser.add_argument("--metadata-only", action="store_true", default=False)
     args = parser.parse_args()
 
     evidence_dir = REPO_ROOT / EVIDENCE_DIR_REL
@@ -69,19 +69,18 @@ def main() -> int:
     output_md = evidence_dir / "verification_summary.md"
     evidence_index_json = evidence_dir / "M7_EVIDENCE_INDEX.json"
 
-    result = verify_m7_epoch_audit_and_certification(include_core=args.include_core)
+    include_core = not args.metadata_only
+    result = verify_m7_epoch_audit_and_certification(include_core=include_core)
     write_outputs(result, output_json, output_md, evidence_index_json)
 
-    if not args.include_core:
-        certified = bool(result.get("valid"))
-        reasons = [] if certified else [f"{v['check']}:{v['actual']}" for v in result.get("violations", [])]
-        _write_verdict(evidence_dir, result["epoch"], certified=certified, reasons=reasons)
+    certified = bool(result.get("valid"))
+    reasons = [] if certified else [f"{v['check']}:{v['actual']}" for v in result.get("violations", [])]
+    _write_verdict(evidence_dir, result["epoch"], certified=certified, reasons=reasons)
 
-    final_result = verify_m7_epoch_audit_and_certification(include_core=args.include_core)
+    final_result = verify_m7_epoch_audit_and_certification(include_core=include_core)
     write_outputs(final_result, output_json, output_md, evidence_index_json)
 
-    if not args.include_core:
-        _update_m7_state_if_certified(REPO_ROOT, certified=bool(final_result.get("valid")))
+    _update_m7_state_if_certified(REPO_ROOT, certified=bool(final_result.get("valid")))
 
     print(json.dumps(final_result, indent=2))
     return 0 if final_result.get("valid") else 1
