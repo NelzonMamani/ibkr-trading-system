@@ -1,0 +1,14 @@
+{
+  "epoch": "M9_SIGNAL_SEMANTICS_REGISTRY",
+  "verdict": "CERTIFIED",
+  "date_utc": "2026-02-12",
+  "reasons": [],
+  "evidence": [
+    "verification_output.json",
+    "verification_summary.md",
+    "compileall.txt",
+    "pytest_full.txt",
+    "M9_EVIDENCE_INDEX.json",
+    "certification_verdict.json"
+  ]
+}

@@ -1,0 +1,176 @@
+{
+  "epoch": "M9_SIGNAL_SEMANTICS_REGISTRY",
+  "version": "1.0.0",
+  "signals": [
+    {
+      "name": "HOD_BREAK",
+      "signal_type": "HOD_BREAK",
+      "signal_class": "S2_TRIGGER",
+      "timeframe": "1M",
+      "producer_strategies": ["GapAndGoStrategy", "Ross Momentum"],
+      "description": "Break above high-of-day with momentum confirmation.",
+      "payload_schema": {
+        "type": "object",
+        "required": ["symbol", "tick", "confidence"],
+        "properties": {
+          "symbol": {"type": "string"},
+          "tick": {"type": "integer"},
+          "confidence": {"type": "number"}
+        }
+      }
+    },
+    {
+      "name": "PREMARKET_HIGH_BREAK",
+      "signal_type": "PREMARKET_HIGH_BREAK",
+      "signal_class": "S2_TRIGGER",
+      "timeframe": "1M",
+      "producer_strategies": ["GapAndGoStrategy", "SignalEngineV1"],
+      "description": "Break above premarket session high.",
+      "payload_schema": {
+        "type": "object",
+        "required": ["symbol", "tick", "confidence"],
+        "properties": {
+          "symbol": {"type": "string"},
+          "tick": {"type": "integer"},
+          "confidence": {"type": "number"}
+        }
+      }
+    },
+    {
+      "name": "ORB_1M",
+      "signal_type": "ORB_1M",
+      "signal_class": "S2_TRIGGER",
+      "timeframe": "1M",
+      "producer_strategies": ["GapAndGoStrategy", "SignalEngineV1"],
+      "description": "One-minute opening-range breakout trigger.",
+      "payload_schema": {
+        "type": "object",
+        "required": ["symbol", "tick", "confidence"],
+        "properties": {
+          "symbol": {"type": "string"},
+          "tick": {"type": "integer"},
+          "confidence": {"type": "number"}
+        }
+      }
+    },
+    {
+      "name": "MICRO_PULLBACK",
+      "signal_type": "MICRO_PULLBACK",
+      "signal_class": "S3_CONDITION_ZONE",
+      "timeframe": "1M",
+      "producer_strategies": ["MomentumContinuationStrategy", "Ross Momentum"],
+      "description": "Shallow pullback in momentum continuation context.",
+      "payload_schema": {
+        "type": "object",
+        "required": ["symbol", "tick", "confidence"],
+        "properties": {
+          "symbol": {"type": "string"},
+          "tick": {"type": "integer"},
+          "confidence": {"type": "number"}
+        }
+      }
+    },
+    {
+      "name": "BULL_FLAG",
+      "signal_type": "BULL_FLAG",
+      "signal_class": "S3_CONDITION_ZONE",
+      "timeframe": "5M",
+      "producer_strategies": ["MomentumContinuationStrategy", "Ross Momentum"],
+      "description": "Bull flag continuation pattern confirmation.",
+      "payload_schema": {
+        "type": "object",
+        "required": ["symbol", "tick", "confidence"],
+        "properties": {
+          "symbol": {"type": "string"},
+          "tick": {"type": "integer"},
+          "confidence": {"type": "number"}
+        }
+      }
+    },
+    {
+      "name": "MOMO_BREAKOUT",
+      "signal_type": "MOMO_BREAKOUT",
+      "signal_class": "S2_TRIGGER",
+      "timeframe": "1M",
+      "producer_strategies": ["SignalEngineV1"],
+      "description": "Momentum breakout under medium-gap conditions.",
+      "payload_schema": {
+        "type": "object",
+        "required": ["symbol", "tick", "strength"],
+        "properties": {
+          "symbol": {"type": "string"},
+          "tick": {"type": "integer"},
+          "strength": {"type": "number"}
+        }
+      }
+    },
+    {
+      "name": "ORB_BREAK",
+      "signal_type": "ORB_BREAK",
+      "signal_class": "S2_TRIGGER",
+      "timeframe": "1M",
+      "producer_strategies": ["SignalEngineV1"],
+      "description": "Opening range breakout from deterministic v1 engine.",
+      "payload_schema": {
+        "type": "object",
+        "required": ["symbol", "tick", "strength"],
+        "properties": {
+          "symbol": {"type": "string"},
+          "tick": {"type": "integer"},
+          "strength": {"type": "number"}
+        }
+      }
+    },
+    {
+      "name": "VWAP_RECLAIM",
+      "signal_type": "VWAP_RECLAIM",
+      "signal_class": "S4_CONFIRMATION",
+      "timeframe": "1M",
+      "producer_strategies": ["SignalEngineV1"],
+      "description": "Price reclaims VWAP with supporting momentum patterns.",
+      "payload_schema": {
+        "type": "object",
+        "required": ["symbol", "tick", "strength"],
+        "properties": {
+          "symbol": {"type": "string"},
+          "tick": {"type": "integer"},
+          "strength": {"type": "number"}
+        }
+      }
+    },
+    {
+      "name": "FIRST_PULLBACK_LONG",
+      "signal_type": "FIRST_PULLBACK_LONG",
+      "signal_class": "S4_CONFIRMATION",
+      "timeframe": "1M",
+      "producer_strategies": ["SignalEngineV1"],
+      "description": "First pullback continuation signal after initial impulse.",
+      "payload_schema": {
+        "type": "object",
+        "required": ["symbol", "tick", "strength"],
+        "properties": {
+          "symbol": {"type": "string"},
+          "tick": {"type": "integer"},
+          "strength": {"type": "number"}
+        }
+      }
+    },
+    {
+      "name": "WEAKNESS",
+      "signal_type": "WEAKNESS",
+      "signal_class": "S5_RISK_CONTROL",
+      "timeframe": "1M",
+      "producer_strategies": ["SignalEngineV1"],
+      "description": "Weakness signal reserved for risk/control degradations.",
+      "payload_schema": {
+        "type": "object",
+        "required": ["symbol", "tick", "strength"],
+        "properties": {
+          "symbol": {"type": "string"},
+          "tick": {"type": "integer"},
+          "strength": {"type": "number"}
+        }
+      }
+    }
+  ]
+}
