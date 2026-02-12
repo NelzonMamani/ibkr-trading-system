@@ -146,27 +146,32 @@ class ExecutionEngine:
                 risk_decision,
                 rationale="LIVE_READ_ONLY_BLOCK",
             )
-        if self.run_mode not in {RunMode.PAPER, RunMode.LIVE, RunMode.READ_ONLY}:
+        if self.run_mode == RunMode.SIM:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale=f"RUN_MODE_BLOCK:{self.run_mode.value}",
             )
-        if not getattr(risk_decision, "decision_id", None):
+        if self.run_mode not in {RunMode.PAPER, RunMode.LIVE}:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
-                rationale=DECISION_ARTIFACT_MISSING,
+                rationale=f"RUN_MODE_BLOCK:{self.run_mode.value}",
             )
         if not self.execution_enabled:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="EXECUTION_DISABLED",
             )
+        if not getattr(risk_decision, "decision_id", None):
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale=DECISION_ARTIFACT_MISSING,
+            )
         if get_ibkr_readonly_enabled() and self.run_mode == RunMode.LIVE:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="BROKER_READONLY_BLOCK",
             )
-        if not getattr(risk_decision, "allowed", True):
+        if self.run_mode == RunMode.LIVE and not getattr(risk_decision, "allowed", True):
             return ExecutionResult(
                 symbol=risk_decision.symbol,
                 trader_type=risk_decision.trader_type,
