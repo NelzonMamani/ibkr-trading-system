@@ -9,6 +9,7 @@
     "compileall.txt",
     "pytest_full.txt",
     "M10_EVIDENCE_INDEX.json",
-    "certification_verdict.json"
+    "certification_verdict.json",
+    "PR_VERIFICATION_REPORT.md"
   ]
 }

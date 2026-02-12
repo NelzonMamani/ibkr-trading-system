@@ -11,7 +11,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from src.metadata.m0_canon_helpers import update_system_state_statuses
+from src.metadata.m0_canon_helpers import collect_certified_epoch_statuses, update_system_state_statuses
 from src.metadata.m7_epoch_audit_certifier import (
     EVIDENCE_DIR_REL,
     STATE_FILE_REL,
@@ -20,28 +20,33 @@ from src.metadata.m7_epoch_audit_certifier import (
 )
 
 
+def _stable_payload(payload: dict) -> dict:
+    return {k: v for k, v in payload.items() if k != "generated_at_utc"}
+
+
 def _write_verdict(evidence_dir: Path, epoch: str, certified: bool, reasons: list[str]) -> None:
     payload = {
         "epoch": epoch,
         "verdict": "CERTIFIED" if certified else "NOT_CERTIFIED",
         "date_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-        "reasons": reasons,
+        "reasons": sorted(set(reasons)),
         "evidence": [
             "verification_output.json",
             "verification_summary.md",
             "M7_EVIDENCE_INDEX.json",
+            "certification_verdict.json",
         ],
     }
-    (evidence_dir / "certification_verdict.json").write_text(
-        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
-    )
+    (evidence_dir / "certification_verdict.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _update_m7_state_if_certified(repo_root: Path, certified: bool) -> None:
-    if not certified:
-        return
+def _reconcile_system_state(repo_root: Path) -> None:
     state_file = repo_root / STATE_FILE_REL
-    update_system_state_statuses(state_file, {"M7_EPOCH_AUDIT_CERTIFICATION": "CERTIFIED"})
+    certified = collect_certified_epoch_statuses(repo_root)
+    updates = {epoch: "CERTIFIED" for epoch in ("M7_EPOCH_AUDIT_CERTIFICATION", "M8_CHANGE_CONTROL", "M9_SIGNAL_SEMANTICS_REGISTRY", "M10_DATA_PROVENANCE_LEDGER") if certified.get(epoch) == "CERTIFIED"}
+    if certified.get("M0_CANON") == "CERTIFIED":
+        updates["M0_CANON"] = "CERTIFIED"
+    update_system_state_statuses(state_file, updates)
 
 
 def main() -> int:
@@ -65,26 +70,38 @@ def main() -> int:
         print("Refusing overwrite without --allow-overwrite")
         return 2
 
+    first = verify_m7_epoch_audit_and_certification(include_core=args.include_core)
+    second = verify_m7_epoch_audit_and_certification(include_core=args.include_core)
+
+    status = 0
+    if _stable_payload(first) != _stable_payload(second):
+        status = 1
+        first = dict(first)
+        violations = list(first.get("violations", []))
+        violations.append(
+            {
+                "check": "M7_VERIFIER_SCRIPT_DETERMINISTIC_OUTPUT",
+                "expected": "stable_result",
+                "actual": "non_deterministic_output_detected",
+            }
+        )
+        first["violations"] = sorted(violations, key=lambda v: (v["check"], v["actual"], v["expected"]))
+        first["valid"] = False
+
     output_json = evidence_dir / "verification_output.json"
     output_md = evidence_dir / "verification_summary.md"
     evidence_index_json = evidence_dir / "M7_EVIDENCE_INDEX.json"
+    write_outputs(first, output_json, output_md, evidence_index_json)
 
-    result = verify_m7_epoch_audit_and_certification(include_core=args.include_core)
-    write_outputs(result, output_json, output_md, evidence_index_json)
+    certified = status == 0 and bool(first.get("valid"))
+    reasons = [] if certified else [f"{v['check']}:{v['actual']}" for v in first.get("violations", [])]
+    if not certified and status != 0:
+        reasons.append("execution_checks_failed")
+    _write_verdict(evidence_dir, first["epoch"], certified=certified, reasons=reasons)
+    _reconcile_system_state(REPO_ROOT)
 
-    if not args.include_core:
-        certified = bool(result.get("valid"))
-        reasons = [] if certified else [f"{v['check']}:{v['actual']}" for v in result.get("violations", [])]
-        _write_verdict(evidence_dir, result["epoch"], certified=certified, reasons=reasons)
-
-    final_result = verify_m7_epoch_audit_and_certification(include_core=args.include_core)
-    write_outputs(final_result, output_json, output_md, evidence_index_json)
-
-    if not args.include_core:
-        _update_m7_state_if_certified(REPO_ROOT, certified=bool(final_result.get("valid")))
-
-    print(json.dumps(final_result, indent=2))
-    return 0 if final_result.get("valid") else 1
+    print(json.dumps(first, indent=2))
+    return 0 if certified else 1
 
 
 if __name__ == "__main__":

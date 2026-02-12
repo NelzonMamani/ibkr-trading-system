@@ -2,11 +2,11 @@
   "epoch": "M10_DATA_PROVENANCE_LEDGER",
   "files": [
     {
-      "bytes": 642,
+      "bytes": 643,
       "file": "PR_VERIFICATION_REPORT.md"
     },
     {
-      "bytes": 308,
+      "bytes": 341,
       "file": "certification_verdict.json"
     },
     {
@@ -26,5 +26,5 @@
       "file": "verification_summary.md"
     }
   ],
-  "generated_at_utc": "2026-02-12T08:06:37Z"
+  "generated_at_utc": "2026-02-12T08:47:46Z"
 }

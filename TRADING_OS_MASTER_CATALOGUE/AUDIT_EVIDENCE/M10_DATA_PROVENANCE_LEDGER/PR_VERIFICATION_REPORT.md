@@ -11,7 +11,7 @@
 
 ## Cross-Verifier Results
 - M7: valid=`True` violations=`0`
-- M8: valid=`True` violations=`0`
+- M8: valid=`False` violations=`1`
 - M9: valid=`True` violations=`0`
 - M10: valid=`True` violations=`0`
 

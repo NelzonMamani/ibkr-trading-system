@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -12,10 +13,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from src.metadata.m0_canon_helpers import update_system_state_statuses
+from src.metadata.m0_canon_helpers import collect_certified_epoch_statuses, update_system_state_statuses, write_json
 from src.metadata.m7_epoch_audit_certifier import verify_m7_epoch_audit_and_certification
 from src.metadata.m8_change_control_verifier import verify_m8_change_control
-from src.metadata.m0_canon_helpers import write_json
 from src.metadata.m9_signal_semantics_registry_verifier import (
     EPOCH,
     EVIDENCE_DIR_REL,
@@ -26,9 +26,16 @@ from src.metadata.m9_signal_semantics_registry_verifier import (
 )
 
 
+def _normalize_output(command: list[str], text: str) -> str:
+    if "pytest" in command:
+        text = re.sub(r"in\s+\d+\.\d+s", "in <DURATION>", text)
+        text = re.sub(r"\(0:0\d:0\d\)", "(<ELAPSED>)", text)
+    return text
+
+
 def _run_to_file(command: list[str], output_path: Path) -> int:
     completed = subprocess.run(command, cwd=REPO_ROOT, text=True, capture_output=True, check=False)
-    rendered = [f"$ {' '.join(command)}", "", completed.stdout, completed.stderr]
+    rendered = [f"$ {' '.join(command)}", "", _normalize_output(command, completed.stdout), _normalize_output(command, completed.stderr)]
     output_path.write_text("\n".join(rendered).strip() + "\n", encoding="utf-8")
     return completed.returncode
 
@@ -42,7 +49,7 @@ def _write_verdict(evidence_dir: Path, certified: bool, reasons: list[str]) -> N
         "epoch": EPOCH,
         "verdict": "CERTIFIED" if certified else "NOT_CERTIFIED",
         "date_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-        "reasons": reasons,
+        "reasons": sorted(set(reasons)),
         "evidence": [
             "verification_output.json",
             "verification_summary.md",
@@ -55,11 +62,13 @@ def _write_verdict(evidence_dir: Path, certified: bool, reasons: list[str]) -> N
     (evidence_dir / "certification_verdict.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _update_system_state_if_certified(repo_root: Path, certified: bool) -> None:
-    if not certified:
-        return
+def _reconcile_system_state(repo_root: Path) -> None:
     state_file = repo_root / STATE_FILE_REL
-    update_system_state_statuses(state_file, {"M9_SIGNAL_SEMANTICS_REGISTRY": "CERTIFIED"})
+    certified = collect_certified_epoch_statuses(repo_root)
+    updates = {epoch: "CERTIFIED" for epoch in ("M7_EPOCH_AUDIT_CERTIFICATION", "M8_CHANGE_CONTROL", "M9_SIGNAL_SEMANTICS_REGISTRY", "M10_DATA_PROVENANCE_LEDGER") if certified.get(epoch) == "CERTIFIED"}
+    if certified.get("M0_CANON") == "CERTIFIED":
+        updates["M0_CANON"] = "CERTIFIED"
+    update_system_state_statuses(state_file, updates)
 
 
 def main() -> int:
@@ -82,20 +91,15 @@ def main() -> int:
         print("Refusing overwrite without --allow-overwrite")
         return 2
 
-    status = 0
-    status |= _run_to_file(
-        [sys.executable, "-m", "compileall", "-q", "src", "tests", "verification_scripts"],
-        evidence_dir / "compileall.txt",
-    )
-    status |= _run_to_file([sys.executable, "-m", "pytest", "-q"], evidence_dir / "pytest_full.txt")
+    compileall_rc = _run_to_file([sys.executable, "-m", "compileall", "-q", "src", "tests", "verification_scripts"], evidence_dir / "compileall.txt")
+    pytest_rc = _run_to_file([sys.executable, "-m", "pytest", "-q"], evidence_dir / "pytest_full.txt")
 
-    m9_result = verify_m9_signal_semantics_registry()
-    second_pass = verify_m9_signal_semantics_registry()
-    if {k: v for k, v in m9_result.items() if k != "generated_at_utc"} != {
-        k: v for k, v in second_pass.items() if k != "generated_at_utc"
-    }:
+    first = verify_m9_signal_semantics_registry()
+    second = verify_m9_signal_semantics_registry()
+    status = 0
+    if _stable_payload(first) != _stable_payload(second):
         status |= 1
-        violations = list(m9_result.get("violations", []))
+        violations = list(first.get("violations", []))
         violations.append(
             {
                 "check": "M9_VERIFIER_SCRIPT_DETERMINISTIC_OUTPUT",
@@ -103,16 +107,15 @@ def main() -> int:
                 "actual": "non_deterministic_output_detected",
             }
         )
-        m9_result = dict(m9_result)
-        m9_result["violations"] = sorted(violations, key=lambda v: (v["check"], v["actual"], v["expected"]))
-        m9_result["valid"] = False
+        first = dict(first)
+        first["violations"] = sorted(violations, key=lambda v: (v["check"], v["actual"], v["expected"]))
+        first["valid"] = False
 
     output_json = evidence_dir / "verification_output.json"
     output_md = evidence_dir / "verification_summary.md"
     evidence_index_json = evidence_dir / "M9_EVIDENCE_INDEX.json"
-    write_outputs(m9_result, output_json, output_md, evidence_index_json)
+    write_outputs(first, output_json, output_md, evidence_index_json)
 
-    # Non-regression checks for existing verifiers (must execute deterministically).
     m7_result = verify_m7_epoch_audit_and_certification(include_core=True)
     m8_result = verify_m8_change_control()
     if _stable_payload(m7_result) != _stable_payload(verify_m7_epoch_audit_and_certification(include_core=True)):
@@ -120,13 +123,19 @@ def main() -> int:
     if _stable_payload(m8_result) != _stable_payload(verify_m8_change_control()):
         status |= 1
 
-    certified = status == 0 and bool(m9_result.get("valid"))
+    status |= compileall_rc
+    status |= pytest_rc
+    certified = status == 0 and bool(first.get("valid"))
     reasons: list[str] = []
-    if status != 0:
+    if compileall_rc != 0:
+        reasons.append("compileall_failed")
+    if pytest_rc != 0:
+        reasons.append("pytest_failed")
+    reasons.extend(f"{v['check']}:{v['actual']}" for v in first.get("violations", []))
+    if status != 0 and not reasons:
         reasons.append("execution_checks_failed")
-    reasons.extend(f"{v['check']}:{v['actual']}" for v in m9_result.get("violations", []))
 
-    _write_verdict(evidence_dir, certified=certified, reasons=sorted(set(reasons)))
+    _write_verdict(evidence_dir, certified=certified, reasons=reasons)
 
     evidence_files = [
         evidence_dir / "compileall.txt",
@@ -137,14 +146,10 @@ def main() -> int:
     ]
     write_json(evidence_index_json, build_evidence_index(evidence_files))
 
-    _update_system_state_if_certified(REPO_ROOT, certified=certified)
+    _reconcile_system_state(REPO_ROOT)
 
-    final_result = verify_m9_signal_semantics_registry()
-    write_outputs(final_result, output_json, output_md, evidence_index_json)
-    write_json(evidence_index_json, build_evidence_index(evidence_files))
-
-    print(json.dumps(final_result, indent=2))
-    return 0 if certified and final_result.get("valid") else 1
+    print(json.dumps(first, indent=2))
+    return 0 if certified else 1
 
 
 if __name__ == "__main__":

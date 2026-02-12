@@ -1,11 +1,12 @@
 {
   "epoch": "M7_EPOCH_AUDIT_CERTIFICATION",
   "verdict": "CERTIFIED",
-  "date_utc": "2026-02-11",
+  "date_utc": "2026-02-12",
   "reasons": [],
   "evidence": [
     "verification_output.json",
     "verification_summary.md",
-    "M7_EVIDENCE_INDEX.json"
+    "M7_EVIDENCE_INDEX.json",
+    "certification_verdict.json"
   ]
 }

@@ -10,6 +10,7 @@
     "pytest_full.txt",
     "m7_verifier_output.json",
     "m8_verifier_output.json",
-    "M8_EVIDENCE_INDEX.json"
+    "M8_EVIDENCE_INDEX.json",
+    "certification_verdict.json"
   ]
 }

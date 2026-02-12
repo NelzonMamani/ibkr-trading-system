@@ -171,6 +171,36 @@ def write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True))
 
 
+def collect_certification_verdicts(repo_root: Path | None = None) -> dict[str, dict]:
+    repo_root = get_repo_root(repo_root)
+    evidence_root = repo_root / "TRADING_OS_MASTER_CATALOGUE" / "AUDIT_EVIDENCE"
+    verdicts: dict[str, dict] = {}
+    if not evidence_root.exists():
+        return verdicts
+
+    for verdict_path in sorted(evidence_root.glob("*/certification_verdict.json")):
+        try:
+            payload = json.loads(verdict_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        epoch = payload.get("epoch")
+        if not isinstance(epoch, str) or not re.match(r"^[ME]\d+_[A-Z0-9_]+$", epoch):
+            continue
+        verdicts[epoch] = payload
+    return verdicts
+
+
+def collect_certified_epoch_statuses(repo_root: Path | None = None) -> dict[str, str]:
+    verdicts = collect_certification_verdicts(repo_root)
+    return {
+        epoch: "CERTIFIED"
+        for epoch, payload in sorted(verdicts.items())
+        if payload.get("verdict") == "CERTIFIED"
+    }
+
+
 def sha256_for_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
