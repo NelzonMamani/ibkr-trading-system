@@ -1,0 +1,62 @@
+{
+  "boot_results": [
+    {
+      "file": "boot_SIM.txt",
+      "mode": "SIM",
+      "rc": 0,
+      "strategy": "ross_momentum"
+    },
+    {
+      "file": "boot_PAPER.txt",
+      "mode": "PAPER",
+      "rc": 0,
+      "strategy": "ross_momentum"
+    },
+    {
+      "file": "boot_READ_ONLY.txt",
+      "mode": "READ_ONLY",
+      "rc": 0,
+      "strategy": "ross_momentum"
+    },
+    {
+      "file": "boot_LIVE.txt",
+      "mode": "LIVE",
+      "rc": 0,
+      "strategy": "ross_momentum"
+    },
+    {
+      "file": "boot_SIM_statistical_intraday_momentum.txt",
+      "mode": "SIM",
+      "rc": 0,
+      "strategy": "statistical_intraday_momentum"
+    },
+    {
+      "file": "boot_READ_ONLY_statistical_intraday_momentum.txt",
+      "mode": "READ_ONLY",
+      "rc": 0,
+      "strategy": "statistical_intraday_momentum"
+    }
+  ],
+  "compileall_rc": 0,
+  "epoch": "SYSTEM_INTEGRITY_AND_CAPABILITY_REPORT",
+  "generated_at_utc": "2026-02-12T09:54:26.351284+00:00",
+  "pytest_rc": 0,
+  "verifier_command_rc": {
+    "M10": 0,
+    "M7": 0,
+    "M8": 0,
+    "M9": 0
+  },
+  "verifier_deterministic_excluding_generated_at_utc": {
+    "M10": true,
+    "M7": true,
+    "M8": true,
+    "M9": true
+  },
+  "verifier_valid": {
+    "M10": true,
+    "M7": true,
+    "M8": true,
+    "M9": true
+  }
+}

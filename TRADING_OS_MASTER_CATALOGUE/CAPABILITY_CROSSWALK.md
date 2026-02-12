@@ -1,5 +1,8 @@
 # CAPABILITY_CROSSWALK
 
+> **Notice:** Status is informational; authoritative certification truth is derived from audit verdicts.
+
+
 ## Purpose
 Map catalogue requirements to existing system components with explicit OK / PARTIAL / MISSING status and evidence pointers.
 
