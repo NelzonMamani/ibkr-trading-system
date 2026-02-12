@@ -53,6 +53,10 @@ from src.models.data_models import ExecutionResult, RiskDecision, TradeIntent, T
 from src.patterns.pattern_engine import PatternEngine
 from src.risk.risk_engine import RiskEngine
 from src.core.intent import build_decision_artifact, build_execution_intent
+from src.e22.strategy_scalability_and_arbitration import (
+    E22PolicyConfig,
+    apply_e22_arbitration_layer,
+)
 from src.scanner.contracts import StockSelectionPolicy
 from src.scanner.scanner_contract import ScannerRequest, scanner_request_from_policy
 from src.scanner.ranking_registry import resolve_watchlist_selector
@@ -1571,6 +1575,28 @@ class CoreOrchestrator:
         print("[TEACH] >>> Intent normalization stage — enforce deduplication.")
         try:
             strategy_output = self._normalize_trade_intents(strategy_output)
+            e22_config = E22PolicyConfig(
+                enabled=bool(get_config("E22_STRATEGY_SCALABILITY_ENABLED")),
+                max_strategies_per_cycle=int(get_config("E22_MAX_STRATEGIES_PER_CYCLE")),
+                max_intents_per_cycle=int(get_config("E22_MAX_INTENTS_PER_CYCLE")),
+                max_positions_per_cycle=int(get_config("E22_MAX_POSITIONS_PER_CYCLE")),
+                symbol_exclusivity=bool(get_config("E22_SYMBOL_EXCLUSIVITY")),
+                strategy_priority=dict(get_config("E22_STRATEGY_PRIORITY") or {}),
+                strategy_max_intents=dict(get_config("E22_STRATEGY_MAX_INTENTS") or {}),
+            )
+            strategy_output, e22_artifact = apply_e22_arbitration_layer(strategy_output, e22_config)
+            if e22_artifact is not None:
+                self.event_collector.emit(
+                    event_type="E22_ARBITRATION",
+                    source="E22IntentArbitrator",
+                    payload={
+                        "allowed_count": len(e22_artifact.allowed_intents),
+                        "suppressed_count": len(e22_artifact.suppressed_intents),
+                        "suppression_counts_by_reason_code": e22_artifact.suppression_counts_by_reason_code,
+                        "strategy_order": e22_artifact.strategy_order,
+                        "policy": e22_artifact.policy,
+                    },
+                )
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="INTENT_NORMALISATION",
