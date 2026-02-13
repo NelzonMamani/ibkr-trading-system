@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from src.config.runtime_config import (
+    RunMode,
     get_execution_enabled,
     get_ibkr_readonly_enabled,
     get_run_mode,
@@ -13,20 +14,32 @@ from src.config.runtime_config import (
 _BLOCKED_ACTIONS = {"PLACE_ORDER", "MODIFY_ORDER", "CANCEL_ORDER"}
 
 
-def assert_read_only_allows(action: str) -> None:
+def assert_read_only_allows(
+    action: str,
+    run_mode_override: RunMode | None = None,
+    execution_enabled_override: bool | None = None,
+) -> None:
     """Raise if execution is disabled and the action is restricted."""
     normalized = (action or "").upper()
     if normalized not in _BLOCKED_ACTIONS:
         return
-    run_mode = get_run_mode().value
-    execution_flag = get_execution_enabled()
+
+    resolved_run_mode = run_mode_override or get_run_mode()
+    run_mode = str(getattr(resolved_run_mode, "value", resolved_run_mode)).upper()
+    execution_flag = (
+        execution_enabled_override
+        if execution_enabled_override is not None
+        else get_execution_enabled()
+    )
     readonly_enabled = get_ibkr_readonly_enabled()
+
     if readonly_enabled:
         raise RuntimeError(
             "IBKR read-only enabled: blocking broker action "
             f"{normalized} (run_mode={run_mode} execution_enabled={execution_flag})"
         )
-    if not is_execution_enabled():
+
+    if not execution_flag:
         raise RuntimeError(
             "Execution disabled: blocking broker action "
             f"{normalized} (run_mode={run_mode} execution_enabled={execution_flag})"
