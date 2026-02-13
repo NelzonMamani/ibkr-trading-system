@@ -1,14 +1,198 @@
-$ /root/.pyenv/versions/3.10.19/bin/python -m pytest -q
+$ C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Scripts\python.exe -m pytest -q
 
-........................................................................ [ 32%]
-....................................................sssss............... [ 65%]
-........................................................................ [ 98%]
-....                                                                     [100%]
-=============================== warnings summary ===============================
+...................................................................FFF.. [ 30%]
+........................................................................ [ 61%]
+..............F.F....................................................... [ 91%]
+...................                                                      [100%]
+================================== FAILURES ===================================
+_________________ test_run_loop_honours_existing_stop_request _________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001C140813350>
+
+    def test_run_loop_honours_existing_stop_request(monkeypatch):
+>       orchestrator = CoreOrchestrator()
+
+tests\test_orchestrator_shutdown.py:6: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src\core\orchestrator.py:212: in __init__
+    broker = IbkrLiveBroker(
+<string>:9: in __init__
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = IbkrLiveBroker(event_collector=<src.core.event_collector.EventCollector object at 0x000001C1407CF050>, trade_registry=...eRegistry object at 0x000001C1407CF110>, run_mode=<RunMode.LIVE: 'LIVE'>, client=None, translator=None, submitter=None)
+
+    def __post_init__(self) -> None:
+        if self.run_mode == RunMode.LIVE and not is_execution_enabled(self.run_mode):
+>           raise RuntimeError("EXECUTION_ENABLED must be True for broker execution.")
+E           RuntimeError: EXECUTION_ENABLED must be True for broker execution.
+
+src\brokers\ibkr_live_broker.py:66: RuntimeError
+---------------------------- Captured stdout call -----------------------------
+[INFO] Core Orchestrator initialised.
+[BOOT] Runtime mode resolved: mode=LIVE live_like=True allow_orders=True max_shares_per_order=None event_replay=OFF
+[BOOT] EventCollector initialised
+[BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
+[BOOT] SignalEngineV1 instantiated
+[BOOT] Strategy 'GapAndGoStrategy' ENABLED via config and registered.
+[BOOT] Strategy 'MomentumContinuationStrategy' ENABLED via config and registered.
+[BOOT] Strategy 'RossMomentumStrategyV1' ENABLED via config and registered.
+[BOOT][STRATEGY] StatisticalIntradayMomentum enabled=False selected=False reason=STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=False
+[BOOT] Strategy 'StatisticalIntradayMomentum' DISABLED via config (STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=False); skipping.
+[BOOT][STRATEGY] Set STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True to enable.
+[BOOT][STRATEGY] MeanReversionStrategy enabled=False selected=False reason=MEAN_REVERSION_STRATEGY_ENABLED=False
+[BOOT] Strategy 'MeanReversionStrategy' DISABLED via config (MEAN_REVERSION_STRATEGY_ENABLED=False); skipping.
+[BOOT] StrategyRunner instantiated with strategies: GapAndGoStrategy, MomentumContinuationStrategy, RossMomentumStrategyV1
+[BOOT] RiskEngine instantiated — phase 4 teaching rules active
+_________________ test_keyboard_interrupt_escalates_to_panic __________________
+
+    def test_keyboard_interrupt_escalates_to_panic():
+>       orchestrator = CoreOrchestrator()
+
+tests\test_orchestrator_shutdown.py:20: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src\core\orchestrator.py:212: in __init__
+    broker = IbkrLiveBroker(
+<string>:9: in __init__
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = IbkrLiveBroker(event_collector=<src.core.event_collector.EventCollector object at 0x000001C1407CF950>, trade_registry=...eRegistry object at 0x000001C140915F40>, run_mode=<RunMode.LIVE: 'LIVE'>, client=None, translator=None, submitter=None)
+
+    def __post_init__(self) -> None:
+        if self.run_mode == RunMode.LIVE and not is_execution_enabled(self.run_mode):
+>           raise RuntimeError("EXECUTION_ENABLED must be True for broker execution.")
+E           RuntimeError: EXECUTION_ENABLED must be True for broker execution.
+
+src\brokers\ibkr_live_broker.py:66: RuntimeError
+---------------------------- Captured stdout call -----------------------------
+[INFO] Core Orchestrator initialised.
+[BOOT] Runtime mode resolved: mode=LIVE live_like=True allow_orders=True max_shares_per_order=None event_replay=OFF
+[BOOT] EventCollector initialised
+[BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
+[BOOT] SignalEngineV1 instantiated
+[BOOT] Strategy 'GapAndGoStrategy' ENABLED via config and registered.
+[BOOT] Strategy 'MomentumContinuationStrategy' ENABLED via config and registered.
+[BOOT] Strategy 'RossMomentumStrategyV1' ENABLED via config and registered.
+[BOOT][STRATEGY] StatisticalIntradayMomentum enabled=False selected=False reason=STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=False
+[BOOT] Strategy 'StatisticalIntradayMomentum' DISABLED via config (STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=False); skipping.
+[BOOT][STRATEGY] Set STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True to enable.
+[BOOT][STRATEGY] MeanReversionStrategy enabled=False selected=False reason=MEAN_REVERSION_STRATEGY_ENABLED=False
+[BOOT] Strategy 'MeanReversionStrategy' DISABLED via config (MEAN_REVERSION_STRATEGY_ENABLED=False); skipping.
+[BOOT] StrategyRunner instantiated with strategies: GapAndGoStrategy, MomentumContinuationStrategy, RossMomentumStrategyV1
+[BOOT] RiskEngine instantiated — phase 4 teaching rules active
+_________________ test_shutdown_hooks_continue_after_failure __________________
+
+    def test_shutdown_hooks_continue_after_failure():
+>       orchestrator = CoreOrchestrator()
+
+tests\test_orchestrator_shutdown.py:32: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src\core\orchestrator.py:212: in __init__
+    broker = IbkrLiveBroker(
+<string>:9: in __init__
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = IbkrLiveBroker(event_collector=<src.core.event_collector.EventCollector object at 0x000001C140916150>, trade_registry=...eRegistry object at 0x000001C1409162B0>, run_mode=<RunMode.LIVE: 'LIVE'>, client=None, translator=None, submitter=None)
+
+    def __post_init__(self) -> None:
+        if self.run_mode == RunMode.LIVE and not is_execution_enabled(self.run_mode):
+>           raise RuntimeError("EXECUTION_ENABLED must be True for broker execution.")
+E           RuntimeError: EXECUTION_ENABLED must be True for broker execution.
+
+src\brokers\ibkr_live_broker.py:66: RuntimeError
+---------------------------- Captured stdout call -----------------------------
+[INFO] Core Orchestrator initialised.
+[BOOT] Runtime mode resolved: mode=LIVE live_like=True allow_orders=True max_shares_per_order=None event_replay=OFF
+[BOOT] EventCollector initialised
+[BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
+[BOOT] SignalEngineV1 instantiated
+[BOOT] Strategy 'GapAndGoStrategy' ENABLED via config and registered.
+[BOOT] Strategy 'MomentumContinuationStrategy' ENABLED via config and registered.
+[BOOT] Strategy 'RossMomentumStrategyV1' ENABLED via config and registered.
+[BOOT][STRATEGY] StatisticalIntradayMomentum enabled=False selected=False reason=STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=False
+[BOOT] Strategy 'StatisticalIntradayMomentum' DISABLED via config (STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=False); skipping.
+[BOOT][STRATEGY] Set STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True to enable.
+[BOOT][STRATEGY] MeanReversionStrategy enabled=False selected=False reason=MEAN_REVERSION_STRATEGY_ENABLED=False
+[BOOT] Strategy 'MeanReversionStrategy' DISABLED via config (MEAN_REVERSION_STRATEGY_ENABLED=False); skipping.
+[BOOT] StrategyRunner instantiated with strategies: GapAndGoStrategy, MomentumContinuationStrategy, RossMomentumStrategyV1
+[BOOT] RiskEngine instantiated — phase 4 teaching rules active
+___________________ test_m5_verification_authority_verifier ___________________
+
+    def test_m5_verification_authority_verifier() -> None:
+        result = verify_m5_verification_authority()
+>       assert result["violations"] == []
+E       AssertionError: assert [{'actual': '...80b4be'}, ...] == []
+E         Left contains 9 more items, first extra item: {'actual': '304', 'check': 'EVIDENCE_INDEX_BYTES_MATCH', 'expected': '290'}
+E         Use -v to get more diff
+
+tests\metadata\test_m5_verification_authority_verifier.py:12: AssertionError
+_________________ test_m6_data_lifecycle_governance_verifier __________________
+
+    def test_m6_data_lifecycle_governance_verifier() -> None:
+        result = verify_m6_data_lifecycle_governance()
+>       assert result["violations"] == []
+E       AssertionError: assert [{'actual': '...6e68b0'}, ...] == []
+E         Left contains 8 more items, first extra item: {'actual': '307', 'check': 'EVIDENCE_INDEX_BYTES_MATCH', 'expected': '293'}
+E         Use -v to get more diff
+
+tests\metadata\test_m6_data_lifecycle_governance_verifier.py:12: AssertionError
+============================== warnings summary ===============================
+.venv\Lib\site-packages\eventkit\util.py:21
+  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Lib\site-packages\eventkit\util.py:21: DeprecationWarning: There is no current event loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+
+tests/test_epoch12_recovery_housekeeping.py: 1 warning
+tests/test_market_data_validation.py: 4 warnings
+tests/test_mode_drift_guard.py: 2 warnings
+tests/test_orchestrator_shutdown.py: 3 warnings
+tests/test_position_lifecycle_persistence.py: 1 warning
+tests/test_regime_orchestrator_integration.py: 2 warnings
+tests/test_regime_storage.py: 1 warning
+tests/test_storage_recovery.py: 1 warning
+tests/test_traceability.py: 4 warnings
+  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\config\config_resolver.py:483: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "resolved_at": datetime.utcnow().isoformat(),
+
+tests/test_epoch12_recovery_housekeeping.py::test_epoch12_db_backup_and_reset_determinism
+tests/test_epoch12_recovery_housekeeping.py::test_epoch12_db_backup_and_reset_determinism
+tests/test_epoch12_recovery_housekeeping.py::test_epoch12_db_backup_and_reset_determinism
+  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\storage\db_admin.py:47: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "timestamp_utc": datetime.utcnow().isoformat(),
+
+tests/test_epoch12_recovery_housekeeping.py::test_epoch12_stop_controller_enforcement
+tests/test_epoch3_risk_execution.py::test_execution_blocks_when_breaker_tripped
+tests/test_stop_controller.py::test_circuit_breakers_latch_and_require_reset
+  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\core\stop_controller.py:95: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    tripped_at=datetime.utcnow().isoformat(),
+
+tests/test_epoch15_17_safety_cluster.py::test_fault_policy_snapshot_covers_categories
+tests/test_faults.py::test_classify_file_not_found_is_io
+tests/test_faults.py::test_classify_key_error_is_data
+tests/test_faults.py::test_classify_runtime_safety_flagged_as_safety
+tests/test_faults.py::test_live_policy_enforces_halt_and_skip_rules
+tests/test_faults.py::test_live_policy_enforces_halt_and_skip_rules
+tests/test_faults.py::test_live_policy_enforces_halt_and_skip_rules
+  <string>:8: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+
+tests/test_ibkr_readonly.py::test_market_snapshot_dataclass
+  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\tests\test_ibkr_readonly.py:56: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    snapshot_time = datetime.datetime.utcnow()
+
+tests/test_liquidity_execution.py::test_deterministic_liquidity_outcomes_and_replay
+tests/test_liquidity_execution.py::test_deterministic_liquidity_outcomes_and_replay
+tests/test_trade_exit_engine.py::test_trade_exit_engine_enforces_tick_based_exit_window
+tests/test_trade_exit_engine.py::test_exit_signal_honoured_after_minimum_hold
+tests/test_trade_exit_engine.py::test_stop_loss_exit_triggers_even_before_minimum_hold
+tests/test_trade_exit_engine.py::test_take_profit_exit_triggers_when_threshold_hit
+  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\execution\trade_exit_engine.py:473: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
 tests/test_regime_orchestrator_integration.py::test_orchestrator_emits_regime_snapshot
 tests/test_traceability.py::test_trace_event_order_sim
 tests/test_traceability.py::test_live_readonly_connectivity_retry
-  /workspace/ibkr-trading-system/src/core/managers/connection_manager.py:104: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
+  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\core\managers\connection_manager.py:104: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
     continue
   Enable tracemalloc to get traceback where the object was allocated.
   See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
@@ -18,9 +202,23 @@ tests/test_scanner_ranking_authority.py::test_scanner_uses_strategy_ranking_for_
 tests/test_scanner_universe_request.py::test_scanner_request_ibkr_top_gainers_skips_scanner_symbols_error
 tests/test_scanner_watchlist_prints.py::test_watchlist_print_format
 tests/test_scanner_watchlist_prints.py::test_watchlist_print_suppressed_when_unchanged
-  /workspace/ibkr-trading-system/src/scanner/scanner_runner.py:-1: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
+tests/smoke/test_scanner_contract.py::test_scanner_contract_prints_lists
+  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\scanner\scanner_runner.py:1524: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
+    provider = MockScannerProvider()
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/smoke/test_orchestrator_cycle.py::test_orchestrator_readonly_cycle
+  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\scanner\scanner_runner.py:1527: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
+    provider = None
   Enable tracemalloc to get traceback where the object was allocated.
   See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-215 passed, 7 skipped, 8 warnings in 50.40s
+=========================== short test summary info ===========================
+FAILED tests/test_orchestrator_shutdown.py::test_run_loop_honours_existing_stop_request
+FAILED tests/test_orchestrator_shutdown.py::test_keyboard_interrupt_escalates_to_panic
+FAILED tests/test_orchestrator_shutdown.py::test_shutdown_hooks_continue_after_failure
+FAILED tests/metadata/test_m5_verification_authority_verifier.py::test_m5_verification_authority_verifier
+FAILED tests/metadata/test_m6_data_lifecycle_governance_verifier.py::test_m6_data_lifecycle_governance_verifier
+5 failed, 230 passed, 50 warnings in 55.92s

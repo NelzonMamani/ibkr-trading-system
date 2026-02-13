@@ -18,6 +18,7 @@ Derived from `SYSTEM_STATE_CERTIFIED.md` + audit `certification_verdict.json` fi
 | E1_TRACEABILITY_OBSERVABILITY | CERTIFIED | audit_verdict |
 | E20_STRATEGY_FOUNDATION_COMPLETION | NOT_STARTED | system_state |
 | E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION | NOT_STARTED | system_state |
+| E22_STRATEGY_SCALABILITY_AND_ARBITRATION_LAYER | CERTIFIED | audit_verdict |
 | E2_POSITION_LIFECYCLE_ENGINE | CERTIFIED | audit_verdict |
 | E3_RISK_ENGINE_COMPLETENESS | CERTIFIED | audit_verdict |
 | E4_DATA_QUALITY_MARKET_STATE | CERTIFIED | audit_verdict |
@@ -27,7 +28,7 @@ Derived from `SYSTEM_STATE_CERTIFIED.md` + audit `certification_verdict.json` fi
 | E8_REGIME_AND_MICROSTRUCTURE_LAYER | IMPLEMENTED_UNCERTIFIED | system_state |
 | E9_PERFORMANCE_ANALYTICS | NOT_STARTED | system_state |
 | M0_CANON | CERTIFIED | audit_verdict |
-| M10_DATA_PROVENANCE_LEDGER | CERTIFIED | audit_verdict |
+| M10_DATA_PROVENANCE_LEDGER | NOT_STARTED | system_state |
 | M1_ARCHITECTURE_MAP | CERTIFIED | audit_verdict |
 | M2_CONTRACT_REGISTRY | CERTIFIED | audit_verdict |
 | M3_MODE_SEMANTICS_CERT | CERTIFIED | audit_verdict |
@@ -35,5 +36,5 @@ Derived from `SYSTEM_STATE_CERTIFIED.md` + audit `certification_verdict.json` fi
 | M5_VERIFICATION_AUTHORITY | CERTIFIED | audit_verdict |
 | M6_DATA_LIFECYCLE_GOV | CERTIFIED | audit_verdict |
 | M7_EPOCH_AUDIT_CERTIFICATION | CERTIFIED | audit_verdict |
-| M8_CHANGE_CONTROL | CERTIFIED | audit_verdict |
-| M9_SIGNAL_SEMANTICS_REGISTRY | CERTIFIED | audit_verdict |
+| M8_CHANGE_CONTROL | UNKNOWN | system_state |
+| M9_SIGNAL_SEMANTICS_REGISTRY | UNKNOWN | system_state |

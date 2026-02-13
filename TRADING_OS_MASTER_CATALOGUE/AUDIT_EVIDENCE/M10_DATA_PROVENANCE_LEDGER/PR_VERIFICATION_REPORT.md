@@ -7,11 +7,11 @@
 
 ## Exit Codes
 - compileall: `0`
-- pytest: `0`
+- pytest: `1`
 
 ## Cross-Verifier Results
-- M7: valid=`True` violations=`0`
-- M8: valid=`True` violations=`0`
+- M7: valid=`False` violations=`1`
+- M8: valid=`False` violations=`3`
 - M9: valid=`True` violations=`0`
 - M10: valid=`True` violations=`0`
 
@@ -19,4 +19,4 @@
 - Stable cross-verifier outputs across two runs (excluding timestamps): `True`
 
 ## Final Certification Status
-- `M10_DATA_PROVENANCE_LEDGER`: `CERTIFIED`
+- `M10_DATA_PROVENANCE_LEDGER`: `NOT_CERTIFIED`

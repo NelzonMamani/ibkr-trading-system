@@ -21,7 +21,7 @@
     {
       "file": "boot_LIVE.txt",
       "mode": "LIVE",
-      "rc": 0,
+      "rc": 1,
       "strategy": "ross_momentum"
     },
     {
@@ -39,13 +39,13 @@
   ],
   "compileall_rc": 0,
   "epoch": "SYSTEM_INTEGRITY_AND_CAPABILITY_REPORT",
-  "generated_at_utc": "2026-02-12T11:45:21.634037+00:00",
-  "pytest_rc": 0,
+  "generated_at_utc": "2026-02-13T16:40:35.934903+00:00",
+  "pytest_rc": 1,
   "verifier_command_rc": {
-    "M10": 0,
+    "M10": 1,
     "M7": 0,
-    "M8": 0,
-    "M9": 0
+    "M8": 1,
+    "M9": 1
   },
   "verifier_deterministic_excluding_generated_at_utc": {
     "M10": true,
@@ -56,7 +56,7 @@
   "verifier_valid": {
     "M10": true,
     "M7": true,
-    "M8": true,
+    "M8": false,
     "M9": true
   }
 }

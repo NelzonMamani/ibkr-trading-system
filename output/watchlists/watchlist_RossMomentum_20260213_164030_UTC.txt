@@ -1,0 +1,15 @@
+# session=RTH
+# provider=IBKR
+# provider_fallback_reason=[WinError 1225] The remote computer refused the network connection
+# subscription=instrument=STK locationCode=STK.US.MAJOR scanCode=TOP_PERC_GAIN numberOfRows=75 abovePrice=5.0 belowPrice=200.0
+# requested_top_n=75 returned_top_n=0
+# policy_source=STRATEGY
+# policy_name=STATISTICAL_INTRADAY_MOMENTUM
+# ranking_intent=STATISTICAL_INTRADAY_MOMENTUM_STOCK_SELECTION
+# candidates_count=0
+# gated_count=0
+# watchlist_count=0
+# watchlist_k=0 focus_m=0
+# drop_reasons={}
+# watchlist_empty_reason=EMPTY_UNIVERSE
+
