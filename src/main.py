@@ -57,7 +57,6 @@ def _parse_args() -> argparse.Namespace:
         "--mode",
         choices=[
             "SIM",
-            "READONLY",
             "READ_ONLY",
             "PAPER",
             "LIVE",
