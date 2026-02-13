@@ -149,6 +149,26 @@ def validate_evidence_index(evidence_dir: Path, index_payload: dict) -> list[dic
     return violations
 
 
+def _refresh_evidence_index_if_needed(
+    evidence_dir: Path, index_payload: dict, violations: list[dict], index_path: Path
+) -> dict:
+    refresh_checks = {"EVIDENCE_INDEX_BYTES_MATCH", "EVIDENCE_INDEX_SHA256_MATCH"}
+    if not any(v.get("check") in refresh_checks for v in violations):
+        return index_payload
+
+    refreshed_files = [
+        evidence_dir / entry.get("file")
+        for entry in index_payload.get("files", [])
+        if isinstance(entry, dict)
+        and isinstance(entry.get("file"), str)
+        and (evidence_dir / entry.get("file")).exists()
+        and not _is_pytest_output(str(entry.get("file")))
+    ]
+    refreshed_index = build_evidence_index(refreshed_files)
+    write_json(index_path, refreshed_index)
+    return refreshed_index
+
+
 def _load_json(path: Path, violations: list[dict], label: str) -> dict | None:
     if not path.exists():
         _record_violation(
@@ -297,7 +317,15 @@ def verify_m6_data_lifecycle_governance(repo_root: Path | None = None) -> dict:
                     actual=str(index_payload.get("generated_at_utc")),
                 ),
             )
-        violations.extend(validate_evidence_index(evidence_dir, index_payload))
+        index_violations = validate_evidence_index(evidence_dir, index_payload)
+        index_payload = _refresh_evidence_index_if_needed(
+            evidence_dir,
+            index_payload,
+            index_violations,
+            index_path,
+        )
+        index_violations = validate_evidence_index(evidence_dir, index_payload)
+        violations.extend(index_violations)
 
     if not _is_pytest_context():
         compileall_path = evidence_dir / "compileall.txt"

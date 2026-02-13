@@ -1,5 +1,17 @@
+import pytest
+
 from core.orchestrator import CoreOrchestrator
 from core.stop_controller import StopMode
+from src.config.config_resolver import set_config_overrides
+
+
+@pytest.fixture(autouse=True)
+def _non_live_runtime(monkeypatch):
+    monkeypatch.setenv("RUN_MODE", "READ_ONLY")
+    monkeypatch.setenv("EXECUTION_ENABLED", "false")
+    set_config_overrides({"RUN_MODE": "READ_ONLY", "EXECUTION_ENABLED": False})
+    yield
+    set_config_overrides(None)
 
 
 def test_run_loop_honours_existing_stop_request(monkeypatch):
