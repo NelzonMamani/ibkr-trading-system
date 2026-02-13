@@ -41,6 +41,8 @@ def _run_to_file(command: list[str], output_path: Path, timeout_s: int | None = 
             command,
             cwd=REPO_ROOT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             check=False,
             timeout=timeout_s,

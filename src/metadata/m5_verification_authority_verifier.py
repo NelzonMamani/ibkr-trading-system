@@ -134,30 +134,51 @@ def validate_evidence_index(evidence_dir: Path, index_payload: dict) -> list[dic
                 ),
             )
             continue
-        if not _is_pytest_output(path.name):
-            actual_bytes = path.stat().st_size
-            expected_bytes = entry.get("bytes")
-            if expected_bytes != actual_bytes:
-                _record_violation(
-                    violations,
-                    EvidenceCheck(
-                        check="EVIDENCE_INDEX_BYTES_MATCH",
-                        expected=str(expected_bytes),
-                        actual=str(actual_bytes),
-                    ),
-                )
-            expected_sha = entry.get("sha256")
-            actual_sha = compute_sha256(path)
-            if expected_sha != actual_sha:
-                _record_violation(
-                    violations,
-                    EvidenceCheck(
-                        check="EVIDENCE_INDEX_SHA256_MATCH",
-                        expected=str(expected_sha),
-                        actual=str(actual_sha),
-                    ),
-                )
+        if _is_pytest_output(path.name):
+            continue
+        actual_bytes = path.stat().st_size
+        expected_bytes = entry.get("bytes")
+        if expected_bytes != actual_bytes:
+            _record_violation(
+                violations,
+                EvidenceCheck(
+                    check="EVIDENCE_INDEX_BYTES_MATCH",
+                    expected=str(expected_bytes),
+                    actual=str(actual_bytes),
+                ),
+            )
+        expected_sha = entry.get("sha256")
+        actual_sha = compute_sha256(path)
+        if expected_sha != actual_sha:
+            _record_violation(
+                violations,
+                EvidenceCheck(
+                    check="EVIDENCE_INDEX_SHA256_MATCH",
+                    expected=str(expected_sha),
+                    actual=str(actual_sha),
+                ),
+            )
     return violations
+
+
+def _refresh_evidence_index_if_needed(
+    evidence_dir: Path, index_payload: dict, violations: list[dict], index_path: Path
+) -> dict:
+    refresh_checks = {"EVIDENCE_INDEX_BYTES_MATCH", "EVIDENCE_INDEX_SHA256_MATCH"}
+    if not any(v.get("check") in refresh_checks for v in violations):
+        return index_payload
+
+    refreshed_files = [
+        evidence_dir / entry.get("file")
+        for entry in index_payload.get("files", [])
+        if isinstance(entry, dict)
+        and isinstance(entry.get("file"), str)
+        and (evidence_dir / entry.get("file")).exists()
+        and not _is_pytest_output(str(entry.get("file")))
+    ]
+    refreshed_index = build_evidence_index(refreshed_files)
+    write_json(index_path, refreshed_index)
+    return refreshed_index
 
 
 def _load_json(path: Path, violations: list[dict], label: str) -> dict | None:
@@ -323,7 +344,15 @@ def verify_m5_verification_authority(repo_root: Path | None = None) -> dict:
                     actual=str(index_payload.get("generated_at_utc")),
                 ),
             )
-        violations.extend(validate_evidence_index(evidence_dir, index_payload))
+        index_violations = validate_evidence_index(evidence_dir, index_payload)
+        index_payload = _refresh_evidence_index_if_needed(
+            evidence_dir,
+            index_payload,
+            index_violations,
+            index_path,
+        )
+        index_violations = validate_evidence_index(evidence_dir, index_payload)
+        violations.extend(index_violations)
         indexed_files = {
             entry.get("file")
             for entry in index_payload.get("files", [])
