@@ -1,0 +1,41 @@
+core_epochs:
+  E0: {"status": implemented, "verification": ["python -m compileall src", "pytest -q"]}
+  E1: {"status": implemented, "verification": ["python verification_scripts/verify_all_epochs.py"]}
+  E2: {"status": implemented, "verification": ["python verification_scripts/verify_runtime_wiring.py"]}
+  E3: {"status": implemented, "verification": ["pytest -q tests/test_epoch3_risk_execution.py"]}
+  E4: {"status": implemented, "verification": ["python verification_scripts/verify_system_reality.py"]}
+  E5: {"status": implemented, "verification": ["pytest -q tests/test_execution_authority_epoch5.py"]}
+  E6: {"status": implemented, "verification": ["python verification_scripts/verify_m6_data_lifecycle_governance.py"]}
+  E7: {"status": implemented, "verification": ["python verification_scripts/verify_m7_epoch_audit_and_certification.py"]}
+  E8: {"status": implemented, "verification": ["python verification_scripts/verify_m8_change_control.py"]}
+  E9: {"status": implemented, "verification": ["python verification_scripts/verify_m9_signal_semantics_registry.py"]}
+  E10: {"status": implemented, "verification": ["python verification_scripts/verify_m10_data_provenance_ledger.py"]}
+  E11: {"status": implemented, "verification": ["python verification_scripts/verify_db_readiness.py"]}
+  E12: {"status": implemented, "verification": ["python verification_scripts/system_integrity_and_capability_report.py"]}
+  E13: {"status": implemented, "verification": ["python verification_scripts/verify_focus_injection.py"]}
+  E14: {"status": implemented, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
+  E15: {"status": implemented, "verification": ["pytest -q tests/test_epoch15_17_safety_cluster.py"]}
+  E16: {"status": implemented, "verification": ["pytest -q tests/test_orchestrator_shutdown.py"]}
+  E17: {"status": implemented, "verification": ["pytest -q tests/test_epoch15_17_safety_cluster.py"]}
+  E18: {"status": implemented, "verification": ["python verification_scripts/verify_paper_trade_lifecycle.py"]}
+  E19: {"status": implemented, "verification": ["python verification_scripts/verify_paper_execution_harness.py"]}
+  E20: {"status": implemented, "verification": ["python verification_scripts/verify_ibkr_spot_check.py"]}
+  E21: {"status": implemented, "verification": ["python verification_scripts/verify_system_reality_v2.py"]}
+  E22: {"status": implemented, "verification": ["python verification_scripts/verify_e22_strategy_scalability_and_arbitration.py"]}
+metadata_epochs:
+  M0: {"status": implemented, "verification": ["pytest -q tests/metadata/test_m0_invariant_enforcement.py"]}
+  M1: {"status": implemented, "verification": ["python verification_scripts/verify_m1_architecture_map.py"]}
+  M2: {"status": implemented, "verification": ["python verification_scripts/verify_m2_contract_registry.py"]}
+  M3: {"status": implemented, "verification": ["python verification_scripts/verify_m3_mode_semantics.py"]}
+  M4: {"status": implemented, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
+  M5: {"status": implemented, "verification": ["python verification_scripts/verify_m5_verification_authority.py"]}
+  M6: {"status": implemented, "verification": ["python verification_scripts/verify_m6_data_lifecycle_governance.py"]}
+  M7: {"status": implemented, "verification": ["python verification_scripts/verify_m7_epoch_audit_and_certification.py"]}
+  M8: {"status": implemented, "verification": ["python verification_scripts/verify_m8_change_control.py"]}
+  M9: {"status": implemented, "verification": ["python verification_scripts/verify_m9_signal_semantics_registry.py"]}
+  M10: {"status": implemented, "verification": ["python verification_scripts/verify_m10_data_provenance_ledger.py"]}
+strategies:
+  P01: {"status": implemented, "strategy": ross_momentum, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
+  P02: {"status": implemented, "strategy": statistical_intraday_momentum, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
+  P03: {"status": implemented, "strategy": mean_reversion, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
+  P04: {"status": implemented, "strategy": long_horizon_value, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
