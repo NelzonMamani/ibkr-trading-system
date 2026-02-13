@@ -39,3 +39,19 @@ strategies:
   P02: {"status": implemented, "strategy": statistical_intraday_momentum, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
   P03: {"status": implemented, "strategy": mean_reversion, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
   P04: {"status": implemented, "strategy": long_horizon_value, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
+  P05: {"status": implemented, "strategy": opening_drive, "verification": ["pytest -q src/strategies/opening_drive/tests"]}
+  P06: {"status": implemented, "strategy": vwap_reclaim, "verification": ["pytest -q src/strategies/vwap_reclaim/tests"]}
+  P07: {"status": implemented, "strategy": power_hour, "verification": ["pytest -q src/strategies/power_hour/tests"]}
+  P08: {"status": implemented, "strategy": volatility_expansion, "verification": ["pytest -q src/strategies/volatility_expansion/tests"]}
+  P09: {"status": implemented, "strategy": range_bound_fade, "verification": ["pytest -q src/strategies/range_bound_fade/tests"]}
+  P10: {"status": implemented, "strategy": support_resistance_channel, "verification": ["pytest -q src/strategies/support_resistance_channel/tests"]}
+  P11: {"status": implemented, "strategy": event_earnings_reaction, "verification": ["pytest -q src/strategies/event_earnings_reaction/tests"]}
+  P12: {"status": implemented, "strategy": event_news_shock_continuation, "verification": ["pytest -q src/strategies/event_news_shock_continuation/tests"]}
+  P13: {"status": implemented, "strategy": volatility_contraction_breakout, "verification": ["pytest -q src/strategies/volatility_contraction_breakout/tests"]}
+  P14: {"status": implemented, "strategy": volatility_carry_risk_premium, "verification": ["pytest -q src/strategies/volatility_carry_risk_premium/tests"]}
+  P15: {"status": implemented, "strategy": pairs_divergence_reversion, "verification": ["pytest -q src/strategies/pairs_divergence_reversion/tests"]}
+  P16: {"status": implemented, "strategy": cross_sectional_relative_strength_rotation, "verification": ["pytest -q src/strategies/cross_sectional_relative_strength_rotation/tests"]}
+  P17: {"status": implemented, "strategy": time_based_seasonality, "verification": ["pytest -q src/strategies/time_based_seasonality/tests"]}
+  P18: {"status": implemented, "strategy": trend_following_classic, "verification": ["pytest -q src/strategies/trend_following_classic/tests"]}
+  P19: {"status": implemented, "strategy": long_horizon_quality_compounder, "verification": ["pytest -q src/strategies/long_horizon_quality_compounder/tests"]}
+  P20: {"status": implemented, "strategy": regime_adaptive_meta_allocator, "verification": ["pytest -q src/strategies/regime_adaptive_meta_allocator/tests"]}

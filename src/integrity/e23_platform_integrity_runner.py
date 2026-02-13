@@ -122,7 +122,7 @@ class E23Runner:
     def _discover_inventory(self, registry: dict[str, Any]) -> dict[str, Any]:
         core = {f"E{i}": "implemented" for i in range(23)}
         metadata = {f"M{i}": "implemented" for i in range(11)}
-        strategies = {f"P{i:02d}": "implemented" for i in range(1, 5)}
+        strategies = {f"P{i:02d}": "implemented" for i in range(1, 21)}
 
         for key in core:
             if key not in (registry.get("core_epochs") or {}):
@@ -307,7 +307,9 @@ class E23Runner:
         certified.append("## Metadata Epoch Status (M0..M10)")
         certified.extend([f"- {k}: {v}" for k, v in inventory["metadata_epochs"].items()])
         certified.append("")
-        certified.append("## Strategy Status (P01..P04)")
+        strategy_keys = sorted(inventory["strategies"].keys())
+        strategy_span = f"{strategy_keys[0]}..{strategy_keys[-1]}" if strategy_keys else "none"
+        certified.append(f"## Strategy Status ({strategy_span})")
         certified.extend([f"- {k}: {v}" for k, v in inventory["strategies"].items()])
         certified.append("")
         certified.append("## Verification Reproduction")
