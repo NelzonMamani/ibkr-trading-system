@@ -13,6 +13,9 @@ from src.metadata.m5_verification_authority_verifier import (
     verify_m5_verification_authority,
     write_outputs,
 )
+from src.metadata.m5_strategy_certification_authority import (
+    generate_strategy_certification_artifacts,
+)
 
 
 def main() -> int:
@@ -21,6 +24,7 @@ def main() -> int:
     parser.add_argument("--output-md", type=Path, required=True)
     args = parser.parse_args()
 
+    generate_strategy_certification_artifacts()
     result = verify_m5_verification_authority()
     evidence_index_json = args.output_json.parent / "M5_EVIDENCE_INDEX.json"
     write_outputs(result, args.output_json, args.output_md, evidence_index_json)

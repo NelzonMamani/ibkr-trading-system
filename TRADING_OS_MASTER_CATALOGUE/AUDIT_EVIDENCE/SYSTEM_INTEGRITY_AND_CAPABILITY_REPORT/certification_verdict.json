@@ -1,5 +1,5 @@
 {
-  "date_utc": "2026-02-13",
+  "date_utc": "2026-02-14",
   "epoch": "SYSTEM_INTEGRITY_AND_CAPABILITY_REPORT",
   "evidence": [
     "integrity_report.json",
@@ -20,13 +20,11 @@
     "EVIDENCE_INDEX.json"
   ],
   "reasons": [
-    "pytest_failed:1",
     "m8_command_failed:1",
     "m8_invalid",
-    "m9_command_failed:1",
     "m10_command_failed:1",
-    "boot_failed:LIVE:ross_momentum",
-    "capability_drift_not_reconciled"
+    "capability_drift_not_reconciled",
+    "p_layer_blockers_present"
   ],
   "verdict": "NOT_CERTIFIED"
 }

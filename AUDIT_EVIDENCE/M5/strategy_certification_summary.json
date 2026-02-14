@@ -1,0 +1,15 @@
+{
+  "generated_at_utc": "2026-02-14T18:55:36Z",
+  "compileall_rc": 0,
+  "pytest_rc": 0,
+  "sim_rc": 0,
+  "paper_rc": 0,
+  "strategy_count": 20,
+  "status_counts": {
+    "NOT_STARTED": 0,
+    "PARTIAL": 19,
+    "IMPLEMENTED_UNCERTIFIED": 0,
+    "CERTIFIED_PAPER": 1,
+    "CERTIFIED_LIVE": 0
+  }
+}

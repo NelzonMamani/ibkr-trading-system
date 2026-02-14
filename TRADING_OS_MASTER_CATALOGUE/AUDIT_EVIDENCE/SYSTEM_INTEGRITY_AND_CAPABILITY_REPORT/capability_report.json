@@ -1,4 +1,8 @@
 {
+  "blockers": [
+    "missing_policy:1",
+    "not_cli_runnable:20"
+  ],
   "capability_crosswalk_notice_updated": false,
   "certified_epochs_from_verdicts": {
     "E0_SYSTEM_LAW_TRUTH": "2026-02-12",
@@ -15,25 +19,41 @@
     "M4_TRACEABILITY_SEMANTICS": "2026-02-12",
     "M5_VERIFICATION_AUTHORITY": "2026-02-10",
     "M6_DATA_LIFECYCLE_GOV": "2026-02-11",
-    "M7_EPOCH_AUDIT_CERTIFICATION": "2026-02-13"
+    "M7_EPOCH_AUDIT_CERTIFICATION": "2026-02-14",
+    "M9_SIGNAL_SEMANTICS_REGISTRY": "2026-02-14"
   },
   "derived_crosswalk": "TRADING_OS_MASTER_CATALOGUE/CAPABILITY_CROSSWALK_DERIVED.md",
   "drift": {
     "epochs_certified_in_state_but_not_in_verdicts": [
-      "M8_CHANGE_CONTROL",
-      "M9_SIGNAL_SEMANTICS_REGISTRY"
+      "M10_DATA_PROVENANCE_LEDGER",
+      "M8_CHANGE_CONTROL"
     ],
     "epochs_certified_in_verdicts_but_not_in_state": []
   },
   "drift_before_reconciliation": {
     "epochs_certified_in_state_but_not_in_verdicts": [
-      "M8_CHANGE_CONTROL",
-      "M9_SIGNAL_SEMANTICS_REGISTRY"
+      "M10_DATA_PROVENANCE_LEDGER",
+      "M8_CHANGE_CONTROL"
     ],
     "epochs_certified_in_verdicts_but_not_in_state": []
   },
   "epoch": "SYSTEM_INTEGRITY_AND_CAPABILITY_REPORT",
-  "generated_at_utc": "2026-02-13T16:40:35.934923+00:00",
+  "generated_at_utc": "2026-02-14T18:53:50.405154+00:00",
+  "p_layer_summary": {
+    "inventory_path": "AUDIT_EVIDENCE/M5/strategy_capability_inventory.json",
+    "matrix_path": "AUDIT_EVIDENCE/M5/strategy_certification_matrix.json",
+    "missing_capabilities": {
+      "missing_governance": 0,
+      "missing_policy": 1,
+      "missing_tests": 0,
+      "not_cli_runnable": 20
+    },
+    "status_counts": {
+      "CERTIFIED_PAPER": 1,
+      "PARTIAL": 19
+    },
+    "strategy_count": 20
+  },
   "recommended_state_updates": {},
   "system_state_epochs": {
     "E0_SYSTEM_LAW_TRUTH": "CERTIFIED",
@@ -60,7 +80,7 @@
     "E8_REGIME_AND_MICROSTRUCTURE_LAYER": "IMPLEMENTED_UNCERTIFIED",
     "E9_PERFORMANCE_ANALYTICS": "NOT_STARTED",
     "M0_CANON": "CERTIFIED",
-    "M10_DATA_PROVENANCE_LEDGER": "NOT_STARTED",
+    "M10_DATA_PROVENANCE_LEDGER": "CERTIFIED",
     "M1_ARCHITECTURE_MAP": "CERTIFIED",
     "M2_CONTRACT_REGISTRY": "CERTIFIED",
     "M3_MODE_SEMANTICS_CERT": "CERTIFIED",

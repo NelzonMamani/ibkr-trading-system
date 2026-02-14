@@ -1,11 +1,12 @@
-$ C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Scripts\python.exe -m src.main --mode LIVE --cycles 1 --strategy ross_momentum
+$ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode LIVE --cycles 1 --strategy ross_momentum
 
-[CONFIG] Loaded 149 variables
+[CONFIG] Loaded 150 variables
 [CONFIG] HARD enforced: 30
-[CONFIG] Optional: 118
+[CONFIG] Optional: 119
 [CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
-[CONFIG] Market data snapshot cap: 50 (source=ENV)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
 [CONFIG] No ambiguous defaults detected
+[IBKR][TRANSLATOR] ibapi dependency missing; translation unavailable.
 [BOOT] Starting the IBKR Trading System skeleton.
 [PHASE] PHASE 4 — Minimal Live-Capable System (Teaching-First).
 [INTENT] Demonstrate a clean, observable entry point without trading logic.
@@ -36,7 +37,7 @@ $ C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Scripts\python
   - IBKR_CLIENT_ID: 7
   - IBKR_MARKET_DATA_TYPE: DELAYED
 [STARTUP] Storage
-  - SQLITE_PATH: C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\data\ibkr_system.db
+  - SQLITE_PATH: /workspace/ibkr-trading-system/data/ibkr_system.db
   - SCHEMA_VERSION: 5
   - DB_EXISTS: Y
   - IBKR_READONLY_ENABLED: False
@@ -67,29 +68,66 @@ $ C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Scripts\python
 [BOOT] EventCollector initialised
 [BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
 [BOOT] SignalEngineV1 instantiated
-[BOOT] Strategy 'GapAndGoStrategy' skipped due to selection (selected=RossMomentumStrategyV1).
-[BOOT] Strategy 'MomentumContinuationStrategy' skipped due to selection (selected=RossMomentumStrategyV1).
+[BOOT] Strategy 'GapAndGoStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'MomentumContinuationStrategy' skipped due to selection (selected=ross_momentum).
 [BOOT] Strategy 'RossMomentumStrategyV1' ENABLED via config and registered.
-[BOOT] Strategy 'StatisticalIntradayMomentum' skipped due to selection (selected=RossMomentumStrategyV1).
-[BOOT] Strategy 'MeanReversionStrategy' skipped due to selection (selected=RossMomentumStrategyV1).
+[BOOT] Strategy 'StatisticalIntradayMomentum' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'MeanReversionStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'LongHorizonValueStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'OpeningDriveStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'VwapReclaimStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'PowerHourStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'VolatilityExpansionStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'RangeBoundFadeStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'SupportResistanceChannelStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'EventEarningsReactionStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'EventNewsShockContinuationStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'VolatilityContractionBreakoutStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'VolatilityCarryRiskPremiumStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'PairsDivergenceReversionStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'CrossSectionalRelativeStrengthRotationStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'TimeBasedSeasonalityStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'TrendFollowingClassicStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'LongHorizonQualityCompounderStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'RegimeAdaptiveMetaAllocatorStrategy' skipped due to selection (selected=ross_momentum).
 [BOOT] StrategyRunner instantiated with strategies: RossMomentumStrategyV1
 [BOOT] RiskEngine instantiated — phase 4 teaching rules active
-
-Traceback (most recent call last):
-  File "<frozen runpy>", line 198, in _run_module_as_main
-  File "<frozen runpy>", line 88, in _run_code
-  File "C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\main.py", line 315, in <module>
-    main()
-    ~~~~^^
-  File "C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\main.py", line 306, in main
-    orchestrator = CoreOrchestrator()
-  File "C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\core\orchestrator.py", line 212, in __init__
-    broker = IbkrLiveBroker(
-        event_collector=self.event_collector,
-        trade_registry=self.trade_registry,
-        run_mode=self.run_mode,
-    )
-  File "<string>", line 9, in __init__
-  File "C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\brokers\ibkr_live_broker.py", line 66, in __post_init__
-    raise RuntimeError("EXECUTION_ENABLED must be True for broker execution.")
-RuntimeError: EXECUTION_ENABLED must be True for broker execution.
+[EXECUTION][WARN] IBKR live broker unavailable; forcing execution disabled for safety.
+[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow
+[SAFETY] EXECUTION: HARD DISABLED
+[EXECUTION] Gateway: DISABLED
+[EXECUTION] Liquidity checks: DISABLED
+[EXECUTION] Broker submission: DISABLED
+[STORAGE] SQLite path resolved to /workspace/ibkr-trading-system/data/ibkr_system.db
+[BOOT] StorageEngine initialised
+[BOOT] Event replay mode resolved — mode=OFF
+[VALIDATION] Running startup validations
+[VALIDATION] Config resolved
+[VALIDATION] Effective run mode: LIVE
+[VALIDATION] Scanner mode resolved: LIVE_READONLY
+[VALIDATION] Scanner data source: IBKR
+[VALIDATION] Execution policy: HARD DISABLED
+[VALIDATION] Market data source: IBKR
+[VALIDATION] IBKR API WRITE: ENABLED
+[VALIDATION] EXECUTION: HARD DISABLED
+[VALIDATION] ORDER ROUTING: BLOCKED
+[VALIDATION] MARKET DATA: LIVE IBKR
+[VALIDATION] Broker adapter in use: NONE
+[VALIDATION] Storage OK — SQLite opened
+[LEARNING][SCHEDULER] Learning disabled; skipping startup report.
+[LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
+[CYCLE] Starting orchestrator cycle.
+[TRACE] stage=MARKET_SESSION cycle_id=b4d4f7bf-1e13-45e5-b235-0a70fe153036 run_mode=LIVE strategy=ross_momentum 
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SHUTDOWN] Beginning GRACEFUL shutdown sequence.
+[LEARNING][SCHEDULER] Learning disabled; skipping shutdown report.
+[EXECUTION] Shutdown requested — placeholder cleanup complete.
+[TRADE_EXIT] No active trades to close during shutdown.
+[TRADE_EXIT] Shutdown completed — all trades force-closed.
+[STORAGE] Shutdown complete.
+[EVENT_COLLECTOR] Flushing event summary for shutdown {'total': 4, 'by_type': {'CONFIG_RESOLVED': 1, 'MARKET_SESSION_STATE': 1, 'SHUTDOWN_REQUESTED': 1, 'SHUTDOWN_STARTED': 1}, 'by_source': {'ConfigResolver': 1, 'SystemConfig': 1, 'CoreOrchestrator': 2}}
+[REGISTRY] Verification passed — no active trades remain.
+[SHUTDOWN] Exiting gracefully. Goodbye!
