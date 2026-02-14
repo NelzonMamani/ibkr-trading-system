@@ -165,7 +165,7 @@ class CoreOrchestrator:
                 )
                 self.price_feed = MarketDataPriceFeed(self.market_data_hub)
                 print("[MARKET_DATA] Market data source: IBKR (READ_ONLY)")
-        elif self.run_mode in {RunMode.LIVE, RunMode.PAPER}:
+        elif self.run_mode == RunMode.LIVE:
             from src.brokers import IbkrBroker
 
             if IbkrBroker is not None:
@@ -177,6 +177,9 @@ class CoreOrchestrator:
                 self.price_feed = MarketDataPriceFeed(self.market_data_hub)
             else:
                 self.price_feed = DeterministicPriceFeed()
+        elif self.run_mode == RunMode.PAPER:
+            print("[MARKET_DATA][PAPER] Deterministic/mock market data feed active (no IBKR connectivity).")
+            self.price_feed = DeterministicPriceFeed()
         else:
             self.price_feed = DeterministicPriceFeed()
         self.scanner_mode = get_scanner_mode()
@@ -873,22 +876,26 @@ class CoreOrchestrator:
             session_phase=session_phase,
         )
         force_mock_provider = False
-        try:
-            self.connection_manager.ensure_connected()
-        except Exception as exc:
-            print("STATE=DEGRADED")
-            print(f"[CONNECTIVITY] IBKR connection failed: {exc}")
-            self._trace_halt(
-                reason_code="CONNECTIVITY_FAILURE",
-                message=str(exc),
-                stage="CONNECTIVITY",
-            )
-            fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
-            force_mock_provider = (
-                fallback_enabled
-                or self.run_mode == RunMode.PAPER
-                or str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
-            )
+        if self.run_mode == RunMode.PAPER:
+            force_mock_provider = True
+            print("[CONNECTIVITY][PAPER] Skipping IBKR connectivity check; forcing MOCK scanner provider.")
+        else:
+            try:
+                self.connection_manager.ensure_connected()
+            except Exception as exc:
+                print("STATE=DEGRADED")
+                print(f"[CONNECTIVITY] IBKR connection failed: {exc}")
+                self._trace_halt(
+                    reason_code="CONNECTIVITY_FAILURE",
+                    message=str(exc),
+                    stage="CONNECTIVITY",
+                )
+                fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
+                force_mock_provider = (
+                    fallback_enabled
+                    or self.run_mode == RunMode.PAPER
+                    or str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
+                )
         if self.market_data_snapshot_manager is None:
             self.market_data_snapshot_manager = MarketDataSnapshotManager(
                 self.connection_manager.optional_client

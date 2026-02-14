@@ -1,8 +1,8 @@
 $ timeout 45s python -m src.main --mode SIM --cycles 1
-# SELECTED_STRATEGY=statistical_intraday_momentum
+# SELECTED_STRATEGY=mean_reversion
 # RISK_PROFILE=<default>
 
-[CONFIG] Selected strategy=statistical_intraday_momentum; forcing STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True
+[CONFIG] Selected strategy=mean_reversion; forcing MEAN_REVERSION_STRATEGY_ENABLED=True
 [CONFIG] Loaded 150 variables
 [CONFIG] HARD enforced: 30
 [CONFIG] Optional: 119
@@ -11,7 +11,7 @@ $ timeout 45s python -m src.main --mode SIM --cycles 1
 [CONFIG] No ambiguous defaults detected
 [IBKR][TRANSLATOR] ibapi dependency missing; translation unavailable.
 [BOOT] Starting the IBKR Trading System skeleton.
-[CONFIG] Selected strategy=statistical_intraday_momentum; forcing STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True
+[CONFIG] Selected strategy=mean_reversion; forcing MEAN_REVERSION_STRATEGY_ENABLED=True
 [PHASE] PHASE 4 — Minimal Live-Capable System (Teaching-First).
 [INTENT] Demonstrate a clean, observable entry point without trading logic.
 [CONFIG] Baseline teaching defaults (pre-resolution):
@@ -73,29 +73,29 @@ $ timeout 45s python -m src.main --mode SIM --cycles 1
 [BOOT] EventCollector initialised
 [BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
 [BOOT] SignalEngineV1 instantiated
-[BOOT] Strategy 'GapAndGoStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'MomentumContinuationStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'RossMomentumStrategyV1' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'StatisticalIntradayMomentum' ENABLED via config and registered.
-[BOOT] Strategy 'MeanReversionStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'LongHorizonValueStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'OpeningDriveStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'VwapReclaimStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'PowerHourStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'VolatilityExpansionStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'RangeBoundFadeStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'SupportResistanceChannelStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'EventEarningsReactionStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'EventNewsShockContinuationStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'VolatilityContractionBreakoutStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'VolatilityCarryRiskPremiumStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'PairsDivergenceReversionStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'CrossSectionalRelativeStrengthRotationStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'TimeBasedSeasonalityStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'TrendFollowingClassicStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'LongHorizonQualityCompounderStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'RegimeAdaptiveMetaAllocatorStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] StrategyRunner instantiated with strategies: StatisticalIntradayMomentum
+[BOOT] Strategy 'GapAndGoStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'MomentumContinuationStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'RossMomentumStrategyV1' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'StatisticalIntradayMomentum' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'MeanReversionStrategy' ENABLED via config and registered.
+[BOOT] Strategy 'LongHorizonValueStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'OpeningDriveStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'VwapReclaimStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'PowerHourStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'VolatilityExpansionStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'RangeBoundFadeStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'SupportResistanceChannelStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'EventEarningsReactionStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'EventNewsShockContinuationStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'VolatilityContractionBreakoutStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'VolatilityCarryRiskPremiumStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'PairsDivergenceReversionStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'CrossSectionalRelativeStrengthRotationStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'TimeBasedSeasonalityStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'TrendFollowingClassicStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'LongHorizonQualityCompounderStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] Strategy 'RegimeAdaptiveMetaAllocatorStrategy' skipped due to selection (selected=mean_reversion).
+[BOOT] StrategyRunner instantiated with strategies: MeanReversionStrategy
 [BOOT] RiskEngine instantiated — phase 4 teaching rules active
 [BOOT] ExecutionEngine instantiated — broker-routed deterministic flow
 [SAFETY] EXECUTION: HARD DISABLED
@@ -119,19 +119,19 @@ $ timeout 45s python -m src.main --mode SIM --cycles 1
 [VALIDATION] Storage OK — SQLite opened
 [LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
 [CYCLE] Starting orchestrator cycle.
-[TRACE] stage=MARKET_SESSION cycle_id=907a647b-2d5d-46d9-81fb-ab6dc8315c89 run_mode=SIM strategy=statistical_intraday_momentum 
+[TRACE] stage=MARKET_SESSION cycle_id=45571fab-13d9-4d47-9d54-c663d1079727 run_mode=SIM strategy=mean_reversion 
 [SESSION] Detected market session: CLOSED
 [SESSION] System WOULD treat market as closed (teaching-only).
 [SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().
 [INFO] Starting orchestrator cycle (teaching-only).
-[SESSION] phase=CLOSED ny_time=2026-02-14T13:11:02.576162-05:00 uk_time=2026-02-14T18:11:02.576162+00:00 utc=2026-02-14T18:11:02.576162+00:00
+[SESSION] phase=CLOSED ny_time=2026-02-14T13:11:04.604235-05:00 uk_time=2026-02-14T18:11:04.604235+00:00 utc=2026-02-14T18:11:04.604235+00:00
 [RUNTIME] mode=SIM live_like=False allow_orders=False max_shares_per_order=None event_replay=CYCLE
 STATE=DEGRADED
 [CONNECTIVITY] IBKR connection failed: Live broker connections are forbidden in SIM mode
-[TRACE] stage=HALT cycle_id=123d033e-2012-4308-a4b1-440ea8ecb35b run_mode=SIM strategy=statistical_intraday_momentum reason_code=CONNECTIVITY_FAILURE message=Live broker connections are forbidden in SIM mode
+[TRACE] stage=HALT cycle_id=dcf31784-3ce8-4925-9221-a6b39e280ec2 run_mode=SIM strategy=mean_reversion reason_code=CONNECTIVITY_FAILURE message=Live broker connections are forbidden in SIM mode
 [SCANNER] MODE=integrated SESSION=CLOSED
-[SCANNER][POLICY] source=STRATEGY policy_name=STATISTICAL_INTRADAY_MOMENTUM price=5.0-200.0 gap_min=2.0 rvol_min=1.5 float_max_millions=200.0 spread_max_pct=None watchlist_k=20 focus_m=5
-[SCANNER][ENTRY] strategy=STATISTICAL_INTRADAY_MOMENTUM requested_top_n=75 watchlist_k=20 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=5.0 below_price=200.0
+[SCANNER][POLICY] source=STRATEGY policy_name=MEAN_REVERSION price=2.0-200.0 gap_min=2.0 rvol_min=1.5 float_max_millions=200.0 spread_max_pct=None watchlist_k=20 focus_m=5
+[SCANNER][ENTRY] strategy=MEAN_REVERSION requested_top_n=75 watchlist_k=20 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=2.0 below_price=200.0
 [SCANNER][PROVIDER] provider=MOCK fallback_reason=SCANNER_DATA_SOURCE=MOCK
 [SCANNER][LIMITS] Symbol limits (value/source/env)
 [SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=DEFAULT env=-
@@ -267,7 +267,7 @@ FOCUS_M: ['ROKU', 'GME', 'NFLX', 'MU', 'BAC']
 NEW: ['AAPL', 'AMD', 'AMZN', 'BAC', 'CLSK', 'CRWD', 'CVX', 'GME', 'JPM', 'MARA', 'META', 'MU', 'NFLX', 'PLTR', 'RIOT', 'RIVN', 'ROKU', 'SNOW', 'SPOT', 'TSLA']
 CONTINUING: []
 DROPPED: []
-[TRACE] stage=UNIVERSE cycle_id=123d033e-2012-4308-a4b1-440ea8ecb35b run_mode=SIM strategy=statistical_intraday_momentum top_n=50 symbols=['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
+[TRACE] stage=UNIVERSE cycle_id=dcf31784-3ce8-4925-9221-a6b39e280ec2 run_mode=SIM strategy=mean_reversion top_n=50 symbols=['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
 [SCANNER][DIAGNOSTICS] Top 50 observations (extended columns)
 [SCANNER][ROW] rank=1 symbol=AAPL conId=None exchange=None session=NA last=12.07 ref_close=9.69 pct_change=24.56 pct_ref=CALC(SESSION_REF) volume=27515675 avg_volume_20d=3378599 rvol=8.14 bid=12.05 ask=12.12 spread=0.07 spread_pct=0.01 dollar_volume=332114197.25 float_m=12.59 halted=None ssr=None data_quality=MOCK,NEWS_DELAYED drop_reasons=-
 [SCANNER][ROW] rank=2 symbol=MSFT conId=None exchange=None session=NA last=7.93 ref_close=6.96 pct_change=13.94 pct_ref=CALC(SESSION_REF) volume=12731375 avg_volume_20d=2320893 rvol=5.49 bid=7.92 ask=7.96 spread=0.04 spread_pct=0.01 dollar_volume=100959803.75 float_m=3.38 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
@@ -371,8 +371,8 @@ DROPPED: []
 [SCANNER][DROP] symbol=XOM reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=C reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=WFC reason=DROP_RANK_BELOW_WATCHLIST
-[TRACE] stage=WATCHLIST cycle_id=123d033e-2012-4308-a4b1-440ea8ecb35b run_mode=SIM strategy=statistical_intraday_momentum watchlist=20 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT', '...']
-[TRACE] stage=FOCUS cycle_id=123d033e-2012-4308-a4b1-440ea8ecb35b run_mode=SIM strategy=statistical_intraday_momentum focus=5 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
+[TRACE] stage=WATCHLIST cycle_id=dcf31784-3ce8-4925-9221-a6b39e280ec2 run_mode=SIM strategy=mean_reversion watchlist=20 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT', '...']
+[TRACE] stage=FOCUS cycle_id=dcf31784-3ce8-4925-9221-a6b39e280ec2 run_mode=SIM strategy=mean_reversion focus=5 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
 [WATCHLIST] size=20 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT', 'RIVN', 'META', 'TSLA', 'CRWD', 'SPOT']
 [SNAPSHOT][QUALITY] symbol=ROKU missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=SNOW missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
@@ -394,26 +394,35 @@ DROPPED: []
 [SNAPSHOT][QUALITY] symbol=TSLA missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=CRWD missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=SPOT missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-STRATEGY_RUNNER_RECEIVED K=20 session=NA timestamp_utc=2026-02-14T18:11:02.576876+00:00
-[STRATEGY][FOCUS] statistical_intraday_momentum using focus_m=5
-[STRATEGY][PROCESS] strategy_key=statistical_intraday_momentum strategies=1 watchlist=5 session=NA phase=CLOSED
-[SIMOM][CYCLE] start timestamp=2026-02-14T18:11:02.576876+00:00 mode=SIM session=NA session_phase=CLOSED ny_time=2026-02-14T13:11:02.576876-05:00
-[SIMOM][INPUT] watchlist_k=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU'] focus_m=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
-[SIMOM][WARN] SIM override — session not in allowlist; session=NA allowlist=['RTH']
-[SIMOM][SIGNAL] symbol=ROKU side=LONG type=CONTINUATION confidence=1.00 stop=12.0285 target=12.393
-[SIMOM][EVAL] symbol=ROKU decision=PASS reasons=['NONE']
-[SIMOM][EVAL] symbol=SNOW decision=SKIP reasons=['LIQUIDITY_BELOW_MIN']
-[SIMOM][SIGNAL] symbol=GME side=LONG type=CONTINUATION confidence=1.00 stop=12.375 target=12.75
-[SIMOM][EVAL] symbol=GME decision=PASS reasons=['NONE']
-[SIMOM][SIGNAL] symbol=NFLX side=LONG type=CONTINUATION confidence=1.00 stop=7.128 target=7.344
-[SIMOM][EVAL] symbol=NFLX decision=PASS reasons=['NONE']
-[SIMOM][SIGNAL] symbol=MU side=LONG type=CONTINUATION confidence=1.00 stop=4.158 target=4.284
-[SIMOM][EVAL] symbol=MU decision=PASS reasons=['NONE']
-[SIMOM][ORDERS] intents_ready mode=SIM
-[SIMOM][SUMMARY] considered=5 signals=4 orders=0 skipped=1
+STRATEGY_RUNNER_RECEIVED K=20 session=NA timestamp_utc=2026-02-14T18:11:04.604965+00:00
+[STRATEGY][PROCESS] strategy_key=mean_reversion strategies=1 watchlist=20 session=NA phase=CLOSED
+[MEAN_REVERSION][CYCLE] start timestamp=2026-02-14T18:11:04.604965+00:00 mode=SIM session=NA session_phase=CLOSED utc=2026-02-14T18:11:04.604965+00:00
+[MEAN_REVERSION][EVAL] symbol=ROKU decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=SNOW decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=GME decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=NFLX decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=MU decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=BAC decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=PLTR decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=CVX decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=AMD decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=JPM decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=AAPL decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=MARA decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=CLSK decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=AMZN decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=RIOT decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=RIVN decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=META decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=TSLA decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=CRWD decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][EVAL] symbol=SPOT decision=SKIP reason=FRESH_NEWS_REGIME_VETO
+[MEAN_REVERSION][FALLBACK] symbol=ROKU mode=SIM
+[MEAN_REVERSION][ORDERS] intents_ready mode=SIM
+[MEAN_REVERSION][SUMMARY] considered=20 signals=1
 [EXECUTION] dry-run (orders disabled by mode)
-[TRACE] stage=ACTION cycle_id=123d033e-2012-4308-a4b1-440ea8ecb35b run_mode=SIM strategy=statistical_intraday_momentum intents=4
-[SNAPSHOT][SUMMARY] missing_required_fields={'MU': ['last', 'close', 'volume'], 'BAC': ['last', 'close', 'volume'], 'AAPL': ['last', 'close', 'volume'], 'JPM': ['last', 'close', 'volume'], 'GME': ['last', 'close', 'volume'], 'ROKU': ['last', 'close', 'volume'], 'NFLX': ['last', 'close', 'volume'], 'SNOW': ['last', 'close', 'volume'], 'CVX': ['last', 'close', 'volume'], 'MARA': ['last', 'close', 'volume'], 'CLSK': ['last', 'close', 'volume'], 'AMD': ['last', 'close', 'volume'], 'RIOT': ['last', 'close', 'volume'], 'AMZN': ['last', 'close', 'volume'], 'PLTR': ['last', 'close', 'volume'], 'RIVN': ['last', 'close', 'volume'], 'META': ['last', 'close', 'volume'], 'TSLA': ['last', 'close', 'volume'], 'CRWD': ['last', 'close', 'volume'], 'SPOT': ['last', 'close', 'volume']}
+[TRACE] stage=ACTION cycle_id=dcf31784-3ce8-4925-9221-a6b39e280ec2 run_mode=SIM strategy=mean_reversion intents=1
+[SNAPSHOT][SUMMARY] missing_required_fields={'SNOW': ['last', 'close', 'volume'], 'AAPL': ['last', 'close', 'volume'], 'AMZN': ['last', 'close', 'volume'], 'PLTR': ['last', 'close', 'volume'], 'GME': ['last', 'close', 'volume'], 'ROKU': ['last', 'close', 'volume'], 'BAC': ['last', 'close', 'volume'], 'AMD': ['last', 'close', 'volume'], 'CVX': ['last', 'close', 'volume'], 'NFLX': ['last', 'close', 'volume'], 'CLSK': ['last', 'close', 'volume'], 'MU': ['last', 'close', 'volume'], 'RIOT': ['last', 'close', 'volume'], 'MARA': ['last', 'close', 'volume'], 'JPM': ['last', 'close', 'volume'], 'RIVN': ['last', 'close', 'volume'], 'META': ['last', 'close', 'volume'], 'TSLA': ['last', 'close', 'volume'], 'CRWD': ['last', 'close', 'volume'], 'SPOT': ['last', 'close', 'volume']}
 [SLEEP] Sleeping for 0 seconds before next cycle.
 [SHUTDOWN] Beginning GRACEFUL shutdown sequence.
 [EXECUTION] Shutdown requested — placeholder cleanup complete.

@@ -28,7 +28,11 @@ def build_provider(
         provider.connect()
         return provider
     if mode == "AUTO":
-        if run_mode == RunMode.SIM:
+        if run_mode in {RunMode.SIM, RunMode.PAPER}:
+            if run_mode == RunMode.PAPER:
+                logging.getLogger(__name__).info(
+                    "[SCAN][PAPER] PAPER mode selects MOCK scanner provider (no IBKR connect attempt)."
+                )
             return MockScannerProvider()
         provider = IbkrScannerProvider(market_data_client=market_data_client)
         try:

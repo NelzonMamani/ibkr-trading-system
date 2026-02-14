@@ -14,6 +14,7 @@ from src.config.runtime_config import (
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.core.stop_controller import StopController
+from src.core.managers.runtime_mode_manager import RuntimeModeManager
 from src.execution.execution_providers import ExecutionProvider, PaperExecutionProvider
 from src.execution.order_models import PendingOrderBook
 from src.models.execution_result import ExecutionResult
@@ -35,7 +36,9 @@ class ExecutionEngine:
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
         self.run_mode: RunMode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
+        self.runtime_mode_manager = RuntimeModeManager.resolve()
         self.execution_enabled = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
+        self.max_shares_per_order = self.runtime_mode_manager.max_shares_per_order
         if not self.execution_enabled:
             print("[SAFETY] EXECUTION: HARD DISABLED")
             print("[EXECUTION] Gateway: DISABLED")
@@ -258,9 +261,8 @@ class ExecutionEngine:
         self, risk_decision: RiskDecision, tick: int
     ) -> BrokerOrderRequest:
         self._assert_execution_enabled_for_order_construction("risk decision")
-        requested_quantity = max(
-            1, int(getattr(risk_decision, "max_position_size", 1) or 1)
-        )
+        raw_quantity = max(1, int(getattr(risk_decision, "max_position_size", 1) or 1))
+        requested_quantity = self._clamp_order_quantity(raw_quantity, symbol=risk_decision.symbol)
         client_order_id = self._client_order_id(
             risk_decision.symbol,
             risk_decision.trader_type,
@@ -305,6 +307,18 @@ class ExecutionEngine:
             print("[EXECUTION] LIVE broker order routed.")
         self._schedule_retry(request, result)
         return result
+
+    def _clamp_order_quantity(self, quantity: int, *, symbol: str) -> int:
+        if self.max_shares_per_order is None:
+            return quantity
+        clamped = min(max(1, int(quantity)), int(self.max_shares_per_order))
+        if clamped != quantity:
+            print(
+                "[RISK][MICRO_CLAMP] "
+                f"symbol={symbol} requested_qty={quantity} clamped_qty={clamped} "
+                f"max_shares_per_order={self.max_shares_per_order}"
+            )
+        return clamped
 
     def _blocked_execution_from_risk_decision(
         self, risk_decision: Optional[RiskDecision], rationale: str = "EXECUTION_DISABLED"
