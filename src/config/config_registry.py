@@ -1338,6 +1338,11 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "default": {
             "GapAndGoStrategy": True,
             "MomentumContinuationStrategy": True,
+            "EventEarningsReactionStrategy": False,
+            "EventNewsShockContinuationStrategy": False,
+            "VolatilityContractionBreakoutStrategy": False,
+            "VolatilityCarryRiskPremiumStrategy": False,
+            "PairsDivergenceReversionStrategy": False,
         },
         "env": [],
         "affects": ["Strategies"],

@@ -17,6 +17,19 @@ from src.strategies.statistical_intraday_momentum.strategy import (
 )
 from src.strategies.mean_reversion.strategy import MeanReversionStrategy
 from src.strategies.long_horizon_value.strategy import LongHorizonValueStrategy
+from src.strategies.event_earnings_reaction.strategy import EventEarningsReactionStrategy
+from src.strategies.event_news_shock_continuation.strategy import (
+    EventNewsShockContinuationStrategy,
+)
+from src.strategies.volatility_contraction_breakout.strategy import (
+    VolatilityContractionBreakoutStrategy,
+)
+from src.strategies.volatility_carry_risk_premium.strategy import (
+    VolatilityCarryRiskPremiumStrategy,
+)
+from src.strategies.pairs_divergence_reversion.strategy import (
+    PairsDivergenceReversionStrategy,
+)
 from src.strategy.exit_signal import ExitSignal
 from src.core.active_trade_registry import ActiveTrade
 from src.signals.signal_event import SignalEvent
@@ -60,6 +73,31 @@ class StrategyRunner:
                 "LongHorizonValueStrategy",
                 LongHorizonValueStrategy,
                 "long_horizon_value",
+            ),
+            self.StrategyRegistration(
+                "EventEarningsReactionStrategy",
+                EventEarningsReactionStrategy,
+                "event_earnings_reaction",
+            ),
+            self.StrategyRegistration(
+                "EventNewsShockContinuationStrategy",
+                EventNewsShockContinuationStrategy,
+                "event_news_shock_continuation",
+            ),
+            self.StrategyRegistration(
+                "VolatilityContractionBreakoutStrategy",
+                VolatilityContractionBreakoutStrategy,
+                "volatility_contraction_breakout",
+            ),
+            self.StrategyRegistration(
+                "VolatilityCarryRiskPremiumStrategy",
+                VolatilityCarryRiskPremiumStrategy,
+                "volatility_carry_risk_premium",
+            ),
+            self.StrategyRegistration(
+                "PairsDivergenceReversionStrategy",
+                PairsDivergenceReversionStrategy,
+                "pairs_divergence_reversion",
             ),
         ]
         self.strategies = []
