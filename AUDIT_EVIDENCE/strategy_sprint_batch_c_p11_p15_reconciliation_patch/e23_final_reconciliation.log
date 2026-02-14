@@ -1,0 +1,3 @@
+python -m src.integrity.e23_platform_integrity_runner
+platform_state=TRADING_READY_PAPER
+drift_items=0
