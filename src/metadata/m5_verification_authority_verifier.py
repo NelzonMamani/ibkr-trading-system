@@ -24,6 +24,11 @@ REQUIRED_EVIDENCE_FILES = (
     "M5_EVIDENCE_INDEX.json",
 )
 
+M5_STRATEGY_EVIDENCE_REQUIRED = (
+    "AUDIT_EVIDENCE/M5/strategy_capability_inventory.json",
+    "AUDIT_EVIDENCE/M5/strategy_certification_matrix.json",
+)
+
 
 @dataclass(frozen=True)
 class EvidenceCheck:
@@ -436,6 +441,17 @@ def verify_m5_verification_authority(repo_root: Path | None = None) -> dict:
 
     _assert_programme_consistency(violations, repo_root, verdict_payload)
 
+    for rel_path in M5_STRATEGY_EVIDENCE_REQUIRED:
+        if not (repo_root / rel_path).exists():
+            _record_violation(
+                violations,
+                EvidenceCheck(
+                    check="M5_STRATEGY_EVIDENCE_EXISTS",
+                    expected="present",
+                    actual=f"missing:{rel_path}",
+                ),
+            )
+
     pre_valid = not violations
     if verdict_payload is not None:
         verdict_value = verdict_payload.get("verdict")
@@ -463,6 +479,9 @@ def verify_m5_verification_authority(repo_root: Path | None = None) -> dict:
         for name in REQUIRED_EVIDENCE_FILES
         if (evidence_dir / name).exists()
     ]
+    evidence_paths.extend(
+        rel_path for rel_path in M5_STRATEGY_EVIDENCE_REQUIRED if (repo_root / rel_path).exists()
+    )
 
     return {
         "epoch": EPOCH,

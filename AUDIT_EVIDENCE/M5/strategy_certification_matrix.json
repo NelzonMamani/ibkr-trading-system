@@ -1,0 +1,185 @@
+[
+  {
+    "strategy_id": "P01",
+    "strategy_name": "ROSS_MOMENTUM",
+    "status": "CERTIFIED_PAPER",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [
+      "AUDIT_EVIDENCE/M5/ross_momentum_sim.log",
+      "AUDIT_EVIDENCE/M5/ross_momentum_paper.log"
+    ],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P02",
+    "strategy_name": "STATISTICAL_INTRADAY_MOMENTUM",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P03",
+    "strategy_name": "MEAN_REVERSION",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P04",
+    "strategy_name": "LONG_HORIZON_VALUE",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P05",
+    "strategy_name": "OPENING_DRIVE",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P06",
+    "strategy_name": "VWAP_RECLAIM",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P07",
+    "strategy_name": "POWER_HOUR",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P08",
+    "strategy_name": "VOLATILITY_EXPANSION",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P09",
+    "strategy_name": "RANGE_BOUND_FADE",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P10",
+    "strategy_name": "SUPPORT_RESISTANCE_CHANNEL",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P11",
+    "strategy_name": "EVENT_EARNINGS_REACTION",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P12",
+    "strategy_name": "EVENT_NEWS_SHOCK_CONTINUATION",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P13",
+    "strategy_name": "VOLATILITY_CONTRACTION_BREAKOUT",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P14",
+    "strategy_name": "VOLATILITY_CARRY_RISK_PREMIUM",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P15",
+    "strategy_name": "PAIRS_DIVERGENCE_REVERSION",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P16",
+    "strategy_name": "CROSS_SECTIONAL_RELATIVE_STRENGTH_ROTATION",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P17",
+    "strategy_name": "TIME_BASED_SEASONALITY",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P18",
+    "strategy_name": "TREND_FOLLOWING_CLASSIC",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P19",
+    "strategy_name": "LONG_HORIZON_QUALITY_COMPOUNDER",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  },
+  {
+    "strategy_id": "P20",
+    "strategy_name": "REGIME_ADAPTIVE_META_ALLOCATOR",
+    "status": "PARTIAL",
+    "compileall_log_path": "AUDIT_EVIDENCE/M5/compileall_src.log",
+    "pytest_log_path": "AUDIT_EVIDENCE/M5/pytest_q.log",
+    "optional_run_logs": [],
+    "last_verified_utc": "2026-02-14T18:55:36Z"
+  }
+]

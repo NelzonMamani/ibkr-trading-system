@@ -168,6 +168,65 @@ def _derive_crosswalk(state_epochs: dict[str, str], verdict_epochs: set[str]) ->
     return "\n".join(lines) + "\n"
 
 
+
+
+def _load_json_if_exists(path: Path) -> dict[str, Any] | list[Any] | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
+def _build_p_layer_summary(repo_root: Path) -> tuple[dict[str, Any], list[str]]:
+    inventory_path = repo_root / "AUDIT_EVIDENCE" / "M5" / "strategy_capability_inventory.json"
+    matrix_path = repo_root / "AUDIT_EVIDENCE" / "M5" / "strategy_certification_matrix.json"
+
+    inventory_payload = _load_json_if_exists(inventory_path)
+    matrix_payload = _load_json_if_exists(matrix_path)
+
+    blockers: list[str] = []
+    status_counts: dict[str, int] = {}
+    missing_counts = {"missing_governance": 0, "missing_policy": 0, "missing_tests": 0, "not_cli_runnable": 0}
+
+    if not isinstance(inventory_payload, list):
+        blockers.append("missing_or_invalid_strategy_capability_inventory")
+        inventory_payload = []
+    if not isinstance(matrix_payload, list):
+        blockers.append("missing_or_invalid_strategy_certification_matrix")
+        matrix_payload = []
+
+    for item in inventory_payload:
+        if not isinstance(item, dict):
+            continue
+        if not bool(item.get("governance_present")):
+            missing_counts["missing_governance"] += 1
+        if not bool(item.get("policy_present")):
+            missing_counts["missing_policy"] += 1
+        if not bool(item.get("tests_present")):
+            missing_counts["missing_tests"] += 1
+        if not bool(item.get("runnable_entrypoint_present")):
+            missing_counts["not_cli_runnable"] += 1
+
+    for label, count in missing_counts.items():
+        if count:
+            blockers.append(f"{label}:{count}")
+
+    for item in matrix_payload:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status") or "UNKNOWN")
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    return ({
+        "inventory_path": str(inventory_path.relative_to(repo_root)),
+        "matrix_path": str(matrix_path.relative_to(repo_root)),
+        "strategy_count": len([item for item in inventory_payload if isinstance(item, dict)]),
+        "status_counts": dict(sorted(status_counts.items())),
+        "missing_capabilities": missing_counts,
+    }, blockers)
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -309,6 +368,8 @@ def main() -> int:
         "boot_results": boot_results,
     }
 
+    p_layer_summary, p_layer_blockers = _build_p_layer_summary(REPO_ROOT)
+
     capability_report = {
         "epoch": EPOCH,
         "generated_at_utc": _now_utc(),
@@ -319,6 +380,8 @@ def main() -> int:
         "recommended_state_updates": dict(sorted(recommended_updates.items())),
         "capability_crosswalk_notice_updated": crosswalk_updated,
         "derived_crosswalk": DERIVED_CROSSWALK_FILE_REL,
+        "p_layer_summary": p_layer_summary,
+        "blockers": p_layer_blockers,
     }
 
     _write_json(evidence_dir / "integrity_report.json", integrity_report)
@@ -356,6 +419,8 @@ def main() -> int:
             f"- Drift after reconciliation: `{capability_report['drift']}`",
             f"- Recommended updates applied: `{capability_report['recommended_state_updates']}`",
             f"- Derived crosswalk: `{DERIVED_CROSSWALK_FILE_REL}`",
+            f"- P-layer summary: `{capability_report['p_layer_summary']}`",
+            f"- Blockers: `{capability_report['blockers']}`",
         ],
     )
 
@@ -376,6 +441,8 @@ def main() -> int:
             reasons.append(f"boot_failed:{boot['mode']}:{boot['strategy']}")
     if capability_report["drift"]["epochs_certified_in_state_but_not_in_verdicts"] or capability_report["drift"]["epochs_certified_in_verdicts_but_not_in_state"]:
         reasons.append("capability_drift_not_reconciled")
+    if capability_report["blockers"]:
+        reasons.append("p_layer_blockers_present")
 
     certified = not reasons
     verdict_payload = {

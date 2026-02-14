@@ -7,9 +7,11 @@
     "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY/compileall.txt",
     "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY/pytest.txt",
     "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY/pytest_full.txt",
-    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY/M5_EVIDENCE_INDEX.json"
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY/M5_EVIDENCE_INDEX.json",
+    "AUDIT_EVIDENCE/M5/strategy_capability_inventory.json",
+    "AUDIT_EVIDENCE/M5/strategy_certification_matrix.json"
   ],
-  "generated_at_utc": "2026-02-10T00:59:01.268528+00:00",
+  "generated_at_utc": "2026-02-14T18:55:36.990410+00:00",
   "notes": "M5 verification authority evidence and programme consistency checks.",
   "valid": true,
   "violations": []
