@@ -1,0 +1,161 @@
+[CONFIG] Loaded 150 variables
+[CONFIG] HARD enforced: 30
+[CONFIG] Optional: 119
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+[IBKR][TRANSLATOR] ibapi dependency missing; translation unavailable.
+
+=== SYSTEM REALITY REPORT v2 ===
+{
+  "timestamp_utc": "2026-02-14T12:37:25.378592+00:00",
+  "paths": {
+    "script_path": "/workspace/ibkr-trading-system/verification_scripts/verify_system_reality_v2.py",
+    "cwd": "/workspace/ibkr-trading-system",
+    "repo_root_guess": "/workspace/ibkr-trading-system",
+    "python_exe": "/root/.pyenv/versions/3.10.19/bin/python",
+    "sys_path_head": [
+      "/workspace/ibkr-trading-system/verification_scripts",
+      "/root/.pyenv/versions/3.10.19/lib/python310.zip",
+      "/root/.pyenv/versions/3.10.19/lib/python3.10",
+      "/root/.pyenv/versions/3.10.19/lib/python3.10/lib-dynload",
+      "/root/.pyenv/versions/3.10.19/lib/python3.10/site-packages"
+    ]
+  },
+  "runtime": {
+    "RUN_MODE": "LIVE",
+    "EXECUTION_ENABLED": false,
+    "IBKR_READONLY_ENABLED": false,
+    "IBKR_API_WRITE_ALLOWED": true,
+    "IBKR_HOST": "127.0.0.1",
+    "IBKR_PORT": 7497,
+    "IBKR_CLIENT_ID": 7,
+    "IBKR_MARKET_DATA_TYPE": "DELAYED",
+    "SQLITE_PATH": "ERROR(Unknown configuration key 'SQLITE_PATH')",
+    "SCHEMA_VERSION": "ERROR(Unknown configuration key 'SCHEMA_VERSION')"
+  },
+  "db": {
+    "candidates": [
+      {
+        "path": "ERROR(Unknown configuration key 'SQLITE_PATH')",
+        "abs": "/workspace/ibkr-trading-system/ERROR(Unknown configuration key 'SQLITE_PATH')",
+        "exists": false,
+        "size_bytes": null
+      },
+      {
+        "path": "data/ibkr_system.db",
+        "abs": "/workspace/ibkr-trading-system/data/ibkr_system.db",
+        "exists": true,
+        "size_bytes": 2572288
+      },
+      {
+        "path": "/workspace/ibkr-trading-system/data/ibkr_system.db",
+        "abs": "/workspace/ibkr-trading-system/data/ibkr_system.db",
+        "exists": true,
+        "size_bytes": 2572288
+      }
+    ]
+  },
+  "strategy_runner_discovery": {
+    "found": true,
+    "candidates": [
+      {
+        "module": "src.core.orchestrator",
+        "class": "StrategyRunner",
+        "doc": "Dispatches registered strategies to translate PatternResults into TradeIntents."
+      },
+      {
+        "module": "src.strategy.strategy_runner",
+        "class": "StrategyRunner",
+        "doc": "Dispatches registered strategies to translate PatternResults into TradeIntents."
+      }
+    ],
+    "errors": []
+  },
+  "broker_adapter_discovery": {
+    "candidates": [
+      {
+        "module": "src.broker.broker_interface",
+        "class": "BrokerInterface",
+        "doc": "Skeleton broker interface with instructional logging only."
+      },
+      {
+        "module": "src.brokers",
+        "class": "BaseBroker",
+        "doc": "Broker adapter contract.\n\nSIM and LIVE implementations must conform so ExecutionEngine remains unchanged."
+      },
+      {
+        "module": "src.brokers",
+        "class": "BrokerOrderRequest",
+        "doc": "System-language order request (NOT broker-specific).\n\ndirection: \"LONG\" or \"SHORT\"\norder_type: e.g. \"MKT\" for now (teaching)"
+      },
+      {
+        "module": "src.brokers",
+        "class": "SimBroker",
+        "doc": "Teaching-safe SIM broker.\n\nReuses the deterministic gateway + liquidity + price feed.\nThe goal is to make ExecutionEngine broker-agnostic without changing behaviour."
+      },
+      {
+        "module": "src.brokers.base_broker",
+        "class": "BaseBroker",
+        "doc": "Broker adapter contract.\n\nSIM and LIVE implementations must conform so ExecutionEngine remains unchanged."
+      },
+      {
+        "module": "src.brokers.base_broker",
+        "class": "BrokerOrderRequest",
+        "doc": "System-language order request (NOT broker-specific).\n\ndirection: \"LONG\" or \"SHORT\"\norder_type: e.g. \"MKT\" for now (teaching)"
+      },
+      {
+        "module": "src.brokers.sim_broker",
+        "class": "BaseBroker",
+        "doc": "Broker adapter contract.\n\nSIM and LIVE implementations must conform so ExecutionEngine remains unchanged."
+      },
+      {
+        "module": "src.brokers.sim_broker",
+        "class": "BrokerOrderRequest",
+        "doc": "System-language order request (NOT broker-specific).\n\ndirection: \"LONG\" or \"SHORT\"\norder_type: e.g. \"MKT\" for now (teaching)"
+      },
+      {
+        "module": "src.brokers.sim_broker",
+        "class": "SimBroker",
+        "doc": "Teaching-safe SIM broker.\n\nReuses the deterministic gateway + liquidity + price feed.\nThe goal is to make ExecutionEngine broker-agnostic without changing behaviour."
+      },
+      {
+        "module": "src.signals.signal_to_intent_adapter",
+        "class": "SignalToIntentAdapter",
+        "doc": "Deterministic adapter to map SignalEvents into TradeIntents."
+      },
+      {
+        "module": "src.strategies.mean_reversion.registry_adapter",
+        "class": "MeanReversionStrategyAdapter",
+        "doc": "Helper class that provides a standard way to create an ABC using\ninheritance."
+      },
+      {
+        "module": "src.strategy.signal_adapter",
+        "class": "SignalToIntentAdapter",
+        "doc": "Deterministic adapter to map SignalEvents into TradeIntents."
+      }
+    ],
+    "errors": [
+      {
+        "module": "src.adapters.brokers.ibkr.ibkr_client",
+        "error": "No module named 'ibapi'"
+      },
+      {
+        "module": "src.brokers.ibkr_broker",
+        "error": "No module named 'ibapi'"
+      },
+      {
+        "module": "src.brokers.ibkr_live_broker",
+        "error": "No module named 'ibapi'"
+      }
+    ]
+  },
+  "verdict": {
+    "run_mode": "LIVE",
+    "execution_enabled": false,
+    "db_found_anywhere": true,
+    "strategy_runner_found_somewhere": true,
+    "broker_adapter_classes_found": true,
+    "status": "NOT_READY"
+  }
+}

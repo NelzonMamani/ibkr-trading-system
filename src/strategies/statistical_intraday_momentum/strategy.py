@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import List
 
 from src.models.data_models import PatternResult, TradeIntent
@@ -33,6 +34,26 @@ class StatisticalIntradayMomentum(BaseStrategy):
     def evaluate_exit_signals(self, active_trades: List, current_tick: int) -> List[ExitSignal]:
         return []
 
+
+    @staticmethod
+    def _candidate_to_object(entry: object) -> object:
+        if not isinstance(entry, dict):
+            return entry
+        return SimpleNamespace(
+            symbol=entry.get("symbol"),
+            data_quality_flags=list(entry.get("data_quality_flags") or []),
+            last_price=entry.get("last_price"),
+            gap_pct=entry.get("gap_pct"),
+            pct_change=entry.get("pct_change"),
+            rvol=entry.get("rvol"),
+            relative_volume=entry.get("relative_volume"),
+            dollar_volume=entry.get("dollar_volume"),
+            bid=entry.get("bid"),
+            ask=entry.get("ask"),
+            spread=entry.get("spread"),
+            float_millions=entry.get("float_millions"),
+        )
+
     def process_watchlist(
         self,
         *,
@@ -55,9 +76,11 @@ class StatisticalIntradayMomentum(BaseStrategy):
             f"timestamp={timestamp_utc} mode={mode.value} session={canonical_session} "
             f"session_phase={session_phase} ny_time={ny_time.isoformat()}"
         )
-        watchlist_symbols = [
-            getattr(entry, "symbol", None) for entry in watchlist if getattr(entry, "symbol", None)
-        ]
+        watchlist_symbols = []
+        for entry in watchlist:
+            symbol = entry.get("symbol") if isinstance(entry, dict) else getattr(entry, "symbol", None)
+            if symbol:
+                watchlist_symbols.append(symbol)
         print(
             "[SIMOM][INPUT] "
             f"watchlist_k={watchlist_symbols} focus_m={watchlist_symbols[:5]}"
@@ -107,13 +130,14 @@ class StatisticalIntradayMomentum(BaseStrategy):
         considered = 0
         skipped = 0
         for entry in watchlist:
-            symbol = getattr(entry, "symbol", None)
+            symbol = entry.get("symbol") if isinstance(entry, dict) else getattr(entry, "symbol", None)
             if not symbol:
                 continue
             considered += 1
             snapshot = snapshots.get(symbol)
+            candidate = self._candidate_to_object(entry)
             intent, reasons = decide_trade_intent(
-                candidate=entry,
+                candidate=candidate,
                 snapshot=snapshot,
                 policy=policy,
                 mode=mode,

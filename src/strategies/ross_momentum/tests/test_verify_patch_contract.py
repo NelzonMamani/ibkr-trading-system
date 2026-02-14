@@ -64,3 +64,17 @@ def test_ross_watchlist_fallback_is_long_only_in_sim_and_paper() -> None:
 
     assert all(intent.direction == "LONG" for intent in sim_intents)
     assert all(intent.direction == "LONG" for intent in paper_intents)
+
+
+def test_ross_watchlist_fallback_disabled_in_live_and_read_only() -> None:
+    strategy = RossMomentumStrategyV1()
+    kwargs = dict(
+        watchlist=[{"symbol": "AAPL"}],
+        snapshots={},
+        session_label="REG",
+        timestamp_utc="2026-02-14T14:45:00+00:00",
+        session_phase="MORNING",
+    )
+
+    assert strategy.process_watchlist(mode=RunMode.LIVE, **kwargs) == []
+    assert strategy.process_watchlist(mode=RunMode.READ_ONLY, **kwargs) == []
