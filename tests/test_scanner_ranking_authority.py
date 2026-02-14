@@ -12,6 +12,8 @@ sys.path.append(str(repo_root / "src"))
 from config.config_resolver import set_config_overrides
 from scanner import scanner_runner
 from scanner.scanner_contract import scanner_request_from_policy
+from dataclasses import replace
+
 from strategies.ross_momentum.strategy_policy import RossMomentumPolicy, select_watchlist
 
 
@@ -35,7 +37,10 @@ def test_scanner_uses_strategy_ranking_for_ross():
             "SCANNER_DATA_SOURCE": "MOCK",
         }
     )
-    policy = RossMomentumPolicy().stock_selection
+    policy = replace(
+        RossMomentumPolicy().stock_selection,
+        session_allowlist=("PRE", "REG", "AFTER", "OVN"),
+    )
     request = scanner_request_from_policy(policy, strategy_name="ross_momentum")
 
     payload = scanner_runner.run_scanner_cycle(
