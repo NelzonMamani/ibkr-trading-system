@@ -19,6 +19,14 @@ from src.core.orchestrator import CoreOrchestrator
 
 
 def run_smoke(strategy: str, mode: str, output_dir: Path) -> dict:
+    enabled_map = {
+        "OpeningDriveStrategy": strategy == "opening_drive",
+        "VWAPReclaimStrategy": strategy == "vwap_reclaim",
+        "PowerHourStrategy": strategy == "power_hour",
+        "VolatilityExpansionStrategy": strategy == "volatility_expansion",
+        "RangeBoundFadeStrategy": strategy == "range_bound_fade",
+        "SupportResistanceChannelStrategy": strategy == "support_resistance_channel",
+    }
     overrides = {
         "RUN_MODE": mode,
         "SCANNER_DATA_SOURCE": "MOCK",
@@ -28,6 +36,7 @@ def run_smoke(strategy: str, mode: str, output_dir: Path) -> dict:
         "STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED": strategy == "statistical_intraday_momentum",
         "MEAN_REVERSION_STRATEGY_ENABLED": strategy == "mean_reversion",
         "LONG_HORIZON_VALUE_STRATEGY_ENABLED": strategy == "long_horizon_value",
+        "ENABLED_STRATEGIES": enabled_map,
     }
     set_config_overrides(overrides)
 

@@ -1,0 +1,10 @@
+latest_audit_dir= output/audit/e23/20260214T111051Z
+platform_state= TRADING_READY_PAPER
+drifts= []
+commands=
+- python -m compileall src rc= 0
+- pytest -q rc= 0
+- python -m src.main --mode SIM --cycles 1 rc= 0
+- python -m src.main --mode PAPER --cycles 1 rc= 0
+- python -m src.main --mode READ_ONLY --cycles 1 rc= 0
+- python -m src.main --mode LIVE --cycles 1 rc= 0

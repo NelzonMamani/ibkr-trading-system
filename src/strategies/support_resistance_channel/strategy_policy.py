@@ -1,55 +1,23 @@
-"""src/strategies/support_resistance_channel/strategy_policy.py
-
-Strategy Policy (TEMPLATE)
-
-IMPORTANT
-- This is the sovereign strategy policy.
-- The Trading OS must NEVER violate these rules.
-- Defaults are LOCKED unless explicitly changed via optimisation epoch.
-
-This file is intentionally verbose and heavily commented.
-"""
+"""Authoritative policy for Support Resistance Channel strategy."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional, Sequence
+
+from src.config.runtime_config import RunMode
 
 
 @dataclass(frozen=True)
 class StrategyPolicy:
-    # ------------------------------------------------------------------
-    # Identity
-    # ------------------------------------------------------------------
     name: str = "support_resistance_channel"
-    version: str = "v0_draft"
-
-    # ------------------------------------------------------------------
-    # Universe / symbol selection
-    # ------------------------------------------------------------------
-    universe_source: str = "SCANNER"  # SCANNER | CONFIG_SYMBOLS
-    watchlist_limit_k: int = 15
-    focus_limit_m: int = 5
-
-    # ------------------------------------------------------------------
-    # Allowed foundation components (E18)
-    # ------------------------------------------------------------------
-    allowed_setup_families: Sequence[str] = ()
-    allowed_entry_triggers: Sequence[str] = ()
-    required_conditions: Sequence[str] = ()
-    required_confirmations: Sequence[str] = ()
-
-    # ------------------------------------------------------------------
-    # Risk & permissions
-    # ------------------------------------------------------------------
-    max_consecutive_losses: int = 3
-    max_daily_loss: Optional[float] = None
-    max_open_positions: int = 1
-
-    # ------------------------------------------------------------------
-    # Execution preferences (non-binding hints)
-    # ------------------------------------------------------------------
-    order_type_primary: str = "LIMIT"
-    allow_market_orders: bool = False
+    display_name: str = "SUPPORT_RESISTANCE_CHANNEL"
+    version: str = "v1"
+    trader_type: str = "QUANT"
+    allowed_sessions: tuple[str, ...] = ('PRE', 'REG', 'AH', 'NA')
+    allowed_modes_for_intents: tuple[RunMode, ...] = (RunMode.SIM, RunMode.PAPER)
+    min_price: float = 1.0
+    min_volume: float = 1000.0
+    max_intents_per_cycle: int = 1
 
 
 POLICY = StrategyPolicy()
