@@ -39,12 +39,12 @@ strategies:
   P02: {"status": "IMPLEMENTED", "strategy": statistical_intraday_momentum, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
   P03: {"status": "IMPLEMENTED", "strategy": mean_reversion, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
   P04: {"status": "IMPLEMENTED", "strategy": long_horizon_value, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
-  P05: {"status": "UNIMPLEMENTED", "strategy": opening_drive, "verification": []}
-  P06: {"status": "UNIMPLEMENTED", "strategy": opening_range_breakout, "verification": []}
-  P07: {"status": "UNIMPLEMENTED", "strategy": gap_and_go, "verification": []}
-  P08: {"status": "UNIMPLEMENTED", "strategy": premarket_breakout, "verification": []}
-  P09: {"status": "UNIMPLEMENTED", "strategy": vwap_pullback, "verification": []}
-  P10: {"status": "UNIMPLEMENTED", "strategy": first_pullback_trend_continuation, "verification": []}
+  P05: {"status": "IMPLEMENTED", "strategy": opening_drive, "verification": ["pytest -q src/strategies/opening_drive/tests/test_strategy.py"]}
+  P06: {"status": "IMPLEMENTED", "strategy": vwap_reclaim, "verification": ["pytest -q src/strategies/vwap_reclaim/tests/test_strategy.py"]}
+  P07: {"status": "IMPLEMENTED", "strategy": power_hour, "verification": ["pytest -q src/strategies/power_hour/tests/test_strategy.py"]}
+  P08: {"status": "IMPLEMENTED", "strategy": volatility_expansion, "verification": ["pytest -q src/strategies/volatility_expansion/tests/test_strategy.py"]}
+  P09: {"status": "IMPLEMENTED", "strategy": range_bound_fade, "verification": ["pytest -q src/strategies/range_bound_fade/tests/test_strategy.py"]}
+  P10: {"status": "IMPLEMENTED", "strategy": support_resistance_channel, "verification": ["pytest -q src/strategies/support_resistance_channel/tests/test_strategy.py"]}
   P11: {"status": "IMPLEMENTED", "strategy": intraday_range_reversion, "verification": []}
   P12: {"status": "IMPLEMENTED", "strategy": high_of_day_breakout, "verification": []}
   P13: {"status": "IMPLEMENTED", "strategy": low_float_momentum, "verification": []}

@@ -1,0 +1,44 @@
+{
+  "timestamp_utc": "2026-02-14T16:27:54.367573+00:00",
+  "commands": [
+    {
+      "command": "python -m compileall src",
+      "returncode": 0,
+      "stdout_path": "output/audit/e23/20260214T162547Z/loop01_01.stdout.log",
+      "stderr_path": "output/audit/e23/20260214T162547Z/loop01_01.stderr.log"
+    },
+    {
+      "command": "pytest -q",
+      "returncode": 0,
+      "stdout_path": "output/audit/e23/20260214T162547Z/loop01_02.stdout.log",
+      "stderr_path": "output/audit/e23/20260214T162547Z/loop01_02.stderr.log"
+    },
+    {
+      "command": "python -m src.main --mode SIM --cycles 1",
+      "returncode": 0,
+      "stdout_path": "output/audit/e23/20260214T162547Z/loop01_03.stdout.log",
+      "stderr_path": "output/audit/e23/20260214T162547Z/loop01_03.stderr.log"
+    },
+    {
+      "command": "python -m src.main --mode PAPER --cycles 1",
+      "returncode": 0,
+      "stdout_path": "output/audit/e23/20260214T162547Z/loop01_04.stdout.log",
+      "stderr_path": "output/audit/e23/20260214T162547Z/loop01_04.stderr.log"
+    },
+    {
+      "command": "python -m src.main --mode READ_ONLY --cycles 1",
+      "returncode": 0,
+      "stdout_path": "output/audit/e23/20260214T162547Z/loop01_05.stdout.log",
+      "stderr_path": "output/audit/e23/20260214T162547Z/loop01_05.stderr.log"
+    },
+    {
+      "command": "python -m src.main --mode LIVE --cycles 1",
+      "returncode": 0,
+      "stdout_path": "output/audit/e23/20260214T162547Z/loop01_06.stdout.log",
+      "stderr_path": "output/audit/e23/20260214T162547Z/loop01_06.stderr.log"
+    }
+  ],
+  "drifts": [],
+  "fix_actions": [],
+  "platform_state": "TRADING_READY_PAPER"
+}
