@@ -1,0 +1,38 @@
+{
+  "strategy": "mean_reversion",
+  "mode": "PAPER",
+  "success": true,
+  "pipeline": {
+    "scanner": true,
+    "watchlist_k": true,
+    "focus_m": true,
+    "strategy_runner": true,
+    "intents": true,
+    "execution": true
+  },
+  "counts": {
+    "watchlist_k": 10,
+    "focus_m": 5,
+    "normalised_intents": 1,
+    "execution_events": 1
+  },
+  "watchlist_symbols": [
+    "MCKA",
+    "MCKB",
+    "MCKC",
+    "MCKD",
+    "MCKE",
+    "MCKF",
+    "MCKG",
+    "MCKH",
+    "MCKI",
+    "MCKJ"
+  ],
+  "focus_symbols": [
+    "MCKA",
+    "MCKB",
+    "MCKC",
+    "MCKD",
+    "MCKE"
+  ]
+}

@@ -1,0 +1,44 @@
+[CONFIG] Loaded 150 variables
+[CONFIG] HARD enforced: 30
+[CONFIG] Optional: 119
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+{
+  "strategy": "statistical_intraday_momentum",
+  "mode": "PAPER",
+  "success": true,
+  "pipeline": {
+    "scanner": true,
+    "watchlist_k": true,
+    "focus_m": true,
+    "strategy_runner": true,
+    "intents": true,
+    "execution": true
+  },
+  "counts": {
+    "watchlist_k": 10,
+    "focus_m": 5,
+    "normalised_intents": 3,
+    "execution_events": 1
+  },
+  "watchlist_symbols": [
+    "MCKA",
+    "MCKB",
+    "MCKC",
+    "MCKD",
+    "MCKE",
+    "MCKF",
+    "MCKG",
+    "MCKH",
+    "MCKI",
+    "MCKJ"
+  ],
+  "focus_symbols": [
+    "MCKA",
+    "MCKB",
+    "MCKC",
+    "MCKD",
+    "MCKE"
+  ]
+}

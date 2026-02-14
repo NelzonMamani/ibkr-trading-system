@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import re
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -16,6 +17,21 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.config.config_resolver import set_config_overrides
 from src.core.orchestrator import CoreOrchestrator
+
+
+def _extract_count(pattern: str, logs: str) -> int:
+    match = re.search(pattern, logs)
+    if not match:
+        return 0
+    return int(match.group(1))
+
+
+def _extract_symbols(pattern: str, logs: str) -> list[str]:
+    match = re.search(pattern, logs)
+    if not match:
+        return []
+    symbols_raw = match.group(1)
+    return [item.strip().strip("'") for item in symbols_raw.split(",") if item.strip()]
 
 
 def run_smoke(strategy: str, mode: str, output_dir: Path) -> dict:
@@ -38,20 +54,12 @@ def run_smoke(strategy: str, mode: str, output_dir: Path) -> dict:
             orchestrator = CoreOrchestrator()
             success = bool(orchestrator.run_once())
         logs = stream.getvalue()
-        watchlist = list(orchestrator.last_scanner_watchlist_payload.get("watchlist_k_symbols", []))
-        focus = list(orchestrator.last_scanner_watchlist_payload.get("focus_m_symbols", []))
-        if not watchlist:
-            watchlist = [
-                getattr(row, "symbol", None)
-                for row in orchestrator.last_scanner_watchlist_payload.get("watchlist_k", [])
-            ]
-            watchlist = [s for s in watchlist if s]
-        if not focus:
-            focus = [
-                getattr(row, "symbol", None)
-                for row in orchestrator.last_scanner_watchlist_payload.get("focus_m", [])
-            ]
-            focus = [s for s in focus if s]
+
+        watchlist = _extract_symbols(r"WATCHLIST_K_SELECTED \(K=\d+\): \[(.*?)\]", logs)
+        focus = _extract_symbols(r"\[TRACE\] stage=FOCUS .*? symbols=\[(.*?)\]", logs)
+        watchlist_count = _extract_count(r"\[TRACE\] stage=WATCHLIST .*? watchlist=(\d+)", logs) or len(watchlist)
+        focus_count = _extract_count(r"\[TRACE\] stage=FOCUS .*? focus=(\d+)", logs) or len(focus)
+        intents_count = _extract_count(r"\[TRACE\] stage=ACTION .*? intents=(\d+)", logs)
 
         summary = {
             "strategy": strategy,
@@ -62,13 +70,13 @@ def run_smoke(strategy: str, mode: str, output_dir: Path) -> dict:
                 "watchlist_k": "[WATCHLIST]" in logs,
                 "focus_m": "[TRACE] stage=FOCUS" in logs,
                 "strategy_runner": "STRATEGY_RUNNER_RECEIVED" in logs,
-                "intents": True,
+                "intents": intents_count > 0,
                 "execution": "[EXECUTION]" in logs,
             },
             "counts": {
-                "watchlist_k": len(watchlist),
-                "focus_m": len(focus),
-                "normalised_intents": orchestrator.event_collector.count("INTENT_NORMALISED"),
+                "watchlist_k": watchlist_count,
+                "focus_m": focus_count,
+                "normalised_intents": intents_count,
                 "execution_events": orchestrator.event_collector.count("EXECUTION_COMPLETE"),
             },
             "watchlist_symbols": watchlist,

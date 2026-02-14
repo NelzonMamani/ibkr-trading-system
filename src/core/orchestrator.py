@@ -1017,6 +1017,52 @@ class CoreOrchestrator:
             },
             summary=f"intents={len(strategy_output or [])}",
         )
+
+        execution_results: list[ExecutionResult] = []
+        if mode_manager.allow_orders and strategy_output:
+            tick = int(cycle_started_at.timestamp())
+            self.execution_engine.current_tick = tick
+            risk_decisions: list[RiskDecision] = []
+            for intent in strategy_output:
+                risk_decisions.append(
+                    RiskDecision(
+                        symbol=intent.symbol,
+                        allowed=True,
+                        max_position_size=1,
+                        risk_level="LOW",
+                        rationale="Manager pipeline deterministic PAPER pass-through.",
+                        trader_type=intent.trader_type,
+                        strategy_name=intent.strategy_name,
+                        direction=intent.direction,
+                        stop_loss_price=intent.stop_loss_price,
+                        take_profit_price=intent.take_profit_price,
+                        decision_id=f"mgr-{uuid4()}",
+                        created_tick=tick,
+                    )
+                )
+            for decision in risk_decisions:
+                execution_results.append(self.execution_engine.execute_trade(decision))
+            self.event_collector.emit(
+                event_type="EXECUTION_COMPLETE",
+                source="ExecutionEngine",
+                payload={"results": len(execution_results)},
+            )
+            self.storage_engine.store_trade_record(
+                TradeRecord(
+                    scanner_output=list(scanner_payload.get("candidates", [])),
+                    strategy_output=list(strategy_output),
+                    risk_output=risk_decisions,
+                    execution_output=execution_results,
+                ),
+                cycle_context={
+                    "tick": tick,
+                    "session": session_label,
+                    "cycle_started_at": cycle_started_at,
+                    "cycle_ended_at": datetime.now(timezone.utc),
+                },
+                events=self.event_collector.snapshot_cycle(),
+            )
+
         if snapshot_quality:
             missing = {
                 symbol: quality.missing_fields

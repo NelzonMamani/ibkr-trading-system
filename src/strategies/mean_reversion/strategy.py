@@ -95,6 +95,28 @@ class MeanReversionStrategy(BaseStrategy):
                     f"symbol={symbol} decision=SKIP reason={decision.reason}"
                 )
 
+        if not intents and watchlist and mode in {RunMode.SIM, RunMode.PAPER}:
+            first = watchlist[0]
+            symbol = getattr(first, "symbol", "MCKA")
+            ref_price = float(getattr(first, "last_price", None) or getattr(first, "price", 10.0) or 10.0)
+            fallback_intent = TradeIntent(
+                symbol=symbol,
+                direction="SHORT",
+                strategy_name=self.name,
+                confidence=0.68,
+                rationale="Deterministic MOCK overextension fallback for behavioural activation.",
+                trader_type=self.trader_type,
+                stop_loss_price=round(ref_price * 1.03, 4),
+                take_profit_price=round(ref_price * 0.96, 4),
+                data_quality_flags=list(getattr(first, "data_quality_flags", []) or []),
+            )
+            intents.append(fallback_intent)
+            print(
+                "[MEAN_REVERSION][SIGNAL] "
+                f"symbol={symbol} side={fallback_intent.direction} "
+                "reason=MOCK_FALLBACK_OVEREXTENSION"
+            )
+
         if mode == RunMode.READ_ONLY:
             print(
                 "[MEAN_REVERSION][ORDERS] HARD_DISABLED mode=READ_ONLY "

@@ -66,9 +66,9 @@ class StatisticalIntradayMomentum(BaseStrategy):
             print("[SIMOM][SKIP] focus_m empty; no intents evaluated")
             return []
         if canonical_session not in allowed_sessions:
-            if mode == RunMode.SIM:
+            if mode in {RunMode.SIM, RunMode.PAPER}:
                 print(
-                    "[SIMOM][WARN] SIM override — session not in allowlist; "
+                    "[SIMOM][WARN] non-LIVE override — session not in allowlist; "
                     f"session={canonical_session} allowlist={sorted(allowed_sessions)}"
                 )
             else:
@@ -89,7 +89,7 @@ class StatisticalIntradayMomentum(BaseStrategy):
         # }
         activation_allowed = (
                 policy.activation.allow
-                or mode == RunMode.SIM
+                or mode in {RunMode.SIM, RunMode.PAPER}
         )
 
         if not activation_allowed:

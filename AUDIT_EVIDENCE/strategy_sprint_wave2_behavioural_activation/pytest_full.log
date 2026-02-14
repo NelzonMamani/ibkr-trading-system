@@ -1,0 +1,265 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0
+rootdir: /workspace/ibkr-trading-system
+configfile: pytest.ini
+testpaths: tests
+collected 228 items / 2 skipped
+
+tests/e21/test_e21_harness_reports.py .                                  [  0%]
+tests/e21/test_e21_no_trade_context_veto.py .                            [  0%]
+tests/e21/test_e21_non_interference.py .                                 [  1%]
+tests/e21/test_e21_scenarios_are_deterministic.py .                      [  1%]
+tests/e21/test_e21_setup_detector_coverage.py .                          [  2%]
+tests/e22/test_e22_arbitration_layer.py .....                            [  4%]
+tests/metadata/test_m0_canonical_files_exist.py ..                       [  5%]
+tests/metadata/test_m0_canonical_helpers.py ..                           [  6%]
+tests/metadata/test_m0_invariant_enforcement.py ..                       [  7%]
+tests/metadata/test_m2_contract_registry_invariants.py .                 [  7%]
+tests/metadata/test_m2_contract_registry_paths.py .                      [  7%]
+tests/metadata/test_m2_contract_registry_schema.py .                     [  8%]
+tests/metadata/test_m3_mode_semantics_verifier.py .                      [  8%]
+tests/metadata/test_m5_verification_authority_verifier.py ..             [  9%]
+tests/metadata/test_m6_data_lifecycle_governance_verifier.py ..          [ 10%]
+tests/metadata/test_m7_epoch_audit_certifier.py .....                    [ 12%]
+tests/metadata/test_m8_change_control_verifier.py ........               [ 16%]
+tests/metadata/test_m9_signal_semantics_registry_verifier.py .....       [ 18%]
+tests/smoke/test_imports.py .                                            [ 18%]
+tests/smoke/test_orchestrator_cycle.py ..                                [ 19%]
+tests/smoke/test_scanner_contract.py .                                   [ 20%]
+tests/strategies/statistical_intraday_momentum/test_contract_compliance.py . [ 20%]
+                                                                         [ 20%]
+tests/strategies/statistical_intraday_momentum/test_intraday_end_to_end_smoke.py . [ 21%]
+                                                                         [ 21%]
+tests/strategies/statistical_intraday_momentum/test_policy_imports.py .  [ 21%]
+tests/strategies/statistical_intraday_momentum/test_regime_gates.py ..   [ 22%]
+tests/strategies/statistical_intraday_momentum/test_risk_policy.py ..    [ 23%]
+tests/strategies/statistical_intraday_momentum/test_safe_defaults.py .   [ 23%]
+tests/strategies/statistical_intraday_momentum/test_scoring_determinism.py . [ 24%]
+                                                                         [ 24%]
+tests/strategies/test_candlestick_foundation.py ...                      [ 25%]
+tests/strategies/test_foundation_catalogue.py ...                        [ 26%]
+tests/strategies/test_setup_detectors.py .....                           [ 28%]
+tests/strategy_portfolio/test_allocation.py ......                       [ 31%]
+tests/strategy_portfolio/test_arbitration.py ......                      [ 34%]
+tests/strategy_portfolio/test_contracts.py ....                          [ 35%]
+tests/strategy_portfolio/test_end_to_end_smoke.py .                      [ 36%]
+tests/strategy_portfolio/test_no_trade_contexts.py .                     [ 36%]
+tests/strategy_portfolio/test_non_interference.py .                      [ 37%]
+tests/strategy_portfolio/test_normaliser_defaults.py ..                  [ 38%]
+tests/strategy_portfolio/test_registry.py .....                          [ 40%]
+tests/strategy_portfolio/test_ross_adapter.py .....                      [ 42%]
+tests/test_config_sanity.py .....                                        [ 44%]
+tests/test_decision_artifacts_epoch14.py ...                             [ 46%]
+tests/test_epoch12_recovery_housekeeping.py ...                          [ 47%]
+tests/test_epoch15_17_safety_cluster.py ....                             [ 49%]
+tests/test_epoch3_risk_execution.py ......                               [ 51%]
+tests/test_event_collector_snapshot_policy.py ...                        [ 53%]
+tests/test_execution_authority_epoch5.py ..                              [ 53%]
+tests/test_execution_intent_modes.py ..                                  [ 54%]
+tests/test_exit_precedence.py ..                                         [ 55%]
+tests/test_faults.py ....                                                [ 57%]
+tests/test_ibkr_order_translator.py sssss                                [ 59%]
+tests/test_learning_controls.py ...                                      [ 60%]
+tests/test_learning_policy_proposal.py ..                                [ 61%]
+tests/test_learning_reporting.py ..                                      [ 62%]
+tests/test_liquidity_execution.py .                                      [ 63%]
+tests/test_market_data_client_disconnect.py .                            [ 63%]
+tests/test_market_data_client_snapshot.py ...                            [ 64%]
+tests/test_market_data_validation.py ..                                  [ 65%]
+tests/test_market_session_phase.py ....                                  [ 67%]
+tests/test_mode_drift_guard.py .                                         [ 67%]
+tests/test_orchestrator_scanner_request.py .                             [ 68%]
+tests/test_orchestrator_shutdown.py ...                                  [ 69%]
+tests/test_order_gateway_retry.py .                                      [ 70%]
+tests/test_performance_registry_epoch9.py .                              [ 70%]
+tests/test_performance_reports_epoch4.py .                               [ 71%]
+tests/test_position_lifecycle_engine.py ....                             [ 72%]
+tests/test_position_lifecycle_persistence.py .                           [ 73%]
+tests/test_read_only_guard.py .                                          [ 73%]
+tests/test_regime_baselines.py .                                         [ 74%]
+tests/test_regime_classifier.py ..                                       [ 75%]
+tests/test_regime_contracts.py ...                                       [ 76%]
+tests/test_regime_determinism.py .                                       [ 76%]
+tests/test_regime_live_readonly_missingness.py .                         [ 77%]
+tests/test_regime_observers.py .                                         [ 77%]
+tests/test_regime_orchestrator_integration.py .                          [ 78%]
+tests/test_regime_policy_application.py .                                [ 78%]
+tests/test_regime_storage.py .                                           [ 78%]
+tests/test_replay_from_storage_epoch4.py ..                              [ 79%]
+tests/test_replay_locked_in_live_modes_epoch4.py .                       [ 80%]
+tests/test_ross_strategy_registry.py .                                   [ 80%]
+tests/test_scanner_contract_54.py ...                                    [ 82%]
+tests/test_scanner_pct_change_fallback.py ..                             [ 82%]
+tests/test_scanner_policy_from_strategy.py FF                            [ 83%]
+tests/test_scanner_provider_fallback.py .                                [ 84%]
+tests/test_scanner_ranking_authority.py .                                [ 84%]
+tests/test_scanner_request_validation.py ..                              [ 85%]
+tests/test_scanner_universe_request.py .                                 [ 85%]
+tests/test_scanner_watchlist_artifact_empty.py .                         [ 86%]
+tests/test_scanner_watchlist_prints.py ..                                [ 87%]
+tests/test_signal_adapter.py ...                                         [ 88%]
+tests/test_sqlite_persistence.py ...                                     [ 89%]
+tests/test_stop_controller.py ..                                         [ 90%]
+tests/test_storage_cli_epoch4.py .                                       [ 91%]
+tests/test_storage_recovery.py .                                         [ 91%]
+tests/test_storage_schema_epoch4.py ..                                   [ 92%]
+tests/test_storage_serialization.py ...                                  [ 93%]
+tests/test_strategy_registry_epoch13.py ....                             [ 95%]
+tests/test_traceability.py ...                                           [ 96%]
+tests/test_trade_exit_engine.py .......                                  [100%]
+
+=================================== FAILURES ===================================
+_____________ test_scanner_policy_limits_applied_in_teaching_mode ______________
+
+    def test_scanner_policy_limits_applied_in_teaching_mode():
+        set_config_overrides(
+            {
+            "RUN_MODE": "PAPER",
+                "SCANNER_DATA_SOURCE": "MOCK",
+            }
+        )
+        base_policy = RossMomentumPolicy()
+        tuned_stock_policy = replace(
+            base_policy.stock_selection,
+            watchlist_limit_k=3,
+            focus_limit_m=2,
+            top_gainers_n=5,
+            session_allowlist=("PRE", "REG", "AFTER", "OVN"),
+        )
+        tuned_policy = replace(base_policy, stock_selection=tuned_stock_policy)
+        scanner_policy = _to_scanner_policy(tuned_policy.stock_selection)
+    
+        try:
+            payload = run_scanner_cycle(mode="READONLY", policy=scanner_policy)
+        finally:
+            set_config_overrides({})
+    
+>       assert len(payload.get("watchlist_k", [])) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = len([])
+E        +    where [] = <built-in method get of dict object at 0x7f2039cb7a80>('watchlist_k', [])
+E        +      where <built-in method get of dict object at 0x7f2039cb7a80> = {'candidate_metrics': [CandidateMetrics(symbol='MCKA', con_id=None, exchange=None, session_label=None, last_price=5.2,...=0.02, volume=6149999, data_quality_flags=['DROP_RVOL'])], 'continuing_symbols': [], 'data_quality_by_symbol': {}, ...}.get
+
+tests/test_scanner_policy_from_strategy.py:37: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[SCANNER] MODE=READONLY SESSION=CLOSED
+[SCANNER][POLICY] source=STRATEGY policy_name=ROSS_MOMENTUM price=1.0-20.0 gap_min=10.0 rvol_min=5.0 float_max_millions=20.0 spread_max_pct=None watchlist_k=3 focus_m=2
+[SCANNER][ENTRY] strategy=ROSS_MOMENTUM requested_top_n=5 watchlist_k=3 focus_m=2 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=1.0 below_price=20.0
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=7
+STATE=DEGRADED
+STATE=DEGRADED
+[SCANNER][WARN] Provider connection failed — falling back to MOCK reason=There is no current event loop in thread 'MainThread'.
+[SCANNER][PROVIDER] provider=MOCK fallback_reason=There is no current event loop in thread 'MainThread'.
+[SCANNER][LIMITS] Symbol limits (value/source/env)
+[SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=DEFAULT env=-
+[SCANNER][LIMITS] SCANNER_TEACHING_SYMBOL_CAP=0 source=DEFAULT env=-
+[SCANNER][LIMITS] Policy caps top_gainers_n=5 watchlist_k=3 focus_m=2 max_symbols_per_cycle=50
+[SCANNER][LIMITS] Resolved symbol request limit=5 reductions=['none']
+[SCANNER][LIMITS] Focus list limit=2
+[SCANNER][STAGE] bootstrap
+[SCANNER][IBKR] universe_return ibkr_returned_count=5 requested_top_n=5 truncation=False reasons=['none']
+SCANNER_RAW_N=5 returned 5 symbols
+[SCANNER][STAGE] gates
+[SCANNER][KEEP] symbol=MCKA last=5.20 final_pct=30.00 pct_source=CALC(SESSION_REF) vol=2925000 bid=5.19 ask=5.21 spread=0.0200
+[SCANNER][DROP] symbol=MCKB reason=DROP_FLOAT_MAX
+[SCANNER][DROP] symbol=MCKC reason=DROP_FLOAT_MAX
+[SCANNER][DROP] symbol=MCKD reason=DROP_RVOL
+[SCANNER][DROP] symbol=MCKE reason=DROP_RVOL
+AFTER_GATES_SYMBOLS (N=1): ['MCKA']
+[SCANNER][STAGE] watchlist
+[SCANNER][DROP] symbol=MCKA reason=DROP_RANK_BELOW_WATCHLIST
+[SCANNER][STAGE] enrich
+WATCHLIST_K_SELECTED (K=0): []
+[SCANNER][STAGE] print
+[SCANNER][SUMMARY] candidates=5 gated=1 watchlist=0 drops={'DROP_FLOAT_MAX': 2, 'DROP_RVOL': 2, 'DROP_RANK_BELOW_WATCHLIST': 1}
+[SCANNER][DROP_SUMMARY] topn=5 evaluated=5 dropped=5 reasons={'DROP_FLOAT_MAX': 2, 'DROP_RVOL': 2, 'DROP_RANK_BELOW_WATCHLIST': 1}
+TopN: 5
+GatedSurvivors: 1
+DropReasons: {'DROP_FLOAT_MAX': 2, 'DROP_RVOL': 2, 'DROP_RANK_BELOW_WATCHLIST': 1}
+EMPTY WATCHLIST (valid)
+WATCHLIST_K: []
+FOCUS_M: []
+NEW: []
+CONTINUING: []
+DROPPED: []
+_________ test_scanner_keeps_top_k_and_drops_only_below_watchlist_rank _________
+
+    def test_scanner_keeps_top_k_and_drops_only_below_watchlist_rank():
+        set_config_overrides(
+            {
+                "RUN_MODE": "PAPER",
+                "SCANNER_DATA_SOURCE": "MOCK",
+            }
+        )
+        base_policy = RossMomentumPolicy()
+        tuned_stock_policy = replace(
+            base_policy.stock_selection,
+            watchlist_limit_k=15,
+            focus_limit_m=5,
+            top_gainers_n=50,
+            max_symbols_per_cycle=50,
+            session_allowlist=("PRE", "REG", "AFTER", "OVN"),
+        )
+        scanner_policy = _to_scanner_policy(tuned_stock_policy)
+    
+        try:
+            payload = run_scanner_cycle(mode="SIM", policy=scanner_policy)
+        finally:
+            set_config_overrides({})
+    
+>       assert payload.get("survivors_count") == 50
+E       AssertionError: assert 1 == 50
+E        +  where 1 = <built-in method get of dict object at 0x7f2039df2fc0>('survivors_count')
+E        +    where <built-in method get of dict object at 0x7f2039df2fc0> = {'candidate_metrics': [CandidateMetrics(symbol='MCKA', con_id=None, exchange=None, session_label=None, last_price=5.2,...me=6460000, data_quality_flags=['DROP_PCT_CHANGE']), ...], 'continuing_symbols': [], 'data_quality_by_symbol': {}, ...}.get
+
+tests/test_scanner_policy_from_strategy.py:65: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[SCANNER] MODE=SIM SESSION=CLOSED
+[SCANNER][POLICY] source=STRATEGY policy_name=ROSS_MOMENTUM price=1.0-20.0 gap_min=10.0 rvol_min=5.0 float_max_millions=20.0 spread_max_pct=None watchlist_k=15 focus_m=5
+[SCANNER][ENTRY] strategy=ROSS_MOMENTUM requested_top_n=50 watchlist_k=15 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=1.0 below_price=20.0
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=7
+STATE=DEGRADED
+STATE=DEGRADED
+[SCANNER][WARN] Provider connection failed — falling back to MOCK reason=There is no current event loop in thread 'MainThread'.
+[SCANNER][PROVIDER] provider=MOCK fallback_reason=There is no current event loop in thread 'MainThread'.
+[SCANNER][LIMITS] Symbol limits (value/source/env)
+[SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=DEFAULT env=-
+[SCANNER][LIMITS] SCANNER_TEACHING_SYMBOL_CAP=0 source=DEFAULT env=-
+[SCANNER][LIMITS] Policy caps top_gainers_n=50 watchlist_k=15 focus_m=5 max_symbols_per_cycle=50
+[SCANNER][LIMITS] Resolved symbol request limit=50 reductions=['none']
+[SCANNER][LIMITS] Focus list limit=5
+[SCANNER][STAGE] bootstrap
+[SCANNER][IBKR] universe_return ibkr_returned_count=10 requested_top_n=50 truncation=True reasons=['ibkr_returned_fewer_than_requested']
+SCANNER_RAW_N=50 returned 10 symbols
+[SCANNER][STAGE] gates
+[SCANNER][KEEP] symbol=MCKA last=5.20 final_pct=30.00 pct_source=CALC(SESSION_REF) vol=2925000 bid=5.19 ask=5.21 spread=0.0200
+[SCANNER][DROP] symbol=MCKB reason=DROP_FLOAT_MAX
+[SCANNER][DROP] symbol=MCKC reason=DROP_FLOAT_MAX
+[SCANNER][DROP] symbol=MCKD reason=DROP_RVOL
+[SCANNER][DROP] symbol=MCKE reason=DROP_RVOL
+[SCANNER][DROP] symbol=MCKF reason=DROP_PCT_CHANGE
+[SCANNER][DROP] symbol=MCKG reason=DROP_PCT_CHANGE
+[SCANNER][DROP] symbol=MCKH reason=DROP_PCT_CHANGE
+[SCANNER][DROP] symbol=MCKI reason=DROP_PCT_CHANGE
+[SCANNER][DROP] symbol=MCKJ reason=DROP_PCT_CHANGE
+AFTER_GATES_SYMBOLS (N=1): ['MCKA']
+[SCANNER][STAGE] watchlist
+[SCANNER][DROP] symbol=MCKA reason=DROP_RANK_BELOW_WATCHLIST
+[SCANNER][STAGE] enrich
+WATCHLIST_K_SELECTED (K=0): []
+[SCANNER][STAGE] print
+[SCANNER][SUMMARY] candidates=10 gated=1 watchlist=0 drops={'DROP_FLOAT_MAX': 2, 'DROP_RVOL': 2, 'DROP_PCT_CHANGE': 5, 'DROP_RANK_BELOW_WATCHLIST': 1}
+[SCANNER][DROP_SUMMARY] topn=10 evaluated=10 dropped=10 reasons={'DROP_FLOAT_MAX': 2, 'DROP_RVOL': 2, 'DROP_PCT_CHANGE': 5, 'DROP_RANK_BELOW_WATCHLIST': 1}
+TopN: 10
+GatedSurvivors: 1
+DropReasons: {'DROP_FLOAT_MAX': 2, 'DROP_RVOL': 2, 'DROP_PCT_CHANGE': 5, 'DROP_RANK_BELOW_WATCHLIST': 1}
+EMPTY WATCHLIST (valid)
+WATCHLIST_K: []
+FOCUS_M: []
+NEW: []
+CONTINUING: []
+DROPPED: []
+=========================== short test summary info ============================
+FAILED tests/test_scanner_policy_from_strategy.py::test_scanner_policy_limits_applied_in_teaching_mode
+FAILED tests/test_scanner_policy_from_strategy.py::test_scanner_keeps_top_k_and_drops_only_below_watchlist_rank
+================== 2 failed, 221 passed, 7 skipped in 51.36s ===================
