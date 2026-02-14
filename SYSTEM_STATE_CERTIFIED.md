@@ -1,6 +1,6 @@
 # SYSTEM_STATE_CERTIFIED.md
 
-Generated: 2026-02-14T00:12:16.757479+00:00
+Generated: 2026-02-14T00:46:12.626601+00:00
 Platform State: **TRADING_READY_PAPER**
 
 ## Canonical Run Modes

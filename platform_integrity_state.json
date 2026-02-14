@@ -1,6 +1,6 @@
 {
-  "timestamp_utc": "2026-02-14T00:12:16.757479+00:00",
-  "git_commit": "6fd0a9837bba7a0684e1495051d5a0a2392aaefd",
+  "timestamp_utc": "2026-02-14T00:46:12.626601+00:00",
+  "git_commit": "4572f3c625376c1364d474d925d519571c8302c7",
   "run_context": {
     "execution_context": "local",
     "python_version": "3.10.19",
@@ -76,38 +76,38 @@
     {
       "command": "python -m compileall src",
       "returncode": 0,
-      "stdout_path": "output/audit/e23/20260214T001001Z/loop01_01.stdout.log",
-      "stderr_path": "output/audit/e23/20260214T001001Z/loop01_01.stderr.log"
+      "stdout_path": "output/audit/e23/20260214T004344Z/loop01_01.stdout.log",
+      "stderr_path": "output/audit/e23/20260214T004344Z/loop01_01.stderr.log"
     },
     {
       "command": "pytest -q",
       "returncode": 0,
-      "stdout_path": "output/audit/e23/20260214T001001Z/loop01_02.stdout.log",
-      "stderr_path": "output/audit/e23/20260214T001001Z/loop01_02.stderr.log"
+      "stdout_path": "output/audit/e23/20260214T004344Z/loop01_02.stdout.log",
+      "stderr_path": "output/audit/e23/20260214T004344Z/loop01_02.stderr.log"
     },
     {
       "command": "python -m src.main --mode SIM --cycles 1",
       "returncode": 0,
-      "stdout_path": "output/audit/e23/20260214T001001Z/loop01_03.stdout.log",
-      "stderr_path": "output/audit/e23/20260214T001001Z/loop01_03.stderr.log"
+      "stdout_path": "output/audit/e23/20260214T004344Z/loop01_03.stdout.log",
+      "stderr_path": "output/audit/e23/20260214T004344Z/loop01_03.stderr.log"
     },
     {
       "command": "python -m src.main --mode PAPER --cycles 1",
       "returncode": 0,
-      "stdout_path": "output/audit/e23/20260214T001001Z/loop01_04.stdout.log",
-      "stderr_path": "output/audit/e23/20260214T001001Z/loop01_04.stderr.log"
+      "stdout_path": "output/audit/e23/20260214T004344Z/loop01_04.stdout.log",
+      "stderr_path": "output/audit/e23/20260214T004344Z/loop01_04.stderr.log"
     },
     {
       "command": "python -m src.main --mode READ_ONLY --cycles 1",
       "returncode": 0,
-      "stdout_path": "output/audit/e23/20260214T001001Z/loop01_05.stdout.log",
-      "stderr_path": "output/audit/e23/20260214T001001Z/loop01_05.stderr.log"
+      "stdout_path": "output/audit/e23/20260214T004344Z/loop01_05.stdout.log",
+      "stderr_path": "output/audit/e23/20260214T004344Z/loop01_05.stderr.log"
     },
     {
       "command": "python -m src.main --mode LIVE --cycles 1",
       "returncode": 0,
-      "stdout_path": "output/audit/e23/20260214T001001Z/loop01_06.stdout.log",
-      "stderr_path": "output/audit/e23/20260214T001001Z/loop01_06.stderr.log"
+      "stdout_path": "output/audit/e23/20260214T004344Z/loop01_06.stdout.log",
+      "stderr_path": "output/audit/e23/20260214T004344Z/loop01_06.stderr.log"
     }
   ],
   "drift_items": [],
