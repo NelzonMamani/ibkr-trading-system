@@ -366,6 +366,20 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
                 "forcing MEAN_REVERSION_STRATEGY_ENABLED=True"
             )
 
+    if selected_strategy == "long_horizon_value":
+        current_enabled = resolved["LONG_HORIZON_VALUE_STRATEGY_ENABLED"].value
+        if not current_enabled:
+            resolved["LONG_HORIZON_VALUE_STRATEGY_ENABLED"] = ConfigRecord(
+                name="LONG_HORIZON_VALUE_STRATEGY_ENABLED",
+                value=True,
+                source="DERIVED",
+                env=None,
+            )
+            print(
+                "[CONFIG] Selected strategy=long_horizon_value; "
+                "forcing LONG_HORIZON_VALUE_STRATEGY_ENABLED=True"
+            )
+
     if resolved["GIT_SHA"].value is None:
         resolved["GIT_SHA"] = ConfigRecord(
             name="GIT_SHA",
