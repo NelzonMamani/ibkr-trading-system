@@ -104,7 +104,7 @@ No layer may bypass the next layer.
 
 ### 5.4 Safety and guardrails (defense-in-depth)
 The system must enforce safety via multiple redundant gates:
-- Run modes (SIM / LIVE_READ_ONLY / LIVE_MICRO / LIVE)
+- Run modes (SIM / PAPER / READ_ONLY / LIVE)
 - Execution enable flags (default off)
 - Broker submission guards (block routing unless explicitly allowed)
 - “Read-only” data mode that can never route orders
@@ -131,9 +131,8 @@ The system must be capable of persisting:
 Run modes are constitutional concepts; their operational details are phase/governance defined.
 
 - **SIM**: internal-only execution simulation; no broker routing
-- **LIVE_READ_ONLY**: live broker data allowed; *orders must be blocked*
-- **LIVE_MICRO**: live execution allowed only under strict micro constraints (e.g., 1 share) as governed
-- **LIVE**: live execution with full risk controls as governed
+- **READ_ONLY**: live broker data allowed; *orders must be blocked*
+- **LIVE**: live execution allowed only when execution is explicitly enabled and full risk controls pass. Micro/1-share constraints are risk profile settings, not run modes
 
 Any ambiguity must resolve toward the **safer** interpretation.
 

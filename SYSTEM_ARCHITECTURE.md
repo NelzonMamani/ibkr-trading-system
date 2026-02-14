@@ -183,14 +183,12 @@ Modes must be represented as a closed enum and the permissions must be enforced 
 |---|---|---|---|---|---|
 | SIM | yes | simulated or live snapshots (configurable) | yes | simulated only | n/a |
 | PAPER | yes | live | yes | paper orders | configured |
-| LIVE_READ_ONLY | yes | live | yes | **no** | n/a |
-| LIVE | yes | live | yes | live orders | configured |
-| LIVE_1_SHARE | yes | live | yes | live orders | **hard cap 1 share** |
-| LIVE_MICRO | yes | live | yes | live orders | **hard micro cap (e.g., £/$ risk or share cap)** |
+| READ_ONLY | yes | live | yes | **no** | n/a |
+| LIVE | yes | live | yes | live orders (when EXECUTION_ENABLED=true) | risk profile may enforce micro cap |
 
 Rules:
-- LIVE and LIVE_MICRO must force event replay OFF.
-- LIVE_READ_ONLY must behave like LIVE in data collection, but never place orders.
+- LIVE and READ_ONLY must force event replay OFF.
+- READ_ONLY must behave like LIVE in data collection, but never place orders.
 
 ---
 

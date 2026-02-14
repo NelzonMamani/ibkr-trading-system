@@ -1,6 +1,6 @@
 # SYSTEM_STATE_CERTIFIED.md
 
-Generated: 2026-02-13T21:22:53.798030+00:00
+Generated: 2026-02-14T00:12:16.757479+00:00
 Platform State: **TRADING_READY_PAPER**
 
 ## Canonical Run Modes
@@ -11,48 +11,64 @@ Platform State: **TRADING_READY_PAPER**
 - Alias normalization: READONLY -> READ_ONLY (compatibility only).
 
 ## Core Epoch Status (E0..E22)
-- E0: implemented
-- E1: implemented
-- E2: implemented
-- E3: implemented
-- E4: implemented
-- E5: implemented
-- E6: implemented
-- E7: implemented
-- E8: implemented
-- E9: implemented
-- E10: implemented
-- E11: implemented
-- E12: implemented
-- E13: implemented
-- E14: implemented
-- E15: implemented
-- E16: implemented
-- E17: implemented
-- E18: implemented
-- E19: implemented
-- E20: implemented
-- E21: implemented
-- E22: implemented
+- E0: IMPLEMENTED
+- E1: IMPLEMENTED
+- E2: IMPLEMENTED
+- E3: IMPLEMENTED
+- E4: IMPLEMENTED
+- E5: IMPLEMENTED
+- E6: IMPLEMENTED
+- E7: IMPLEMENTED
+- E8: IMPLEMENTED
+- E9: IMPLEMENTED
+- E10: IMPLEMENTED
+- E11: IMPLEMENTED
+- E12: IMPLEMENTED
+- E13: IMPLEMENTED
+- E14: IMPLEMENTED
+- E15: IMPLEMENTED
+- E16: IMPLEMENTED
+- E17: IMPLEMENTED
+- E18: IMPLEMENTED
+- E19: IMPLEMENTED
+- E20: IMPLEMENTED
+- E21: IMPLEMENTED
+- E22: IMPLEMENTED
 
 ## Metadata Epoch Status (M0..M10)
-- M0: implemented
-- M1: implemented
-- M2: implemented
-- M3: implemented
-- M4: implemented
-- M5: implemented
-- M6: implemented
-- M7: implemented
-- M8: implemented
-- M9: implemented
-- M10: implemented
+- M0: IMPLEMENTED
+- M1: IMPLEMENTED
+- M2: IMPLEMENTED
+- M3: IMPLEMENTED
+- M4: IMPLEMENTED
+- M5: IMPLEMENTED
+- M6: IMPLEMENTED
+- M7: IMPLEMENTED
+- M8: IMPLEMENTED
+- M9: IMPLEMENTED
+- M10: IMPLEMENTED
 
-## Strategy Status (P01..P04)
-- P01: implemented
-- P02: implemented
-- P03: implemented
-- P04: implemented
+## Strategy Status (P01..P20)
+- P01: IMPLEMENTED
+- P02: IMPLEMENTED
+- P03: IMPLEMENTED
+- P04: IMPLEMENTED
+- P05: UNIMPLEMENTED
+- P06: UNIMPLEMENTED
+- P07: UNIMPLEMENTED
+- P08: UNIMPLEMENTED
+- P09: UNIMPLEMENTED
+- P10: UNIMPLEMENTED
+- P11: UNIMPLEMENTED
+- P12: UNIMPLEMENTED
+- P13: UNIMPLEMENTED
+- P14: UNIMPLEMENTED
+- P15: UNIMPLEMENTED
+- P16: UNIMPLEMENTED
+- P17: UNIMPLEMENTED
+- P18: UNIMPLEMENTED
+- P19: UNIMPLEMENTED
+- P20: UNIMPLEMENTED
 
 ## Verification Reproduction
 - `python -m compileall src`
@@ -60,4 +76,5 @@ Platform State: **TRADING_READY_PAPER**
 - `python -m src.main --mode SIM --cycles 1`
 - `python -m src.main --mode PAPER --cycles 1`
 - `python -m src.main --mode READ_ONLY --cycles 1`
+- `python -m src.main --mode LIVE --cycles 1`
 - `python -m src.integrity.e23`
