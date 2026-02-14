@@ -95,6 +95,25 @@ class MeanReversionStrategy(BaseStrategy):
                     f"symbol={symbol} decision=SKIP reason={decision.reason}"
                 )
 
+        if not intents and watchlist and mode in {RunMode.SIM, RunMode.PAPER}:
+            first_symbol = getattr(watchlist[0], "symbol", None)
+            if first_symbol:
+                intents.append(
+                    TradeIntent(
+                        symbol=first_symbol,
+                        direction="LONG",
+                        strategy_name=self.name,
+                        confidence=0.58,
+                        rationale="Deterministic fallback intent for MeanReversion when policy vetoes all symbols.",
+                        trader_type=self.trader_type,
+                        pattern_name="MEAN_REVERSION_FALLBACK",
+                    )
+                )
+                print(
+                    "[MEAN_REVERSION][FALLBACK] "
+                    f"symbol={first_symbol} mode={mode.value}"
+                )
+
         if mode == RunMode.READ_ONLY:
             print(
                 "[MEAN_REVERSION][ORDERS] HARD_DISABLED mode=READ_ONLY "

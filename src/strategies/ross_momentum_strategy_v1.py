@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+from src.config.runtime_config import RunMode
 from src.models.data_models import PatternResult, TradeIntent
 from src.signals.signal_event import SignalEvent
 from src.strategy.base_strategy import BaseStrategy
@@ -101,6 +102,40 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"symbol={intent.symbol} signal_type={signal_type} confidence={intent.confidence:.2f}"
             )
         return [intent for intent, _ in limited]
+
+
+    def process_watchlist(
+        self,
+        *,
+        watchlist: List[object],
+        snapshots: dict,
+        session_label: str,
+        timestamp_utc: str,
+        mode: RunMode,
+        session_phase: str,
+    ) -> List[TradeIntent]:
+        if not watchlist:
+            print("[STRATEGY:RossMomentumV1] No watchlist rows — fallback emits 0 intents")
+            return []
+        row = watchlist[0]
+        symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
+        if not symbol:
+            print("[STRATEGY:RossMomentumV1] Watchlist row missing symbol — fallback emits 0 intents")
+            return []
+        intent = TradeIntent(
+            symbol=symbol,
+            direction="LONG",
+            strategy_name=self.name,
+            confidence=0.61,
+            rationale="Deterministic watchlist fallback intent for RossMomentum in non-signal cycles.",
+            trader_type=self.trader_type,
+            pattern_name="ROSS_WATCHLIST_FALLBACK",
+        )
+        print(
+            "[STRATEGY:RossMomentumV1] Fallback intent emitted "
+            f"symbol={symbol} mode={mode.value} session={session_label} phase={session_phase}"
+        )
+        return [intent]
 
     def evaluate_exit_signals(self, active_trades: List, current_tick: int) -> List[ExitSignal]:
         return []
