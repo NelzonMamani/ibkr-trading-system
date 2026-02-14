@@ -380,6 +380,35 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
                 "forcing LONG_HORIZON_VALUE_STRATEGY_ENABLED=True"
             )
 
+    if selected_strategy in {
+        "event_earnings_reaction",
+        "event_news_shock_continuation",
+        "volatility_contraction_breakout",
+        "volatility_carry_risk_premium",
+        "pairs_divergence_reversion",
+    }:
+        enabled_strategies = dict(resolved["ENABLED_STRATEGIES"].value or {})
+        by_key = {
+            "event_earnings_reaction": "EventEarningsReactionStrategy",
+            "event_news_shock_continuation": "EventNewsShockContinuationStrategy",
+            "volatility_contraction_breakout": "VolatilityContractionBreakoutStrategy",
+            "volatility_carry_risk_premium": "VolatilityCarryRiskPremiumStrategy",
+            "pairs_divergence_reversion": "PairsDivergenceReversionStrategy",
+        }
+        strategy_name = by_key[selected_strategy]
+        if not enabled_strategies.get(strategy_name, False):
+            enabled_strategies[strategy_name] = True
+            resolved["ENABLED_STRATEGIES"] = ConfigRecord(
+                name="ENABLED_STRATEGIES",
+                value=enabled_strategies,
+                source="DERIVED",
+                env=None,
+            )
+            print(
+                f"[CONFIG] Selected strategy={selected_strategy}; "
+                f"forcing ENABLED_STRATEGIES[{strategy_name}]=True"
+            )
+
     if resolved["GIT_SHA"].value is None:
         resolved["GIT_SHA"] = ConfigRecord(
             name="GIT_SHA",

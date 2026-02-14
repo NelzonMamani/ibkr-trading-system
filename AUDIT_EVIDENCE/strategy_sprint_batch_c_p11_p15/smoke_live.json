@@ -1,0 +1,4 @@
+{
+  "command": "python -m src.main --mode LIVE --cycles 1",
+  "returncode": 0
+}
