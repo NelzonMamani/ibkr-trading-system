@@ -911,20 +911,24 @@ class CoreOrchestrator:
             ),
         )
         self.scanner_diagnostics_manager.print_top_50(observations)
-        selector = resolve_watchlist_selector(scanner_policy.ranking_intent)
-        if selector is not None:
-            # Strategy-owned ranking authority for Ross Momentum.
-            watchlist = selector(observations, scanner_policy)
-        else:
-            watchlist = self._select_watchlist_for_policy(
-                observations,
-                scanner_policy,
-                enforce_session_allowlist=False,
-            )
+        watchlist = list(scanner_payload.get("watchlist_k", []))
+        if not watchlist:
+            selector = resolve_watchlist_selector(scanner_policy.ranking_intent)
+            if selector is not None:
+                # Strategy-owned ranking authority for Ross Momentum.
+                watchlist = selector(observations, scanner_policy)
+            else:
+                watchlist = self._select_watchlist_for_policy(
+                    observations,
+                    scanner_policy,
+                    enforce_session_allowlist=False,
+                )
         self.scanner_diagnostics_manager.print_watchlist(watchlist, observations)
         watchlist_symbols = [row.symbol for row in watchlist if row.symbol]
-        focus_limit = int(scanner_policy.focus_limit_m)
-        focus_rows = watchlist[:focus_limit] if focus_limit > 0 else []
+        focus_rows = list(scanner_payload.get("focus_m", []))
+        if not focus_rows:
+            focus_limit = int(scanner_policy.focus_limit_m)
+            focus_rows = watchlist[:focus_limit] if focus_limit > 0 else []
         focus_symbols = [row.symbol for row in focus_rows if row.symbol]
         self._trace_event(
             "WATCHLIST",

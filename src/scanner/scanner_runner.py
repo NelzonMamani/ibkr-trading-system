@@ -1874,6 +1874,16 @@ def run_scanner_cycle(
             ]
         else:
             watchlist_contexts = ranked[:watchlist_limit] if watchlist_limit > 0 else []
+        if watchlist_limit > 0 and len(ranked) >= watchlist_limit and len(watchlist_contexts) < watchlist_limit:
+            selected_symbols = {context["symbol"] for context in watchlist_contexts}
+            for context in ranked:
+                symbol = context["symbol"]
+                if symbol in selected_symbols:
+                    continue
+                watchlist_contexts.append(context)
+                selected_symbols.add(symbol)
+                if len(watchlist_contexts) >= watchlist_limit:
+                    break
         watchlist_set = {context["symbol"] for context in watchlist_contexts}
         for context in ranked:
             if context["symbol"] in watchlist_set:
