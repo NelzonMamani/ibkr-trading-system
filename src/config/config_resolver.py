@@ -391,6 +391,12 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         "trend_following_classic",
         "long_horizon_quality_compounder",
         "regime_adaptive_meta_allocator",
+        "opening_drive",
+        "vwap_reclaim",
+        "power_hour",
+        "volatility_expansion",
+        "range_bound_fade",
+        "support_resistance_channel",
     }:
         enabled_strategies = dict(resolved["ENABLED_STRATEGIES"].value or {})
         by_key = {
@@ -404,6 +410,12 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
             "trend_following_classic": "TrendFollowingClassicStrategy",
             "long_horizon_quality_compounder": "LongHorizonQualityCompounderStrategy",
             "regime_adaptive_meta_allocator": "RegimeAdaptiveMetaAllocatorStrategy",
+            "opening_drive": "OpeningDriveStrategy",
+            "vwap_reclaim": "VwapReclaimStrategy",
+            "power_hour": "PowerHourStrategy",
+            "volatility_expansion": "VolatilityExpansionStrategy",
+            "range_bound_fade": "RangeBoundFadeStrategy",
+            "support_resistance_channel": "SupportResistanceChannelStrategy",
         }
         strategy_name = by_key[selected_strategy]
         if not enabled_strategies.get(strategy_name, False):

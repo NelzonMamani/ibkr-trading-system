@@ -17,6 +17,14 @@ from src.strategies.statistical_intraday_momentum.strategy import (
 )
 from src.strategies.mean_reversion.strategy import MeanReversionStrategy
 from src.strategies.long_horizon_value.strategy import LongHorizonValueStrategy
+from src.strategies.opening_drive.strategy import OpeningDriveStrategy
+from src.strategies.vwap_reclaim.strategy import VwapReclaimStrategy
+from src.strategies.power_hour.strategy import PowerHourStrategy
+from src.strategies.volatility_expansion.strategy import VolatilityExpansionStrategy
+from src.strategies.range_bound_fade.strategy import RangeBoundFadeStrategy
+from src.strategies.support_resistance_channel.strategy import (
+    SupportResistanceChannelStrategy,
+)
 from src.strategies.event_earnings_reaction.strategy import EventEarningsReactionStrategy
 from src.strategies.event_news_shock_continuation.strategy import (
     EventNewsShockContinuationStrategy,
@@ -84,6 +92,36 @@ class StrategyRunner:
                 "LongHorizonValueStrategy",
                 LongHorizonValueStrategy,
                 "long_horizon_value",
+            ),
+            self.StrategyRegistration(
+                "OpeningDriveStrategy",
+                OpeningDriveStrategy,
+                "opening_drive",
+            ),
+            self.StrategyRegistration(
+                "VwapReclaimStrategy",
+                VwapReclaimStrategy,
+                "vwap_reclaim",
+            ),
+            self.StrategyRegistration(
+                "PowerHourStrategy",
+                PowerHourStrategy,
+                "power_hour",
+            ),
+            self.StrategyRegistration(
+                "VolatilityExpansionStrategy",
+                VolatilityExpansionStrategy,
+                "volatility_expansion",
+            ),
+            self.StrategyRegistration(
+                "RangeBoundFadeStrategy",
+                RangeBoundFadeStrategy,
+                "range_bound_fade",
+            ),
+            self.StrategyRegistration(
+                "SupportResistanceChannelStrategy",
+                SupportResistanceChannelStrategy,
+                "support_resistance_channel",
             ),
             self.StrategyRegistration(
                 "EventEarningsReactionStrategy",
