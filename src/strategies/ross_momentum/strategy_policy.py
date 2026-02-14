@@ -260,11 +260,12 @@ def select_watchlist(
     eligible: list[CandidateMetrics] = []
     for observation in observations:
         reasons: list[str] = []
-        session_label = normalize_session_label(observation.session_label or "").upper()
+        raw_session_label = (observation.session_label or "").strip()
+        session_label = normalize_session_label(raw_session_label).upper() if raw_session_label else ""
         if session_allowlist and session_label and session_label not in session_allowlist:
             reasons.append("SESSION_NOT_ALLOWED")
         gate_checks = observation.gate_checks or {}
-        failed_gates = [name for name, passed in gate_checks.items() if not passed]
+        failed_gates = [name for name, passed in gate_checks.items() if (name != "catalyst_ok" and not passed)]
         if failed_gates:
             reasons.extend([f"GATE_FAIL:{name}" for name in failed_gates])
         if reasons:

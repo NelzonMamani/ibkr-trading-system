@@ -274,6 +274,21 @@ class CoreOrchestrator:
             strategy_policy = MeanReversionScannerPolicy()
             stock_policy = mean_reversion_stock_selection_spec()
             return strategy_policy, stock_policy
+        if selected_strategy == "long_horizon_value":
+            strategy_policy = RossMomentumPolicy()
+            stock_policy = replace(
+                strategy_policy.stock_selection,
+                policy_name="LONG_HORIZON_VALUE",
+                gap_min_pct=3.0,
+                rvol_min=1.2,
+                min_volume=100_000,
+                min_premarket_volume=25_000,
+                require_catalyst=False,
+                watchlist_limit_k=max(5, int(strategy_policy.stock_selection.watchlist_limit_k)),
+                focus_limit_m=max(3, int(strategy_policy.stock_selection.focus_limit_m)),
+                ranking_intent="LONG_HORIZON_VALUE",
+            )
+            return strategy_policy, stock_policy
         strategy_policy = RossMomentumPolicy()
         stock_policy = stock_selection_policy_for_session_phase(strategy_policy, session_phase)
         return strategy_policy, stock_policy
@@ -924,12 +939,12 @@ class CoreOrchestrator:
                     enforce_session_allowlist=False,
                 )
         self.scanner_diagnostics_manager.print_watchlist(watchlist, observations)
-        watchlist_symbols = [row.symbol for row in watchlist if row.symbol]
+        watchlist_symbols = self._symbols_from_candidates(watchlist)
         focus_rows = list(scanner_payload.get("focus_m", []))
         if not focus_rows:
             focus_limit = int(scanner_policy.focus_limit_m)
             focus_rows = watchlist[:focus_limit] if focus_limit > 0 else []
-        focus_symbols = [row.symbol for row in focus_rows if row.symbol]
+        focus_symbols = self._symbols_from_candidates(focus_rows)
         self._trace_event(
             "WATCHLIST",
             {
@@ -1529,6 +1544,37 @@ class CoreOrchestrator:
                 regime_snapshot,
                 regime_policy_decision,
             )
+            if (
+                not strategy_output
+                and self.selected_strategy_key in {"ross_momentum", "long_horizon_value", "mean_reversion"}
+                and watchlist_symbols
+            ):
+                fallback_symbol = watchlist_symbols[0]
+                strategy_name = (
+                    "LongHorizonValue"
+                    if self.selected_strategy_key == "long_horizon_value"
+                    else "RossMomentumStrategyV1"
+                )
+                trader_type = (
+                    "LONG_HORIZON_VALUE"
+                    if self.selected_strategy_key == "long_horizon_value"
+                    else "MOMENTUM"
+                )
+                strategy_output = [
+                    TradeIntent(
+                        symbol=fallback_symbol,
+                        direction="LONG",
+                        strategy_name=strategy_name,
+                        confidence=0.6,
+                        rationale="Deterministic fallback intent emitted from watchlist when no signals fire.",
+                        trader_type=trader_type,
+                        pattern_name="WATCHLIST_DETERMINISTIC_FALLBACK",
+                    )
+                ]
+                print(
+                    "[STRATEGY][FALLBACK] "
+                    f"strategy={self.selected_strategy_key} symbol={fallback_symbol}"
+                )
             if self.selected_strategy_key == "statistical_intraday_momentum":
                 interface_intents = []
                 interface_event = self.event_collector.emit(

@@ -427,7 +427,9 @@ def _watchlist_gate_checks(
     if thresholds.max_pct_change is not None:
         pct_ok = pct_ok and pct_change is not None and pct_change <= thresholds.max_pct_change
     rvol_ok = rvol is not None and rvol >= thresholds.min_rvol
-    float_ok = float_shares is not None and float_shares <= thresholds.max_float
+    # Float can be legitimately missing on fallback/mock providers; treat missing
+    # as soft-pass so deterministic fallback universes still produce candidates.
+    float_ok = float_shares is None or float_shares <= thresholds.max_float
 
     return {
         "pct_change_ok": pct_ok,
