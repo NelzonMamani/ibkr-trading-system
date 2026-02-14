@@ -120,22 +120,35 @@ class E23Runner:
         return parsed
 
     def _discover_inventory(self, registry: dict[str, Any]) -> dict[str, Any]:
-        core = {f"E{i}": "implemented" for i in range(23)}
-        metadata = {f"M{i}": "implemented" for i in range(11)}
-        strategies = {f"P{i:02d}": "implemented" for i in range(1, 5)}
+        core_registry = registry.get("core_epochs") or {}
+        metadata_registry = registry.get("metadata_epochs") or {}
+        strategy_registry = registry.get("strategies") or {}
+
+        core = {
+            f"E{i}": str(core_registry.get(f"E{i}", {}).get("status", "UNIMPLEMENTED")).upper()
+            for i in range(23)
+        }
+        metadata = {
+            f"M{i}": str(metadata_registry.get(f"M{i}", {}).get("status", "UNIMPLEMENTED")).upper()
+            for i in range(11)
+        }
+        strategies = {
+            f"P{i:02d}": str(strategy_registry.get(f"P{i:02d}", {}).get("status", "UNIMPLEMENTED")).upper()
+            for i in range(1, 21)
+        }
 
         for key in core:
-            if key not in (registry.get("core_epochs") or {}):
+            if key not in core_registry:
                 self.inventory_drifts.append(
                     DriftItem("SOFT", "MISSING_REGISTRY_ENTRY", f"Missing core registry entry: {key}", "registry")
                 )
         for key in metadata:
-            if key not in (registry.get("metadata_epochs") or {}):
+            if key not in metadata_registry:
                 self.inventory_drifts.append(
                     DriftItem("SOFT", "MISSING_REGISTRY_ENTRY", f"Missing metadata registry entry: {key}", "registry")
                 )
         for key in strategies:
-            if key not in (registry.get("strategies") or {}):
+            if key not in strategy_registry:
                 self.inventory_drifts.append(
                     DriftItem("SOFT", "MISSING_REGISTRY_ENTRY", f"Missing strategy registry entry: {key}", "registry")
                 )
@@ -164,6 +177,7 @@ class E23Runner:
             "python -m src.main --mode SIM --cycles 1",
             "python -m src.main --mode PAPER --cycles 1",
             "python -m src.main --mode READ_ONLY --cycles 1",
+            "python -m src.main --mode LIVE --cycles 1",
         ]
         results: list[CommandResult] = []
         for idx, command in enumerate(commands, start=1):
@@ -197,6 +211,7 @@ class E23Runner:
 
         read_only_result = next((r for r in results if "--mode READ_ONLY" in r.command), None)
         paper_result = next((r for r in results if "--mode PAPER" in r.command), None)
+        live_result = next((r for r in results if "--mode LIVE" in r.command), None)
         if read_only_result:
             output = (REPO_ROOT / read_only_result.stdout_path).read_text(encoding="utf-8", errors="ignore")
             if "[SAFETY] ORDER ROUTING: BLOCKED" not in output:
@@ -217,6 +232,17 @@ class E23Runner:
                         code="PAPER_MODE_UNVERIFIED",
                         summary="PAPER run did not resolve PAPER mode.",
                         evidence=paper_result.stdout_path,
+                    )
+                )
+        if live_result:
+            output = (REPO_ROOT / live_result.stdout_path).read_text(encoding="utf-8", errors="ignore")
+            if "[SAFETY] ORDER ROUTING: BLOCKED" not in output:
+                drift.append(
+                    DriftItem(
+                        severity="HARD",
+                        code="LIVE_EXECUTION_SAFETY_UNVERIFIED",
+                        summary="LIVE run did not prove execution-disabled safety gate.",
+                        evidence=live_result.stdout_path,
                     )
                 )
         return drift
@@ -307,7 +333,7 @@ class E23Runner:
         certified.append("## Metadata Epoch Status (M0..M10)")
         certified.extend([f"- {k}: {v}" for k, v in inventory["metadata_epochs"].items()])
         certified.append("")
-        certified.append("## Strategy Status (P01..P04)")
+        certified.append("## Strategy Status (P01..P20)")
         certified.extend([f"- {k}: {v}" for k, v in inventory["strategies"].items()])
         certified.append("")
         certified.append("## Verification Reproduction")

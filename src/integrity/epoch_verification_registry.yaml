@@ -35,7 +35,23 @@ metadata_epochs:
   M9: {"status": implemented, "verification": ["python verification_scripts/verify_m9_signal_semantics_registry.py"]}
   M10: {"status": implemented, "verification": ["python verification_scripts/verify_m10_data_provenance_ledger.py"]}
 strategies:
-  P01: {"status": implemented, "strategy": ross_momentum, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
-  P02: {"status": implemented, "strategy": statistical_intraday_momentum, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
-  P03: {"status": implemented, "strategy": mean_reversion, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
-  P04: {"status": implemented, "strategy": long_horizon_value, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
+  P01: {"status": "IMPLEMENTED", "strategy": ross_momentum, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
+  P02: {"status": "IMPLEMENTED", "strategy": statistical_intraday_momentum, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
+  P03: {"status": "IMPLEMENTED", "strategy": mean_reversion, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
+  P04: {"status": "IMPLEMENTED", "strategy": long_horizon_value, "verification": ["python verification_scripts/verify_strategy_wiring.py"]}
+  P05: {"status": "UNIMPLEMENTED", "strategy": opening_drive, "verification": []}
+  P06: {"status": "UNIMPLEMENTED", "strategy": opening_range_breakout, "verification": []}
+  P07: {"status": "UNIMPLEMENTED", "strategy": gap_and_go, "verification": []}
+  P08: {"status": "UNIMPLEMENTED", "strategy": premarket_breakout, "verification": []}
+  P09: {"status": "UNIMPLEMENTED", "strategy": vwap_pullback, "verification": []}
+  P10: {"status": "UNIMPLEMENTED", "strategy": first_pullback_trend_continuation, "verification": []}
+  P11: {"status": "UNIMPLEMENTED", "strategy": intraday_range_reversion, "verification": []}
+  P12: {"status": "UNIMPLEMENTED", "strategy": high_of_day_breakout, "verification": []}
+  P13: {"status": "UNIMPLEMENTED", "strategy": low_float_momentum, "verification": []}
+  P14: {"status": "UNIMPLEMENTED", "strategy": news_catalyst_momentum, "verification": []}
+  P15: {"status": "UNIMPLEMENTED", "strategy": end_of_day_trend, "verification": []}
+  P16: {"status": "UNIMPLEMENTED", "strategy": overnight_gap_reversal, "verification": []}
+  P17: {"status": "UNIMPLEMENTED", "strategy": event_driven_volatility, "verification": []}
+  P18: {"status": "UNIMPLEMENTED", "strategy": pair_spread_reversion, "verification": []}
+  P19: {"status": "UNIMPLEMENTED", "strategy": options_flow_follow_through, "verification": []}
+  P20: {"status": "UNIMPLEMENTED", "strategy": regime_adaptive_meta_allocator, "verification": []}

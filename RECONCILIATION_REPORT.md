@@ -12,3 +12,4 @@
 - `python -m src.main --mode SIM --cycles 1` (rc=0)
 - `python -m src.main --mode PAPER --cycles 1` (rc=0)
 - `python -m src.main --mode READ_ONLY --cycles 1` (rc=0)
+- `python -m src.main --mode LIVE --cycles 1` (rc=0)

@@ -49,3 +49,19 @@ def test_sim_defaults_to_cycle_when_not_overridden(monkeypatch: pytest.MonkeyPat
 
     assert run_mode == RunMode.LIVE
     assert replay_mode == EventReplayMode.OFF
+
+
+def test_unknown_run_mode_rejected(monkeypatch: pytest.MonkeyPatch):
+    set_config_overrides(None)
+    monkeypatch.setenv("RUN_MODE", "LIVE_MICRO")
+    with pytest.raises(Exception, match="RUN_MODE must be one of"):
+        get_run_mode()
+
+
+def test_read_only_execution_disabled(monkeypatch: pytest.MonkeyPatch):
+    set_config_overrides(None)
+    monkeypatch.setenv("RUN_MODE", RunMode.READ_ONLY.value)
+    monkeypatch.setenv("EXECUTION_ENABLED", "true")
+    from config.runtime_config import execution_allowed  # noqa: E402
+
+    assert execution_allowed(RunMode.READ_ONLY) is False
