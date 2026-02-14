@@ -1,0 +1,11 @@
+$ python verification_scripts/final_gate_duplicate_sanity.py --check registry
+# duplicate E*/M*/P* keys in epoch_verification_registry.yaml
+core_epochs: duplicates=[]
+metadata_epochs: duplicates=[]
+strategies: duplicates=[]
+
+# strategy registration duplicate sanity from src/strategy/strategy_runner.py
+strategy_name: duplicates=[]
+strategy_class: duplicates=[]
+selected_key: duplicates=[]
+total_registered=22

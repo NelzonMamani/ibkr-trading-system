@@ -1,0 +1,4 @@
+$ python -m compileall -q src
+
+$ python -c "import src; print(\"import_ok\")"
+import_ok
