@@ -1,0 +1,27 @@
+[CONFIG] Loaded 150 variables
+[CONFIG] HARD enforced: 30
+[CONFIG] Optional: 119
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+{
+  "strategy": "statistical_intraday_momentum",
+  "mode": "SIM",
+  "success": true,
+  "pipeline": {
+    "scanner": true,
+    "watchlist_k": true,
+    "focus_m": true,
+    "strategy_runner": true,
+    "intents": true,
+    "execution": true
+  },
+  "counts": {
+    "watchlist_k": 0,
+    "focus_m": 0,
+    "normalised_intents": 0,
+    "execution_events": 0
+  },
+  "watchlist_symbols": [],
+  "focus_symbols": []
+}

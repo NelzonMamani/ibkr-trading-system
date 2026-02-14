@@ -1251,6 +1251,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Enable Mean Reversion strategy execution.",
     },
+    "LONG_HORIZON_VALUE_STRATEGY_ENABLED": {
+        "type": bool,
+        "default": False,
+        "env": ["LONG_HORIZON_VALUE_STRATEGY_ENABLED"],
+        "affects": ["Strategies"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Enable Long Horizon Value strategy execution.",
+    },
     "E22_STRATEGY_SCALABILITY_ENABLED": {
         "type": bool,
         "default": False,

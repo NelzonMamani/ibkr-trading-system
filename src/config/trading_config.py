@@ -30,6 +30,9 @@ STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED: bool = bool(
 MEAN_REVERSION_STRATEGY_ENABLED: bool = bool(
     get_config("MEAN_REVERSION_STRATEGY_ENABLED")
 )
+LONG_HORIZON_VALUE_STRATEGY_ENABLED: bool = bool(
+    get_config("LONG_HORIZON_VALUE_STRATEGY_ENABLED")
+)
 
 ENABLED_STRATEGIES = dict(get_config("ENABLED_STRATEGIES"))
 
@@ -41,4 +44,6 @@ def is_strategy_enabled(strategy_name: str) -> bool:
         return STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED
     if strategy_name == "MeanReversionStrategy":
         return MEAN_REVERSION_STRATEGY_ENABLED
+    if strategy_name == "LongHorizonValueStrategy":
+        return LONG_HORIZON_VALUE_STRATEGY_ENABLED
     return ENABLED_STRATEGIES.get(strategy_name or "", False)
