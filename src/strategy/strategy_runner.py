@@ -19,6 +19,12 @@ from src.strategies.statistical_intraday_momentum.strategy import (
 )
 from src.strategies.mean_reversion.strategy import MeanReversionStrategy
 from src.strategies.long_horizon_value.strategy import LongHorizonValueStrategy
+from src.strategies.opening_drive.strategy import OpeningDriveStrategy
+from src.strategies.vwap_reclaim.strategy import VwapReclaimStrategy
+from src.strategies.power_hour.strategy import PowerHourStrategy
+from src.strategies.volatility_expansion.strategy import VolatilityExpansionStrategy
+from src.strategies.range_bound_fade.strategy import RangeBoundFadeStrategy
+from src.strategies.support_resistance_channel.strategy import SupportResistanceChannelStrategy
 from src.strategy.exit_signal import ExitSignal
 from src.core.active_trade_registry import ActiveTrade
 from src.signals.signal_event import SignalEvent
@@ -41,6 +47,12 @@ class StrategyRunner:
             ("StatisticalIntradayMomentum", StatisticalIntradayMomentum),
             ("MeanReversionStrategy", MeanReversionStrategy),
             ("LongHorizonValueStrategy", LongHorizonValueStrategy),
+            ("OpeningDriveStrategy", OpeningDriveStrategy),
+            ("VwapReclaimStrategy", VwapReclaimStrategy),
+            ("PowerHourStrategy", PowerHourStrategy),
+            ("VolatilityExpansionStrategy", VolatilityExpansionStrategy),
+            ("RangeBoundFadeStrategy", RangeBoundFadeStrategy),
+            ("SupportResistanceChannelStrategy", SupportResistanceChannelStrategy),
         ]
         self.strategies = []
         self.event_collector = event_collector
@@ -53,6 +65,12 @@ class StrategyRunner:
             "statistical_intraday_momentum": "StatisticalIntradayMomentum",
             "mean_reversion": "MeanReversionStrategy",
             "long_horizon_value": "LongHorizonValueStrategy",
+            "opening_drive": "OpeningDriveStrategy",
+            "vwap_reclaim": "VwapReclaimStrategy",
+            "power_hour": "PowerHourStrategy",
+            "volatility_expansion": "VolatilityExpansionStrategy",
+            "range_bound_fade": "RangeBoundFadeStrategy",
+            "support_resistance_channel": "SupportResistanceChannelStrategy",
         }
         selected_strategy_name = selected_map.get(selected_strategy_key)
 
@@ -101,6 +119,16 @@ class StrategyRunner:
                     f"enabled={enabled} selected={selected_strategy_name == 'LongHorizonValueStrategy'} "
                     f"reason={reason}"
                 )
+            elif strategy_name in {
+                "OpeningDriveStrategy",
+                "VwapReclaimStrategy",
+                "PowerHourStrategy",
+                "VolatilityExpansionStrategy",
+                "RangeBoundFadeStrategy",
+                "SupportResistanceChannelStrategy",
+            }:
+                enabled = selected_strategy_name == strategy_name
+                reason = "selected strategy enabled" if enabled else "not selected"
             else:
                 enabled = ENABLED_STRATEGIES.get(strategy_name, False)
                 reason = (
