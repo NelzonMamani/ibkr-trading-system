@@ -65,7 +65,28 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--strategy",
-        choices=["ross_momentum", "statistical_intraday_momentum", "mean_reversion"],
+        choices=[
+            "cross_sectional_relative_strength_rotation",
+            "event_earnings_reaction",
+            "event_news_shock_continuation",
+            "long_horizon_quality_compounder",
+            "long_horizon_value",
+            "mean_reversion",
+            "opening_drive",
+            "pairs_divergence_reversion",
+            "power_hour",
+            "range_bound_fade",
+            "regime_adaptive_meta_allocator",
+            "ross_momentum",
+            "statistical_intraday_momentum",
+            "support_resistance_channel",
+            "time_based_seasonality",
+            "trend_following_classic",
+            "volatility_carry_risk_premium",
+            "volatility_contraction_breakout",
+            "volatility_expansion",
+            "vwap_reclaim",
+        ],
         help="Strategy key to enable.",
     )
     parser.add_argument("--cycles", type=int, default=None, help="Max cycles to run.")
