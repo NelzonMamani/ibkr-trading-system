@@ -1,12 +1,10 @@
 """Strategy runner dispatcher for pluggable, teaching-first strategy modules."""
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import List, Optional, Sequence
 
 from src.config.trading_config import (
-    ENABLED_STRATEGIES,
-    ROSS_MOMENTUM_STRATEGY_ENABLED,
-    LONG_HORIZON_VALUE_STRATEGY_ENABLED,
+    is_strategy_enabled,
 )
 from src.core.event_collector import EventCollector
 from src.domain.market_snapshot import MarketSnapshot
@@ -29,18 +27,40 @@ from src.config.config_resolver import get_config
 class StrategyRunner:
     """Dispatches registered strategies to translate PatternResults into TradeIntents."""
 
+    @dataclass(frozen=True)
+    class StrategyRegistration:
+        strategy_name: str
+        strategy_class: type
+        selected_key: str
+
     def __init__(
         self,
         event_collector: Optional[EventCollector] = None,
         strategies: Optional[Sequence[object]] = None,
     ) -> None:
         configured_strategies = [
-            ("GapAndGoStrategy", GapAndGoStrategy),
-            ("MomentumContinuationStrategy", MomentumContinuationStrategy),
-            ("RossMomentumStrategyV1", RossMomentumStrategyV1),
-            ("StatisticalIntradayMomentum", StatisticalIntradayMomentum),
-            ("MeanReversionStrategy", MeanReversionStrategy),
-            ("LongHorizonValueStrategy", LongHorizonValueStrategy),
+            self.StrategyRegistration("GapAndGoStrategy", GapAndGoStrategy, "gap_and_go"),
+            self.StrategyRegistration(
+                "MomentumContinuationStrategy",
+                MomentumContinuationStrategy,
+                "momentum_continuation",
+            ),
+            self.StrategyRegistration(
+                "RossMomentumStrategyV1", RossMomentumStrategyV1, "ross_momentum"
+            ),
+            self.StrategyRegistration(
+                "StatisticalIntradayMomentum",
+                StatisticalIntradayMomentum,
+                "statistical_intraday_momentum",
+            ),
+            self.StrategyRegistration(
+                "MeanReversionStrategy", MeanReversionStrategy, "mean_reversion"
+            ),
+            self.StrategyRegistration(
+                "LongHorizonValueStrategy",
+                LongHorizonValueStrategy,
+                "long_horizon_value",
+            ),
         ]
         self.strategies = []
         self.event_collector = event_collector
@@ -48,13 +68,6 @@ class StrategyRunner:
         self.last_watchlist_snapshots: dict[str, MarketSnapshot] = {}
 
         selected_strategy_key = str(get_config("SELECTED_STRATEGY") or "").strip().lower()
-        selected_map = {
-            "ross_momentum": "RossMomentumStrategyV1",
-            "statistical_intraday_momentum": "StatisticalIntradayMomentum",
-            "mean_reversion": "MeanReversionStrategy",
-            "long_horizon_value": "LongHorizonValueStrategy",
-        }
-        selected_strategy_name = selected_map.get(selected_strategy_key)
 
         if strategies is not None:
             self.strategies = list(strategies)
@@ -62,65 +75,24 @@ class StrategyRunner:
             print(f"[BOOT] StrategyRunner instantiated with injected strategies: {registered}")
             return
 
-        for strategy_name, strategy_class in configured_strategies:
-            if selected_strategy_name and strategy_name != selected_strategy_name:
+        for registration in configured_strategies:
+            strategy_name = registration.strategy_name
+            if selected_strategy_key and selected_strategy_key != registration.selected_key:
                 print(
                     f"[BOOT] Strategy '{strategy_name}' skipped due to selection "
-                    f"(selected={selected_strategy_name})."
+                    f"(selected={selected_strategy_key})."
                 )
                 continue
-            if strategy_name == "RossMomentumStrategyV1":
-                enabled = ROSS_MOMENTUM_STRATEGY_ENABLED
-                reason = (
-                    f"ROSS_MOMENTUM_STRATEGY_ENABLED={ROSS_MOMENTUM_STRATEGY_ENABLED}"
-                )
-            elif strategy_name == "StatisticalIntradayMomentum":
-                enabled = bool(get_config("STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"))
-                reason = (
-                    "STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED="
-                    f"{enabled}"
-                )
-                print(
-                    "[BOOT][STRATEGY] StatisticalIntradayMomentum "
-                    f"enabled={enabled} selected={selected_strategy_name == 'StatisticalIntradayMomentum'} "
-                    f"reason={reason}"
-                )
-            elif strategy_name == "MeanReversionStrategy":
-                enabled = bool(get_config("MEAN_REVERSION_STRATEGY_ENABLED"))
-                reason = f"MEAN_REVERSION_STRATEGY_ENABLED={enabled}"
-                print(
-                    "[BOOT][STRATEGY] MeanReversionStrategy "
-                    f"enabled={enabled} selected={selected_strategy_name == 'MeanReversionStrategy'} "
-                    f"reason={reason}"
-                )
-            elif strategy_name == "LongHorizonValueStrategy":
-                enabled = bool(get_config("LONG_HORIZON_VALUE_STRATEGY_ENABLED"))
-                reason = f"LONG_HORIZON_VALUE_STRATEGY_ENABLED={enabled}"
-                print(
-                    "[BOOT][STRATEGY] LongHorizonValueStrategy "
-                    f"enabled={enabled} selected={selected_strategy_name == 'LongHorizonValueStrategy'} "
-                    f"reason={reason}"
-                )
-            else:
-                enabled = ENABLED_STRATEGIES.get(strategy_name, False)
-                reason = (
-                    "explicitly disabled"
-                    if strategy_name in ENABLED_STRATEGIES
-                    else "missing from ENABLED_STRATEGIES; defaulting to DISABLED"
-                )
+            enabled = is_strategy_enabled(strategy_name)
+            reason = f"is_strategy_enabled({strategy_name})={enabled}"
             if not enabled:
                 print(
                     f"[BOOT] Strategy '{strategy_name}' DISABLED via config "
                     f"({reason}); skipping."
                 )
-                if strategy_name == "StatisticalIntradayMomentum":
-                    print(
-                        "[BOOT][STRATEGY] "
-                        "Set STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True to enable."
-                    )
                 continue
 
-            strategy = strategy_class()
+            strategy = registration.strategy_class()
             self.strategies.append(strategy)
             print(f"[BOOT] Strategy '{strategy_name}' ENABLED via config and registered.")
 

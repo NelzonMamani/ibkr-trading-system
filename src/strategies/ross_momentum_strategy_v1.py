@@ -114,6 +114,12 @@ class RossMomentumStrategyV1(BaseStrategy):
         mode: RunMode,
         session_phase: str,
     ) -> List[TradeIntent]:
+        if mode not in {RunMode.SIM, RunMode.PAPER}:
+            print(
+                "[STRATEGY:RossMomentumV1] Fallback disabled outside SIM/PAPER "
+                f"mode={mode.value}"
+            )
+            return []
         if not watchlist:
             print("[STRATEGY:RossMomentumV1] No watchlist rows — fallback emits 0 intents")
             return []

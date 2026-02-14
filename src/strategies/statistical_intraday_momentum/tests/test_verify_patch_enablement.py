@@ -79,3 +79,16 @@ def test_statistical_intents_are_long_only_in_sim_and_paper() -> None:
 
     assert all(intent.direction == "LONG" for intent in sim_intents)
     assert all(intent.direction == "LONG" for intent in paper_intents)
+
+
+def test_statistical_watchlist_accepts_dict_rows_without_crashing() -> None:
+    strategy = StatisticalIntradayMomentum()
+    intents = strategy.process_watchlist(
+        watchlist=[{"symbol": "AAPL"}],
+        snapshots={},
+        session_label="REG",
+        timestamp_utc="2026-02-14T14:40:00+00:00",
+        mode=RunMode.SIM,
+        session_phase="MORNING",
+    )
+    assert isinstance(intents, list)

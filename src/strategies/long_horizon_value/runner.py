@@ -25,7 +25,19 @@ class LongHorizonValueRunner:
         ]
 
         intents: list[TradeIntent] = []
+        fallback_allowed = mode in {RunMode.SIM, RunMode.PAPER}
+        if not fallback_allowed:
+            reports.append(
+                {
+                    "status": "FALLBACK_DISABLED",
+                    "reason": "Deterministic fallback is only allowed in SIM/PAPER.",
+                    "mode": mode.value,
+                }
+            )
+
         for row in watchlist:
+            if not fallback_allowed:
+                break
             symbol = self._symbol_of(row)
             if not symbol:
                 continue

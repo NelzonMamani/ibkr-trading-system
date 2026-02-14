@@ -39,11 +39,12 @@ ENABLED_STRATEGIES = dict(get_config("ENABLED_STRATEGIES"))
 
 def is_strategy_enabled(strategy_name: str) -> bool:
     if strategy_name == "RossMomentumStrategyV1":
-        return ROSS_MOMENTUM_STRATEGY_ENABLED
+        return bool(get_config("ROSS_MOMENTUM_STRATEGY_ENABLED"))
     if strategy_name == "StatisticalIntradayMomentum":
-        return STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED
+        return bool(get_config("STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"))
     if strategy_name == "MeanReversionStrategy":
-        return MEAN_REVERSION_STRATEGY_ENABLED
+        return bool(get_config("MEAN_REVERSION_STRATEGY_ENABLED"))
     if strategy_name == "LongHorizonValueStrategy":
-        return LONG_HORIZON_VALUE_STRATEGY_ENABLED
-    return ENABLED_STRATEGIES.get(strategy_name or "", False)
+        return bool(get_config("LONG_HORIZON_VALUE_STRATEGY_ENABLED"))
+    enabled_strategies = dict(get_config("ENABLED_STRATEGIES"))
+    return enabled_strategies.get(strategy_name or "", False)

@@ -1,0 +1,49 @@
+{
+  "strategy": "statistical_intraday_momentum",
+  "mode": "PAPER",
+  "success": true,
+  "execution": "BROKER_UNAVAILABLE",
+  "pipeline": {
+    "scanner": true,
+    "watchlist_k": true,
+    "focus_m": true,
+    "strategy_runner": true,
+    "intents": true,
+    "execution": false
+  },
+  "counts": {
+    "watchlist_k": 20,
+    "focus_m": 5,
+    "normalised_intents": 0,
+    "execution_events": 0
+  },
+  "watchlist_symbols": [
+    "SYM1",
+    "SYM2",
+    "SYM3",
+    "SYM4",
+    "SYM5",
+    "SYM6",
+    "SYM7",
+    "SYM8",
+    "SYM9",
+    "SYM10",
+    "SYM11",
+    "SYM12",
+    "SYM13",
+    "SYM14",
+    "SYM15",
+    "SYM16",
+    "SYM17",
+    "SYM18",
+    "SYM19",
+    "SYM20"
+  ],
+  "focus_symbols": [
+    "FOC1",
+    "FOC2",
+    "FOC3",
+    "FOC4",
+    "FOC5"
+  ]
+}
