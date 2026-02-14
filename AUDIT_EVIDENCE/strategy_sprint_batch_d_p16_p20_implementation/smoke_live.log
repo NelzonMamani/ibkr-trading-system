@@ -1,0 +1,125 @@
+[CONFIG] Loaded 150 variables
+[CONFIG] HARD enforced: 30
+[CONFIG] Optional: 119
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+[IBKR][TRANSLATOR] ibapi dependency missing; translation unavailable.
+[BOOT] Starting the IBKR Trading System skeleton.
+[PHASE] PHASE 4 — Minimal Live-Capable System (Teaching-First).
+[INTENT] Demonstrate a clean, observable entry point without trading logic.
+[CONFIG] Baseline teaching defaults (pre-resolution):
+  - RUN_MODE: LIVE (baseline)
+  - EVENT_REPLAY_MODE: CYCLE (baseline)
+[CONFIG] Resolved runtime configuration (authoritative):
+  - RUN_MODE: LIVE (resolved)
+  - EVENT_REPLAY_MODE: OFF (resolved; forced OFF in live-like modes for safety)
+[CONFIG] Runtime mode manager: mode=LIVE live_like=True allow_orders=True max_shares_per_order=None event_replay=OFF
+[STARTUP] EVENT_REPLAY_MODE forced OFF for live-like modes
+  - CYCLE_SLEEP_SECONDS: 3
+  - ACTIVE_SESSIONS: PRE, RTH, AH
+[STARTUP] Runtime banner
+[STARTUP] Run mode: LIVE
+[STARTUP] Event replay: OFF
+[STARTUP] Active sessions: PRE, RTH, AH
+[STARTUP] Execution flags
+  - EXECUTION_ENABLED: False
+  - IBKR_READONLY_ENABLED: False
+  - IBKR_ORDER_TRANSLATION_ENABLED: False
+  - IBKR_ORDER_SUBMISSION_ENABLED: False
+[STARTUP] Risk profile guardrails
+  - RISK_PROFILE: NORMAL
+[STARTUP] Broker connectivity
+  - IBKR_HOST: 127.0.0.1
+  - IBKR_PORT: 7497
+  - IBKR_CLIENT_ID: 7
+  - IBKR_MARKET_DATA_TYPE: DELAYED
+[STARTUP] Storage
+  - SQLITE_PATH: /workspace/ibkr-trading-system/data/ibkr_system.db
+  - SCHEMA_VERSION: 5
+  - DB_EXISTS: Y
+  - IBKR_READONLY_ENABLED: False
+  - IBKR_API_WRITE_ALLOWED: True
+  - EXECUTION_ENABLED: False
+  - IBKR_HOST: 127.0.0.1
+  - IBKR_PORT: 7497
+  - IBKR_CLIENT_ID: 7
+  - IBKR_SNAPSHOT_TIMEOUT_SECONDS: 5
+  - IBKR_MARKET_DATA_TYPE: DELAYED
+  - IBKR_MAX_SYMBOLS_PER_CYCLE: 50
+  - SCANNER_MODE: LIVE_READONLY
+  - SCANNER_SYMBOLS: []
+  - INTENT_DEDUP_SELFTEST_ENABLED: False
+  - ADAPTIVE_REGIME_LAYER_ENABLED: False
+  - ADAPTIVE_REGIME_POLICY_ENABLED: False
+  - IBKR_ORDER_TRANSLATION_ENABLED: False
+  - IBKR_DEFAULT_EXCHANGE: SMART
+  - IBKR_DEFAULT_CURRENCY: USD
+[SAFETY] IBKR API WRITE: ENABLED
+[SAFETY] EXECUTION: HARD DISABLED
+[SAFETY] ORDER ROUTING: BLOCKED
+[SAFETY] MARKET DATA: LIVE IBKR
+[CONFIG][VALIDATION] Running execution guard self-test
+[CONFIG][VALIDATION] Execution guard enforced
+[INFO] Core Orchestrator initialised.
+[BOOT] Runtime mode resolved: mode=LIVE live_like=True allow_orders=True max_shares_per_order=None event_replay=OFF
+[BOOT] EventCollector initialised
+[BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
+[BOOT] SignalEngineV1 instantiated
+[BOOT] Strategy 'GapAndGoStrategy' ENABLED via config and registered.
+[BOOT] Strategy 'MomentumContinuationStrategy' ENABLED via config and registered.
+[BOOT] Strategy 'RossMomentumStrategyV1' ENABLED via config and registered.
+[BOOT] Strategy 'StatisticalIntradayMomentum' DISABLED via config (is_strategy_enabled(StatisticalIntradayMomentum)=False); skipping.
+[BOOT] Strategy 'MeanReversionStrategy' DISABLED via config (is_strategy_enabled(MeanReversionStrategy)=False); skipping.
+[BOOT] Strategy 'LongHorizonValueStrategy' DISABLED via config (is_strategy_enabled(LongHorizonValueStrategy)=False); skipping.
+[BOOT] Strategy 'EventEarningsReactionStrategy' DISABLED via config (is_strategy_enabled(EventEarningsReactionStrategy)=False); skipping.
+[BOOT] Strategy 'EventNewsShockContinuationStrategy' DISABLED via config (is_strategy_enabled(EventNewsShockContinuationStrategy)=False); skipping.
+[BOOT] Strategy 'VolatilityContractionBreakoutStrategy' DISABLED via config (is_strategy_enabled(VolatilityContractionBreakoutStrategy)=False); skipping.
+[BOOT] Strategy 'VolatilityCarryRiskPremiumStrategy' DISABLED via config (is_strategy_enabled(VolatilityCarryRiskPremiumStrategy)=False); skipping.
+[BOOT] Strategy 'PairsDivergenceReversionStrategy' DISABLED via config (is_strategy_enabled(PairsDivergenceReversionStrategy)=False); skipping.
+[BOOT] Strategy 'CrossSectionalRelativeStrengthRotationStrategy' DISABLED via config (is_strategy_enabled(CrossSectionalRelativeStrengthRotationStrategy)=False); skipping.
+[BOOT] Strategy 'TimeBasedSeasonalityStrategy' DISABLED via config (is_strategy_enabled(TimeBasedSeasonalityStrategy)=False); skipping.
+[BOOT] Strategy 'TrendFollowingClassicStrategy' DISABLED via config (is_strategy_enabled(TrendFollowingClassicStrategy)=False); skipping.
+[BOOT] Strategy 'LongHorizonQualityCompounderStrategy' DISABLED via config (is_strategy_enabled(LongHorizonQualityCompounderStrategy)=False); skipping.
+[BOOT] Strategy 'RegimeAdaptiveMetaAllocatorStrategy' DISABLED via config (is_strategy_enabled(RegimeAdaptiveMetaAllocatorStrategy)=False); skipping.
+[BOOT] StrategyRunner instantiated with strategies: GapAndGoStrategy, MomentumContinuationStrategy, RossMomentumStrategyV1
+[BOOT] RiskEngine instantiated — phase 4 teaching rules active
+[EXECUTION][WARN] IBKR live broker unavailable; forcing execution disabled for safety.
+[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow
+[SAFETY] EXECUTION: HARD DISABLED
+[EXECUTION] Gateway: DISABLED
+[EXECUTION] Liquidity checks: DISABLED
+[EXECUTION] Broker submission: DISABLED
+[STORAGE] SQLite path resolved to /workspace/ibkr-trading-system/data/ibkr_system.db
+[BOOT] StorageEngine initialised
+[BOOT] Event replay mode resolved — mode=OFF
+[VALIDATION] Running startup validations
+[VALIDATION] Config resolved
+[VALIDATION] Effective run mode: LIVE
+[VALIDATION] Scanner mode resolved: LIVE_READONLY
+[VALIDATION] Scanner data source: IBKR
+[VALIDATION] Execution policy: HARD DISABLED
+[VALIDATION] Market data source: IBKR
+[VALIDATION] IBKR API WRITE: ENABLED
+[VALIDATION] EXECUTION: HARD DISABLED
+[VALIDATION] ORDER ROUTING: BLOCKED
+[VALIDATION] MARKET DATA: LIVE IBKR
+[VALIDATION] Broker adapter in use: NONE
+[VALIDATION] Storage OK — SQLite opened
+[LEARNING][SCHEDULER] Learning disabled; skipping startup report.
+[LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
+[CYCLE] Starting orchestrator cycle.
+[TRACE] stage=MARKET_SESSION cycle_id=49b57694-0ae7-440c-b2ae-1e8b176965e4 run_mode=LIVE strategy=ross_momentum 
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
+[GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
+[SHUTDOWN] Beginning GRACEFUL shutdown sequence.
+[LEARNING][SCHEDULER] Learning disabled; skipping shutdown report.
+[EXECUTION] Shutdown requested — placeholder cleanup complete.
+[TRADE_EXIT] No active trades to close during shutdown.
+[TRADE_EXIT] Shutdown completed — all trades force-closed.
+[STORAGE] Shutdown complete.
+[EVENT_COLLECTOR] Flushing event summary for shutdown {'total': 4, 'by_type': {'CONFIG_RESOLVED': 1, 'MARKET_SESSION_STATE': 1, 'SHUTDOWN_REQUESTED': 1, 'SHUTDOWN_STARTED': 1}, 'by_source': {'ConfigResolver': 1, 'SystemConfig': 1, 'CoreOrchestrator': 2}}
+[REGISTRY] Verification passed — no active trades remain.
+[SHUTDOWN] Exiting gracefully. Goodbye!

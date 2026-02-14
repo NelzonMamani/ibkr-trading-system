@@ -50,8 +50,8 @@ strategies:
   P13: {"status": "IMPLEMENTED", "strategy": low_float_momentum, "verification": []}
   P14: {"status": "IMPLEMENTED", "strategy": news_catalyst_momentum, "verification": []}
   P15: {"status": "IMPLEMENTED", "strategy": end_of_day_trend, "verification": []}
-  P16: {"status": "UNIMPLEMENTED", "strategy": overnight_gap_reversal, "verification": []}
-  P17: {"status": "UNIMPLEMENTED", "strategy": event_driven_volatility, "verification": []}
-  P18: {"status": "UNIMPLEMENTED", "strategy": pair_spread_reversion, "verification": []}
-  P19: {"status": "UNIMPLEMENTED", "strategy": options_flow_follow_through, "verification": []}
-  P20: {"status": "UNIMPLEMENTED", "strategy": regime_adaptive_meta_allocator, "verification": []}
+  P16: {"status": "IMPLEMENTED", "strategy": cross_sectional_relative_strength_rotation, "verification": ["pytest -q src/strategies/cross_sectional_relative_strength_rotation/tests/test_strategy.py"]}
+  P17: {"status": "IMPLEMENTED", "strategy": time_based_seasonality, "verification": ["pytest -q src/strategies/time_based_seasonality/tests/test_strategy.py"]}
+  P18: {"status": "IMPLEMENTED", "strategy": trend_following_classic, "verification": ["pytest -q src/strategies/trend_following_classic/tests/test_strategy.py"]}
+  P19: {"status": "IMPLEMENTED", "strategy": long_horizon_quality_compounder, "verification": ["pytest -q src/strategies/long_horizon_quality_compounder/tests/test_strategy.py"]}
+  P20: {"status": "IMPLEMENTED", "strategy": regime_adaptive_meta_allocator, "verification": ["pytest -q src/strategies/regime_adaptive_meta_allocator/tests/test_strategy.py"]}

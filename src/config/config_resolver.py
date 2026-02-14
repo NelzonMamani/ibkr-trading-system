@@ -386,6 +386,11 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         "volatility_contraction_breakout",
         "volatility_carry_risk_premium",
         "pairs_divergence_reversion",
+        "cross_sectional_relative_strength_rotation",
+        "time_based_seasonality",
+        "trend_following_classic",
+        "long_horizon_quality_compounder",
+        "regime_adaptive_meta_allocator",
     }:
         enabled_strategies = dict(resolved["ENABLED_STRATEGIES"].value or {})
         by_key = {
@@ -394,6 +399,11 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
             "volatility_contraction_breakout": "VolatilityContractionBreakoutStrategy",
             "volatility_carry_risk_premium": "VolatilityCarryRiskPremiumStrategy",
             "pairs_divergence_reversion": "PairsDivergenceReversionStrategy",
+            "cross_sectional_relative_strength_rotation": "CrossSectionalRelativeStrengthRotationStrategy",
+            "time_based_seasonality": "TimeBasedSeasonalityStrategy",
+            "trend_following_classic": "TrendFollowingClassicStrategy",
+            "long_horizon_quality_compounder": "LongHorizonQualityCompounderStrategy",
+            "regime_adaptive_meta_allocator": "RegimeAdaptiveMetaAllocatorStrategy",
         }
         strategy_name = by_key[selected_strategy]
         if not enabled_strategies.get(strategy_name, False):

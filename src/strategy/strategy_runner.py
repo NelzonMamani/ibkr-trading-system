@@ -30,6 +30,17 @@ from src.strategies.volatility_carry_risk_premium.strategy import (
 from src.strategies.pairs_divergence_reversion.strategy import (
     PairsDivergenceReversionStrategy,
 )
+from src.strategies.cross_sectional_relative_strength_rotation.strategy import (
+    CrossSectionalRelativeStrengthRotationStrategy,
+)
+from src.strategies.time_based_seasonality.strategy import TimeBasedSeasonalityStrategy
+from src.strategies.trend_following_classic.strategy import TrendFollowingClassicStrategy
+from src.strategies.long_horizon_quality_compounder.strategy import (
+    LongHorizonQualityCompounderStrategy,
+)
+from src.strategies.regime_adaptive_meta_allocator.strategy import (
+    RegimeAdaptiveMetaAllocatorStrategy,
+)
 from src.strategy.exit_signal import ExitSignal
 from src.core.active_trade_registry import ActiveTrade
 from src.signals.signal_event import SignalEvent
@@ -98,6 +109,31 @@ class StrategyRunner:
                 "PairsDivergenceReversionStrategy",
                 PairsDivergenceReversionStrategy,
                 "pairs_divergence_reversion",
+            ),
+            self.StrategyRegistration(
+                "CrossSectionalRelativeStrengthRotationStrategy",
+                CrossSectionalRelativeStrengthRotationStrategy,
+                "cross_sectional_relative_strength_rotation",
+            ),
+            self.StrategyRegistration(
+                "TimeBasedSeasonalityStrategy",
+                TimeBasedSeasonalityStrategy,
+                "time_based_seasonality",
+            ),
+            self.StrategyRegistration(
+                "TrendFollowingClassicStrategy",
+                TrendFollowingClassicStrategy,
+                "trend_following_classic",
+            ),
+            self.StrategyRegistration(
+                "LongHorizonQualityCompounderStrategy",
+                LongHorizonQualityCompounderStrategy,
+                "long_horizon_quality_compounder",
+            ),
+            self.StrategyRegistration(
+                "RegimeAdaptiveMetaAllocatorStrategy",
+                RegimeAdaptiveMetaAllocatorStrategy,
+                "regime_adaptive_meta_allocator",
             ),
         ]
         self.strategies = []
