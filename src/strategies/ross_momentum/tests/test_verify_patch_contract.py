@@ -4,6 +4,8 @@ from src.config.config_resolver import set_config_overrides
 from src.scanner.scanner_contract import scanner_request_from_policy
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.strategies.ross_momentum.strategy_policy import RossMomentumPolicy, select_watchlist
+from src.config.runtime_config import RunMode
+from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
 
 
 def test_ross_policy_to_scanner_request_contract() -> None:
@@ -45,3 +47,20 @@ def test_ross_focus_is_subset_of_watchlist() -> None:
     watchlist = set(payload.get("watchlist_k_symbols", []))
     focus = set(payload.get("focus_m_symbols", []))
     assert focus.issubset(watchlist)
+
+
+def test_ross_watchlist_fallback_is_long_only_in_sim_and_paper() -> None:
+    strategy = RossMomentumStrategyV1()
+    kwargs = dict(
+        watchlist=[{"symbol": "AAPL"}],
+        snapshots={},
+        session_label="REG",
+        timestamp_utc="2026-02-14T14:45:00+00:00",
+        session_phase="MORNING",
+    )
+
+    sim_intents = strategy.process_watchlist(mode=RunMode.SIM, **kwargs)
+    paper_intents = strategy.process_watchlist(mode=RunMode.PAPER, **kwargs)
+
+    assert all(intent.direction == "LONG" for intent in sim_intents)
+    assert all(intent.direction == "LONG" for intent in paper_intents)

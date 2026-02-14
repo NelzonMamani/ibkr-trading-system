@@ -61,3 +61,21 @@ def test_statistical_watchlist_processing_is_deterministic() -> None:
     first = strategy.process_watchlist(**kwargs)
     second = strategy.process_watchlist(**kwargs)
     assert [intent.symbol for intent in first] == [intent.symbol for intent in second]
+
+
+def test_statistical_intents_are_long_only_in_sim_and_paper() -> None:
+    strategy = StatisticalIntradayMomentum()
+    watchlist = [_candidate("AAPL")]
+    kwargs = dict(
+        watchlist=watchlist,
+        snapshots={},
+        session_label="REG",
+        timestamp_utc="2026-02-14T14:40:00+00:00",
+        session_phase="MORNING",
+    )
+
+    sim_intents = strategy.process_watchlist(mode=RunMode.SIM, **kwargs)
+    paper_intents = strategy.process_watchlist(mode=RunMode.PAPER, **kwargs)
+
+    assert all(intent.direction == "LONG" for intent in sim_intents)
+    assert all(intent.direction == "LONG" for intent in paper_intents)

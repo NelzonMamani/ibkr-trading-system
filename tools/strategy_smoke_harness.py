@@ -7,7 +7,7 @@ import argparse
 import io
 import json
 import sys
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -34,7 +34,7 @@ def run_smoke(strategy: str, mode: str, output_dir: Path) -> dict:
     stream = io.StringIO()
     success = False
     try:
-        with redirect_stdout(stream):
+        with redirect_stdout(stream), redirect_stderr(stream):
             orchestrator = CoreOrchestrator()
             success = bool(orchestrator.run_once())
         logs = stream.getvalue()
@@ -79,8 +79,27 @@ def run_smoke(strategy: str, mode: str, output_dir: Path) -> dict:
                         pass
 
         execution_events = orchestrator.event_collector.count("EXECUTION_COMPLETE")
-        if execution_events == 0 and mode == "PAPER" and normalised_intents > 0:
-            execution_events = normalised_intents
+        broker_connection_error = any(
+            token in logs
+            for token in (
+                "ConnectionRefusedError",
+                "BROKER_CONNECTION_FAILED",
+                "BROKER_UNAVAILABLE",
+                "[EXECUTION][ERROR]",
+            )
+        )
+
+        execution_status: bool | str = execution_events > 0
+        if mode == "SIM":
+            execution_status = "MOCK"
+        elif mode == "PAPER":
+            if broker_connection_error:
+                execution_status = "BROKER_UNAVAILABLE"
+                execution_events = 0
+            elif execution_events > 0:
+                execution_status = "MOCK_OK"
+            else:
+                execution_status = False
 
         if len(watchlist) == 0:
             for line in logs.splitlines():
@@ -103,13 +122,14 @@ def run_smoke(strategy: str, mode: str, output_dir: Path) -> dict:
             "strategy": strategy,
             "mode": mode,
             "success": success,
+            "execution": execution_status,
             "pipeline": {
                 "scanner": "[TRACE] stage=UNIVERSE" in logs,
                 "watchlist_k": "[WATCHLIST]" in logs,
                 "focus_m": "[TRACE] stage=FOCUS" in logs,
                 "strategy_runner": "STRATEGY_RUNNER_RECEIVED" in logs,
                 "intents": True,
-                "execution": "[EXECUTION]" in logs,
+                "execution": ("[EXECUTION]" in logs) and execution_status != "BROKER_UNAVAILABLE",
             },
             "counts": {
                 "watchlist_k": len(watchlist),
