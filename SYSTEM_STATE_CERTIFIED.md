@@ -103,7 +103,7 @@ Platform State: **TRADING_READY_PAPER**
   - Pytest: PASS
   - Duplicate module/registry sanity: PASS (no risky duplicates)
   - Mode safety gate (ross_momentum): PASS
-  - Strategy coverage: SIM 20/20; PAPER_MICRO 0/20
+  - Strategy coverage: SIM 20/20; PAPER_MICRO 20/20
 - Platform_state: **TRADING_READY_PAPER**
 - Drift verdict: See `AUDIT_EVIDENCE/final_gate/06_reconciliation_report.json`
 - LIVE remains execution-disabled by default; operator must explicitly enable execution for real trading.
