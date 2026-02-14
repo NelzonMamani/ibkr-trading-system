@@ -1,0 +1,206 @@
+[CONFIG] Loaded 150 variables
+[CONFIG] HARD enforced: 30
+[CONFIG] Optional: 119
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+[IBKR][TRANSLATOR] ibapi dependency missing; translation unavailable.
+[BOOT] Starting the IBKR Trading System skeleton.
+[PHASE] PHASE 23 — Live Read-Only Runtime (Authoritative).
+[INTENT] Enforce live read-only runtime authority and IBKR data access.
+[CONFIG] Baseline teaching defaults (pre-resolution):
+  - RUN_MODE: LIVE (baseline)
+  - EVENT_REPLAY_MODE: CYCLE (baseline)
+[CONFIG] Resolved runtime configuration (authoritative):
+  - RUN_MODE: READ_ONLY (resolved)
+  - EVENT_REPLAY_MODE: OFF (resolved; forced OFF in live-like modes for safety)
+[CONFIG] Runtime mode manager: mode=READ_ONLY live_like=True allow_orders=False max_shares_per_order=None event_replay=OFF
+[STARTUP] EVENT_REPLAY_MODE forced OFF for live-like modes
+  - CYCLE_SLEEP_SECONDS: 3
+  - ACTIVE_SESSIONS: PRE, RTH, AH
+[STARTUP] Runtime banner
+[STARTUP] Run mode: READ_ONLY
+[STARTUP] Event replay: OFF
+[STARTUP] Active sessions: PRE, RTH, AH
+[STARTUP] Execution flags
+  - EXECUTION_ENABLED: False
+  - IBKR_READONLY_ENABLED: True
+  - IBKR_ORDER_TRANSLATION_ENABLED: False
+  - IBKR_ORDER_SUBMISSION_ENABLED: False
+[STARTUP] Risk profile guardrails
+  - RISK_PROFILE: NORMAL
+[STARTUP] Broker connectivity
+  - IBKR_HOST: 127.0.0.1
+  - IBKR_PORT: 7497
+  - IBKR_CLIENT_ID: 7
+  - IBKR_MARKET_DATA_TYPE: DELAYED
+[STARTUP] Storage
+  - SQLITE_PATH: /workspace/ibkr-trading-system/data/ibkr_system.db
+  - SCHEMA_VERSION: 5
+  - DB_EXISTS: Y
+  - IBKR_READONLY_ENABLED: True
+  - IBKR_API_WRITE_ALLOWED: True
+  - EXECUTION_ENABLED: False
+  - IBKR_HOST: 127.0.0.1
+  - IBKR_PORT: 7497
+  - IBKR_CLIENT_ID: 7
+  - IBKR_SNAPSHOT_TIMEOUT_SECONDS: 5
+  - IBKR_MARKET_DATA_TYPE: DELAYED
+  - IBKR_MAX_SYMBOLS_PER_CYCLE: 50
+  - SCANNER_MODE: LIVE_READONLY
+  - SCANNER_SYMBOLS: []
+  - INTENT_DEDUP_SELFTEST_ENABLED: False
+  - ADAPTIVE_REGIME_LAYER_ENABLED: False
+  - ADAPTIVE_REGIME_POLICY_ENABLED: False
+  - IBKR_ORDER_TRANSLATION_ENABLED: False
+  - IBKR_DEFAULT_EXCHANGE: SMART
+  - IBKR_DEFAULT_CURRENCY: USD
+[SAFETY] IBKR API WRITE: ENABLED
+[SAFETY] EXECUTION: HARD DISABLED
+[SAFETY] ORDER ROUTING: BLOCKED
+[SAFETY] MARKET DATA: LIVE IBKR
+[CONFIG] IBKR_READONLY_ENABLED=True — broker order routing to IBKR is disabled. SIM execution is internal-only.
+[SAFETY] LIVE READ-ONLY MODE ACTIVE
+[SAFETY] LIVE DATA — READ ONLY MODE
+[CONFIG][VALIDATION] Running execution guard self-test
+[CONFIG][VALIDATION] Execution guard enforced
+[INFO] Core Orchestrator initialised.
+[BOOT] Runtime mode resolved: mode=READ_ONLY live_like=True allow_orders=False max_shares_per_order=None event_replay=OFF
+[SAFETY] EXECUTION: HARD DISABLED
+[SAFETY] ORDER ROUTING: BLOCKED
+[BOOT] EventCollector initialised
+[MARKET_DATA][WARN] IbkrBroker unavailable; falling back to deterministic price feed in READ_ONLY.
+[BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
+[BOOT] SignalEngineV1 instantiated
+[BOOT] Strategy 'GapAndGoStrategy' ENABLED via config and registered.
+[BOOT] Strategy 'MomentumContinuationStrategy' ENABLED via config and registered.
+[BOOT] Strategy 'RossMomentumStrategyV1' ENABLED via config and registered.
+[BOOT] Strategy 'StatisticalIntradayMomentum' DISABLED via config (is_strategy_enabled(StatisticalIntradayMomentum)=False); skipping.
+[BOOT] Strategy 'MeanReversionStrategy' DISABLED via config (is_strategy_enabled(MeanReversionStrategy)=False); skipping.
+[BOOT] Strategy 'LongHorizonValueStrategy' DISABLED via config (is_strategy_enabled(LongHorizonValueStrategy)=False); skipping.
+[BOOT] Strategy 'EventEarningsReactionStrategy' DISABLED via config (is_strategy_enabled(EventEarningsReactionStrategy)=False); skipping.
+[BOOT] Strategy 'EventNewsShockContinuationStrategy' DISABLED via config (is_strategy_enabled(EventNewsShockContinuationStrategy)=False); skipping.
+[BOOT] Strategy 'VolatilityContractionBreakoutStrategy' DISABLED via config (is_strategy_enabled(VolatilityContractionBreakoutStrategy)=False); skipping.
+[BOOT] Strategy 'VolatilityCarryRiskPremiumStrategy' DISABLED via config (is_strategy_enabled(VolatilityCarryRiskPremiumStrategy)=False); skipping.
+[BOOT] Strategy 'PairsDivergenceReversionStrategy' DISABLED via config (is_strategy_enabled(PairsDivergenceReversionStrategy)=False); skipping.
+[BOOT] Strategy 'CrossSectionalRelativeStrengthRotationStrategy' DISABLED via config (is_strategy_enabled(CrossSectionalRelativeStrengthRotationStrategy)=False); skipping.
+[BOOT] Strategy 'TimeBasedSeasonalityStrategy' DISABLED via config (is_strategy_enabled(TimeBasedSeasonalityStrategy)=False); skipping.
+[BOOT] Strategy 'TrendFollowingClassicStrategy' DISABLED via config (is_strategy_enabled(TrendFollowingClassicStrategy)=False); skipping.
+[BOOT] Strategy 'LongHorizonQualityCompounderStrategy' DISABLED via config (is_strategy_enabled(LongHorizonQualityCompounderStrategy)=False); skipping.
+[BOOT] Strategy 'RegimeAdaptiveMetaAllocatorStrategy' DISABLED via config (is_strategy_enabled(RegimeAdaptiveMetaAllocatorStrategy)=False); skipping.
+[BOOT] StrategyRunner instantiated with strategies: GapAndGoStrategy, MomentumContinuationStrategy, RossMomentumStrategyV1
+[BOOT] RiskEngine instantiated — phase 4 teaching rules active
+[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow
+[SAFETY] EXECUTION: HARD DISABLED
+[EXECUTION] Gateway: DISABLED
+[EXECUTION] Liquidity checks: DISABLED
+[EXECUTION] Broker submission: DISABLED
+[STORAGE] SQLite path resolved to /workspace/ibkr-trading-system/data/ibkr_system.db
+[BOOT] StorageEngine initialised
+[BOOT] Event replay mode resolved — mode=OFF
+[VALIDATION] Running startup validations
+[VALIDATION] Config resolved
+[VALIDATION] Effective run mode: READ_ONLY
+[VALIDATION] Scanner mode resolved: LIVE_READONLY
+[VALIDATION] Scanner data source: IBKR
+[VALIDATION] Execution policy: HARD DISABLED
+[VALIDATION] Market data source: MOCK_FALLBACK
+[VALIDATION] IBKR API WRITE: ENABLED
+[VALIDATION] EXECUTION: HARD DISABLED
+[VALIDATION] ORDER ROUTING: BLOCKED
+[VALIDATION] Broker adapter in use: NONE
+[VALIDATION][WARN] READ_ONLY using MOCK fallback market data.
+[VALIDATION] READ_ONLY: live data enabled
+[VALIDATION] READ_ONLY: execution disabled by design
+[VALIDATION][WARN] READ_ONLY fallback active: MarketDataHub unavailable.
+[VALIDATION] Storage OK — SQLite opened
+[LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
+[CYCLE] Starting orchestrator cycle.
+[TRACE] stage=MARKET_SESSION cycle_id=918e41fd-a7ce-49cb-8732-d09f61b6e5bb run_mode=READ_ONLY strategy=ross_momentum 
+[SESSION] Detected market session: CLOSED
+[SESSION] System WOULD treat market as closed (teaching-only).
+[SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().
+[INFO] Starting orchestrator cycle (teaching-only).
+[SESSION] phase=CLOSED ny_time=2026-02-14T10:44:49.960368-05:00 uk_time=2026-02-14T15:44:49.960368+00:00 utc=2026-02-14T15:44:49.960368+00:00
+[RUNTIME] mode=READ_ONLY live_like=True allow_orders=False max_shares_per_order=None event_replay=OFF
+[ORCH][SCANNER_REQUEST] strategy=ross_momentum policy=ROSS_MOMENTUM instrument=STK locationCode=STK.US.MAJOR scanCode=TOP_PERC_GAIN numberOfRows=150 abovePrice=1.0 belowPrice=20.0
+[IBKR][CONNECT] attempt=1 host=127.0.0.1 port=7497 client_id=13
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=13
+[IBKR][CONNECT][WARN] connection failed; backoff=1s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[IBKR][CONNECT] attempt=2 host=127.0.0.1 port=7497 client_id=7
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=7
+[IBKR][CONNECT][WARN] connection failed; backoff=2s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[IBKR][CONNECT] attempt=3 host=127.0.0.1 port=7497 client_id=8
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=8
+[IBKR][CONNECT][WARN] connection failed; backoff=4s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[IBKR][CONNECT] attempt=4 host=127.0.0.1 port=7497 client_id=9
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=9
+[IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[IBKR][CONNECT] attempt=5 host=127.0.0.1 port=7497 client_id=10
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=10
+[IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[IBKR][CONNECT] attempt=6 host=127.0.0.1 port=7497 client_id=11
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=11
+[IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+STATE=DEGRADED
+[CONNECTIVITY] IBKR connection failed: IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7
+[TRACE] stage=HALT cycle_id=ac13bfab-775f-44d0-a225-b631310d1cdc run_mode=READ_ONLY strategy=ross_momentum reason_code=CONNECTIVITY_FAILURE message=IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7
+[SCANNER] MODE=integrated SESSION=CLOSED
+[SCANNER][POLICY] source=STRATEGY policy_name=ROSS_MOMENTUM price=1.0-20.0 gap_min=10.0 rvol_min=5.0 float_max_millions=20.0 spread_max_pct=None watchlist_k=15 focus_m=5
+[SCANNER][ENTRY] strategy=ROSS_MOMENTUM requested_top_n=150 watchlist_k=15 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=1.0 below_price=20.0
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=7
+STATE=DEGRADED
+[SCANNER][PROVIDER] provider=IBKR fallback_reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[SCANNER][LIMITS] Symbol limits (value/source/env)
+[SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=DEFAULT env=-
+[SCANNER][LIMITS] SCANNER_TEACHING_SYMBOL_CAP=0 source=DEFAULT env=-
+[SCANNER][LIMITS] Policy caps top_gainers_n=150 watchlist_k=15 focus_m=5 max_symbols_per_cycle=50
+[SCANNER][LIMITS] Resolved symbol request limit=50 reductions=['policy_max_symbols(50)']
+[SCANNER][LIMITS] Focus list limit=5
+[SCANNER][STAGE] bootstrap
+SCANNER_RAW_N=150 returned 0 symbols
+[SCANNER][STAGE] gates
+AFTER_GATES_SYMBOLS (N=0): []
+[SCANNER][STAGE] watchlist
+[SCANNER][STAGE] enrich
+WATCHLIST_K_SELECTED (K=0): []
+[SCANNER][STAGE] print
+[SCANNER][SUMMARY] candidates=0 gated=0 watchlist=0 drops={}
+[SCANNER][DROP_SUMMARY] topn=0 evaluated=0 dropped=0 reasons={}
+[SCANNER][WATCHLIST] session=CLOSED count=0
+[SCANNER][FOCUS] session=CLOSED count=0
+TopN: 0
+GatedSurvivors: 0
+DropReasons: {}
+EMPTY WATCHLIST (valid)
+WATCHLIST_K: []
+FOCUS_M: []
+NEW: []
+CONTINUING: []
+DROPPED: []
+[TRACE] stage=UNIVERSE cycle_id=ac13bfab-775f-44d0-a225-b631310d1cdc run_mode=READ_ONLY strategy=ross_momentum top_n=0 symbols=[]
+[SCANNER][DIAGNOSTICS] Top 50 observations (extended columns)
+[SCANNER][DIAGNOSTICS] Watchlist (top 15, same columns preserved)
+[SCANNER][DIAGNOSTICS] Drop reasons: none
+[TRACE] stage=WATCHLIST cycle_id=ac13bfab-775f-44d0-a225-b631310d1cdc run_mode=READ_ONLY strategy=ross_momentum watchlist=0 symbols=[]
+[TRACE] stage=FOCUS cycle_id=ac13bfab-775f-44d0-a225-b631310d1cdc run_mode=READ_ONLY strategy=ross_momentum focus=0 symbols=[]
+[WATCHLIST] empty watchlist accepted
+STRATEGY_RUNNER_RECEIVED K=0 session=CLOSED timestamp_utc=2026-02-14T15:45:21.002957+00:00
+[STRATEGY][PROCESS] strategy_key=ross_momentum strategies=3 watchlist=0 session=CLOSED phase=CLOSED
+[STRATEGY][PROCESS] Strategy 'GapAndGoStrategy' has no watchlist handler; skipping.
+[STRATEGY][PROCESS] Strategy 'MomentumContinuationStrategy' has no watchlist handler; skipping.
+[STRATEGY:RossMomentumV1] Fallback disabled outside SIM/PAPER mode=READ_ONLY
+[CONNECTIVITY] STATE=DEGRADED provider_error=[Errno 111] Connect call failed ('127.0.0.1', 7497) provider_fallback=None
+[TRACE] stage=HALT cycle_id=ac13bfab-775f-44d0-a225-b631310d1cdc run_mode=READ_ONLY strategy=ross_momentum reason_code=SCANNER_CONNECTIVITY message=provider_error=[Errno 111] Connect call failed ('127.0.0.1', 7497) provider_fallback=None
+[EXECUTION] dry-run (orders disabled by mode)
+[TRACE] stage=ACTION cycle_id=ac13bfab-775f-44d0-a225-b631310d1cdc run_mode=READ_ONLY strategy=ross_momentum intents=0
+[STRATEGY] No trade intents generated.
+[SLEEP] Sleeping for 3 seconds before next cycle.
+[SHUTDOWN] Beginning GRACEFUL shutdown sequence.
+[EXECUTION] Shutdown requested — placeholder cleanup complete.
+[TRADE_EXIT] No active trades to close during shutdown.
+[TRADE_EXIT] Shutdown completed — all trades force-closed.
+[STORAGE] Shutdown complete.
+[EVENT_COLLECTOR] Flushing event summary for shutdown {'total': 9, 'by_type': {'CONFIG_RESOLVED': 1, 'MARKET_SESSION_STATE': 1, 'SCANNER_UNIVERSE_SNAPSHOT': 1, 'RAW_SCAN_SYMBOLS': 1, 'AFTER_GATES_SYMBOLS': 1, 'WATCHLIST_K_SELECTED': 1, 'SCANNER_WATCHLIST_K_READY': 1, 'SHUTDOWN_REQUESTED': 1, 'SHUTDOWN_STARTED': 1}, 'by_source': {'ConfigResolver': 1, 'SystemConfig': 1, 'Scanner': 5, 'CoreOrchestrator': 2}}
+[REGISTRY] Verification passed — no active trades remain.
+[SHUTDOWN] Exiting gracefully. Goodbye!
