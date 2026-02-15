@@ -109,12 +109,12 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode PAPER --cycles 1 -
 [VALIDATION] Storage OK — SQLite opened
 [LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
 [CYCLE] Starting orchestrator cycle.
-[TRACE] stage=MARKET_SESSION cycle_id=0818df90-fc0a-4d89-9cf0-cac09a636343 run_mode=PAPER strategy=ross_momentum 
+[TRACE] stage=MARKET_SESSION cycle_id=e2747bf5-deb3-4ac1-a7ec-58280fb86302 run_mode=PAPER strategy=ross_momentum 
 [SESSION] Detected market session: CLOSED
 [SESSION] System WOULD treat market as closed (teaching-only).
 [SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().
 [INFO] Starting orchestrator cycle (teaching-only).
-[SESSION] phase=CLOSED ny_time=2026-02-14T13:52:48.598358-05:00 uk_time=2026-02-14T18:52:48.598358+00:00 utc=2026-02-14T18:52:48.598358+00:00
+[SESSION] phase=CLOSED ny_time=2026-02-14T18:04:05.666361-05:00 uk_time=2026-02-14T23:04:05.666361+00:00 utc=2026-02-14T23:04:05.666361+00:00
 [RUNTIME] mode=PAPER live_like=False allow_orders=True max_shares_per_order=None event_replay=CYCLE
 [ORCH][SCANNER_REQUEST] strategy=ross_momentum policy=ROSS_MOMENTUM instrument=STK locationCode=STK.US.MAJOR scanCode=TOP_PERC_GAIN numberOfRows=150 abovePrice=1.0 belowPrice=20.0
 [CONNECTIVITY][PAPER] Skipping IBKR connectivity check; forcing MOCK scanner provider.
@@ -254,7 +254,7 @@ FOCUS_M: ['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
 NEW: ['AAPL', 'AMD', 'AMZN', 'BAC', 'CLSK', 'CVX', 'GME', 'JPM', 'MARA', 'MU', 'NFLX', 'PLTR', 'RIOT', 'ROKU', 'SNOW']
 CONTINUING: []
 DROPPED: []
-[TRACE] stage=UNIVERSE cycle_id=18b651e7-2b6d-4590-8250-a9b09669dbd1 run_mode=PAPER strategy=ross_momentum top_n=50 symbols=['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
+[TRACE] stage=UNIVERSE cycle_id=02b86d12-b3a4-43ae-aabb-58d671f2a368 run_mode=PAPER strategy=ross_momentum top_n=50 symbols=['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
 [SCANNER][DIAGNOSTICS] Top 50 observations (extended columns)
 [SCANNER][ROW] rank=1 symbol=AAPL conId=None exchange=None session=NA last=12.07 ref_close=9.69 pct_change=24.56 pct_ref=CALC(SESSION_REF) volume=27515675 avg_volume_20d=3378599 rvol=8.14 bid=12.05 ask=12.12 spread=0.07 spread_pct=0.01 dollar_volume=332114197.25 float_m=12.59 halted=None ssr=None data_quality=MOCK drop_reasons=-
 [SCANNER][ROW] rank=2 symbol=MSFT conId=None exchange=None session=NA last=7.93 ref_close=6.96 pct_change=13.94 pct_ref=CALC(SESSION_REF) volume=12731375 avg_volume_20d=2320893 rvol=5.49 bid=7.92 ask=7.96 spread=0.04 spread_pct=0.01 dollar_volume=100959803.75 float_m=3.38 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
@@ -358,8 +358,8 @@ DROPPED: []
 [SCANNER][DROP] symbol=XOM reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=C reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=WFC reason=DROP_RANK_BELOW_WATCHLIST
-[TRACE] stage=WATCHLIST cycle_id=18b651e7-2b6d-4590-8250-a9b09669dbd1 run_mode=PAPER strategy=ross_momentum watchlist=15 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT']
-[TRACE] stage=FOCUS cycle_id=18b651e7-2b6d-4590-8250-a9b09669dbd1 run_mode=PAPER strategy=ross_momentum focus=5 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
+[TRACE] stage=WATCHLIST cycle_id=02b86d12-b3a4-43ae-aabb-58d671f2a368 run_mode=PAPER strategy=ross_momentum watchlist=15 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT']
+[TRACE] stage=FOCUS cycle_id=02b86d12-b3a4-43ae-aabb-58d671f2a368 run_mode=PAPER strategy=ross_momentum focus=5 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
 [WATCHLIST] size=15 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT']
 [SNAPSHOT][QUALITY] symbol=ROKU missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=SNOW missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
@@ -376,11 +376,11 @@ DROPPED: []
 [SNAPSHOT][QUALITY] symbol=CLSK missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=AMZN missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=RIOT missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-STRATEGY_RUNNER_RECEIVED K=15 session=NA timestamp_utc=2026-02-14T18:52:48.598961+00:00
+STRATEGY_RUNNER_RECEIVED K=15 session=NA timestamp_utc=2026-02-14T23:04:05.667015+00:00
 [STRATEGY][PROCESS] strategy_key=ross_momentum strategies=1 watchlist=15 session=NA phase=CLOSED
 [STRATEGY:RossMomentumV1] Fallback intent emitted symbol=ROKU mode=PAPER session=NA phase=CLOSED
 [EXECUTION] Orders allowed — execution path enabled (dry-run).
-[TRACE] stage=ACTION cycle_id=18b651e7-2b6d-4590-8250-a9b09669dbd1 run_mode=PAPER strategy=ross_momentum intents=1
+[TRACE] stage=ACTION cycle_id=02b86d12-b3a4-43ae-aabb-58d671f2a368 run_mode=PAPER strategy=ross_momentum intents=1
 [SNAPSHOT][SUMMARY] missing_required_fields={'ROKU': ['last', 'close', 'volume'], 'BAC': ['last', 'close', 'volume'], 'CVX': ['last', 'close', 'volume'], 'SNOW': ['last', 'close', 'volume'], 'CLSK': ['last', 'close', 'volume'], 'MARA': ['last', 'close', 'volume'], 'JPM': ['last', 'close', 'volume'], 'NFLX': ['last', 'close', 'volume'], 'PLTR': ['last', 'close', 'volume'], 'GME': ['last', 'close', 'volume'], 'AMZN': ['last', 'close', 'volume'], 'AMD': ['last', 'close', 'volume'], 'MU': ['last', 'close', 'volume'], 'AAPL': ['last', 'close', 'volume'], 'RIOT': ['last', 'close', 'volume']}
 [SLEEP] Sleeping for 3 seconds before next cycle.
 [SHUTDOWN] Beginning GRACEFUL shutdown sequence.

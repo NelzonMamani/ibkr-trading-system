@@ -1,4 +1,4 @@
-$ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode SIM --cycles 1 --strategy statistical_intraday_momentum
+$ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode SIM --cycles 1 --strategy vwap_reclaim
 
 [CONFIG] Loaded 150 variables
 [CONFIG] HARD enforced: 30
@@ -8,7 +8,7 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode SIM --cycles 1 --s
 [CONFIG] No ambiguous defaults detected
 [IBKR][TRANSLATOR] ibapi dependency missing; translation unavailable.
 [BOOT] Starting the IBKR Trading System skeleton.
-[CONFIG] Selected strategy=statistical_intraday_momentum; forcing STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True
+[CONFIG] Selected strategy=vwap_reclaim; forcing ENABLED_STRATEGIES[VwapReclaimStrategy]=True
 [PHASE] PHASE 4 — Minimal Live-Capable System (Teaching-First).
 [INTENT] Demonstrate a clean, observable entry point without trading logic.
 [CONFIG] Baseline teaching defaults (pre-resolution):
@@ -70,29 +70,29 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode SIM --cycles 1 --s
 [BOOT] EventCollector initialised
 [BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
 [BOOT] SignalEngineV1 instantiated
-[BOOT] Strategy 'GapAndGoStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'MomentumContinuationStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'RossMomentumStrategyV1' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'StatisticalIntradayMomentum' ENABLED via config and registered.
-[BOOT] Strategy 'MeanReversionStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'LongHorizonValueStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'OpeningDriveStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'VwapReclaimStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'PowerHourStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'VolatilityExpansionStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'RangeBoundFadeStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'SupportResistanceChannelStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'EventEarningsReactionStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'EventNewsShockContinuationStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'VolatilityContractionBreakoutStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'VolatilityCarryRiskPremiumStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'PairsDivergenceReversionStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'CrossSectionalRelativeStrengthRotationStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'TimeBasedSeasonalityStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'TrendFollowingClassicStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'LongHorizonQualityCompounderStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] Strategy 'RegimeAdaptiveMetaAllocatorStrategy' skipped due to selection (selected=statistical_intraday_momentum).
-[BOOT] StrategyRunner instantiated with strategies: StatisticalIntradayMomentum
+[BOOT] Strategy 'GapAndGoStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'MomentumContinuationStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'RossMomentumStrategyV1' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'StatisticalIntradayMomentum' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'MeanReversionStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'LongHorizonValueStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'OpeningDriveStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'VwapReclaimStrategy' ENABLED via config and registered.
+[BOOT] Strategy 'PowerHourStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'VolatilityExpansionStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'RangeBoundFadeStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'SupportResistanceChannelStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'EventEarningsReactionStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'EventNewsShockContinuationStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'VolatilityContractionBreakoutStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'VolatilityCarryRiskPremiumStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'PairsDivergenceReversionStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'CrossSectionalRelativeStrengthRotationStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'TimeBasedSeasonalityStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'TrendFollowingClassicStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'LongHorizonQualityCompounderStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] Strategy 'RegimeAdaptiveMetaAllocatorStrategy' skipped due to selection (selected=vwap_reclaim).
+[BOOT] StrategyRunner instantiated with strategies: VwapReclaimStrategy
 [BOOT] RiskEngine instantiated — phase 4 teaching rules active
 [BOOT] ExecutionEngine instantiated — broker-routed deterministic flow
 [SAFETY] EXECUTION: HARD DISABLED
@@ -116,29 +116,30 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode SIM --cycles 1 --s
 [VALIDATION] Storage OK — SQLite opened
 [LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
 [CYCLE] Starting orchestrator cycle.
-[TRACE] stage=MARKET_SESSION cycle_id=d94fe9ec-6226-4a46-b7de-f20286fb3f87 run_mode=SIM strategy=statistical_intraday_momentum 
+[TRACE] stage=MARKET_SESSION cycle_id=904b9c5b-34fe-4a19-939c-994cb6ff1b6c run_mode=SIM strategy=vwap_reclaim 
 [SESSION] Detected market session: CLOSED
 [SESSION] System WOULD treat market as closed (teaching-only).
 [SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().
 [INFO] Starting orchestrator cycle (teaching-only).
-[SESSION] phase=CLOSED ny_time=2026-02-14T18:04:37.344781-05:00 uk_time=2026-02-14T23:04:37.344781+00:00 utc=2026-02-14T23:04:37.344781+00:00
+[SESSION] phase=CLOSED ny_time=2026-02-14T18:01:33.721161-05:00 uk_time=2026-02-14T23:01:33.721161+00:00 utc=2026-02-14T23:01:33.721161+00:00
 [RUNTIME] mode=SIM live_like=False allow_orders=False max_shares_per_order=None event_replay=CYCLE
+[ORCH][SCANNER_REQUEST] strategy=vwap_reclaim policy=ROSS_MOMENTUM instrument=STK locationCode=STK.US.MAJOR scanCode=TOP_PERC_GAIN numberOfRows=150 abovePrice=1.0 belowPrice=20.0
 STATE=DEGRADED
 [CONNECTIVITY] IBKR connection failed: Live broker connections are forbidden in SIM mode
-[TRACE] stage=HALT cycle_id=d9b38493-cc0c-4b50-8338-b2a7a0163133 run_mode=SIM strategy=statistical_intraday_momentum reason_code=CONNECTIVITY_FAILURE message=Live broker connections are forbidden in SIM mode
+[TRACE] stage=HALT cycle_id=e1fa3066-65ac-42d2-867a-784f620d4331 run_mode=SIM strategy=vwap_reclaim reason_code=CONNECTIVITY_FAILURE message=Live broker connections are forbidden in SIM mode
 [SCANNER] MODE=integrated SESSION=CLOSED
-[SCANNER][POLICY] source=STRATEGY policy_name=STATISTICAL_INTRADAY_MOMENTUM price=5.0-200.0 gap_min=2.0 rvol_min=1.5 float_max_millions=200.0 spread_max_pct=None watchlist_k=20 focus_m=5
-[SCANNER][ENTRY] strategy=STATISTICAL_INTRADAY_MOMENTUM requested_top_n=75 watchlist_k=20 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=5.0 below_price=200.0
+[SCANNER][POLICY] source=STRATEGY policy_name=ROSS_MOMENTUM price=1.0-20.0 gap_min=10.0 rvol_min=5.0 float_max_millions=20.0 spread_max_pct=None watchlist_k=15 focus_m=5
+[SCANNER][ENTRY] strategy=ROSS_MOMENTUM requested_top_n=150 watchlist_k=15 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=1.0 below_price=20.0
 [SCANNER][PROVIDER] provider=MOCK fallback_reason=SCANNER_DATA_SOURCE=MOCK
 [SCANNER][LIMITS] Symbol limits (value/source/env)
 [SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=DEFAULT env=-
 [SCANNER][LIMITS] SCANNER_TEACHING_SYMBOL_CAP=0 source=DEFAULT env=-
-[SCANNER][LIMITS] Policy caps top_gainers_n=75 watchlist_k=20 focus_m=5 max_symbols_per_cycle=75
-[SCANNER][LIMITS] Resolved symbol request limit=75 reductions=['none']
+[SCANNER][LIMITS] Policy caps top_gainers_n=150 watchlist_k=15 focus_m=5 max_symbols_per_cycle=50
+[SCANNER][LIMITS] Resolved symbol request limit=50 reductions=['policy_max_symbols(50)']
 [SCANNER][LIMITS] Focus list limit=5
 [SCANNER][STAGE] bootstrap
-[SCANNER][IBKR] universe_return ibkr_returned_count=50 requested_top_n=75 truncation=True reasons=['ibkr_returned_fewer_than_requested']
-SCANNER_RAW_N=75 returned 50 symbols
+[SCANNER][IBKR] universe_return ibkr_returned_count=50 requested_top_n=150 truncation=True reasons=['policy_max_symbols(50)']
+SCANNER_RAW_N=150 returned 50 symbols
 [SCANNER][STAGE] gates
 [SCANNER][KEEP] symbol=AAPL last=12.07 final_pct=24.56 pct_source=CALC(SESSION_REF) vol=27515675 bid=12.05 ask=12.12 spread=0.0700
 [SCANNER][KEEP] symbol=MSFT last=7.93 final_pct=13.94 pct_source=CALC(SESSION_REF) vol=12731375 bid=7.92 ask=7.96 spread=0.0400
@@ -192,6 +193,11 @@ SCANNER_RAW_N=75 returned 50 symbols
 [SCANNER][KEEP] symbol=WFC last=3.21 final_pct=13.83 pct_source=CALC(SESSION_REF) vol=3885582 bid=3.19 ask=3.23 spread=0.0400
 AFTER_GATES_SYMBOLS (N=50): ['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
 [SCANNER][STAGE] watchlist
+[SCANNER][DROP] symbol=RIVN reason=DROP_RANK_BELOW_WATCHLIST
+[SCANNER][DROP] symbol=META reason=DROP_RANK_BELOW_WATCHLIST
+[SCANNER][DROP] symbol=TSLA reason=DROP_RANK_BELOW_WATCHLIST
+[SCANNER][DROP] symbol=CRWD reason=DROP_RANK_BELOW_WATCHLIST
+[SCANNER][DROP] symbol=SPOT reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=PATH reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=GE reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=NVDA reason=DROP_RANK_BELOW_WATCHLIST
@@ -223,63 +229,56 @@ AFTER_GATES_SYMBOLS (N=50): ['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZ
 [SCANNER][DROP] symbol=XOM reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=FUBO reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][STAGE] enrich
-WATCHLIST_K_SELECTED (K=20): ['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT', 'RIVN', 'META', 'TSLA', 'CRWD', 'SPOT']
+WATCHLIST_K_SELECTED (K=15): ['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT']
 [SCANNER][STAGE] print
-[SCANNER][FOCUS_DROP] symbol=SNOW reason=DROP_DOLLAR_VOLUME
-[SCANNER][FOCUS_DROP] symbol=CLSK reason=DROP_DOLLAR_VOLUME
-[SCANNER][SUMMARY] candidates=50 gated=50 watchlist=20 drops={'DROP_RANK_BELOW_WATCHLIST': 30}
-[SCANNER][DROP_SUMMARY] topn=50 evaluated=50 dropped=30 reasons={'DROP_RANK_BELOW_WATCHLIST': 30}
-[SCANNER][WATCHLIST] session=CLOSED count=20
-ROKU session=NA price=$12.15 LAST_RTH_CLOSE=9.50 ibkr_pct=27.88% final_pct=27.89% pct_source=CALC(SESSION_REF) gap=27.89% chg=27.89% rvol=8.97 float=17.36M vol=29655267 pm=NA spread=0.0074% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
+[SCANNER][SUMMARY] candidates=50 gated=50 watchlist=15 drops={'DROP_RANK_BELOW_WATCHLIST': 35}
+[SCANNER][DROP_SUMMARY] topn=50 evaluated=50 dropped=35 reasons={'DROP_RANK_BELOW_WATCHLIST': 35}
+[SCANNER][WATCHLIST] session=CLOSED count=15
+ROKU session=NA price=$12.15 LAST_RTH_CLOSE=9.50 ibkr_pct=27.88% final_pct=27.89% pct_source=CALC(SESSION_REF) gap=27.89% chg=27.89% rvol=8.97 float=17.36M vol=29655267 pm=NA spread=0.0074% news_flag=NO summary=NA halted=NA ssr=NA dq=BAD score=100.00
 SNOW session=NA price=$3.17 LAST_RTH_CLOSE=2.48 ibkr_pct=27.98% final_pct=27.82% pct_source=CALC(SESSION_REF) gap=27.82% chg=27.82% rvol=8.99 float=3.40M vol=5286581 pm=NA spread=0.0283% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
-GME session=NA price=$12.50 LAST_RTH_CLOSE=9.78 ibkr_pct=27.77% final_pct=27.81% pct_source=CALC(SESSION_REF) gap=27.81% chg=27.81% rvol=8.94 float=13.47M vol=30534216 pm=NA spread=0.0032% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
+GME session=NA price=$12.50 LAST_RTH_CLOSE=9.78 ibkr_pct=27.77% final_pct=27.81% pct_source=CALC(SESSION_REF) gap=27.81% chg=27.81% rvol=8.94 float=13.47M vol=30534216 pm=NA spread=0.0032% news_flag=NO summary=NA halted=NA ssr=NA dq=BAD score=100.00
 NFLX session=NA price=$7.20 LAST_RTH_CLOSE=5.64 ibkr_pct=27.68% final_pct=27.66% pct_source=CALC(SESSION_REF) gap=27.66% chg=27.66% rvol=8.92 float=9.33M vol=16144452 pm=NA spread=0.0069% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
-MU session=NA price=$4.20 LAST_RTH_CLOSE=3.30 ibkr_pct=27.20% final_pct=27.27% pct_source=CALC(SESSION_REF) gap=27.27% chg=27.27% rvol=8.80 float=8.68M vol=7956142 pm=NA spread=0.0095% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
-BAC session=NA price=$11.69 LAST_RTH_CLOSE=9.21 ibkr_pct=26.98% final_pct=26.93% pct_source=CALC(SESSION_REF) gap=26.93% chg=26.93% rvol=8.74 float=7.17M vol=27946342 pm=NA spread=0.0060% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
+MU session=NA price=$4.20 LAST_RTH_CLOSE=3.30 ibkr_pct=27.20% final_pct=27.27% pct_source=CALC(SESSION_REF) gap=27.27% chg=27.27% rvol=8.80 float=8.68M vol=7956142 pm=NA spread=0.0095% news_flag=NO summary=NA halted=NA ssr=NA dq=BAD score=100.00
+BAC session=NA price=$11.69 LAST_RTH_CLOSE=9.21 ibkr_pct=26.98% final_pct=26.93% pct_source=CALC(SESSION_REF) gap=26.93% chg=26.93% rvol=8.74 float=7.17M vol=27946342 pm=NA spread=0.0060% news_flag=NO summary=NA halted=NA ssr=NA dq=BAD score=100.00
 PLTR session=NA price=$4.96 LAST_RTH_CLOSE=3.91 ibkr_pct=26.84% final_pct=26.85% pct_source=CALC(SESSION_REF) gap=26.85% chg=26.85% rvol=8.71 float=6.28M vol=9945212 pm=NA spread=0.0141% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
-CVX session=NA price=$8.50 LAST_RTH_CLOSE=6.73 ibkr_pct=26.34% final_pct=26.30% pct_source=CALC(SESSION_REF) gap=26.30% chg=26.30% rvol=8.59 float=6.49M vol=19160381 pm=NA spread=0.0082% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
+CVX session=NA price=$8.50 LAST_RTH_CLOSE=6.73 ibkr_pct=26.34% final_pct=26.30% pct_source=CALC(SESSION_REF) gap=26.30% chg=26.30% rvol=8.59 float=6.49M vol=19160381 pm=NA spread=0.0082% news_flag=NO summary=NA halted=NA ssr=NA dq=BAD score=100.00
 AMD session=NA price=$10.08 LAST_RTH_CLOSE=8.02 ibkr_pct=25.63% final_pct=25.69% pct_source=CALC(SESSION_REF) gap=25.69% chg=25.69% rvol=8.41 float=6.35M vol=22987348 pm=NA spread=0.0060% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
-JPM session=NA price=$3.51 LAST_RTH_CLOSE=2.81 ibkr_pct=25.04% final_pct=24.91% pct_source=CALC(SESSION_REF) gap=24.91% chg=24.91% rvol=8.26 float=4.52M vol=5891085 pm=NA spread=0.0170% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
+JPM session=NA price=$3.51 LAST_RTH_CLOSE=2.81 ibkr_pct=25.04% final_pct=24.91% pct_source=CALC(SESSION_REF) gap=24.91% chg=24.91% rvol=8.26 float=4.52M vol=5891085 pm=NA spread=0.0170% news_flag=NO summary=NA halted=NA ssr=NA dq=BAD score=100.00
 AAPL session=NA price=$12.07 LAST_RTH_CLOSE=9.69 ibkr_pct=24.58% final_pct=24.56% pct_source=CALC(SESSION_REF) gap=24.56% chg=24.56% rvol=8.14 float=12.59M vol=27515675 pm=NA spread=0.0058% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
 MARA session=NA price=$10.67 LAST_RTH_CLOSE=8.64 ibkr_pct=23.49% final_pct=23.50% pct_source=CALC(SESSION_REF) gap=23.50% chg=23.50% rvol=7.87 float=15.14M vol=23413407 pm=NA spread=0.0047% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
-CLSK session=NA price=$2.62 LAST_RTH_CLOSE=2.13 ibkr_pct=23.18% final_pct=23.00% pct_source=CALC(SESSION_REF) gap=23.00% chg=23.00% rvol=7.79 float=15.09M vol=3523423 pm=NA spread=0.0269% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
+CLSK session=NA price=$2.62 LAST_RTH_CLOSE=2.13 ibkr_pct=23.18% final_pct=23.00% pct_source=CALC(SESSION_REF) gap=23.00% chg=23.00% rvol=7.79 float=15.09M vol=3523423 pm=NA spread=0.0269% news_flag=NO summary=NA halted=NA ssr=NA dq=BAD score=100.00
 AMZN session=NA price=$3.91 LAST_RTH_CLOSE=3.18 ibkr_pct=22.94% final_pct=22.96% pct_source=CALC(SESSION_REF) gap=22.96% chg=22.96% rvol=7.73 float=16.38M vol=6621166 pm=NA spread=0.0204% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
 RIOT session=NA price=$8.65 LAST_RTH_CLOSE=7.04 ibkr_pct=22.81% final_pct=22.87% pct_source=CALC(SESSION_REF) gap=22.87% chg=22.87% rvol=7.70 float=3.10M vol=18135261 pm=NA spread=0.0104% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
-RIVN session=NA price=$11.08 LAST_RTH_CLOSE=9.04 ibkr_pct=22.57% final_pct=22.57% pct_source=CALC(SESSION_REF) gap=22.57% chg=22.57% rvol=7.64 float=10.58M vol=23904875 pm=NA spread=0.0036% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
-META session=NA price=$6.99 LAST_RTH_CLOSE=5.71 ibkr_pct=22.39% final_pct=22.42% pct_source=CALC(SESSION_REF) gap=22.42% chg=22.42% rvol=7.60 float=13.15M vol=13960964 pm=NA spread=0.0100% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
-TSLA session=NA price=$10.15 LAST_RTH_CLOSE=8.32 ibkr_pct=21.96% final_pct=22.00% pct_source=CALC(SESSION_REF) gap=22.00% chg=22.00% rvol=7.49 float=14.05M vol=21329714 pm=NA spread=0.0079% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
-CRWD session=NA price=$4.57 LAST_RTH_CLOSE=3.76 ibkr_pct=21.66% final_pct=21.54% pct_source=CALC(SESSION_REF) gap=21.54% chg=21.54% rvol=7.41 float=5.98M vol=8027486 pm=NA spread=0.0066% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
-SPOT session=NA price=$4.12 LAST_RTH_CLOSE=3.39 ibkr_pct=21.39% final_pct=21.53% pct_source=CALC(SESSION_REF) gap=21.53% chg=21.53% rvol=7.35 float=11.66M vol=6909951 pm=NA spread=0.0097% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00
 [SCANNER][FOCUS] session=CLOSED count=5
-ROKU session=NA price=$12.15 LAST_RTH_CLOSE=9.50 ibkr_pct=27.88% final_pct=27.89% pct_source=CALC(SESSION_REF) gap=27.89% chg=27.89% rvol=8.97 float=17.36M vol=29655267 pm=NA spread=0.0074% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00 components=pct_change=62.8,rvol=62.8,dollar_volume=40.0 gates=watch_pct_change=OK watch_rvol=OK watch_float=OK focus_volume=OK focus_spread=OK focus_bid_ask=OK focus_halt=OK focus_ssr=OK focus_dollar_volume=OK catalyst_ok=OK why=earnings age=5m
-SNOW session=NA price=$3.17 LAST_RTH_CLOSE=2.48 ibkr_pct=27.98% final_pct=27.82% pct_source=CALC(SESSION_REF) gap=27.82% chg=27.82% rvol=8.99 float=3.40M vol=5286581 pm=NA spread=0.0283% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00 components=pct_change=62.6,rvol=62.9,dollar_volume=40.0 gates=watch_pct_change=OK watch_rvol=OK watch_float=OK focus_volume=OK focus_spread=OK focus_bid_ask=OK focus_halt=OK focus_ssr=OK focus_dollar_volume=FAIL catalyst_ok=OK why=earnings age=5m
-GME session=NA price=$12.50 LAST_RTH_CLOSE=9.78 ibkr_pct=27.77% final_pct=27.81% pct_source=CALC(SESSION_REF) gap=27.81% chg=27.81% rvol=8.94 float=13.47M vol=30534216 pm=NA spread=0.0032% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00 components=pct_change=62.6,rvol=62.6,dollar_volume=40.0 gates=watch_pct_change=OK watch_rvol=OK watch_float=OK focus_volume=OK focus_spread=OK focus_bid_ask=OK focus_halt=OK focus_ssr=OK focus_dollar_volume=OK catalyst_ok=OK why=earnings age=5m
+ROKU session=NA price=$12.15 LAST_RTH_CLOSE=9.50 ibkr_pct=27.88% final_pct=27.89% pct_source=CALC(SESSION_REF) gap=27.89% chg=27.89% rvol=8.97 float=17.36M vol=29655267 pm=NA spread=0.0074% news_flag=NO summary=NA halted=NA ssr=NA dq=BAD score=100.00 components=pct_change=62.8,rvol=62.8,dollar_volume=40.0 gates=watch_pct_change=OK watch_rvol=OK watch_float=OK focus_volume=OK focus_spread=OK focus_bid_ask=OK focus_halt=OK focus_ssr=OK focus_dollar_volume=OK catalyst_ok=FAIL why=NA
+SNOW session=NA price=$3.17 LAST_RTH_CLOSE=2.48 ibkr_pct=27.98% final_pct=27.82% pct_source=CALC(SESSION_REF) gap=27.82% chg=27.82% rvol=8.99 float=3.40M vol=5286581 pm=NA spread=0.0283% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00 components=pct_change=62.6,rvol=62.9,dollar_volume=40.0 gates=watch_pct_change=OK watch_rvol=OK watch_float=OK focus_volume=OK focus_spread=OK focus_bid_ask=OK focus_halt=OK focus_ssr=OK focus_dollar_volume=OK catalyst_ok=OK why=earnings age=5m
+GME session=NA price=$12.50 LAST_RTH_CLOSE=9.78 ibkr_pct=27.77% final_pct=27.81% pct_source=CALC(SESSION_REF) gap=27.81% chg=27.81% rvol=8.94 float=13.47M vol=30534216 pm=NA spread=0.0032% news_flag=NO summary=NA halted=NA ssr=NA dq=BAD score=100.00 components=pct_change=62.6,rvol=62.6,dollar_volume=40.0 gates=watch_pct_change=OK watch_rvol=OK watch_float=OK focus_volume=OK focus_spread=OK focus_bid_ask=OK focus_halt=OK focus_ssr=OK focus_dollar_volume=OK catalyst_ok=FAIL why=NA
 NFLX session=NA price=$7.20 LAST_RTH_CLOSE=5.64 ibkr_pct=27.68% final_pct=27.66% pct_source=CALC(SESSION_REF) gap=27.66% chg=27.66% rvol=8.92 float=9.33M vol=16144452 pm=NA spread=0.0069% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00 components=pct_change=62.2,rvol=62.4,dollar_volume=40.0 gates=watch_pct_change=OK watch_rvol=OK watch_float=OK focus_volume=OK focus_spread=OK focus_bid_ask=OK focus_halt=OK focus_ssr=OK focus_dollar_volume=OK catalyst_ok=OK why=earnings age=5m
-MU session=NA price=$4.20 LAST_RTH_CLOSE=3.30 ibkr_pct=27.20% final_pct=27.27% pct_source=CALC(SESSION_REF) gap=27.27% chg=27.27% rvol=8.80 float=8.68M vol=7956142 pm=NA spread=0.0095% news_flag=YES summary=earnings age=5m halted=NA ssr=NA dq=BAD score=100.00 components=pct_change=61.4,rvol=61.6,dollar_volume=40.0 gates=watch_pct_change=OK watch_rvol=OK watch_float=OK focus_volume=OK focus_spread=OK focus_bid_ask=OK focus_halt=OK focus_ssr=OK focus_dollar_volume=OK catalyst_ok=OK why=earnings age=5m
+MU session=NA price=$4.20 LAST_RTH_CLOSE=3.30 ibkr_pct=27.20% final_pct=27.27% pct_source=CALC(SESSION_REF) gap=27.27% chg=27.27% rvol=8.80 float=8.68M vol=7956142 pm=NA spread=0.0095% news_flag=NO summary=NA halted=NA ssr=NA dq=BAD score=100.00 components=pct_change=61.4,rvol=61.6,dollar_volume=40.0 gates=watch_pct_change=OK watch_rvol=OK watch_float=OK focus_volume=OK focus_spread=OK focus_bid_ask=OK focus_halt=OK focus_ssr=OK focus_dollar_volume=OK catalyst_ok=FAIL why=NA
 TopN: 50
 GatedSurvivors: 50
-DropReasons: {'DROP_RANK_BELOW_WATCHLIST': 30}
-WATCHLIST_K: ['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT', 'RIVN', 'META', 'TSLA', 'CRWD', 'SPOT']
-FOCUS_M: ['ROKU', 'GME', 'NFLX', 'MU', 'BAC']
-NEW: ['AAPL', 'AMD', 'AMZN', 'BAC', 'CLSK', 'CRWD', 'CVX', 'GME', 'JPM', 'MARA', 'META', 'MU', 'NFLX', 'PLTR', 'RIOT', 'RIVN', 'ROKU', 'SNOW', 'SPOT', 'TSLA']
+DropReasons: {'DROP_RANK_BELOW_WATCHLIST': 35}
+WATCHLIST_K: ['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT']
+FOCUS_M: ['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
+NEW: ['AAPL', 'AMD', 'AMZN', 'BAC', 'CLSK', 'CVX', 'GME', 'JPM', 'MARA', 'MU', 'NFLX', 'PLTR', 'RIOT', 'ROKU', 'SNOW']
 CONTINUING: []
 DROPPED: []
-[TRACE] stage=UNIVERSE cycle_id=d9b38493-cc0c-4b50-8338-b2a7a0163133 run_mode=SIM strategy=statistical_intraday_momentum top_n=50 symbols=['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
+[TRACE] stage=UNIVERSE cycle_id=e1fa3066-65ac-42d2-867a-784f620d4331 run_mode=SIM strategy=vwap_reclaim top_n=50 symbols=['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
 [SCANNER][DIAGNOSTICS] Top 50 observations (extended columns)
 [SCANNER][ROW] rank=1 symbol=AAPL conId=None exchange=None session=NA last=12.07 ref_close=9.69 pct_change=24.56 pct_ref=CALC(SESSION_REF) volume=27515675 avg_volume_20d=3378599 rvol=8.14 bid=12.05 ask=12.12 spread=0.07 spread_pct=0.01 dollar_volume=332114197.25 float_m=12.59 halted=None ssr=None data_quality=MOCK,NEWS_DELAYED drop_reasons=-
 [SCANNER][ROW] rank=2 symbol=MSFT conId=None exchange=None session=NA last=7.93 ref_close=6.96 pct_change=13.94 pct_ref=CALC(SESSION_REF) volume=12731375 avg_volume_20d=2320893 rvol=5.49 bid=7.92 ask=7.96 spread=0.04 spread_pct=0.01 dollar_volume=100959803.75 float_m=3.38 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=3 symbol=NVDA conId=None exchange=None session=NA last=11.61 ref_close=9.61 pct_change=20.81 pct_ref=CALC(SESSION_REF) volume=24154533 avg_volume_20d=3350202 rvol=7.21 bid=11.58 ask=11.64 spread=0.06 spread_pct=0.01 dollar_volume=280434128.13 float_m=7.13 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=4 symbol=AMD conId=None exchange=None session=NA last=10.08 ref_close=8.02 pct_change=25.69 pct_ref=CALC(SESSION_REF) volume=22987348 avg_volume_20d=2734019 rvol=8.41 bid=10.04 ask=10.10 spread=0.06 spread_pct=0.01 dollar_volume=231712467.84 float_m=6.35 halted=None ssr=None data_quality=MOCK,NEWS_DELAYED drop_reasons=-
-[SCANNER][ROW] rank=5 symbol=TSLA conId=None exchange=None session=NA last=10.15 ref_close=8.32 pct_change=22.00 pct_ref=CALC(SESSION_REF) volume=21329714 avg_volume_20d=2847998 rvol=7.49 bid=10.11 ask=10.19 spread=0.08 spread_pct=0.01 dollar_volume=216496597.10 float_m=14.05 halted=None ssr=None data_quality=MOCK,NEWS_DELAYED drop_reasons=-
-[SCANNER][ROW] rank=6 symbol=META conId=None exchange=None session=NA last=6.99 ref_close=5.71 pct_change=22.42 pct_ref=CALC(SESSION_REF) volume=13960964 avg_volume_20d=1837711 rvol=7.60 bid=6.95 ask=7.02 spread=0.07 spread_pct=0.01 dollar_volume=97587138.36 float_m=13.15 halted=None ssr=None data_quality=MOCK,NEWS_DELAYED drop_reasons=-
+[SCANNER][ROW] rank=5 symbol=TSLA conId=None exchange=None session=NA last=10.15 ref_close=8.32 pct_change=22.00 pct_ref=CALC(SESSION_REF) volume=21329714 avg_volume_20d=2847998 rvol=7.49 bid=10.11 ask=10.19 spread=0.08 spread_pct=0.01 dollar_volume=216496597.10 float_m=14.05 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
+[SCANNER][ROW] rank=6 symbol=META conId=None exchange=None session=NA last=6.99 ref_close=5.71 pct_change=22.42 pct_ref=CALC(SESSION_REF) volume=13960964 avg_volume_20d=1837711 rvol=7.60 bid=6.95 ask=7.02 spread=0.07 spread_pct=0.01 dollar_volume=97587138.36 float_m=13.15 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=7 symbol=AMZN conId=None exchange=None session=NA last=3.91 ref_close=3.18 pct_change=22.96 pct_ref=CALC(SESSION_REF) volume=6621166 avg_volume_20d=856118 rvol=7.73 bid=3.88 ask=3.96 spread=0.08 spread_pct=0.02 dollar_volume=25888759.06 float_m=16.38 halted=None ssr=None data_quality=MOCK,NEWS_DELAYED drop_reasons=-
 [SCANNER][ROW] rank=8 symbol=GOOGL conId=None exchange=None session=NA last=9.96 ref_close=8.43 pct_change=18.15 pct_ref=CALC(SESSION_REF) volume=18857628 avg_volume_20d=2890834 rvol=6.52 bid=9.95 ask=10.00 spread=0.05 spread_pct=0.01 dollar_volume=187821974.88 float_m=4.30 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=9 symbol=NFLX conId=None exchange=None session=NA last=7.20 ref_close=5.64 pct_change=27.66 pct_ref=CALC(SESSION_REF) volume=16144452 avg_volume_20d=1809973 rvol=8.92 bid=7.18 ask=7.23 spread=0.05 spread_pct=0.01 dollar_volume=116240054.40 float_m=9.33 halted=None ssr=None data_quality=MOCK,NEWS_DELAYED drop_reasons=-
 [SCANNER][ROW] rank=10 symbol=BABA conId=None exchange=None session=NA last=8.84 ref_close=7.48 pct_change=18.18 pct_ref=CALC(SESSION_REF) volume=16503911 avg_volume_20d=2521816 rvol=6.54 bid=8.82 ask=8.85 spread=0.03 spread_pct=0.00 dollar_volume=145894573.24 float_m=3.45 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=11 symbol=PLTR conId=None exchange=None session=NA last=4.96 ref_close=3.91 pct_change=26.85 pct_ref=CALC(SESSION_REF) volume=9945212 avg_volume_20d=1141961 rvol=8.71 bid=4.93 ask=5.00 spread=0.07 spread_pct=0.01 dollar_volume=49328251.52 float_m=6.28 halted=None ssr=None data_quality=MOCK,NEWS_DELAYED drop_reasons=-
-[SCANNER][ROW] rank=12 symbol=RIVN conId=None exchange=None session=NA last=11.08 ref_close=9.04 pct_change=22.57 pct_ref=CALC(SESSION_REF) volume=23904875 avg_volume_20d=3127882 rvol=7.64 bid=11.05 ask=11.09 spread=0.04 spread_pct=0.00 dollar_volume=264866015.00 float_m=10.58 halted=None ssr=None data_quality=MOCK,NEWS_DELAYED drop_reasons=-
+[SCANNER][ROW] rank=12 symbol=RIVN conId=None exchange=None session=NA last=11.08 ref_close=9.04 pct_change=22.57 pct_ref=CALC(SESSION_REF) volume=23904875 avg_volume_20d=3127882 rvol=7.64 bid=11.05 ask=11.09 spread=0.04 spread_pct=0.00 dollar_volume=264866015.00 float_m=10.58 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=13 symbol=SNOW conId=None exchange=None session=NA last=3.17 ref_close=2.48 pct_change=27.82 pct_ref=CALC(SESSION_REF) volume=5286581 avg_volume_20d=587794 rvol=8.99 bid=3.13 ask=3.22 spread=0.09 spread_pct=0.03 dollar_volume=16758461.77 float_m=3.40 halted=None ssr=None data_quality=MOCK,NEWS_DELAYED drop_reasons=-
-[SCANNER][ROW] rank=14 symbol=CRWD conId=None exchange=None session=NA last=4.57 ref_close=3.76 pct_change=21.54 pct_ref=CALC(SESSION_REF) volume=8027486 avg_volume_20d=1082708 rvol=7.41 bid=4.55 ask=4.58 spread=0.03 spread_pct=0.01 dollar_volume=36685611.02 float_m=5.98 halted=None ssr=None data_quality=MOCK,NEWS_DELAYED drop_reasons=-
+[SCANNER][ROW] rank=14 symbol=CRWD conId=None exchange=None session=NA last=4.57 ref_close=3.76 pct_change=21.54 pct_ref=CALC(SESSION_REF) volume=8027486 avg_volume_20d=1082708 rvol=7.41 bid=4.55 ask=4.58 spread=0.03 spread_pct=0.01 dollar_volume=36685611.02 float_m=5.98 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=15 symbol=COIN conId=None exchange=None session=NA last=11.71 ref_close=9.74 pct_change=20.23 pct_ref=CALC(SESSION_REF) volume=23953418 avg_volume_20d=3397794 rvol=7.05 bid=11.69 ask=11.72 spread=0.03 spread_pct=0.00 dollar_volume=280494524.78 float_m=12.75 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=16 symbol=SOFI conId=None exchange=None session=NA last=3.48 ref_close=3.03 pct_change=14.85 pct_ref=CALC(SESSION_REF) volume=4592370 avg_volume_20d=798427 rvol=5.75 bid=3.45 ask=3.50 spread=0.05 spread_pct=0.01 dollar_volume=15981447.60 float_m=11.17 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=17 symbol=LCID conId=None exchange=None session=NA last=8.17 ref_close=7.05 pct_change=15.89 pct_ref=CALC(SESSION_REF) volume=14117645 avg_volume_20d=2358746 rvol=5.99 bid=8.16 ask=8.21 spread=0.05 spread_pct=0.01 dollar_volume=115341159.65 float_m=6.31 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
@@ -305,7 +304,7 @@ DROPPED: []
 [SCANNER][ROW] rank=37 symbol=ADBE conId=None exchange=None session=NA last=2.85 ref_close=2.38 pct_change=19.75 pct_ref=CALC(SESSION_REF) volume=3805094 avg_volume_20d=545983 rvol=6.97 bid=2.83 ask=2.87 spread=0.04 spread_pct=0.01 dollar_volume=10844517.90 float_m=15.44 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=38 symbol=ORCL conId=None exchange=None session=NA last=8.01 ref_close=6.85 pct_change=16.93 pct_ref=CALC(SESSION_REF) volume=14161925 avg_volume_20d=2277459 rvol=6.22 bid=7.99 ask=8.03 spread=0.04 spread_pct=0.01 dollar_volume=113437019.25 float_m=12.28 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=39 symbol=QCOM conId=None exchange=None session=NA last=6.01 ref_close=5.10 pct_change=17.84 pct_ref=CALC(SESSION_REF) volume=10373831 avg_volume_20d=1600466 rvol=6.48 bid=5.99 ask=6.03 spread=0.04 spread_pct=0.01 dollar_volume=62346724.31 float_m=15.93 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
-[SCANNER][ROW] rank=40 symbol=SPOT conId=None exchange=None session=NA last=4.12 ref_close=3.39 pct_change=21.53 pct_ref=CALC(SESSION_REF) volume=6909951 avg_volume_20d=940422 rvol=7.35 bid=4.10 ask=4.14 spread=0.04 spread_pct=0.01 dollar_volume=28468998.12 float_m=11.66 halted=None ssr=None data_quality=MOCK,NEWS_DELAYED drop_reasons=-
+[SCANNER][ROW] rank=40 symbol=SPOT conId=None exchange=None session=NA last=4.12 ref_close=3.39 pct_change=21.53 pct_ref=CALC(SESSION_REF) volume=6909951 avg_volume_20d=940422 rvol=7.35 bid=4.10 ask=4.14 spread=0.04 spread_pct=0.01 dollar_volume=28468998.12 float_m=11.66 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=41 symbol=UBER conId=None exchange=None session=NA last=4.71 ref_close=3.90 pct_change=20.77 pct_ref=CALC(SESSION_REF) volume=8187184 avg_volume_20d=1135713 rvol=7.21 bid=4.67 ask=4.75 spread=0.08 spread_pct=0.02 dollar_volume=38561636.64 float_m=13.57 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=42 symbol=LYFT conId=None exchange=None session=NA last=5.17 ref_close=4.49 pct_change=15.14 pct_ref=CALC(SESSION_REF) volume=7849706 avg_volume_20d=1363062 rvol=5.76 bid=5.16 ask=5.18 spread=0.02 spread_pct=0.00 dollar_volume=40582980.02 float_m=3.69 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][ROW] rank=43 symbol=BA conId=None exchange=None session=NA last=4.34 ref_close=3.76 pct_change=15.43 pct_ref=CALC(SESSION_REF) volume=6380119 avg_volume_20d=1083281 rvol=5.89 bid=4.31 ask=4.36 spread=0.05 spread_pct=0.01 dollar_volume=27689716.46 float_m=6.42 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
@@ -368,9 +367,9 @@ DROPPED: []
 [SCANNER][DROP] symbol=XOM reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=C reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=WFC reason=DROP_RANK_BELOW_WATCHLIST
-[TRACE] stage=WATCHLIST cycle_id=d9b38493-cc0c-4b50-8338-b2a7a0163133 run_mode=SIM strategy=statistical_intraday_momentum watchlist=20 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT', '...']
-[TRACE] stage=FOCUS cycle_id=d9b38493-cc0c-4b50-8338-b2a7a0163133 run_mode=SIM strategy=statistical_intraday_momentum focus=5 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
-[WATCHLIST] size=20 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT', 'RIVN', 'META', 'TSLA', 'CRWD', 'SPOT']
+[TRACE] stage=WATCHLIST cycle_id=e1fa3066-65ac-42d2-867a-784f620d4331 run_mode=SIM strategy=vwap_reclaim watchlist=15 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT']
+[TRACE] stage=FOCUS cycle_id=e1fa3066-65ac-42d2-867a-784f620d4331 run_mode=SIM strategy=vwap_reclaim focus=5 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
+[WATCHLIST] size=15 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT']
 [SNAPSHOT][QUALITY] symbol=ROKU missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=SNOW missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=GME missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
@@ -386,37 +385,17 @@ DROPPED: []
 [SNAPSHOT][QUALITY] symbol=CLSK missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=AMZN missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=RIOT missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=RIVN missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=META missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=TSLA missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=CRWD missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=SPOT missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-STRATEGY_RUNNER_RECEIVED K=20 session=NA timestamp_utc=2026-02-14T23:04:37.345439+00:00
-[STRATEGY][FOCUS] statistical_intraday_momentum using focus_m=5
-[STRATEGY][PROCESS] strategy_key=statistical_intraday_momentum strategies=1 watchlist=5 session=NA phase=CLOSED
-[SIMOM][CYCLE] start timestamp=2026-02-14T23:04:37.345439+00:00 mode=SIM session=NA session_phase=CLOSED ny_time=2026-02-14T18:04:37.345439-05:00
-[SIMOM][INPUT] watchlist_k=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU'] focus_m=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
-[SIMOM][WARN] SIM override — session not in allowlist; session=NA allowlist=['RTH']
-[SIMOM][SIGNAL] symbol=ROKU side=LONG type=CONTINUATION confidence=1.00 stop=12.0285 target=12.393
-[SIMOM][EVAL] symbol=ROKU decision=PASS reasons=['NONE']
-[SIMOM][EVAL] symbol=SNOW decision=SKIP reasons=['LIQUIDITY_BELOW_MIN']
-[SIMOM][SIGNAL] symbol=GME side=LONG type=CONTINUATION confidence=1.00 stop=12.375 target=12.75
-[SIMOM][EVAL] symbol=GME decision=PASS reasons=['NONE']
-[SIMOM][SIGNAL] symbol=NFLX side=LONG type=CONTINUATION confidence=1.00 stop=7.128 target=7.344
-[SIMOM][EVAL] symbol=NFLX decision=PASS reasons=['NONE']
-[SIMOM][SIGNAL] symbol=MU side=LONG type=CONTINUATION confidence=1.00 stop=4.158 target=4.284
-[SIMOM][EVAL] symbol=MU decision=PASS reasons=['NONE']
-[SIMOM][ORDERS] intents_ready mode=SIM
-[SIMOM][SUMMARY] considered=5 signals=4 orders=0 skipped=1
+STRATEGY_RUNNER_RECEIVED K=15 session=NA timestamp_utc=2026-02-14T23:01:33.721794+00:00
+[STRATEGY][PROCESS] strategy_key=vwap_reclaim strategies=1 watchlist=15 session=NA phase=CLOSED
 [EXECUTION] dry-run (orders disabled by mode)
-[TRACE] stage=ACTION cycle_id=d9b38493-cc0c-4b50-8338-b2a7a0163133 run_mode=SIM strategy=statistical_intraday_momentum intents=4
-[SNAPSHOT][SUMMARY] missing_required_fields={'MARA': ['last', 'close', 'volume'], 'AMZN': ['last', 'close', 'volume'], 'RIOT': ['last', 'close', 'volume'], 'PLTR': ['last', 'close', 'volume'], 'ROKU': ['last', 'close', 'volume'], 'BAC': ['last', 'close', 'volume'], 'MU': ['last', 'close', 'volume'], 'AAPL': ['last', 'close', 'volume'], 'JPM': ['last', 'close', 'volume'], 'NFLX': ['last', 'close', 'volume'], 'SNOW': ['last', 'close', 'volume'], 'CVX': ['last', 'close', 'volume'], 'GME': ['last', 'close', 'volume'], 'CLSK': ['last', 'close', 'volume'], 'AMD': ['last', 'close', 'volume'], 'RIVN': ['last', 'close', 'volume'], 'META': ['last', 'close', 'volume'], 'TSLA': ['last', 'close', 'volume'], 'CRWD': ['last', 'close', 'volume'], 'SPOT': ['last', 'close', 'volume']}
+[TRACE] stage=ACTION cycle_id=e1fa3066-65ac-42d2-867a-784f620d4331 run_mode=SIM strategy=vwap_reclaim intents=1
+[SNAPSHOT][SUMMARY] missing_required_fields={'CVX': ['last', 'close', 'volume'], 'MU': ['last', 'close', 'volume'], 'AMZN': ['last', 'close', 'volume'], 'GME': ['last', 'close', 'volume'], 'RIOT': ['last', 'close', 'volume'], 'AMD': ['last', 'close', 'volume'], 'NFLX': ['last', 'close', 'volume'], 'PLTR': ['last', 'close', 'volume'], 'BAC': ['last', 'close', 'volume'], 'AAPL': ['last', 'close', 'volume'], 'ROKU': ['last', 'close', 'volume'], 'SNOW': ['last', 'close', 'volume'], 'MARA': ['last', 'close', 'volume'], 'CLSK': ['last', 'close', 'volume'], 'JPM': ['last', 'close', 'volume']}
 [SLEEP] Sleeping for 3 seconds before next cycle.
 [SHUTDOWN] Beginning GRACEFUL shutdown sequence.
 [EXECUTION] Shutdown requested — placeholder cleanup complete.
 [TRADE_EXIT] No active trades to close during shutdown.
 [TRADE_EXIT] Shutdown completed — all trades force-closed.
 [STORAGE] Shutdown complete.
-[EVENT_COLLECTOR] Flushing event summary for shutdown {'total': 39, 'by_type': {'CONFIG_RESOLVED': 1, 'MARKET_SESSION_STATE': 1, 'SCANNER_UNIVERSE_SNAPSHOT': 1, 'RAW_SCAN_SYMBOLS': 1, 'AFTER_GATES_SYMBOLS': 1, 'SCANNER_SYMBOL_DROPPED': 30, 'WATCHLIST_K_SELECTED': 1, 'SCANNER_WATCHLIST_K_READY': 1, 'SHUTDOWN_REQUESTED': 1, 'SHUTDOWN_STARTED': 1}, 'by_source': {'ConfigResolver': 1, 'SystemConfig': 1, 'Scanner': 35, 'CoreOrchestrator': 2}}
+[EVENT_COLLECTOR] Flushing event summary for shutdown {'total': 44, 'by_type': {'CONFIG_RESOLVED': 1, 'MARKET_SESSION_STATE': 1, 'SCANNER_UNIVERSE_SNAPSHOT': 1, 'RAW_SCAN_SYMBOLS': 1, 'AFTER_GATES_SYMBOLS': 1, 'SCANNER_SYMBOL_DROPPED': 35, 'WATCHLIST_K_SELECTED': 1, 'SCANNER_WATCHLIST_K_READY': 1, 'SHUTDOWN_REQUESTED': 1, 'SHUTDOWN_STARTED': 1}, 'by_source': {'ConfigResolver': 1, 'SystemConfig': 1, 'Scanner': 40, 'CoreOrchestrator': 2}}
 [REGISTRY] Verification passed — no active trades remain.
 [SHUTDOWN] Exiting gracefully. Goodbye!

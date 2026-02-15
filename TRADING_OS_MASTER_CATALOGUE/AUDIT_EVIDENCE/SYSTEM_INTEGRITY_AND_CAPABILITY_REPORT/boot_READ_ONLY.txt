@@ -124,32 +124,32 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode READ_ONLY --cycles
 [VALIDATION] Storage OK — SQLite opened
 [LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
 [CYCLE] Starting orchestrator cycle.
-[TRACE] stage=MARKET_SESSION cycle_id=2cfe1c0c-4713-4b9a-ae81-ce47c9014853 run_mode=READ_ONLY strategy=ross_momentum 
+[TRACE] stage=MARKET_SESSION cycle_id=541e2f11-19e0-4e4e-9b91-c10bd68ca087 run_mode=READ_ONLY strategy=ross_momentum 
 [SESSION] Detected market session: CLOSED
 [SESSION] System WOULD treat market as closed (teaching-only).
 [SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().
 [INFO] Starting orchestrator cycle (teaching-only).
-[SESSION] phase=CLOSED ny_time=2026-02-14T13:52:52.517925-05:00 uk_time=2026-02-14T18:52:52.517925+00:00 utc=2026-02-14T18:52:52.517925+00:00
+[SESSION] phase=CLOSED ny_time=2026-02-14T18:04:09.565288-05:00 uk_time=2026-02-14T23:04:09.565288+00:00 utc=2026-02-14T23:04:09.565288+00:00
 [RUNTIME] mode=READ_ONLY live_like=True allow_orders=False max_shares_per_order=None event_replay=OFF
 [ORCH][SCANNER_REQUEST] strategy=ross_momentum policy=ROSS_MOMENTUM instrument=STK locationCode=STK.US.MAJOR scanCode=TOP_PERC_GAIN numberOfRows=150 abovePrice=1.0 belowPrice=20.0
-[IBKR][CONNECT] attempt=1 host=127.0.0.1 port=7497 client_id=10
-[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=10
+[IBKR][CONNECT] attempt=1 host=127.0.0.1 port=7497 client_id=8
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=8
 [IBKR][CONNECT][WARN] connection failed; backoff=1s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
 [IBKR][CONNECT] attempt=2 host=127.0.0.1 port=7497 client_id=7
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=7
 [IBKR][CONNECT][WARN] connection failed; backoff=2s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
-[IBKR][CONNECT] attempt=3 host=127.0.0.1 port=7497 client_id=8
-[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=8
-[IBKR][CONNECT][WARN] connection failed; backoff=4s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
-[IBKR][CONNECT] attempt=4 host=127.0.0.1 port=7497 client_id=9
+[IBKR][CONNECT] attempt=3 host=127.0.0.1 port=7497 client_id=9
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=9
+[IBKR][CONNECT][WARN] connection failed; backoff=4s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[IBKR][CONNECT] attempt=4 host=127.0.0.1 port=7497 client_id=10
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=10
 [IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
 [IBKR][CONNECT] attempt=5 host=127.0.0.1 port=7497 client_id=11
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=11
 [IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
 STATE=DEGRADED
 [CONNECTIVITY] IBKR connection failed: IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7
-[TRACE] stage=HALT cycle_id=1a92c88c-59fc-4608-9d34-614bb6397368 run_mode=READ_ONLY strategy=ross_momentum reason_code=CONNECTIVITY_FAILURE message=IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7
+[TRACE] stage=HALT cycle_id=a92fd16e-93a9-497e-be6a-f55f0dfb1138 run_mode=READ_ONLY strategy=ross_momentum reason_code=CONNECTIVITY_FAILURE message=IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7
 [SCANNER] MODE=integrated SESSION=CLOSED
 [SCANNER][POLICY] source=STRATEGY policy_name=ROSS_MOMENTUM price=1.0-20.0 gap_min=10.0 rvol_min=5.0 float_max_millions=20.0 spread_max_pct=None watchlist_k=15 focus_m=5
 [SCANNER][ENTRY] strategy=ROSS_MOMENTUM requested_top_n=150 watchlist_k=15 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=1.0 below_price=20.0
@@ -183,20 +183,20 @@ FOCUS_M: []
 NEW: []
 CONTINUING: []
 DROPPED: []
-[TRACE] stage=UNIVERSE cycle_id=1a92c88c-59fc-4608-9d34-614bb6397368 run_mode=READ_ONLY strategy=ross_momentum top_n=0 symbols=[]
+[TRACE] stage=UNIVERSE cycle_id=a92fd16e-93a9-497e-be6a-f55f0dfb1138 run_mode=READ_ONLY strategy=ross_momentum top_n=0 symbols=[]
 [SCANNER][DIAGNOSTICS] Top 50 observations (extended columns)
 [SCANNER][DIAGNOSTICS] Watchlist (top 15, same columns preserved)
 [SCANNER][DIAGNOSTICS] Drop reasons: none
-[TRACE] stage=WATCHLIST cycle_id=1a92c88c-59fc-4608-9d34-614bb6397368 run_mode=READ_ONLY strategy=ross_momentum watchlist=0 symbols=[]
-[TRACE] stage=FOCUS cycle_id=1a92c88c-59fc-4608-9d34-614bb6397368 run_mode=READ_ONLY strategy=ross_momentum focus=0 symbols=[]
+[TRACE] stage=WATCHLIST cycle_id=a92fd16e-93a9-497e-be6a-f55f0dfb1138 run_mode=READ_ONLY strategy=ross_momentum watchlist=0 symbols=[]
+[TRACE] stage=FOCUS cycle_id=a92fd16e-93a9-497e-be6a-f55f0dfb1138 run_mode=READ_ONLY strategy=ross_momentum focus=0 symbols=[]
 [WATCHLIST] empty watchlist accepted
-STRATEGY_RUNNER_RECEIVED K=0 session=CLOSED timestamp_utc=2026-02-14T18:53:15.550557+00:00
+STRATEGY_RUNNER_RECEIVED K=0 session=CLOSED timestamp_utc=2026-02-14T23:04:32.599600+00:00
 [STRATEGY][PROCESS] strategy_key=ross_momentum strategies=1 watchlist=0 session=CLOSED phase=CLOSED
 [STRATEGY:RossMomentumV1] Fallback disabled outside SIM/PAPER mode=READ_ONLY
 [CONNECTIVITY] STATE=DEGRADED provider_error=[Errno 111] Connect call failed ('127.0.0.1', 7497) provider_fallback=None
-[TRACE] stage=HALT cycle_id=1a92c88c-59fc-4608-9d34-614bb6397368 run_mode=READ_ONLY strategy=ross_momentum reason_code=SCANNER_CONNECTIVITY message=provider_error=[Errno 111] Connect call failed ('127.0.0.1', 7497) provider_fallback=None
+[TRACE] stage=HALT cycle_id=a92fd16e-93a9-497e-be6a-f55f0dfb1138 run_mode=READ_ONLY strategy=ross_momentum reason_code=SCANNER_CONNECTIVITY message=provider_error=[Errno 111] Connect call failed ('127.0.0.1', 7497) provider_fallback=None
 [EXECUTION] dry-run (orders disabled by mode)
-[TRACE] stage=ACTION cycle_id=1a92c88c-59fc-4608-9d34-614bb6397368 run_mode=READ_ONLY strategy=ross_momentum intents=0
+[TRACE] stage=ACTION cycle_id=a92fd16e-93a9-497e-be6a-f55f0dfb1138 run_mode=READ_ONLY strategy=ross_momentum intents=0
 [STRATEGY] No trade intents generated.
 [SLEEP] Sleeping for 3 seconds before next cycle.
 [SHUTDOWN] Beginning GRACEFUL shutdown sequence.
