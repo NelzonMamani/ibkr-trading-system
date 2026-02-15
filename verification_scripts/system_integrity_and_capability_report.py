@@ -227,6 +227,35 @@ def _build_p_layer_summary(repo_root: Path) -> tuple[dict[str, Any], list[str]]:
         "missing_capabilities": missing_counts,
     }, blockers)
 
+
+
+def _load_e21_status(repo_root: Path) -> dict[str, Any]:
+    summary_path = (
+        repo_root
+        / "TRADING_OS_MASTER_CATALOGUE"
+        / "AUDIT_EVIDENCE"
+        / "E21_TRADING_READY_VERIFICATION"
+        / "e21_summary.json"
+    )
+    if not summary_path.exists():
+        return {"present": False, "path": str(summary_path.relative_to(repo_root))}
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"present": True, "valid": False, "path": str(summary_path.relative_to(repo_root))}
+
+    certified = bool(payload.get("certified"))
+    status = "CERTIFIED" if certified else "IMPLEMENTED_UNCERTIFIED"
+    return {
+        "present": True,
+        "valid": True,
+        "path": str(summary_path.relative_to(repo_root)),
+        "certified": certified,
+        "status": status,
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "checks": payload.get("checks", {}),
+    }
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -339,6 +368,10 @@ def main() -> int:
         if state_epochs_before.get(state_epoch) != "CERTIFIED":
             recommended_updates[state_epoch] = "CERTIFIED"
 
+    e21_status = _load_e21_status(REPO_ROOT)
+    if e21_status.get("present") and e21_status.get("valid"):
+        recommended_updates["E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION"] = str(e21_status["status"])
+
     if recommended_updates:
         update_system_state_statuses(state_path, recommended_updates)
 
@@ -381,6 +414,7 @@ def main() -> int:
         "capability_crosswalk_notice_updated": crosswalk_updated,
         "derived_crosswalk": DERIVED_CROSSWALK_FILE_REL,
         "p_layer_summary": p_layer_summary,
+        "e21_status": e21_status,
         "blockers": p_layer_blockers,
     }
 
@@ -420,6 +454,7 @@ def main() -> int:
             f"- Recommended updates applied: `{capability_report['recommended_state_updates']}`",
             f"- Derived crosswalk: `{DERIVED_CROSSWALK_FILE_REL}`",
             f"- P-layer summary: `{capability_report['p_layer_summary']}`",
+            f"- E21 status: `{capability_report['e21_status']}`",
             f"- Blockers: `{capability_report['blockers']}`",
         ],
     )
