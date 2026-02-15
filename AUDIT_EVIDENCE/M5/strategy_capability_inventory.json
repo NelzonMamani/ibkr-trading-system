@@ -6,6 +6,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -15,6 +17,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -24,6 +28,8 @@
     "policy_present": false,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "missing_policy,not_cli_runnable"
   },
   {
@@ -33,6 +39,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -42,6 +50,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -51,6 +61,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -60,6 +72,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -69,6 +83,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -78,6 +94,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -87,6 +105,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -96,6 +116,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -105,6 +127,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -114,6 +138,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -123,6 +149,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -132,6 +160,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -141,6 +171,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -150,6 +182,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -159,6 +193,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -168,6 +204,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   },
   {
@@ -177,6 +215,8 @@
     "policy_present": true,
     "tests_present": true,
     "runnable_entrypoint_present": false,
+    "sim_rc": 0,
+    "paper_rc": 0,
     "notes": "not_cli_runnable"
   }
 ]

@@ -27,6 +27,7 @@ REQUIRED_EVIDENCE_FILES = (
 M5_STRATEGY_EVIDENCE_REQUIRED = (
     "AUDIT_EVIDENCE/M5/strategy_capability_inventory.json",
     "AUDIT_EVIDENCE/M5/strategy_certification_matrix.json",
+    "AUDIT_EVIDENCE/M5/strategy_certification_summary.json",
 )
 
 
@@ -482,6 +483,9 @@ def verify_m5_verification_authority(repo_root: Path | None = None) -> dict:
     evidence_paths.extend(
         rel_path for rel_path in M5_STRATEGY_EVIDENCE_REQUIRED if (repo_root / rel_path).exists()
     )
+    boot_logs_dir_rel = "AUDIT_EVIDENCE/M5/boot"
+    if (repo_root / boot_logs_dir_rel).exists():
+        evidence_paths.append(boot_logs_dir_rel)
 
     return {
         "epoch": EPOCH,

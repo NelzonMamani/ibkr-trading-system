@@ -115,8 +115,10 @@ def _status_for(
         return "PARTIAL"
     if compileall_rc != 0 or pytest_rc != 0:
         return "PARTIAL"
-    if paper_rc == 0:
+    if sim_rc == 0 and paper_rc == 0:
         return "CERTIFIED_PAPER"
+    if sim_rc is not None or paper_rc is not None:
+        return "IMPLEMENTED_UNCERTIFIED"
     if runnable_entrypoint_present and tests_present:
         return "IMPLEMENTED_UNCERTIFIED"
     if runnable_entrypoint_present or tests_present:
@@ -168,19 +170,38 @@ def generate_strategy_certification_artifacts(repo_root: Path | None = None) -> 
 
     compileall_log = evidence_dir / "compileall_src.log"
     pytest_log = evidence_dir / "pytest_q.log"
-    sim_log = evidence_dir / "ross_momentum_sim.log"
-    paper_log = evidence_dir / "ross_momentum_paper.log"
+    boot_logs_dir = evidence_dir / "boot"
+    boot_logs_dir.mkdir(parents=True, exist_ok=True)
 
     compileall_rc = _run_capture(repo_root, [sys.executable, "-m", "compileall", "src"], compileall_log)
     pytest_rc = _run_capture(repo_root, [sys.executable, "-m", "pytest", "-q"], pytest_log)
-    sim_rc = _run_capture(repo_root, [sys.executable, "-m", "src.main", "--mode", "SIM", "--cycles", "1", "--strategy", "ross_momentum"], sim_log)
-    paper_rc = _run_capture(repo_root, [sys.executable, "-m", "src.main", "--mode", "PAPER", "--cycles", "1", "--strategy", "ross_momentum"], paper_log)
 
     supported_choices = _main_strategy_choices(repo_root)
     entries = _load_catalogue_entries(repo_root)
 
     inventory: list[dict[str, Any]] = []
     matrix: list[dict[str, Any]] = []
+    strategy_boot_results: dict[str, dict[str, Any]] = {}
+
+    for entry in entries:
+        sim_log = boot_logs_dir / f"{entry.slug}_sim.log"
+        paper_log = boot_logs_dir / f"{entry.slug}_paper.log"
+        sim_rc = _run_capture(
+            repo_root,
+            [sys.executable, "-m", "src.main", "--mode", "SIM", "--cycles", "1", "--strategy", entry.slug],
+            sim_log,
+        )
+        paper_rc = _run_capture(
+            repo_root,
+            [sys.executable, "-m", "src.main", "--mode", "PAPER", "--cycles", "1", "--strategy", entry.slug],
+            paper_log,
+        )
+        strategy_boot_results[entry.slug] = {
+            "sim_rc": sim_rc,
+            "paper_rc": paper_rc,
+            "sim_log_path": str(sim_log.relative_to(repo_root)),
+            "paper_log_path": str(paper_log.relative_to(repo_root)),
+        }
 
     for entry in entries:
         governance_present = (entry.catalogue_path / "GOVERNANCE" / "STRATEGY_GOVERNANCE.md").exists()
@@ -206,12 +227,14 @@ def generate_strategy_certification_artifacts(repo_root: Path | None = None) -> 
                 "policy_present": policy_present,
                 "tests_present": tests_present,
                 "runnable_entrypoint_present": runnable_entrypoint_present,
+                "sim_rc": strategy_boot_results[entry.slug]["sim_rc"],
+                "paper_rc": strategy_boot_results[entry.slug]["paper_rc"],
                 "notes": ",".join(notes) if notes else "ok",
             }
         )
 
-        strategy_sim_rc = sim_rc if entry.slug == "ross_momentum" else None
-        strategy_paper_rc = paper_rc if entry.slug == "ross_momentum" else None
+        strategy_sim_rc = strategy_boot_results[entry.slug]["sim_rc"]
+        strategy_paper_rc = strategy_boot_results[entry.slug]["paper_rc"]
         status = _status_for(
             governance_present,
             policy_present,
@@ -223,10 +246,6 @@ def generate_strategy_certification_artifacts(repo_root: Path | None = None) -> 
             strategy_paper_rc,
         )
 
-        optional_logs = []
-        if entry.slug == "ross_momentum":
-            optional_logs = [str(sim_log.relative_to(repo_root)), str(paper_log.relative_to(repo_root))]
-
         matrix.append(
             {
                 "strategy_id": entry.strategy_id,
@@ -234,17 +253,23 @@ def generate_strategy_certification_artifacts(repo_root: Path | None = None) -> 
                 "status": status,
                 "compileall_log_path": str(compileall_log.relative_to(repo_root)),
                 "pytest_log_path": str(pytest_log.relative_to(repo_root)),
-                "optional_run_logs": optional_logs,
+                "sim_log_path": strategy_boot_results[entry.slug]["sim_log_path"],
+                "paper_log_path": strategy_boot_results[entry.slug]["paper_log_path"],
+                "sim_rc": strategy_sim_rc,
+                "paper_rc": strategy_paper_rc,
                 "last_verified_utc": _utc_now_iso(),
             }
         )
+
+    sim_failures = sum(1 for item in strategy_boot_results.values() if item["sim_rc"] != 0)
+    paper_failures = sum(1 for item in strategy_boot_results.values() if item["paper_rc"] != 0)
 
     summary = {
         "generated_at_utc": _utc_now_iso(),
         "compileall_rc": compileall_rc,
         "pytest_rc": pytest_rc,
-        "sim_rc": sim_rc,
-        "paper_rc": paper_rc,
+        "sim_failures": sim_failures,
+        "paper_failures": paper_failures,
         "strategy_count": len(entries),
         "status_counts": {
             status: sum(1 for item in matrix if item["status"] == status)
@@ -270,6 +295,5 @@ def generate_strategy_certification_artifacts(repo_root: Path | None = None) -> 
         "summary_path": str((EVIDENCE_DIR_REL / "strategy_certification_summary.json")),
         "compileall_log_path": str((EVIDENCE_DIR_REL / "compileall_src.log")),
         "pytest_log_path": str((EVIDENCE_DIR_REL / "pytest_q.log")),
-        "sim_log_path": str((EVIDENCE_DIR_REL / "ross_momentum_sim.log")),
-        "paper_log_path": str((EVIDENCE_DIR_REL / "ross_momentum_paper.log")),
+        "boot_logs_dir": str((EVIDENCE_DIR_REL / "boot")),
     }

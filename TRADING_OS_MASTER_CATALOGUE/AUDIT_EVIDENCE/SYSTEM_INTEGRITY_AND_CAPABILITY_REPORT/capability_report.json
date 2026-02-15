@@ -38,7 +38,7 @@
     "epochs_certified_in_verdicts_but_not_in_state": []
   },
   "epoch": "SYSTEM_INTEGRITY_AND_CAPABILITY_REPORT",
-  "generated_at_utc": "2026-02-14T18:53:50.405154+00:00",
+  "generated_at_utc": "2026-02-14T23:05:07.377751+00:00",
   "p_layer_summary": {
     "inventory_path": "AUDIT_EVIDENCE/M5/strategy_capability_inventory.json",
     "matrix_path": "AUDIT_EVIDENCE/M5/strategy_certification_matrix.json",
@@ -49,8 +49,8 @@
       "not_cli_runnable": 20
     },
     "status_counts": {
-      "CERTIFIED_PAPER": 1,
-      "PARTIAL": 19
+      "CERTIFIED_PAPER": 19,
+      "PARTIAL": 1
     },
     "strategy_count": 20
   },

@@ -117,7 +117,7 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode LIVE --cycles 1 --
 [LEARNING][SCHEDULER] Learning disabled; skipping startup report.
 [LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
 [CYCLE] Starting orchestrator cycle.
-[TRACE] stage=MARKET_SESSION cycle_id=b4d4f7bf-1e13-45e5-b235-0a70fe153036 run_mode=LIVE strategy=ross_momentum 
+[TRACE] stage=MARKET_SESSION cycle_id=5e03d3b0-c6ba-4424-8254-e1b120e1dee9 run_mode=LIVE strategy=ross_momentum 
 [SESSION] Detected market session: CLOSED
 [SESSION] System WOULD treat market as closed (teaching-only).
 [GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
