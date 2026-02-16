@@ -1,13 +1,29 @@
 from src.strategy_policy_v2.policy_v2 import (
+    ConfirmationSpecV2,
+    DataRequirementsV2,
     ExecutionModelV2,
+    ExitModelV2,
+    ExitRuleV2,
     IntentContractV2,
     ModeSemanticsV2,
+    PatternCatalogV2,
+    PatternSpecV2,
+    PositionManagementV2,
     RiskModelV2,
+    SafetyModelV2,
+    SafetyRuleV2,
     SessionSemanticsV2,
+    SetupFamiliesV2,
+    SetupFamilySpecV2,
     StrategyIdentityV2,
     StrategyPolicyV2,
+    StructureModelV2,
+    TrailingModelV2,
+    TrailingRuleV2,
+    TriggerEntrySpecV2,
+    TriggerModelV2,
 )
-from src.strategy_policy_v2.selection_plans import EventPlan, PortfolioPlan, ScannerPlan
+from src.strategy_policy_v2.selection_plans import ScannerPlan
 
 
 POLICY_V2 = StrategyPolicyV2(
@@ -19,13 +35,186 @@ POLICY_V2 = StrategyPolicyV2(
         watchlist_limit_k=15,
         focus_limit_m=5,
         policy_name="ROSS_MOMENTUM",
-        gating_profile="ROSS_MOMENTUM",
-        session_allowlist=("PRE", "RTH"),
+        gating_profile="ROSS_MOMENTUM_5_PILLARS_AND_TRADABILITY",
+        session_allowlist=("PRE", "RTH", "AH"),
     ),
-    mode_semantics=ModeSemanticsV2(),
-    session_semantics=SessionSemanticsV2(),
-    risk_model=RiskModelV2(),
-    execution_model=ExecutionModelV2(),
-    intent_contract=IntentContractV2(),
-    notes="Scanner-driven selection plan (spec-only).",
+    mode_semantics=ModeSemanticsV2(
+        sim_notes="SIM allowed; strategy emits paper-safe decision/trade intents only.",
+        paper_notes="PAPER allowed with same policy constraints as SIM.",
+        read_only_notes="READ_ONLY permits selection/ranking artifacts but blocks executable order intents.",
+        live_notes="LIVE semantics are documented in policy only; runtime wiring is intentionally deferred.",
+    ),
+    session_semantics=SessionSemanticsV2(
+        sessions=("PRE", "RTH", "AH", "OVN"),
+        market_closed_semantics="CLOSED phase maps to non-trading behavior; no new entries are permitted.",
+    ),
+    risk_model=RiskModelV2(
+        max_position_pct=0.1,
+        daily_loss_limit=0.02,
+        max_open_positions=10,
+        notes=(
+            "Ross-specific risk constraints include max_consecutive_losses=3, optional max_trades_per_symbol=None, "
+            "optional max_reentries_per_symbol=None, and risk-overlay filters (LONG-only, gap/float/rvol/confidence, "
+            "cooldown, max attempts). Gap/halt/slippage are controlled via gates, structure stops, and explicit pause/halt rules."
+        ),
+    ),
+    execution_model=ExecutionModelV2(
+        preferred_order_types=("LIMIT",),
+        allow_market_orders=False,
+        allow_extended_hours=True,
+        notes=(
+            "Spec-only constraints: scanner/session gates run first; entries are breakout/reclaim triggers with structure stops. "
+            "Routing constraints are intentionally declarative and not wired in this migration."
+        ),
+    ),
+    intent_contract=IntentContractV2(
+        emitted_intents=("DECISION_INTENT", "TRADE_INTENT", "RISK_DECISION"),
+        emitted_artifacts=(
+            "strategy_decision",
+            "watchlist_selection",
+            "focus_selection",
+            "pattern_evaluation_summary",
+            "risk_overlay_decision",
+        ),
+        notes="Ranking intent name for scanner selection is ROSS_MOMENTUM_STOCK_SELECTION.",
+    ),
+    setup_families=SetupFamiliesV2(
+        families=(
+            SetupFamilySpecV2("GAP_GO", "Gap & Go", "High RVOL catalyst runner breaks premarket/open levels.", ("DAILY", "5MIN", "1MIN", "10SEC")),
+            SetupFamilySpecV2("ORB", "Opening Range Breakout", "Break and hold above opening range high.", ("5MIN", "1MIN", "10SEC")),
+            SetupFamilySpecV2("FIRST_PULLBACK", "First Pullback / First Flag", "First controlled pullback after impulse for continuation.", ("5MIN", "1MIN", "10SEC")),
+            SetupFamilySpecV2("MICRO_PULLBACK", "Micro Pullback", "2-3 candle weak pullback followed by reclaim trigger.", ("1MIN", "10SEC")),
+            SetupFamilySpecV2("BULL_FLAG", "Bull Flag / Tight Flag", "Impulse plus tight consolidation breakout.", ("5MIN", "1MIN")),
+            SetupFamilySpecV2("KEY_LEVEL_BREAK", "Break of Key Level", "Premarket high, HOD, whole/half dollar, prior day, or multi-day level break.", ("DAILY", "5MIN", "1MIN")),
+            SetupFamilySpecV2("ABCD", "ABCD Continuation", "Measured move continuation after pullback.", ("5MIN", "1MIN")),
+            SetupFamilySpecV2("CUP_HANDLE", "Cup & Handle", "Rounded base and handle breakout.", ("5MIN", "1MIN")),
+            SetupFamilySpecV2("MOMENTUM_RECLAIM", "Momentum Reclaim", "Reclaim VWAP/EMA after shakeout then continue.", ("1MIN", "10SEC")),
+            SetupFamilySpecV2("PREMARKET_HIGH_BREAK", "Premarket High Break", "Reclaim and hold above premarket high.", ("PRE", "RTH", "1MIN", "10SEC")),
+            SetupFamilySpecV2("HALT_RESUME", "Halt Resume Continuation", "Post-halt continuation only when liquidity and structure stabilize.", ("1MIN", "10SEC")),
+            SetupFamilySpecV2("PARABOLIC_EXHAUSTION", "Parabolic Exhaustion", "Exit/avoid family used to de-risk rather than initiate entries.", ("1MIN", "5MIN")),
+        )
+    ),
+    pattern_catalog=PatternCatalogV2(
+        patterns=(
+            PatternSpecV2("P_PREMKT_BREAK", "Premarket High Break", "EXECUTION", "Entry setup pattern implemented in registry."),
+            PatternSpecV2("P_ORB", "Opening Range Breakout", "EXECUTION", "Entry setup pattern implemented in registry."),
+            PatternSpecV2("P_MICRO_PULLBACK", "Micro Pullback", "EXECUTION", "Entry and re-entry continuation pattern."),
+            PatternSpecV2("P_BULL_FLAG", "Bull Flag", "EXECUTION", "Continuation pattern after impulse."),
+            PatternSpecV2("P_CONSOLIDATION_BREAK", "Consolidation Breakout", "EXECUTION", "Tight range break expansion."),
+            PatternSpecV2("P_FAILED_BREAKOUT", "Failed Breakout", "RISK", "Failure warning pattern and short-side caution context."),
+            PatternSpecV2("C_LONG_UPPER_WICK", "Long Upper Wick / Topping Tail", "SINGLE_CANDLE", "Pause/Halt warning evidence for topping risk."),
+            PatternSpecV2("C_MARUBOZU", "Marubozu", "SINGLE_CANDLE", "Breakout strength evidence tag."),
+            PatternSpecV2("C_ENGULFING", "Engulfing", "MULTI_CANDLE", "Momentum confirmation evidence tag."),
+            PatternSpecV2("C_THREE_SOLDIERS_CROWS", "Three Soldiers / Crows", "MULTI_CANDLE", "Momentum or reversal evidence tag."),
+        )
+    ),
+    trigger_model=TriggerModelV2(
+        entries=(
+            TriggerEntrySpecV2("T_MICRO_RECLAIM", "BREAKOUT_RECLAIM", "Enter on first green candle breaking last red high after 2-3 red pullback bars.", ("OPENING_DRIVE", "MIDDAY", "LATE_DAY")),
+            TriggerEntrySpecV2("T_PULLBACK_HIGH_BREAK", "PULLBACK_CONTINUATION", "Enter on pullback high reclaim or break of prior candle high.", ("RTH", "PRE")),
+            TriggerEntrySpecV2("T_ORB_BREAK", "OPENING_RANGE_BREAK", "Enter on break above opening range high with hold.", ("RTH_OPEN",)),
+            TriggerEntrySpecV2("T_KEY_LEVEL_BREAK", "LEVEL_BREAK", "Enter on break of PMH/HOD/flag high/whole-half dollar with momentum.", ("PRE", "RTH", "AH")),
+            TriggerEntrySpecV2("T_RECLAIM", "VWAP_EMA_RECLAIM", "Enter on reclaim of VWAP/EMA9/EMA20 with continuation structure.", ("RTH", "AH")),
+        ),
+        confirmations=(
+            ConfirmationSpecV2("C_VOLUME_EXPANSION", "Breakout volume should exceed pullback/consolidation volume."),
+            ConfirmationSpecV2("C_MACD_POSITIVE", "MACD should be positive for entries when available."),
+            ConfirmationSpecV2("C_HOLD_ABOVE_STRUCTURE", "Price must hold above VWAP/EMA9/EMA20 for long bias in pullbacks."),
+            ConfirmationSpecV2("C_RVOL_IN_PLAY", "Relative volume and in-play gates must pass for candidate eligibility."),
+            ConfirmationSpecV2("C_NO_TOPPING", "No topping-tail hard reversal signal on monitored structure timeframe."),
+        ),
+    ),
+    structure_model=StructureModelV2(
+        levels=(
+            "HOD",
+            "LOD",
+            "PREMARKET_HIGH",
+            "PREMARKET_LOW",
+            "OPENING_RANGE_HIGH",
+            "OPENING_RANGE_LOW",
+            "VWAP",
+            "EMA9",
+            "EMA20",
+            "PRIOR_DAY_HIGH",
+            "PRIOR_DAY_LOW",
+            "PRIOR_CLOSE",
+            "MULTI_DAY_HIGH",
+            "WHOLE_HALF_DOLLAR_LEVELS",
+            "FLAG_HIGH_LOW",
+            "PULLBACK_HIGH_LOW",
+        ),
+        zones=("BREAKOUT_LEVEL", "RECLAIM_ZONE", "CONSOLIDATION_RANGE", "IMPULSE_TO_PULLBACK_RETRACE_ZONE"),
+        notes="Daily provides context; 5m validates setup; 1m/10s handle entry and risk monitoring.",
+    ),
+    position_management=PositionManagementV2(
+        allow_scale_in=True,
+        max_adds_per_position=0,
+        allow_partials=True,
+        averaging_down_allowed=False,
+        notes=(
+            "Adds are permitted only on fresh continuation structure (e.g., pullback re-entry). "
+            "No hard max adds is encoded in v1; value 0 denotes uncapped-by-policy and controlled by risk engine/session conditions."
+        ),
+    ),
+    trailing_model=TrailingModelV2(
+        rules=(
+            TrailingRuleV2("TRAIL_TO_PULLBACK_LOW", "After entry confirmation and first extension", "Trail under most recent pullback low/flag low."),
+            TrailingRuleV2("TRAIL_TO_VWAP_EMA", "When continuation weakens or topping risk rises", "Tighten stop to VWAP/EMA9 structure."),
+            TrailingRuleV2("TRAIL_ON_TOPPING_WARNING", "Upper-wick topping warning appears", "Pause adds and tighten stop aggressively."),
+            TrailingRuleV2("TRAIL_POST_PARTIALS", "After partial profit taken", "Move stop toward break-even or structural higher-low as permitted."),
+        )
+    ),
+    exit_model=ExitModelV2(
+        rules=(
+            ExitRuleV2("X_STRUCTURE_STOP", "Loss of pullback/flag/level structure", "Exit remaining position."),
+            ExitRuleV2("X_VWAP_EMA_LOSS", "Loss of VWAP/EMA9 support shortly after setup", "Exit or de-risk immediately."),
+            ExitRuleV2("X_FAILED_BREAKOUT", "Breakout fails and reclaims below trigger level", "Exit long and mark setup as failed."),
+            ExitRuleV2("X_TOPPING_HALT", "Confirmed topping/reversal candle", "Halt new entries and flatten risk according to manager."),
+            ExitRuleV2("X_TIME_SESSION", "Session closes or strategy enters CLOSED semantics", "No new entries; flatten open intraday risk per runtime risk controller."),
+        )
+    ),
+    safety_model=SafetyModelV2(
+        rules=(
+            SafetyRuleV2("S_DATA_QUALITY", "Missing required market data fields", "Pause new entries until data requirements are restored."),
+            SafetyRuleV2("S_SPREAD_LIQUIDITY", "Spread too wide or liquidity gate fails", "Reject candidate or pause symbol."),
+            SafetyRuleV2("S_HALT_POLICY", "Volatility halt detected", "Disallow halt-chasing entries until resume structure confirms."),
+            SafetyRuleV2("S_SSR_POLICY", "SSR active", "Allowed by selection policy but must be considered in execution feasibility checks."),
+            SafetyRuleV2("S_CONSECUTIVE_LOSSES", "Max consecutive losses reached", "Stop trading (halt) for strategy cooling-off window."),
+            SafetyRuleV2("S_CONNECTION_ISSUE", "Scanner/order connectivity degraded", "Emit non-trading diagnostics and block new executable intents."),
+        )
+    ),
+    data_requirements=DataRequirementsV2(
+        required_fields=(
+            "symbol",
+            "session_label",
+            "last_price",
+            "pct_change",
+            "volume",
+            "rvol",
+            "dollar_volume",
+            "gate_checks",
+            "candles_10s_1m_5m",
+            "vwap",
+            "ema9",
+            "ema20",
+            "premarket_high",
+            "hod",
+        ),
+        optional_fields=(
+            "bid",
+            "ask",
+            "spread_pct",
+            "float_millions",
+            "halted",
+            "ssr",
+            "macd",
+            "l2_iceberg_signals",
+            "news_catalyst",
+        ),
+        notes="If required fields are absent, policy mandates pause/reject semantics rather than speculative execution.",
+    ),
+    notes=(
+        "Spec-only full-law policy for P01 Ross Momentum. Gating is expected at scanner eligibility, "
+        "pattern evaluation, and risk overlay stages; no runtime wiring changes are introduced here."
+    ),
 )
