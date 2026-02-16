@@ -8,8 +8,6 @@ import time
 from typing import Optional
 import threading
 
-from ib_insync import IB, Stock
-
 from src.config.config_resolver import get_config
 from src.config.runtime_config import (
     get_ibkr_client_id,
@@ -20,6 +18,16 @@ from src.config.runtime_config import (
     get_ibkr_port,
     get_ibkr_snapshot_timeout_seconds,
 )
+
+def _import_ib_insync():
+    from src.runtime.asyncio_runtime import ensure_event_loop
+
+    ensure_event_loop()
+    from ib_insync import IB, Stock
+
+    return IB, Stock
+
+
 
 
 def _market_data_type_code(market_data_type: str) -> int:
@@ -109,6 +117,7 @@ class MarketDataClient:
         )
         self.default_exchange = default_exchange or get_ibkr_default_exchange()
         self.default_currency = default_currency or get_ibkr_default_currency()
+        IB, _ = _import_ib_insync()
         self.ib = IB()
 
     def connect(self) -> None:
@@ -173,6 +182,7 @@ class MarketDataClient:
             raise
 
     def qualify_contract(self, symbol: str):
+        _, Stock = _import_ib_insync()
         contract = Stock(symbol, self.default_exchange, self.default_currency)
         try:
             import asyncio

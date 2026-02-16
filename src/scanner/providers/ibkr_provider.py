@@ -6,13 +6,21 @@ import re
 
 import requests
 
-from ib_insync import ScannerSubscription
 
 from src.config.runtime_config import get_ibkr_max_symbols_per_cycle, get_scanner_symbols
 from src.ibkr.market_data_client import MarketDataClient
 from src.scanner.scanner_contract import ScannerRequest
 
 from .base import IntradayStats, ProviderConnectionError, QuoteData, ScannerDataProvider
+
+
+def _import_scanner_subscription():
+    from src.runtime.asyncio_runtime import ensure_event_loop
+
+    ensure_event_loop()
+    from ib_insync import ScannerSubscription
+
+    return ScannerSubscription
 
 
 class IbkrScannerProvider(ScannerDataProvider):
@@ -54,6 +62,7 @@ class IbkrScannerProvider(ScannerDataProvider):
             if request and request.below_price is not None
             else 20
         )
+        ScannerSubscription = _import_scanner_subscription()
         subscription = ScannerSubscription(
             instrument=instrument,
             locationCode=location_code,

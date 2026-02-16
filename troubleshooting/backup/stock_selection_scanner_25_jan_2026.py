@@ -1,6 +1,14 @@
 # stock_selection_scanner_25_jan_2026.py
 
-from ib_insync import IB, ScannerSubscription, Stock
+def _import_ibkr_types():
+    from src.runtime.asyncio_runtime import ensure_event_loop
+
+    ensure_event_loop()
+    from ib_insync import IB, ScannerSubscription, Stock
+
+    return IB, ScannerSubscription, Stock
+
+IB, ScannerSubscription, Stock = _import_ibkr_types()
 from datetime import datetime, timezone
 from pathlib import Path
 import math

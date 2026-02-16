@@ -9,7 +9,15 @@ Standalone IBKR Top Gainers Scanner
 - Uses real IBKR scanner data
 """
 
-from ib_insync import IB, ScannerSubscription
+def _import_ibkr_types():
+    from src.runtime.asyncio_runtime import ensure_event_loop
+
+    ensure_event_loop()
+    from ib_insync import IB, ScannerSubscription
+
+    return IB, ScannerSubscription
+
+IB, ScannerSubscription = _import_ibkr_types()
 import sys
 import time
 

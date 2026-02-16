@@ -9,7 +9,16 @@ Enhancements:
 - Keeps raw float value, formats display with K / M / B.
 """
 
-from ib_insync import *
+def _import_ib_insync_all():
+    from src.runtime.asyncio_runtime import ensure_event_loop
+
+    ensure_event_loop()
+    import ib_insync as ibi
+
+    return ibi
+
+ibi = _import_ib_insync_all()
+globals().update(vars(ibi))
 from us_top_gainers_list import get_top_gainers_symbols
 import yfinance as yf
 import requests

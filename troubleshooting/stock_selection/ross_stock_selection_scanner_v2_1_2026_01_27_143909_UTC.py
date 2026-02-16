@@ -19,7 +19,15 @@ import requests
 import xml.etree.ElementTree as ET
 import yfinance as yf
 from bs4 import BeautifulSoup
-from ib_insync import IB, ScannerSubscription, Stock, Ticker
+def _import_ibkr_types():
+    from src.runtime.asyncio_runtime import ensure_event_loop
+
+    ensure_event_loop()
+    from ib_insync import IB, ScannerSubscription, Stock, Ticker
+
+    return IB, ScannerSubscription, Stock, Ticker
+
+IB, ScannerSubscription, Stock, Ticker = _import_ibkr_types()
 
 
 ET_TZ = ZoneInfo("America/New_York")

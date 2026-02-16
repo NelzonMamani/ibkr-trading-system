@@ -42,7 +42,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ib_insync import IB, ScannerSubscription, Stock, util
+def _import_ibkr_types():
+    from ib_insync import IB, ScannerSubscription, Stock, util
+
+    return IB, ScannerSubscription, Stock, util
+
 
 from src.news.news_heat import compute_fire_indicator
 
@@ -342,6 +346,7 @@ def save_json_file(path: str | Path, obj: Any) -> None:
 # ============================
 
 def ib_connect() -> IB:
+    IB, _, _, _ = _import_ibkr_types()
     ib = IB()
     ib.RaiseRequestErrors = False  # prefer empty results over hard failures on pacing/cancellations
     client_id = int(get_config("IBKR_CLIENT_ID") or 0)
@@ -353,6 +358,7 @@ def ib_connect() -> IB:
 
 
 def fetch_top_gainers(ib: IB, n: int = TOP_GAINERS_COUNT) -> List[Stock]:
+    _, ScannerSubscription, Stock, _ = _import_ibkr_types()
     sub = ScannerSubscription(
         instrument='STK',
         locationCode='STK.US.MAJOR',
@@ -1202,6 +1208,7 @@ def run_once() -> None:
 
 def main() -> None:
     # Ensure ib_insync has a loop
+    _, _, _, util = _import_ibkr_types()
     util.patchAsyncio()
     run_once()
 
