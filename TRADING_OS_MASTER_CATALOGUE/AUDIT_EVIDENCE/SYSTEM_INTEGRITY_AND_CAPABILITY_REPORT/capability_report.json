@@ -19,29 +19,47 @@
     "M4_TRACEABILITY_SEMANTICS": "2026-02-12",
     "M5_VERIFICATION_AUTHORITY": "2026-02-10",
     "M6_DATA_LIFECYCLE_GOV": "2026-02-11",
-    "M7_EPOCH_AUDIT_CERTIFICATION": "2026-02-14",
-    "M9_SIGNAL_SEMANTICS_REGISTRY": "2026-02-14"
+    "M7_EPOCH_AUDIT_CERTIFICATION": "2026-02-15"
   },
   "derived_crosswalk": "TRADING_OS_MASTER_CATALOGUE/CAPABILITY_CROSSWALK_DERIVED.md",
   "drift": {
     "epochs_certified_in_state_but_not_in_verdicts": [
-      "M10_DATA_PROVENANCE_LEDGER",
-      "M8_CHANGE_CONTROL"
+      "E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION",
+      "M8_CHANGE_CONTROL",
+      "M9_SIGNAL_SEMANTICS_REGISTRY"
     ],
     "epochs_certified_in_verdicts_but_not_in_state": []
   },
   "drift_before_reconciliation": {
     "epochs_certified_in_state_but_not_in_verdicts": [
-      "M10_DATA_PROVENANCE_LEDGER",
-      "M8_CHANGE_CONTROL"
+      "E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION",
+      "M8_CHANGE_CONTROL",
+      "M9_SIGNAL_SEMANTICS_REGISTRY"
     ],
     "epochs_certified_in_verdicts_but_not_in_state": []
   },
+  "e21_status": {
+    "certified": true,
+    "checks": {
+      "compileall_ok": true,
+      "live_gating_blocked": true,
+      "no_unhandled_exception": true,
+      "paper_runs_ok": true,
+      "pytest_ok": true,
+      "risk_violation_blocked": true,
+      "sim_runs_ok": true
+    },
+    "generated_at_utc": "2026-02-15T07:33:20Z",
+    "path": "TRADING_OS_MASTER_CATALOGUE\\AUDIT_EVIDENCE\\E21_TRADING_READY_VERIFICATION\\e21_summary.json",
+    "present": true,
+    "status": "CERTIFIED",
+    "valid": true
+  },
   "epoch": "SYSTEM_INTEGRITY_AND_CAPABILITY_REPORT",
-  "generated_at_utc": "2026-02-14T23:05:07.377751+00:00",
+  "generated_at_utc": "2026-02-15T23:57:45.701667+00:00",
   "p_layer_summary": {
-    "inventory_path": "AUDIT_EVIDENCE/M5/strategy_capability_inventory.json",
-    "matrix_path": "AUDIT_EVIDENCE/M5/strategy_certification_matrix.json",
+    "inventory_path": "AUDIT_EVIDENCE\\M5\\strategy_capability_inventory.json",
+    "matrix_path": "AUDIT_EVIDENCE\\M5\\strategy_certification_matrix.json",
     "missing_capabilities": {
       "missing_governance": 0,
       "missing_policy": 1,
@@ -49,12 +67,13 @@
       "not_cli_runnable": 20
     },
     "status_counts": {
-      "CERTIFIED_PAPER": 19,
-      "PARTIAL": 1
+      "PARTIAL": 20
     },
     "strategy_count": 20
   },
-  "recommended_state_updates": {},
+  "recommended_state_updates": {
+    "E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION": "CERTIFIED"
+  },
   "system_state_epochs": {
     "E0_SYSTEM_LAW_TRUTH": "CERTIFIED",
     "E10_CAPITAL_ALLOCATION": "NOT_STARTED",
@@ -69,7 +88,7 @@
     "E19_STRATEGY_INTERFACE_AND_CERTIFICATION": "NOT_STARTED",
     "E1_TRACEABILITY_OBSERVABILITY": "CERTIFIED",
     "E20_STRATEGY_FOUNDATION_COMPLETION": "NOT_STARTED",
-    "E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION": "NOT_STARTED",
+    "E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION": "CERTIFIED",
     "E22_STRATEGY_SCALABILITY_AND_ARBITRATION_LAYER": "CERTIFIED",
     "E2_POSITION_LIFECYCLE_ENGINE": "CERTIFIED",
     "E3_RISK_ENGINE_COMPLETENESS": "CERTIFIED",
@@ -80,7 +99,7 @@
     "E8_REGIME_AND_MICROSTRUCTURE_LAYER": "IMPLEMENTED_UNCERTIFIED",
     "E9_PERFORMANCE_ANALYTICS": "NOT_STARTED",
     "M0_CANON": "CERTIFIED",
-    "M10_DATA_PROVENANCE_LEDGER": "CERTIFIED",
+    "M10_DATA_PROVENANCE_LEDGER": "NOT_STARTED",
     "M1_ARCHITECTURE_MAP": "CERTIFIED",
     "M2_CONTRACT_REGISTRY": "CERTIFIED",
     "M3_MODE_SEMANTICS_CERT": "CERTIFIED",

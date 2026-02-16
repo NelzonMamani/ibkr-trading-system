@@ -1,14 +1,14 @@
-$ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode LIVE --cycles 1 --strategy ross_momentum
+$ C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Scripts\python.exe -m src.main --mode LIVE --cycles 1 --strategy ross_momentum
 
 [CONFIG] Loaded 150 variables
 [CONFIG] HARD enforced: 30
 [CONFIG] Optional: 119
 [CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
-[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=ENV)
 [CONFIG] No ambiguous defaults detected
 [IBKR][TRANSLATOR] ibapi dependency missing; translation unavailable.
 [BOOT] Starting the IBKR Trading System skeleton.
-[PHASE] PHASE 4 — Minimal Live-Capable System (Teaching-First).
+[PHASE] PHASE 4 � Minimal Live-Capable System (Teaching-First).
 [INTENT] Demonstrate a clean, observable entry point without trading logic.
 [CONFIG] Baseline teaching defaults (pre-resolution):
   - RUN_MODE: LIVE (baseline)
@@ -37,7 +37,7 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode LIVE --cycles 1 --
   - IBKR_CLIENT_ID: 7
   - IBKR_MARKET_DATA_TYPE: DELAYED
 [STARTUP] Storage
-  - SQLITE_PATH: /workspace/ibkr-trading-system/data/ibkr_system.db
+  - SQLITE_PATH: C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\data\ibkr_system.db
   - SCHEMA_VERSION: 5
   - DB_EXISTS: Y
   - IBKR_READONLY_ENABLED: False
@@ -66,7 +66,7 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode LIVE --cycles 1 --
 [INFO] Core Orchestrator initialised.
 [BOOT] Runtime mode resolved: mode=LIVE live_like=True allow_orders=True max_shares_per_order=None event_replay=OFF
 [BOOT] EventCollector initialised
-[BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
+[BOOT] PatternEngine instantiated � Ross Momentum pattern suite enabled
 [BOOT] SignalEngineV1 instantiated
 [BOOT] Strategy 'GapAndGoStrategy' skipped due to selection (selected=ross_momentum).
 [BOOT] Strategy 'MomentumContinuationStrategy' skipped due to selection (selected=ross_momentum).
@@ -91,16 +91,16 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode LIVE --cycles 1 --
 [BOOT] Strategy 'LongHorizonQualityCompounderStrategy' skipped due to selection (selected=ross_momentum).
 [BOOT] Strategy 'RegimeAdaptiveMetaAllocatorStrategy' skipped due to selection (selected=ross_momentum).
 [BOOT] StrategyRunner instantiated with strategies: RossMomentumStrategyV1
-[BOOT] RiskEngine instantiated — phase 4 teaching rules active
+[BOOT] RiskEngine instantiated � phase 4 teaching rules active
 [EXECUTION][WARN] IBKR live broker unavailable; forcing execution disabled for safety.
-[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow
+[BOOT] ExecutionEngine instantiated � broker-routed deterministic flow
 [SAFETY] EXECUTION: HARD DISABLED
 [EXECUTION] Gateway: DISABLED
 [EXECUTION] Liquidity checks: DISABLED
 [EXECUTION] Broker submission: DISABLED
-[STORAGE] SQLite path resolved to /workspace/ibkr-trading-system/data/ibkr_system.db
+[STORAGE] SQLite path resolved to C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\data\ibkr_system.db
 [BOOT] StorageEngine initialised
-[BOOT] Event replay mode resolved — mode=OFF
+[BOOT] Event replay mode resolved � mode=OFF
 [VALIDATION] Running startup validations
 [VALIDATION] Config resolved
 [VALIDATION] Effective run mode: LIVE
@@ -113,21 +113,21 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode LIVE --cycles 1 --
 [VALIDATION] ORDER ROUTING: BLOCKED
 [VALIDATION] MARKET DATA: LIVE IBKR
 [VALIDATION] Broker adapter in use: NONE
-[VALIDATION] Storage OK — SQLite opened
+[VALIDATION] Storage OK � SQLite opened
 [LEARNING][SCHEDULER] Learning disabled; skipping startup report.
 [LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
 [CYCLE] Starting orchestrator cycle.
-[TRACE] stage=MARKET_SESSION cycle_id=5e03d3b0-c6ba-4424-8254-e1b120e1dee9 run_mode=LIVE strategy=ross_momentum 
+[TRACE] stage=MARKET_SESSION cycle_id=4b7cd249-ae29-42bc-ab02-969818ee3203 run_mode=LIVE strategy=ross_momentum 
 [SESSION] Detected market session: CLOSED
 [SESSION] System WOULD treat market as closed (teaching-only).
 [GATE] RUN_MODE is LIVE while session is CLOSED. Skipping orchestrator.run_once() to maintain teaching-first safety.
 [GATE] Teaching note: PAPER would still run for education, but LIVE waits for an open session.
 [SHUTDOWN] Beginning GRACEFUL shutdown sequence.
 [LEARNING][SCHEDULER] Learning disabled; skipping shutdown report.
-[EXECUTION] Shutdown requested — placeholder cleanup complete.
+[EXECUTION] Shutdown requested � placeholder cleanup complete.
 [TRADE_EXIT] No active trades to close during shutdown.
-[TRADE_EXIT] Shutdown completed — all trades force-closed.
+[TRADE_EXIT] Shutdown completed � all trades force-closed.
 [STORAGE] Shutdown complete.
 [EVENT_COLLECTOR] Flushing event summary for shutdown {'total': 4, 'by_type': {'CONFIG_RESOLVED': 1, 'MARKET_SESSION_STATE': 1, 'SHUTDOWN_REQUESTED': 1, 'SHUTDOWN_STARTED': 1}, 'by_source': {'ConfigResolver': 1, 'SystemConfig': 1, 'CoreOrchestrator': 2}}
-[REGISTRY] Verification passed — no active trades remain.
+[REGISTRY] Verification passed � no active trades remain.
 [SHUTDOWN] Exiting gracefully. Goodbye!

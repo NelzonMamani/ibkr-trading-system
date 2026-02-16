@@ -1,15 +1,15 @@
-$ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode READ_ONLY --cycles 1 --strategy statistical_intraday_momentum
+$ C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Scripts\python.exe -m src.main --mode READ_ONLY --cycles 1 --strategy statistical_intraday_momentum
 
 [CONFIG] Loaded 150 variables
 [CONFIG] HARD enforced: 30
 [CONFIG] Optional: 119
 [CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
-[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=ENV)
 [CONFIG] No ambiguous defaults detected
 [IBKR][TRANSLATOR] ibapi dependency missing; translation unavailable.
 [BOOT] Starting the IBKR Trading System skeleton.
 [CONFIG] Selected strategy=statistical_intraday_momentum; forcing STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True
-[PHASE] PHASE 23 — Live Read-Only Runtime (Authoritative).
+[PHASE] PHASE 23 � Live Read-Only Runtime (Authoritative).
 [INTENT] Enforce live read-only runtime authority and IBKR data access.
 [CONFIG] Baseline teaching defaults (pre-resolution):
   - RUN_MODE: LIVE (baseline)
@@ -38,7 +38,7 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode READ_ONLY --cycles
   - IBKR_CLIENT_ID: 7
   - IBKR_MARKET_DATA_TYPE: DELAYED
 [STARTUP] Storage
-  - SQLITE_PATH: /workspace/ibkr-trading-system/data/ibkr_system.db
+  - SQLITE_PATH: C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\data\ibkr_system.db
   - SCHEMA_VERSION: 5
   - DB_EXISTS: Y
   - IBKR_READONLY_ENABLED: True
@@ -62,9 +62,9 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode READ_ONLY --cycles
 [SAFETY] EXECUTION: HARD DISABLED
 [SAFETY] ORDER ROUTING: BLOCKED
 [SAFETY] MARKET DATA: LIVE IBKR
-[CONFIG] IBKR_READONLY_ENABLED=True — broker order routing to IBKR is disabled. SIM execution is internal-only.
+[CONFIG] IBKR_READONLY_ENABLED=True � broker order routing to IBKR is disabled. SIM execution is internal-only.
 [SAFETY] LIVE READ-ONLY MODE ACTIVE
-[SAFETY] LIVE DATA — READ ONLY MODE
+[SAFETY] LIVE DATA � READ ONLY MODE
 [CONFIG][VALIDATION] Running execution guard self-test
 [CONFIG][VALIDATION] Execution guard enforced
 [INFO] Core Orchestrator initialised.
@@ -73,7 +73,7 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode READ_ONLY --cycles
 [SAFETY] ORDER ROUTING: BLOCKED
 [BOOT] EventCollector initialised
 [MARKET_DATA][WARN] IbkrBroker unavailable; falling back to deterministic price feed in READ_ONLY.
-[BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
+[BOOT] PatternEngine instantiated � Ross Momentum pattern suite enabled
 [BOOT] SignalEngineV1 instantiated
 [BOOT] Strategy 'GapAndGoStrategy' skipped due to selection (selected=statistical_intraday_momentum).
 [BOOT] Strategy 'MomentumContinuationStrategy' skipped due to selection (selected=statistical_intraday_momentum).
@@ -98,15 +98,15 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode READ_ONLY --cycles
 [BOOT] Strategy 'LongHorizonQualityCompounderStrategy' skipped due to selection (selected=statistical_intraday_momentum).
 [BOOT] Strategy 'RegimeAdaptiveMetaAllocatorStrategy' skipped due to selection (selected=statistical_intraday_momentum).
 [BOOT] StrategyRunner instantiated with strategies: StatisticalIntradayMomentum
-[BOOT] RiskEngine instantiated — phase 4 teaching rules active
-[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow
+[BOOT] RiskEngine instantiated � phase 4 teaching rules active
+[BOOT] ExecutionEngine instantiated � broker-routed deterministic flow
 [SAFETY] EXECUTION: HARD DISABLED
 [EXECUTION] Gateway: DISABLED
 [EXECUTION] Liquidity checks: DISABLED
 [EXECUTION] Broker submission: DISABLED
-[STORAGE] SQLite path resolved to /workspace/ibkr-trading-system/data/ibkr_system.db
+[STORAGE] SQLite path resolved to C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\data\ibkr_system.db
 [BOOT] StorageEngine initialised
-[BOOT] Event replay mode resolved — mode=OFF
+[BOOT] Event replay mode resolved � mode=OFF
 [VALIDATION] Running startup validations
 [VALIDATION] Config resolved
 [VALIDATION] Effective run mode: READ_ONLY
@@ -122,42 +122,42 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode READ_ONLY --cycles
 [VALIDATION] READ_ONLY: live data enabled
 [VALIDATION] READ_ONLY: execution disabled by design
 [VALIDATION][WARN] READ_ONLY fallback active: MarketDataHub unavailable.
-[VALIDATION] Storage OK — SQLite opened
+[VALIDATION] Storage OK � SQLite opened
 [LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
 [CYCLE] Starting orchestrator cycle.
-[TRACE] stage=MARKET_SESSION cycle_id=79948916-99f5-4937-b1aa-03eb17740e22 run_mode=READ_ONLY strategy=statistical_intraday_momentum 
+[TRACE] stage=MARKET_SESSION cycle_id=9635be85-adc9-4a2a-90a2-2d825620e7f6 run_mode=READ_ONLY strategy=statistical_intraday_momentum 
 [SESSION] Detected market session: CLOSED
 [SESSION] System WOULD treat market as closed (teaching-only).
 [SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().
 [INFO] Starting orchestrator cycle (teaching-only).
-[SESSION] phase=CLOSED ny_time=2026-02-14T18:04:41.270511-05:00 uk_time=2026-02-14T23:04:41.270511+00:00 utc=2026-02-14T23:04:41.270511+00:00
+[SESSION] phase=CLOSED ny_time=2026-02-15T18:57:07.331276-05:00 uk_time=2026-02-15T23:57:07.331276+00:00 utc=2026-02-15T23:57:07.331276+00:00
 [RUNTIME] mode=READ_ONLY live_like=True allow_orders=False max_shares_per_order=None event_replay=OFF
-[IBKR][CONNECT] attempt=1 host=127.0.0.1 port=7497 client_id=11
-[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=11
-[IBKR][CONNECT][WARN] connection failed; backoff=1s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[IBKR][CONNECT] attempt=1 host=127.0.0.1 port=7497 client_id=9
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=9
+[IBKR][CONNECT][WARN] connection failed; backoff=1s reason=[WinError 1225] The remote computer refused the network connection
 [IBKR][CONNECT] attempt=2 host=127.0.0.1 port=7497 client_id=7
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=7
-[IBKR][CONNECT][WARN] connection failed; backoff=2s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[IBKR][CONNECT][WARN] connection failed; backoff=2s reason=[WinError 1225] The remote computer refused the network connection
 [IBKR][CONNECT] attempt=3 host=127.0.0.1 port=7497 client_id=8
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=8
-[IBKR][CONNECT][WARN] connection failed; backoff=4s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
-[IBKR][CONNECT] attempt=4 host=127.0.0.1 port=7497 client_id=9
-[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=9
-[IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
-[IBKR][CONNECT] attempt=5 host=127.0.0.1 port=7497 client_id=10
+[IBKR][CONNECT][WARN] connection failed; backoff=4s reason=[WinError 1225] The remote computer refused the network connection
+[IBKR][CONNECT] attempt=4 host=127.0.0.1 port=7497 client_id=10
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=10
-[IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[WinError 1225] The remote computer refused the network connection
+[IBKR][CONNECT] attempt=5 host=127.0.0.1 port=7497 client_id=11
+[IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=11
+[IBKR][CONNECT][WARN] connection failed; backoff=8s reason=[WinError 1225] The remote computer refused the network connection
 STATE=DEGRADED
 [CONNECTIVITY] IBKR connection failed: IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7
-[TRACE] stage=HALT cycle_id=6e510a53-1743-4557-97ec-af1cfd81ec3d run_mode=READ_ONLY strategy=statistical_intraday_momentum reason_code=CONNECTIVITY_FAILURE message=IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7
+[TRACE] stage=HALT cycle_id=9b0a4fbe-fe3e-4b02-bd1d-4ea3bacea037 run_mode=READ_ONLY strategy=statistical_intraday_momentum reason_code=CONNECTIVITY_FAILURE message=IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7
 [SCANNER] MODE=integrated SESSION=CLOSED
 [SCANNER][POLICY] source=STRATEGY policy_name=STATISTICAL_INTRADAY_MOMENTUM price=5.0-200.0 gap_min=2.0 rvol_min=1.5 float_max_millions=200.0 spread_max_pct=None watchlist_k=20 focus_m=5
 [SCANNER][ENTRY] strategy=STATISTICAL_INTRADAY_MOMENTUM requested_top_n=75 watchlist_k=20 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=5.0 below_price=200.0
 [IBKR][MD] Connecting host=127.0.0.1 port=7497 client_id=7
 STATE=DEGRADED
-[SCANNER][PROVIDER] provider=IBKR fallback_reason=[Errno 111] Connect call failed ('127.0.0.1', 7497)
+[SCANNER][PROVIDER] provider=IBKR fallback_reason=[WinError 1225] The remote computer refused the network connection
 [SCANNER][LIMITS] Symbol limits (value/source/env)
-[SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=DEFAULT env=-
+[SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=ENV env=IBKR_MAX_SYMBOLS_PER_CYCLE
 [SCANNER][LIMITS] SCANNER_TEACHING_SYMBOL_CAP=0 source=DEFAULT env=-
 [SCANNER][LIMITS] Policy caps top_gainers_n=75 watchlist_k=20 focus_m=5 max_symbols_per_cycle=75
 [SCANNER][LIMITS] Resolved symbol request limit=50 reductions=['ibkr_snapshot_cap(50)']
@@ -183,43 +183,43 @@ FOCUS_M: []
 NEW: []
 CONTINUING: []
 DROPPED: []
-[TRACE] stage=UNIVERSE cycle_id=6e510a53-1743-4557-97ec-af1cfd81ec3d run_mode=READ_ONLY strategy=statistical_intraday_momentum top_n=0 symbols=[]
+[TRACE] stage=UNIVERSE cycle_id=9b0a4fbe-fe3e-4b02-bd1d-4ea3bacea037 run_mode=READ_ONLY strategy=statistical_intraday_momentum top_n=0 symbols=[]
 [SCANNER][DIAGNOSTICS] Top 50 observations (extended columns)
 [SCANNER][DIAGNOSTICS] Watchlist (top 15, same columns preserved)
 [SCANNER][DIAGNOSTICS] Drop reasons: none
-[TRACE] stage=WATCHLIST cycle_id=6e510a53-1743-4557-97ec-af1cfd81ec3d run_mode=READ_ONLY strategy=statistical_intraday_momentum watchlist=0 symbols=[]
-[TRACE] stage=FOCUS cycle_id=6e510a53-1743-4557-97ec-af1cfd81ec3d run_mode=READ_ONLY strategy=statistical_intraday_momentum focus=0 symbols=[]
+[TRACE] stage=WATCHLIST cycle_id=9b0a4fbe-fe3e-4b02-bd1d-4ea3bacea037 run_mode=READ_ONLY strategy=statistical_intraday_momentum watchlist=0 symbols=[]
+[TRACE] stage=FOCUS cycle_id=9b0a4fbe-fe3e-4b02-bd1d-4ea3bacea037 run_mode=READ_ONLY strategy=statistical_intraday_momentum focus=0 symbols=[]
 [WATCHLIST] empty watchlist accepted
-STRATEGY_RUNNER_RECEIVED K=0 session=CLOSED timestamp_utc=2026-02-14T23:05:04.303551+00:00
+STRATEGY_RUNNER_RECEIVED K=0 session=CLOSED timestamp_utc=2026-02-15T23:57:40.544856+00:00
 [STRATEGY][FOCUS] statistical_intraday_momentum using focus_m=0
 [STRATEGY][PROCESS] strategy_key=statistical_intraday_momentum strategies=1 watchlist=0 session=CLOSED phase=CLOSED
-[SIMOM][CYCLE] start timestamp=2026-02-14T23:05:04.303551+00:00 mode=READ_ONLY session=CLOSED session_phase=CLOSED ny_time=2026-02-14T18:05:04.303551-05:00
+[SIMOM][CYCLE] start timestamp=2026-02-15T23:57:40.544856+00:00 mode=READ_ONLY session=CLOSED session_phase=CLOSED ny_time=2026-02-15T18:57:40.544856-05:00
 [SIMOM][INPUT] watchlist_k=[] focus_m=[]
 [SIMOM][SKIP] focus_m empty; no intents evaluated
-[CONNECTIVITY] STATE=DEGRADED provider_error=[Errno 111] Connect call failed ('127.0.0.1', 7497) provider_fallback=None
-[TRACE] stage=HALT cycle_id=6e510a53-1743-4557-97ec-af1cfd81ec3d run_mode=READ_ONLY strategy=statistical_intraday_momentum reason_code=SCANNER_CONNECTIVITY message=provider_error=[Errno 111] Connect call failed ('127.0.0.1', 7497) provider_fallback=None
+[CONNECTIVITY] STATE=DEGRADED provider_error=[WinError 1225] The remote computer refused the network connection provider_fallback=None
+[TRACE] stage=HALT cycle_id=9b0a4fbe-fe3e-4b02-bd1d-4ea3bacea037 run_mode=READ_ONLY strategy=statistical_intraday_momentum reason_code=SCANNER_CONNECTIVITY message=provider_error=[WinError 1225] The remote computer refused the network connection provider_fallback=None
 [EXECUTION] dry-run (orders disabled by mode)
-[TRACE] stage=ACTION cycle_id=6e510a53-1743-4557-97ec-af1cfd81ec3d run_mode=READ_ONLY strategy=statistical_intraday_momentum intents=0
+[TRACE] stage=ACTION cycle_id=9b0a4fbe-fe3e-4b02-bd1d-4ea3bacea037 run_mode=READ_ONLY strategy=statistical_intraday_momentum intents=0
 [STRATEGY] No trade intents generated.
 [SLEEP] Sleeping for 3 seconds before next cycle.
 [SHUTDOWN] Beginning GRACEFUL shutdown sequence.
-[EXECUTION] Shutdown requested — placeholder cleanup complete.
+[EXECUTION] Shutdown requested � placeholder cleanup complete.
 [TRADE_EXIT] No active trades to close during shutdown.
-[TRADE_EXIT] Shutdown completed — all trades force-closed.
+[TRADE_EXIT] Shutdown completed � all trades force-closed.
 [STORAGE] Shutdown complete.
 [EVENT_COLLECTOR] Flushing event summary for shutdown {'total': 9, 'by_type': {'CONFIG_RESOLVED': 1, 'MARKET_SESSION_STATE': 1, 'SCANNER_UNIVERSE_SNAPSHOT': 1, 'RAW_SCAN_SYMBOLS': 1, 'AFTER_GATES_SYMBOLS': 1, 'WATCHLIST_K_SELECTED': 1, 'SCANNER_WATCHLIST_K_READY': 1, 'SHUTDOWN_REQUESTED': 1, 'SHUTDOWN_STARTED': 1}, 'by_source': {'ConfigResolver': 1, 'SystemConfig': 1, 'Scanner': 5, 'CoreOrchestrator': 2}}
-[REGISTRY] Verification passed — no active trades remain.
+[REGISTRY] Verification passed � no active trades remain.
 [SHUTDOWN] Exiting gracefully. Goodbye!
 
-API connection failed: ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 7497)")
+API connection failed: ConnectionRefusedError(22, 'The remote computer refused the network connection', None, 1225, None)
 Make sure API port on TWS/IBG is open
-API connection failed: ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 7497)")
+API connection failed: ConnectionRefusedError(22, 'The remote computer refused the network connection', None, 1225, None)
 Make sure API port on TWS/IBG is open
-API connection failed: ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 7497)")
+API connection failed: ConnectionRefusedError(22, 'The remote computer refused the network connection', None, 1225, None)
 Make sure API port on TWS/IBG is open
-API connection failed: ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 7497)")
+API connection failed: ConnectionRefusedError(22, 'The remote computer refused the network connection', None, 1225, None)
 Make sure API port on TWS/IBG is open
-API connection failed: ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 7497)")
+API connection failed: ConnectionRefusedError(22, 'The remote computer refused the network connection', None, 1225, None)
 Make sure API port on TWS/IBG is open
-API connection failed: ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 7497)")
+API connection failed: ConnectionRefusedError(22, 'The remote computer refused the network connection', None, 1225, None)
 Make sure API port on TWS/IBG is open

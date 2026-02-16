@@ -20,6 +20,330 @@ ibkr-trading-system/
 │   ├── 08_PHASE_7_TESTS_DETERMINISM_AND_REPLAY.md
 │   ├── 09_PHASE_8_DOCS_RUNBOOK_AND_HOUSEKEEPING.md
 │   └── PHASE_INDEX.md
+├── AUDIT_EVIDENCE
+│   ├── E13_FACTORY_SWEEP
+│   │   ├── cross_sectional_relative_strength_rotation_paper.log
+│   │   ├── cross_sectional_relative_strength_rotation_sim.log
+│   │   ├── event_earnings_reaction_paper.log
+│   │   ├── event_earnings_reaction_sim.log
+│   │   ├── event_news_shock_continuation_paper.log
+│   │   ├── event_news_shock_continuation_sim.log
+│   │   ├── long_horizon_quality_compounder_paper.log
+│   │   ├── long_horizon_quality_compounder_sim.log
+│   │   ├── long_horizon_value_paper.log
+│   │   ├── long_horizon_value_sim.log
+│   │   ├── mean_reversion_paper.log
+│   │   ├── mean_reversion_sim.log
+│   │   ├── opening_drive_paper.log
+│   │   ├── opening_drive_sim.log
+│   │   ├── pairs_divergence_reversion_paper.log
+│   │   ├── pairs_divergence_reversion_sim.log
+│   │   ├── power_hour_paper.log
+│   │   ├── power_hour_sim.log
+│   │   ├── range_bound_fade_paper.log
+│   │   ├── range_bound_fade_sim.log
+│   │   ├── regime_adaptive_meta_allocator_paper.log
+│   │   ├── regime_adaptive_meta_allocator_sim.log
+│   │   ├── ross_momentum_paper.log
+│   │   ├── ross_momentum_sim.log
+│   │   ├── statistical_intraday_momentum_paper.log
+│   │   ├── statistical_intraday_momentum_sim.log
+│   │   ├── SUMMARY.md
+│   │   ├── support_resistance_channel_paper.log
+│   │   ├── support_resistance_channel_sim.log
+│   │   ├── time_based_seasonality_paper.log
+│   │   ├── time_based_seasonality_sim.log
+│   │   ├── trend_following_classic_paper.log
+│   │   ├── trend_following_classic_sim.log
+│   │   ├── volatility_carry_risk_premium_paper.log
+│   │   ├── volatility_carry_risk_premium_sim.log
+│   │   ├── volatility_contraction_breakout_paper.log
+│   │   ├── volatility_contraction_breakout_sim.log
+│   │   ├── volatility_expansion_paper.log
+│   │   ├── volatility_expansion_sim.log
+│   │   ├── vwap_reclaim_paper.log
+│   │   └── vwap_reclaim_sim.log
+│   ├── final_gate
+│   │   ├── 00_env_and_commit.txt
+│   │   ├── 01_compile_import.txt
+│   │   ├── 02_pytest.txt
+│   │   ├── 03_duplicates_modules.txt
+│   │   ├── 03_duplicates_registry.txt
+│   │   ├── 04_modes_ross_momentum_LIVE.txt
+│   │   ├── 04_modes_ross_momentum_PAPER.txt
+│   │   ├── 04_modes_ross_momentum_READ_ONLY.txt
+│   │   ├── 04_modes_ross_momentum_SIM.txt
+│   │   ├── 05_strategy_cross_sectional_relative_strength_rotation_PAPER_MICRO.txt
+│   │   ├── 05_strategy_cross_sectional_relative_strength_rotation_SIM.txt
+│   │   ├── 05_strategy_event_earnings_reaction_PAPER_MICRO.txt
+│   │   ├── 05_strategy_event_earnings_reaction_SIM.txt
+│   │   ├── 05_strategy_event_news_shock_continuation_PAPER_MICRO.txt
+│   │   ├── 05_strategy_event_news_shock_continuation_SIM.txt
+│   │   ├── 05_strategy_long_horizon_quality_compounder_PAPER_MICRO.txt
+│   │   ├── 05_strategy_long_horizon_quality_compounder_SIM.txt
+│   │   ├── 05_strategy_long_horizon_value_PAPER_MICRO.txt
+│   │   ├── 05_strategy_long_horizon_value_SIM.txt
+│   │   ├── 05_strategy_matrix_summary.json
+│   │   ├── 05_strategy_mean_reversion_PAPER_MICRO.txt
+│   │   ├── 05_strategy_mean_reversion_SIM.txt
+│   │   ├── 05_strategy_opening_drive_PAPER_MICRO.txt
+│   │   ├── 05_strategy_opening_drive_SIM.txt
+│   │   ├── 05_strategy_pairs_divergence_reversion_PAPER_MICRO.txt
+│   │   ├── 05_strategy_pairs_divergence_reversion_SIM.txt
+│   │   ├── 05_strategy_power_hour_PAPER_MICRO.txt
+│   │   ├── 05_strategy_power_hour_SIM.txt
+│   │   ├── 05_strategy_range_bound_fade_PAPER_MICRO.txt
+│   │   ├── 05_strategy_range_bound_fade_SIM.txt
+│   │   ├── 05_strategy_regime_adaptive_meta_allocator_PAPER_MICRO.txt
+│   │   ├── 05_strategy_regime_adaptive_meta_allocator_SIM.txt
+│   │   ├── 05_strategy_ross_momentum_PAPER_MICRO.txt
+│   │   ├── 05_strategy_ross_momentum_SIM.txt
+│   │   ├── 05_strategy_statistical_intraday_momentum_PAPER_MICRO.txt
+│   │   ├── 05_strategy_statistical_intraday_momentum_SIM.txt
+│   │   ├── 05_strategy_support_resistance_channel_PAPER_MICRO.txt
+│   │   ├── 05_strategy_support_resistance_channel_SIM.txt
+│   │   ├── 05_strategy_time_based_seasonality_PAPER_MICRO.txt
+│   │   ├── 05_strategy_time_based_seasonality_SIM.txt
+│   │   ├── 05_strategy_trend_following_classic_PAPER_MICRO.txt
+│   │   ├── 05_strategy_trend_following_classic_SIM.txt
+│   │   ├── 05_strategy_volatility_carry_risk_premium_PAPER_MICRO.txt
+│   │   ├── 05_strategy_volatility_carry_risk_premium_SIM.txt
+│   │   ├── 05_strategy_volatility_contraction_breakout_PAPER_MICRO.txt
+│   │   ├── 05_strategy_volatility_contraction_breakout_SIM.txt
+│   │   ├── 05_strategy_volatility_expansion_PAPER_MICRO.txt
+│   │   ├── 05_strategy_volatility_expansion_SIM.txt
+│   │   ├── 05_strategy_vwap_reclaim_PAPER_MICRO.txt
+│   │   ├── 05_strategy_vwap_reclaim_SIM.txt
+│   │   ├── 06_reconciliation_rc.txt
+│   │   ├── 06_reconciliation_report.json
+│   │   ├── 06_reconciliation_stdout.txt
+│   │   └── 07_system_state_update_diff.txt
+│   ├── M5
+│   │   ├── boot
+│   │   │   ├── cross_sectional_relative_strength_rotation_paper.log
+│   │   │   ├── cross_sectional_relative_strength_rotation_sim.log
+│   │   │   ├── event_earnings_reaction_paper.log
+│   │   │   ├── event_earnings_reaction_sim.log
+│   │   │   ├── event_news_shock_continuation_paper.log
+│   │   │   ├── event_news_shock_continuation_sim.log
+│   │   │   ├── long_horizon_quality_compounder_paper.log
+│   │   │   ├── long_horizon_quality_compounder_sim.log
+│   │   │   ├── long_horizon_value_paper.log
+│   │   │   ├── long_horizon_value_sim.log
+│   │   │   ├── mean_reversion_paper.log
+│   │   │   ├── mean_reversion_sim.log
+│   │   │   ├── opening_drive_paper.log
+│   │   │   ├── opening_drive_sim.log
+│   │   │   ├── pairs_divergence_reversion_paper.log
+│   │   │   ├── pairs_divergence_reversion_sim.log
+│   │   │   ├── power_hour_paper.log
+│   │   │   ├── power_hour_sim.log
+│   │   │   ├── range_bound_fade_paper.log
+│   │   │   ├── range_bound_fade_sim.log
+│   │   │   ├── regime_adaptive_meta_allocator_paper.log
+│   │   │   ├── regime_adaptive_meta_allocator_sim.log
+│   │   │   ├── ross_momentum_paper.log
+│   │   │   ├── ross_momentum_sim.log
+│   │   │   ├── statistical_intraday_momentum_paper.log
+│   │   │   ├── statistical_intraday_momentum_sim.log
+│   │   │   ├── support_resistance_channel_paper.log
+│   │   │   ├── support_resistance_channel_sim.log
+│   │   │   ├── time_based_seasonality_paper.log
+│   │   │   ├── time_based_seasonality_sim.log
+│   │   │   ├── trend_following_classic_paper.log
+│   │   │   ├── trend_following_classic_sim.log
+│   │   │   ├── volatility_carry_risk_premium_paper.log
+│   │   │   ├── volatility_carry_risk_premium_sim.log
+│   │   │   ├── volatility_contraction_breakout_paper.log
+│   │   │   ├── volatility_contraction_breakout_sim.log
+│   │   │   ├── volatility_expansion_paper.log
+│   │   │   ├── volatility_expansion_sim.log
+│   │   │   ├── vwap_reclaim_paper.log
+│   │   │   └── vwap_reclaim_sim.log
+│   │   ├── compileall_src.log
+│   │   ├── pytest_q.log
+│   │   ├── ross_momentum_paper.log
+│   │   ├── ross_momentum_sim.log
+│   │   ├── strategy_capability_inventory.json
+│   │   ├── strategy_certification_matrix.json
+│   │   └── strategy_certification_summary.json
+│   ├── post_266_mode_smoke
+│   │   ├── compileall.log
+│   │   ├── e23.log
+│   │   ├── live.log
+│   │   ├── paper.log
+│   │   ├── pytest.log
+│   │   ├── read_only.log
+│   │   └── sim.log
+│   ├── strategy_sprint_batch_a_p05_p10
+│   │   ├── compileall.log
+│   │   ├── e23_final_reconciliation.log
+│   │   ├── pytest_full.log
+│   │   ├── smoke_long_horizon_value_paper.json
+│   │   ├── smoke_long_horizon_value_paper.log
+│   │   ├── smoke_long_horizon_value_sim.json
+│   │   ├── smoke_long_horizon_value_sim.log
+│   │   ├── smoke_mean_reversion_paper.json
+│   │   ├── smoke_mean_reversion_paper.log
+│   │   ├── smoke_mean_reversion_sim.json
+│   │   ├── smoke_mean_reversion_sim.log
+│   │   ├── smoke_ross_momentum_paper.json
+│   │   ├── smoke_ross_momentum_paper.log
+│   │   ├── smoke_ross_momentum_sim.json
+│   │   ├── smoke_ross_momentum_sim.log
+│   │   ├── smoke_statistical_intraday_momentum_paper.json
+│   │   ├── smoke_statistical_intraday_momentum_paper.log
+│   │   ├── smoke_statistical_intraday_momentum_sim.json
+│   │   └── smoke_statistical_intraday_momentum_sim.log
+│   ├── strategy_sprint_batch_b_p05_p10
+│   │   ├── compileall.log
+│   │   ├── e23_evidence_manifest.json
+│   │   ├── e23_final_reconciliation.log
+│   │   ├── pytest_full.log
+│   │   ├── pytest_strategies.log
+│   │   ├── smoke_long_horizon_value_paper.json
+│   │   ├── smoke_long_horizon_value_paper.log
+│   │   ├── smoke_long_horizon_value_sim.json
+│   │   ├── smoke_long_horizon_value_sim.log
+│   │   ├── smoke_mean_reversion_paper.json
+│   │   ├── smoke_mean_reversion_paper.log
+│   │   ├── smoke_mean_reversion_sim.json
+│   │   ├── smoke_mean_reversion_sim.log
+│   │   ├── smoke_ross_momentum_paper.json
+│   │   ├── smoke_ross_momentum_paper.log
+│   │   ├── smoke_ross_momentum_sim.json
+│   │   ├── smoke_ross_momentum_sim.log
+│   │   ├── smoke_statistical_intraday_momentum_paper.json
+│   │   ├── smoke_statistical_intraday_momentum_paper.log
+│   │   ├── smoke_statistical_intraday_momentum_sim.json
+│   │   ├── smoke_statistical_intraday_momentum_sim.log
+│   │   └── verify_system_reality_v2.log
+│   ├── strategy_sprint_batch_c_p11_p15
+│   │   ├── compileall.log
+│   │   ├── e23_evidence_manifest.json
+│   │   ├── e23_final_reconciliation.log
+│   │   ├── platform_state.json
+│   │   ├── pytest_full.log
+│   │   ├── pytest_strategies.log
+│   │   ├── smoke_live.json
+│   │   ├── smoke_live.log
+│   │   ├── smoke_paper.json
+│   │   ├── smoke_paper.log
+│   │   ├── smoke_read_only.json
+│   │   ├── smoke_read_only.log
+│   │   ├── smoke_sim.json
+│   │   └── smoke_sim.log
+│   ├── strategy_sprint_batch_c_p11_p15_reconciliation_patch
+│   │   ├── compileall.log
+│   │   ├── e23_evidence_manifest.json
+│   │   ├── e23_final_reconciliation.log
+│   │   ├── platform_state.json
+│   │   ├── pytest_full.log
+│   │   ├── pytest_strategies.log
+│   │   ├── smoke_live.json
+│   │   ├── smoke_live.log
+│   │   ├── smoke_paper.json
+│   │   ├── smoke_paper.log
+│   │   ├── smoke_read_only.json
+│   │   ├── smoke_read_only.log
+│   │   ├── smoke_sim.json
+│   │   └── smoke_sim.log
+│   ├── strategy_sprint_batch_d_p16_p20_implementation
+│   │   ├── compileall.log
+│   │   ├── e23_evidence_manifest.json
+│   │   ├── e23_final_reconciliation.log
+│   │   ├── platform_state.json
+│   │   ├── pytest_full.log
+│   │   ├── pytest_strategies.log
+│   │   ├── README.md
+│   │   ├── smoke_live.json
+│   │   ├── smoke_live.log
+│   │   ├── smoke_paper.json
+│   │   ├── smoke_paper.log
+│   │   ├── smoke_read_only.json
+│   │   ├── smoke_read_only.log
+│   │   ├── smoke_sim.json
+│   │   └── smoke_sim.log
+│   ├── strategy_sprint_final_p05_p10_implementation
+│   │   ├── compileall.log
+│   │   ├── e23_evidence_manifest.json
+│   │   ├── e23_final_reconciliation.log
+│   │   ├── platform_integrity_state.json
+│   │   ├── platform_state.json
+│   │   ├── pytest_full.log
+│   │   ├── pytest_strategies.log
+│   │   ├── README.md
+│   │   ├── smoke_live.json
+│   │   ├── smoke_live.log
+│   │   ├── smoke_paper.json
+│   │   ├── smoke_paper.log
+│   │   ├── smoke_read_only.json
+│   │   ├── smoke_read_only.log
+│   │   ├── smoke_sim.json
+│   │   ├── smoke_sim.log
+│   │   └── SYSTEM_STATE_CERTIFIED.md
+│   ├── strategy_sprint_wave1_post_268
+│   │   ├── compileall.log
+│   │   ├── compileall_final.log
+│   │   ├── e23_after_p01.log
+│   │   ├── e23_after_p02.log
+│   │   ├── e23_after_p03.log
+│   │   ├── e23_after_p04.log
+│   │   ├── e23_baseline.log
+│   │   ├── e23_final.log
+│   │   ├── p01_smoke_paper.log
+│   │   ├── p01_smoke_sim.log
+│   │   ├── p02_smoke_paper.log
+│   │   ├── p02_smoke_sim.log
+│   │   ├── p03_smoke_paper.log
+│   │   ├── p03_smoke_sim.log
+│   │   ├── p04_smoke_paper.log
+│   │   ├── p04_smoke_sim.log
+│   │   ├── pytest_baseline.log
+│   │   ├── pytest_final.log
+│   │   ├── pytest_strategy_local.log
+│   │   ├── smoke_all_paper.log
+│   │   ├── smoke_all_sim.log
+│   │   ├── smoke_harness_design.md
+│   │   ├── smoke_harness_run.log
+│   │   ├── smoke_long_horizon_value_paper.json
+│   │   ├── smoke_long_horizon_value_sim.json
+│   │   ├── smoke_mean_reversion_paper.json
+│   │   ├── smoke_mean_reversion_sim.json
+│   │   ├── smoke_ross_momentum_paper.json
+│   │   ├── smoke_ross_momentum_sim.json
+│   │   ├── smoke_statistical_intraday_momentum_paper.json
+│   │   └── smoke_statistical_intraday_momentum_sim.json
+│   ├── strategy_sprint_wave2b_completion
+│   │   ├── compileall.log
+│   │   ├── e23_final_reconciliation.log
+│   │   ├── pytest_full.log
+│   │   ├── run_long_horizon_value_PAPER.log
+│   │   ├── run_long_horizon_value_SIM.log
+│   │   ├── run_mean_reversion_PAPER.log
+│   │   ├── run_mean_reversion_SIM.log
+│   │   ├── run_ross_momentum_PAPER.log
+│   │   ├── run_ross_momentum_SIM.log
+│   │   ├── run_statistical_intraday_momentum_PAPER.log
+│   │   ├── run_statistical_intraday_momentum_SIM.log
+│   │   ├── smoke_long_horizon_value_paper.json
+│   │   ├── smoke_long_horizon_value_sim.json
+│   │   ├── smoke_mean_reversion_paper.json
+│   │   ├── smoke_mean_reversion_sim.json
+│   │   ├── smoke_ross_momentum_paper.json
+│   │   ├── smoke_ross_momentum_sim.json
+│   │   ├── smoke_statistical_intraday_momentum_paper.json
+│   │   └── smoke_statistical_intraday_momentum_sim.json
+│   ├── PR265_fix_baseline_compileall.txt
+│   ├── PR265_fix_baseline_integrity_report.txt
+│   ├── PR265_fix_baseline_pytest.txt
+│   ├── PR265_fix_compileall_pass.txt
+│   ├── PR265_fix_e23_report.txt
+│   ├── PR265_fix_mode_boot_LIVE_exec_disabled.txt
+│   ├── PR265_fix_mode_boot_PAPER.txt
+│   ├── PR265_fix_mode_boot_READ_ONLY.txt
+│   ├── PR265_fix_mode_boot_SIM.txt
+│   └── PR265_fix_pytest_pass.txt
 ├── data
 │   ├── audit
 │   │   └── db_admin_audit.log
@@ -164,6 +488,62 @@ ibkr-trading-system/
 │   ├── 08_SUCCESS_CRITERIA.md
 │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
 ├── output
+│   ├── audit
+│   │   └── e23
+│   │       ├── 20260213T212058Z
+│   │       │   ├── e23_evidence_manifest.json
+│   │       │   ├── loop01_01.stderr.log
+│   │       │   ├── loop01_01.stdout.log
+│   │       │   ├── loop01_02.stderr.log
+│   │       │   ├── loop01_02.stdout.log
+│   │       │   ├── loop01_03.stderr.log
+│   │       │   ├── loop01_03.stdout.log
+│   │       │   ├── loop01_04.stderr.log
+│   │       │   ├── loop01_04.stdout.log
+│   │       │   ├── loop01_05.stderr.log
+│   │       │   └── loop01_05.stdout.log
+│   │       ├── 20260214T142337Z
+│   │       │   ├── e23_evidence_manifest.json
+│   │       │   ├── loop01_01.stderr.log
+│   │       │   ├── loop01_01.stdout.log
+│   │       │   ├── loop01_02.stderr.log
+│   │       │   ├── loop01_02.stdout.log
+│   │       │   ├── loop01_03.stderr.log
+│   │       │   ├── loop01_03.stdout.log
+│   │       │   ├── loop01_04.stderr.log
+│   │       │   ├── loop01_04.stdout.log
+│   │       │   ├── loop01_05.stderr.log
+│   │       │   ├── loop01_05.stdout.log
+│   │       │   ├── loop01_06.stderr.log
+│   │       │   └── loop01_06.stdout.log
+│   │       ├── 20260214T154312Z
+│   │       │   ├── e23_evidence_manifest.json
+│   │       │   ├── loop01_01.stderr.log
+│   │       │   ├── loop01_01.stdout.log
+│   │       │   ├── loop01_02.stderr.log
+│   │       │   ├── loop01_02.stdout.log
+│   │       │   ├── loop01_03.stderr.log
+│   │       │   ├── loop01_03.stdout.log
+│   │       │   ├── loop01_04.stderr.log
+│   │       │   ├── loop01_04.stdout.log
+│   │       │   ├── loop01_05.stderr.log
+│   │       │   ├── loop01_05.stdout.log
+│   │       │   ├── loop01_06.stderr.log
+│   │       │   └── loop01_06.stdout.log
+│   │       └── 20260214T162547Z
+│   │           ├── e23_evidence_manifest.json
+│   │           ├── loop01_01.stderr.log
+│   │           ├── loop01_01.stdout.log
+│   │           ├── loop01_02.stderr.log
+│   │           ├── loop01_02.stdout.log
+│   │           ├── loop01_03.stderr.log
+│   │           ├── loop01_03.stdout.log
+│   │           ├── loop01_04.stderr.log
+│   │           ├── loop01_04.stdout.log
+│   │           ├── loop01_05.stderr.log
+│   │           ├── loop01_05.stdout.log
+│   │           ├── loop01_06.stderr.log
+│   │           └── loop01_06.stdout.log
 │   ├── verification
 │   │   ├── compileall.log
 │   │   ├── compileall_mean_reversion.log
@@ -317,6 +697,11 @@ ibkr-trading-system/
 │   │   ├── __init__.py
 │   │   ├── market_data_client.py
 │   │   └── read_only_guard.py
+│   ├── integrity
+│   │   ├── __init__.py
+│   │   ├── e23.py
+│   │   ├── e23_platform_integrity_runner.py
+│   │   └── epoch_verification_registry.yaml
 │   ├── learning
 │   │   ├── __init__.py
 │   │   ├── cli.py
@@ -339,6 +724,7 @@ ibkr-trading-system/
 │   │   ├── m2_contract_registry.py
 │   │   ├── m2_contract_verifier.py
 │   │   ├── m3_mode_semantics_verifier.py
+│   │   ├── m5_strategy_certification_authority.py
 │   │   ├── m5_verification_authority_verifier.py
 │   │   ├── m6_data_lifecycle_governance_verifier.py
 │   │   ├── m7_epoch_audit_certifier.py
@@ -462,33 +848,52 @@ ibkr-trading-system/
 │   │   │   ├── foundation.py
 │   │   │   └── foundation_detectors.py
 │   │   ├── cross_sectional_relative_strength_rotation
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── early_entry_momentum
 │   │   │   ├── __init__.py
 │   │   │   └── strategy.py
 │   │   ├── event_earnings_reaction
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── event_news_shock_continuation
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── long_horizon_quality_compounder
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── long_horizon_value
 │   │   │   ├── contracts
 │   │   │   │   ├── intents.py
 │   │   │   │   ├── types.py
 │   │   │   │   └── watchlist.py
+│   │   │   ├── tests
+│   │   │   │   └── test_verify_patch_long_horizon_value.py
 │   │   │   ├── cadence.py
 │   │   │   ├── config.py
 │   │   │   ├── README.md
 │   │   │   ├── runner.py
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── mean_reversion
 │   │   │   ├── governance
@@ -512,7 +917,8 @@ ibkr-trading-system/
 │   │   │   │   ├── test_exit_models.py
 │   │   │   │   ├── test_mean_models.py
 │   │   │   │   ├── test_overextension.py
-│   │   │   │   └── test_policy_contract.py
+│   │   │   │   ├── test_policy_contract.py
+│   │   │   │   └── test_verify_patch_determinism.py
 │   │   │   ├── __init__.py
 │   │   │   ├── adapters.py
 │   │   │   ├── CONTRACT.md
@@ -533,24 +939,44 @@ ibkr-trading-system/
 │   │   │   ├── strategy.py
 │   │   │   └── telemetry.py
 │   │   ├── opening_drive
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── pairs_divergence_reversion
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── power_hour
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── range_bound_fade
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── regime_adaptive_meta_allocator
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── ross_momentum
 │   │   │   ├── patterns
@@ -565,6 +991,8 @@ ibkr-trading-system/
 │   │   │   │   └── reversal_patterns.py
 │   │   │   ├── reports
 │   │   │   │   └── REPORT__READING_CANDLESTICKS_3_STEP_TRICK.md
+│   │   │   ├── tests
+│   │   │   │   └── test_verify_patch_contract.py
 │   │   │   ├── __init__.py
 │   │   │   ├── CONSTITUTION.md
 │   │   │   ├── decision_policy.py
@@ -582,6 +1010,8 @@ ibkr-trading-system/
 │   │   │   │   ├── regime.py
 │   │   │   │   ├── scoring.py
 │   │   │   │   └── signal_decision.py
+│   │   │   ├── tests
+│   │   │   │   └── test_verify_patch_enablement.py
 │   │   │   ├── __init__.py
 │   │   │   ├── README.md
 │   │   │   ├── risk_policy.py
@@ -590,32 +1020,60 @@ ibkr-trading-system/
 │   │   │   ├── strategy_policy.py
 │   │   │   └── telemetry.py
 │   │   ├── support_resistance_channel
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── time_based_seasonality
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── trend_following_classic
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── volatility_carry_risk_premium
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── volatility_contraction_breakout
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── volatility_expansion
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── vwap_reclaim
+│   │   │   ├── tests
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_strategy.py
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
+│   │   │   ├── strategy.py
 │   │   │   └── strategy_policy.py
 │   │   ├── __init__.py
 │   │   ├── ross_momentum_strategy_v1.py
@@ -734,6 +1192,7 @@ ibkr-trading-system/
 │   ├── test_orchestrator_scanner_request.py
 │   ├── test_orchestrator_shutdown.py
 │   ├── test_order_gateway_retry.py
+│   ├── test_paper_micro_runtime_guards.py
 │   ├── test_performance_registry_epoch9.py
 │   ├── test_performance_reports_epoch4.py
 │   ├── test_position_lifecycle_engine.py
@@ -768,11 +1227,14 @@ ibkr-trading-system/
 │   ├── test_storage_schema_epoch4.py
 │   ├── test_storage_serialization.py
 │   ├── test_strategy_registry_epoch13.py
+│   ├── test_strategy_runner_batch_c.py
+│   ├── test_strategy_runner_hardening.py
 │   ├── test_traceability.py
 │   └── test_trade_exit_engine.py
 ├── tools
 │   ├── RUN_E21_HARNESS.ps1
-│   └── RUN_E21_HARNESS.sh
+│   ├── RUN_E21_HARNESS.sh
+│   └── strategy_smoke_harness.py
 ├── TRADING_OS_MASTER_CATALOGUE
 │   ├── 00_READ_FIRST
 │   │   ├── 00_READ_ORDER.md
@@ -1413,16 +1875,15 @@ ibkr-trading-system/
 │   │       │   ├── 04_MANDATORY_VERIFICATION_COMMANDS.md
 │   │       │   ├── 05_SUCCESS_CRITERIA.md
 │   │       │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
-│   │       ├── governance
-│   │       │   ├── 00_READ_ORDER.md
-│   │       │   ├── 01_E23_INTENT_AND_SCOPE.md
-│   │       │   ├── 02_TRUTH_PRECEDENCE_AND_GLOBAL_COHR.md
-│   │       │   ├── 03_DRIFT_TAXONOMY_AND_RECONCILIATION_ACTIONS.md
-│   │       │   ├── 04_OUTPUT_ARTIFACTS_AND_SCHEMAS.md
-│   │       │   ├── 05_VERIFICATION_AUTHORITY_INTEGRATION.md
-│   │       │   ├── 06_CHANGE_CONTROL_AND_SAFETY_RULES.md
-│   │       │   └── 07_ACCEPTANCE_CRITERIA.md
-│   │       └── README.md
+│   │       └── governance
+│   │           ├── 00_READ_ORDER.md
+│   │           ├── 01_E23_INTENT_AND_SCOPE.md
+│   │           ├── 02_TRUTH_PRECEDENCE_AND_GLOBAL_COHR.md
+│   │           ├── 03_DRIFT_TAXONOMY_AND_RECONCILIATION_ACTIONS.md
+│   │           ├── 04_OUTPUT_ARTIFACTS_AND_SCHEMAS.md
+│   │           ├── 05_VERIFICATION_AUTHORITY_INTEGRATION.md
+│   │           ├── 06_CHANGE_CONTROL_AND_SAFETY_RULES.md
+│   │           └── 07_ACCEPTANCE_CRITERIA.md
 │   ├── 02_METADATA_EPOCHS
 │   │   ├── 00_M0_CANON_AND_SOURCES_OF_TRUTH
 │   │   │   ├── codex_instructions
@@ -1879,6 +2340,55 @@ ibkr-trading-system/
 │   │   │   ├── compileall.txt
 │   │   │   ├── E7_MODE_PARITY_AUDIT.md
 │   │   │   └── pytest.txt
+│   │   ├── E21_TRADING_READY_VERIFICATION
+│   │   │   ├── per_strategy_logs
+│   │   │   │   ├── cross_sectional_relative_strength_rotation_paper.log
+│   │   │   │   ├── cross_sectional_relative_strength_rotation_sim.log
+│   │   │   │   ├── event_earnings_reaction_paper.log
+│   │   │   │   ├── event_earnings_reaction_sim.log
+│   │   │   │   ├── event_news_shock_continuation_paper.log
+│   │   │   │   ├── event_news_shock_continuation_sim.log
+│   │   │   │   ├── long_horizon_quality_compounder_paper.log
+│   │   │   │   ├── long_horizon_quality_compounder_sim.log
+│   │   │   │   ├── long_horizon_value_paper.log
+│   │   │   │   ├── long_horizon_value_sim.log
+│   │   │   │   ├── mean_reversion_paper.log
+│   │   │   │   ├── mean_reversion_sim.log
+│   │   │   │   ├── opening_drive_paper.log
+│   │   │   │   ├── opening_drive_sim.log
+│   │   │   │   ├── pairs_divergence_reversion_paper.log
+│   │   │   │   ├── pairs_divergence_reversion_sim.log
+│   │   │   │   ├── power_hour_paper.log
+│   │   │   │   ├── power_hour_sim.log
+│   │   │   │   ├── range_bound_fade_paper.log
+│   │   │   │   ├── range_bound_fade_sim.log
+│   │   │   │   ├── regime_adaptive_meta_allocator_paper.log
+│   │   │   │   ├── regime_adaptive_meta_allocator_sim.log
+│   │   │   │   ├── ross_momentum_paper.log
+│   │   │   │   ├── ross_momentum_sim.log
+│   │   │   │   ├── statistical_intraday_momentum_paper.log
+│   │   │   │   ├── statistical_intraday_momentum_sim.log
+│   │   │   │   ├── support_resistance_channel_paper.log
+│   │   │   │   ├── support_resistance_channel_sim.log
+│   │   │   │   ├── time_based_seasonality_paper.log
+│   │   │   │   ├── time_based_seasonality_sim.log
+│   │   │   │   ├── trend_following_classic_paper.log
+│   │   │   │   ├── trend_following_classic_sim.log
+│   │   │   │   ├── volatility_carry_risk_premium_paper.log
+│   │   │   │   ├── volatility_carry_risk_premium_sim.log
+│   │   │   │   ├── volatility_contraction_breakout_paper.log
+│   │   │   │   ├── volatility_contraction_breakout_sim.log
+│   │   │   │   ├── volatility_expansion_paper.log
+│   │   │   │   ├── volatility_expansion_sim.log
+│   │   │   │   ├── vwap_reclaim_paper.log
+│   │   │   │   └── vwap_reclaim_sim.log
+│   │   │   ├── compileall.log
+│   │   │   ├── e21_summary.json
+│   │   │   ├── failure_injection.log
+│   │   │   ├── live_gating.log
+│   │   │   ├── multi_strategy.log
+│   │   │   ├── pytest.log
+│   │   │   └── risk_violation.log
 │   │   ├── E22_STRATEGY_SCALABILITY_AND_ARBITRATION_LAYER
 │   │   │   ├── certification_verdict.json
 │   │   │   ├── compileall.txt
@@ -1969,6 +2479,49 @@ ibkr-trading-system/
 │   │   │   ├── harness_run.txt
 │   │   │   ├── pytest.txt
 │   │   │   └── pytest_full.txt
+│   │   ├── final_gate
+│   │   │   ├── 05_strategy_cross_sectional_relative_strength_rotation_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_cross_sectional_relative_strength_rotation_SIM.txt
+│   │   │   ├── 05_strategy_event_earnings_reaction_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_event_earnings_reaction_SIM.txt
+│   │   │   ├── 05_strategy_event_news_shock_continuation_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_event_news_shock_continuation_SIM.txt
+│   │   │   ├── 05_strategy_long_horizon_quality_compounder_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_long_horizon_quality_compounder_SIM.txt
+│   │   │   ├── 05_strategy_long_horizon_value_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_long_horizon_value_SIM.txt
+│   │   │   ├── 05_strategy_matrix_summary.json
+│   │   │   ├── 05_strategy_mean_reversion_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_mean_reversion_SIM.txt
+│   │   │   ├── 05_strategy_opening_drive_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_opening_drive_SIM.txt
+│   │   │   ├── 05_strategy_pairs_divergence_reversion_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_pairs_divergence_reversion_SIM.txt
+│   │   │   ├── 05_strategy_power_hour_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_power_hour_SIM.txt
+│   │   │   ├── 05_strategy_range_bound_fade_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_range_bound_fade_SIM.txt
+│   │   │   ├── 05_strategy_regime_adaptive_meta_allocator_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_regime_adaptive_meta_allocator_SIM.txt
+│   │   │   ├── 05_strategy_ross_momentum_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_ross_momentum_SIM.txt
+│   │   │   ├── 05_strategy_statistical_intraday_momentum_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_statistical_intraday_momentum_SIM.txt
+│   │   │   ├── 05_strategy_support_resistance_channel_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_support_resistance_channel_SIM.txt
+│   │   │   ├── 05_strategy_time_based_seasonality_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_time_based_seasonality_SIM.txt
+│   │   │   ├── 05_strategy_trend_following_classic_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_trend_following_classic_SIM.txt
+│   │   │   ├── 05_strategy_volatility_carry_risk_premium_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_volatility_carry_risk_premium_SIM.txt
+│   │   │   ├── 05_strategy_volatility_contraction_breakout_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_volatility_contraction_breakout_SIM.txt
+│   │   │   ├── 05_strategy_volatility_expansion_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_volatility_expansion_SIM.txt
+│   │   │   ├── 05_strategy_vwap_reclaim_PAPER_MICRO.txt
+│   │   │   ├── 05_strategy_vwap_reclaim_SIM.txt
+│   │   │   └── FINAL_GATE_CLOSURE.md
 │   │   ├── M0_CANON_AND_SOURCES_OF_TRUTH
 │   │   │   ├── canonical_registry.json
 │   │   │   ├── certification_verdict.json
@@ -2131,6 +2684,10 @@ ibkr-trading-system/
 │   └── VERIFY_STATIC.ps1
 ├── verification_scripts
 │   ├── __init__.py
+│   ├── e21_end_to_end_simulation.py
+│   ├── final_gate_duplicate_sanity.py
+│   ├── final_gate_strategy_matrix.py
+│   ├── generate_m5_strategy_certification.py
 │   ├── run_first.py
 │   ├── system_integrity_and_capability_report.py
 │   ├── verify_all.py
@@ -2159,14 +2716,18 @@ ibkr-trading-system/
 ├── .gitignore
 ├── CODEX_IMPLEMENTATION_INSTRUCTIONS.md
 ├── CODEX_STATISTICAL_INTRADAY_MOMENTUM_ALIGNMENT_AND_FIX.md
+├── DEPRECATION_LEDGER.md
 ├── HOUSEKEEPING.md
 ├── PHASE_RM_FINAL_INSTRUCTIONS_v1_0.md
 ├── PHASE_STATISTICAL_INTRADAY_MOMENTUM_WIRING_AND_READINESS_CODEX_FINAL.md
+├── platform_integrity_state.json
+├── platform_state.json
 ├── PR_VERIFICATION_REPORT.md
 ├── pytest.ini
 ├── README.md
 ├── README_LOCKED_ARCH.md
 ├── README_VERIFY.md
+├── RECONCILIATION_REPORT.md
 ├── repo_size_report.py
 ├── requirements.txt
 ├── ROSS_MOMENTUM_PATTERN_DETECTION_BLUEPRINT.md
@@ -2182,6 +2743,7 @@ ibkr-trading-system/
 ├── SYSTEM_ARCHITECTURE.md
 ├── SYSTEM_CONSTITUTION.md
 ├── SYSTEM_STATE.md
+├── SYSTEM_STATE_CERTIFIED.md
 ├── SYSTEM_TREE_AND_MODULE_MAP.md
 ├── verified_rss.txt
 └── VERIFY_STATISTICAL_ALL_MODES.ps1

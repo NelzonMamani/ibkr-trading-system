@@ -10,7 +10,7 @@
       "file": "compileall.txt"
     },
     {
-      "bytes": 16032,
+      "bytes": 44195,
       "file": "pytest_full.txt"
     },
     {
@@ -22,5 +22,5 @@
       "file": "verification_summary.md"
     }
   ],
-  "generated_at_utc": "2026-02-13T16:37:09Z"
+  "generated_at_utc": "2026-02-15T23:55:38Z"
 }

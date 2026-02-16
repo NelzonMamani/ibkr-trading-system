@@ -2,73 +2,73 @@
   "epoch": "SYSTEM_INTEGRITY_AND_CAPABILITY_REPORT",
   "files": [
     {
-      "bytes": 7345,
+      "bytes": 7570,
       "file": "boot_LIVE.txt"
     },
     {
-      "bytes": 52586,
+      "bytes": 53092,
       "file": "boot_PAPER.txt"
     },
     {
-      "bytes": 13592,
+      "bytes": 14215,
       "file": "boot_READ_ONLY.txt"
     },
     {
-      "bytes": 14279,
+      "bytes": 14905,
       "file": "boot_READ_ONLY_statistical_intraday_momentum.txt"
     },
     {
-      "bytes": 53538,
+      "bytes": 53500,
       "file": "boot_SIM.txt"
     },
     {
-      "bytes": 57130,
+      "bytes": 56796,
       "file": "boot_SIM_statistical_intraday_momentum.txt"
     },
     {
-      "bytes": 3788,
+      "bytes": 4554,
       "file": "capability_report.json"
     },
     {
-      "bytes": 810,
+      "bytes": 1365,
       "file": "capability_report.md"
     },
     {
-      "bytes": 691,
+      "bytes": 773,
       "file": "certification_verdict.json"
     },
     {
-      "bytes": 91,
+      "bytes": 134,
       "file": "compileall.txt"
     },
     {
-      "bytes": 1280,
+      "bytes": 1342,
       "file": "integrity_report.json"
     },
     {
-      "bytes": 855,
+      "bytes": 874,
       "file": "integrity_report.md"
     },
     {
-      "bytes": 408,
+      "bytes": 44195,
       "file": "pytest_full.txt"
     },
     {
-      "bytes": 353,
+      "bytes": 406,
       "file": "verify_m10.txt"
     },
     {
-      "bytes": 2600,
+      "bytes": 2687,
       "file": "verify_m7.txt"
     },
     {
-      "bytes": 2447,
+      "bytes": 2298,
       "file": "verify_m8.txt"
     },
     {
-      "bytes": 406,
+      "bytes": 461,
       "file": "verify_m9.txt"
     }
   ],
-  "generated_at_utc": "2026-02-14T23:05:07.378806+00:00"
+  "generated_at_utc": "2026-02-15T23:57:45.707793+00:00"
 }

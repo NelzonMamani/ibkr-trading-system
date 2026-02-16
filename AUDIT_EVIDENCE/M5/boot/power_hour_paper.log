@@ -1,15 +1,15 @@
-$ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode PAPER --cycles 1 --strategy power_hour
+$ C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Scripts\python.exe -m src.main --mode PAPER --cycles 1 --strategy power_hour
 
 [CONFIG] Loaded 150 variables
 [CONFIG] HARD enforced: 30
 [CONFIG] Optional: 119
 [CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
-[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=ENV)
 [CONFIG] No ambiguous defaults detected
 [IBKR][TRANSLATOR] ibapi dependency missing; translation unavailable.
 [BOOT] Starting the IBKR Trading System skeleton.
 [CONFIG] Selected strategy=power_hour; forcing ENABLED_STRATEGIES[PowerHourStrategy]=True
-[PHASE] PHASE 4 — Minimal Live-Capable System (Teaching-First).
+[PHASE] PHASE 4 � Minimal Live-Capable System (Teaching-First).
 [INTENT] Demonstrate a clean, observable entry point without trading logic.
 [CONFIG] Baseline teaching defaults (pre-resolution):
   - RUN_MODE: LIVE (baseline)
@@ -37,7 +37,7 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode PAPER --cycles 1 -
   - IBKR_CLIENT_ID: 7
   - IBKR_MARKET_DATA_TYPE: DELAYED
 [STARTUP] Storage
-  - SQLITE_PATH: /workspace/ibkr-trading-system/data/ibkr_system.db
+  - SQLITE_PATH: C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\data\ibkr_system.db
   - SCHEMA_VERSION: 5
   - DB_EXISTS: Y
   - IBKR_READONLY_ENABLED: False
@@ -64,7 +64,7 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode PAPER --cycles 1 -
 [SAFETY] PAPER-EXECUTION MODE ACTIVE
 [BOOT] EventCollector initialised
 [MARKET_DATA][PAPER] Deterministic/mock market data feed active (no IBKR connectivity).
-[BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
+[BOOT] PatternEngine instantiated � Ross Momentum pattern suite enabled
 [BOOT] SignalEngineV1 instantiated
 [BOOT] Strategy 'GapAndGoStrategy' skipped due to selection (selected=power_hour).
 [BOOT] Strategy 'MomentumContinuationStrategy' skipped due to selection (selected=power_hour).
@@ -89,12 +89,12 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode PAPER --cycles 1 -
 [BOOT] Strategy 'LongHorizonQualityCompounderStrategy' skipped due to selection (selected=power_hour).
 [BOOT] Strategy 'RegimeAdaptiveMetaAllocatorStrategy' skipped due to selection (selected=power_hour).
 [BOOT] StrategyRunner instantiated with strategies: PowerHourStrategy
-[BOOT] RiskEngine instantiated — phase 4 teaching rules active
-[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow
+[BOOT] RiskEngine instantiated � phase 4 teaching rules active
+[BOOT] ExecutionEngine instantiated � broker-routed deterministic flow
 [SAFETY] PAPER-EXECUTION MODE ACTIVE
-[STORAGE] SQLite path resolved to /workspace/ibkr-trading-system/data/ibkr_system.db
+[STORAGE] SQLite path resolved to C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\data\ibkr_system.db
 [BOOT] StorageEngine initialised
-[BOOT] Event replay mode resolved — mode=CYCLE
+[BOOT] Event replay mode resolved � mode=CYCLE
 [VALIDATION] Running startup validations
 [VALIDATION] Config resolved
 [VALIDATION] Effective run mode: PAPER
@@ -107,15 +107,15 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode PAPER --cycles 1 -
 [VALIDATION] ORDER ROUTING: ALLOWED
 [VALIDATION] MARKET DATA: LIVE IBKR
 [VALIDATION] Broker adapter in use: SIM_BROKER
-[VALIDATION] Storage OK — SQLite opened
+[VALIDATION] Storage OK � SQLite opened
 [LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
 [CYCLE] Starting orchestrator cycle.
-[TRACE] stage=MARKET_SESSION cycle_id=0285a276-9428-4ed4-a84c-3d988221308a run_mode=PAPER strategy=power_hour 
+[TRACE] stage=MARKET_SESSION cycle_id=087da16f-9d05-4600-8309-4d07eeedc04b run_mode=PAPER strategy=power_hour 
 [SESSION] Detected market session: CLOSED
 [SESSION] System WOULD treat market as closed (teaching-only).
 [SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().
 [INFO] Starting orchestrator cycle (teaching-only).
-[SESSION] phase=CLOSED ny_time=2026-02-14T18:01:45.676606-05:00 uk_time=2026-02-14T23:01:45.676606+00:00 utc=2026-02-14T23:01:45.676606+00:00
+[SESSION] phase=CLOSED ny_time=2026-02-15T18:50:43.340649-05:00 uk_time=2026-02-15T23:50:43.340649+00:00 utc=2026-02-15T23:50:43.340649+00:00
 [RUNTIME] mode=PAPER live_like=False allow_orders=True max_shares_per_order=None event_replay=CYCLE
 [ORCH][SCANNER_REQUEST] strategy=power_hour policy=ROSS_MOMENTUM instrument=STK locationCode=STK.US.MAJOR scanCode=TOP_PERC_GAIN numberOfRows=150 abovePrice=1.0 belowPrice=20.0
 [CONNECTIVITY][PAPER] Skipping IBKR connectivity check; forcing MOCK scanner provider.
@@ -124,7 +124,7 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode PAPER --cycles 1 -
 [SCANNER][ENTRY] strategy=ROSS_MOMENTUM requested_top_n=150 watchlist_k=15 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=1.0 below_price=20.0
 [SCANNER][PROVIDER] provider=MOCK fallback_reason=none
 [SCANNER][LIMITS] Symbol limits (value/source/env)
-[SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=DEFAULT env=-
+[SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=ENV env=IBKR_MAX_SYMBOLS_PER_CYCLE
 [SCANNER][LIMITS] SCANNER_TEACHING_SYMBOL_CAP=0 source=DEFAULT env=-
 [SCANNER][LIMITS] Policy caps top_gainers_n=150 watchlist_k=15 focus_m=5 max_symbols_per_cycle=50
 [SCANNER][LIMITS] Resolved symbol request limit=50 reductions=['policy_max_symbols(50)']
@@ -255,7 +255,7 @@ FOCUS_M: ['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
 NEW: ['AAPL', 'AMD', 'AMZN', 'BAC', 'CLSK', 'CVX', 'GME', 'JPM', 'MARA', 'MU', 'NFLX', 'PLTR', 'RIOT', 'ROKU', 'SNOW']
 CONTINUING: []
 DROPPED: []
-[TRACE] stage=UNIVERSE cycle_id=d998d638-91f1-40c9-94d2-0dd8ffa3ddf9 run_mode=PAPER strategy=power_hour top_n=50 symbols=['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
+[TRACE] stage=UNIVERSE cycle_id=fb469186-99d3-48e7-8784-4919bf2dde61 run_mode=PAPER strategy=power_hour top_n=50 symbols=['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
 [SCANNER][DIAGNOSTICS] Top 50 observations (extended columns)
 [SCANNER][ROW] rank=1 symbol=AAPL conId=None exchange=None session=NA last=12.07 ref_close=9.69 pct_change=24.56 pct_ref=CALC(SESSION_REF) volume=27515675 avg_volume_20d=3378599 rvol=8.14 bid=12.05 ask=12.12 spread=0.07 spread_pct=0.01 dollar_volume=332114197.25 float_m=12.59 halted=None ssr=None data_quality=MOCK drop_reasons=-
 [SCANNER][ROW] rank=2 symbol=MSFT conId=None exchange=None session=NA last=7.93 ref_close=6.96 pct_change=13.94 pct_ref=CALC(SESSION_REF) volume=12731375 avg_volume_20d=2320893 rvol=5.49 bid=7.92 ask=7.96 spread=0.04 spread_pct=0.01 dollar_volume=100959803.75 float_m=3.38 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
@@ -359,36 +359,36 @@ DROPPED: []
 [SCANNER][DROP] symbol=XOM reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=C reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=WFC reason=DROP_RANK_BELOW_WATCHLIST
-[TRACE] stage=WATCHLIST cycle_id=d998d638-91f1-40c9-94d2-0dd8ffa3ddf9 run_mode=PAPER strategy=power_hour watchlist=15 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT']
-[TRACE] stage=FOCUS cycle_id=d998d638-91f1-40c9-94d2-0dd8ffa3ddf9 run_mode=PAPER strategy=power_hour focus=5 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
+[TRACE] stage=WATCHLIST cycle_id=fb469186-99d3-48e7-8784-4919bf2dde61 run_mode=PAPER strategy=power_hour watchlist=15 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT']
+[TRACE] stage=FOCUS cycle_id=fb469186-99d3-48e7-8784-4919bf2dde61 run_mode=PAPER strategy=power_hour focus=5 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
 [WATCHLIST] size=15 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT']
 [SNAPSHOT][QUALITY] symbol=ROKU missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=SNOW missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=GME missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=NFLX missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=MU missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=BAC missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
+[SNAPSHOT][QUALITY] symbol=MU missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=PLTR missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=CVX missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=AMD missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=JPM missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
+[SNAPSHOT][QUALITY] symbol=AMD missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
+[SNAPSHOT][QUALITY] symbol=CVX missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=AAPL missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
+[SNAPSHOT][QUALITY] symbol=RIOT missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=MARA missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=CLSK missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=AMZN missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=RIOT missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-STRATEGY_RUNNER_RECEIVED K=15 session=NA timestamp_utc=2026-02-14T23:01:45.677283+00:00
+STRATEGY_RUNNER_RECEIVED K=15 session=NA timestamp_utc=2026-02-15T23:50:43.342179+00:00
 [STRATEGY][PROCESS] strategy_key=power_hour strategies=1 watchlist=15 session=NA phase=CLOSED
-[EXECUTION] Orders allowed — execution path enabled (dry-run).
-[TRACE] stage=ACTION cycle_id=d998d638-91f1-40c9-94d2-0dd8ffa3ddf9 run_mode=PAPER strategy=power_hour intents=0
-[SNAPSHOT][SUMMARY] missing_required_fields={'ROKU': ['last', 'close', 'volume'], 'BAC': ['last', 'close', 'volume'], 'CVX': ['last', 'close', 'volume'], 'SNOW': ['last', 'close', 'volume'], 'CLSK': ['last', 'close', 'volume'], 'MARA': ['last', 'close', 'volume'], 'JPM': ['last', 'close', 'volume'], 'NFLX': ['last', 'close', 'volume'], 'PLTR': ['last', 'close', 'volume'], 'GME': ['last', 'close', 'volume'], 'AMZN': ['last', 'close', 'volume'], 'AMD': ['last', 'close', 'volume'], 'MU': ['last', 'close', 'volume'], 'AAPL': ['last', 'close', 'volume'], 'RIOT': ['last', 'close', 'volume']}
+[EXECUTION] Orders allowed � execution path enabled (dry-run).
+[TRACE] stage=ACTION cycle_id=fb469186-99d3-48e7-8784-4919bf2dde61 run_mode=PAPER strategy=power_hour intents=0
+[SNAPSHOT][SUMMARY] missing_required_fields={'AMZN': ['last', 'close', 'volume'], 'SNOW': ['last', 'close', 'volume'], 'AAPL': ['last', 'close', 'volume'], 'MU': ['last', 'close', 'volume'], 'CVX': ['last', 'close', 'volume'], 'BAC': ['last', 'close', 'volume'], 'PLTR': ['last', 'close', 'volume'], 'GME': ['last', 'close', 'volume'], 'NFLX': ['last', 'close', 'volume'], 'ROKU': ['last', 'close', 'volume'], 'RIOT': ['last', 'close', 'volume'], 'AMD': ['last', 'close', 'volume'], 'JPM': ['last', 'close', 'volume'], 'MARA': ['last', 'close', 'volume'], 'CLSK': ['last', 'close', 'volume']}
 [STRATEGY] No trade intents generated.
 [SLEEP] Sleeping for 3 seconds before next cycle.
 [SHUTDOWN] Beginning GRACEFUL shutdown sequence.
-[EXECUTION] Shutdown requested — placeholder cleanup complete.
+[EXECUTION] Shutdown requested � placeholder cleanup complete.
 [TRADE_EXIT] No active trades to close during shutdown.
-[TRADE_EXIT] Shutdown completed — all trades force-closed.
+[TRADE_EXIT] Shutdown completed � all trades force-closed.
 [STORAGE] Shutdown complete.
 [EVENT_COLLECTOR] Flushing event summary for shutdown {'total': 44, 'by_type': {'CONFIG_RESOLVED': 1, 'MARKET_SESSION_STATE': 1, 'SCANNER_UNIVERSE_SNAPSHOT': 1, 'RAW_SCAN_SYMBOLS': 1, 'AFTER_GATES_SYMBOLS': 1, 'SCANNER_SYMBOL_DROPPED': 35, 'WATCHLIST_K_SELECTED': 1, 'SCANNER_WATCHLIST_K_READY': 1, 'SHUTDOWN_REQUESTED': 1, 'SHUTDOWN_STARTED': 1}, 'by_source': {'ConfigResolver': 1, 'SystemConfig': 1, 'Scanner': 40, 'CoreOrchestrator': 2}}
-[REGISTRY] Verification passed — no active trades remain.
+[REGISTRY] Verification passed � no active trades remain.
 [SHUTDOWN] Exiting gracefully. Goodbye!

@@ -1,224 +1,759 @@
 $ C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Scripts\python.exe -m pytest -q
 
-...................................................................FFF.. [ 30%]
-........................................................................ [ 61%]
-..............F.F....................................................... [ 91%]
-...................                                                      [100%]
-================================== FAILURES ===================================
-_________________ test_run_loop_honours_existing_stop_request _________________
 
-monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002159BCE3350>
-
-    def test_run_loop_honours_existing_stop_request(monkeypatch):
->       orchestrator = CoreOrchestrator()
-
-tests\test_orchestrator_shutdown.py:6: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-src\core\orchestrator.py:212: in __init__
-    broker = IbkrLiveBroker(
-<string>:9: in __init__
-    ???
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = IbkrLiveBroker(event_collector=<src.core.event_collector.EventCollector object at 0x000002159BC9B050>, trade_registry=...eRegistry object at 0x000002159BC9B110>, run_mode=<RunMode.LIVE: 'LIVE'>, client=None, translator=None, submitter=None)
-
-    def __post_init__(self) -> None:
-        if self.run_mode == RunMode.LIVE and not is_execution_enabled(self.run_mode):
->           raise RuntimeError("EXECUTION_ENABLED must be True for broker execution.")
-E           RuntimeError: EXECUTION_ENABLED must be True for broker execution.
-
-src\brokers\ibkr_live_broker.py:66: RuntimeError
----------------------------- Captured stdout call -----------------------------
-[INFO] Core Orchestrator initialised.
-[BOOT] Runtime mode resolved: mode=LIVE live_like=True allow_orders=True max_shares_per_order=None event_replay=OFF
-[BOOT] EventCollector initialised
-[BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
-[BOOT] SignalEngineV1 instantiated
-[BOOT] Strategy 'GapAndGoStrategy' ENABLED via config and registered.
-[BOOT] Strategy 'MomentumContinuationStrategy' ENABLED via config and registered.
-[BOOT] Strategy 'RossMomentumStrategyV1' ENABLED via config and registered.
-[BOOT][STRATEGY] StatisticalIntradayMomentum enabled=False selected=False reason=STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=False
-[BOOT] Strategy 'StatisticalIntradayMomentum' DISABLED via config (STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=False); skipping.
-[BOOT][STRATEGY] Set STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True to enable.
-[BOOT][STRATEGY] MeanReversionStrategy enabled=False selected=False reason=MEAN_REVERSION_STRATEGY_ENABLED=False
-[BOOT] Strategy 'MeanReversionStrategy' DISABLED via config (MEAN_REVERSION_STRATEGY_ENABLED=False); skipping.
-[BOOT] StrategyRunner instantiated with strategies: GapAndGoStrategy, MomentumContinuationStrategy, RossMomentumStrategyV1
-[BOOT] RiskEngine instantiated — phase 4 teaching rules active
-_________________ test_keyboard_interrupt_escalates_to_panic __________________
-
-    def test_keyboard_interrupt_escalates_to_panic():
->       orchestrator = CoreOrchestrator()
-
-tests\test_orchestrator_shutdown.py:20: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-src\core\orchestrator.py:212: in __init__
-    broker = IbkrLiveBroker(
-<string>:9: in __init__
-    ???
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = IbkrLiveBroker(event_collector=<src.core.event_collector.EventCollector object at 0x000002159BC9B950>, trade_registry=...eRegistry object at 0x000002159BDE5F40>, run_mode=<RunMode.LIVE: 'LIVE'>, client=None, translator=None, submitter=None)
-
-    def __post_init__(self) -> None:
-        if self.run_mode == RunMode.LIVE and not is_execution_enabled(self.run_mode):
->           raise RuntimeError("EXECUTION_ENABLED must be True for broker execution.")
-E           RuntimeError: EXECUTION_ENABLED must be True for broker execution.
-
-src\brokers\ibkr_live_broker.py:66: RuntimeError
----------------------------- Captured stdout call -----------------------------
-[INFO] Core Orchestrator initialised.
-[BOOT] Runtime mode resolved: mode=LIVE live_like=True allow_orders=True max_shares_per_order=None event_replay=OFF
-[BOOT] EventCollector initialised
-[BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
-[BOOT] SignalEngineV1 instantiated
-[BOOT] Strategy 'GapAndGoStrategy' ENABLED via config and registered.
-[BOOT] Strategy 'MomentumContinuationStrategy' ENABLED via config and registered.
-[BOOT] Strategy 'RossMomentumStrategyV1' ENABLED via config and registered.
-[BOOT][STRATEGY] StatisticalIntradayMomentum enabled=False selected=False reason=STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=False
-[BOOT] Strategy 'StatisticalIntradayMomentum' DISABLED via config (STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=False); skipping.
-[BOOT][STRATEGY] Set STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True to enable.
-[BOOT][STRATEGY] MeanReversionStrategy enabled=False selected=False reason=MEAN_REVERSION_STRATEGY_ENABLED=False
-[BOOT] Strategy 'MeanReversionStrategy' DISABLED via config (MEAN_REVERSION_STRATEGY_ENABLED=False); skipping.
-[BOOT] StrategyRunner instantiated with strategies: GapAndGoStrategy, MomentumContinuationStrategy, RossMomentumStrategyV1
-[BOOT] RiskEngine instantiated — phase 4 teaching rules active
-_________________ test_shutdown_hooks_continue_after_failure __________________
-
-    def test_shutdown_hooks_continue_after_failure():
->       orchestrator = CoreOrchestrator()
-
-tests\test_orchestrator_shutdown.py:32: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-src\core\orchestrator.py:212: in __init__
-    broker = IbkrLiveBroker(
-<string>:9: in __init__
-    ???
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-self = IbkrLiveBroker(event_collector=<src.core.event_collector.EventCollector object at 0x000002159BDE6150>, trade_registry=...eRegistry object at 0x000002159BDE62B0>, run_mode=<RunMode.LIVE: 'LIVE'>, client=None, translator=None, submitter=None)
-
-    def __post_init__(self) -> None:
-        if self.run_mode == RunMode.LIVE and not is_execution_enabled(self.run_mode):
->           raise RuntimeError("EXECUTION_ENABLED must be True for broker execution.")
-E           RuntimeError: EXECUTION_ENABLED must be True for broker execution.
-
-src\brokers\ibkr_live_broker.py:66: RuntimeError
----------------------------- Captured stdout call -----------------------------
-[INFO] Core Orchestrator initialised.
-[BOOT] Runtime mode resolved: mode=LIVE live_like=True allow_orders=True max_shares_per_order=None event_replay=OFF
-[BOOT] EventCollector initialised
-[BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
-[BOOT] SignalEngineV1 instantiated
-[BOOT] Strategy 'GapAndGoStrategy' ENABLED via config and registered.
-[BOOT] Strategy 'MomentumContinuationStrategy' ENABLED via config and registered.
-[BOOT] Strategy 'RossMomentumStrategyV1' ENABLED via config and registered.
-[BOOT][STRATEGY] StatisticalIntradayMomentum enabled=False selected=False reason=STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=False
-[BOOT] Strategy 'StatisticalIntradayMomentum' DISABLED via config (STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=False); skipping.
-[BOOT][STRATEGY] Set STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True to enable.
-[BOOT][STRATEGY] MeanReversionStrategy enabled=False selected=False reason=MEAN_REVERSION_STRATEGY_ENABLED=False
-[BOOT] Strategy 'MeanReversionStrategy' DISABLED via config (MEAN_REVERSION_STRATEGY_ENABLED=False); skipping.
-[BOOT] StrategyRunner instantiated with strategies: GapAndGoStrategy, MomentumContinuationStrategy, RossMomentumStrategyV1
-[BOOT] RiskEngine instantiated — phase 4 teaching rules active
-___________________ test_m5_verification_authority_verifier ___________________
-
-    def test_m5_verification_authority_verifier() -> None:
-        result = verify_m5_verification_authority()
->       assert result["violations"] == []
-E       AssertionError: assert [{'actual': '...80b4be'}, ...] == []
-E         Left contains 9 more items, first extra item: {'actual': '304', 'check': 'EVIDENCE_INDEX_BYTES_MATCH', 'expected': '290'}
-E         Use -v to get more diff
-
-tests\metadata\test_m5_verification_authority_verifier.py:12: AssertionError
-_________________ test_m6_data_lifecycle_governance_verifier __________________
-
-    def test_m6_data_lifecycle_governance_verifier() -> None:
-        result = verify_m6_data_lifecycle_governance()
->       assert result["violations"] == []
-E       AssertionError: assert [{'actual': '...6e68b0'}, ...] == []
-E         Left contains 8 more items, first extra item: {'actual': '307', 'check': 'EVIDENCE_INDEX_BYTES_MATCH', 'expected': '293'}
-E         Use -v to get more diff
-
-tests\metadata\test_m6_data_lifecycle_governance_verifier.py:12: AssertionError
-============================== warnings summary ===============================
-.venv\Lib\site-packages\eventkit\util.py:21
-  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Lib\site-packages\eventkit\util.py:21: DeprecationWarning: There is no current event loop
+=================================== ERRORS ====================================
+___________ ERROR collecting tests/e21/test_e21_harness_reports.py ____________
+tests\e21\test_e21_harness_reports.py:3: in <module>
+    from src.e21.harness import run_harness
+src\e21\__init__.py:3: in <module>
+    from .harness import run_harness
+src\e21\harness.py:22: in <module>
+    from src.scanner.providers.mock_provider import MockScannerProvider
+src\scanner\providers\__init__.py:4: in <module>
+    from .factory import build_provider
+src\scanner\providers\factory.py:8: in <module>
+    from .ibkr_provider import IbkrScannerProvider
+src\scanner\providers\ibkr_provider.py:9: in <module>
+    from ib_insync import ScannerSubscription
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
     return asyncio.get_event_loop_policy().get_event_loop()
-
-tests/test_epoch12_recovery_housekeeping.py: 1 warning
-tests/test_market_data_validation.py: 4 warnings
-tests/test_mode_drift_guard.py: 2 warnings
-tests/test_orchestrator_shutdown.py: 3 warnings
-tests/test_position_lifecycle_persistence.py: 1 warning
-tests/test_regime_orchestrator_integration.py: 2 warnings
-tests/test_regime_storage.py: 1 warning
-tests/test_storage_recovery.py: 1 warning
-tests/test_traceability.py: 4 warnings
-  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\config\config_resolver.py:483: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
-    "resolved_at": datetime.utcnow().isoformat(),
-
-tests/test_epoch12_recovery_housekeeping.py::test_epoch12_db_backup_and_reset_determinism
-tests/test_epoch12_recovery_housekeeping.py::test_epoch12_db_backup_and_reset_determinism
-tests/test_epoch12_recovery_housekeeping.py::test_epoch12_db_backup_and_reset_determinism
-  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\storage\db_admin.py:47: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
-    "timestamp_utc": datetime.utcnow().isoformat(),
-
-tests/test_epoch12_recovery_housekeeping.py::test_epoch12_stop_controller_enforcement
-tests/test_epoch3_risk_execution.py::test_execution_blocks_when_breaker_tripped
-tests/test_stop_controller.py::test_circuit_breakers_latch_and_require_reset
-  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\core\stop_controller.py:95: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
-    tripped_at=datetime.utcnow().isoformat(),
-
-tests/test_epoch15_17_safety_cluster.py::test_fault_policy_snapshot_covers_categories
-tests/test_faults.py::test_classify_file_not_found_is_io
-tests/test_faults.py::test_classify_key_error_is_data
-tests/test_faults.py::test_classify_runtime_safety_flagged_as_safety
-tests/test_faults.py::test_live_policy_enforces_halt_and_skip_rules
-tests/test_faults.py::test_live_policy_enforces_halt_and_skip_rules
-tests/test_faults.py::test_live_policy_enforces_halt_and_skip_rules
-  <string>:8: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
-
-tests/test_ibkr_readonly.py::test_market_snapshot_dataclass
-  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\tests\test_ibkr_readonly.py:56: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
-    snapshot_time = datetime.datetime.utcnow()
-
-tests/test_liquidity_execution.py::test_deterministic_liquidity_outcomes_and_replay
-tests/test_liquidity_execution.py::test_deterministic_liquidity_outcomes_and_replay
-tests/test_trade_exit_engine.py::test_trade_exit_engine_enforces_tick_based_exit_window
-tests/test_trade_exit_engine.py::test_exit_signal_honoured_after_minimum_hold
-tests/test_trade_exit_engine.py::test_stop_loss_exit_triggers_even_before_minimum_hold
-tests/test_trade_exit_engine.py::test_take_profit_exit_triggers_when_threshold_hit
-  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\execution\trade_exit_engine.py:473: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
-    timestamp=datetime.utcnow(),
-
-tests/test_regime_orchestrator_integration.py::test_orchestrator_emits_regime_snapshot
-tests/test_traceability.py::test_trace_event_order_sim
-tests/test_traceability.py::test_live_readonly_connectivity_retry
-  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\core\managers\connection_manager.py:104: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
-    continue
-  Enable tracemalloc to get traceback where the object was allocated.
-  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
-
-tests/test_scanner_policy_from_strategy.py::test_scanner_policy_limits_applied_in_teaching_mode
-tests/test_scanner_ranking_authority.py::test_scanner_uses_strategy_ranking_for_ross
-tests/test_scanner_universe_request.py::test_scanner_request_ibkr_top_gainers_skips_scanner_symbols_error
-tests/test_scanner_watchlist_prints.py::test_watchlist_print_format
-tests/test_scanner_watchlist_prints.py::test_watchlist_print_suppressed_when_unchanged
-tests/smoke/test_scanner_contract.py::test_scanner_contract_prints_lists
-  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\scanner\scanner_runner.py:1524: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
-    provider = MockScannerProvider()
-  Enable tracemalloc to get traceback where the object was allocated.
-  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
-
-tests/smoke/test_orchestrator_cycle.py::test_orchestrator_readonly_cycle
-  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\src\scanner\scanner_runner.py:1527: RuntimeWarning: coroutine 'IB.connectAsync' was never awaited
-    provider = None
-  Enable tracemalloc to get traceback where the object was allocated.
-  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+------------------------------- Captured stdout -------------------------------
+[CONFIG] Loaded 150 variables
+[CONFIG] HARD enforced: 30
+[CONFIG] Optional: 119
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=ENV)
+[CONFIG] No ambiguous defaults detected
+_____ ERROR collecting tests/metadata/test_m3_mode_semantics_verifier.py ______
+tests\metadata\test_m3_mode_semantics_verifier.py:3: in <module>
+    from src.metadata.m3_mode_semantics_verifier import verify_mode_semantics
+src\metadata\m3_mode_semantics_verifier.py:9: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\__init__.py:1: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\connection_manager.py:17: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+___________ ERROR collecting tests/smoke/test_orchestrator_cycle.py ___________
+tests\smoke\test_orchestrator_cycle.py:1: in <module>
+    from src.core_engine.orchestrator import run_cycles
+src\core_engine\orchestrator.py:25: in <module>
+    from src.scanner.scanner_runner import run_scanner_cycle
+src\scanner\scanner_runner.py:52: in <module>
+    from src.scanner.providers.factory import build_provider
+src\scanner\providers\__init__.py:4: in <module>
+    from .factory import build_provider
+src\scanner\providers\factory.py:8: in <module>
+    from .ibkr_provider import IbkrScannerProvider
+src\scanner\providers\ibkr_provider.py:9: in <module>
+    from ib_insync import ScannerSubscription
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+____________ ERROR collecting tests/smoke/test_scanner_contract.py ____________
+tests\smoke\test_scanner_contract.py:2: in <module>
+    from src.scanner.scanner_runner import run_scanner_cycle
+src\scanner\scanner_runner.py:52: in <module>
+    from src.scanner.providers.factory import build_provider
+src\scanner\providers\__init__.py:4: in <module>
+    from .factory import build_provider
+src\scanner\providers\factory.py:8: in <module>
+    from .ibkr_provider import IbkrScannerProvider
+src\scanner\providers\ibkr_provider.py:9: in <module>
+    from ib_insync import ScannerSubscription
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+__________ ERROR collecting tests/test_decision_artifacts_epoch14.py __________
+tests\test_decision_artifacts_epoch14.py:14: in <module>
+    from execution.execution_engine import ExecutionEngine
+src\execution\execution_engine.py:17: in <module>
+    from src.core.managers.runtime_mode_manager import RuntimeModeManager
+src\core\managers\__init__.py:1: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\connection_manager.py:17: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+____________ ERROR collecting tests/test_epoch3_risk_execution.py _____________
+tests\test_epoch3_risk_execution.py:11: in <module>
+    from execution.execution_engine import ExecutionEngine  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\execution\execution_engine.py:17: in <module>
+    from src.core.managers.runtime_mode_manager import RuntimeModeManager
+src\core\managers\__init__.py:1: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\connection_manager.py:17: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+__________ ERROR collecting tests/test_execution_authority_epoch5.py __________
+tests\test_execution_authority_epoch5.py:16: in <module>
+    from execution.execution_engine import ExecutionEngine
+src\execution\execution_engine.py:17: in <module>
+    from src.core.managers.runtime_mode_manager import RuntimeModeManager
+src\core\managers\__init__.py:1: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\connection_manager.py:17: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+_____________ ERROR collecting tests/test_liquidity_execution.py ______________
+tests\test_liquidity_execution.py:9: in <module>
+    from execution.execution_engine import ExecutionEngine
+src\execution\execution_engine.py:17: in <module>
+    from src.core.managers.runtime_mode_manager import RuntimeModeManager
+src\core\managers\__init__.py:1: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\connection_manager.py:17: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+________ ERROR collecting tests/test_market_data_client_disconnect.py _________
+tests\test_market_data_client_disconnect.py:5: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+_________ ERROR collecting tests/test_market_data_client_snapshot.py __________
+tests\test_market_data_client_snapshot.py:6: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+____________ ERROR collecting tests/test_market_data_validation.py ____________
+tests\test_market_data_validation.py:6: in <module>
+    from core.orchestrator import CoreOrchestrator  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\core\orchestrator.py:38: in <module>
+    from src.execution.execution_engine import ExecutionEngine
+src\execution\execution_engine.py:17: in <module>
+    from src.core.managers.runtime_mode_manager import RuntimeModeManager
+src\core\managers\__init__.py:1: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\connection_manager.py:17: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+_______________ ERROR collecting tests/test_mode_drift_guard.py _______________
+tests\test_mode_drift_guard.py:6: in <module>
+    from src.core.orchestrator import CoreOrchestrator, RuntimeSafetyError
+src\core\orchestrator.py:38: in <module>
+    from src.execution.execution_engine import ExecutionEngine
+src\execution\execution_engine.py:17: in <module>
+    from src.core.managers.runtime_mode_manager import RuntimeModeManager
+src\core\managers\__init__.py:1: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\connection_manager.py:17: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+_________ ERROR collecting tests/test_orchestrator_scanner_request.py _________
+tests\test_orchestrator_scanner_request.py:1: in <module>
+    from src.core.orchestrator import CoreOrchestrator
+src\core\orchestrator.py:38: in <module>
+    from src.execution.execution_engine import ExecutionEngine
+src\execution\execution_engine.py:17: in <module>
+    from src.core.managers.runtime_mode_manager import RuntimeModeManager
+src\core\managers\__init__.py:1: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\connection_manager.py:17: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+____________ ERROR collecting tests/test_orchestrator_shutdown.py _____________
+tests\test_orchestrator_shutdown.py:3: in <module>
+    from core.orchestrator import CoreOrchestrator
+src\core\orchestrator.py:38: in <module>
+    from src.execution.execution_engine import ExecutionEngine
+src\execution\execution_engine.py:17: in <module>
+    from src.core.managers.runtime_mode_manager import RuntimeModeManager
+src\core\managers\__init__.py:1: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\connection_manager.py:17: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+_____________ ERROR collecting tests/test_order_gateway_retry.py ______________
+tests\test_order_gateway_retry.py:5: in <module>
+    from execution.execution_engine import ExecutionEngine
+src\execution\execution_engine.py:17: in <module>
+    from src.core.managers.runtime_mode_manager import RuntimeModeManager
+src\core\managers\__init__.py:1: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\connection_manager.py:17: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+__________ ERROR collecting tests/test_paper_micro_runtime_guards.py __________
+tests\test_paper_micro_runtime_guards.py:15: in <module>
+    from core.orchestrator import CoreOrchestrator
+src\core\orchestrator.py:38: in <module>
+    from src.execution.execution_engine import ExecutionEngine
+src\execution\execution_engine.py:17: in <module>
+    from src.core.managers.runtime_mode_manager import RuntimeModeManager
+src\core\managers\__init__.py:1: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\connection_manager.py:17: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+_______ ERROR collecting tests/test_regime_orchestrator_integration.py ________
+tests\test_regime_orchestrator_integration.py:4: in <module>
+    from src.core.orchestrator import CoreOrchestrator
+src\core\orchestrator.py:38: in <module>
+    from src.execution.execution_engine import ExecutionEngine
+src\execution\execution_engine.py:17: in <module>
+    from src.core.managers.runtime_mode_manager import RuntimeModeManager
+src\core\managers\__init__.py:1: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\connection_manager.py:17: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+_________ ERROR collecting tests/test_scanner_pct_change_fallback.py __________
+tests\test_scanner_pct_change_fallback.py:6: in <module>
+    from src.scanner.scanner_runner import GateThresholds, _build_symbol_context, _evaluate_gates
+src\scanner\scanner_runner.py:52: in <module>
+    from src.scanner.providers.factory import build_provider
+src\scanner\providers\__init__.py:4: in <module>
+    from .factory import build_provider
+src\scanner\providers\factory.py:8: in <module>
+    from .ibkr_provider import IbkrScannerProvider
+src\scanner\providers\ibkr_provider.py:9: in <module>
+    from ib_insync import ScannerSubscription
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+_________ ERROR collecting tests/test_scanner_policy_from_strategy.py _________
+tests\test_scanner_policy_from_strategy.py:6: in <module>
+    from src.scanner.scanner_runner import run_scanner_cycle
+src\scanner\scanner_runner.py:52: in <module>
+    from src.scanner.providers.factory import build_provider
+src\scanner\providers\__init__.py:4: in <module>
+    from .factory import build_provider
+src\scanner\providers\factory.py:8: in <module>
+    from .ibkr_provider import IbkrScannerProvider
+src\scanner\providers\ibkr_provider.py:9: in <module>
+    from ib_insync import ScannerSubscription
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+__________ ERROR collecting tests/test_scanner_provider_fallback.py ___________
+tests\test_scanner_provider_fallback.py:13: in <module>
+    from scanner import scanner_runner
+src\scanner\scanner_runner.py:52: in <module>
+    from src.scanner.providers.factory import build_provider
+src\scanner\providers\__init__.py:4: in <module>
+    from .factory import build_provider
+src\scanner\providers\factory.py:8: in <module>
+    from .ibkr_provider import IbkrScannerProvider
+src\scanner\providers\ibkr_provider.py:9: in <module>
+    from ib_insync import ScannerSubscription
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+__________ ERROR collecting tests/test_scanner_ranking_authority.py ___________
+tests\test_scanner_ranking_authority.py:13: in <module>
+    from scanner import scanner_runner
+src\scanner\scanner_runner.py:52: in <module>
+    from src.scanner.providers.factory import build_provider
+src\scanner\providers\__init__.py:4: in <module>
+    from .factory import build_provider
+src\scanner\providers\factory.py:8: in <module>
+    from .ibkr_provider import IbkrScannerProvider
+src\scanner\providers\ibkr_provider.py:9: in <module>
+    from ib_insync import ScannerSubscription
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+__________ ERROR collecting tests/test_scanner_request_validation.py __________
+tests\test_scanner_request_validation.py:4: in <module>
+    from src.scanner.scanner_runner import run_scanner_cycle
+src\scanner\scanner_runner.py:52: in <module>
+    from src.scanner.providers.factory import build_provider
+src\scanner\providers\__init__.py:4: in <module>
+    from .factory import build_provider
+src\scanner\providers\factory.py:8: in <module>
+    from .ibkr_provider import IbkrScannerProvider
+src\scanner\providers\ibkr_provider.py:9: in <module>
+    from ib_insync import ScannerSubscription
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+___________ ERROR collecting tests/test_scanner_universe_request.py ___________
+tests\test_scanner_universe_request.py:5: in <module>
+    from src.scanner.scanner_runner import run_scanner_cycle
+src\scanner\scanner_runner.py:52: in <module>
+    from src.scanner.providers.factory import build_provider
+src\scanner\providers\__init__.py:4: in <module>
+    from .factory import build_provider
+src\scanner\providers\factory.py:8: in <module>
+    from .ibkr_provider import IbkrScannerProvider
+src\scanner\providers\ibkr_provider.py:9: in <module>
+    from ib_insync import ScannerSubscription
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+_______ ERROR collecting tests/test_scanner_watchlist_artifact_empty.py _______
+tests\test_scanner_watchlist_artifact_empty.py:13: in <module>
+    from scanner import scanner_runner
+src\scanner\scanner_runner.py:52: in <module>
+    from src.scanner.providers.factory import build_provider
+src\scanner\providers\__init__.py:4: in <module>
+    from .factory import build_provider
+src\scanner\providers\factory.py:8: in <module>
+    from .ibkr_provider import IbkrScannerProvider
+src\scanner\providers\ibkr_provider.py:9: in <module>
+    from ib_insync import ScannerSubscription
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+___________ ERROR collecting tests/test_scanner_watchlist_prints.py ___________
+tests\test_scanner_watchlist_prints.py:13: in <module>
+    from scanner import scanner_runner
+src\scanner\scanner_runner.py:52: in <module>
+    from src.scanner.providers.factory import build_provider
+src\scanner\providers\__init__.py:4: in <module>
+    from .factory import build_provider
+src\scanner\providers\factory.py:8: in <module>
+    from .ibkr_provider import IbkrScannerProvider
+src\scanner\providers\ibkr_provider.py:9: in <module>
+    from ib_insync import ScannerSubscription
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+__________ ERROR collecting tests/test_strategy_registry_epoch13.py ___________
+tests\test_strategy_registry_epoch13.py:3: in <module>
+    from src.core.orchestrator import build_orchestrator_strategy_registry
+src\core\orchestrator.py:38: in <module>
+    from src.execution.execution_engine import ExecutionEngine
+src\execution\execution_engine.py:17: in <module>
+    from src.core.managers.runtime_mode_manager import RuntimeModeManager
+src\core\managers\__init__.py:1: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\connection_manager.py:17: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+_________________ ERROR collecting tests/test_traceability.py _________________
+tests\test_traceability.py:7: in <module>
+    from src.core.orchestrator import CoreOrchestrator
+src\core\orchestrator.py:38: in <module>
+    from src.execution.execution_engine import ExecutionEngine
+src\execution\execution_engine.py:17: in <module>
+    from src.core.managers.runtime_mode_manager import RuntimeModeManager
+src\core\managers\__init__.py:1: in <module>
+    from src.core.managers.connection_manager import ConnectionManager
+src\core\managers\connection_manager.py:17: in <module>
+    from src.ibkr.market_data_client import MarketDataClient
+src\ibkr\market_data_client.py:11: in <module>
+    from ib_insync import IB, Stock
+.venv\Lib\site-packages\ib_insync\__init__.py:6: in <module>
+    from eventkit import Event
+.venv\Lib\site-packages\eventkit\__init__.py:3: in <module>
+    from .event import Event
+.venv\Lib\site-packages\eventkit\event.py:9: in <module>
+    from .util import NO_VALUE, get_event_loop, main_event_loop
+.venv\Lib\site-packages\eventkit\util.py:24: in <module>
+    main_event_loop = get_event_loop()
+                      ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\eventkit\util.py:21: in get_event_loop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\events.py:715: in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+E   RuntimeError: There is no current event loop in thread 'MainThread'.
+============================== warnings summary ===============================
+.venv\Lib\site-packages\eventkit\util.py:21: 27 warnings
+  C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Lib\site-packages\eventkit\util.py:21: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    return asyncio.get_event_loop_policy().get_event_loop()
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 =========================== short test summary info ===========================
-FAILED tests/test_orchestrator_shutdown.py::test_run_loop_honours_existing_stop_request
-FAILED tests/test_orchestrator_shutdown.py::test_keyboard_interrupt_escalates_to_panic
-FAILED tests/test_orchestrator_shutdown.py::test_shutdown_hooks_continue_after_failure
-FAILED tests/metadata/test_m5_verification_authority_verifier.py::test_m5_verification_authority_verifier
-FAILED tests/metadata/test_m6_data_lifecycle_governance_verifier.py::test_m6_data_lifecycle_governance_verifier
-5 failed, 230 passed, 50 warnings in 54.54s
+ERROR tests/e21/test_e21_harness_reports.py - RuntimeError: There is no curre...
+ERROR tests/metadata/test_m3_mode_semantics_verifier.py - RuntimeError: There...
+ERROR tests/smoke/test_orchestrator_cycle.py - RuntimeError: There is no curr...
+ERROR tests/smoke/test_scanner_contract.py - RuntimeError: There is no curren...
+ERROR tests/test_decision_artifacts_epoch14.py - RuntimeError: There is no cu...
+ERROR tests/test_epoch3_risk_execution.py - RuntimeError: There is no current...
+ERROR tests/test_execution_authority_epoch5.py - RuntimeError: There is no cu...
+ERROR tests/test_liquidity_execution.py - RuntimeError: There is no current e...
+ERROR tests/test_market_data_client_disconnect.py - RuntimeError: There is no...
+ERROR tests/test_market_data_client_snapshot.py - RuntimeError: There is no c...
+ERROR tests/test_market_data_validation.py - RuntimeError: There is no curren...
+ERROR tests/test_mode_drift_guard.py - RuntimeError: There is no current even...
+ERROR tests/test_orchestrator_scanner_request.py - RuntimeError: There is no ...
+ERROR tests/test_orchestrator_shutdown.py - RuntimeError: There is no current...
+ERROR tests/test_order_gateway_retry.py - RuntimeError: There is no current e...
+ERROR tests/test_paper_micro_runtime_guards.py - RuntimeError: There is no cu...
+ERROR tests/test_regime_orchestrator_integration.py - RuntimeError: There is ...
+ERROR tests/test_scanner_pct_change_fallback.py - RuntimeError: There is no c...
+ERROR tests/test_scanner_policy_from_strategy.py - RuntimeError: There is no ...
+ERROR tests/test_scanner_provider_fallback.py - RuntimeError: There is no cur...
+ERROR tests/test_scanner_ranking_authority.py - RuntimeError: There is no cur...
+ERROR tests/test_scanner_request_validation.py - RuntimeError: There is no cu...
+ERROR tests/test_scanner_universe_request.py - RuntimeError: There is no curr...
+ERROR tests/test_scanner_watchlist_artifact_empty.py - RuntimeError: There is...
+ERROR tests/test_scanner_watchlist_prints.py - RuntimeError: There is no curr...
+ERROR tests/test_strategy_registry_epoch13.py - RuntimeError: There is no cur...
+ERROR tests/test_traceability.py - RuntimeError: There is no current event lo...
+!!!!!!!!!!!!!!!!!! Interrupted: 27 errors during collection !!!!!!!!!!!!!!!!!!!
+2 skipped, 27 warnings, 27 errors in 3.76s

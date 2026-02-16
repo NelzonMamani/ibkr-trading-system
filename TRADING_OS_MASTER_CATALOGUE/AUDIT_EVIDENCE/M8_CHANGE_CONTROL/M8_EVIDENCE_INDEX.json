@@ -18,7 +18,7 @@
       "file": "m8_verifier_output.json"
     },
     {
-      "bytes": 16022,
+      "bytes": 44195,
       "file": "pytest_full.txt"
     },
     {
@@ -30,5 +30,5 @@
       "file": "verification_summary.md"
     }
   ],
-  "generated_at_utc": "2026-02-13T16:35:57Z"
+  "generated_at_utc": "2026-02-15T23:55:31Z"
 }

@@ -1,15 +1,15 @@
-$ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode SIM --cycles 1 --strategy statistical_intraday_momentum
+$ C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Scripts\python.exe -m src.main --mode SIM --cycles 1 --strategy statistical_intraday_momentum
 
 [CONFIG] Loaded 150 variables
 [CONFIG] HARD enforced: 30
 [CONFIG] Optional: 119
 [CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
-[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=ENV)
 [CONFIG] No ambiguous defaults detected
 [IBKR][TRANSLATOR] ibapi dependency missing; translation unavailable.
 [BOOT] Starting the IBKR Trading System skeleton.
 [CONFIG] Selected strategy=statistical_intraday_momentum; forcing STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED=True
-[PHASE] PHASE 4 — Minimal Live-Capable System (Teaching-First).
+[PHASE] PHASE 4 � Minimal Live-Capable System (Teaching-First).
 [INTENT] Demonstrate a clean, observable entry point without trading logic.
 [CONFIG] Baseline teaching defaults (pre-resolution):
   - RUN_MODE: LIVE (baseline)
@@ -37,7 +37,7 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode SIM --cycles 1 --s
   - IBKR_CLIENT_ID: 7
   - IBKR_MARKET_DATA_TYPE: DELAYED
 [STARTUP] Storage
-  - SQLITE_PATH: /workspace/ibkr-trading-system/data/ibkr_system.db
+  - SQLITE_PATH: C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\data\ibkr_system.db
   - SCHEMA_VERSION: 5
   - DB_EXISTS: Y
   - IBKR_READONLY_ENABLED: True
@@ -60,7 +60,7 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode SIM --cycles 1 --s
 [SAFETY] IBKR API WRITE: ENABLED
 [SAFETY] EXECUTION: HARD DISABLED
 [SAFETY] ORDER ROUTING: BLOCKED
-[CONFIG] IBKR_READONLY_ENABLED=True — broker order routing to IBKR is disabled. SIM execution is internal-only.
+[CONFIG] IBKR_READONLY_ENABLED=True � broker order routing to IBKR is disabled. SIM execution is internal-only.
 [CONFIG][VALIDATION] Running execution guard self-test
 [CONFIG][VALIDATION] Execution guard enforced
 [INFO] Core Orchestrator initialised.
@@ -68,7 +68,7 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode SIM --cycles 1 --s
 [SAFETY] EXECUTION: HARD DISABLED
 [SAFETY] ORDER ROUTING: BLOCKED
 [BOOT] EventCollector initialised
-[BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
+[BOOT] PatternEngine instantiated � Ross Momentum pattern suite enabled
 [BOOT] SignalEngineV1 instantiated
 [BOOT] Strategy 'GapAndGoStrategy' skipped due to selection (selected=statistical_intraday_momentum).
 [BOOT] Strategy 'MomentumContinuationStrategy' skipped due to selection (selected=statistical_intraday_momentum).
@@ -93,15 +93,15 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode SIM --cycles 1 --s
 [BOOT] Strategy 'LongHorizonQualityCompounderStrategy' skipped due to selection (selected=statistical_intraday_momentum).
 [BOOT] Strategy 'RegimeAdaptiveMetaAllocatorStrategy' skipped due to selection (selected=statistical_intraday_momentum).
 [BOOT] StrategyRunner instantiated with strategies: StatisticalIntradayMomentum
-[BOOT] RiskEngine instantiated — phase 4 teaching rules active
-[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow
+[BOOT] RiskEngine instantiated � phase 4 teaching rules active
+[BOOT] ExecutionEngine instantiated � broker-routed deterministic flow
 [SAFETY] EXECUTION: HARD DISABLED
 [EXECUTION] Gateway: DISABLED
 [EXECUTION] Liquidity checks: DISABLED
 [EXECUTION] Broker submission: DISABLED
-[STORAGE] SQLite path resolved to /workspace/ibkr-trading-system/data/ibkr_system.db
+[STORAGE] SQLite path resolved to C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\data\ibkr_system.db
 [BOOT] StorageEngine initialised
-[BOOT] Event replay mode resolved — mode=CYCLE
+[BOOT] Event replay mode resolved � mode=CYCLE
 [VALIDATION] Running startup validations
 [VALIDATION] Config resolved
 [VALIDATION] Effective run mode: SIM
@@ -113,25 +113,25 @@ $ /root/.pyenv/versions/3.10.19/bin/python -m src.main --mode SIM --cycles 1 --s
 [VALIDATION] EXECUTION: HARD DISABLED
 [VALIDATION] ORDER ROUTING: BLOCKED
 [VALIDATION] Broker adapter in use: NONE
-[VALIDATION] Storage OK — SQLite opened
+[VALIDATION] Storage OK � SQLite opened
 [LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.
 [CYCLE] Starting orchestrator cycle.
-[TRACE] stage=MARKET_SESSION cycle_id=77b64b34-6644-4fc5-8c27-7c416e2f5213 run_mode=SIM strategy=statistical_intraday_momentum 
+[TRACE] stage=MARKET_SESSION cycle_id=5e6809e9-ed37-4681-a386-661fdede6904 run_mode=SIM strategy=statistical_intraday_momentum 
 [SESSION] Detected market session: CLOSED
 [SESSION] System WOULD treat market as closed (teaching-only).
 [SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once().
 [INFO] Starting orchestrator cycle (teaching-only).
-[SESSION] phase=CLOSED ny_time=2026-02-14T18:01:02.248103-05:00 uk_time=2026-02-14T23:01:02.248103+00:00 utc=2026-02-14T23:01:02.248103+00:00
+[SESSION] phase=CLOSED ny_time=2026-02-15T18:48:58.633193-05:00 uk_time=2026-02-15T23:48:58.633193+00:00 utc=2026-02-15T23:48:58.633193+00:00
 [RUNTIME] mode=SIM live_like=False allow_orders=False max_shares_per_order=None event_replay=CYCLE
 STATE=DEGRADED
 [CONNECTIVITY] IBKR connection failed: Live broker connections are forbidden in SIM mode
-[TRACE] stage=HALT cycle_id=66487542-988e-46ab-a497-ab5756d6122a run_mode=SIM strategy=statistical_intraday_momentum reason_code=CONNECTIVITY_FAILURE message=Live broker connections are forbidden in SIM mode
+[TRACE] stage=HALT cycle_id=7e2da9ab-6199-4488-9cbf-8fec4d9bb001 run_mode=SIM strategy=statistical_intraday_momentum reason_code=CONNECTIVITY_FAILURE message=Live broker connections are forbidden in SIM mode
 [SCANNER] MODE=integrated SESSION=CLOSED
 [SCANNER][POLICY] source=STRATEGY policy_name=STATISTICAL_INTRADAY_MOMENTUM price=5.0-200.0 gap_min=2.0 rvol_min=1.5 float_max_millions=200.0 spread_max_pct=None watchlist_k=20 focus_m=5
 [SCANNER][ENTRY] strategy=STATISTICAL_INTRADAY_MOMENTUM requested_top_n=75 watchlist_k=20 focus_m=5 universe=IBKR_TOP_GAINERS scan_code=TOP_PERC_GAIN instrument=STK location=STK.US.MAJOR above_price=5.0 below_price=200.0
 [SCANNER][PROVIDER] provider=MOCK fallback_reason=SCANNER_DATA_SOURCE=MOCK
 [SCANNER][LIMITS] Symbol limits (value/source/env)
-[SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=DEFAULT env=-
+[SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=ENV env=IBKR_MAX_SYMBOLS_PER_CYCLE
 [SCANNER][LIMITS] SCANNER_TEACHING_SYMBOL_CAP=0 source=DEFAULT env=-
 [SCANNER][LIMITS] Policy caps top_gainers_n=75 watchlist_k=20 focus_m=5 max_symbols_per_cycle=75
 [SCANNER][LIMITS] Resolved symbol request limit=75 reductions=['none']
@@ -264,7 +264,7 @@ FOCUS_M: ['ROKU', 'GME', 'NFLX', 'MU', 'BAC']
 NEW: ['AAPL', 'AMD', 'AMZN', 'BAC', 'CLSK', 'CRWD', 'CVX', 'GME', 'JPM', 'MARA', 'META', 'MU', 'NFLX', 'PLTR', 'RIOT', 'RIVN', 'ROKU', 'SNOW', 'SPOT', 'TSLA']
 CONTINUING: []
 DROPPED: []
-[TRACE] stage=UNIVERSE cycle_id=66487542-988e-46ab-a497-ab5756d6122a run_mode=SIM strategy=statistical_intraday_momentum top_n=50 symbols=['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
+[TRACE] stage=UNIVERSE cycle_id=7e2da9ab-6199-4488-9cbf-8fec4d9bb001 run_mode=SIM strategy=statistical_intraday_momentum top_n=50 symbols=['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'META', 'AMZN', 'GOOGL', 'NFLX', 'BABA', 'PLTR', 'RIVN', 'SNOW', 'CRWD', 'COIN', 'SOFI', 'LCID', 'NIO', 'MARA', 'RIOT', 'CLSK', 'GME', 'AMC', 'DKNG', 'ROKU', 'UPST', 'SHOP', 'AI', 'PATH', 'FUBO', 'SOUN', 'IONQ', 'AVGO', 'INTC', 'MU', 'TSM', 'ADBE', 'ORCL', 'QCOM', 'SPOT', 'UBER', 'LYFT', 'BA', 'GE', 'XOM', 'CVX', 'JPM', 'BAC', 'C', 'WFC']
 [SCANNER][DIAGNOSTICS] Top 50 observations (extended columns)
 [SCANNER][ROW] rank=1 symbol=AAPL conId=None exchange=None session=NA last=12.07 ref_close=9.69 pct_change=24.56 pct_ref=CALC(SESSION_REF) volume=27515675 avg_volume_20d=3378599 rvol=8.14 bid=12.05 ask=12.12 spread=0.07 spread_pct=0.01 dollar_volume=332114197.25 float_m=12.59 halted=None ssr=None data_quality=MOCK,NEWS_DELAYED drop_reasons=-
 [SCANNER][ROW] rank=2 symbol=MSFT conId=None exchange=None session=NA last=7.93 ref_close=6.96 pct_change=13.94 pct_ref=CALC(SESSION_REF) volume=12731375 avg_volume_20d=2320893 rvol=5.49 bid=7.92 ask=7.96 spread=0.04 spread_pct=0.01 dollar_volume=100959803.75 float_m=3.38 halted=None ssr=None data_quality=MOCK drop_reasons=DROP_RANK_BELOW_WATCHLIST
@@ -368,35 +368,35 @@ DROPPED: []
 [SCANNER][DROP] symbol=XOM reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=C reason=DROP_RANK_BELOW_WATCHLIST
 [SCANNER][DROP] symbol=WFC reason=DROP_RANK_BELOW_WATCHLIST
-[TRACE] stage=WATCHLIST cycle_id=66487542-988e-46ab-a497-ab5756d6122a run_mode=SIM strategy=statistical_intraday_momentum watchlist=20 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT', '...']
-[TRACE] stage=FOCUS cycle_id=66487542-988e-46ab-a497-ab5756d6122a run_mode=SIM strategy=statistical_intraday_momentum focus=5 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
+[TRACE] stage=WATCHLIST cycle_id=7e2da9ab-6199-4488-9cbf-8fec4d9bb001 run_mode=SIM strategy=statistical_intraday_momentum watchlist=20 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT', '...']
+[TRACE] stage=FOCUS cycle_id=7e2da9ab-6199-4488-9cbf-8fec4d9bb001 run_mode=SIM strategy=statistical_intraday_momentum focus=5 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
 [WATCHLIST] size=20 symbols=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU', 'BAC', 'PLTR', 'CVX', 'AMD', 'JPM', 'AAPL', 'MARA', 'CLSK', 'AMZN', 'RIOT', 'RIVN', 'META', 'TSLA', 'CRWD', 'SPOT']
 [SNAPSHOT][QUALITY] symbol=ROKU missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=SNOW missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=GME missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=NFLX missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=MU missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=BAC missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=PLTR missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=CVX missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
+[SNAPSHOT][QUALITY] symbol=MU missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=AMD missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=JPM missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=AAPL missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
+[SNAPSHOT][QUALITY] symbol=CVX missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
+[SNAPSHOT][QUALITY] symbol=PLTR missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=MARA missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=CLSK missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=AMZN missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=RIOT missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=RIVN missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=META missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
+[SNAPSHOT][QUALITY] symbol=JPM missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
+[SNAPSHOT][QUALITY] symbol=CLSK missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
+[SNAPSHOT][QUALITY] symbol=AAPL missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=TSLA missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-[SNAPSHOT][QUALITY] symbol=CRWD missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
 [SNAPSHOT][QUALITY] symbol=SPOT missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
-STRATEGY_RUNNER_RECEIVED K=20 session=NA timestamp_utc=2026-02-14T23:01:02.248878+00:00
+[SNAPSHOT][QUALITY] symbol=RIOT missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
+[SNAPSHOT][QUALITY] symbol=CRWD missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
+[SNAPSHOT][QUALITY] symbol=META missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
+[SNAPSHOT][QUALITY] symbol=RIVN missing=['last', 'close', 'volume'] flags=['MD_UNAVAILABLE']
+STRATEGY_RUNNER_RECEIVED K=20 session=NA timestamp_utc=2026-02-15T23:48:58.634603+00:00
 [STRATEGY][FOCUS] statistical_intraday_momentum using focus_m=5
 [STRATEGY][PROCESS] strategy_key=statistical_intraday_momentum strategies=1 watchlist=5 session=NA phase=CLOSED
-[SIMOM][CYCLE] start timestamp=2026-02-14T23:01:02.248878+00:00 mode=SIM session=NA session_phase=CLOSED ny_time=2026-02-14T18:01:02.248878-05:00
+[SIMOM][CYCLE] start timestamp=2026-02-15T23:48:58.634603+00:00 mode=SIM session=NA session_phase=CLOSED ny_time=2026-02-15T18:48:58.634603-05:00
 [SIMOM][INPUT] watchlist_k=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU'] focus_m=['ROKU', 'SNOW', 'GME', 'NFLX', 'MU']
-[SIMOM][WARN] SIM override — session not in allowlist; session=NA allowlist=['RTH']
+[SIMOM][WARN] SIM override � session not in allowlist; session=NA allowlist=['RTH']
 [SIMOM][SIGNAL] symbol=ROKU side=LONG type=CONTINUATION confidence=1.00 stop=12.0285 target=12.393
 [SIMOM][EVAL] symbol=ROKU decision=PASS reasons=['NONE']
 [SIMOM][EVAL] symbol=SNOW decision=SKIP reasons=['LIQUIDITY_BELOW_MIN']
@@ -409,14 +409,14 @@ STRATEGY_RUNNER_RECEIVED K=20 session=NA timestamp_utc=2026-02-14T23:01:02.24887
 [SIMOM][ORDERS] intents_ready mode=SIM
 [SIMOM][SUMMARY] considered=5 signals=4 orders=0 skipped=1
 [EXECUTION] dry-run (orders disabled by mode)
-[TRACE] stage=ACTION cycle_id=66487542-988e-46ab-a497-ab5756d6122a run_mode=SIM strategy=statistical_intraday_momentum intents=4
-[SNAPSHOT][SUMMARY] missing_required_fields={'MARA': ['last', 'close', 'volume'], 'AMZN': ['last', 'close', 'volume'], 'PLTR': ['last', 'close', 'volume'], 'ROKU': ['last', 'close', 'volume'], 'BAC': ['last', 'close', 'volume'], 'MU': ['last', 'close', 'volume'], 'AAPL': ['last', 'close', 'volume'], 'JPM': ['last', 'close', 'volume'], 'NFLX': ['last', 'close', 'volume'], 'SNOW': ['last', 'close', 'volume'], 'CVX': ['last', 'close', 'volume'], 'GME': ['last', 'close', 'volume'], 'RIOT': ['last', 'close', 'volume'], 'CLSK': ['last', 'close', 'volume'], 'AMD': ['last', 'close', 'volume'], 'RIVN': ['last', 'close', 'volume'], 'META': ['last', 'close', 'volume'], 'TSLA': ['last', 'close', 'volume'], 'CRWD': ['last', 'close', 'volume'], 'SPOT': ['last', 'close', 'volume']}
+[TRACE] stage=ACTION cycle_id=7e2da9ab-6199-4488-9cbf-8fec4d9bb001 run_mode=SIM strategy=statistical_intraday_momentum intents=4
+[SNAPSHOT][SUMMARY] missing_required_fields={'BAC': ['last', 'close', 'volume'], 'GME': ['last', 'close', 'volume'], 'NFLX': ['last', 'close', 'volume'], 'SNOW': ['last', 'close', 'volume'], 'MU': ['last', 'close', 'volume'], 'JPM': ['last', 'close', 'volume'], 'AMD': ['last', 'close', 'volume'], 'MARA': ['last', 'close', 'volume'], 'ROKU': ['last', 'close', 'volume'], 'AMZN': ['last', 'close', 'volume'], 'CLSK': ['last', 'close', 'volume'], 'CVX': ['last', 'close', 'volume'], 'PLTR': ['last', 'close', 'volume'], 'AAPL': ['last', 'close', 'volume'], 'TSLA': ['last', 'close', 'volume'], 'SPOT': ['last', 'close', 'volume'], 'RIOT': ['last', 'close', 'volume'], 'CRWD': ['last', 'close', 'volume'], 'META': ['last', 'close', 'volume'], 'RIVN': ['last', 'close', 'volume']}
 [SLEEP] Sleeping for 3 seconds before next cycle.
 [SHUTDOWN] Beginning GRACEFUL shutdown sequence.
-[EXECUTION] Shutdown requested — placeholder cleanup complete.
+[EXECUTION] Shutdown requested � placeholder cleanup complete.
 [TRADE_EXIT] No active trades to close during shutdown.
-[TRADE_EXIT] Shutdown completed — all trades force-closed.
+[TRADE_EXIT] Shutdown completed � all trades force-closed.
 [STORAGE] Shutdown complete.
 [EVENT_COLLECTOR] Flushing event summary for shutdown {'total': 39, 'by_type': {'CONFIG_RESOLVED': 1, 'MARKET_SESSION_STATE': 1, 'SCANNER_UNIVERSE_SNAPSHOT': 1, 'RAW_SCAN_SYMBOLS': 1, 'AFTER_GATES_SYMBOLS': 1, 'SCANNER_SYMBOL_DROPPED': 30, 'WATCHLIST_K_SELECTED': 1, 'SCANNER_WATCHLIST_K_READY': 1, 'SHUTDOWN_REQUESTED': 1, 'SHUTDOWN_STARTED': 1}, 'by_source': {'ConfigResolver': 1, 'SystemConfig': 1, 'Scanner': 35, 'CoreOrchestrator': 2}}
-[REGISTRY] Verification passed — no active trades remain.
+[REGISTRY] Verification passed � no active trades remain.
 [SHUTDOWN] Exiting gracefully. Goodbye!
