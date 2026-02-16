@@ -205,6 +205,17 @@ class RossMomentumPolicy:
     stock_selection: "StockSelectionSpec" = field(
         default_factory=lambda: StockSelectionSpec()
     )
+    execution_policy: dict[str, object] = field(
+        default_factory=lambda: {
+            "order_type_primary": "LIMIT",
+            "allow_market_orders": True,
+        }
+    )
+    setup_families: tuple[str, ...] = (
+        "OPENING_RANGE_BREAKOUT",
+        "FIRST_PULLBACK",
+        "MICRO_PULLBACK",
+    )
 
     # Level 2 / Tape reading (optional; can be disabled without subscriptions)
     # These are left as telemetry flags / hooks.

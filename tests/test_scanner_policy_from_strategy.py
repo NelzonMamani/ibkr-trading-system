@@ -62,10 +62,13 @@ def test_scanner_keeps_top_k_and_drops_only_below_watchlist_rank():
     finally:
         set_config_overrides({})
 
-    assert payload.get("survivors_count") == 50
+    assert payload.get("raw_universe_count") == 50
+    assert payload.get("gated_survivors_count") == 46
+    assert payload.get("survivors_count") == payload.get("gated_survivors_count")
     assert len(payload.get("watchlist_k", [])) == 15
     drop_summary = payload.get("drop_reason_summary", {})
-    assert drop_summary.get("DROP_RANK_BELOW_WATCHLIST") == 35
+    assert drop_summary.get("DROP_RANK_BELOW_WATCHLIST") == 31
+    assert drop_summary.get("DROP_PCT_CHANGE") == 4
 
     watchlist_symbols = set(payload.get("watchlist_k_symbols", []))
     focus_symbols = payload.get("focus_m_symbols", [])

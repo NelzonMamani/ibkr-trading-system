@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from typing import Iterable
 
 from src.config.runtime_config import RunMode
@@ -91,6 +91,18 @@ class StatisticalIntradayMomentumPolicy:
     signal: SignalSpec = SignalSpec()
     risk: RiskSpec = RiskSpec()
     telemetry: TelemetrySpec = TelemetrySpec()
+    stock_selection: StockSelectionSpec = dataclass_field(
+        default_factory=lambda: statistical_stock_selection_spec()
+    )
+    execution_policy: dict[str, object] = dataclass_field(
+        default_factory=lambda: {
+            "order_type_primary": "LIMIT",
+            "allow_market_orders": False,
+        }
+    )
+    setup_families: tuple[str, ...] = (
+        "STAT_MOMENTUM_CONTINUATION",
+    )
 
 
 def policy_identity(policy: StatisticalIntradayMomentumPolicy) -> StrategyIdentity:

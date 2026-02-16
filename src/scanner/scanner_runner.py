@@ -1403,6 +1403,10 @@ def _scanner_request_reject_payload(
         "candidate_metrics": [],
         "scanner_result": empty_result,
         "topn_count": 0,
+        "raw_universe_count": 0,
+        "gated_survivors_count": 0,
+        "watchlist_count": 0,
+        "focus_count": 0,
         "survivors_count": 0,
         "new_symbols": [],
         "continuing_symbols": [],
@@ -1493,7 +1497,12 @@ def run_scanner_cycle(
 
     run_mode = get_run_mode()
     fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
-    explicit_mock = str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
+    scanner_data_source = get_config("SCANNER_DATA_SOURCE")
+    scanner_data_source_record = get_config_record("SCANNER_DATA_SOURCE")
+    explicit_mock = (
+        str(scanner_data_source or "").upper() == "MOCK"
+        and scanner_data_source_record.source == "OVERRIDE"
+    )
     allow_mock_fallback = run_mode in {RunMode.SIM, RunMode.PAPER} or explicit_mock
     allow_symbol_fallback = allow_mock_fallback
     using_external_provider = provider is not None
@@ -2116,9 +2125,14 @@ def run_scanner_cycle(
     new_symbols = sorted(set(watchlist_symbols) - _PREV_WATCHLIST)
     continuing_symbols = sorted(set(watchlist_symbols) & _PREV_WATCHLIST)
     dropped_symbols = sorted(_PREV_WATCHLIST - set(watchlist_symbols))
+    raw_universe_count = len(symbols)
+    gated_survivors_count = len(candidates)
+    watchlist_count = len(watchlist_symbols)
+    focus_count = len(focus_symbols)
+
     print_scanner_contract(
-        topn_count=len(symbols),
-        survivors_count=len(candidates),
+        topn_count=raw_universe_count,
+        survivors_count=gated_survivors_count,
         watchlist_k=watchlist_symbols,
         focus_m=focus_symbols,
         drop_summary=drop_summary,
@@ -2155,8 +2169,12 @@ def run_scanner_cycle(
             continuing_symbols=continuing_symbols,
             dropped_symbols=dropped_symbols,
         ),
-        "topn_count": len(symbols),
-        "survivors_count": len(candidates),
+        "topn_count": raw_universe_count,
+        "raw_universe_count": raw_universe_count,
+        "gated_survivors_count": gated_survivors_count,
+        "watchlist_count": watchlist_count,
+        "focus_count": focus_count,
+        "survivors_count": gated_survivors_count,
         "new_symbols": new_symbols,
         "continuing_symbols": continuing_symbols,
         "dropped_symbols": dropped_symbols,

@@ -74,3 +74,57 @@ def required_margin_of_safety(market_confidence: str) -> float:
 
 def portfolio_allows(target_pct: float) -> bool:
     return target_pct <= MAX_SINGLE_POSITION_PCT
+
+
+@dataclass(frozen=True)
+class LongHorizonValueStrategyPolicy:
+    """Canonical policy wrapper for strategy governance verifiers."""
+
+    name: str = "long_horizon_value"
+    version: str = "1.0"
+    stock_selection: Dict[str, object] = None  # type: ignore[assignment]
+    risk_policy: Dict[str, object] = None  # type: ignore[assignment]
+    execution_policy: Dict[str, object] = None  # type: ignore[assignment]
+    setup_families: List[str] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "stock_selection",
+            {
+                "universe_source": "FUNDAMENTAL_UNIVERSE",
+                "top_n": 200,
+                "watchlist_limit_k": 25,
+                "focus_limit_m": 10,
+            },
+        )
+        object.__setattr__(
+            self,
+            "risk_policy",
+            {
+                "max_single_position_pct": MAX_SINGLE_POSITION_PCT,
+                "max_new_allocation_pct": MAX_NEW_ALLOCATION_PCT,
+                "base_required_margin_of_safety": BASE_REQUIRED_MARGIN_OF_SAFETY,
+            },
+        )
+        object.__setattr__(
+            self,
+            "execution_policy",
+            {
+                "order_type_primary": "LIMIT",
+                "allow_market_orders": False,
+                "rebalance_frequency": "LOW_TURNOVER",
+            },
+        )
+        object.__setattr__(
+            self,
+            "setup_families",
+            [
+                "QUALITY_AT_REASONABLE_PRICE",
+                "MARGIN_OF_SAFETY_ACCUMULATION",
+                "BALANCE_SHEET_STRENGTH",
+            ],
+        )
+
+
+POLICY = LongHorizonValueStrategyPolicy()

@@ -20,6 +20,7 @@ from src.config.runtime_config import (
     get_ibkr_port,
     get_ibkr_snapshot_timeout_seconds,
 )
+from src.runtime.asyncio_runtime import ensure_event_loop_for_thread
 
 
 def _market_data_type_code(market_data_type: str) -> int:
@@ -109,6 +110,7 @@ class MarketDataClient:
         )
         self.default_exchange = default_exchange or get_ibkr_default_exchange()
         self.default_currency = default_currency or get_ibkr_default_currency()
+        ensure_event_loop_for_thread()
         self.ib = IB()
 
     def connect(self) -> None:
@@ -118,6 +120,7 @@ class MarketDataClient:
             "[IBKR][MD] Connecting "
             f"host={self.host} port={self.port} client_id={self.client_id}"
         )
+        ensure_event_loop_for_thread()
         connect_coro = self.ib.connectAsync(
             self.host,
             self.port,
