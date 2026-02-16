@@ -2,29 +2,29 @@
   "epoch": "M10_DATA_PROVENANCE_LEDGER",
   "files": [
     {
-      "bytes": 670,
+      "bytes": 648,
       "file": "PR_VERIFICATION_REPORT.md"
     },
     {
-      "bytes": 361,
+      "bytes": 345,
       "file": "certification_verdict.json"
     },
     {
-      "bytes": 134,
+      "bytes": 91,
       "file": "compileall.txt"
     },
     {
-      "bytes": 44200,
+      "bytes": 413,
       "file": "pytest_full.txt"
     },
     {
-      "bytes": 240,
+      "bytes": 232,
       "file": "verification_output.json"
     },
     {
-      "bytes": 162,
+      "bytes": 157,
       "file": "verification_summary.md"
     }
   ],
-  "generated_at_utc": "2026-02-15T23:55:44Z"
+  "generated_at_utc": "2026-02-16T00:49:16Z"
 }

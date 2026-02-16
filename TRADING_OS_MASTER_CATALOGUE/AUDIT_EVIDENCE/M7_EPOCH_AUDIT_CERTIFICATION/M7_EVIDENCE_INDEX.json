@@ -2,17 +2,17 @@
   "epoch": "M7_EPOCH_AUDIT_CERTIFICATION",
   "files": [
     {
-      "bytes": 241,
+      "bytes": 230,
       "file": "certification_verdict.json"
     },
     {
-      "bytes": 2515,
+      "bytes": 2437,
       "file": "verification_output.json"
     },
     {
-      "bytes": 301,
+      "bytes": 295,
       "file": "verification_summary.md"
     }
   ],
-  "generated_at_utc": "2026-02-15T23:55:26Z"
+  "generated_at_utc": "2026-02-16T00:47:10Z"
 }
