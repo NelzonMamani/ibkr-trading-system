@@ -15,6 +15,7 @@ from src.strategy_policy_v2.policy_v2 import (
     IntrabarPhaseSpecV2,
     IntrabarSafetyThrottleV2,
     IntrabarTimeframeMapV2,
+    ImpulseQualificationAndMeasurementLawV2,
     IntrabarExitOverrideLawV2,
     MomentumWeaknessAndExitLawV2,
     ModeSemanticsV2,
@@ -233,6 +234,40 @@ POLICY_V2 = StrategyPolicyV2(
             "Gap/open behavior is judged at the open, while percent-change ranking remains a preparation-stage sorting signal."
         ),
     ),
+    impulse_qualification=ImpulseQualificationAndMeasurementLawV2(
+        structural_impulse_definition=(
+            "Structural impulse is defined as the expansion leg from the last confirmed higher low to the most recent expansion high that has not yet been structurally invalidated."
+        ),
+        micro_impulse_definition=(
+            "Micro impulse is defined as the breakout expansion from a trigger level (e.g., pullback high, ORB high, PMH) on execution timeframe (10SEC in fast phases)."
+        ),
+        retracement_calculation_basis=(
+            "Retracement percentage is calculated as (impulse_high - current_price) / (impulse_high - impulse_low). Pullback tiers reference this structural range."
+        ),
+        entry_trigger_law=(
+            "Primary micro-pullback entry: enter on first green candle that breaks the high of the previous red candle sequence during valid continuation context."
+        ),
+        stop_placement_law=(
+            "Initial stop placement = low of pullback structure. Loss beyond pullback low invalidates continuation thesis."
+        ),
+        pullback_candle_structure_law=(
+            "Red pullback candles should exhibit smaller bodies relative to the impulse green candle bodies. Expanding red bodies or long upper wicks degrade continuation probability."
+        ),
+        macd_preference_law=(
+            "Prefer entries when MACD is positive or curling upward on structure timeframe (typically 1MIN; 5MIN for higher timeframe context). MACD is confirmation-weighted evidence, not universal gating."
+        ),
+        fifty_percent_reset_law=(
+            "If retracement exceeds 50% of the structural impulse range, continuation thesis is considered weak. Bias shifts to bail-out and no re-entry until new structural impulse forms."
+        ),
+        timeframe_alignment_notes=(
+            "Impulse and retracement are structure-based, not time-boxed. Evaluation is fractal across 5MIN, 1MIN, and 10SEC. Intrabar exit authority (10SEC) may trigger before 1MIN candle close."
+        ),
+        calibration_notes=(
+            "30/40/50 pullback tiers reflect Ross-style empirical doctrine and require future replay/statistical validation."
+        ),
+        notes="Spec-only structural law. No runtime wiring or evaluator implementation in this PR.",
+    ),
+
     structure_model=StructureModelV2(
         levels=(
             "HOD",

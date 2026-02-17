@@ -84,3 +84,30 @@ def test_ross_policy_v2_inventory_contains_new_sections() -> None:
     assert "Float Tier Doctrine" in inventory
     assert "Confirmation Layer (MACD + volume-bar rules)" in inventory
     assert "Momentum Weakness & Exit Law (Pullback tiers + intrabar exits + volume dominance proxies)" in inventory
+    assert "Impulse Qualification & Measurement Law (Structural + Micro + 50% Reset Doctrine)" in inventory
+
+
+
+def test_p01_impulse_qualification_present_and_non_empty() -> None:
+    law = POLICY_V2.impulse_qualification
+
+    assert law.structural_impulse_definition.strip()
+    assert law.micro_impulse_definition.strip()
+    assert law.retracement_calculation_basis.strip()
+    assert law.entry_trigger_law.strip()
+    assert law.stop_placement_law.strip()
+    assert law.pullback_candle_structure_law.strip()
+    assert law.macd_preference_law.strip()
+    assert law.fifty_percent_reset_law.strip()
+    assert law.timeframe_alignment_notes.strip()
+    assert law.calibration_notes.strip()
+    assert law.notes.strip()
+
+    assert "50%" in law.fifty_percent_reset_law
+    assert "breaks the high of the previous red" in law.entry_trigger_law
+    assert "pullback low" in law.stop_placement_law.lower()
+
+    disallowed = ("placeholder", "todo")
+    for text_value in law.__dict__.values():
+        lowered = text_value.lower()
+        assert all(token not in lowered for token in disallowed), text_value

@@ -306,3 +306,26 @@ Authoritative checklist for migrating P01 Ross Momentum policy into StrategyPoli
 - Clarifier retained for session-reference separation:
   - Gap/open behavior is evaluated at the open.
   - `% change` ranking remains primarily a preparation-stage ranking signal.
+
+
+## 27) Impulse Qualification & Measurement Law (Structural + Micro + 50% Reset Doctrine)
+- `ImpulseQualificationAndMeasurementLawV2` is added as a spec-only doctrinal surface; no runtime evaluator wiring is introduced in this change.
+- Structural impulse doctrine:
+  - Expansion leg from the last confirmed higher low to the most recent expansion high that remains structurally valid.
+- Micro impulse doctrine:
+  - Breakout expansion from a trigger level (e.g., pullback high, ORB high, PMH) on execution timeframe (10SEC in fast phases).
+- Retracement measurement basis:
+  - `(impulse_high - current_price) / (impulse_high - impulse_low)`; pullback tiers reference this structural range.
+- Entry/stop laws:
+  - Primary micro-pullback entry is first green candle that breaks the high of the prior red sequence in valid continuation context.
+  - Initial invalidation stop is pullback structure low; loss below that low invalidates continuation thesis.
+- Pullback candle quality doctrine:
+  - Red pullback bodies should remain smaller than impulse green bodies; expanding red bodies or long upper wicks degrade continuation odds.
+- MACD preference doctrine:
+  - Prefer positive/curling-up MACD on structure timeframe (typically 1MIN; 5MIN for higher-timeframe context), as confirmation-weighted evidence rather than universal hard gating.
+- 50% reset doctrine:
+  - Retracement beyond 50% shifts bias toward bail-out and no re-entry until a new structural impulse forms.
+- Timeframe alignment doctrine:
+  - Impulse/retracement is structure-based and fractal across 5MIN, 1MIN, and 10SEC; intrabar 10SEC exit authority may fire before 1MIN close.
+- Calibration note:
+  - 30/40/50 pullback tiers remain Ross-style empirical doctrine pending replay/statistical validation.
