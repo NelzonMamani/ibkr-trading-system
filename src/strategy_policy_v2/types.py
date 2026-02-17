@@ -1,4 +1,5 @@
 from src.strategy_policy_v2.policy_v2 import (
+    CandleAndVolumeEvidenceModelV2,
     ConfirmationSpecV2,
     DataRequirementsV2,
     ExecutionModelV2,
@@ -18,6 +19,7 @@ from src.strategy_policy_v2.policy_v2 import (
     PremarketPreparationModelV2,
     PositionManagementV2,
     RiskModelV2,
+    SessionReferenceLawV2,
     SymbolRotationLawV2,
     SafetyModelV2,
     SafetyRuleV2,
@@ -41,6 +43,7 @@ from src.strategy_policy_v2.selection_plans import (
 )
 
 __all__ = [
+    "CandleAndVolumeEvidenceModelV2",
     "ConfirmationSpecV2",
     "DataRequirementsV2",
     "EventPlan",
@@ -62,6 +65,7 @@ __all__ = [
     "PortfolioPlan",
     "PositionManagementV2",
     "RiskModelV2",
+    "SessionReferenceLawV2",
     "SymbolRotationLawV2",
     "SafetyModelV2",
     "SafetyRuleV2",
