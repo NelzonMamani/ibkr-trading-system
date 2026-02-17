@@ -15,6 +15,8 @@ from src.strategy_policy_v2.policy_v2 import (
     IntrabarPhaseSpecV2,
     IntrabarSafetyThrottleV2,
     IntrabarTimeframeMapV2,
+    IntrabarExitOverrideLawV2,
+    MomentumWeaknessAndExitLawV2,
     ModeSemanticsV2,
     PatternCatalogV2,
     PatternSpecV2,
@@ -22,6 +24,7 @@ from src.strategy_policy_v2.policy_v2 import (
     PremarketLevelSpecV2,
     PremarketPreparationModelV2,
     PositionManagementV2,
+    PullbackWeaknessTierModelV2,
     PriceModelV2,
     RankingModelV2,
     RelativeVolumeModelV2,
@@ -40,6 +43,7 @@ from src.strategy_policy_v2.policy_v2 import (
     TrailingModelV2,
     TrailingRuleV2,
     TriggerEntrySpecV2,
+    VolumeDominanceProxyModelV2,
     VolumeModelV2,
     TriggerModelV2,
 )
@@ -176,6 +180,57 @@ POLICY_V2 = StrategyPolicyV2(
         ),
         risk_exit_pause_semantics=(
             "DOJI implies indecision and reduced conviction, SHOOTING_STAR implies topping/rejection risk with pause-or-exit bias, and HAMMER implies reclaim potential only if follow-through confirms."
+        ),
+    ),
+    momentum_weakness_and_exit=MomentumWeaknessAndExitLawV2(
+        pullback_tiers=PullbackWeaknessTierModelV2(
+            ideal_pullback_max=0.30,
+            caution_pullback_max=0.40,
+            hard_warning_pullback_max=0.50,
+            behavior_by_tier=(
+                "<=30% pullback is the strongest continuation tier when reclaim/volume confirm.",
+                "30-40% pullback is still tradable but requires cleaner structure-hold behavior.",
+                "40-50% pullback is caution territory: reduce aggression and tighten invalidation tolerance.",
+                ">=50% pullback indicates weak momentum thesis; pause adds and bias toward bailout unless immediate reclaim proves otherwise.",
+            ),
+            intrabar_detection_notes=(
+                "Weakness is detected on execution timeframes (10SEC in fast phases), and can trigger exits before the 1M candle closes."
+            ),
+            calibration_notes="Subject to empirical validation; 30/40/50 tiers are Ross-style calibration defaults.",
+        ),
+        volume_dominance=VolumeDominanceProxyModelV2(
+            enable_proxy_thresholds=False,
+            red_vs_green_volume_pause_ratio=1.0,
+            red_vs_impulse_green_volume_bail_ratio=1.2,
+            commentary=(
+                "Red versus green volume bars are used as selling-pressure proxies: when red bars begin to dominate pullback/consolidation flow, "
+                "continuation odds degrade and risk response should shift from add to protect/bail. "
+                "Proxy ratios remain disabled by default to prevent false precision until calibrated."
+            ),
+            calibration_notes="Subject to empirical validation; proxy thresholds are doctrine knobs rather than fixed truths.",
+        ),
+        intrabar_exit_override=IntrabarExitOverrideLawV2(
+            allowed_phases=("OPENING_DRIVE", "MORNING_MOMENTUM"),
+            execution_timeframes=("10SEC",),
+            doctrine=(
+                "Breakout-or-bail doctrine: intrabar structure failure overrides candle-close confirmation authority in fast phases; "
+                "the policy explicitly permits 10SEC exits before a 1M candle forms/closes to avoid hope-holding through reversals."
+            ),
+            override_examples=(
+                "Breakout rejects and loses trigger level intrabar after initial push.",
+                "Pullback exceeds hard-warning retrace tier while momentum stalls.",
+                "Topping-tail rejection prints as red volume dominance expands.",
+                "Key reclaim level (VWAP/EMA/PMH) fails intrabar before 1M confirmation.",
+            ),
+            calibration_notes="Subject to empirical validation; fast-phase override behavior should be validated with replay metrics.",
+        ),
+        candle_evidence_alignment_notes=(
+            "Use CandleAndVolumeEvidenceModelV2 tags to contextualize weakness: DOJI = indecision, SHOOTING_STAR/long upper wick = rejection risk, "
+            "HAMMER = potential reclaim only with follow-through confirmation."
+        ),
+        notes=(
+            "Spec-only consolidation layer: codifies pullback weakness tiers, intrabar exit authority, and red-volume dominance proxies without runtime wiring changes. "
+            "Gap/open behavior is judged at the open, while percent-change ranking remains a preparation-stage sorting signal."
         ),
     ),
     structure_model=StructureModelV2(

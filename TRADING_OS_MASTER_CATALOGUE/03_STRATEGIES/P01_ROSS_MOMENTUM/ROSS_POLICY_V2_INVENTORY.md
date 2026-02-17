@@ -287,3 +287,22 @@ Authoritative checklist for migrating P01 Ross Momentum policy into StrategyPoli
 - Data requirements alignment:
   - float and news catalyst remain structural required fields.
   - newly introduced session-reference evidence fields are optional with explicit fallback semantics.
+
+## 26) Momentum Weakness & Exit Law (Pullback tiers + intrabar exits + volume dominance proxies)
+- `MomentumWeaknessAndExitLawV2` is added as a spec-only consolidation layer; runtime wiring/evaluation logic remains intentionally unchanged.
+- Pullback tier doctrine (calibration defaults, subject to empirical validation):
+  - `<=30%` retrace: strongest continuation context when reclaim + volume confirm.
+  - `30-40%` retrace: normal pullback zone; maintain confirmation discipline.
+  - `40-50%` retrace: caution tier; reduce aggression and tighten invalidation tolerance.
+  - `>=50%` retrace: momentum thesis weakens; pause-add/bail bias unless immediate reclaim evidence appears.
+- Intrabar exit override doctrine:
+  - 10SEC execution authority is explicit in `OPENING_DRIVE` (and permitted in `MORNING_MOMENTUM`).
+  - Exit may occur before a 1M candle forms/closes when intrabar structure failure invalidates breakout/reclaim thesis.
+  - This encodes Ross failure-fast "breakout or bail out" behavior to avoid hope-holding during rapid reversals.
+- Volume dominance proxy knobs:
+  - Red-vs-green and red-vs-impulse ratio surfaces are explicitly represented.
+  - Proxy thresholds are **disabled by default** (`enable_proxy_thresholds=False`) to avoid false certainty.
+  - Ratios are doctrine-calibration surfaces only and are subject to empirical validation.
+- Clarifier retained for session-reference separation:
+  - Gap/open behavior is evaluated at the open.
+  - `% change` ranking remains primarily a preparation-stage ranking signal.

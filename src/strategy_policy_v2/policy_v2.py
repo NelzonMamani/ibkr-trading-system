@@ -107,6 +107,76 @@ class CandleAndVolumeEvidenceModelV2:
 
 
 @dataclass(frozen=True)
+class PullbackWeaknessTierModelV2:
+    """Ross pullback-tier doctrine surface: 30/40/50 style weakness calibration."""
+
+    ideal_pullback_max: float = 0.30
+    caution_pullback_max: float = 0.40
+    hard_warning_pullback_max: float = 0.50
+    behavior_by_tier: tuple[str, ...] = (
+        "<=30% retrace: strong continuation context when structure/volume confirm.",
+        "30-40% retrace: normal pullback zone; continue with disciplined confirmation.",
+        "40-50% retrace: caution tier; reduce aggression and tighten failure criteria.",
+        ">=50% retrace: momentum thesis weakens; pause adds and prefer bail-out bias.",
+    )
+    intrabar_detection_notes: str = (
+        "Weakness is evaluated on execution timeframes (e.g., 10SEC) and may trigger risk exits before a 1M candle close prints."
+    )
+    calibration_notes: str = "Subject to empirical validation; defaults encode Ross-style pullback doctrine."
+
+
+@dataclass(frozen=True)
+class VolumeDominanceProxyModelV2:
+    """Proxy knobs for red/green volume-bar dominance; spec-only and calibration dependent."""
+
+    enable_proxy_thresholds: bool = False
+    red_vs_green_volume_pause_ratio: float = 1.0
+    red_vs_impulse_green_volume_bail_ratio: float = 1.2
+    commentary: str = (
+        "Red/green volume-bar doctrine compares selling-pressure bars versus constructive impulse bars: "
+        "if red volume begins to dominate the pullback/consolidation tape, continuation quality degrades and pause/bail bias increases. "
+        "These ratios are proxy surfaces only and intentionally default to disabled to avoid false certainty."
+    )
+    calibration_notes: str = "Subject to empirical validation; ratio knobs are provisional doctrine proxies."
+
+
+@dataclass(frozen=True)
+class IntrabarExitOverrideLawV2:
+    """Explicit authority for 10SEC-style intrabar exits before slower candle completion."""
+
+    allowed_phases: tuple[str, ...] = ("OPENING_DRIVE", "MORNING_MOMENTUM")
+    execution_timeframes: tuple[str, ...] = ("10SEC",)
+    doctrine: str = (
+        "Intrabar structure failure overrides candle-close confirmation: in fast phases, exit authority is immediate on 10SEC evidence "
+        "to prevent hope-holding through failed breakouts."
+    )
+    override_examples: tuple[str, ...] = (
+        "Breakout prints initial follow-through then rejects back below trigger structure.",
+        "Pullback retrace expands beyond hard-warning tier and continuation quality collapses intrabar.",
+        "Topping-tail/rejection bar appears while red volume dominance rises against the long thesis.",
+        "Key support/reclaim level is lost intrabar before 1M close confirms.",
+    )
+    calibration_notes: str = "Subject to empirical validation; intrabar override scope should be validated with replay/statistics."
+
+
+@dataclass(frozen=True)
+class MomentumWeaknessAndExitLawV2:
+    """Composite Ross weakness/exit doctrine joining pullback tiers, volume dominance, and intrabar override authority."""
+
+    pullback_tiers: PullbackWeaknessTierModelV2 = field(default_factory=PullbackWeaknessTierModelV2)
+    volume_dominance: VolumeDominanceProxyModelV2 = field(default_factory=VolumeDominanceProxyModelV2)
+    intrabar_exit_override: IntrabarExitOverrideLawV2 = field(default_factory=IntrabarExitOverrideLawV2)
+    candle_evidence_alignment_notes: str = (
+        "Align weakness and exit decisions with CandleAndVolumeEvidenceModelV2 tags (e.g., DOJI indecision, SHOOTING_STAR rejection, "
+        "HAMMER reclaim potential only with confirmation, and long topping tails as de-risk signals)."
+    )
+    notes: str = (
+        "Spec-only doctrine surface: captures failure-fast 'breakout or bail out' behavior without wiring runtime evaluators. "
+        "Gap/open behavior is evaluated at the open, while percent-change ranking remains primarily a preparation-stage sorting tool."
+    )
+
+
+@dataclass(frozen=True)
 class StructureModelV2:
     levels: tuple[str, ...] = ()
     zones: tuple[str, ...] = ()
@@ -354,6 +424,7 @@ class StrategyPolicyV2:
     trigger_model: TriggerModelV2 = field(default_factory=TriggerModelV2)
     session_reference_law: SessionReferenceLawV2 = field(default_factory=SessionReferenceLawV2)
     candle_and_volume_evidence: CandleAndVolumeEvidenceModelV2 = field(default_factory=CandleAndVolumeEvidenceModelV2)
+    momentum_weakness_and_exit: MomentumWeaknessAndExitLawV2 = field(default_factory=MomentumWeaknessAndExitLawV2)
     structure_model: StructureModelV2 = field(default_factory=StructureModelV2)
     position_management: PositionManagementV2 = field(default_factory=PositionManagementV2)
     trailing_model: TrailingModelV2 = field(default_factory=TrailingModelV2)
