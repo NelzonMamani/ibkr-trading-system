@@ -157,6 +157,93 @@ class DataRequirementsV2:
 
 
 @dataclass(frozen=True)
+class PriceModelV2:
+    min_price: float = 1.0
+    max_price: float = 20.0
+    preferred_upper_bound: float = 10.0
+    reject_sub_dollar_rule: bool = True
+    rationale_commentary: str = ""
+    calibration_notes: str = ""
+
+
+@dataclass(frozen=True)
+class GapModelV2:
+    hard_gap_threshold: float = 10.0
+    soft_gap_threshold: float = 7.0
+    percent_change_ranking_law: str = ""
+    gap_vs_pct_change_distinction: str = ""
+    calibration_notes: str = ""
+
+
+@dataclass(frozen=True)
+class VolumeModelV2:
+    min_total_volume: int = 1_000_000
+    min_premarket_volume: int = 100_000
+    dollar_volume_min: float = 0.0
+    liquidity_commentary: str = ""
+    calibration_notes: str = ""
+
+
+@dataclass(frozen=True)
+class RelativeVolumeModelV2:
+    rvol_minimum: float = 5.0
+    calibration_commentary: str = ""
+    calibration_notes: str = ""
+
+
+@dataclass(frozen=True)
+class FloatModelV2:
+    float_max_millions: float = 20.0
+    float_preferred_zone: str = ""
+    float_explosive_zone: str = ""
+    inverse_weighting_in_ranking: bool = True
+    float_data_sources: tuple[str, ...] = ("YAHOO", "FINVIZ", "NASDAQ")
+    ibkr_not_primary_reason: str = ""
+    cache_policy_commentary: str = ""
+    calibration_notes: str = ""
+
+
+@dataclass(frozen=True)
+class CatalystModelV2:
+    require_catalyst: bool = True
+    catalyst_quality_levels: tuple[str, ...] = ()
+    internal_news_engine_primary: bool = True
+    rss_fast_list_support: bool = True
+    liquidity_proxy_when_uncertain: bool = True
+    commentary: str = ""
+
+
+@dataclass(frozen=True)
+class StockSelectionLawV2:
+    price_model: PriceModelV2 = field(default_factory=PriceModelV2)
+    gap_model: GapModelV2 = field(default_factory=GapModelV2)
+    volume_model: VolumeModelV2 = field(default_factory=VolumeModelV2)
+    relative_volume_model: RelativeVolumeModelV2 = field(default_factory=RelativeVolumeModelV2)
+    float_model: FloatModelV2 = field(default_factory=FloatModelV2)
+    catalyst_model: CatalystModelV2 = field(default_factory=CatalystModelV2)
+
+
+@dataclass(frozen=True)
+class LiquiditySanityModelV2:
+    spread_max_pct: float = 0.0
+    halt_policy: str = ""
+    ssr_handling: str = ""
+    execution_feasibility_commentary: str = ""
+    calibration_notes: str = ""
+
+
+@dataclass(frozen=True)
+class RankingModelV2:
+    weight_pct_change: float = 0.0
+    weight_rvol: float = 0.0
+    weight_float_inverse: float = 0.0
+    weight_catalyst: float = 0.0
+    liquidity_penalty: float = 0.0
+    ranking_commentary: str = ""
+    calibration_notes: str = ""
+
+
+@dataclass(frozen=True)
 class PremarketLevelSpecV2:
     level_id: str
     description: str
@@ -252,6 +339,9 @@ class StrategyPolicyV2:
     trailing_model: TrailingModelV2 = field(default_factory=TrailingModelV2)
     exit_model: ExitModelV2 = field(default_factory=ExitModelV2)
     safety_model: SafetyModelV2 = field(default_factory=SafetyModelV2)
+    stock_selection_law: StockSelectionLawV2 = field(default_factory=StockSelectionLawV2)
+    liquidity_sanity_model: LiquiditySanityModelV2 = field(default_factory=LiquiditySanityModelV2)
+    ranking_model: RankingModelV2 = field(default_factory=RankingModelV2)
     data_requirements: DataRequirementsV2 = field(default_factory=DataRequirementsV2)
     premarket_preparation: PremarketPreparationModelV2 = field(default_factory=PremarketPreparationModelV2)
     intrabar_execution: IntrabarExecutionModelV2 = field(default_factory=IntrabarExecutionModelV2)

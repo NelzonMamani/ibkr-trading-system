@@ -219,3 +219,17 @@ Authoritative checklist for migrating P01 Ross Momentum policy into StrategyPoli
 - Setup-family relationship:
   - Gap&Go, ORB, First Pullback, Bull Flag, ABCD, Momentum Reclaim, and related continuation families may all execute through OPENING_DRIVE micro-scalp on 10SEC entries.
   - Micro pullback is explicitly an execution tool used especially in the morning; afternoon behavior is governed by compressed timeframes and slower cadence.
+
+## 20) Stock Selection Structural Doctrine (5 Pillars Expanded)
+- `StockSelectionLawV2` is explicitly formalized with six structural components:
+  - `PriceModelV2`: min/max price band, preferred upper band, and sub-dollar rejection doctrine.
+  - `GapModelV2`: hard and soft gap thresholds, plus explicit distinction between eligibility gap logic vs ranking percent-change logic.
+  - `VolumeModelV2`: minimum total volume, minimum premarket volume, and minimum dollar volume with liquidity commentary.
+  - `RelativeVolumeModelV2`: standalone RVOL floor and calibration commentary; RVOL remains separate from raw volume.
+  - `FloatModelV2`: float ceiling, preferred/explosive zones, inverse ranking weighting, multi-source float doctrine (YAHOO/FINVIZ/NASDAQ), IBKR-secondary rationale, and cache commentary.
+  - `CatalystModelV2`: catalyst-required structural law with quality levels, internal-news primary preference, RSS fast-list support, and liquidity-proxy fallback when catalyst certainty is imperfect.
+- `LiquiditySanityModelV2` is formalized with spread cap, halt policy, SSR handling, and execution-feasibility doctrine.
+- `RankingModelV2` is formalized with weighted factors (`pct_change`, `rvol`, inverse float, catalyst) and explicit liquidity penalty semantics.
+- Calibration doctrine is made explicit where thresholds may evolve:
+  - `calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine."`
+- Float is structural (not optional) in required metadata fields.
