@@ -83,3 +83,4 @@ def test_ross_policy_v2_inventory_contains_new_sections() -> None:
     assert "Trigger/Entry Taxonomy Expansion" in inventory
     assert "Float Tier Doctrine" in inventory
     assert "Confirmation Layer (MACD + volume-bar rules)" in inventory
+    assert "Momentum Weakness & Exit Law (Pullback tiers + intrabar exits + volume dominance proxies)" in inventory
