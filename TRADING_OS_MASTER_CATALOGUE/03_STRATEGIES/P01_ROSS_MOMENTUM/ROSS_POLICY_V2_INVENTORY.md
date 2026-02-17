@@ -192,3 +192,30 @@ Authoritative checklist for migrating P01 Ross Momentum policy into StrategyPoli
   - exact slippage model constants,
   - exact router/venue constraints,
   - strict numeric spread cap in v1 Ross policy.
+
+## 19) Intrabar Execution Law (OPENING_DRIVE + MICRO_SCALP)
+- Phase map (spec-law):
+  - PREMARKET_PREP: DAILY/5M/1M analysis only; no trading intents.
+  - OPENING_DRIVE: 5M+1M structure with 10SEC execution and intrabar trigger permission.
+  - MORNING_MOMENTUM: still aggressive; 10SEC execution remains permitted.
+  - MIDDAY: reduced aggression; 1M-first execution, 10SEC precision optional.
+  - POWER_HOUR/LATE_DAY: timeframe compression (5M acts like morning 1M; 1M acts like morning 10SEC) with slower cadence.
+  - AFTER_HOURS: conservative mode under session semantics with tighter safety constraints.
+- Candle-close law:
+  - OPENING_DRIVE Gap&Go/immediate momentum entries do not require 1M candle close.
+  - 10SEC intrabar triggers are explicitly allowed in morning fast phases.
+  - Slower phases prefer candle-close confirmation.
+- Cadence and micro-scalp doctrine:
+  - "Control buy / control close" rapid loops are allowed in OPENING_DRIVE/MORNING_MOMENTUM.
+  - Repeated attempts are allowed only under risk overlay and max consecutive loss constraints.
+  - Burst cadence doctrine: 15-60 minute morning burst on 1-3 primary names; automation may manage up to `focus_limit_m` with strict gating.
+- Symbol rotation law:
+  - Prioritize focus-list leaders; trade the best 1-3 names rather than everything.
+  - Rotate when weakness, invalidation, or structure failure appears; reallocate to cleaner continuation names.
+- Safety throttles (spec-only):
+  - Spread/liquidity sanity and halt policy interactions can suspend micro-scalp loops.
+  - Connection/latency degradation blocks rapid-fire intents.
+  - Cancel/replace churn guard limits unstable rapid order management behavior.
+- Setup-family relationship:
+  - Gap&Go, ORB, First Pullback, Bull Flag, ABCD, Momentum Reclaim, and related continuation families may all execute through OPENING_DRIVE micro-scalp on 10SEC entries.
+  - Micro pullback is explicitly an execution tool used especially in the morning; afternoon behavior is governed by compressed timeframes and slower cadence.
