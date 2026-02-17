@@ -98,6 +98,15 @@ class TriggerModelV2:
 
 
 @dataclass(frozen=True)
+class CandleAndVolumeEvidenceModelV2:
+    """Spec-only candle/volume evidence law; runtime wiring deferred."""
+
+    evidence_tags: tuple[str, ...] = ()
+    volume_bar_dominance_law: str = ""
+    risk_exit_pause_semantics: str = ""
+
+
+@dataclass(frozen=True)
 class StructureModelV2:
     levels: tuple[str, ...] = ()
     zones: tuple[str, ...] = ()
@@ -173,6 +182,15 @@ class GapModelV2:
     percent_change_ranking_law: str = ""
     gap_vs_pct_change_distinction: str = ""
     calibration_notes: str = ""
+
+
+@dataclass(frozen=True)
+class SessionReferenceLawV2:
+    """Spec-only session reference law; runtime wiring deferred."""
+
+    pct_change_reference: str = ""
+    gap_reference: str = ""
+    closed_session_preparation_notes: str = ""
 
 
 @dataclass(frozen=True)
@@ -334,6 +352,8 @@ class StrategyPolicyV2:
     setup_families: SetupFamiliesV2 = field(default_factory=SetupFamiliesV2)
     pattern_catalog: PatternCatalogV2 = field(default_factory=PatternCatalogV2)
     trigger_model: TriggerModelV2 = field(default_factory=TriggerModelV2)
+    session_reference_law: SessionReferenceLawV2 = field(default_factory=SessionReferenceLawV2)
+    candle_and_volume_evidence: CandleAndVolumeEvidenceModelV2 = field(default_factory=CandleAndVolumeEvidenceModelV2)
     structure_model: StructureModelV2 = field(default_factory=StructureModelV2)
     position_management: PositionManagementV2 = field(default_factory=PositionManagementV2)
     trailing_model: TrailingModelV2 = field(default_factory=TrailingModelV2)

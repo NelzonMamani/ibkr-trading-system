@@ -1,5 +1,6 @@
 from src.strategy_policy_v2.policy_v2 import (
     CatalystModelV2,
+    CandleAndVolumeEvidenceModelV2,
     ConfirmationSpecV2,
     DataRequirementsV2,
     ExecutionModelV2,
@@ -28,6 +29,7 @@ from src.strategy_policy_v2.policy_v2 import (
     SymbolRotationLawV2,
     SafetyModelV2,
     SafetyRuleV2,
+    SessionReferenceLawV2,
     SessionSemanticsV2,
     SetupFamiliesV2,
     SetupFamilySpecV2,
@@ -131,15 +133,49 @@ POLICY_V2 = StrategyPolicyV2(
             TriggerEntrySpecV2("T_MICRO_RECLAIM", "BREAKOUT_RECLAIM", "Enter on first green candle breaking last red high after 2-3 red pullback bars.", ("OPENING_DRIVE", "MIDDAY", "LATE_DAY")),
             TriggerEntrySpecV2("T_PULLBACK_HIGH_BREAK", "PULLBACK_CONTINUATION", "Enter on pullback high reclaim or break of prior candle high.", ("RTH", "PRE")),
             TriggerEntrySpecV2("T_ORB_BREAK", "OPENING_RANGE_BREAK", "Enter on break above opening range high with hold.", ("RTH_OPEN",)),
+            TriggerEntrySpecV2("T_ORB_1M", "OPENING_RANGE_BREAK", "ORB 1-minute variant: break and hold above 1M opening range high; executes under OPENING_DRIVE intrabar law.", ("OPENING_DRIVE",)),
+            TriggerEntrySpecV2("T_ORB_5M", "OPENING_RANGE_BREAK", "ORB 5-minute variant: break and hold above 5M opening range high; executes under OPENING_DRIVE intrabar law.", ("OPENING_DRIVE",)),
+            TriggerEntrySpecV2("T_GAP_AND_GO_IMMEDIATE", "GAP_AND_GO_IMMEDIATE", "Immediate momentum continuation at/through PMH-ORH without requiring 1M candle close; intrabar entries allowed during OPENING_DRIVE.", ("OPENING_DRIVE",)),
+            TriggerEntrySpecV2("T_STARTER_POSITION_ANTICIPATION", "STARTER_POSITION_ANTICIPATION", "Optional small starter position before full confirmation when catalyst+liquidity+structure align; spec-only and calibration dependent.", ("OPENING_DRIVE", "MORNING_MOMENTUM")),
+            TriggerEntrySpecV2("T_BREAKOUT_OR_BAILOUT", "BREAKOUT_OR_BAILOUT", "Failure-fast doctrine: if breakout rejects/fails to hold trigger structure, bail out immediately and prevent hope-holding.", ("OPENING_DRIVE", "MORNING_MOMENTUM", "MIDDAY")),
             TriggerEntrySpecV2("T_KEY_LEVEL_BREAK", "LEVEL_BREAK", "Enter on break of PMH/HOD/flag high/whole-half dollar with momentum.", ("PRE", "RTH", "AH")),
             TriggerEntrySpecV2("T_RECLAIM", "VWAP_EMA_RECLAIM", "Enter on reclaim of VWAP/EMA9/EMA20 with continuation structure.", ("RTH", "AH")),
         ),
         confirmations=(
             ConfirmationSpecV2("C_VOLUME_EXPANSION", "Breakout volume should exceed pullback/consolidation volume."),
-            ConfirmationSpecV2("C_MACD_POSITIVE", "MACD should be positive for entries when available."),
+            ConfirmationSpecV2("C_MACD_POSITIVE", "MACD is a confirmation feature when present; treat as calibration-weighted evidence rather than universally mandatory gating.", required=False),
             ConfirmationSpecV2("C_HOLD_ABOVE_STRUCTURE", "Price must hold above VWAP/EMA9/EMA20 for long bias in pullbacks."),
             ConfirmationSpecV2("C_RVOL_IN_PLAY", "Relative volume and in-play gates must pass for candidate eligibility."),
             ConfirmationSpecV2("C_NO_TOPPING", "No topping-tail hard reversal signal on monitored structure timeframe."),
+            ConfirmationSpecV2("C_VOLUME_BAR_DOMINANCE", "Rising red volume during pullback/consolidation is selling-pressure dominance and should pause/bail per setup."),
+        ),
+    ),
+    session_reference_law=SessionReferenceLawV2(
+        pct_change_reference=(
+            "Percent-change law references prior close and remains valid in PRE/AH/CLOSED contexts where official RTH open is absent or not actionable."
+        ),
+        gap_reference=(
+            "Gap law references session open versus prior close and is only meaningful around the open/RTH transition; it is not a generic CLOSED-session prep metric."
+        ),
+        closed_session_preparation_notes=(
+            "During CLOSED preparation, prioritize prior-close percent-change ranking and catalyst context rather than labeling symbols as active 'gappers'."
+        ),
+    ),
+    candle_and_volume_evidence=CandleAndVolumeEvidenceModelV2(
+        evidence_tags=(
+            "DOJI",
+            "SHOOTING_STAR",
+            "HAMMER",
+            "LONG_UPPER_WICK",
+            "MARUBOZU",
+            "ENGULFING",
+            "THREE_SOLDIERS_CROWS",
+        ),
+        volume_bar_dominance_law=(
+            "Volume-bar dominance doctrine: rising red volume during pullback or consolidation indicates selling-pressure control; policy should pause adds and bail when reclaim/breakout thesis degrades."
+        ),
+        risk_exit_pause_semantics=(
+            "DOJI implies indecision and reduced conviction, SHOOTING_STAR implies topping/rejection risk with pause-or-exit bias, and HAMMER implies reclaim potential only if follow-through confirms."
         ),
     ),
     structure_model=StructureModelV2(
@@ -244,8 +280,8 @@ POLICY_V2 = StrategyPolicyV2(
         ),
         float_model=FloatModelV2(
             float_max_millions=20.0,
-            float_preferred_zone="Typically low-float names below ~10M receive higher momentum attention when other gates align.",
-            float_explosive_zone="Ultra-low float names (roughly sub-5M) can produce the fastest expansions and highest halt risk.",
+            float_preferred_zone="Preferred tier: low float names below roughly 10M shares often exhibit cleaner momentum responsiveness when other gates align.",
+            float_explosive_zone="Ultra-low float explosive tier (roughly sub-5M) can produce the fastest expansions with elevated volatility-halt and slippage risk.",
             inverse_weighting_in_ranking=True,
             float_data_sources=("YAHOO", "FINVIZ", "NASDAQ"),
             ibkr_not_primary_reason=(
@@ -319,8 +355,10 @@ POLICY_V2 = StrategyPolicyV2(
             "ssr",
             "macd",
             "l2_iceberg_signals",
+            "session_open_price",
+            "prior_close",
         ),
-        notes="If required fields are absent, policy mandates pause/reject semantics rather than speculative execution.",
+        notes="If required fields are absent, policy mandates pause/reject semantics rather than speculative execution. Session-reference and candle-evidence models are spec-only; optional fields use fallback behavior (e.g., MACD as non-blocking confirmation when unavailable).",
     ),
     premarket_preparation=PremarketPreparationModelV2(
         scan_focus=("GAPPERS", "TOP_PCT_GAINERS", "RELATIVE_VOLUME", "CATALYST_NEWS", "SYMpathy_SECTOR"),
@@ -398,7 +436,7 @@ POLICY_V2 = StrategyPolicyV2(
         ),
         notes=(
             "This model encodes Ross premarket due diligence: scan gappers/gainers, confirm catalyst, map HTF levels, "
-            "validate room-to-run (incl EMA200), and only then proceed to intrabar execution (10SEC) during OPENING_DRIVE."
+            "validate room-to-run (incl EMA200), and only then proceed to intrabar execution (10SEC) during OPENING_DRIVE. This is spec-only; runtime wiring deferred."
         ),
     ),
     intrabar_execution=IntrabarExecutionModelV2(

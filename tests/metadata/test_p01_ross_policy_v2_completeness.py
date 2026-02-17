@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
+from pathlib import Path
 from typing import Any
 
 from src.strategies.ross_momentum.strategy_policy_v2 import POLICY_V2
@@ -48,3 +49,37 @@ def test_ross_policy_v2_has_no_placeholders_or_todos() -> None:
     for text in _iter_strings(POLICY_V2):
         lowered = text.lower()
         assert all(token not in lowered for token in disallowed), text
+
+
+def test_ross_policy_v2_session_reference_present_and_non_empty() -> None:
+    model = POLICY_V2.session_reference_law
+    assert model.pct_change_reference.strip()
+    assert model.gap_reference.strip()
+    assert model.closed_session_preparation_notes.strip()
+
+
+def test_ross_policy_v2_candle_evidence_contains_required_tags() -> None:
+    tags = {tag.upper() for tag in POLICY_V2.candle_and_volume_evidence.evidence_tags}
+    assert "DOJI" in tags
+    assert "SHOOTING_STAR" in tags
+    assert "HAMMER" in tags
+
+
+def test_ross_policy_v2_trigger_model_contains_required_new_trigger_ids() -> None:
+    trigger_ids = {entry.trigger_id for entry in POLICY_V2.trigger_model.entries}
+    assert "T_GAP_AND_GO_IMMEDIATE" in trigger_ids
+    assert "T_STARTER_POSITION_ANTICIPATION" in trigger_ids
+    assert "T_BREAKOUT_OR_BAILOUT" in trigger_ids
+    assert "T_ORB_1M" in trigger_ids
+    assert "T_ORB_5M" in trigger_ids
+
+
+def test_ross_policy_v2_inventory_contains_new_sections() -> None:
+    inventory = Path(
+        "TRADING_OS_MASTER_CATALOGUE/03_STRATEGIES/P01_ROSS_MOMENTUM/ROSS_POLICY_V2_INVENTORY.md"
+    ).read_text(encoding="utf-8")
+    assert "Session Reference Law" in inventory
+    assert "Candle/Volume Evidence Law" in inventory
+    assert "Trigger/Entry Taxonomy Expansion" in inventory
+    assert "Float Tier Doctrine" in inventory
+    assert "Confirmation Layer (MACD + volume-bar rules)" in inventory
