@@ -167,6 +167,12 @@ Authoritative checklist for migrating P01 Ross Momentum policy into StrategyPoli
   - risk decision artifacts from overlay (`RiskDecision` / block events)
 - Required metadata fields (spec-level): strategy ID/name, symbol, direction, entry model, stop model, optional target, rationale, risk flags, and selection ranking provenance.
 
+## 18) Premarket Preparation Law
+- Scan focus: gappers + top % gainers + RVOL + catalyst
+- Map levels: PMH/PML, prior close, prior day levels, multi-day levels, whole/half dollars, VWAP/EMA9/EMA20, DAILY EMA200
+- Room-to-run decision: ensure upside air to next major resistance; EMA200 treated as major boundary
+- Output: “tradable today” decision context (spec-level; runtime wiring later)
+
 ## Reconciliation checklist vs v1
 - Carried from v1 directly:
   - scanner universe and gates,

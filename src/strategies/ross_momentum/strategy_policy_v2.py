@@ -8,6 +8,9 @@ from src.strategy_policy_v2.policy_v2 import (
     ModeSemanticsV2,
     PatternCatalogV2,
     PatternSpecV2,
+    PremarketFilterSpecV2,
+    PremarketLevelSpecV2,
+    PremarketPreparationModelV2,
     PositionManagementV2,
     RiskModelV2,
     SafetyModelV2,
@@ -212,6 +215,85 @@ POLICY_V2 = StrategyPolicyV2(
             "news_catalyst",
         ),
         notes="If required fields are absent, policy mandates pause/reject semantics rather than speculative execution.",
+    ),
+    premarket_preparation=PremarketPreparationModelV2(
+        scan_focus=("GAPPERS", "TOP_PCT_GAINERS", "RELATIVE_VOLUME", "CATALYST_NEWS", "SYMpathy_SECTOR"),
+        higher_timeframe_context=("DAILY", "WEEKLY"),
+        required_levels=(
+            PremarketLevelSpecV2("L_PREMARKET_HIGH", "Premarket high (PMH) — key breakout level and trigger context."),
+            PremarketLevelSpecV2("L_PREMARKET_LOW", "Premarket low (PML) — risk boundary and failure context."),
+            PremarketLevelSpecV2("L_PRIOR_CLOSE", "Prior close — gap reference anchor (session ref)."),
+            PremarketLevelSpecV2("L_PRIOR_DAY_HIGH_LOW", "Prior day high/low — overhead supply and support zones."),
+            PremarketLevelSpecV2("L_MULTI_DAY_LEVELS", "2–5 day highs/lows — breakout ceiling / room-to-run context."),
+            PremarketLevelSpecV2("L_WHOLE_HALF_DOLLAR", "Whole/half dollar psych levels — common stall/break points."),
+            PremarketLevelSpecV2("L_VWAP", "VWAP (intraday anchor) — reclaim/hold context."),
+            PremarketLevelSpecV2("L_EMA9_EMA20", "EMA9/EMA20 (intraday trend) — pullback/continuation structure."),
+            PremarketLevelSpecV2("L_EMA200_DAILY", "Daily EMA200 — major HTF resistance/support; room-to-run constraint."),
+        ),
+        required_filters=(
+            PremarketFilterSpecV2(
+                "F_CATALYST_REQUIRED",
+                "A real catalyst must exist (news/earnings/sector move/upgrade). No catalyst => do not trade.",
+                required=True,
+            ),
+            PremarketFilterSpecV2(
+                "F_IN_PLAY_GAP_RVOL_FLOAT_PRICE",
+                "Must satisfy Ross in-play gates: price range, gap%, RVOL, float ceiling, liquidity.",
+                required=True,
+            ),
+            PremarketFilterSpecV2(
+                "F_ROOM_TO_RUN_HTF",
+                "Room-to-run must exist on DAILY/WEEKLY: avoid immediate overhead supply; ensure upside air above key levels.",
+                required=True,
+            ),
+            PremarketFilterSpecV2(
+                "F_EMA200_CONTEXT",
+                "Check position vs DAILY EMA200: if below EMA200, require clear reclaim plan + room; if extended into EMA200, expect resistance/stalls.",
+                required=True,
+            ),
+            PremarketFilterSpecV2(
+                "F_OVERHEAD_SUPPLY_CHECK",
+                "Identify overhead supply zones: prior day highs, multi-day highs, major moving averages, whole/half dollars.",
+                required=True,
+            ),
+            PremarketFilterSpecV2(
+                "F_SPREAD_LIQUIDITY_SANITY",
+                "Premarket spread/liquidity sanity check: avoid symbols with unusable spread/prints.",
+                required=True,
+            ),
+        ),
+        optional_filters=(
+            PremarketFilterSpecV2(
+                "F_FLOAT_ROTATION",
+                "Prefer low float momentum names; float rotation narrative can influence ranking.",
+                required=False,
+            ),
+            PremarketFilterSpecV2(
+                "F_SECTOR_SYMPATHY",
+                "If sector/theme is moving (AI, EV, crypto miners), prefer sympathy names with clean levels.",
+                required=False,
+            ),
+            PremarketFilterSpecV2(
+                "F_ATR_RANGE_CONTEXT",
+                "Daily ATR / typical range context: ensure realistic upside targets vs resistance.",
+                required=False,
+            ),
+            PremarketFilterSpecV2(
+                "F_NEWS_QUALITY",
+                "Prefer high-quality catalysts (PR/SEC/major outlets) vs thin/rumour sources.",
+                required=False,
+            ),
+        ),
+        room_to_run_policy=(
+            "Room-to-run means: from current price to next major resistance (multi-day high, prior day high, EMA200, whole dollar) "
+            "there is sufficient distance to justify momentum continuation. If compressed into resistance, either skip or "
+            "treat as scalp-only with reduced size/risk. EMA200 is treated as a major boundary: reclaiming it can be bullish; "
+            "rejecting from it often stalls."
+        ),
+        notes=(
+            "This model encodes Ross premarket due diligence: scan gappers/gainers, confirm catalyst, map HTF levels, "
+            "validate room-to-run (incl EMA200), and only then proceed to intrabar execution (10SEC) during OPENING_DRIVE."
+        ),
     ),
     notes=(
         "Spec-only full-law policy for P01 Ross Momentum. Gating is expected at scanner eligibility, "
