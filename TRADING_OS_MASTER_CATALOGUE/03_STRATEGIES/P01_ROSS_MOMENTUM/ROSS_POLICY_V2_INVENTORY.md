@@ -329,3 +329,12 @@ Authoritative checklist for migrating P01 Ross Momentum policy into StrategyPoli
   - Impulse/retracement is structure-based and fractal across 5MIN, 1MIN, and 10SEC; intrabar 10SEC exit authority may fire before 1MIN close.
 - Calibration note:
   - 30/40/50 pullback tiers remain Ross-style empirical doctrine pending replay/statistical validation.
+
+## 28) Structural Impulse Detection Law (Pivot + Micro Promotion + Reset Doctrine)
+
+- Introduces `StructuralImpulseDetectionModelV2` (spec-only).
+- Pivot-based higher-low confirmation.
+- Phase-based timeframe mapping (OPENING_DRIVE = 1MIN structure / 10SEC micro).
+- Micro-to-structural promotion rules.
+- 50% retracement reset doctrine.
+- No runtime evaluator changes in this PR.

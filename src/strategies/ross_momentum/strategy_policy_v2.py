@@ -40,6 +40,7 @@ from src.strategy_policy_v2.policy_v2 import (
     StrategyIdentityV2,
     StrategyPolicyV2,
     StockSelectionLawV2,
+    StructuralImpulseDetectionModelV2,
     StructureModelV2,
     TrailingModelV2,
     TrailingRuleV2,
@@ -267,6 +268,8 @@ POLICY_V2 = StrategyPolicyV2(
         ),
         notes="Spec-only structural law. No runtime wiring or evaluator implementation in this PR.",
     ),
+    structural_impulse_detection=StructuralImpulseDetectionModelV2(),
+
 
     structure_model=StructureModelV2(
         levels=(

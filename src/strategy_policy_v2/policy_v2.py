@@ -192,6 +192,90 @@ class ImpulseQualificationAndMeasurementLawV2:
 
 
 @dataclass(frozen=True)
+class PivotConfirmationModelV2:
+    """Defines how structural higher lows (pivot lows) are confirmed."""
+
+    pivot_left_bars: int = 2
+    pivot_right_bars: int = 2
+    reclaim_confirm_levels: tuple[str, ...] = ("VWAP", "EMA9", "EMA20")
+    min_reclaim_hold_bars: int = 1
+    allow_intrabar_hint: bool = True
+    notes: str = (
+        "Pivot confirmation may use classical left/right bar logic or reclaim-and-hold "
+        "behavior above VWAP/EMA9/EMA20. Intrabar hints (10SEC) are allowed but must "
+        "promote to structure timeframe before becoming canonical."
+    )
+
+
+@dataclass(frozen=True)
+class MicroToStructuralPromotionLawV2:
+    """Defines when a 10SEC micro impulse may promote to structural context."""
+
+    require_new_structure_high: bool = True
+    require_hold_levels: tuple[str, ...] = ("VWAP", "EMA9")
+    max_failure_window_bars: int = 2
+    notes: str = (
+        "Micro impulse must create a new structure-timeframe high and hold key "
+        "levels to promote. Rapid rejection within failure window prevents promotion."
+    )
+
+
+@dataclass(frozen=True)
+class StructuralImpulseDetectionModelV2:
+    """
+    Structural impulse doctrine:
+    - Pivot-based impulse anchoring
+    - Micro promotion law
+    - 50% reset doctrine
+    """
+
+    structure_timeframe_by_phase: dict[str, str] = field(
+        default_factory=lambda: {
+            "OPENING_DRIVE": "1MIN",
+            "MORNING_MOMENTUM": "1MIN",
+            "MIDDAY": "5MIN",
+            "LATE_DAY": "5MIN",
+        }
+    )
+    micro_timeframe_by_phase: dict[str, str] = field(
+        default_factory=lambda: {
+            "OPENING_DRIVE": "10SEC",
+            "MORNING_MOMENTUM": "10SEC",
+            "MIDDAY": "1MIN",
+            "LATE_DAY": "1MIN",
+        }
+    )
+    pivot_confirmation: PivotConfirmationModelV2 = field(default_factory=PivotConfirmationModelV2)
+    promotion_law: MicroToStructuralPromotionLawV2 = field(default_factory=MicroToStructuralPromotionLawV2)
+    impulse_low_rule: str = "Impulse low = last confirmed higher low (pivot low) on structure timeframe."
+    impulse_high_rule: str = "Impulse high = highest high since pivot low while structure remains valid."
+    invalidation_rules: tuple[str, ...] = (
+        "Break below pivot low invalidates structural impulse.",
+        "Retracement >= 50% shifts thesis to reset-required bias.",
+        "Loss of key reclaim levels + red volume dominance degrades impulse.",
+    )
+    reset_rules: tuple[str, ...] = (
+        "If retracement exceeds 50%, no re-entry until new structural pivot forms.",
+        "New impulse requires confirmed higher low + breakout above prior high.",
+    )
+    traceability_fields: tuple[str, ...] = (
+        "impulse_low_price",
+        "impulse_high_price",
+        "impulse_start_timestamp",
+        "impulse_high_timestamp",
+        "structure_timeframe",
+        "status",
+    )
+    calibration_notes: str = (
+        "Pivot bars, reclaim confirmation, and reset tiers are Ross-style empirical defaults pending replay validation."
+    )
+    notes: str = (
+        "Spec-only structural impulse detection model. "
+        "No evaluator wiring introduced in this change."
+    )
+
+
+@dataclass(frozen=True)
 class StructureModelV2:
     levels: tuple[str, ...] = ()
     zones: tuple[str, ...] = ()
@@ -442,6 +526,9 @@ class StrategyPolicyV2:
     momentum_weakness_and_exit: MomentumWeaknessAndExitLawV2 = field(default_factory=MomentumWeaknessAndExitLawV2)
     impulse_qualification: ImpulseQualificationAndMeasurementLawV2 = field(
         default_factory=ImpulseQualificationAndMeasurementLawV2
+    )
+    structural_impulse_detection: StructuralImpulseDetectionModelV2 = field(
+        default_factory=StructuralImpulseDetectionModelV2
     )
     structure_model: StructureModelV2 = field(default_factory=StructureModelV2)
     position_management: PositionManagementV2 = field(default_factory=PositionManagementV2)
