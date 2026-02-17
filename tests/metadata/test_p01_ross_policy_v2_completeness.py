@@ -85,6 +85,7 @@ def test_ross_policy_v2_inventory_contains_new_sections() -> None:
     assert "Confirmation Layer (MACD + volume-bar rules)" in inventory
     assert "Momentum Weakness & Exit Law (Pullback tiers + intrabar exits + volume dominance proxies)" in inventory
     assert "Impulse Qualification & Measurement Law (Structural + Micro + 50% Reset Doctrine)" in inventory
+    assert "Structural Impulse Detection Law (Pivot + Micro Promotion + Reset Doctrine)" in inventory
 
 
 
@@ -111,3 +112,20 @@ def test_p01_impulse_qualification_present_and_non_empty() -> None:
     for text_value in law.__dict__.values():
         lowered = text_value.lower()
         assert all(token not in lowered for token in disallowed), text_value
+
+
+def test_p01_structural_impulse_detection_model_present() -> None:
+    model = POLICY_V2.structural_impulse_detection
+
+    assert model.structure_timeframe_by_phase["OPENING_DRIVE"] == "1MIN"
+    assert model.micro_timeframe_by_phase["OPENING_DRIVE"] == "10SEC"
+
+    assert "50%" in " ".join(model.invalidation_rules)
+    assert model.impulse_low_rule.strip()
+    assert model.impulse_high_rule.strip()
+
+    disallowed = ("placeholder", "todo")
+    for value in model.__dict__.values():
+        if isinstance(value, str):
+            lowered = value.lower()
+            assert all(token not in lowered for token in disallowed)
