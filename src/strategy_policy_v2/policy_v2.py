@@ -157,6 +157,36 @@ class DataRequirementsV2:
 
 
 @dataclass(frozen=True)
+class PremarketLevelSpecV2:
+    level_id: str
+    description: str
+
+
+@dataclass(frozen=True)
+class PremarketFilterSpecV2:
+    filter_id: str
+    description: str
+    required: bool = True
+
+
+@dataclass(frozen=True)
+class PremarketPreparationModelV2:
+    """
+    Spec-only premarket due diligence model.
+    Encodes what the trader checks BEFORE trading begins, and what must be true
+    for a symbol to be considered 'tradable today' for this strategy.
+    """
+
+    scan_focus: Tuple[str, ...] = ("GAPPERS", "TOP_PCT_GAINERS", "RELATIVE_VOLUME", "CATALYST_NEWS")
+    higher_timeframe_context: Tuple[str, ...] = ("DAILY", "WEEKLY")
+    required_levels: Tuple[PremarketLevelSpecV2, ...] = ()
+    required_filters: Tuple[PremarketFilterSpecV2, ...] = ()
+    optional_filters: Tuple[PremarketFilterSpecV2, ...] = ()
+    room_to_run_policy: str = ""
+    notes: str = ""
+
+
+@dataclass(frozen=True)
 class StrategyPolicyV2:
     identity: StrategyIdentityV2
     selection_plan: SelectionPlan
@@ -174,5 +204,6 @@ class StrategyPolicyV2:
     exit_model: ExitModelV2 = field(default_factory=ExitModelV2)
     safety_model: SafetyModelV2 = field(default_factory=SafetyModelV2)
     data_requirements: DataRequirementsV2 = field(default_factory=DataRequirementsV2)
+    premarket_preparation: PremarketPreparationModelV2 = field(default_factory=PremarketPreparationModelV2)
     levels_and_zones: tuple[str, ...] = ()
     notes: str = ""
