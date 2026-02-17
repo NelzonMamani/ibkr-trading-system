@@ -1,10 +1,14 @@
 from src.strategy_policy_v2.policy_v2 import (
+    CatalystModelV2,
     ConfirmationSpecV2,
     DataRequirementsV2,
     ExecutionModelV2,
+    FloatModelV2,
+    GapModelV2,
     ExitModelV2,
     ExitRuleV2,
     IntentContractV2,
+    LiquiditySanityModelV2,
     IntrabarCadenceRuleV2,
     IntrabarExecutionModelV2,
     IntrabarPhaseSpecV2,
@@ -17,6 +21,9 @@ from src.strategy_policy_v2.policy_v2 import (
     PremarketLevelSpecV2,
     PremarketPreparationModelV2,
     PositionManagementV2,
+    PriceModelV2,
+    RankingModelV2,
+    RelativeVolumeModelV2,
     RiskModelV2,
     SymbolRotationLawV2,
     SafetyModelV2,
@@ -26,10 +33,12 @@ from src.strategy_policy_v2.policy_v2 import (
     SetupFamilySpecV2,
     StrategyIdentityV2,
     StrategyPolicyV2,
+    StockSelectionLawV2,
     StructureModelV2,
     TrailingModelV2,
     TrailingRuleV2,
     TriggerEntrySpecV2,
+    VolumeModelV2,
     TriggerModelV2,
 )
 from src.strategy_policy_v2.selection_plans import ScannerPlan
@@ -192,6 +201,97 @@ POLICY_V2 = StrategyPolicyV2(
             SafetyRuleV2("S_CONNECTION_ISSUE", "Scanner/order connectivity degraded", "Emit non-trading diagnostics and block new executable intents."),
         )
     ),
+    stock_selection_law=StockSelectionLawV2(
+        price_model=PriceModelV2(
+            min_price=1.0,
+            max_price=20.0,
+            preferred_upper_bound=10.0,
+            reject_sub_dollar_rule=True,
+            rationale_commentary=(
+                "Ross momentum doctrine focuses on low-priced momentum names while avoiding sub-dollar instruments due to noise, "
+                "manipulation risk, and poor execution quality. Preferred activity often clusters in the lower-price band even when "
+                "the hard maximum extends higher."
+            ),
+            calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+        ),
+        gap_model=GapModelV2(
+            hard_gap_threshold=10.0,
+            soft_gap_threshold=7.0,
+            percent_change_ranking_law="Higher percent change receives higher rank priority after hard-gate eligibility is satisfied.",
+            gap_vs_pct_change_distinction=(
+                "Gap threshold is an in-play eligibility gate, while percent change is a relative ranking accelerator among names "
+                "already inside the tradable universe."
+            ),
+            calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+        ),
+        volume_model=VolumeModelV2(
+            min_total_volume=1_000_000,
+            min_premarket_volume=100_000,
+            dollar_volume_min=5_000_000.0,
+            liquidity_commentary=(
+                "Total volume and premarket volume enforce baseline participation; dollar volume adds execution realism so nominal "
+                "share prints do not mask thin liquidity."
+            ),
+            calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+        ),
+        relative_volume_model=RelativeVolumeModelV2(
+            rvol_minimum=5.0,
+            calibration_commentary=(
+                "RVOL is isolated from raw volume: RVOL measures abnormal attention, while total/premarket volume measure base "
+                "liquidity needed to execute momentum setups."
+            ),
+            calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+        ),
+        float_model=FloatModelV2(
+            float_max_millions=20.0,
+            float_preferred_zone="Typically low-float names below ~10M receive higher momentum attention when other gates align.",
+            float_explosive_zone="Ultra-low float names (roughly sub-5M) can produce the fastest expansions and highest halt risk.",
+            inverse_weighting_in_ranking=True,
+            float_data_sources=("YAHOO", "FINVIZ", "NASDAQ"),
+            ibkr_not_primary_reason=(
+                "IBKR is not the primary float authority because float classifications can lag and may not capture rapid issuance "
+                "updates with the consistency needed for premarket selection decisions."
+            ),
+            cache_policy_commentary=(
+                "Float values should be cached with source attribution and refresh discipline to avoid stale single-source figures "
+                "during fast-moving sessions."
+            ),
+            calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+        ),
+        catalyst_model=CatalystModelV2(
+            require_catalyst=True,
+            catalyst_quality_levels=("HIGH", "MEDIUM", "LOW", "UNCERTAIN"),
+            internal_news_engine_primary=True,
+            rss_fast_list_support=True,
+            liquidity_proxy_when_uncertain=True,
+            commentary=(
+                "Catalyst is structural in Ross selection doctrine. Internal news intelligence is primary, RSS fast-list sources "
+                "support speed, and when catalyst certainty is incomplete the policy demands stronger liquidity/price-action evidence "
+                "rather than blind inclusion."
+            ),
+        ),
+    ),
+    liquidity_sanity_model=LiquiditySanityModelV2(
+        spread_max_pct=1.5,
+        halt_policy="Active halts disallow fresh entries; resume participation only after post-halt structure and liquidity reconfirm.",
+        ssr_handling="SSR is permitted but treated as an execution feasibility modifier requiring tighter confirmation.",
+        execution_feasibility_commentary=(
+            "Liquidity sanity enforces executable conditions so setup quality is not evaluated in isolation from spread/print behavior."
+        ),
+        calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+    ),
+    ranking_model=RankingModelV2(
+        weight_pct_change=0.35,
+        weight_rvol=0.30,
+        weight_float_inverse=0.20,
+        weight_catalyst=0.15,
+        liquidity_penalty=0.25,
+        ranking_commentary=(
+            "Ranking prefers strongest percent-change momentum and RVOL, boosts lower-float responsiveness, incorporates catalyst "
+            "quality, and penalizes weak tradability."
+        ),
+        calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+    ),
     data_requirements=DataRequirementsV2(
         required_fields=(
             "symbol",
@@ -201,6 +301,7 @@ POLICY_V2 = StrategyPolicyV2(
             "volume",
             "rvol",
             "dollar_volume",
+            "float_millions",
             "gate_checks",
             "candles_10s_1m_5m",
             "vwap",
@@ -208,17 +309,16 @@ POLICY_V2 = StrategyPolicyV2(
             "ema20",
             "premarket_high",
             "hod",
+            "news_catalyst",
         ),
         optional_fields=(
             "bid",
             "ask",
             "spread_pct",
-            "float_millions",
             "halted",
             "ssr",
             "macd",
             "l2_iceberg_signals",
-            "news_catalyst",
         ),
         notes="If required fields are absent, policy mandates pause/reject semantics rather than speculative execution.",
     ),
