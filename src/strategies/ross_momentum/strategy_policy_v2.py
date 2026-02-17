@@ -1,15 +1,23 @@
 from src.strategy_policy_v2.policy_v2 import (
+    CatalystModelV2,
+    CandleAndVolumeEvidenceModelV2,
     ConfirmationSpecV2,
     DataRequirementsV2,
     ExecutionModelV2,
+    FloatModelV2,
+    GapModelV2,
     ExitModelV2,
     ExitRuleV2,
     IntentContractV2,
+    LiquiditySanityModelV2,
     IntrabarCadenceRuleV2,
     IntrabarExecutionModelV2,
     IntrabarPhaseSpecV2,
     IntrabarSafetyThrottleV2,
     IntrabarTimeframeMapV2,
+    ImpulseQualificationAndMeasurementLawV2,
+    IntrabarExitOverrideLawV2,
+    MomentumWeaknessAndExitLawV2,
     ModeSemanticsV2,
     PatternCatalogV2,
     PatternSpecV2,
@@ -17,19 +25,28 @@ from src.strategy_policy_v2.policy_v2 import (
     PremarketLevelSpecV2,
     PremarketPreparationModelV2,
     PositionManagementV2,
+    PullbackWeaknessTierModelV2,
+    PriceModelV2,
+    RankingModelV2,
+    RelativeVolumeModelV2,
     RiskModelV2,
     SymbolRotationLawV2,
     SafetyModelV2,
     SafetyRuleV2,
+    SessionReferenceLawV2,
     SessionSemanticsV2,
     SetupFamiliesV2,
     SetupFamilySpecV2,
     StrategyIdentityV2,
     StrategyPolicyV2,
+    StockSelectionLawV2,
+    StructuralImpulseDetectionModelV2,
     StructureModelV2,
     TrailingModelV2,
     TrailingRuleV2,
     TriggerEntrySpecV2,
+    VolumeDominanceProxyModelV2,
+    VolumeModelV2,
     TriggerModelV2,
 )
 from src.strategy_policy_v2.selection_plans import ScannerPlan
@@ -122,17 +139,138 @@ POLICY_V2 = StrategyPolicyV2(
             TriggerEntrySpecV2("T_MICRO_RECLAIM", "BREAKOUT_RECLAIM", "Enter on first green candle breaking last red high after 2-3 red pullback bars.", ("OPENING_DRIVE", "MIDDAY", "LATE_DAY")),
             TriggerEntrySpecV2("T_PULLBACK_HIGH_BREAK", "PULLBACK_CONTINUATION", "Enter on pullback high reclaim or break of prior candle high.", ("RTH", "PRE")),
             TriggerEntrySpecV2("T_ORB_BREAK", "OPENING_RANGE_BREAK", "Enter on break above opening range high with hold.", ("RTH_OPEN",)),
+            TriggerEntrySpecV2("T_ORB_1M", "OPENING_RANGE_BREAK", "ORB 1-minute variant: break and hold above 1M opening range high; executes under OPENING_DRIVE intrabar law.", ("OPENING_DRIVE",)),
+            TriggerEntrySpecV2("T_ORB_5M", "OPENING_RANGE_BREAK", "ORB 5-minute variant: break and hold above 5M opening range high; executes under OPENING_DRIVE intrabar law.", ("OPENING_DRIVE",)),
+            TriggerEntrySpecV2("T_GAP_AND_GO_IMMEDIATE", "GAP_AND_GO_IMMEDIATE", "Immediate momentum continuation at/through PMH-ORH without requiring 1M candle close; intrabar entries allowed during OPENING_DRIVE.", ("OPENING_DRIVE",)),
+            TriggerEntrySpecV2("T_STARTER_POSITION_ANTICIPATION", "STARTER_POSITION_ANTICIPATION", "Optional small starter position before full confirmation when catalyst+liquidity+structure align; spec-only and calibration dependent.", ("OPENING_DRIVE", "MORNING_MOMENTUM")),
+            TriggerEntrySpecV2("T_BREAKOUT_OR_BAILOUT", "BREAKOUT_OR_BAILOUT", "Failure-fast doctrine: if breakout rejects/fails to hold trigger structure, bail out immediately and prevent hope-holding.", ("OPENING_DRIVE", "MORNING_MOMENTUM", "MIDDAY")),
             TriggerEntrySpecV2("T_KEY_LEVEL_BREAK", "LEVEL_BREAK", "Enter on break of PMH/HOD/flag high/whole-half dollar with momentum.", ("PRE", "RTH", "AH")),
             TriggerEntrySpecV2("T_RECLAIM", "VWAP_EMA_RECLAIM", "Enter on reclaim of VWAP/EMA9/EMA20 with continuation structure.", ("RTH", "AH")),
         ),
         confirmations=(
             ConfirmationSpecV2("C_VOLUME_EXPANSION", "Breakout volume should exceed pullback/consolidation volume."),
-            ConfirmationSpecV2("C_MACD_POSITIVE", "MACD should be positive for entries when available."),
+            ConfirmationSpecV2("C_MACD_POSITIVE", "MACD is a confirmation feature when present; treat as calibration-weighted evidence rather than universally mandatory gating.", required=False),
             ConfirmationSpecV2("C_HOLD_ABOVE_STRUCTURE", "Price must hold above VWAP/EMA9/EMA20 for long bias in pullbacks."),
             ConfirmationSpecV2("C_RVOL_IN_PLAY", "Relative volume and in-play gates must pass for candidate eligibility."),
             ConfirmationSpecV2("C_NO_TOPPING", "No topping-tail hard reversal signal on monitored structure timeframe."),
+            ConfirmationSpecV2("C_VOLUME_BAR_DOMINANCE", "Rising red volume during pullback/consolidation is selling-pressure dominance and should pause/bail per setup."),
         ),
     ),
+    session_reference_law=SessionReferenceLawV2(
+        pct_change_reference=(
+            "Percent-change law references prior close and remains valid in PRE/AH/CLOSED contexts where official RTH open is absent or not actionable."
+        ),
+        gap_reference=(
+            "Gap law references session open versus prior close and is only meaningful around the open/RTH transition; it is not a generic CLOSED-session prep metric."
+        ),
+        closed_session_preparation_notes=(
+            "During CLOSED preparation, prioritize prior-close percent-change ranking and catalyst context rather than labeling symbols as active 'gappers'."
+        ),
+    ),
+    candle_and_volume_evidence=CandleAndVolumeEvidenceModelV2(
+        evidence_tags=(
+            "DOJI",
+            "SHOOTING_STAR",
+            "HAMMER",
+            "LONG_UPPER_WICK",
+            "MARUBOZU",
+            "ENGULFING",
+            "THREE_SOLDIERS_CROWS",
+        ),
+        volume_bar_dominance_law=(
+            "Volume-bar dominance doctrine: rising red volume during pullback or consolidation indicates selling-pressure control; policy should pause adds and bail when reclaim/breakout thesis degrades."
+        ),
+        risk_exit_pause_semantics=(
+            "DOJI implies indecision and reduced conviction, SHOOTING_STAR implies topping/rejection risk with pause-or-exit bias, and HAMMER implies reclaim potential only if follow-through confirms."
+        ),
+    ),
+    momentum_weakness_and_exit=MomentumWeaknessAndExitLawV2(
+        pullback_tiers=PullbackWeaknessTierModelV2(
+            ideal_pullback_max=0.30,
+            caution_pullback_max=0.40,
+            hard_warning_pullback_max=0.50,
+            behavior_by_tier=(
+                "<=30% pullback is the strongest continuation tier when reclaim/volume confirm.",
+                "30-40% pullback is still tradable but requires cleaner structure-hold behavior.",
+                "40-50% pullback is caution territory: reduce aggression and tighten invalidation tolerance.",
+                ">=50% pullback indicates weak momentum thesis; pause adds and bias toward bailout unless immediate reclaim proves otherwise.",
+            ),
+            intrabar_detection_notes=(
+                "Weakness is detected on execution timeframes (10SEC in fast phases), and can trigger exits before the 1M candle closes."
+            ),
+            calibration_notes="Subject to empirical validation; 30/40/50 tiers are Ross-style calibration defaults.",
+        ),
+        volume_dominance=VolumeDominanceProxyModelV2(
+            enable_proxy_thresholds=False,
+            red_vs_green_volume_pause_ratio=1.0,
+            red_vs_impulse_green_volume_bail_ratio=1.2,
+            commentary=(
+                "Red versus green volume bars are used as selling-pressure proxies: when red bars begin to dominate pullback/consolidation flow, "
+                "continuation odds degrade and risk response should shift from add to protect/bail. "
+                "Proxy ratios remain disabled by default to prevent false precision until calibrated."
+            ),
+            calibration_notes="Subject to empirical validation; proxy thresholds are doctrine knobs rather than fixed truths.",
+        ),
+        intrabar_exit_override=IntrabarExitOverrideLawV2(
+            allowed_phases=("OPENING_DRIVE", "MORNING_MOMENTUM"),
+            execution_timeframes=("10SEC",),
+            doctrine=(
+                "Breakout-or-bail doctrine: intrabar structure failure overrides candle-close confirmation authority in fast phases; "
+                "the policy explicitly permits 10SEC exits before a 1M candle forms/closes to avoid hope-holding through reversals."
+            ),
+            override_examples=(
+                "Breakout rejects and loses trigger level intrabar after initial push.",
+                "Pullback exceeds hard-warning retrace tier while momentum stalls.",
+                "Topping-tail rejection prints as red volume dominance expands.",
+                "Key reclaim level (VWAP/EMA/PMH) fails intrabar before 1M confirmation.",
+            ),
+            calibration_notes="Subject to empirical validation; fast-phase override behavior should be validated with replay metrics.",
+        ),
+        candle_evidence_alignment_notes=(
+            "Use CandleAndVolumeEvidenceModelV2 tags to contextualize weakness: DOJI = indecision, SHOOTING_STAR/long upper wick = rejection risk, "
+            "HAMMER = potential reclaim only with follow-through confirmation."
+        ),
+        notes=(
+            "Spec-only consolidation layer: codifies pullback weakness tiers, intrabar exit authority, and red-volume dominance proxies without runtime wiring changes. "
+            "Gap/open behavior is judged at the open, while percent-change ranking remains a preparation-stage sorting signal."
+        ),
+    ),
+    impulse_qualification=ImpulseQualificationAndMeasurementLawV2(
+        structural_impulse_definition=(
+            "Structural impulse is defined as the expansion leg from the last confirmed higher low to the most recent expansion high that has not yet been structurally invalidated."
+        ),
+        micro_impulse_definition=(
+            "Micro impulse is defined as the breakout expansion from a trigger level (e.g., pullback high, ORB high, PMH) on execution timeframe (10SEC in fast phases)."
+        ),
+        retracement_calculation_basis=(
+            "Retracement percentage is calculated as (impulse_high - current_price) / (impulse_high - impulse_low). Pullback tiers reference this structural range."
+        ),
+        entry_trigger_law=(
+            "Primary micro-pullback entry: enter on first green candle that breaks the high of the previous red candle sequence during valid continuation context."
+        ),
+        stop_placement_law=(
+            "Initial stop placement = low of pullback structure. Loss beyond pullback low invalidates continuation thesis."
+        ),
+        pullback_candle_structure_law=(
+            "Red pullback candles should exhibit smaller bodies relative to the impulse green candle bodies. Expanding red bodies or long upper wicks degrade continuation probability."
+        ),
+        macd_preference_law=(
+            "Prefer entries when MACD is positive or curling upward on structure timeframe (typically 1MIN; 5MIN for higher timeframe context). MACD is confirmation-weighted evidence, not universal gating."
+        ),
+        fifty_percent_reset_law=(
+            "If retracement exceeds 50% of the structural impulse range, continuation thesis is considered weak. Bias shifts to bail-out and no re-entry until new structural impulse forms."
+        ),
+        timeframe_alignment_notes=(
+            "Impulse and retracement are structure-based, not time-boxed. Evaluation is fractal across 5MIN, 1MIN, and 10SEC. Intrabar exit authority (10SEC) may trigger before 1MIN candle close."
+        ),
+        calibration_notes=(
+            "30/40/50 pullback tiers reflect Ross-style empirical doctrine and require future replay/statistical validation."
+        ),
+        notes="Spec-only structural law. No runtime wiring or evaluator implementation in this PR.",
+    ),
+    structural_impulse_detection=StructuralImpulseDetectionModelV2(),
+
+
     structure_model=StructureModelV2(
         levels=(
             "HOD",
@@ -192,6 +330,97 @@ POLICY_V2 = StrategyPolicyV2(
             SafetyRuleV2("S_CONNECTION_ISSUE", "Scanner/order connectivity degraded", "Emit non-trading diagnostics and block new executable intents."),
         )
     ),
+    stock_selection_law=StockSelectionLawV2(
+        price_model=PriceModelV2(
+            min_price=1.0,
+            max_price=20.0,
+            preferred_upper_bound=10.0,
+            reject_sub_dollar_rule=True,
+            rationale_commentary=(
+                "Ross momentum doctrine focuses on low-priced momentum names while avoiding sub-dollar instruments due to noise, "
+                "manipulation risk, and poor execution quality. Preferred activity often clusters in the lower-price band even when "
+                "the hard maximum extends higher."
+            ),
+            calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+        ),
+        gap_model=GapModelV2(
+            hard_gap_threshold=10.0,
+            soft_gap_threshold=7.0,
+            percent_change_ranking_law="Higher percent change receives higher rank priority after hard-gate eligibility is satisfied.",
+            gap_vs_pct_change_distinction=(
+                "Gap threshold is an in-play eligibility gate, while percent change is a relative ranking accelerator among names "
+                "already inside the tradable universe."
+            ),
+            calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+        ),
+        volume_model=VolumeModelV2(
+            min_total_volume=1_000_000,
+            min_premarket_volume=100_000,
+            dollar_volume_min=5_000_000.0,
+            liquidity_commentary=(
+                "Total volume and premarket volume enforce baseline participation; dollar volume adds execution realism so nominal "
+                "share prints do not mask thin liquidity."
+            ),
+            calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+        ),
+        relative_volume_model=RelativeVolumeModelV2(
+            rvol_minimum=5.0,
+            calibration_commentary=(
+                "RVOL is isolated from raw volume: RVOL measures abnormal attention, while total/premarket volume measure base "
+                "liquidity needed to execute momentum setups."
+            ),
+            calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+        ),
+        float_model=FloatModelV2(
+            float_max_millions=20.0,
+            float_preferred_zone="Preferred tier: low float names below roughly 10M shares often exhibit cleaner momentum responsiveness when other gates align.",
+            float_explosive_zone="Ultra-low float explosive tier (roughly sub-5M) can produce the fastest expansions with elevated volatility-halt and slippage risk.",
+            inverse_weighting_in_ranking=True,
+            float_data_sources=("YAHOO", "FINVIZ", "NASDAQ"),
+            ibkr_not_primary_reason=(
+                "IBKR is not the primary float authority because float classifications can lag and may not capture rapid issuance "
+                "updates with the consistency needed for premarket selection decisions."
+            ),
+            cache_policy_commentary=(
+                "Float values should be cached with source attribution and refresh discipline to avoid stale single-source figures "
+                "during fast-moving sessions."
+            ),
+            calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+        ),
+        catalyst_model=CatalystModelV2(
+            require_catalyst=True,
+            catalyst_quality_levels=("HIGH", "MEDIUM", "LOW", "UNCERTAIN"),
+            internal_news_engine_primary=True,
+            rss_fast_list_support=True,
+            liquidity_proxy_when_uncertain=True,
+            commentary=(
+                "Catalyst is structural in Ross selection doctrine. Internal news intelligence is primary, RSS fast-list sources "
+                "support speed, and when catalyst certainty is incomplete the policy demands stronger liquidity/price-action evidence "
+                "rather than blind inclusion."
+            ),
+        ),
+    ),
+    liquidity_sanity_model=LiquiditySanityModelV2(
+        spread_max_pct=1.5,
+        halt_policy="Active halts disallow fresh entries; resume participation only after post-halt structure and liquidity reconfirm.",
+        ssr_handling="SSR is permitted but treated as an execution feasibility modifier requiring tighter confirmation.",
+        execution_feasibility_commentary=(
+            "Liquidity sanity enforces executable conditions so setup quality is not evaluated in isolation from spread/print behavior."
+        ),
+        calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+    ),
+    ranking_model=RankingModelV2(
+        weight_pct_change=0.35,
+        weight_rvol=0.30,
+        weight_float_inverse=0.20,
+        weight_catalyst=0.15,
+        liquidity_penalty=0.25,
+        ranking_commentary=(
+            "Ranking prefers strongest percent-change momentum and RVOL, boosts lower-float responsiveness, incorporates catalyst "
+            "quality, and penalizes weak tradability."
+        ),
+        calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+    ),
     data_requirements=DataRequirementsV2(
         required_fields=(
             "symbol",
@@ -201,6 +430,7 @@ POLICY_V2 = StrategyPolicyV2(
             "volume",
             "rvol",
             "dollar_volume",
+            "float_millions",
             "gate_checks",
             "candles_10s_1m_5m",
             "vwap",
@@ -208,19 +438,20 @@ POLICY_V2 = StrategyPolicyV2(
             "ema20",
             "premarket_high",
             "hod",
+            "news_catalyst",
         ),
         optional_fields=(
             "bid",
             "ask",
             "spread_pct",
-            "float_millions",
             "halted",
             "ssr",
             "macd",
             "l2_iceberg_signals",
-            "news_catalyst",
+            "session_open_price",
+            "prior_close",
         ),
-        notes="If required fields are absent, policy mandates pause/reject semantics rather than speculative execution.",
+        notes="If required fields are absent, policy mandates pause/reject semantics rather than speculative execution. Session-reference and candle-evidence models are spec-only; optional fields use fallback behavior (e.g., MACD as non-blocking confirmation when unavailable).",
     ),
     premarket_preparation=PremarketPreparationModelV2(
         scan_focus=("GAPPERS", "TOP_PCT_GAINERS", "RELATIVE_VOLUME", "CATALYST_NEWS", "SYMpathy_SECTOR"),
@@ -298,7 +529,7 @@ POLICY_V2 = StrategyPolicyV2(
         ),
         notes=(
             "This model encodes Ross premarket due diligence: scan gappers/gainers, confirm catalyst, map HTF levels, "
-            "validate room-to-run (incl EMA200), and only then proceed to intrabar execution (10SEC) during OPENING_DRIVE."
+            "validate room-to-run (incl EMA200), and only then proceed to intrabar execution (10SEC) during OPENING_DRIVE. This is spec-only; runtime wiring deferred."
         ),
     ),
     intrabar_execution=IntrabarExecutionModelV2(

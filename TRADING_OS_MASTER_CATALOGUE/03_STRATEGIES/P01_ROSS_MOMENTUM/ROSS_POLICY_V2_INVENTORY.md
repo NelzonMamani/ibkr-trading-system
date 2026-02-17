@@ -219,3 +219,122 @@ Authoritative checklist for migrating P01 Ross Momentum policy into StrategyPoli
 - Setup-family relationship:
   - Gap&Go, ORB, First Pullback, Bull Flag, ABCD, Momentum Reclaim, and related continuation families may all execute through OPENING_DRIVE micro-scalp on 10SEC entries.
   - Micro pullback is explicitly an execution tool used especially in the morning; afternoon behavior is governed by compressed timeframes and slower cadence.
+
+## 20) Stock Selection Structural Doctrine (5 Pillars Expanded)
+- `StockSelectionLawV2` is explicitly formalized with six structural components:
+  - `PriceModelV2`: min/max price band, preferred upper band, and sub-dollar rejection doctrine.
+  - `GapModelV2`: hard and soft gap thresholds, plus explicit distinction between eligibility gap logic vs ranking percent-change logic.
+  - `VolumeModelV2`: minimum total volume, minimum premarket volume, and minimum dollar volume with liquidity commentary.
+  - `RelativeVolumeModelV2`: standalone RVOL floor and calibration commentary; RVOL remains separate from raw volume.
+  - `FloatModelV2`: float ceiling, preferred/explosive zones, inverse ranking weighting, multi-source float doctrine (YAHOO/FINVIZ/NASDAQ), IBKR-secondary rationale, and cache commentary.
+  - `CatalystModelV2`: catalyst-required structural law with quality levels, internal-news primary preference, RSS fast-list support, and liquidity-proxy fallback when catalyst certainty is imperfect.
+- `LiquiditySanityModelV2` is formalized with spread cap, halt policy, SSR handling, and execution-feasibility doctrine.
+- `RankingModelV2` is formalized with weighted factors (`pct_change`, `rvol`, inverse float, catalyst) and explicit liquidity penalty semantics.
+- Calibration doctrine is made explicit where thresholds may evolve:
+  - `calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine."`
+- Float is structural (not optional) in required metadata fields.
+
+
+## 21) Session Reference Law
+- `SessionReferenceLawV2` is formalized as a spec-only policy surface; runtime wiring deferred.
+- `% change` law:
+  - reference = prior close
+  - valid in PRE/AH/CLOSED because it does not require the active RTH opening print.
+- `gap` law:
+  - reference = open vs prior close
+  - meaningful primarily around open/RTH transition; not the primary CLOSED-preparation ranking primitive.
+- CLOSED prep doctrine:
+  - pre-open prep uses `% change` ranking + catalyst/volume context;
+  - avoid calling CLOSED prep lists "active gappers" until open-reference context exists.
+
+## 22) Candle/Volume Evidence Law
+- `CandleAndVolumeEvidenceModelV2` is formalized as spec-only; runtime wiring deferred.
+- Evidence tags now explicitly include:
+  - `DOJI`
+  - `SHOOTING_STAR`
+  - `HAMMER`
+  - plus existing evidence tags (`LONG_UPPER_WICK`, `MARUBOZU`, `ENGULFING`, `THREE_SOLDIERS_CROWS`).
+- Risk/exit/pause semantics:
+  - DOJI = indecision warning / reduce aggression.
+  - SHOOTING_STAR = rejection/topping warning / pause or exit bias.
+  - HAMMER = reclaim potential only with follow-through confirmation.
+- Volume-bar dominance doctrine:
+  - Rising red volume during pullback/consolidation signals selling-pressure control.
+  - Policy response is pause adds, tighten risk, and bail when breakout/reclaim thesis fails.
+
+## 23) Trigger/Entry Taxonomy Expansion (mapped to Intrabar phases)
+- Added trigger specs:
+  - `T_GAP_AND_GO_IMMEDIATE` (OPENING_DRIVE): no 1M candle-close requirement; intrabar permitted.
+  - `T_STARTER_POSITION_ANTICIPATION` (OPENING_DRIVE/MORNING_MOMENTUM): optional, spec-only, calibration dependent.
+  - `T_BREAKOUT_OR_BAILOUT` (OPENING_DRIVE/MORNING_MOMENTUM/MIDDAY): failure-fast rejection doctrine.
+  - `T_ORB_1M` and `T_ORB_5M`: explicit ORB variants, both mapped to OPENING_DRIVE execution law.
+- Mapping law:
+  - OPENING_DRIVE retains intrabar execution authority;
+  - slower phases still prefer increased confirmation/candle-close discipline.
+
+## 24) Float Tier Doctrine
+- `FloatModelV2` tiers are made explicit in doctrinal text:
+  - preferred low-float tier (roughly sub-10M) for momentum responsiveness.
+  - ultra-low-float explosive tier (roughly sub-5M) with elevated halt/slippage risk.
+- Float remains structural and sourced from multi-provider references with cache/source-attribution doctrine.
+
+## 25) Confirmation Layer (MACD + volume-bar rules)
+- MACD semantics in V2:
+  - MACD is a confirmation feature with calibration notes, not universally forced as hard-required for every entry.
+- Volume-bar confirmation semantics:
+  - breakouts prefer expansion volume;
+  - rising red dominance during pullback/consolidation is explicit pause/bail evidence.
+- Data requirements alignment:
+  - float and news catalyst remain structural required fields.
+  - newly introduced session-reference evidence fields are optional with explicit fallback semantics.
+
+## 26) Momentum Weakness & Exit Law (Pullback tiers + intrabar exits + volume dominance proxies)
+- `MomentumWeaknessAndExitLawV2` is added as a spec-only consolidation layer; runtime wiring/evaluation logic remains intentionally unchanged.
+- Pullback tier doctrine (calibration defaults, subject to empirical validation):
+  - `<=30%` retrace: strongest continuation context when reclaim + volume confirm.
+  - `30-40%` retrace: normal pullback zone; maintain confirmation discipline.
+  - `40-50%` retrace: caution tier; reduce aggression and tighten invalidation tolerance.
+  - `>=50%` retrace: momentum thesis weakens; pause-add/bail bias unless immediate reclaim evidence appears.
+- Intrabar exit override doctrine:
+  - 10SEC execution authority is explicit in `OPENING_DRIVE` (and permitted in `MORNING_MOMENTUM`).
+  - Exit may occur before a 1M candle forms/closes when intrabar structure failure invalidates breakout/reclaim thesis.
+  - This encodes Ross failure-fast "breakout or bail out" behavior to avoid hope-holding during rapid reversals.
+- Volume dominance proxy knobs:
+  - Red-vs-green and red-vs-impulse ratio surfaces are explicitly represented.
+  - Proxy thresholds are **disabled by default** (`enable_proxy_thresholds=False`) to avoid false certainty.
+  - Ratios are doctrine-calibration surfaces only and are subject to empirical validation.
+- Clarifier retained for session-reference separation:
+  - Gap/open behavior is evaluated at the open.
+  - `% change` ranking remains primarily a preparation-stage ranking signal.
+
+
+## 27) Impulse Qualification & Measurement Law (Structural + Micro + 50% Reset Doctrine)
+- `ImpulseQualificationAndMeasurementLawV2` is added as a spec-only doctrinal surface; no runtime evaluator wiring is introduced in this change.
+- Structural impulse doctrine:
+  - Expansion leg from the last confirmed higher low to the most recent expansion high that remains structurally valid.
+- Micro impulse doctrine:
+  - Breakout expansion from a trigger level (e.g., pullback high, ORB high, PMH) on execution timeframe (10SEC in fast phases).
+- Retracement measurement basis:
+  - `(impulse_high - current_price) / (impulse_high - impulse_low)`; pullback tiers reference this structural range.
+- Entry/stop laws:
+  - Primary micro-pullback entry is first green candle that breaks the high of the prior red sequence in valid continuation context.
+  - Initial invalidation stop is pullback structure low; loss below that low invalidates continuation thesis.
+- Pullback candle quality doctrine:
+  - Red pullback bodies should remain smaller than impulse green bodies; expanding red bodies or long upper wicks degrade continuation odds.
+- MACD preference doctrine:
+  - Prefer positive/curling-up MACD on structure timeframe (typically 1MIN; 5MIN for higher-timeframe context), as confirmation-weighted evidence rather than universal hard gating.
+- 50% reset doctrine:
+  - Retracement beyond 50% shifts bias toward bail-out and no re-entry until a new structural impulse forms.
+- Timeframe alignment doctrine:
+  - Impulse/retracement is structure-based and fractal across 5MIN, 1MIN, and 10SEC; intrabar 10SEC exit authority may fire before 1MIN close.
+- Calibration note:
+  - 30/40/50 pullback tiers remain Ross-style empirical doctrine pending replay/statistical validation.
+
+## 28) Structural Impulse Detection Law (Pivot + Micro Promotion + Reset Doctrine)
+
+- Introduces `StructuralImpulseDetectionModelV2` (spec-only).
+- Pivot-based higher-low confirmation.
+- Phase-based timeframe mapping (OPENING_DRIVE = 1MIN structure / 10SEC micro).
+- Micro-to-structural promotion rules.
+- 50% retracement reset doctrine.
+- No runtime evaluator changes in this PR.
