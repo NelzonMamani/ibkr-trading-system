@@ -177,6 +177,21 @@ class MomentumWeaknessAndExitLawV2:
 
 
 @dataclass(frozen=True)
+class ImpulseQualificationAndMeasurementLawV2:
+    structural_impulse_definition: str = ""
+    micro_impulse_definition: str = ""
+    retracement_calculation_basis: str = ""
+    entry_trigger_law: str = ""
+    stop_placement_law: str = ""
+    pullback_candle_structure_law: str = ""
+    macd_preference_law: str = ""
+    fifty_percent_reset_law: str = ""
+    timeframe_alignment_notes: str = ""
+    calibration_notes: str = ""
+    notes: str = ""
+
+
+@dataclass(frozen=True)
 class StructureModelV2:
     levels: tuple[str, ...] = ()
     zones: tuple[str, ...] = ()
@@ -425,6 +440,9 @@ class StrategyPolicyV2:
     session_reference_law: SessionReferenceLawV2 = field(default_factory=SessionReferenceLawV2)
     candle_and_volume_evidence: CandleAndVolumeEvidenceModelV2 = field(default_factory=CandleAndVolumeEvidenceModelV2)
     momentum_weakness_and_exit: MomentumWeaknessAndExitLawV2 = field(default_factory=MomentumWeaknessAndExitLawV2)
+    impulse_qualification: ImpulseQualificationAndMeasurementLawV2 = field(
+        default_factory=ImpulseQualificationAndMeasurementLawV2
+    )
     structure_model: StructureModelV2 = field(default_factory=StructureModelV2)
     position_management: PositionManagementV2 = field(default_factory=PositionManagementV2)
     trailing_model: TrailingModelV2 = field(default_factory=TrailingModelV2)
