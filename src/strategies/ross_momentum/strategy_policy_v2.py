@@ -5,6 +5,11 @@ from src.strategy_policy_v2.policy_v2 import (
     ExitModelV2,
     ExitRuleV2,
     IntentContractV2,
+    IntrabarCadenceRuleV2,
+    IntrabarExecutionModelV2,
+    IntrabarPhaseSpecV2,
+    IntrabarSafetyThrottleV2,
+    IntrabarTimeframeMapV2,
     ModeSemanticsV2,
     PatternCatalogV2,
     PatternSpecV2,
@@ -13,6 +18,7 @@ from src.strategy_policy_v2.policy_v2 import (
     PremarketPreparationModelV2,
     PositionManagementV2,
     RiskModelV2,
+    SymbolRotationLawV2,
     SafetyModelV2,
     SafetyRuleV2,
     SessionSemanticsV2,
@@ -293,6 +299,160 @@ POLICY_V2 = StrategyPolicyV2(
         notes=(
             "This model encodes Ross premarket due diligence: scan gappers/gainers, confirm catalyst, map HTF levels, "
             "validate room-to-run (incl EMA200), and only then proceed to intrabar execution (10SEC) during OPENING_DRIVE."
+        ),
+    ),
+    intrabar_execution=IntrabarExecutionModelV2(
+        phase_specs=(
+            IntrabarPhaseSpecV2(
+                phase_id="PREMARKET_PREP",
+                phase_name="Premarket Preparation",
+                doctrine="Analyze DAILY/5M/1M context and prepare levels/watchlist only.",
+                trading_intent_policy="No trading intents; preparation and gating only.",
+            ),
+            IntrabarPhaseSpecV2(
+                phase_id="OPENING_DRIVE",
+                phase_name="Opening Drive",
+                doctrine="Aggressive momentum execution: structure from 5M+1M, entries/refinements on 10SEC with intrabar triggers.",
+                trading_intent_policy="Micro-scalp rapid entry/exit loops are allowed when risk overlay and max consecutive losses constraints remain valid.",
+            ),
+            IntrabarPhaseSpecV2(
+                phase_id="MORNING_MOMENTUM",
+                phase_name="Morning Momentum",
+                doctrine="Still aggressive after initial open; 10SEC execution remains permitted for continuation and reclaim triggers.",
+                trading_intent_policy="Repeated attempts are allowed when setup quality and safety throttles remain green.",
+            ),
+            IntrabarPhaseSpecV2(
+                phase_id="MIDDAY",
+                phase_name="Midday",
+                doctrine="Reduced aggression and lower cadence; prioritize cleaner confirmation over raw speed.",
+                trading_intent_policy="Primary execution on 1M; 10SEC optional for precision-only entries/exits.",
+            ),
+            IntrabarPhaseSpecV2(
+                phase_id="POWER_HOUR",
+                phase_name="Power Hour",
+                doctrine="Timeframe compression regime with slower cadence and stronger confirmation preference.",
+                trading_intent_policy="5M plays the morning 1M role; 1M plays the morning 10SEC role.",
+            ),
+            IntrabarPhaseSpecV2(
+                phase_id="LATE_DAY",
+                phase_name="Late Day",
+                doctrine="Timeframe compression continues into close; preserve selectivity and avoid overtrading.",
+                trading_intent_policy="Execution cadence is slower than OPENING_DRIVE; prioritize high-quality continuation or reclaim only.",
+            ),
+            IntrabarPhaseSpecV2(
+                phase_id="AFTER_HOURS",
+                phase_name="After Hours",
+                doctrine="If session semantics allow AH participation, trade conservatively with reduced cadence and higher safety constraints.",
+                trading_intent_policy="Only allow intents that pass stricter liquidity/spread and operational safety checks.",
+            ),
+        ),
+        timeframe_map=(
+            IntrabarTimeframeMapV2(
+                phase_id="PREMARKET_PREP",
+                analysis_timeframes=("DAILY", "5MIN", "1MIN"),
+                structure_timeframes=("DAILY", "5MIN", "1MIN"),
+                execution_timeframes=(),
+                candle_close_policy="Candle-close confirmation is for analysis only because this phase emits no trading intents.",
+            ),
+            IntrabarTimeframeMapV2(
+                phase_id="OPENING_DRIVE",
+                analysis_timeframes=("DAILY", "5MIN", "1MIN"),
+                structure_timeframes=("5MIN", "1MIN"),
+                execution_timeframes=("10SEC",),
+                candle_close_policy="Do not require 1M candle close for Gap&Go/immediate momentum entries; intrabar 10SEC triggers are explicitly allowed.",
+            ),
+            IntrabarTimeframeMapV2(
+                phase_id="MORNING_MOMENTUM",
+                analysis_timeframes=("5MIN", "1MIN"),
+                structure_timeframes=("5MIN", "1MIN"),
+                execution_timeframes=("10SEC", "1MIN"),
+                candle_close_policy="Intrabar trigger semantics remain valid on 10SEC; 1M close may be used when tape slows.",
+            ),
+            IntrabarTimeframeMapV2(
+                phase_id="MIDDAY",
+                analysis_timeframes=("5MIN", "1MIN"),
+                structure_timeframes=("5MIN", "1MIN"),
+                execution_timeframes=("1MIN", "10SEC"),
+                candle_close_policy="Prefer candle-close confirmation on 1M for slower phases; use 10SEC only to refine price location.",
+            ),
+            IntrabarTimeframeMapV2(
+                phase_id="POWER_HOUR",
+                analysis_timeframes=("5MIN", "1MIN"),
+                structure_timeframes=("5MIN", "1MIN"),
+                execution_timeframes=("1MIN",),
+                candle_close_policy="Timeframe compression: 5M carries the morning 1M structure role and 1M carries the morning 10SEC execution role.",
+            ),
+            IntrabarTimeframeMapV2(
+                phase_id="LATE_DAY",
+                analysis_timeframes=("5MIN", "1MIN"),
+                structure_timeframes=("5MIN", "1MIN"),
+                execution_timeframes=("1MIN",),
+                candle_close_policy="Timeframe compression law remains in force; favor slower, confirmed executions and avoid OPENING_DRIVE cadence.",
+            ),
+            IntrabarTimeframeMapV2(
+                phase_id="AFTER_HOURS",
+                analysis_timeframes=("5MIN", "1MIN"),
+                structure_timeframes=("5MIN", "1MIN"),
+                execution_timeframes=("1MIN",),
+                candle_close_policy="Conservative close-confirmation preference with strict spread/liquidity gating.",
+            ),
+        ),
+        cadence_rules=(
+            IntrabarCadenceRuleV2(
+                rule_id="C_CONTROL_BUY_CONTROL_CLOSE",
+                applies_to_phases=("OPENING_DRIVE", "MORNING_MOMENTUM"),
+                doctrine="Control buy / control close doctrine: rapid entry/exit loops are allowed while risk overlay, stop discipline, and consecutive-loss guard remain active.",
+            ),
+            IntrabarCadenceRuleV2(
+                rule_id="C_BURST_WINDOW",
+                applies_to_phases=("OPENING_DRIVE",),
+                doctrine="Burst trading is allowed during the first 15-60 minutes on 1-3 primary symbols; automation may concurrently manage up to focus_limit_m symbols under strict gating.",
+            ),
+            IntrabarCadenceRuleV2(
+                rule_id="C_MIDDAY_SLOWDOWN",
+                applies_to_phases=("MIDDAY", "POWER_HOUR", "LATE_DAY", "AFTER_HOURS"),
+                doctrine="Cadence decelerates outside the morning drive: fewer attempts, stronger confirmation preference, and selective re-entry behavior.",
+            ),
+        ),
+        symbol_rotation_law=SymbolRotationLawV2(
+            doctrine="Trade the best 1-3 names, not everything; prioritize focus-list leaders while allowing automation to monitor multiple symbols with strict entry gating.",
+            prioritization_rules=(
+                "Prefer symbols already in focus list with strongest in-play alignment and clean structure.",
+                "When several candidates qualify, allocate attention to the highest-quality momentum names first.",
+            ),
+            rotation_triggers=(
+                "Rotate away when relative strength weakens, setup invalidates, or structure fails to reclaim/hold key levels.",
+                "Rotate toward symbols showing cleaner continuation structure and execution feasibility.",
+            ),
+        ),
+        safety_throttles=(
+            IntrabarSafetyThrottleV2(
+                throttle_id="T_SPREAD_LIQUIDITY_SANITY",
+                trigger="Spread/liquidity sanity degrades for intended execution cadence.",
+                behavior="Block micro-scalp rapid-fire intents until tradability returns to acceptable conditions.",
+            ),
+            IntrabarSafetyThrottleV2(
+                throttle_id="T_HALT_INTERACTION",
+                trigger="Halt risk, active halt, or unstable halt-resume tape during micro-scalp context.",
+                behavior="Suspend rapid execution loops and require post-resume structure/liquidity validation before any continuation intent.",
+            ),
+            IntrabarSafetyThrottleV2(
+                throttle_id="T_LATENCY_DEGRADATION",
+                trigger="Connection/latency degradation detected for scanner, market data, or order path.",
+                behavior="Block rapid-fire intents and degrade to non-trading diagnostics or slower confirmation-only behavior.",
+            ),
+            IntrabarSafetyThrottleV2(
+                throttle_id="T_CANCEL_REPLACE_CHURN_GUARD",
+                trigger="Cancel/replace churn indicates unstable quoting or excessive order management churn.",
+                behavior="Apply churn guard to prevent hyperactive micro-scalp loops until execution stability is restored.",
+            ),
+        ),
+        setup_family_relationship=(
+            "Gap&Go, ORB, First Pullback, Bull Flag, ABCD, Momentum Reclaim, Premarket High Break, and related continuation families can all be executed via OPENING_DRIVE micro-scalp doctrine using 10SEC entries. "
+            "Micro pullback is an execution tool used especially in the morning drive (not an afternoon-only concept); afternoon and late-day operation instead use timeframe compression and slower cadence."
+        ),
+        notes=(
+            "Intrabar execution law is declarative and spec-only: it codifies phase-aware timeframe usage, candle-close rules, cadence, symbol rotation, and safety throttles without runtime wiring changes."
         ),
     ),
     notes=(
