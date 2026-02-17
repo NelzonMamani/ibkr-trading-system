@@ -187,6 +187,55 @@ class PremarketPreparationModelV2:
 
 
 @dataclass(frozen=True)
+class IntrabarPhaseSpecV2:
+    phase_id: str
+    phase_name: str
+    doctrine: str
+    trading_intent_policy: str = ""
+
+
+@dataclass(frozen=True)
+class IntrabarTimeframeMapV2:
+    phase_id: str
+    analysis_timeframes: tuple[str, ...] = ()
+    structure_timeframes: tuple[str, ...] = ()
+    execution_timeframes: tuple[str, ...] = ()
+    candle_close_policy: str = ""
+
+
+@dataclass(frozen=True)
+class IntrabarCadenceRuleV2:
+    rule_id: str
+    applies_to_phases: tuple[str, ...] = ()
+    doctrine: str = ""
+
+
+@dataclass(frozen=True)
+class IntrabarSafetyThrottleV2:
+    throttle_id: str
+    trigger: str
+    behavior: str
+
+
+@dataclass(frozen=True)
+class SymbolRotationLawV2:
+    doctrine: str = ""
+    prioritization_rules: tuple[str, ...] = ()
+    rotation_triggers: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class IntrabarExecutionModelV2:
+    phase_specs: tuple[IntrabarPhaseSpecV2, ...] = ()
+    timeframe_map: tuple[IntrabarTimeframeMapV2, ...] = ()
+    cadence_rules: tuple[IntrabarCadenceRuleV2, ...] = ()
+    symbol_rotation_law: SymbolRotationLawV2 = field(default_factory=SymbolRotationLawV2)
+    safety_throttles: tuple[IntrabarSafetyThrottleV2, ...] = ()
+    setup_family_relationship: str = ""
+    notes: str = ""
+
+
+@dataclass(frozen=True)
 class StrategyPolicyV2:
     identity: StrategyIdentityV2
     selection_plan: SelectionPlan
@@ -205,5 +254,6 @@ class StrategyPolicyV2:
     safety_model: SafetyModelV2 = field(default_factory=SafetyModelV2)
     data_requirements: DataRequirementsV2 = field(default_factory=DataRequirementsV2)
     premarket_preparation: PremarketPreparationModelV2 = field(default_factory=PremarketPreparationModelV2)
+    intrabar_execution: IntrabarExecutionModelV2 = field(default_factory=IntrabarExecutionModelV2)
     levels_and_zones: tuple[str, ...] = ()
     notes: str = ""
