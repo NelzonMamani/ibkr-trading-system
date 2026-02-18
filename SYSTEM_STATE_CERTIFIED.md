@@ -3,6 +3,9 @@
 Generated: 2026-02-14T17:51:55.675961+00:00
 Platform State: **TRADING_READY_PAPER**
 
+## Certification Phases
+- STRATEGY_CERTIFICATION_PHASE: ACTIVE
+
 ## Canonical Run Modes
 - SIM
 - PAPER
