@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib
+import json
 import re
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +16,8 @@ MATRIX_V2_PATH = (
     CATALOGUE_ROOT / "04_STRATEGY_CERTIFICATION_AND_GOVERNANCE" / "STRATEGY_AUDIT_MATRIX_V2.md"
 )
 REPORT_PATH = CATALOGUE_ROOT / "STRATEGY_CERTIFICATION_REPORT.md"
+BASELINE_SNAPSHOT_PATH = Path("AUDIT_EVIDENCE/strategy_policy_v2_baseline_snapshot.json")
+GOVERNANCE_LOCK_STATUS = "GOVERNANCE_LOCKED_BASELINE_V2"
 
 DOMAIN_LABELS: tuple[tuple[str, str], ...] = (
     ("D0", "Strategy Identity"),
@@ -72,6 +76,8 @@ class StrategyAuditResult:
     slug: str
     domains: list[DomainResult]
     default_only: bool
+    governance_lock_violation: bool = False
+    governance_lock_message: str = ""
 
     @property
     def critical_failures(self) -> list[str]:
@@ -100,7 +106,9 @@ class StrategyAuditResult:
         return sorted(missing)
 
     @property
-    def verdict(self) -> Literal["CERTIFIED", "CONDITIONALLY_CERTIFIED", "FAIL"]:
+    def verdict(self) -> Literal["CERTIFIED", "CONDITIONALLY_CERTIFIED", "FAIL", "INVALIDATED_PENDING_REVIEW"]:
+        if self.governance_lock_violation:
+            return "INVALIDATED_PENDING_REVIEW"
         if self.default_only:
             return "FAIL"
         if self.critical_failures:
@@ -119,6 +127,28 @@ def _catalogue_strategies() -> list[tuple[str, str]]:
         if "P01" <= strategy_id <= "P20":
             entries.append((strategy_id, raw_slug.lower()))
     return entries
+
+
+def _policy_path(slug: str) -> Path:
+    return Path("src/strategies") / slug / "strategy_policy_v2.py"
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _load_baseline_snapshot() -> dict[str, str]:
+    if not BASELINE_SNAPSHOT_PATH.exists():
+        return {}
+    payload = json.loads(BASELINE_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+    strategies = payload.get("strategies", [])
+    baseline: dict[str, str] = {}
+    for entry in strategies:
+        strategy_id = entry.get("strategy_id")
+        sha = entry.get("sha256")
+        if isinstance(strategy_id, str) and isinstance(sha, str):
+            baseline[strategy_id] = sha
+    return baseline
 
 
 def _note_values(policy: StrategyPolicyV2) -> list[str]:
@@ -336,15 +366,28 @@ def _domain_results(policy: StrategyPolicyV2) -> list[DomainResult]:
 
 def run_audit() -> list[StrategyAuditResult]:
     results: list[StrategyAuditResult] = []
+    baseline_hashes = _load_baseline_snapshot()
     for strategy_id, slug in _catalogue_strategies():
         module = importlib.import_module(f"src.strategies.{slug}.strategy_policy_v2")
         policy: StrategyPolicyV2 = module.POLICY_V2
+        policy_path = _policy_path(slug)
+        current_hash = _sha256(policy_path)
+        expected_hash = baseline_hashes.get(strategy_id)
+        violation = bool(expected_hash) and current_hash != expected_hash
+        violation_message = ""
+        if violation:
+            violation_message = (
+                f"GOVERNANCE_LOCK_VIOLATION: {strategy_id} strategy_policy_v2.py hash drift detected "
+                f"(expected={expected_hash}, actual={current_hash})"
+            )
         results.append(
             StrategyAuditResult(
                 strategy_id=strategy_id,
                 slug=slug,
                 domains=_domain_results(policy),
                 default_only=_is_default_only(policy),
+                governance_lock_violation=violation,
+                governance_lock_message=violation_message,
             )
         )
     return results
@@ -353,7 +396,13 @@ def run_audit() -> list[StrategyAuditResult]:
 def _render_matrix(results: list[StrategyAuditResult], generated_at: str) -> str:
     cols = [name for _, name in DOMAIN_LABELS]
     header = ["Strategy", "Verdict", *cols]
-    lines = ["# STRATEGY_AUDIT_MATRIX_V2", "", f"Generated (UTC): {generated_at}", ""]
+    lines = [
+        "# STRATEGY_AUDIT_MATRIX_V2",
+        "",
+        f"STATUS: {GOVERNANCE_LOCK_STATUS}",
+        f"Generated (UTC): {generated_at}",
+        "",
+    ]
     lines.append("| " + " | ".join(header) + " |")
     lines.append("|" + "|".join(["---"] * len(header)) + "|")
     for result in results:
@@ -372,6 +421,7 @@ def _render_report(results: list[StrategyAuditResult], generated_at: str) -> str
             f"- CERTIFIED: {sum(1 for r in results if r.verdict == 'CERTIFIED')}",
             f"- CONDITIONALLY_CERTIFIED: {sum(1 for r in results if r.verdict == 'CONDITIONALLY_CERTIFIED')}",
             f"- FAIL: {sum(1 for r in results if r.verdict == 'FAIL')}",
+            f"- INVALIDATED_PENDING_REVIEW: {sum(1 for r in results if r.verdict == 'INVALIDATED_PENDING_REVIEW')}",
             "",
             "## Per Strategy Results",
             "",
@@ -380,7 +430,10 @@ def _render_report(results: list[StrategyAuditResult], generated_at: str) -> str
     lines.append("| Strategy | Verdict | Default-Only | Missing Controls |")
     lines.append("|---|---|---|---|")
     for result in results:
-        missing = "<br>".join(result.missing_controls) if result.missing_controls else "None"
+        missing_items = list(result.missing_controls)
+        if result.governance_lock_violation and result.governance_lock_message:
+            missing_items.append(result.governance_lock_message)
+        missing = "<br>".join(missing_items) if missing_items else "None"
         lines.append(f"| {result.strategy_id}_{result.slug} | {result.verdict} | {result.default_only} | {missing} |")
 
     for result in results:
@@ -391,18 +444,60 @@ def _render_report(results: list[StrategyAuditResult], generated_at: str) -> str
             lines.append(f"| {domain.domain_id} {domain.name} | {domain.verdict} |")
         lines.append("")
         lines.append("Missing controls:")
-        if result.missing_controls:
-            for missing in result.missing_controls:
+        missing_items = list(result.missing_controls)
+        if result.governance_lock_violation and result.governance_lock_message:
+            missing_items.append(result.governance_lock_message)
+        if missing_items:
+            for missing in missing_items:
                 lines.append(f"- {missing}")
         else:
             lines.append("- None")
     return "\n".join(lines) + "\n"
 
 
+
+def _extract_generated_timestamp(text: str) -> str:
+    for line in text.splitlines():
+        if line.startswith("Generated (UTC): "):
+            return line.split("Generated (UTC): ", 1)[1].strip()
+    return ""
+
+
+def _write_baseline_snapshot(results: list[StrategyAuditResult], generated_at: str, matrix_generated_at: str, report_generated_at: str) -> None:
+    BASELINE_SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    strategies: list[dict[str, str]] = []
+    for result in results:
+        policy_path = _policy_path(result.slug)
+        strategies.append(
+            {
+                "strategy_id": result.strategy_id,
+                "strategy_name": result.slug,
+                "policy_path": str(policy_path).replace('\\', '/'),
+                "sha256": _sha256(policy_path),
+            }
+        )
+    snapshot = {
+        "baseline_version": "v2.0.0",
+        "generated_at_utc": generated_at,
+        "matrix_generation_timestamp_utc": matrix_generated_at,
+        "certification_report_timestamp_utc": report_generated_at,
+        "strategies": strategies,
+    }
+    BASELINE_SNAPSHOT_PATH.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+
+
 def generate_audit_artifacts() -> list[StrategyAuditResult]:
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     results = run_audit()
     MATRIX_V2_PATH.parent.mkdir(parents=True, exist_ok=True)
-    MATRIX_V2_PATH.write_text(_render_matrix(results, generated_at), encoding="utf-8")
-    REPORT_PATH.write_text(_render_report(results, generated_at), encoding="utf-8")
+    matrix_text = _render_matrix(results, generated_at)
+    report_text = _render_report(results, generated_at)
+    MATRIX_V2_PATH.write_text(matrix_text, encoding="utf-8")
+    REPORT_PATH.write_text(report_text, encoding="utf-8")
+    _write_baseline_snapshot(
+        results,
+        generated_at=generated_at,
+        matrix_generated_at=_extract_generated_timestamp(matrix_text),
+        report_generated_at=_extract_generated_timestamp(report_text),
+    )
     return results

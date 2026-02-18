@@ -1,12 +1,13 @@
 # STRATEGY_CERTIFICATION_REPORT
 
-Generated (UTC): 2026-02-18T21:32:30Z
+Generated (UTC): 2026-02-18T22:47:18Z
 
 ## Summary
 - Strategies audited: 20
 - CERTIFIED: 20
 - CONDITIONALLY_CERTIFIED: 0
 - FAIL: 0
+- INVALIDATED_PENDING_REVIEW: 0
 
 ## Per Strategy Results
 

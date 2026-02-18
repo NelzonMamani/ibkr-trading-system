@@ -117,6 +117,15 @@ Platform State: **TRADING_READY_PAPER**
 - Drift verdict: See `AUDIT_EVIDENCE/final_gate/06_reconciliation_report.json`
 - LIVE remains execution-disabled by default; operator must explicitly enable execution for real trading.
 
+## STRATEGY_POLICY_V2_GOVERNANCE
+
+- Baseline Version: v2.0.0
+- Governance Lock: ACTIVE
+- Mutation Policy: Controlled
+- Direct Edits to strategy_policy_v2.py: PROHIBITED
+- Required Path for Changes: Change-Control Process
+- Drift Detection: Enforced via Audit Engine
+
 ## STRATEGY_POLICY_V2_STATUS
 - P01–P20: FULLY_CERTIFIED
 - Institutional Reconstruction Phase: COMPLETE
