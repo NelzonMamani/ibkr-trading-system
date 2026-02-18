@@ -4,6 +4,9 @@
 **Status:** CERTIFIED (observed reality)
 **Last updated:** 2026-02-15
 
+## Certification Phases
+- STRATEGY_CERTIFICATION_PHASE: ACTIVE
+
 ## Certified Run Modes
 - SIM
 - PAPER
