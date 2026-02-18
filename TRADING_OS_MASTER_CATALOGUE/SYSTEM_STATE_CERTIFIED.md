@@ -83,3 +83,8 @@ Legend: NOT_STARTED / PARTIAL / IMPLEMENTED_UNCERTIFIED / CERTIFIED
 - E1 verification executed compileall, pytest, and boot cycles for SIM, PAPER, READ_ONLY, and LIVE; IBKR connectivity failures were captured as traceable HALT reasons.
 - E4 verification executed compileall, pytest, and market session/data quality/replay tests with evidence captured under the E4 audit folder.
 - E3 verification executed compileall, pytest, and per-mode orchestrator cycles; IBKR connectivity warnings were captured when no local TWS/IBG instance was available.
+
+## STRATEGY_POLICY_V2_STATUS
+- P01–P20: FULLY_CERTIFIED
+- Institutional Reconstruction Phase: COMPLETE
+- Re-Certification Phase: COMPLETE
