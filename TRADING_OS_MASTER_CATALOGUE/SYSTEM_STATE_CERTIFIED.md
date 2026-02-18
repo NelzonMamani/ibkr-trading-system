@@ -84,6 +84,15 @@ Legend: NOT_STARTED / PARTIAL / IMPLEMENTED_UNCERTIFIED / CERTIFIED
 - E4 verification executed compileall, pytest, and market session/data quality/replay tests with evidence captured under the E4 audit folder.
 - E3 verification executed compileall, pytest, and per-mode orchestrator cycles; IBKR connectivity warnings were captured when no local TWS/IBG instance was available.
 
+## STRATEGY_POLICY_V2_GOVERNANCE
+
+- Baseline Version: v2.0.0
+- Governance Lock: ACTIVE
+- Mutation Policy: Controlled
+- Direct Edits to strategy_policy_v2.py: PROHIBITED
+- Required Path for Changes: Change-Control Process
+- Drift Detection: Enforced via Audit Engine
+
 ## STRATEGY_POLICY_V2_STATUS
 - P01–P20: FULLY_CERTIFIED
 - Institutional Reconstruction Phase: COMPLETE
