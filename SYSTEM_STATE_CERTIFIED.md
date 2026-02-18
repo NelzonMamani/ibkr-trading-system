@@ -116,3 +116,8 @@ Platform State: **TRADING_READY_PAPER**
 - Platform_state: **TRADING_READY_PAPER**
 - Drift verdict: See `AUDIT_EVIDENCE/final_gate/06_reconciliation_report.json`
 - LIVE remains execution-disabled by default; operator must explicitly enable execution for real trading.
+
+## STRATEGY_POLICY_V2_STATUS
+- P01–P20: FULLY_CERTIFIED
+- Institutional Reconstruction Phase: COMPLETE
+- Re-Certification Phase: COMPLETE

@@ -1,6 +1,6 @@
 # STRATEGY_AUDIT_MATRIX_V2
 
-Generated (UTC): 2026-02-18T21:11:20Z
+Generated (UTC): 2026-02-18T21:32:30Z
 
 | Strategy | Verdict | Strategy Identity | Stock Selection / Universe Definition | Setup Taxonomy | Conditions | Confirmations | Trigger Model | Intrabar Execution Doctrine | Risk Governance | Exit Governance | Position Management | Data Requirements | Safety & Failure Modes | Execution Constraints | Timeframe Authority | Scaling Doctrine |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
