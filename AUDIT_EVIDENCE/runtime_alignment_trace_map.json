@@ -1,0 +1,435 @@
+{
+  "generated_at_utc": "2026-02-18T23:35:02Z",
+  "governance_lock_status": "GOVERNANCE_LOCKED_BASELINE_V2",
+  "runtime_components": {
+    "strategy_policy_v2": true,
+    "execution_engine": true,
+    "risk_engine": true,
+    "trade_exit_engine": true,
+    "position_management": true,
+    "failure_handling": true,
+    "timeframe_authority": true
+  },
+  "strategies": [
+    {
+      "strategy_id": "P01",
+      "strategy_slug": "ross_momentum",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P02",
+      "strategy_slug": "statistical_intraday_momentum",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P03",
+      "strategy_slug": "mean_reversion",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P04",
+      "strategy_slug": "long_horizon_value",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P05",
+      "strategy_slug": "opening_drive",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P06",
+      "strategy_slug": "vwap_reclaim",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P07",
+      "strategy_slug": "power_hour",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P08",
+      "strategy_slug": "volatility_expansion",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P09",
+      "strategy_slug": "range_bound_fade",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P10",
+      "strategy_slug": "support_resistance_channel",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P11",
+      "strategy_slug": "event_earnings_reaction",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P12",
+      "strategy_slug": "event_news_shock_continuation",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P13",
+      "strategy_slug": "volatility_contraction_breakout",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P14",
+      "strategy_slug": "volatility_carry_risk_premium",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P15",
+      "strategy_slug": "pairs_divergence_reversion",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P16",
+      "strategy_slug": "cross_sectional_relative_strength_rotation",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P17",
+      "strategy_slug": "time_based_seasonality",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P18",
+      "strategy_slug": "trend_following_classic",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P19",
+      "strategy_slug": "long_horizon_quality_compounder",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    },
+    {
+      "strategy_id": "P20",
+      "strategy_slug": "regime_adaptive_meta_allocator",
+      "verdict": "CERTIFIED",
+      "traceability": {
+        "setup_families_traceable": true,
+        "trigger_models_executable": true,
+        "confirmations_enforced": true,
+        "risk_governance_wired": true,
+        "exit_governance_enforced": true,
+        "position_management_respected": true,
+        "intrabar_honored_when_applicable": true,
+        "intrabar_not_used_when_not_applicable": false,
+        "data_requirements_validated": true,
+        "safety_failure_rules_declared": true,
+        "execution_constraints_enforced": true,
+        "timeframe_authority_respected": true,
+        "scaling_doctrine_implemented": true
+      },
+      "missing_controls": []
+    }
+  ]
+}

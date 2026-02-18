@@ -1,0 +1,59 @@
+{
+  "generated_at_utc": "2026-02-18T23:35:02Z",
+  "scenario_count": 10,
+  "passed": 10,
+  "failed": 0,
+  "halted_on_failure": true,
+  "scenarios": [
+    {
+      "scenario": "missing_data_fields",
+      "pass": true,
+      "detail": "decision_code=REJECT reasons=['DATA_QUALITY_BLOCK']"
+    },
+    {
+      "scenario": "delayed_feed",
+      "pass": true,
+      "detail": "decision_code=REJECT reasons=['DATA_QUALITY_BLOCK']"
+    },
+    {
+      "scenario": "spread_explosion",
+      "pass": true,
+      "detail": "decision_code=REJECT reasons=['DATA_QUALITY_BLOCK']"
+    },
+    {
+      "scenario": "volatility_spike",
+      "pass": true,
+      "detail": "decision_code=REJECT reasons=['DATA_QUALITY_BLOCK']"
+    },
+    {
+      "scenario": "intrabar_trigger_collision",
+      "pass": true,
+      "detail": "first=SIMULATED:Teaching-only: routed by trader_type with deterministic gateway and liquidity.; second=DUPLICATE:Duplicate intent detected; skipping submission."
+    },
+    {
+      "scenario": "exit_before_bar_close",
+      "pass": true,
+      "detail": ".                                                                        [100%]\n1 passed in 0.14s"
+    },
+    {
+      "scenario": "risk_limit_breach",
+      "pass": true,
+      "detail": "reason_code=RISK_MAX_OPEN_POSITIONS reasons=['RISK_MAX_OPEN_POSITIONS']"
+    },
+    {
+      "scenario": "invalid_scaling_attempt",
+      "pass": true,
+      "detail": "per_intent=[{'intent_id': 'dup-scale', 'symbol': 'AAPL', 'allowed': True, 'max_position_size': 1, 'reason_tags': [], 'rationale': 'Intent approved by RiskEngine.'}, {'intent_id': 'dup-scale', 'symbol': 'AAPL', 'allowed': False, 'max_position_size': 0, 'reason_tags': ['DUPLICATE_INTENT_ID'], 'rationale': 'Intent blocked by RiskEngine.'}]"
+    },
+    {
+      "scenario": "strategy_override_attempt",
+      "pass": true,
+      "detail": "reason_code=STRATEGY_READ_ONLY_EXECUTION_LOCK reasons=['STRATEGY_READ_ONLY_EXECUTION_LOCK']"
+    },
+    {
+      "scenario": "governance_lock_mutation_attempt",
+      "pass": true,
+      "detail": "expected=0000000000000000000000000000000000000000000000000000000000000000 actual=ff936d009fc6ea1c20306d67bcddceef230725dfd3fd27a3cc327100a5c12352"
+    }
+  ]
+}
