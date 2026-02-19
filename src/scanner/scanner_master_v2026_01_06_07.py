@@ -19,14 +19,6 @@ Run (from repo root):
 from __future__ import annotations
 
 # ============================
-# Section 0: Windows event loop fix (selector)
-# ============================
-import sys
-if sys.platform.startswith("win"):
-    import asyncio as _asyncio_tmp
-    _asyncio_tmp.set_event_loop_policy(_asyncio_tmp.WindowsSelectorEventLoopPolicy())
-
-# ============================
 # Section 1: Imports & Config
 # ============================
 
@@ -42,7 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ib_insync import IB, ScannerSubscription, Stock, util
+from src.runtime.async_runtime_bootstrap import install_runtime_policy, safe_import_ib_insync
 
 from src.news.news_heat import compute_fire_indicator
 
@@ -146,6 +138,11 @@ def _req_hist_safe(
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def _ib_symbols():
+    IB, Stock, ScannerSubscription = safe_import_ib_insync()
+    return IB, Stock, ScannerSubscription
 
 
 # ============================
@@ -342,6 +339,7 @@ def save_json_file(path: str | Path, obj: Any) -> None:
 # ============================
 
 def ib_connect() -> IB:
+    IB, _, _ = _ib_symbols()
     ib = IB()
     ib.RaiseRequestErrors = False  # prefer empty results over hard failures on pacing/cancellations
     client_id = int(get_config("IBKR_CLIENT_ID") or 0)
@@ -353,6 +351,7 @@ def ib_connect() -> IB:
 
 
 def fetch_top_gainers(ib: IB, n: int = TOP_GAINERS_COUNT) -> List[Stock]:
+    _, Stock, ScannerSubscription = _ib_symbols()
     sub = ScannerSubscription(
         instrument='STK',
         locationCode='STK.US.MAJOR',
@@ -1201,8 +1200,7 @@ def run_once() -> None:
 
 
 def main() -> None:
-    # Ensure ib_insync has a loop
-    util.patchAsyncio()
+    install_runtime_policy()
     run_once()
 
 
