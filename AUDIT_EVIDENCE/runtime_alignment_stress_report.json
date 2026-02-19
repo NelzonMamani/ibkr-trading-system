@@ -1,0 +1,47 @@
+{
+  "total_scenarios": 10,
+  "passed": 10,
+  "failed": 0,
+  "scenarios": [
+    {
+      "name": "SIM bootstrap",
+      "status": "PASS"
+    },
+    {
+      "name": "PAPER bootstrap",
+      "status": "PASS"
+    },
+    {
+      "name": "READ_ONLY bootstrap",
+      "status": "PASS"
+    },
+    {
+      "name": "LIVE bootstrap execution disabled",
+      "status": "PASS"
+    },
+    {
+      "name": "single strategy selection",
+      "status": "PASS"
+    },
+    {
+      "name": "multi-strategy selection",
+      "status": "PASS"
+    },
+    {
+      "name": "empty watchlist iteration",
+      "status": "PASS"
+    },
+    {
+      "name": "policy import smoke",
+      "status": "PASS"
+    },
+    {
+      "name": "traceability map generation",
+      "status": "PASS"
+    },
+    {
+      "name": "governance lock invariant",
+      "status": "PASS"
+    }
+  ]
+}
