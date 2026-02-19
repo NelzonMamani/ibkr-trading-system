@@ -1,14 +1,9 @@
 from __future__ import annotations
 
-import sys
-
 from dataclasses import replace
 import argparse
 
-if sys.platform.startswith("win"):
-    import asyncio as _asyncio_tmp
-
-    _asyncio_tmp.set_event_loop_policy(_asyncio_tmp.WindowsSelectorEventLoopPolicy())
+from src.runtime.async_runtime_bootstrap import install_runtime_policy
 
 from src.scanner.scanner_contract import scanner_request_from_policy
 from src.scanner.scanner_runner import run_scanner_cycle
@@ -40,6 +35,7 @@ def _resolve_strategy_policy(
 
 
 def main() -> None:
+    install_runtime_policy()
     parser = argparse.ArgumentParser(description="Scanner standalone runner")
     parser.add_argument("--strategy", default="ross_momentum")
     parser.add_argument("--session", default=None)
