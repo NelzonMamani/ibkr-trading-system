@@ -1,17 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
-from src.adapters.brokers.ibkr.ibkr_order_submitter import (
-    IbkrOrderSubmitter,
-    OrderSubmissionSettings,
-)
-from src.adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
-from src.adapters.brokers.ibkr.submission_guard import SubmissionGuard
 from src.config.runtime_config import (
     RunMode,
     get_ibkr_ack_timeout_seconds,
@@ -34,6 +29,9 @@ from src.config.runtime_config import (
 )
 from src.core.event_collector import EventCollector
 from src.domain.models.internal_order import InternalOrder
+
+if TYPE_CHECKING:
+    from src.adapters.brokers.ibkr.ibkr_order_submitter import OrderSubmissionSettings
 
 
 SOURCE = "CLI.SUBMIT_ONE_ORDER"
@@ -86,7 +84,15 @@ def build_internal_order() -> InternalOrder:
     )
 
 
-def build_settings(run_mode: RunMode) -> OrderSubmissionSettings:
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Submit one guarded PAPER market order through the IBKR adapter.",
+        epilog="Run as a module: python -m src.cli.submit_one_order",
+    )
+    return parser.parse_args()
+
+
+def build_settings(run_mode: RunMode) -> "OrderSubmissionSettings":
     return OrderSubmissionSettings(
         run_mode=run_mode,
         order_submission_enabled=True,
@@ -137,6 +143,16 @@ def emit_single_order_events(event_bus: EventCollector, internal_order: Internal
 
 
 def main() -> None:
+    parse_args()
+
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    from src.adapters.brokers.ibkr.ibkr_order_submitter import (
+        IbkrOrderSubmitter,
+        OrderSubmissionSettings,
+    )
+    from src.adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
+    from src.adapters.brokers.ibkr.submission_guard import SubmissionGuard
+
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     run_mode = validate_runtime()
 

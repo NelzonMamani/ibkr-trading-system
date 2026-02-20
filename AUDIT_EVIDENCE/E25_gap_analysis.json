@@ -1,0 +1,64 @@
+{
+  "epoch": "E25_ARCHITECTURE_REALIGNMENT",
+  "timestamp_utc": "2026-02-20T00:00:00Z",
+  "scope": {
+    "paths_reviewed": [
+      "src",
+      "tests",
+      "data",
+      "output",
+      "TRADING_OS_MASTER_CATALOGUE"
+    ],
+    "checks": [
+      "CLI module invocation",
+      "import-boundary side effects",
+      "runtime artifact tracking",
+      "adapter leakage scan"
+    ]
+  },
+  "gaps": [
+    {
+      "id": "GAP-1",
+      "title": "CLI entrypoint import path safety for module invocation",
+      "status": "detected",
+      "affected_modules": [
+        "src/cli/submit_one_order.py"
+      ],
+      "evidence": "`python -m src.cli.submit_one_order --help` initially failed with ModuleNotFoundError for optional adapter dependency `ibapi` due to top-level adapter import in CLI module.",
+      "proposed_fix": "Move adapter imports into runtime path (`main`) and keep help parsing import-safe."
+    },
+    {
+      "id": "GAP-2",
+      "title": "Import-boundary side effects",
+      "status": "detected",
+      "affected_modules": [
+        "src/cli/submit_one_order.py"
+      ],
+      "evidence": "Top-level imports required broker adapter dependency before CLI argument parsing.",
+      "proposed_fix": "Lazy import adapter classes only when command execution proceeds past argument parsing."
+    },
+    {
+      "id": "GAP-3",
+      "title": "Runtime-generated artifacts not fully ignored",
+      "status": "detected",
+      "affected_modules": [
+        ".gitignore"
+      ],
+      "evidence": "Repository contains runtime directories (`output/`, `logs/`) and mutable data artifacts; ignore rules were too narrow.",
+      "proposed_fix": "Harden `.gitignore` with broad runtime artifact patterns for `output/`, `logs/`, and database/runtime files under `data/`."
+    },
+    {
+      "id": "GAP-4",
+      "title": "Adapter leakage into core layers",
+      "status": "not_detected",
+      "affected_modules": [],
+      "evidence": "Static scan found no direct `ib_insync` imports in `src` and mandatory orchestrator paths are importable.",
+      "proposed_fix": "None required for E25 acceptance scope."
+    }
+  ],
+  "migration_steps": [
+    "Step A: make submit_one_order module help path import-safe and runnable via python -m",
+    "Step D: update .gitignore runtime artifact patterns",
+    "Step V: rerun compile/tests/smoke/help verification and record evidence"
+  ]
+}

@@ -15,3 +15,11 @@ __pycache__/
 data/ibkr_system.db
 data/ibkr_system.sqlite
 data/backups/
+
+# Runtime/generated artifacts
+output/
+logs/
+data/*.db
+data/*.sqlite
+data/**/*.log
+data/**/*.jsonl
