@@ -1,0 +1,35 @@
+{
+  "timestamp_utc": "2026-02-20T00:00:00Z",
+  "detected_runtime_roots": {
+    "data_dir": "data",
+    "logs_dir": "logs",
+    "output_dir": "output",
+    "sqlite_default": "data/ibkr_system.db"
+  },
+  "existing_reset_tooling": [
+    "src/storage/db_admin.py (safe_reset_database, hard_reset_database, backup_database, restore_database)"
+  ],
+  "missing_capabilities_before_patch": [
+    "No canonical runtime artifact registry module",
+    "No unified runtime purge CLI across logs/output/db/caches",
+    "No deterministic runtime bootstrap entrypoint for orchestrator/scanner",
+    "No clean-room E26 verification script and report"
+  ],
+  "typical_runtime_artifacts": [
+    "data/ibkr_system.db",
+    "data/ibkr_system.db-wal",
+    "logs/*.jsonl",
+    "output/trade_store.jsonl",
+    "output/watchlists/*.txt"
+  ],
+  "proposed_minimal_patch_list": [
+    "Add src/runtime/paths.py",
+    "Add src/runtime/bootstrap.py",
+    "Add src/runtime/artifact_registry.py",
+    "Add src/runtime/regen.py",
+    "Wire bootstrap into orchestrator and scanner entrypoints",
+    "Add E26 tests for clean-room rebuild and purge levels",
+    "Add verification_scripts/phase6_regenerability_cleanroom.py",
+    "Update SYSTEM_STATE_CERTIFIED.md with E26 certification status"
+  ]
+}
