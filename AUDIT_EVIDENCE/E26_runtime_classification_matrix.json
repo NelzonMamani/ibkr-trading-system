@@ -1,0 +1,28 @@
+{
+  "categories": [
+    {
+      "category": "CANONICAL",
+      "examples": [
+        "src/",
+        "tests/",
+        "TRADING_OS_MASTER_CATALOGUE/"
+      ]
+    },
+    {
+      "category": "REGENERABLE",
+      "examples": [
+        "data/*.db",
+        "logs/",
+        "output/"
+      ]
+    },
+    {
+      "category": "SEMI_PERSISTENT",
+      "examples": [
+        "data/backups/",
+        "analytical snapshots"
+      ]
+    }
+  ],
+  "timestamp_utc": "2026-02-20T23:41:55.659272+00:00"
+}

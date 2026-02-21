@@ -36,6 +36,11 @@ def _path_exists(repo_root: Path, rel_path: str) -> bool:
     return (repo_root / rel_path).exists()
 
 
+def _is_runtime_artifact_path(rel_path: str) -> bool:
+    normalized = rel_path.replace("\\", "/")
+    return normalized.startswith("output/") or normalized.startswith("logs/") or normalized.startswith("data/")
+
+
 def verify_registry(registry_path: Path | None = None) -> dict:
     repo_root = get_repo_root(Path(__file__).resolve())
     registry = load_registry(registry_path)
@@ -53,6 +58,8 @@ def verify_registry(registry_path: Path | None = None) -> dict:
                 )
             continue
         if not _path_exists(repo_root, rel_path):
+            if _is_runtime_artifact_path(rel_path):
+                continue
             missing_paths.append({"id": contract_id, "path": rel_path})
 
     invalid_owners = [

@@ -4,6 +4,7 @@ from dataclasses import replace
 import argparse
 
 from src.runtime.async_runtime_bootstrap import install_runtime_policy
+from src.runtime.bootstrap import bootstrap_runtime
 
 from src.scanner.scanner_contract import scanner_request_from_policy
 from src.scanner.scanner_runner import run_scanner_cycle
@@ -36,6 +37,7 @@ def _resolve_strategy_policy(
 
 def main() -> None:
     install_runtime_policy()
+    bootstrap_runtime()
     parser = argparse.ArgumentParser(description="Scanner standalone runner")
     parser.add_argument("--strategy", default="ross_momentum")
     parser.add_argument("--session", default=None)

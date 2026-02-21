@@ -20,6 +20,7 @@ from src.core_engine.state import CycleContext, resolve_session_state
 from src.core.intent import build_execution_intent
 from src.execution.order_router import execute_intents
 from src.risk.risk_audit import evaluate_trade_intents
+from src.runtime.bootstrap import bootstrap_runtime
 from src.scanner.contracts import StockSelectionPolicy
 from src.scanner.scanner_contract import scanner_request_from_policy
 from src.scanner.scanner_runner import run_scanner_cycle
@@ -370,6 +371,7 @@ def main() -> int:
     parser.add_argument("--mode", default="READ_ONLY", help="SIM/READ_ONLY/PAPER/LIVE")
     parser.add_argument("--cycles", type=int, default=1)
     args = parser.parse_args()
+    bootstrap_runtime()
 
     summaries = run_cycles(mode=args.mode, cycles=args.cycles)
     print_section("CYCLE SUMMARY")
