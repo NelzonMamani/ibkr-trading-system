@@ -1,0 +1,523 @@
+{
+  "generated_at_utc": "2026-02-23T08:42:36.410271+00:00",
+  "strategies": [
+    {
+      "strategy_id": "P01",
+      "slug": "ross_momentum",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.ross_momentum.strategy"
+      ],
+      "errors": [
+        "src.strategies.ross_momentum.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.ross_momentum.selection')",
+        "src.strategies.ross_momentum.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.ross_momentum.selector')",
+        "src.strategies.ross_momentum.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.ross_momentum.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P02",
+      "slug": "statistical_intraday_momentum",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.statistical_intraday_momentum.strategy"
+      ],
+      "errors": [
+        "src.strategies.statistical_intraday_momentum.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.statistical_intraday_momentum.selection')",
+        "src.strategies.statistical_intraday_momentum.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.statistical_intraday_momentum.selector')",
+        "src.strategies.statistical_intraday_momentum.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.statistical_intraday_momentum.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P03",
+      "slug": "mean_reversion",
+      "selection_output_unavailable": false,
+      "producer": "src.strategies.mean_reversion.scanner_policy.StockSelectionSpec",
+      "output": {
+        "policy_name": "ROSS_MOMENTUM",
+        "universe": {
+          "source": "IBKR_TOP_GAINERS",
+          "ibkr_scan_code": "TOP_PERC_GAIN",
+          "top_n": null,
+          "region": null,
+          "instrument": "STK",
+          "location_code": "STK.US.MAJOR",
+          "exchanges": []
+        },
+        "price_min": 1.0,
+        "price_max": 20.0,
+        "gap_min_pct": 10.0,
+        "gap_max_pct": null,
+        "rvol_min": 5.0,
+        "float_max_millions": 20.0,
+        "liquidity_min_dollar_volume": null,
+        "min_volume": 1000000,
+        "min_premarket_volume": 100000,
+        "spread_max_pct": null,
+        "require_catalyst": true,
+        "allow_halts": false,
+        "allow_ssr": true,
+        "data_quality_require_price": true,
+        "data_quality_require_bid_ask": false,
+        "watchlist_limit_k": 15,
+        "focus_limit_m": 5,
+        "top_gainers_n": 50,
+        "max_symbols_per_cycle": 50,
+        "session_allowlist": [
+          "PRE",
+          "REG",
+          "AFTER"
+        ],
+        "ranking_intent": "ROSS_MOMENTUM_STOCK_SELECTION"
+      }
+    },
+    {
+      "strategy_id": "P04",
+      "slug": "long_horizon_value",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.long_horizon_value.strategy"
+      ],
+      "errors": [
+        "src.strategies.long_horizon_value.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.long_horizon_value.selection')",
+        "src.strategies.long_horizon_value.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.long_horizon_value.selector')",
+        "src.strategies.long_horizon_value.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.long_horizon_value.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P05",
+      "slug": "opening_drive",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.opening_drive.strategy"
+      ],
+      "errors": [
+        "src.strategies.opening_drive.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.opening_drive.selection')",
+        "src.strategies.opening_drive.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.opening_drive.selector')",
+        "src.strategies.opening_drive.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.opening_drive.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P06",
+      "slug": "vwap_reclaim",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.vwap_reclaim.strategy"
+      ],
+      "errors": [
+        "src.strategies.vwap_reclaim.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.vwap_reclaim.selection')",
+        "src.strategies.vwap_reclaim.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.vwap_reclaim.selector')",
+        "src.strategies.vwap_reclaim.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.vwap_reclaim.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P07",
+      "slug": "power_hour",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.power_hour.strategy"
+      ],
+      "errors": [
+        "src.strategies.power_hour.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.power_hour.selection')",
+        "src.strategies.power_hour.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.power_hour.selector')",
+        "src.strategies.power_hour.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.power_hour.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P08",
+      "slug": "volatility_expansion",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.volatility_expansion.strategy"
+      ],
+      "errors": [
+        "src.strategies.volatility_expansion.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.volatility_expansion.selection')",
+        "src.strategies.volatility_expansion.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.volatility_expansion.selector')",
+        "src.strategies.volatility_expansion.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.volatility_expansion.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P09",
+      "slug": "range_bound_fade",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.range_bound_fade.strategy"
+      ],
+      "errors": [
+        "src.strategies.range_bound_fade.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.range_bound_fade.selection')",
+        "src.strategies.range_bound_fade.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.range_bound_fade.selector')",
+        "src.strategies.range_bound_fade.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.range_bound_fade.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P10",
+      "slug": "support_resistance_channel",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.support_resistance_channel.strategy"
+      ],
+      "errors": [
+        "src.strategies.support_resistance_channel.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.support_resistance_channel.selection')",
+        "src.strategies.support_resistance_channel.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.support_resistance_channel.selector')",
+        "src.strategies.support_resistance_channel.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.support_resistance_channel.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P11",
+      "slug": "event_earnings_reaction",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.event_earnings_reaction.strategy"
+      ],
+      "errors": [
+        "src.strategies.event_earnings_reaction.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.event_earnings_reaction.selection')",
+        "src.strategies.event_earnings_reaction.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.event_earnings_reaction.selector')",
+        "src.strategies.event_earnings_reaction.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.event_earnings_reaction.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P12",
+      "slug": "event_news_shock_continuation",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.event_news_shock_continuation.strategy"
+      ],
+      "errors": [
+        "src.strategies.event_news_shock_continuation.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.event_news_shock_continuation.selection')",
+        "src.strategies.event_news_shock_continuation.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.event_news_shock_continuation.selector')",
+        "src.strategies.event_news_shock_continuation.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.event_news_shock_continuation.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P13",
+      "slug": "volatility_contraction_breakout",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.volatility_contraction_breakout.strategy"
+      ],
+      "errors": [
+        "src.strategies.volatility_contraction_breakout.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.volatility_contraction_breakout.selection')",
+        "src.strategies.volatility_contraction_breakout.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.volatility_contraction_breakout.selector')",
+        "src.strategies.volatility_contraction_breakout.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.volatility_contraction_breakout.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P14",
+      "slug": "volatility_carry_risk_premium",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.volatility_carry_risk_premium.strategy"
+      ],
+      "errors": [
+        "src.strategies.volatility_carry_risk_premium.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.volatility_carry_risk_premium.selection')",
+        "src.strategies.volatility_carry_risk_premium.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.volatility_carry_risk_premium.selector')",
+        "src.strategies.volatility_carry_risk_premium.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.volatility_carry_risk_premium.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P15",
+      "slug": "pairs_divergence_reversion",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.pairs_divergence_reversion.strategy"
+      ],
+      "errors": [
+        "src.strategies.pairs_divergence_reversion.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.pairs_divergence_reversion.selection')",
+        "src.strategies.pairs_divergence_reversion.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.pairs_divergence_reversion.selector')",
+        "src.strategies.pairs_divergence_reversion.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.pairs_divergence_reversion.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P16",
+      "slug": "cross_sectional_relative_strength_rotation",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.cross_sectional_relative_strength_rotation.strategy"
+      ],
+      "errors": [
+        "src.strategies.cross_sectional_relative_strength_rotation.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.cross_sectional_relative_strength_rotation.selection')",
+        "src.strategies.cross_sectional_relative_strength_rotation.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.cross_sectional_relative_strength_rotation.selector')",
+        "src.strategies.cross_sectional_relative_strength_rotation.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.cross_sectional_relative_strength_rotation.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P17",
+      "slug": "time_based_seasonality",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.time_based_seasonality.strategy"
+      ],
+      "errors": [
+        "src.strategies.time_based_seasonality.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.time_based_seasonality.selection')",
+        "src.strategies.time_based_seasonality.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.time_based_seasonality.selector')",
+        "src.strategies.time_based_seasonality.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.time_based_seasonality.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P18",
+      "slug": "trend_following_classic",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.trend_following_classic.strategy"
+      ],
+      "errors": [
+        "src.strategies.trend_following_classic.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.trend_following_classic.selection')",
+        "src.strategies.trend_following_classic.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.trend_following_classic.selector')",
+        "src.strategies.trend_following_classic.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.trend_following_classic.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P19",
+      "slug": "long_horizon_quality_compounder",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.long_horizon_quality_compounder.strategy"
+      ],
+      "errors": [
+        "src.strategies.long_horizon_quality_compounder.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.long_horizon_quality_compounder.selection')",
+        "src.strategies.long_horizon_quality_compounder.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.long_horizon_quality_compounder.selector')",
+        "src.strategies.long_horizon_quality_compounder.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.long_horizon_quality_compounder.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    },
+    {
+      "strategy_id": "P20",
+      "slug": "regime_adaptive_meta_allocator",
+      "selection_output_unavailable": true,
+      "reason": "No safe, zero-argument selection producer callable found without external services.",
+      "modules_tried": [
+        "src.strategies.regime_adaptive_meta_allocator.strategy"
+      ],
+      "errors": [
+        "src.strategies.regime_adaptive_meta_allocator.selection: import failed (ModuleNotFoundError: No module named 'src.strategies.regime_adaptive_meta_allocator.selection')",
+        "src.strategies.regime_adaptive_meta_allocator.selector: import failed (ModuleNotFoundError: No module named 'src.strategies.regime_adaptive_meta_allocator.selector')",
+        "src.strategies.regime_adaptive_meta_allocator.scanner_policy: import failed (ModuleNotFoundError: No module named 'src.strategies.regime_adaptive_meta_allocator.scanner_policy')"
+      ],
+      "expected_producer_code_path": [
+        "src/metadata/strategy_policy_v2_audit.py:230",
+        "src/metadata/strategy_policy_v2_audit.py:231",
+        "src/metadata/strategy_policy_v2_audit.py:233",
+        "src/strategy_policy_v2/README.md:3",
+        "src/strategy_policy_v2/policy_v2.py:515",
+        "src/strategy_policy_v2/policy_v2.py:538",
+        "src/strategy_policy_v2/policy_v2.py:540",
+        "src/strategy_policy_v2/policy_v2.py:6",
+        "src/strategy_policy_v2/types.py:41"
+      ]
+    }
+  ]
+}
