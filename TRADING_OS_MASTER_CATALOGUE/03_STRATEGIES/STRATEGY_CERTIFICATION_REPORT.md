@@ -1,12 +1,12 @@
 # STRATEGY_CERTIFICATION_REPORT
 
-Generated (UTC): 2026-03-02T20:52:30Z
+Generated (UTC): 2026-03-02T21:36:57Z
 
 ## Summary
 - Strategies audited: 20
-- CERTIFIED: 20
+- CERTIFIED: 19
 - CONDITIONALLY_CERTIFIED: 0
-- FAIL: 0
+- FAIL: 1
 - INVALIDATED_PENDING_REVIEW: 0
 
 ## Per Strategy Results
@@ -16,7 +16,7 @@ Generated (UTC): 2026-03-02T20:52:30Z
 | P01_ross_momentum | CERTIFIED | False | None |
 | P02_statistical_intraday_momentum | CERTIFIED | False | None |
 | P03_mean_reversion | CERTIFIED | False | None |
-| P04_long_horizon_value | CERTIFIED | False | None |
+| P04_long_horizon_value | FAIL | False | D10.C02: required fields must include symbol,last_price and pct_change|volume|rvol<br>D3.C03: level behavior condition not declared |
 | P05_opening_drive | CERTIFIED | False | None |
 | P06_vwap_reclaim | CERTIFIED | False | None |
 | P07_power_hour | CERTIFIED | False | None |
@@ -117,14 +117,15 @@ Missing controls:
 | D7 Risk Governance | PASS |
 | D8 Exit Governance | PASS |
 | D9 Position Management | PASS |
-| D10 Data Requirements | PASS |
+| D10 Data Requirements | FAIL |
 | D11 Safety & Failure Modes | PASS |
 | D12 Execution Constraints | PASS |
 | D13 Timeframe Authority | PASS |
 | D14 Scaling Doctrine | PASS |
 
 Missing controls:
-- None
+- D10.C02: required fields must include symbol,last_price and pct_change|volume|rvol
+- D3.C03: level behavior condition not declared
 
 ## P05_opening_drive
 

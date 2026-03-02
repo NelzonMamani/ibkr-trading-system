@@ -1,14 +1,14 @@
 # STRATEGY_AUDIT_MATRIX_V2
 
 STATUS: GOVERNANCE_LOCKED_BASELINE_V2
-Generated (UTC): 2026-03-02T20:52:30Z
+Generated (UTC): 2026-03-02T21:36:57Z
 
 | Strategy | Verdict | Strategy Identity | Stock Selection / Universe Definition | Setup Taxonomy | Conditions | Confirmations | Trigger Model | Intrabar Execution Doctrine | Risk Governance | Exit Governance | Position Management | Data Requirements | Safety & Failure Modes | Execution Constraints | Timeframe Authority | Scaling Doctrine |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | P01 | CERTIFIED | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS |
 | P02 | CERTIFIED | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS |
 | P03 | CERTIFIED | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS |
-| P04 | CERTIFIED | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS |
+| P04 | FAIL | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | FAIL | PASS | PASS | PASS | PASS |
 | P05 | CERTIFIED | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS |
 | P06 | CERTIFIED | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS |
 | P07 | CERTIFIED | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS |

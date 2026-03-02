@@ -1,8 +1,8 @@
 {
   "baseline_version": "v2.0.0",
-  "generated_at_utc": "2026-03-02T20:52:30Z",
-  "matrix_generation_timestamp_utc": "2026-03-02T20:52:30Z",
-  "certification_report_timestamp_utc": "2026-03-02T20:52:30Z",
+  "generated_at_utc": "2026-03-02T21:36:57Z",
+  "matrix_generation_timestamp_utc": "2026-03-02T21:36:57Z",
+  "certification_report_timestamp_utc": "2026-03-02T21:36:57Z",
   "strategies": [
     {
       "strategy_id": "P01",
@@ -26,7 +26,7 @@
       "strategy_id": "P04",
       "strategy_name": "long_horizon_value",
       "policy_path": "src/strategies/long_horizon_value/strategy_policy_v2.py",
-      "sha256": "f16352cda794ec767362c842f6417d1c9746bd716377b4b0757a291376f093a8"
+      "sha256": "b86cfd23f73ebe7d1a4af924832bda0be016461ca5f5f71816e9a7df66f2891e"
     },
     {
       "strategy_id": "P05",

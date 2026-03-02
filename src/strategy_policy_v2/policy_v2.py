@@ -362,6 +362,45 @@ class DataRequirementsV2:
 
 
 @dataclass(frozen=True)
+class LongHorizonThesisModelV2:
+    business_quality_requirements: tuple[str, ...] = ()
+    financial_strength_requirements: tuple[str, ...] = ()
+    economic_engine_requirements: tuple[str, ...] = ()
+    monitoring_cadence: str = "MONTHLY"
+    disconfirming_signals: tuple[str, ...] = ()
+    notes: str = ""
+
+
+@dataclass(frozen=True)
+class LongHorizonValuationModelV2:
+    base_required_margin_of_safety: float = 0.30
+    market_confidence_multiplier: dict[str, float] = field(default_factory=dict)
+    valuation_methods: tuple[str, ...] = ()
+    margin_of_safety_bands: tuple[str, ...] = ()
+    fair_value_band_notes: str = ""
+    trim_bands: tuple[str, ...] = ()
+    notes: str = ""
+
+
+@dataclass(frozen=True)
+class LongHorizonRebalanceModelV2:
+    review_cadence: str = "MONTHLY"
+    fundamentals_refresh_cadence: str = "QUARTERLY"
+    turnover_cap_per_review: float = 0.20
+    min_holding_period_days: int = 90
+    notes: str = ""
+
+
+@dataclass(frozen=True)
+class LongHorizonPortfolioConstraintsV2:
+    max_single_position_pct: float = 0.10
+    max_new_allocation_pct: float = 0.05
+    sector_caps: tuple[str, ...] = ()
+    cash_buffer_rule: str = ""
+    notes: str = ""
+
+
+@dataclass(frozen=True)
 class PriceModelV2:
     min_price: float = 1.0
     max_price: float = 20.0
@@ -569,6 +608,10 @@ class StrategyPolicyV2:
     liquidity_sanity_model: LiquiditySanityModelV2 = field(default_factory=LiquiditySanityModelV2)
     ranking_model: RankingModelV2 = field(default_factory=RankingModelV2)
     data_requirements: DataRequirementsV2 = field(default_factory=DataRequirementsV2)
+    long_horizon_thesis: LongHorizonThesisModelV2 | None = None
+    long_horizon_valuation: LongHorizonValuationModelV2 | None = None
+    long_horizon_rebalance: LongHorizonRebalanceModelV2 | None = None
+    long_horizon_portfolio_constraints: LongHorizonPortfolioConstraintsV2 | None = None
     premarket_preparation: PremarketPreparationModelV2 = field(default_factory=PremarketPreparationModelV2)
     intrabar_execution: IntrabarExecutionModelV2 = field(default_factory=IntrabarExecutionModelV2)
     levels_and_zones: tuple[str, ...] = ()
