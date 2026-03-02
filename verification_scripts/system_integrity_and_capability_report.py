@@ -256,6 +256,27 @@ def _load_e21_status(repo_root: Path) -> dict[str, Any]:
         "checks": payload.get("checks", {}),
     }
 
+def _check_p01_policy_v2_consumed(repo_root: Path) -> dict[str, Any]:
+    orchestrator_path = repo_root / "src" / "core" / "orchestrator.py"
+    text = orchestrator_path.read_text(encoding="utf-8")
+    consumed = all(
+        marker in text
+        for marker in (
+            "SelectionEngineV2",
+            "RankingEngineV2",
+            "WatchlistBuilderV2",
+            "FocusBuilderV2",
+            "STRATEGY_POLICY_V2_ENABLED",
+            "ROSS_POLICY_V2",
+        )
+    )
+    return {
+        "name": "P01_POLICY_V2_CONSUMED",
+        "status": "PASS" if consumed else "FAIL",
+        "runtime_file": str(orchestrator_path.relative_to(repo_root)),
+    }
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -403,6 +424,8 @@ def main() -> int:
 
     p_layer_summary, p_layer_blockers = _build_p_layer_summary(REPO_ROOT)
 
+    p01_v2_check = _check_p01_policy_v2_consumed(REPO_ROOT)
+
     capability_report = {
         "epoch": EPOCH,
         "generated_at_utc": _now_utc(),
@@ -416,6 +439,7 @@ def main() -> int:
         "p_layer_summary": p_layer_summary,
         "e21_status": e21_status,
         "blockers": p_layer_blockers,
+        "runtime_checks": [p01_v2_check],
     }
 
     _write_json(evidence_dir / "integrity_report.json", integrity_report)

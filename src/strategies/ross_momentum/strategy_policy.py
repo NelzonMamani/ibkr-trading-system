@@ -2,6 +2,10 @@
 
 """strategies/ross_momentum/strategy_policy.py
 
+# LEGACY POLICY (V1): retained as fallback only.
+# Runtime should consume StrategyPolicyV2 engines for P01 when STRATEGY_POLICY_V2_ENABLED=true.
+
+
 Ross Momentum Strategy Policy (machine-readable)
 
 This policy is intended to be imported by the Orchestrator.

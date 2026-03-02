@@ -1333,6 +1333,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "description": "Explicitly selected primary strategy key (CLI override).",
         "normalizer": "lower",
     },
+    "STRATEGY_POLICY_V2_ENABLED": {
+        "type": bool,
+        "default": True,
+        "env": ["STRATEGY_POLICY_V2_ENABLED"],
+        "affects": ["CoreOrchestrator", "Strategies"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Enable StrategyPolicyV2 consumption engines for strategy selection/ranking paths.",
+    },
     "ENABLED_STRATEGIES": {
         "type": dict,
         "default": {

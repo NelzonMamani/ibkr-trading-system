@@ -1,0 +1,32 @@
+[
+  {
+    "symbol": "AAA",
+    "session_label": "PRE",
+    "last_price": 6.0,
+    "pct_change": 35.0,
+    "volume": 3000000,
+    "premarket_volume": 300000,
+    "rvol": 9.0,
+    "dollar_volume": 22000000.0,
+    "float_millions": 8.0,
+    "spread_pct": 0.4,
+    "halted": false,
+    "ssr": false,
+    "news_catalyst": "HIGH"
+  },
+  {
+    "symbol": "BBB",
+    "session_label": "PRE",
+    "last_price": 8.0,
+    "pct_change": 22.0,
+    "volume": 2500000,
+    "premarket_volume": 200000,
+    "rvol": 7.0,
+    "dollar_volume": 18000000.0,
+    "float_millions": 12.0,
+    "spread_pct": 0.7,
+    "halted": false,
+    "ssr": false,
+    "news_catalyst": true
+  }
+]

@@ -1,0 +1,28 @@
+{
+  "ranked": [
+    {
+      "symbol": "AAA",
+      "score": 0.4275,
+      "score_breakdown": {
+        "pct_change_norm": 0.35,
+        "rvol_norm": 0.45,
+        "float_inverse_norm": 0.6,
+        "catalyst_quality_score": 1.0,
+        "liquidity_penalty_component": 0.4,
+        "score": 0.4275
+      }
+    },
+    {
+      "symbol": "BBB",
+      "score": 0.23700000000000004,
+      "score_breakdown": {
+        "pct_change_norm": 0.22,
+        "rvol_norm": 0.35,
+        "float_inverse_norm": 0.4,
+        "catalyst_quality_score": 1.0,
+        "liquidity_penalty_component": 0.7,
+        "score": 0.23700000000000004
+      }
+    }
+  ]
+}

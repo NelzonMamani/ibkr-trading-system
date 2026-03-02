@@ -61,6 +61,14 @@ from src.scanner.contracts import StockSelectionPolicy
 from src.scanner.scanner_contract import ScannerRequest, scanner_request_from_policy
 from src.scanner.ranking_registry import resolve_watchlist_selector
 from src.scanner.result_models import CandidateMetrics
+from src.strategy_policy_v2.consumption import (
+    FocusBuilderV2,
+    RankingEngineV2,
+    SelectionEngineV2,
+    WatchlistBuilderV2,
+    candidates_metrics_to_v2,
+)
+from src.strategies.ross_momentum.strategy_policy_v2 import POLICY_V2 as ROSS_POLICY_V2
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.scanner.providers.base import ProviderConnectionError
 from src.scanner.providers.mock_provider import MockScannerProvider
@@ -858,6 +866,36 @@ class CoreOrchestrator:
             session_phase=session_phase,
         )
 
+    def _strategy_policy_v2_enabled(self) -> bool:
+        raw = get_config("STRATEGY_POLICY_V2_ENABLED")
+        if isinstance(raw, bool):
+            return raw
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _build_watchlist_focus_v2(self, observations: list[CandidateMetrics]) -> tuple[list[CandidateMetrics], list[CandidateMetrics]]:
+        adapted = candidates_metrics_to_v2(observations)
+        selection = SelectionEngineV2().evaluate(ROSS_POLICY_V2, adapted)
+        ranking = RankingEngineV2().rank(ROSS_POLICY_V2, selection.eligible)
+        watchlist_symbols = {item.get("symbol", "") for item in WatchlistBuilderV2().build(ROSS_POLICY_V2, ranking.ranked).watchlist}
+        focus_symbols = {item.get("symbol", "") for item in FocusBuilderV2().build(ROSS_POLICY_V2, ranking.ranked).focus}
+
+        by_symbol = {row.symbol: row for row in observations}
+        watchlist = [by_symbol[symbol] for symbol in sorted(watchlist_symbols) if symbol in by_symbol]
+        focus = [by_symbol[symbol] for symbol in sorted(focus_symbols) if symbol in by_symbol]
+        # keep deterministic ranked order per tie-breakers from builders
+        ranked_symbols = [row.candidate.get("symbol", "") for row in sorted(
+            ranking.ranked,
+            key=lambda row: (
+                -row.score,
+                -(float(row.candidate.get("pct_change") or 0.0)),
+                -(float(row.candidate.get("dollar_volume") or 0.0)),
+                str(row.candidate.get("symbol") or ""),
+            ),
+        )]
+        watchlist = [by_symbol[symbol] for symbol in ranked_symbols if symbol in watchlist_symbols and symbol in by_symbol]
+        focus = [by_symbol[symbol] for symbol in ranked_symbols if symbol in focus_symbols and symbol in by_symbol]
+        return watchlist, focus
+
     def _run_manager_pipeline(
         self,
         *,
@@ -934,23 +972,30 @@ class CoreOrchestrator:
         )
         self.scanner_diagnostics_manager.print_top_50(observations)
         watchlist = list(scanner_payload.get("watchlist_k", []))
-        if not watchlist:
-            selector = resolve_watchlist_selector(scanner_policy.ranking_intent)
-            if selector is not None:
-                # Strategy-owned ranking authority for Ross Momentum.
-                watchlist = selector(observations, scanner_policy)
-            else:
-                watchlist = self._select_watchlist_for_policy(
-                    observations,
-                    scanner_policy,
-                    enforce_session_allowlist=False,
-                )
+        focus_rows = list(scanner_payload.get("focus_m", []))
+        v2_enabled = self._strategy_policy_v2_enabled()
+        if self.selected_strategy_key == "ross_momentum" and v2_enabled:
+            print("[POLICY] P01 selection: StrategyPolicyV2 engines (enabled=1)")
+            watchlist, focus_rows = self._build_watchlist_focus_v2(observations)
+        else:
+            if self.selected_strategy_key == "ross_momentum":
+                print("[POLICY] P01 selection: legacy V1 path (enabled=0)")
+            if not watchlist:
+                selector = resolve_watchlist_selector(scanner_policy.ranking_intent)
+                if selector is not None:
+                    # Strategy-owned ranking authority for Ross Momentum.
+                    watchlist = selector(observations, scanner_policy)
+                else:
+                    watchlist = self._select_watchlist_for_policy(
+                        observations,
+                        scanner_policy,
+                        enforce_session_allowlist=False,
+                    )
+            if not focus_rows:
+                focus_limit = int(scanner_policy.focus_limit_m)
+                focus_rows = watchlist[:focus_limit] if focus_limit > 0 else []
         self.scanner_diagnostics_manager.print_watchlist(watchlist, observations)
         watchlist_symbols = self._symbols_from_candidates(watchlist)
-        focus_rows = list(scanner_payload.get("focus_m", []))
-        if not focus_rows:
-            focus_limit = int(scanner_policy.focus_limit_m)
-            focus_rows = watchlist[:focus_limit] if focus_limit > 0 else []
         focus_symbols = self._symbols_from_candidates(focus_rows)
         self._trace_event(
             "WATCHLIST",
