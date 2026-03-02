@@ -1,8 +1,8 @@
 {
   "baseline_version": "v2.0.0",
-  "generated_at_utc": "2026-03-02T20:26:53Z",
-  "matrix_generation_timestamp_utc": "2026-03-02T20:26:53Z",
-  "certification_report_timestamp_utc": "2026-03-02T20:26:53Z",
+  "generated_at_utc": "2026-03-02T20:52:30Z",
+  "matrix_generation_timestamp_utc": "2026-03-02T20:52:30Z",
+  "certification_report_timestamp_utc": "2026-03-02T20:52:30Z",
   "strategies": [
     {
       "strategy_id": "P01",
@@ -20,7 +20,7 @@
       "strategy_id": "P03",
       "strategy_name": "mean_reversion",
       "policy_path": "src/strategies/mean_reversion/strategy_policy_v2.py",
-      "sha256": "532635c544a666f7086eeb136defde9711091900fc6ec540a1bc902a2505553f"
+      "sha256": "4f9120f1507a388b562644f48d135d141e4a2c92038e8d4c7124bc0694923f09"
     },
     {
       "strategy_id": "P04",

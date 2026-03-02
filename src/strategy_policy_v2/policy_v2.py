@@ -316,6 +316,33 @@ class ExitModelV2:
 
 
 @dataclass(frozen=True)
+class MeanReversionExtensionSpecV2:
+    min_extension_pct: float = 12.0
+    too_hot_extension_pct: float = 40.0
+    hard_veto_extension_pct: float = 60.0
+    hard_veto_rvol: float = 8.0
+    liquidity_gate_field: str = "dollar_volume"
+    liquidity_gate_min: float = 20_000_000.0
+    notes: str = "Deterministic extension doctrine surface; compile-safe and optional."
+
+
+@dataclass(frozen=True)
+class InitialStopModelV2:
+    invalidation_reference: str = "structure_anchor"
+    buffer_pct: float = 0.15
+    min_buffer_ticks: int = 1
+    rule: str = "Place stop beyond invalidation structure (anchor ± max(buffer_pct, one spread/tick-equivalent))."
+    notes: str = "Structure-based initial stop doctrine; never discretionary."
+
+
+@dataclass(frozen=True)
+class TargetHierarchyModelV2:
+    priority_targets: tuple[str, ...] = ("VWAP", "MIDPOINT", "PRIOR_CLOSE", "HTF_PIVOT_OR_DAY_MIDPOINT")
+    selection_law: str = "First valid/reachable target in priority order is primary target."
+    notes: str = "Deterministic target ordering for audit traceability."
+
+
+@dataclass(frozen=True)
 class SafetyRuleV2:
     safety_id: str
     trigger: str
@@ -534,6 +561,9 @@ class StrategyPolicyV2:
     position_management: PositionManagementV2 = field(default_factory=PositionManagementV2)
     trailing_model: TrailingModelV2 = field(default_factory=TrailingModelV2)
     exit_model: ExitModelV2 = field(default_factory=ExitModelV2)
+    mean_reversion_extension: MeanReversionExtensionSpecV2 | None = None
+    initial_stop_model: InitialStopModelV2 | None = None
+    target_hierarchy_model: TargetHierarchyModelV2 | None = None
     safety_model: SafetyModelV2 = field(default_factory=SafetyModelV2)
     stock_selection_law: StockSelectionLawV2 = field(default_factory=StockSelectionLawV2)
     liquidity_sanity_model: LiquiditySanityModelV2 = field(default_factory=LiquiditySanityModelV2)
