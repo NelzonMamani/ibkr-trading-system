@@ -16,7 +16,7 @@ def _ts() -> str:
 
 
 def _run_rg() -> str:
-    cmd = ["rg", "-n", "SelectionEngineV2|strategy_policy_v2|ROSS_POLICY_V2|STRATEGY_POLICY_V2_ENABLED", "src/core/orchestrator.py", "src/strategies/ross_momentum"]
+    cmd = ["rg", "-n", "SelectionEngineV2|strategy_policy_v2|resolve_policy_v2|STRATEGY_POLICY_V2_ENABLED", "src/core/orchestrator.py", "src/strategies/ross_momentum"]
     result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, check=False)
     return f"$ {' '.join(cmd)}\n\n{result.stdout}\n{result.stderr}".strip() + "\n"
 
@@ -28,7 +28,7 @@ def main() -> int:
     policy_v1 = REPO_ROOT / "src/strategies/ross_momentum/strategy_policy.py"
     policy_v2 = REPO_ROOT / "src/strategies/ross_momentum/strategy_policy_v2.py"
     orchestrator = (REPO_ROOT / "src/core/orchestrator.py").read_text(encoding="utf-8")
-    consumed = "SelectionEngineV2" in orchestrator and "ROSS_POLICY_V2" in orchestrator
+    consumed = "SelectionEngineV2" in orchestrator and "resolve_policy_v2" in orchestrator
 
     baseline_md = [
         "# BASELINE_RUNTIME_CONSUMPTION",

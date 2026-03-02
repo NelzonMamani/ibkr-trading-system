@@ -266,14 +266,31 @@ def _check_p01_policy_v2_consumed(repo_root: Path) -> dict[str, Any]:
             "RankingEngineV2",
             "WatchlistBuilderV2",
             "FocusBuilderV2",
-            "STRATEGY_POLICY_V2_ENABLED",
-            "ROSS_POLICY_V2",
+            "resolve_policy_v2",
+            "STRATEGY_POLICY_V2",
         )
     )
     return {
         "name": "P01_POLICY_V2_CONSUMED",
         "status": "PASS" if consumed else "FAIL",
         "runtime_file": str(orchestrator_path.relative_to(repo_root)),
+    }
+
+
+def _check_policy_v2_resolver_present(repo_root: Path) -> dict[str, Any]:
+    orchestrator_path = repo_root / "src" / "core" / "orchestrator.py"
+    registry_path = repo_root / "src" / "strategy_policy_v2" / "registry.py"
+    text = orchestrator_path.read_text(encoding="utf-8")
+    has_markers = all(marker in text for marker in ("resolve_policy_v2", "is_policy_v2_enabled_for_strategy"))
+    no_hardcoded_ross_import = "ROSS_POLICY_V2" not in text
+    status = "PASS" if has_markers and registry_path.exists() and no_hardcoded_ross_import else "FAIL"
+    return {
+        "name": "POLICY_V2_RESOLVER_PRESENT",
+        "status": status,
+        "runtime_file": str(orchestrator_path.relative_to(repo_root)),
+        "registry_file": str(registry_path.relative_to(repo_root)),
+        "has_markers": has_markers,
+        "no_hardcoded_ross_import": no_hardcoded_ross_import,
     }
 
 
@@ -425,6 +442,7 @@ def main() -> int:
     p_layer_summary, p_layer_blockers = _build_p_layer_summary(REPO_ROOT)
 
     p01_v2_check = _check_p01_policy_v2_consumed(REPO_ROOT)
+    policy_v2_resolver_check = _check_policy_v2_resolver_present(REPO_ROOT)
 
     capability_report = {
         "epoch": EPOCH,
@@ -439,7 +457,7 @@ def main() -> int:
         "p_layer_summary": p_layer_summary,
         "e21_status": e21_status,
         "blockers": p_layer_blockers,
-        "runtime_checks": [p01_v2_check],
+        "runtime_checks": [p01_v2_check, policy_v2_resolver_check],
     }
 
     _write_json(evidence_dir / "integrity_report.json", integrity_report)

@@ -36,7 +36,7 @@ def main() -> int:
     evidence_dir = EVIDENCE_ROOT / _ts()
     evidence_dir.mkdir(parents=True, exist_ok=True)
 
-    rg_cmd = ["rg", "-n", "SelectionEngineV2|_build_watchlist_focus_v2|STRATEGY_POLICY_V2_ENABLED|ROSS_POLICY_V2", "src/core/orchestrator.py"]
+    rg_cmd = ["rg", "-n", "SelectionEngineV2|_build_watchlist_focus_v2|resolve_policy_v2|STRATEGY_POLICY_V2_ENABLED", "src/core/orchestrator.py"]
     rg_result = subprocess.run(rg_cmd, cwd=REPO_ROOT, text=True, capture_output=True, check=False)
 
     candidates = _fixtures()

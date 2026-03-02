@@ -68,7 +68,9 @@ from src.strategy_policy_v2.consumption import (
     WatchlistBuilderV2,
     candidates_metrics_to_v2,
 )
-from src.strategies.ross_momentum.strategy_policy_v2 import POLICY_V2 as ROSS_POLICY_V2
+from src.strategy_policy_v2.flags import is_policy_v2_enabled_for_strategy
+from src.strategy_policy_v2.policy_v2 import StrategyPolicyV2
+from src.strategy_policy_v2.registry import resolve_policy_v2
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.scanner.providers.base import ProviderConnectionError
 from src.scanner.providers.mock_provider import MockScannerProvider
@@ -866,18 +868,22 @@ class CoreOrchestrator:
             session_phase=session_phase,
         )
 
-    def _strategy_policy_v2_enabled(self) -> bool:
-        raw = get_config("STRATEGY_POLICY_V2_ENABLED")
-        if isinstance(raw, bool):
-            return raw
-        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+    def _active_policy_v2(self) -> StrategyPolicyV2 | None:
+        policy_v2 = resolve_policy_v2(self.selected_strategy_key)
+        if policy_v2 and is_policy_v2_enabled_for_strategy(self.selected_strategy_key):
+            return policy_v2
+        return None
 
-    def _build_watchlist_focus_v2(self, observations: list[CandidateMetrics]) -> tuple[list[CandidateMetrics], list[CandidateMetrics]]:
+    def _build_watchlist_focus_v2(
+        self,
+        policy: StrategyPolicyV2,
+        observations: list[CandidateMetrics],
+    ) -> tuple[list[CandidateMetrics], list[CandidateMetrics]]:
         adapted = candidates_metrics_to_v2(observations)
-        selection = SelectionEngineV2().evaluate(ROSS_POLICY_V2, adapted)
-        ranking = RankingEngineV2().rank(ROSS_POLICY_V2, selection.eligible)
-        watchlist_symbols = {item.get("symbol", "") for item in WatchlistBuilderV2().build(ROSS_POLICY_V2, ranking.ranked).watchlist}
-        focus_symbols = {item.get("symbol", "") for item in FocusBuilderV2().build(ROSS_POLICY_V2, ranking.ranked).focus}
+        selection = SelectionEngineV2().evaluate(policy, adapted)
+        ranking = RankingEngineV2().rank(policy, selection.eligible)
+        watchlist_symbols = {item.get("symbol", "") for item in WatchlistBuilderV2().build(policy, ranking.ranked).watchlist}
+        focus_symbols = {item.get("symbol", "") for item in FocusBuilderV2().build(policy, ranking.ranked).focus}
 
         by_symbol = {row.symbol: row for row in observations}
         watchlist = [by_symbol[symbol] for symbol in sorted(watchlist_symbols) if symbol in by_symbol]
@@ -973,13 +979,12 @@ class CoreOrchestrator:
         self.scanner_diagnostics_manager.print_top_50(observations)
         watchlist = list(scanner_payload.get("watchlist_k", []))
         focus_rows = list(scanner_payload.get("focus_m", []))
-        v2_enabled = self._strategy_policy_v2_enabled()
-        if self.selected_strategy_key == "ross_momentum" and v2_enabled:
-            print("[POLICY] P01 selection: StrategyPolicyV2 engines (enabled=1)")
-            watchlist, focus_rows = self._build_watchlist_focus_v2(observations)
+        policy_v2 = self._active_policy_v2()
+        if policy_v2:
+            print(f"[POLICY] selection: StrategyPolicyV2 engines (strategy={self.selected_strategy_key}, enabled=1)")
+            watchlist, focus_rows = self._build_watchlist_focus_v2(policy_v2, observations)
         else:
-            if self.selected_strategy_key == "ross_momentum":
-                print("[POLICY] P01 selection: legacy V1 path (enabled=0)")
+            print(f"[POLICY] selection: legacy V1 path (strategy={self.selected_strategy_key}, enabled=0)")
             if not watchlist:
                 selector = resolve_watchlist_selector(scanner_policy.ranking_intent)
                 if selector is not None:
