@@ -316,6 +316,44 @@ class ExitModelV2:
 
 
 @dataclass(frozen=True)
+class LongHorizonThesisModelV2:
+    business_quality_requirements: tuple[str, ...] = ()
+    moat_taxonomy: tuple[str, ...] = ()
+    management_capital_allocation_checks: tuple[str, ...] = ()
+    disconfirming_signals: tuple[str, ...] = ()
+    monitoring_cadence: str = ""
+    notes: str = ""
+
+
+@dataclass(frozen=True)
+class LongHorizonValuationModelV2:
+    primary_methods: tuple[str, ...] = ()
+    tie_breaker_law: str = ""
+    margin_of_safety_bands: tuple[str, ...] = ()
+    action_bands: tuple[str, ...] = ()
+    notes: str = ""
+
+
+@dataclass(frozen=True)
+class LongHorizonRebalanceModelV2:
+    review_frequency: str = "MONTHLY"
+    fundamentals_refresh_frequency: str = "QUARTERLY"
+    turnover_cap_per_review: float = 0.0
+    minimum_holding_period_days: int = 0
+    event_driven_review_triggers: tuple[str, ...] = ()
+    notes: str = ""
+
+
+@dataclass(frozen=True)
+class LongHorizonPortfolioConstraintsV2:
+    max_single_position_pct: float = 0.0
+    max_new_allocation_pct: float = 0.0
+    sector_caps: tuple[str, ...] = ()
+    cash_buffer_rule: str = ""
+    notes: str = ""
+
+
+@dataclass(frozen=True)
 class MeanReversionExtensionSpecV2:
     min_extension_pct: float = 12.0
     too_hot_extension_pct: float = 40.0
@@ -561,6 +599,10 @@ class StrategyPolicyV2:
     position_management: PositionManagementV2 = field(default_factory=PositionManagementV2)
     trailing_model: TrailingModelV2 = field(default_factory=TrailingModelV2)
     exit_model: ExitModelV2 = field(default_factory=ExitModelV2)
+    long_horizon_thesis: LongHorizonThesisModelV2 | None = None
+    long_horizon_valuation: LongHorizonValuationModelV2 | None = None
+    long_horizon_rebalance: LongHorizonRebalanceModelV2 | None = None
+    long_horizon_portfolio_constraints: LongHorizonPortfolioConstraintsV2 | None = None
     mean_reversion_extension: MeanReversionExtensionSpecV2 | None = None
     initial_stop_model: InitialStopModelV2 | None = None
     target_hierarchy_model: TargetHierarchyModelV2 | None = None

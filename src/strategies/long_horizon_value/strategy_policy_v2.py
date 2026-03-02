@@ -5,6 +5,10 @@ from src.strategy_policy_v2.policy_v2 import (
     ExitModelV2,
     ExitRuleV2,
     IntentContractV2,
+    LongHorizonPortfolioConstraintsV2,
+    LongHorizonRebalanceModelV2,
+    LongHorizonThesisModelV2,
+    LongHorizonValuationModelV2,
     IntrabarCadenceRuleV2,
     IntrabarExecutionModelV2,
     IntrabarPhaseSpecV2,
@@ -58,7 +62,7 @@ POLICY_V2 = StrategyPolicyV2(
         max_position_pct=0.08,
         daily_loss_limit=0.018,
         max_open_positions=6,
-        notes="D9 risk governance: hard per-position cap, daily stop, and escalation after consecutive invalidations.",
+        notes="Long-horizon risk doctrine prioritizes permanent capital impairment, leverage fragility, concentration limits, and thesis break risk. daily_loss_limit remains platform-envelope metadata for interoperability but is non-authoritative for P04 exits, which are thesis/valuation driven under governance constraints.",
     ),
     execution_model=ExecutionModelV2(
         preferred_order_types=("LIMIT", "STOP_LIMIT"),
@@ -73,36 +77,38 @@ POLICY_V2 = StrategyPolicyV2(
     ),
     setup_families=SetupFamiliesV2(
         families=(
-            SetupFamilySpecV2("PRIMARY_CONTINUATION", "Primary Continuation", "D1 thesis continuation after structural confirmation.", ("DAILY", "15MIN", "5MIN", "1MIN")),
-            SetupFamilySpecV2("RECLAIM_OR_REVERSION", "Reclaim / Reversion", "Dislocation then re-acceptance with confirmation stack.", ("15MIN", "5MIN", "1MIN")),
-            SetupFamilySpecV2("VOLATILITY_RESOLUTION", "Volatility Resolution", "Compression/expansion resolution under liquidity and risk gates.", ("5MIN", "1MIN")),
+            SetupFamilySpecV2("MOAT_COMPOUNDER_ACCUMULATION", "Moat Compounder Accumulation", "Accumulate understandable high-quality compounders when valuation offers margin of safety.", ("DAILY", "WEEKLY", "MONTHLY")),
+            SetupFamilySpecV2("QUALITY_AT_FAIR_PRICE", "Quality at Fair Price", "Initiate or hold quality businesses near fair value with disciplined underwriting.", ("DAILY", "WEEKLY", "MONTHLY")),
+            SetupFamilySpecV2("DEEP_VALUE_MARGIN_OF_SAFETY", "Deep Value Margin of Safety", "Require explicit discount to intrinsic value with balance-sheet resilience and catalyst path.", ("DAILY", "WEEKLY", "MONTHLY")),
+            SetupFamilySpecV2("TEMPORARY_HEADWIND_DISLOCATION", "Temporary Headwind Dislocation", "Adverse headlines are tolerated only when thesis and fundamentals remain intact.", ("DAILY", "WEEKLY", "MONTHLY")),
+            SetupFamilySpecV2("CAPITAL_ALLOCATION_UPGRADE", "Capital Allocation Upgrade", "Management demonstrates disciplined buybacks, reinvestment, and shareholder-oriented actions.", ("DAILY", "WEEKLY", "MONTHLY")),
+            SetupFamilySpecV2("SPECIAL_SITUATION", "Special Situation", "Policy-explicit carve-out for deterministic value realization catalysts.", ("DAILY", "WEEKLY", "MONTHLY")),
         )
     ),
     pattern_catalog=PatternCatalogV2(
         patterns=(
-            PatternSpecV2("PATTERN_BREAKOUT", "Breakout Expansion", "EXECUTION", "Continuation trigger quality"),
-            PatternSpecV2("PATTERN_RECLAIM", "Reclaim Hold", "MULTI_CANDLE", "Re-acceptance confirmation"),
-            PatternSpecV2("PATTERN_FAILURE", "Failed Break", "RISK", "Bailout and de-risk authority"),
+            PatternSpecV2("PATTERN_MOAT_EVIDENCE", "Moat Evidence Persistence", "MULTI_CANDLE", "Tracks pricing power, retention, and competitive durability evidence."),
+            PatternSpecV2("PATTERN_VALUATION_DISCOUNT", "Valuation Discount Regime", "EXECUTION", "Tracks discount/premium relative to intrinsic value and fair-value bands."),
+            PatternSpecV2("PATTERN_THESIS_IMPAIRMENT", "Thesis Impairment Signal", "RISK", "Captures durable disconfirming evidence requiring trim/exit actions."),
         )
     ),
     trigger_model=TriggerModelV2(
         entries=(
-            TriggerEntrySpecV2("BREAK_AND_HOLD", "BREAKOUT", "Break and hold above decision level.", ("PRE", "RTH")),
-            TriggerEntrySpecV2("RECLAIM_CONFIRM", "RECLAIM", "Reclaim anchor with participation.", ("RTH", "AH")),
-            TriggerEntrySpecV2("PULLBACK_CONTINUATION", "PULLBACK", "Controlled pullback resumes thesis direction.", ("RTH",)),
+            TriggerEntrySpecV2("T_BUY_MOS_BAND", "VALUATION_THESIS", "MOS is in buy band and thesis confirmations pass.", ("PRE", "RTH", "AH", "OVN")),
+            TriggerEntrySpecV2("T_ADD_ON_DIP_WITHIN_THESIS", "VALUATION_THESIS", "Position exists, fundamentals remain intact, and MOS improves into add band.", ("PRE", "RTH", "AH", "OVN")),
+            TriggerEntrySpecV2("T_HOLD_MONITOR", "VALUATION_THESIS", "Price remains within fair-value hold band with no thesis impairment.", ("PRE", "RTH", "AH", "OVN")),
+            TriggerEntrySpecV2("T_TRIM_OVERVALUED", "VALUATION_THESIS", "Price enters premium band versus intrinsic value and trim discipline is enabled.", ("PRE", "RTH", "AH", "OVN")),
+            TriggerEntrySpecV2("T_EXIT_THESIS_BREAK", "THESIS_RISK", "Disconfirming evidence indicates thesis break or permanent impairment risk.", ("PRE", "RTH", "AH", "OVN")),
         ),
         confirmations=(
-            ConfirmationSpecV2("C_DATA_QUALITY", "Data quality is fresh and complete for decision authority."),
-            ConfirmationSpecV2("C_LEVEL_BEHAVIOR", "Level break/retest behavior is stable and not immediately rejected."),
-            ConfirmationSpecV2(
-                "C_LEVEL_BEHAVIOR_DECLARATION",
-                "Level-behavior doctrine declared for governance completeness. "
-                "Long-horizon value strategy does not rely on intraday level interaction; "
-                "structural thesis levels are fundamental (intrinsic value bands, "
-                "margin-of-safety thresholds, and thesis invalidation markers).",
-            ),
-            ConfirmationSpecV2("C_LIQUIDITY", "Liquidity and spread remain executable for intended size."),
-            ConfirmationSpecV2("C_VOLUME", "Volume/RVOL confirms participation in the thesis direction."),
+            ConfirmationSpecV2("C_BUSINESS_UNDERSTANDABILITY", "Business model remains inside circle of competence and underwriting scope."),
+            ConfirmationSpecV2("C_MOAT_EVIDENCE", "Moat evidence persists and moat erosion signals are below policy thresholds."),
+            ConfirmationSpecV2("C_MANAGEMENT_CAPITAL_ALLOCATION", "Management capital-allocation discipline remains aligned with shareholder value compounding."),
+            ConfirmationSpecV2("C_ACCOUNTING_QUALITY", "Accounting quality checks pass with no manipulation/restatement red flags."),
+            ConfirmationSpecV2("C_BALANCE_SHEET_STRENGTH", "Leverage and coverage metrics remain inside policy limits for resilience."),
+            ConfirmationSpecV2("C_VALUATION_METHOD_VALIDITY", "Valuation method is valid for the business model and tie-breaker law is satisfied."),
+            ConfirmationSpecV2("C_FUNDAMENTAL_DATA_FRESHNESS", "Fundamental and valuation inputs are current enough for long-horizon authority."),
+            ConfirmationSpecV2("C_EXECUTION_CONTEXT_ONLY", "pct_change/volume/rvol/spread/session fields are used only for execution context and never primary thesis decisions."),
         ),
     ),
     session_reference_law=SessionReferenceLawV2(
@@ -127,12 +133,91 @@ POLICY_V2 = StrategyPolicyV2(
             TrailingRuleV2("TRAIL_STRUCTURE", "New higher-low / lower-high prints", "Trail stop to invalidation structure."),
         )
     ),
+    long_horizon_thesis=LongHorizonThesisModelV2(
+        business_quality_requirements=(
+            "Business economics are understandable within circle of competence.",
+            "Durable returns on capital and cash generation are evidenced across cycles.",
+            "Unit economics and reinvestment runway support long-term compounding.",
+        ),
+        moat_taxonomy=(
+            "Network effects",
+            "Cost advantage",
+            "Intangible assets/brand",
+            "Switching costs",
+            "Efficient scale",
+        ),
+        management_capital_allocation_checks=(
+            "Buybacks executed below intrinsic value and not merely anti-dilutive.",
+            "Dividend and reinvestment policy balance compounding and resilience.",
+            "M&A discipline favors returns over empire-building behavior.",
+            "SBC and dilution are controlled relative to value creation.",
+        ),
+        disconfirming_signals=(
+            "Moat erosion with persistent share/price-power deterioration.",
+            "Governance deterioration, accounting quality concerns, or restatements.",
+            "Capital-allocation drift toward value-destructive actions.",
+            "Balance-sheet weakening that impairs survivability under stress.",
+        ),
+        monitoring_cadence="Monthly monitoring with quarterly deep-dive after financial updates; event-driven reviews on material thesis events.",
+        notes="Thesis model is the primary decision authority for BUY/ADD/HOLD/TRIM/EXIT in P04.",
+    ),
+    long_horizon_valuation=LongHorizonValuationModelV2(
+        primary_methods=(
+            "Discounted cash flow",
+            "Owner earnings yield versus required return",
+            "Normalized earnings multiple anchored to quality/regime",
+            "Sum-of-the-parts when conglomerate structure is material",
+        ),
+        tie_breaker_law="When methods disagree, use the most conservative intrinsic value estimate unless explicit adjudication evidence supports otherwise.",
+        margin_of_safety_bands=(
+            "Strong buy MOS: >= 30% discount",
+            "Add MOS: 20%-30% discount with intact thesis",
+            "Hold band: within ±10% of fair value",
+            "Trim band: 10%-25% premium",
+            "Exit valuation band: >25% premium absent superior growth revision",
+        ),
+        action_bands=(
+            "BUY: T_BUY_MOS_BAND when MOS and thesis confirmations pass.",
+            "ADD: T_ADD_ON_DIP_WITHIN_THESIS with improved MOS and no new disconfirming signals.",
+            "HOLD: T_HOLD_MONITOR while valuation is near fair value and thesis remains intact.",
+            "TRIM: T_TRIM_OVERVALUED as premium emerges.",
+            "EXIT: T_EXIT_THESIS_BREAK or extreme premium with weak forward asymmetry.",
+        ),
+        notes="Valuation validity is mandatory; no new entry without intrinsic value and MOS evidence.",
+    ),
+    long_horizon_rebalance=LongHorizonRebalanceModelV2(
+        review_frequency="MONTHLY",
+        fundamentals_refresh_frequency="QUARTERLY",
+        turnover_cap_per_review=0.20,
+        minimum_holding_period_days=180,
+        event_driven_review_triggers=(
+            "Earnings release materially diverges from underwriting.",
+            "Guidance reset or thesis-critical KPI breakdown.",
+            "Credit rating change or refinancing stress signal.",
+            "Major capital-allocation event (large M&A, buyback suspension, dividend cut).",
+            "Accounting restatement, fraud allegation, or governance shock.",
+        ),
+        notes="Rebalance discipline limits churn and enforces long-horizon holding behavior.",
+    ),
+    long_horizon_portfolio_constraints=LongHorizonPortfolioConstraintsV2(
+        max_single_position_pct=0.08,
+        max_new_allocation_pct=0.03,
+        sector_caps=(
+            "No sector above 30% of total portfolio market value.",
+            "No single thematic bucket above 40% when mapped upstream.",
+        ),
+        cash_buffer_rule="Maintain strategic cash buffer between 5%-15% unless broad MOS opportunity set is exceptional and documented.",
+        notes="Sector caps may be computed upstream; policy still declares the governing law for auditability.",
+    ),
     exit_model=ExitModelV2(
         rules=(
-            ExitRuleV2("HARD_INVALIDATION", "Invalidation level breached", "Exit full position immediately"),
-            ExitRuleV2("MOMENTUM_FAILURE", "Continuation fails back into range", "De-risk at least 50%"),
-            ExitRuleV2("TARGET_SCALE", "R-multiple target reached", "Take systematic partial"),
-            ExitRuleV2("TIME_STOP", "No progress in expected window", "Flatten and recycle capital"),
+            ExitRuleV2("EXIT_THESIS_BREAK", "Core thesis is impaired or disconfirming signals breach policy tolerance.", "Exit full position immediately"),
+            ExitRuleV2("EXIT_MOAT_EROSION", "Moat erosion evidence becomes persistent and non-transient.", "Exit full position or cut to monitoring residual"),
+            ExitRuleV2("EXIT_ACCOUNTING_RESTATEMENT_FRAUD", "Accounting restatement, fraud signal, or manipulation risk is elevated.", "Exit full position and suspend re-entry pending recertification"),
+            ExitRuleV2("EXIT_LEVERAGE_DETERIORATION", "Leverage/coverage metrics deteriorate beyond policy thresholds.", "De-risk aggressively or exit fully based on severity"),
+            ExitRuleV2("TRIM_VAL_PREMIUM_BAND", "Valuation enters premium/overvalued band versus intrinsic value.", "Trim systematically according to valuation ladder"),
+            ExitRuleV2("EXIT_EXTREME_OVERVALUATION", "Valuation reaches extreme premium with weak forward return asymmetry.", "Exit remaining exposure unless explicit exception is documented"),
+            ExitRuleV2("OPPORTUNITY_COST_SWITCH", "Higher-conviction opportunity exists with better MOS and stronger thesis fit.", "Switch only within turnover cap and minimum-holding-period policy"),
         )
     ),
     safety_model=SafetyModelV2(
@@ -151,22 +236,46 @@ POLICY_V2 = StrategyPolicyV2(
         calibration_notes="Thresholds are governance defaults pending replay calibration.",
     ),
     ranking_model=RankingModelV2(
-        weight_pct_change=0.35,
-        weight_rvol=0.25,
-        weight_float_inverse=0.20,
-        weight_catalyst=0.20,
-        liquidity_penalty=0.15,
-        ranking_commentary="D2 universe ranking uses momentum, participation, structure, and liquidity penalties.",
-        calibration_notes="Weights are policy defaults and must be empirically reviewed.",
+        weight_pct_change=0.05,
+        weight_rvol=0.05,
+        weight_float_inverse=0.0,
+        weight_catalyst=0.15,
+        liquidity_penalty=0.05,
+        ranking_commentary="Long-horizon ranking is primarily conviction-weighted by thesis durability, business quality, and valuation/MOS; microstructure fields are secondary execution-context inputs only.",
+        calibration_notes="Momentum and participation inputs are intentionally de-emphasized for long-horizon value policy semantics.",
     ),
     data_requirements=DataRequirementsV2(
         required_fields=("symbol", "last_price", "pct_change", "volume", "rvol", "spread_bps", "session_phase", "halt_status"),
-        optional_fields=("news_catalyst", "float_shares", "short_interest_pct", "borrow_rate", "regime_tag"),
-        notes="D10 governance: if required fields degrade, pause decisioning and reject entries until restored. "
-        "Missing required fields mandate REJECT for new entries; DEGRADE authority is limited to open-position management only. "
-        "D10.C02 canonical compliance: required_fields include symbol, last_price, and at least one of "
-        "pct_change|volume|rvol for cross-strategy audit uniformity. For long-horizon value, these fields are "
-        "contextual only and not primary decision drivers.",
+        optional_fields=(
+            "news_catalyst",
+            "float_shares",
+            "short_interest_pct",
+            "borrow_rate",
+            "regime_tag",
+            "revenue",
+            "revenue_cagr_5y",
+            "gross_margin",
+            "operating_margin",
+            "fcf",
+            "fcf_margin",
+            "roic",
+            "roce",
+            "debt_to_ebitda",
+            "interest_coverage",
+            "net_debt",
+            "share_count",
+            "dilution_rate",
+            "buyback_amount",
+            "sbc",
+            "earnings_quality_flags",
+            "restatement_flag",
+            "intrinsic_value_estimate",
+            "valuation_method",
+            "mos_pct",
+            "fair_value_low",
+            "fair_value_high",
+        ),
+        notes="D10 governance: required_fields retain cross-strategy audit compliance (symbol, last_price, and pct_change|volume|rvol) for interoperability. For P04 these are execution/context-only and never primary decision drivers. Missing intrinsic_value_estimate, valuation_method, mos_pct, or fair-value band fields mandates REJECT for new entries. Missing core financial-strength fields (revenue trajectory, profitability, FCF, leverage, and coverage set) mandates REJECT for new entries. DEGRADE authority is allowed only for managing already-open positions while remediation is in progress.",
     ),
     premarket_preparation=PremarketPreparationModelV2(
         required_levels=(
