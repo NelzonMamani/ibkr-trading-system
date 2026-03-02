@@ -1,0 +1,26 @@
+[
+  {
+    "symbol": "MRV1",
+    "score": -0.0961,
+    "score_breakdown": {
+      "pct_change_norm": 0.12,
+      "rvol_norm": 0.12,
+      "float_inverse_norm": 0.725,
+      "catalyst_quality_score": 0.0,
+      "liquidity_penalty_component": 0.35,
+      "score": -0.0961
+    }
+  },
+  {
+    "symbol": "MRV2",
+    "score": -0.30800000000000005,
+    "score_breakdown": {
+      "pct_change_norm": 0.19,
+      "rvol_norm": 0.1,
+      "float_inverse_norm": 0.4,
+      "catalyst_quality_score": 1.0,
+      "liquidity_penalty_component": 0.8,
+      "score": -0.30800000000000005
+    }
+  }
+]

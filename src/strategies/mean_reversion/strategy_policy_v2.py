@@ -126,10 +126,10 @@ POLICY_V2 = StrategyPolicyV2(
     execution_model=ExecutionModelV2(
         preferred_order_types=("LIMIT", "STOP_LIMIT"),
         allow_market_orders=False,
-        allow_extended_hours=True,
+        allow_extended_hours=False,
         notes=(
             "Price-controlled execution. Mean reversion requires discipline: limit-first entries and explicit invalidation stops. "
-            "Extended-hours participation allowed only when spread/liquidity gates are satisfied."
+            "RTH-only execution: extended-hours entries are disabled to match selection plan and v1 constraints."
         ),
     ),
     intent_contract=IntentContractV2(
@@ -227,14 +227,16 @@ POLICY_V2 = StrategyPolicyV2(
             ),
             TriggerEntrySpecV2(
                 "T_HOD_FAIL_AND_BREAKDOWN",
-                "MEAN_REVERSION_SHORT_OR_RISK_OFF",
-                "HOD test fails with exhaustion evidence; break back below prior pivot/ORH then continuation stalls -> fade into mean.",
+                "MEAN_REVERSION_RISK_OFF_BIAS",
+                "HOD test fails with exhaustion evidence; break below pivot/ORH then continuation stalls -> prioritize long-entry avoidance "
+                "and risk-off until reversal confirms. Short-side execution remains disabled unless separately governed with borrow controls.",
                 ("RTH",),
             ),
             TriggerEntrySpecV2(
                 "T_GAP_FILL_TO_PRIOR_CLOSE",
-                "MEAN_REVERSION_SHORT",
-                "Large gap/extension rotates down; accept below OR levels and target gap-fill toward prior close with controlled tape.",
+                "MEAN_REVERSION_DOWNWARD_ROTATION_CONTEXT",
+                "Large extension rotates down and accepts below OR levels; treat as mean-anchor context and risk-off signal unless "
+                "long-side reversal confirms. Short-side execution remains disabled unless separately governed with borrow controls.",
                 ("RTH",),
             ),
             TriggerEntrySpecV2(
@@ -254,6 +256,10 @@ POLICY_V2 = StrategyPolicyV2(
             # Core operational
             ConfirmationSpecV2("C_DATA_FRESHNESS", "Required fields are present and fresh at decision time."),
             ConfirmationSpecV2("C_LIQUIDITY_SPREAD", "Liquidity passes minima and spread_pct <= configured spread max."),
+            ConfirmationSpecV2(
+                "C_NO_HALTS_ALLOWED",
+                "Hard gate: halted must be False for any new entry. Any active halt or unstable post-resume state blocks entries.",
+            ),
             ConfirmationSpecV2("C_STRUCTURE_ANCHOR_PRESENT", "A clear mean anchor exists (VWAP / prior close / OR levels / HTF pivot)."),
             # Edge-specific (mean-reversion)
             ConfirmationSpecV2(
@@ -353,7 +359,7 @@ POLICY_V2 = StrategyPolicyV2(
     # ----------------------------
     safety_model=SafetyModelV2(
         rules=(
-            SafetyRuleV2("S_HALT_GUARD", "halted=True or halt/resumption unstable", "Block entries; require stabilization window post-resume."),
+            SafetyRuleV2("S_HALT_GUARD", "halted=True or halt/resumption unstable", "Hard block on new entries; require stabilization window post-resume and explicit revalidation."),
             SafetyRuleV2("S_DATA_DEGRADATION", "Missing/stale required fields", "Pause entries for 3 cycles and emit degradation artifact."),
             SafetyRuleV2("S_SPREAD_SHOCK", "spread_pct exceeds cap by >50%", "No-new-entry throttle; open positions managed risk-off only."),
             SafetyRuleV2("S_MEAN_REVERSION_FAIL_STREAK", "Two consecutive mean-reversion failures", "Reduce size tier and require Tier A only for next N opportunities."),
@@ -421,7 +427,7 @@ POLICY_V2 = StrategyPolicyV2(
     # ----------------------------
     liquidity_sanity_model=LiquiditySanityModelV2(
         spread_max_pct=0.65,
-        halt_policy="If halted=True (v1 allow_halts=False) or resumption instability is detected, block entries and require stabilization + structure revalidation.",
+        halt_policy="Hard gate (v1 allow_halts=False): halted must be False for entry eligibility; any halt/resumption instability blocks entries until stabilization + structure revalidation.",
         ssr_handling="SSR allowed (v1 allow_ssr=True). Short enablement still requires separate governance and borrow checks.",
         execution_feasibility_commentary="Candidates violating spread cap are removed from eligibility regardless of rank.",
         calibration_notes="Deterministic defaults pending replay calibration.",

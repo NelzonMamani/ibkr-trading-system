@@ -1,0 +1,71 @@
+$ rg -n SelectionEngineV2|strategy_policy_v2|resolve_policy_v2|STRATEGY_POLICY_V2_ENABLED|mean_reversion src/core/orchestrator.py src/strategies/mean_reversion src/strategy_policy_v2/registry.py
+
+src/strategy_policy_v2/registry.py:5:from src.strategy_policy_v2.policy_v2 import StrategyPolicyV2
+src/strategy_policy_v2/registry.py:9:    "ross_momentum": "src.strategies.ross_momentum.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:10:    # TODO(P02): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:11:    "mean_reversion": "src.strategies.mean_reversion.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:12:    # TODO(P04): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:13:    # TODO(P05): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:14:    # TODO(P06): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:15:    # TODO(P07): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:16:    # TODO(P08): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:17:    # TODO(P09): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:18:    # TODO(P10): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:19:    # TODO(P11): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:20:    # TODO(P12): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:21:    # TODO(P13): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:22:    # TODO(P14): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:23:    # TODO(P15): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:24:    # TODO(P16): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:25:    # TODO(P17): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:26:    # TODO(P18): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:27:    # TODO(P19): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:28:    # TODO(P20): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+src/strategy_policy_v2/registry.py:34:        "src.strategies.ross_momentum.strategy_policy_v2",
+src/strategy_policy_v2/registry.py:37:    "mean_reversion": lambda: __import__(
+src/strategy_policy_v2/registry.py:38:        "src.strategies.mean_reversion.strategy_policy_v2",
+src/strategy_policy_v2/registry.py:44:def resolve_policy_v2(strategy_key: str) -> StrategyPolicyV2 | None:
+src/core/orchestrator.py:64:from src.strategy_policy_v2.consumption import (
+src/core/orchestrator.py:67:    SelectionEngineV2,
+src/core/orchestrator.py:71:from src.strategy_policy_v2.flags import is_policy_v2_enabled_for_strategy
+src/core/orchestrator.py:72:from src.strategy_policy_v2.policy_v2 import StrategyPolicyV2
+src/core/orchestrator.py:73:from src.strategy_policy_v2.registry import resolve_policy_v2
+src/core/orchestrator.py:105:from src.strategies.mean_reversion.scanner_policy import (
+src/core/orchestrator.py:107:    mean_reversion_stock_selection_spec,
+src/core/orchestrator.py:286:        if selected_strategy == "mean_reversion":
+src/core/orchestrator.py:288:            stock_policy = mean_reversion_stock_selection_spec()
+src/core/orchestrator.py:872:        policy_v2 = resolve_policy_v2(self.selected_strategy_key)
+src/core/orchestrator.py:883:        selection = SelectionEngineV2().evaluate(policy, adapted)
+src/core/orchestrator.py:1606:                and self.selected_strategy_key in {"ross_momentum", "long_horizon_value", "mean_reversion"}
+src/strategies/mean_reversion/tests/test_policy_contract.py:1:from src.strategies.mean_reversion.mean_reversion_strategy_policy import (
+src/strategies/mean_reversion/tests/test_adapter_mapping.py:10:from src.strategies.mean_reversion.adapters import (
+src/strategies/mean_reversion/tests/test_adapter_mapping.py:14:from src.strategies.mean_reversion.mean_reversion_strategy_policy import (
+src/strategies/mean_reversion/tests/test_adapter_mapping.py:22:from src.strategies.mean_reversion.strategy import MeanReversionStrategy
+src/strategies/mean_reversion/tests/test_adapter_mapping.py:101:def test_mean_reversion_emits_intent_in_read_only() -> None:
+src/strategies/mean_reversion/tests/test_verify_patch_determinism.py:3:from src.strategies.mean_reversion.mean_reversion_strategy_policy import MeanReversionPolicyConfig
+src/strategies/mean_reversion/tests/test_verify_patch_determinism.py:4:from src.strategies.mean_reversion.strategy import MeanReversionStrategy
+src/strategies/mean_reversion/tests/test_verify_patch_determinism.py:42:def test_mean_reversion_policy_parameters_load() -> None:
+src/strategies/mean_reversion/tests/test_verify_patch_determinism.py:49:def test_mean_reversion_watchlist_processing_is_deterministic() -> None:
+src/strategies/mean_reversion/tests/test_verify_patch_determinism.py:66:def test_mean_reversion_handles_empty_watchlist() -> None:
+src/strategies/mean_reversion/tests/test_verify_patch_determinism.py:79:def test_mean_reversion_fallback_is_long_only_in_sim_and_paper() -> None:
+src/strategies/mean_reversion/__init__.py:5:- MeanReversionStrategyPolicy in mean_reversion_strategy_policy.py
+src/strategies/mean_reversion/__init__.py:8:from .mean_reversion_strategy_policy import MeanReversionStrategyPolicy, MeanReversionPolicyConfig, PolicyDecision, TradeIntent, ScannerFacts, MarketRegimeFacts
+src/strategies/mean_reversion/parameters.py:4:NOTE: The authoritative tunables currently live in MeanReversionPolicyConfig in mean_reversion_strategy_policy.py.
+src/strategies/mean_reversion/adapters.py:14:from src.strategies.mean_reversion.mean_reversion_strategy_policy import (
+src/strategies/mean_reversion/registry_adapter.py:7:from src.strategies.mean_reversion.adapters import policy_decision_to_strategy_decision
+src/strategies/mean_reversion/registry_adapter.py:8:from src.strategies.mean_reversion.mean_reversion_strategy_policy import (
+src/strategies/mean_reversion/registry_adapter.py:25:    strategy_id = "mean_reversion"
+src/strategies/mean_reversion/strategy_policy_v2.py:12:- Compile-safe: only uses models defined in src.strategy_policy_v2.policy_v2.
+src/strategies/mean_reversion/strategy_policy_v2.py:17:from src.strategy_policy_v2.policy_v2 import (
+src/strategies/mean_reversion/strategy_policy_v2.py:67:from src.strategy_policy_v2.selection_plans import ScannerPlan
+src/strategies/mean_reversion/indicators_contract.py:5:The authoritative data types are re-exported from mean_reversion_strategy_policy.py for now.
+src/strategies/mean_reversion/indicators_contract.py:11:from .mean_reversion_strategy_policy import ScannerFacts
+src/strategies/mean_reversion/strategy.py:13:from src.strategies.mean_reversion.adapters import (
+src/strategies/mean_reversion/strategy.py:18:from src.strategies.mean_reversion.mean_reversion_strategy_policy import (
+src/strategies/mean_reversion/README.md:5:- The **authoritative policy brain** (`mean_reversion_strategy_policy.py`)
+src/strategies/mean_reversion/scanner_policy.py:14:def mean_reversion_stock_selection_spec() -> StockSelectionSpec:
+src/strategies/mean_reversion/scanner_policy.py:49:    name: str = "mean_reversion"
+src/strategies/mean_reversion/scanner_policy.py:52:        default_factory=mean_reversion_stock_selection_spec
+src/strategies/mean_reversion/regime_permissions.py:10:from .mean_reversion_strategy_policy import MarketRegimeFacts
+src/strategies/mean_reversion/mean_reversion_strategy_policy.py:3:mean_reversion_strategy_policy.py
+src/strategies/mean_reversion/mean_reversion_strategy_policy.py:19:  src/strategies/mean_reversion/mean_reversion_strategy_policy.py

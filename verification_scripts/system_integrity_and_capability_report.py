@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import shutil
@@ -23,6 +24,7 @@ from src.metadata.m7_epoch_audit_certifier import (
 from src.metadata.m8_change_control_verifier import verify_m8_change_control
 from src.metadata.m9_signal_semantics_registry_verifier import verify_m9_signal_semantics_registry
 from src.metadata.m10_data_provenance_ledger_verifier import verify_m10_data_provenance_ledger
+from src.strategy_policy_v2.registry import has_policy_v2
 
 EPOCH = "SYSTEM_INTEGRITY_AND_CAPABILITY_REPORT"
 EVIDENCE_DIR_REL = "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/SYSTEM_INTEGRITY_AND_CAPABILITY_REPORT"
@@ -294,6 +296,50 @@ def _check_policy_v2_resolver_present(repo_root: Path) -> dict[str, Any]:
     }
 
 
+def _extract_strategy_policy_v2_defaults(config_registry_path: Path) -> dict[str, Any] | None:
+    source = config_registry_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "CONFIG_REGISTRY" for t in node.targets):
+            if not isinstance(node.value, ast.Dict):
+                return None
+            for key_node, value_node in zip(node.value.keys, node.value.values):
+                if isinstance(key_node, ast.Constant) and key_node.value == "STRATEGY_POLICY_V2_STRATEGIES":
+                    if not isinstance(value_node, ast.Dict):
+                        return None
+                    for inner_key, inner_val in zip(value_node.keys, value_node.values):
+                        if isinstance(inner_key, ast.Constant) and inner_key.value == "default":
+                            try:
+                                parsed_default = ast.literal_eval(inner_val)
+                            except Exception:
+                                return None
+                            return parsed_default if isinstance(parsed_default, dict) else None
+    return None
+
+
+def _check_p03_policy_v2_registered_disabled_by_default(repo_root: Path) -> dict[str, Any]:
+    strategy_key = "mean_reversion"
+    policy_file = repo_root / "src" / "strategies" / strategy_key / "strategy_policy_v2.py"
+    config_registry_path = repo_root / "src" / "config" / "config_registry.py"
+
+    resolver_registered = has_policy_v2(strategy_key)
+    defaults_map = _extract_strategy_policy_v2_defaults(config_registry_path)
+    disabled_by_default = isinstance(defaults_map, dict) and defaults_map.get(strategy_key) is False
+    policy_file_exists = policy_file.exists()
+
+    status = "PASS" if resolver_registered and disabled_by_default and policy_file_exists else "FAIL"
+    return {
+        "name": "P03_POLICY_V2_REGISTERED_DISABLED_BY_DEFAULT",
+        "status": status,
+        "strategy_key": strategy_key,
+        "resolver_registered": resolver_registered,
+        "disabled_by_default": disabled_by_default,
+        "policy_file_exists": policy_file_exists,
+        "config_registry_file": str(config_registry_path.relative_to(repo_root)),
+        "policy_file": str(policy_file.relative_to(repo_root)),
+    }
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -443,6 +489,7 @@ def main() -> int:
 
     p01_v2_check = _check_p01_policy_v2_consumed(REPO_ROOT)
     policy_v2_resolver_check = _check_policy_v2_resolver_present(REPO_ROOT)
+    p03_registration_check = _check_p03_policy_v2_registered_disabled_by_default(REPO_ROOT)
 
     capability_report = {
         "epoch": EPOCH,
@@ -457,7 +504,7 @@ def main() -> int:
         "p_layer_summary": p_layer_summary,
         "e21_status": e21_status,
         "blockers": p_layer_blockers,
-        "runtime_checks": [p01_v2_check, policy_v2_resolver_check],
+        "runtime_checks": [p01_v2_check, policy_v2_resolver_check, p03_registration_check],
     }
 
     _write_json(evidence_dir / "integrity_report.json", integrity_report)

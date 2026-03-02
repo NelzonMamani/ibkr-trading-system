@@ -1,0 +1,8 @@
+{
+  "policy_v1": "src/strategies/mean_reversion/strategy_policy.py",
+  "policy_v2": "src/strategies/mean_reversion/strategy_policy_v2.py",
+  "registry_file": "src/strategy_policy_v2/registry.py",
+  "runtime_file": "src/core/orchestrator.py",
+  "registry_has_mean_reversion": true,
+  "runtime_consumes_v2_surfaces_for_p03": true
+}

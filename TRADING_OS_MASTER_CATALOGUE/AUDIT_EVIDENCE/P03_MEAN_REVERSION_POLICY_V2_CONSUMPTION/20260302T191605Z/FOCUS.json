@@ -1,0 +1,32 @@
+[
+  {
+    "symbol": "MRV1",
+    "session_label": "RTH",
+    "last_price": 18.5,
+    "pct_change": 12.0,
+    "volume": 2200000,
+    "premarket_volume": 140000,
+    "rvol": 2.4,
+    "dollar_volume": 30000000.0,
+    "float_millions": 55.0,
+    "spread_pct": 0.35,
+    "halted": false,
+    "ssr": false,
+    "news_catalyst": "EARNINGS"
+  },
+  {
+    "symbol": "MRV2",
+    "session_label": "RTH",
+    "last_price": 42.0,
+    "pct_change": 19.0,
+    "volume": 1900000,
+    "premarket_volume": 90000,
+    "rvol": 2.0,
+    "dollar_volume": 34000000.0,
+    "float_millions": 120.0,
+    "spread_pct": 0.55,
+    "halted": false,
+    "ssr": true,
+    "news_catalyst": true
+  }
+]

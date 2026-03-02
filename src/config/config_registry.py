@@ -1344,7 +1344,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "STRATEGY_POLICY_V2_STRATEGIES": {
         "type": dict,
-        "default": {"ross_momentum": True},
+        "default": {"ross_momentum": True, "mean_reversion": False},
         "env": ["STRATEGY_POLICY_V2_STRATEGIES"],
         "affects": ["CoreOrchestrator", "Strategies"],
         "enforcement": "SOFT",
