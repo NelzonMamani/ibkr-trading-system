@@ -294,6 +294,30 @@ def _check_policy_v2_resolver_present(repo_root: Path) -> dict[str, Any]:
     }
 
 
+def _check_p02_policy_v2_registered_and_disabled_by_default(repo_root: Path) -> dict[str, Any]:
+    registry_path = repo_root / "src" / "strategy_policy_v2" / "registry.py"
+    config_path = repo_root / "src" / "config" / "config_registry.py"
+    strategy_policy_path = repo_root / "src" / "strategies" / "statistical_intraday_momentum" / "strategy_policy_v2.py"
+
+    registry_text = registry_path.read_text(encoding="utf-8")
+    config_text = config_path.read_text(encoding="utf-8")
+
+    resolver_present = '"statistical_intraday_momentum"' in registry_text
+    policy_file_present = strategy_policy_path.exists()
+    disabled_by_default = '"default": {"ross_momentum": True, "statistical_intraday_momentum": False}' in config_text
+
+    status = "PASS" if resolver_present and policy_file_present and disabled_by_default else "FAIL"
+    return {
+        "name": "P02_POLICY_V2_REGISTERED_DISABLED_BY_DEFAULT",
+        "status": status,
+        "resolver_present": resolver_present,
+        "policy_file_present": policy_file_present,
+        "disabled_by_default": disabled_by_default,
+        "registry_file": str(registry_path.relative_to(repo_root)),
+        "config_file": str(config_path.relative_to(repo_root)),
+        "policy_file": str(strategy_policy_path.relative_to(repo_root)),
+    }
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -443,6 +467,7 @@ def main() -> int:
 
     p01_v2_check = _check_p01_policy_v2_consumed(REPO_ROOT)
     policy_v2_resolver_check = _check_policy_v2_resolver_present(REPO_ROOT)
+    p02_v2_check = _check_p02_policy_v2_registered_and_disabled_by_default(REPO_ROOT)
 
     capability_report = {
         "epoch": EPOCH,
@@ -457,7 +482,7 @@ def main() -> int:
         "p_layer_summary": p_layer_summary,
         "e21_status": e21_status,
         "blockers": p_layer_blockers,
-        "runtime_checks": [p01_v2_check, policy_v2_resolver_check],
+        "runtime_checks": [p01_v2_check, policy_v2_resolver_check, p02_v2_check],
     }
 
     _write_json(evidence_dir / "integrity_report.json", integrity_report)

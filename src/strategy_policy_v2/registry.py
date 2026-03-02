@@ -7,7 +7,7 @@ from src.strategy_policy_v2.policy_v2 import StrategyPolicyV2
 
 _POLICY_IMPORT_PATHS: dict[str, str] = {
     "ross_momentum": "src.strategies.ross_momentum.strategy_policy_v2.POLICY_V2",
-    # TODO(P02): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
+    "statistical_intraday_momentum": "src.strategies.statistical_intraday_momentum.strategy_policy_v2.POLICY_V2",
     # TODO(P03): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
     # TODO(P04): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
     # TODO(P05): "<strategy_key>": "src.strategies.<module>.strategy_policy_v2.POLICY_V2",
@@ -32,6 +32,10 @@ _POLICY_IMPORT_PATHS: dict[str, str] = {
 _RESOLVERS: dict[str, Callable[[], StrategyPolicyV2]] = {
     "ross_momentum": lambda: __import__(
         "src.strategies.ross_momentum.strategy_policy_v2",
+        fromlist=["POLICY_V2"],
+    ).POLICY_V2,
+    "statistical_intraday_momentum": lambda: __import__(
+        "src.strategies.statistical_intraday_momentum.strategy_policy_v2",
         fromlist=["POLICY_V2"],
     ).POLICY_V2,
 }
