@@ -334,6 +334,14 @@ ibkr-trading-system/
 │   │   ├── smoke_ross_momentum_sim.json
 │   │   ├── smoke_statistical_intraday_momentum_paper.json
 │   │   └── smoke_statistical_intraday_momentum_sim.json
+│   ├── E24_runtime_restoration_report.json
+│   ├── E25_architecture_realignment_report.json
+│   ├── E25_gap_analysis.json
+│   ├── E25_migration_plan.md
+│   ├── E26_artifact_registry_snapshot.json
+│   ├── E26_gap_analysis.json
+│   ├── E26_regenerability_report.json
+│   ├── E26_runtime_classification_matrix.json
 │   ├── PR265_fix_baseline_compileall.txt
 │   ├── PR265_fix_baseline_integrity_report.txt
 │   ├── PR265_fix_baseline_pytest.txt
@@ -343,7 +351,10 @@ ibkr-trading-system/
 │   ├── PR265_fix_mode_boot_PAPER.txt
 │   ├── PR265_fix_mode_boot_READ_ONLY.txt
 │   ├── PR265_fix_mode_boot_SIM.txt
-│   └── PR265_fix_pytest_pass.txt
+│   ├── PR265_fix_pytest_pass.txt
+│   ├── runtime_alignment_stress_report.json
+│   ├── runtime_alignment_trace_map.json
+│   └── strategy_policy_v2_baseline_snapshot.json
 ├── data
 │   ├── audit
 │   │   └── db_admin_audit.log
@@ -475,7 +486,10 @@ ibkr-trading-system/
 │   ├── trace_20260130.jsonl
 │   ├── trace_20260131.jsonl
 │   ├── trace_20260212.jsonl
-│   └── trace_20260213.jsonl
+│   ├── trace_20260213.jsonl
+│   ├── trace_20260215.jsonl
+│   ├── trace_20260219.jsonl
+│   └── trace_20260220.jsonl
 ├── mean_reversion_codex_instructions
 │   ├── 00_READ_ORDER.md
 │   ├── 01_CONTEXT_AND_SCOPE.md
@@ -560,7 +574,7 @@ ibkr-trading-system/
 │   │   ├── RUN_SIMULATION.log
 │   │   └── VERIFY_STATISTICAL_ALL_MODES.log
 │   ├── watchlists
-│   │   └── watchlist_RossMomentum_20260213_164030_UTC.txt
+│   │   └── watchlist_RossMomentum_20260220_230006_UTC.txt
 │   └── trade_store.jsonl
 ├── planning
 │   ├── create_catalogue_strategies.py
@@ -729,7 +743,8 @@ ibkr-trading-system/
 │   │   ├── m6_data_lifecycle_governance_verifier.py
 │   │   ├── m7_epoch_audit_certifier.py
 │   │   ├── m8_change_control_verifier.py
-│   │   └── m9_signal_semantics_registry_verifier.py
+│   │   ├── m9_signal_semantics_registry_verifier.py
+│   │   └── strategy_policy_v2_audit.py
 │   ├── models
 │   │   ├── data_models.py
 │   │   ├── execution_result.py
@@ -768,6 +783,13 @@ ibkr-trading-system/
 │   │   ├── no_trade_contexts.py
 │   │   ├── risk_audit.py
 │   │   └── risk_engine.py
+│   ├── runtime
+│   │   ├── __init__.py
+│   │   ├── artifact_registry.py
+│   │   ├── async_runtime_bootstrap.py
+│   │   ├── bootstrap.py
+│   │   ├── paths.py
+│   │   └── regen.py
 │   ├── scanner
 │   │   ├── docs
 │   │   │   ├── PHASE_24_SCANNER_FIELD_AUDIT.json
@@ -854,7 +876,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── early_entry_momentum
 │   │   │   ├── __init__.py
 │   │   │   └── strategy.py
@@ -865,7 +888,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── event_news_shock_continuation
 │   │   │   ├── tests
 │   │   │   │   ├── __init__.py
@@ -873,7 +897,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── long_horizon_quality_compounder
 │   │   │   ├── tests
 │   │   │   │   ├── __init__.py
@@ -881,7 +906,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── long_horizon_value
 │   │   │   ├── contracts
 │   │   │   │   ├── intents.py
@@ -894,7 +920,8 @@ ibkr-trading-system/
 │   │   │   ├── README.md
 │   │   │   ├── runner.py
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── mean_reversion
 │   │   │   ├── governance
 │   │   │   │   ├── 00_READ_ORDER.md
@@ -937,6 +964,7 @@ ibkr-trading-system/
 │   │   │   ├── scanner_policy.py
 │   │   │   ├── state.py
 │   │   │   ├── strategy.py
+│   │   │   ├── strategy_policy_v2.py
 │   │   │   └── telemetry.py
 │   │   ├── opening_drive
 │   │   │   ├── tests
@@ -945,7 +973,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── pairs_divergence_reversion
 │   │   │   ├── tests
 │   │   │   │   ├── __init__.py
@@ -953,7 +982,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── power_hour
 │   │   │   ├── tests
 │   │   │   │   ├── __init__.py
@@ -961,7 +991,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── range_bound_fade
 │   │   │   ├── tests
 │   │   │   │   ├── __init__.py
@@ -969,7 +1000,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── regime_adaptive_meta_allocator
 │   │   │   ├── tests
 │   │   │   │   ├── __init__.py
@@ -977,7 +1009,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── ross_momentum
 │   │   │   ├── patterns
 │   │   │   │   ├── __init__.py
@@ -992,6 +1025,7 @@ ibkr-trading-system/
 │   │   │   ├── reports
 │   │   │   │   └── REPORT__READING_CANDLESTICKS_3_STEP_TRICK.md
 │   │   │   ├── tests
+│   │   │   │   ├── test_policy_v2_selection_pipeline.py
 │   │   │   │   └── test_verify_patch_contract.py
 │   │   │   ├── __init__.py
 │   │   │   ├── CONSTITUTION.md
@@ -1002,6 +1036,7 @@ ibkr-trading-system/
 │   │   │   ├── strategy.py
 │   │   │   ├── strategy_context_schema.py
 │   │   │   ├── strategy_policy.py
+│   │   │   ├── strategy_policy_v2.py
 │   │   │   └── TRADE_PERMISSION_MATRIX.md
 │   │   ├── statistical_intraday_momentum
 │   │   │   ├── signal_engine
@@ -1018,6 +1053,7 @@ ibkr-trading-system/
 │   │   │   ├── strategy.py
 │   │   │   ├── strategy_assumptions.md
 │   │   │   ├── strategy_policy.py
+│   │   │   ├── strategy_policy_v2.py
 │   │   │   └── telemetry.py
 │   │   ├── support_resistance_channel
 │   │   │   ├── tests
@@ -1026,7 +1062,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── time_based_seasonality
 │   │   │   ├── tests
 │   │   │   │   ├── __init__.py
@@ -1034,7 +1071,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── trend_following_classic
 │   │   │   ├── tests
 │   │   │   │   ├── __init__.py
@@ -1042,7 +1080,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── volatility_carry_risk_premium
 │   │   │   ├── tests
 │   │   │   │   ├── __init__.py
@@ -1050,7 +1089,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── volatility_contraction_breakout
 │   │   │   ├── tests
 │   │   │   │   ├── __init__.py
@@ -1058,7 +1098,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── volatility_expansion
 │   │   │   ├── tests
 │   │   │   │   ├── __init__.py
@@ -1066,7 +1107,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── vwap_reclaim
 │   │   │   ├── tests
 │   │   │   │   ├── __init__.py
@@ -1074,7 +1116,8 @@ ibkr-trading-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── ALGORITHM.md
 │   │   │   ├── strategy.py
-│   │   │   └── strategy_policy.py
+│   │   │   ├── strategy_policy.py
+│   │   │   └── strategy_policy_v2.py
 │   │   ├── __init__.py
 │   │   ├── ross_momentum_strategy_v1.py
 │   │   ├── strategy_base.py
@@ -1089,6 +1132,29 @@ ibkr-trading-system/
 │   │   ├── ross_momentum_strategy_v1.py
 │   │   ├── signal_adapter.py
 │   │   └── strategy_runner.py
+│   ├── strategy_policy_v2
+│   │   ├── consumption
+│   │   │   ├── tests
+│   │   │   │   ├── test_builders_v2.py
+│   │   │   │   ├── test_ranking_engine_v2.py
+│   │   │   │   └── test_selection_engine_v2.py
+│   │   │   ├── __init__.py
+│   │   │   ├── adapters.py
+│   │   │   ├── builders.py
+│   │   │   ├── models.py
+│   │   │   ├── ranking_engine.py
+│   │   │   ├── README.md
+│   │   │   └── selection_engine.py
+│   │   ├── tests
+│   │   │   └── test_registry_v2.py
+│   │   ├── __init__.py
+│   │   ├── flags.py
+│   │   ├── policy_v2.py
+│   │   ├── README.md
+│   │   ├── registry.py
+│   │   ├── registry_README.md
+│   │   ├── selection_plans.py
+│   │   └── types.py
 │   ├── strategy_portfolio
 │   │   ├── adapters
 │   │   │   ├── __init__.py
@@ -1102,7 +1168,8 @@ ibkr-trading-system/
 │   │   └── registry.py
 │   ├── tests
 │   │   ├── __init__.py
-│   │   └── test_exit_precedence.py
+│   │   ├── test_exit_precedence.py
+│   │   └── test_orchestrator_policy_v2_resolver_wiring.py
 │   ├── tools
 │   │   ├── __init__.py
 │   │   ├── certification_programme_runner.py
@@ -1140,7 +1207,17 @@ ibkr-trading-system/
 │   │   ├── test_m6_data_lifecycle_governance_verifier.py
 │   │   ├── test_m7_epoch_audit_certifier.py
 │   │   ├── test_m8_change_control_verifier.py
-│   │   └── test_m9_signal_semantics_registry_verifier.py
+│   │   ├── test_m9_signal_semantics_registry_verifier.py
+│   │   ├── test_p01_intrabar_execution_enforced.py
+│   │   ├── test_p01_momentum_weakness_exit_law_present.py
+│   │   ├── test_p01_premarket_preparation_enforced.py
+│   │   ├── test_p01_stock_selection_law_complete.py
+│   │   ├── test_strategy_policy_v2_governance_lock.py
+│   │   ├── test_strategy_policy_v2_institutional_matrix.py
+│   │   ├── test_strategy_policy_v2_minimum_section_thresholds.py
+│   │   ├── test_strategy_policy_v2_non_regression_p01.py
+│   │   ├── test_strategy_policy_v2_presence.py
+│   │   └── test_strategy_policy_v2_scanner_leakage_guards.py
 │   ├── smoke
 │   │   ├── test_imports.py
 │   │   ├── test_orchestrator_cycle.py
@@ -1167,8 +1244,11 @@ ibkr-trading-system/
 │   │   ├── test_normaliser_defaults.py
 │   │   ├── test_registry.py
 │   │   └── test_ross_adapter.py
+│   ├── conftest.py
 │   ├── test_config_sanity.py
 │   ├── test_decision_artifacts_epoch14.py
+│   ├── test_e26_cleanroom_rebuild.py
+│   ├── test_e26_purge_levels.py
 │   ├── test_epoch12_recovery_housekeeping.py
 │   ├── test_epoch15_17_safety_cluster.py
 │   ├── test_epoch3_risk_execution.py
@@ -1866,24 +1946,73 @@ ibkr-trading-system/
 │   │   │       ├── 08_MIGRATION_AND_COMPATIBILITY.md
 │   │   │       ├── 99_GLOSSARY_AND_APPENDICES.md
 │   │   │       └── README.md
-│   │   └── 23_E23_PLATFORM_INTEGRITY_AND_RECONCILIATION_LAYER
-│   │       ├── codex_instructions
-│   │       │   ├── 00_READ_ORDER.md
-│   │       │   ├── 01_CONTEXT_AND_OBJECTIVE.md
-│   │       │   ├── 02_IMPLEMENTATION_PLAN.md
-│   │       │   ├── 03_AUTOMATED_RECONCILIATION_LOOP.md
+│   │   ├── 23_E23_PLATFORM_INTEGRITY_AND_RECONCILIATION_LAYER
+│   │   │   ├── codex_instructions
+│   │   │   │   ├── 00_READ_ORDER.md
+│   │   │   │   ├── 01_CONTEXT_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_IMPLEMENTATION_PLAN.md
+│   │   │   │   ├── 03_AUTOMATED_RECONCILIATION_LOOP.md
+│   │   │   │   ├── 04_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 05_SUCCESS_CRITERIA.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── governance
+│   │   │       ├── 00_READ_ORDER.md
+│   │   │       ├── 01_E23_INTENT_AND_SCOPE.md
+│   │   │       ├── 02_TRUTH_PRECEDENCE_AND_GLOBAL_COHR.md
+│   │   │       ├── 03_DRIFT_TAXONOMY_AND_RECONCILIATION_ACTIONS.md
+│   │   │       ├── 04_OUTPUT_ARTIFACTS_AND_SCHEMAS.md
+│   │   │       ├── 05_VERIFICATION_AUTHORITY_INTEGRATION.md
+│   │   │       ├── 06_CHANGE_CONTROL_AND_SAFETY_RULES.md
+│   │   │       └── 07_ACCEPTANCE_CRITERIA.md
+│   │   ├── 24_E24_ASYNC_RUNTIME_AND_EVENT_LOOP_GOVERNANCE
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 01_REALITY_VERIFICATION_AND_GAP_ANALYSIS.md
+│   │   │   │   ├── 02_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 03_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 04_EVIDENCE_AND_CERTIFICATION_UPDATES.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── GOVERNANCE
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_INTENT_AND_SCOPE.md
+│   │   │       ├── 02_CANONICAL_RUNTIME_MODEL.md
+│   │   │       ├── 03_INVARIANTS_AND_FAILURE_MODES.md
+│   │   │       ├── 04_VERIFICATION_AND_EVIDENCE.md
+│   │   │       └── 05_ACCEPTANCE_CRITERIA.md
+│   │   ├── 25_E25_ARCHITECTURE_REALIGNMENT
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 01_REALITY_GAP_ANALYSIS.md
+│   │   │   │   ├── 02_RESTRUCTURE_PLAN.md
+│   │   │   │   ├── 03_MIGRATION_SEQUENCE.md
+│   │   │   │   ├── 04_VERIFICATION_COMMANDS.md
+│   │   │   │   └── 05_EVIDENCE_UPDATE.md
+│   │   │   ├── GOVERNANCE
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 01_TARGET_ARCHITECTURE_MODEL.md
+│   │   │   │   ├── 02_DEPENDENCY_RULES_AND_BOUNDARIES.md
+│   │   │   │   ├── 03_FORBIDDEN_COUPLINGS.md
+│   │   │   │   ├── 04_ACCEPTANCE_CRITERIA.md
+│   │   │   │   └── 05_NON_REGRESSION_POLICY.md
+│   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   └── 26_E26_SYSTEM_DETERMINISM_AND_REGENERABILITY_PROTOCOL
+│   │       ├── CODEX_INSTRUCTIONS
+│   │       │   ├── 00_READ_FIRST.md
+│   │       │   ├── 01_REALITY_VERIFICATION_AND_GAP_ANALYSIS.md
+│   │       │   ├── 02_IMPLEMENTATION_TASKS.md
+│   │       │   ├── 03_MIGRATION_SEQUENCE.md
 │   │       │   ├── 04_MANDATORY_VERIFICATION_COMMANDS.md
-│   │       │   ├── 05_SUCCESS_CRITERIA.md
+│   │       │   ├── 05_EVIDENCE_AND_CERTIFICATION_UPDATES.md
 │   │       │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
-│   │       └── governance
-│   │           ├── 00_READ_ORDER.md
-│   │           ├── 01_E23_INTENT_AND_SCOPE.md
-│   │           ├── 02_TRUTH_PRECEDENCE_AND_GLOBAL_COHR.md
-│   │           ├── 03_DRIFT_TAXONOMY_AND_RECONCILIATION_ACTIONS.md
-│   │           ├── 04_OUTPUT_ARTIFACTS_AND_SCHEMAS.md
-│   │           ├── 05_VERIFICATION_AUTHORITY_INTEGRATION.md
-│   │           ├── 06_CHANGE_CONTROL_AND_SAFETY_RULES.md
-│   │           └── 07_ACCEPTANCE_CRITERIA.md
+│   │       ├── GOVERNANCE
+│   │       │   ├── 00_READ_FIRST.md
+│   │       │   ├── 01_INTENT_AND_SCOPE.md
+│   │       │   ├── 02_DETERMINISM_MODEL.md
+│   │       │   ├── 03_RUNTIME_ARTIFACT_CLASSIFICATION.md
+│   │       │   ├── 04_RESET_BACKUP_RESTORE_PROTOCOL.md
+│   │       │   ├── 05_VERIFICATION_AND_EVIDENCE.md
+│   │       │   └── 06_ACCEPTANCE_CRITERIA.md
+│   │       └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
 │   ├── 02_METADATA_EPOCHS
 │   │   ├── 00_M0_CANON_AND_SOURCES_OF_TRUTH
 │   │   │   ├── codex_instructions
@@ -2097,6 +2226,61 @@ ibkr-trading-system/
 │   ├── 03_STRATEGIES
 │   │   ├── 00_STRATEGY_EXECUTION_PROTOCOL.md
 │   │   │   └── 00_STRATEGY_EXECUTION_PROTOCOL.md
+│   │   ├── 04_STRATEGY_CERTIFICATION_AND_GOVERNANCE
+│   │   │   ├── 00_READ_FIRST.md
+│   │   │   ├── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   ├── STRATEGY_AUDIT_MATRIX_V2.md
+│   │   │   └── STRATEGY_CERTIFICATION_TEMPLATE.md
+│   │   ├── 05_STRATEGY_CERTIFICATION_FRAMEWORK_V2
+│   │   │   ├── 00_READ_FIRST.md
+│   │   │   ├── 01_FRAMEWORK_INTENT.md
+│   │   │   ├── 02_MATRIX_STRUCTURE_V2.md
+│   │   │   ├── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   └── STRATEGY_AUDIT_MATRIX_V2.md
+│   │   ├── 06_STRATEGY_POLICY_V2_RECONSTRUCTION_PROGRAM
+│   │   │   ├── PHASE_1_INSTITUTIONAL_AUDIT_ENGINE_UPGRADE
+│   │   │   │   ├── 01_SCOPE_AND_OBJECTIVE.md
+│   │   │   │   ├── 02_INSTITUTIONAL_MATRIX_V2.md
+│   │   │   │   ├── 03_CONTROL_DOMAIN_DEFINITIONS.md
+│   │   │   │   ├── 04_PASS_FAIL_CRITERIA.md
+│   │   │   │   ├── 05_MINIMUM_SECTION_REQUIREMENTS.md
+│   │   │   │   ├── 06_AUDIT_ENFORCEMENT_LOGIC.md
+│   │   │   │   ├── 07_TEST_ENFORCEMENT_REQUIREMENTS.md
+│   │   │   │   ├── 08_SYSTEM_STATE_INTEGRATION.md
+│   │   │   │   └── 99_CODEX_IMPLEMENT_AUDIT_ENGINE.md
+│   │   │   ├── PHASE_2_STRATEGY_PATCH_AND_COMPLETION
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 01_PHASE_INTENT_AND_SCOPE.md
+│   │   │   │   ├── 02_RECONSTRUCTION_WORKFLOW.md
+│   │   │   │   ├── 03_POLICY_COMPLETION_TEMPLATE.md
+│   │   │   │   ├── 04_DOMAIN_BY_DOMAIN_PATCH_GUIDE.md
+│   │   │   │   ├── 05_ACCEPTANCE_CRITERIA.md
+│   │   │   │   ├── 06_VERIFICATION_AND_EVIDENCE_REQUIREMENTS.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   ├── PHASE_3_FULL_RE-CERTIFICATION
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 01_PHASE_OBJECTIVE_AND_SCOPE.md
+│   │   │   │   ├── 02_RE-CERTIFICATION_WORKFLOW.md
+│   │   │   │   ├── 03_DIFFERENTIATION_REQUIREMENTS.md
+│   │   │   │   ├── 04_RUNTIME_ALIGNMENT_REQUIREMENTS.md
+│   │   │   │   ├── 05_ACCEPTANCE_CRITERIA.md
+│   │   │   │   ├── 06_VERIFICATION_AND_EVIDENCE.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   ├── PHASE_4_GOVERNANCE_LOCK_AND_FREEZE
+│   │   │   │   ├── 01_LOCKING_CRITERIA.md
+│   │   │   │   ├── 02_CHANGE_CONTROL_POLICY.md
+│   │   │   │   ├── 03_FUTURE_STRATEGY_ADMISSION_POLICY.md
+│   │   │   │   ├── 04_VERSION_CONTROL_RULES.md
+│   │   │   │   ├── 05_COMPLIANCE_AND_TRACEABILITY.md
+│   │   │   │   └── 99_CODEX_LOCK_AND_FINALIZE.md
+│   │   │   └── PHASE_5_RUNTIME_ALIGNMENT_AND_STRESS_VALIDATION
+│   │   │       ├── 00_READ_FIRST.md
+│   │   │       ├── 01_PHASE_OBJECTIVE_AND_SCOPE.md
+│   │   │       ├── 02_RUNTIME_ALIGNMENT_WORKPLAN.md
+│   │   │       ├── 03_STRESS_AND_FAULT_INJECTION_MATRIX.md
+│   │   │       ├── 04_EVIDENCE_REQUIREMENTS.md
+│   │   │       ├── 05_ACCEPTANCE_CRITERIA.md
+│   │   │       └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
 │   │   ├── P01_ROSS_MOMENTUM
 │   │   │   ├── CODEX_INSTRUCTIONS
 │   │   │   │   ├── 00_READ_FIRST.md
@@ -2106,11 +2290,12 @@ ibkr-trading-system/
 │   │   │   │   ├── 04_IMPLEMENTATION_TASKS.md
 │   │   │   │   ├── 05_MANDATORY_VERIFICATION.md
 │   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION.md
-│   │   │   └── GOVERNANCE
-│   │   │       ├── ALGORITHM.md
-│   │   │       ├── CERTIFICATION_CHECKLIST.md
-│   │   │       ├── STRATEGY_CAPABILITY_MAP.md
-│   │   │       └── STRATEGY_GOVERNANCE.md
+│   │   │   ├── GOVERNANCE
+│   │   │   │   ├── ALGORITHM.md
+│   │   │   │   ├── CERTIFICATION_CHECKLIST.md
+│   │   │   │   ├── STRATEGY_CAPABILITY_MAP.md
+│   │   │   │   └── STRATEGY_GOVERNANCE.md
+│   │   │   └── ROSS_POLICY_V2_INVENTORY.md
 │   │   ├── P02_STATISTICAL_INTRADAY_MOMENTUM
 │   │   │   ├── CODEX_INSTRUCTIONS
 │   │   │   │   ├── 00_READ_FIRST.md
@@ -2330,7 +2515,9 @@ ibkr-trading-system/
 │   │   │       ├── STRATEGY_CAPABILITY_MAP.md
 │   │   │       └── STRATEGY_GOVERNANCE.md
 │   │   ├── 00_CODEX_MASTER_SPRINT.md
-│   │   └── 00_READ_FIRST_GLOBAL.md
+│   │   ├── 00_READ_FIRST_GLOBAL.md
+│   │   ├── README_POLICY_V2_MIGRATION.md
+│   │   └── STRATEGY_CERTIFICATION_REPORT.md
 │   ├── AUDIT_EVIDENCE
 │   │   ├── BLOCKER_01
 │   │   │   ├── compileall.txt
@@ -2607,6 +2794,21 @@ ibkr-trading-system/
 │   │   │   ├── pytest_full.txt
 │   │   │   ├── verification_output.json
 │   │   │   └── verification_summary.md
+│   │   ├── P01_ROSS_POLICY_V2_CONSUMPTION
+│   │   │   └── 20260302T142132Z
+│   │   │       ├── console_log.txt
+│   │   │       ├── CONSUMPTION_TRACE.md
+│   │   │       ├── DROPPED.json
+│   │   │       ├── FOCUS.json
+│   │   │       ├── RANKED.json
+│   │   │       ├── RANKING_OUTPUTS.json
+│   │   │       ├── SELECTION_OUTPUTS.json
+│   │   │       └── WATCHLIST.json
+│   │   ├── P01_ROSS_V2_MIGRATION
+│   │   │   └── 20260302T142039Z
+│   │   │       ├── BASELINE_POLICY_POINTERS.json
+│   │   │       ├── BASELINE_RIPGREP_LOG.txt
+│   │   │       └── BASELINE_RUNTIME_CONSUMPTION.md
 │   │   └── SYSTEM_INTEGRITY_AND_CAPABILITY_REPORT
 │   │       ├── boot_LIVE.txt
 │   │       ├── boot_PAPER.txt
@@ -2688,6 +2890,8 @@ ibkr-trading-system/
 │   ├── final_gate_duplicate_sanity.py
 │   ├── final_gate_strategy_matrix.py
 │   ├── generate_m5_strategy_certification.py
+│   ├── phase5_runtime_alignment_and_stress.py
+│   ├── phase6_regenerability_cleanroom.py
 │   ├── run_first.py
 │   ├── system_integrity_and_capability_report.py
 │   ├── verify_all.py
@@ -2706,8 +2910,11 @@ ibkr-trading-system/
 │   ├── verify_m7_epoch_audit_and_certification.py
 │   ├── verify_m8_change_control.py
 │   ├── verify_m9_signal_semantics_registry.py
+│   ├── verify_p01_ross_policy_v2_consumption.py
+│   ├── verify_p01_ross_v2_runtime_baseline.py
 │   ├── verify_paper_execution_harness.py
 │   ├── verify_paper_trade_lifecycle.py
+│   ├── verify_policy_v2_resolver_runtime.py
 │   ├── verify_runtime_wiring.py
 │   ├── verify_session_detection.py
 │   ├── verify_strategy_wiring.py
