@@ -33,3 +33,10 @@ This package implements runtime-safe, strategy-agnostic consumption of `Strategy
 
 - Baseline verifier: `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/P01_ROSS_V2_MIGRATION/<timestamp>/`
 - Consumption verifier: `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/P01_ROSS_POLICY_V2_CONSUMPTION/<timestamp>/`
+
+## Resolver integration
+
+- Orchestrator resolves strategy policies via `src.strategy_policy_v2.registry.resolve_policy_v2`.
+- Global toggle: `STRATEGY_POLICY_V2_ENABLED`.
+- Per-strategy toggle: `STRATEGY_POLICY_V2_STRATEGIES` map (default only `ross_momentum: true`).
+- If resolver returns no policy or toggles disable a strategy, orchestrator immediately falls back to legacy V1 selection/focus wiring.

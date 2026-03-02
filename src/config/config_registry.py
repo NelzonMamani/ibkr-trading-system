@@ -1342,6 +1342,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Enable StrategyPolicyV2 consumption engines for strategy selection/ranking paths.",
     },
+    "STRATEGY_POLICY_V2_STRATEGIES": {
+        "type": dict,
+        "default": {"ross_momentum": True},
+        "env": ["STRATEGY_POLICY_V2_STRATEGIES"],
+        "affects": ["CoreOrchestrator", "Strategies"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Per-strategy StrategyPolicyV2 enablement map (strategy_key -> bool).",
+    },
     "ENABLED_STRATEGIES": {
         "type": dict,
         "default": {
