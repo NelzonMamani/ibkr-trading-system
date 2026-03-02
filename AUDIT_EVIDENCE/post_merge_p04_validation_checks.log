@@ -1,0 +1,12 @@
+[CONFIG] Loaded 152 variables
+[CONFIG] HARD enforced: 30
+[CONFIG] Optional: 121
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+strategies=20
+p04_verdict=CERTIFIED
+p04_d10=PASS
+fail_count=0
+invalidated_count=0
+governance_lock_violations=0
