@@ -1,0 +1,6 @@
+{
+  "policy_v1": "src/strategies/ross_momentum/strategy_policy.py",
+  "policy_v2": "src/strategies/ross_momentum/strategy_policy_v2.py",
+  "runtime_file": "src/core/orchestrator.py",
+  "runtime_consumes_v2_surfaces_for_p01": true
+}
