@@ -354,6 +354,47 @@ class LongHorizonPortfolioConstraintsV2:
 
 
 @dataclass(frozen=True)
+class LongHorizonUnderwritingBatchModelV2:
+    allowed_sessions: tuple[str, ...] = ("CLOSED", "OVN")
+    forbid_sessions: tuple[str, ...] = ("RTH",)
+    batch_window_policy: str = ""
+    universe_traversal_law: str = ""
+    output_artifacts: tuple[str, ...] = ()
+    manual_approval_required_for: tuple[str, ...] = ()
+    notes: str = ""
+
+
+@dataclass(frozen=True)
+class LongHorizonCapitalAllocationModelV2:
+    conviction_tiers: tuple[str, ...] = ()
+    tier_target_weights: dict[str, float] = field(default_factory=dict)
+    tranche_entry_law: str = ""
+    cash_deployment_law: str = ""
+    correlation_exposure_law: str = ""
+    notes: str = ""
+
+
+@dataclass(frozen=True)
+class LongHorizonValuationScenarioModelV2:
+    scenarios: tuple[str, ...] = ()
+    discount_rate_policy: str = ""
+    terminal_value_policy: str = ""
+    competitive_advantage_period_policy: str = ""
+    sensitivity_grid_policy: str = ""
+    conservatism_law: str = ""
+    notes: str = ""
+
+
+@dataclass(frozen=True)
+class LongHorizonMonitoringModelV2:
+    kpi_watchlist: tuple[str, ...] = ()
+    review_cadence: str = ""
+    thesis_health_bands: tuple[str, ...] = ()
+    escalation_actions: tuple[str, ...] = ()
+    notes: str = ""
+
+
+@dataclass(frozen=True)
 class MeanReversionExtensionSpecV2:
     min_extension_pct: float = 12.0
     too_hot_extension_pct: float = 40.0
@@ -603,6 +644,10 @@ class StrategyPolicyV2:
     long_horizon_valuation: LongHorizonValuationModelV2 | None = None
     long_horizon_rebalance: LongHorizonRebalanceModelV2 | None = None
     long_horizon_portfolio_constraints: LongHorizonPortfolioConstraintsV2 | None = None
+    long_horizon_underwriting_batch: LongHorizonUnderwritingBatchModelV2 | None = None
+    long_horizon_capital_allocation: LongHorizonCapitalAllocationModelV2 | None = None
+    long_horizon_valuation_scenarios: LongHorizonValuationScenarioModelV2 | None = None
+    long_horizon_monitoring: LongHorizonMonitoringModelV2 | None = None
     mean_reversion_extension: MeanReversionExtensionSpecV2 | None = None
     initial_stop_model: InitialStopModelV2 | None = None
     target_hierarchy_model: TargetHierarchyModelV2 | None = None
