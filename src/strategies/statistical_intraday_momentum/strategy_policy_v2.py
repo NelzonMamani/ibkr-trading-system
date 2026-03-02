@@ -121,13 +121,17 @@ POLICY_V2 = StrategyPolicyV2(
     # Risk / execution envelope
     # ----------------------------
     risk_model=RiskModelV2(
-        # P02 is more conservative than Ross-style low-float momentum.
+        # P02 is conservative and continuation-focused.
         max_position_pct=0.06,
         daily_loss_limit=0.015,
         max_open_positions=5,
         notes=(
             "P02 risk envelope is deterministic and continuation-focused: smaller per-position cap, "
-            "bounded concurrency, and escalation after repeated momentum-failure exits."
+            "bounded concurrency, and escalation after repeated momentum-failure exits. "
+            "Conviction sizing doctrine (inside this fixed cap): Tier A quality can use full policy size, up to 2 adds, and normal time-stop windows; "
+            "Tier B quality uses reduced initial size with at most 1 add and tighter progress windows; "
+            "Tier C quality uses smallest probe size, no adds, and fastest time-stop/risk-off bias. "
+            "Regime gate overrides conviction: NO_TRADE regime blocks entries regardless of score."
         ),
     ),
     execution_model=ExecutionModelV2(
@@ -256,9 +260,21 @@ POLICY_V2 = StrategyPolicyV2(
         confirmations=(
             ConfirmationSpecV2("C_HTF_BIAS", "Higher timeframe (15MIN/5MIN) bias aligns with trigger direction."),
             ConfirmationSpecV2("C_LIQUIDITY_SPREAD", "Liquidity passes minimums and spread_pct <= configured spread max."),
-            ConfirmationSpecV2("C_VOL_REGIME", "Volatility regime compatible with continuation edge; avoid dead tape or disorder."),
+            ConfirmationSpecV2(
+                "C_VOL_REGIME",
+                "Regime gate must be continuation-eligible: NO_TRADE if halted=True, spread_pct > 0.60%, RVOL < 1.2, or dollar_volume < 4M; "
+                "CAUTION if RVOL 1.2-1.8, dollar_volume 4M-8M, or LATE_DAY_SLOW phase; NORMAL otherwise. Entries are blocked in NO_TRADE, "
+                "restricted in CAUTION, and fully permitted only in NORMAL.",
+            ),
             ConfirmationSpecV2("C_STRUCTURE_HOLD", "Break/reclaim level holds without immediate rejection in execution timeframe."),
             ConfirmationSpecV2("C_PARTICIPATION", "Volume and RVOL confirm participation relative to current session baseline."),
+            ConfirmationSpecV2(
+                "C_STATISTICAL_CONVICTION",
+                "Assign deterministic quality tier from RVOL + dollar_volume + spread_pct + structure hold quality: "
+                "Tier A requires RVOL>=2.5, dollar_volume>=15M, spread_pct<=0.30%, and clean break/reclaim hold; "
+                "Tier B requires RVOL>=1.8, dollar_volume>=8M, spread_pct<=0.45%, and acceptable hold quality; "
+                "Tier C is minimum pass tier and trades as reduced-risk probe only.",
+            ),
             ConfirmationSpecV2("C_DATA_FRESHNESS", "Required fields are present and fresh at decision time."),
             ConfirmationSpecV2(
                 "C_CATALYST_OPTIONAL_BOOST",
@@ -450,7 +466,11 @@ POLICY_V2 = StrategyPolicyV2(
         max_adds_per_position=2,
         allow_partials=True,
         averaging_down_allowed=False,
-        notes="Scale-in only on renewed confirmation and positive excursion. No averaging down. Partials are mandatory on extension milestones.",
+        notes=(
+            "Scale-in only on renewed confirmation and positive excursion. No averaging down. Partials are mandatory on extension milestones. "
+            "Conviction tiers govern add authority and management: Tier A allows up to 2 adds with standard 1R/2R partial ladder; "
+            "Tier B allows max 1 add with earlier partial and tighter stop migration; Tier C disallows adds and requires aggressive time-stop."
+        ),
     ),
     trailing_model=TrailingModelV2(
         rules=(
@@ -731,8 +751,11 @@ POLICY_V2 = StrategyPolicyV2(
             "FAILED_BREAK_RISK_OFF is active in all phases as an override safety family."
         ),
         notes=(
-            "Intrabar model is explicit and deterministic. Intrabar override authority is limited to risk-reduction "
-            "(emergency exits/partials), not discretionary new entries."
+            "Intrabar model is explicit and deterministic. Regime awareness law: classify each cycle using only existing fields "
+            "(rvol, dollar_volume, spread_pct, halted, session_label, phase). NO_TRADE = halted, spread dislocation, or dead tape participation; "
+            "entries blocked and exits always allowed. CAUTION = borderline participation or late-day thin liquidity; allow only Tier A/B entries with "
+            "reduced size and tighter time-stop. NORMAL = continuation-eligible participation and execution quality; full policy authority available. "
+            "Intrabar override authority is limited to risk-reduction (emergency exits/partials), not discretionary new entries."
         ),
     ),
     # Convenience/trace fields (if supported by your StrategyPolicyV2 dataclass)
