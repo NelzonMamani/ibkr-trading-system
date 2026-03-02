@@ -2,33 +2,33 @@
   "epoch": "M8_CHANGE_CONTROL",
   "files": [
     {
-      "bytes": 549,
+      "bytes": 499,
       "file": "certification_verdict.json"
     },
     {
-      "bytes": 134,
+      "bytes": 91,
       "file": "compileall.txt"
     },
     {
-      "bytes": 2517,
+      "bytes": 2438,
       "file": "m7_verifier_output.json"
     },
     {
-      "bytes": 2143,
+      "bytes": 2065,
       "file": "m8_verifier_output.json"
     },
     {
-      "bytes": 44195,
+      "bytes": 408,
       "file": "pytest_full.txt"
     },
     {
-      "bytes": 2141,
+      "bytes": 2064,
       "file": "verification_output.json"
     },
     {
-      "bytes": 330,
+      "bytes": 321,
       "file": "verification_summary.md"
     }
   ],
-  "generated_at_utc": "2026-02-15T23:55:31Z"
+  "generated_at_utc": "2026-03-02T19:32:29Z"
 }

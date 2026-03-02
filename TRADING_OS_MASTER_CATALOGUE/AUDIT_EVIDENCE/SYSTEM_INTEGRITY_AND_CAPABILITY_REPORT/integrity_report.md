@@ -1,13 +1,13 @@
 # System Integrity Report
 
-- Generated: `2026-02-15T23:57:45.700877+00:00`
+- Generated: `2026-03-02T19:34:17.021269+00:00`
 - compileall rc: `0`
-- pytest rc: `2`
+- pytest rc: `0`
 
 ## Metadata Verifiers
 - M7: rc=`0` valid=`True` deterministic=`True`
 - M8: rc=`1` valid=`False` deterministic=`True`
-- M9: rc=`1` valid=`True` deterministic=`True`
+- M9: rc=`0` valid=`True` deterministic=`True`
 - M10: rc=`1` valid=`True` deterministic=`True`
 
 ## Boot Results

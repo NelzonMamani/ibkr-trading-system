@@ -1,7 +1,7 @@
 {
   "epoch": "M10_DATA_PROVENANCE_LEDGER",
   "verdict": "NOT_CERTIFIED",
-  "date_utc": "2026-02-15",
+  "date_utc": "2026-03-02",
   "reasons": [
     "execution_checks_failed"
   ],

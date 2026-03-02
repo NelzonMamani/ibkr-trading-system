@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import argparse
 import json
 import re
@@ -294,6 +295,51 @@ def _check_policy_v2_resolver_present(repo_root: Path) -> dict[str, Any]:
     }
 
 
+def _extract_strategy_policy_v2_defaults(repo_root: Path) -> dict[str, bool] | None:
+    config_registry_path = repo_root / "src" / "config" / "config_registry.py"
+    module = ast.parse(config_registry_path.read_text(encoding="utf-8"))
+
+    registry_dict_node: ast.Dict | None = None
+    for node in module.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "CONFIG_REGISTRY" and isinstance(node.value, ast.Dict):
+                    registry_dict_node = node.value
+                    break
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == "CONFIG_REGISTRY" and isinstance(node.value, ast.Dict):
+                registry_dict_node = node.value
+
+        if registry_dict_node is not None:
+            break
+
+    if registry_dict_node is None:
+        return None
+
+    for key_node, value_node in zip(registry_dict_node.keys, registry_dict_node.values):
+        if not isinstance(key_node, ast.Constant) or key_node.value != "STRATEGY_POLICY_V2_STRATEGIES":
+            continue
+        if not isinstance(value_node, ast.Dict):
+            return None
+        for nested_key, nested_value in zip(value_node.keys, value_node.values):
+            if isinstance(nested_key, ast.Constant) and nested_key.value == "default":
+                parsed = ast.literal_eval(nested_value)
+                return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def _check_p03_policy_v2_registered_disabled_by_default(repo_root: Path) -> dict[str, Any]:
+    defaults = _extract_strategy_policy_v2_defaults(repo_root)
+    disabled_by_default = defaults is not None and defaults.get("mean_reversion") is False
+    return {
+        "name": "P03_POLICY_V2_REGISTERED_DISABLED_BY_DEFAULT",
+        "status": "PASS" if disabled_by_default else "FAIL",
+        "config_file": "src/config/config_registry.py",
+        "parsed_default": defaults,
+        "disabled_by_default": disabled_by_default,
+    }
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -443,6 +489,7 @@ def main() -> int:
 
     p01_v2_check = _check_p01_policy_v2_consumed(REPO_ROOT)
     policy_v2_resolver_check = _check_policy_v2_resolver_present(REPO_ROOT)
+    p03_v2_check = _check_p03_policy_v2_registered_disabled_by_default(REPO_ROOT)
 
     capability_report = {
         "epoch": EPOCH,
@@ -457,7 +504,7 @@ def main() -> int:
         "p_layer_summary": p_layer_summary,
         "e21_status": e21_status,
         "blockers": p_layer_blockers,
-        "runtime_checks": [p01_v2_check, policy_v2_resolver_check],
+        "runtime_checks": [p01_v2_check, policy_v2_resolver_check, p03_v2_check],
     }
 
     _write_json(evidence_dir / "integrity_report.json", integrity_report)

@@ -1,12 +1,12 @@
 # STRATEGY_CERTIFICATION_REPORT
 
-Generated (UTC): 2026-02-20T22:59:30Z
+Generated (UTC): 2026-03-02T19:32:35Z
 
 ## Summary
 - Strategies audited: 20
-- CERTIFIED: 20
+- CERTIFIED: 18
 - CONDITIONALLY_CERTIFIED: 0
-- FAIL: 0
+- FAIL: 2
 - INVALIDATED_PENDING_REVIEW: 0
 
 ## Per Strategy Results
@@ -14,8 +14,8 @@ Generated (UTC): 2026-02-20T22:59:30Z
 | Strategy | Verdict | Default-Only | Missing Controls |
 |---|---|---|---|
 | P01_ross_momentum | CERTIFIED | False | None |
-| P02_statistical_intraday_momentum | CERTIFIED | False | None |
-| P03_mean_reversion | CERTIFIED | False | None |
+| P02_statistical_intraday_momentum | FAIL | False | D10.C03: data requirements notes must define pause/reject behavior |
+| P03_mean_reversion | FAIL | False | D10.C03: data requirements notes must define pause/reject behavior |
 | P04_long_horizon_value | CERTIFIED | False | None |
 | P05_opening_drive | CERTIFIED | False | None |
 | P06_vwap_reclaim | CERTIFIED | False | None |
@@ -71,14 +71,14 @@ Missing controls:
 | D7 Risk Governance | PASS |
 | D8 Exit Governance | PASS |
 | D9 Position Management | PASS |
-| D10 Data Requirements | PASS |
+| D10 Data Requirements | FAIL |
 | D11 Safety & Failure Modes | PASS |
 | D12 Execution Constraints | PASS |
 | D13 Timeframe Authority | PASS |
 | D14 Scaling Doctrine | PASS |
 
 Missing controls:
-- None
+- D10.C03: data requirements notes must define pause/reject behavior
 
 ## P03_mean_reversion
 
@@ -94,14 +94,14 @@ Missing controls:
 | D7 Risk Governance | PASS |
 | D8 Exit Governance | PASS |
 | D9 Position Management | PASS |
-| D10 Data Requirements | PASS |
+| D10 Data Requirements | FAIL |
 | D11 Safety & Failure Modes | PASS |
 | D12 Execution Constraints | PASS |
 | D13 Timeframe Authority | PASS |
 | D14 Scaling Doctrine | PASS |
 
 Missing controls:
-- None
+- D10.C03: data requirements notes must define pause/reject behavior
 
 ## P04_long_horizon_value
 

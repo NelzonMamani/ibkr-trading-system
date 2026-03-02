@@ -7,11 +7,11 @@
 
 ## Exit Codes
 - compileall: `0`
-- pytest: `2`
+- pytest: `0`
 
 ## Cross-Verifier Results
-- M7: valid=`False` violations=`1`
-- M8: valid=`False` violations=`4`
+- M7: valid=`False` violations=`3`
+- M8: valid=`False` violations=`5`
 - M9: valid=`True` violations=`0`
 - M10: valid=`True` violations=`0`
 

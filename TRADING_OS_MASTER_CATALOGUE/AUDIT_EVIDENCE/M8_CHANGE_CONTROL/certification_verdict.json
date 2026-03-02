@@ -1,11 +1,10 @@
 {
   "epoch": "M8_CHANGE_CONTROL",
   "verdict": "NOT_CERTIFIED",
-  "date_utc": "2026-02-15",
+  "date_utc": "2026-03-02",
   "reasons": [
     "SYSTEM_STATE_CERTIFIED_MATCHES_VERDICT:not_certified:M8_CHANGE_CONTROL",
-    "SYSTEM_STATE_CERTIFIED_MATCHES_VERDICT:not_certified:M9_SIGNAL_SEMANTICS_REGISTRY",
-    "execution_checks_failed"
+    "SYSTEM_STATE_CERTIFIED_MATCHES_VERDICT:not_certified:M9_SIGNAL_SEMANTICS_REGISTRY"
   ],
   "evidence": [
     "verification_output.json",

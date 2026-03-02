@@ -19,22 +19,27 @@
     "M4_TRACEABILITY_SEMANTICS": "2026-02-12",
     "M5_VERIFICATION_AUTHORITY": "2026-02-10",
     "M6_DATA_LIFECYCLE_GOV": "2026-02-11",
-    "M7_EPOCH_AUDIT_CERTIFICATION": "2026-02-15"
+    "M7_EPOCH_AUDIT_CERTIFICATION": "2026-03-02",
+    "M9_SIGNAL_SEMANTICS_REGISTRY": "2026-03-02"
   },
   "derived_crosswalk": "TRADING_OS_MASTER_CATALOGUE/CAPABILITY_CROSSWALK_DERIVED.md",
   "drift": {
     "epochs_certified_in_state_but_not_in_verdicts": [
       "E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION",
-      "M8_CHANGE_CONTROL",
-      "M9_SIGNAL_SEMANTICS_REGISTRY"
+      "E24_ASYNC_RUNTIME_AND_EVENT_LOOP_GOVERNANCE",
+      "E25_ARCHITECTURE_REALIGNMENT",
+      "M10_DATA_PROVENANCE_LEDGER",
+      "M8_CHANGE_CONTROL"
     ],
     "epochs_certified_in_verdicts_but_not_in_state": []
   },
   "drift_before_reconciliation": {
     "epochs_certified_in_state_but_not_in_verdicts": [
       "E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION",
-      "M8_CHANGE_CONTROL",
-      "M9_SIGNAL_SEMANTICS_REGISTRY"
+      "E24_ASYNC_RUNTIME_AND_EVENT_LOOP_GOVERNANCE",
+      "E25_ARCHITECTURE_REALIGNMENT",
+      "M10_DATA_PROVENANCE_LEDGER",
+      "M8_CHANGE_CONTROL"
     ],
     "epochs_certified_in_verdicts_but_not_in_state": []
   },
@@ -50,16 +55,16 @@
       "sim_runs_ok": true
     },
     "generated_at_utc": "2026-02-15T07:33:20Z",
-    "path": "TRADING_OS_MASTER_CATALOGUE\\AUDIT_EVIDENCE\\E21_TRADING_READY_VERIFICATION\\e21_summary.json",
+    "path": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/E21_TRADING_READY_VERIFICATION/e21_summary.json",
     "present": true,
     "status": "CERTIFIED",
     "valid": true
   },
   "epoch": "SYSTEM_INTEGRITY_AND_CAPABILITY_REPORT",
-  "generated_at_utc": "2026-02-15T23:57:45.701667+00:00",
+  "generated_at_utc": "2026-03-02T19:34:17.035733+00:00",
   "p_layer_summary": {
-    "inventory_path": "AUDIT_EVIDENCE\\M5\\strategy_capability_inventory.json",
-    "matrix_path": "AUDIT_EVIDENCE\\M5\\strategy_certification_matrix.json",
+    "inventory_path": "AUDIT_EVIDENCE/M5/strategy_capability_inventory.json",
+    "matrix_path": "AUDIT_EVIDENCE/M5/strategy_certification_matrix.json",
     "missing_capabilities": {
       "missing_governance": 0,
       "missing_policy": 1,
@@ -74,6 +79,31 @@
   "recommended_state_updates": {
     "E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION": "CERTIFIED"
   },
+  "runtime_checks": [
+    {
+      "name": "P01_POLICY_V2_CONSUMED",
+      "runtime_file": "src/core/orchestrator.py",
+      "status": "FAIL"
+    },
+    {
+      "has_markers": true,
+      "name": "POLICY_V2_RESOLVER_PRESENT",
+      "no_hardcoded_ross_import": true,
+      "registry_file": "src/strategy_policy_v2/registry.py",
+      "runtime_file": "src/core/orchestrator.py",
+      "status": "PASS"
+    },
+    {
+      "config_file": "src/config/config_registry.py",
+      "disabled_by_default": true,
+      "name": "P03_POLICY_V2_REGISTERED_DISABLED_BY_DEFAULT",
+      "parsed_default": {
+        "mean_reversion": false,
+        "ross_momentum": true
+      },
+      "status": "PASS"
+    }
+  ],
   "system_state_epochs": {
     "E0_SYSTEM_LAW_TRUTH": "CERTIFIED",
     "E10_CAPITAL_ALLOCATION": "NOT_STARTED",
@@ -90,6 +120,8 @@
     "E20_STRATEGY_FOUNDATION_COMPLETION": "NOT_STARTED",
     "E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION": "CERTIFIED",
     "E22_STRATEGY_SCALABILITY_AND_ARBITRATION_LAYER": "CERTIFIED",
+    "E24_ASYNC_RUNTIME_AND_EVENT_LOOP_GOVERNANCE": "CERTIFIED",
+    "E25_ARCHITECTURE_REALIGNMENT": "CERTIFIED",
     "E2_POSITION_LIFECYCLE_ENGINE": "CERTIFIED",
     "E3_RISK_ENGINE_COMPLETENESS": "CERTIFIED",
     "E4_DATA_QUALITY_MARKET_STATE": "CERTIFIED",
@@ -99,7 +131,7 @@
     "E8_REGIME_AND_MICROSTRUCTURE_LAYER": "IMPLEMENTED_UNCERTIFIED",
     "E9_PERFORMANCE_ANALYTICS": "NOT_STARTED",
     "M0_CANON": "CERTIFIED",
-    "M10_DATA_PROVENANCE_LEDGER": "NOT_STARTED",
+    "M10_DATA_PROVENANCE_LEDGER": "CERTIFIED",
     "M1_ARCHITECTURE_MAP": "CERTIFIED",
     "M2_CONTRACT_REGISTRY": "CERTIFIED",
     "M3_MODE_SEMANTICS_CERT": "CERTIFIED",
