@@ -56,6 +56,9 @@ from src.strategy_policy_v2.policy_v2 import (
     ExitRuleV2,
     SafetyModelV2,
     SafetyRuleV2,
+    MeanReversionExtensionSpecV2,
+    InitialStopModelV2,
+    TargetHierarchyModelV2,
     # Intrabar execution
     IntrabarExecutionModelV2,
     IntrabarPhaseSpecV2,
@@ -261,6 +264,22 @@ POLICY_V2 = StrategyPolicyV2(
                 "Require exhaustion proxy: extension elevated (pct_change high) AND participation shows instability (e.g., RVOL spike then stall) OR failed hold at key level.",
             ),
             ConfirmationSpecV2(
+                "C_ROTATIONAL_REGIME_REQUIRED",
+                "Mean-reversion entries allowed only when intraday structure is rotational/two-sided (regime_tag preferred); veto trend-day proxies. Future mapping target: computed regime_tag upstream.",
+            ),
+            ConfirmationSpecV2(
+                "C_VOLATILITY_REGIME_FILTER",
+                "Veto volatility-expansion directional regime unless Tier A + explicit special exception with reduced size and tighter stop/time constraints.",
+            ),
+            ConfirmationSpecV2(
+                "C_OVEREXTENSION_THRESHOLD",
+                "Quantified overextension: pct_change>=12% qualifies as extended; pct_change>=40% enters too-hot caution. Evaluate only when dollar_volume>=20M liquidity gate is satisfied.",
+            ),
+            ConfirmationSpecV2(
+                "C_ORDERFLOW_SHIFT_PROXY",
+                "Required exhaustion evidence: RVOL spike then stall/deceleration, failure to print new highs/lows after impulse, rejection at key level with momentum loss. If no exhaustion proxy -> NO TRADE. Upstream fields target: momentum_state,rejection_tag.",
+            ),
+            ConfirmationSpecV2(
                 "C_TREND_STRENGTH_VETO",
                 "NO_TRADE if tape is strongly trending against the mean-reversion thesis (proxy: RVOL extremely high with continued extension and no rejection).",
             ),
@@ -274,6 +293,26 @@ POLICY_V2 = StrategyPolicyV2(
                 "C_CONVICTION_TIER",
                 "Tier A requires: clean rejection at key level + stable spread + liquidity + reclaim/acceptance evidence; "
                 "Tier B requires partial evidence; Tier C is probe-only or no-trade depending on regime gate.",
+            ),
+            ConfirmationSpecV2(
+                "C_TOO_HOT_TO_FADE_CEILING",
+                "Hard veto: pct_change>60% AND rvol>8.0 => NO TRADE for new entries; allow only risk-off management if already in position.",
+            ),
+            ConfirmationSpecV2(
+                "C_CLUSTER_EXPOSURE_LIMIT",
+                "Correlation/cluster governance: cap correlated basket loading and same-theme stacking using sector/correlation_group metadata when available.",
+            ),
+            ConfirmationSpecV2(
+                "C_BORROW_AVAILABLE_FOR_SHORTS",
+                "Short entries require shortable=True and locate_ok=True when applicable; if borrow_rate>15% reject short or reduce conviction tier by one.",
+            ),
+            ConfirmationSpecV2(
+                "C_NEWS_TIMING_GUARD",
+                "Block fades if high-impact news timestamp is within last 5 minutes (news_age_seconds<300 or equivalent from news_timestamp_utc).",
+            ),
+            ConfirmationSpecV2(
+                "C_EOD_ENTRY_CUTOFF",
+                "RTH end-of-day guard: no new entries in last 15 minutes before close; requires upstream session clock source.",
             ),
             ConfirmationSpecV2(
                 "C_CATALYST_OPTIONAL_CONTEXT",
@@ -345,7 +384,29 @@ POLICY_V2 = StrategyPolicyV2(
             ExitRuleV2("X_TIME_STOP_FAST", "No snapback progress within 5 one-minute bars", "Flatten and recycle capital."),
             ExitRuleV2("X_TIME_STOP_SLOW", "No snapback progress within 2 five-minute bars", "Flatten and recycle capital."),
             ExitRuleV2("X_TARGET_MEAN", "Price reaches VWAP / prior close / defined mean target", "Take systematic partials; tighten stop."),
+            ExitRuleV2("X_MAX_TIME_IN_TRADE", "Position duration exceeds 20 minutes unless already at/near target with protected stop", "Flatten remaining position."),
         )
+    ),
+    mean_reversion_extension=MeanReversionExtensionSpecV2(
+        min_extension_pct=12.0,
+        too_hot_extension_pct=40.0,
+        hard_veto_extension_pct=60.0,
+        hard_veto_rvol=8.0,
+        liquidity_gate_field="dollar_volume",
+        liquidity_gate_min=20_000_000.0,
+        notes="Extension thresholds are deterministic defaults and only evaluated when liquidity gate passes.",
+    ),
+    initial_stop_model=InitialStopModelV2(
+        invalidation_reference="reclaim_low_or_pivot_or_anchor_loss",
+        buffer_pct=0.15,
+        min_buffer_ticks=1,
+        rule="Initial stop always beyond invalidation structure: anchor ± max(0.15%, one spread/tick equivalent).",
+        notes="Initial stop is structure-based only; discretionary stop placement is disallowed.",
+    ),
+    target_hierarchy_model=TargetHierarchyModelV2(
+        priority_targets=("VWAP", "MIDPOINT", "PRIOR_CLOSE", "HTF_PIVOT_OR_DAY_MIDPOINT"),
+        selection_law="Use first valid target in hierarchy; advance to next only after partial/confirmation.",
+        notes="Deterministic target hierarchy for mean-reversion exits.",
     ),
 
     # ----------------------------
@@ -357,6 +418,10 @@ POLICY_V2 = StrategyPolicyV2(
             SafetyRuleV2("S_DATA_DEGRADATION", "Missing/stale required fields", "Pause entries for 3 cycles and emit degradation artifact."),
             SafetyRuleV2("S_SPREAD_SHOCK", "spread_pct exceeds cap by >50%", "No-new-entry throttle; open positions managed risk-off only."),
             SafetyRuleV2("S_MEAN_REVERSION_FAIL_STREAK", "Two consecutive mean-reversion failures", "Reduce size tier and require Tier A only for next N opportunities."),
+            SafetyRuleV2("S_ADVERSE_MOVE_GUARD", "Price moves adversely by >0.35% during confirmation->order placement window", "Cancel/reject entry; re-evaluate on next cycle only."),
+            SafetyRuleV2("S_SPREAD_WIDEN_DURING_ENTRY", "spread_pct widens by >0.20% absolute or limit would cross widened spread tolerance", "Reject entry and require spread normalization for 2 cycles."),
+            SafetyRuleV2("S_GLOBAL_COOLDOWN_AFTER_LOSSES", "Two strategy-level stop-losses", "Pause new entries for 20 minutes; risk-reduction actions remain enabled."),
+            SafetyRuleV2("S_SYMBOL_COOLDOWN_AFTER_STOP", "Single symbol stop-loss event", "Cooldown symbol for next 3 evaluation cycles before re-entry allowed."),
         )
     ),
 
@@ -460,7 +525,19 @@ POLICY_V2 = StrategyPolicyV2(
             "float_millions",
             "short_interest_pct",
             "borrow_rate",
+            "shortable",
+            "locate_ok",
             "regime_tag",
+            "news_timestamp_utc",
+            "news_age_seconds",
+            "sector",
+            "correlation_group",
+            "vwap_distance_pct",
+            "anchor_distance_pct",
+            "intraday_atr",
+            "atr_pct",
+            "momentum_state",
+            "rejection_tag",
             "updated_at",
             "premarket_volume",
             "dollar_volume",
@@ -613,7 +690,9 @@ POLICY_V2 = StrategyPolicyV2(
         ),
         setup_family_relationship=(
             "OPENING_FLUSH_REVERSAL dominates OPENING_FAST; VWAP_SNAPBACK_REVERSION and GAP_FILL_PULLBACK dominate MIDDAY_NORMAL; "
-            "HOD_FADE_EXHAUSTION is restricted and requires strongest evidence; FAILED_RECLAIM_RISK_OFF is active in all phases."
+            "HOD_FADE_EXHAUSTION is restricted and requires strongest evidence; FAILED_RECLAIM_RISK_OFF is active in all phases. "
+            "Long/short symmetry governance: VWAP_SNAPBACK_REVERSION and OPENING_FLUSH_REVERSAL are long-first with shorts disabled during one-sided bullish trend-day regime; "
+            "HOD_FADE_EXHAUSTION and GAP_FILL_PULLBACK may short only when borrow/locate checks pass and trend-strength veto is not active."
         ),
         notes=(
             "Intrabar model is explicit and deterministic. Intrabar override authority is limited to risk-reduction "
@@ -623,6 +702,9 @@ POLICY_V2 = StrategyPolicyV2(
 
     notes=(
         "P03 StrategyPolicyV2 is mean-reversion specific and audit-ready: explicit anchors, exhaustion doctrine, "
-        "trend-strength veto, conservative risk, and deterministic time-stops."
+        "trend-strength veto, conservative risk, deterministic time-stops, and institutional doctrine addenda "
+        "(regime qualification, quantified extension, microstructure exhaustion proxy, structure-based initial stops, "
+        "execution adverse-selection guards, too-hot-to-fade veto, correlation caps, cooldowns, borrow governance, "
+        "news timing guard, and EOD entry cutoff)."
     ),
 )
