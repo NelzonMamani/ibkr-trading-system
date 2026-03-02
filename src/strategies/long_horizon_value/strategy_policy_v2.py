@@ -94,6 +94,13 @@ POLICY_V2 = StrategyPolicyV2(
         confirmations=(
             ConfirmationSpecV2("C_DATA_QUALITY", "Data quality is fresh and complete for decision authority."),
             ConfirmationSpecV2("C_LEVEL_BEHAVIOR", "Level break/retest behavior is stable and not immediately rejected."),
+            ConfirmationSpecV2(
+                "C_LEVEL_BEHAVIOR_DECLARATION",
+                "Level-behavior doctrine declared for governance completeness. "
+                "Long-horizon value strategy does not rely on intraday level interaction; "
+                "structural thesis levels are fundamental (intrinsic value bands, "
+                "margin-of-safety thresholds, and thesis invalidation markers).",
+            ),
             ConfirmationSpecV2("C_LIQUIDITY", "Liquidity and spread remain executable for intended size."),
             ConfirmationSpecV2("C_VOLUME", "Volume/RVOL confirms participation in the thesis direction."),
         ),
@@ -155,7 +162,11 @@ POLICY_V2 = StrategyPolicyV2(
     data_requirements=DataRequirementsV2(
         required_fields=("symbol", "last_price", "pct_change", "volume", "rvol", "spread_bps", "session_phase", "halt_status"),
         optional_fields=("news_catalyst", "float_shares", "short_interest_pct", "borrow_rate", "regime_tag"),
-        notes="D10 governance: if required fields degrade, pause decisioning and reject entries until restored.",
+        notes="D10 governance: if required fields degrade, pause decisioning and reject entries until restored. "
+        "Missing required fields mandate REJECT for new entries; DEGRADE authority is limited to open-position management only. "
+        "D10.C02 canonical compliance: required_fields include symbol, last_price, and at least one of "
+        "pct_change|volume|rvol for cross-strategy audit uniformity. For long-horizon value, these fields are "
+        "contextual only and not primary decision drivers.",
     ),
     premarket_preparation=PremarketPreparationModelV2(
         required_levels=(
