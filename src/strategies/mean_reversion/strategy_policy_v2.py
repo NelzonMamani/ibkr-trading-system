@@ -468,7 +468,18 @@ POLICY_V2 = StrategyPolicyV2(
         ),
         notes=(
             "Required fields must match canonical candidate adapter names. "
-            "Legacy aliases (spread_bps/session_phase/halt_status) must be normalized upstream."
+            "Legacy aliases (spread_bps/session_phase/halt_status) must be normalized upstream. D10.C03 deterministic doctrine: action codes are PAUSE "
+            "(defer evaluation for this cycle and re-check next cycle), REJECT (drop symbol from this cycle's entry consideration), "
+            "ABORT (halt the entire strategy cycle and emit cycle_abort artifact), and DEGRADE (continue only with fallback-safe "
+            "logic while preserving risk-reduction/exits). Missing required market data for any candidate -> REJECT symbol immediately; "
+            "if missing required fields affects >=20% of watchlist in a cycle -> ABORT cycle. Market snapshot retrieval failure for a "
+            "single symbol -> PAUSE symbol for up to 2 consecutive cycles then REJECT until a fresh snapshot arrives; snapshot failure "
+            "for the scanner/watchlist root dataset -> ABORT cycle. IBKR connectivity failure (scanner or market data transport unavailable) "
+            "-> ABORT cycle immediately; allow exits/risk-reduction only. Volume data unavailable (volume or rvol missing/stale) -> "
+            "REJECT symbol for entry; DEGRADE allowed only for managing already-open positions with no new entries. Spread data unavailable "
+            "(spread_pct missing/stale) -> REJECT symbol for entry; no spread-implied fallback is permitted. Partial data state "
+            "(all required fields present but one or more optional fields missing) -> DEGRADE by applying optional-field-neutral ranking and "
+            "normal risk caps; if partial state persists >5 consecutive cycles for a symbol, REJECT symbol until optional fields recover."
         ),
     ),
 
