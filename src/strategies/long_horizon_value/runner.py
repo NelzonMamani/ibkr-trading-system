@@ -72,6 +72,9 @@ class LongHorizonValueRunner:
                 }
             )
 
+        intents, approval_reports = self._enforce_manual_approval_gate(intents=intents, context=context, mode=mode)
+        reports.extend(approval_reports)
+
         reports.append(
             {
                 "status": "SUMMARY",
@@ -81,6 +84,44 @@ class LongHorizonValueRunner:
             }
         )
         return {"trade_intents": intents, "reports": reports, "metrics": {"watchlist_k": len(watchlist)}}
+
+    def _enforce_manual_approval_gate(
+        self,
+        *,
+        intents: list[TradeIntent],
+        context,
+        mode: RunMode,
+    ) -> tuple[list[TradeIntent], list[dict]]:
+        if not intents:
+            return intents, []
+
+        reports: list[dict] = []
+        mode_label = str(getattr(mode, "value", mode) or "").upper()
+        manual_approval = bool(context.get("manual_approval")) if isinstance(context, dict) else bool(getattr(context, "manual_approval", False))
+        gated_actions = {str(action).upper() for action in POLICY_V2.long_horizon_underwriting_batch.manual_approval_required_for}
+
+        for intent in intents:
+            action = self._resolve_intent_action(intent)
+
+            if mode_label == RunMode.READ_ONLY.value:
+                setattr(intent, "executable", False)
+                reports.append({"status": "READ_ONLY_BLOCK"})
+
+            if action not in gated_actions:
+                continue
+
+            if mode_label == RunMode.READ_ONLY.value or not manual_approval:
+                setattr(intent, "executable", False)
+                setattr(intent, "approval_status", "PENDING_MANUAL_APPROVAL")
+                reports.append(
+                    {
+                        "status": "MANUAL_APPROVAL_REQUIRED",
+                        "action": action,
+                        "reason": "Manual approval required by long-horizon underwriting doctrine.",
+                    }
+                )
+
+        return intents, reports
 
     def _evaluate_underwriting_session_gate(self, *, session_label: str, watchlist: list[object], context) -> dict:
         policy_model = POLICY_V2.long_horizon_underwriting_batch
@@ -149,3 +190,15 @@ class LongHorizonValueRunner:
         if isinstance(row, dict):
             return row.get("symbol")
         return getattr(row, "symbol", None)
+
+    @staticmethod
+    def _resolve_intent_action(intent: TradeIntent) -> str:
+        action = getattr(intent, "action", None)
+        if action:
+            return str(action).upper()
+        direction = str(getattr(intent, "direction", "") or "").upper()
+        if direction == "LONG":
+            return "BUY"
+        if direction == "SHORT":
+            return "SELL"
+        return direction
