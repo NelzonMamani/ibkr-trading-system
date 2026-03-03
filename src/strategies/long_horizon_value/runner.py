@@ -74,6 +74,8 @@ class LongHorizonValueRunner:
 
         intents, approval_reports = self._enforce_manual_approval_gate(intents=intents, context=context, mode=mode)
         reports.extend(approval_reports)
+        intents, allocation_reports = self._apply_capital_allocation_layer(intents=intents, context=context)
+        reports.extend(allocation_reports)
 
         reports.append(
             {
@@ -120,6 +122,51 @@ class LongHorizonValueRunner:
                         "reason": "Manual approval required by long-horizon underwriting doctrine.",
                     }
                 )
+
+        return intents, reports
+
+    def _apply_capital_allocation_layer(self, *, intents: list[TradeIntent], context) -> tuple[list[TradeIntent], list[dict]]:
+        if not intents:
+            return intents, []
+
+        policy_model = POLICY_V2.long_horizon_capital_allocation
+        risk_model = POLICY_V2.risk_model
+        max_position_pct = float(risk_model.max_position_pct)
+        tier_order = tuple(str(tier).upper() for tier in policy_model.conviction_tiers)
+        tier_target_weights = {str(tier).upper(): float(weight) for tier, weight in policy_model.tier_target_weights.items()}
+        default_tier = tier_order[-1] if tier_order else ""
+
+        reports: list[dict] = []
+        for intent in intents:
+            action = self._resolve_intent_action(intent)
+            if action not in {"BUY", "ADD"}:
+                continue
+
+            tier = self._resolve_conviction_tier(context=context, symbol=getattr(intent, "symbol", None), default_tier=default_tier)
+            target_weight = tier_target_weights.get(tier, tier_target_weights.get(default_tier, 0.0))
+            target_weight = min(float(target_weight), max_position_pct)
+            existing_position_weight = self._resolve_existing_position_weight(context=context, symbol=getattr(intent, "symbol", None))
+
+            if action == "BUY" or existing_position_weight <= 0.0:
+                tranche_weight = 0.5 * target_weight
+            else:
+                remaining_weight = max(target_weight - existing_position_weight, 0.0)
+                tranche_weight = remaining_weight / 3.0
+
+            setattr(intent, "target_weight", float(target_weight))
+            setattr(intent, "proposed_tranche_weight", float(tranche_weight))
+            setattr(intent, "conviction_tier", tier)
+
+            reports.append(
+                {
+                    "status": "CAPITAL_ALLOCATION_SNAPSHOT",
+                    "symbol": getattr(intent, "symbol", None),
+                    "conviction_tier": tier,
+                    "target_weight": float(target_weight),
+                    "proposed_tranche_weight": float(tranche_weight),
+                    "max_position_pct": max_position_pct,
+                }
+            )
 
         return intents, reports
 
@@ -184,6 +231,37 @@ class LongHorizonValueRunner:
         else:
             raw = getattr(context, "session_label", None)
         return str(raw or "UNKNOWN").upper()
+
+    @staticmethod
+    def _resolve_conviction_tier(*, context, symbol: str | None, default_tier: str) -> str:
+        if isinstance(context, dict):
+            payload = context.get("conviction_tier")
+        else:
+            payload = getattr(context, "conviction_tier", None)
+
+        if isinstance(payload, dict):
+            if symbol and symbol in payload:
+                return str(payload[symbol]).upper()
+            return str(payload.get("default", default_tier)).upper()
+        return str(payload or default_tier).upper()
+
+    @staticmethod
+    def _resolve_existing_position_weight(*, context, symbol: str | None) -> float:
+        if isinstance(context, dict):
+            payload = context.get("existing_position_weight", 0.0)
+        else:
+            payload = getattr(context, "existing_position_weight", 0.0)
+
+        if isinstance(payload, dict):
+            if symbol and symbol in payload:
+                payload = payload[symbol]
+            else:
+                payload = payload.get("default", 0.0)
+
+        try:
+            return float(payload)
+        except (TypeError, ValueError):
+            return 0.0
 
     @staticmethod
     def _symbol_of(row: object) -> str | None:
