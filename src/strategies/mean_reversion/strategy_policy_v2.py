@@ -56,7 +56,7 @@ from src.strategy_policy_v2.policy_v2 import (
     ExitRuleV2,
     SafetyModelV2,
     SafetyRuleV2,
-    MeanReversionExtensionSpecV2,
+    StrategyDomainExtensionSurfaceV2,
     InitialStopModelV2,
     TargetHierarchyModelV2,
     # Intrabar execution
@@ -387,7 +387,7 @@ POLICY_V2 = StrategyPolicyV2(
             ExitRuleV2("X_MAX_TIME_IN_TRADE", "Position duration exceeds 20 minutes unless already at/near target with protected stop", "Flatten remaining position."),
         )
     ),
-    mean_reversion_extension=MeanReversionExtensionSpecV2(
+    mean_reversion_extension=StrategyDomainExtensionSurfaceV2(
         min_extension_pct=12.0,
         too_hot_extension_pct=40.0,
         hard_veto_extension_pct=60.0,

@@ -1,4 +1,5 @@
 from src.strategy_policy_v2.policy_v2 import (
+    C_VOLATILITY_NON_AUTHORITATIVE,
     ConfirmationSpecV2,
     DataRequirementsV2,
     ExecutionModelV2,
@@ -66,7 +67,11 @@ POLICY_V2 = StrategyPolicyV2(
         max_position_pct=0.08,
         daily_loss_limit=0.018,
         max_open_positions=6,
-        notes="Long-horizon risk doctrine prioritizes permanent capital impairment, leverage fragility, concentration limits, and thesis break risk. daily_loss_limit remains platform-envelope metadata for interoperability but is non-authoritative for P04 exits, which are thesis/valuation driven under governance constraints.",
+        notes=(
+            "Long-horizon risk doctrine prioritizes permanent capital impairment, leverage fragility, concentration limits, and thesis break risk. "
+            f"{C_VOLATILITY_NON_AUTHORITATIVE}: daily_loss_limit remains platform-envelope metadata for interoperability "
+            "and is non-authoritative for P04 exits, which are thesis/valuation driven under governance constraints."
+        ),
     ),
     execution_model=ExecutionModelV2(
         preferred_order_types=("LIMIT", "STOP_LIMIT"),
@@ -176,6 +181,8 @@ POLICY_V2 = StrategyPolicyV2(
             "Normalized earnings multiple anchored to quality/regime",
             "Sum-of-the-parts when conglomerate structure is material",
         ),
+        underwriting_horizon_years=5,
+        required_return_floor=0.15,
         tie_breaker_law="When methods disagree, use the most conservative intrinsic value estimate unless explicit adjudication evidence supports otherwise.",
         margin_of_safety_bands=(
             "Strong buy MOS: >= 30% discount",

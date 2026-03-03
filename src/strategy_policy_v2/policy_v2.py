@@ -6,6 +6,9 @@ from typing import Literal, Tuple
 from src.strategy_policy_v2.selection_plans import SelectionPlan
 
 
+C_VOLATILITY_NON_AUTHORITATIVE = "C_VOLATILITY_NON_AUTHORITATIVE"
+
+
 @dataclass(frozen=True)
 class StrategyIdentityV2:
     name: str
@@ -328,6 +331,8 @@ class LongHorizonThesisModelV2:
 @dataclass(frozen=True)
 class LongHorizonValuationModelV2:
     primary_methods: tuple[str, ...] = ()
+    underwriting_horizon_years: int = 0
+    required_return_floor: float = 0.0
     tie_breaker_law: str = ""
     margin_of_safety_bands: tuple[str, ...] = ()
     action_bands: tuple[str, ...] = ()
@@ -395,7 +400,7 @@ class LongHorizonMonitoringModelV2:
 
 
 @dataclass(frozen=True)
-class MeanReversionExtensionSpecV2:
+class StrategyDomainExtensionSurfaceV2:
     min_extension_pct: float = 12.0
     too_hot_extension_pct: float = 40.0
     hard_veto_extension_pct: float = 60.0
@@ -648,7 +653,7 @@ class StrategyPolicyV2:
     long_horizon_capital_allocation: LongHorizonCapitalAllocationModelV2 | None = None
     long_horizon_valuation_scenarios: LongHorizonValuationScenarioModelV2 | None = None
     long_horizon_monitoring: LongHorizonMonitoringModelV2 | None = None
-    mean_reversion_extension: MeanReversionExtensionSpecV2 | None = None
+    mean_reversion_extension: StrategyDomainExtensionSurfaceV2 | None = None
     initial_stop_model: InitialStopModelV2 | None = None
     target_hierarchy_model: TargetHierarchyModelV2 | None = None
     safety_model: SafetyModelV2 = field(default_factory=SafetyModelV2)
