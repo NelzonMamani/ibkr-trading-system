@@ -1,4 +1,5 @@
 from src.config.runtime_config import RunMode
+from src.strategies.long_horizon_value.runner import LongHorizonValueRunner
 from src.strategies.long_horizon_value.strategy import LongHorizonValueStrategy
 from src.strategies.long_horizon_value.strategy_policy import (
     MAX_SINGLE_POSITION_PCT,
@@ -73,3 +74,21 @@ def test_long_horizon_fallback_disabled_in_live_and_read_only() -> None:
 
     assert strategy.process_watchlist(mode=RunMode.LIVE, **kwargs) == []
     assert strategy.process_watchlist(mode=RunMode.READ_ONLY, **kwargs) == []
+
+
+def test_long_horizon_underwriting_batch_is_skipped_during_rth() -> None:
+    runner = LongHorizonValueRunner()
+
+    def _should_not_run(**kwargs):
+        raise AssertionError(f"underwriting batch should be skipped during RTH: {kwargs}")
+
+    runner._run_underwriting_batch = _should_not_run  # type: ignore[method-assign]
+    result = runner.run(
+        {
+            "watchlist": [{"symbol": "AAPL"}],
+            "mode": RunMode.SIM.value,
+            "session_label": "RTH",
+        }
+    )
+    statuses = [report.get("status") for report in result.get("reports", [])]
+    assert "UNDERWRITING_SKIPPED_SESSION_GUARD" in statuses

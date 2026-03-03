@@ -9,6 +9,7 @@ from typing import Iterable
 
 from src.config.runtime_config import RunMode
 from src.models.data_models import TradeIntent
+from src.strategies.long_horizon_value.strategy_policy_v2 import POLICY_V2
 
 
 class LongHorizonValueRunner:
@@ -16,6 +17,7 @@ class LongHorizonValueRunner:
         """Deterministic watchlist-to-intent adapter for Wave 2 validation."""
         watchlist = self._coerce_watchlist(context)
         mode = self._resolve_mode(context)
+        session_label = self._resolve_session_label(context)
         reports = [
             {
                 "status": "READY",
@@ -23,6 +25,13 @@ class LongHorizonValueRunner:
                 "watchlist_k": len(watchlist),
             }
         ]
+
+        underwriting_report = self._evaluate_underwriting_session_gate(
+            session_label=session_label,
+            watchlist=watchlist,
+            context=context,
+        )
+        reports.append(underwriting_report)
 
         intents: list[TradeIntent] = []
         fallback_allowed = mode in {RunMode.SIM, RunMode.PAPER}
@@ -67,10 +76,42 @@ class LongHorizonValueRunner:
             {
                 "status": "SUMMARY",
                 "mode": mode.value,
+                "session_label": session_label,
                 "trade_intents": len(intents),
             }
         )
         return {"trade_intents": intents, "reports": reports, "metrics": {"watchlist_k": len(watchlist)}}
+
+    def _evaluate_underwriting_session_gate(self, *, session_label: str, watchlist: list[object], context) -> dict:
+        policy_model = POLICY_V2.long_horizon_underwriting_batch
+        normalized_session = str(session_label or "UNKNOWN").upper()
+        allowed_sessions = tuple(str(label).upper() for label in policy_model.allowed_sessions)
+        forbid_sessions = tuple(str(label).upper() for label in policy_model.forbid_sessions)
+
+        should_run_underwriting = normalized_session in allowed_sessions and normalized_session not in forbid_sessions
+        if not should_run_underwriting:
+            return {
+                "status": "UNDERWRITING_SKIPPED_SESSION_GUARD",
+                "reason": "Long-horizon underwriting batch is restricted to CLOSED/OVN runtime windows.",
+                "session_label": normalized_session,
+                "allowed_sessions": allowed_sessions,
+                "forbid_sessions": forbid_sessions,
+            }
+
+        return self._run_underwriting_batch(
+            session_label=normalized_session,
+            watchlist=watchlist,
+            context=context,
+        )
+
+    def _run_underwriting_batch(self, *, session_label: str, watchlist: list[object], context) -> dict:
+        del context
+        return {
+            "status": "UNDERWRITING_BATCH_EXECUTED",
+            "session_label": session_label,
+            "artifact": "underwriting_dossier",
+            "candidate_count": len(watchlist),
+        }
 
     @staticmethod
     def _coerce_watchlist(context) -> list[object]:
@@ -93,6 +134,15 @@ class LongHorizonValueRunner:
             raw = getattr(context, "mode", None)
         label = str(raw or RunMode.SIM.value).upper()
         return RunMode.__members__.get(label, RunMode.SIM)
+
+    @staticmethod
+    def _resolve_session_label(context) -> str:
+        raw = None
+        if isinstance(context, dict):
+            raw = context.get("session_label")
+        else:
+            raw = getattr(context, "session_label", None)
+        return str(raw or "UNKNOWN").upper()
 
     @staticmethod
     def _symbol_of(row: object) -> str | None:
