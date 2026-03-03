@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/workspace/ibkr-trading-system/src/metadata/m5_strategy_certification_authority.py", line 12, in <module>
+    from src.metadata.m0_canon_helpers import get_repo_root
+ModuleNotFoundError: No module named 'src'

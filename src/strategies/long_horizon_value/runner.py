@@ -10,6 +10,7 @@ from typing import Iterable
 from src.config.runtime_config import RunMode
 from src.models.data_models import TradeIntent
 from src.strategies.long_horizon_value.strategy_policy_v2 import POLICY_V2
+from src.strategies.long_horizon_value.thesis_health_gate import compute_thesis_health_snapshot
 from src.strategies.long_horizon_value.valuation_engine import compute_valuation_snapshot
 
 
@@ -79,6 +80,8 @@ class LongHorizonValueRunner:
         reports.extend(allocation_reports)
         intents, valuation_reports = self._apply_valuation_scenario_layer(watchlist=watchlist, intents=intents, context=context)
         reports.extend(valuation_reports)
+        intents, thesis_reports = self._apply_thesis_health_gate_layer(watchlist=watchlist, intents=intents, context=context)
+        reports.extend(thesis_reports)
 
         reports.append(
             {
@@ -123,6 +126,91 @@ class LongHorizonValueRunner:
                         "status": "MANUAL_APPROVAL_REQUIRED",
                         "action": action,
                         "reason": "Manual approval required by long-horizon underwriting doctrine.",
+                    }
+                )
+
+        return intents, reports
+
+    def _apply_thesis_health_gate_layer(self, *, watchlist: list[object], intents: list[TradeIntent], context) -> tuple[list[TradeIntent], list[dict]]:
+        reports: list[dict] = [
+            {
+                "status": "THESIS_HEALTH_LAYER_APPLIED",
+                "watchlist_k": len(watchlist),
+                "intents_n": len(intents),
+                "sequence": "manual_approval_gate -> capital_allocation_layer -> valuation_scenario_layer -> thesis_health_gate_layer",
+            }
+        ]
+
+        watchlist_symbols: list[str] = []
+        for row in watchlist:
+            symbol = self._symbol_of(row)
+            if not symbol:
+                continue
+            normalized = str(symbol).upper()
+            if normalized not in watchlist_symbols:
+                watchlist_symbols.append(normalized)
+
+        snapshots_by_symbol: dict[str, object] = {}
+        for symbol in watchlist_symbols:
+            snapshot, missing = compute_thesis_health_snapshot(symbol=symbol, context=context)
+            if snapshot is None:
+                reports.append({"status": "THESIS_HEALTH_DATA_MISSING", "symbol": symbol, "missing": missing})
+                continue
+            snapshots_by_symbol[symbol] = snapshot
+            reports.append(
+                {
+                    "status": "THESIS_HEALTH_SNAPSHOT",
+                    "symbol": symbol,
+                    "score": snapshot.score,
+                    "thesis_health_status": snapshot.status,
+                    "reasons": list(snapshot.reasons),
+                }
+            )
+
+        for intent in intents:
+            action = self._resolve_intent_action(intent)
+            if action not in {"BUY", "ADD"}:
+                continue
+
+            symbol = str(getattr(intent, "symbol", "") or "").upper()
+            if not symbol:
+                continue
+
+            if symbol not in snapshots_by_symbol:
+                snapshot, missing = compute_thesis_health_snapshot(symbol=symbol, context=context)
+                if snapshot is None:
+                    reports.append({"status": "THESIS_HEALTH_DATA_MISSING", "symbol": symbol, "missing": missing})
+                    setattr(intent, "thesis_health_score", None)
+                    setattr(intent, "thesis_health_status", "UNKNOWN")
+                    setattr(intent, "thesis_health_reasons", [])
+                    setattr(intent, "thesis_gate_passed", False)
+                    continue
+                snapshots_by_symbol[symbol] = snapshot
+                reports.append(
+                    {
+                        "status": "THESIS_HEALTH_SNAPSHOT",
+                        "symbol": symbol,
+                        "score": snapshot.score,
+                        "thesis_health_status": snapshot.status,
+                        "reasons": list(snapshot.reasons),
+                    }
+                )
+
+            snapshot = snapshots_by_symbol[symbol]
+            setattr(intent, "thesis_health_score", snapshot.score)
+            setattr(intent, "thesis_health_status", snapshot.status)
+            setattr(intent, "thesis_health_reasons", list(snapshot.reasons))
+            setattr(intent, "thesis_gate_passed", snapshot.status == "HEALTHY")
+
+            if snapshot.status == "BROKEN":
+                setattr(intent, "executable", False)
+                setattr(intent, "approval_status", "THESIS_BROKEN_BLOCK")
+                reports.append(
+                    {
+                        "status": "THESIS_BROKEN_BLOCKED_INTENT",
+                        "symbol": symbol,
+                        "action": action,
+                        "reason": "Thesis health classified as BROKEN for BUY/ADD intent.",
                     }
                 )
 

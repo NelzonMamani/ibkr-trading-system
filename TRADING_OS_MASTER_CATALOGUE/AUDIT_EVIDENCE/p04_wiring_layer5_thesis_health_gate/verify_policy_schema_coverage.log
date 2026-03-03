@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/workspace/ibkr-trading-system/src/metadata/strategy_policy_v2_audit.py", line 12, in <module>
+    from src.strategy_policy_v2.policy_v2 import StrategyPolicyV2
+ModuleNotFoundError: No module named 'src'
