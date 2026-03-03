@@ -377,6 +377,8 @@ class LongHorizonCapitalAllocationModelV2:
 @dataclass(frozen=True)
 class LongHorizonValuationScenarioModelV2:
     scenarios: tuple[str, ...] = ()
+    required_return_floor: float = 0.12
+    underwriting_horizon_years: int = 10
     discount_rate_policy: str = ""
     terminal_value_policy: str = ""
     competitive_advantage_period_policy: str = ""
@@ -395,7 +397,7 @@ class LongHorizonMonitoringModelV2:
 
 
 @dataclass(frozen=True)
-class MeanReversionExtensionSpecV2:
+class StrategyDomainExtensionSurfaceV2:
     min_extension_pct: float = 12.0
     too_hot_extension_pct: float = 40.0
     hard_veto_extension_pct: float = 60.0
@@ -648,7 +650,7 @@ class StrategyPolicyV2:
     long_horizon_capital_allocation: LongHorizonCapitalAllocationModelV2 | None = None
     long_horizon_valuation_scenarios: LongHorizonValuationScenarioModelV2 | None = None
     long_horizon_monitoring: LongHorizonMonitoringModelV2 | None = None
-    mean_reversion_extension: MeanReversionExtensionSpecV2 | None = None
+    mean_reversion_extension: StrategyDomainExtensionSurfaceV2 | None = None
     initial_stop_model: InitialStopModelV2 | None = None
     target_hierarchy_model: TargetHierarchyModelV2 | None = None
     safety_model: SafetyModelV2 = field(default_factory=SafetyModelV2)

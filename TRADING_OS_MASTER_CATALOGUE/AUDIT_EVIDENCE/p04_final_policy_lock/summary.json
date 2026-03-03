@@ -1,0 +1,40 @@
+{
+  "scope": "P04_FINAL_POLICY_COMPLETION_AND_SCHEMA_HYGIENE",
+  "mandatory_commands": {
+    "python -m compileall src": "PASS",
+    "pytest -q": "PASS",
+    "python verification_scripts/verify_strategy_identity_integrity.py": "PASS",
+    "python verification_scripts/verify_policy_schema_coverage.py": "PASS"
+  },
+  "artifacts": {
+    "compileall_log": "compileall.log",
+    "pytest_log": "pytest.log",
+    "identity_verification_log": "identity_verification.log",
+    "schema_coverage_log": "schema_coverage.log"
+  },
+  "changed_files_git_status": [
+    "M AUDIT_EVIDENCE/strategy_policy_v2_baseline_snapshot.json",
+    " M TRADING_OS_MASTER_CATALOGUE/03_STRATEGIES/04_STRATEGY_CERTIFICATION_AND_GOVERNANCE/STRATEGY_AUDIT_MATRIX_V2.md",
+    " M TRADING_OS_MASTER_CATALOGUE/03_STRATEGIES/STRATEGY_CERTIFICATION_REPORT.md",
+    " M data/audit/db_admin_audit.log",
+    " M data/ibkr_system.db",
+    " M data/regime_baselines.json",
+    " M output/trade_store.jsonl",
+    " M src/strategies/long_horizon_value/strategy_policy_v2.py",
+    " M src/strategies/mean_reversion/strategy_policy_v2.py",
+    " M src/strategy_policy_v2/policy_v2.py",
+    "?? TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/POLICY_V2_SCHEMA_COVERAGE/20260303T003158Z/",
+    "?? TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/POLICY_V2_SCHEMA_COVERAGE/20260303T003218Z/",
+    "?? TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/p04_final_policy_lock/",
+    "?? verification_scripts/verify_policy_schema_coverage.py",
+    "?? verification_scripts/verify_strategy_identity_integrity.py"
+  ],
+  "tracked_hashes": {
+    "src/strategy_policy_v2/policy_v2.py": "19dc97d880291d06d0d024ee8940bc4e117170dd53c31cb15fe8bf920c2a48f1",
+    "src/strategies/long_horizon_value/strategy_policy_v2.py": "277d3adeb19add1042ea9415f104b1e727434b39ba84e0ad5d42d622c99eb847",
+    "src/strategies/mean_reversion/strategy_policy_v2.py": "239e1de7d3da68604d4a2e8cf50b9bd8cf058ae145d079f69590908a38e9e754",
+    "verification_scripts/verify_strategy_identity_integrity.py": "a26800f9b9d4db46797c8940f2350c472a685ff2c03b39cf803b051c88063607",
+    "verification_scripts/verify_policy_schema_coverage.py": "0af07ee2b2c4b8b1c3148218c4f1f86b78458da7c1185622604dba9e0b683808"
+  },
+  "baseline_drift_note": "Only P04 scope updates plus required schema rename propagation and verification script additions were applied."
+}

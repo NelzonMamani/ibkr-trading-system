@@ -111,6 +111,7 @@ POLICY_V2 = StrategyPolicyV2(
             ConfirmationSpecV2("C_ACCOUNTING_QUALITY", "Accounting quality checks pass with no manipulation/restatement red flags."),
             ConfirmationSpecV2("C_BALANCE_SHEET_STRENGTH", "Leverage and coverage metrics remain inside policy limits for resilience."),
             ConfirmationSpecV2("C_VALUATION_METHOD_VALIDITY", "Valuation method is valid for the business model and tie-breaker law is satisfied."),
+            ConfirmationSpecV2("C_VOLATILITY_NON_AUTHORITATIVE", "Short-term price volatility alone does not constitute thesis impairment or exit authority."),
             ConfirmationSpecV2("C_FUNDAMENTAL_DATA_FRESHNESS", "Fundamental and valuation inputs are current enough for long-horizon authority."),
             ConfirmationSpecV2("C_EXECUTION_CONTEXT_ONLY", "pct_change/volume/rvol/spread/session fields are used only for execution context and never primary thesis decisions."),
             ConfirmationSpecV2("C_UNDERWRITING_SESSION_GUARD", "Underwriting-heavy batch processing and BUY/ADD decision authority are vetoed during RTH and restricted to CLOSED/OVN governance windows."),
@@ -236,6 +237,8 @@ POLICY_V2 = StrategyPolicyV2(
     ),
     long_horizon_valuation_scenarios=LongHorizonValuationScenarioModelV2(
         scenarios=("BASE", "BEAR", "BULL"),
+        required_return_floor=0.12,
+        underwriting_horizon_years=10,
         discount_rate_policy="Required-return doctrine uses bounded discount rates consistent with business durability and balance-sheet risk; apply higher hurdle under leverage, cyclicality, or governance uncertainty.",
         terminal_value_policy="Terminal assumptions must remain conservative: bounded terminal growth, sanity-checked multiples, and no terminal value dominance without explicit justification.",
         competitive_advantage_period_policy="Set explicit CAP horizon with fade dynamics from excess returns toward normalized economics; shorten CAP when moat durability evidence weakens.",
