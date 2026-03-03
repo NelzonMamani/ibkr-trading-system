@@ -10,6 +10,7 @@ from typing import Iterable
 from src.config.runtime_config import RunMode
 from src.models.data_models import TradeIntent
 from src.strategies.long_horizon_value.strategy_policy_v2 import POLICY_V2
+from src.strategies.long_horizon_value.valuation_engine import compute_valuation_snapshot
 
 
 class LongHorizonValueRunner:
@@ -76,6 +77,8 @@ class LongHorizonValueRunner:
         reports.extend(approval_reports)
         intents, allocation_reports = self._apply_capital_allocation_layer(intents=intents, context=context)
         reports.extend(allocation_reports)
+        intents, valuation_reports = self._apply_valuation_scenario_layer(watchlist=watchlist, intents=intents, context=context)
+        reports.extend(valuation_reports)
 
         reports.append(
             {
@@ -166,6 +169,89 @@ class LongHorizonValueRunner:
                     "proposed_tranche_weight": float(tranche_weight),
                     "max_position_pct": max_position_pct,
                 }
+            )
+
+        return intents, reports
+
+    def _apply_valuation_scenario_layer(self, *, watchlist: list[object], intents: list[TradeIntent], context) -> tuple[list[TradeIntent], list[dict]]:
+        reports: list[dict] = [
+            {
+                "status": "VALUATION_LAYER_APPLIED",
+                "watchlist_k": len(watchlist),
+                "intents_n": len(intents),
+                "sequence": "manual_approval_gate -> capital_allocation_layer -> valuation_scenario_layer",
+            }
+        ]
+
+        default_scenarios = tuple(str(s).upper() for s in POLICY_V2.long_horizon_valuation_scenarios.scenarios)
+
+        watchlist_symbols: list[str] = []
+        for row in watchlist:
+            symbol = self._symbol_of(row)
+            if not symbol:
+                continue
+            normalized = str(symbol).upper()
+            if normalized not in watchlist_symbols:
+                watchlist_symbols.append(normalized)
+
+        snapshots_by_symbol: dict[str, object] = {}
+        for symbol in watchlist_symbols:
+            snapshot, missing = compute_valuation_snapshot(symbol=symbol, context=context, default_scenarios=default_scenarios)
+            if snapshot is None:
+                reports.append({"status": "VALUATION_DATA_MISSING", "symbol": symbol, "missing": missing})
+                continue
+
+            snapshots_by_symbol[symbol] = snapshot
+            reports.append(
+                {
+                    "status": "VALUATION_SCENARIO_SNAPSHOT",
+                    "symbol": symbol,
+                    "scenario_set": snapshot.scenario_set,
+                    "weighted_intrinsic": snapshot.weighted_intrinsic_value,
+                    "price": snapshot.price,
+                    "mos": snapshot.implied_margin_of_safety,
+                    "band": snapshot.action_band,
+                    "buy_gate_passed": bool(snapshot.implied_margin_of_safety is not None and snapshot.implied_margin_of_safety >= 0.15),
+                }
+            )
+
+        for intent in intents:
+            action = self._resolve_intent_action(intent)
+            if action not in {"BUY", "ADD"}:
+                continue
+
+            symbol = str(getattr(intent, "symbol", "") or "").upper()
+            if not symbol:
+                continue
+
+            if symbol not in snapshots_by_symbol:
+                snapshot, missing = compute_valuation_snapshot(symbol=symbol, context=context, default_scenarios=default_scenarios)
+                if snapshot is None:
+                    reports.append({"status": "VALUATION_DATA_MISSING", "symbol": symbol, "missing": missing})
+                    continue
+                snapshots_by_symbol[symbol] = snapshot
+                reports.append(
+                    {
+                        "status": "VALUATION_SCENARIO_SNAPSHOT",
+                        "symbol": symbol,
+                        "scenario_set": snapshot.scenario_set,
+                        "weighted_intrinsic": snapshot.weighted_intrinsic_value,
+                        "price": snapshot.price,
+                        "mos": snapshot.implied_margin_of_safety,
+                        "band": snapshot.action_band,
+                        "buy_gate_passed": bool(snapshot.implied_margin_of_safety is not None and snapshot.implied_margin_of_safety >= 0.15),
+                    }
+                )
+
+            snapshot = snapshots_by_symbol[symbol]
+            setattr(intent, "valuation_weighted_intrinsic", float(snapshot.weighted_intrinsic_value))
+            setattr(intent, "valuation_mos", snapshot.implied_margin_of_safety)
+            setattr(intent, "valuation_band", snapshot.action_band)
+            setattr(intent, "valuation_scenarios", dict(snapshot.intrinsic_value_by_scenario))
+            setattr(
+                intent,
+                "buy_gate_passed",
+                bool(snapshot.implied_margin_of_safety is not None and snapshot.implied_margin_of_safety >= 0.15),
             )
 
         return intents, reports
