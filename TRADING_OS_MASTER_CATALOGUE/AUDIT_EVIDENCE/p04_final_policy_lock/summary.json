@@ -1,0 +1,18 @@
+{
+  "scope": "P04_FINAL_POLICY_LOCK_SCOPE_CORRECTION",
+  "runtime_artifact_contamination_removed_from_pr_scope": true,
+  "rename_propagation": {
+    "old_symbol": "MeanReversionExtensionSpecV2",
+    "new_symbol": "StrategyDomainExtensionSurfaceV2",
+    "old_reference_count": 0,
+    "imports_updated": true,
+    "status": "PASS",
+    "log": "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/p04_final_policy_lock/rename_propagation_check.log"
+  },
+  "required_verification": {
+    "python -m compileall src": "PASS",
+    "pytest -q": "PASS",
+    "python verification_scripts/verify_strategy_identity_integrity.py": "PASS",
+    "python verification_scripts/verify_policy_schema_coverage.py": "PASS"
+  }
+}

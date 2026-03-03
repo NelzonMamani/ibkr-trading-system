@@ -1,0 +1,9 @@
+# rename propagation check
+generated_utc=2026-03-03T00:50:19Z
+command_old=rg -n "MeanReversionExtensionSpecV2" src verification_scripts
+old_reference_count=0
+command_new=rg -n "StrategyDomainExtensionSurfaceV2" src
+src/strategy_policy_v2/policy_v2.py:403:class StrategyDomainExtensionSurfaceV2:
+src/strategy_policy_v2/policy_v2.py:656:    mean_reversion_extension: StrategyDomainExtensionSurfaceV2 | None = None
+src/strategies/mean_reversion/strategy_policy_v2.py:59:    StrategyDomainExtensionSurfaceV2,
+src/strategies/mean_reversion/strategy_policy_v2.py:390:    mean_reversion_extension=StrategyDomainExtensionSurfaceV2(
