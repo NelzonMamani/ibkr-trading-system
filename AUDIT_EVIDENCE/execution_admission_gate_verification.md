@@ -1,6 +1,6 @@
 # Execution Admission Gate Verification
 
-Generated at: `2026-03-04T11:37:20.517330+00:00`
+Generated at: `2026-03-04T13:51:27.054141+00:00`
 
 Gate contract tested: `intent.executable == False -> blocked` plus platform safety reasons.
 

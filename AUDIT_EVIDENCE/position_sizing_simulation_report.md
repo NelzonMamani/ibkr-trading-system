@@ -1,6 +1,6 @@
 # Position Sizing Simulation Report
 
-Generated at: `2026-03-04T11:37:20.517477+00:00`
+Generated at: `2026-03-04T13:51:27.054267+00:00`
 
 Formula: `target_qty = floor((portfolio_equity * target_weight)/price)` then adjusted for existing quantity and position cap.
 
