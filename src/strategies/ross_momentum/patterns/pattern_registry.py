@@ -56,6 +56,13 @@ class RossPatternRegistry:
             FailedBreakoutPattern(),
         ]
 
+        if get_config("ROSS_ENABLE_ADDITIONAL_HEURISTIC_PATTERNS"):
+            print(
+                "[ROSS][WARN] Enabling additional heuristic placeholder patterns. "
+                "These are experimental and may false-positive."
+            )
+            self._patterns.extend(build_additional_heuristic_patterns())
+
     @property
     def patterns(self) -> List[PatternBase]:
         return list(self._patterns)
