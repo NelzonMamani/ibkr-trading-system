@@ -21,7 +21,7 @@ import argparse
 import os
 import sys
 
-from src.config.config_resolver import get_config, set_config_overrides
+from src.config.config_resolver import get_config, get_config_record, set_config_overrides
 from src.config.runtime_config import (
     DEFAULT_EVENT_REPLAY_MODE,
     DEFAULT_RUN_MODE,
@@ -143,6 +143,21 @@ def _apply_cli_overrides(args: argparse.Namespace) -> None:
         set_config_overrides(overrides)
 
 
+
+
+def _print_enabled_strategies_banner() -> None:
+    strategy_keys = [
+        ("ROSS_MOMENTUM_STRATEGY_ENABLED", "ross_momentum"),
+        ("STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED", "statistical_intraday_momentum"),
+        ("MEAN_REVERSION_STRATEGY_ENABLED", "mean_reversion"),
+    ]
+    print("[STARTUP] Enabled strategies")
+    for key, label in strategy_keys:
+        record = get_config_record(key)
+        print(
+            f"  - {label}: enabled={bool(record.value)} source={record.source} env={record.env or 'N/A'}"
+        )
+
 def _print_startup_banner(run_mode: RunMode, event_replay_mode) -> None:
     sqlite_raw = get_persistence_sqlite_path()
     sqlite_path = StorageEngine._resolve_repo_relative_path(sqlite_raw)
@@ -205,6 +220,7 @@ def main() -> None:
     print(f"  - CYCLE_SLEEP_SECONDS: {CYCLE_SLEEP_SECONDS}")
     print(f"  - ACTIVE_SESSIONS: {', '.join(ACTIVE_SESSIONS)}")
     _print_startup_banner(run_mode, event_replay_mode)
+    _print_enabled_strategies_banner()
     ibkr_readonly_enabled = get_ibkr_readonly_enabled()
     ibkr_api_write_allowed = get_ibkr_api_write_allowed()
     execution_enabled = is_execution_enabled(run_mode)

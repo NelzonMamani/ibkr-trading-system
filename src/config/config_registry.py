@@ -1227,7 +1227,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     "ROSS_MOMENTUM_STRATEGY_ENABLED": {
         "type": bool,
         "default": True,   # default was False
-        "env": ["ROSS_MOMENTUM_STRATEGY_ENABLED"],
+        "env": ["ROSS_MOMENTUM_STRATEGY_ENABLED", "STRATEGY_ROSS_MOMENTUM_ENABLED"],
         "affects": ["Strategies"],
         "enforcement": "SOFT",
         "mutable": "dynamic",
@@ -1236,7 +1236,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     "STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED": {
         "type": bool,
         "default": False,
-        "env": ["STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"],
+        "env": ["STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED", "STRATEGY_STATISTICAL_INTRADAY_MOMENTUM_ENABLED"],
         "affects": ["Strategies"],
         "enforcement": "SOFT",
         "mutable": "dynamic",
@@ -1245,7 +1245,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     "MEAN_REVERSION_STRATEGY_ENABLED": {
         "type": bool,
         "default": False,
-        "env": ["MEAN_REVERSION_STRATEGY_ENABLED"],
+        "env": ["MEAN_REVERSION_STRATEGY_ENABLED", "STRATEGY_MEAN_REVERSION_ENABLED"],
         "affects": ["Strategies"],
         "enforcement": "SOFT",
         "mutable": "dynamic",

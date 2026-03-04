@@ -13,6 +13,7 @@ from uuid import uuid4
 from typing import Dict, List, Optional, Set, Tuple
 
 from src.brokers import IbkrLiveBroker, SimBroker
+from src.adapters.brokers.ibkr.ibkr_order_translator import IBAPI_AVAILABLE
 from src.config.config_resolver import emit_config_event, get_config
 from src.config.runtime_config import (
     EventReplayMode,
@@ -155,9 +156,10 @@ class CoreOrchestrator:
         self.scanner_diagnostics_manager = ScannerDiagnosticsManager()
         self.market_data_snapshot_manager: MarketDataSnapshotManager | None = None
         self.selected_strategy_key = (
-            str(get_config("SELECTED_STRATEGY") or "ross_momentum").strip().lower()
-            or "ross_momentum"
+            str(get_config("SELECTED_STRATEGY") or "").strip().lower()
         )
+        self.primary_strategy_key = self.selected_strategy_key or "ross_momentum"
+        self._strategy_watchlist_cache: dict[str, list[str]] = {}
         if self.run_mode == RunMode.READ_ONLY:
             from src.brokers import IbkrBroker
 
@@ -215,23 +217,36 @@ class CoreOrchestrator:
             )
         elif self.run_mode == RunMode.LIVE:
             if IbkrLiveBroker is None:
-                print(
-                    "[EXECUTION][WARN] IBKR live broker unavailable; "
-                    "forcing execution disabled for safety."
+                raise RuntimeSafetyError(
+                    "LIVE execution requested but IbkrLiveBroker is unavailable. "
+                    "Install ibapi and ensure IBKR adapter dependencies are present."
                 )
-                self.execution_enabled = False
-                provider = None
-            else:
-                broker = IbkrLiveBroker(
-                    event_collector=self.event_collector,
-                    trade_registry=self.trade_registry,
-                    run_mode=self.run_mode,
+            live_port = int(get_config("IBKR_LIVE_PORT"))
+            readonly = bool(get_config("IBKR_READONLY_ENABLED"))
+            kill_switch = bool(get_config("IBKR_KILL_SWITCH"))
+            submission_enabled = bool(get_config("IBKR_ORDER_SUBMISSION_ENABLED"))
+            if live_port != 7496:
+                raise RuntimeSafetyError(
+                    f"LIVE execution requires IBKR_LIVE_PORT=7496 (resolved {live_port})."
                 )
-                provider = IbkrExecutionProvider(
-                    broker=broker,
-                    trade_registry=self.trade_registry,
-                    run_mode=self.run_mode,
+            if readonly:
+                raise RuntimeSafetyError("LIVE execution requires IBKR_READONLY_ENABLED=false.")
+            if kill_switch:
+                raise RuntimeSafetyError("LIVE execution blocked: IBKR_KILL_SWITCH=true.")
+            if not submission_enabled:
+                raise RuntimeSafetyError(
+                    "LIVE execution requires IBKR_ORDER_SUBMISSION_ENABLED=true."
                 )
+            broker = IbkrLiveBroker(
+                event_collector=self.event_collector,
+                trade_registry=self.trade_registry,
+                run_mode=self.run_mode,
+            )
+            provider = IbkrExecutionProvider(
+                broker=broker,
+                trade_registry=self.trade_registry,
+                run_mode=self.run_mode,
+            )
         else:
             provider = None
         self.execution_engine = ExecutionEngine(
@@ -274,11 +289,11 @@ class CoreOrchestrator:
         return "MIDDAY_SLOW"
 
     @staticmethod
-    def _build_scanner_policy(session_phase: str) -> tuple[object, StockSelectionPolicy]:
-        selected_strategy = (
-            str(get_config("SELECTED_STRATEGY") or "ross_momentum").strip().lower()
-            or "ross_momentum"
-        )
+    def _build_scanner_policy_for_strategy(
+        strategy_key: str,
+        session_phase: str,
+    ) -> tuple[object, StockSelectionPolicy]:
+        selected_strategy = (strategy_key or "ross_momentum").strip().lower() or "ross_momentum"
         if selected_strategy == "statistical_intraday_momentum":
             strategy_policy = StatisticalIntradayMomentumPolicy()
             stock_policy = statistical_stock_selection_spec()
@@ -306,6 +321,22 @@ class CoreOrchestrator:
         stock_policy = stock_selection_policy_for_session_phase(strategy_policy, session_phase)
         return strategy_policy, stock_policy
 
+    @classmethod
+    def _build_scanner_policy(cls, session_phase: str) -> tuple[object, StockSelectionPolicy]:
+        selected_strategy = (str(get_config("SELECTED_STRATEGY") or "").strip().lower() or "ross_momentum")
+        return cls._build_scanner_policy_for_strategy(selected_strategy, session_phase)
+
+    @staticmethod
+    def _enabled_strategy_keys() -> list[str]:
+        enabled: list[str] = []
+        if bool(get_config("ROSS_MOMENTUM_STRATEGY_ENABLED")):
+            enabled.append("ross_momentum")
+        if bool(get_config("STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED")):
+            enabled.append("statistical_intraday_momentum")
+        if bool(get_config("MEAN_REVERSION_STRATEGY_ENABLED")):
+            enabled.append("mean_reversion")
+        return enabled or ["ross_momentum"]
+
     @staticmethod
     def _build_scanner_request(
         stock_policy: StockSelectionPolicy,
@@ -322,14 +353,13 @@ class CoreOrchestrator:
             strategy_name=strategy_name,
             session_phase=session_phase,
         )
-        if request.policy_name == "ROSS_MOMENTUM":
-            print(
-                "[ORCH][SCANNER_REQUEST] "
-                f"strategy={request.strategy_name} policy={request.policy_name} "
-                f"instrument={request.instrument} locationCode={request.location_code} "
-                f"scanCode={request.ibkr_scan_code} numberOfRows={request.requested_top_n} "
-                f"abovePrice={request.above_price} belowPrice={request.below_price}"
-            )
+        print(
+            "[ORCH][SCANNER_REQUEST] "
+            f"strategy={request.strategy_name} policy={request.policy_name} "
+            f"instrument={request.instrument} locationCode={request.location_code} "
+            f"scanCode={request.ibkr_scan_code} numberOfRows={request.requested_top_n} "
+            f"abovePrice={request.above_price} belowPrice={request.below_price}"
+        )
         return request
 
     def _build_strategy_context(
@@ -913,10 +943,12 @@ class CoreOrchestrator:
         self.runtime_mode_manager = RuntimeModeManager.resolve()
         mode_manager = self.runtime_mode_manager
         print(f"[RUNTIME] {mode_manager.describe()}")
-        strategy_policy, scanner_policy = self._build_scanner_policy(session_phase)
+        active_strategy_keys = self._enabled_strategy_keys()
+        strategy_key = self.primary_strategy_key
+        strategy_policy, scanner_policy = self._build_scanner_policy_for_strategy(strategy_key, session_phase)
         scanner_request = self._build_scanner_request(
             scanner_policy,
-            strategy_name=self.selected_strategy_key,
+            strategy_name=strategy_key,
             session_phase=session_phase,
         )
         force_mock_provider = False
@@ -945,15 +977,43 @@ class CoreOrchestrator:
                 self.connection_manager.optional_client
             )
         provider_override = MockScannerProvider() if force_mock_provider else None
-        scanner_payload = run_scanner_cycle(
-            mode="integrated",
-            policy=scanner_policy,
-            scanner_request=scanner_request,
-            event_collector=self.event_collector,
-            provider=provider_override,
-            market_data_client=self.connection_manager.optional_client,
-            disconnect_provider=provider_override is not None,
-        )
+        strategy_scan_payloads: dict[str, dict] = {}
+        for active_strategy in active_strategy_keys:
+            active_policy, active_scanner_policy = self._build_scanner_policy_for_strategy(
+                active_strategy,
+                session_phase,
+            )
+            active_request = self._build_scanner_request(
+                active_scanner_policy,
+                strategy_name=active_strategy,
+                session_phase=session_phase,
+            )
+            active_payload = run_scanner_cycle(
+                mode="integrated",
+                policy=active_scanner_policy,
+                scanner_request=active_request,
+                event_collector=self.event_collector,
+                provider=provider_override,
+                market_data_client=self.connection_manager.optional_client,
+                disconnect_provider=provider_override is not None,
+            )
+            strategy_scan_payloads[active_strategy] = active_payload
+            active_watchlist_symbols = list(active_payload.get("watchlist_k_symbols", []))
+            if not active_watchlist_symbols:
+                active_watchlist_symbols = self._symbols_from_candidates(
+                    list(active_payload.get("watchlist_k", []))
+                )
+            if active_watchlist_symbols:
+                self._strategy_watchlist_cache[active_strategy] = active_watchlist_symbols
+            else:
+                active_watchlist_symbols = list(self._strategy_watchlist_cache.get(active_strategy, []))
+            print(
+                "[ORCH][WATCHLIST_SNAPSHOT] "
+                f"strategy={active_strategy} size={len(active_watchlist_symbols)} "
+                f"symbols={self._cap_list(active_watchlist_symbols, 15)}"
+            )
+
+        scanner_payload = strategy_scan_payloads.get(strategy_key, {})
         observations = list(scanner_payload.get("candidate_metrics", []))
         universe_entries = list(scanner_payload.get("universe_top_n", []))
         universe_symbols = [
@@ -981,10 +1041,10 @@ class CoreOrchestrator:
         focus_rows = list(scanner_payload.get("focus_m", []))
         policy_v2 = self._active_policy_v2()
         if policy_v2:
-            print(f"[POLICY] selection: StrategyPolicyV2 engines (strategy={self.selected_strategy_key}, enabled=1)")
+            print(f"[POLICY] selection: StrategyPolicyV2 engines (strategy={strategy_key}, enabled=1)")
             watchlist, focus_rows = self._build_watchlist_focus_v2(policy_v2, observations)
         else:
-            print(f"[POLICY] selection: legacy V1 path (strategy={self.selected_strategy_key}, enabled=0)")
+            print(f"[POLICY] selection: legacy V1 path (strategy={strategy_key}, enabled=0)")
             if not watchlist:
                 selector = resolve_watchlist_selector(scanner_policy.ranking_intent)
                 if selector is not None:
@@ -1046,14 +1106,14 @@ class CoreOrchestrator:
             timestamp_utc=timestamp_utc,
         )
         strategy_watchlist = watchlist
-        if self.selected_strategy_key == "statistical_intraday_momentum":
+        if strategy_key == "statistical_intraday_momentum":
             strategy_watchlist = focus_rows
             print(
                 "[STRATEGY][FOCUS] "
                 f"statistical_intraday_momentum using focus_m={len(focus_rows)}"
             )
         strategy_output = self.strategy_runner.process(
-            strategy_key=self.selected_strategy_key,
+            strategy_key=strategy_key,
             watchlist=strategy_watchlist,
             snapshots=snapshots_by_symbol,
             session_label=session_label,
@@ -1515,7 +1575,7 @@ class CoreOrchestrator:
 
         pattern_results = []
         signals = []
-        if self.selected_strategy_key == "statistical_intraday_momentum":
+        if strategy_key == "statistical_intraday_momentum":
             print(
                 "[TEACH] >>> Pattern stage skipped — statistical strategy does not use Ross patterns."
             )
@@ -1632,7 +1692,7 @@ class CoreOrchestrator:
                     "[STRATEGY][FALLBACK] "
                     f"strategy={self.selected_strategy_key} symbol={fallback_symbol}"
                 )
-            if self.selected_strategy_key == "statistical_intraday_momentum":
+            if strategy_key == "statistical_intraday_momentum":
                 interface_intents = []
                 interface_event = self.event_collector.emit(
                     event_type="STRATEGY_INTERFACE_INTENTS",
@@ -2509,6 +2569,11 @@ class CoreOrchestrator:
             else type(broker_adapter).__name__ if broker_adapter is not None else "NONE"
         )
         print(f"[VALIDATION] Broker adapter in use: {broker_name}")
+        if self.run_mode == RunMode.LIVE and bool(get_config("IBKR_ORDER_TRANSLATION_ENABLED")) and not IBAPI_AVAILABLE:
+            raise RuntimeSafetyError(
+                "IBKR_ORDER_TRANSLATION_ENABLED=true but ibapi is not installed. "
+                "Install via: pip install ibapi"
+            )
         if self.run_mode == RunMode.READ_ONLY:
             if market_data_source == "MOCK_FALLBACK":
                 print("[VALIDATION][WARN] READ_ONLY using MOCK fallback market data.")

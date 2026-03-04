@@ -247,7 +247,7 @@ def main() -> int:
     payload["scanner"] = {
         "provider": scanner_result.get("diagnostics", {}).get("provider_source", "UNKNOWN"),
         "watchlist_count": len(watchlist),
-        "watchlist_symbols": [getattr(row, "symbol", row.get("symbol")) for row in watchlist],
+        "watchlist_symbols": [getattr(row, "symbol", None) if not isinstance(row, dict) else row.get("symbol") for row in watchlist],
     }
     payload["intents"] = {"emitted": all_intents, "admitted": admitted, "blocked": blocked}
 

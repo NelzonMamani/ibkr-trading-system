@@ -104,3 +104,9 @@ Legend: NOT_STARTED / PARTIAL / IMPLEMENTED_UNCERTIFIED / CERTIFIED
 - Python 3.14 compatible
 - Event loop deterministic bootstrap enforced
 - Import boundary purity guaranteed
+
+## 2026-03-04 LIVE readiness addendum
+- LIVE requires IBKR_LIVE_PORT=7496 and submission+translation enabled.
+- Scanner mode remains constrained to TEACHING/LIVE_READONLY.
+- Added operator verifiers: verification_scripts/multi_strategy_orch_smoke.py and verification_scripts/live_open_smoke_trade.py.
+

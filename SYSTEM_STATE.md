@@ -2,73 +2,55 @@ SYSTEM_STATE.md
 
 IBKR Trading System — Authoritative Runtime State
 
-Last Updated: 2026-02-02
-Status: ACTIVE DEVELOPMENT — LIVE-SAFE
+Last Updated: 2026-03-04
+Status: ACTIVE DEVELOPMENT — LIVE READINESS HARDENING
 Authority Level: Canonical (supersedes prior SYSTEM_STATE versions)
 
-1. SYSTEM OVERVIEW
+1. LIVE READINESS CRITERIA (CURRENT)
 
-The IBKR Trading System is a multi-strategy, multi-mode trading platform designed with strict separation between:
+LIVE trading is considered enabled only when all are true:
+- RUN_MODE=LIVE
+- EXECUTION_ENABLED=true
+- IBKR_ORDER_TRANSLATION_ENABLED=true
+- IBKR_ORDER_SUBMISSION_ENABLED=true
+- IBKR_READONLY_ENABLED=false
+- IBKR_KILL_SWITCH=false
+- IBKR_LIVE_PORT=7496 (hard requirement for LIVE)
+- SCANNER_MODE=LIVE_READONLY (scanner remains strict)
 
-Data acquisition
-Strategy decision logic
-Risk governance
-Execution routing
+Port policy:
+- 7496 = LIVE account socket
+- 7497 = PAPER account socket
 
-The system enforces safety-first execution guarantees and supports multiple strategies operating concurrently under a unified orchestration layer.
+2. STRATEGY ENABLEMENT (P01/P02/P03)
 
-2. CANONICAL RUN MODES (LOCKED)
+Canonical keys:
+- ROSS_MOMENTUM_STRATEGY_ENABLED (alias: STRATEGY_ROSS_MOMENTUM_ENABLED)
+- STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED (alias: STRATEGY_STATISTICAL_INTRADAY_MOMENTUM_ENABLED)
+- MEAN_REVERSION_STRATEGY_ENABLED (alias: STRATEGY_MEAN_REVERSION_ENABLED)
 
-The system operates under exactly three canonical run modes:
+Startup prints an explicit "Enabled strategies" banner with source/env provenance.
 
-Run Mode | Market Data | Trade Intents | Execution
-READ_ONLY | Live (IBKR) | Allowed | Hard-blocked
-PAPER | Live / Simulated | Allowed | Simulated only
-LIVE | Live (IBKR) | Allowed | Allowed (risk-governed)
+3. MULTI-STRATEGY ORCHESTRATION POLICY
 
-SIM exists only for testing and replay and is not considered a trading mode.
+Each enabled strategy receives its own scanner request derived from its StrategyPolicyV2/V1 policy surface.
+Expected logs per cycle include:
+- [ORCH][SCANNER_REQUEST] strategy=ross_momentum ...
+- [ORCH][SCANNER_REQUEST] strategy=statistical_intraday_momentum ...
+- [ORCH][SCANNER_REQUEST] strategy=mean_reversion ...
 
-3. RISK GOVERNANCE MODEL
+Per-strategy watchlist snapshots are cached and reused intra-session when a cycle yields an empty list.
 
-Execution eligibility is determined by Risk Engine decisions, not strategies.
+4. LIVE VERIFICATION COMMANDS
 
-4. STRATEGY MATRIX (AUTHORITATIVE)
+- python -m compileall src
+- pytest -q
+- scripts/run_paper_open_smoke_trade.sh
+- python verification_scripts/multi_strategy_orch_smoke.py
+- scripts/run_live_open_smoke_trade.sh
 
-4.1 Ross Momentum Strategy
-(Status unchanged)
-
-4.2 Statistical Intraday Momentum
-(Status unchanged)
-
-4.3 Long Horizon Value Strategy
-(Status unchanged)
-
-4.4 Mean Reversion Strategy
-
-Purpose: Intraday mean reversion and exhaustion-based reversal trading
-
-Mode | Behavior
-READ_ONLY | Evaluates scanner facts, emits TradeIntents (no execution)
-PAPER | Full simulated trading (pending validation)
-LIVE | TradeIntents allowed, execution blocked by Risk Engine
-
-Hard Policy Locks
-- LIVE execution disabled until PAPER validation passes
-- Must comply with SYSTEM_CONSTITUTION.md
-- Non-interference with other strategies enforced
-
-Status:
-Implemented
-Governance complete
-Execution disabled pending PAPER verification
-
-5. EXECUTION SAFETY GUARANTEES
-(Unchanged)
-
-6. CURRENT DEVELOPMENT FOCUS
-(Unchanged)
-
-7. CONSTITUTIONAL NOTES
-(Unchanged)
+Evidence roots:
+- TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/multi_strategy_orch_smoke/
+- TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/live_open_smoke_trade/
 
 END OF SYSTEM_STATE.md
