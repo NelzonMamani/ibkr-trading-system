@@ -186,7 +186,11 @@ def main() -> int:
     )
     timestamp_utc = _now().isoformat()
     strategy_runner.receive_watchlist_snapshot(
-        watchlist_symbols=[getattr(row, "symbol", row.get("symbol")) for row in watchlist if getattr(row, "symbol", row.get("symbol"))],
+        watchlist_symbols=[
+            getattr(row, "symbol", None)
+            for row in watchlist
+            if getattr(row, "symbol", None)
+        ],
         snapshots={},
         session_label="OPENING_0_30",
         timestamp_utc=timestamp_utc,
