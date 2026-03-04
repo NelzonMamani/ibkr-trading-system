@@ -76,12 +76,11 @@ class ExecutionEngine:
                 run_mode=self.run_mode,
             )
         if provider is None:
-            print(
-                "[EXECUTION][WARN] Execution provider missing; "
-                "forcing execution disabled for safety."
+            raise RuntimeError(
+                "Execution provider missing in live execution mode. "
+                "Verify TWS/Gateway connectivity, RUN_MODE=LIVE, EXECUTION_ENABLED=true, "
+                "IBKR_ORDER_SUBMISSION_ENABLED=true, IBKR_READONLY_ENABLED=false, and IBKR_LIVE_PORT=7496."
             )
-            self.execution_enabled = False
-            return None
         return provider
 
     @staticmethod

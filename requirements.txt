@@ -1,3 +1,4 @@
+ibapi>=9.81.1.post1
 ib-insync>=0.9.83
 requests>=2.31.0
 feedparser>=6.0.10
