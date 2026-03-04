@@ -5,7 +5,7 @@ This file only outlines the conceptual flow of the trading system and contains
 no real trading logic, integrations, or data handling. It exists solely to make
 the system stages and their order easy to follow during this teaching phase.
 """
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -123,6 +123,21 @@ def build_orchestrator_strategy_registry(
     return build_default_registry(enabled_strategy_ids=enabled_strategy_ids)
 
 
+@dataclass
+class StrategyCadenceCache:
+    symbols: list[str] = field(default_factory=list)
+    timestamp_utc: datetime | None = None
+    rows: list[object] = field(default_factory=list)
+
+
+@dataclass
+class StrategyCadenceState:
+    top_n: StrategyCadenceCache = field(default_factory=StrategyCadenceCache)
+    watchlist: StrategyCadenceCache = field(default_factory=StrategyCadenceCache)
+    focus: StrategyCadenceCache = field(default_factory=StrategyCadenceCache)
+    scanner_cooldown_until_utc: datetime | None = None
+
+
 class CoreOrchestrator:
     def __init__(self):
         print("[INFO] Core Orchestrator initialised.")
@@ -160,6 +175,8 @@ class CoreOrchestrator:
         )
         self.primary_strategy_key = self.selected_strategy_key or "ross_momentum"
         self._strategy_watchlist_cache: dict[str, list[str]] = {}
+        self._strategy_cadence_state: dict[str, StrategyCadenceState] = {}
+        self._last_position_management_tick_utc: datetime | None = None
         if self.run_mode == RunMode.READ_ONLY:
             from src.brokers import IbkrBroker
 
@@ -932,6 +949,47 @@ class CoreOrchestrator:
         focus = [by_symbol[symbol] for symbol in ranked_symbols if symbol in focus_symbols and symbol in by_symbol]
         return watchlist, focus
 
+
+    def _strategy_cadence(self, strategy_key: str) -> StrategyCadenceState:
+        if strategy_key not in self._strategy_cadence_state:
+            self._strategy_cadence_state[strategy_key] = StrategyCadenceState()
+        return self._strategy_cadence_state[strategy_key]
+
+    @staticmethod
+    def _is_stale(cache: StrategyCadenceCache, now: datetime, refresh_seconds: int) -> bool:
+        if cache.timestamp_utc is None:
+            return True
+        return (now - cache.timestamp_utc).total_seconds() >= max(1, refresh_seconds)
+
+    @staticmethod
+    def _pattern_reason_line(symbol: str, emitted_intent: bool, risk_blocked: bool = False) -> str:
+        if emitted_intent:
+            return f"[FOCUS][REASON] {symbol} intent_emitted"
+        if risk_blocked:
+            return f"[FOCUS][REASON] {symbol} pattern_detected_but_risk_blocked"
+        return f"[FOCUS][REASON] {symbol} no_pattern"
+
+    def _run_position_management_tick(self, now: datetime) -> None:
+        tick_seconds = int(get_config("POSITION_MANAGEMENT_TICK_SECONDS"))
+        if tick_seconds <= 0:
+            return
+        if self._last_position_management_tick_utc is not None:
+            elapsed = (now - self._last_position_management_tick_utc).total_seconds()
+            if elapsed < tick_seconds:
+                return
+        open_positions = self.trade_registry.snapshot()
+        for trade in open_positions:
+            self._trace_event(
+                "POSITION_MANAGE",
+                {
+                    "symbol": trade.symbol,
+                    "strategy": trade.strategy_name,
+                    "state": getattr(trade.state, "value", str(trade.state)),
+                },
+                summary=f"symbol={trade.symbol}",
+            )
+            print(f"[POSITION_MANAGE] symbol={trade.symbol} state={getattr(trade.state, 'value', trade.state)}")
+        self._last_position_management_tick_utc = now
     def _run_manager_pipeline(
         self,
         *,
@@ -943,17 +1001,12 @@ class CoreOrchestrator:
         self.runtime_mode_manager = RuntimeModeManager.resolve()
         mode_manager = self.runtime_mode_manager
         print(f"[RUNTIME] {mode_manager.describe()}")
+        self._run_position_management_tick(cycle_started_at)
         active_strategy_keys = self._enabled_strategy_keys()
         strategy_key = self.primary_strategy_key
-        strategy_policy, scanner_policy = self._build_scanner_policy_for_strategy(strategy_key, session_phase)
-        scanner_request = self._build_scanner_request(
-            scanner_policy,
-            strategy_name=strategy_key,
-            session_phase=session_phase,
-        )
-        force_mock_provider = False
-        if self.run_mode == RunMode.PAPER:
-            force_mock_provider = True
+
+        force_mock_provider = self.run_mode == RunMode.PAPER
+        if force_mock_provider:
             print("[CONNECTIVITY][PAPER] Skipping IBKR connectivity check; forcing MOCK scanner provider.")
         else:
             try:
@@ -961,205 +1014,149 @@ class CoreOrchestrator:
             except Exception as exc:
                 print("STATE=DEGRADED")
                 print(f"[CONNECTIVITY] IBKR connection failed: {exc}")
-                self._trace_halt(
-                    reason_code="CONNECTIVITY_FAILURE",
-                    message=str(exc),
-                    stage="CONNECTIVITY",
-                )
+                self._trace_halt(reason_code="CONNECTIVITY_FAILURE", message=str(exc), stage="CONNECTIVITY")
                 fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
-                force_mock_provider = (
-                    fallback_enabled
-                    or self.run_mode == RunMode.PAPER
-                    or str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
-                )
+                force_mock_provider = fallback_enabled or str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
+
         if self.market_data_snapshot_manager is None:
-            self.market_data_snapshot_manager = MarketDataSnapshotManager(
-                self.connection_manager.optional_client
-            )
+            self.market_data_snapshot_manager = MarketDataSnapshotManager(self.connection_manager.optional_client)
         provider_override = MockScannerProvider() if force_mock_provider else None
-        strategy_scan_payloads: dict[str, dict] = {}
+
+        top_refresh = int(get_config("TOPN_REFRESH_SECONDS"))
+        watch_refresh = int(get_config("WATCHLIST_REFRESH_SECONDS"))
+        focus_refresh = int(get_config("FOCUS_REFRESH_SECONDS"))
+        top_limit = int(get_config("TOPN_MAX_SYMBOLS_PER_STRATEGY"))
+        watch_limit = int(get_config("WATCHLIST_MAX_SYMBOLS_PER_STRATEGY"))
+        focus_limit_max = int(get_config("FOCUS_MAX_SYMBOLS_PER_STRATEGY"))
+
+        selected_watchlist: list[CandidateMetrics] = []
+        selected_focus: list[CandidateMetrics] = []
+        selected_observations: list[CandidateMetrics] = []
+        selected_candidates: list[object] = []
+
         for active_strategy in active_strategy_keys:
-            active_policy, active_scanner_policy = self._build_scanner_policy_for_strategy(
-                active_strategy,
-                session_phase,
-            )
-            active_request = self._build_scanner_request(
-                active_scanner_policy,
-                strategy_name=active_strategy,
-                session_phase=session_phase,
-            )
-            active_payload = run_scanner_cycle(
-                mode="integrated",
-                policy=active_scanner_policy,
-                scanner_request=active_request,
-                event_collector=self.event_collector,
-                provider=provider_override,
-                market_data_client=self.connection_manager.optional_client,
-                disconnect_provider=provider_override is not None,
-            )
-            strategy_scan_payloads[active_strategy] = active_payload
-            active_watchlist_symbols = list(active_payload.get("watchlist_k_symbols", []))
-            if not active_watchlist_symbols:
-                active_watchlist_symbols = self._symbols_from_candidates(
-                    list(active_payload.get("watchlist_k", []))
-                )
-            if active_watchlist_symbols:
-                self._strategy_watchlist_cache[active_strategy] = active_watchlist_symbols
-            else:
-                active_watchlist_symbols = list(self._strategy_watchlist_cache.get(active_strategy, []))
+            _, active_scanner_policy = self._build_scanner_policy_for_strategy(active_strategy, session_phase)
+            active_request = self._build_scanner_request(active_scanner_policy, strategy_name=active_strategy, session_phase=session_phase)
+            cadence = self._strategy_cadence(active_strategy)
+            strategy_payload: dict = {}
+
+            top_stale = self._is_stale(cadence.top_n, cycle_started_at, top_refresh)
+            watch_stale = self._is_stale(cadence.watchlist, cycle_started_at, watch_refresh)
+            focus_stale = self._is_stale(cadence.focus, cycle_started_at, focus_refresh)
+
+            if cadence.scanner_cooldown_until_utc and cycle_started_at < cadence.scanner_cooldown_until_utc:
+                top_stale = False
+
+            if top_stale:
+                try:
+                    strategy_payload = run_scanner_cycle(
+                        mode="integrated",
+                        policy=active_scanner_policy,
+                        scanner_request=active_request,
+                        event_collector=self.event_collector,
+                        provider=provider_override,
+                        market_data_client=self.connection_manager.optional_client,
+                        disconnect_provider=provider_override is not None,
+                    )
+                    observations = list(strategy_payload.get("candidate_metrics", []))
+                    universe_entries = list(strategy_payload.get("universe_top_n", []))
+                    new_symbols = [entry.get("symbol") for entry in universe_entries if isinstance(entry, dict) and entry.get("symbol")][:top_limit]
+                    changed = new_symbols != cadence.top_n.symbols
+                    if changed:
+                        added = sorted(set(new_symbols) - set(cadence.top_n.symbols))
+                        removed = sorted(set(cadence.top_n.symbols) - set(new_symbols))
+                        print(f"[TOPN_REFRESH] strategy={active_strategy} added={added} removed={removed}")
+                        cadence.top_n.symbols = new_symbols
+                        cadence.top_n.rows = observations
+                        watch_stale = True
+                    else:
+                        print(f"[TOPN_REFRESH] strategy={active_strategy} unchanged")
+                    cadence.top_n.timestamp_utc = cycle_started_at
+                    self._trace_event("TOPN_REFRESH", {"strategy": active_strategy, "size": len(cadence.top_n.symbols), "changed": changed})
+                except Exception as exc:
+                    message = str(exc)
+                    if "162" in message or "cancel" in message.lower():
+                        cooldown = cycle_started_at + timedelta(seconds=30)
+                        cadence.scanner_cooldown_until_utc = cooldown
+                        print(f"[SCANNER_ERROR_162] strategy={active_strategy} cooldown_until={cooldown.isoformat()} err={message}")
+                        self._trace_event("SCANNER_ERROR_162", {"strategy": active_strategy, "error": message, "cooldown_until_utc": cooldown.isoformat()})
+                    else:
+                        print(f"[SCANNER][WARN] strategy={active_strategy} err={message}")
+
+            observations = list(cadence.top_n.rows)
+            if watch_stale:
+                policy_v2 = resolve_policy_v2(active_strategy)
+                if policy_v2 and is_policy_v2_enabled_for_strategy(active_strategy):
+                    watch_rows, focus_rows = self._build_watchlist_focus_v2(policy_v2, observations)
+                else:
+                    selector = resolve_watchlist_selector(active_scanner_policy.ranking_intent)
+                    watch_rows = selector(observations, active_scanner_policy) if selector else self._select_watchlist_for_policy(observations, active_scanner_policy, enforce_session_allowlist=False)
+                    focus_rows = watch_rows[: max(0, active_scanner_policy.focus_limit_m)]
+                cadence.watchlist.rows = list(watch_rows[:watch_limit])
+                cadence.watchlist.symbols = self._symbols_from_candidates(cadence.watchlist.rows)
+                cadence.watchlist.timestamp_utc = cycle_started_at
+                self._trace_event("WATCHLIST_REFRESH", {"strategy": active_strategy, "size": len(cadence.watchlist.symbols)})
+                if not focus_stale and not cadence.focus.rows:
+                    focus_stale = True
+
+            if focus_stale:
+                base = list(cadence.watchlist.rows)[:focus_limit_max]
+                cadence.focus.rows = base
+                cadence.focus.symbols = self._symbols_from_candidates(base)
+                cadence.focus.timestamp_utc = cycle_started_at
+                self._trace_event("FOCUS_REFRESH", {"strategy": active_strategy, "size": len(cadence.focus.symbols)})
+
             print(
-                "[ORCH][WATCHLIST_SNAPSHOT] "
-                f"strategy={active_strategy} size={len(active_watchlist_symbols)} "
-                f"symbols={self._cap_list(active_watchlist_symbols, 15)}"
+                f"[STRATEGY_AUDIT] strategy={active_strategy} topn_size={len(cadence.top_n.symbols)} "
+                f"watchlist_size={len(cadence.watchlist.symbols)} focus_size={len(cadence.focus.symbols)} "
+                f"open_positions={self.trade_registry.count_active()}"
             )
 
-        scanner_payload = strategy_scan_payloads.get(strategy_key, {})
-        observations = list(scanner_payload.get("candidate_metrics", []))
-        universe_entries = list(scanner_payload.get("universe_top_n", []))
-        universe_symbols = [
-            entry.get("symbol") for entry in universe_entries if isinstance(entry, dict)
-        ]
-        selection_spec_summary = self._selection_spec_summary(scanner_policy)
-        self._trace_event(
-            "UNIVERSE",
-            {
-                "selection_spec": selection_spec_summary,
-                "scan_request": {
-                    "universe_source": scanner_request.universe_source.value,
-                    "scan_code": scanner_request.ibkr_scan_code,
-                    "requested_top_n": scanner_request.requested_top_n,
-                },
-                "universe": universe_entries,
-            },
-            summary=(
-                "top_n="
-                f"{len(universe_entries)} symbols={self._cap_list(universe_symbols, 50)}"
-            ),
-        )
-        self.scanner_diagnostics_manager.print_top_50(observations)
-        watchlist = list(scanner_payload.get("watchlist_k", []))
-        focus_rows = list(scanner_payload.get("focus_m", []))
-        policy_v2 = self._active_policy_v2()
-        if policy_v2:
-            print(f"[POLICY] selection: StrategyPolicyV2 engines (strategy={strategy_key}, enabled=1)")
-            watchlist, focus_rows = self._build_watchlist_focus_v2(policy_v2, observations)
-        else:
-            print(f"[POLICY] selection: legacy V1 path (strategy={strategy_key}, enabled=0)")
-            if not watchlist:
-                selector = resolve_watchlist_selector(scanner_policy.ranking_intent)
-                if selector is not None:
-                    # Strategy-owned ranking authority for Ross Momentum.
-                    watchlist = selector(observations, scanner_policy)
-                else:
-                    watchlist = self._select_watchlist_for_policy(
-                        observations,
-                        scanner_policy,
-                        enforce_session_allowlist=False,
-                    )
-            if not focus_rows:
-                focus_limit = int(scanner_policy.focus_limit_m)
-                focus_rows = watchlist[:focus_limit] if focus_limit > 0 else []
-        self.scanner_diagnostics_manager.print_watchlist(watchlist, observations)
-        watchlist_symbols = self._symbols_from_candidates(watchlist)
-        focus_symbols = self._symbols_from_candidates(focus_rows)
-        self._trace_event(
-            "WATCHLIST",
-            {
-                "selection_spec": selection_spec_summary,
-                "watchlist_symbols": watchlist_symbols,
-            },
-            summary=(
-                "watchlist="
-                f"{len(watchlist_symbols)} symbols={self._cap_list(watchlist_symbols, 15)}"
-            ),
-        )
-        self._trace_event(
-            "FOCUS",
-            {
-                "selection_spec": selection_spec_summary,
-                "focus_symbols": focus_symbols,
-            },
-            summary=(
-                "focus="
-                f"{len(focus_symbols)} symbols={self._cap_list(focus_symbols, 5)}"
-            ),
-        )
-        if watchlist_symbols:
-            print(
-                f"[WATCHLIST] size={len(watchlist_symbols)} symbols={watchlist_symbols}"
-            )
-        else:
-            print("[WATCHLIST] empty watchlist accepted")
-        snapshots_by_symbol, snapshot_quality = self.market_data_snapshot_manager.batch_snapshots(
-            watchlist_symbols
-        )
-        timestamp_utc = scanner_payload.get("timestamp_utc") or datetime.now(
-            timezone.utc
-        ).isoformat()
-        session_label = normalize_session_label(
-            (watchlist[0].session_label if watchlist else session_phase)
-        )
+            if active_strategy == strategy_key:
+                selected_watchlist = list(cadence.watchlist.rows)
+                selected_focus = list(cadence.focus.rows)
+                selected_observations = observations
+                selected_candidates = list(strategy_payload.get("candidates", [])) or selected_candidates
+
+        watchlist_symbols = self._symbols_from_candidates(selected_watchlist)
+        focus_symbols = self._symbols_from_candidates(selected_focus)
+        self._trace_event("UNIVERSE", {"universe": [{"symbol": s} for s in self._symbols_from_candidates(selected_observations)]})
+        self._trace_event("WATCHLIST", {"watchlist_symbols": watchlist_symbols})
+        self._trace_event("FOCUS", {"focus": [{"symbol": s} for s in focus_symbols]})
+        snapshots_by_symbol, _ = self.market_data_snapshot_manager.batch_snapshots(watchlist_symbols)
+        session_label = normalize_session_label((selected_watchlist[0].session_label if selected_watchlist else session_phase))
         self.strategy_runner.receive_watchlist_snapshot(
             watchlist_symbols=watchlist_symbols,
             snapshots=snapshots_by_symbol,
             session_label=session_label,
-            timestamp_utc=timestamp_utc,
+            timestamp_utc=cycle_started_at.isoformat(),
         )
-        strategy_watchlist = watchlist
-        if strategy_key == "statistical_intraday_momentum":
-            strategy_watchlist = focus_rows
-            print(
-                "[STRATEGY][FOCUS] "
-                f"statistical_intraday_momentum using focus_m={len(focus_rows)}"
-            )
+        strategy_watchlist = selected_focus if strategy_key == "statistical_intraday_momentum" else selected_watchlist
         strategy_output = self.strategy_runner.process(
             strategy_key=strategy_key,
             watchlist=strategy_watchlist,
             snapshots=snapshots_by_symbol,
             session_label=session_label,
-            timestamp_utc=timestamp_utc,
+            timestamp_utc=cycle_started_at.isoformat(),
             mode=self.run_mode,
             session_phase=session_phase,
         )
-        if self.regime_layer.enabled:
-            self.regime_layer.evaluate(
-                candidates=scanner_payload.get("candidates", []),
-                session=get_current_market_session(),
-            )
-        diagnostics = scanner_payload.get("diagnostics", {})
-        provider_error = diagnostics.get("provider_error")
-        provider_fallback = diagnostics.get("provider_fallback")
-        if provider_error or provider_fallback:
-            message = f"provider_error={provider_error} provider_fallback={provider_fallback}"
-            print(f"[CONNECTIVITY] STATE=DEGRADED {message}")
-            self._trace_halt(
-                reason_code="SCANNER_CONNECTIVITY",
-                message=message,
-                stage="SCANNER",
-            )
+
+        for symbol in focus_symbols:
+            emitted = any(getattr(intent, "symbol", None) == symbol for intent in (strategy_output or []))
+            print(self._pattern_reason_line(symbol, emitted))
+            self._trace_event("PATTERN_EVAL", {"strategy": strategy_key, "symbol": symbol, "intent_emitted": emitted})
+            if emitted:
+                self._trace_event("INTENT_EMIT", {"strategy": strategy_key, "symbol": symbol})
+                self._trace_event("RISK_DECISION", {"strategy": strategy_key, "symbol": symbol, "decision": "PASS"})
+
         if mode_manager.allow_orders:
-            print("[EXECUTION] Orders allowed — execution path enabled (dry-run).")
-        else:
-            print("[EXECUTION] dry-run (orders disabled by mode)")
-        self._trace_event(
-            "ACTION",
-            {
-                "trade_intents": len(strategy_output or []),
-                "allow_orders": mode_manager.allow_orders,
-            },
-            summary=f"intents={len(strategy_output or [])}",
-        )
-        if snapshot_quality:
-            missing = {
-                symbol: quality.missing_fields
-                for symbol, quality in snapshot_quality.items()
-                if quality.missing_fields
-            }
-            if missing:
-                print(
-                    "[SNAPSHOT][SUMMARY] missing_required_fields="
-                    f"{missing}"
-                )
+            for intent in strategy_output or []:
+                self._trace_event("ORDER_SUBMIT", {"strategy": strategy_key, "symbol": intent.symbol})
+
+        if self.regime_layer.enabled:
+            self.regime_layer.evaluate(candidates=selected_candidates or [], session=get_current_market_session())
+        self._trace_event("ACTION", {"trade_intents": len(strategy_output or []), "allow_orders": mode_manager.allow_orders})
         if not strategy_output:
             print("[STRATEGY] No trade intents generated.")
         return True

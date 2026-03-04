@@ -8,6 +8,7 @@ from src.strategies.ross_momentum.patterns.pattern_types import Direction, Patte
 
 
 class FailedBreakoutPattern(PatternBase):
+    pattern_id = "P_FAILED_BREAKOUT"
     name = "Failed Breakout"
     family = PatternFamily.REVERSAL
     direction_bias = Direction.SHORT
