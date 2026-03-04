@@ -1,6 +1,6 @@
 # Strategy Intent Simulation Report
 
-Generated at: `2026-03-04T11:37:20.516904+00:00`
+Generated at: `2026-03-04T13:51:27.053814+00:00`
 
 Pipeline simulated: `watchlist -> strategy runner adapter -> intents`
 

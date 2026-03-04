@@ -16,7 +16,9 @@ from src.strategies.statistical_intraday_momentum.strategy import (
     StatisticalIntradayMomentum,
 )
 from src.strategies.mean_reversion.strategy import MeanReversionStrategy
+from src.strategies.mean_reversion.runner import MeanReversionRunner
 from src.strategies.long_horizon_value.strategy import LongHorizonValueStrategy
+from src.strategies.ross_momentum.runner import RossMomentumRunner
 from src.strategies.opening_drive.strategy import OpeningDriveStrategy
 from src.strategies.vwap_reclaim.strategy import VwapReclaimStrategy
 from src.strategies.power_hour.strategy import PowerHourStrategy
@@ -48,6 +50,9 @@ from src.strategies.long_horizon_quality_compounder.strategy import (
 )
 from src.strategies.regime_adaptive_meta_allocator.strategy import (
     RegimeAdaptiveMetaAllocatorStrategy,
+)
+from src.strategies.statistical_intraday_momentum.runner import (
+    StatisticalIntradayMomentumRunner,
 )
 from src.strategy.exit_signal import ExitSignal
 from src.core.active_trade_registry import ActiveTrade
@@ -183,6 +188,7 @@ class StrategyRunner:
 
         if strategies is not None:
             self.strategies = list(strategies)
+            self._runner_registry = self._build_runner_registry(self.strategies)
             registered = ", ".join(strategy.name for strategy in self.strategies)
             print(f"[BOOT] StrategyRunner instantiated with injected strategies: {registered}")
             return
@@ -208,6 +214,7 @@ class StrategyRunner:
             self.strategies.append(strategy)
             print(f"[BOOT] Strategy '{strategy_name}' ENABLED via config and registered.")
 
+        self._runner_registry = self._build_runner_registry(self.strategies)
         registered = ", ".join(strategy.name for strategy in self.strategies)
         print(f"[BOOT] StrategyRunner instantiated with strategies: {registered}")
 
@@ -249,6 +256,20 @@ class StrategyRunner:
             return []
         results: List[TradeIntent] = []
         for strategy in strategies:
+            runner = self._runner_registry.get(strategy.name)
+            if runner:
+                result = runner.run(
+                    {
+                        "watchlist": watchlist,
+                        "snapshots": snapshots,
+                        "session_label": session_label,
+                        "timestamp_utc": timestamp_utc,
+                        "mode": mode,
+                        "session_phase": session_phase,
+                    }
+                )
+                results.extend(list(result.get("trade_intents", [])))
+                continue
             handler = getattr(strategy, "process_watchlist", None)
             if callable(handler):
                 results.extend(
@@ -267,6 +288,24 @@ class StrategyRunner:
                 f"Strategy '{strategy.name}' has no watchlist handler; skipping."
             )
         return results
+
+    @staticmethod
+    def _build_runner_registry(strategies: Sequence[object]) -> dict[str, object]:
+        registry: dict[str, object] = {}
+        for strategy in strategies:
+            if isinstance(strategy, RossMomentumStrategyV1):
+                runner = RossMomentumRunner()
+                runner.strategy = strategy
+                registry[strategy.name] = runner
+            elif isinstance(strategy, StatisticalIntradayMomentum):
+                runner = StatisticalIntradayMomentumRunner()
+                runner.strategy = strategy
+                registry[strategy.name] = runner
+            elif isinstance(strategy, MeanReversionStrategy):
+                runner = MeanReversionRunner()
+                runner.strategy = strategy
+                registry[strategy.name] = runner
+        return registry
 
     def generate_trade_intents(
         self,

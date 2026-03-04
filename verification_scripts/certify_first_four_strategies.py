@@ -17,9 +17,11 @@ from src.sim.price_feed import DeterministicPriceFeed
 from src.strategy.strategy_runner import StrategyRunner
 from src.strategies.long_horizon_value.runner import LongHorizonValueRunner
 from src.strategies.long_horizon_value.strategy import LongHorizonValueStrategy
-from src.strategies.mean_reversion.strategy import MeanReversionStrategy
-from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
-from src.strategies.statistical_intraday_momentum.strategy import StatisticalIntradayMomentum
+from src.strategies.mean_reversion.runner import MeanReversionRunner
+from src.strategies.ross_momentum.runner import RossMomentumRunner
+from src.strategies.statistical_intraday_momentum.runner import (
+    StatisticalIntradayMomentumRunner,
+)
 
 OUT = Path("AUDIT_EVIDENCE")
 OUT.mkdir(parents=True, exist_ok=True)
@@ -55,9 +57,9 @@ def _row(symbol: str, **kwargs):
 def phase1_runner_integrity() -> str:
     checks = []
     targets = [
-        ("P01 Ross Momentum", "src/strategies/ross_momentum/runner.py", "src.strategies.ross_momentum_strategy_v1", "RossMomentumStrategyV1"),
-        ("P02 Statistical Intraday Momentum", "src/strategies/statistical_intraday_momentum/runner.py", "src.strategies.statistical_intraday_momentum.strategy", "StatisticalIntradayMomentum"),
-        ("P03 Mean Reversion", "src/strategies/mean_reversion/runner.py", "src.strategies.mean_reversion.strategy", "MeanReversionStrategy"),
+        ("P01 Ross Momentum", "src/strategies/ross_momentum/runner.py", "src.strategies.ross_momentum.runner", "RossMomentumRunner"),
+        ("P02 Statistical Intraday Momentum", "src/strategies/statistical_intraday_momentum/runner.py", "src.strategies.statistical_intraday_momentum.runner", "StatisticalIntradayMomentumRunner"),
+        ("P03 Mean Reversion", "src/strategies/mean_reversion/runner.py", "src.strategies.mean_reversion.runner", "MeanReversionRunner"),
         ("P04 Long Horizon Value", "src/strategies/long_horizon_value/runner.py", "src.strategies.long_horizon_value.runner", "LongHorizonValueRunner"),
     ]
 
@@ -68,17 +70,16 @@ def phase1_runner_integrity() -> str:
         instance = cls()
         execution_ok = True
         try:
-            if hasattr(instance, "process_watchlist"):
-                result = instance.process_watchlist(
-                    watchlist=[_row("AAPL")],
-                    snapshots={},
-                    session_label="REG",
-                    timestamp_utc=_now(),
-                    mode=RunMode.SIM,
-                    session_phase="OPEN",
-                )
-            else:
-                result = instance.run({"watchlist": [{"symbol": "AAPL"}], "mode": "SIM", "session_label": "CLOSED"})
+            result = instance.run(
+                {
+                    "watchlist": [_row("AAPL")],
+                    "snapshots": {},
+                    "session_label": "REG",
+                    "timestamp_utc": _now(),
+                    "mode": RunMode.SIM,
+                    "session_phase": "OPEN",
+                }
+            )
         except Exception as exc:  # pragma: no cover - evidence capture
             execution_ok = False
             result = f"error={exc!r}"
@@ -112,46 +113,47 @@ def phase1_runner_integrity() -> str:
     lines += [
         "",
         "## Notes",
-        "- P01/P02/P03 explicit `runner.py` modules are not present at the specified paths; runtime uses strategy adapters wired through `StrategyRunner.process_watchlist`.",
-        "- Import, instantiation, and adapter execution all completed without runtime crashes for all four strategies.",
+        "- P01/P02/P03/P04 runner modules are present and importable.",
+        "- Import, instantiation, and `runner.run(context)` execution all completed without runtime crashes for all four strategies.",
     ]
     _write(OUT / "strategy_runner_integrity_report.md", "\n".join(lines))
     return "PASS"
 
 
 def phase2_intent_simulation() -> str:
-    strategies = [
-        ("P01 Ross Momentum", RossMomentumStrategyV1()),
-        ("P02 Statistical Intraday Momentum", StatisticalIntradayMomentum()),
-        ("P03 Mean Reversion", MeanReversionStrategy()),
-        ("P04 Long Horizon Value", LongHorizonValueStrategy()),
+    runners = [
+        ("P01 Ross Momentum", RossMomentumRunner()),
+        ("P02 Statistical Intraday Momentum", StatisticalIntradayMomentumRunner()),
+        ("P03 Mean Reversion", MeanReversionRunner()),
+        ("P04 Long Horizon Value", LongHorizonValueRunner()),
     ]
     results = []
-    for name, strategy in strategies:
+    for name, runner in runners:
         trigger_watchlist = [_row("AAPL")]
+        trigger_session = "REG"
         if "Long Horizon" in name:
-            trigger_watchlist = [
-                {
-                    "symbol": "AAPL",
-                    "data_quality_flags": [],
-                }
-            ]
-        intents = strategy.process_watchlist(
-            watchlist=trigger_watchlist,
-            snapshots={},
-            session_label="CLOSED" if "Long Horizon" in name else "REG",
-            timestamp_utc=_now(),
-            mode=RunMode.SIM,
-            session_phase="OPEN",
-        )
-        empty = strategy.process_watchlist(
-            watchlist=[],
-            snapshots={},
-            session_label="REG",
-            timestamp_utc=_now(),
-            mode=RunMode.SIM,
-            session_phase="OPEN",
-        )
+            trigger_watchlist = [{"symbol": "AAPL", "data_quality_flags": []}]
+            trigger_session = "CLOSED"
+        intents = runner.run(
+            {
+                "watchlist": trigger_watchlist,
+                "snapshots": {},
+                "session_label": trigger_session,
+                "timestamp_utc": _now(),
+                "mode": RunMode.SIM,
+                "session_phase": "OPEN",
+            }
+        ).get("trade_intents", [])
+        empty = runner.run(
+            {
+                "watchlist": [],
+                "snapshots": {},
+                "session_label": "REG",
+                "timestamp_utc": _now(),
+                "mode": RunMode.SIM,
+                "session_phase": "OPEN",
+            }
+        ).get("trade_intents", [])
         results.append((name, len(intents), len(empty), all(hasattr(i, "symbol") for i in intents)))
 
     lines = [
@@ -295,7 +297,12 @@ def phase5_full_platform_simulation() -> str:
     ]
     watchlist = scanner_output
 
-    strategies = [RossMomentumStrategyV1(), StatisticalIntradayMomentum(), MeanReversionStrategy(), LongHorizonValueStrategy()]
+    strategies = [
+        RossMomentumRunner().strategy,
+        StatisticalIntradayMomentumRunner().strategy,
+        MeanReversionRunner().strategy,
+        LongHorizonValueStrategy(),
+    ]
     runner = StrategyRunner(strategies=strategies)
     runner.receive_watchlist_snapshot(
         watchlist_symbols=[getattr(r, "symbol", "") for r in watchlist],

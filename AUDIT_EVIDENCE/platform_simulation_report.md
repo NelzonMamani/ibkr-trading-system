@@ -1,6 +1,6 @@
 # Platform Simulation Report
 
-Generated at: `2026-03-04T11:37:20.518871+00:00`
+Generated at: `2026-03-04T13:51:27.055447+00:00`
 
 Simulated chain: `scanner -> watchlist -> strategy runner -> intents -> execution admission -> simulated broker fills -> portfolio state`
 
