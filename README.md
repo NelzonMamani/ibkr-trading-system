@@ -12,3 +12,15 @@ A modular, multi-strategy algorithmic trading system designed for Interactive Br
 Mean Reversion is governed, tested, and integrated, but not yet enabled for live execution.
 
 Refer to SYSTEM_STATE.md for authoritative runtime status.
+
+## Paper Open Smoke Trade Command (P01–P04)
+
+Run the full PAPER open smoke path (scan → watchlist → runners → intents → risk gate → single order submit → audit artifacts):
+
+```bash
+scripts/run_paper_open_smoke_trade.sh
+```
+
+The verification script writes evidence to:
+
+`TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/paper_open_smoke_trade/<timestamp>/`
