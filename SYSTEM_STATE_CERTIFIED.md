@@ -132,20 +132,10 @@ Platform State: **TRADING_READY_PAPER**
 - Institutional Reconstruction Phase: COMPLETE
 - Re-Certification Phase: COMPLETE
 
-## PR343 Evidence Pointers Addendum (Non-Certification)
-- This addendum provides reproducible evidence pointers only; it does **not** assert or upgrade certification state.
-- Evidence root for this amendment set: `AUDIT_EVIDENCE/pr343_amendments/`
+## Addendum — P01/P02/P03 cadence and policy reconciliation evidence
 
-### Commands (exact)
-- `python verification_scripts/policy_registry_reconciliation.py`
-- `python verification_scripts/cadence_scheduler_smoke.py`
-- `python verification_scripts/focus_loop_intent_smoke.py`
+- `verification_scripts/policy_registry_reconciliation.py`
+- `verification_scripts/cadence_scheduler_smoke.py`
+- `verification_scripts/focus_loop_intent_smoke.py`
 
-### Expected PASS markers
-- `PASS: policy_registry_reconciliation`
-- `PASS: cadence_scheduler_smoke`
-- `PASS: focus_loop_intent_smoke`
-
-### Evidence log locations
-- `AUDIT_EVIDENCE/pr343_amendments/policy_registry_reconciliation.json`
-- Optional captured stdout/stderr logs for the three commands should also be stored under `AUDIT_EVIDENCE/pr343_amendments/`.
+These verifiers provide evidence for cadence scheduler behavior, Ross policy-vs-registry pattern coverage, and focus-loop intent emission smoke coverage.

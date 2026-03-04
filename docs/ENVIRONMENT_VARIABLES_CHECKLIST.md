@@ -108,3 +108,13 @@ One line per variable, grouped by required vs optional.
 - STRATEGY_ROSS_MOMENTUM_ENABLED
 - STRATEGY_STATISTICAL_INTRADAY_MOMENTUM_ENABLED
 - STRATEGY_MEAN_REVERSION_ENABLED
+
+## Cadence Scheduler (Institutional Loop)
+
+- `TOPN_REFRESH_SECONDS=300` — refresh Top N scanner universe every 5 minutes.
+- `WATCHLIST_REFRESH_SECONDS=60` — rebuild watchlist every 60 seconds from Top N cache.
+- `FOCUS_REFRESH_SECONDS=10` — refresh focus list every 5–10 seconds from watchlist cache (no scanner call).
+- `POSITION_MANAGEMENT_TICK_SECONDS=1` — run active-position care every second.
+- `TOPN_MAX_SYMBOLS_PER_STRATEGY=50` — per-strategy Top N size cap.
+- `WATCHLIST_MAX_SYMBOLS_PER_STRATEGY=15` — per-strategy watchlist size cap.
+- `FOCUS_MAX_SYMBOLS_PER_STRATEGY=5` — per-strategy focus size cap.

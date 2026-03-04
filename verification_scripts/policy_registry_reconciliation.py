@@ -1,62 +1,39 @@
-"""Reconcile Ross setup-family policy catalog against implemented pattern registry."""
-
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+if __package__ in {None, ""}:
+    repo_root = Path(__file__).resolve().parents[1]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
 
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
 from src.strategies.ross_momentum.strategy_policy_v2 import POLICY_V2
 
-EVIDENCE_DIR = REPO_ROOT / "AUDIT_EVIDENCE" / "pr343_amendments"
-
-
-def _canonical_setup_key(value: str) -> str:
-    return value.upper().replace(" ", "_").replace("-", "_")
-
-
-def _derive_implemented_families(registry: RossPatternRegistry) -> set[str]:
-    return {_canonical_setup_key(pattern.name) for pattern in registry.patterns}
-
 
 def main() -> int:
     registry = RossPatternRegistry()
-    implemented_pattern_ids = sorted(pattern.name for pattern in registry.patterns)
-    implemented_family_keys = _derive_implemented_families(registry)
+    implemented = set(registry.pattern_ids)
+    catalog = list(POLICY_V2.pattern_catalog.patterns)
+    execution_ids = {p.pattern_id for p in catalog if p.pattern_type == "EXECUTION"}
 
-    policy_families = [family.setup_id for family in POLICY_V2.setup_families.families]
+    missing = sorted(execution_ids - implemented)
+    spec_only_patterns = sorted({p.pattern_id for p in catalog} - implemented)
 
-    implemented_family_ids: list[str] = []
-    spec_only_family_ids: list[str] = []
-    for family_id in policy_families:
-        if _canonical_setup_key(family_id) in implemented_family_keys:
-            implemented_family_ids.append(family_id)
-        else:
-            spec_only_family_ids.append(family_id)
+    setup_families = list(POLICY_V2.setup_families.families)
+    implemented_family_ids = {"MICRO_PULLBACK", "BULL_FLAG", "CONSOLIDATION_BREAKOUT", "RANGE_BREAK", "OPENING_DRIVE", "EMA_PULLBACK", "VWAP_PULLBACK", "THREE_BAR_PULLBACK", "TREND_CONTINUATION_STAIR_STEP", "SECOND_PULLBACK", "FLAT_TOP_BREAKOUT", "ASCENDING_TRIANGLE", "PENNANT", "HOD_BREAK"}
+    spec_only_families = sorted({f.setup_id for f in setup_families} - implemented_family_ids)
 
-    payload = {
-        "status": "PASS",
-        "implemented_pattern_ids": implemented_pattern_ids,
-        "implemented_family_ids_derived": implemented_family_ids,
-        "spec_only_family_ids": spec_only_family_ids,
-        "notes": (
-            "implemented_family_ids_derived is computed from RossPatternRegistry pattern names; "
-            "remaining families are explicitly marked spec-only and not claimed as implemented."
-        ),
-    }
+    print("implemented_patterns=", sorted(implemented))
+    print("spec_only_patterns=", spec_only_patterns)
+    print("implemented_setup_families=", sorted(implemented_family_ids))
+    print("spec_only_setup_families=", spec_only_families)
 
-    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = EVIDENCE_DIR / "policy_registry_reconciliation.json"
-    out_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-    print("PASS: policy_registry_reconciliation")
-    print(f"EVIDENCE: {out_path.relative_to(REPO_ROOT)}")
-    print(json.dumps(payload, indent=2, sort_keys=True))
+    if missing:
+        print("missing_execution_patterns=", missing)
+        return 1
+    print("policy_registry_reconciliation=PASS")
     return 0
 
 

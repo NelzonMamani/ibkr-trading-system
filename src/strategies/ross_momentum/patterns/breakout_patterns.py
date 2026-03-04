@@ -21,6 +21,7 @@ def _avg_volume(candles: List, lookback: int = 5) -> float:
 
 
 class PremarketHighBreakPattern(PatternBase):
+    pattern_id = "P_PREMKT_BREAK"
     name = "Premarket High Break"
     family = PatternFamily.BREAKOUT
     direction_bias = Direction.LONG
@@ -57,6 +58,7 @@ class PremarketHighBreakPattern(PatternBase):
 
 
 class OpeningRangeBreakoutPattern(PatternBase):
+    pattern_id = "P_ORB"
     name = "Opening Range Breakout"
     family = PatternFamily.BREAKOUT
     direction_bias = Direction.LONG
@@ -93,6 +95,7 @@ class OpeningRangeBreakoutPattern(PatternBase):
 
 
 class ConsolidationBreakoutPattern(PatternBase):
+    pattern_id = "P_CONSOLIDATION_BREAK"
     name = "Consolidation Breakout"
     family = PatternFamily.RANGE
     direction_bias = Direction.LONG

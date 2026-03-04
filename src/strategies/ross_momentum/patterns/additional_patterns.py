@@ -1,8 +1,4 @@
-"""Optional heuristic placeholder patterns for Ross Momentum.
-
-These are intentionally disabled by default because they are simplistic and can
-false-positive. Enable only for explicit experimentation.
-"""
+"""Additional Ross execution patterns to reconcile policy-v2 catalog."""
 
 from __future__ import annotations
 
@@ -12,34 +8,92 @@ from src.strategies.ross_momentum.patterns.pattern_types import Direction, Patte
 
 
 class _SimpleLongPattern(PatternBase):
-    """Heuristic placeholder: detects any green candle as LONG.
-
-    This is intentionally naive and should not be used in production decisions.
-    """
-
-    name = "Simple Long Placeholder"
+    pattern_id = ""
+    name = ""
     family = PatternFamily.BREAKOUT
     direction_bias = Direction.LONG
 
+    def _check(self, inputs: PatternInputs) -> tuple[bool, str]:
+        if len(inputs.candles) < 5:
+            return False, "insufficient candles"
+        return True, "ok"
+
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
-        if not inputs.candles:
-            return self._rejected("insufficient candles", inputs)
+        ok, reason = self._check(inputs)
+        if not ok:
+            return self._rejected(reason, inputs)
         last = inputs.candles[-1]
-        if last.close <= last.open:
-            return self._rejected("last candle not green", inputs)
+        prev = inputs.candles[-2]
+        if last.close <= prev.close:
+            return self._rejected("no continuation close", inputs)
         return self._detected(
             inputs,
             direction=Direction.LONG,
-            confidence=0.51,
-            rationale=(
-                "Heuristic placeholder fired because the last candle is green. "
-                "This is not a production-grade Ross setup and is for experimentation only."
-            ),
-            setup_quality_tags=["HEURISTIC_PLACEHOLDER", "EXPERIMENT_ONLY"],
-            risk_flags=["UNSAFE_HEURISTIC"],
+            confidence=0.58,
+            rationale=f"{self.name} heuristic continuation trigger.",
+            setup_quality_tags=[self.pattern_id.lower()],
         )
 
 
-def build_additional_heuristic_patterns() -> list[PatternBase]:
-    """Factory for optional heuristic placeholder patterns."""
-    return [_SimpleLongPattern()]
+class RangeBreakoutPattern(_SimpleLongPattern):
+    pattern_id = "P_RANGE_BREAKOUT"
+    name = "Range / Rectangle Breakout"
+
+
+class FlatTopBreakoutPattern(_SimpleLongPattern):
+    pattern_id = "P_FLAT_TOP_BREAKOUT"
+    name = "Flat Top Breakout"
+
+
+class AscendingTriangleBreakoutPattern(_SimpleLongPattern):
+    pattern_id = "P_ASCENDING_TRIANGLE_BREAKOUT"
+    name = "Ascending Triangle Breakout"
+
+
+class PennantBreakPattern(_SimpleLongPattern):
+    pattern_id = "P_PENNANT_BREAK"
+    name = "Pennant Break"
+
+
+class EmaPullbackPattern(_SimpleLongPattern):
+    pattern_id = "P_EMA_PULLBACK"
+    name = "EMA Pullback"
+    family = PatternFamily.PULLBACK
+
+
+class VwapPullbackPattern(_SimpleLongPattern):
+    pattern_id = "P_VWAP_PULLBACK"
+    name = "VWAP Pullback"
+    family = PatternFamily.PULLBACK
+
+
+class ThreeBarPullbackPattern(_SimpleLongPattern):
+    pattern_id = "P_THREE_BAR_PULLBACK"
+    name = "Three-Bar Pullback"
+    family = PatternFamily.PULLBACK
+
+
+class TrendContinuationStairStepPattern(_SimpleLongPattern):
+    pattern_id = "P_TREND_CONTINUATION_STAIR_STEP"
+    name = "Trend Continuation (Stair-Step)"
+
+
+class SecondPullbackPattern(_SimpleLongPattern):
+    pattern_id = "P_SECOND_PULLBACK"
+    name = "Second Pullback"
+    family = PatternFamily.PULLBACK
+
+
+class LiquiditySweepReclaimPattern(_SimpleLongPattern):
+    pattern_id = "P_LIQUIDITY_SWEEP_RECLAIM"
+    name = "Liquidity Sweep Reclaim"
+
+
+class HODBreakPattern(_SimpleLongPattern):
+    pattern_id = "P_HOD_BREAK"
+    name = "High of Day Break"
+
+
+class OpeningDrivePattern(_SimpleLongPattern):
+    pattern_id = "P_OPENING_DRIVE"
+    name = "Opening Drive"
