@@ -1,0 +1,23 @@
+[CONFIG] Loaded 152 variables
+[CONFIG] HARD enforced: 30
+[CONFIG] Optional: 121
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+PAPER OPEN SMOKE TRADE — PREFLIGHT
+  timestamp_utc: 2026-03-04T14:23:57.218599+00:00
+  run_mode: LIVE
+  execution_enabled: False
+  broker: IBKR socket API
+  host: 127.0.0.1
+  paper_port: 7497
+  configured_live_port: 7496
+  global_ibkr_port: 7497
+  order_translation_enabled: False
+  order_submission_enabled: False
+  read_only_enabled: False
+  kill_switch: False
+  account_type: UNKNOWN
+  account: UNKNOWN
+[FAIL] RUN_MODE must be PAPER.
+[EVIDENCE] /workspace/ibkr-trading-system/TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/paper_open_smoke_trade/20260304T142357Z
