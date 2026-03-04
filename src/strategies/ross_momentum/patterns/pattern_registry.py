@@ -4,6 +4,20 @@ from __future__ import annotations
 
 from typing import List
 
+from src.strategies.ross_momentum.patterns.additional_patterns import (
+    AscendingTriangleBreakoutPattern,
+    EmaPullbackPattern,
+    FlatTopBreakoutPattern,
+    HODBreakPattern,
+    LiquiditySweepReclaimPattern,
+    OpeningDrivePattern,
+    PennantBreakPattern,
+    RangeBreakoutPattern,
+    SecondPullbackPattern,
+    ThreeBarPullbackPattern,
+    TrendContinuationStairStepPattern,
+    VwapPullbackPattern,
+)
 from src.strategies.ross_momentum.patterns.breakout_patterns import (
     ConsolidationBreakoutPattern,
     OpeningRangeBreakoutPattern,
@@ -27,6 +41,18 @@ class RossPatternRegistry:
             MicroPullbackPattern(),
             BullFlagPattern(),
             ConsolidationBreakoutPattern(),
+            RangeBreakoutPattern(),
+            FlatTopBreakoutPattern(),
+            AscendingTriangleBreakoutPattern(),
+            PennantBreakPattern(),
+            EmaPullbackPattern(),
+            VwapPullbackPattern(),
+            ThreeBarPullbackPattern(),
+            TrendContinuationStairStepPattern(),
+            SecondPullbackPattern(),
+            LiquiditySweepReclaimPattern(),
+            HODBreakPattern(),
+            OpeningDrivePattern(),
             FailedBreakoutPattern(),
         ]
 
@@ -36,3 +62,7 @@ class RossPatternRegistry:
 
     def run(self, inputs: PatternInputs) -> List[PatternResult]:
         return [pattern.evaluate(inputs) for pattern in self._patterns]
+
+    @property
+    def pattern_ids(self) -> List[str]:
+        return [getattr(pattern, "pattern_id", "") or pattern.name for pattern in self._patterns]

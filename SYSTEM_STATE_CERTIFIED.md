@@ -131,3 +131,11 @@ Platform State: **TRADING_READY_PAPER**
 - P01–P20: FULLY_CERTIFIED
 - Institutional Reconstruction Phase: COMPLETE
 - Re-Certification Phase: COMPLETE
+
+## Addendum — P01/P02/P03 cadence and policy reconciliation evidence
+
+- `verification_scripts/policy_registry_reconciliation.py`
+- `verification_scripts/cadence_scheduler_smoke.py`
+- `verification_scripts/focus_loop_intent_smoke.py`
+
+These verifiers provide evidence for cadence scheduler behavior, Ross policy-vs-registry pattern coverage, and focus-loop intent emission smoke coverage.

@@ -24,6 +24,7 @@ def _avg_volume(candles: List, lookback: int = 5) -> float:
 
 
 class MicroPullbackPattern(PatternBase):
+    pattern_id = "P_MICRO_PULLBACK"
     name = "Micro Pullback"
     family = PatternFamily.PULLBACK
     direction_bias = Direction.LONG
@@ -77,6 +78,7 @@ class MicroPullbackPattern(PatternBase):
 
 
 class BullFlagPattern(PatternBase):
+    pattern_id = "P_BULL_FLAG"
     name = "Bull Flag"
     family = PatternFamily.PULLBACK
     direction_bias = Direction.LONG

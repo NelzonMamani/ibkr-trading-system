@@ -11,6 +11,7 @@ from src.strategies.ross_momentum.patterns.pattern_types import Direction, Patte
 
 class PatternBase(ABC):
     name: str
+    pattern_id: str = ""
     family: PatternFamily
     direction_bias: Direction
 
@@ -31,7 +32,7 @@ class PatternBase(ABC):
             f"[PATTERN] {inputs.symbol} {self.name} not detected (reason={reason})"
         )
         return PatternResult(
-            setup_id=self.name,
+            setup_id=self.pattern_id or self.name,
             pattern_name=self.name,
             pattern_family=self.family,
             detected=False,
@@ -73,7 +74,7 @@ class PatternBase(ABC):
         for line in rationale.split("\n"):
             print(f"  - {line}")
         return PatternResult(
-            setup_id=self.name,
+            setup_id=self.pattern_id or self.name,
             pattern_name=self.name,
             pattern_family=self.family,
             detected=True,
