@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import List
 
+from src.config.config_resolver import get_config
+
+from src.strategies.ross_momentum.patterns.additional_patterns import (
+    build_additional_heuristic_patterns,
+)
 from src.strategies.ross_momentum.patterns.breakout_patterns import (
     ConsolidationBreakoutPattern,
     OpeningRangeBreakoutPattern,
@@ -29,6 +34,13 @@ class RossPatternRegistry:
             ConsolidationBreakoutPattern(),
             FailedBreakoutPattern(),
         ]
+
+        if get_config("ROSS_ENABLE_ADDITIONAL_HEURISTIC_PATTERNS"):
+            print(
+                "[ROSS][WARN] Enabling additional heuristic placeholder patterns. "
+                "These are experimental and may false-positive."
+            )
+            self._patterns.extend(build_additional_heuristic_patterns())
 
     @property
     def patterns(self) -> List[PatternBase]:

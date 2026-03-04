@@ -1224,6 +1224,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Maximum ticks a trade may remain open.",
     },
+    "ROSS_ENABLE_ADDITIONAL_HEURISTIC_PATTERNS": {
+        "type": bool,
+        "default": False,
+        "env": ["ROSS_ENABLE_ADDITIONAL_HEURISTIC_PATTERNS"],
+        "affects": ["RossPatternRegistry"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Enable additional Ross heuristic placeholder patterns (experimental; false-positive risk).",
+    },
     "ROSS_MOMENTUM_STRATEGY_ENABLED": {
         "type": bool,
         "default": True,   # default was False
