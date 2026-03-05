@@ -1,36 +1,46 @@
-"""Registry of enabled Ross Momentum patterns."""
+"""Registry of enabled Ross Momentum setup families."""
 
 from __future__ import annotations
 
 from typing import List
 
-from src.strategies.ross_momentum.patterns.additional_patterns import (
+from src.config.config_resolver import get_config
+from src.setup_engine.setup_families import (
     AscendingTriangleBreakoutPattern,
+    BullFlagPattern,
+    VolumeClimaxPattern,
+    ThreeSoldiersCrowsPattern,
+    MarubozuPattern,
+    LongUpperWickPattern,
+    GapFillReversalPattern,
+    EngulfingPattern,
+    ClimaxTopPattern,
+    ConsolidationBreakoutPattern,
     EmaPullbackPattern,
+    FailedBreakoutPattern,
+    FailedOrbFakeoutPattern,
     FlatTopBreakoutPattern,
     HODBreakPattern,
     LiquiditySweepReclaimPattern,
+    MicroPullbackPattern,
     OpeningDrivePattern,
+    OpeningRangeBreakoutPattern,
     PennantBreakPattern,
+    PremarketHighBreakPattern,
     RangeBreakoutPattern,
     SecondPullbackPattern,
     ThreeBarPullbackPattern,
     TrendContinuationStairStepPattern,
     VwapPullbackPattern,
 )
-from src.strategies.ross_momentum.patterns.breakout_patterns import (
-    ConsolidationBreakoutPattern,
-    OpeningRangeBreakoutPattern,
-    PremarketHighBreakPattern,
-)
-from src.strategies.ross_momentum.patterns.momentum_patterns import (
-    BullFlagPattern,
-    MicroPullbackPattern,
-)
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import PatternResult
-from src.strategies.ross_momentum.patterns.reversal_patterns import FailedBreakoutPattern
+
+
+def build_additional_heuristic_patterns() -> List[PatternBase]:
+    """Optional experimental families; kept empty for deterministic runtime behavior."""
+    return []
 
 
 class RossPatternRegistry:
@@ -54,6 +64,14 @@ class RossPatternRegistry:
             HODBreakPattern(),
             OpeningDrivePattern(),
             FailedBreakoutPattern(),
+            EngulfingPattern(),
+            LongUpperWickPattern(),
+            MarubozuPattern(),
+            ThreeSoldiersCrowsPattern(),
+            ClimaxTopPattern(),
+            FailedOrbFakeoutPattern(),
+            GapFillReversalPattern(),
+            VolumeClimaxPattern(),
         ]
 
         if get_config("ROSS_ENABLE_ADDITIONAL_HEURISTIC_PATTERNS"):

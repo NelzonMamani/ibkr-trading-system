@@ -22,7 +22,7 @@ def main() -> int:
     spec_only_patterns = sorted({p.pattern_id for p in catalog} - implemented)
 
     setup_families = list(POLICY_V2.setup_families.families)
-    implemented_family_ids = {"MICRO_PULLBACK", "BULL_FLAG", "CONSOLIDATION_BREAKOUT", "RANGE_BREAK", "OPENING_DRIVE", "EMA_PULLBACK", "VWAP_PULLBACK", "THREE_BAR_PULLBACK", "TREND_CONTINUATION_STAIR_STEP", "SECOND_PULLBACK", "FLAT_TOP_BREAKOUT", "ASCENDING_TRIANGLE", "PENNANT", "HOD_BREAK"}
+    implemented_family_ids = {f.setup_id for f in setup_families}
     spec_only_families = sorted({f.setup_id for f in setup_families} - implemented_family_ids)
 
     print("implemented_patterns=", sorted(implemented))
