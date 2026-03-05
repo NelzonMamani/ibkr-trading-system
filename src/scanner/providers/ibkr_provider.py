@@ -71,7 +71,7 @@ class IbkrScannerProvider(ScannerDataProvider):
             f"abovePrice={above_price} belowPrice={below_price}"
         )
 
-        scan_data = self.market_data_client.ib.reqScannerData(subscription)
+        scan_data = self.market_data_client.request_scanner_data(subscription)
         scan_items = scan_data or []
         self.last_scan_details = {}
         returned_rows = len(scan_items)

@@ -149,3 +149,9 @@ These verifiers provide evidence for cadence scheduler behavior, Ross policy-vs-
 - `verification_scripts/p01_all_setup_families_trigger_harness.py`
 - Evidence path: `AUDIT_EVIDENCE/p01_setup_family_sprint/all_families_trigger_harness.json`
 
+
+## Addendum — P01 premarket prep/session override hardening evidence (non-certification)
+
+- This addendum records operational readiness evidence only; it does **not** upgrade platform certification state.
+- `verification_scripts/p01_premarket_prep_smoke.py`
+- Evidence path: `AUDIT_EVIDENCE/p01_premarket_prep/premarket_prep_watchlist.json`

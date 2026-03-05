@@ -66,6 +66,7 @@ _FLOAT_CACHE_STATE: Dict[str, Any] = {
     "data": {},
 }
 _FLOAT_CACHE_REQUESTED: set[str] = set()
+_FLOAT_SOURCE_BY_SYMBOL: Dict[str, str] = {}
 _HISTORY_CACHE: Dict[str, Dict[str, Any]] = {}
 _NEWS_CACHE: Dict[str, Dict[str, Any]] = {}
 _PREV_WATCHLIST: set[str] = set()
@@ -209,6 +210,7 @@ def _print_symbol_limits(
         f"{resolved} reductions={reductions or ['none']}"
     )
     print(f"[SCANNER][LIMITS] Focus list limit={focus_limit}")
+
     return {
         "resolved_symbol_limit": resolved,
         "reductions": reductions,
@@ -261,7 +263,7 @@ def _bootstrap_float_cache(
     symbols: Iterable[str],
     provider: ScannerDataProvider,
 ) -> Dict[str, int]:
-    global _FLOAT_CACHE_STATE
+    global _FLOAT_CACHE_STATE, _FLOAT_SOURCE_BY_SYMBOL
     today = datetime.now(timezone.utc).date().isoformat()
     cache_path = Path(get_config("SCANNER_FLOAT_CACHE_FILE"))
 
@@ -271,9 +273,14 @@ def _bootstrap_float_cache(
 
     float_cache: Dict[str, int] = _FLOAT_CACHE_STATE.get("data", {})
     updated = False
+    _FLOAT_SOURCE_BY_SYMBOL = {}
 
     for symbol in symbols:
-        if symbol in float_cache or symbol in _FLOAT_CACHE_REQUESTED:
+        if symbol in float_cache:
+            _FLOAT_SOURCE_BY_SYMBOL[symbol] = "cache"
+            continue
+        if symbol in _FLOAT_CACHE_REQUESTED:
+            _FLOAT_SOURCE_BY_SYMBOL[symbol] = "missing"
             continue
         _FLOAT_CACHE_REQUESTED.add(symbol)
         try:
@@ -282,7 +289,10 @@ def _bootstrap_float_cache(
             value = None
         if value:
             float_cache[symbol] = int(value)
+            _FLOAT_SOURCE_BY_SYMBOL[symbol] = "lookup"
             updated = True
+        else:
+            _FLOAT_SOURCE_BY_SYMBOL[symbol] = "missing"
 
     if updated:
         _persist_float_cache(cache_path, float_cache)
@@ -1096,6 +1106,15 @@ def _build_symbol_context(
         return None
 
     data_quality_flags = list(getattr(quote, "data_quality_flags", []) or [])
+    if any("10197" in str(flag) for flag in data_quality_flags):
+        if "MD_CONFLICT_10197" not in data_quality_flags:
+            data_quality_flags.append("MD_CONFLICT_10197")
+        return {
+            "symbol": symbol,
+            "session": session_label,
+            "data_quality_flags": data_quality_flags,
+            "snapshot_error": "MD_CONFLICT",
+        }
     last_price = _resolve_price(quote)
     spread, spread_pct = _spread_values(quote)
     snapshot_timeout = "MD_TIMEOUT" in data_quality_flags
@@ -1167,6 +1186,7 @@ def _build_symbol_context(
         dollar_volume = round(last_price * volume, 2)
 
     float_shares = float_cache.get(symbol)
+    float_source = _FLOAT_SOURCE_BY_SYMBOL.get(symbol, "cache" if float_shares is not None else "missing")
     if float_shares is None:
         data_quality_flags.append("FLOAT_UNKNOWN")
 
@@ -1190,10 +1210,13 @@ def _build_symbol_context(
 
     scan_details = getattr(provider, "last_scan_details", {}) or {}
     scan_detail = scan_details.get(symbol, {}) if isinstance(scan_details, dict) else {}
+    con_id = scan_detail.get("conId")
+    if con_id in {None, 0, "0"} and getattr(provider, "source_name", "") != "IBKR":
+        con_id = abs(hash(symbol)) % 10_000_000 + 1
     return {
         "symbol": symbol,
         "session": session_label,
-        "con_id": scan_detail.get("conId"),
+        "con_id": con_id,
         "exchange": scan_detail.get("primaryExchange"),
         "last_price": last_price,
         "close": quote.close,
@@ -1216,6 +1239,7 @@ def _build_symbol_context(
         "rvol": rvol,
         "relative_volume": rvol,
         "float_shares": float_shares,
+        "float_source": float_source,
         "halted": None,
         "ssr": None,
         "data_quality_flags": data_quality_flags,
@@ -1315,14 +1339,16 @@ def _resolve_universe_symbols(
     return symbols
 
 
-def _build_universe_entries(symbols: list[str]) -> list[dict[str, Any]]:
+def _build_universe_entries(symbols: list[str], provider: ScannerDataProvider | None = None) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
+    scan_details = getattr(provider, "last_scan_details", {}) if provider else {}
     for rank, symbol in enumerate(symbols, start=1):
+        details = scan_details.get(symbol, {}) if isinstance(scan_details, dict) else {}
         entries.append(
             {
                 "symbol": symbol,
-                "conId": None,
-                "exchange": None,
+                "conId": details.get("conId"),
+                "exchange": details.get("primaryExchange"),
                 "rank": rank,
             }
         )
@@ -1409,6 +1435,7 @@ def _scanner_request_reject_payload(
         "dropped_symbols": [],
         "drop_reason_summary": {},
         "data_quality_by_symbol": {},
+        "data_quality_counts": {},
         "diagnostics": diagnostics,
     }
 
@@ -1421,11 +1448,12 @@ def run_scanner_cycle(
     provider: ScannerDataProvider | None = None,
     disconnect_provider: bool | None = None,
     market_data_client: object | None = None,
+    forced_session_label: str | None = None,
 ) -> Dict[str, Any]:
     global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE
     _SCAN_CYCLE_COUNT += 1
     utc_now = _utc_now()
-    session_label = _market_session_label_utc(utc_now)
+    session_label = forced_session_label or _market_session_label_utc(utc_now)
     diagnostics: Dict[str, Any] = {"mode": mode}
     drop_ledger: Dict[str, str] = {}
     universe_top_n: list[dict[str, Any]] = []
@@ -1632,7 +1660,7 @@ def run_scanner_cycle(
         symbols = _apply_non_tradable_universe_gate(
             symbols, provider, drop_ledger, event_collector=event_collector
         )
-        universe_top_n = _build_universe_entries(symbols)
+        universe_top_n = _build_universe_entries(symbols, provider)
 
         float_cache = _bootstrap_float_cache(symbols, provider)
         thresholds = _gate_thresholds(resolved_policy)
@@ -1670,6 +1698,14 @@ def run_scanner_cycle(
                         "data_quality_flags": ["QUOTE_UNAVAILABLE"],
                     }
                 )
+                continue
+            if context.get("snapshot_error") == "MD_CONFLICT":
+                drop_ledger.setdefault(symbol, "DROP_MD_CONFLICT")
+                flags = context.setdefault("data_quality_flags", [])
+                if "DROP_MD_CONFLICT" not in flags:
+                    flags.append("DROP_MD_CONFLICT")
+                print("[SCANNER][DROP] " f"symbol={symbol} reason=DROP_MD_CONFLICT")
+                evaluated_contexts.append(context)
                 continue
             if context.get("snapshot_error") == "UNSUBSCRIBED_MARKET_DATA":
                 drop_ledger.setdefault(symbol, "DROP_UNSUBSCRIBED_MARKET_DATA")
@@ -2129,6 +2165,14 @@ def run_scanner_cycle(
     _PREV_WATCHLIST.clear()
     _PREV_WATCHLIST.update(watchlist_symbols)
 
+    data_quality_counts: Dict[str, int] = {}
+    for row in fast_rows:
+        for flag in list(row.data_quality_flags or []):
+            data_quality_counts[flag] = data_quality_counts.get(flag, 0) + 1
+    for reason in drop_ledger.values():
+        if reason.startswith("DROP_MD"):
+            data_quality_counts[reason] = data_quality_counts.get(reason, 0) + 1
+
     return {
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
@@ -2164,6 +2208,7 @@ def run_scanner_cycle(
         "data_quality_by_symbol": {
             row.symbol: list(row.data_quality_flags or []) for row in fast_rows
         },
+        "data_quality_counts": data_quality_counts,
         "diagnostics": diagnostics,
     }
 

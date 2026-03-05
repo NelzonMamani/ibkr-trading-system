@@ -19,6 +19,7 @@ from src.core_engine.health import HealthStatus, combine_health
 from src.core_engine.state import CycleContext, resolve_session_state
 from src.core.intent import build_execution_intent
 from src.execution.order_router import execute_intents
+from src.prep.premarket_prep_artifact import write_premarket_prep_artifact
 from src.risk.risk_audit import evaluate_trade_intents
 from src.runtime.bootstrap import bootstrap_runtime
 from src.scanner.contracts import StockSelectionPolicy
@@ -138,9 +139,14 @@ def _build_synthetic_inputs(
     )
 
 
-def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
+def run_cycle(
+    cycle_id: int,
+    mode_value: str,
+    forced_session_state=None,
+) -> CycleSummary:
     mode = resolve_mode(mode_value)
-    session = resolve_session_state()
+    resolved_session = resolve_session_state()
+    session = forced_session_state or resolved_session
     now = utc_now()
     context = CycleContext(
         cycle_id=cycle_id,
@@ -149,6 +155,7 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
         timestamp=now.isoformat(),
     )
 
+    print(f"[SESSION] resolved={resolved_session.value} forced={forced_session_state.value if forced_session_state else 'none'} used={session.value}")
     print_section(f"CYCLE {cycle_id} MODE={mode.value} SESSION={session.value}")
     strategy_policy, scanner_policy = _scanner_policy_for_session(session.value)
     scanner_request = _scanner_request_for_policy(
@@ -193,6 +200,7 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
         mode=mode.value,
         policy=scanner_policy,
         scanner_request=scanner_request,
+        forced_session_label=session.value,
     )
     watchlist = scanner_payload.get("watchlist_k_symbols", [])
     focus = scanner_payload.get("focus_m_symbols", [])
@@ -219,6 +227,14 @@ def run_cycle(cycle_id: int, mode_value: str) -> CycleSummary:
         f"K={len(watchlist)} M={len(focus)}"
     )
     print_watchlist_focus(watchlist, focus, drop_summary)
+
+    if session.value in {"PRE", "AFTER"}:
+        write_premarket_prep_artifact(
+            mode=mode.value,
+            session=session.value,
+            scanner_payload=scanner_payload,
+            watchlist_k=scanner_policy.watchlist_limit_k,
+        )
 
     scanner_artifact = ScannerArtifact(
         context=context,

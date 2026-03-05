@@ -5,8 +5,6 @@ from __future__ import annotations
 import argparse
 import subprocess
 import time
-from typing import Callable
-
 from src.core_engine import orchestrator as core_orchestrator
 from src.core_engine.state import SessionState
 from src.runtime.bootstrap import bootstrap_runtime
@@ -34,17 +32,16 @@ def _run_preflight() -> None:
             raise SystemExit(completed.returncode)
 
 
-def _override_session(session_override: str | None) -> Callable[[], SessionState]:
+def _forced_session(session_override: str | None) -> SessionState | None:
     if session_override is None:
-        return core_orchestrator.resolve_session_state
+        return None
     mapping = {
         "PRE": SessionState.PRE,
         "REGULAR": SessionState.REG,
         "AFTER": SessionState.AFTER,
         "OVN": SessionState.AFTER,
     }
-    forced = mapping[session_override]
-    return lambda now=None: forced
+    return mapping[session_override]
 
 
 def main() -> int:
@@ -54,13 +51,16 @@ def main() -> int:
 
     bootstrap_runtime()
 
-    original_resolver = core_orchestrator.resolve_session_state
-    core_orchestrator.resolve_session_state = _override_session(args.session_override)
+    forced_session = _forced_session(args.session_override)
 
     cycle_id = 1
     try:
         while args.max_cycles == 0 or cycle_id <= args.max_cycles:
-            core_orchestrator.run_cycle(cycle_id=cycle_id, mode_value=args.mode)
+            core_orchestrator.run_cycle(
+                cycle_id=cycle_id,
+                mode_value=args.mode,
+                forced_session_state=forced_session,
+            )
             cycle_id += 1
             if args.max_cycles and cycle_id > args.max_cycles:
                 break
@@ -68,7 +68,6 @@ def main() -> int:
     except KeyboardInterrupt:
         print("[LOOP] KeyboardInterrupt received; shutting down gracefully.")
     finally:
-        core_orchestrator.resolve_session_state = original_resolver
         time.sleep(0.05)
 
     return 0
