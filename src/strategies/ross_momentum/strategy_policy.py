@@ -174,6 +174,25 @@ class RiskAndPermissions:
 
 
 @dataclass(frozen=True)
+class CapitalDeploymentConfig:
+    """Capital deployment controls for Ross Momentum sizing."""
+
+    use_full_available_funds: bool = True
+    max_position_fraction_of_account: float = 1.0
+    max_simultaneous_positions: int = 1
+    capital_source: str = "AVAILABLE_FUNDS"
+    override_generic_portfolio_caps: bool = True
+
+
+@dataclass(frozen=True)
+class RiskModelConfig:
+    """Risk model settings that coexist with full-capital sizing support."""
+
+    risk_per_trade_fraction: float = 0.01
+    allow_full_capital_deployment: bool = True
+
+
+@dataclass(frozen=True)
 class RossMomentumPolicy:
     """Top-level policy used by the Orchestrator and Runner."""
 
@@ -204,6 +223,8 @@ class RossMomentumPolicy:
     topping_risk: ToppingRiskSpec = ToppingRiskSpec()
     indicator_gates: IndicatorGates = IndicatorGates()
     risk: RiskAndPermissions = RiskAndPermissions()
+    capital_deployment: CapitalDeploymentConfig = CapitalDeploymentConfig()
+    risk_model: RiskModelConfig = RiskModelConfig()
 
     # Scanner/Universe policy belongs here; orchestrator imports it and passes it to scanner.
     stock_selection: "StockSelectionSpec" = field(
