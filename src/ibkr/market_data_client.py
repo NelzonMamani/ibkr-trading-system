@@ -111,6 +111,32 @@ class MarketDataClient:
         self.default_currency = default_currency or get_ibkr_default_currency()
         IB, _, _ = safe_import_ib_insync()
         self.ib = IB()
+        self._scanner_results_received = False
+        self._scanner_request_active = False
+        self._recent_error_codes: dict[str, int] = {}
+        try:
+            self.ib.errorEvent += self._on_ib_error
+        except Exception:
+            pass
+
+
+    def _on_ib_error(self, req_id, error_code, error_string, contract=None) -> None:
+        code = str(error_code)
+        self._recent_error_codes[code] = self._recent_error_codes.get(code, 0) + 1
+        if int(error_code) == 162 and self._scanner_results_received and not self._scanner_request_active:
+            print(f"[IBKR][INFO] code=162 msg={error_string} context=scanner_cancel_after_results")
+        elif int(error_code) in {10197}:
+            print(f"[IBKR][WARN] code={error_code} msg={error_string}")
+
+    def request_scanner_data(self, subscription):
+        self._scanner_request_active = True
+        self._scanner_results_received = False
+        try:
+            rows = self.ib.reqScannerData(subscription)
+            self._scanner_results_received = bool(rows)
+            return rows
+        finally:
+            self._scanner_request_active = False
 
     def connect(self) -> None:
         if self.ib.isConnected():
@@ -262,6 +288,8 @@ class MarketDataClient:
                 f"volume={volume} vwap={vwap} high={high} low={low} open={open_price}"
             )
         spread = (ask - bid) if bid is not None and ask is not None else None
+        if self._recent_error_codes.get("10197"):
+            flags.append("MD_CONFLICT_10197")
         if bid is None and ask is None and last is None:
             flags.append("MD_EMPTY")
         if last is None:
