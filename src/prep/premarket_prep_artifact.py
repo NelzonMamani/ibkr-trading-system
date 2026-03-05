@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any
 
 
+CANONICAL_PREP_ARTIFACT_PATH = Path("data/prep/premarket_prep.json")
+
+
 def _to_dict(row: Any) -> dict[str, Any]:
     if isinstance(row, dict):
         return row
@@ -74,3 +77,21 @@ def write_premarket_prep_artifact(*, mode: str, session: str, scanner_payload: d
     print(f"PREMARKET_PREP_WATCHLIST_K (K={len(shortlist)}): {[item['symbol'] for item in shortlist]}")
     print(f"FLOAT_CACHE: hit={float_hit} miss={float_lookup} unknown={float_unknown}")
     return evidence
+
+
+def load_canonical_premarket_prep_artifact(path: Path = CANONICAL_PREP_ARTIFACT_PATH) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def write_canonical_premarket_prep_artifact(payload: dict[str, Any], path: Path = CANONICAL_PREP_ARTIFACT_PATH) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path

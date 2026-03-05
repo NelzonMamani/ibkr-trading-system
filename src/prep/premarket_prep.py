@@ -134,6 +134,82 @@ class PreMarketPrepEngine:
             return None
         return self._cache.get(symbol.upper())
 
+    def hydrate_from_artifact(self, symbols: Sequence[dict]) -> int:
+        now = datetime.now(timezone.utc)
+        restored = 0
+        for entry in symbols:
+            symbol = str(entry.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            snapshot = PrepSnapshot(symbol=symbol)
+            float_value = entry.get("float")
+            try:
+                snapshot.float_shares = int(float_value) if float_value is not None else None
+            except (TypeError, ValueError):
+                snapshot.float_shares = None
+            snapshot.float_asof = now
+            snapshot.levels = PrepLevels(
+                prior_high=entry.get("premarket_high"),
+                prior_low=entry.get("premarket_low"),
+                gap_pct=entry.get("gap"),
+            )
+            snapshot.levels_asof = now
+            news_context = entry.get("news_context") or []
+            if isinstance(news_context, list):
+                snapshot.news = [
+                    Headline(
+                        title=str(item.get("title") or ""),
+                        source=str(item.get("source") or ""),
+                        published_at=_parse_datetime(item.get("published_at")) or now,
+                        url=str(item.get("url") or ""),
+                        symbols=[symbol],
+                    )
+                    for item in news_context
+                    if isinstance(item, dict)
+                ]
+            snapshot.news_asof = now
+            self._cache[symbol] = snapshot
+            restored += 1
+        self._evict_excess()
+        return restored
+
+    def build_artifact_payload(self, symbols: Sequence[str]) -> dict:
+        now = datetime.now(timezone.utc).isoformat()
+        rows = []
+        for symbol in symbols:
+            snapshot = self.get_snapshot(symbol)
+            if snapshot is None:
+                rows.append(
+                    {
+                        "symbol": symbol,
+                        "premarket_high": None,
+                        "premarket_low": None,
+                        "gap": None,
+                        "float": None,
+                        "news_context": [],
+                    }
+                )
+                continue
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "premarket_high": snapshot.levels.prior_high,
+                    "premarket_low": snapshot.levels.prior_low,
+                    "gap": snapshot.levels.gap_pct,
+                    "float": snapshot.float_shares,
+                    "news_context": [
+                        {
+                            "title": item.title,
+                            "source": item.source,
+                            "published_at": item.published_at.isoformat(),
+                            "url": item.url,
+                        }
+                        for item in snapshot.news
+                    ],
+                }
+            )
+        return {"timestamp": now, "symbols": rows}
+
     def _cleanup_expired(self, now: datetime) -> None:
         for symbol, snapshot in list(self._cache.items()):
             if (
@@ -197,3 +273,13 @@ class PreMarketPrepEngine:
             source="PreMarketPrep",
             payload=payload,
         )
+
+
+def _parse_datetime(raw: object) -> Optional[datetime]:
+    if not isinstance(raw, str) or not raw:
+        return None
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None

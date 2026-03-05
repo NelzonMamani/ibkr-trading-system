@@ -86,6 +86,11 @@ from src.strategy_portfolio.adapters.ross_momentum_adapter import (
     ross_trade_intents_to_decision_intents,
 )
 from src.prep.premarket_prep import PreMarketPrepEngine
+from src.prep.premarket_prep_artifact import (
+    CANONICAL_PREP_ARTIFACT_PATH,
+    load_canonical_premarket_prep_artifact,
+    write_canonical_premarket_prep_artifact,
+)
 from src.events.event_invariants import check_invariants, EventInvariantError
 from src.strategies.ross_momentum.strategy_context_schema import (
     StrategyContext,
@@ -292,6 +297,7 @@ class CoreOrchestrator:
         self._daily_loss_hard_stop_date: Optional[str] = None
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
         self._run_startup_validations()
+        self._ensure_premarket_prep_artifact()
         try:
             self.learning_scheduler.on_startup()
         except Exception as exc:
@@ -1408,6 +1414,7 @@ class CoreOrchestrator:
                 gap_pct_by_symbol=gap_pct_by_symbol,
                 reason="SCANNER_UNIVERSE_SNAPSHOT",
             )
+            self._write_current_prep_artifact(prep_symbols)
         try:
             stored = self.storage_engine.store_watchlist(
                 strategy_name=str(scanner_policy.policy_name),
@@ -2594,6 +2601,32 @@ class CoreOrchestrator:
             if self.storage_engine._store is None:
                 raise RuntimeError("Storage engine failed to open SQLite store")
             print("[VALIDATION] Storage OK — SQLite opened")
+
+    def _write_current_prep_artifact(self, symbols: list[str]) -> None:
+        payload = self.prep_engine.build_artifact_payload(symbols)
+        out_path = write_canonical_premarket_prep_artifact(payload)
+        print(f"[PREP] artifact written path={out_path}")
+
+    def _ensure_premarket_prep_artifact(self) -> None:
+        existing = load_canonical_premarket_prep_artifact()
+        if existing:
+            restored = self.prep_engine.hydrate_from_artifact(existing.get("symbols") or [])
+            print(f"[PREP] artifact found path={CANONICAL_PREP_ARTIFACT_PATH} restored_symbols={restored}")
+            return
+
+        print("[PREP] artifact missing — running preparation engine")
+        symbols_raw = get_config("SCANNER_SYMBOLS") or []
+        symbols = [str(symbol).upper() for symbol in symbols_raw if str(symbol).strip()]
+        if not symbols:
+            symbols = ["SPY", "QQQ"]
+        try:
+            self.prep_engine.update_from_universe(symbols, reason="STARTUP_DETERMINISTIC_PREP")
+            payload = self.prep_engine.build_artifact_payload(symbols)
+            out_path = write_canonical_premarket_prep_artifact(payload)
+            print(f"[PREP] preparation complete watchlist_size={len(payload.get('symbols', []))}")
+            print(f"[PREP] artifact written path={out_path}")
+        except Exception as exc:
+            print(f"[PREP][ERROR] reason={exc}")
 
     def _resolve_market_data_status(self) -> tuple[str, bool]:
         if self.scanner_mode == "TEACHING" or self.run_mode in {RunMode.SIM, RunMode.PAPER}:
