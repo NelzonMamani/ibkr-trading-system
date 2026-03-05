@@ -60,6 +60,9 @@
   ],
   "missing": [],
   "spec_only": [],
+  "disabled": [
+    "HALT_RESUME"
+  ],
   "statuses": {
     "GAP_GO": {
       "status": "TRADE_READY",

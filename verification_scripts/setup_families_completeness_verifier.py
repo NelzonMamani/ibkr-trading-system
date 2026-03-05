@@ -24,11 +24,19 @@ def main() -> int:
         if CANONICAL_SETUP_REGISTRY[setup_id].status == SetupImplementationStatus.SPEC_ONLY
     ]
 
+    disabled = [
+        setup_id
+        for setup_id in policy_ids
+        if setup_id in CANONICAL_SETUP_REGISTRY
+        and CANONICAL_SETUP_REGISTRY[setup_id].status == SetupImplementationStatus.DISABLED
+    ]
+
     evidence = {
         "policy_setup_ids": policy_ids,
         "registry_setup_ids": sorted(CANONICAL_SETUP_REGISTRY.keys()),
         "missing": missing,
         "spec_only": spec_only,
+        "disabled": disabled,
         "statuses": {
             setup_id: {
                 "status": CANONICAL_SETUP_REGISTRY[setup_id].status.value,

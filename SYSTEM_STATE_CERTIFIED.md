@@ -146,4 +146,6 @@ These verifiers provide evidence for cadence scheduler behavior, Ross policy-vs-
 - `python verification_scripts/setup_families_completeness_verifier.py`
 - `python verification_scripts/ross_trade_ready_smoke.py`
 - Evidence path: `AUDIT_EVIDENCE/p01_setup_family_sprint/setup_families_completeness.json`
+- `verification_scripts/p01_all_setup_families_trigger_harness.py`
+- Evidence path: `AUDIT_EVIDENCE/p01_setup_family_sprint/all_families_trigger_harness.json`
 
