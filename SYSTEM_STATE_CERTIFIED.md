@@ -139,3 +139,11 @@ Platform State: **TRADING_READY_PAPER**
 - `verification_scripts/focus_loop_intent_smoke.py`
 
 These verifiers provide evidence for cadence scheduler behavior, Ross policy-vs-registry pattern coverage, and focus-loop intent emission smoke coverage.
+
+## Addendum — P01 setup family completeness sprint (non-certification)
+
+- This addendum records additional verification evidence only; it does **not** upgrade platform certification state.
+- `python verification_scripts/setup_families_completeness_verifier.py`
+- `python verification_scripts/ross_trade_ready_smoke.py`
+- Evidence path: `AUDIT_EVIDENCE/p01_setup_family_sprint/setup_families_completeness.json`
+

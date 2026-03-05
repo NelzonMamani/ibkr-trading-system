@@ -14,12 +14,16 @@ from src.setup_engine.setup_families.pullbacks import (
     TrendContinuationStairStepPattern,
     VwapPullbackPattern,
 )
+from src.setup_engine.setup_families.ross_families import ABCDPattern, CupHandlePattern, HaltResumePattern
 
 __all__ = [
+    "ABCDPattern",
     "AscendingTriangleBreakoutPattern",
+    "CupHandlePattern",
     "EmaPullbackPattern",
     "FlatTopBreakoutPattern",
     "HODBreakPattern",
+    "HaltResumePattern",
     "LiquiditySweepReclaimPattern",
     "OpeningDrivePattern",
     "PennantBreakPattern",

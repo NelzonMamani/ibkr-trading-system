@@ -5,33 +5,14 @@ from __future__ import annotations
 from typing import List
 
 from src.config.config_resolver import get_config
+from src.setup_engine.registry import build_tradeable_patterns
 from src.setup_engine.setup_families import (
-    AscendingTriangleBreakoutPattern,
-    BullFlagPattern,
-    VolumeClimaxPattern,
-    ThreeSoldiersCrowsPattern,
-    MarubozuPattern,
-    LongUpperWickPattern,
-    GapFillReversalPattern,
-    EngulfingPattern,
     ClimaxTopPattern,
-    ConsolidationBreakoutPattern,
-    EmaPullbackPattern,
-    FailedBreakoutPattern,
-    FailedOrbFakeoutPattern,
-    FlatTopBreakoutPattern,
-    HODBreakPattern,
-    LiquiditySweepReclaimPattern,
-    MicroPullbackPattern,
-    OpeningDrivePattern,
-    OpeningRangeBreakoutPattern,
-    PennantBreakPattern,
-    PremarketHighBreakPattern,
-    RangeBreakoutPattern,
-    SecondPullbackPattern,
-    ThreeBarPullbackPattern,
-    TrendContinuationStairStepPattern,
-    VwapPullbackPattern,
+    EngulfingPattern,
+    LongUpperWickPattern,
+    MarubozuPattern,
+    ThreeSoldiersCrowsPattern,
+    VolumeClimaxPattern,
 )
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
@@ -45,34 +26,17 @@ def build_additional_heuristic_patterns() -> List[PatternBase]:
 
 class RossPatternRegistry:
     def __init__(self) -> None:
-        self._patterns: List[PatternBase] = [
-            PremarketHighBreakPattern(),
-            OpeningRangeBreakoutPattern(),
-            MicroPullbackPattern(),
-            BullFlagPattern(),
-            ConsolidationBreakoutPattern(),
-            RangeBreakoutPattern(),
-            FlatTopBreakoutPattern(),
-            AscendingTriangleBreakoutPattern(),
-            PennantBreakPattern(),
-            EmaPullbackPattern(),
-            VwapPullbackPattern(),
-            ThreeBarPullbackPattern(),
-            TrendContinuationStairStepPattern(),
-            SecondPullbackPattern(),
-            LiquiditySweepReclaimPattern(),
-            HODBreakPattern(),
-            OpeningDrivePattern(),
-            FailedBreakoutPattern(),
-            EngulfingPattern(),
-            LongUpperWickPattern(),
-            MarubozuPattern(),
-            ThreeSoldiersCrowsPattern(),
-            ClimaxTopPattern(),
-            FailedOrbFakeoutPattern(),
-            GapFillReversalPattern(),
-            VolumeClimaxPattern(),
-        ]
+        self._patterns: List[PatternBase] = build_tradeable_patterns()
+        self._patterns.extend(
+            [
+                EngulfingPattern(),
+                LongUpperWickPattern(),
+                MarubozuPattern(),
+                ThreeSoldiersCrowsPattern(),
+                ClimaxTopPattern(),
+                VolumeClimaxPattern(),
+            ]
+        )
 
         if get_config("ROSS_ENABLE_ADDITIONAL_HEURISTIC_PATTERNS"):
             print(
