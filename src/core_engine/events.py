@@ -53,6 +53,9 @@ class RiskDecisionRecord:
     constraints: List[str]
     triggered_rules: List[str]
     rationale: str
+    available_funds: float = 0.0
+    order_value: float = 0.0
+    risk_allowed: bool = True
 
 
 @dataclass

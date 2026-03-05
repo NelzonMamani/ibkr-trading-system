@@ -20,7 +20,7 @@ from src.core_engine.state import CycleContext, resolve_session_state
 from src.core.intent import build_execution_intent
 from src.execution.order_router import execute_intents
 from src.prep.premarket_prep_artifact import write_premarket_prep_artifact
-from src.risk.risk_audit import evaluate_trade_intents
+from src.risk.risk_audit import AccountSnapshot, evaluate_trade_intents
 from src.runtime.bootstrap import bootstrap_runtime
 from src.scanner.contracts import StockSelectionPolicy
 from src.scanner.scanner_contract import scanner_request_from_policy
@@ -320,10 +320,12 @@ def run_cycle(
     health_status = None
     if health_triggers:
         health_status = combine_health(health_triggers).status
+    account = AccountSnapshot(available_funds=float(get_config("RISK_ACCOUNT_EQUITY")))
     risk_outputs = evaluate_trade_intents(
         intents=intents,
         mode=mode,
         health_status=health_status,
+        account=account,
     )
     for output in risk_outputs:
         risk_decisions.append(output)
