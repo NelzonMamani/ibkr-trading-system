@@ -42,6 +42,7 @@ class TradeIntentRecord:
     stop: str
     rationale: str
     tags: List[str] = field(default_factory=list)
+    entry_price: float = 1.0
 
 
 @dataclass

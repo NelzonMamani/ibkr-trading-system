@@ -901,7 +901,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "ROSS_MIN_RVOL": {
         "type": float,
-        "default": 5.0,
+        "default": 2.0,
         "env": ["ROSS_MIN_RVOL"],
         "affects": ["ScannerFilters", "RossMomentum"],
         "enforcement": "SOFT",

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List
 
+from src.config.config_resolver import get_config
 from src.core_engine.events import RiskDecisionRecord, TradeIntentRecord
 from src.core_engine.health import HealthStatus
 from src.core_engine.state import RunMode
@@ -19,9 +20,10 @@ def evaluate_trade_intents(
     intents: List[TradeIntentRecord],
     mode: RunMode,
     health_status: HealthStatus | None,
-    account: AccountSnapshot,
+    account: AccountSnapshot | None = None,
 ) -> List[RiskDecisionRecord]:
     decisions: List[RiskDecisionRecord] = []
+    resolved_account = account or AccountSnapshot(available_funds=float(get_config("RISK_ACCOUNT_EQUITY")))
     for intent in intents:
         triggered_rules: List[str] = []
         constraints: List[str] = []
@@ -50,13 +52,21 @@ def evaluate_trade_intents(
             constraints.append("READONLY_NO_EXECUTION")
             triggered_rules.append("MODE_READONLY")
 
+        available_funds = float(resolved_account.available_funds)
+        account_equity = available_funds
+        entry_price = max(float(getattr(intent, "entry_price", 1.0) or 1.0), 0.01)
+        requested_shares = 1
+        if account_equity < 5_000:
+            requested_shares = max(1, int(available_funds / entry_price))
+            print(
+                f"[ROSS][POSITION] capital_mode=SMALL_ACCOUNT shares={requested_shares} bp={int(available_funds)}"
+            )
+        position_value = float(requested_shares) * entry_price
+        risk_allowed = position_value <= available_funds + 1e-9
+
         if mode == RunMode.LIVE and decision != "BLOCK":
             decision = "ALLOW"
-
-        available_funds = float(account.available_funds)
-        requested_shares = 1
-        position_value = float(requested_shares)
-        risk_allowed = position_value <= available_funds
+            max_size = requested_shares
 
         if not risk_allowed:
             decision = "BLOCK"

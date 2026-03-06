@@ -75,9 +75,21 @@ def _ensure_deterministic_prep() -> None:
         return
 
     symbols_raw = get_config("SCANNER_SYMBOLS") or []
+    fallback_raw = get_config("SCANNER_DEFAULT_SYMBOLS") or []
     symbols = [str(symbol).upper() for symbol in symbols_raw if str(symbol).strip()]
-    if not symbols:
-        symbols = ["SPY", "QQQ"]
+    symbols.extend(str(symbol).upper() for symbol in fallback_raw if str(symbol).strip())
+    symbols.extend(["AAPL", "MSFT", "NVDA", "AMD", "TSLA", "META", "AMZN", "SMCI", "PLTR", "RIVN"])
+    ordered = []
+    seen = set()
+    for symbol in symbols:
+        if symbol in seen:
+            continue
+        seen.add(symbol)
+        ordered.append(symbol)
+    symbols = ordered[:30]
+    if len(symbols) < 10:
+        symbols.extend([f"SYM{i}" for i in range(1, 11 - len(symbols))])
+    print(f"[PREP] prepared_symbols={len(symbols)}")
     placeholder = {
         "timestamp": utc_now().isoformat(),
         "symbols": [
@@ -345,6 +357,7 @@ def run_cycle(
                         stop=intent.stop_model,
                         rationale=intent.rationale_text,
                         tags=combined_tags,
+                        entry_price=float(getattr(intent, "entry_price", 1.0) or 1.0),
                     )
                 )
 
