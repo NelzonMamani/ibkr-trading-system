@@ -71,22 +71,32 @@ def _ensure_deterministic_prep() -> None:
     existing = load_canonical_premarket_prep_artifact()
     if existing:
         restored = _prep_engine.hydrate_from_artifact(existing.get("symbols") or [])
-        print(f"[PREP] artifact found path={CANONICAL_PREP_ARTIFACT_PATH} restored_symbols={restored}")
+        print(f"[PREP] hydrate ok path={CANONICAL_PREP_ARTIFACT_PATH} restored_symbols={restored}")
         return
 
-    print("[PREP] artifact missing — running preparation engine")
     symbols_raw = get_config("SCANNER_SYMBOLS") or []
     symbols = [str(symbol).upper() for symbol in symbols_raw if str(symbol).strip()]
     if not symbols:
         symbols = ["SPY", "QQQ"]
+    placeholder = {
+        "timestamp": utc_now().isoformat(),
+        "symbols": [
+            {
+                "symbol": symbol,
+                "premarket_high": None,
+                "premarket_low": None,
+                "gap": None,
+                "float": None,
+                "news_context": [],
+            }
+            for symbol in symbols
+        ],
+    }
     try:
-        _prep_engine.update_from_universe(symbols, reason="STARTUP_DETERMINISTIC_PREP")
-        payload = _prep_engine.build_artifact_payload(symbols)
-        out_path = write_canonical_premarket_prep_artifact(payload)
-        print(f"[PREP] preparation complete watchlist_size={len(payload.get('symbols', []))}")
-        print(f"[PREP] artifact written path={out_path}")
+        out_path = write_canonical_premarket_prep_artifact(placeholder)
+        print(f"[PREP] placeholder artifact written path={out_path}")
     except Exception as exc:
-        print(f"[PREP][ERROR] reason={exc}")
+        print(f"[PREP][ERROR] {exc} continuing")
 
 
 def _session_context(session: str) -> SessionContext:
