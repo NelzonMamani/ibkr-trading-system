@@ -34,6 +34,12 @@ class PrepSnapshot:
     news: list[Headline] = field(default_factory=list)
     news_asof: Optional[datetime] = None
     data_quality_flags: list[str] = field(default_factory=list)
+    persisted_pct_change: Optional[float] = None
+    persisted_rvol: Optional[float] = None
+    persisted_volume: Optional[float] = None
+    persisted_reference_label: Optional[str] = None
+    persisted_session_label: Optional[str] = None
+    persisted_asof: Optional[datetime] = None
 
 
 class PreMarketPrepEngine:
@@ -57,6 +63,11 @@ class PreMarketPrepEngine:
         float_by_symbol: Optional[dict[str, Optional[int]]] = None,
         prior_close_by_symbol: Optional[dict[str, Optional[float]]] = None,
         gap_pct_by_symbol: Optional[dict[str, Optional[float]]] = None,
+        persisted_pct_change_by_symbol: Optional[dict[str, Optional[float]]] = None,
+        persisted_rvol_by_symbol: Optional[dict[str, Optional[float]]] = None,
+        persisted_volume_by_symbol: Optional[dict[str, Optional[float]]] = None,
+        persisted_reference_label_by_symbol: Optional[dict[str, Optional[str]]] = None,
+        persisted_session_label_by_symbol: Optional[dict[str, Optional[str]]] = None,
         reason: str = "SCANNER_UNIVERSE",
     ) -> None:
         now = datetime.now(timezone.utc)
@@ -101,6 +112,11 @@ class PreMarketPrepEngine:
             float_value = (float_by_symbol or {}).get(symbol)
             prior_close = (prior_close_by_symbol or {}).get(symbol)
             gap_pct = (gap_pct_by_symbol or {}).get(symbol)
+            persisted_pct_change = (persisted_pct_change_by_symbol or {}).get(symbol)
+            persisted_rvol = (persisted_rvol_by_symbol or {}).get(symbol)
+            persisted_volume = (persisted_volume_by_symbol or {}).get(symbol)
+            persisted_reference_label = (persisted_reference_label_by_symbol or {}).get(symbol)
+            persisted_session_label = (persisted_session_label_by_symbol or {}).get(symbol)
 
             if float_value is not None and self._float_expired(snapshot, now):
                 snapshot.float_shares = float_value
@@ -123,6 +139,14 @@ class PreMarketPrepEngine:
                 snapshot.news_asof = now
                 if news_failure:
                     snapshot.data_quality_flags.append("NEWS_STALE")
+
+            if persisted_pct_change is not None or persisted_rvol is not None or persisted_volume is not None:
+                snapshot.persisted_pct_change = persisted_pct_change
+                snapshot.persisted_rvol = persisted_rvol
+                snapshot.persisted_volume = persisted_volume
+                snapshot.persisted_reference_label = persisted_reference_label
+                snapshot.persisted_session_label = persisted_session_label
+                snapshot.persisted_asof = now
 
             updated_symbols.append(symbol)
 
@@ -168,6 +192,12 @@ class PreMarketPrepEngine:
                     if isinstance(item, dict)
                 ]
             snapshot.news_asof = now
+            snapshot.persisted_pct_change = entry.get("persisted_pct_change")
+            snapshot.persisted_rvol = entry.get("persisted_rvol")
+            snapshot.persisted_volume = entry.get("persisted_volume")
+            snapshot.persisted_reference_label = entry.get("persisted_reference_label")
+            snapshot.persisted_session_label = entry.get("persisted_session_label")
+            snapshot.persisted_asof = _parse_datetime(entry.get("persisted_asof")) or now
             self._cache[symbol] = snapshot
             restored += 1
         self._evict_excess()
@@ -187,6 +217,12 @@ class PreMarketPrepEngine:
                         "gap": None,
                         "float": None,
                         "news_context": [],
+                    "persisted_pct_change": None,
+                    "persisted_rvol": None,
+                    "persisted_volume": None,
+                    "persisted_reference_label": None,
+                    "persisted_session_label": None,
+                    "persisted_asof": None,
                     }
                 )
                 continue
@@ -206,6 +242,12 @@ class PreMarketPrepEngine:
                         }
                         for item in snapshot.news
                     ],
+                    "persisted_pct_change": snapshot.persisted_pct_change,
+                    "persisted_rvol": snapshot.persisted_rvol,
+                    "persisted_volume": snapshot.persisted_volume,
+                    "persisted_reference_label": snapshot.persisted_reference_label,
+                    "persisted_session_label": snapshot.persisted_session_label,
+                    "persisted_asof": snapshot.persisted_asof.isoformat() if snapshot.persisted_asof else None,
                 }
             )
         return {"timestamp": now, "symbols": rows}

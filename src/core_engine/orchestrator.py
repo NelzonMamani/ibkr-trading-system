@@ -89,7 +89,7 @@ def _ensure_deterministic_prep() -> None:
     symbols = ordered[:30]
     if len(symbols) < 10:
         symbols.extend([f"SYM{i}" for i in range(1, 11 - len(symbols))])
-    print(f"[PREP] prepared_symbols={len(symbols)}")
+    print(f"[PREP] mode=CLOSED prepared_symbols={len(symbols)}")
     placeholder = {
         "timestamp": utc_now().isoformat(),
         "symbols": [

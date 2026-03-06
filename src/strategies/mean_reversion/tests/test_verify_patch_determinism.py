@@ -19,6 +19,7 @@ def _candidate(symbol: str) -> CandidateMetrics:
         pct_change=5.0,
         ibkr_change_pct=5.0,
         pct_source="SESSION",
+        open_relative_pct_change=5.0,
         rvol=2.0,
         relative_volume=2.0,
         avg_volume_20d=1000000,

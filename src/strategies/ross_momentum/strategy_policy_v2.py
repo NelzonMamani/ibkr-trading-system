@@ -211,13 +211,13 @@ POLICY_V2 = StrategyPolicyV2(
     ),
     session_reference_law=SessionReferenceLawV2(
         pct_change_reference=(
-            "Percent-change law references prior close and remains valid in PRE/AH/CLOSED contexts where official RTH open is absent or not actionable."
+            "Percent-change law: PRE/RTH/AH main gate references LAST_RTH_CLOSE; OVN/CLOSED/weekend uses persisted LAST_SESSION_REFERENCE context only. Open-relative movement must remain secondary telemetry."
         ),
         gap_reference=(
             "Gap law references session open versus prior close and is only meaningful around the open/RTH transition; it is not a generic CLOSED-session prep metric."
         ),
         closed_session_preparation_notes=(
-            "During CLOSED preparation, prioritize prior-close percent-change ranking and catalyst context rather than labeling symbols as active 'gappers'."
+            "During CLOSED preparation, persist prior valid pct/rvol/volume provenance for ranking and operator visibility; do not treat closed-session metrics as live RTH gating values."
         ),
     ),
     candle_and_volume_evidence=CandleAndVolumeEvidenceModelV2(
@@ -478,8 +478,8 @@ POLICY_V2 = StrategyPolicyV2(
         weight_catalyst=0.15,
         liquidity_penalty=0.25,
         ranking_commentary=(
-            "Ranking prefers strongest percent-change momentum and RVOL, boosts lower-float responsiveness, incorporates catalyst "
-            "quality, and penalizes weak tradability."
+            "Ranking prefers strongest session-aware percent-change momentum and RVOL, boosts lower-float responsiveness, incorporates catalyst "
+            "quality, and penalizes weak tradability. Closed-session persisted metrics are prep context, not direct live execution authority."
         ),
         calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
     ),

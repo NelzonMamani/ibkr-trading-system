@@ -579,6 +579,7 @@ def _populate_pct_change(
         rth_open_price=_safe_float(context.get("rth_open_price"), None),
         rth_close_price=_safe_float(context.get("rth_close_price"), None),
         ibkr_change_pct=_safe_float(context.get("ibkr_change_pct"), None),
+        persisted_pct_change=_safe_float(context.get("persisted_pct_change"), None),
     )
     if last_price is None:
         context.setdefault("data_quality_flags", []).append("MISSING_LAST")
@@ -592,11 +593,13 @@ def _populate_pct_change(
     context["reference_label"] = pct_payload.reference_label
     context["ibkr_change_pct"] = pct_payload.ibkr_change_pct
     context["pct_source"] = pct_payload.pct_source
+    context["open_relative_pct_change"] = pct_payload.open_relative_pct_change
     if get_config("DEBUG_MARKET_DATA"):
         print(
             "[SCANNER][MD][DEBUG] pct_change "
             f"symbol={context['symbol']} last={last_price} ref_price={context.get('reference_price')} "
             f"ref_label={context.get('reference_label')} pct_change={context.get('pct_change')} "
+            f"open_relative_pct_change={context.get('open_relative_pct_change')} "
             f"source={context.get('pct_source')}"
         )
 
@@ -1031,6 +1034,7 @@ def _candidate_from_context(
         pct_change=context.get("pct_change"),
         ibkr_change_pct=context.get("ibkr_change_pct"),
         pct_source=context.get("pct_source"),
+        open_relative_pct_change=context.get("open_relative_pct_change"),
         rvol=context.get("rvol"),
         relative_volume=context.get("relative_volume"),
         avg_volume_20d=context.get("avg_volume_20d"),
@@ -1221,10 +1225,12 @@ def _build_symbol_context(
 
     volume = intraday.current_intraday_volume if intraday else None
     avg_volume_20d = intraday.average_daily_volume_20d if intraday else None
+    persisted_rvol = _safe_float(getattr(quote, "persisted_rvol", None), None)
     rvol_payload = compute_session_relative_volume_with_provenance(
         session_label=session_label,
         session_volume=volume,
         avg_volume_20d=avg_volume_20d,
+        persisted_rvol=persisted_rvol,
     )
     rvol = rvol_payload.value
     if rvol is None:
@@ -1252,6 +1258,7 @@ def _build_symbol_context(
     pct_source = None
     reference_price = None
     reference_label = None
+    open_relative_pct_change = None
     if include_pct_change:
         normalized_session = normalize_session_label(session_label)
         rth_open_price = session_open
@@ -1265,11 +1272,13 @@ def _build_symbol_context(
             rth_open_price=rth_open_price,
             rth_close_price=rth_close_price,
             ibkr_change_pct=ibkr_change_pct,
+            persisted_pct_change=_safe_float(getattr(quote, "persisted_pct_change", None), None),
         )
         pct_change = pct_payload.final_pct
         pct_source = pct_payload.pct_source
         reference_price = pct_payload.reference_price
         reference_label = pct_payload.reference_label
+        open_relative_pct_change = pct_payload.open_relative_pct_change
     dollar_volume = None
     if last_price is not None and volume is not None:
         dollar_volume = round(last_price * volume, 2)
@@ -1317,6 +1326,9 @@ def _build_symbol_context(
         "reference_label": reference_label,
         "pct_change": pct_change,
         "pct_source": pct_source,
+        "open_relative_pct_change": open_relative_pct_change,
+        "persisted_pct_change": _safe_float(getattr(quote, "persisted_pct_change", None), None),
+        "persisted_rvol": persisted_rvol,
         "ibkr_change_pct": ibkr_change_pct,
         "volume": volume,
         "avg_volume_20d": avg_volume_20d,
@@ -2022,7 +2034,14 @@ def run_scanner_cycle(
             print(
                 "[PCT] "
                 f"symbol={symbol} session={normalize_session_label(session_label)} "
-                f"reference={context.get('reference_label') or 'NA'} value={context.get('pct_change')}"
+                f"baseline={context.get('reference_label') or 'NA'} value={context.get('pct_change')}"
+            )
+            print(
+                "[PCT_DEBUG] "
+                f"symbol={symbol} session={normalize_session_label(session_label)} "
+                f"reference={context.get('reference_label') or 'NA'} "
+                f"last_price={context.get('last_price')} reference_price={context.get('reference_price')} "
+                f"pct_change={context.get('pct_change')}"
             )
             if context.get("reference_label"):
                 print(
@@ -2032,6 +2051,11 @@ def run_scanner_cycle(
                 )
             rvol_baseline = context.get("rvol_baseline") or "UNKNOWN"
             rvol_method = context.get("rvol_method") or "UNKNOWN"
+            print(
+                "[RVOL_DEBUG] "
+                f"symbol={symbol} session={normalize_session_label(session_label)} "
+                f"current_volume={context.get('volume')} expected_volume=NA rvol={context.get('rvol')}"
+            )
             print(
                 "[RVOL] "
                 f"symbol={symbol} session={normalize_session_label(session_label)} "

@@ -2635,6 +2635,12 @@ class CoreOrchestrator:
                     "gap": None,
                     "float": None,
                     "news_context": [],
+                    "persisted_pct_change": None,
+                    "persisted_rvol": None,
+                    "persisted_volume": None,
+                    "persisted_reference_label": None,
+                    "persisted_session_label": None,
+                    "persisted_asof": None,
                 }
                 for symbol in symbols
             ],
@@ -2693,7 +2699,9 @@ class CoreOrchestrator:
                 symbols = self._prep_symbols_from_config()
                 changed = False
                 try:
+                    session_mode = get_current_market_session()
                     self.prep_engine.update_from_universe(symbols, reason="SCHEDULED_PREP_UPDATE")
+                    print(f"[PREP] mode={session_mode} prepared_symbols={len(symbols)}")
                     payload = self.prep_engine.build_artifact_payload(symbols)
                     existing = load_canonical_premarket_prep_artifact() or {}
                     if self._prep_material_state(existing) != self._prep_material_state(payload):
