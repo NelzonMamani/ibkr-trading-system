@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
 import sys
 import time
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 if __package__ in {None, ""}:
     repo_root = Path(__file__).resolve().parents[2]
@@ -55,7 +55,7 @@ from src.scanner.ranking_registry import resolve_watchlist_selector
 from src.scanner.result_models import CandidateMetrics, ScannerResult
 from src.scanner.session_pct_change import (
     compute_session_aligned_pct_change,
-    compute_session_relative_volume,
+    compute_session_relative_volume_with_provenance,
     normalize_session_label,
     resolve_market_session_label,
 )
@@ -77,16 +77,16 @@ _LAST_PRINT_CYCLE = 0
 NEWS_AGE_MAX_MINUTES = 360
 
 CATALYST_KEYWORDS = {
-    "earnings": "earnings",
-    "guidance": "guidance",
-    "merger": "merger",
-    "acquisition": "acquisition",
-    "fda": "regulatory",
-    "approval": "regulatory",
-    "contract": "contract",
-    "partnership": "partnership",
-    "upgrade": "upgrade",
-    "downgrade": "downgrade",
+    "earnings": "EARNINGS",
+    "guidance": "EARNINGS",
+    "fda": "FDA",
+    "approval": "FDA",
+    "contract": "CONTRACT",
+    "partnership": "CONTRACT",
+    "upgrade": "ANALYST_ACTION",
+    "downgrade": "ANALYST_ACTION",
+    "initiates": "ANALYST_ACTION",
+    "press release": "PRESS_RELEASE",
 }
 DILUTION_KEYWORDS = {
     "offering",
@@ -125,6 +125,35 @@ class NewsDiagnostics:
     rss_sources: int
     rss_failures: int
     rss_failure_summary: Dict[str, Dict[str, int]]
+
+
+@dataclass
+class RossSymbolState:
+    symbol: str
+    current_rank: Optional[int] = None
+    last_rank: Optional[int] = None
+    first_seen_utc: str = ""
+    last_seen_utc: str = ""
+    last_session: str = ""
+    evaluation_stale_after_cycle: int = 0
+    last_evaluated_cycle: int = 0
+    watch_pass_reasons: list[str] = field(default_factory=list)
+    focus_ready_reasons: list[str] = field(default_factory=list)
+    rejection_reason: Optional[str] = None
+    rejection_stale_after_cycle: int = 0
+    float_class: Optional[str] = None
+
+
+@dataclass
+class RossDailyState:
+    trading_day: str
+    top_universe: Dict[str, RossSymbolState] = field(default_factory=dict)
+    watchlist_k: Dict[str, RossSymbolState] = field(default_factory=dict)
+    focus_m: Dict[str, RossSymbolState] = field(default_factory=dict)
+    rejected_tracked: Dict[str, RossSymbolState] = field(default_factory=dict)
+
+
+_ROSS_DAILY_STATE: Optional[RossDailyState] = None
 
 
 def _utc_now() -> datetime:
@@ -712,6 +741,7 @@ def _enrich_news_context(
         cached = _NEWS_CACHE.get(symbol)
         if cached and cached.get("signature") == signature:
             news_by_symbol[symbol] = cached["context"]
+            print(f"[NEWS] symbol={symbol} catalyst_tag={cached['context'].get('catalyst_type') or 'NONE'} news_changed=False")
             continue
 
         if not headlines:
@@ -733,6 +763,8 @@ def _enrich_news_context(
             }
             news_by_symbol[symbol] = context
             _NEWS_CACHE[symbol] = {"signature": signature, "context": context}
+            print(f"[NEWS] symbol={symbol} catalyst_tag=NONE headlines=0")
+            print(f"[NEWS] symbol={symbol} news_changed=True")
             continue
 
         unique_map: Dict[str, Headline] = {}
@@ -789,6 +821,11 @@ def _enrich_news_context(
         }
         news_by_symbol[symbol] = context
         _NEWS_CACHE[symbol] = {"signature": signature, "context": context}
+        print(
+            f"[NEWS] symbol={symbol} catalyst_tag={(catalyst_type or 'generic news').upper()} "
+            f"headlines={len(unique_headlines)}"
+        )
+        print(f"[NEWS] symbol={symbol} news_changed=True")
 
     news_gate_bypassed = all_failed or reason_override in {"no_sources", "feedparser_missing"}
     diagnostics = NewsDiagnostics(
@@ -1133,11 +1170,12 @@ def _build_symbol_context(
 
     volume = intraday.current_intraday_volume if intraday else None
     avg_volume_20d = intraday.average_daily_volume_20d if intraday else None
-    rvol = compute_session_relative_volume(
+    rvol_payload = compute_session_relative_volume_with_provenance(
         session_label=session_label,
         session_volume=volume,
         avg_volume_20d=avg_volume_20d,
     )
+    rvol = rvol_payload.value
     if rvol is None:
         rvol = intraday.relative_volume if intraday else None
     if intraday is None:
@@ -1238,6 +1276,8 @@ def _build_symbol_context(
         "spread_pct": spread_pct,
         "rvol": rvol,
         "relative_volume": rvol,
+        "rvol_baseline": rvol_payload.baseline,
+        "rvol_method": rvol_payload.method,
         "float_shares": float_shares,
         "float_source": float_source,
         "halted": None,
@@ -1396,6 +1436,149 @@ def _apply_non_tradable_universe_gate(
     return filtered
 
 
+def _classify_float(float_shares: Optional[int]) -> Optional[str]:
+    if float_shares is None or float_shares <= 0:
+        return None
+    if float_shares < 1_000_000:
+        return "ULTRA_LOW_FLOAT"
+    if float_shares < 10_000_000:
+        return "LOW_FLOAT"
+    if float_shares <= 20_000_000:
+        return "ROSS_SWEET_SPOT"
+    return "HIGH_FLOAT"
+
+
+def _ross_reason_from_drop(drop_reason: str) -> str:
+    mapping = {
+        "DROP_MISSING_RVOL": "RVOL_FAIL",
+        "DROP_RVOL": "RVOL_FAIL",
+        "DROP_PCT_CHANGE": "GAP_FAIL",
+        "DROP_PCT_CHANGE_MAX": "GAP_FAIL",
+        "DROP_MISSING_PCT_CHANGE": "GAP_FAIL",
+        "DROP_FLOAT_MAX": "FLOAT_FAIL",
+        "DROP_FLOAT_MISSING": "FLOAT_FAIL",
+        "DROP_SPREAD": "SPREAD_FAIL",
+        "DROP_MISSING_SPREAD": "SPREAD_FAIL",
+        "DROP_DOLLAR_VOLUME": "LIQUIDITY_FAIL",
+        "DROP_MISSING_DOLLAR_VOLUME": "LIQUIDITY_FAIL",
+        "DROP_MISSING_BID_ASK": "DATA_QUALITY_FAIL",
+        "DROP_MISSING_VOLUME": "LIQUIDITY_FAIL",
+        "DROP_PREMARKET_VOLUME": "LIQUIDITY_FAIL",
+        "DROP_QUOTE_UNAVAILABLE": "DATA_QUALITY_FAIL",
+        "DROP_MD_CONFLICT": "DATA_QUALITY_FAIL",
+        "DROP_UNSUBSCRIBED_MARKET_DATA": "DATA_QUALITY_FAIL",
+        "DROP_SNAPSHOT_TIMEOUT": "DATA_QUALITY_FAIL",
+    }
+    return mapping.get(drop_reason, "DATA_QUALITY_FAIL")
+
+
+def _resolve_trading_day(now: datetime, session_label: str) -> str:
+    normalized = normalize_session_label(session_label)
+    day = now.date()
+    if normalized in {"OVN", "AH", "CLOSED"}:
+        return day.isoformat()
+    return day.isoformat()
+
+
+def _get_ross_daily_state(now: datetime, session_label: str) -> RossDailyState:
+    global _ROSS_DAILY_STATE
+    trading_day = _resolve_trading_day(now, session_label)
+    if _ROSS_DAILY_STATE is None or _ROSS_DAILY_STATE.trading_day != trading_day:
+        _ROSS_DAILY_STATE = RossDailyState(trading_day=trading_day)
+        print(f"[ROSS][STATE] reset trading_day={trading_day} session={session_label}")
+    return _ROSS_DAILY_STATE
+
+
+def _is_material_rank_move(prev_rank: Optional[int], current_rank: Optional[int]) -> bool:
+    if prev_rank is None or current_rank is None:
+        return False
+    if abs(prev_rank - current_rank) >= 8:
+        return True
+    thresholds = [10, 20, 30, 50, 100]
+    return any(prev_rank > t >= current_rank for t in thresholds)
+
+
+def _edge_rank(rank: Optional[int], universe_size: int) -> bool:
+    if rank is None or universe_size <= 0:
+        return False
+    return rank >= max(universe_size - 2, 1)
+
+
+def _should_recheck_symbol(
+    symbol_state: RossSymbolState,
+    *,
+    current_rank: int,
+    cycle: int,
+    session_label: str,
+    universe_size: int,
+) -> bool:
+    normalized = normalize_session_label(session_label)
+    if symbol_state.last_evaluated_cycle == 0:
+        return True
+    if symbol_state.last_session != normalized:
+        return True
+    if _is_material_rank_move(symbol_state.last_rank, current_rank):
+        return True
+    if symbol_state.evaluation_stale_after_cycle and cycle >= symbol_state.evaluation_stale_after_cycle:
+        return True
+    if symbol_state.rejection_reason and cycle >= symbol_state.rejection_stale_after_cycle:
+        return True
+    if _edge_rank(current_rank, universe_size) and symbol_state.last_rank == current_rank:
+        return False
+    return False
+
+
+def _update_top_universe_state(
+    daily_state: RossDailyState,
+    symbols: list[str],
+    *,
+    now_iso: str,
+    session_label: str,
+    cycle: int,
+) -> Tuple[Set[str], Set[str], Set[str], Set[str]]:
+    incoming = set(symbols)
+    existing = set(daily_state.top_universe.keys())
+    new_symbols = incoming - existing
+    exited_symbols = existing - incoming
+    unchanged: Set[str] = set()
+    escalated: Set[str] = set()
+
+    for rank, symbol in enumerate(symbols, start=1):
+        state = daily_state.top_universe.get(symbol)
+        if state is None:
+            daily_state.top_universe[symbol] = RossSymbolState(
+                symbol=symbol,
+                current_rank=rank,
+                last_rank=rank,
+                first_seen_utc=now_iso,
+                last_seen_utc=now_iso,
+                last_session=session_label,
+                evaluation_stale_after_cycle=cycle + 5,
+            )
+            continue
+        prior_rank = state.current_rank
+        state.last_rank = prior_rank
+        state.current_rank = rank
+        state.last_seen_utc = now_iso
+        state.last_session = session_label
+        if _is_material_rank_move(prior_rank, rank):
+            escalated.add(symbol)
+        else:
+            unchanged.add(symbol)
+
+    for symbol in exited_symbols:
+        daily_state.top_universe.pop(symbol, None)
+
+    return new_symbols, exited_symbols, unchanged, escalated
+
+
+def _log_ross_lists(daily_state: RossDailyState) -> None:
+    print(f"[ROSS][LIST] TOP_UNIVERSE size={len(daily_state.top_universe)}")
+    print(f"[ROSS][LIST] WATCHLIST_K size={len(daily_state.watchlist_k)}")
+    print(f"[ROSS][LIST] FOCUS_M size={len(daily_state.focus_m)}")
+    print(f"[ROSS][LIST] REJECTED_TRACKED size={len(daily_state.rejected_tracked)}")
+
+
 def _scanner_request_reject_payload(
     *,
     utc_now: datetime,
@@ -1454,7 +1637,8 @@ def run_scanner_cycle(
     _SCAN_CYCLE_COUNT += 1
     utc_now = _utc_now()
     session_label = forced_session_label or _market_session_label_utc(utc_now)
-    diagnostics: Dict[str, Any] = {"mode": mode}
+    daily_state = _get_ross_daily_state(utc_now, session_label)
+    diagnostics: Dict[str, Any] = {"mode": mode, "ross_trading_day": daily_state.trading_day}
     drop_ledger: Dict[str, str] = {}
     universe_top_n: list[dict[str, Any]] = []
     print(f"[SCANNER] MODE={mode} SESSION={session_label}")
@@ -1662,6 +1846,19 @@ def run_scanner_cycle(
         )
         universe_top_n = _build_universe_entries(symbols, provider)
 
+        new_symbols_delta, exited_symbols_delta, unchanged_symbols_delta, escalated_symbols_delta = _update_top_universe_state(
+            daily_state,
+            symbols,
+            now_iso=utc_now.isoformat(),
+            session_label=normalize_session_label(session_label),
+            cycle=_SCAN_CYCLE_COUNT,
+        )
+        print(
+            "[ROSS][DELTA] "
+            f"new={len(new_symbols_delta)} exited={len(exited_symbols_delta)} "
+            f"unchanged={len(unchanged_symbols_delta)} escalated={len(escalated_symbols_delta)}"
+        )
+
         float_cache = _bootstrap_float_cache(symbols, provider)
         thresholds = _gate_thresholds(resolved_policy)
         candidates: List[Dict[str, Any]] = []
@@ -1669,6 +1866,18 @@ def run_scanner_cycle(
 
         print("[SCANNER][STAGE] gates")
         for rank, symbol in enumerate(symbols, start=1):
+            symbol_state = daily_state.top_universe.get(symbol)
+            should_recheck = True
+            if symbol_state is not None:
+                should_recheck = _should_recheck_symbol(
+                    symbol_state,
+                    current_rank=rank,
+                    cycle=_SCAN_CYCLE_COUNT,
+                    session_label=session_label,
+                    universe_size=len(symbols),
+                )
+            if not should_recheck and symbol in daily_state.rejected_tracked:
+                continue
             context = _build_symbol_context(
                 provider,
                 symbol,
@@ -1742,6 +1951,38 @@ def run_scanner_cycle(
                     )
                 evaluated_contexts.append(context)
                 continue
+
+            float_class = _classify_float(context.get("float_shares"))
+            context["float_class"] = float_class
+            if context.get("float_shares") is not None:
+                if context.get("float_source") == "cache":
+                    print(f"[FLOAT] cache hit symbol={symbol}")
+                else:
+                    print(
+                        f"[FLOAT] symbol={symbol} class={float_class or 'UNKNOWN'} "
+                        f"shares={context.get('float_shares')}"
+                    )
+
+            _populate_pct_change(context, provider)
+            print(
+                "[PCT] "
+                f"symbol={symbol} session={normalize_session_label(session_label)} "
+                f"reference={context.get('reference_label') or 'NA'} value={context.get('pct_change')}"
+            )
+            if context.get("reference_label"):
+                print(
+                    "[GAP] "
+                    f"symbol={symbol} source=prep reference={context.get('reference_label')} "
+                    f"value={context.get('pct_change')}"
+                )
+            rvol_baseline = context.get("rvol_baseline") or "UNKNOWN"
+            rvol_method = context.get("rvol_method") or "UNKNOWN"
+            print(
+                "[RVOL] "
+                f"symbol={symbol} session={normalize_session_label(session_label)} "
+                f"baseline={rvol_baseline} method={rvol_method} value={context.get('rvol')}"
+            )
+
             price_gate_reason = _evaluate_price_gate(context, thresholds)
             if price_gate_reason:
                 drop_ledger.setdefault(symbol, price_gate_reason)
@@ -2043,6 +2284,65 @@ def run_scanner_cycle(
 
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
         focus_symbols = [row.symbol for row in deep_rows]
+
+        previous_watch = set(daily_state.watchlist_k.keys())
+        previous_focus = set(daily_state.focus_m.keys())
+        current_watch = set(watchlist_symbols)
+        current_focus = set(focus_symbols)
+
+        for symbol in watchlist_symbols:
+            symbol_state = daily_state.top_universe.get(symbol)
+            if symbol_state is None:
+                continue
+            symbol_state.watch_pass_reasons = ["PASSED_STOCK_SELECTION_FILTERS"]
+            symbol_state.last_evaluated_cycle = _SCAN_CYCLE_COUNT
+            symbol_state.evaluation_stale_after_cycle = _SCAN_CYCLE_COUNT + 5
+            symbol_state.rejection_reason = None
+            symbol_state.float_class = _classify_float(float_cache.get(symbol))
+            if symbol not in previous_watch:
+                print(f"[ROSS][PROMOTE] symbol={symbol} from=TOP_UNIVERSE to=WATCHLIST_K reason=FILTER_PASS")
+            daily_state.watchlist_k[symbol] = symbol_state
+            daily_state.rejected_tracked.pop(symbol, None)
+
+        for symbol in list(daily_state.watchlist_k.keys()):
+            if symbol not in current_watch:
+                state = daily_state.watchlist_k.pop(symbol)
+                if symbol in current_focus:
+                    continue
+                reason = drop_ledger.get(symbol, "RANK_DECAY")
+                state.rejection_reason = _ross_reason_from_drop(reason) if reason.startswith("DROP_") else reason
+                state.rejection_stale_after_cycle = _SCAN_CYCLE_COUNT + 6
+                daily_state.rejected_tracked[symbol] = state
+
+        for symbol in focus_symbols:
+            symbol_state = daily_state.top_universe.get(symbol)
+            if symbol_state is None:
+                continue
+            symbol_state.focus_ready_reasons = ["FOCUS_FILTERS_PASS"]
+            symbol_state.last_evaluated_cycle = _SCAN_CYCLE_COUNT
+            symbol_state.evaluation_stale_after_cycle = _SCAN_CYCLE_COUNT + 3
+            if symbol not in previous_focus:
+                print(f"[ROSS][PROMOTE] symbol={symbol} from=WATCHLIST_K to=FOCUS_M reason=SETUP_READY")
+            daily_state.focus_m[symbol] = symbol_state
+
+        for symbol in list(daily_state.focus_m.keys()):
+            if symbol not in current_focus:
+                daily_state.focus_m.pop(symbol, None)
+                if symbol in current_watch:
+                    print(f"[ROSS][DEMOTE] symbol={symbol} from=FOCUS_M to=WATCHLIST_K reason=FOCUS_GATES")
+
+        for symbol, reason in drop_ledger.items():
+            state = daily_state.top_universe.get(symbol)
+            if state is None:
+                continue
+            mapped = _ross_reason_from_drop(reason)
+            state.rejection_reason = mapped
+            state.rejection_stale_after_cycle = _SCAN_CYCLE_COUNT + 8
+            state.last_evaluated_cycle = _SCAN_CYCLE_COUNT
+            daily_state.rejected_tracked[symbol] = state
+            if symbol not in current_watch:
+                print(f"[ROSS][REJECT] symbol={symbol} reason={mapped}")
+
         watchlist_hash = _watchlist_hash(watchlist_symbols, focus_symbols)
         watchlist_changed = watchlist_hash != _WATCHLIST_HASH
         print(
@@ -2094,6 +2394,7 @@ def run_scanner_cycle(
             _LAST_PRINT_CYCLE = _SCAN_CYCLE_COUNT
         _WATCHLIST_HASH = watchlist_hash
         _LAST_SESSION_LABEL = session_label
+        _log_ross_lists(daily_state)
 
         watchlist_dir = Path("output/watchlists")
         watchlist_dir.mkdir(parents=True, exist_ok=True)
@@ -2187,6 +2488,15 @@ def run_scanner_cycle(
         "focus_m": focus_metrics,
         "watchlist_k_symbols": watchlist_symbols,
         "focus_m_symbols": focus_symbols,
+        "ross_top_universe_symbols": sorted(daily_state.top_universe.keys()),
+        "ross_rejected_tracked_symbols": sorted(daily_state.rejected_tracked.keys()),
+        "ross_daily_state": {
+            "trading_day": daily_state.trading_day,
+            "top_universe": {k: asdict(v) for k, v in daily_state.top_universe.items()},
+            "watchlist_k": {k: asdict(v) for k, v in daily_state.watchlist_k.items()},
+            "focus_m": {k: asdict(v) for k, v in daily_state.focus_m.items()},
+            "rejected_tracked": {k: asdict(v) for k, v in daily_state.rejected_tracked.items()},
+        },
         "candidates": scanner_candidates,
         "candidate_metrics": candidate_metrics,
         "scanner_result": ScannerResult(
