@@ -20,6 +20,12 @@ from src.core_engine.state import CycleContext, resolve_session_state
 from src.core.intent import build_execution_intent
 from src.execution.order_router import execute_intents
 from src.prep.premarket_prep_artifact import write_premarket_prep_artifact
+from src.prep.premarket_prep import PreMarketPrepEngine
+from src.prep.premarket_prep_artifact import (
+    CANONICAL_PREP_ARTIFACT_PATH,
+    load_canonical_premarket_prep_artifact,
+    write_canonical_premarket_prep_artifact,
+)
 from src.risk.risk_audit import AccountSnapshot, evaluate_trade_intents
 from src.runtime.bootstrap import bootstrap_runtime
 from src.scanner.contracts import StockSelectionPolicy
@@ -56,6 +62,31 @@ STAGE_ORDER = [
     "Storage",
     "Health",
 ]
+
+
+_prep_engine = PreMarketPrepEngine(event_collector=None)
+
+
+def _ensure_deterministic_prep() -> None:
+    existing = load_canonical_premarket_prep_artifact()
+    if existing:
+        restored = _prep_engine.hydrate_from_artifact(existing.get("symbols") or [])
+        print(f"[PREP] artifact found path={CANONICAL_PREP_ARTIFACT_PATH} restored_symbols={restored}")
+        return
+
+    print("[PREP] artifact missing — running preparation engine")
+    symbols_raw = get_config("SCANNER_SYMBOLS") or []
+    symbols = [str(symbol).upper() for symbol in symbols_raw if str(symbol).strip()]
+    if not symbols:
+        symbols = ["SPY", "QQQ"]
+    try:
+        _prep_engine.update_from_universe(symbols, reason="STARTUP_DETERMINISTIC_PREP")
+        payload = _prep_engine.build_artifact_payload(symbols)
+        out_path = write_canonical_premarket_prep_artifact(payload)
+        print(f"[PREP] preparation complete watchlist_size={len(payload.get('symbols', []))}")
+        print(f"[PREP] artifact written path={out_path}")
+    except Exception as exc:
+        print(f"[PREP][ERROR] reason={exc}")
 
 
 def _session_context(session: str) -> SessionContext:
@@ -144,6 +175,7 @@ def run_cycle(
     mode_value: str,
     forced_session_state=None,
 ) -> CycleSummary:
+    _ensure_deterministic_prep()
     mode = resolve_mode(mode_value)
     resolved_session = resolve_session_state()
     session = forced_session_state or resolved_session
