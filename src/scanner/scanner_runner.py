@@ -1065,6 +1065,7 @@ def _candidate_from_context(
         ibkr_change_pct=context.get("ibkr_change_pct"),
         pct_source=context.get("pct_source"),
         open_relative_pct_change=context.get("open_relative_pct_change"),
+        hod_pct=context.get("hod_pct"),
         rvol=context.get("rvol"),
         relative_volume=context.get("relative_volume"),
         avg_volume_20d=context.get("avg_volume_20d"),
@@ -1255,6 +1256,7 @@ def _build_symbol_context(
 
     volume = intraday.current_intraday_volume if intraday else None
     avg_volume_20d = intraday.average_daily_volume_20d if intraday else None
+    day_high = _safe_float(getattr(intraday, "day_high", None), None) if intraday else None
     persisted_rvol = _safe_float(getattr(quote, "persisted_rvol", None), None)
     rvol_payload = compute_session_relative_volume_with_provenance(
         session_label=session_label,
@@ -1318,6 +1320,10 @@ def _build_symbol_context(
         reference_price = pct_payload.reference_price
         reference_label = pct_payload.reference_label
         open_relative_pct_change = pct_payload.open_relative_pct_change
+    hod_pct = None
+    if last_price is not None and day_high is not None and day_high != 0:
+        hod_pct = round(((last_price - day_high) / day_high) * 100, 2)
+
     dollar_volume = None
     if last_price is not None and volume is not None:
         dollar_volume = round(last_price * volume, 2)
@@ -1366,6 +1372,7 @@ def _build_symbol_context(
         "pct_change": pct_change,
         "pct_source": pct_source,
         "open_relative_pct_change": open_relative_pct_change,
+        "hod_pct": hod_pct,
         "persisted_pct_change": _safe_float(getattr(quote, "persisted_pct_change", None), None),
         "persisted_rvol": persisted_rvol,
         "ibkr_change_pct": ibkr_change_pct,
