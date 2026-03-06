@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import List
 
 from src.strategies.ross_momentum.decision_policy import (
@@ -26,6 +27,37 @@ from src.utils.teacher_logs import (
     log_strategy_header,
 )
 
+
+
+def _resolve_ross_pattern_cadence(phase: str) -> tuple[str, str, bool]:
+    normalized = (phase or "").upper()
+    mapping = {
+        "RTH_OPEN": ("1m", "10s", True),
+        "RTH_MID": ("3m", "30s", True),
+        "RTH_LATE": ("5m", "1m", True),
+        "PRE": ("1m", "10s", True),
+        "AH": ("5m", "1m", False),
+        "OVN": ("5m", "1m", False),
+        "CLOSED": ("5m", "1m", False),
+        "WEEKEND": ("5m", "1m", False),
+    }
+    return mapping.get(normalized, ("1m", "10s", False))
+
+
+def _resolve_session_phase(inputs: StrategyInput) -> str:
+    if inputs.news_context and isinstance(inputs.news_context, dict):
+        phase = inputs.news_context.get("session_phase")
+        if phase:
+            return str(phase).upper()
+    session = getattr(inputs, "session_context", None)
+    if session and hasattr(session, "value"):
+        value = str(session.value).upper()
+        if value == "REGULAR":
+            return "RTH_OPEN"
+        if value == "AFTER":
+            return "AH"
+        return value
+    return "PRE"
 
 
 
@@ -52,6 +84,9 @@ def _log_setup_eval(
     volume: float | None,
     decision: str,
     reason: str,
+    phase: str,
+    structure_tf: str,
+    trigger_tf: str,
 ) -> None:
     print(
         "[ROSS][SETUP_EVAL] "
@@ -61,6 +96,9 @@ def _log_setup_eval(
         f"gap_pct={gap_pct} "
         f"hod_pct={hod_pct} "
         f"volume={volume} "
+        f"phase={phase} "
+        f"structure_tf={structure_tf} "
+        f"trigger_tf={trigger_tf} "
         f"decision={decision} "
         f"reason={reason}"
     )
@@ -98,7 +136,19 @@ class RossMomentumStrategy(StrategyBase):
             log_decision(decision)
             return decision
 
-        summary = self._evaluator.evaluate(inputs.pattern_inputs)
+        session_phase = _resolve_session_phase(inputs)
+        structure_tf, trigger_tf, pattern_supported = _resolve_ross_pattern_cadence(session_phase)
+        print(
+            "[ROSS][CADENCE] "
+            f"phase={session_phase} structure_tf={structure_tf} trigger_tf={trigger_tf}"
+        )
+        if not pattern_supported:
+            print(
+                "[ROSS][CADENCE][WARN] "
+                f"phase={session_phase} pattern_support=limited execution_disabled=true"
+            )
+        pattern_inputs = [replace(item, timeframe=structure_tf) for item in inputs.pattern_inputs]
+        summary = self._evaluator.evaluate(pattern_inputs)
         log_pattern_summary(summary)
 
         scanner_rvol = getattr(inputs.market_context, "rvol", None)
@@ -121,6 +171,9 @@ class RossMomentumStrategy(StrategyBase):
                 volume=volume,
                 decision=decision,
                 reason=reason,
+                phase=session_phase,
+                structure_tf=structure_tf,
+                trigger_tf=trigger_tf,
             )
             if result.detected:
                 print(

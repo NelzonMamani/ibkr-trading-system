@@ -60,6 +60,13 @@ class SessionRelativeVolume:
     value: Optional[float]
 
 
+@dataclass(frozen=True)
+class MarketSessionContext:
+    coarse: str
+    phase: str
+    market_time: str
+
+
 _SESSION_LABEL_MAP = {
     "REG": "RTH",
     "REGULAR": "RTH",
@@ -72,6 +79,10 @@ _SESSION_LABEL_MAP = {
     "OVN": "OVN",
     "OVERNIGHT": "OVN",
     "CLOSED": "CLOSED",
+    "RTH_OPEN": "RTH",
+    "RTH_MID": "RTH",
+    "RTH_LATE": "RTH",
+    "WEEKEND": "CLOSED",
 }
 
 
@@ -83,28 +94,37 @@ def normalize_session_label(label: str) -> str:
 
 
 def resolve_market_session_label(now: Optional[datetime] = None) -> str:
+    return resolve_market_session_context(now).coarse
+
+
+def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSessionContext:
     now_utc = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     ny_time = now_utc.astimezone(ZoneInfo("America/New_York"))
+    market_time = ny_time.isoformat()
     if ny_time.weekday() >= 5:
-        return "CLOSED"
+        return MarketSessionContext(coarse="CLOSED", phase="WEEKEND", market_time=market_time)
     holidays = set(get_config("MARKET_HOLIDAYS"))
     half_days = set(get_config("MARKET_HALF_DAYS"))
     if ny_time.date() in holidays:
-        return "CLOSED"
+        return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
     if ny_time.date() in half_days:
         early_close = get_config("MARKET_EARLY_CLOSE_TIME")
         if ny_time.time() >= early_close:
-            return "CLOSED"
+            return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
 
     h = now_utc.hour + now_utc.minute / 60.0
     windows = get_config("SCANNER_SESSION_WINDOWS_UTC")
     if windows["PRE_START"] <= h < windows["RTH_START"]:
-        return "PRE"
+        return MarketSessionContext(coarse="PRE", phase="PRE", market_time=market_time)
     if windows["RTH_START"] <= h < windows["AFT_START"]:
-        return "RTH"
+        if ny_time.time() < time(10, 30):
+            return MarketSessionContext(coarse="RTH", phase="RTH_OPEN", market_time=market_time)
+        if ny_time.time() < time(14, 30):
+            return MarketSessionContext(coarse="RTH", phase="RTH_MID", market_time=market_time)
+        return MarketSessionContext(coarse="RTH", phase="RTH_LATE", market_time=market_time)
     if windows["AFT_START"] <= h < windows["AFT_END"]:
-        return "AH"
-    return "OVN"
+        return MarketSessionContext(coarse="AH", phase="AH", market_time=market_time)
+    return MarketSessionContext(coarse="OVN", phase="OVN", market_time=market_time)
 
 
 def _safe_float(value: Optional[float]) -> Optional[float]:

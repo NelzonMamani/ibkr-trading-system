@@ -365,3 +365,17 @@ def stock_selection_policy_for_session_phase(
         if policy.stock_selection.top_gainers_n == 50:
             return replace(policy.stock_selection, top_gainers_n=150)
     return policy.stock_selection
+
+
+# Session phase contract (authoritative): PRE, RTH_OPEN, RTH_MID, RTH_LATE, AH, OVN, CLOSED, WEEKEND.
+
+# Pattern cadence by phase:
+# - RTH_OPEN => 1m structure / 10s trigger
+# - RTH_MID => 3m structure / 30s trigger
+# - RTH_LATE => 5m structure / 1m trigger
+
+# RVOL law: scanner_rvol is discovery/focus gating metric; time_normalized_rvol is session-aware telemetry and contextual only.
+
+# Float sourcing law: Float may be sourced from non-IBKR providers (Yahoo Finance, Finviz, optional Nasdaq fallback) with provenance and caching; cached external float is accepted authority when fresh under configured rules.
+
+# Closed-session prep law: Closed/AH/OVN/weekend prep may persist ranking/context metrics and hydrate float/news/reference data for next session; prep metrics are context only, not live-RTH trigger authority.
