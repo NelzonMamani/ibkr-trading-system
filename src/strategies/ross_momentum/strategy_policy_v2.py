@@ -427,11 +427,16 @@ POLICY_V2 = StrategyPolicyV2(
         ),
         relative_volume_model=RelativeVolumeModelV2(
             rvol_minimum=2.0,
+            watchlist_rvol_min=0.5,
+            focus_rvol_min=2.0,
             calibration_commentary=(
-                "RVOL is isolated from raw volume: RVOL measures abnormal attention, while total/premarket volume measure base "
-                "liquidity needed to execute momentum setups."
+                "Discovery phase allows lower RVOL to observe emerging momentum candidates. "
+                "Execution focus requires strong RVOL confirmation."
             ),
-            calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
+            calibration_notes=(
+                "watchlist_rvol_min: Minimum RVOL required for a symbol to remain in WATCHLIST_K. "
+                "focus_rvol_min: Minimum RVOL required for promotion from WATCHLIST_K to FOCUS_M."
+            ),
         ),
         float_model=FloatModelV2(
             float_max_millions=20.0,

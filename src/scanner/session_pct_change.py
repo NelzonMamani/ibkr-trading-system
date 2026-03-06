@@ -125,6 +125,16 @@ def _pct_change(last_price: Optional[float], reference_price: Optional[float]) -
     return round(((last_price - reference_price) / reference_price) * 100.0, 2)
 
 
+def compute_scanner_rvol(
+    session_volume: Optional[float],
+    avg_volume_20d: Optional[float],
+) -> Optional[float]:
+    if session_volume is None or avg_volume_20d in (None, 0):
+        return None
+
+    return round(session_volume / avg_volume_20d, 2)
+
+
 def compute_session_relative_volume(
     *,
     session_label: str,

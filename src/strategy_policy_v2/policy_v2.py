@@ -485,6 +485,8 @@ class VolumeModelV2:
 @dataclass(frozen=True)
 class RelativeVolumeModelV2:
     rvol_minimum: float = 5.0
+    watchlist_rvol_min: float = 0.5
+    focus_rvol_min: float = 2.0
     calibration_commentary: str = ""
     calibration_notes: str = ""
 

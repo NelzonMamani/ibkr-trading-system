@@ -256,6 +256,8 @@ class StockSelectionSpec:
     gap_min_pct: float = 10.0
     gap_max_pct: Optional[float] = None
     rvol_min: float = 2.0
+    watchlist_rvol_min: float = 0.5
+    focus_rvol_min: float = 2.0
     float_max_millions: float = 20.0
     liquidity_min_dollar_volume: Optional[float] = None
     min_volume: int = 1_000_000
