@@ -1,3 +1,4 @@
+from src.scanner.print_contract import print_scanner_contract
 from src.scanner.scanner_runner import GateThresholds, _evaluate_watchlist_gates
 
 
@@ -30,3 +31,22 @@ def test_symbol_survives_when_float_present_from_external_cache() -> None:
 def test_symbol_rejected_when_float_truly_missing() -> None:
     context = {"symbol": "ABC", "session": "RTH", "pct_change": 5.0, "scanner_rvol": 1.2, "float_shares": None}
     assert _evaluate_watchlist_gates(context, _thresholds()) == "DROP_FLOAT_MISSING"
+
+
+def test_scanner_contract_prints_reconciled_counts(capsys) -> None:
+    watchlist = ["PRSO"]
+    focus = ["PRSO"]
+    print_scanner_contract(
+        topn_count=50,
+        survivors_count=len(watchlist),
+        watchlist_k=watchlist,
+        focus_m=focus,
+        drop_summary={},
+        new_symbols=watchlist,
+        continuing_symbols=[],
+        dropped_symbols=[],
+    )
+    output = capsys.readouterr().out
+    assert "TopN: 50" in output
+    assert "GatedSurvivors: 1" in output
+    assert "WATCHLIST_K: ['PRSO']" in output
