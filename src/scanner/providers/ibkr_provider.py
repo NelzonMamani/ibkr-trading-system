@@ -21,6 +21,7 @@ class IbkrScannerProvider(ScannerDataProvider):
     def __init__(self, market_data_client: Optional[MarketDataClient] = None) -> None:
         self.market_data_client = market_data_client or MarketDataClient()
         self.last_scan_details: dict[str, dict[str, Optional[str]]] = {}
+        self.last_float_source: Optional[str] = None
 
     def connect(self) -> None:
         try:
@@ -170,10 +171,15 @@ class IbkrScannerProvider(ScannerDataProvider):
         )
 
     def get_float(self, symbol: str) -> Optional[int]:
+        self.last_float_source = None
         float_shares = self._fetch_yahoo_float(symbol)
         if float_shares:
+            self.last_float_source = "YAHOO_FINANCE"
             return float_shares
-        return self._fetch_finviz_float(symbol)
+        float_shares = self._fetch_finviz_float(symbol)
+        if float_shares:
+            self.last_float_source = "FINVIZ"
+        return float_shares
 
     def _average_daily_volume(self, symbol: str) -> tuple[Optional[int], Optional[int]]:
         contract = self.market_data_client.qualify_contract(symbol)

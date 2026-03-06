@@ -58,6 +58,7 @@ from src.scanner.session_pct_change import (
     compute_session_aligned_pct_change,
     compute_session_relative_volume_with_provenance,
     normalize_session_label,
+    resolve_market_session_context,
     resolve_market_session_label,
 )
 
@@ -203,6 +204,10 @@ def _market_session_label_utc(now: datetime) -> str:
     return resolve_market_session_label(now)
 
 
+def _market_session_context_utc(now: datetime):
+    return resolve_market_session_context(now)
+
+
 def _print_symbol_limits(
     scanner_mode: str,
     provider_source: str,
@@ -283,7 +288,7 @@ def _should_print_watchlist(
     return (cycle_count - _LAST_PRINT_CYCLE) >= every_n
 
 
-def _load_float_cache(path: Path) -> Dict[str, int]:
+def _load_float_cache(path: Path) -> Dict[str, Dict[str, Any]]:
     try:
         if not path.exists():
             return {}
@@ -291,13 +296,29 @@ def _load_float_cache(path: Path) -> Dict[str, int]:
         parsed = json.loads(data)
         if isinstance(parsed, dict):
             parsed.pop("_meta", None)
-            return {k: int(v) for k, v in parsed.items() if isinstance(v, (int, float))}
+            normalized: Dict[str, Dict[str, Any]] = {}
+            for k, v in parsed.items():
+                if isinstance(v, dict):
+                    value = v.get("float_value")
+                    if isinstance(value, (int, float)):
+                        normalized[k] = {
+                            "float_value": int(value),
+                            "float_source": v.get("float_source"),
+                            "float_asof": v.get("float_asof"),
+                        }
+                elif isinstance(v, (int, float)):
+                    normalized[k] = {
+                        "float_value": int(v),
+                        "float_source": "CACHE_LEGACY",
+                        "float_asof": None,
+                    }
+            return normalized
     except Exception:
         return {}
     return {}
 
 
-def _persist_float_cache(path: Path, float_cache: Dict[str, int]) -> None:
+def _persist_float_cache(path: Path, float_cache: Dict[str, Dict[str, Any]]) -> None:
     try:
         path.write_text(json.dumps(float_cache, sort_keys=True, indent=2), encoding="utf-8")
     except Exception as exc:
@@ -307,7 +328,7 @@ def _persist_float_cache(path: Path, float_cache: Dict[str, int]) -> None:
 def _bootstrap_float_cache(
     symbols: Iterable[str],
     provider: ScannerDataProvider,
-) -> Dict[str, int]:
+) -> Dict[str, Dict[str, Any]]:
     global _FLOAT_CACHE_STATE, _FLOAT_SOURCE_BY_SYMBOL
     today = datetime.now(timezone.utc).date().isoformat()
     cache_path = Path(get_config("SCANNER_FLOAT_CACHE_FILE"))
@@ -316,28 +337,50 @@ def _bootstrap_float_cache(
         _FLOAT_CACHE_STATE = {"as_of": today, "data": _load_float_cache(cache_path)}
         _FLOAT_CACHE_REQUESTED.clear()
 
-    float_cache: Dict[str, int] = _FLOAT_CACHE_STATE.get("data", {})
+    float_cache: Dict[str, Dict[str, Any]] = _FLOAT_CACHE_STATE.get("data", {})
     updated = False
     _FLOAT_SOURCE_BY_SYMBOL = {}
 
     for symbol in symbols:
-        if symbol in float_cache:
-            _FLOAT_SOURCE_BY_SYMBOL[symbol] = "cache"
+        cached = float_cache.get(symbol)
+        if isinstance(cached, dict) and isinstance(cached.get("float_value"), int):
+            _FLOAT_SOURCE_BY_SYMBOL[symbol] = cached.get("float_source") or "CACHE"
+            print(
+                "[FLOAT][CACHE_HIT] "
+                f"symbol={symbol} source={_FLOAT_SOURCE_BY_SYMBOL[symbol]} value={cached.get('float_value')}"
+            )
             continue
         if symbol in _FLOAT_CACHE_REQUESTED:
             _FLOAT_SOURCE_BY_SYMBOL[symbol] = "missing"
             continue
         _FLOAT_CACHE_REQUESTED.add(symbol)
+        providers_tried = ["YAHOO_FINANCE", "FINVIZ"]
+        print(f"[FLOAT][FETCH] symbol={symbol} providers={providers_tried}")
         try:
             value = provider.get_float(symbol)
+            source = getattr(provider, "last_float_source", None) or "EXTERNAL"
         except Exception:
             value = None
+            source = None
         if value:
-            float_cache[symbol] = int(value)
-            _FLOAT_SOURCE_BY_SYMBOL[symbol] = "lookup"
+            asof = datetime.now(timezone.utc).isoformat()
+            float_cache[symbol] = {
+                "float_value": int(value),
+                "float_source": source or "EXTERNAL",
+                "float_asof": asof,
+            }
+            _FLOAT_SOURCE_BY_SYMBOL[symbol] = source or "EXTERNAL"
+            print(
+                "[FLOAT][FETCH_OK] "
+                f"symbol={symbol} source={_FLOAT_SOURCE_BY_SYMBOL[symbol]} value={int(value)} cached=true"
+            )
             updated = True
         else:
             _FLOAT_SOURCE_BY_SYMBOL[symbol] = "missing"
+            print(
+                "[FLOAT][FETCH_FAIL] "
+                f"symbol={symbol} providers_tried={providers_tried}"
+            )
 
     if updated:
         _persist_float_cache(cache_path, float_cache)
@@ -1055,6 +1098,7 @@ def _candidate_from_context(
         con_id=context.get("con_id"),
         exchange=context.get("exchange"),
         session_label=session_value,
+        session_phase=context.get("session_phase"),
         last_price=context.get("last_price"),
         prev_close=context.get("prev_close"),
         ref_close_rth=context.get("ref_close_rth"),
@@ -1070,6 +1114,9 @@ def _candidate_from_context(
         relative_volume=context.get("relative_volume"),
         avg_volume_20d=context.get("avg_volume_20d"),
         float_shares=float_shares,
+        float_source=context.get("float_source"),
+        float_asof=context.get("float_asof"),
+        float_cache_hit=context.get("float_cache_hit"),
         float_millions=float_millions,
         volume=volume,
         premarket_volume=premarket_volume,
@@ -1211,7 +1258,7 @@ def _build_symbol_context(
     provider: ScannerDataProvider,
     symbol: str,
     session_label: str,
-    float_cache: Dict[str, int],
+    float_cache: Dict[str, Dict[str, Any]],
     *,
     universe_rank: Optional[int] = None,
     include_pct_change: bool = True,
@@ -1328,10 +1375,19 @@ def _build_symbol_context(
     if last_price is not None and volume is not None:
         dollar_volume = round(last_price * volume, 2)
 
-    float_shares = float_cache.get(symbol)
-    float_source = _FLOAT_SOURCE_BY_SYMBOL.get(symbol, "cache" if float_shares is not None else "missing")
+    float_entry = float_cache.get(symbol) or {}
+    float_shares = float_entry.get("float_value") if isinstance(float_entry, dict) else None
+    float_source = (
+        float_entry.get("float_source") if isinstance(float_entry, dict) else None
+    ) or _FLOAT_SOURCE_BY_SYMBOL.get(symbol, "missing")
+    float_asof = float_entry.get("float_asof") if isinstance(float_entry, dict) else None
+    float_cache_hit = bool(isinstance(float_entry, dict) and float_shares is not None)
     if float_shares is None:
         data_quality_flags.append("FLOAT_UNKNOWN")
+    print(
+        "[FLOAT][PROVENANCE] "
+        f"symbol={symbol} value={float_shares} source={float_source} asof={float_asof} cache_hit={float_cache_hit}"
+    )
 
     if spread is None:
         data_quality_flags.append("SPREAD_UNKNOWN")
@@ -1391,6 +1447,8 @@ def _build_symbol_context(
         "rvol_method": rvol_payload.method,
         "float_shares": float_shares,
         "float_source": float_source,
+        "float_asof": float_asof,
+        "float_cache_hit": float_cache_hit,
         "halted": None,
         "ssr": None,
         "data_quality_flags": data_quality_flags,
@@ -1748,12 +1806,15 @@ def run_scanner_cycle(
     global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE, _PERSISTENT_PROVIDER, _PERSISTENT_PROVIDER_SOURCE
     _SCAN_CYCLE_COUNT += 1
     utc_now = _utc_now()
-    session_label = forced_session_label or _market_session_label_utc(utc_now)
+    session_ctx = _market_session_context_utc(utc_now)
+    session_label = forced_session_label or session_ctx.coarse
+    session_phase = forced_session_label or session_ctx.phase
     daily_state = _get_ross_daily_state(utc_now, session_label)
-    diagnostics: Dict[str, Any] = {"mode": mode, "ross_trading_day": daily_state.trading_day}
+    diagnostics: Dict[str, Any] = {"mode": mode, "ross_trading_day": daily_state.trading_day, "session_phase": session_phase}
     drop_ledger: Dict[str, str] = {}
     universe_top_n: list[dict[str, Any]] = []
     print(f"[SCANNER] MODE={mode} SESSION={session_label}")
+    print(f"[SESSION] coarse={session_label} phase={session_phase} market_time={session_ctx.market_time}")
     scanner_mode = get_scanner_mode()
     policy_source = "STRATEGY" if policy is not None else "CONFIG_DEFAULTS"
     resolved_policy = policy or policy_from_config()
