@@ -27,6 +27,44 @@ from src.utils.teacher_logs import (
 )
 
 
+
+
+def _reason_code(raw_reason: str | None) -> str:
+    reason = (raw_reason or "").upper()
+    if "HOD" in reason and ("NOT" in reason or "FAIL" in reason or "REJECT" in reason):
+        return "HOD_NOT_BROKEN"
+    if "VOLUME" in reason:
+        return "INSUFFICIENT_VOLUME"
+    if "SPREAD" in reason:
+        return "SPREAD_TOO_WIDE"
+    if "RVOL" in reason or "RELATIVE VOLUME" in reason:
+        return "RVOL_TOO_LOW"
+    return "STRUCTURE_INVALID"
+
+
+def _log_setup_eval(
+    *,
+    symbol: str,
+    pattern_name: str,
+    scanner_rvol: float | None,
+    gap_pct: float | None,
+    hod_pct: float | None,
+    volume: float | None,
+    decision: str,
+    reason: str,
+) -> None:
+    print(
+        "[ROSS][SETUP_EVAL] "
+        f"symbol={symbol} "
+        f"pattern={pattern_name} "
+        f"scanner_rvol={scanner_rvol} "
+        f"gap_pct={gap_pct} "
+        f"hod_pct={hod_pct} "
+        f"volume={volume} "
+        f"decision={decision} "
+        f"reason={reason}"
+    )
+
 class RossMomentumStrategy(StrategyBase):
     strategy_id = "ross_momentum"
     strategy_name = "Ross Momentum"
@@ -62,6 +100,39 @@ class RossMomentumStrategy(StrategyBase):
 
         summary = self._evaluator.evaluate(inputs.pattern_inputs)
         log_pattern_summary(summary)
+
+        scanner_rvol = getattr(inputs.market_context, "rvol", None)
+        gap_pct = None
+        hod_pct = None
+        volume = getattr(inputs.market_context, "volume", None)
+        if inputs.news_context:
+            gap_pct = inputs.news_context.get("gap_pct")
+            hod_pct = inputs.news_context.get("hod_pct")
+
+        for result in summary.all_results:
+            decision = "TRIGGER" if result.detected else "REJECT"
+            reason = "SETUP_DETECTED" if result.detected else _reason_code(result.rejection_reason)
+            _log_setup_eval(
+                symbol=symbol,
+                pattern_name=result.pattern_name,
+                scanner_rvol=scanner_rvol,
+                gap_pct=gap_pct,
+                hod_pct=hod_pct,
+                volume=volume,
+                decision=decision,
+                reason=reason,
+            )
+            if result.detected:
+                print(
+                    "[ROSS][SETUP_TRIGGER] "
+                    f"symbol={symbol} pattern={result.pattern_name} reason={reason}"
+                )
+            else:
+                print(
+                    "[ROSS][SETUP_REJECT] "
+                    f"symbol={symbol} pattern={result.pattern_name} reason={reason}"
+                )
+
         intents = build_trade_intents(
             strategy_id=self.strategy_id,
             symbol=symbol,

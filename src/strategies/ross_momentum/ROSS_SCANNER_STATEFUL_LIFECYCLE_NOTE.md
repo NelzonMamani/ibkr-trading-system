@@ -51,3 +51,15 @@ The scanner shifts work to pre-open/prep windows, minimizes repeated intraday fu
 - `FOCUS_M` → pattern detection → execution
 
 `time_normalized_rvol` remains telemetry only.
+
+## STRATEGY DIAGNOSTICS
+
+The Ross strategy layer must produce deterministic evaluation traces
+for every candidate evaluated by the pattern engine.
+
+This ensures:
+
+• Operator explainability
+• deterministic debugging
+• reproducible strategy decisions
+
