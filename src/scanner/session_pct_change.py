@@ -1,13 +1,42 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 import math
 from typing import Optional
 
 from zoneinfo import ZoneInfo
 
 from src.config.config_resolver import get_config
+
+
+def _estimate_session_progress(session_label: str, now_utc: datetime | None = None) -> float:
+    """
+    Estimate how far we are into the RTH session.
+    Returns a float between 0.01 and 1.0.
+    """
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
+
+    session = normalize_session_label(session_label)
+
+    if session != "RTH":
+        return 0.0
+
+    # Market open 09:30 ET, close 16:00 ET
+    # Convert UTC to approximate ET offset
+    # (simple approximation is sufficient for RVOL scaling)
+    market_open_utc = time(hour=14, minute=30)
+    minutes_since_open = (
+        (now_utc.hour * 60 + now_utc.minute)
+        - (market_open_utc.hour * 60 + market_open_utc.minute)
+    )
+
+    total_session_minutes = 390
+
+    progress = max(0.01, min(minutes_since_open / total_session_minutes, 1.0))
+
+    return progress
 
 
 @dataclass(frozen=True)
@@ -116,39 +145,67 @@ def compute_session_relative_volume_with_provenance(
     avg_volume_20d: Optional[float],
 ) -> SessionRelativeVolume:
     normalized_session = normalize_session_label(session_label)
+
     baseline = "UNSUPPORTED"
     method = "UNSUPPORTED"
-    if normalized_session not in {"PRE", "RTH", "AH", "OVN", "CLOSED"}:
+
+    if avg_volume_20d in {None, 0} or session_volume is None:
         return SessionRelativeVolume(
             session_label=normalized_session,
-            baseline=baseline,
-            method=method,
+            baseline="NO_DATA",
+            method="UNAVAILABLE",
             value=None,
         )
+
+    expected_volume = None
+
     if normalized_session == "PRE":
-        baseline = "PREMARKET"
-        method = "SESSION_VOL / AVG_20D"
+        baseline = "PREMARKET_EXPECTED"
+        method = "SESSION_NORMALIZED_RVOL"
+        expected_volume = avg_volume_20d * 0.02
+
     elif normalized_session == "RTH":
-        baseline = "RTH"
-        method = "INTRADAY_PROXY_SESSION_VOL / AVG_20D"
+        progress = _estimate_session_progress(normalized_session)
+        baseline = "RTH_TIME_NORMALIZED"
+        method = "SESSION_NORMALIZED_RVOL"
+        expected_volume = avg_volume_20d * progress
+
     elif normalized_session == "AH":
-        baseline = "AFTER_HOURS"
-        method = "SESSION_VOL / AVG_20D"
-    else:
-        baseline = "LAST_KNOWN_SESSION"
-        method = "SESSION_VOL / AVG_20D_PERSISTED"
-    if session_volume is None or avg_volume_20d in {None, 0}:
+        baseline = "AFTER_HOURS_EXPECTED"
+        method = "SESSION_NORMALIZED_RVOL"
+        expected_volume = avg_volume_20d * 0.01
+
+    elif normalized_session in {"OVN", "CLOSED"}:
+        return SessionRelativeVolume(
+            session_label=normalized_session,
+            baseline="LAST_SESSION_REFERENCE",
+            method="PERSISTED_RVOL",
+            value=None,
+        )
+
+    if expected_volume is None or expected_volume <= 0:
         return SessionRelativeVolume(
             session_label=normalized_session,
             baseline=baseline,
             method=method,
             value=None,
         )
+
+    rvol = round(session_volume / expected_volume, 2)
+
+    print(
+        "[RVOL_DEBUG] "
+        f"session={normalized_session} "
+        f"current_volume={session_volume} "
+        f"expected_volume={round(expected_volume,2)} "
+        f"rvol={rvol}"
+    )
+
     return SessionRelativeVolume(
         session_label=normalized_session,
         baseline=baseline,
         method=method,
-        value=round(session_volume / avg_volume_20d, 2),
+        value=rvol,
     )
 
 
