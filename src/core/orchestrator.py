@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 import json
 import os
+from threading import Lock, Thread
 from uuid import uuid4
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -295,6 +296,9 @@ class CoreOrchestrator:
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
         self._daily_loss_warning_date: Optional[str] = None
         self._daily_loss_hard_stop_date: Optional[str] = None
+        self._prep_next_due_at: datetime | None = None
+        self._prep_update_thread: Thread | None = None
+        self._prep_update_lock = Lock()
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
         self._run_startup_validations()
         self._ensure_premarket_prep_artifact()
@@ -913,6 +917,10 @@ class CoreOrchestrator:
             "[SESSION] "
             f"phase={session_phase} ny_time={ny_time.isoformat()} "
             f"uk_time={uk_time.isoformat()} utc={cycle_started_at.isoformat()}"
+        )
+        self._maybe_run_scheduled_prep_update(
+            cycle_started_at,
+            get_current_market_session(cycle_started_at),
         )
         return self._run_manager_pipeline(
             cycle_started_at=cycle_started_at,
@@ -2607,26 +2615,121 @@ class CoreOrchestrator:
         out_path = write_canonical_premarket_prep_artifact(payload)
         print(f"[PREP] artifact written path={out_path}")
 
+    @staticmethod
+    def _prep_symbols_from_config() -> list[str]:
+        symbols_raw = get_config("SCANNER_SYMBOLS") or []
+        symbols = [str(symbol).upper() for symbol in symbols_raw if str(symbol).strip()]
+        if symbols:
+            return symbols
+        return ["SPY", "QQQ"]
+
+    @staticmethod
+    def _placeholder_prep_artifact(symbols: list[str]) -> dict[str, object]:
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "symbols": [
+                {
+                    "symbol": symbol,
+                    "premarket_high": None,
+                    "premarket_low": None,
+                    "gap": None,
+                    "float": None,
+                    "news_context": [],
+                }
+                for symbol in symbols
+            ],
+        }
+
+    @staticmethod
+    def _prep_material_state(payload: dict[str, object]) -> str:
+        material = {k: v for k, v in payload.items() if k != "timestamp"}
+        return json.dumps(material, sort_keys=True, separators=(",", ":"))
+
+    @staticmethod
+    def _prep_cadence_range_seconds(session: str) -> tuple[int, int]:
+        session_key = (session or "CLOSED").upper()
+        if session_key == "PRE":
+            return (
+                int(get_config("PREP_REFRESH_PRE_MIN_SECONDS")),
+                int(get_config("PREP_REFRESH_PRE_MAX_SECONDS")),
+            )
+        if session_key in {"RTH", "REG", "REGULAR"}:
+            return (
+                int(get_config("PREP_REFRESH_REG_MIN_SECONDS")),
+                int(get_config("PREP_REFRESH_REG_MAX_SECONDS")),
+            )
+        if session_key == "AH":
+            return (
+                int(get_config("PREP_REFRESH_AH_MIN_SECONDS")),
+                int(get_config("PREP_REFRESH_AH_MAX_SECONDS")),
+            )
+        return (
+            int(get_config("PREP_REFRESH_CLOSED_MIN_SECONDS")),
+            int(get_config("PREP_REFRESH_CLOSED_MAX_SECONDS")),
+        )
+
+    def _prep_next_due_delta(self, session: str) -> timedelta:
+        min_s, max_s = self._prep_cadence_range_seconds(session)
+        low = max(1, min(min_s, max_s))
+        high = max(low, max(min_s, max_s))
+        return timedelta(seconds=int((low + high) / 2))
+
+    def _schedule_next_prep_update(self, now: datetime, session: str) -> None:
+        due_delta = self._prep_next_due_delta(session)
+        self._prep_next_due_at = now + due_delta
+        print(f"[PREP] scheduled update due in {due_delta}")
+
+    def _maybe_run_scheduled_prep_update(self, now: datetime, session: str) -> None:
+        if self._prep_update_thread and self._prep_update_thread.is_alive():
+            return
+        if self._prep_next_due_at is None:
+            self._schedule_next_prep_update(now, session)
+            return
+        if now < self._prep_next_due_at:
+            return
+
+        def _worker() -> None:
+            with self._prep_update_lock:
+                symbols = self._prep_symbols_from_config()
+                changed = False
+                try:
+                    self.prep_engine.update_from_universe(symbols, reason="SCHEDULED_PREP_UPDATE")
+                    payload = self.prep_engine.build_artifact_payload(symbols)
+                    existing = load_canonical_premarket_prep_artifact() or {}
+                    if self._prep_material_state(existing) != self._prep_material_state(payload):
+                        out_path = write_canonical_premarket_prep_artifact(payload)
+                        print(f"[PREP] artifact written path={out_path}")
+                        changed = True
+                    print(f"[PREP] update ran changed={changed}")
+                except Exception as exc:
+                    print(f"[PREP][ERROR] {exc} continuing")
+                finally:
+                    self._schedule_next_prep_update(datetime.now(timezone.utc), get_current_market_session())
+
+        self._prep_update_thread = Thread(target=_worker, name="prep-update", daemon=True)
+        self._prep_update_thread.start()
+
     def _ensure_premarket_prep_artifact(self) -> None:
         existing = load_canonical_premarket_prep_artifact()
         if existing:
             restored = self.prep_engine.hydrate_from_artifact(existing.get("symbols") or [])
-            print(f"[PREP] artifact found path={CANONICAL_PREP_ARTIFACT_PATH} restored_symbols={restored}")
+            print(
+                f"[PREP] hydrate ok path={CANONICAL_PREP_ARTIFACT_PATH} "
+                f"restored_symbols={restored}"
+            )
+            self._schedule_next_prep_update(datetime.now(timezone.utc), get_current_market_session())
             return
 
-        print("[PREP] artifact missing — running preparation engine")
-        symbols_raw = get_config("SCANNER_SYMBOLS") or []
-        symbols = [str(symbol).upper() for symbol in symbols_raw if str(symbol).strip()]
-        if not symbols:
-            symbols = ["SPY", "QQQ"]
+        symbols = self._prep_symbols_from_config()
+        placeholder = self._placeholder_prep_artifact(symbols)
         try:
-            self.prep_engine.update_from_universe(symbols, reason="STARTUP_DETERMINISTIC_PREP")
-            payload = self.prep_engine.build_artifact_payload(symbols)
-            out_path = write_canonical_premarket_prep_artifact(payload)
-            print(f"[PREP] preparation complete watchlist_size={len(payload.get('symbols', []))}")
-            print(f"[PREP] artifact written path={out_path}")
+            out_path = write_canonical_premarket_prep_artifact(placeholder)
+            print(f"[PREP] placeholder artifact written path={out_path}")
         except Exception as exc:
-            print(f"[PREP][ERROR] reason={exc}")
+            print(f"[PREP][ERROR] {exc} continuing")
+
+        self._prep_next_due_at = datetime.now(timezone.utc)
+        self._maybe_run_scheduled_prep_update(datetime.now(timezone.utc), get_current_market_session())
 
     def _resolve_market_data_status(self) -> tuple[str, bool]:
         if self.scanner_mode == "TEACHING" or self.run_mode in {RunMode.SIM, RunMode.PAPER}:
