@@ -22,6 +22,14 @@ class SessionAlignedPercentChange:
     pct_source: str
 
 
+@dataclass(frozen=True)
+class SessionRelativeVolume:
+    session_label: str
+    baseline: str
+    method: str
+    value: Optional[float]
+
+
 _SESSION_LABEL_MAP = {
     "REG": "RTH",
     "REGULAR": "RTH",
@@ -93,12 +101,55 @@ def compute_session_relative_volume(
     session_volume: Optional[float],
     avg_volume_20d: Optional[float],
 ) -> Optional[float]:
+    payload = compute_session_relative_volume_with_provenance(
+        session_label=session_label,
+        session_volume=session_volume,
+        avg_volume_20d=avg_volume_20d,
+    )
+    return payload.value
+
+
+def compute_session_relative_volume_with_provenance(
+    *,
+    session_label: str,
+    session_volume: Optional[float],
+    avg_volume_20d: Optional[float],
+) -> SessionRelativeVolume:
     normalized_session = normalize_session_label(session_label)
+    baseline = "UNSUPPORTED"
+    method = "UNSUPPORTED"
     if normalized_session not in {"PRE", "RTH", "AH", "OVN", "CLOSED"}:
-        return None
+        return SessionRelativeVolume(
+            session_label=normalized_session,
+            baseline=baseline,
+            method=method,
+            value=None,
+        )
+    if normalized_session == "PRE":
+        baseline = "PREMARKET"
+        method = "SESSION_VOL / AVG_20D"
+    elif normalized_session == "RTH":
+        baseline = "RTH"
+        method = "INTRADAY_PROXY_SESSION_VOL / AVG_20D"
+    elif normalized_session == "AH":
+        baseline = "AFTER_HOURS"
+        method = "SESSION_VOL / AVG_20D"
+    else:
+        baseline = "LAST_KNOWN_SESSION"
+        method = "SESSION_VOL / AVG_20D_PERSISTED"
     if session_volume is None or avg_volume_20d in {None, 0}:
-        return None
-    return round(session_volume / avg_volume_20d, 2)
+        return SessionRelativeVolume(
+            session_label=normalized_session,
+            baseline=baseline,
+            method=method,
+            value=None,
+        )
+    return SessionRelativeVolume(
+        session_label=normalized_session,
+        baseline=baseline,
+        method=method,
+        value=round(session_volume / avg_volume_20d, 2),
+    )
 
 
 def compute_session_aligned_pct_change(
