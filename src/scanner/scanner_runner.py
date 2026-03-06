@@ -69,6 +69,7 @@ _FLOAT_CACHE_STATE: Dict[str, Any] = {
 }
 _FLOAT_CACHE_REQUESTED: set[str] = set()
 _FLOAT_SOURCE_BY_SYMBOL: Dict[str, str] = {}
+_FLOAT_CACHE_HIT_SYMBOLS: set[str] = set()
 _HISTORY_CACHE: Dict[str, Dict[str, Any]] = {}
 _NEWS_CACHE: Dict[str, Dict[str, Any]] = {}
 _PREV_WATCHLIST: set[str] = set()
@@ -329,7 +330,7 @@ def _bootstrap_float_cache(
     symbols: Iterable[str],
     provider: ScannerDataProvider,
 ) -> Dict[str, Dict[str, Any]]:
-    global _FLOAT_CACHE_STATE, _FLOAT_SOURCE_BY_SYMBOL
+    global _FLOAT_CACHE_STATE, _FLOAT_SOURCE_BY_SYMBOL, _FLOAT_CACHE_HIT_SYMBOLS
     today = datetime.now(timezone.utc).date().isoformat()
     cache_path = Path(get_config("SCANNER_FLOAT_CACHE_FILE"))
 
@@ -340,28 +341,44 @@ def _bootstrap_float_cache(
     float_cache: Dict[str, Dict[str, Any]] = _FLOAT_CACHE_STATE.get("data", {})
     updated = False
     _FLOAT_SOURCE_BY_SYMBOL = {}
+    _FLOAT_CACHE_HIT_SYMBOLS = set()
+    requested = 0
+    fetched_ok = 0
+    cache_hits = 0
+    missing = 0
 
     for symbol in symbols:
+        requested += 1
         cached = float_cache.get(symbol)
         if isinstance(cached, dict) and isinstance(cached.get("float_value"), int):
+            cache_hits += 1
+            _FLOAT_CACHE_HIT_SYMBOLS.add(symbol)
             _FLOAT_SOURCE_BY_SYMBOL[symbol] = cached.get("float_source") or "CACHE"
             print(
                 "[FLOAT][CACHE_HIT] "
-                f"symbol={symbol} value={cached.get('float_value')}"
+                f"symbol={symbol} value={cached.get('float_value')} "
+                f"source={cached.get('float_source')} asof={cached.get('float_asof')}"
             )
             continue
         if symbol in _FLOAT_CACHE_REQUESTED:
+            missing += 1
             _FLOAT_SOURCE_BY_SYMBOL[symbol] = "missing"
+            print(
+                "[FLOAT][FETCH_FAIL] "
+                f"symbol={symbol} provider=EXTERNAL reason=ALREADY_REQUESTED_NO_RESULT"
+            )
             continue
         _FLOAT_CACHE_REQUESTED.add(symbol)
-        providers_tried = ["FINVIZ", "YAHOO_FINANCE"]
         try:
             value = provider.get_float(symbol)
             source = getattr(provider, "last_float_source", None) or "EXTERNAL"
-        except Exception:
+            failures = list(getattr(provider, "last_float_failures", []) or [])
+        except Exception as exc:
             value = None
             source = None
+            failures = [("EXTERNAL", f"UNHANDLED_EXCEPTION:{type(exc).__name__}")]
         if value:
+            fetched_ok += 1
             asof = datetime.now(timezone.utc).isoformat()
             float_cache[symbol] = {
                 "float_value": int(value),
@@ -369,19 +386,33 @@ def _bootstrap_float_cache(
                 "float_asof": asof,
             }
             _FLOAT_SOURCE_BY_SYMBOL[symbol] = source or "EXTERNAL"
-            print(f"[FLOAT][FETCH] symbol={symbol} provider={_FLOAT_SOURCE_BY_SYMBOL[symbol]}")
-            print(f"[FLOAT][CACHE_WRITE] symbol={symbol} value={int(value)}")
+            print(
+                "[FLOAT][CACHE_WRITE] "
+                f"symbol={symbol} value={int(value)} source={source or 'EXTERNAL'} asof={asof}"
+            )
             updated = True
         else:
+            missing += 1
             _FLOAT_SOURCE_BY_SYMBOL[symbol] = "missing"
-            print(
-                "[FLOAT][FETCH_FAIL] "
-                f"symbol={symbol} providers_tried={providers_tried}"
-            )
+            if failures:
+                for provider_name, reason in failures:
+                    print(
+                        "[FLOAT][FETCH_FAIL] "
+                        f"symbol={symbol} provider={provider_name} reason={reason}"
+                    )
+            else:
+                print(
+                    "[FLOAT][FETCH_FAIL] "
+                    f"symbol={symbol} provider=EXTERNAL reason=NO_SOURCE_PROVIDED_REASON"
+                )
 
     if updated:
         _persist_float_cache(cache_path, float_cache)
     _FLOAT_CACHE_STATE["data"] = float_cache
+    print(
+        "[FLOAT][SUMMARY] "
+        f"requested={requested} fetched_ok={fetched_ok} cache_hits={cache_hits} missing={missing}"
+    )
     return float_cache
 
 
@@ -1390,7 +1421,7 @@ def _build_symbol_context(
         float_entry.get("float_source") if isinstance(float_entry, dict) else None
     ) or _FLOAT_SOURCE_BY_SYMBOL.get(symbol, "missing")
     float_asof = float_entry.get("float_asof") if isinstance(float_entry, dict) else None
-    float_cache_hit = bool(isinstance(float_entry, dict) and float_shares is not None)
+    float_cache_hit = symbol in _FLOAT_CACHE_HIT_SYMBOLS and float_shares is not None
     if float_shares is None:
         data_quality_flags.append("FLOAT_UNKNOWN")
     print(
@@ -2653,9 +2684,14 @@ def run_scanner_cycle(
     new_symbols = sorted(set(watchlist_symbols) - _PREV_WATCHLIST)
     continuing_symbols = sorted(set(watchlist_symbols) & _PREV_WATCHLIST)
     dropped_symbols = sorted(_PREV_WATCHLIST - set(watchlist_symbols))
+    # Canonical accounting:
+    # TopN = raw scanner symbols returned by provider.
+    # GatedSurvivors = symbols that passed discovery gates into the watchlist selection pool.
+    # WATCHLIST_K = final selected watchlist after ranking/capping.
+    # FOCUS_M = final focus set after focus gates/capping.
     print_scanner_contract(
         topn_count=len(symbols),
-        survivors_count=len(candidates),
+        survivors_count=len(watchlist_contexts),
         watchlist_k=watchlist_symbols,
         focus_m=focus_symbols,
         drop_summary=drop_summary,
@@ -2710,7 +2746,7 @@ def run_scanner_cycle(
             dropped_symbols=dropped_symbols,
         ),
         "topn_count": len(symbols),
-        "survivors_count": len(candidates),
+        "survivors_count": len(watchlist_contexts),
         "new_symbols": new_symbols,
         "continuing_symbols": continuing_symbols,
         "dropped_symbols": dropped_symbols,

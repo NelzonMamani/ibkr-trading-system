@@ -22,6 +22,7 @@ class IbkrScannerProvider(ScannerDataProvider):
         self.market_data_client = market_data_client or MarketDataClient()
         self.last_scan_details: dict[str, dict[str, Optional[str]]] = {}
         self.last_float_source: Optional[str] = None
+        self.last_float_failures: list[tuple[str, str]] = []
 
     def connect(self) -> None:
         try:
@@ -172,14 +173,26 @@ class IbkrScannerProvider(ScannerDataProvider):
 
     def get_float(self, symbol: str) -> Optional[int]:
         self.last_float_source = None
-        float_shares = self._fetch_yahoo_float(symbol)
-        if float_shares:
-            self.last_float_source = "YAHOO_FINANCE"
-            return float_shares
-        float_shares = self._fetch_finviz_float(symbol)
-        if float_shares:
-            self.last_float_source = "FINVIZ"
-        return float_shares
+        self.last_float_failures = []
+        providers = [
+            ("FINVIZ", self._fetch_finviz_float_detailed),
+            ("YAHOO_FINANCE", self._fetch_yahoo_float_detailed),
+        ]
+        for provider_name, fetcher in providers:
+            print(f"[FLOAT][FETCH_START] symbol={symbol} provider={provider_name}")
+            value, reason = fetcher(symbol)
+            if value is not None and value > 0:
+                self.last_float_source = provider_name
+                print(
+                    f"[FLOAT][FETCH_OK] symbol={symbol} provider={provider_name} value={int(value)}"
+                )
+                return int(value)
+            fail_reason = reason or "UNKNOWN"
+            self.last_float_failures.append((provider_name, fail_reason))
+            print(
+                f"[FLOAT][FETCH_FAIL] symbol={symbol} provider={provider_name} reason={fail_reason}"
+            )
+        return None
 
     def _average_daily_volume(self, symbol: str) -> tuple[Optional[int], Optional[int]]:
         contract = self.market_data_client.qualify_contract(symbol)
@@ -207,6 +220,11 @@ class IbkrScannerProvider(ScannerDataProvider):
 
     @staticmethod
     def _fetch_yahoo_float(symbol: str) -> Optional[int]:
+        value, _ = IbkrScannerProvider._fetch_yahoo_float_detailed(symbol)
+        return value
+
+    @staticmethod
+    def _fetch_yahoo_float_detailed(symbol: str) -> tuple[Optional[int], str]:
         url = (
             "https://query1.finance.yahoo.com/v10/finance/quoteSummary/"
             f"{symbol}?modules=defaultKeyStatistics"
@@ -219,23 +237,33 @@ class IbkrScannerProvider(ScannerDataProvider):
             )
             response.raise_for_status()
             payload = response.json()
-        except Exception:
-            return None
+        except requests.RequestException:
+            return None, "REQUEST_ERROR"
+        except ValueError:
+            return None, "PARSE_ERROR"
         result = payload.get("quoteSummary", {}).get("result") or []
         if not result:
-            return None
+            return None, "FIELD_NOT_FOUND"
         stats = result[0].get("defaultKeyStatistics") or {}
-        float_field = stats.get("floatShares") or {}
-        raw_value = float_field.get("raw")
-        if raw_value in {None, 0}:
-            return None
-        try:
-            return int(raw_value)
-        except (TypeError, ValueError):
-            return None
+        float_field = stats.get("floatShares")
+        if isinstance(float_field, dict) and float_field.get("raw") is not None:
+            raw_value = float_field.get("raw")
+        elif isinstance(float_field, dict):
+            raw_value = float_field.get("fmt")
+        else:
+            raw_value = float_field
+        parsed = _parse_shares_value(raw_value)
+        if parsed is None or parsed <= 0:
+            return None, "INVALID_NUMERIC"
+        return parsed, "OK"
 
     @staticmethod
     def _fetch_finviz_float(symbol: str) -> Optional[int]:
+        value, _ = IbkrScannerProvider._fetch_finviz_float_detailed(symbol)
+        return value
+
+    @staticmethod
+    def _fetch_finviz_float_detailed(symbol: str) -> tuple[Optional[int], str]:
         url = f"https://finviz.com/quote.ashx?t={symbol}"
         try:
             response = requests.get(
@@ -245,22 +273,51 @@ class IbkrScannerProvider(ScannerDataProvider):
             )
             response.raise_for_status()
             text = response.text
-        except Exception:
-            return None
+        except requests.RequestException:
+            return None, "REQUEST_ERROR"
         match = re.search(r"Float</td>\s*<td[^>]*>\s*([^<]+)</td>", text, re.IGNORECASE)
         if not match:
-            return None
-        return _parse_finviz_float(match.group(1).strip())
+            match = re.search(r"\bFloat\b\s*</[^>]+>\s*<[^>]+>\s*([^<]+)", text, re.IGNORECASE)
+        if not match:
+            return None, "FIELD_NOT_FOUND"
+        parsed = _parse_shares_value(match.group(1).strip())
+        if parsed is None or parsed <= 0:
+            return None, "INVALID_NUMERIC"
+        return parsed, "OK"
 
 
 def _parse_finviz_float(value: str) -> Optional[int]:
-    match = re.match(r"^\s*([\d\.]+)\s*([KMB])?\s*$", value, re.IGNORECASE)
+    return _parse_shares_value(value)
+
+
+def _parse_shares_value(value: object) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value) if float(value) > 0 else None
+    text = str(value).strip()
+    if not text:
+        return None
+    normalized = (
+        text.replace("\u00a0", " ")
+        .replace("\u202f", " ")
+        .replace(",", "")
+        .replace("shares", "")
+        .replace("SHARES", "")
+        .strip()
+    )
+    if normalized.upper() in {"N/A", "NA", "-", "--", "NONE", "NULL"}:
+        return None
+    match = re.match(r"^\s*([\d]*\.?[\d]+)\s*([KMB])?\s*$", normalized, re.IGNORECASE)
     if not match:
         return None
-    number = float(match.group(1))
+    try:
+        number = float(match.group(1))
+    except ValueError:
+        return None
     suffix = match.group(2)
     multiplier = 1
     if suffix:
         suffix = suffix.upper()
         multiplier = {"K": 1_000, "M": 1_000_000, "B": 1_000_000_000}.get(suffix, 1)
-    return int(number * multiplier)
+    return int(number * multiplier) if number > 0 else None
