@@ -259,6 +259,16 @@ def compute_session_aligned_pct_change(
     reference_price = None
     reference_label = "NA"
 
+    """
+    Ross scanner gap reference law:
+
+    Percent change used for discovery must reference the previous
+    RTH close across PRE / RTH / AH sessions.
+
+    open_relative_pct_change exists only as telemetry and must never
+    replace the primary scanner gap metric.
+    """
+
     open_relative_pct_change = _pct_change(current_last, rth_open)
 
     if normalized_session in {"PRE", "RTH", "AH"}:

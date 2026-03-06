@@ -20,6 +20,7 @@ class CandidateMetrics:
     ibkr_change_pct: Optional[float]
     pct_source: Optional[str]
     open_relative_pct_change: Optional[float]
+    hod_pct: Optional[float]
     rvol: Optional[float]
     relative_volume: Optional[float]
     avg_volume_20d: Optional[int]
