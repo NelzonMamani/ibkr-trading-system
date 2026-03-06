@@ -29,17 +29,17 @@ from src.utils.teacher_logs import (
 
 
 
-def _resolve_ross_pattern_cadence(phase: str) -> tuple[str, str, bool]:
+def _resolve_ross_pattern_cadence(phase: str) -> tuple[str | None, str | None, bool]:
     normalized = (phase or "").upper()
     mapping = {
         "RTH_OPEN": ("1m", "10s", True),
-        "RTH_MID": ("3m", "30s", True),
+        "RTH_MID": ("1m", "10s", True),
         "RTH_LATE": ("5m", "1m", True),
         "PRE": ("1m", "10s", True),
         "AH": ("5m", "1m", False),
-        "OVN": ("5m", "1m", False),
-        "CLOSED": ("5m", "1m", False),
-        "WEEKEND": ("5m", "1m", False),
+        "OVN": (None, None, False),
+        "CLOSED": (None, None, False),
+        "WEEKEND": (None, None, False),
     }
     return mapping.get(normalized, ("1m", "10s", False))
 
@@ -137,7 +137,9 @@ class RossMomentumStrategy(StrategyBase):
             return decision
 
         session_phase = _resolve_session_phase(inputs)
-        structure_tf, trigger_tf, pattern_supported = _resolve_ross_pattern_cadence(session_phase)
+        session_label = str(getattr(inputs.market_context, "session_label", session_phase) or session_phase).upper()
+        print(f"[ROSS][SESSION] symbol={symbol} session={session_label}")
+        structure_tf, trigger_tf, pattern_supported = _resolve_ross_pattern_cadence(session_label)
         print(
             "[ROSS][CADENCE] "
             f"phase={session_phase} structure_tf={structure_tf} trigger_tf={trigger_tf}"
@@ -147,7 +149,10 @@ class RossMomentumStrategy(StrategyBase):
                 "[ROSS][CADENCE][WARN] "
                 f"phase={session_phase} pattern_support=limited execution_disabled=true"
             )
-        pattern_inputs = [replace(item, timeframe=structure_tf) for item in inputs.pattern_inputs]
+        if structure_tf is None:
+            pattern_inputs = []
+        else:
+            pattern_inputs = [replace(item, timeframe=structure_tf) for item in inputs.pattern_inputs]
         summary = self._evaluator.evaluate(pattern_inputs)
         log_pattern_summary(summary)
 

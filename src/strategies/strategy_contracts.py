@@ -54,6 +54,8 @@ class MarketContext:
     spread: float
     volume: float
     rvol: float
+    session_label: str = "PRE"
+    float: Optional[float] = None
     key_levels: Dict[str, float] = field(default_factory=dict)
 
 

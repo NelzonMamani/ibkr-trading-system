@@ -347,15 +347,14 @@ def _bootstrap_float_cache(
             _FLOAT_SOURCE_BY_SYMBOL[symbol] = cached.get("float_source") or "CACHE"
             print(
                 "[FLOAT][CACHE_HIT] "
-                f"symbol={symbol} source={_FLOAT_SOURCE_BY_SYMBOL[symbol]} value={cached.get('float_value')}"
+                f"symbol={symbol} value={cached.get('float_value')}"
             )
             continue
         if symbol in _FLOAT_CACHE_REQUESTED:
             _FLOAT_SOURCE_BY_SYMBOL[symbol] = "missing"
             continue
         _FLOAT_CACHE_REQUESTED.add(symbol)
-        providers_tried = ["YAHOO_FINANCE", "FINVIZ"]
-        print(f"[FLOAT][FETCH] symbol={symbol} providers={providers_tried}")
+        providers_tried = ["FINVIZ", "YAHOO_FINANCE"]
         try:
             value = provider.get_float(symbol)
             source = getattr(provider, "last_float_source", None) or "EXTERNAL"
@@ -370,10 +369,8 @@ def _bootstrap_float_cache(
                 "float_asof": asof,
             }
             _FLOAT_SOURCE_BY_SYMBOL[symbol] = source or "EXTERNAL"
-            print(
-                "[FLOAT][FETCH_OK] "
-                f"symbol={symbol} source={_FLOAT_SOURCE_BY_SYMBOL[symbol]} value={int(value)} cached=true"
-            )
+            print(f"[FLOAT][FETCH] symbol={symbol} provider={_FLOAT_SOURCE_BY_SYMBOL[symbol]}")
+            print(f"[FLOAT][CACHE_WRITE] symbol={symbol} value={int(value)}")
             updated = True
         else:
             _FLOAT_SOURCE_BY_SYMBOL[symbol] = "missing"
@@ -640,6 +637,15 @@ def _populate_pct_change(
     context["ibkr_change_pct"] = pct_payload.ibkr_change_pct
     context["pct_source"] = pct_payload.pct_source
     context["open_relative_pct_change"] = pct_payload.open_relative_pct_change
+    print(
+        "[PCT] "
+        f"symbol={context['symbol']} session={normalize_session_label(str(context.get('session') or ''))} "
+        f"baseline={context.get('reference_label')} value={context.get('pct_change')}"
+    )
+    print(
+        "[GAP] "
+        f"symbol={context['symbol']} reference={context.get('reference_label')} value={context.get('pct_change')}"
+    )
     if get_config("DEBUG_MARKET_DATA"):
         print(
             "[SCANNER][MD][DEBUG] pct_change "
@@ -1315,12 +1321,15 @@ def _build_symbol_context(
     if time_normalized_rvol is None:
         time_normalized_rvol = intraday.relative_volume if intraday else None
     scanner_rvol = compute_scanner_rvol(
+        session_label=session_label,
         session_volume=volume,
         avg_volume_20d=avg_volume_20d,
+        persisted_rvol=persisted_rvol,
     )
     print(
         "[SCANNER_RVOL] "
-        f"symbol={symbol} volume={volume} avg_volume_20d={avg_volume_20d} "
+        f"symbol={symbol} session={normalize_session_label(session_label)} "
+        f"volume={volume} avg_volume_20d={avg_volume_20d} "
         f"scanner_rvol={scanner_rvol}"
     )
     if intraday is None:
@@ -1350,7 +1359,7 @@ def _build_symbol_context(
     if include_pct_change:
         normalized_session = normalize_session_label(session_label)
         rth_open_price = session_open
-        if normalized_session == "RTH" and ibkr_change_pct is None:
+        if normalized_session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"} and ibkr_change_pct is None:
             rth_open_price = None
         rth_close_price = session_close if normalized_session == "AH" else prev_close
         pct_payload = compute_session_aligned_pct_change(
@@ -1645,7 +1654,7 @@ def _ross_reason_from_drop(drop_reason: str) -> str:
 def _resolve_trading_day(now: datetime, session_label: str) -> str:
     normalized = normalize_session_label(session_label)
     day = now.date()
-    if normalized in {"OVN", "AH", "CLOSED"}:
+    if normalized in {"OVN", "AH", "WEEKEND"}:
         return day.isoformat()
     return day.isoformat()
 
@@ -1807,14 +1816,14 @@ def run_scanner_cycle(
     _SCAN_CYCLE_COUNT += 1
     utc_now = _utc_now()
     session_ctx = _market_session_context_utc(utc_now)
-    session_label = forced_session_label or session_ctx.coarse
+    session_label = forced_session_label or session_ctx.phase
     session_phase = forced_session_label or session_ctx.phase
     daily_state = _get_ross_daily_state(utc_now, session_label)
     diagnostics: Dict[str, Any] = {"mode": mode, "ross_trading_day": daily_state.trading_day, "session_phase": session_phase}
     drop_ledger: Dict[str, str] = {}
     universe_top_n: list[dict[str, Any]] = []
     print(f"[SCANNER] MODE={mode} SESSION={session_label}")
-    print(f"[SESSION] coarse={session_label} phase={session_phase} market_time={session_ctx.market_time}")
+    print(f"[SESSION] label={session_label} market_time={session_ctx.market_time}")
     scanner_mode = get_scanner_mode()
     policy_source = "STRATEGY" if policy is not None else "CONFIG_DEFAULTS"
     resolved_policy = policy or policy_from_config()
@@ -2277,7 +2286,7 @@ def run_scanner_cycle(
             RunMode.PAPER,
         }
         catalyst_override = None if allow_news else True
-        session_override = "" if session_label == "CLOSED" and run_mode != RunMode.LIVE else None
+        session_override = "" if session_label == "WEEKEND" and run_mode != RunMode.LIVE else None
         context_by_symbol = {
             context.get("symbol"): context for context in evaluated_contexts
         }
@@ -2328,7 +2337,7 @@ def run_scanner_cycle(
         ranked = _rank_candidates(candidates)
         if selector is not None:
             selection_metrics = candidate_metrics_for_ranking
-            if session_label == "CLOSED" and run_mode != RunMode.LIVE:
+            if session_label == "WEEKEND" and run_mode != RunMode.LIVE:
                 selection_metrics = [
                     replace(metric, session_label=None)
                     for metric in candidate_metrics_for_ranking
@@ -2469,8 +2478,8 @@ def run_scanner_cycle(
         diagnostics["drop_ledger_summary"] = drop_summary
         print(
             "[SCANNER][SUMMARY] "
-            f"candidates={len(symbols)} gated={len(candidates)} "
-            f"watchlist={len(watchlist_contexts)} drops={drop_summary}"
+            f"session={session_label} candidates={len(symbols)} survivors={len(watchlist_contexts)} "
+            f"watchlist={len(watchlist_contexts)} drop_reasons={drop_summary}"
         )
 
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
