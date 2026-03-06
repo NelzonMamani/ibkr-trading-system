@@ -26,6 +26,11 @@ Sources
 - This repository's Ross strategy documents and transcripts.
 - Public Warrior Trading educational material (e.g., the "How to Trade a Micro Pullback" article).
 
+Session-aware governance contract (runtime alignment)
+- Main scanner pct_change gate uses LAST_RTH_CLOSE semantics in PRE/RTH/AH.
+- OVN/CLOSED/weekend pct and RVOL are persisted prep provenance, not live-RTH gating authority.
+- open_relative_pct_change is secondary telemetry and must not silently replace main pct_change gating.
+
 """
 
 from __future__ import annotations

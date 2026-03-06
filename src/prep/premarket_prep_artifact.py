@@ -13,7 +13,7 @@ def _to_dict(row: Any) -> dict[str, Any]:
     if isinstance(row, dict):
         return row
     payload = {}
-    for key in ("symbol", "con_id", "last", "close", "spread", "float_shares", "data_quality_flags", "session"):
+    for key in ("symbol", "con_id", "last", "close", "spread", "float_shares", "data_quality_flags", "session", "persisted_pct_change", "persisted_rvol", "persisted_volume", "persisted_reference_label", "persisted_session_label", "persisted_asof"):
         payload[key] = getattr(row, key, None)
     return payload
 
@@ -56,6 +56,12 @@ def write_premarket_prep_artifact(*, mode: str, session: str, scanner_payload: d
                 "float_source": float_source,
                 "data_quality_flags": list(d.get("data_quality_flags") or []),
                 "session_phase": session,
+                "persisted_pct_change": d.get("persisted_pct_change"),
+                "persisted_rvol": d.get("persisted_rvol"),
+                "persisted_volume": d.get("persisted_volume"),
+                "persisted_reference_label": d.get("persisted_reference_label"),
+                "persisted_session_label": d.get("persisted_session_label"),
+                "persisted_asof": d.get("persisted_asof"),
             }
         )
 

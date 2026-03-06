@@ -49,6 +49,7 @@ class SessionAlignedPercentChange:
     ibkr_change_pct: Optional[float]
     final_pct: Optional[float]
     pct_source: str
+    open_relative_pct_change: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -143,11 +144,39 @@ def compute_session_relative_volume_with_provenance(
     session_label: str,
     session_volume: Optional[float],
     avg_volume_20d: Optional[float],
+    persisted_rvol: Optional[float] = None,
 ) -> SessionRelativeVolume:
     normalized_session = normalize_session_label(session_label)
 
     baseline = "UNSUPPORTED"
     method = "UNSUPPORTED"
+
+    persisted_rvol_value = _safe_float(persisted_rvol)
+
+    if normalized_session in {"OVN", "CLOSED"}:
+        if persisted_rvol_value is not None:
+            print(
+                "[RVOL] "
+                f"session={normalized_session} baseline=LAST_SESSION_REFERENCE "
+                f"method=PERSISTED_RVOL value={persisted_rvol_value}"
+            )
+            return SessionRelativeVolume(
+                session_label=normalized_session,
+                baseline="LAST_SESSION_REFERENCE",
+                method="PERSISTED_RVOL",
+                value=persisted_rvol_value,
+            )
+        print(
+            "[RVOL] "
+            f"session={normalized_session} baseline=LAST_SESSION_REFERENCE "
+            "method=PERSISTED_RVOL value=None"
+        )
+        return SessionRelativeVolume(
+            session_label=normalized_session,
+            baseline="LAST_SESSION_REFERENCE",
+            method="PERSISTED_RVOL_UNAVAILABLE",
+            value=None,
+        )
 
     if avg_volume_20d in {None, 0} or session_volume is None:
         return SessionRelativeVolume(
@@ -174,14 +203,6 @@ def compute_session_relative_volume_with_provenance(
         baseline = "AFTER_HOURS_EXPECTED"
         method = "SESSION_NORMALIZED_RVOL"
         expected_volume = avg_volume_20d * 0.01
-
-    elif normalized_session in {"OVN", "CLOSED"}:
-        return SessionRelativeVolume(
-            session_label=normalized_session,
-            baseline="LAST_SESSION_REFERENCE",
-            method="PERSISTED_RVOL",
-            value=None,
-        )
 
     if expected_volume is None or expected_volume <= 0:
         return SessionRelativeVolume(
@@ -217,39 +238,52 @@ def compute_session_aligned_pct_change(
     rth_open_price: Optional[float],
     rth_close_price: Optional[float],
     ibkr_change_pct: Optional[float],
+    persisted_pct_change: Optional[float] = None,
 ) -> SessionAlignedPercentChange:
     normalized_session = normalize_session_label(session_label)
     ibkr_pct = _safe_float(ibkr_change_pct)
+    persisted_pct = _safe_float(persisted_pct_change)
+    rth_open = _safe_float(rth_open_price)
+    current_last = _safe_float(cur_last)
+    last_rth_close = _safe_float(ref_close_rth)
     reference_price = None
     reference_label = "NA"
-    if normalized_session in {"PRE", "OVN", "CLOSED"}:
-        reference_price = ref_close_rth
-        reference_label = "LAST_RTH_CLOSE"
-    elif normalized_session == "RTH":
-        reference_price = rth_open_price or ref_close_rth
-        reference_label = "RTH_OPEN" if rth_open_price is not None else "LAST_RTH_CLOSE"
-    elif normalized_session == "AH":
-        reference_price = rth_close_price or ref_close_rth
-        reference_label = "RTH_CLOSE" if rth_close_price is not None else "LAST_RTH_CLOSE"
 
-    calc_pct = _pct_change(cur_last, reference_price)
-    if calc_pct is not None:
+    open_relative_pct_change = _pct_change(current_last, rth_open)
+
+    if normalized_session in {"PRE", "RTH", "AH"}:
+        reference_price = last_rth_close
+        reference_label = "LAST_RTH_CLOSE"
+    elif normalized_session in {"OVN", "CLOSED", "WEEKEND"}:
+        reference_price = None
+        reference_label = "LAST_SESSION_REFERENCE"
+
+    calc_pct = _pct_change(current_last, reference_price)
+    if normalized_session in {"PRE", "RTH", "AH"} and calc_pct is not None:
         final_pct = calc_pct
         pct_source = "CALC(SESSION_REF)"
-    elif ibkr_pct is not None:
+    elif normalized_session in {"OVN", "CLOSED", "WEEKEND"} and persisted_pct is not None:
+        final_pct = persisted_pct
+        pct_source = "PERSISTED_LAST_SESSION"
+    elif normalized_session in {"PRE", "RTH", "AH"} and ibkr_pct is not None:
+        # Fallback only when in-session reference values are unavailable.
         final_pct = ibkr_pct
         pct_source = "IBKR_FALLBACK"
+    elif ibkr_pct is not None:
+        final_pct = ibkr_pct
+        pct_source = "IBKR_FALLBACK_CLOSED"
     else:
         final_pct = None
         pct_source = "N/A"
 
     return SessionAlignedPercentChange(
         session_label=normalized_session,
-        cur_last=cur_last,
-        ref_close_rth=ref_close_rth,
+        cur_last=current_last,
+        ref_close_rth=last_rth_close,
         reference_price=reference_price,
         reference_label=reference_label,
         ibkr_change_pct=ibkr_pct,
         final_pct=final_pct,
         pct_source=pct_source,
+        open_relative_pct_change=open_relative_pct_change,
     )
