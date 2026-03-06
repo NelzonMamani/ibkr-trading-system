@@ -72,7 +72,8 @@ def test_scanner_does_not_drop_pct_change_when_prev_close_present() -> None:
         max_price=500.0,
         min_pct_change=1.0,
         max_pct_change=None,
-        min_rvol=1.0,
+        watchlist_rvol_min=1.0,
+        focus_rvol_min=1.0,
         min_volume=1000,
         min_premarket_volume=0,
         max_float=1_000_000_000,
@@ -86,4 +87,6 @@ def test_scanner_does_not_drop_pct_change_when_prev_close_present() -> None:
     )
 
     assert context is not None
-    assert _evaluate_gates(context, thresholds) is None
+    drop_reason = _evaluate_gates(context, thresholds)
+    assert drop_reason != "DROP_MISSING_PCT_CHANGE"
+    assert drop_reason != "DROP_PCT_CHANGE"

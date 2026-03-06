@@ -54,6 +54,7 @@ from src.scanner.providers.mock_provider import MockScannerProvider
 from src.scanner.ranking_registry import resolve_watchlist_selector
 from src.scanner.result_models import CandidateMetrics, ScannerResult
 from src.scanner.session_pct_change import (
+    compute_scanner_rvol,
     compute_session_aligned_pct_change,
     compute_session_relative_volume_with_provenance,
     normalize_session_label,
@@ -116,7 +117,8 @@ class GateThresholds:
     max_price: float
     min_pct_change: float
     max_pct_change: Optional[float]
-    min_rvol: float
+    watchlist_rvol_min: float
+    focus_rvol_min: float
     min_volume: int
     min_premarket_volume: int
     max_float: int
@@ -426,7 +428,8 @@ def _gate_thresholds(policy: StockSelectionPolicy) -> GateThresholds:
         max_price=policy.price_max,
         min_pct_change=policy.gap_min_pct,
         max_pct_change=policy.gap_max_pct,
-        min_rvol=policy.rvol_min,
+        watchlist_rvol_min=getattr(policy, "watchlist_rvol_min", 0.5),
+        focus_rvol_min=getattr(policy, "focus_rvol_min", policy.rvol_min),
         min_volume=policy.min_volume,
         min_premarket_volume=int(getattr(policy, "premarket_volume_min", policy.min_premarket_volume)),
         max_float=int(policy.float_max_millions * 1_000_000),
@@ -495,13 +498,13 @@ def _watchlist_gate_checks(
     thresholds: GateThresholds,
 ) -> Dict[str, bool]:
     pct_change = _safe_float(context.get("pct_change"), None)
-    rvol = _safe_float(context.get("rvol"), None)
+    scanner_rvol = _safe_float(context.get("scanner_rvol"), None)
     float_shares = context.get("float_shares")
 
     pct_ok = pct_change is not None and pct_change >= thresholds.min_pct_change
     if thresholds.max_pct_change is not None:
         pct_ok = pct_ok and pct_change is not None and pct_change <= thresholds.max_pct_change
-    rvol_ok = rvol is not None and rvol >= thresholds.min_rvol
+    rvol_ok = scanner_rvol is not None and scanner_rvol >= thresholds.watchlist_rvol_min
     # Float can be legitimately missing on fallback/mock providers; treat missing
     # as soft-pass so deterministic fallback universes still produce candidates.
     float_ok = float_shares is None or float_shares <= thresholds.max_float
@@ -617,7 +620,7 @@ def _missingness_map(drop_reason: str, context: Dict[str, Any]) -> Dict[str, boo
             "bid": context.get("bid") is None,
             "ask": context.get("ask") is None,
         }
-    if drop_reason in {"DROP_MISSING_RVOL", "DROP_RVOL"}:
+    if drop_reason in {"DROP_MISSING_RVOL", "DROP_RVOL_DISCOVERY", "DROP_RVOL_FOCUS"}:
         return {"rvol": context.get("rvol") is None}
     if drop_reason in {"DROP_MISSING_DOLLAR_VOLUME", "DROP_DOLLAR_VOLUME"}:
         return {"dollar_volume": context.get("dollar_volume") is None}
@@ -646,7 +649,7 @@ def _evaluate_watchlist_gates(
     thresholds: GateThresholds,
 ) -> Optional[str]:
     pct_change = _safe_float(context.get("pct_change"), None)
-    rvol = _safe_float(context.get("rvol"), None)
+    scanner_rvol = _safe_float(context.get("scanner_rvol"), None)
     float_shares = context.get("float_shares")
 
     if pct_change is None:
@@ -656,10 +659,21 @@ def _evaluate_watchlist_gates(
         return "DROP_PCT_CHANGE"
     if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
         return "DROP_PCT_CHANGE_MAX"
-    if rvol is None:
+    if scanner_rvol is None:
+        print(
+            "[WATCHLIST_GATE] "
+            f"symbol={context.get('symbol')} scanner_rvol=None "
+            f"threshold={thresholds.watchlist_rvol_min} decision=DROP"
+        )
         return "DROP_MISSING_RVOL"
-    if rvol < thresholds.min_rvol:
-        return "DROP_RVOL"
+    watchlist_decision = "KEEP" if scanner_rvol >= thresholds.watchlist_rvol_min else "DROP"
+    print(
+        "[WATCHLIST_GATE] "
+        f"symbol={context.get('symbol')} scanner_rvol={scanner_rvol} "
+        f"threshold={thresholds.watchlist_rvol_min} decision={watchlist_decision}"
+    )
+    if scanner_rvol < thresholds.watchlist_rvol_min:
+        return "DROP_RVOL_DISCOVERY"
     if float_shares is None:
         return "DROP_FLOAT_MISSING"
     if float_shares > thresholds.max_float:
@@ -688,6 +702,22 @@ def _evaluate_focus_gates(
         return "DROP_HALTED"
     if ssr is True and not thresholds.allow_ssr:
         return "DROP_SSR"
+    scanner_rvol = _safe_float(context.get("scanner_rvol"), None)
+    if scanner_rvol is None:
+        print(
+            "[FOCUS_GATE] "
+            f"symbol={context.get('symbol')} scanner_rvol=None "
+            f"threshold={thresholds.focus_rvol_min} decision=WAIT"
+        )
+        return "DROP_MISSING_RVOL"
+    focus_decision = "KEEP" if scanner_rvol >= thresholds.focus_rvol_min else "WAIT"
+    print(
+        "[FOCUS_GATE] "
+        f"symbol={context.get('symbol')} scanner_rvol={scanner_rvol} "
+        f"threshold={thresholds.focus_rvol_min} decision={focus_decision}"
+    )
+    if scanner_rvol < thresholds.focus_rvol_min:
+        return "DROP_RVOL_FOCUS"
     if volume is None:
         return "DROP_MISSING_VOLUME"
     if session in {"PRE", "OVN"}:
@@ -1232,14 +1262,23 @@ def _build_symbol_context(
         avg_volume_20d=avg_volume_20d,
         persisted_rvol=persisted_rvol,
     )
-    rvol = rvol_payload.value
-    if rvol is None:
-        rvol = intraday.relative_volume if intraday else None
+    time_normalized_rvol = rvol_payload.value
+    if time_normalized_rvol is None:
+        time_normalized_rvol = intraday.relative_volume if intraday else None
+    scanner_rvol = compute_scanner_rvol(
+        session_volume=volume,
+        avg_volume_20d=avg_volume_20d,
+    )
+    print(
+        "[SCANNER_RVOL] "
+        f"symbol={symbol} volume={volume} avg_volume_20d={avg_volume_20d} "
+        f"scanner_rvol={scanner_rvol}"
+    )
     if intraday is None:
         data_quality_flags.append("VOLUME_UNKNOWN")
     if volume is None:
         data_quality_flags.append("MISSING_VOLUME")
-    if rvol is None:
+    if scanner_rvol is None:
         data_quality_flags.append("RVOL_UNKNOWN")
 
     session_open = _safe_float(getattr(quote, "open", None), None)
@@ -1337,8 +1376,10 @@ def _build_symbol_context(
         "ask": quote.ask,
         "spread": spread,
         "spread_pct": spread_pct,
-        "rvol": rvol,
-        "relative_volume": rvol,
+        "scanner_rvol": scanner_rvol,
+        "time_normalized_rvol": time_normalized_rvol,
+        "rvol": time_normalized_rvol,
+        "relative_volume": time_normalized_rvol,
         "rvol_baseline": rvol_payload.baseline,
         "rvol_method": rvol_payload.method,
         "float_shares": float_shares,
@@ -1514,7 +1555,8 @@ def _classify_float(float_shares: Optional[int]) -> Optional[str]:
 def _ross_reason_from_drop(drop_reason: str) -> str:
     mapping = {
         "DROP_MISSING_RVOL": "RVOL_FAIL",
-        "DROP_RVOL": "RVOL_FAIL",
+        "DROP_RVOL_DISCOVERY": "RVOL_FAIL",
+        "DROP_RVOL_FOCUS": "RVOL_FAIL",
         "DROP_PCT_CHANGE": "GAP_FAIL",
         "DROP_PCT_CHANGE_MAX": "GAP_FAIL",
         "DROP_MISSING_PCT_CHANGE": "GAP_FAIL",
@@ -1710,14 +1752,15 @@ def run_scanner_cycle(
     resolved_policy = policy or policy_from_config()
     print(
         "[SCANNER][POLICY] source={source} policy_name={policy_name} price={price_min}-{price_max} "
-        "gap_min={gap_min} rvol_min={rvol_min} float_max_millions={float_max} "
+        "gap_min={gap_min} watchlist_rvol_min={watchlist_rvol_min} focus_rvol_min={focus_rvol_min} float_max_millions={float_max} "
         "spread_max_pct={spread_max_pct} watchlist_k={watchlist_k} focus_m={focus_m}".format(
             source=policy_source,
             policy_name=resolved_policy.policy_name,
             price_min=resolved_policy.price_min,
             price_max=resolved_policy.price_max,
             gap_min=resolved_policy.gap_min_pct,
-            rvol_min=resolved_policy.rvol_min,
+            watchlist_rvol_min=getattr(resolved_policy, "watchlist_rvol_min", 0.5),
+            focus_rvol_min=getattr(resolved_policy, "focus_rvol_min", resolved_policy.rvol_min),
             float_max=resolved_policy.float_max_millions,
             spread_max_pct=resolved_policy.spread_max_pct,
             watchlist_k=resolved_policy.watchlist_limit_k,
@@ -2111,7 +2154,8 @@ def run_scanner_cycle(
                             "threshold": {
                                 "min_pct_change": thresholds.min_pct_change,
                                 "max_pct_change": thresholds.max_pct_change,
-                                "min_rvol": thresholds.min_rvol,
+                                "watchlist_rvol_min": thresholds.watchlist_rvol_min,
+                                "focus_rvol_min": thresholds.focus_rvol_min,
                                 "min_volume": thresholds.min_volume,
                                 "min_premarket_volume": thresholds.min_premarket_volume,
                                 "max_float": thresholds.max_float,

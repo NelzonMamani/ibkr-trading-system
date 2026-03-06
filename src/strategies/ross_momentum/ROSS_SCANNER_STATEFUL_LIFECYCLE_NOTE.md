@@ -44,3 +44,10 @@ Operators should use these log families to verify provenance and lifecycle behav
 
 ## Why this reduces load and enables multi-strategy scale
 The scanner shifts work to pre-open/prep windows, minimizes repeated intraday full recomputation, and relies on deterministic cache invalidation and delta processing. This reduces provider/API load (including IBKR snapshot pressure) and keeps runtime headroom for future multi-strategy orchestration.
+
+## DISCOVERY PIPELINE
+- TopN → Gap → `scanner_rvol ≥ 0.5` → `WATCHLIST_K`
+- `WATCHLIST_K` → `scanner_rvol ≥ 2` → `FOCUS_M`
+- `FOCUS_M` → pattern detection → execution
+
+`time_normalized_rvol` remains telemetry only.
