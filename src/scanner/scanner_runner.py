@@ -87,6 +87,18 @@ CATALYST_KEYWORDS = {
     "downgrade": "ANALYST_ACTION",
     "initiates": "ANALYST_ACTION",
     "press release": "PRESS_RELEASE",
+    "ai": "TECH_CATALYST",
+    "artificial intelligence": "TECH_CATALYST",
+    "crypto": "CRYPTO_CATALYST",
+    "bitcoin": "CRYPTO_CATALYST",
+    "ev": "EV_CATALYST",
+    "electric vehicle": "EV_CATALYST",
+    "battery": "EV_CATALYST",
+    "defense": "DEFENSE_CATALYST",
+    "military": "DEFENSE_CATALYST",
+    "quantum": "TECH_CATALYST",
+    "semiconductor": "TECH_CATALYST",
+    "gpu": "TECH_CATALYST",
 }
 DILUTION_KEYWORDS = {
     "offering",
@@ -154,6 +166,8 @@ class RossDailyState:
 
 
 _ROSS_DAILY_STATE: Optional[RossDailyState] = None
+_PERSISTENT_PROVIDER: ScannerDataProvider | None = None
+_PERSISTENT_PROVIDER_SOURCE: str | None = None
 
 
 def _utc_now() -> datetime:
@@ -384,6 +398,28 @@ def _spread_values(quote) -> tuple[Optional[float], Optional[float]]:
     return spread, float(round(spread / mid, 4))
 
 
+def _resolve_pct_change_min_for_session(session: str, thresholds: GateThresholds) -> float:
+    normalized = normalize_session_label(session)
+    if normalized in {"PRE", "OVN"}:
+        return float(thresholds.min_pct_change)
+    print("[ROSS][GATE] session=RTH pct_change_min=5")
+    return 5.0
+
+
+def _ensure_provider_connection(provider: ScannerDataProvider, *, max_attempts: int = 4) -> None:
+    delay_s = 0.5
+    for attempt in range(1, max_attempts + 1):
+        try:
+            provider.connect()
+            print("[IBKR][MD] heartbeat ok")
+            return
+        except ProviderConnectionError:
+            if attempt >= max_attempts:
+                raise
+            time.sleep(delay_s)
+            delay_s = min(delay_s * 2.0, 8.0)
+
+
 def _gate_thresholds(policy: StockSelectionPolicy) -> GateThresholds:
     return GateThresholds(
         min_price=policy.price_min,
@@ -392,7 +428,7 @@ def _gate_thresholds(policy: StockSelectionPolicy) -> GateThresholds:
         max_pct_change=policy.gap_max_pct,
         min_rvol=policy.rvol_min,
         min_volume=policy.min_volume,
-        min_premarket_volume=policy.min_premarket_volume,
+        min_premarket_volume=int(getattr(policy, "premarket_volume_min", policy.min_premarket_volume)),
         max_float=int(policy.float_max_millions * 1_000_000),
         spread_max_pct=policy.spread_max_pct,
         min_dollar_volume=policy.liquidity_min_dollar_volume,
@@ -482,6 +518,7 @@ def _focus_gate_checks(
     thresholds: GateThresholds,
 ) -> Dict[str, bool]:
     volume = _safe_float(context.get("volume"), None)
+    premarket_volume = _safe_float(context.get("premarket_volume"), None)
     dollar_volume = _safe_float(context.get("dollar_volume"), None)
     session = normalize_session_label(str(context.get("session") or ""))
     spread_pct = _safe_float(context.get("spread_pct"), None)
@@ -611,7 +648,8 @@ def _evaluate_watchlist_gates(
 
     if pct_change is None:
         return "DROP_MISSING_PCT_CHANGE"
-    if pct_change < thresholds.min_pct_change:
+    pct_change_min = _resolve_pct_change_min_for_session(str(context.get("session") or ""), thresholds)
+    if pct_change < pct_change_min:
         return "DROP_PCT_CHANGE"
     if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
         return "DROP_PCT_CHANGE_MAX"
@@ -632,6 +670,7 @@ def _evaluate_focus_gates(
 ) -> Optional[str]:
     price = _safe_float(context.get("last_price"), None)
     volume = _safe_float(context.get("volume"), None)
+    premarket_volume = _safe_float(context.get("premarket_volume"), None)
     dollar_volume = _safe_float(context.get("dollar_volume"), None)
     session = normalize_session_label(str(context.get("session") or ""))
     spread_pct = _safe_float(context.get("spread_pct"), None)
@@ -649,7 +688,9 @@ def _evaluate_focus_gates(
     if volume is None:
         return "DROP_MISSING_VOLUME"
     if session in {"PRE", "OVN"}:
-        if volume < thresholds.min_premarket_volume:
+        effective_premarket_volume = premarket_volume if premarket_volume is not None else volume
+        if effective_premarket_volume is None or effective_premarket_volume < thresholds.min_premarket_volume:
+            print(f"[ROSS][GATE] symbol={context.get('symbol')} premarket_volume={int(effective_premarket_volume or 0)} FAIL")
             return "DROP_PREMARKET_VOLUME"
     else:
         if volume < thresholds.min_volume:
@@ -1112,12 +1153,22 @@ def _score_context(context: Dict[str, Any]) -> tuple[float, dict[str, float]]:
     pct_n = min(max(pct / 20.0, 0.0), 2.0)
     rvol_n = min(max(rvol / 5.0, 0.0), 2.0)
     dvol_n = min(max(dvol / 1_000_000.0, 0.0), 2.0)
+    float_class = str(context.get("float_class") or "").upper()
+    priority_boost = 0.0
+    if float_class == "ULTRA_LOW_FLOAT":
+        priority_boost = 2.0
+    elif float_class == "LOW_FLOAT":
+        priority_boost = 1.0
+    if priority_boost:
+        print(f"[ROSS][PRIORITY] symbol={context.get('symbol')} float_class={float_class} boost={int(priority_boost)}")
     components = {
         "pct_change": round(0.45 * pct_n * 100.0, 2),
         "rvol": round(0.35 * rvol_n * 100.0, 2),
         "dollar_volume": round(0.20 * dvol_n * 100.0, 2),
+        "float_priority_boost": round(priority_boost, 2),
     }
-    score = sum(components.values()) / 100.0
+    score = (components["pct_change"] + components["rvol"] + components["dollar_volume"]) / 100.0
+    score += priority_boost
     return round(min(score, 1.0) * 100.0, 2), components
 
 
@@ -1633,7 +1684,7 @@ def run_scanner_cycle(
     market_data_client: object | None = None,
     forced_session_label: str | None = None,
 ) -> Dict[str, Any]:
-    global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE
+    global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE, _PERSISTENT_PROVIDER, _PERSISTENT_PROVIDER_SOURCE
     _SCAN_CYCLE_COUNT += 1
     utc_now = _utc_now()
     session_label = forced_session_label or _market_session_label_utc(utc_now)
@@ -1709,6 +1760,8 @@ def run_scanner_cycle(
     allow_mock_fallback = run_mode in {RunMode.SIM, RunMode.PAPER} or explicit_mock
     allow_symbol_fallback = allow_mock_fallback
     using_external_provider = provider is not None
+    if provider is None and _PERSISTENT_PROVIDER is not None:
+        provider = _PERSISTENT_PROVIDER
     provider_error: Optional[str] = None
     provider_fallback: Optional[dict[str, str | None]] = None
     provider_source = "IBKR"
@@ -1718,8 +1771,10 @@ def run_scanner_cycle(
                 provider = build_provider()
             else:
                 provider = build_provider(market_data_client=market_data_client)
-        else:
-            provider.connect()
+        _ensure_provider_connection(provider)
+        _PERSISTENT_PROVIDER = provider
+        _PERSISTENT_PROVIDER_SOURCE = provider.source_name
+        print(f"[IBKR][MD] persistent connection active provider={_PERSISTENT_PROVIDER_SOURCE}")
     except ProviderConnectionError as exc:
         provider_error = str(exc)
         diagnostics["provider_error"] = provider_error
@@ -1876,7 +1931,7 @@ def run_scanner_cycle(
                     session_label=session_label,
                     universe_size=len(symbols),
                 )
-            if not should_recheck and symbol in daily_state.rejected_tracked:
+            if provider_source != "MOCK" and not should_recheck and symbol in daily_state.rejected_tracked:
                 continue
             context = _build_symbol_context(
                 provider,
@@ -2446,7 +2501,7 @@ def run_scanner_cycle(
 
     finally:
         if disconnect_provider is None:
-            disconnect_provider = not using_external_provider
+            disconnect_provider = False
         if disconnect_provider and provider is not None:
             provider.disconnect()
 

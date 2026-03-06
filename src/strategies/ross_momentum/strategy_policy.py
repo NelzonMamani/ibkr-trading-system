@@ -250,11 +250,12 @@ class StockSelectionSpec:
     price_max: float = 20.0
     gap_min_pct: float = 10.0
     gap_max_pct: Optional[float] = None
-    rvol_min: float = 5.0
+    rvol_min: float = 2.0
     float_max_millions: float = 20.0
     liquidity_min_dollar_volume: Optional[float] = None
     min_volume: int = 1_000_000
     min_premarket_volume: int = 100_000
+    premarket_volume_min: int = 100_000
     spread_max_pct: Optional[float] = None
     require_catalyst: bool = True
     allow_halts: bool = False

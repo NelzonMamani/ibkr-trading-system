@@ -426,7 +426,7 @@ POLICY_V2 = StrategyPolicyV2(
             calibration_notes="Subject to empirical validation; current values reflect documented Ross doctrine.",
         ),
         relative_volume_model=RelativeVolumeModelV2(
-            rvol_minimum=5.0,
+            rvol_minimum=2.0,
             calibration_commentary=(
                 "RVOL is isolated from raw volume: RVOL measures abnormal attention, while total/premarket volume measure base "
                 "liquidity needed to execute momentum setups."
