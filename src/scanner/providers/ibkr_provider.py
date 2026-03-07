@@ -225,37 +225,40 @@ class IbkrScannerProvider(ScannerDataProvider):
 
     @staticmethod
     def _fetch_yahoo_float_detailed(symbol: str) -> tuple[Optional[int], str]:
-        url = (
-            "https://query1.finance.yahoo.com/v10/finance/quoteSummary/"
-            f"{symbol}?modules=defaultKeyStatistics"
-        )
-        try:
-            response = requests.get(
-                url,
-                timeout=5,
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except requests.RequestException:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        urls = [
+            (
+                "QUOTE_SUMMARY_V10",
+                "https://query1.finance.yahoo.com/v10/finance/quoteSummary/"
+                f"{symbol}?modules=defaultKeyStatistics",
+            ),
+            (
+                "QUOTE_SUMMARY_V11",
+                "https://query2.finance.yahoo.com/v11/finance/quoteSummary/"
+                f"{symbol}?modules=defaultKeyStatistics",
+            ),
+        ]
+        request_failures = 0
+        parse_failures = 0
+        for _, url in urls:
+            try:
+                response = requests.get(url, timeout=5, headers=headers)
+                response.raise_for_status()
+                payload = response.json()
+            except requests.RequestException:
+                request_failures += 1
+                continue
+            except ValueError:
+                parse_failures += 1
+                continue
+            parsed = _extract_yahoo_float(payload)
+            if parsed is not None and parsed > 0:
+                return parsed, "OK"
+        if request_failures == len(urls):
             return None, "REQUEST_ERROR"
-        except ValueError:
+        if parse_failures == len(urls):
             return None, "PARSE_ERROR"
-        result = payload.get("quoteSummary", {}).get("result") or []
-        if not result:
-            return None, "FIELD_NOT_FOUND"
-        stats = result[0].get("defaultKeyStatistics") or {}
-        float_field = stats.get("floatShares")
-        if isinstance(float_field, dict) and float_field.get("raw") is not None:
-            raw_value = float_field.get("raw")
-        elif isinstance(float_field, dict):
-            raw_value = float_field.get("fmt")
-        else:
-            raw_value = float_field
-        parsed = _parse_shares_value(raw_value)
-        if parsed is None or parsed <= 0:
-            return None, "INVALID_NUMERIC"
-        return parsed, "OK"
+        return None, "FIELD_NOT_FOUND"
 
     @staticmethod
     def _fetch_finviz_float(symbol: str) -> Optional[int]:
@@ -275,19 +278,61 @@ class IbkrScannerProvider(ScannerDataProvider):
             text = response.text
         except requests.RequestException:
             return None, "REQUEST_ERROR"
-        match = re.search(r"Float</td>\s*<td[^>]*>\s*([^<]+)</td>", text, re.IGNORECASE)
-        if not match:
-            match = re.search(r"\bFloat\b\s*</[^>]+>\s*<[^>]+>\s*([^<]+)", text, re.IGNORECASE)
-        if not match:
+        parsed = _extract_finviz_float(text)
+        if parsed is None:
             return None, "FIELD_NOT_FOUND"
-        parsed = _parse_shares_value(match.group(1).strip())
-        if parsed is None or parsed <= 0:
-            return None, "INVALID_NUMERIC"
         return parsed, "OK"
 
 
 def _parse_finviz_float(value: str) -> Optional[int]:
     return _parse_shares_value(value)
+
+
+def _extract_finviz_float(html: str) -> Optional[int]:
+    patterns = [
+        r">\s*(?:Shs\s*)?Float\s*</td>\s*<td[^>]*>\s*([^<]+)</td>",
+        r"\b(?:Shs\s*)?Float\b\s*</[^>]+>\s*<[^>]+>\s*([^<]+)",
+        r'"(?:Shs\s*)?Float"\s*:\s*"([^\"]+)"',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, html, re.IGNORECASE)
+        if not match:
+            continue
+        parsed = _parse_shares_value(match.group(1).strip())
+        if parsed is not None and parsed > 0:
+            return parsed
+    return None
+
+
+def _extract_yahoo_float(payload: dict) -> Optional[int]:
+    quote_summary = payload.get("quoteSummary", {}) if isinstance(payload, dict) else {}
+    result = quote_summary.get("result") if isinstance(quote_summary, dict) else None
+    if not isinstance(result, list) or not result:
+        return None
+    root = result[0] if isinstance(result[0], dict) else {}
+    stats = root.get("defaultKeyStatistics") if isinstance(root, dict) else None
+    if isinstance(stats, dict):
+        float_field = stats.get("floatShares")
+        if isinstance(float_field, dict):
+            parsed = _parse_shares_value(float_field.get("raw"))
+            if parsed is None:
+                parsed = _parse_shares_value(float_field.get("fmt"))
+        else:
+            parsed = _parse_shares_value(float_field)
+        if parsed is not None and parsed > 0:
+            return parsed
+    summary_detail = root.get("summaryDetail") if isinstance(root, dict) else None
+    if isinstance(summary_detail, dict):
+        fallback_field = summary_detail.get("sharesOutstanding")
+        if isinstance(fallback_field, dict):
+            parsed = _parse_shares_value(fallback_field.get("raw"))
+            if parsed is None:
+                parsed = _parse_shares_value(fallback_field.get("fmt"))
+        else:
+            parsed = _parse_shares_value(fallback_field)
+        if parsed is not None and parsed > 0:
+            return parsed
+    return None
 
 
 def _parse_shares_value(value: object) -> Optional[int]:

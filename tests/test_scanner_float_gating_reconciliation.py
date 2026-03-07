@@ -28,9 +28,10 @@ def test_symbol_survives_when_float_present_from_external_cache() -> None:
     assert _evaluate_watchlist_gates(context, _thresholds()) is None
 
 
-def test_symbol_rejected_when_float_truly_missing() -> None:
+def test_symbol_survives_when_float_missing() -> None:
     context = {"symbol": "ABC", "session": "RTH", "pct_change": 5.0, "scanner_rvol": 1.2, "float_shares": None}
-    assert _evaluate_watchlist_gates(context, _thresholds()) == "DROP_FLOAT_MISSING"
+    assert _evaluate_watchlist_gates(context, _thresholds()) is None
+    assert context["float_status"] == "UNKNOWN"
 
 
 def test_scanner_contract_prints_reconciled_counts(capsys) -> None:

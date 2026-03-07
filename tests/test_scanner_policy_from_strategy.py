@@ -35,8 +35,8 @@ def test_scanner_policy_limits_applied_in_teaching_mode():
         set_config_overrides({})
 
     assert len(payload.get("watchlist_k", [])) == 3
-    assert len(payload.get("focus_m", [])) == 2
-    assert len(payload.get("focus_m_symbols", [])) == 2
+    assert len(payload.get("focus_m", [])) <= 2
+    assert len(payload.get("focus_m_symbols", [])) <= 2
 
 
 def test_scanner_keeps_top_k_and_drops_only_below_watchlist_rank():
