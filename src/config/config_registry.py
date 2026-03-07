@@ -817,7 +817,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "SCANNER_FLOAT_CACHE_FILE": {
         "type": str,
-        "default": "src/scanner/float_cache.json",
+        "default": "data/fundamentals/float_cache.json",
         "env": ["SCANNER_FLOAT_CACHE_FILE"],
         "affects": ["ScannerRunner"],
         "enforcement": "SOFT",

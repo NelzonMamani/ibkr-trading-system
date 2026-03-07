@@ -24,6 +24,7 @@ from src.config.runtime_config import (
     get_watchlist_print_every_n_cycles,
 )
 from src.core.event_collector import EventCollector
+from src.data.fundamentals.float_provider import FloatProvider
 from src.news.news_fetcher import Headline, fetch_fast_headlines_for_symbols
 from src.news.rss_registry import RSS_FAST_TRADING
 
@@ -339,6 +340,7 @@ def _bootstrap_float_cache(
         _FLOAT_CACHE_REQUESTED.clear()
 
     float_cache: Dict[str, Dict[str, Any]] = _FLOAT_CACHE_STATE.get("data", {})
+    float_provider = FloatProvider(cache_path=get_config("SCANNER_FLOAT_CACHE_FILE"))
     updated = False
     _FLOAT_SOURCE_BY_SYMBOL = {}
     _FLOAT_CACHE_HIT_SYMBOLS = set()
@@ -370,9 +372,8 @@ def _bootstrap_float_cache(
             continue
         _FLOAT_CACHE_REQUESTED.add(symbol)
         try:
-            value = provider.get_float(symbol)
-            source = getattr(provider, "last_float_source", None) or "EXTERNAL"
-            failures = list(getattr(provider, "last_float_failures", []) or [])
+            value, source = float_provider.get_float(symbol)
+            failures = list(getattr(float_provider, "last_float_failures", []) or [])
         except Exception as exc:
             value = None
             source = None
@@ -411,7 +412,7 @@ def _bootstrap_float_cache(
     _FLOAT_CACHE_STATE["data"] = float_cache
     print(
         "[FLOAT][SUMMARY] "
-        f"requested={requested} fetched_ok={fetched_ok} cache_hits={cache_hits} missing={missing}"
+        f"requested={requested} fetched_ok={fetched_ok} missing={missing}"
     )
     return float_cache
 
