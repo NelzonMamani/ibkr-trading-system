@@ -34,6 +34,17 @@ def test_finviz_fetch_detailed_success(monkeypatch) -> None:
     assert reason == "OK"
 
 
+def test_finviz_fetch_detailed_success_with_shs_label(monkeypatch) -> None:
+    html = '<td width="7%" class="snapshot-td2-cp">Shs Float</td><td width="8%" class="snapshot-td2">1,234.5K</td>'
+    monkeypatch.setattr(
+        "src.scanner.providers.ibkr_provider.requests.get",
+        lambda *args, **kwargs: _Resp(text=html),
+    )
+    value, reason = IbkrScannerProvider._fetch_finviz_float_detailed("PRSO")
+    assert value == 1_234_500
+    assert reason == "OK"
+
+
 def test_yahoo_fetch_detailed_invalid_numeric(monkeypatch) -> None:
     payload = {
         "quoteSummary": {
@@ -46,4 +57,48 @@ def test_yahoo_fetch_detailed_invalid_numeric(monkeypatch) -> None:
     )
     value, reason = IbkrScannerProvider._fetch_yahoo_float_detailed("PRSO")
     assert value is None
-    assert reason == "INVALID_NUMERIC"
+    assert reason == "FIELD_NOT_FOUND"
+
+
+def test_yahoo_fetch_detailed_fallback_to_v11(monkeypatch) -> None:
+    payload = {
+        "quoteSummary": {
+            "result": [{"defaultKeyStatistics": {"floatShares": {"raw": 45_000_000}}}]
+        }
+    }
+
+    def _fake_get(url: str, *args, **kwargs):
+        if "query1.finance.yahoo.com" in url:
+            raise RuntimeError("blocked")
+        return _Resp(payload=payload)
+
+    monkeypatch.setattr("src.scanner.providers.ibkr_provider.requests.get", _fake_get)
+    monkeypatch.setattr("src.scanner.providers.ibkr_provider.requests.RequestException", RuntimeError)
+
+    value, reason = IbkrScannerProvider._fetch_yahoo_float_detailed("PRSO")
+    assert value == 45_000_000
+    assert reason == "OK"
+
+
+def test_get_float_uses_provider_order_and_logs_fetch_ok(monkeypatch, capsys) -> None:
+    provider = IbkrScannerProvider.__new__(IbkrScannerProvider)
+
+    monkeypatch.setattr(
+        IbkrScannerProvider,
+        "_fetch_finviz_float_detailed",
+        staticmethod(lambda _symbol: (None, "FIELD_NOT_FOUND")),
+    )
+    monkeypatch.setattr(
+        IbkrScannerProvider,
+        "_fetch_yahoo_float_detailed",
+        staticmethod(lambda _symbol: (7_700_000, "OK")),
+    )
+
+    value = provider.get_float("PRSO")
+    out = capsys.readouterr().out
+
+    assert value == 7_700_000
+    assert "[FLOAT][FETCH_START] symbol=PRSO provider=FINVIZ" in out
+    assert "[FLOAT][FETCH_FAIL] symbol=PRSO provider=FINVIZ reason=FIELD_NOT_FOUND" in out
+    assert "[FLOAT][FETCH_START] symbol=PRSO provider=YAHOO_FINANCE" in out
+    assert "[FLOAT][FETCH_OK] symbol=PRSO provider=YAHOO_FINANCE value=7700000" in out

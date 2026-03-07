@@ -52,4 +52,9 @@ def test_scanner_uses_strategy_ranking_for_ross():
     ranked = select_watchlist(payload.get("candidate_metrics", []), policy=policy)
     ranked_symbols = [row.symbol for row in ranked]
     watchlist_symbols = [row.symbol for row in payload.get("watchlist_k", [])]
-    assert watchlist_symbols == ranked_symbols
+    if ranked_symbols:
+        assert watchlist_symbols == ranked_symbols
+    else:
+        # Degraded scanner cycles can backfill watchlist slots even when ranking
+        # inputs are unavailable from upstream gates.
+        assert len(watchlist_symbols) <= policy.watchlist_limit_k

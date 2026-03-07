@@ -755,7 +755,9 @@ def _evaluate_watchlist_gates(
     if scanner_rvol < thresholds.watchlist_rvol_min:
         return "DROP_RVOL_DISCOVERY"
     if float_shares is None:
-        return "DROP_FLOAT_MISSING"
+        context["float_status"] = "UNKNOWN"
+        return None
+    context["float_status"] = "KNOWN"
     if float_shares > thresholds.max_float:
         return "DROP_FLOAT_MAX"
     return None
@@ -1645,7 +1647,13 @@ def _apply_non_tradable_universe_gate(
     return filtered
 
 
-def _classify_float(float_shares: Optional[int]) -> Optional[str]:
+def _classify_float(float_shares: Optional[int] | Dict[str, Any]) -> Optional[str]:
+    if isinstance(float_shares, dict):
+        candidate = float_shares.get("float_value")
+        if isinstance(candidate, (int, float)):
+            float_shares = int(candidate)
+        else:
+            float_shares = None
     if float_shares is None or float_shares <= 0:
         return None
     if float_shares < 1_000_000:
