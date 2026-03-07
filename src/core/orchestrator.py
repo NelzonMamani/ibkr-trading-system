@@ -27,6 +27,7 @@ from src.config.runtime_config import (
 from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
+from src.data.fundamentals.float_provider import FloatProvider
 from src.core.faults import (
     RecoveryAction,
     classify_exception,
@@ -811,6 +812,8 @@ class CoreOrchestrator:
                     print(
                         "[SESSION] System WOULD treat market as closed (teaching-only)."
                     )
+                if current_session == "CLOSED":
+                    self.run_preparation_mode()
                 if self.run_mode == RunMode.LIVE and current_session == "CLOSED":
                     print(
                         "[GATE] RUN_MODE is LIVE while session is CLOSED. "
@@ -2738,6 +2741,40 @@ class CoreOrchestrator:
 
         self._prep_next_due_at = datetime.now(timezone.utc)
         self._maybe_run_scheduled_prep_update(datetime.now(timezone.utc), get_current_market_session())
+
+    def run_preparation_mode(self) -> None:
+        print("PREPARATION MODE STARTED")
+        print("[PREP] session=CLOSED")
+        print("[PREP] discovering floats for top gainers")
+        provider_override = MockScannerProvider() if self.run_mode == RunMode.PAPER else None
+        _, scanner_policy = self._build_scanner_policy_for_strategy(self.primary_strategy_key, "CLOSED")
+        scanner_request = self._build_scanner_request(scanner_policy, strategy_name=self.primary_strategy_key, session_phase="CLOSED")
+        scanner_request = replace(scanner_request, requested_top_n=50)
+        payload = run_scanner_cycle(
+            mode="integrated",
+            policy=scanner_policy,
+            scanner_request=scanner_request,
+            event_collector=self.event_collector,
+            provider=provider_override,
+            market_data_client=self.connection_manager.optional_client,
+            disconnect_provider=provider_override is not None,
+            forced_session_label="WEEKEND",
+        )
+        raw_symbols = payload.get("symbols") or payload.get("top_n_symbols") or [
+            item.get("symbol") for item in payload.get("universe_top_n", []) if isinstance(item, dict)
+        ]
+        symbols = [str(symbol).upper() for symbol in raw_symbols if str(symbol).strip()][:50]
+        float_provider = FloatProvider()
+        success = 0
+        missing = 0
+        for symbol in symbols:
+            value, source = float_provider.get_float(symbol)
+            if value is not None and source != "UNKNOWN":
+                success += 1
+            else:
+                missing += 1
+        print(f"[FLOAT][SUMMARY] requested={len(symbols)} fetched_ok={success} missing={missing}")
+        print("FLOAT DISCOVERY SUCCESS" if success > 0 else "FLOAT DISCOVERY WARNING")
 
     def _resolve_market_data_status(self) -> tuple[str, bool]:
         if self.scanner_mode == "TEACHING" or self.run_mode in {RunMode.SIM, RunMode.PAPER}:

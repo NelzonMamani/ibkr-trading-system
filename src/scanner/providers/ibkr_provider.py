@@ -10,6 +10,7 @@ from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 
 from src.config.runtime_config import get_ibkr_max_symbols_per_cycle, get_scanner_symbols
 from src.ibkr.market_data_client import MarketDataClient
+from src.data.fundamentals.float_provider import FloatProvider
 from src.scanner.scanner_contract import ScannerRequest
 
 from .base import IntradayStats, ProviderConnectionError, QuoteData, ScannerDataProvider
@@ -172,27 +173,11 @@ class IbkrScannerProvider(ScannerDataProvider):
         )
 
     def get_float(self, symbol: str) -> Optional[int]:
-        self.last_float_source = None
-        self.last_float_failures = []
-        providers = [
-            ("FINVIZ", self._fetch_finviz_float_detailed),
-            ("YAHOO_FINANCE", self._fetch_yahoo_float_detailed),
-        ]
-        for provider_name, fetcher in providers:
-            print(f"[FLOAT][FETCH_START] symbol={symbol} provider={provider_name}")
-            value, reason = fetcher(symbol)
-            if value is not None and value > 0:
-                self.last_float_source = provider_name
-                print(
-                    f"[FLOAT][FETCH_OK] symbol={symbol} provider={provider_name} value={int(value)}"
-                )
-                return int(value)
-            fail_reason = reason or "UNKNOWN"
-            self.last_float_failures.append((provider_name, fail_reason))
-            print(
-                f"[FLOAT][FETCH_FAIL] symbol={symbol} provider={provider_name} reason={fail_reason}"
-            )
-        return None
+        provider = FloatProvider()
+        value, source = provider.get_float(symbol)
+        self.last_float_source = source
+        self.last_float_failures = list(provider.last_float_failures)
+        return value
 
     def _average_daily_volume(self, symbol: str) -> tuple[Optional[int], Optional[int]]:
         contract = self.market_data_client.qualify_contract(symbol)
