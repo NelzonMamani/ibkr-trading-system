@@ -27,6 +27,8 @@ from src.core.event_collector import EventCollector
 from src.data.fundamentals.float_provider import FloatProvider
 from src.news.news_fetcher import Headline, fetch_fast_headlines_for_symbols
 from src.news.rss_registry import RSS_FAST_TRADING
+from src.preparation.context_builder import SymbolContext, build_symbol_context
+from src.preparation.event_driven_refresh import RuntimeContextRegistry
 
 from src.scanner.contracts import (
     SCANNER_GIT_SHA,
@@ -173,6 +175,7 @@ class RossDailyState:
 _ROSS_DAILY_STATE: Optional[RossDailyState] = None
 _PERSISTENT_PROVIDER: ScannerDataProvider | None = None
 _PERSISTENT_PROVIDER_SOURCE: str | None = None
+_RUNTIME_CONTEXT_REGISTRY = RuntimeContextRegistry()
 
 
 def _utc_now() -> datetime:
@@ -1482,6 +1485,9 @@ def _build_symbol_context(
         "ask": quote.ask,
         "spread": spread,
         "spread_pct": spread_pct,
+        "high": _safe_float(getattr(quote, "high", None), None),
+        "low": _safe_float(getattr(quote, "low", None), None),
+        "vwap": _safe_float(getattr(quote, "vwap", None), None),
         "scanner_rvol": scanner_rvol,
         "time_normalized_rvol": time_normalized_rvol,
         "rvol": time_normalized_rvol,
@@ -2496,6 +2502,20 @@ def run_scanner_cycle(
                 if "NEWS_DELAYED" not in flags:
                     flags.append("NEWS_DELAYED")
 
+        symbol_contexts: dict[str, SymbolContext] = {}
+        for context in watchlist_contexts:
+            symbol = str(context.get("symbol") or "")
+            if not symbol:
+                continue
+            symbol_context = build_symbol_context(
+                symbol,
+                session_label=str(context.get("session") or session_label),
+                base_context=context,
+                news_context=news_by_symbol.get(symbol, {}),
+            )
+            symbol_contexts[symbol] = symbol_context
+            _RUNTIME_CONTEXT_REGISTRY.refresh_if_needed(symbol_context)
+
         print("[SCANNER][STAGE] print")
         fast_rows = _build_fast_rows(watchlist_contexts, news_by_symbol)
         focus_limit = limits["focus_limit"]
@@ -2510,7 +2530,15 @@ def run_scanner_cycle(
                 )
                 continue
             focus_candidates.append(context)
-        focus_contexts = _rank_candidates(focus_candidates)[:focus_limit]
+        focus_contexts = _rank_candidates(focus_candidates)
+        focus_contexts = sorted(
+            focus_contexts,
+            key=lambda item: -(
+                symbol_contexts.get(item.get("symbol", "")).focus_rank_score
+                if symbol_contexts.get(item.get("symbol", ""))
+                else 0.0
+            ),
+        )[:focus_limit]
         deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
 
         exclusion_counts = Counter(drop_ledger.values())
@@ -2765,6 +2793,10 @@ def run_scanner_cycle(
         },
         "data_quality_counts": data_quality_counts,
         "diagnostics": diagnostics,
+        "symbol_context_registry": {
+            symbol: symbol_contexts[symbol]
+            for symbol in sorted(symbol_contexts.keys())
+        },
     }
 
 
