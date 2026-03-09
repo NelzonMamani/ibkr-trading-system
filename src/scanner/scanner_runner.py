@@ -744,7 +744,18 @@ def _evaluate_watchlist_gates(
         return "DROP_PCT_CHANGE"
     if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
         return "DROP_PCT_CHANGE_MAX"
+    prep_only = bool(context.get("prep_only"))
+    context["live_rvol_deferred"] = False
     if scanner_rvol is None:
+        if prep_only:
+            context["live_rvol_deferred"] = True
+            context["promotion_reason"] = context.get("promotion_reason") or "PREP_ONLY_RVOL_DEFERRED"
+            print(
+                "[WATCHLIST_GATE] "
+                f"symbol={context.get('symbol')} scanner_rvol=None "
+                f"threshold={thresholds.watchlist_rvol_min} decision=DEFER prep_only=True"
+            )
+            return None
         print(
             "[WATCHLIST_GATE] "
             f"symbol={context.get('symbol')} scanner_rvol=None "
@@ -758,6 +769,15 @@ def _evaluate_watchlist_gates(
         f"threshold={thresholds.watchlist_rvol_min} decision={watchlist_decision}"
     )
     if scanner_rvol < thresholds.watchlist_rvol_min:
+        if prep_only:
+            context["live_rvol_deferred"] = True
+            context["promotion_reason"] = context.get("promotion_reason") or "PREP_ONLY_RVOL_DEFERRED"
+            print(
+                "[WATCHLIST_GATE] "
+                f"symbol={context.get('symbol')} scanner_rvol={scanner_rvol} "
+                f"threshold={thresholds.watchlist_rvol_min} decision=DEFER prep_only=True"
+            )
+            return None
         return "DROP_RVOL_DISCOVERY"
     if float_shares is None:
         context["float_status"] = "UNKNOWN"
@@ -1182,6 +1202,8 @@ def _candidate_from_context(
         context_status=context.get("context_status"),
         execution_ready=context.get("execution_ready"),
         prep_only=context.get("prep_only"),
+        live_rvol_deferred=bool(context.get("live_rvol_deferred", False)),
+        promotion_reason=context.get("promotion_reason"),
         ibkr_change_pct=context.get("ibkr_change_pct"),
         pct_source=context.get("pct_source"),
         open_relative_pct_change=context.get("open_relative_pct_change"),
@@ -1282,6 +1304,8 @@ def _format_watchlist_line(candidate: CandidateMetrics) -> str:
         f"news_count={getattr(candidate, 'news_count', 0)} news_fresh_count={getattr(candidate, 'fresh_news_count', 0)} "
         f"float_source={candidate.float_source or 'NA'} float_asof={candidate.float_asof or 'NA'} "
         f"execution_ready={getattr(candidate, 'execution_ready', False)} prep_only={getattr(candidate, 'prep_only', False)} "
+        f"live_rvol_deferred={getattr(candidate, 'live_rvol_deferred', False)} "
+        f"promotion_reason={getattr(candidate, 'promotion_reason', 'NA') or 'NA'} "
         f"summary={summary} "
         f"halted={candidate.halted if candidate.halted is not None else 'NA'} "
         f"ssr={candidate.ssr if candidate.ssr is not None else 'NA'} dq={dq} "
