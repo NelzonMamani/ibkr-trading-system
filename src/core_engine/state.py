@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from enum import Enum
+
+from zoneinfo import ZoneInfo
 
 
 class RunMode(str, Enum):
@@ -35,18 +37,25 @@ class SessionState(str, Enum):
     PRE = "PRE"
     REG = "REG"
     AFTER = "AFTER"
+    OVERNIGHT = "OVERNIGHT"
+
+
+NY_TZ = ZoneInfo("America/New_York")
 
 
 def resolve_session_state(now: datetime | None = None) -> SessionState:
     moment = now or datetime.now(timezone.utc)
-    hour = moment.hour + moment.minute / 60.0
-    if 12.0 <= hour < 14.0:
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    ny_time = moment.astimezone(NY_TZ).time()
+
+    if time(4, 0) <= ny_time < time(9, 30):
         return SessionState.PRE
-    if 14.0 <= hour < 21.5:
+    if time(9, 30) <= ny_time < time(16, 0):
         return SessionState.REG
-    if 21.5 <= hour < 23.0:
+    if time(16, 0) <= ny_time < time(20, 0):
         return SessionState.AFTER
-    return SessionState.AFTER
+    return SessionState.OVERNIGHT
 
 
 @dataclass(frozen=True)

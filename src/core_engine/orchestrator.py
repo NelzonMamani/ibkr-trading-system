@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from typing import List
+from zoneinfo import ZoneInfo
 
 from src.config.config_resolver import get_config
 from src.core_engine.bootstrap import resolve_mode
@@ -209,7 +210,16 @@ def run_cycle(
         timestamp=now.isoformat(),
     )
 
-    print(f"[SESSION] resolved={resolved_session.value} forced={forced_session_state.value if forced_session_state else 'none'} used={session.value}")
+    ny_now = now.astimezone(ZoneInfo("America/New_York"))
+    utc_stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(
+        "[SESSION] "
+        f"utc={utc_stamp} "
+        f"ny={ny_now.strftime('%H:%M:%S')} "
+        f"resolved={resolved_session.value} "
+        f"forced={forced_session_state.value if forced_session_state else 'none'} "
+        f"used={session.value}"
+    )
     print_section(f"CYCLE {cycle_id} MODE={mode.value} SESSION={session.value}")
     strategy_policy, scanner_policy = _scanner_policy_for_session(session.value)
     scanner_request = _scanner_request_for_policy(

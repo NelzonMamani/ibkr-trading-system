@@ -18,14 +18,17 @@ def utc_now() -> datetime:
 
 def resolve_session_state(now: datetime | None = None) -> SessionState:
     moment = now or utc_now()
-    hour = moment.hour + moment.minute / 60.0
-    if 12.0 <= hour < 14.0:
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    ny_t = moment.astimezone(NY_TZ).time()
+
+    if time(4, 0) <= ny_t < time(9, 30):
         return SessionState.PRE
-    if 14.0 <= hour < 21.5:
+    if time(9, 30) <= ny_t < time(16, 0):
         return SessionState.REG
-    if 21.5 <= hour < 23.0:
+    if time(16, 0) <= ny_t < time(20, 0):
         return SessionState.AFTER
-    return SessionState.AFTER
+    return SessionState.OVERNIGHT
 
 
 def to_ny_time(now_utc: datetime) -> datetime:
