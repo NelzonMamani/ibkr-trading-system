@@ -290,7 +290,9 @@ def compute_session_relative_volume_with_provenance(
     method = "SESSION_NORMALIZED_RVOL"
     expected_volume = None
     if full_seconds > 0:
-        expected_volume = avg_volume_20d * (max(elapsed_seconds, 1) / full_seconds)
+        session_progress_ratio = max(elapsed_seconds, 0) / full_seconds
+        expected_volume = avg_volume_20d * session_progress_ratio
+        expected_volume = max(expected_volume, avg_volume_20d * 0.001)
 
     if expected_volume is None or expected_volume <= 0:
         return SessionRelativeVolume(

@@ -360,11 +360,11 @@ def stock_selection_policy_for_session_phase(
     policy: RossMomentumPolicy,
     session_phase: str,
 ) -> StockSelectionSpec:
-    normalized = (session_phase or "").upper()
-    if normalized in {"PRE", "PREMARKET", "CLOSED"}:
-        if policy.stock_selection.top_gainers_n == 50:
-            return replace(policy.stock_selection, top_gainers_n=150)
-    return policy.stock_selection
+    normalized = normalize_session_label(session_phase or "").upper()
+    gap_min_pct = 5.0 if normalized == "PRE" else 10.0
+    if normalized in {"PRE", "PREMARKET", "CLOSED"} and policy.stock_selection.top_gainers_n == 50:
+        return replace(policy.stock_selection, top_gainers_n=150, gap_min_pct=gap_min_pct)
+    return replace(policy.stock_selection, gap_min_pct=gap_min_pct)
 
 
 # Session phase contract (authoritative): PRE, RTH_OPEN, RTH_MID, RTH_LATE, AH, OVN, CLOSED, WEEKEND.
