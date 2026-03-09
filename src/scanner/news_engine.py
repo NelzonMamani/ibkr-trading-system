@@ -7,7 +7,11 @@ import logging
 import re
 import time
 import urllib.parse
+import xml.etree.ElementTree as ET
 from collections import Counter
+from datetime import datetime, timezone
+from email.utils import parsedate_tz, mktime_tz
+from types import SimpleNamespace
 from typing import Optional
 
 from .scanner_config import (
@@ -18,10 +22,9 @@ from .scanner_config import (
     VERIFIED_RSS_PATH,
 )
 
-if importlib.util.find_spec("feedparser"):
-    feedparser = importlib.import_module("feedparser")  # type: ignore
-else:  # pragma: no cover
-    feedparser = None
+# feedparser is incompatible with Python 3.13+ due to cgi removal.
+# XML RSS fallback parser is used instead.
+feedparser = None
 
 if importlib.util.find_spec("requests"):
     requests = importlib.import_module("requests")  # type: ignore
@@ -144,27 +147,110 @@ def _published_ts_from_entry(entry) -> Optional[float]:
     return None
 
 
-def _fetch_feed(url: str):
-    if feedparser is None:
+def _parse_datetime_to_epoch(raw_value: str) -> Optional[float]:
+    cleaned = (raw_value or "").strip()
+    if not cleaned:
         return None
+    parsed = parsedate_tz(cleaned)
+    if parsed:
+        return float(mktime_tz(parsed))
+    iso_candidate = cleaned.replace("Z", "+00:00")
+    try:
+        parsed_iso = datetime.fromisoformat(iso_candidate)
+        if parsed_iso.tzinfo is None:
+            parsed_iso = parsed_iso.replace(tzinfo=timezone.utc)
+        return parsed_iso.timestamp()
+    except ValueError:
+        return None
+
+
+def _parse_rss_fallback(xml_text: str) -> object | None:
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return None
+
+    channel = root.find("./channel")
+    if channel is None:
+        channel = root
+
+    feed_title = ""
+    title_node = channel.find("title")
+    if title_node is not None and title_node.text:
+        feed_title = title_node.text.strip()
+
+    entries = []
+    item_nodes = list(channel.findall("item"))
+    if not item_nodes:
+        atom_ns = {"atom": "http://www.w3.org/2005/Atom"}
+        item_nodes = list(root.findall(".//atom:entry", namespaces=atom_ns))
+    for node in item_nodes:
+        title = ((node.findtext("title") or "").strip())
+        link = ((node.findtext("link") or "").strip())
+        if not link:
+            link_node = node.find("link")
+            if link_node is not None:
+                link = (link_node.attrib.get("href") or "").strip()
+        published_raw = (
+            (node.findtext("pubDate") or "").strip()
+            or (node.findtext("published") or "").strip()
+            or (node.findtext("updated") or "").strip()
+        )
+        parsed_ts = _parse_datetime_to_epoch(published_raw)
+        published_parsed = time.gmtime(parsed_ts) if parsed_ts is not None else None
+        entries.append(
+            SimpleNamespace(
+                title=title,
+                link=link,
+                published_parsed=published_parsed,
+                updated_parsed=published_parsed,
+            )
+        )
+    return SimpleNamespace(feed={"title": feed_title}, entries=entries, bozo=False)
+
+
+def _fetch_feed(url: str):
     if requests is None:
-        return feedparser.parse(url)
+        return None
     try:
         response = requests.get(url, timeout=NEWS_REQUEST_TIMEOUT_S)
         response.raise_for_status()
-        return feedparser.parse(response.text)
+        if feedparser is not None:
+            return feedparser.parse(response.text)
+        return _parse_rss_fallback(response.text)
     except Exception as exc:
         logging.debug("[NEWS] RSS fetch failed for %s: %s", url, exc)
         return None
 
 
-def _refresh_news_cache_if_needed(now_ts: float) -> None:
-    if (now_ts - _NEWS_CACHE["loaded_at"]) < NEWS_REFRESH_SECONDS and _NEWS_CACHE["items"]:
-        return
+def _refresh_interval_seconds() -> int:
+    try:
+        from src.scanner.session_pct_change import resolve_market_session_label
 
-    if feedparser is None:
-        _NEWS_CACHE["loaded_at"] = now_ts
-        _NEWS_CACHE["items"] = []
+        session = resolve_market_session_label()
+    except Exception:
+        session = "CLOSED"
+
+    if session == "PRE":
+        try:
+            return int(get_config("NEWS_REFRESH_SECONDS_PRE"))
+        except Exception:
+            return NEWS_REFRESH_SECONDS
+    if session == "RTH":
+        try:
+            return int(get_config("NEWS_REFRESH_SECONDS_RTH"))
+        except Exception:
+            return NEWS_REFRESH_SECONDS
+    try:
+        return int(get_config("NEWS_REFRESH_SECONDS_PREP"))
+    except Exception:
+        return NEWS_REFRESH_SECONDS
+
+
+def _refresh_news_cache_if_needed(now_ts: float) -> None:
+    refresh_seconds = _refresh_interval_seconds()
+    print(f"[NEWS][REFRESH_POLICY] interval={refresh_seconds}s")
+    if (now_ts - _NEWS_CACHE["loaded_at"]) < refresh_seconds and _NEWS_CACHE["items"]:
         return
 
     rss_urls = _load_verified_rss_urls(str(VERIFIED_RSS_PATH))
@@ -251,12 +337,14 @@ def blank_news_fields() -> dict:
 def _matches_symbol(text: str, symbol: str) -> bool:
     if not text or not symbol:
         return False
+    if symbol.upper() in text.upper():
+        return True
     pattern = re.compile(rf"(?<![A-Z0-9]){re.escape(symbol)}(?![A-Z0-9])", re.IGNORECASE)
     return pattern.search(text) is not None
 
 
 def get_news_truth(symbol: str) -> dict:
-    if not NEWS_ENABLED or feedparser is None:
+    if not NEWS_ENABLED:
         return blank_news_fields()
 
     now_ts = time.time()
