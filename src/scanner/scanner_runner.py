@@ -56,6 +56,7 @@ from src.scanner.providers.factory import build_provider
 from src.scanner.providers.mock_provider import MockScannerProvider
 from src.scanner.ranking_registry import resolve_watchlist_selector
 from src.scanner.result_models import CandidateMetrics, ScannerResult
+from src.scanner.reference_resolver import resolve_reference_bundle
 from src.scanner.session_pct_change import (
     compute_scanner_rvol,
     compute_session_aligned_pct_change,
@@ -920,6 +921,14 @@ def _enrich_news_context(
                 "gam_ea_eligible": False,
                 "ross_catalyst_valid": False,
                 "ross_catalyst_notes": "No news present",
+                "news_count": 0,
+                "fresh_news_count": 0,
+                "stale_news_count": 0,
+                "top_news_title": None,
+                "top_news_age_hours": None,
+                "top_news_catalyst_tag": None,
+                "news_source_mode": "rss_batch",
+                "news_asof": datetime.now(timezone.utc).isoformat(),
             }
             news_by_symbol[symbol] = context
             _NEWS_CACHE[symbol] = {"signature": signature, "context": context}
@@ -963,6 +972,8 @@ def _enrich_news_context(
         ross_catalyst_valid = bool(not dilution_flag and news_age_minutes is not None)
         ross_notes = "Catalyst present" if ross_catalyst_valid else "Catalyst missing or diluted"
 
+        top_news = unique_headlines[0] if unique_headlines else None
+        source_mode = "rss_batch"
         context = {
             "news_present": True,
             "first_seen_ts": min(headline.published_ts for headline in unique_headlines),
@@ -978,6 +989,14 @@ def _enrich_news_context(
             "gam_ea_eligible": gam_ea_eligible,
             "ross_catalyst_valid": ross_catalyst_valid,
             "ross_catalyst_notes": ross_notes,
+            "news_count": len(unique_headlines),
+            "fresh_news_count": sum(1 for age in ages if age <= NEWS_AGE_MAX_MINUTES),
+            "stale_news_count": sum(1 for age in ages if age > NEWS_AGE_MAX_MINUTES),
+            "top_news_title": top_news.title if top_news else None,
+            "top_news_age_hours": round((news_age_minutes or 0) / 60.0, 3) if news_age_minutes is not None else None,
+            "top_news_catalyst_tag": catalyst_type or "generic",
+            "news_source_mode": source_mode,
+            "news_asof": datetime.now(timezone.utc).isoformat(),
         }
         news_by_symbol[symbol] = context
         _NEWS_CACHE[symbol] = {"signature": signature, "context": context}
@@ -1123,6 +1142,14 @@ def _candidate_from_context(
         catalyst_present = catalyst_present_override
     catalyst_type = news_context.get("catalyst_type")
     news_age = news_context.get("news_age_minutes")
+    news_count = int(news_context.get("news_count") or (1 if news_context.get("news_present") else 0))
+    fresh_news_count = int(news_context.get("fresh_news_count") or (1 if news_age is not None and news_age <= 6 * 60 else 0))
+    stale_news_count = int(news_context.get("stale_news_count") or max(news_count - fresh_news_count, 0))
+    top_news_title = news_context.get("top_news_title")
+    top_news_age_hours = news_context.get("top_news_age_hours")
+    top_news_catalyst_tag = news_context.get("top_news_catalyst_tag") or catalyst_type
+    news_source_mode = news_context.get("news_source_mode")
+    news_asof = news_context.get("news_asof")
     catalyst_summary = None
     if catalyst_type:
         catalyst_summary = (
@@ -1149,6 +1176,12 @@ def _candidate_from_context(
         reference_label=context.get("reference_label"),
         gap_pct=context.get("pct_change"),
         pct_change=context.get("pct_change"),
+        pct_change_resolved=context.get("pct_change_resolved", context.get("pct_change")),
+        gap_pct_resolved=context.get("gap_pct_resolved", context.get("open_relative_pct_change")),
+        gap_source=context.get("gap_source"),
+        context_status=context.get("context_status"),
+        execution_ready=context.get("execution_ready"),
+        prep_only=context.get("prep_only"),
         ibkr_change_pct=context.get("ibkr_change_pct"),
         pct_source=context.get("pct_source"),
         open_relative_pct_change=context.get("open_relative_pct_change"),
@@ -1172,6 +1205,14 @@ def _candidate_from_context(
         ssr=context.get("ssr"),
         catalyst_present=catalyst_present,
         catalyst_summary=catalyst_summary,
+        news_count=news_count,
+        fresh_news_count=fresh_news_count,
+        stale_news_count=stale_news_count,
+        top_news_title=top_news_title,
+        top_news_age_hours=top_news_age_hours,
+        top_news_catalyst_tag=top_news_catalyst_tag,
+        news_source_mode=news_source_mode,
+        news_asof=news_asof,
         data_quality_ok=not data_quality_flags,
         data_quality_flags=data_quality_flags,
         drop_reasons=[drop_reason] if drop_reason else [],
@@ -1229,12 +1270,18 @@ def _format_watchlist_line(candidate: CandidateMetrics) -> str:
         f"{candidate.symbol} session={session_label} price=${_format_value(candidate.last_price)} "
         f"{reference_label}={_format_value(reference_price)} "
         f"ibkr_pct={_format_value(candidate.ibkr_change_pct)}% "
-        f"final_pct={_format_value(candidate.pct_change)}% "
+        f"pct_change_resolved={_format_value(getattr(candidate, 'pct_change_resolved', candidate.pct_change))}% "
         f"pct_source={candidate.pct_source or 'NA'} "
-        f"gap={_format_value(candidate.gap_pct)}% chg={_format_value(candidate.pct_change)}% "
+        f"gap_pct_resolved={_format_value(getattr(candidate, 'gap_pct_resolved', candidate.gap_pct))}% "
+        f"gap_source={getattr(candidate, 'gap_source', 'NA')} "
+        f"reference_label={candidate.reference_label or 'NA'} "
+        f"context_status={getattr(candidate, 'context_status', 'NA')} "
         f"rvol={_format_value(candidate.rvol)} float={_format_float_millions(candidate.float_millions)} "
         f"vol={_format_int(candidate.volume)} pm={_format_int(candidate.premarket_volume)} "
         f"spread={_format_value(candidate.spread_pct, 4)}% news_flag={catalyst} "
+        f"news_count={getattr(candidate, 'news_count', 0)} news_fresh_count={getattr(candidate, 'fresh_news_count', 0)} "
+        f"float_source={candidate.float_source or 'NA'} float_asof={candidate.float_asof or 'NA'} "
+        f"execution_ready={getattr(candidate, 'execution_ready', False)} prep_only={getattr(candidate, 'prep_only', False)} "
         f"summary={summary} "
         f"halted={candidate.halted if candidate.halted is not None else 'NA'} "
         f"ssr={candidate.ssr if candidate.ssr is not None else 'NA'} dq={dq} "
@@ -1413,6 +1460,24 @@ def _build_symbol_context(
         reference_price = pct_payload.reference_price
         reference_label = pct_payload.reference_label
         open_relative_pct_change = pct_payload.open_relative_pct_change
+    bundle = resolve_reference_bundle(
+        session_label=session_label,
+        reference_price=reference_price,
+        reference_label=reference_label,
+        pct_change=pct_change,
+        pct_source=pct_source,
+        gap_pct=open_relative_pct_change,
+        gap_source=None,
+    )
+    reference_price = bundle.reference_price
+    reference_label = bundle.reference_label
+    pct_change = bundle.pct_change_resolved
+    pct_source = bundle.pct_source
+    gap_pct_resolved = bundle.gap_pct_resolved
+    gap_source = bundle.gap_source
+    context_status = bundle.context_status
+    execution_ready = bundle.execution_ready
+    prep_only = bundle.prep_only
     hod_pct = None
     if last_price is not None and day_high is not None and day_high != 0:
         hod_pct = round(((last_price - day_high) / day_high) * 100, 2)
@@ -1472,8 +1537,14 @@ def _build_symbol_context(
         "reference_price": reference_price,
         "reference_label": reference_label,
         "pct_change": pct_change,
+        "pct_change_resolved": pct_change,
         "pct_source": pct_source,
         "open_relative_pct_change": open_relative_pct_change,
+        "gap_pct_resolved": gap_pct_resolved,
+        "gap_source": gap_source,
+        "context_status": context_status,
+        "execution_ready": execution_ready,
+        "prep_only": prep_only,
         "hod_pct": hod_pct,
         "persisted_pct_change": _safe_float(getattr(quote, "persisted_pct_change", None), None),
         "persisted_rvol": persisted_rvol,
@@ -2442,6 +2513,7 @@ def run_scanner_cycle(
                 flags = context.setdefault("data_quality_flags", [])
                 if "BACKFILL_OPTIONAL_DATA" not in flags:
                     flags.append("BACKFILL_OPTIONAL_DATA")
+                context["promotion_reason"] = "PREP_CONTEXT_BACKFILL"
                 if drop_reason:
                     drop_ledger.pop(symbol, None)
                 watchlist_contexts.append(context)
@@ -2558,17 +2630,23 @@ def run_scanner_cycle(
         current_watch = set(watchlist_symbols)
         current_focus = set(focus_symbols)
 
+        watch_context_by_symbol = {ctx.get("symbol"): ctx for ctx in watchlist_contexts}
         for symbol in watchlist_symbols:
             symbol_state = daily_state.top_universe.get(symbol)
             if symbol_state is None:
                 continue
-            symbol_state.watch_pass_reasons = ["PASSED_STOCK_SELECTION_FILTERS"]
+            symbol_state.watch_pass_reasons = ["FILTER_PASS"]
+            watch_ctx = watch_context_by_symbol.get(symbol) or {}
+            reason = watch_ctx.get("promotion_reason") if isinstance(watch_ctx, dict) else None
+            if reason:
+                symbol_state.watch_pass_reasons = [reason]
             symbol_state.last_evaluated_cycle = _SCAN_CYCLE_COUNT
             symbol_state.evaluation_stale_after_cycle = _SCAN_CYCLE_COUNT + 5
             symbol_state.rejection_reason = None
             symbol_state.float_class = _classify_float(float_cache.get(symbol))
             if symbol not in previous_watch:
-                print(f"[ROSS][PROMOTE] symbol={symbol} from=TOP_UNIVERSE to=WATCHLIST_K reason=FILTER_PASS")
+                promote_reason = symbol_state.watch_pass_reasons[0] if symbol_state.watch_pass_reasons else "FILTER_PASS"
+                print(f"[ROSS][PROMOTE] symbol={symbol} from=TOP_UNIVERSE to=WATCHLIST_K reason={promote_reason}")
             daily_state.watchlist_k[symbol] = symbol_state
             daily_state.rejected_tracked.pop(symbol, None)
 
