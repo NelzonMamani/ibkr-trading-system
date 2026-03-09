@@ -24,6 +24,8 @@ class CandidateMetrics:
     context_status: Optional[str]
     execution_ready: Optional[bool]
     prep_only: Optional[bool]
+    live_rvol_deferred: Optional[bool]
+    promotion_reason: Optional[str]
     ibkr_change_pct: Optional[float]
     pct_source: Optional[str]
     open_relative_pct_change: Optional[float]
