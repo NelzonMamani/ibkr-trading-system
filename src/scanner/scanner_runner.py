@@ -41,6 +41,7 @@ from src.scanner.scanner_contract import (
     scanner_request_from_policy,
     validate_scanner_request,
 )
+from src.prep.premarket_prep_artifact import load_canonical_premarket_prep_artifact
 from src.strategies.ross_momentum.strategy_policy import UniverseSource
 from src.scanner.phase24_views import (
     DeepViewRow,
@@ -58,6 +59,7 @@ from src.scanner.ranking_registry import resolve_watchlist_selector
 from src.scanner.result_models import CandidateMetrics, ScannerResult
 from src.scanner.reference_resolver import resolve_reference_bundle
 from src.scanner.session_pct_change import (
+    compute_phase_aware_rvol,
     compute_scanner_rvol,
     compute_session_aligned_pct_change,
     compute_session_relative_volume_with_provenance,
@@ -574,7 +576,7 @@ def _watchlist_gate_checks(
     thresholds: GateThresholds,
 ) -> Dict[str, bool]:
     pct_change = _safe_float(context.get("pct_change"), None)
-    scanner_rvol = _safe_float(context.get("scanner_rvol"), None)
+    scanner_rvol = _resolve_rvol_for_gates(context)
     float_shares = context.get("float_shares")
 
     pct_ok = pct_change is not None and pct_change >= thresholds.min_pct_change
@@ -729,12 +731,85 @@ def _missingness_map(drop_reason: str, context: Dict[str, Any]) -> Dict[str, boo
     }
 
 
+def _resolve_rvol_for_gates(context: Dict[str, Any]) -> Optional[float]:
+    session = normalize_session_label(str(context.get("session") or ""))
+    if session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}:
+        return _safe_float(context.get("rvol_phase"), None)
+    return _safe_float(context.get("rvol_discovery"), None)
+
+
+def _load_premarket_prep_candidates() -> Dict[str, Dict[str, Any]]:
+    payload = load_canonical_premarket_prep_artifact() or {}
+    symbols = payload.get("symbols") if isinstance(payload, dict) else []
+    result: Dict[str, Dict[str, Any]] = {}
+    for entry in symbols or []:
+        if not isinstance(entry, dict):
+            continue
+        symbol = str(entry.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        result[symbol] = entry
+    return result
+
+
+def _seed_watchlist_from_prep(
+    *,
+    session_label: str,
+    watchlist_contexts: List[Dict[str, Any]],
+    context_by_symbol: Dict[str, Dict[str, Any]],
+    candidates: List[Dict[str, Any]],
+    drop_ledger: Dict[str, str],
+    watchlist_limit: int,
+    prep_candidates: Dict[str, Dict[str, Any]],
+) -> tuple[List[Dict[str, Any]], int, int]:
+    if normalize_session_label(session_label) != "PRE" or not prep_candidates:
+        return watchlist_contexts, 0, 0
+    prep_seeded_count = 0
+    prep_invalidated_count = 0
+    existing = {context["symbol"]: context for context in watchlist_contexts if context.get("symbol")}
+    live_confirmed_symbols = {c["symbol"] for c in candidates}
+    for symbol, prep_entry in prep_candidates.items():
+        context = existing.get(symbol) or context_by_symbol.get(symbol)
+        if context is None:
+            context = {
+                "symbol": symbol,
+                "session": session_label,
+                "pct_change": prep_entry.get("pct_change_context"),
+                "rvol_discovery": prep_entry.get("persisted_rvol"),
+                "rvol_phase": prep_entry.get("persisted_rvol"),
+                "phase_volume_ratio": None,
+                "scanner_rvol": prep_entry.get("persisted_rvol"),
+                "rvol": prep_entry.get("persisted_rvol"),
+                "volume": prep_entry.get("persisted_volume"),
+                "avg_volume_20d": None,
+                "reference_label": prep_entry.get("persisted_reference_label"),
+                "prep_only": False,
+                "data_quality_flags": ["PREP_WATCHLIST_SEEDED"],
+            }
+        drop_reason = drop_ledger.get(symbol)
+        if drop_reason in {"DROP_QUOTE_UNAVAILABLE", "DROP_MD_CONFLICT", "DROP_UNSUBSCRIBED_MARKET_DATA"}:
+            prep_invalidated_count += 1
+            print(f"[PREP][INVALIDATE] symbol={symbol} reason={drop_reason}")
+            continue
+        context["prep_seeded"] = True
+        context["live_confirmation_pending"] = symbol not in live_confirmed_symbols
+        context["promotion_reason"] = context.get("promotion_reason") or "PREP_WATCHLIST_SEEDED"
+        context["watchlist_source"] = "HYBRID" if symbol in context_by_symbol else "PREP_SEEDED"
+        if symbol not in existing:
+            watchlist_contexts.append(context)
+            existing[symbol] = context
+        prep_seeded_count += 1
+    if watchlist_limit > 0:
+        watchlist_contexts = watchlist_contexts[:watchlist_limit]
+    return watchlist_contexts, prep_seeded_count, prep_invalidated_count
+
+
 def _evaluate_watchlist_gates(
     context: Dict[str, Any],
     thresholds: GateThresholds,
 ) -> Optional[str]:
     pct_change = _safe_float(context.get("pct_change"), None)
-    scanner_rvol = _safe_float(context.get("scanner_rvol"), None)
+    scanner_rvol = _resolve_rvol_for_gates(context)
     float_shares = context.get("float_shares")
 
     if pct_change is None:
@@ -809,7 +884,9 @@ def _evaluate_focus_gates(
         return "DROP_HALTED"
     if ssr is True and not thresholds.allow_ssr:
         return "DROP_SSR"
-    scanner_rvol = _safe_float(context.get("scanner_rvol"), None)
+    if bool(context.get("live_confirmation_pending")):
+        return "DROP_LIVE_CONFIRMATION_PENDING"
+    scanner_rvol = _resolve_rvol_for_gates(context)
     if scanner_rvol is None:
         print(
             "[FOCUS_GATE] "
@@ -1203,12 +1280,18 @@ def _candidate_from_context(
         execution_ready=context.get("execution_ready"),
         prep_only=context.get("prep_only"),
         live_rvol_deferred=bool(context.get("live_rvol_deferred", False)),
+        prep_seeded=bool(context.get("prep_seeded", False)),
+        live_confirmation_pending=bool(context.get("live_confirmation_pending", False)),
+        watchlist_source=context.get("watchlist_source"),
         promotion_reason=context.get("promotion_reason"),
         ibkr_change_pct=context.get("ibkr_change_pct"),
         pct_source=context.get("pct_source"),
         open_relative_pct_change=context.get("open_relative_pct_change"),
         hod_pct=context.get("hod_pct"),
         rvol=context.get("rvol"),
+        rvol_discovery=context.get("rvol_discovery"),
+        rvol_phase=context.get("rvol_phase"),
+        phase_volume_ratio=context.get("phase_volume_ratio"),
         relative_volume=context.get("relative_volume"),
         avg_volume_20d=context.get("avg_volume_20d"),
         float_shares=float_shares,
@@ -1298,14 +1381,20 @@ def _format_watchlist_line(candidate: CandidateMetrics) -> str:
         f"gap_source={getattr(candidate, 'gap_source', 'NA')} "
         f"reference_label={candidate.reference_label or 'NA'} "
         f"context_status={getattr(candidate, 'context_status', 'NA')} "
-        f"rvol={_format_value(candidate.rvol)} float={_format_float_millions(candidate.float_millions)} "
+        f"rvol={_format_value(candidate.rvol)} rvol_discovery={_format_value(getattr(candidate, 'rvol_discovery', candidate.rvol))} "
+        f"rvol_phase={_format_value(getattr(candidate, 'rvol_phase', candidate.rvol))} "
+        f"phase_volume_ratio={_format_value(getattr(candidate, 'phase_volume_ratio', None), 4)} "
+        f"float={_format_float_millions(candidate.float_millions)} "
         f"vol={_format_int(candidate.volume)} pm={_format_int(candidate.premarket_volume)} "
         f"spread={_format_value(candidate.spread_pct, 4)}% news_flag={catalyst} "
         f"news_count={getattr(candidate, 'news_count', 0)} news_fresh_count={getattr(candidate, 'fresh_news_count', 0)} "
         f"float_source={candidate.float_source or 'NA'} float_asof={candidate.float_asof or 'NA'} "
         f"execution_ready={getattr(candidate, 'execution_ready', False)} prep_only={getattr(candidate, 'prep_only', False)} "
         f"live_rvol_deferred={getattr(candidate, 'live_rvol_deferred', False)} "
+        f"prep_seeded={getattr(candidate, 'prep_seeded', False)} "
+        f"live_confirmation_pending={getattr(candidate, 'live_confirmation_pending', False)} "
         f"promotion_reason={getattr(candidate, 'promotion_reason', 'NA') or 'NA'} "
+        f"watchlist_source={getattr(candidate, 'watchlist_source', 'LIVE_SCAN')} "
         f"summary={summary} "
         f"halted={candidate.halted if candidate.halted is not None else 'NA'} "
         f"ssr={candidate.ssr if candidate.ssr is not None else 'NA'} dq={dq} "
@@ -1428,12 +1517,19 @@ def _build_symbol_context(
     time_normalized_rvol = rvol_payload.value
     if time_normalized_rvol is None:
         time_normalized_rvol = intraday.relative_volume if intraday else None
-    scanner_rvol = compute_scanner_rvol(
+    rvol_discovery = compute_scanner_rvol(
         session_label=session_label,
         session_volume=volume,
         avg_volume_20d=avg_volume_20d,
         persisted_rvol=persisted_rvol,
     )
+    phase_rvol_payload = compute_phase_aware_rvol(
+        session_label=session_label,
+        session_volume=volume,
+        avg_volume_20d=avg_volume_20d,
+    )
+    rvol_phase = phase_rvol_payload.rvol_phase
+    scanner_rvol = rvol_phase if rvol_phase is not None else rvol_discovery
     print(
         "[SCANNER_RVOL] "
         f"symbol={symbol} session={normalize_session_label(session_label)} "
@@ -1584,8 +1680,12 @@ def _build_symbol_context(
         "low": _safe_float(getattr(quote, "low", None), None),
         "vwap": _safe_float(getattr(quote, "vwap", None), None),
         "scanner_rvol": scanner_rvol,
+        "rvol_discovery": rvol_discovery,
+        "rvol_phase": rvol_phase,
+        "phase_volume_ratio": phase_rvol_payload.phase_ratio,
+        "expected_phase_volume": phase_rvol_payload.expected_phase_volume,
         "time_normalized_rvol": time_normalized_rvol,
-        "rvol": time_normalized_rvol,
+        "rvol": scanner_rvol,
         "relative_volume": time_normalized_rvol,
         "rvol_baseline": rvol_payload.baseline,
         "rvol_method": rvol_payload.method,
@@ -2315,12 +2415,14 @@ def run_scanner_cycle(
             print(
                 "[RVOL_DEBUG] "
                 f"symbol={symbol} session={normalize_session_label(session_label)} "
-                f"current_volume={context.get('volume')} expected_volume=NA rvol={context.get('rvol')}"
+                f"current_volume={context.get('volume')} expected_phase_volume={context.get('expected_phase_volume')} "
+                f"rvol_discovery={context.get('rvol_discovery')} rvol_phase={context.get('rvol_phase')}"
             )
             print(
                 "[RVOL] "
                 f"symbol={symbol} session={normalize_session_label(session_label)} "
-                f"baseline={rvol_baseline} method={rvol_method} value={context.get('rvol')}"
+                f"baseline={rvol_baseline} method={rvol_method} rvol_discovery={context.get('rvol_discovery')} "
+                f"rvol_phase={context.get('rvol_phase')} phase_ratio={context.get('phase_volume_ratio')}"
             )
 
             price_gate_reason = _evaluate_price_gate(context, thresholds)
@@ -2548,6 +2650,37 @@ def run_scanner_cycle(
                 )
                 if len(watchlist_contexts) >= watchlist_limit:
                     break
+
+        prep_candidates = _load_premarket_prep_candidates() if normalize_session_label(session_label) == "PRE" else {}
+        watchlist_contexts, prep_seeded_count, prep_invalidated_count = _seed_watchlist_from_prep(
+            session_label=session_label,
+            watchlist_contexts=watchlist_contexts,
+            context_by_symbol=context_by_symbol,
+            candidates=candidates,
+            drop_ledger=drop_ledger,
+            watchlist_limit=watchlist_limit,
+            prep_candidates=prep_candidates,
+        )
+        if prep_candidates:
+            print(
+                "[PREP][SEED] "
+                f"session={session_label} prep_symbols={len(prep_candidates)} seeded={prep_seeded_count} "
+                f"invalidated={prep_invalidated_count}"
+            )
+        if not watchlist_contexts and prep_candidates:
+            print(
+                "[PREP][HARD_FAIL] PRE watchlist empty after prep seeding "
+                f"prep_symbols={len(prep_candidates)} invalidated={prep_invalidated_count}"
+            )
+
+        for context in watchlist_contexts:
+            context.setdefault("prep_seeded", False)
+            context.setdefault("live_confirmation_pending", False)
+            context.setdefault("promotion_reason", "LIVE_SCAN")
+            context.setdefault("watchlist_source", "LIVE_SCAN")
+            context.setdefault("rvol_discovery", context.get("scanner_rvol"))
+            context.setdefault("rvol_phase", context.get("scanner_rvol"))
+            context.setdefault("phase_volume_ratio", None)
 
         watchlist_contexts = _rank_candidates(watchlist_contexts)
 

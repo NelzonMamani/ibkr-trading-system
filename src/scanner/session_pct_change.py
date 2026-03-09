@@ -11,6 +11,15 @@ from src.config.config_resolver import get_config
 
 
 _NY_TZ = ZoneInfo("America/New_York")
+PHASE_VOLUME_RATIOS: dict[str, float] = {
+    "PRE": 0.05,
+    "RTH_OPEN": 0.40,
+    "RTH_MID": 0.35,
+    "RTH_LATE": 0.20,
+    "AH": 0.03,
+    "OVN": 0.01,
+}
+PHASE_VOLUME_FLOOR = 1.0
 
 
 def _session_elapsed_and_full_seconds(session_label: str, now_utc: datetime | None = None) -> tuple[int, int]:
@@ -59,6 +68,15 @@ class SessionRelativeVolume:
     method: str
     value: Optional[float]
     expected_volume: Optional[float] = None
+
+
+@dataclass(frozen=True)
+class PhaseAwareRelativeVolume:
+    session_label: str
+    phase_ratio: Optional[float]
+    expected_phase_volume: Optional[float]
+    floor_value: float
+    rvol_phase: Optional[float]
 
 
 @dataclass(frozen=True)
@@ -163,6 +181,37 @@ def compute_scanner_rvol(
         persisted_rvol=persisted_rvol,
     )
     return payload.value
+
+
+def compute_phase_aware_rvol(
+    *,
+    session_label: str,
+    session_volume: Optional[float],
+    avg_volume_20d: Optional[float],
+    floor_value: float = PHASE_VOLUME_FLOOR,
+) -> PhaseAwareRelativeVolume:
+    normalized_session = normalize_session_label(session_label)
+    ratio = PHASE_VOLUME_RATIOS.get(normalized_session)
+    volume = _safe_float(session_volume)
+    avg_volume = _safe_float(avg_volume_20d)
+    if ratio is None or volume is None or avg_volume is None:
+        return PhaseAwareRelativeVolume(
+            session_label=normalized_session,
+            phase_ratio=ratio,
+            expected_phase_volume=None,
+            floor_value=float(floor_value),
+            rvol_phase=None,
+        )
+    expected_phase_volume = avg_volume * ratio
+    denominator = max(expected_phase_volume, float(floor_value))
+    rvol_phase = round(volume / denominator, 2)
+    return PhaseAwareRelativeVolume(
+        session_label=normalized_session,
+        phase_ratio=ratio,
+        expected_phase_volume=round(expected_phase_volume, 2),
+        floor_value=float(floor_value),
+        rvol_phase=rvol_phase,
+    )
 
 
 def compute_session_relative_volume(
