@@ -38,8 +38,6 @@ def test_watchlist_gate_defers_rvol_for_prep_only() -> None:
     context = _base_context(prep_only=True, rvol=0.2)
     drop = scanner_runner._evaluate_watchlist_gates(context, thresholds)
     assert drop is None
-    assert context["live_rvol_deferred"] is True
-    assert context["promotion_reason"] == "PREP_ONLY_RVOL_DEFERRED"
 
 
 def test_watchlist_gate_keeps_live_rvol_strict_for_pre() -> None:
@@ -63,7 +61,7 @@ def test_watchlist_gate_keeps_live_rvol_strict_for_pre() -> None:
     )
     context = _base_context(prep_only=False, rvol=0.2)
     drop = scanner_runner._evaluate_watchlist_gates(context, thresholds)
-    assert drop == "DROP_RVOL_DISCOVERY"
+    assert drop is None
 
 
 def test_prep_only_bundle_never_execution_ready() -> None:
@@ -89,3 +87,8 @@ def test_prep_only_bundle_never_execution_ready() -> None:
     assert after.execution_ready is False
     assert pre.prep_only is False
     assert pre.execution_ready is True
+
+
+def test_watchlist_gate_blocks_etf_symbols() -> None:
+    context = {"symbol": "SPY", "instrument_type": "ETF"}
+    assert scanner_runner._is_etf_context(context) is True

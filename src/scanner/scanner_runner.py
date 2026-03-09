@@ -84,6 +84,7 @@ _LAST_SESSION_LABEL: Optional[str] = None
 _SCAN_CYCLE_COUNT = 0
 _LAST_PRINT_CYCLE = 0
 NEWS_AGE_MAX_MINUTES = 360
+ETF_EXCLUDED_SYMBOLS = {"SPY", "QQQ", "DIA", "IWM"}
 
 CATALYST_KEYWORDS = {
     "earnings": "EARNINGS",
@@ -809,8 +810,6 @@ def _evaluate_watchlist_gates(
     thresholds: GateThresholds,
 ) -> Optional[str]:
     pct_change = _safe_float(context.get("pct_change"), None)
-    scanner_rvol = _resolve_rvol_for_gates(context)
-    float_shares = context.get("float_shares")
 
     if pct_change is None:
         return "DROP_MISSING_PCT_CHANGE"
@@ -819,41 +818,14 @@ def _evaluate_watchlist_gates(
         return "DROP_PCT_CHANGE"
     if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
         return "DROP_PCT_CHANGE_MAX"
-    prep_only = bool(context.get("prep_only"))
-    context["live_rvol_deferred"] = False
-    if scanner_rvol is None:
-        if prep_only:
-            context["live_rvol_deferred"] = True
-            context["promotion_reason"] = context.get("promotion_reason") or "PREP_ONLY_RVOL_DEFERRED"
-            print(
-                "[WATCHLIST_GATE] "
-                f"symbol={context.get('symbol')} scanner_rvol=None "
-                f"threshold={thresholds.watchlist_rvol_min} decision=DEFER prep_only=True"
-            )
-            return None
-        print(
-            "[WATCHLIST_GATE] "
-            f"symbol={context.get('symbol')} scanner_rvol=None "
-            f"threshold={thresholds.watchlist_rvol_min} decision=DROP"
-        )
-        return "DROP_MISSING_RVOL"
-    watchlist_decision = "KEEP" if scanner_rvol >= thresholds.watchlist_rvol_min else "DROP"
-    print(
-        "[WATCHLIST_GATE] "
-        f"symbol={context.get('symbol')} scanner_rvol={scanner_rvol} "
-        f"threshold={thresholds.watchlist_rvol_min} decision={watchlist_decision}"
-    )
-    if scanner_rvol < thresholds.watchlist_rvol_min:
-        if prep_only:
-            context["live_rvol_deferred"] = True
-            context["promotion_reason"] = context.get("promotion_reason") or "PREP_ONLY_RVOL_DEFERRED"
-            print(
-                "[WATCHLIST_GATE] "
-                f"symbol={context.get('symbol')} scanner_rvol={scanner_rvol} "
-                f"threshold={thresholds.watchlist_rvol_min} decision=DEFER prep_only=True"
-            )
-            return None
-        return "DROP_RVOL_DISCOVERY"
+    return None
+
+
+def _evaluate_float_gate(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+) -> Optional[str]:
+    float_shares = context.get("float_shares")
     if float_shares is None:
         context["float_status"] = "UNKNOWN"
         return None
@@ -861,6 +833,14 @@ def _evaluate_watchlist_gates(
     if float_shares > thresholds.max_float:
         return "DROP_FLOAT_MAX"
     return None
+
+
+def _is_etf_context(context: Dict[str, Any]) -> bool:
+    symbol = str(context.get("symbol") or "").upper()
+    if symbol in ETF_EXCLUDED_SYMBOLS:
+        return True
+    instrument_type = str(context.get("instrument_type") or "").upper()
+    return instrument_type == "ETF"
 
 
 def _evaluate_focus_gates(
@@ -1648,6 +1628,7 @@ def _build_symbol_context(
         "session": session_label,
         "con_id": con_id,
         "exchange": scan_detail.get("primaryExchange"),
+        "instrument_type": scan_detail.get("secType"),
         "last_price": last_price,
         "close": quote.close,
         "prev_close": prev_close,
@@ -2452,6 +2433,12 @@ def run_scanner_cycle(
                 evaluated_contexts.append(context)
                 continue
             _populate_pct_change(context, provider)
+            if _is_etf_context(context):
+                drop_reason = "DROP_ETF_EXCLUDED"
+                drop_ledger.setdefault(symbol, drop_reason)
+                print(f"[SCANNER][DROP] symbol={symbol} reason={drop_reason}")
+                evaluated_contexts.append(context)
+                continue
             drop_reason = _evaluate_watchlist_gates(context, thresholds)
             if drop_reason:
                 drop_ledger.setdefault(symbol, drop_reason)
@@ -2489,6 +2476,12 @@ def run_scanner_cycle(
                         "[SCANNER][DEBUG] "
                         f"symbol={symbol} reason={drop_reason} missing={missingness}"
                     )
+                evaluated_contexts.append(context)
+                continue
+            drop_reason = _evaluate_float_gate(context, thresholds)
+            if drop_reason:
+                drop_ledger.setdefault(symbol, drop_reason)
+                print(f"[SCANNER][DROP] symbol={symbol} reason={drop_reason}")
                 evaluated_contexts.append(context)
                 continue
             score, components = _score_context(context)
@@ -2606,6 +2599,43 @@ def run_scanner_cycle(
                 selected_symbols.add(symbol)
                 if len(watchlist_contexts) >= watchlist_limit:
                     break
+
+        normalized_session = normalize_session_label(session_label)
+        if normalized_session == "PRE" and len(watchlist_contexts) < 10:
+            selected_symbols = {context["symbol"] for context in watchlist_contexts}
+            topn_gap_sorted = sorted(
+                [
+                    context
+                    for context in evaluated_contexts
+                    if context.get("symbol")
+                    and context.get("pct_change") is not None
+                    and not _is_etf_context(context)
+                ],
+                key=lambda row: (_safe_float(row.get("pct_change"), 0.0) or 0.0),
+                reverse=True,
+            )
+            target_size = max(10, min(15, watchlist_limit or 15))
+            for context in topn_gap_sorted:
+                symbol = context["symbol"]
+                if symbol in selected_symbols:
+                    continue
+                watchlist_contexts.append(context)
+                selected_symbols.add(symbol)
+                if len(watchlist_contexts) >= target_size:
+                    break
+        discovery_stats = {
+            "pct_change_pass": sum(1 for c in evaluated_contexts if _safe_float(c.get("pct_change"), None) is not None and _safe_float(c.get("pct_change"), None) >= _resolve_pct_change_min_for_session(str(c.get("session") or ""), thresholds)),
+            "price_pass": sum(1 for c in evaluated_contexts if _evaluate_price_gate(c, thresholds) is None),
+            "float_pass": sum(1 for c in candidates if _evaluate_float_gate(dict(c), thresholds) is None),
+            "watchlist_final": len(watchlist_contexts),
+        }
+        print(
+            "[DISCOVERY_STATS] "
+            f"pct_change_pass={discovery_stats['pct_change_pass']} "
+            f"price_pass={discovery_stats['price_pass']} "
+            f"float_pass={discovery_stats['float_pass']} "
+            f"watchlist_final={discovery_stats['watchlist_final']}"
+        )
         watchlist_set = {context["symbol"] for context in watchlist_contexts}
         for context in ranked:
             if context["symbol"] in watchlist_set:
