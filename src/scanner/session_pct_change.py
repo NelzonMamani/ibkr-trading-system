@@ -99,7 +99,11 @@ def resolve_market_session_label(now: Optional[datetime] = None) -> str:
 
 
 def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSessionContext:
-    now_utc = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    now_utc = now or datetime.now(timezone.utc)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    else:
+        now_utc = now_utc.astimezone(timezone.utc)
     ny_time = now_utc.astimezone(_NY_TZ)
     market_time = ny_time.isoformat()
     if ny_time.weekday() >= 5:
@@ -113,17 +117,16 @@ def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSess
         if ny_time.time() >= early_close:
             return MarketSessionContext(coarse="WEEKEND", phase="WEEKEND", market_time=market_time)
 
-    h = now_utc.hour + now_utc.minute / 60.0
-    windows = get_config("SCANNER_SESSION_WINDOWS_UTC")
-    if windows["PRE_START"] <= h < windows["RTH_START"]:
+    ny_clock = ny_time.time()
+    if time(4, 0) <= ny_clock < time(9, 30):
         return MarketSessionContext(coarse="PRE", phase="PRE", market_time=market_time)
-    if windows["RTH_START"] <= h < windows["AFT_START"]:
-        if ny_time.time() < time(10, 30):
+    if time(9, 30) <= ny_clock < time(16, 0):
+        if ny_clock < time(10, 30):
             return MarketSessionContext(coarse="RTH_OPEN", phase="RTH_OPEN", market_time=market_time)
-        if ny_time.time() < time(14, 30):
+        if ny_clock < time(14, 30):
             return MarketSessionContext(coarse="RTH_MID", phase="RTH_MID", market_time=market_time)
         return MarketSessionContext(coarse="RTH_LATE", phase="RTH_LATE", market_time=market_time)
-    if windows["AFT_START"] <= h < windows["AFT_END"]:
+    if time(16, 0) <= ny_clock < time(20, 0):
         return MarketSessionContext(coarse="AH", phase="AH", market_time=market_time)
     return MarketSessionContext(coarse="OVN", phase="OVN", market_time=market_time)
 

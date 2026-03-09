@@ -1964,7 +1964,7 @@ def run_scanner_cycle(
     drop_ledger: Dict[str, str] = {}
     universe_top_n: list[dict[str, Any]] = []
     print(f"[SCANNER] MODE={mode} SESSION={session_label}")
-    print(f"[SESSION] label={session_label} market_time={session_ctx.market_time}")
+    print(f"[SESSION] utc={utc_now.strftime('%Y-%m-%dT%H:%M:%SZ')} ny={session_ctx.market_time.split('T', 1)[1]} resolved={session_label}")
     scanner_mode = get_scanner_mode()
     policy_source = "STRATEGY" if policy is not None else "CONFIG_DEFAULTS"
     resolved_policy = policy or policy_from_config()
