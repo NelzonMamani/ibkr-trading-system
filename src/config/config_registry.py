@@ -965,6 +965,51 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     # =========================
     # News ingestion
     # =========================
+    "NEWS_CACHE_FILE": {
+        "type": str,
+        "default": "data/news/news_cache.json",
+        "env": ["NEWS_CACHE_FILE"],
+        "affects": ["NewsEngine", "PreMarketPrep"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "JSON cache file used by preparation news provider.",
+    },
+    "NEWS_MAX_AGE_HOURS": {
+        "type": float,
+        "default": 6.0,
+        "env": ["NEWS_MAX_AGE_HOURS"],
+        "affects": ["NewsEngine", "PreMarketPrep"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "News freshness threshold in hours for active catalyst tagging.",
+    },
+    "NEWS_REFRESH_SECONDS_PREP": {
+        "type": int,
+        "default": 1800,
+        "env": ["NEWS_REFRESH_SECONDS_PREP"],
+        "affects": ["NewsEngine", "PreMarketPrep"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Minimum seconds between news refreshes during CLOSED/AH/OVN preparation.",
+    },
+    "NEWS_REFRESH_SECONDS_PRE": {
+        "type": int,
+        "default": 300,
+        "env": ["NEWS_REFRESH_SECONDS_PRE"],
+        "affects": ["NewsEngine", "PreMarketPrep"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Minimum seconds between news refreshes during PRE.",
+    },
+    "NEWS_REFRESH_SECONDS_RTH": {
+        "type": int,
+        "default": 120,
+        "env": ["NEWS_REFRESH_SECONDS_RTH"],
+        "affects": ["NewsEngine", "PreMarketPrep"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Minimum seconds between news refreshes during RTH.",
+    },
     "NEWS_ENABLED": {
         "type": bool,
         "default": True,
