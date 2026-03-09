@@ -48,6 +48,9 @@ class PrepSnapshot:
     focus_member: bool = False
     last_refresh_reasons: list[str] = field(default_factory=list)
     context_status: str = "newly_confirmed"
+    last_transition_reason: Optional[str] = None
+    live_confirmed_fields: list[str] = field(default_factory=list)
+    context_only_fields: list[str] = field(default_factory=list)
 
 
 class PreMarketPrepEngine:
@@ -117,6 +120,7 @@ class PreMarketPrepEngine:
             persisted_session_label = (persisted_session_label_by_symbol or {}).get(symbol)
 
             refresh_reasons = [reason]
+            snapshot.last_transition_reason = reason
             if float_value is not None:
                 snapshot.float_shares = float_value
                 snapshot.float_asof = now
@@ -221,6 +225,9 @@ class PreMarketPrepEngine:
             snapshot.focus_member = bool(entry.get("focus_member"))
             snapshot.last_refresh_reasons = list(entry.get("last_refresh_reasons") or [])
             snapshot.context_status = str(entry.get("context_status") or "retained_context")
+            snapshot.last_transition_reason = entry.get("last_transition_reason")
+            snapshot.live_confirmed_fields = list(entry.get("live_confirmed_fields") or [])
+            snapshot.context_only_fields = list(entry.get("context_only_fields") or [])
             snapshot.data_quality_flags = list(entry.get("data_quality_flags") or [])
             self._cache[symbol] = snapshot
             restored += 1
@@ -244,8 +251,18 @@ class PreMarketPrepEngine:
                     "pct_change_context": snapshot.persisted_pct_change,
                     "gap_context": snapshot.levels.gap_pct,
                     "float": snapshot.float_shares,
+                    "float_shares": snapshot.float_shares,
+                    "float_millions": round(snapshot.float_shares / 1_000_000.0, 4) if snapshot.float_shares else None,
+                    "float_source": "prep_cache" if snapshot.float_shares is not None else "missing",
+                    "float_classification": "low_float" if snapshot.float_shares and snapshot.float_shares <= 20_000_000 else "standard",
+                    "float_cache_hit": snapshot.float_shares is not None,
                     "float_asof": snapshot.float_asof.isoformat() if snapshot.float_asof else None,
                     "news_context": snapshot.news_context,
+                    "news_count": len(snapshot.news_context),
+                    "fresh_news_count": sum(1 for item in snapshot.news_context if item.get("freshness") == "fresh"),
+                    "stale_news_count": sum(1 for item in snapshot.news_context if item.get("freshness") != "fresh"),
+                    "top_news_title": snapshot.news_context[0].get("title") if snapshot.news_context else None,
+                    "top_news_catalyst_tag": snapshot.news_context[0].get("catalyst_tag") if snapshot.news_context else None,
                     "news_asof": snapshot.news_asof.isoformat() if snapshot.news_asof else None,
                     "premarket_high": snapshot.levels.premarket_high,
                     "premarket_low": snapshot.levels.premarket_low,
@@ -266,6 +283,9 @@ class PreMarketPrepEngine:
                     "focus_member": snapshot.focus_member,
                     "context_status": snapshot.context_status,
                     "last_refresh_reasons": snapshot.last_refresh_reasons,
+                    "last_transition_reason": snapshot.last_transition_reason,
+                    "live_confirmed_fields": snapshot.live_confirmed_fields,
+                    "context_only_fields": snapshot.context_only_fields,
                 }
             )
         return {"timestamp": now, "symbols": rows}

@@ -18,6 +18,12 @@ class CandidateMetrics:
     reference_label: Optional[str]
     gap_pct: Optional[float]
     pct_change: Optional[float]
+    pct_change_resolved: Optional[float]
+    gap_pct_resolved: Optional[float]
+    gap_source: Optional[str]
+    context_status: Optional[str]
+    execution_ready: Optional[bool]
+    prep_only: Optional[bool]
     ibkr_change_pct: Optional[float]
     pct_source: Optional[str]
     open_relative_pct_change: Optional[float]
@@ -41,6 +47,14 @@ class CandidateMetrics:
     ssr: Optional[bool]
     catalyst_present: Optional[bool]
     catalyst_summary: Optional[str]
+    news_count: Optional[int]
+    fresh_news_count: Optional[int]
+    stale_news_count: Optional[int]
+    top_news_title: Optional[str]
+    top_news_age_hours: Optional[float]
+    top_news_catalyst_tag: Optional[str]
+    news_source_mode: Optional[str]
+    news_asof: Optional[str]
     data_quality_ok: bool
     data_quality_flags: list[str] = field(default_factory=list)
     drop_reasons: list[str] = field(default_factory=list)
