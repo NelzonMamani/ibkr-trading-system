@@ -91,6 +91,7 @@ from src.prep.premarket_prep import PreMarketPrepEngine
 from src.prep.premarket_prep_artifact import (
     CANONICAL_PREP_ARTIFACT_PATH,
     load_canonical_premarket_prep_artifact,
+    write_premarket_prep_artifact,
     write_canonical_premarket_prep_artifact,
 )
 from src.events.event_invariants import check_invariants, EventInvariantError
@@ -812,7 +813,7 @@ class CoreOrchestrator:
                     print(
                         "[SESSION] System WOULD treat market as closed (teaching-only)."
                     )
-                if current_session == "CLOSED":
+                if current_session in {"PRE", "CLOSED"}:
                     self.run_preparation_mode()
                 if self.run_mode == RunMode.LIVE and current_session == "CLOSED":
                     print(
@@ -1112,7 +1113,7 @@ class CoreOrchestrator:
                 cadence.watchlist.rows = list(watch_rows[:watch_limit])
                 cadence.watchlist.symbols = self._symbols_from_candidates(cadence.watchlist.rows)
                 cadence.watchlist.timestamp_utc = cycle_started_at
-                self._trace_event("WATCHLIST_REFRESH", {"strategy": active_strategy, "size": len(cadence.watchlist.symbols)})
+                self._trace_event("WATCHLIST_CREATED", {"strategy": active_strategy, "size": len(cadence.watchlist.symbols)})
                 if not focus_stale and not cadence.focus.rows:
                     focus_stale = True
 
@@ -1121,7 +1122,7 @@ class CoreOrchestrator:
                 cadence.focus.rows = base
                 cadence.focus.symbols = self._symbols_from_candidates(base)
                 cadence.focus.timestamp_utc = cycle_started_at
-                self._trace_event("FOCUS_REFRESH", {"strategy": active_strategy, "size": len(cadence.focus.symbols)})
+                self._trace_event("FOCUS_LIST_CREATED", {"strategy": active_strategy, "size": len(cadence.focus.symbols)})
 
             print(
                 f"[STRATEGY_AUDIT] strategy={active_strategy} topn_size={len(cadence.top_n.symbols)} "
@@ -1159,17 +1160,32 @@ class CoreOrchestrator:
             session_phase=session_phase,
         )
 
+        emitted_symbols = {
+            getattr(intent, "symbol", None)
+            for intent in (strategy_output or [])
+            if getattr(intent, "symbol", None)
+        }
         for symbol in focus_symbols:
-            emitted = any(getattr(intent, "symbol", None) == symbol for intent in (strategy_output or []))
+            emitted = symbol in emitted_symbols
             print(self._pattern_reason_line(symbol, emitted))
             self._trace_event("PATTERN_EVAL", {"strategy": strategy_key, "symbol": symbol, "intent_emitted": emitted})
             if emitted:
-                self._trace_event("INTENT_EMIT", {"strategy": strategy_key, "symbol": symbol})
-                self._trace_event("RISK_DECISION", {"strategy": strategy_key, "symbol": symbol, "decision": "PASS"})
+                self._trace_event("SETUP_DETECTED", {"strategy": strategy_key, "symbol": symbol})
+                self._trace_event("CONFIRMATION_PASS", {"strategy": strategy_key, "symbol": symbol})
+                self._trace_event("TRIGGER_READY", {"strategy": strategy_key, "symbol": symbol})
+                self._trace_event("INTENT_EMITTED", {"strategy": strategy_key, "symbol": symbol})
+                self._trace_event("RISK_APPROVED", {"strategy": strategy_key, "symbol": symbol, "decision": "PASS"})
+            else:
+                self._trace_event("NO_SETUP", {"strategy": strategy_key, "symbol": symbol})
 
         if mode_manager.allow_orders:
             for intent in strategy_output or []:
-                self._trace_event("ORDER_SUBMIT", {"strategy": strategy_key, "symbol": intent.symbol})
+                self._trace_event("ORDER_SUBMITTED", {"strategy": strategy_key, "symbol": intent.symbol})
+        elif strategy_output:
+            for intent in strategy_output:
+                reason = "SESSION_BLOCK" if self.run_mode == RunMode.READ_ONLY else "EXECUTION_DISABLED"
+                self._trace_event("SESSION_BLOCK", {"strategy": strategy_key, "symbol": intent.symbol, "reason": reason})
+                self._trace_event("ORDER_SIMULATED", {"strategy": strategy_key, "symbol": intent.symbol, "reason": reason})
 
         if self.regime_layer.enabled:
             self.regime_layer.evaluate(candidates=selected_candidates or [], session=get_current_market_session())
@@ -2759,6 +2775,12 @@ class CoreOrchestrator:
             market_data_client=self.connection_manager.optional_client,
             disconnect_provider=provider_override is not None,
             forced_session_label="WEEKEND",
+        )
+        write_premarket_prep_artifact(
+            mode=self.run_mode.value,
+            session="PRE",
+            scanner_payload=payload,
+            watchlist_k=int(scanner_policy.watchlist_limit_k),
         )
         raw_symbols = payload.get("symbols") or payload.get("top_n_symbols") or [
             item.get("symbol") for item in payload.get("universe_top_n", []) if isinstance(item, dict)
