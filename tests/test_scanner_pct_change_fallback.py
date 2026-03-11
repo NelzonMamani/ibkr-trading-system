@@ -84,6 +84,7 @@ def test_scanner_does_not_drop_pct_change_when_prev_close_present() -> None:
         require_catalyst=False,
         allow_halts=True,
         allow_ssr=True,
+        allow_unknown_float=True,
     )
 
     assert context is not None

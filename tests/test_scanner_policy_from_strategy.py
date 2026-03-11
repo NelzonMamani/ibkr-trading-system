@@ -24,6 +24,7 @@ def test_scanner_policy_limits_applied_in_teaching_mode():
         watchlist_limit_k=3,
         focus_limit_m=2,
         top_gainers_n=5,
+        float_max_millions=50_000.0,
         session_allowlist=("PRE", "REG", "AFTER", "OVN"),
     )
     tuned_policy = replace(base_policy, stock_selection=tuned_stock_policy)

@@ -20,6 +20,7 @@ def _thresholds() -> GateThresholds:
         require_catalyst=False,
         allow_halts=True,
         allow_ssr=True,
+        allow_unknown_float=True,
     )
 
 
