@@ -6,6 +6,7 @@ from src.scanner.scanner_runner import (
     _evaluate_watchlist_gates,
     _gate_thresholds,
     _resolve_runtime_thresholds,
+    _resolve_rvol_for_focus_gate,
 )
 from src.strategies.ross_momentum.strategy_policy import RossMomentumPolicy
 
@@ -176,3 +177,56 @@ def test_drop_volume_logs_threshold_context(capsys) -> None:
     assert "threshold_source=early_rth_focus" in output
     assert "session=RTH_OPEN" in output
     assert "phase=OPENING" in output
+
+
+def test_focus_gate_prefers_scanner_rvol_in_rth_open(capsys) -> None:
+    policy = RossMomentumPolicy().stock_selection
+    runtime = _resolve_runtime_thresholds(policy)
+    thresholds = _gate_thresholds(policy, runtime)
+    thresholds = replace(thresholds, watchlist_rvol_min=0.5, focus_rvol_min=2.0)
+
+    context = {
+        "symbol": "OPEN",
+        "session": "RTH_OPEN",
+        "pct_change": 12.0,
+        "scanner_rvol": 2.4,
+        "rvol_discovery": 0.6,
+        "rvol_phase": 2.4,
+        "volume": 500_000,
+        "premarket_volume": 500_000,
+        "dollar_volume": 2_000_000,
+        "last_price": 4.0,
+        "spread_pct": 0.01,
+        "bid": 3.99,
+        "ask": 4.01,
+        "catalyst_present": True,
+        "halted": False,
+        "ssr": False,
+    }
+
+    assert _evaluate_focus_gates(context, thresholds) is None
+    metric, value = _resolve_rvol_for_focus_gate(context)
+    assert metric == "scanner_rvol"
+    assert value == 2.4
+    output = capsys.readouterr().out
+    assert "rvol_metric_used=scanner_rvol" in output
+    assert "reason=PASS_RVOL_THRESHOLD" in output
+
+
+def test_unknown_float_allowed_removes_degrading_flag() -> None:
+    policy = RossMomentumPolicy().stock_selection
+    runtime = _resolve_runtime_thresholds(policy)
+    thresholds = _gate_thresholds(policy, runtime)
+
+    context = {
+        "symbol": "UFLO",
+        "session": "PRE",
+        "pct_change": 15.0,
+        "float_shares": None,
+        "data_quality_flags": ["FLOAT_UNKNOWN", "SPREAD_UNKNOWN"],
+    }
+
+    assert _evaluate_watchlist_gates(context, thresholds) is None
+    assert context["float_status"] == "UNKNOWN"
+    assert context["float_tolerated"] is True
+    assert context["data_quality_flags"] == ["SPREAD_UNKNOWN"]
