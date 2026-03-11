@@ -15,7 +15,11 @@ def _catalogue_slugs() -> list[str]:
     return slugs
 
 
-def test_every_catalogue_strategy_has_policy_v2_module() -> None:
+def test_every_catalogue_strategy_has_policy_module() -> None:
     for slug in _catalogue_slugs():
+        if slug == "ross_momentum":
+            module = importlib.import_module(f"src.strategies.{slug}.strategy_policy")
+            assert hasattr(module, "CANONICAL_POLICY")
+            continue
         module = importlib.import_module(f"src.strategies.{slug}.strategy_policy_v2")
         assert hasattr(module, "POLICY_V2")
