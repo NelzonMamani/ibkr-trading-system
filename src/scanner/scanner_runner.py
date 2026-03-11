@@ -324,11 +324,13 @@ def _load_float_cache(path: Path) -> Dict[str, Dict[str, Any]]:
             for k, v in parsed.items():
                 if isinstance(v, dict):
                     value = v.get("float_value")
+                    if value is None:
+                        value = v.get("float")
                     if isinstance(value, (int, float)):
                         normalized[k] = {
                             "float_value": int(value),
-                            "float_source": v.get("float_source"),
-                            "float_asof": v.get("float_asof"),
+                            "float_source": v.get("float_source") or v.get("source"),
+                            "float_asof": v.get("float_asof") or v.get("timestamp"),
                         }
                 elif isinstance(v, (int, float)):
                     normalized[k] = {
@@ -351,10 +353,7 @@ def _persist_float_cache(path: Path, float_cache: Dict[str, Dict[str, Any]]) -> 
 
 
 def _resolve_float_cache_path() -> Path:
-    canonical = Path("data/reference/float_cache.json")
-    if canonical.exists():
-        return canonical
-    return Path(get_config("SCANNER_FLOAT_CACHE_FILE"))
+    return Path("data/reference/float_cache.json")
 
 
 def _bootstrap_float_cache(
@@ -398,6 +397,7 @@ def _bootstrap_float_cache(
         print(f"[FLOAT][RESOLVE] symbol={symbol} source=UNKNOWN tolerated=True")
         if worker.enqueue(symbol):
             discovery_queued += 1
+            print(f"[FLOAT][QUEUE] symbol={symbol} queued_for_discovery")
             print(f"[FLOAT][RESOLVE] symbol={symbol} source=DISCOVERY_QUEUED")
 
     _FLOAT_CACHE_STATE["data"] = float_cache
