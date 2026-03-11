@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-03-11T12:37:07.126559+00:00",
+  "timestamp_utc": "2026-03-11T12:42:33.186869+00:00",
   "mode": "READ_ONLY",
   "session": "PRE",
   "raw_scan_n": 2,
@@ -7,7 +7,7 @@
   "symbols": [
     {
       "symbol": "E21A",
-      "conId": 978540,
+      "conId": 9921454,
       "last": null,
       "close": null,
       "spread": 0.04,
@@ -27,7 +27,7 @@
     },
     {
       "symbol": "E21B",
-      "conId": 6848303,
+      "conId": 8999272,
       "last": null,
       "close": null,
       "spread": 0.06,
