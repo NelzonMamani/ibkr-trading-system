@@ -34,6 +34,7 @@ def test_watchlist_gate_defers_rvol_for_prep_only() -> None:
         require_catalyst=False,
         allow_halts=False,
         allow_ssr=False,
+        allow_unknown_float=True,
     )
     context = _base_context(prep_only=True, rvol=0.2)
     drop = scanner_runner._evaluate_watchlist_gates(context, thresholds)
@@ -58,6 +59,7 @@ def test_watchlist_gate_keeps_live_rvol_strict_for_pre() -> None:
         require_catalyst=False,
         allow_halts=False,
         allow_ssr=False,
+        allow_unknown_float=True,
     )
     context = _base_context(prep_only=False, rvol=0.2)
     drop = scanner_runner._evaluate_watchlist_gates(context, thresholds)

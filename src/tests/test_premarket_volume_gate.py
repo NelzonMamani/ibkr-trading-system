@@ -7,7 +7,8 @@ def test_premarket_volume_gate_enforced() -> None:
         max_price=20.0,
         min_pct_change=10.0,
         max_pct_change=None,
-        min_rvol=2.0,
+        watchlist_rvol_min=0.5,
+        focus_rvol_min=2.0,
         min_volume=1_000_000,
         min_premarket_volume=100_000,
         max_float=20_000_000,
@@ -18,6 +19,7 @@ def test_premarket_volume_gate_enforced() -> None:
         require_catalyst=False,
         allow_halts=False,
         allow_ssr=True,
+        allow_unknown_float=True,
     )
     context = {
         "symbol": "XYZ",
@@ -28,6 +30,7 @@ def test_premarket_volume_gate_enforced() -> None:
         "dollar_volume": 500_000,
         "halted": False,
         "ssr": False,
+        "rvol_discovery": 3.0,
     }
     reason = _evaluate_focus_gates(context, thresholds)
     assert reason == "DROP_PREMARKET_VOLUME"

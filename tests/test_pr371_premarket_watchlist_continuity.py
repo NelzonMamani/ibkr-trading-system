@@ -36,6 +36,7 @@ def test_prep_seeded_can_stay_watchlist_but_fail_focus_pending_confirmation() ->
         require_catalyst=False,
         allow_halts=False,
         allow_ssr=False,
+        allow_unknown_float=True,
     )
     context = {
         "symbol": "ATRA",
