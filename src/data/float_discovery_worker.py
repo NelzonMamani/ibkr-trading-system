@@ -80,9 +80,9 @@ class FloatDiscoveryWorker:
             payload = {}
 
         payload[symbol] = {
-            "float_value": int(value),
-            "float_source": source,
-            "float_asof": datetime.now(timezone.utc).isoformat(),
+            "float": int(value),
+            "source": source,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         self._cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,4 +100,3 @@ def get_float_discovery_worker(cache_path: str | Path) -> FloatDiscoveryWorker:
         _WORKERS[resolved] = worker
     worker.ensure_started()
     return worker
-
