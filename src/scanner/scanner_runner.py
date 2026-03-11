@@ -128,6 +128,9 @@ class GateThresholds:
     max_pct_change: Optional[float]
     watchlist_rvol_min: float
     focus_rvol_min: float
+    focus_volume_min: int
+    focus_volume_min_early_rth: int
+    focus_volume_min_early_rth_ratio: float
     min_volume: int
     min_premarket_volume: int
     max_float: int
@@ -558,6 +561,10 @@ def _resolve_runtime_thresholds(policy: StockSelectionPolicy) -> RuntimeThreshol
 
 
 def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdResolution) -> GateThresholds:
+    execution_min_volume = int(policy.min_volume)
+    premarket_min_volume = int(getattr(policy, "premarket_volume_min", policy.min_premarket_volume))
+    early_rth_focus_ratio = 0.25
+    early_rth_focus_min = max(premarket_min_volume, int(execution_min_volume * early_rth_focus_ratio))
     return GateThresholds(
         min_price=policy.price_min,
         max_price=policy.price_max,
@@ -565,8 +572,11 @@ def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdReso
         max_pct_change=policy.gap_max_pct,
         watchlist_rvol_min=runtime.watchlist_rvol_min,
         focus_rvol_min=runtime.focus_rvol_min,
-        min_volume=policy.min_volume,
-        min_premarket_volume=int(getattr(policy, "premarket_volume_min", policy.min_premarket_volume)),
+        focus_volume_min=execution_min_volume,
+        focus_volume_min_early_rth=early_rth_focus_min,
+        focus_volume_min_early_rth_ratio=early_rth_focus_ratio,
+        min_volume=execution_min_volume,
+        min_premarket_volume=premarket_min_volume,
         max_float=int(policy.float_max_millions * 1_000_000),
         spread_max_pct=runtime.spread_max_pct,
         min_dollar_volume=policy.liquidity_min_dollar_volume,
@@ -669,8 +679,10 @@ def _focus_gate_checks(
     volume_ok = volume is not None and volume > 0
     if session in {"PRE", "OVN"}:
         volume_ok = volume is not None and volume >= thresholds.min_premarket_volume
+    elif session == "RTH_OPEN":
+        volume_ok = volume is not None and volume >= thresholds.focus_volume_min_early_rth
     else:
-        volume_ok = volume is not None and volume >= thresholds.min_volume
+        volume_ok = volume is not None and volume >= thresholds.focus_volume_min
 
     dollar_volume_ok = True
     if thresholds.min_dollar_volume is not None:
@@ -960,14 +972,36 @@ def _evaluate_focus_gates(
     if focus_decision == "WAIT":
         return "DROP_RVOL_FOCUS"
     if volume is None:
+        _log_focus_volume_drop(
+            context=context,
+            stage="focus",
+            compared_field="volume",
+            threshold=None,
+            threshold_source="missing",
+        )
         return "DROP_MISSING_VOLUME"
     if session in {"PRE", "OVN"}:
         effective_premarket_volume = premarket_volume if premarket_volume is not None else volume
         if effective_premarket_volume is None or effective_premarket_volume < thresholds.min_premarket_volume:
+            _log_focus_volume_drop(
+                context=context,
+                stage="focus",
+                compared_field="premarket_volume",
+                threshold=float(thresholds.min_premarket_volume),
+                threshold_source="policy.min_premarket_volume",
+            )
             print(f"[ROSS][GATE] symbol={context.get('symbol')} premarket_volume={int(effective_premarket_volume or 0)} FAIL")
             return "DROP_PREMARKET_VOLUME"
     else:
-        if volume < thresholds.min_volume:
+        focus_threshold, threshold_source = _focus_volume_threshold_for_session(session, thresholds)
+        if volume < focus_threshold:
+            _log_focus_volume_drop(
+                context=context,
+                stage="focus",
+                compared_field="volume",
+                threshold=focus_threshold,
+                threshold_source=threshold_source,
+            )
             return "DROP_VOLUME"
     if thresholds.min_dollar_volume is not None:
         if dollar_volume is None:
@@ -982,6 +1016,39 @@ def _evaluate_focus_gates(
     if thresholds.require_bid_ask and (bid is None or ask is None):
         return "DROP_MISSING_BID_ASK"
     return None
+
+
+def _focus_volume_threshold_for_session(session: str, thresholds: GateThresholds) -> tuple[float, str]:
+    if session == "RTH_OPEN":
+        return (
+            float(thresholds.focus_volume_min_early_rth),
+            (
+                "early_rth_focus=max(policy.min_premarket_volume, "
+                f"policy.min_volume*{thresholds.focus_volume_min_early_rth_ratio:.2f})"
+            ),
+        )
+    return float(thresholds.focus_volume_min), "policy.min_volume"
+
+
+def _log_focus_volume_drop(
+    *,
+    context: Dict[str, Any],
+    stage: str,
+    compared_field: str,
+    threshold: Optional[float],
+    threshold_source: str,
+) -> None:
+    session = normalize_session_label(str(context.get("session") or ""))
+    phase = str(context.get("phase") or session or "UNKNOWN")
+    value = _safe_float(context.get(compared_field), None)
+    threshold_value = "None" if threshold is None else f"{threshold:g}"
+    value_repr = "None" if value is None else f"{value:g}"
+    print(
+        "[VOLUME_GATE] "
+        f"symbol={context.get('symbol')} stage={stage} reason=DROP_VOLUME "
+        f"field={compared_field} value={value_repr} threshold={threshold_value} "
+        f"threshold_source={threshold_source} session={session} phase={phase}"
+    )
 
 
 def _attention_tier(vel5: int, vel10: int, vel30: int) -> str:
