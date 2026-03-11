@@ -1,128 +1,128 @@
 {
   "baseline_version": "v2.0.0",
-  "generated_at_utc": "2026-03-02T23:21:39Z",
-  "matrix_generation_timestamp_utc": "2026-03-02T23:21:39Z",
-  "certification_report_timestamp_utc": "2026-03-02T23:21:39Z",
+  "generated_at_utc": "2026-03-11T10:52:51Z",
+  "matrix_generation_timestamp_utc": "2026-03-11T10:52:51Z",
+  "certification_report_timestamp_utc": "2026-03-11T10:52:51Z",
   "strategies": [
     {
       "strategy_id": "P01",
       "strategy_name": "ross_momentum",
       "policy_path": "src/strategies/ross_momentum/strategy_policy_v2.py",
-      "sha256": "ff936d009fc6ea1c20306d67bcddceef230725dfd3fd27a3cc327100a5c12352"
+      "sha256": "90037b4e3c9602858219ca0d3e9a51ed6a83c3817ad5adf5d34e31c658d7d23d"
     },
     {
       "strategy_id": "P02",
       "strategy_name": "statistical_intraday_momentum",
       "policy_path": "src/strategies/statistical_intraday_momentum/strategy_policy_v2.py",
-      "sha256": "9d47c0aef6b90d3dda1bde69f9bc197a362d497d22d56441c35fc77d0e88396a"
+      "sha256": "e8b3bf833a3d5620f26b4114fff34853bd5639d438301965a94a36c59d6f29d9"
     },
     {
       "strategy_id": "P03",
       "strategy_name": "mean_reversion",
       "policy_path": "src/strategies/mean_reversion/strategy_policy_v2.py",
-      "sha256": "4f9120f1507a388b562644f48d135d141e4a2c92038e8d4c7124bc0694923f09"
+      "sha256": "59705c8a75721f01e7acad92dd01c0ce0b87fbf766baa3fca3c8f7b6668a6a0e"
     },
     {
       "strategy_id": "P04",
       "strategy_name": "long_horizon_value",
       "policy_path": "src/strategies/long_horizon_value/strategy_policy_v2.py",
-      "sha256": "756f14b560042e7afb319dd2325f1a4b21d251430c5369fee4291e071bfb1dd1"
+      "sha256": "40610acb710a27fcd9a586eb46a00ead3219bba2eb8bc1285128f4b5911cd778"
     },
     {
       "strategy_id": "P05",
       "strategy_name": "opening_drive",
       "policy_path": "src/strategies/opening_drive/strategy_policy_v2.py",
-      "sha256": "0418d3f4273834990ed970c79d9b96d7df027ab981ae1fb7df55e9bef6f35e8e"
+      "sha256": "1066ccbd7ac8541011589c74c1a36beb88a32edc5b5de77141b083eb6bc607d7"
     },
     {
       "strategy_id": "P06",
       "strategy_name": "vwap_reclaim",
       "policy_path": "src/strategies/vwap_reclaim/strategy_policy_v2.py",
-      "sha256": "953dc1c0b1ecad489af46d69c098ac762acc2decbc9b17faf194fefd07f7bd88"
+      "sha256": "fd3aba06477dd0d19be83d85af7e27811c08608c75cbe9a49d31a4df6f7e5edd"
     },
     {
       "strategy_id": "P07",
       "strategy_name": "power_hour",
       "policy_path": "src/strategies/power_hour/strategy_policy_v2.py",
-      "sha256": "0f98db5abbc6ff1c99820ee0b425883fb344b59a2ddeb4843eb8a5aab0e4fe5d"
+      "sha256": "8fbc36edae48e36c140ee9f504a513eb29b48e8a8cc90fc4a72e7018ca90a44f"
     },
     {
       "strategy_id": "P08",
       "strategy_name": "volatility_expansion",
       "policy_path": "src/strategies/volatility_expansion/strategy_policy_v2.py",
-      "sha256": "5860a4b4006e64e55b8058edddafc5b812f1d5b3c69fa1b54c361706bc31c47c"
+      "sha256": "022f2cee26d8707e9e37d65bbc589c2a46c4bbf19f4b0a92d693c5d94a19a6fc"
     },
     {
       "strategy_id": "P09",
       "strategy_name": "range_bound_fade",
       "policy_path": "src/strategies/range_bound_fade/strategy_policy_v2.py",
-      "sha256": "bb3df524b46345b3fe9024b736e711613f0626fed4595fbe7da12774d5f20d12"
+      "sha256": "85dbf01a8d769f87f5d6e4dfe933d64dde1081c7b2337ebd5c1594464f9a3616"
     },
     {
       "strategy_id": "P10",
       "strategy_name": "support_resistance_channel",
       "policy_path": "src/strategies/support_resistance_channel/strategy_policy_v2.py",
-      "sha256": "a60186743fba5212f8ad19c36fa060e498b7eb65d96ce3300725e494ed43e5fa"
+      "sha256": "de5997d9734c529d44d19d0bbe6f9cde27db690884d697451f89ef2c455d3c12"
     },
     {
       "strategy_id": "P11",
       "strategy_name": "event_earnings_reaction",
       "policy_path": "src/strategies/event_earnings_reaction/strategy_policy_v2.py",
-      "sha256": "267afde0353cf37921778f4f753c0229e238ea0b725a516545552387d7ce59ef"
+      "sha256": "b7c2b4ac3367ce0fd0bdc22c158a4711dfa60f25d532e8f45dcd18f4b0f978c0"
     },
     {
       "strategy_id": "P12",
       "strategy_name": "event_news_shock_continuation",
       "policy_path": "src/strategies/event_news_shock_continuation/strategy_policy_v2.py",
-      "sha256": "77c3ad2810a1f12b44a9237f6f88fd413a8e3d0dbce861c6b7cd290060ff6b71"
+      "sha256": "ec37b0c76c99266af8808d1cb0d632647de9f9f59b2e8fc00098cb225a8ac6b7"
     },
     {
       "strategy_id": "P13",
       "strategy_name": "volatility_contraction_breakout",
       "policy_path": "src/strategies/volatility_contraction_breakout/strategy_policy_v2.py",
-      "sha256": "042f19f9cd6b1cbcf4ab234fea12a6a5f0fdc2624d34a0cd1ba255dfe4e04c9b"
+      "sha256": "99b557861f75fd547ddef99cad21985059e36a20640543baeb531ba44eee5259"
     },
     {
       "strategy_id": "P14",
       "strategy_name": "volatility_carry_risk_premium",
       "policy_path": "src/strategies/volatility_carry_risk_premium/strategy_policy_v2.py",
-      "sha256": "e5c78f4969b46f4fa2f9504715400b02d43187f4d522b63829a29786eea8e5d3"
+      "sha256": "d42d160d6d258d9b588c0d0b355ed7502d6214468c7409ef66f72ad92f4f91c5"
     },
     {
       "strategy_id": "P15",
       "strategy_name": "pairs_divergence_reversion",
       "policy_path": "src/strategies/pairs_divergence_reversion/strategy_policy_v2.py",
-      "sha256": "27ba5ccaafaf26e81ca507db4f3674f63ba29eafe613df22910996f510352c06"
+      "sha256": "45e53683712f8019d3fb0e31fb7f27d3e91378afc4cf590082d727bbe0ae1320"
     },
     {
       "strategy_id": "P16",
       "strategy_name": "cross_sectional_relative_strength_rotation",
       "policy_path": "src/strategies/cross_sectional_relative_strength_rotation/strategy_policy_v2.py",
-      "sha256": "ad0d178342749ec9566b8e7eed792f809a57f220565646baced46d1b54aba089"
+      "sha256": "49c93885a5a526f98d91889b17f2244d0b2bf98278f2da231ebe8536035cde11"
     },
     {
       "strategy_id": "P17",
       "strategy_name": "time_based_seasonality",
       "policy_path": "src/strategies/time_based_seasonality/strategy_policy_v2.py",
-      "sha256": "e6ec6680e9a115cd19ad1d3522b3535071367765a07acf238b0f51229a5fa88c"
+      "sha256": "61e90e259de25ae183b08e769ff1ad82213cac3805a088908ff27d38470e58fe"
     },
     {
       "strategy_id": "P18",
       "strategy_name": "trend_following_classic",
       "policy_path": "src/strategies/trend_following_classic/strategy_policy_v2.py",
-      "sha256": "2addbc3bbd3f9286a5534988761ce7c8c62df6d49a04fbd80d0ba886d343abaf"
+      "sha256": "7ebcf544ee0b253fb047af3101e344ee80e97ecf35d77a3189121573f6ee61b6"
     },
     {
       "strategy_id": "P19",
       "strategy_name": "long_horizon_quality_compounder",
       "policy_path": "src/strategies/long_horizon_quality_compounder/strategy_policy_v2.py",
-      "sha256": "0e3b831f632b394e7761face64414f9e6c0490e782863b8bba55ffc138900603"
+      "sha256": "739fc287578f566779f531d664135d6029bf1e3417c0cd78c776ac2db6d22a90"
     },
     {
       "strategy_id": "P20",
       "strategy_name": "regime_adaptive_meta_allocator",
       "policy_path": "src/strategies/regime_adaptive_meta_allocator/strategy_policy_v2.py",
-      "sha256": "7e50b16c8d5c7e41af378ad79d943e9a1243fbee00ac25d99e329e65a541323a"
+      "sha256": "b92b91bd9d4c4b7b6735b8023bc7feb329f6dbaa36717d9c148780e0567a351c"
     }
   ]
 }

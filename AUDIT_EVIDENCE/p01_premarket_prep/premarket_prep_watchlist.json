@@ -1,14 +1,55 @@
 {
-  "timestamp_utc": "2026-03-05T13:50:07.288510+00:00",
+  "timestamp_utc": "2026-03-11T12:37:07.126559+00:00",
   "mode": "READ_ONLY",
   "session": "PRE",
-  "raw_scan_n": 0,
-  "prep_watchlist_k": 0,
-  "symbols": [],
+  "raw_scan_n": 2,
+  "prep_watchlist_k": 2,
+  "symbols": [
+    {
+      "symbol": "E21A",
+      "conId": 978540,
+      "last": null,
+      "close": null,
+      "spread": 0.04,
+      "float_millions": null,
+      "float_source": "missing",
+      "data_quality_flags": [
+        "MOCK",
+        "FLOAT_UNKNOWN"
+      ],
+      "session_phase": "PRE",
+      "persisted_pct_change": null,
+      "persisted_rvol": null,
+      "persisted_volume": null,
+      "persisted_reference_label": null,
+      "persisted_session_label": null,
+      "persisted_asof": null
+    },
+    {
+      "symbol": "E21B",
+      "conId": 6848303,
+      "last": null,
+      "close": null,
+      "spread": 0.06,
+      "float_millions": null,
+      "float_source": "missing",
+      "data_quality_flags": [
+        "MOCK",
+        "FLOAT_UNKNOWN"
+      ],
+      "session_phase": "PRE",
+      "persisted_pct_change": null,
+      "persisted_rvol": null,
+      "persisted_volume": null,
+      "persisted_reference_label": null,
+      "persisted_session_label": null,
+      "persisted_asof": null
+    }
+  ],
   "float_cache": {
     "hit": 0,
     "miss": 0,
-    "unknown": 0
+    "unknown": 2
   },
-  "pass": false
+  "pass": true
 }

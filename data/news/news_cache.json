@@ -1,0 +1,29 @@
+{
+  "symbols": {
+    "SPY": {
+      "symbol": "SPY",
+      "fetched_at": "2026-03-11T10:48:46.680141+00:00",
+      "source_mode": "feedparser",
+      "diagnostics": {
+        "rss_sources": 7,
+        "errors": [
+          "https://www.reuters.com/markets/rss:HTTPError"
+        ]
+      },
+      "news_context": []
+    },
+    "QQQ": {
+      "symbol": "QQQ",
+      "fetched_at": "2026-03-11T10:48:56.641463+00:00",
+      "source_mode": "feedparser",
+      "diagnostics": {
+        "rss_sources": 7,
+        "errors": [
+          "https://www.reuters.com/markets/rss:HTTPError"
+        ]
+      },
+      "news_context": []
+    }
+  },
+  "updated_at": "2026-03-11T10:48:56.641463+00:00"
+}
