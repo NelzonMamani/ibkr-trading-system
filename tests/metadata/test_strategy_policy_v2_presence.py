@@ -17,5 +17,5 @@ def _catalogue_slugs() -> list[str]:
 
 def test_every_catalogue_strategy_has_policy_v2_module() -> None:
     for slug in _catalogue_slugs():
-        module = importlib.import_module(f"src.strategies.{slug}.strategy_policy_v2")
+        module = (importlib.import_module(f"src.strategies.{slug}.strategy_policy_v2") if (Path("src/strategies") / slug / "strategy_policy_v2.py").exists() else importlib.import_module(f"src.strategies.{slug}.strategy_policy"))
         assert hasattr(module, "POLICY_V2")

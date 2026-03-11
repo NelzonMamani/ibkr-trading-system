@@ -26,7 +26,7 @@ def main() -> int:
     evidence_dir.mkdir(parents=True, exist_ok=True)
 
     policy_v1 = REPO_ROOT / "src/strategies/ross_momentum/strategy_policy.py"
-    policy_v2 = REPO_ROOT / "src/strategies/ross_momentum/strategy_policy_v2.py"
+    policy_v2 = REPO_ROOT / "src/strategies/ross_momentum/strategy_policy.py"
     orchestrator = (REPO_ROOT / "src/core/orchestrator.py").read_text(encoding="utf-8")
     consumed = "SelectionEngineV2" in orchestrator and "resolve_policy_v2" in orchestrator
 

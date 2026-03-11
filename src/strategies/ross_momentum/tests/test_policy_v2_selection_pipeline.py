@@ -1,5 +1,5 @@
 from src.strategy_policy_v2.consumption import FocusBuilderV2, RankingEngineV2, SelectionEngineV2, WatchlistBuilderV2
-from src.strategies.ross_momentum.strategy_policy_v2 import POLICY_V2
+from src.strategies.ross_momentum.strategy_policy import POLICY_V2
 
 
 def test_policy_v2_pipeline_watchlist_and_drop_reasons() -> None:

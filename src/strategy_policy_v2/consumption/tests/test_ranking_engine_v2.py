@@ -1,5 +1,5 @@
 from src.strategy_policy_v2.consumption.ranking_engine import RankingEngineV2
-from src.strategies.ross_momentum.strategy_policy_v2 import POLICY_V2
+from src.strategies.ross_momentum.strategy_policy import POLICY_V2
 
 
 def test_ranking_engine_is_deterministic() -> None:

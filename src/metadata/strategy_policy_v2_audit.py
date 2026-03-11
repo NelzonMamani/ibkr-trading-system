@@ -130,7 +130,19 @@ def _catalogue_strategies() -> list[tuple[str, str]]:
 
 
 def _policy_path(slug: str) -> Path:
-    return Path("src/strategies") / slug / "strategy_policy_v2.py"
+    strategy_root = Path("src/strategies") / slug
+    v2_path = strategy_root / "strategy_policy_v2.py"
+    canonical_path = strategy_root / "strategy_policy.py"
+    return v2_path if v2_path.exists() else canonical_path
+
+
+def _policy_module_path(slug: str) -> str:
+    root = Path("src/strategies") / slug
+    return (
+        f"src.strategies.{slug}.strategy_policy_v2"
+        if (root / "strategy_policy_v2.py").exists()
+        else f"src.strategies.{slug}.strategy_policy"
+    )
 
 
 def _sha256(path: Path) -> str:
@@ -368,7 +380,7 @@ def run_audit() -> list[StrategyAuditResult]:
     results: list[StrategyAuditResult] = []
     baseline_hashes = _load_baseline_snapshot()
     for strategy_id, slug in _catalogue_strategies():
-        module = importlib.import_module(f"src.strategies.{slug}.strategy_policy_v2")
+        module = importlib.import_module(_policy_module_path(slug))
         policy: StrategyPolicyV2 = module.POLICY_V2
         policy_path = _policy_path(slug)
         current_hash = _sha256(policy_path)
@@ -377,7 +389,7 @@ def run_audit() -> list[StrategyAuditResult]:
         violation_message = ""
         if violation:
             violation_message = (
-                f"GOVERNANCE_LOCK_VIOLATION: {strategy_id} strategy_policy_v2.py hash drift detected "
+                f"GOVERNANCE_LOCK_VIOLATION: {strategy_id} strategy policy hash drift detected "
                 f"(expected={expected_hash}, actual={current_hash})"
             )
         results.append(

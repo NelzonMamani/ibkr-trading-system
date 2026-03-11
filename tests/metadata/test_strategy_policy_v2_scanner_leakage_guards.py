@@ -14,7 +14,7 @@ def _strategy_entries() -> list[tuple[str, object]]:
         if not ("P01" <= strategy_id <= "P20"):
             continue
         slug = raw_slug.lower()
-        module = importlib.import_module(f"src.strategies.{slug}.strategy_policy_v2")
+        module = (importlib.import_module(f"src.strategies.{slug}.strategy_policy_v2") if (Path("src/strategies") / slug / "strategy_policy_v2.py").exists() else importlib.import_module(f"src.strategies.{slug}.strategy_policy"))
         entries.append((slug, module.POLICY_V2.selection_plan))
     return entries
 
