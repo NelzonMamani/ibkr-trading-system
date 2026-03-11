@@ -75,3 +75,104 @@ def test_unknown_float_allowed_does_not_drop_watchlist() -> None:
 
     assert _evaluate_watchlist_gates(context, thresholds) is None
     assert context["float_status"] == "UNKNOWN"
+
+
+
+def test_early_rth_focus_volume_is_distinct_from_execution_min_volume() -> None:
+    policy = RossMomentumPolicy().stock_selection
+    runtime = _resolve_runtime_thresholds(policy)
+    thresholds = _gate_thresholds(policy, runtime)
+
+    assert thresholds.focus_volume_min == policy.min_volume
+    assert thresholds.focus_volume_min_early_rth < thresholds.min_volume
+    assert thresholds.focus_volume_min_early_rth >= thresholds.min_premarket_volume
+
+
+def test_live_like_cvgi_cyn_reach_focus_in_early_rth() -> None:
+    policy = RossMomentumPolicy().stock_selection
+    runtime = _resolve_runtime_thresholds(policy)
+    thresholds = _gate_thresholds(replace(policy, gap_min_pct=8.0), runtime)
+    thresholds = replace(
+        thresholds,
+        watchlist_rvol_min=0.3,
+        focus_rvol_min=1.5,
+        spread_max_pct=0.015,
+        allow_unknown_float=True,
+    )
+
+    live_like = [
+        {
+            "symbol": "CVGI",
+            "session": "RTH_OPEN",
+            "pct_change": 55.56,
+            "rvol_discovery": 1.94,
+            "rvol_phase": 1.94,
+            "volume": 280_252,
+            "premarket_volume": 280_252,
+            "dollar_volume": 706_235,
+            "last_price": 2.52,
+            "spread_pct": 0.01,
+            "bid": 2.51,
+            "ask": 2.53,
+            "catalyst_present": True,
+            "halted": False,
+            "ssr": False,
+        },
+        {
+            "symbol": "CYN",
+            "session": "RTH_OPEN",
+            "pct_change": 20.63,
+            "rvol_discovery": 5.57,
+            "rvol_phase": 5.57,
+            "volume": 321_080,
+            "premarket_volume": 321_080,
+            "dollar_volume": 619_684,
+            "last_price": 1.93,
+            "spread_pct": 0.012,
+            "bid": 1.92,
+            "ask": 1.94,
+            "catalyst_present": True,
+            "halted": False,
+            "ssr": False,
+        },
+    ]
+
+    assert all(ctx["volume"] < thresholds.min_volume for ctx in live_like)
+    assert all(ctx["volume"] >= thresholds.focus_volume_min_early_rth for ctx in live_like)
+    assert all(_evaluate_watchlist_gates(ctx, thresholds) is None for ctx in live_like)
+    assert all(_evaluate_focus_gates(ctx, thresholds) is None for ctx in live_like)
+
+
+def test_drop_volume_logs_threshold_context(capsys) -> None:
+    policy = RossMomentumPolicy().stock_selection
+    runtime = _resolve_runtime_thresholds(policy)
+    thresholds = _gate_thresholds(policy, runtime)
+    thresholds = replace(thresholds, watchlist_rvol_min=0.3, focus_rvol_min=1.5, spread_max_pct=0.015)
+
+    context = {
+        "symbol": "THIN",
+        "session": "RTH_OPEN",
+        "phase": "OPENING",
+        "pct_change": 18.0,
+        "rvol_discovery": 4.0,
+        "rvol_phase": 4.0,
+        "volume": 10_000,
+        "premarket_volume": 10_000,
+        "dollar_volume": 100_000,
+        "last_price": 2.0,
+        "spread_pct": 0.01,
+        "bid": 1.99,
+        "ask": 2.01,
+        "catalyst_present": True,
+        "halted": False,
+        "ssr": False,
+    }
+
+    assert _evaluate_focus_gates(context, thresholds) == "DROP_VOLUME"
+    output = capsys.readouterr().out
+    assert "[VOLUME_GATE]" in output
+    assert "symbol=THIN" in output
+    assert "stage=focus" in output
+    assert "threshold_source=early_rth_focus" in output
+    assert "session=RTH_OPEN" in output
+    assert "phase=OPENING" in output
