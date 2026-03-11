@@ -9,7 +9,7 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(repo_root))
 
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
-from src.strategies.ross_momentum.strategy_policy_v2 import POLICY_V2
+from src.strategies.ross_momentum.strategy_policy import POLICY_V2
 
 
 def main() -> int:

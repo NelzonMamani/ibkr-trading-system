@@ -21,4 +21,4 @@ def test_registry_unknown_returns_none() -> None:
 
 def test_registry_lists_import_path() -> None:
     paths = list_registered_policies_v2()
-    assert paths["ross_momentum"] == "src.strategies.ross_momentum.strategy_policy_v2.POLICY_V2"
+    assert paths["ross_momentum"] == "src.strategies.ross_momentum.strategy_policy.POLICY_V2"
