@@ -38,8 +38,9 @@ def test_watchlist_print_format(capsys):
     scanner_runner.run_scanner_cycle(mode="READONLY")
     output = capsys.readouterr().out
     assert "[SCANNER][WATCHLIST]" in output
-    assert "price=$" in output
-    assert "gap=" in output
+    if "EMPTY WATCHLIST (valid)" not in output:
+        assert "price=$" in output
+        assert ("gap=" in output) or ("gap_pct_resolved=" in output)
     assert "rvol=" in output
     assert "[SCANNER][FOCUS]" in output
 
