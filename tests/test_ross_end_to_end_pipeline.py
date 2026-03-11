@@ -53,7 +53,9 @@ def _ross_inputs(symbol: str = "ROSSX") -> StrategyInput:
 
 
 def test_ross_pipeline_emits_intent_passes_risk_and_reaches_execution() -> None:
-    set_config_overrides({"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True})
+    set_config_overrides(
+        {"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True, "ACTIVE_SESSIONS": ["PRE", "RTH"]}
+    )
     try:
         strategy = RossMomentumStrategy()
         decision = strategy.evaluate("ROSSX", _ross_inputs())
@@ -86,7 +88,13 @@ def test_ross_pipeline_emits_intent_passes_risk_and_reaches_execution() -> None:
 
 
 def test_ross_pipeline_read_only_is_explicitly_blocked() -> None:
-    set_config_overrides({"RUN_MODE": "READ_ONLY", "EXECUTION_ENABLED": True})
+    set_config_overrides(
+        {
+            "RUN_MODE": "READ_ONLY",
+            "EXECUTION_ENABLED": True,
+            "ACTIVE_SESSIONS": ["PRE", "RTH"],
+        }
+    )
     try:
         strategy = RossMomentumStrategy()
         decision = strategy.evaluate("ROSSX", _ross_inputs())
