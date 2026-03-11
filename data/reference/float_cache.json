@@ -1,0 +1,252 @@
+{
+  "AAPL": {
+    "float_asof": "2026-03-11T12:36:01.660324+00:00",
+    "float_source": "YAHOO",
+    "float_value": 14656182062
+  },
+  "ADBE": {
+    "float_asof": "2026-03-11T12:36:18.947931+00:00",
+    "float_source": "YAHOO",
+    "float_value": 409174085
+  },
+  "AI": {
+    "float_asof": "2026-03-11T12:36:14.355296+00:00",
+    "float_source": "YAHOO",
+    "float_value": 132031170
+  },
+  "AMC": {
+    "float_asof": "2026-03-11T12:36:11.967970+00:00",
+    "float_source": "YAHOO",
+    "float_value": 524342013
+  },
+  "AMD": {
+    "float_asof": "2026-03-11T12:36:02.985120+00:00",
+    "float_source": "YAHOO",
+    "float_value": 1621362063
+  },
+  "AMZN": {
+    "float_asof": "2026-03-11T12:36:04.638154+00:00",
+    "float_source": "YAHOO",
+    "float_value": 9754285849
+  },
+  "AVGO": {
+    "float_asof": "2026-03-11T12:36:16.777894+00:00",
+    "float_source": "YAHOO",
+    "float_value": 405874830
+  },
+  "BA": {
+    "float_asof": "2026-03-11T12:36:22.093495+00:00",
+    "float_source": "YAHOO",
+    "float_value": 753493418
+  },
+  "BABA": {
+    "float_asof": "2026-03-11T12:36:06.056343+00:00",
+    "float_source": "YAHOO",
+    "float_value": 17597260863
+  },
+  "BAC": {
+    "float_asof": "2026-03-11T12:36:24.544957+00:00",
+    "float_source": "YAHOO",
+    "float_value": 7149267244
+  },
+  "C": {
+    "float_asof": "2026-03-11T12:36:25.008815+00:00",
+    "float_source": "YAHOO",
+    "float_value": 1743581243
+  },
+  "CLSK": {
+    "float_asof": "2026-03-11T12:36:11.088257+00:00",
+    "float_source": "YAHOO",
+    "float_value": 246852712
+  },
+  "COIN": {
+    "float_asof": "2026-03-11T12:36:08.429511+00:00",
+    "float_source": "YAHOO",
+    "float_value": 219948208
+  },
+  "CRWD": {
+    "float_asof": "2026-03-11T12:36:07.979039+00:00",
+    "float_source": "YAHOO",
+    "float_value": 249165699
+  },
+  "CVX": {
+    "float_asof": "2026-03-11T12:36:23.553934+00:00",
+    "float_source": "YAHOO",
+    "float_value": 1854112243
+  },
+  "DKNG": {
+    "float_asof": "2026-03-11T12:36:12.415103+00:00",
+    "float_source": "YAHOO",
+    "float_value": 478817883
+  },
+  "FUBO": {
+    "float_asof": "2026-03-11T12:36:15.293885+00:00",
+    "float_source": "YAHOO",
+    "float_value": 349653648
+  },
+  "GE": {
+    "float_asof": "2026-03-11T12:36:22.601447+00:00",
+    "float_source": "YAHOO",
+    "float_value": 1045121788
+  },
+  "GME": {
+    "float_asof": "2026-03-11T12:36:11.569535+00:00",
+    "float_source": "YAHOO",
+    "float_value": 407763681
+  },
+  "GOOGL": {
+    "float_asof": "2026-03-11T12:36:05.034532+00:00",
+    "float_source": "YAHOO",
+    "float_value": 10832863500
+  },
+  "INTC": {
+    "float_asof": "2026-03-11T12:36:17.451800+00:00",
+    "float_source": "YAHOO",
+    "float_value": 4985959050
+  },
+  "IONQ": {
+    "float_asof": "2026-03-11T12:36:16.252134+00:00",
+    "float_source": "YAHOO",
+    "float_value": 360092552
+  },
+  "JPM": {
+    "float_asof": "2026-03-11T12:36:24.064885+00:00",
+    "float_source": "YAHOO",
+    "float_value": 2683007807
+  },
+  "LCID": {
+    "float_asof": "2026-03-11T12:36:09.239730+00:00",
+    "float_source": "YAHOO",
+    "float_value": 133872121
+  },
+  "LYFT": {
+    "float_asof": "2026-03-11T12:36:21.491736+00:00",
+    "float_source": "YAHOO",
+    "float_value": 321093686
+  },
+  "MARA": {
+    "float_asof": "2026-03-11T12:36:10.153127+00:00",
+    "float_source": "YAHOO",
+    "float_value": 371751600
+  },
+  "META": {
+    "float_asof": "2026-03-11T12:36:03.924496+00:00",
+    "float_source": "YAHOO",
+    "float_value": 2183815823
+  },
+  "MSFT": {
+    "float_asof": "2026-03-11T12:36:02.110762+00:00",
+    "float_source": "YAHOO",
+    "float_value": 7414861914
+  },
+  "MU": {
+    "float_asof": "2026-03-11T12:36:18.000708+00:00",
+    "float_source": "YAHOO",
+    "float_value": 1121277346
+  },
+  "NFLX": {
+    "float_asof": "2026-03-11T12:36:05.428564+00:00",
+    "float_source": "YAHOO",
+    "float_value": 4192902566
+  },
+  "NIO": {
+    "float_asof": "2026-03-11T12:36:09.659197+00:00",
+    "float_source": "YAHOO",
+    "float_value": 1879658938
+  },
+  "NVDA": {
+    "float_asof": "2026-03-11T12:36:02.503844+00:00",
+    "float_source": "YAHOO",
+    "float_value": 23330673000
+  },
+  "ORCL": {
+    "float_asof": "2026-03-11T12:36:19.486459+00:00",
+    "float_source": "YAHOO",
+    "float_value": 1706438101
+  },
+  "PATH": {
+    "float_asof": "2026-03-11T12:36:14.827500+00:00",
+    "float_source": "YAHOO",
+    "float_value": 417751801
+  },
+  "PLTR": {
+    "float_asof": "2026-03-11T12:36:06.531170+00:00",
+    "float_source": "YAHOO",
+    "float_value": 2207110096
+  },
+  "QCOM": {
+    "float_asof": "2026-03-11T12:36:20.044781+00:00",
+    "float_source": "YAHOO",
+    "float_value": 1064716620
+  },
+  "RIOT": {
+    "float_asof": "2026-03-11T12:36:10.546446+00:00",
+    "float_source": "YAHOO",
+    "float_value": 348276379
+  },
+  "RIVN": {
+    "float_asof": "2026-03-11T12:36:07.005669+00:00",
+    "float_source": "YAHOO",
+    "float_value": 821125714
+  },
+  "ROKU": {
+    "float_asof": "2026-03-11T12:36:12.868094+00:00",
+    "float_source": "YAHOO",
+    "float_value": 129634720
+  },
+  "SHOP": {
+    "float_asof": "2026-03-11T12:36:13.879395+00:00",
+    "float_source": "YAHOO",
+    "float_value": 1222839153
+  },
+  "SNOW": {
+    "float_asof": "2026-03-11T12:36:07.485558+00:00",
+    "float_source": "YAHOO",
+    "float_value": 332556707
+  },
+  "SOFI": {
+    "float_asof": "2026-03-11T12:36:08.828502+00:00",
+    "float_source": "YAHOO",
+    "float_value": 1254528060
+  },
+  "SOUN": {
+    "float_asof": "2026-03-11T12:36:15.701354+00:00",
+    "float_source": "YAHOO",
+    "float_value": 381936519
+  },
+  "SPOT": {
+    "float_asof": "2026-03-11T12:36:20.497975+00:00",
+    "float_source": "YAHOO",
+    "float_value": 155835806
+  },
+  "TSLA": {
+    "float_asof": "2026-03-11T12:36:03.420709+00:00",
+    "float_source": "YAHOO",
+    "float_value": 2812710442
+  },
+  "TSM": {
+    "float_asof": "2026-03-11T12:36:18.445305+00:00",
+    "float_source": "YAHOO",
+    "float_value": 24181559980
+  },
+  "UBER": {
+    "float_asof": "2026-03-11T12:36:20.960622+00:00",
+    "float_source": "YAHOO",
+    "float_value": 2046940413
+  },
+  "UPST": {
+    "float_asof": "2026-03-11T12:36:13.375516+00:00",
+    "float_source": "YAHOO",
+    "float_value": 80170977
+  },
+  "WFC": {
+    "float_asof": "2026-03-11T12:36:25.558180+00:00",
+    "float_source": "YAHOO",
+    "float_value": 3077674701
+  },
+  "XOM": {
+    "float_asof": "2026-03-11T12:36:23.064493+00:00",
+    "float_source": "YAHOO",
+    "float_value": 4155304854
+  }
+}
