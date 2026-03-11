@@ -809,6 +809,7 @@ def _evaluate_watchlist_gates(
     context: Dict[str, Any],
     thresholds: GateThresholds,
 ) -> Optional[str]:
+    _evaluate_float_gate(context, thresholds)
     pct_change = _safe_float(context.get("pct_change"), None)
 
     if pct_change is None:
@@ -1353,6 +1354,7 @@ def _format_watchlist_line(candidate: CandidateMetrics) -> str:
     reference_label = candidate.reference_label or "REF"
     return (
         f"{candidate.symbol} session={session_label} price=${_format_value(candidate.last_price)} "
+        f"gap={_format_value(getattr(candidate, 'gap_pct_resolved', candidate.gap_pct))}% "
         f"{reference_label}={_format_value(reference_price)} "
         f"ibkr_pct={_format_value(candidate.ibkr_change_pct)}% "
         f"pct_change_resolved={_format_value(getattr(candidate, 'pct_change_resolved', candidate.pct_change))}% "
@@ -2601,7 +2603,8 @@ def run_scanner_cycle(
                     break
 
         normalized_session = normalize_session_label(session_label)
-        if normalized_session == "PRE" and len(watchlist_contexts) < 10:
+        can_seed_prep = normalized_session == "PRE" and not provider_error and bool(symbols)
+        if can_seed_prep and len(watchlist_contexts) < 10:
             selected_symbols = {context["symbol"] for context in watchlist_contexts}
             topn_gap_sorted = sorted(
                 [
@@ -2681,7 +2684,7 @@ def run_scanner_cycle(
                 if len(watchlist_contexts) >= watchlist_limit:
                     break
 
-        prep_candidates = _load_premarket_prep_candidates() if normalize_session_label(session_label) == "PRE" else {}
+        prep_candidates = _load_premarket_prep_candidates() if can_seed_prep else {}
         watchlist_contexts, prep_seeded_count, prep_invalidated_count = _seed_watchlist_from_prep(
             session_label=session_label,
             watchlist_contexts=watchlist_contexts,
