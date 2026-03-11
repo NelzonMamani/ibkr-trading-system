@@ -7,8 +7,8 @@
     {
       "strategy_id": "P01",
       "strategy_name": "ross_momentum",
-      "policy_path": "src/strategies/ross_momentum/strategy_policy_v2.py",
-      "sha256": "ff936d009fc6ea1c20306d67bcddceef230725dfd3fd27a3cc327100a5c12352"
+      "policy_path": "src/strategies/ross_momentum/strategy_policy.py",
+      "sha256": "911343f255b88837d6e999ed652f2f3362624cb56c5fd3ff43a434e9714a2cf1"
     },
     {
       "strategy_id": "P02",
