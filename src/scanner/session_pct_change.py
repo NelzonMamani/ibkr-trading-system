@@ -86,6 +86,17 @@ class MarketSessionContext:
     market_time: str
 
 
+@dataclass(frozen=True)
+class SessionResolutionDiagnostics:
+    utc_time: str
+    ny_time: str
+    resolved_session: str
+    canonical_session: str
+    reference_trading_date: str
+    previous_valid_market_session_date: str
+    reason: str
+
+
 _SESSION_LABEL_MAP = {
     "REG": "RTH_OPEN",
     "REGULAR": "RTH_OPEN",
@@ -102,6 +113,17 @@ _SESSION_LABEL_MAP = {
     "RTH_MID": "RTH_MID",
     "RTH_LATE": "RTH_LATE",
     "WEEKEND": "WEEKEND",
+}
+
+_CANONICAL_SESSION_MAP = {
+    "PRE": "PRE",
+    "RTH_OPEN": "RTH_OPEN",
+    "RTH_MID": "RTH_MID",
+    "RTH_LATE": "RTH_LATE",
+    "AH": "AH",
+    "OVN": "CLOSED",
+    "WEEKEND": "CLOSED",
+    "CLOSED": "CLOSED",
 }
 
 
@@ -147,6 +169,49 @@ def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSess
     if time(16, 0) <= ny_clock < time(20, 0):
         return MarketSessionContext(coarse="AH", phase="AH", market_time=market_time)
     return MarketSessionContext(coarse="OVN", phase="OVN", market_time=market_time)
+
+
+def canonical_session_label(label: str) -> str:
+    normalized = normalize_session_label(label)
+    return _CANONICAL_SESSION_MAP.get(normalized, normalized or "CLOSED")
+
+
+def previous_valid_trading_day(now: Optional[datetime] = None) -> datetime.date:
+    now_utc = now or datetime.now(timezone.utc)
+    ny_time = now_utc.astimezone(_NY_TZ)
+    holidays = set(get_config("MARKET_HOLIDAYS"))
+    cursor = ny_time.date() - timedelta(days=1)
+    while cursor.weekday() >= 5 or cursor in holidays:
+        cursor -= timedelta(days=1)
+    return cursor
+
+
+def reference_trading_day(now: Optional[datetime] = None) -> datetime.date:
+    now_utc = now or datetime.now(timezone.utc)
+    ny_time = now_utc.astimezone(_NY_TZ)
+    holidays = set(get_config("MARKET_HOLIDAYS"))
+    if ny_time.weekday() >= 5 or ny_time.date() in holidays:
+        return previous_valid_trading_day(now_utc)
+    return ny_time.date()
+
+
+def resolve_session_diagnostics(now: Optional[datetime] = None, forced_session_label: Optional[str] = None) -> SessionResolutionDiagnostics:
+    now_utc = now or datetime.now(timezone.utc)
+    session_ctx = resolve_market_session_context(now_utc)
+    resolved = normalize_session_label(forced_session_label or session_ctx.phase)
+    canonical = canonical_session_label(resolved)
+    ref_day = reference_trading_day(now_utc)
+    prev_day = previous_valid_trading_day(now_utc)
+    reason = "FORCED_OVERRIDE" if forced_session_label else "MARKET_CLOCK"
+    return SessionResolutionDiagnostics(
+        utc_time=now_utc.astimezone(timezone.utc).isoformat(),
+        ny_time=now_utc.astimezone(_NY_TZ).isoformat(),
+        resolved_session=resolved,
+        canonical_session=canonical,
+        reference_trading_date=ref_day.isoformat(),
+        previous_valid_market_session_date=prev_day.isoformat(),
+        reason=reason,
+    )
 
 
 def _safe_float(value: Optional[float]) -> Optional[float]:
