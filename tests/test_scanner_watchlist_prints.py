@@ -61,3 +61,33 @@ def test_watchlist_print_suppressed_when_unchanged(capsys):
     second_output = capsys.readouterr().out
     assert "[SCANNER][WATCHLIST]" in first_output
     assert "[SCANNER][WATCHLIST]" not in second_output
+
+
+def test_focus_print_rows_match_focus_symbols_order(capsys):
+    set_config_overrides(
+        {
+            "RUN_MODE": "PAPER",
+            "SCANNER_DATA_SOURCE": "MOCK",
+            "SCANNER_MODE": "TEACHING",
+            "SCANNER_DEFAULT_SYMBOLS": ["AAPL", "TSLA", "MSFT"],
+            "ROSS_REQUIRE_NEWS": False,
+        }
+    )
+    payload = scanner_runner.run_scanner_cycle(mode="READONLY")
+    output = capsys.readouterr().out
+
+    focus_symbols = payload.get("focus_m_symbols", [])
+    lines = output.splitlines()
+    try:
+        idx = next(i for i, line in enumerate(lines) if line.startswith("[SCANNER][FOCUS]"))
+    except StopIteration:
+        idx = -1
+    focus_rows = []
+    if idx >= 0:
+        for line in lines[idx + 1 :]:
+            if line.startswith("["):
+                break
+            if line.strip():
+                focus_rows.append(line)
+    printed_symbols = [line.split()[0] for line in focus_rows[: len(focus_symbols)]]
+    assert printed_symbols == focus_symbols
