@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -74,6 +74,7 @@ _FLOAT_CACHE_STATE: Dict[str, Any] = {
     "data": {},
 }
 _FLOAT_CACHE_REQUESTED: set[str] = set()
+_FLOAT_FETCH_STATE: Dict[str, Dict[str, Any]] = {}
 _FLOAT_SOURCE_BY_SYMBOL: Dict[str, str] = {}
 _FLOAT_CACHE_HIT_SYMBOLS: set[str] = set()
 _HISTORY_CACHE: Dict[str, Dict[str, Any]] = {}
@@ -350,6 +351,23 @@ def _persist_float_cache(path: Path, float_cache: Dict[str, Dict[str, Any]]) -> 
         print(f"[SCANNER][FLOAT] Failed to persist float cache: {exc}")
 
 
+
+def _float_retry_cooldown_seconds() -> int:
+    try:
+        return max(1, int(get_config("SCANNER_FLOAT_RETRY_COOLDOWN_SECONDS")))
+    except Exception:
+        return 120
+
+
+def _float_state_allows_retry(symbol: str, now: datetime) -> tuple[bool, Dict[str, Any]]:
+    state = _FLOAT_FETCH_STATE.get(symbol) or {}
+    retry_after = state.get("retry_after")
+    if retry_after and isinstance(retry_after, datetime) and now < retry_after:
+        return False, state
+    return True, state
+
+
+
 def _bootstrap_float_cache(
     symbols: Iterable[str],
     provider: ScannerDataProvider,
@@ -361,6 +379,7 @@ def _bootstrap_float_cache(
     if _FLOAT_CACHE_STATE.get("as_of") != today:
         _FLOAT_CACHE_STATE = {"as_of": today, "data": _load_float_cache(cache_path)}
         _FLOAT_CACHE_REQUESTED.clear()
+        _FLOAT_FETCH_STATE.clear()
 
     float_cache: Dict[str, Dict[str, Any]] = _FLOAT_CACHE_STATE.get("data", {})
     float_provider = FloatProvider(cache_path=get_config("SCANNER_FLOAT_CACHE_FILE"))
@@ -385,12 +404,16 @@ def _bootstrap_float_cache(
                 f"source={cached.get('float_source')} asof={cached.get('float_asof')}"
             )
             continue
-        if symbol in _FLOAT_CACHE_REQUESTED:
+        now = datetime.now(timezone.utc)
+        can_retry, fetch_state = _float_state_allows_retry(symbol, now)
+        if symbol in _FLOAT_CACHE_REQUESTED and not can_retry:
             missing += 1
             _FLOAT_SOURCE_BY_SYMBOL[symbol] = "missing"
+            retry_after = fetch_state.get("retry_after")
             print(
                 "[FLOAT][FETCH_FAIL] "
-                f"symbol={symbol} provider=EXTERNAL reason=ALREADY_REQUESTED_NO_RESULT"
+                f"symbol={symbol} provider=EXTERNAL reason=ALREADY_REQUESTED_NO_RESULT "
+                f"fetch_state={fetch_state.get('fetch_state')} retry_after={retry_after.isoformat() if isinstance(retry_after, datetime) else retry_after}"
             )
             continue
         _FLOAT_CACHE_REQUESTED.add(symbol)
@@ -410,6 +433,13 @@ def _bootstrap_float_cache(
                 "float_asof": asof,
             }
             _FLOAT_SOURCE_BY_SYMBOL[symbol] = source or "EXTERNAL"
+            _FLOAT_FETCH_STATE[symbol] = {
+                "fetch_state": "SUCCESS",
+                "last_attempt_at": now,
+                "retry_after": now,
+                "failure_reason": None,
+                "cache_origin": source or "EXTERNAL",
+            }
             print(
                 "[FLOAT][CACHE_WRITE] "
                 f"symbol={symbol} value={int(value)} source={source or 'EXTERNAL'} asof={asof}"
@@ -418,6 +448,15 @@ def _bootstrap_float_cache(
         else:
             missing += 1
             _FLOAT_SOURCE_BY_SYMBOL[symbol] = "missing"
+            cooldown = _float_retry_cooldown_seconds()
+            failure_reason = failures[0][1] if failures else "NO_SOURCE_PROVIDED_REASON"
+            _FLOAT_FETCH_STATE[symbol] = {
+                "fetch_state": "FAILED",
+                "last_attempt_at": now,
+                "retry_after": now + timedelta(seconds=cooldown),
+                "failure_reason": failure_reason,
+                "cache_origin": "missing",
+            }
             if failures:
                 for provider_name, reason in failures:
                     print(
@@ -433,9 +472,10 @@ def _bootstrap_float_cache(
     if updated:
         _persist_float_cache(cache_path, float_cache)
     _FLOAT_CACHE_STATE["data"] = float_cache
+    failed_count = sum(1 for state in _FLOAT_FETCH_STATE.values() if state.get("fetch_state") == "FAILED")
     print(
         "[FLOAT][SUMMARY] "
-        f"requested={requested} fetched_ok={fetched_ok} missing={missing}"
+        f"requested={requested} fetched_ok={fetched_ok} missing={missing} failed_state={failed_count}"
     )
     return float_cache
 
@@ -1520,6 +1560,7 @@ def _format_watchlist_line(candidate: CandidateMetrics) -> str:
         f"live_confirmation_pending={getattr(candidate, 'live_confirmation_pending', False)} "
         f"promotion_reason={getattr(candidate, 'promotion_reason', 'NA') or 'NA'} "
         f"watchlist_source={getattr(candidate, 'watchlist_source', 'LIVE_SCAN')} "
+        f"source_of_candidate={'PREP_SEED' if getattr(candidate, 'prep_seeded', False) else 'LIVE_RTH'} "
         f"summary={summary} "
         f"halted={candidate.halted if candidate.halted is not None else 'NA'} "
         f"ssr={candidate.ssr if candidate.ssr is not None else 'NA'} dq={dq} "
@@ -2753,6 +2794,7 @@ def run_scanner_cycle(
 
         normalized_session = normalize_session_label(session_label)
         can_seed_prep = normalized_session == "PRE" and not provider_error and bool(symbols)
+        print(f"[SCANNER][SESSION_AWARE] session={normalized_session} prep_seed_enabled={can_seed_prep}")
         if can_seed_prep and len(watchlist_contexts) < 10:
             selected_symbols = {context["symbol"] for context in watchlist_contexts}
             topn_gap_sorted = sorted(
@@ -3001,6 +3043,9 @@ def run_scanner_cycle(
             if symbol not in previous_watch:
                 promote_reason = symbol_state.watch_pass_reasons[0] if symbol_state.watch_pass_reasons else "FILTER_PASS"
                 print(f"[ROSS][PROMOTE] symbol={symbol} from=TOP_UNIVERSE to=WATCHLIST_K reason={promote_reason}")
+            else:
+                persist_reason = symbol_state.watch_pass_reasons[0] if symbol_state.watch_pass_reasons else "FILTER_PASS"
+                print(f"[ROSS][PERSIST] symbol={symbol} list=WATCHLIST_K reason={persist_reason}")
             daily_state.watchlist_k[symbol] = symbol_state
             daily_state.rejected_tracked.pop(symbol, None)
 
@@ -3010,6 +3055,7 @@ def run_scanner_cycle(
                 if symbol in current_focus:
                     continue
                 reason = drop_ledger.get(symbol, "RANK_DECAY")
+                print(f"[ROSS][DROP] symbol={symbol} list=WATCHLIST_K reason={reason}")
                 state.rejection_reason = _ross_reason_from_drop(reason) if reason.startswith("DROP_") else reason
                 state.rejection_stale_after_cycle = _SCAN_CYCLE_COUNT + 6
                 daily_state.rejected_tracked[symbol] = state
@@ -3023,6 +3069,8 @@ def run_scanner_cycle(
             symbol_state.evaluation_stale_after_cycle = _SCAN_CYCLE_COUNT + 3
             if symbol not in previous_focus:
                 print(f"[ROSS][PROMOTE] symbol={symbol} from=WATCHLIST_K to=FOCUS_M reason=SETUP_READY")
+            else:
+                print(f"[ROSS][PERSIST] symbol={symbol} list=FOCUS_M reason=SETUP_STILL_VALID")
             daily_state.focus_m[symbol] = symbol_state
 
         for symbol in list(daily_state.focus_m.keys()):
@@ -3080,7 +3128,7 @@ def run_scanner_cycle(
             for symbol in watchlist_symbols
             if symbol in candidate_lookup
         ]
-        focus_metrics = watchlist_metrics[: len(focus_symbols)]
+        focus_metrics = [candidate_lookup[symbol] for symbol in focus_symbols if symbol in candidate_lookup]
         if _should_print_watchlist(
             watchlist_changed=watchlist_changed,
             session_label=session_label,

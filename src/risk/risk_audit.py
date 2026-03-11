@@ -9,6 +9,7 @@ from src.config.config_resolver import get_config
 from src.core_engine.events import RiskDecisionRecord, TradeIntentRecord
 from src.core_engine.health import HealthStatus
 from src.core_engine.state import RunMode
+from src.risk.data_quality_contract import data_quality_blocking_causes
 
 
 @dataclass(frozen=True)
@@ -35,10 +36,12 @@ def evaluate_trade_intents(
             max_size = 0
             triggered_rules.append("HEALTH_CRITICAL")
 
-        if "DATA_QUALITY" in intent.tags:
+        data_quality_causes = data_quality_blocking_causes(intent.tags)
+        if data_quality_causes:
             decision = "BLOCK"
             max_size = 0
             triggered_rules.append("DATA_QUALITY")
+            print(f"[RISK][AUDIT] symbol={intent.symbol} data_quality_causes={data_quality_causes}")
 
         if mode == RunMode.SIM:
             decision = "ALLOW_WITH_CONSTRAINTS"
