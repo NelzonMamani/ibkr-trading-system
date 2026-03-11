@@ -47,6 +47,7 @@ class FloatProvider:
     ) -> None:
 
         self.cache_path = Path(cache_path)
+        print(f"[FLOAT][CACHE_PATH] path={self.cache_path.resolve()}")
         self.ttl = timedelta(days=max(int(ttl_days), 1))
 
         self.sqlite_path = sqlite_path or get_persistence_sqlite_path(
@@ -56,6 +57,10 @@ class FloatProvider:
         self._cache = self._load_cache()
 
         self._ensure_db()
+
+    def record_discovery(self, symbol: str, value: int, source: str) -> None:
+        """Persist a discovered float to canonical JSON + sqlite."""
+        self._handle_success(symbol=str(symbol or "").upper().strip(), value=int(value), source=str(source or "UNKNOWN"))
 
     # ======================================================
     # PUBLIC ENTRY POINT
@@ -206,15 +211,17 @@ class FloatProvider:
         try:
 
             if not self.cache_path.exists():
+                print(f"[FLOAT][CACHE_LOAD] path={self.cache_path.resolve()} entries=0")
                 return {}
 
             payload = json.loads(self.cache_path.read_text(encoding="utf-8"))
 
             if isinstance(payload, dict):
+                print(f"[FLOAT][CACHE_LOAD] path={self.cache_path.resolve()} entries={len(payload)}")
                 return payload
 
         except Exception:
-
+            print(f"[FLOAT][CACHE_LOAD] path={self.cache_path.resolve()} entries=0")
             return {}
 
         return {}
@@ -232,6 +239,10 @@ class FloatProvider:
         self.cache_path.write_text(
             json.dumps(self._cache, indent=2, sort_keys=True),
             encoding="utf-8",
+        )
+        print(
+            "[FLOAT][CACHE_WRITE] "
+            f"symbol={symbol} path={self.cache_path.resolve()} source={source} value={int(value)}"
         )
 
     # ======================================================
