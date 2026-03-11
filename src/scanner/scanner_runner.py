@@ -684,7 +684,7 @@ def _watchlist_gate_checks(
     thresholds: GateThresholds,
 ) -> Dict[str, bool]:
     pct_change = _safe_float(context.get("pct_change"), None)
-    scanner_rvol = _resolve_rvol_for_gates(context)
+    _, scanner_rvol = _resolve_rvol_for_focus_gate(context)
     float_shares = context.get("float_shares")
 
     pct_ok = pct_change is not None and pct_change >= thresholds.min_pct_change
@@ -841,11 +841,16 @@ def _missingness_map(drop_reason: str, context: Dict[str, Any]) -> Dict[str, boo
     }
 
 
-def _resolve_rvol_for_gates(context: Dict[str, Any]) -> Optional[float]:
+def _resolve_rvol_for_focus_gate(context: Dict[str, Any]) -> tuple[str, Optional[float]]:
+    """Return canonical RVOL input for FOCUS promotion with provenance."""
+    scanner_rvol = _safe_float(context.get("scanner_rvol"), None)
+    if scanner_rvol is not None:
+        return "scanner_rvol", scanner_rvol
+
     session = normalize_session_label(str(context.get("session") or ""))
-    if session in {"RTH_MID", "RTH_LATE"}:
-        return _safe_float(context.get("rvol_phase"), None)
-    return _safe_float(context.get("rvol_discovery"), None)
+    if session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"}:
+        return "rvol_phase", _safe_float(context.get("rvol_phase"), None)
+    return "rvol_discovery", _safe_float(context.get("rvol_discovery"), None)
 
 
 def _load_premarket_prep_candidates() -> Dict[str, Dict[str, Any]]:
@@ -940,6 +945,10 @@ def _evaluate_float_gate(
         context["float_status"] = "UNKNOWN"
         if not thresholds.allow_unknown_float:
             return "DROP_FLOAT_MISSING"
+        flags = context.setdefault("data_quality_flags", [])
+        context["float_tolerated"] = True
+        if isinstance(flags, list) and "FLOAT_UNKNOWN" in flags:
+            context["data_quality_flags"] = [flag for flag in flags if flag != "FLOAT_UNKNOWN"]
         return None
     context["float_status"] = "KNOWN"
     if float_shares > thresholds.max_float:
@@ -978,14 +987,16 @@ def _evaluate_focus_gates(
         return "DROP_SSR"
     if bool(context.get("live_confirmation_pending")):
         return "DROP_LIVE_CONFIRMATION_PENDING"
-    scanner_rvol = _resolve_rvol_for_gates(context)
+    rvol_metric_used, focus_rvol_value = _resolve_rvol_for_focus_gate(context)
     rvol_phase = _safe_float(context.get("rvol_phase"), None)
     rvol_discovery = _safe_float(context.get("rvol_discovery"), None)
-    if scanner_rvol is None:
+    threshold_value = thresholds.focus_rvol_min
+    if focus_rvol_value is None:
         print(
             "[FOCUS_GATE] "
-            f"symbol={context.get('symbol')} scanner_rvol=None "
-            f"threshold={thresholds.focus_rvol_min} decision=WAIT"
+            f"symbol={context.get('symbol')} focus_threshold_used={threshold_value} "
+            f"rvol_metric_used={rvol_metric_used} rvol_metric_value=None "
+            "reason=WAIT_MISSING_RVOL decision=WAIT"
         )
         return "DROP_MISSING_RVOL"
 
@@ -996,18 +1007,22 @@ def _evaluate_focus_gates(
     )
     has_catalyst_context = bool(context.get("catalyst_present") or context.get("news_present") or context.get("catalyst_summary"))
 
-    if scanner_rvol >= thresholds.focus_rvol_min:
+    if focus_rvol_value >= threshold_value:
         focus_decision = "KEEP"
+        focus_reason = "PASS_RVOL_THRESHOLD"
     elif early_rth and has_momentum_context and has_catalyst_context and rvol_phase is not None and rvol_phase >= thresholds.watchlist_rvol_min:
         focus_decision = "KEEP_EARLY_RTH_CONTEXT"
+        focus_reason = "PASS_EARLY_RTH_CONTEXT"
     else:
         focus_decision = "WAIT"
+        focus_reason = "WAIT_RVOL_BELOW_THRESHOLD"
 
     print(
         "[FOCUS_GATE] "
-        f"symbol={context.get('symbol')} scanner_rvol={scanner_rvol} "
+        f"symbol={context.get('symbol')} focus_threshold_used={threshold_value} "
+        f"rvol_metric_used={rvol_metric_used} rvol_metric_value={focus_rvol_value} "
         f"rvol_discovery={rvol_discovery} rvol_phase={rvol_phase} "
-        f"threshold={thresholds.focus_rvol_min} decision={focus_decision}"
+        f"reason={focus_reason} decision={focus_decision}"
     )
     if focus_decision == "WAIT":
         return "DROP_RVOL_FOCUS"
@@ -1054,7 +1069,19 @@ def _evaluate_focus_gates(
         if spread_pct > thresholds.spread_max_pct:
             return "DROP_SPREAD"
     if thresholds.require_bid_ask and (bid is None or ask is None):
+        print(
+            "[FOCUS_GATE] "
+            f"symbol={context.get('symbol')} focus_threshold_used={threshold_value} "
+            f"rvol_metric_used={rvol_metric_used} rvol_metric_value={focus_rvol_value} "
+            "reason=DROP_MISSING_BID_ASK decision=DROP"
+        )
         return "DROP_MISSING_BID_ASK"
+    print(
+        "[FOCUS_GATE] "
+        f"symbol={context.get('symbol')} focus_threshold_used={threshold_value} "
+        f"rvol_metric_used={rvol_metric_used} rvol_metric_value={focus_rvol_value} "
+        "reason=PASS_ALL_FOCUS_GATES decision=PASS"
+    )
     return None
 
 
@@ -3090,6 +3117,14 @@ def run_scanner_cycle(
             daily_state.rejected_tracked[symbol] = state
             if symbol not in current_watch:
                 print(f"[ROSS][REJECT] symbol={symbol} reason={mapped}")
+
+        real_focus_symbols = list(daily_state.focus_m.keys())
+        if focus_symbols != real_focus_symbols:
+            print(
+                "[SCANNER][FOCUS_RECONCILE] "
+                f"printed={focus_symbols} real={real_focus_symbols} action=use_real_focus_list"
+            )
+            focus_symbols = real_focus_symbols
 
         watchlist_hash = _watchlist_hash(watchlist_symbols, focus_symbols)
         watchlist_changed = watchlist_hash != _WATCHLIST_HASH
