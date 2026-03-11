@@ -40,6 +40,7 @@ from src.models.risk_decision import (
     STRATEGY_READ_ONLY_EXECUTION_LOCK,
     STRATEGY_LIMIT_REACHED,
 )
+from src.risk.data_quality_contract import data_quality_blocking_causes
 from src.risk.no_trade_contexts import evaluate_no_trade_contexts
 from src.strategies.ross_momentum.ross_momentum_risk_overlay import (
     RiskContext,
@@ -243,14 +244,14 @@ class RiskEngine:
             self._emit_risk_decision_event(decision)
             return decision
 
-        normalized_risk_flags = {flag.lower() for flag in payload.risk_flags}
+        payload_data_quality_causes = data_quality_blocking_causes(payload.risk_flags)
         no_trade_contexts = evaluate_no_trade_contexts(
             run_mode=run_mode,
             execution_enabled=execution_enabled,
             session_blocked=session_blocked,
             broker_readonly=get_ibkr_readonly_enabled(),
             circuit_breaker_tripped=self.stop_controller.is_breaker_tripped(),
-            data_quality_block="data_quality" in normalized_risk_flags,
+            data_quality_block=bool(payload_data_quality_causes),
         )
         risk_reasons.extend(context.code for context in no_trade_contexts)
         if open_positions >= max_open_positions:
@@ -345,9 +346,13 @@ class RiskEngine:
 
         intent_ids.add(intent.intent_id)
 
-        intent_flags = {flag.lower() for flag in intent.risk_flags}
-        if "data_quality" in intent_flags and run_mode == RunMode.LIVE:
+        intent_data_quality_causes = data_quality_blocking_causes(intent.risk_flags)
+        if intent_data_quality_causes and run_mode == RunMode.LIVE:
             reason_tags.append(DATA_QUALITY_BLOCK)
+            print(
+                "[RISK][DATA_QUALITY] decision=BLOCK "
+                f"symbol={intent.symbol} causes={intent_data_quality_causes} flags={list(intent.risk_flags)}"
+            )
 
         if risk_reasons:
             reason_tags.extend(risk_reasons)
@@ -426,13 +431,14 @@ class RiskEngine:
             )
             return self._finalize_decision(decision, decision_id)
         data_quality_flags = getattr(trade_intent, "data_quality_flags", [])
+        data_quality_causes = data_quality_blocking_causes(data_quality_flags)
         no_trade_contexts = evaluate_no_trade_contexts(
             run_mode=run_mode,
             execution_enabled=execution_enabled,
             session_blocked=session_blocked,
             broker_readonly=get_ibkr_readonly_enabled(),
             circuit_breaker_tripped=self.stop_controller.is_breaker_tripped(),
-            data_quality_block=bool(data_quality_flags),
+            data_quality_block=bool(data_quality_causes),
         )
         if no_trade_contexts:
             rationale = "; ".join(context.rationale for context in no_trade_contexts)
@@ -557,10 +563,10 @@ class RiskEngine:
             )
             return self._finalize_decision(decision, decision_id)
 
-        if data_quality_flags:
+        if data_quality_flags and data_quality_causes:
             rationale = (
-                "Trade intent blocked due to data quality flags: "
-                + ", ".join(data_quality_flags)
+                "Trade intent blocked due to data quality causes: "
+                + ", ".join(data_quality_causes)
             )
             self.event_collector.emit(
                 event_type="TRADE_BLOCKED",
@@ -572,11 +578,13 @@ class RiskEngine:
                     "reason": DATA_QUALITY_BLOCK,
                     "reason_code": DATA_QUALITY_BLOCK,
                     "human_readable_rationale": rationale,
+                    "data_quality_causes": data_quality_causes,
+                    "data_quality_flags": list(data_quality_flags),
                 },
             )
             print(
-                "[RISK] Data quality block — "
-                f"symbol={trade_intent.symbol} flags={data_quality_flags}"
+                "[RISK][DATA_QUALITY] decision=BLOCK "
+                f"symbol={trade_intent.symbol} causes={data_quality_causes} flags={list(data_quality_flags)}"
             )
             decision = RiskDecision(
                 symbol=trade_intent.symbol,
@@ -597,6 +605,11 @@ class RiskEngine:
                 timestamp=timestamp,
             )
             return self._finalize_decision(decision, decision_id)
+        if data_quality_flags and not data_quality_causes:
+            print(
+                "[RISK][DATA_QUALITY] decision=ALLOW "
+                f"symbol={trade_intent.symbol} causes=[] flags={list(data_quality_flags)}"
+            )
 
         resolved_stop_loss = trade_intent.stop_loss_price or trade_intent.invalidation_level
         if risk_profile.enforce_hard_stops and resolved_stop_loss is None:
