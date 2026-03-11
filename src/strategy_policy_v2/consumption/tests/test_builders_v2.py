@@ -1,6 +1,6 @@
 from src.strategy_policy_v2.consumption.builders import FocusBuilderV2, WatchlistBuilderV2
 from src.strategy_policy_v2.consumption.models import RankedCandidate
-from src.strategies.ross_momentum.strategy_policy_v2 import POLICY_V2
+from src.strategies.ross_momentum.strategy_policy import POLICY_V2
 
 
 def test_builders_respect_limits_and_tiebreakers() -> None:

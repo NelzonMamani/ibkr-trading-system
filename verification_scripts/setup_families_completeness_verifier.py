@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
 import json
 
 from src.setup_engine.registry import CANONICAL_SETUP_REGISTRY, SetupImplementationStatus
-from src.strategies.ross_momentum.strategy_policy_v2 import POLICY_V2
+from src.strategies.ross_momentum.strategy_policy import POLICY_V2
 
 
 def main() -> int:

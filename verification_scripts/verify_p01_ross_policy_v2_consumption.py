@@ -15,7 +15,7 @@ from src.strategy_policy_v2.consumption import (
     SelectionEngineV2,
     WatchlistBuilderV2,
 )
-from src.strategies.ross_momentum.strategy_policy_v2 import POLICY_V2
+from src.strategies.ross_momentum.strategy_policy import POLICY_V2
 
 EVIDENCE_ROOT = REPO_ROOT / "TRADING_OS_MASTER_CATALOGUE" / "AUDIT_EVIDENCE" / "P01_ROSS_POLICY_V2_CONSUMPTION"
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
-from src.strategies.ross_momentum.strategy_policy_v2 import POLICY_V2
+from src.strategies.ross_momentum.strategy_policy import POLICY_V2
 
 
 def _iter_strings(value: Any):
