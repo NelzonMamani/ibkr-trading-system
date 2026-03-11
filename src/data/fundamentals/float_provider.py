@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -9,12 +8,13 @@ from pathlib import Path
 from typing import Optional
 
 import requests
+from bs4 import BeautifulSoup
 
 from src.config.runtime_config import get_persistence_sqlite_path
 
 try:
     import yfinance as yf
-except Exception:  # pragma: no cover - optional dependency in some environments.
+except Exception:
     yf = None
 
 
@@ -25,7 +25,19 @@ class FloatResult:
 
 
 class FloatProvider:
-    """Authoritative float discovery service with cache + DB persistence."""
+    """
+    Canonical float discovery service.
+
+    Sources:
+    1) Yahoo Finance (primary)
+    2) Finviz HTML parsing (fallback)
+
+    Results are cached in:
+        data/reference/float_cache.json
+
+    and persisted in SQLite:
+        symbol_fundamentals table
+    """
 
     def __init__(
         self,
@@ -33,128 +45,207 @@ class FloatProvider:
         ttl_days: int = 7,
         sqlite_path: str | None = None,
     ) -> None:
+
         self.cache_path = Path(cache_path)
         self.ttl = timedelta(days=max(int(ttl_days), 1))
-        self.sqlite_path = sqlite_path or get_persistence_sqlite_path(default="data/ibkr_system.db")
-        self.last_float_failures: list[tuple[str, str]] = []
+
+        self.sqlite_path = sqlite_path or get_persistence_sqlite_path(
+            default="data/ibkr_system.db"
+        )
+
         self._cache = self._load_cache()
+
         self._ensure_db()
 
+    # ======================================================
+    # PUBLIC ENTRY POINT
+    # ======================================================
+
     def get_float(self, symbol: str) -> tuple[Optional[int], str]:
+
         symbol = str(symbol or "").upper().strip()
+
         if not symbol:
             return None, "UNKNOWN"
 
-        cached_db = self._get_db_float(symbol)
-        if cached_db is not None:
-            return cached_db.value, cached_db.source
+        # ----------------------------------
+        # DB CACHE
+        # ----------------------------------
 
-        cached_json = self._cache.get(symbol)
-        if isinstance(cached_json, dict) and not self._is_stale(cached_json.get("timestamp")):
-            value = self._parse_shares_value(cached_json.get("float"))
-            source = str(cached_json.get("source") or "UNKNOWN").upper()
-            if value is not None:
-                self._upsert_db(symbol, value, source)
-                return value, source
+        db_value = self._get_db_float(symbol)
 
-        self.last_float_failures = []
-        for provider_name, provider_fn in (
-            ("YAHOO", self.provider_yahoo),
-            ("FINVIZ", self.provider_finviz),
-        ):
-            value, reason = provider_fn(symbol)
-            if value is not None and value > 0:
-                self._log_discovery(symbol=symbol, provider=provider_name, result="SUCCESS", value=value)
-                self._write_cache_entry(symbol, value, provider_name)
-                self._upsert_db(symbol, value, provider_name)
-                return value, provider_name
-            fail_reason = reason or "UNKNOWN"
-            self.last_float_failures.append((provider_name, fail_reason))
-            self._log_discovery(symbol=symbol, provider=provider_name, result="FAIL", reason=fail_reason)
+        if db_value is not None:
+            return db_value.value, db_value.source
+
+        # ----------------------------------
+        # JSON CACHE
+        # ----------------------------------
+
+        cache_entry = self._cache.get(symbol)
+
+        if isinstance(cache_entry, dict):
+
+            if not self._is_stale(cache_entry.get("timestamp")):
+
+                value = cache_entry.get("float")
+
+                if isinstance(value, int) and value > 0:
+
+                    source = str(cache_entry.get("source") or "CACHE")
+
+                    self._upsert_db(symbol, value, source)
+
+                    return value, source
+
+        # ----------------------------------
+        # DISCOVERY
+        # ----------------------------------
+
+        value, reason = self.provider_yahoo(symbol)
+
+        if value:
+            self._handle_success(symbol, value, "YAHOO")
+            return value, "YAHOO"
+
+        value, reason = self.provider_finviz(symbol)
+
+        if value:
+            self._handle_success(symbol, value, "FINVIZ")
+            return value, "FINVIZ"
 
         return None, "UNKNOWN"
 
+    # ======================================================
+    # PROVIDERS
+    # ======================================================
+
     def provider_yahoo(self, symbol: str) -> tuple[Optional[int], str]:
+
         if yf is None:
             return None, "YFINANCE_UNAVAILABLE"
+
         try:
+
             ticker = yf.Ticker(symbol)
+
+            info = ticker.info
+
+            value = info.get("floatShares")
+
+            if value and int(value) > 0:
+
+                return int(value), "OK"
+
         except Exception:
+
             return None, "REQUEST_ERROR"
 
-        try:
-            fast_info = getattr(ticker, "fast_info", {}) or {}
-            value = self._parse_shares_value(fast_info.get("floatShares"))
-            if value is not None and value > 0:
-                return value, "OK"
-        except Exception:
-            pass
-
-        try:
-            info = getattr(ticker, "info", {}) or {}
-            value = self._parse_shares_value(info.get("floatShares"))
-            if value is not None and value > 0:
-                return value, "OK"
-            return None, "FIELD_NOT_FOUND"
-        except Exception:
-            return None, "REQUEST_ERROR"
+        return None, "FIELD_NOT_FOUND"
 
     def provider_finviz(self, symbol: str) -> tuple[Optional[int], str]:
+
         url = f"https://finviz.com/quote.ashx?t={symbol}"
+
         try:
-            response = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
-            response.raise_for_status()
-        except requests.RequestException:
+
+            response = requests.get(
+                url,
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=8,
+            )
+
+            soup = BeautifulSoup(response.content, "html.parser")
+
+            table = soup.find("table", class_="snapshot-table2")
+
+            if not table:
+                return None, "TABLE_NOT_FOUND"
+
+            cells = table.find_all("td")
+
+            for i, cell in enumerate(cells):
+
+                if cell.text.strip() == "Float":
+
+                    float_text = cells[i + 1].text.strip().replace(",", "")
+
+                    parsed = self._parse_shares_value(float_text)
+
+                    if parsed:
+                        return parsed, "OK"
+
+                    return None, "PARSE_ERROR"
+
+        except Exception:
+
             return None, "REQUEST_ERROR"
 
-        html = response.text
-        match = re.search(
-            r">\s*Float\s*</td>\s*<td[^>]*>\s*([^<]+)</td>",
-            html,
-            re.IGNORECASE,
-        )
-        if not match:
-            return None, "FIELD_NOT_FOUND"
-        parsed = self._parse_shares_value(match.group(1).strip())
-        if parsed is None or parsed <= 0:
-            return None, "PARSE_ERROR"
-        return parsed, "OK"
+        return None, "FIELD_NOT_FOUND"
 
-    def _load_cache(self) -> dict[str, dict[str, object]]:
+    # ======================================================
+    # SUCCESS HANDLING
+    # ======================================================
+
+    def _handle_success(self, symbol: str, value: int, source: str) -> None:
+
+        print(
+            "[FLOAT][DISCOVERY] "
+            f"symbol={symbol} provider={source} result=SUCCESS value={value}"
+        )
+
+        self._write_cache_entry(symbol, value, source)
+
+        self._upsert_db(symbol, value, source)
+
+    # ======================================================
+    # CACHE
+    # ======================================================
+
+    def _load_cache(self) -> dict[str, dict]:
+
         try:
+
             if not self.cache_path.exists():
                 return {}
+
             payload = json.loads(self.cache_path.read_text(encoding="utf-8"))
+
             if isinstance(payload, dict):
-                return {str(k).upper(): v for k, v in payload.items() if isinstance(v, dict)}
+                return payload
+
         except Exception:
+
             return {}
+
         return {}
 
     def _write_cache_entry(self, symbol: str, value: int, source: str) -> None:
+
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+
         self._cache[symbol] = {
             "float": int(value),
             "source": source,
-            "timestamp": datetime.now(timezone.utc).replace(second=0, microsecond=0).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        self.cache_path.write_text(json.dumps(self._cache, indent=2, sort_keys=True), encoding="utf-8")
 
-    def _is_stale(self, timestamp: object) -> bool:
-        if not isinstance(timestamp, str):
-            return True
-        try:
-            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-        except ValueError:
-            return True
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return datetime.now(timezone.utc) - parsed > self.ttl
+        self.cache_path.write_text(
+            json.dumps(self._cache, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    # ======================================================
+    # DB
+    # ======================================================
 
     def _ensure_db(self) -> None:
+
         path = Path(self.sqlite_path)
+
         path.parent.mkdir(parents=True, exist_ok=True)
+
         with sqlite3.connect(path) as conn:
+
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS symbol_fundamentals (
@@ -165,27 +256,39 @@ class FloatProvider:
                 )
                 """
             )
+
             conn.commit()
 
     def _get_db_float(self, symbol: str) -> FloatResult | None:
+
         with sqlite3.connect(self.sqlite_path) as conn:
+
             row = conn.execute(
                 "SELECT float, source, last_updated FROM symbol_fundamentals WHERE symbol = ?",
                 (symbol,),
             ).fetchone()
+
         if row is None:
             return None
-        value = self._parse_shares_value(row[0])
-        source = str(row[1] or "UNKNOWN").upper()
+
+        value = row[0]
+
+        source = str(row[1] or "UNKNOWN")
+
         last_updated = row[2]
+
         if value is None:
             return None
+
         if self._is_stale(last_updated):
             return None
-        return FloatResult(value=value, source=source)
+
+        return FloatResult(value=int(value), source=source)
 
     def _upsert_db(self, symbol: str, value: int, source: str) -> None:
+
         with sqlite3.connect(self.sqlite_path) as conn:
+
             conn.execute(
                 """
                 INSERT INTO symbol_fundamentals(symbol, float, source, last_updated)
@@ -195,43 +298,53 @@ class FloatProvider:
                     source=excluded.source,
                     last_updated=excluded.last_updated
                 """,
-                (symbol, int(value), source, datetime.now(timezone.utc).isoformat()),
+                (
+                    symbol,
+                    int(value),
+                    source,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
             )
+
             conn.commit()
 
-    @staticmethod
-    def _log_discovery(
-        *,
-        symbol: str,
-        provider: str,
-        result: str,
-        value: Optional[int] = None,
-        reason: Optional[str] = None,
-    ) -> None:
-        if result == "SUCCESS":
-            print(
-                "[FLOAT][DISCOVERY] "
-                f"symbol={symbol} provider={provider} result=SUCCESS value={int(value or 0)}"
-            )
-            return
-        print(
-            "[FLOAT][DISCOVERY] "
-            f"symbol={symbol} provider={provider} result=FAIL reason={reason or 'UNKNOWN'}"
-        )
+    # ======================================================
+    # UTILITIES
+    # ======================================================
+
+    def _is_stale(self, timestamp: object) -> bool:
+
+        if not isinstance(timestamp, str):
+            return True
+
+        try:
+            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            return True
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+
+        return datetime.now(timezone.utc) - parsed > self.ttl
 
     @staticmethod
     def _parse_shares_value(value: object) -> Optional[int]:
+
         if value is None:
             return None
-        if isinstance(value, (int, float)):
-            return int(value) if float(value) > 0 else None
+
         text = str(value).strip().upper().replace(",", "")
-        if text in {"", "N/A", "NA", "-", "--", "NONE", "NULL"}:
+
+        if text.endswith("B"):
+            return int(float(text[:-1]) * 1_000_000_000)
+
+        if text.endswith("M"):
+            return int(float(text[:-1]) * 1_000_000)
+
+        if text.endswith("K"):
+            return int(float(text[:-1]) * 1_000)
+
+        try:
+            return int(float(text))
+        except Exception:
             return None
-        match = re.match(r"^([\d]*\.?[\d]+)\s*([KMB])?$", text)
-        if not match:
-            return None
-        number = float(match.group(1))
-        suffix = match.group(2)
-        multiplier = {None: 1, "K": 1_000, "M": 1_000_000, "B": 1_000_000_000}[suffix]
-        return int(number * multiplier) if number > 0 else None
