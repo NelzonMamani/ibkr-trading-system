@@ -130,6 +130,8 @@ def _catalogue_strategies() -> list[tuple[str, str]]:
 
 
 def _policy_path(slug: str) -> Path:
+    if slug == "ross_momentum":
+        return Path("src/strategies") / slug / "strategy_policy.py"
     return Path("src/strategies") / slug / "strategy_policy_v2.py"
 
 
@@ -368,8 +370,12 @@ def run_audit() -> list[StrategyAuditResult]:
     results: list[StrategyAuditResult] = []
     baseline_hashes = _load_baseline_snapshot()
     for strategy_id, slug in _catalogue_strategies():
-        module = importlib.import_module(f"src.strategies.{slug}.strategy_policy_v2")
-        policy: StrategyPolicyV2 = module.POLICY_V2
+        if slug == "ross_momentum":
+            module = importlib.import_module(f"src.strategies.{slug}.strategy_policy")
+            policy = module.POLICY_V2
+        else:
+            module = importlib.import_module(f"src.strategies.{slug}.strategy_policy_v2")
+            policy = module.POLICY_V2
         policy_path = _policy_path(slug)
         current_hash = _sha256(policy_path)
         expected_hash = baseline_hashes.get(strategy_id)
@@ -377,7 +383,7 @@ def run_audit() -> list[StrategyAuditResult]:
         violation_message = ""
         if violation:
             violation_message = (
-                f"GOVERNANCE_LOCK_VIOLATION: {strategy_id} strategy_policy_v2.py hash drift detected "
+                f"GOVERNANCE_LOCK_VIOLATION: {strategy_id} policy hash drift detected "
                 f"(expected={expected_hash}, actual={current_hash})"
             )
         results.append(
