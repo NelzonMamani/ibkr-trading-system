@@ -24,7 +24,7 @@ from src.config.runtime_config import (
     get_watchlist_print_every_n_cycles,
 )
 from src.core.event_collector import EventCollector
-from src.data.fundamentals.float_provider import FloatProvider
+from src.data.float_discovery_worker import get_float_discovery_worker
 from src.news.news_fetcher import Headline, fetch_fast_headlines_for_symbols
 from src.news.rss_registry import RSS_FAST_TRADING
 from src.preparation.context_builder import SymbolContext, build_symbol_context
@@ -73,8 +73,6 @@ _FLOAT_CACHE_STATE: Dict[str, Any] = {
     "as_of": None,
     "data": {},
 }
-_FLOAT_CACHE_REQUESTED: set[str] = set()
-_FLOAT_FETCH_STATE: Dict[str, Dict[str, Any]] = {}
 _FLOAT_SOURCE_BY_SYMBOL: Dict[str, str] = {}
 _FLOAT_CACHE_HIT_SYMBOLS: set[str] = set()
 _HISTORY_CACHE: Dict[str, Dict[str, Any]] = {}
@@ -352,20 +350,11 @@ def _persist_float_cache(path: Path, float_cache: Dict[str, Dict[str, Any]]) -> 
 
 
 
-def _float_retry_cooldown_seconds() -> int:
-    try:
-        return max(1, int(get_config("SCANNER_FLOAT_RETRY_COOLDOWN_SECONDS")))
-    except Exception:
-        return 120
-
-
-def _float_state_allows_retry(symbol: str, now: datetime) -> tuple[bool, Dict[str, Any]]:
-    state = _FLOAT_FETCH_STATE.get(symbol) or {}
-    retry_after = state.get("retry_after")
-    if retry_after and isinstance(retry_after, datetime) and now < retry_after:
-        return False, state
-    return True, state
-
+def _resolve_float_cache_path() -> Path:
+    canonical = Path("data/reference/float_cache.json")
+    if canonical.exists():
+        return canonical
+    return Path(get_config("SCANNER_FLOAT_CACHE_FILE"))
 
 
 def _bootstrap_float_cache(
@@ -374,108 +363,48 @@ def _bootstrap_float_cache(
 ) -> Dict[str, Dict[str, Any]]:
     global _FLOAT_CACHE_STATE, _FLOAT_SOURCE_BY_SYMBOL, _FLOAT_CACHE_HIT_SYMBOLS
     today = datetime.now(timezone.utc).date().isoformat()
-    cache_path = Path(get_config("SCANNER_FLOAT_CACHE_FILE"))
+    cache_path = _resolve_float_cache_path()
 
     if _FLOAT_CACHE_STATE.get("as_of") != today:
         _FLOAT_CACHE_STATE = {"as_of": today, "data": _load_float_cache(cache_path)}
-        _FLOAT_CACHE_REQUESTED.clear()
-        _FLOAT_FETCH_STATE.clear()
 
     float_cache: Dict[str, Dict[str, Any]] = _FLOAT_CACHE_STATE.get("data", {})
-    float_provider = FloatProvider(cache_path=get_config("SCANNER_FLOAT_CACHE_FILE"))
-    updated = False
+    worker = get_float_discovery_worker(cache_path)
     _FLOAT_SOURCE_BY_SYMBOL = {}
     _FLOAT_CACHE_HIT_SYMBOLS = set()
+
     requested = 0
-    fetched_ok = 0
     cache_hits = 0
-    missing = 0
+    unknown_tolerated = 0
+    discovery_queued = 0
 
     for symbol in symbols:
         requested += 1
         cached = float_cache.get(symbol)
         if isinstance(cached, dict) and isinstance(cached.get("float_value"), int):
             cache_hits += 1
+            value = int(cached.get("float_value"))
+            source = str(cached.get("float_source") or "CACHE")
             _FLOAT_CACHE_HIT_SYMBOLS.add(symbol)
-            _FLOAT_SOURCE_BY_SYMBOL[symbol] = cached.get("float_source") or "CACHE"
+            _FLOAT_SOURCE_BY_SYMBOL[symbol] = source
             print(
-                "[FLOAT][CACHE_HIT] "
-                f"symbol={symbol} value={cached.get('float_value')} "
-                f"source={cached.get('float_source')} asof={cached.get('float_asof')}"
+                "[FLOAT][RESOLVE] "
+                f"symbol={symbol} source=CACHE value={round(value / 1_000_000.0, 2)}M"
             )
             continue
-        now = datetime.now(timezone.utc)
-        can_retry, fetch_state = _float_state_allows_retry(symbol, now)
-        if symbol in _FLOAT_CACHE_REQUESTED and not can_retry:
-            missing += 1
-            _FLOAT_SOURCE_BY_SYMBOL[symbol] = "missing"
-            retry_after = fetch_state.get("retry_after")
-            print(
-                "[FLOAT][FETCH_FAIL] "
-                f"symbol={symbol} provider=EXTERNAL reason=ALREADY_REQUESTED_NO_RESULT "
-                f"fetch_state={fetch_state.get('fetch_state')} retry_after={retry_after.isoformat() if isinstance(retry_after, datetime) else retry_after}"
-            )
-            continue
-        _FLOAT_CACHE_REQUESTED.add(symbol)
-        try:
-            value, source = float_provider.get_float(symbol)
-            failures = list(getattr(float_provider, "last_float_failures", []) or [])
-        except Exception as exc:
-            value = None
-            source = None
-            failures = [("EXTERNAL", f"UNHANDLED_EXCEPTION:{type(exc).__name__}")]
-        if value:
-            fetched_ok += 1
-            asof = datetime.now(timezone.utc).isoformat()
-            float_cache[symbol] = {
-                "float_value": int(value),
-                "float_source": source or "EXTERNAL",
-                "float_asof": asof,
-            }
-            _FLOAT_SOURCE_BY_SYMBOL[symbol] = source or "EXTERNAL"
-            _FLOAT_FETCH_STATE[symbol] = {
-                "fetch_state": "SUCCESS",
-                "last_attempt_at": now,
-                "retry_after": now,
-                "failure_reason": None,
-                "cache_origin": source or "EXTERNAL",
-            }
-            print(
-                "[FLOAT][CACHE_WRITE] "
-                f"symbol={symbol} value={int(value)} source={source or 'EXTERNAL'} asof={asof}"
-            )
-            updated = True
-        else:
-            missing += 1
-            _FLOAT_SOURCE_BY_SYMBOL[symbol] = "missing"
-            cooldown = _float_retry_cooldown_seconds()
-            failure_reason = failures[0][1] if failures else "NO_SOURCE_PROVIDED_REASON"
-            _FLOAT_FETCH_STATE[symbol] = {
-                "fetch_state": "FAILED",
-                "last_attempt_at": now,
-                "retry_after": now + timedelta(seconds=cooldown),
-                "failure_reason": failure_reason,
-                "cache_origin": "missing",
-            }
-            if failures:
-                for provider_name, reason in failures:
-                    print(
-                        "[FLOAT][FETCH_FAIL] "
-                        f"symbol={symbol} provider={provider_name} reason={reason}"
-                    )
-            else:
-                print(
-                    "[FLOAT][FETCH_FAIL] "
-                    f"symbol={symbol} provider=EXTERNAL reason=NO_SOURCE_PROVIDED_REASON"
-                )
 
-    if updated:
-        _persist_float_cache(cache_path, float_cache)
+        _FLOAT_SOURCE_BY_SYMBOL[symbol] = "UNKNOWN"
+        unknown_tolerated += 1
+        print(f"[FLOAT][RESOLVE] symbol={symbol} source=UNKNOWN tolerated=True")
+        if worker.enqueue(symbol):
+            discovery_queued += 1
+            print(f"[FLOAT][RESOLVE] symbol={symbol} source=DISCOVERY_QUEUED")
+
     _FLOAT_CACHE_STATE["data"] = float_cache
-    failed_count = sum(1 for state in _FLOAT_FETCH_STATE.values() if state.get("fetch_state") == "FAILED")
     print(
         "[FLOAT][SUMMARY] "
-        f"requested={requested} fetched_ok={fetched_ok} missing={missing} failed_state={failed_count}"
+        f"requested={requested} cache_hits={cache_hits} "
+        f"unknown_tolerated={unknown_tolerated} discovery_queued={discovery_queued}"
     )
     return float_cache
 

@@ -29,7 +29,7 @@ class FloatProvider:
 
     def __init__(
         self,
-        cache_path: str | Path = "data/fundamentals/float_cache.json",
+        cache_path: str | Path = "data/reference/float_cache.json",
         ttl_days: int = 7,
         sqlite_path: str | None = None,
     ) -> None:
