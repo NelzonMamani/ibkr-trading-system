@@ -59,6 +59,7 @@ from src.scanner.ranking_registry import resolve_watchlist_selector
 from src.scanner.result_models import CandidateMetrics, ScannerResult
 from src.scanner.reference_resolver import resolve_reference_bundle
 from src.scanner.session_pct_change import (
+    canonical_session_label,
     compute_phase_aware_rvol,
     compute_scanner_rvol,
     compute_session_aligned_pct_change,
@@ -66,6 +67,7 @@ from src.scanner.session_pct_change import (
     normalize_session_label,
     resolve_market_session_context,
     resolve_market_session_label,
+    resolve_session_diagnostics,
 )
 
 
@@ -509,14 +511,22 @@ def _ensure_provider_connection(provider: ScannerDataProvider, *, max_attempts: 
             delay_s = min(delay_s * 2.0, 8.0)
 
 
-def _resolve_runtime_thresholds(policy: StockSelectionPolicy) -> RuntimeThresholdResolution:
+def _resolve_runtime_thresholds(policy: StockSelectionPolicy, session_label: str) -> RuntimeThresholdResolution:
     watchlist_override = get_config_record("WATCHLIST_RVOL_MIN")
     focus_override = get_config_record("FOCUS_RVOL_MIN")
     spread_override = get_config_record("MAX_SPREAD_PCT")
     allow_unknown_float_override = get_config_record("ALLOW_UNKNOWN_FLOAT")
 
-    watchlist_default = float(getattr(policy, "watchlist_rvol_min", 0.5))
-    focus_default = float(getattr(policy, "focus_rvol_min", getattr(policy, "rvol_min", 2.0)))
+    normalized = normalize_session_label(session_label)
+    canonical = canonical_session_label(normalized)
+    watchlist_policy = dict(getattr(policy, "session_watchlist_rvol_min", {}) or {})
+    focus_policy = dict(getattr(policy, "session_focus_rvol_min", {}) or {})
+    watchlist_default = float(
+        watchlist_policy.get(normalized, watchlist_policy.get(canonical, getattr(policy, "watchlist_rvol_min", 0.5)))
+    )
+    focus_default = float(
+        focus_policy.get(normalized, focus_policy.get(canonical, getattr(policy, "focus_rvol_min", getattr(policy, "rvol_min", 2.0))))
+    )
     spread_default = getattr(policy, "spread_max_pct", None)
 
     watchlist_rvol_min = watchlist_default
@@ -2205,16 +2215,40 @@ def run_scanner_cycle(
     session_ctx = _market_session_context_utc(utc_now)
     session_label = forced_session_label or session_ctx.phase
     session_phase = forced_session_label or session_ctx.phase
+    session_diag = resolve_session_diagnostics(utc_now, forced_session_label=forced_session_label)
     daily_state = _get_ross_daily_state(utc_now, session_label)
     diagnostics: Dict[str, Any] = {"mode": mode, "ross_trading_day": daily_state.trading_day, "session_phase": session_phase}
     drop_ledger: Dict[str, str] = {}
     universe_top_n: list[dict[str, Any]] = []
     print(f"[SCANNER] MODE={mode} SESSION={session_label}")
-    print(f"[SESSION] utc={utc_now.strftime('%Y-%m-%dT%H:%M:%SZ')} ny={session_ctx.market_time.split('T', 1)[1]} resolved={session_label}")
+    print(
+        "[SESSION][MODE] "
+        f"utc={session_diag.utc_time} ny={session_diag.ny_time} resolved={session_diag.resolved_session} "
+        f"canonical={session_diag.canonical_session} reason={session_diag.reason} "
+        f"forced={forced_session_label or 'NONE'} reference_trading_date={session_diag.reference_trading_date} "
+        f"previous_valid_market_session_date={session_diag.previous_valid_market_session_date}"
+    )
     scanner_mode = get_scanner_mode()
     policy_source = "STRATEGY" if policy is not None else "CONFIG_DEFAULTS"
     resolved_policy = policy or policy_from_config()
-    runtime_thresholds = _resolve_runtime_thresholds(resolved_policy)
+    runtime_thresholds = _resolve_runtime_thresholds(resolved_policy, session_label)
+    execution_allowlist = [normalize_session_label(value) for value in getattr(resolved_policy, "execution_permitted_sessions", ())]
+    execution_allowed = normalize_session_label(session_label) in set(execution_allowlist)
+    print(
+        "[SESSION][RVOL_POLICY] "
+        f"session={normalize_session_label(session_label)} watchlist_rvol_min={runtime_thresholds.watchlist_rvol_min}({runtime_thresholds.watchlist_rvol_source}) "
+        f"focus_rvol_min={runtime_thresholds.focus_rvol_min}({runtime_thresholds.focus_rvol_source})"
+    )
+    print(
+        "[SESSION][PCT_REFERENCE] "
+        f"session={normalize_session_label(session_label)} pct_reference=LAST_RTH_CLOSE "
+        "gap_reference=SESSION_OPEN_VS_LAST_RTH_CLOSE closed_prep_reference=LAST_SESSION_REFERENCE"
+    )
+    print(
+        "[SESSION][EXECUTION_WINDOW] "
+        f"session={normalize_session_label(session_label)} execution_allowed={execution_allowed} "
+        f"execution_allowlist={execution_allowlist} prep_or_closed_mode={canonical_session_label(session_label) == 'CLOSED'}"
+    )
     print(
         "[SCANNER][POLICY] source={source} policy_name={policy_name} price={price_min}-{price_max} "
         "gap_min={gap_min} watchlist_rvol_min={watchlist_rvol_min}({watchlist_src}) focus_rvol_min={focus_rvol_min}({focus_src}) float_max_millions={float_max} "
