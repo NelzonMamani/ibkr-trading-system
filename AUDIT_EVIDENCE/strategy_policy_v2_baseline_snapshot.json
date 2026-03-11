@@ -1,8 +1,8 @@
 {
   "baseline_version": "v2.0.0",
-  "generated_at_utc": "2026-03-02T23:21:39Z",
-  "matrix_generation_timestamp_utc": "2026-03-02T23:21:39Z",
-  "certification_report_timestamp_utc": "2026-03-02T23:21:39Z",
+  "generated_at_utc": "2026-03-11T12:52:06Z",
+  "matrix_generation_timestamp_utc": "2026-03-11T12:52:06Z",
+  "certification_report_timestamp_utc": "2026-03-11T12:52:06Z",
   "strategies": [
     {
       "strategy_id": "P01",
@@ -20,13 +20,13 @@
       "strategy_id": "P03",
       "strategy_name": "mean_reversion",
       "policy_path": "src/strategies/mean_reversion/strategy_policy_v2.py",
-      "sha256": "4f9120f1507a388b562644f48d135d141e4a2c92038e8d4c7124bc0694923f09"
+      "sha256": "239e1de7d3da68604d4a2e8cf50b9bd8cf058ae145d079f69590908a38e9e754"
     },
     {
       "strategy_id": "P04",
       "strategy_name": "long_horizon_value",
       "policy_path": "src/strategies/long_horizon_value/strategy_policy_v2.py",
-      "sha256": "756f14b560042e7afb319dd2325f1a4b21d251430c5369fee4291e071bfb1dd1"
+      "sha256": "d7cfb702a862fa34ca8cdff968089ad0d77b776657f97c097a5054890365e5f3"
     },
     {
       "strategy_id": "P05",
