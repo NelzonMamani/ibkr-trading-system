@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import threading
-from datetime import datetime, timezone
 from pathlib import Path
 from queue import Empty, Queue
 
@@ -58,7 +56,7 @@ class FloatDiscoveryWorker:
         ):
             value, reason = provider_fn(symbol)
             if value is not None and value > 0:
-                self._write_cache(symbol=symbol, value=int(value), source=provider_name)
+                self._provider.record_discovery(symbol=symbol, value=int(value), source=provider_name)
                 print(
                     "[FLOAT][DISCOVERY_WORKER] "
                     f"symbol={symbol} provider={provider_name} result=SUCCESS value={int(value)}"
@@ -68,25 +66,6 @@ class FloatDiscoveryWorker:
                 "[FLOAT][DISCOVERY_WORKER] "
                 f"symbol={symbol} provider={provider_name} result=FAIL reason={reason or 'UNKNOWN'}"
             )
-
-    def _write_cache(self, *, symbol: str, value: int, source: str) -> None:
-        payload: dict[str, dict[str, object]] = {}
-        try:
-            if self._cache_path.exists():
-                loaded = json.loads(self._cache_path.read_text(encoding="utf-8"))
-                if isinstance(loaded, dict):
-                    payload = loaded
-        except Exception:
-            payload = {}
-
-        payload[symbol] = {
-            "float": int(value),
-            "source": source,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-
-        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
-        self._cache_path.write_text(json.dumps(payload, sort_keys=True, indent=2), encoding="utf-8")
 
 
 _WORKERS: dict[str, FloatDiscoveryWorker] = {}
