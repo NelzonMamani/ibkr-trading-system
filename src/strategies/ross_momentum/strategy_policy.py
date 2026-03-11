@@ -1,4 +1,4 @@
-from src.strategy_policy_v2.policy_v2 import (
+from src.strategies.ross_momentum.policy_models import (
     CatalystModelV2,
     CandleAndVolumeEvidenceModelV2,
     ConfirmationSpecV2,
@@ -49,7 +49,7 @@ from src.strategy_policy_v2.policy_v2 import (
     VolumeModelV2,
     TriggerModelV2,
 )
-from src.strategy_policy_v2.selection_plans import ScannerPlan
+from src.strategies.ross_momentum.selection_plans import ScannerPlan
 
 from dataclasses import dataclass, field, replace
 from enum import Enum
@@ -364,12 +364,12 @@ POLICY_V2 = StrategyPolicyV2(
     ),
     position_management=PositionManagementV2(
         allow_scale_in=True,
-        max_adds_per_position=0,
+        max_adds_per_position=3,
         allow_partials=True,
         averaging_down_allowed=False,
         notes=(
             "Adds are permitted only on fresh continuation structure (e.g., pullback re-entry). "
-            "No hard max adds is encoded in v1; value 0 denotes uncapped-by-policy and controlled by risk engine/session conditions."
+            "Scale-in adds use an explicit cap (3) in canonical law; broader risk-engine and portfolio caps still apply."
         ),
     ),
     trailing_model=TrailingModelV2(
@@ -1010,7 +1010,7 @@ class StockSelectionSpec:
     focus_limit_m: int = 5
     top_gainers_n: int = 50
     max_symbols_per_cycle: int = 50
-    session_allowlist: Sequence[str] = ("PRE", "REG", "AFTER")
+    session_allowlist: Sequence[str] = ("PRE", "RTH", "AH", "OVN")
     ranking_intent: str = "ROSS_MOMENTUM_STOCK_SELECTION"
 
 
@@ -1035,7 +1035,7 @@ def select_watchlist(
         if session_allowlist and session_label and session_label not in session_allowlist:
             reasons.append("SESSION_NOT_ALLOWED")
         gate_checks = observation.gate_checks or {}
-        failed_gates = [name for name, passed in gate_checks.items() if (name != "catalyst_ok" and not passed)]
+        failed_gates = [name for name, passed in gate_checks.items() if not passed]
         if failed_gates:
             reasons.extend([f"GATE_FAIL:{name}" for name in failed_gates])
         if reasons:
@@ -1061,6 +1061,11 @@ def select_watchlist(
 
 
 RossStockSelectionPolicy = StockSelectionSpec
+
+
+
+CANONICAL_POLICY = RossMomentumPolicy()
+ROSS_POLICY = CANONICAL_POLICY
 
 
 SESSION_PHASE_TO_MODE = {
