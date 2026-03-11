@@ -138,6 +138,19 @@ class GateThresholds:
     require_catalyst: bool
     allow_halts: bool
     allow_ssr: bool
+    allow_unknown_float: bool
+
+
+@dataclass(frozen=True)
+class RuntimeThresholdResolution:
+    watchlist_rvol_min: float
+    watchlist_rvol_source: str
+    focus_rvol_min: float
+    focus_rvol_source: str
+    spread_max_pct: Optional[float]
+    spread_max_pct_source: str
+    allow_unknown_float: bool
+    allow_unknown_float_source: str
 
 
 @dataclass(frozen=True)
@@ -501,24 +514,68 @@ def _ensure_provider_connection(provider: ScannerDataProvider, *, max_attempts: 
             delay_s = min(delay_s * 2.0, 8.0)
 
 
-def _gate_thresholds(policy: StockSelectionPolicy) -> GateThresholds:
+def _resolve_runtime_thresholds(policy: StockSelectionPolicy) -> RuntimeThresholdResolution:
+    watchlist_override = get_config_record("WATCHLIST_RVOL_MIN")
+    focus_override = get_config_record("FOCUS_RVOL_MIN")
+    spread_override = get_config_record("MAX_SPREAD_PCT")
+    allow_unknown_float_override = get_config_record("ALLOW_UNKNOWN_FLOAT")
+
+    watchlist_default = float(getattr(policy, "watchlist_rvol_min", 0.5))
+    focus_default = float(getattr(policy, "focus_rvol_min", getattr(policy, "rvol_min", 2.0)))
+    spread_default = getattr(policy, "spread_max_pct", None)
+
+    watchlist_rvol_min = watchlist_default
+    watchlist_source = "STRATEGY"
+    if watchlist_override.value is not None:
+        watchlist_rvol_min = float(watchlist_override.value)
+        watchlist_source = watchlist_override.source
+
+    focus_rvol_min = focus_default
+    focus_source = "STRATEGY"
+    if focus_override.value is not None:
+        focus_rvol_min = float(focus_override.value)
+        focus_source = focus_override.source
+
+    spread_max_pct = spread_default
+    spread_source = "STRATEGY"
+    if spread_override.value is not None:
+        spread_max_pct = float(spread_override.value)
+        spread_source = spread_override.source
+
+    allow_unknown_float = bool(allow_unknown_float_override.value)
+    allow_unknown_float_source = allow_unknown_float_override.source
+
+    return RuntimeThresholdResolution(
+        watchlist_rvol_min=watchlist_rvol_min,
+        watchlist_rvol_source=watchlist_source,
+        focus_rvol_min=focus_rvol_min,
+        focus_rvol_source=focus_source,
+        spread_max_pct=spread_max_pct,
+        spread_max_pct_source=spread_source,
+        allow_unknown_float=allow_unknown_float,
+        allow_unknown_float_source=allow_unknown_float_source,
+    )
+
+
+def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdResolution) -> GateThresholds:
     return GateThresholds(
         min_price=policy.price_min,
         max_price=policy.price_max,
         min_pct_change=policy.gap_min_pct,
         max_pct_change=policy.gap_max_pct,
-        watchlist_rvol_min=getattr(policy, "watchlist_rvol_min", 0.5),
-        focus_rvol_min=getattr(policy, "focus_rvol_min", policy.rvol_min),
+        watchlist_rvol_min=runtime.watchlist_rvol_min,
+        focus_rvol_min=runtime.focus_rvol_min,
         min_volume=policy.min_volume,
         min_premarket_volume=int(getattr(policy, "premarket_volume_min", policy.min_premarket_volume)),
         max_float=int(policy.float_max_millions * 1_000_000),
-        spread_max_pct=policy.spread_max_pct,
+        spread_max_pct=runtime.spread_max_pct,
         min_dollar_volume=policy.liquidity_min_dollar_volume,
         require_price=policy.data_quality_require_price,
         require_bid_ask=policy.data_quality_require_bid_ask,
         require_catalyst=policy.require_catalyst,
         allow_halts=policy.allow_halts,
         allow_ssr=policy.allow_ssr,
+        allow_unknown_float=runtime.allow_unknown_float,
     )
 
 
@@ -734,7 +791,7 @@ def _missingness_map(drop_reason: str, context: Dict[str, Any]) -> Dict[str, boo
 
 def _resolve_rvol_for_gates(context: Dict[str, Any]) -> Optional[float]:
     session = normalize_session_label(str(context.get("session") or ""))
-    if session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}:
+    if session in {"RTH_MID", "RTH_LATE"}:
         return _safe_float(context.get("rvol_phase"), None)
     return _safe_float(context.get("rvol_discovery"), None)
 
@@ -829,6 +886,8 @@ def _evaluate_float_gate(
     float_shares = context.get("float_shares")
     if float_shares is None:
         context["float_status"] = "UNKNOWN"
+        if not thresholds.allow_unknown_float:
+            return "DROP_FLOAT_MISSING"
         return None
     context["float_status"] = "KNOWN"
     if float_shares > thresholds.max_float:
@@ -868,6 +927,8 @@ def _evaluate_focus_gates(
     if bool(context.get("live_confirmation_pending")):
         return "DROP_LIVE_CONFIRMATION_PENDING"
     scanner_rvol = _resolve_rvol_for_gates(context)
+    rvol_phase = _safe_float(context.get("rvol_phase"), None)
+    rvol_discovery = _safe_float(context.get("rvol_discovery"), None)
     if scanner_rvol is None:
         print(
             "[FOCUS_GATE] "
@@ -875,13 +936,28 @@ def _evaluate_focus_gates(
             f"threshold={thresholds.focus_rvol_min} decision=WAIT"
         )
         return "DROP_MISSING_RVOL"
-    focus_decision = "KEEP" if scanner_rvol >= thresholds.focus_rvol_min else "WAIT"
+
+    early_rth = session == "RTH_OPEN"
+    has_momentum_context = bool(
+        (_safe_float(context.get("pct_change"), 0.0) or 0.0) >= thresholds.min_pct_change
+        and (rvol_discovery is not None and rvol_discovery >= thresholds.watchlist_rvol_min)
+    )
+    has_catalyst_context = bool(context.get("catalyst_present") or context.get("news_present") or context.get("catalyst_summary"))
+
+    if scanner_rvol >= thresholds.focus_rvol_min:
+        focus_decision = "KEEP"
+    elif early_rth and has_momentum_context and has_catalyst_context and rvol_phase is not None and rvol_phase >= thresholds.watchlist_rvol_min:
+        focus_decision = "KEEP_EARLY_RTH_CONTEXT"
+    else:
+        focus_decision = "WAIT"
+
     print(
         "[FOCUS_GATE] "
         f"symbol={context.get('symbol')} scanner_rvol={scanner_rvol} "
+        f"rvol_discovery={rvol_discovery} rvol_phase={rvol_phase} "
         f"threshold={thresholds.focus_rvol_min} decision={focus_decision}"
     )
-    if scanner_rvol < thresholds.focus_rvol_min:
+    if focus_decision == "WAIT":
         return "DROP_RVOL_FOCUS"
     if volume is None:
         return "DROP_MISSING_VOLUME"
@@ -2051,19 +2127,25 @@ def run_scanner_cycle(
     scanner_mode = get_scanner_mode()
     policy_source = "STRATEGY" if policy is not None else "CONFIG_DEFAULTS"
     resolved_policy = policy or policy_from_config()
+    runtime_thresholds = _resolve_runtime_thresholds(resolved_policy)
     print(
         "[SCANNER][POLICY] source={source} policy_name={policy_name} price={price_min}-{price_max} "
-        "gap_min={gap_min} watchlist_rvol_min={watchlist_rvol_min} focus_rvol_min={focus_rvol_min} float_max_millions={float_max} "
-        "spread_max_pct={spread_max_pct} watchlist_k={watchlist_k} focus_m={focus_m}".format(
+        "gap_min={gap_min} watchlist_rvol_min={watchlist_rvol_min}({watchlist_src}) focus_rvol_min={focus_rvol_min}({focus_src}) float_max_millions={float_max} "
+        "spread_max_pct={spread_max_pct}({spread_src}) allow_unknown_float={allow_unknown_float}({allow_unknown_float_src}) watchlist_k={watchlist_k} focus_m={focus_m}".format(
             source=policy_source,
             policy_name=resolved_policy.policy_name,
             price_min=resolved_policy.price_min,
             price_max=resolved_policy.price_max,
             gap_min=resolved_policy.gap_min_pct,
-            watchlist_rvol_min=getattr(resolved_policy, "watchlist_rvol_min", 0.5),
-            focus_rvol_min=getattr(resolved_policy, "focus_rvol_min", resolved_policy.rvol_min),
+            watchlist_rvol_min=runtime_thresholds.watchlist_rvol_min,
+            watchlist_src=runtime_thresholds.watchlist_rvol_source,
+            focus_rvol_min=runtime_thresholds.focus_rvol_min,
+            focus_src=runtime_thresholds.focus_rvol_source,
             float_max=resolved_policy.float_max_millions,
-            spread_max_pct=resolved_policy.spread_max_pct,
+            spread_max_pct=runtime_thresholds.spread_max_pct,
+            spread_src=runtime_thresholds.spread_max_pct_source,
+            allow_unknown_float=runtime_thresholds.allow_unknown_float,
+            allow_unknown_float_src=runtime_thresholds.allow_unknown_float_source,
             watchlist_k=resolved_policy.watchlist_limit_k,
             focus_m=resolved_policy.focus_limit_m,
         )
@@ -2271,7 +2353,7 @@ def run_scanner_cycle(
         )
 
         float_cache = _bootstrap_float_cache(symbols, provider)
-        thresholds = _gate_thresholds(resolved_policy)
+        thresholds = _gate_thresholds(resolved_policy, runtime_thresholds)
         candidates: List[Dict[str, Any]] = []
         evaluated_contexts: List[Dict[str, Any]] = []
 
@@ -2802,6 +2884,21 @@ def run_scanner_cycle(
             ),
         )[:focus_limit]
         deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
+
+        if not deep_rows and watchlist_contexts:
+            focus_drop_reasons = Counter(
+                str(context.get("focus_drop_reason") or "")
+                for context in watchlist_contexts
+                if context.get("focus_drop_reason")
+            )
+            print(
+                "[SCANNER][FOCUS_EMPTY] "
+                f"blocked_by_focus_rvol={focus_drop_reasons.get('DROP_RVOL_FOCUS', 0)} "
+                f"blocked_by_spread={focus_drop_reasons.get('DROP_SPREAD', 0) + focus_drop_reasons.get('DROP_MISSING_SPREAD', 0)} "
+                f"blocked_by_float={focus_drop_reasons.get('DROP_FLOAT_MAX', 0) + focus_drop_reasons.get('DROP_FLOAT_MISSING', 0)} "
+                f"blocked_by_news={focus_drop_reasons.get('DROP_NO_CATALYST', 0)} "
+                f"blocked_by_data_quality={focus_drop_reasons.get('DROP_MISSING_BID_ASK', 0) + focus_drop_reasons.get('DROP_MISSING_PRICE', 0) + focus_drop_reasons.get('DROP_MISSING_RVOL', 0)}"
+            )
 
         exclusion_counts = Counter(drop_ledger.values())
         drop_summary = dict(exclusion_counts)
