@@ -70,7 +70,7 @@ from src.scanner.session_pct_change import (
 
 
 _FLOAT_CACHE_STATE: Dict[str, Any] = {
-    "as_of": None,
+    "mtime_ns": None,
     "data": {},
 }
 _FLOAT_SOURCE_BY_SYMBOL: Dict[str, str] = {}
@@ -315,6 +315,7 @@ def _should_print_watchlist(
 def _load_float_cache(path: Path) -> Dict[str, Dict[str, Any]]:
     try:
         if not path.exists():
+            print(f"[FLOAT][CACHE_LOAD] path={path.resolve()} entries=0")
             return {}
         data = path.read_text(encoding="utf-8")
         parsed = json.loads(data)
@@ -323,37 +324,48 @@ def _load_float_cache(path: Path) -> Dict[str, Dict[str, Any]]:
             normalized: Dict[str, Dict[str, Any]] = {}
             for k, v in parsed.items():
                 if isinstance(v, dict):
-                    value = v.get("float_value")
+                    value = v.get("float")
                     if value is None:
-                        value = v.get("float")
-                    if isinstance(value, (int, float)):
-                        normalized[k] = {
-                            "float_value": int(value),
-                            "float_source": v.get("float_source") or v.get("source"),
-                            "float_asof": v.get("float_asof") or v.get("timestamp"),
-                        }
-                elif isinstance(v, (int, float)):
+                        value = v.get("float_value")
+                    if not isinstance(value, (int, float)):
+                        continue
+                    source = v.get("source")
+                    if source is None:
+                        source = v.get("float_source")
+                    timestamp = v.get("timestamp")
+                    if timestamp is None:
+                        timestamp = v.get("float_asof")
+                    if source is None:
+                        print(f"[FLOAT][PROVENANCE] symbol={k} reason=schema_invalid detail=missing_source")
+                        continue
+                    if isinstance(timestamp, str):
+                        try:
+                            parsed_asof = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                            if parsed_asof.tzinfo is None:
+                                parsed_asof = parsed_asof.replace(tzinfo=timezone.utc)
+                            if datetime.now(timezone.utc) - parsed_asof > timedelta(days=7):
+                                print(f"[FLOAT][PROVENANCE] symbol={k} reason=stale")
+                                continue
+                        except ValueError:
+                            pass
                     normalized[k] = {
-                        "float_value": int(v),
-                        "float_source": "CACHE_LEGACY",
-                        "float_asof": None,
+                        "float_value": int(value),
+                        "float_source": str(source),
+                        "float_asof": timestamp,
                     }
+            print(f"[FLOAT][CACHE_LOAD] path={path.resolve()} entries={len(normalized)}")
             return normalized
     except Exception:
+        print(f"[FLOAT][CACHE_LOAD] path={path.resolve()} entries=0")
         return {}
+    print(f"[FLOAT][CACHE_LOAD] path={path.resolve()} entries=0")
     return {}
 
 
-def _persist_float_cache(path: Path, float_cache: Dict[str, Dict[str, Any]]) -> None:
-    try:
-        path.write_text(json.dumps(float_cache, sort_keys=True, indent=2), encoding="utf-8")
-    except Exception as exc:
-        print(f"[SCANNER][FLOAT] Failed to persist float cache: {exc}")
-
-
-
 def _resolve_float_cache_path() -> Path:
-    return Path("data/reference/float_cache.json")
+    path = Path("data/reference/float_cache.json")
+    print(f"[FLOAT][CACHE_PATH] path={path.resolve()}")
+    return path
 
 
 def _bootstrap_float_cache(
@@ -361,11 +373,17 @@ def _bootstrap_float_cache(
     provider: ScannerDataProvider,
 ) -> Dict[str, Dict[str, Any]]:
     global _FLOAT_CACHE_STATE, _FLOAT_SOURCE_BY_SYMBOL, _FLOAT_CACHE_HIT_SYMBOLS
-    today = datetime.now(timezone.utc).date().isoformat()
     cache_path = _resolve_float_cache_path()
 
-    if _FLOAT_CACHE_STATE.get("as_of") != today:
-        _FLOAT_CACHE_STATE = {"as_of": today, "data": _load_float_cache(cache_path)}
+    file_mtime_ns = None
+    if cache_path.exists():
+        try:
+            file_mtime_ns = cache_path.stat().st_mtime_ns
+        except Exception:
+            file_mtime_ns = None
+
+    if _FLOAT_CACHE_STATE.get("mtime_ns") != file_mtime_ns:
+        _FLOAT_CACHE_STATE = {"mtime_ns": file_mtime_ns, "data": _load_float_cache(cache_path)}
 
     float_cache: Dict[str, Dict[str, Any]] = _FLOAT_CACHE_STATE.get("data", {})
     worker = get_float_discovery_worker(cache_path)
@@ -394,6 +412,11 @@ def _bootstrap_float_cache(
 
         _FLOAT_SOURCE_BY_SYMBOL[symbol] = "UNKNOWN"
         unknown_tolerated += 1
+        if symbol not in float_cache:
+            reason = "cache_missing" if not cache_path.exists() else "json_miss"
+        else:
+            reason = "schema_invalid"
+        print(f"[FLOAT][PROVENANCE] symbol={symbol} reason={reason}")
         print(f"[FLOAT][RESOLVE] symbol={symbol} source=UNKNOWN tolerated=True")
         if worker.enqueue(symbol):
             discovery_queued += 1
