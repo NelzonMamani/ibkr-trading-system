@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import ClassVar, Optional
 
 from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
 from src.brokers.base_broker import BaseBroker, BrokerOrderRequest
@@ -29,7 +29,9 @@ class IbkrBroker(BaseBroker):
     any order submission attempts.
     """
 
+    MAX_CLIENT_ID_RETRIES: ClassVar[int] = 10
     client: Optional[IbkrClient] = field(default=None)
+    client_id: Optional[int] = field(default=None)
 
     def __post_init__(self) -> None:
         if self.client is None:
@@ -41,6 +43,7 @@ class IbkrBroker(BaseBroker):
                 market_data_type=get_ibkr_market_data_type(),
                 readonly_enabled=get_ibkr_readonly_enabled(),
             )
+        self.client_id = getattr(self.client, "client_id", None)
 
     def name(self) -> str:
         return "IBKR_BROKER"
@@ -50,18 +53,64 @@ class IbkrBroker(BaseBroker):
 
     # --- Read-only helpers ---
     def connect(self) -> None:
-        assert self.client is not None
-        self.client.connect()
+        host = get_ibkr_host()
+        port = get_ibkr_port()
+        base_client_id = get_ibkr_client_id()
+
+        for attempt in range(self.MAX_CLIENT_ID_RETRIES):
+            client_id = base_client_id + attempt
+            print(f"[IBKR] host={host} port={port} client_id={client_id}")
+            try:
+                self.client = IbkrClient(
+                    host=host,
+                    port=port,
+                    client_id=client_id,
+                    snapshot_timeout_seconds=get_ibkr_snapshot_timeout_seconds(),
+                    market_data_type=get_ibkr_market_data_type(),
+                    readonly_enabled=get_ibkr_readonly_enabled(),
+                )
+                print(f"[IBKR] Attempting connection client_id={client_id}")
+                self.client.connect()
+                status = self.client.is_connected()
+                print(f"[IBKR] connection_status={status}")
+                if status:
+                    self.client_id = client_id
+                    print(f"[IBKR][CONNECTED] Connected client_id={client_id}")
+                    return
+            except Exception as exc:
+                message = str(exc).lower()
+                if "client id" in message or "326" in message:
+                    print(
+                        f"[IBKR][RETRY] client_id={client_id} already in use. Trying next client id."
+                    )
+                    continue
+                print(f"[IBKR][CONNECT_FAIL] client_id={client_id} error={exc}")
+                raise
+
+        print("[IBKR][CONNECT_FAIL] IBKR connection failed after clientId retries")
+        raise RuntimeError("IBKR connection failed after clientId retries")
 
     def disconnect(self) -> None:
-        assert self.client is not None
-        self.client.disconnect()
+        try:
+            if self.client and self.client.is_connected():
+                print(f"[IBKR] Disconnecting client_id={getattr(self, 'client_id', None)}")
+                self.client.disconnect()
+                print("[IBKR][DISCONNECTED] client disconnected")
+        except Exception as exc:
+            print(f"[IBKR] Disconnect warning: {exc}")
+
+    def ensure_connection(self) -> None:
+        if not self.client or not self.client.is_connected():
+            print("[IBKR] Connection lost. Reconnecting.")
+            self.connect()
 
     def resolve_contract(self, symbol: str) -> object:
+        self.ensure_connection()
         assert self.client is not None
         return self.client.resolve_contract(symbol)
 
     def get_market_snapshot(self, symbol: str) -> MarketSnapshot:
+        self.ensure_connection()
         assert self.client is not None
         return self.client.get_market_snapshot(symbol)
 
