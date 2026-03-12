@@ -574,4 +574,7 @@ class ExecutionEngine:
         safe orchestrator shutdown sequencing.
         """
 
-        print("[EXECUTION] Shutdown requested — placeholder cleanup complete.")
+        broker = getattr(self._provider, "broker", None)
+        if broker is not None and hasattr(broker, "disconnect"):
+            broker.disconnect(reason="execution_engine_shutdown")
+        print("[EXECUTION] Shutdown requested — broker cleanup complete.")
