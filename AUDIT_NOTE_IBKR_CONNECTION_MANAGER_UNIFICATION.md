@@ -44,3 +44,17 @@
   - submitter does not connect/disconnect directly
   - shutdown disconnect once
 - `tests/test_ibkr_connection_resilience.py` updated for manager config baseline.
+
+
+## Runtime hardening additions
+- `IbkrConnectionManager` now tracks reconnect telemetry: `reconnect_count`, `last_reconnect_time`, and `last_disconnect_reason`.
+- Watchdog/heartbeat APIs were added:
+  - `ensure_connection_health()` detects connection loss and performs reconnect via the manager-only retry path.
+  - `heartbeat()` is safe/idempotent and reconnects only when disconnected.
+- Reconnect logging standardized with:
+  - `[IBKR][MANAGER] connection_lost`
+  - `[IBKR][MANAGER] reconnect_attempt client_id=...`
+  - `[IBKR][MANAGER] reconnect_success client_id=... generation=...`
+  - `[IBKR][MANAGER] heartbeat ok client_id=...`
+- Continuous orchestrator loop now invokes manager heartbeat once per cycle in `src/cli/run_trading_loop.py`.
+- Shutdown safety preserved: manager marks shutdown and suppresses reconnect attempts after `disconnect(reason="...shutdown...")`.

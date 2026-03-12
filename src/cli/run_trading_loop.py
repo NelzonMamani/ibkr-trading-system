@@ -8,6 +8,7 @@ import time
 from src.core_engine import orchestrator as core_orchestrator
 from src.core_engine.state import SessionState
 from src.runtime.bootstrap import bootstrap_runtime
+from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
 
 
 def _parse_args() -> argparse.Namespace:
@@ -54,8 +55,10 @@ def main() -> int:
     forced_session = _forced_session(args.session_override)
 
     cycle_id = 1
+    manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
     try:
         while args.max_cycles == 0 or cycle_id <= args.max_cycles:
+            manager.heartbeat()
             core_orchestrator.run_cycle(
                 cycle_id=cycle_id,
                 mode_value=args.mode,
