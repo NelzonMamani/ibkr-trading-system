@@ -2245,6 +2245,16 @@ def run_scanner_cycle(
         "gap_reference=SESSION_OPEN_VS_LAST_RTH_CLOSE closed_prep_reference=LAST_SESSION_REFERENCE"
     )
     print(
+        "[PREP][MODE] "
+        f"session={normalize_session_label(session_label)} prep_watchlist_enabled=True "
+        f"seed_enabled={normalize_session_label(session_label) == 'PRE'} execution_allowed={execution_allowed}"
+    )
+    print(
+        "[PREP][REFERENCE] "
+        f"session={normalize_session_label(session_label)} pct_reference=LAST_RTH_CLOSE "
+        f"gap_reference=SESSION_OPEN_VS_LAST_RTH_CLOSE reference_date={session_diag.reference_trading_date}"
+    )
+    print(
         "[SESSION][EXECUTION_WINDOW] "
         f"session={normalize_session_label(session_label)} execution_allowed={execution_allowed} "
         f"execution_allowlist={execution_allowlist} prep_or_closed_mode={canonical_session_label(session_label) == 'CLOSED'}"
@@ -2776,6 +2786,10 @@ def run_scanner_cycle(
         # Watchlist gate is created here from the raw scanner universe (cheap metrics only).
         print("[SCANNER][STAGE] watchlist")
         ranked = _rank_candidates(candidates)
+        print(
+            "[WATCHLIST][INPUT] "
+            f"session={normalize_session_label(session_label)} gated_survivors={len(ranked)} k={watchlist_limit}"
+        )
         if selector is not None:
             selection_metrics = candidate_metrics_for_ranking
             if session_label == "WEEKEND" and run_mode != RunMode.LIVE:
@@ -2794,7 +2808,19 @@ def run_scanner_cycle(
             ]
         else:
             watchlist_contexts = ranked[:watchlist_limit] if watchlist_limit > 0 else []
-        if watchlist_limit > 0 and len(ranked) >= watchlist_limit and len(watchlist_contexts) < watchlist_limit:
+        if ranked:
+            ordered_symbols = [context["symbol"] for context in ranked]
+            print(
+                "[WATCHLIST][ORDER] "
+                f"symbols={ordered_symbols} ranking_basis=pct_change,rvol,dollar_volume"
+            )
+        if watchlist_limit > 0 and len(ranked) <= watchlist_limit:
+            print(
+                "[WATCHLIST][PASS] "
+                f"survivor_count={len(ranked)} <= k={watchlist_limit}; all survivors expected unless explicitly rejected"
+            )
+            watchlist_contexts = ranked[:]
+        elif watchlist_limit > 0 and len(watchlist_contexts) < watchlist_limit:
             selected_symbols = {context["symbol"] for context in watchlist_contexts}
             for context in ranked:
                 symbol = context["symbol"]
@@ -2843,11 +2869,24 @@ def run_scanner_cycle(
             f"float_pass={discovery_stats['float_pass']} "
             f"watchlist_final={discovery_stats['watchlist_final']}"
         )
+        if watchlist_limit > 0 and ranked and not watchlist_contexts:
+            watchlist_contexts = ranked[:watchlist_limit]
+            print(
+                "[WATCHLIST][FALLBACK] "
+                "selector_underflow=True reason=EMPTY_SELECTION_WITH_SURVIVORS"
+            )
+
         watchlist_set = {context["symbol"] for context in watchlist_contexts}
         for context in ranked:
             if context["symbol"] in watchlist_set:
+                drop_ledger.pop(context["symbol"], None)
                 continue
             drop_ledger.setdefault(context["symbol"], "DROP_RANK_BELOW_WATCHLIST")
+            rank_value = next((idx for idx, row in enumerate(ranked, start=1) if row["symbol"] == context["symbol"]), None)
+            print(
+                "[WATCHLIST][DROP] "
+                f"symbol={context['symbol']} reason=DROP_RANK_BELOW_WATCHLIST rank={rank_value} threshold={watchlist_limit}"
+            )
             print(
                 "[SCANNER][DROP] symbol="
                 f"{context['symbol']} reason=DROP_RANK_BELOW_WATCHLIST"
@@ -2863,6 +2902,10 @@ def run_scanner_cycle(
                         "threshold": watchlist_limit,
                     },
                 )
+        print(
+            "[WATCHLIST][SELECT] "
+            f"selected={len(watchlist_contexts)} selected_symbols={[context['symbol'] for context in watchlist_contexts]}"
+        )
         if watchlist_limit > 0 and len(watchlist_contexts) < watchlist_limit:
             ranked_all = _rank_candidates(evaluated_contexts)
             existing = {context["symbol"] for context in watchlist_contexts}
