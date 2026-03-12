@@ -28,6 +28,7 @@ from src.prep.premarket_prep_artifact import (
     write_canonical_premarket_prep_artifact,
 )
 from src.risk.risk_audit import AccountSnapshot, evaluate_trade_intents
+from src.utils.capital_resolver import resolve_available_capital
 from src.runtime.bootstrap import bootstrap_runtime
 from src.scanner.contracts import StockSelectionPolicy
 from src.scanner.scanner_contract import scanner_request_from_policy
@@ -63,6 +64,23 @@ STAGE_ORDER = [
     "Storage",
     "Health",
 ]
+
+
+def _resolve_live_available_funds() -> float:
+    try:
+        from src.brokers.ibkr_broker import IbkrBroker
+
+        broker = IbkrBroker()
+        broker.connect()
+        try:
+            assert broker.client is not None
+            return float(resolve_available_capital(broker.client))
+        finally:
+            broker.disconnect()
+    except Exception as exc:
+        print(f"[CAPITAL][IBKR] unavailable reason={exc}")
+        return float(get_config("RISK_ACCOUNT_EQUITY"))
+
 
 
 _prep_engine = PreMarketPrepEngine(event_collector=None)
@@ -385,7 +403,7 @@ def run_cycle(
     health_status = None
     if health_triggers:
         health_status = combine_health(health_triggers).status
-    account = AccountSnapshot(available_funds=float(get_config("RISK_ACCOUNT_EQUITY")))
+    account = AccountSnapshot(available_funds=_resolve_live_available_funds())
     risk_outputs = evaluate_trade_intents(
         intents=intents,
         mode=mode,

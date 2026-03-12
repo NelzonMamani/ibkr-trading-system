@@ -45,6 +45,8 @@ class IbkrOrderTranslator:
         if order.orderType == "LMT":
             order.lmtPrice = internal_order.limit_price
 
+        order.outsideRth = True
+
         self.log_translation(contract, order)
         return contract, order
 
@@ -75,7 +77,7 @@ class IbkrOrderTranslator:
         order_log = (
             f"[IBKR][DRY-RUN] Translated Order: action={order.action} "
             f"orderType={order.orderType} totalQuantity={order.totalQuantity} "
-            f"tif={order.tif}"
+            f"tif={order.tif} outsideRth={getattr(order, 'outsideRth', None)}"
         )
         if getattr(order, "lmtPrice", None) is not None:
             order_log += f" lmtPrice={order.lmtPrice}"

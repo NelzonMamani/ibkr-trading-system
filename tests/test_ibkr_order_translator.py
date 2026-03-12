@@ -44,6 +44,7 @@ def test_long_market_translation(capsys):
     assert order.orderType == "MKT"
     assert order.totalQuantity == 10
     assert order.tif == "DAY"
+    assert order.outsideRth is True
 
     captured = capsys.readouterr().out
     assert "IBKR ORDER TRANSLATION DRY-RUN — NO SUBMISSION PERFORMED" in captured
@@ -72,6 +73,7 @@ def test_short_limit_translation():
     assert order.orderType == "LMT"
     assert order.lmtPrice == 310.5
     assert order.tif == "IOC"
+    assert order.outsideRth is True
 
 
 def test_invalid_direction_raises():
