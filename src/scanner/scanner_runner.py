@@ -205,6 +205,25 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def reset_scanner_runtime_state(*, clear_persistent_provider: bool = True) -> None:
+    """Reset scanner module runtime globals to avoid cross-test/runtime leakage."""
+    global _WATCHLIST_HASH, _LAST_SESSION_LABEL, _SCAN_CYCLE_COUNT, _LAST_PRINT_CYCLE, _PERSISTENT_PROVIDER, _PERSISTENT_PROVIDER_SOURCE, _ROSS_DAILY_STATE
+    _PREV_WATCHLIST.clear()
+    _WATCHLIST_HASH = None
+    _LAST_SESSION_LABEL = None
+    _SCAN_CYCLE_COUNT = 0
+    _LAST_PRINT_CYCLE = 0
+    _ROSS_DAILY_STATE = None
+    if clear_persistent_provider:
+        if _PERSISTENT_PROVIDER is not None:
+            try:
+                _PERSISTENT_PROVIDER.disconnect()
+            except Exception:
+                pass
+        _PERSISTENT_PROVIDER = None
+        _PERSISTENT_PROVIDER_SOURCE = None
+
+
 def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
     try:
         if value is None:
@@ -989,6 +1008,14 @@ def _evaluate_focus_gates(
     )
     if focus_decision == "WAIT":
         return "DROP_RVOL_FOCUS"
+    if focus_decision == "KEEP_EARLY_RTH_CONTEXT":
+        print(
+            "[FOCUS_GATE] "
+            f"symbol={context.get('symbol')} focus_threshold_used={threshold_value} "
+            f"rvol_metric_used={rvol_metric_used} rvol_metric_value={focus_rvol_value} "
+            "reason=PASS_EARLY_RTH_CONTEXT_TERMINAL decision=PASS"
+        )
+        return None
     if volume is None:
         _log_focus_volume_drop(
             context=context,
@@ -2347,8 +2374,6 @@ def run_scanner_cycle(
     allow_mock_fallback = run_mode in {RunMode.SIM, RunMode.PAPER} or explicit_mock
     allow_symbol_fallback = allow_mock_fallback
     using_external_provider = provider is not None
-    if provider is None and _PERSISTENT_PROVIDER is not None:
-        provider = _PERSISTENT_PROVIDER
     provider_error: Optional[str] = None
     provider_fallback: Optional[dict[str, str | None]] = None
     provider_source = "IBKR"
@@ -2365,6 +2390,7 @@ def run_scanner_cycle(
     except ProviderConnectionError as exc:
         provider_error = str(exc)
         diagnostics["provider_error"] = provider_error
+        print("STATE=DEGRADED")
         if allow_mock_fallback:
             provider_fallback = {
                 "from": "IBKR",
@@ -2372,7 +2398,6 @@ def run_scanner_cycle(
                 "reason": provider_error,
             }
             diagnostics["provider_fallback"] = provider_fallback
-            print("STATE=DEGRADED")
             print(
                 "[SCANNER][WARN] Provider connection failed — "
                 f"falling back to MOCK reason={exc}"
