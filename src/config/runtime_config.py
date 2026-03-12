@@ -5,6 +5,7 @@ This module exposes backwards-compatible accessors backed by config_resolver.
 """
 
 from __future__ import annotations
+import os
 from dataclasses import dataclass
 from enum import Enum
 
@@ -20,6 +21,7 @@ class RunMode(str, Enum):
 
 
 DEFAULT_RUN_MODE: RunMode = RunMode.LIVE
+DEFAULT_CAPITAL: float = float(os.getenv("TRADING_DEFAULT_CAPITAL", "160"))
 
 
 class RuntimeConfigError(RuntimeError):
@@ -42,6 +44,10 @@ def _with_default(name: str, default):
 
 def get_run_mode() -> RunMode:
     return RunMode(get_config("RUN_MODE_EFFECTIVE"))
+
+
+def get_default_capital(default: float = DEFAULT_CAPITAL) -> float:
+    return float(os.getenv("TRADING_DEFAULT_CAPITAL", str(default)))
 
 
 def is_live_read_only_required() -> bool:

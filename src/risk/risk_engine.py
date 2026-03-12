@@ -14,6 +14,7 @@ from src.config.config_resolver import get_config
 from src.config.system_config import get_current_market_session
 from src.config.runtime_config import (
     RunMode,
+    get_default_capital,
     get_ibkr_readonly_enabled,
     get_risk_account_equity,
     get_risk_profile_name,
@@ -183,8 +184,11 @@ class RiskEngine:
         max_open_positions = int(get_config("RISK_MAX_OPEN_POSITIONS"))
         total_exposure = self._total_exposure()
         total_exposure_limit = self._total_exposure_limit()
+        available_capital = float(get_default_capital())
+        print(f"[RISK][CAPITAL] source=CONFIG default_available_capital={available_capital}")
         evaluated_limits = {
             "profile": risk_profile.name,
+            "available_capital": available_capital,
             "max_position_size": self._resolve_profile_size(risk_profile),
             "max_open_positions": max_open_positions,
             "open_positions": open_positions,
@@ -194,6 +198,9 @@ class RiskEngine:
             "daily_trade_limit": risk_profile.daily_max_trades,
             "session": session_label,
             "active_sessions": active_sessions,
+            "execution_allowed": not session_blocked,
+            "execution_ready": session_label in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"},
+            "prep_only": session_label in {"AH", "OVN", "CLOSED", "WEEKEND"},
             "execution_enabled": execution_enabled,
             "run_mode": run_mode.value,
         }
@@ -395,8 +402,11 @@ class RiskEngine:
         max_open_positions = int(get_config("RISK_MAX_OPEN_POSITIONS"))
         total_exposure = self._total_exposure()
         total_exposure_limit = self._total_exposure_limit()
+        available_capital = float(get_default_capital())
+        print(f"[RISK][CAPITAL] source=CONFIG default_available_capital={available_capital}")
         evaluated_limits = {
             "profile": risk_profile.name,
+            "available_capital": available_capital,
             "max_position_size": self._resolve_profile_size(risk_profile),
             "max_open_positions": max_open_positions,
             "open_positions": open_positions,
@@ -406,6 +416,9 @@ class RiskEngine:
             "daily_trade_limit": risk_profile.daily_max_trades,
             "session": session_label,
             "active_sessions": active_sessions,
+            "execution_allowed": not session_blocked,
+            "execution_ready": session_label in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"},
+            "prep_only": session_label in {"AH", "OVN", "CLOSED", "WEEKEND"},
             "execution_enabled": execution_enabled,
             "run_mode": run_mode.value,
         }
