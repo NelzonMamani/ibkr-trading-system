@@ -66,6 +66,14 @@ def set_config_overrides(overrides: Dict[str, Any] | None) -> None:
     except Exception:
         pass
 
+    # Reset scanner runtime globals so provider/watchlist print state cannot leak across override changes.
+    try:
+        from src.scanner.scanner_runner import reset_scanner_runtime_state
+
+        reset_scanner_runtime_state(clear_persistent_provider=True)
+    except Exception:
+        pass
+
 
 def clear_config_overrides() -> None:
     """Clear in-process overrides and invalidate caches."""

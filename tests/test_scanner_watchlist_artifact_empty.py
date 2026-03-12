@@ -17,13 +17,10 @@ from strategies.ross_momentum.strategy_policy import RossMomentumPolicy
 
 @pytest.fixture(autouse=True)
 def _reset_scanner_state():
-    scanner_runner._PREV_WATCHLIST.clear()
-    scanner_runner._WATCHLIST_HASH = None
-    scanner_runner._LAST_SESSION_LABEL = None
-    scanner_runner._SCAN_CYCLE_COUNT = 0
-    scanner_runner._LAST_PRINT_CYCLE = 0
+    scanner_runner.reset_scanner_runtime_state(clear_persistent_provider=True)
     set_config_overrides({})
     yield
+    scanner_runner.reset_scanner_runtime_state(clear_persistent_provider=True)
     set_config_overrides({})
 
 
