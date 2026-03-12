@@ -244,8 +244,28 @@ class StrategyRunner:
         timestamp_utc: str,
         mode,
         session_phase: str,
+        execution_allowed: bool | None = None,
+        execution_ready: bool | None = None,
+        prep_only: bool | None = None,
     ) -> List[TradeIntent]:
         strategies = list(self.strategies)
+        session_norm = str(session_label or "").upper()
+        resolved_execution_allowed = (
+            execution_allowed if execution_allowed is not None else session_norm in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
+        )
+        resolved_execution_ready = (
+            execution_ready if execution_ready is not None else session_norm in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
+        )
+        resolved_prep_only = (
+            prep_only if prep_only is not None else session_norm in {"AH", "OVN", "CLOSED", "WEEKEND"}
+        )
+        print(
+            "[EXECUTION_WINDOW] "
+            f"session={session_norm or 'UNKNOWN'} "
+            f"execution_allowed={resolved_execution_allowed} "
+            f"execution_ready={resolved_execution_ready} "
+            f"prep_only={resolved_prep_only}"
+        )
         print(
             "[STRATEGY][PROCESS] "
             f"strategy_key={strategy_key} strategies={len(strategies)} "
