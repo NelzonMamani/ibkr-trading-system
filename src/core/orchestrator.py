@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 import json
 import os
+from pathlib import Path
 import re
 from threading import Lock, Thread
 from uuid import uuid4
@@ -29,7 +30,7 @@ from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.data.fundamentals.float_provider import FloatProvider
-from src.data.manual_focus_loader import load_manual_focus_config
+from src.data.manual_focus_loader import ManualFocusConfig
 from src.core.faults import (
     RecoveryAction,
     classify_exception,
@@ -120,6 +121,94 @@ from src.strategies.mean_reversion.scanner_policy import (
 from src.strategies.strategy_registry import StrategyRegistry, build_default_registry
 from src.utils.time_utils import market_session_phase, to_ny_time, to_uk_time
 from src.regime.layer import RegimeLayer
+
+
+def _resolve_project_root() -> Path:
+    """
+    Resolve repository root deterministically.
+
+    Expected structure:
+
+        repo_root/
+            src/
+            config/
+            data/
+    """
+    current = Path(__file__).resolve()
+
+    for parent in current.parents:
+        if (parent / "config").exists() and (parent / "src").exists():
+            return parent
+
+    # fallback (should never happen but prevents runtime crash)
+    return Path.cwd()
+
+
+PROJECT_ROOT = _resolve_project_root()
+MANUAL_FOCUS_PATH = PROJECT_ROOT / "config" / "manual_focus.json"
+
+
+def _disabled_manual_focus_config() -> ManualFocusConfig:
+    return ManualFocusConfig(
+        enabled=False,
+        manual_focus=[],
+        max_manual_symbols=0,
+        live_reload_seconds=60,
+    )
+
+
+def _manual_focus_config_from_dict(payload: dict) -> ManualFocusConfig:
+    enabled = bool(payload.get("enabled", True))
+    raw_symbols = payload.get("manual_focus", [])
+    if not isinstance(raw_symbols, list):
+        raw_symbols = []
+
+    deduped_symbols: list[str] = []
+    for symbol in raw_symbols:
+        normalized = str(symbol or "").strip().upper()
+        if not normalized or normalized in deduped_symbols:
+            continue
+        deduped_symbols.append(normalized)
+
+    max_manual_symbols = int(payload.get("max_manual_symbols", 5))
+    if max_manual_symbols < 0:
+        max_manual_symbols = 0
+    deduped_symbols = deduped_symbols[:max_manual_symbols]
+
+    live_reload_seconds = int(payload.get("live_reload_seconds", 60))
+    if live_reload_seconds <= 0:
+        live_reload_seconds = 60
+
+    return ManualFocusConfig(
+        enabled=enabled,
+        manual_focus=deduped_symbols,
+        max_manual_symbols=max_manual_symbols,
+        live_reload_seconds=live_reload_seconds,
+    )
+
+
+def load_manual_focus_config() -> ManualFocusConfig:
+    path = MANUAL_FOCUS_PATH
+
+    if not path.exists():
+        print(f"[MANUAL_FOCUS][CONFIG_MISSING] path={path}")
+        return _disabled_manual_focus_config()
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+
+        print(f"[MANUAL_FOCUS][CONFIG_PATH] {path}")
+
+        if not isinstance(payload, dict):
+            print(f"[MANUAL_FOCUS][CONFIG_ERROR] invalid_schema={type(payload).__name__}")
+            return _disabled_manual_focus_config()
+
+        return _manual_focus_config_from_dict(payload)
+
+    except Exception as e:
+        print(f"[MANUAL_FOCUS][CONFIG_ERROR] {e}")
+        return _disabled_manual_focus_config()
 
 
 class RuntimeSafetyError(RuntimeError):
