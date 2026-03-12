@@ -15,6 +15,9 @@ from src.risk.data_quality_contract import data_quality_blocking_causes
 @dataclass(frozen=True)
 class AccountSnapshot:
     available_funds: float
+    source: str = "UNKNOWN"
+    canonical: bool = False
+    broker_connection_state: str = "UNKNOWN"
 
 
 def compute_capital_per_symbol(available_capital: float, focus_count: int) -> float:
@@ -30,7 +33,7 @@ def evaluate_trade_intents(
     account: AccountSnapshot | None = None,
 ) -> List[RiskDecisionRecord]:
     decisions: List[RiskDecisionRecord] = []
-    resolved_account = account or AccountSnapshot(available_funds=float(get_config("RISK_ACCOUNT_EQUITY")))
+    resolved_account = account or AccountSnapshot(available_funds=0.0, source="UNAVAILABLE", canonical=False, broker_connection_state="MISSING")
     focus_symbols = {str(intent.symbol).upper() for intent in intents if str(intent.symbol).strip()}
     focus_count = len(focus_symbols)
     if focus_count == 0:
@@ -39,18 +42,24 @@ def evaluate_trade_intents(
 
     available_capital = float(resolved_account.available_funds)
     capital_per_symbol = compute_capital_per_symbol(available_capital, focus_count)
+
+    live_capital_invalid = (
+        mode == RunMode.LIVE
+        and (not resolved_account.canonical or resolved_account.source != "IBKR_CANONICAL" or available_capital <= 0)
+    )
     print(
         "[CAPITAL] "
-        f"available_capital={available_capital} "
-        f"focus_count={focus_count} "
-        f"capital_per_symbol={capital_per_symbol}"
+        f"source={resolved_account.source} canonical={resolved_account.canonical} "
+        f"available_capital={available_capital} focus_count={focus_count} "
+        f"capital_per_symbol={capital_per_symbol} broker_connection_state={resolved_account.broker_connection_state}"
     )
 
     for intent in intents:
         triggered_rules: List[str] = []
         constraints: List[str] = []
         decision = "ALLOW"
-        max_size = 1
+        max_size = 0
+        block_reason = ""
 
         if health_status == HealthStatus.CRITICAL:
             decision = "BLOCK"
@@ -96,7 +105,12 @@ def evaluate_trade_intents(
         position_value = float(requested_shares) * entry_price
         risk_allowed = position_value <= capital_per_symbol + 1e-9
 
-        if mode == RunMode.LIVE and decision != "BLOCK":
+        if mode == RunMode.LIVE and live_capital_invalid:
+            decision = "BLOCK"
+            max_size = 0
+            block_reason = "CANONICAL_CAPITAL_UNAVAILABLE"
+            triggered_rules.append("CANONICAL_CAPITAL_UNAVAILABLE")
+        elif mode == RunMode.LIVE and decision != "BLOCK":
             decision = "ALLOW"
             max_size = requested_shares
 
@@ -121,6 +135,9 @@ def evaluate_trade_intents(
                 available_funds=available_funds,
                 order_value=position_value,
                 risk_allowed=risk_allowed,
+                capital_source=resolved_account.source,
+                block_reason=block_reason,
+                approved_quantity=max_size,
             )
         )
     return decisions
