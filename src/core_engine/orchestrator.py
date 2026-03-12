@@ -76,12 +76,19 @@ def _resolve_live_available_funds(mode) -> AccountSnapshot:
         )
 
     try:
-        from src.brokers.ibkr_broker import IbkrBroker
+        from src.adapters.brokers.ibkr.ibkr_connection_manager import (
+            get_shared_ibkr_connection_manager,
+        )
 
-        broker = IbkrBroker()
-        broker.connect()
-        assert broker.client is not None
-        available = float(resolve_available_capital(broker.client, allow_fallback=False))
+        manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
+        client = manager.get_client()
+        metadata = manager.connection_metadata()
+        print(
+            "[CAPITAL][IBKR][MANAGER] "
+            f"connected_client_id={metadata.get('connected_client_id')} "
+            f"generation={metadata.get('connection_generation')}"
+        )
+        available = float(resolve_available_capital(client, allow_fallback=False))
         return AccountSnapshot(
             available_funds=available,
             source="IBKR_CANONICAL",

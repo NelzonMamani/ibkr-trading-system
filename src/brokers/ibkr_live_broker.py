@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from uuid import uuid4
 from typing import Optional
 
-from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
 from src.adapters.brokers.ibkr.ibkr_order_submitter import (
     IbkrOrderSubmitter,
     OrderSubmissionSettings,
@@ -13,17 +12,18 @@ from src.adapters.brokers.ibkr.ibkr_order_submitter import (
 from src.adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
 from src.adapters.brokers.ibkr.submission_guard import SubmissionGuard
 from src.brokers.base_broker import BaseBroker, BrokerOrderRequest
+from src.adapters.brokers.ibkr.ibkr_connection_manager import (
+    IbkrConnectionManager,
+    get_shared_ibkr_connection_manager,
+)
 from src.config.runtime_config import (
     RunMode,
     get_ibkr_ack_timeout_seconds,
-    get_ibkr_client_id_order_submit,
     get_ibkr_default_currency,
     get_ibkr_default_exchange,
     get_ibkr_guard_persist_path,
-    get_ibkr_host,
     get_ibkr_kill_switch,
     get_ibkr_live_port,
-    get_ibkr_market_data_type,
     get_ibkr_max_orders_per_run,
     get_ibkr_order_submission_enabled,
     get_ibkr_order_translation_enabled,
@@ -31,7 +31,6 @@ from src.config.runtime_config import (
     get_ibkr_paper_only_enforced,
     get_ibkr_paper_port,
     get_ibkr_readonly_enabled,
-    get_ibkr_snapshot_timeout_seconds,
     get_risk_profile_name,
     is_execution_enabled,
 )
@@ -58,7 +57,7 @@ class IbkrLiveBroker(BaseBroker):
     event_collector: EventCollector
     trade_registry: ActiveTradeRegistry
     run_mode: RunMode = RunMode.LIVE
-    client: Optional[IbkrClient] = field(default=None)
+    connection_manager: Optional[IbkrConnectionManager] = field(default=None)
     translator: Optional[IbkrOrderTranslator] = field(default=None)
     submitter: Optional[IbkrOrderSubmitter] = field(default=None)
 
@@ -72,18 +71,8 @@ class IbkrLiveBroker(BaseBroker):
         if not get_ibkr_order_submission_enabled(default=False):
             raise RuntimeError("IBKR order submission disabled; enable IBKR_ORDER_SUBMISSION_ENABLED.")
 
-        if self.client is None:
-            port = get_ibkr_live_port()
-            if self.run_mode == RunMode.PAPER:
-                port = get_ibkr_paper_port()
-            self.client = IbkrClient(
-                host=get_ibkr_host(),
-                port=port,
-                client_id=get_ibkr_client_id_order_submit(),
-                snapshot_timeout_seconds=get_ibkr_snapshot_timeout_seconds(),
-                market_data_type=get_ibkr_market_data_type(),
-                readonly_enabled=False,
-            )
+        if self.connection_manager is None:
+            self.connection_manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
         if self.translator is None:
             self.translator = IbkrOrderTranslator(
                 order_translation_enabled=True,
@@ -101,7 +90,7 @@ class IbkrLiveBroker(BaseBroker):
             live_port=get_ibkr_live_port(),
             submit_only_symbol=None,
             ack_timeout_seconds=get_ibkr_ack_timeout_seconds(),
-            client_id=get_ibkr_client_id_order_submit(),
+            client_id=self.connection_manager.config.base_client_id,
             submit_only_order_type=None,
             allow_shorting=False,
         )
@@ -110,11 +99,12 @@ class IbkrLiveBroker(BaseBroker):
             persist_path=get_ibkr_guard_persist_path(),
         )
         self.submitter = IbkrOrderSubmitter(
-            ibkr_client=self.client,
+            ibkr_client=None,
             translator=self.translator,
             event_bus=self.event_collector,
             config=settings,
             guard=guard,
+            client_provider=self.connection_manager.get_client,
         )
 
     def name(self) -> str:
@@ -124,19 +114,19 @@ class IbkrLiveBroker(BaseBroker):
         return True
 
     def ensure_connection(self) -> None:
-        assert self.client is not None
-        host = getattr(self.client, "host", None)
-        port = getattr(self.client, "port", None)
-        if not host or port is None:
-            raise RuntimeError("INVALID_RETRY_CONFIGURATION")
+        assert self.connection_manager is not None
+        client = self.connection_manager.ensure_connected()
+        metadata = self.connection_manager.connection_metadata()
         print(
             "[TRACE][stage=broker_connection] "
-            f"owner={self.__class__.__name__} host={host} port={port} "
-            f"client_id={getattr(self.client, 'client_id', None)} connected={self.client.is_connected()}"
+            f"owner={self.__class__.__name__} host={metadata.get('host')} port={metadata.get('port')} "
+            f"client_id={metadata.get('connected_client_id')} connected={client.is_connected()}"
         )
-        if not self.client.is_connected():
-            print("[IBKR] Connection lost. Reconnecting via canonical owner IbkrLiveBroker.")
-            self.client.connect()
+
+    def disconnect(self, reason: str = "manual") -> None:
+        if self.connection_manager is None:
+            return
+        self.connection_manager.disconnect(reason=reason)
 
     def place_order(self, request: BrokerOrderRequest) -> ExecutionResult:
         profile_name = str(get_risk_profile_name() or "NORMAL").upper()
