@@ -305,7 +305,10 @@ class ExecutionEngine:
         self, risk_decision: RiskDecision, tick: int
     ) -> BrokerOrderRequest:
         self._assert_execution_enabled_for_order_construction("risk decision")
-        raw_quantity = max(1, int(getattr(risk_decision, "max_position_size", 1) or 1))
+        raw_quantity = int(getattr(risk_decision, "max_position_size", 0) or 0)
+        if self.run_mode == RunMode.LIVE and raw_quantity <= 0:
+            raise RuntimeError("INVALID_INTERNAL_ORDER_QUANTITY")
+        raw_quantity = max(1, raw_quantity)
         requested_quantity = self._clamp_order_quantity(raw_quantity, symbol=risk_decision.symbol)
         client_order_id = self._client_order_id(
             risk_decision.symbol,
@@ -365,8 +368,8 @@ class ExecutionEngine:
         return result
 
     def _log_ibkr_status(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
-        print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=SUBMITTED")
         normalized = str(getattr(result, "status", "UNKNOWN") or "UNKNOWN").upper()
+        print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status={normalized}")
         if normalized in {"ACKED", "ACKNOWLEDGED"}:
             print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=ACKNOWLEDGED")
         if normalized in {"ACKED", "FILLED"} and getattr(result, "filled_quantity", 0) > 0:

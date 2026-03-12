@@ -30,16 +30,26 @@ def execute_intents(
         )
         if mode in {RunMode.SIM, RunMode.READ_ONLY}:
             action = "WOULD_PLACE"
-            detail = f"mode={mode.value}; decision={decision.decision}"
+            detail = f"mode={mode.value}; decision={decision.decision}; qty={decision.max_position_size}"
         elif decision.decision == "ALLOW":
-            action = "SUBMITTED"
-            detail = "submitted 1-share order"
+            if mode == RunMode.LIVE and decision.capital_source != "IBKR_CANONICAL":
+                action = "BLOCKED"
+                detail = "reason=CANONICAL_CAPITAL_UNAVAILABLE"
+            elif int(decision.approved_quantity) != int(decision.max_position_size):
+                action = "BLOCKED"
+                detail = (
+                    "reason=EXECUTION_QUANTITY_MISMATCH "
+                    f"approved={decision.approved_quantity} max_size={decision.max_position_size}"
+                )
+            else:
+                action = "SUBMITTED"
+                detail = f"submitted qty={decision.max_position_size}"
         elif decision.decision == "ALLOW_WITH_CONSTRAINTS":
-            action = "SUBMITTED"
-            detail = f"submitted with constraints={decision.constraints}"
+            action = "BLOCKED" if mode == RunMode.LIVE else "SUBMITTED"
+            detail = f"constraints={decision.constraints}; qty={decision.max_position_size}"
         else:
-            action = "SKIPPED"
-            detail = f"decision={decision.decision}"
+            action = "BLOCKED"
+            detail = f"decision={decision.decision}; reason={decision.block_reason or 'RISK_BLOCK'}"
         events.append(
             ExecutionEvent(
                 symbol=decision.symbol,

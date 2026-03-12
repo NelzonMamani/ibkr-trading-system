@@ -76,6 +76,17 @@ class IbkrClient(EWrapper, EClient):
 
     # --- Connection management ---
     def connect(self) -> None:  # type: ignore[override]
+        if not self.host or self.port is None or int(self.port) <= 0:
+            raise RuntimeError(
+                "INVALID_RETRY_CONFIGURATION: host/port must be configured before IBKR connect"
+            )
+
+        print(
+            "[IBKR][RETRY_CONFIG] "
+            f"host={self.host} port={self.port} base_client_id={self.client_id} "
+            f"timeout={self.snapshot_timeout_seconds} market_data_type={self.market_data_type} "
+            f"readonly={self.readonly_enabled}"
+        )
         base_client_id = int(self.client_id)
         for attempt in range(self.MAX_CLIENT_ID_RETRIES):
             client_id = base_client_id + attempt
