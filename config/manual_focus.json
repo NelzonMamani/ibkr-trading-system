@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "manual_focus": [
+    "TMDE",
+    "HURA",
+    "CYN",
+    "OCGN"
+  ],
+  "max_manual_symbols": 5,
+  "live_reload_seconds": 60
+}
