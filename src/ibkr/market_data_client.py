@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import math
 import time
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import threading
 
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
@@ -20,6 +20,9 @@ from src.config.runtime_config import (
     get_ibkr_port,
     get_ibkr_snapshot_timeout_seconds,
 )
+
+if TYPE_CHECKING:
+    from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager
 
 
 def _market_data_type_code(market_data_type: str) -> int:
@@ -99,6 +102,8 @@ class MarketDataClient:
         snapshot_timeout_seconds: int | None = None,
         default_exchange: str | None = None,
         default_currency: str | None = None,
+        connection_manager: "IbkrConnectionManager | None" = None,
+        allow_direct_connection: bool = True,
     ) -> None:
         self.host = host or get_ibkr_host()
         self.port = port or get_ibkr_port()
@@ -109,15 +114,29 @@ class MarketDataClient:
         )
         self.default_exchange = default_exchange or get_ibkr_default_exchange()
         self.default_currency = default_currency or get_ibkr_default_currency()
-        IB, _, _ = safe_import_ib_insync()
-        self.ib = IB()
+        self.connection_manager = connection_manager
+        self.allow_direct_connection = allow_direct_connection
+        self.ib = None
+        if self.connection_manager is None:
+            IB, _, _ = safe_import_ib_insync()
+            self.ib = IB()
         self._scanner_results_received = False
         self._scanner_request_active = False
         self._recent_error_codes: dict[str, int] = {}
         try:
-            self.ib.errorEvent += self._on_ib_error
+            if self.ib is not None:
+                self.ib.errorEvent += self._on_ib_error
         except Exception:
             pass
+
+    def _resolve_ib_client(self):
+        if self.connection_manager is not None:
+            if self.ib is None or not self.ib.isConnected():
+                self.ib = self.connection_manager.get_client()
+            return self.ib
+        if self.ib is None:
+            raise RuntimeError("IBKR client not initialized")
+        return self.ib
 
 
     def _on_ib_error(self, req_id, error_code, error_string, contract=None) -> None:
@@ -129,31 +148,40 @@ class MarketDataClient:
             print(f"[IBKR][WARN] code={error_code} msg={error_string}")
 
     def request_scanner_data(self, subscription):
+        ib = self._resolve_ib_client()
         self._scanner_request_active = True
         self._scanner_results_received = False
         try:
-            rows = self.ib.reqScannerData(subscription)
+            rows = ib.reqScannerData(subscription)
             self._scanner_results_received = bool(rows)
             return rows
         finally:
             self._scanner_request_active = False
 
     def connect(self) -> None:
-        if self.ib.isConnected():
+        if self.connection_manager is not None:
+            self.ib = self.connection_manager.get_client()
+            return
+        if not self.allow_direct_connection:
+            raise RuntimeError(
+                "IBKR connections must be created only by IBKRConnectionManager"
+            )
+        ib = self._resolve_ib_client()
+        if ib.isConnected():
             return
         print(
             "[IBKR][MD] Connecting "
             f"host={self.host} port={self.port} client_id={self.client_id}"
         )
-        connect_coro = self.ib.connectAsync(
+        connect_coro = ib.connectAsync(
             self.host,
             self.port,
             clientId=self.client_id,
             timeout=5,
         )
         try:
-            if callable(getattr(self.ib, "run", None)):
-                connected = self.ib.run(connect_coro)
+            if callable(getattr(ib, "run", None)):
+                connected = ib.run(connect_coro)
             else:
                 connected = asyncio.run(connect_coro)
         except Exception:
@@ -163,7 +191,7 @@ class MarketDataClient:
             raise RuntimeError("IBKR market data connection failed")
         server_version = None
         try:
-            server_version = self.ib.client.serverVersion()
+            server_version = ib.client.serverVersion()
         except Exception:
             server_version = None
         data_type_code = _market_data_type_code(self.market_data_type)
@@ -175,25 +203,28 @@ class MarketDataClient:
             "[IBKR][MD] Market data type set "
             f"type={self.market_data_type} code={data_type_code}"
         )
-        self.ib.reqMarketDataType(data_type_code)
+        ib.reqMarketDataType(data_type_code)
 
     def disconnect(self) -> None:
-        if not self.ib.isConnected():
+        if self.connection_manager is not None:
+            return
+        ib = self._resolve_ib_client()
+        if not ib.isConnected():
             return
         try:
-            client = getattr(self.ib, "client", None)
+            client = getattr(ib, "client", None)
             thread = getattr(client, "_thread", None)
             if thread is not None and thread is threading.current_thread():
                 print("[IBKR][MD] Disconnect skipped to avoid joining current thread")
                 if client is not None:
                     client.disconnect()
                 return
-            self.ib.disconnect()
+            ib.disconnect()
             print("[IBKR][MD] Disconnected")
         except RuntimeError as exc:
             if "cannot join current thread" in str(exc):
                 print("[IBKR][MD] Disconnect skipped to avoid joining current thread")
-                client = getattr(self.ib, "client", None)
+                client = getattr(ib, "client", None)
                 if client is not None:
                     client.disconnect()
                 return
@@ -207,13 +238,14 @@ class MarketDataClient:
 
             async def _qualify_with_timeout():
                 return await asyncio.wait_for(
-                    self.ib.qualifyContractsAsync(contract),
+                    self._resolve_ib_client().qualifyContractsAsync(contract),
                     timeout=self.snapshot_timeout_seconds,
                 )
 
             qualify_coro = _qualify_with_timeout()
 
-            runner = getattr(self.ib, "run", None)
+            ib = self._resolve_ib_client()
+            runner = getattr(ib, "run", None)
             if callable(runner):
                 qualified = runner(qualify_coro)
             else:
@@ -238,7 +270,8 @@ class MarketDataClient:
             flags.append("CONTRACT_QUALIFY_FAILED")
             return self._empty_snapshot(symbol, flags)
 
-        ticker = self.ib.reqMktData(
+        ib = self._resolve_ib_client()
+        ticker = ib.reqMktData(
             contract,
             genericTickList="",
             snapshot=True,
@@ -247,7 +280,7 @@ class MarketDataClient:
         timeout_at = time.time() + self.snapshot_timeout_seconds
         snapshot_complete = False
         while time.time() < timeout_at:
-            self.ib.waitOnUpdate(timeout=0.2)
+            ib.waitOnUpdate(timeout=0.2)
             if self._ticker_has_required_snapshot(ticker):
                 snapshot_complete = True
                 break
@@ -258,7 +291,7 @@ class MarketDataClient:
             flags.append("MD_TIMEOUT")
 
         if not snapshot_complete:
-            self.ib.cancelMktData(contract)
+            ib.cancelMktData(contract)
         if "MD_TIMEOUT" in flags and not self._ticker_has_data(ticker):
             return self._empty_snapshot(symbol, flags)
 
@@ -346,7 +379,7 @@ class MarketDataClient:
         if contract is None:
             return None
         try:
-            bars = self.ib.reqHistoricalData(
+            bars = self._resolve_ib_client().reqHistoricalData(
                 contract,
                 endDateTime="",
                 durationStr="3 D",

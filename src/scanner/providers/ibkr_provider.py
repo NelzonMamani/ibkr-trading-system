@@ -9,6 +9,10 @@ import requests
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 
 from src.config.runtime_config import get_ibkr_max_symbols_per_cycle, get_scanner_symbols
+from src.adapters.brokers.ibkr.ibkr_connection_manager import (
+    IbkrConnectionManager,
+    get_shared_ibkr_connection_manager,
+)
 from src.ibkr.market_data_client import MarketDataClient
 from src.data.fundamentals.float_provider import FloatProvider
 from src.scanner.scanner_contract import ScannerRequest
@@ -19,8 +23,22 @@ from .base import IntradayStats, ProviderConnectionError, QuoteData, ScannerData
 class IbkrScannerProvider(ScannerDataProvider):
     source_name = "IBKR"
 
-    def __init__(self, market_data_client: Optional[MarketDataClient] = None) -> None:
-        self.market_data_client = market_data_client or MarketDataClient()
+    def __init__(
+        self,
+        connection_manager: Optional[IbkrConnectionManager] = None,
+        market_data_client: Optional[MarketDataClient] = None,
+    ) -> None:
+        self.connection_manager = connection_manager or get_shared_ibkr_connection_manager(
+            readonly_enabled=True
+        )
+        self.market_data_client = market_data_client or MarketDataClient(
+            connection_manager=self.connection_manager,
+            allow_direct_connection=False,
+        )
+        if getattr(self.market_data_client, "connection_manager", None) is None:
+            raise RuntimeError(
+                "IBKR connections must be created only by IBKRConnectionManager"
+            )
         self.last_scan_details: dict[str, dict[str, Optional[str]]] = {}
         self.last_float_source: Optional[str] = None
         self.last_float_failures: list[tuple[str, str]] = []

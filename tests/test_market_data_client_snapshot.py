@@ -35,6 +35,9 @@ class DummyIB:
         self.qualified = False
         self.ticker = DummyTicker()
 
+    def isConnected(self):
+        return True
+
     async def qualifyContractsAsync(self, contract):  # noqa: N802 - IBKR naming
         self.qualified = True
         return [contract]
@@ -63,9 +66,19 @@ class DummyIB:
         }
 
 
+class DummyConnectionManager:
+    def __init__(self, client):
+        self._client = client
+
+    def get_client(self):
+        return self._client
+
+
 def _client_with_dummy_ib() -> MarketDataClient:
     client = MarketDataClient(snapshot_timeout_seconds=1)
-    client.ib = DummyIB()
+    dummy_ib = DummyIB()
+    client.ib = dummy_ib
+    client.connection_manager = DummyConnectionManager(dummy_ib)
     return client
 
 
