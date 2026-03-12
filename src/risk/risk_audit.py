@@ -17,6 +17,12 @@ class AccountSnapshot:
     available_funds: float
 
 
+def compute_capital_per_symbol(available_capital: float, focus_count: int) -> float:
+    if focus_count <= 0:
+        return 0.0
+    return float(available_capital) / float(focus_count)
+
+
 def evaluate_trade_intents(
     intents: List[TradeIntentRecord],
     mode: RunMode,
@@ -25,6 +31,21 @@ def evaluate_trade_intents(
 ) -> List[RiskDecisionRecord]:
     decisions: List[RiskDecisionRecord] = []
     resolved_account = account or AccountSnapshot(available_funds=float(get_config("RISK_ACCOUNT_EQUITY")))
+    focus_symbols = {str(intent.symbol).upper() for intent in intents if str(intent.symbol).strip()}
+    focus_count = len(focus_symbols)
+    if focus_count == 0:
+        print("[CAPITAL] available_capital=0 focus_count=0 capital_per_symbol=0")
+        return decisions
+
+    available_capital = float(resolved_account.available_funds)
+    capital_per_symbol = compute_capital_per_symbol(available_capital, focus_count)
+    print(
+        "[CAPITAL] "
+        f"available_capital={available_capital} "
+        f"focus_count={focus_count} "
+        f"capital_per_symbol={capital_per_symbol}"
+    )
+
     for intent in intents:
         triggered_rules: List[str] = []
         constraints: List[str] = []
@@ -55,17 +76,25 @@ def evaluate_trade_intents(
             constraints.append("READONLY_NO_EXECUTION")
             triggered_rules.append("MODE_READONLY")
 
-        available_funds = float(resolved_account.available_funds)
-        account_equity = available_funds
+        available_funds = available_capital
         entry_price = max(float(getattr(intent, "entry_price", 1.0) or 1.0), 0.01)
-        requested_shares = 1
-        if account_equity < 5_000:
-            requested_shares = max(1, int(available_funds / entry_price))
+        requested_shares = int(capital_per_symbol / entry_price)
+        if requested_shares <= 0:
+            decision = "BLOCK"
+            max_size = 0
+            triggered_rules.append("INSUFFICIENT_CAPITAL_PER_SYMBOL")
+            requested_shares = 0
             print(
-                f"[ROSS][POSITION] capital_mode=SMALL_ACCOUNT shares={requested_shares} bp={int(available_funds)}"
+                f"[ROSS][POSITION] symbol={intent.symbol} capital_per_symbol={capital_per_symbol} "
+                f"entry_price={entry_price} shares=0"
+            )
+        else:
+            print(
+                f"[ROSS][POSITION] symbol={intent.symbol} capital_mode=DYNAMIC_FOCUS "
+                f"shares={requested_shares} capital_per_symbol={capital_per_symbol}"
             )
         position_value = float(requested_shares) * entry_price
-        risk_allowed = position_value <= available_funds + 1e-9
+        risk_allowed = position_value <= capital_per_symbol + 1e-9
 
         if mode == RunMode.LIVE and decision != "BLOCK":
             decision = "ALLOW"
