@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 import json
 import os
+import re
 from threading import Lock, Thread
 from uuid import uuid4
 from typing import Dict, List, Optional, Set, Tuple
@@ -148,6 +149,8 @@ class StrategyCadenceState:
 
 
 class CoreOrchestrator:
+    _MANUAL_SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
+
     def __init__(self):
         print("[INFO] Core Orchestrator initialised.")
         self.runtime_mode_manager = RuntimeModeManager.resolve()
@@ -622,6 +625,12 @@ class CoreOrchestrator:
 
         cfg = load_manual_focus_config()
         symbols = list(cfg.manual_focus) if cfg.enabled else []
+        print(
+            "[MANUAL_FOCUS][LOAD] "
+            f"enabled={cfg.enabled} symbols={symbols} "
+            f"max={cfg.max_manual_symbols} reload_seconds={cfg.live_reload_seconds}"
+        )
+        print(f"[MANUAL_FOCUS][NORMALIZED] symbols={symbols}")
         self._manual_focus_enabled = cfg.enabled
         self._manual_focus_reload_seconds = max(1, int(cfg.live_reload_seconds))
         if symbols != self._manual_focus_symbols:
@@ -630,13 +639,44 @@ class CoreOrchestrator:
         self._manual_focus_last_loaded_utc = now_utc
         return list(self._manual_focus_symbols)
 
+    @classmethod
+    def _manual_focus_rejection_reason(cls, symbol: str) -> str | None:
+        normalized = str(symbol or "").strip().upper()
+        if not normalized:
+            return "EMPTY_SYMBOL"
+        if not cls._MANUAL_SYMBOL_PATTERN.fullmatch(normalized):
+            return "INVALID_SYMBOL_FORMAT"
+        return None
+
+    def _resolve_manual_focus_candidates(
+        self,
+        manual_symbols: list[str],
+        session_phase: str,
+    ) -> tuple[list[CandidateMetrics], list[tuple[str, str]]]:
+        accepted: list[CandidateMetrics] = []
+        rejected: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for raw_symbol in manual_symbols:
+            symbol = str(raw_symbol or "").strip().upper()
+            if symbol in seen:
+                continue
+            seen.add(symbol)
+            rejection_reason = self._manual_focus_rejection_reason(symbol)
+            if rejection_reason:
+                print(f"[MANUAL_FOCUS][REJECT] symbol={symbol or '<EMPTY>'} reason={rejection_reason}")
+                rejected.append((symbol, rejection_reason))
+                continue
+            print(f"[MANUAL_FOCUS][ACCEPT] symbol={symbol} reason=DIRECT_OVERRIDE")
+            accepted.append(self._manual_focus_candidate(symbol, session_phase))
+        return accepted, rejected
+
     def _merge_focus_candidates(
         self,
         scanner_focus: list[CandidateMetrics],
-        manual_symbols: list[str],
-        focus_limit_max: int,
+        manual_candidates: list[CandidateMetrics],
         session_phase: str,
     ) -> list[CandidateMetrics]:
+        _ = session_phase
         merged: list[CandidateMetrics] = []
         seen: set[str] = set()
         for row in scanner_focus:
@@ -645,34 +685,11 @@ class CoreOrchestrator:
                 continue
             seen.add(symbol)
             merged.append(row)
-        for symbol in manual_symbols:
+        for manual_row in manual_candidates:
+            symbol = getattr(manual_row, "symbol", None)
             if symbol in seen:
                 continue
-            print(f"[FOCUS][MANUAL] symbol={symbol}")
-            merged.append(self._manual_focus_candidate(symbol, session_phase))
-            seen.add(symbol)
-        merged = merged[: max(0, focus_limit_max)]
-        print(
-            "[FOCUS][MERGED] "
-            f"scanner_focus={len(scanner_focus)} "
-            f"manual_focus={len(manual_symbols)} "
-            f"active_focus={len(merged)}"
-        )
-        print(f"[FOCUS][ACTIVE] symbols={self._symbols_from_candidates(merged)}")
-        return merged
-
-    def _inject_manual_into_watchlist(
-        self,
-        watchlist_rows: list[CandidateMetrics],
-        manual_symbols: list[str],
-        session_phase: str,
-    ) -> list[CandidateMetrics]:
-        merged = list(watchlist_rows)
-        seen = set(self._symbols_from_candidates(merged))
-        for symbol in manual_symbols:
-            if symbol in seen:
-                continue
-            merged.append(self._manual_focus_candidate(symbol, session_phase))
+            merged.append(manual_row)
             seen.add(symbol)
         return merged
 
@@ -1275,31 +1292,48 @@ class CoreOrchestrator:
                 selected_candidates = list(strategy_payload.get("candidates", [])) or selected_candidates
 
         manual_focus_symbols = self._refresh_manual_focus_if_due(cycle_started_at)
-        selected_watchlist = self._inject_manual_into_watchlist(
-            watchlist_rows=selected_watchlist,
+        manual_focus_rows, manual_focus_rejections = self._resolve_manual_focus_candidates(
             manual_symbols=manual_focus_symbols,
             session_phase=session_phase,
         )
         watchlist_symbols = self._symbols_from_candidates(selected_watchlist)
+        auto_focus_symbols = self._symbols_from_candidates(selected_focus)
         selected_focus = self._merge_focus_candidates(
             scanner_focus=selected_focus,
-            manual_symbols=manual_focus_symbols,
-            focus_limit_max=focus_limit_max,
+            manual_candidates=manual_focus_rows,
             session_phase=session_phase,
         )
-        focus_symbols = self._symbols_from_candidates(selected_focus)
+        final_evaluation_symbols = self._symbols_from_candidates(selected_focus)
+        manual_focus_accepted_symbols = self._symbols_from_candidates(manual_focus_rows)
+        print(
+            "[FINAL_EVAL][MERGE] "
+            f"auto_focus={auto_focus_symbols} manual_focus={manual_focus_accepted_symbols} final={final_evaluation_symbols}"
+        )
+        if not auto_focus_symbols and manual_focus_accepted_symbols:
+            print(f"[FINAL_EVAL][MANUAL_ONLY] symbols={manual_focus_accepted_symbols}")
+        print(
+            "[MANUAL_FOCUS][SUMMARY] "
+            f"accepted={len(manual_focus_rows)} rejected={len(manual_focus_rejections)} "
+            f"final_contribution={len([s for s in final_evaluation_symbols if s in set(manual_focus_accepted_symbols)])}"
+        )
+        print(
+            "[FINAL_EVAL][SUMMARY] "
+            f"AUTO_FOCUS_M={auto_focus_symbols} "
+            f"MANUAL_FOCUS={manual_focus_accepted_symbols} "
+            f"FINAL_EVALUATION_SYMBOLS={final_evaluation_symbols}"
+        )
         self._trace_event("UNIVERSE", {"universe": [{"symbol": s} for s in self._symbols_from_candidates(selected_observations)]})
         self._trace_event("WATCHLIST", {"watchlist_symbols": watchlist_symbols})
-        self._trace_event("FOCUS", {"focus": [{"symbol": s} for s in focus_symbols]})
-        snapshots_by_symbol, _ = self.market_data_snapshot_manager.batch_snapshots(watchlist_symbols)
+        self._trace_event("FOCUS", {"focus": [{"symbol": s} for s in final_evaluation_symbols]})
+        snapshots_by_symbol, _ = self.market_data_snapshot_manager.batch_snapshots(final_evaluation_symbols)
         session_label = normalize_session_label((selected_watchlist[0].session_label if selected_watchlist else session_phase))
         self.strategy_runner.receive_watchlist_snapshot(
-            watchlist_symbols=watchlist_symbols,
+            watchlist_symbols=final_evaluation_symbols,
             snapshots=snapshots_by_symbol,
             session_label=session_label,
             timestamp_utc=cycle_started_at.isoformat(),
         )
-        strategy_watchlist = selected_focus if strategy_key == "statistical_intraday_momentum" else selected_watchlist
+        strategy_watchlist = selected_focus
         strategy_output = self.strategy_runner.process(
             strategy_key=strategy_key,
             watchlist=strategy_watchlist,
@@ -1318,7 +1352,7 @@ class CoreOrchestrator:
             for intent in (strategy_output or [])
             if getattr(intent, "symbol", None)
         }
-        for symbol in focus_symbols:
+        for symbol in final_evaluation_symbols:
             emitted = symbol in emitted_symbols
             print(self._pattern_reason_line(symbol, emitted))
             self._trace_event("PATTERN_EVAL", {"strategy": strategy_key, "symbol": symbol, "intent_emitted": emitted})
@@ -1542,19 +1576,35 @@ class CoreOrchestrator:
         if not focus_symbols:
             focus_symbols = self._symbols_from_candidates(focus_m)
         manual_focus_symbols = self._refresh_manual_focus_if_due(cycle_started_at)
-        watchlist_k = self._inject_manual_into_watchlist(
-            watchlist_rows=watchlist_k,
+        manual_focus_rows, manual_focus_rejections = self._resolve_manual_focus_candidates(
             manual_symbols=manual_focus_symbols,
             session_phase=session_phase,
         )
-        watchlist_symbols = self._symbols_from_candidates(watchlist_k)
+        auto_focus_symbols = list(focus_symbols)
         focus_m = self._merge_focus_candidates(
             scanner_focus=focus_m,
-            manual_symbols=manual_focus_symbols,
-            focus_limit_max=int(get_config("FOCUS_MAX_SYMBOLS_PER_STRATEGY")),
+            manual_candidates=manual_focus_rows,
             session_phase=session_phase,
         )
         focus_symbols = self._symbols_from_candidates(focus_m)
+        manual_focus_accepted_symbols = self._symbols_from_candidates(manual_focus_rows)
+        print(
+            "[FINAL_EVAL][MERGE] "
+            f"auto_focus={auto_focus_symbols} manual_focus={manual_focus_accepted_symbols} final={focus_symbols}"
+        )
+        if not auto_focus_symbols and manual_focus_accepted_symbols:
+            print(f"[FINAL_EVAL][MANUAL_ONLY] symbols={manual_focus_accepted_symbols}")
+        print(
+            "[MANUAL_FOCUS][SUMMARY] "
+            f"accepted={len(manual_focus_rows)} rejected={len(manual_focus_rejections)} "
+            f"final_contribution={len([s for s in focus_symbols if s in set(manual_focus_accepted_symbols)])}"
+        )
+        print(
+            "[FINAL_EVAL][SUMMARY] "
+            f"AUTO_FOCUS_M={auto_focus_symbols} "
+            f"MANUAL_FOCUS={manual_focus_accepted_symbols} "
+            f"FINAL_EVALUATION_SYMBOLS={focus_symbols}"
+        )
         scanner_watchlist_payload["watchlist_k"] = watchlist_k
         scanner_watchlist_payload["watchlist_k_symbols"] = watchlist_symbols
         scanner_watchlist_payload["focus_m"] = focus_m
