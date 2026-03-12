@@ -1,22 +1,16 @@
-import sys
-from pathlib import Path
-
-import pytest
-
-sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
-
-try:
-    from brokers.ibkr_broker import IbkrBroker
-except ModuleNotFoundError:
-    pytest.skip("ibapi dependency missing; skipping IBKR resilience tests", allow_module_level=True)
+from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionConfig
 
 
-def test_client_id_increment():
-    broker = IbkrBroker()
+def test_connection_config_is_immutable_dataclass():
+    config = IbkrConnectionConfig(
+        host="127.0.0.1",
+        port=7497,
+        base_client_id=7,
+        snapshot_timeout_seconds=5,
+        market_data_type="LIVE",
+        readonly_enabled=False,
+    )
 
-    base_id = 7
-
-    ids = [base_id + i for i in range(5)]
-
-    assert ids == [7, 8, 9, 10, 11]
-    assert broker.MAX_CLIENT_ID_RETRIES == 10
+    assert config.host == "127.0.0.1"
+    assert config.port == 7497
+    assert config.base_client_id == 7

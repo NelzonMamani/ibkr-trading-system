@@ -63,8 +63,9 @@ class IbkrOrderSubmitter:
 
     SOURCE = "IBKR_ORDER_SUBMITTER"
 
-    def __init__(self, ibkr_client, translator, event_bus, config, guard, logger=None):
+    def __init__(self, ibkr_client, translator, event_bus, config, guard, logger=None, client_provider=None):
         self.ibkr_client = ibkr_client
+        self.client_provider = client_provider
         self.translator = translator
         self.event_bus = event_bus
         self.config = config
@@ -73,6 +74,7 @@ class IbkrOrderSubmitter:
 
     def submit_once(self, internal_order: InternalOrder) -> SubmissionResult:
         self._log_banner()
+        client = self.client_provider() if self.client_provider is not None else self.ibkr_client
         self._log_settings()
         self._log_order(internal_order)
 
@@ -85,14 +87,14 @@ class IbkrOrderSubmitter:
         contract, order = self.translator.translate(internal_order)
         self._log_translation(contract, order)
 
-        host, port = self._resolve_connection()
+        host, port = self._resolve_connection(client)
         self._log(
             f"[CONNECT] Connecting to IBKR gateway host={host} "
             f"port={port} client_id={self.config.client_id}"
         )
 
         submitted_at = datetime.now(timezone.utc)
-        if hasattr(self.ibkr_client, "is_connected") and not self.ibkr_client.is_connected():
+        if hasattr(client, "is_connected") and not client.is_connected():
             self._log("[EXECUTION][BLOCK] reason=BROKER_CONNECTION_UNAVAILABLE")
             self._emit_failed(
                 internal_order,
@@ -109,7 +111,7 @@ class IbkrOrderSubmitter:
         try:
             self._emit_attempted(internal_order, ibkr_order_id=None)
             try:
-                ibkr_order_id = self.ibkr_client.submit_order(contract, order)
+                ibkr_order_id = client.submit_order(contract, order)
             except Exception as exc:
                 error = f"IBKR placeOrder failed: {exc}"
                 self._log(f"[ERROR] {error}")
@@ -127,13 +129,14 @@ class IbkrOrderSubmitter:
                 f"submitted_count={self.guard.submitted_count()}"
             )
 
-            ack_status, acked_at = self._wait_for_ack(ibkr_order_id)
+            ack_status, acked_at = self._wait_for_ack(client, ibkr_order_id)
             if acked_at:
                 self._emit_ack(internal_order, ibkr_order_id, ack_status)
                 self._log(
                     f"[ACK] Order acknowledged ibkr_order_id={ibkr_order_id} status={ack_status}"
                 )
                 fill_payload = self._capture_fill_details(
+                    client,
                     internal_order,
                     ibkr_order_id,
                 )
@@ -218,8 +221,8 @@ class IbkrOrderSubmitter:
 
         return None
 
-    def _wait_for_ack(self, ibkr_order_id: int) -> tuple[Optional[str], Optional[datetime]]:
-        status = self.ibkr_client.wait_for_order_status(
+    def _wait_for_ack(self, client, ibkr_order_id: int) -> tuple[Optional[str], Optional[datetime]]:
+        status = client.wait_for_order_status(
             ibkr_order_id, timeout_seconds=self.config.ack_timeout_seconds
         )
         if status is None:
@@ -227,8 +230,8 @@ class IbkrOrderSubmitter:
         ack_status = status.get("status")
         return ack_status, datetime.now(timezone.utc)
 
-    def _capture_fill_details(self, internal_order: InternalOrder, ibkr_order_id: int) -> dict:
-        status = self.ibkr_client.wait_for_order_status(
+    def _capture_fill_details(self, client, internal_order: InternalOrder, ibkr_order_id: int) -> dict:
+        status = client.wait_for_order_status(
             ibkr_order_id, timeout_seconds=self.config.ack_timeout_seconds
         )
         if status is None:
@@ -243,7 +246,7 @@ class IbkrOrderSubmitter:
         elif filled > 0 and remaining > 0:
             fill_status = "PARTIAL"
 
-        commission = self.ibkr_client.commission_for_order(ibkr_order_id)
+        commission = client.commission_for_order(ibkr_order_id)
         slippage = None
         if avg_fill_price is not None and internal_order.limit_price is not None:
             slippage = float(avg_fill_price) - float(internal_order.limit_price)
@@ -274,9 +277,9 @@ class IbkrOrderSubmitter:
         )
         return fill_payload
 
-    def _resolve_connection(self) -> tuple[str, int]:
-        if hasattr(self.ibkr_client, "host") and hasattr(self.ibkr_client, "port"):
-            return self.ibkr_client.host, self.ibkr_client.port
+    def _resolve_connection(self, client) -> tuple[str, int]:
+        if hasattr(client, "host") and hasattr(client, "port"):
+            return client.host, client.port
         run_mode = getattr(self.config.run_mode, "value", self.config.run_mode)
         normalized_run_mode = str(run_mode).upper()
         if normalized_run_mode == "LIVE":
