@@ -69,6 +69,8 @@ class IbkrClient(EWrapper, EClient):
         self._order_status: Dict[int, Dict[str, Optional[float | int | str]]] = {}
         self._exec_details_by_order: Dict[int, List[dict]] = {}
         self._commission_by_exec_id: Dict[str, float] = {}
+        self._account_summary_events: Dict[int, threading.Event] = {}
+        self._account_summary_rows: Dict[int, Dict[str, str]] = {}
 
     # --- Connection management ---
     def connect(self) -> None:  # type: ignore[override]
@@ -179,6 +181,23 @@ class IbkrClient(EWrapper, EClient):
             found = True
             total_commission += commission
         return round(total_commission, 2) if found else None
+
+
+    def get_account_summary(self, timeout_seconds: Optional[int] = None) -> Dict[str, str]:
+        if not self.is_connected():
+            raise RuntimeError("IBKR client is not connected.")
+
+        req_id = self._next_req_id()
+        event = threading.Event()
+        self._account_summary_events[req_id] = event
+        self._account_summary_rows[req_id] = {}
+
+        self.reqAccountSummary(req_id, "All", "AvailableFunds,NetLiquidation,BuyingPower")
+
+        timeout = timeout_seconds or self.snapshot_timeout_seconds
+        event.wait(timeout=timeout)
+        self.cancelAccountSummary(req_id)
+        return dict(self._account_summary_rows.get(req_id, {}))
 
     # --- Contract resolution ---
     def resolve_contract(
@@ -309,6 +328,22 @@ class IbkrClient(EWrapper, EClient):
             if event:
                 event.set()
 
+    def accountSummary(
+        self,
+        reqId: int,
+        account: str,
+        tag: str,
+        value: str,
+        currency: str,
+    ):  # type: ignore[override]
+        rows = self._account_summary_rows.setdefault(reqId, {})
+        rows[tag] = value
+
+    def accountSummaryEnd(self, reqId: int):  # type: ignore[override]
+        event = self._account_summary_events.get(reqId)
+        if event:
+            event.set()
+
     # --- Error handling ---
     def error(self, reqId: int, errorCode: int, errorString: str):  # type: ignore[override]
         if reqId >= 0:
@@ -317,6 +352,8 @@ class IbkrClient(EWrapper, EClient):
                 self._contract_events[reqId].set()
             if reqId in self._market_events:
                 self._market_events[reqId].set()
+            if reqId in self._account_summary_events:
+                self._account_summary_events[reqId].set()
         message = f"[IBKR] Error reqId={reqId} code={errorCode} msg={errorString}"
         print(message)
         if errorCode in (1100, 1300):  # connection/pacing

@@ -1158,6 +1158,9 @@ class CoreOrchestrator:
             timestamp_utc=cycle_started_at.isoformat(),
             mode=self.run_mode,
             session_phase=session_phase,
+            execution_allowed=session_label in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"},
+            execution_ready=session_label in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"},
+            prep_only=session_label in {"AH", "OVN", "CLOSED", "WEEKEND"},
         )
 
         emitted_symbols = {

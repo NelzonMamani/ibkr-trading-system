@@ -3,6 +3,7 @@ Execution engine that routes through a broker adapter with deterministic retry s
 """
 
 import hashlib
+import os
 from typing import List, Optional
 
 from src.brokers.base_broker import BrokerOrderRequest
@@ -130,12 +131,56 @@ class ExecutionEngine:
             return self._duplicate_result(risk_decision, idempotency_key)
         risk_decision.idempotency_key = idempotency_key
 
+        gate_result = self._session_gate_check(risk_decision)
+        if gate_result is not None:
+            return gate_result
+
         preflight_result = self._preflight_check(risk_decision)
         if preflight_result is not None:
             return preflight_result
 
         order = self._order_from_risk_decision(risk_decision, tick)
         return self._route_order(order)
+
+    def _session_gate_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
+        if os.getenv("TEST_PIPELINE_MODE") == "LIVE":
+            print("[EXECUTION] test_pipeline_override=True")
+            return None
+
+        context = self._execution_context(risk_decision)
+        if not context["execution_allowed"]:
+            print("[EXECUTION][BLOCKED] reason=session_not_permitted")
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="SESSION_NOT_PERMITTED",
+            )
+        if not context["execution_ready"]:
+            print("[EXECUTION][BLOCKED] reason=execution_not_ready")
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="EXECUTION_NOT_READY",
+            )
+        if context["prep_only"]:
+            print("[EXECUTION][BLOCKED] reason=prep_only_mode")
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="PREP_ONLY_MODE",
+            )
+        return None
+
+    @staticmethod
+    def _execution_context(risk_decision: RiskDecision) -> dict:
+        evaluated = getattr(risk_decision, "evaluated_limits", {}) or {}
+        session = str(evaluated.get("session") or "UNKNOWN").upper()
+        execution_allowed = bool(evaluated.get("execution_allowed", session in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}))
+        execution_ready = bool(evaluated.get("execution_ready", session in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}))
+        prep_only = bool(evaluated.get("prep_only", session in {"AH", "OVN", "WEEKEND", "CLOSED"}))
+        return {
+            "session": session,
+            "execution_allowed": execution_allowed,
+            "execution_ready": execution_ready,
+            "prep_only": prep_only,
+        }
 
     def _preflight_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
         if self.stop_controller.is_breaker_tripped():
@@ -296,7 +341,19 @@ class ExecutionEngine:
             raise RuntimeError("Execution disabled: refusing to route order.")
         if self._provider is None:
             raise RuntimeError("ExecutionEngine execution provider missing for execution path.")
+        print(
+            "[EXECUTION][AUDIT] "
+            f"symbol={request.symbol} "
+            f"side={request.direction} "
+            f"size={request.quantity} "
+            f"session={getattr(request, 'session', 'UNKNOWN')} "
+            f"strategy={request.strategy_name or 'UNKNOWN'} "
+            f"pattern={request.pattern_name or 'UNKNOWN'} "
+            f"capital={request.quantity} "
+            f"ibkr_order_id={request.client_order_id}"
+        )
         result = self._provider.place_order(request)
+        self._log_ibkr_status(request, result)
         if not self._provider.is_live():
             print(
                 f"[EXECUTION] {self.run_mode.value} mode active — "
@@ -306,6 +363,18 @@ class ExecutionEngine:
             print("[EXECUTION] LIVE broker order routed.")
         self._schedule_retry(request, result)
         return result
+
+    def _log_ibkr_status(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
+        print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=SUBMITTED")
+        normalized = str(getattr(result, "status", "UNKNOWN") or "UNKNOWN").upper()
+        if normalized in {"ACKED", "ACKNOWLEDGED"}:
+            print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=ACKNOWLEDGED")
+        if normalized in {"ACKED", "FILLED"} and getattr(result, "filled_quantity", 0) > 0:
+            print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=FILLED")
+        if normalized in {"BLOCKED", "FAILED", "REJECTED", "TIMED_OUT"}:
+            print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=REJECTED")
+        if normalized in {"CANCELLED", "CANCELED"}:
+            print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=CANCELLED")
 
     def _clamp_order_quantity(self, quantity: int, *, symbol: str) -> int:
         if self.max_shares_per_order is None:
