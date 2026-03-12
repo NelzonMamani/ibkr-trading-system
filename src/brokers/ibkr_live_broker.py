@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from uuid import uuid4
 from typing import Optional
 
 from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
@@ -124,8 +125,17 @@ class IbkrLiveBroker(BaseBroker):
 
     def ensure_connection(self) -> None:
         assert self.client is not None
+        host = getattr(self.client, "host", None)
+        port = getattr(self.client, "port", None)
+        if not host or port is None:
+            raise RuntimeError("INVALID_RETRY_CONFIGURATION")
+        print(
+            "[TRACE][stage=broker_connection] "
+            f"owner={self.__class__.__name__} host={host} port={port} "
+            f"client_id={getattr(self.client, 'client_id', None)} connected={self.client.is_connected()}"
+        )
         if not self.client.is_connected():
-            print("[IBKR] Connection lost. Reconnecting.")
+            print("[IBKR] Connection lost. Reconnecting via canonical owner IbkrLiveBroker.")
             self.client.connect()
 
     def place_order(self, request: BrokerOrderRequest) -> ExecutionResult:
@@ -151,7 +161,32 @@ class IbkrLiveBroker(BaseBroker):
                 attempt_number=request.attempt_number,
             )
 
+        cycle_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+        trace_id = f"{request.client_order_id}-{uuid4().hex[:8]}"
         timestamp = datetime.now(timezone.utc).isoformat()
+        print(
+            "[TRACE] "
+            f"cycle_id={cycle_id} trace_id={trace_id} symbol={request.symbol} mode={self.run_mode.value} "
+            f"stage=order_intake approved_quantity={request.quantity}"
+        )
+        if int(request.quantity) <= 0:
+            return ExecutionResult(
+                symbol=request.symbol,
+                trader_type=request.trader_type or "UNKNOWN",
+                attempted=False,
+                status="BLOCKED",
+                rationale="INVALID_INTERNAL_ORDER_QUANTITY",
+                direction=request.direction,
+                quantity=request.quantity,
+                requested_quantity=request.quantity,
+                filled_quantity=0,
+                remaining_quantity=request.quantity,
+                fill_status="NONE",
+                note="INVALID_INTERNAL_ORDER_QUANTITY",
+                rejection_reason="INVALID_INTERNAL_ORDER_QUANTITY",
+                client_order_id=request.client_order_id,
+                attempt_number=request.attempt_number,
+            )
         self.event_collector.emit(
             event_type="ORDER_SUBMITTED",
             source="IbkrLiveBroker",
@@ -182,6 +217,29 @@ class IbkrLiveBroker(BaseBroker):
             trader_type=request.trader_type or "UNKNOWN",
         )
 
+        print(
+            "[TRACE] "
+            f"cycle_id={cycle_id} trace_id={trace_id} symbol={request.symbol} "
+            f"stage=order_build internal_order_quantity={internal_order.quantity}"
+        )
+        if int(internal_order.quantity) != int(request.quantity):
+            return ExecutionResult(
+                symbol=request.symbol,
+                trader_type=request.trader_type or "UNKNOWN",
+                attempted=False,
+                status="BLOCKED",
+                rationale="EXECUTION_QUANTITY_MISMATCH",
+                direction=request.direction,
+                quantity=request.quantity,
+                requested_quantity=request.quantity,
+                filled_quantity=0,
+                remaining_quantity=request.quantity,
+                fill_status="NONE",
+                note="EXECUTION_QUANTITY_MISMATCH",
+                rejection_reason="EXECUTION_QUANTITY_MISMATCH",
+                client_order_id=request.client_order_id,
+                attempt_number=request.attempt_number,
+            )
         try:
             self.ensure_connection()
             assert self.submitter is not None
@@ -330,6 +388,11 @@ class IbkrLiveBroker(BaseBroker):
 
         status = "ACKED" if result.status == "ACKED" else result.status
         attempted = result.status in {"ACKED"}
+        print(
+            "[TRACE] "
+            f"cycle_id={cycle_id} trace_id={trace_id} symbol={request.symbol} stage=submission "
+            f"submitted_qty={request.quantity} final_execution_status={status}"
+        )
 
         return ExecutionResult(
             symbol=request.symbol,

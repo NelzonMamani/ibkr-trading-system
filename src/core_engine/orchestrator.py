@@ -66,20 +66,36 @@ STAGE_ORDER = [
 ]
 
 
-def _resolve_live_available_funds() -> float:
+def _resolve_live_available_funds(mode) -> AccountSnapshot:
+    if str(getattr(mode, "value", mode)).upper() != "LIVE":
+        return AccountSnapshot(
+            available_funds=float(get_config("RISK_ACCOUNT_EQUITY")),
+            source="CONFIG",
+            canonical=False,
+            broker_connection_state="NON_LIVE",
+        )
+
     try:
         from src.brokers.ibkr_broker import IbkrBroker
 
         broker = IbkrBroker()
         broker.connect()
-        try:
-            assert broker.client is not None
-            return float(resolve_available_capital(broker.client))
-        finally:
-            broker.disconnect()
+        assert broker.client is not None
+        available = float(resolve_available_capital(broker.client, allow_fallback=False))
+        return AccountSnapshot(
+            available_funds=available,
+            source="IBKR_CANONICAL",
+            canonical=True,
+            broker_connection_state="CONNECTED",
+        )
     except Exception as exc:
-        print(f"[CAPITAL][IBKR] unavailable reason={exc}")
-        return float(get_config("RISK_ACCOUNT_EQUITY"))
+        print(f"[CAPITAL][IBKR][BLOCK] source=UNAVAILABLE reason={exc}")
+        return AccountSnapshot(
+            available_funds=0.0,
+            source="UNAVAILABLE",
+            canonical=False,
+            broker_connection_state="DEGRADED",
+        )
 
 
 
@@ -239,6 +255,7 @@ def run_cycle(
         f"used={session.value}"
     )
     print_section(f"CYCLE {cycle_id} MODE={mode.value} SESSION={session.value}")
+    print(f"[TRACE][cycle={cycle_id}] stage=cycle_start mode={mode.value} session={session.value}")
     strategy_policy, scanner_policy = _scanner_policy_for_session(session.value)
     scanner_request = _scanner_request_for_policy(
         scanner_policy,
@@ -309,6 +326,7 @@ def run_cycle(
         f"K={len(watchlist)} M={len(focus)}"
     )
     print_watchlist_focus(watchlist, focus, drop_summary)
+    print(f"[TRACE][cycle={cycle_id}] stage=focus_list_finalisation focus_count={len(focus)}")
 
     if session.value in {"PRE", "AFTER"}:
         write_premarket_prep_artifact(
@@ -372,6 +390,7 @@ def run_cycle(
             strategy_id = "RossMomentumStrategy"
             trade_intents = build_trade_intents(strategy_id, symbol, summary)
             for intent in trade_intents:
+                print(f"[TRACE][cycle={cycle_id}][symbol={symbol}] stage=intent_creation intent_id={intent.intent_id}")
                 combined_tags = list(intent.risk_flags)
                 if data_quality:
                     combined_tags.append("DATA_QUALITY")
@@ -403,7 +422,7 @@ def run_cycle(
     health_status = None
     if health_triggers:
         health_status = combine_health(health_triggers).status
-    account = AccountSnapshot(available_funds=_resolve_live_available_funds())
+    account = _resolve_live_available_funds(mode)
     risk_outputs = evaluate_trade_intents(
         intents=intents,
         mode=mode,
@@ -416,6 +435,7 @@ def run_cycle(
             f"[RISK] {output.symbol} decision={output.decision} size={output.max_position_size} "
             f"rules={output.triggered_rules} reason={output.rationale}"
         )
+        print(f"[TRACE][cycle={cycle_id}][symbol={output.symbol}] stage=risk approved_quantity={output.approved_quantity} capital_source={output.capital_source} available_capital={output.available_funds}")
         if output.decision == "BLOCK" and "HEALTH_CRITICAL" in output.triggered_rules:
             health_triggers.append((HealthStatus.CRITICAL, "risk_block"))
 

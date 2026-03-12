@@ -92,17 +92,13 @@ class IbkrOrderSubmitter:
         )
 
         submitted_at = datetime.now(timezone.utc)
-        try:
-            if hasattr(self.ibkr_client, "ensure_connection"):
-                self.ibkr_client.ensure_connection()
-            elif hasattr(self.ibkr_client, "is_connected") and self.ibkr_client.is_connected():
-                self._log("[CONNECT] Existing IBKR connection detected; reusing session.")
-            else:
-                self.ibkr_client.connect()
-        except Exception as exc:
-            error = f"IBKR connection failed: {exc}"
-            self._log(f"[IBKR][CONNECT_FAIL] {error}")
-            self._emit_failed(internal_order, reason=error, ibkr_order_id=None)
+        if hasattr(self.ibkr_client, "is_connected") and not self.ibkr_client.is_connected():
+            self._log("[EXECUTION][BLOCK] reason=BROKER_CONNECTION_UNAVAILABLE")
+            self._emit_failed(
+                internal_order,
+                reason="BROKER_CONNECTION_UNAVAILABLE",
+                ibkr_order_id=None,
+            )
             return self._result(
                 internal_order,
                 status="BLOCKED",
@@ -167,10 +163,7 @@ class IbkrOrderSubmitter:
                 ibkr_order_id=ibkr_order_id,
             )
         finally:
-            try:
-                self.ibkr_client.disconnect()
-            except Exception as exc:  # pragma: no cover - defensive
-                self._log(f"[WARN] Disconnect raised: {exc}")
+            pass
 
     # --- internals ---
     def _preflight(self, internal_order: InternalOrder) -> Optional[str]:

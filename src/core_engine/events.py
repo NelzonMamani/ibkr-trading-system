@@ -57,6 +57,9 @@ class RiskDecisionRecord:
     available_funds: float = 0.0
     order_value: float = 0.0
     risk_allowed: bool = True
+    capital_source: str = "UNKNOWN"
+    block_reason: str = ""
+    approved_quantity: int = 0
 
 
 @dataclass
