@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.runtime.async_runtime_bootstrap import install_runtime_policy, safe_import_ib_insync
+from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
 
 from src.news.news_heat import compute_fire_indicator
 
@@ -339,15 +340,9 @@ def save_json_file(path: str | Path, obj: Any) -> None:
 # ============================
 
 def ib_connect() -> IB:
-    IB, _, _ = _ib_symbols()
-    ib = IB()
-    ib.RaiseRequestErrors = False  # prefer empty results over hard failures on pacing/cancellations
-    client_id = int(get_config("IBKR_CLIENT_ID") or 0)
-    if client_id <= 0:
-        client_id = random.randint(1000, 9999)
-    logging.info("Connecting to %s:%s with clientId %s...", IB_HOST, IB_PORT, client_id)
-    ib.connect(IB_HOST, IB_PORT, clientId=client_id, timeout=IB_CONNECT_TIMEOUT)
-    return ib
+    logging.info("Requesting shared IBKR connection from IBKRConnectionManager")
+    manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
+    return manager.get_client()
 
 
 def fetch_top_gainers(ib: IB, n: int = TOP_GAINERS_COUNT) -> List[Stock]:
