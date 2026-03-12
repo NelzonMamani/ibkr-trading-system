@@ -131,13 +131,13 @@ class ExecutionEngine:
             return self._duplicate_result(risk_decision, idempotency_key)
         risk_decision.idempotency_key = idempotency_key
 
-        gate_result = self._session_gate_check(risk_decision)
-        if gate_result is not None:
-            return gate_result
-
         preflight_result = self._preflight_check(risk_decision)
         if preflight_result is not None:
             return preflight_result
+
+        gate_result = self._session_gate_check(risk_decision)
+        if gate_result is not None:
+            return gate_result
 
         order = self._order_from_risk_decision(risk_decision, tick)
         return self._route_order(order)
@@ -145,6 +145,9 @@ class ExecutionEngine:
     def _session_gate_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
         if os.getenv("TEST_PIPELINE_MODE") == "LIVE":
             print("[EXECUTION] test_pipeline_override=True")
+            return None
+
+        if self.run_mode == RunMode.PAPER:
             return None
 
         context = self._execution_context(risk_decision)
@@ -172,9 +175,9 @@ class ExecutionEngine:
     def _execution_context(risk_decision: RiskDecision) -> dict:
         evaluated = getattr(risk_decision, "evaluated_limits", {}) or {}
         session = str(evaluated.get("session") or "UNKNOWN").upper()
-        execution_allowed = bool(evaluated.get("execution_allowed", session in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}))
-        execution_ready = bool(evaluated.get("execution_ready", session in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}))
-        prep_only = bool(evaluated.get("prep_only", session in {"AH", "OVN", "WEEKEND", "CLOSED"}))
+        execution_allowed = bool(evaluated.get("execution_allowed", True))
+        execution_ready = bool(evaluated.get("execution_ready", True))
+        prep_only = bool(evaluated.get("prep_only", False))
         return {
             "session": session,
             "execution_allowed": execution_allowed,

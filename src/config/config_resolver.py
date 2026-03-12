@@ -30,20 +30,47 @@ class ConfigRecord:
 
 
 _CONFIG_CACHE: Dict[str, ConfigRecord] | None = None
+_CONFIG_CACHE_ENV_FINGERPRINT: tuple | None = None
 _CONFIG_PRINTED = False
 _CONFIG_OVERRIDES: Dict[str, Any] = {}
 
 
 def set_config_overrides(overrides: Dict[str, Any] | None) -> None:
-    global _CONFIG_OVERRIDES, _CONFIG_CACHE
+    """Set in-process overrides with highest precedence for this process.
+
+    Canonical precedence law (highest -> lowest):
+    1) in-process overrides set here
+    2) environment variables
+    3) registry defaults / default_factory
+    """
+
+    global _CONFIG_OVERRIDES, _CONFIG_CACHE, _CONFIG_CACHE_ENV_FINGERPRINT, _CONFIG_PRINTED
     _CONFIG_OVERRIDES = overrides or {}
     _CONFIG_CACHE = None
+    _CONFIG_CACHE_ENV_FINGERPRINT = None
+    _CONFIG_PRINTED = False
     for alias in ("src.config.config_resolver", "config.config_resolver"):
         module = sys.modules.get(alias)
         if module is None or module is sys.modules.get(__name__):
             continue
         module._CONFIG_OVERRIDES = _CONFIG_OVERRIDES
         module._CONFIG_CACHE = None
+        module._CONFIG_CACHE_ENV_FINGERPRINT = None
+        module._CONFIG_PRINTED = False
+
+    # Reset shared IBKR manager to avoid stale mode/readonly state leaking across tests.
+    try:
+        from src.adapters.brokers.ibkr import ibkr_connection_manager as _ibkr_connection_manager
+
+        _ibkr_connection_manager._default_manager = None
+    except Exception:
+        pass
+
+
+def clear_config_overrides() -> None:
+    """Clear in-process overrides and invalidate caches."""
+
+    set_config_overrides(None)
 
 
 def _normalize(value: Any, normalizer: str | None) -> Any:
@@ -157,12 +184,16 @@ def _resolve_entry(name: str, entry: Dict[str, Any]) -> ConfigRecord:
             env_used = env_name
             break
 
-    if env_value is not None:
-        value = _parse_value(env_value, entry)
-        source = "ENV"
-    elif name in _CONFIG_OVERRIDES:
+    # Authority law (highest -> lowest):
+    # 1) in-process overrides (tests/runtime)
+    # 2) environment
+    # 3) registry defaults
+    if name in _CONFIG_OVERRIDES:
         value = _CONFIG_OVERRIDES[name]
         source = "OVERRIDE"
+    elif env_value is not None:
+        value = _parse_value(env_value, entry)
+        source = "ENV"
     else:
         if "default_factory" in entry:
             value = entry["default_factory"]()
@@ -475,9 +506,18 @@ def _validate_config(values: Dict[str, ConfigRecord]) -> None:
         )
 
 
+def _env_fingerprint() -> tuple:
+    pairs = []
+    for entry in CONFIG_REGISTRY.values():
+        for env_name in entry.get("env", []) or []:
+            pairs.append((env_name, os.environ.get(env_name)))
+    return tuple(sorted(set(pairs)))
+
+
 def resolve_config() -> Dict[str, ConfigRecord]:
-    global _CONFIG_CACHE
-    if _CONFIG_CACHE is not None:
+    global _CONFIG_CACHE, _CONFIG_CACHE_ENV_FINGERPRINT
+    fingerprint = _env_fingerprint()
+    if _CONFIG_CACHE is not None and _CONFIG_CACHE_ENV_FINGERPRINT == fingerprint:
         return _CONFIG_CACHE
 
     resolved: Dict[str, ConfigRecord] = {}
@@ -492,6 +532,7 @@ def resolve_config() -> Dict[str, ConfigRecord]:
     _validate_config(resolved)
 
     _CONFIG_CACHE = resolved
+    _CONFIG_CACHE_ENV_FINGERPRINT = fingerprint
     return resolved
 
 

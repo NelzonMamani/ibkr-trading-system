@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import (
@@ -20,19 +20,25 @@ class IbkrBroker(BaseBroker):
     """Read-only IBKR broker facade backed by the canonical connection manager."""
 
     connection_manager: Optional[IbkrConnectionManager] = None
+    client: Optional[object] = None
 
     def __post_init__(self) -> None:
+        if self.client is not None:
+            return
         if self.connection_manager is None:
             self.connection_manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
 
     @property
-    def client(self):
+    def ibkr_client(self):
+        if self.client is not None:
+            return self.client
         assert self.connection_manager is not None
         return self.connection_manager.get_client()
 
     @property
     def client_id(self) -> Optional[int]:
-        assert self.connection_manager is not None
+        if self.connection_manager is None:
+            return None
         return self.connection_manager.connection_metadata().get("connected_client_id")
 
     def name(self) -> str:
@@ -42,25 +48,28 @@ class IbkrBroker(BaseBroker):
         return True
 
     def connect(self) -> None:
-        assert self.connection_manager is not None
+        if self.connection_manager is None:
+            return
         self.connection_manager.connect()
 
     def disconnect(self) -> None:
-        assert self.connection_manager is not None
+        if self.connection_manager is None:
+            return
         self.connection_manager.disconnect(reason="ibkr_broker_disconnect")
 
     def ensure_connection(self) -> None:
-        assert self.connection_manager is not None
+        if self.connection_manager is None:
+            return
         self.connection_manager.ensure_connected()
 
     def resolve_contract(self, symbol: str) -> object:
-        return self.client.resolve_contract(symbol)
+        return self.ibkr_client.resolve_contract(symbol)
 
     def get_market_snapshot(self, symbol: str) -> MarketSnapshot:
-        return self.client.get_market_snapshot(symbol)
+        return self.ibkr_client.get_market_snapshot(symbol)
 
     def health(self) -> dict:
-        return self.client.health()
+        return self.ibkr_client.health()
 
     def _order_error(self) -> RuntimeError:
         return RuntimeError(READONLY_ERROR)

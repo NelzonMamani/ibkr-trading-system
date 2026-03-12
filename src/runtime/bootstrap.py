@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import os
 from typing import Any
 
 from src.config.runtime_config import get_persistence_sqlite_path
@@ -13,8 +12,7 @@ from src.storage.sqlite_store import SQLiteStore
 
 
 def resolve_sqlite_path() -> Path:
-    env_override = os.environ.get("PERSISTENCE_SQLITE_PATH", "").strip()
-    configured = Path(env_override or get_persistence_sqlite_path(default="data/ibkr_system.db"))
+    configured = Path(get_persistence_sqlite_path(default="data/ibkr_system.db"))
     if configured.is_absolute():
         return configured
     return (resolve_repo_root() / configured).resolve()

@@ -348,8 +348,7 @@ def _load_float_cache(path: Path) -> Dict[str, Dict[str, Any]]:
                             if parsed_asof.tzinfo is None:
                                 parsed_asof = parsed_asof.replace(tzinfo=timezone.utc)
                             if datetime.now(timezone.utc) - parsed_asof > timedelta(days=7):
-                                print(f"[FLOAT][PROVENANCE] symbol={k} reason=stale")
-                                continue
+                                print(f"[FLOAT][PROVENANCE] symbol={k} reason=stale tolerated=True")
                         except ValueError:
                             pass
                     normalized[k] = {
@@ -513,13 +512,13 @@ def _ensure_provider_connection(provider: ScannerDataProvider, *, max_attempts: 
             delay_s = min(delay_s * 2.0, 8.0)
 
 
-def _resolve_runtime_thresholds(policy: StockSelectionPolicy, session_label: str) -> RuntimeThresholdResolution:
+def _resolve_runtime_thresholds(policy: StockSelectionPolicy, session_label: str | None = None) -> RuntimeThresholdResolution:
     watchlist_override = get_config_record("WATCHLIST_RVOL_MIN")
     focus_override = get_config_record("FOCUS_RVOL_MIN")
     spread_override = get_config_record("MAX_SPREAD_PCT")
     allow_unknown_float_override = get_config_record("ALLOW_UNKNOWN_FLOAT")
 
-    normalized = normalize_session_label(session_label)
+    normalized = normalize_session_label(session_label or "PRE")
     canonical = canonical_session_label(normalized)
     watchlist_policy = dict(getattr(policy, "session_watchlist_rvol_min", {}) or {})
     focus_policy = dict(getattr(policy, "session_focus_rvol_min", {}) or {})
@@ -2068,7 +2067,7 @@ def _ross_reason_from_drop(drop_reason: str) -> str:
 
 
 def _resolve_trading_day(now: datetime, session_label: str) -> str:
-    normalized = normalize_session_label(session_label)
+    normalized = normalize_session_label(session_label or "PRE")
     day = now.date()
     if normalized in {"OVN", "AH", "WEEKEND"}:
         return day.isoformat()
@@ -2107,7 +2106,7 @@ def _should_recheck_symbol(
     session_label: str,
     universe_size: int,
 ) -> bool:
-    normalized = normalize_session_label(session_label)
+    normalized = normalize_session_label(session_label or "PRE")
     if symbol_state.last_evaluated_cycle == 0:
         return True
     if symbol_state.last_session != normalized:
