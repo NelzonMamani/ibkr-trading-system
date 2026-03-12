@@ -3,12 +3,13 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dtime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
 import sys
 import time
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 if __package__ in {None, ""}:
@@ -86,6 +87,7 @@ _SCAN_CYCLE_COUNT = 0
 _LAST_PRINT_CYCLE = 0
 NEWS_AGE_MAX_MINUTES = 360
 ETF_EXCLUDED_SYMBOLS = {"SPY", "QQQ", "DIA", "IWM"}
+NY_TZ = ZoneInfo("America/New_York")
 
 CATALYST_KEYWORDS = {
     "earnings": "EARNINGS",
@@ -999,13 +1001,22 @@ def _evaluate_focus_gates(
         return "DROP_MISSING_VOLUME"
     if session in {"PRE", "OVN"}:
         effective_premarket_volume = premarket_volume if premarket_volume is not None else volume
-        if effective_premarket_volume is None or effective_premarket_volume < thresholds.min_premarket_volume:
+        now_ny = datetime.now(NY_TZ)
+        premarket_threshold = _resolve_premarket_volume_threshold(now_ny.time(), thresholds)
+        decision = "PASS" if effective_premarket_volume is not None and effective_premarket_volume >= premarket_threshold else "FAIL"
+        print(
+            "[VOLUME_GATE_POLICY] "
+            f"session={session} time_ny={now_ny.strftime('%H:%M')} "
+            f"threshold={int(premarket_threshold)} symbol_volume={int(effective_premarket_volume or 0)} "
+            f"decision={decision}"
+        )
+        if effective_premarket_volume is None or effective_premarket_volume < premarket_threshold:
             _log_focus_volume_drop(
                 context=context,
                 stage="focus",
                 compared_field="premarket_volume",
-                threshold=float(thresholds.min_premarket_volume),
-                threshold_source="policy.min_premarket_volume",
+                threshold=float(premarket_threshold),
+                threshold_source="policy.session_aware_premarket_volume",
             )
             print(f"[ROSS][GATE] symbol={context.get('symbol')} premarket_volume={int(effective_premarket_volume or 0)} FAIL")
             return "DROP_PREMARKET_VOLUME"
@@ -1045,6 +1056,14 @@ def _evaluate_focus_gates(
         "reason=PASS_ALL_FOCUS_GATES decision=PASS"
     )
     return None
+
+
+def _resolve_premarket_volume_threshold(session_time_ny: dtime, thresholds: GateThresholds) -> int:
+    if session_time_ny < dtime(7, 30):
+        return 10_000
+    if session_time_ny < dtime(9, 30):
+        return 50_000
+    return int(thresholds.min_premarket_volume)
 
 
 def _focus_volume_threshold_for_session(session: str, thresholds: GateThresholds) -> tuple[float, str]:
