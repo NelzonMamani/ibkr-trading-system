@@ -28,6 +28,7 @@ from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.data.fundamentals.float_provider import FloatProvider
+from src.data.manual_focus_loader import load_manual_focus_config
 from src.core.faults import (
     RecoveryAction,
     classify_exception,
@@ -185,6 +186,10 @@ class CoreOrchestrator:
         self._strategy_watchlist_cache: dict[str, list[str]] = {}
         self._strategy_cadence_state: dict[str, StrategyCadenceState] = {}
         self._last_position_management_tick_utc: datetime | None = None
+        self._manual_focus_symbols: list[str] = []
+        self._manual_focus_enabled: bool = True
+        self._manual_focus_reload_seconds: int = 60
+        self._manual_focus_last_loaded_utc: datetime | None = None
         if self.run_mode == RunMode.READ_ONLY:
             from src.brokers import IbkrBroker
 
@@ -537,6 +542,139 @@ class CoreOrchestrator:
         if len(items) > limit:
             return items[:limit] + ["..."]
         return items
+
+    @staticmethod
+    def _manual_focus_candidate(symbol: str, session_phase: str) -> CandidateMetrics:
+        return CandidateMetrics(
+            symbol=symbol,
+            con_id=None,
+            exchange=None,
+            session_label=session_phase,
+            session_phase=session_phase,
+            last_price=None,
+            prev_close=None,
+            ref_close_rth=None,
+            reference_price=None,
+            reference_label=None,
+            gap_pct=None,
+            pct_change=None,
+            pct_change_resolved=None,
+            gap_pct_resolved=None,
+            gap_source=None,
+            context_status=None,
+            execution_ready=None,
+            prep_only=None,
+            live_rvol_deferred=None,
+            prep_seeded=None,
+            live_confirmation_pending=None,
+            watchlist_source="MANUAL_FOCUS",
+            promotion_reason="manual_focus",
+            ibkr_change_pct=None,
+            pct_source=None,
+            open_relative_pct_change=None,
+            hod_pct=None,
+            rvol=None,
+            rvol_discovery=None,
+            rvol_phase=None,
+            phase_volume_ratio=None,
+            relative_volume=None,
+            avg_volume_20d=None,
+            float_shares=None,
+            float_source=None,
+            float_asof=None,
+            float_cache_hit=None,
+            float_millions=None,
+            volume=None,
+            premarket_volume=None,
+            dollar_volume=None,
+            bid=None,
+            ask=None,
+            spread=None,
+            spread_pct=None,
+            halted=None,
+            ssr=None,
+            catalyst_present=None,
+            catalyst_summary=None,
+            news_count=None,
+            fresh_news_count=None,
+            stale_news_count=None,
+            top_news_title=None,
+            top_news_age_hours=None,
+            top_news_catalyst_tag=None,
+            news_source_mode=None,
+            news_asof=None,
+            data_quality_ok=True,
+            data_quality_flags=[],
+            drop_reasons=[],
+            rank_score=None,
+            rank_components=None,
+            timestamp_utc=datetime.now(timezone.utc).isoformat(),
+            gate_checks={},
+        )
+
+    def _refresh_manual_focus_if_due(self, now_utc: datetime) -> list[str]:
+        due = (
+            self._manual_focus_last_loaded_utc is None
+            or (now_utc - self._manual_focus_last_loaded_utc).total_seconds() >= self._manual_focus_reload_seconds
+        )
+        if not due:
+            return list(self._manual_focus_symbols)
+
+        cfg = load_manual_focus_config()
+        symbols = list(cfg.manual_focus) if cfg.enabled else []
+        self._manual_focus_enabled = cfg.enabled
+        self._manual_focus_reload_seconds = max(1, int(cfg.live_reload_seconds))
+        if symbols != self._manual_focus_symbols:
+            print(f"[MANUAL_FOCUS] update_detected symbols={symbols}")
+        self._manual_focus_symbols = symbols
+        self._manual_focus_last_loaded_utc = now_utc
+        return list(self._manual_focus_symbols)
+
+    def _merge_focus_candidates(
+        self,
+        scanner_focus: list[CandidateMetrics],
+        manual_symbols: list[str],
+        focus_limit_max: int,
+        session_phase: str,
+    ) -> list[CandidateMetrics]:
+        merged: list[CandidateMetrics] = []
+        seen: set[str] = set()
+        for row in scanner_focus:
+            symbol = getattr(row, "symbol", None)
+            if not symbol or symbol in seen:
+                continue
+            seen.add(symbol)
+            merged.append(row)
+        for symbol in manual_symbols:
+            if symbol in seen:
+                continue
+            print(f"[FOCUS][MANUAL] symbol={symbol}")
+            merged.append(self._manual_focus_candidate(symbol, session_phase))
+            seen.add(symbol)
+        merged = merged[: max(0, focus_limit_max)]
+        print(
+            "[FOCUS][MERGED] "
+            f"scanner_focus={len(scanner_focus)} "
+            f"manual_focus={len(manual_symbols)} "
+            f"active_focus={len(merged)}"
+        )
+        print(f"[FOCUS][ACTIVE] symbols={self._symbols_from_candidates(merged)}")
+        return merged
+
+    def _inject_manual_into_watchlist(
+        self,
+        watchlist_rows: list[CandidateMetrics],
+        manual_symbols: list[str],
+        session_phase: str,
+    ) -> list[CandidateMetrics]:
+        merged = list(watchlist_rows)
+        seen = set(self._symbols_from_candidates(merged))
+        for symbol in manual_symbols:
+            if symbol in seen:
+                continue
+            merged.append(self._manual_focus_candidate(symbol, session_phase))
+            seen.add(symbol)
+        return merged
 
     def _ensure_cycle_id(self) -> str:
         if not self._current_cycle_id:
@@ -1136,7 +1274,19 @@ class CoreOrchestrator:
                 selected_observations = observations
                 selected_candidates = list(strategy_payload.get("candidates", [])) or selected_candidates
 
+        manual_focus_symbols = self._refresh_manual_focus_if_due(cycle_started_at)
+        selected_watchlist = self._inject_manual_into_watchlist(
+            watchlist_rows=selected_watchlist,
+            manual_symbols=manual_focus_symbols,
+            session_phase=session_phase,
+        )
         watchlist_symbols = self._symbols_from_candidates(selected_watchlist)
+        selected_focus = self._merge_focus_candidates(
+            scanner_focus=selected_focus,
+            manual_symbols=manual_focus_symbols,
+            focus_limit_max=focus_limit_max,
+            session_phase=session_phase,
+        )
         focus_symbols = self._symbols_from_candidates(selected_focus)
         self._trace_event("UNIVERSE", {"universe": [{"symbol": s} for s in self._symbols_from_candidates(selected_observations)]})
         self._trace_event("WATCHLIST", {"watchlist_symbols": watchlist_symbols})
@@ -1391,6 +1541,24 @@ class CoreOrchestrator:
             watchlist_symbols = self._symbols_from_candidates(watchlist_k)
         if not focus_symbols:
             focus_symbols = self._symbols_from_candidates(focus_m)
+        manual_focus_symbols = self._refresh_manual_focus_if_due(cycle_started_at)
+        watchlist_k = self._inject_manual_into_watchlist(
+            watchlist_rows=watchlist_k,
+            manual_symbols=manual_focus_symbols,
+            session_phase=session_phase,
+        )
+        watchlist_symbols = self._symbols_from_candidates(watchlist_k)
+        focus_m = self._merge_focus_candidates(
+            scanner_focus=focus_m,
+            manual_symbols=manual_focus_symbols,
+            focus_limit_max=int(get_config("FOCUS_MAX_SYMBOLS_PER_STRATEGY")),
+            session_phase=session_phase,
+        )
+        focus_symbols = self._symbols_from_candidates(focus_m)
+        scanner_watchlist_payload["watchlist_k"] = watchlist_k
+        scanner_watchlist_payload["watchlist_k_symbols"] = watchlist_symbols
+        scanner_watchlist_payload["focus_m"] = focus_m
+        scanner_watchlist_payload["focus_m_symbols"] = focus_symbols
         print(f"WATCHLIST_K_SELECTED (K={len(watchlist_symbols)}): {watchlist_symbols}")
         drop_reason_summary = scanner_watchlist_payload.get("drop_reason_summary", {})
         self._trace_event(
