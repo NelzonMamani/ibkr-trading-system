@@ -93,15 +93,20 @@ class IbkrOrderSubmitter:
 
         submitted_at = datetime.now(timezone.utc)
         try:
-            self.ibkr_client.connect()
+            if hasattr(self.ibkr_client, "ensure_connection"):
+                self.ibkr_client.ensure_connection()
+            elif hasattr(self.ibkr_client, "is_connected") and self.ibkr_client.is_connected():
+                self._log("[CONNECT] Existing IBKR connection detected; reusing session.")
+            else:
+                self.ibkr_client.connect()
         except Exception as exc:
             error = f"IBKR connection failed: {exc}"
-            self._log(f"[ERROR] {error}")
+            self._log(f"[IBKR][CONNECT_FAIL] {error}")
             self._emit_failed(internal_order, reason=error, ibkr_order_id=None)
             return self._result(
                 internal_order,
-                status="FAILED",
-                error=error,
+                status="BLOCKED",
+                error="BROKER_CONNECTION_UNAVAILABLE",
                 submitted_at=submitted_at,
             )
 

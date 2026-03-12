@@ -26,6 +26,8 @@ def _market_data_type_code(market_data_type: str) -> int:
 
 
 class IbkrClient(EWrapper, EClient):
+    MAX_CLIENT_ID_RETRIES = 10
+
     """
     Thin wrapper around ibapi for read-only operations.
 
@@ -74,31 +76,48 @@ class IbkrClient(EWrapper, EClient):
 
     # --- Connection management ---
     def connect(self) -> None:  # type: ignore[override]
-        print(
-            f"[IBKR] Connecting to host={self.host} port={self.port} client_id={self.client_id}"
-        )
-        try:
-            super().connect(self.host, self.port, self.client_id)
-        except Exception as exc:  # pragma: no cover - defensive
-            raise RuntimeError(f"IBKR connection failed: {exc}") from exc
+        base_client_id = int(self.client_id)
+        for attempt in range(self.MAX_CLIENT_ID_RETRIES):
+            client_id = base_client_id + attempt
+            self.client_id = client_id
+            self._connection_event.clear()
+            print(f"[IBKR] host={self.host} port={self.port} client_id={client_id}")
+            print(f"[IBKR] Attempting connection client_id={client_id}")
+            try:
+                super().connect(self.host, self.port, client_id)
+            except Exception as exc:  # pragma: no cover - defensive
+                message = str(exc).lower()
+                if "client id" in message or "326" in message:
+                    print(
+                        f"[IBKR][RETRY] client_id={client_id} already in use. Trying next client id."
+                    )
+                    continue
+                print(f"[IBKR][CONNECT_FAIL] client_id={client_id} error={exc}")
+                raise RuntimeError(f"IBKR connection failed: {exc}") from exc
 
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run_loop, daemon=True)
-        self._thread.start()
+            self._stop_event.clear()
+            self._thread = threading.Thread(target=self._run_loop, daemon=True)
+            self._thread.start()
 
-        if not self._connection_event.wait(timeout=self.snapshot_timeout_seconds):
-            self.disconnect()
-            raise RuntimeError(
-                "IBKR connection timeout waiting for next valid id handshake."
-            )
+            if not self._connection_event.wait(timeout=self.snapshot_timeout_seconds):
+                self.disconnect()
+                print(
+                    f"[IBKR][CONNECT_FAIL] client_id={client_id} timeout waiting for next valid id handshake"
+                )
+                continue
 
-        data_type_code = _market_data_type_code(self.market_data_type)
-        print(f"[IBKR] Setting market data type={self.market_data_type} code={data_type_code}")
-        self.reqMarketDataType(data_type_code)
-        print("[IBKR] Connection established.")
+            data_type_code = _market_data_type_code(self.market_data_type)
+            print(f"[IBKR] Setting market data type={self.market_data_type} code={data_type_code}")
+            self.reqMarketDataType(data_type_code)
+            print(f"[IBKR] connection_status={self.isConnected()}")
+            print(f"[IBKR][CONNECTED] Connected client_id={client_id}")
+            return
+
+        print("[IBKR][CONNECT_FAIL] IBKR connection failed after clientId retries")
+        raise RuntimeError("IBKR connection failed after clientId retries")
 
     def disconnect(self) -> None:  # type: ignore[override]
-        print("[IBKR] Disconnect requested.")
+        print(f"[IBKR] Disconnecting client_id={self.client_id}")
         self._stop_event.set()
         try:
             super().disconnect()
@@ -107,7 +126,12 @@ class IbkrClient(EWrapper, EClient):
                 self._thread.join(timeout=2)
                 if self._thread.is_alive():  # pragma: no cover - defensive
                     print("[IBKR] Warning: network thread still alive after disconnect.")
-            print("[IBKR] Disconnected.")
+            print("[IBKR][DISCONNECTED] client disconnected")
+
+    def ensure_connection(self) -> None:
+        if not self.is_connected():
+            print("[IBKR] Connection lost. Reconnecting.")
+            self.connect()
 
     def is_connected(self) -> bool:
         return self.isConnected()
@@ -356,6 +380,8 @@ class IbkrClient(EWrapper, EClient):
                 self._account_summary_events[reqId].set()
         message = f"[IBKR] Error reqId={reqId} code={errorCode} msg={errorString}"
         print(message)
+        if errorCode == 326:
+            print("[IBKR][CONNECT_FAIL] code=326 client id already in use")
         if errorCode in (1100, 1300):  # connection/pacing
             self._last_disconnect_reason = f"code={errorCode} msg={errorString}"
             self._connection_event.clear()

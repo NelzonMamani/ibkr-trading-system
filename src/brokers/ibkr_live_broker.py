@@ -122,6 +122,12 @@ class IbkrLiveBroker(BaseBroker):
     def is_live(self) -> bool:
         return True
 
+    def ensure_connection(self) -> None:
+        assert self.client is not None
+        if not self.client.is_connected():
+            print("[IBKR] Connection lost. Reconnecting.")
+            self.client.connect()
+
     def place_order(self, request: BrokerOrderRequest) -> ExecutionResult:
         profile_name = str(get_risk_profile_name() or "NORMAL").upper()
         profile = RISK_PROFILES.get(profile_name)
@@ -177,6 +183,8 @@ class IbkrLiveBroker(BaseBroker):
         )
 
         try:
+            self.ensure_connection()
+            assert self.submitter is not None
             result = self.submitter.submit_once(internal_order)
         except Exception as exc:
             rationale = f"LIVE_SUBMISSION_FAILED: {exc}"
@@ -345,6 +353,7 @@ class IbkrLiveBroker(BaseBroker):
             client_order_id=request.client_order_id,
             retry_scheduled=False,
             next_retry_tick=None,
+            gateway_decision="BLOCK" if status == "BLOCKED" else "LIVE",
         )
 
     def cancel_order(self, client_order_id: str) -> None:
