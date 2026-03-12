@@ -195,6 +195,145 @@ def test_submitter_does_not_connect_or_disconnect_directly():
     assert client.disconnect_calls == 0
 
 
+
+def test_manager_heartbeat_reconnects_when_connection_lost(monkeypatch):
+    from src.adapters.brokers.ibkr import ibkr_connection_manager as module
+
+    class FlakyClient(FakeManagedClient):
+        connect_attempts = 0
+
+        def connect(self):
+            FlakyClient.connect_attempts += 1
+            self.connected = True
+
+    FakeManagedClient.created_ids = []
+    FlakyClient.connect_attempts = 0
+    monkeypatch.setattr(module, "IbkrClient", FlakyClient)
+    manager = IbkrConnectionManager(
+        IbkrConnectionConfig(
+            host="127.0.0.1",
+            port=7497,
+            base_client_id=8,
+            snapshot_timeout_seconds=1,
+            market_data_type="LIVE",
+            readonly_enabled=False,
+        )
+    )
+
+    client = manager.get_client()
+    client.connected = False
+
+    manager.heartbeat()
+    metadata = manager.connection_metadata()
+
+    assert metadata["connected"] is True
+    assert metadata["reconnect_count"] == 1
+    assert metadata["last_reconnect_time"] is not None
+    assert FlakyClient.connect_attempts == 2
+
+
+def test_manager_heartbeat_no_reconnect_when_healthy(monkeypatch):
+    from src.adapters.brokers.ibkr import ibkr_connection_manager as module
+
+    FakeManagedClient.created_ids = []
+    monkeypatch.setattr(module, "IbkrClient", FakeManagedClient)
+    manager = IbkrConnectionManager(
+        IbkrConnectionConfig(
+            host="127.0.0.1",
+            port=7497,
+            base_client_id=8,
+            snapshot_timeout_seconds=1,
+            market_data_type="LIVE",
+            readonly_enabled=False,
+        )
+    )
+
+    manager.get_client()
+    manager.heartbeat()
+    metadata = manager.connection_metadata()
+
+    assert metadata["reconnect_count"] == 0
+    assert FakeManagedClient.created_ids == [8]
+
+
+def test_reconnect_preserves_immutable_config(monkeypatch):
+    from src.adapters.brokers.ibkr import ibkr_connection_manager as module
+
+    FakeManagedClient.created_ids = []
+    monkeypatch.setattr(module, "IbkrClient", FakeManagedClient)
+    manager = IbkrConnectionManager(
+        IbkrConnectionConfig(
+            host="127.0.0.1",
+            port=7497,
+            base_client_id=8,
+            snapshot_timeout_seconds=1,
+            market_data_type="LIVE",
+            readonly_enabled=False,
+        )
+    )
+
+    original = manager.config
+    client = manager.get_client()
+    client.connected = False
+    manager.ensure_connection_health()
+
+    assert manager.config == original
+    metadata = manager.connection_metadata()
+    assert metadata["host"] == "127.0.0.1"
+    assert metadata["port"] == 7497
+    assert metadata["base_client_id"] == 8
+
+
+def test_shutdown_prevents_reconnect(monkeypatch):
+    from src.adapters.brokers.ibkr import ibkr_connection_manager as module
+
+    FakeManagedClient.created_ids = []
+    monkeypatch.setattr(module, "IbkrClient", FakeManagedClient)
+    manager = IbkrConnectionManager(
+        IbkrConnectionConfig(
+            host="127.0.0.1",
+            port=7497,
+            base_client_id=8,
+            snapshot_timeout_seconds=1,
+            market_data_type="LIVE",
+            readonly_enabled=False,
+        )
+    )
+
+    manager.get_client()
+    manager.disconnect(reason="execution_engine_shutdown")
+    manager.heartbeat()
+
+    metadata = manager.connection_metadata()
+    assert metadata["connected"] is False
+    assert metadata["reconnect_count"] == 0
+
+
+def test_metadata_exposes_reconnect_and_disconnect_fields(monkeypatch):
+    from src.adapters.brokers.ibkr import ibkr_connection_manager as module
+
+    FakeManagedClient.created_ids = []
+    monkeypatch.setattr(module, "IbkrClient", FakeManagedClient)
+    manager = IbkrConnectionManager(
+        IbkrConnectionConfig(
+            host="127.0.0.1",
+            port=7497,
+            base_client_id=8,
+            snapshot_timeout_seconds=1,
+            market_data_type="LIVE",
+            readonly_enabled=False,
+        )
+    )
+
+    manager.get_client()
+    manager.disconnect(reason="manual")
+    metadata = manager.connection_metadata()
+
+    assert "reconnect_count" in metadata
+    assert "last_reconnect_time" in metadata
+    assert metadata["last_disconnect_reason"] == "manual"
+
+
 def test_execution_engine_shutdown_disconnects_once():
     class FakeBroker:
         def __init__(self):

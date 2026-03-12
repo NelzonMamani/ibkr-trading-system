@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from threading import Lock
 from typing import Optional
 
@@ -35,6 +36,10 @@ class IbkrConnectionManager:
         self._connected_client_id: Optional[int] = None
         self._connection_generation = 0
         self._last_error: Optional[str] = None
+        self._last_reconnect_time: Optional[str] = None
+        self._reconnect_count = 0
+        self._last_disconnect_reason: Optional[str] = None
+        self._shutdown_requested = False
         self._lock = Lock()
         print(
             "[IBKR][MANAGER] init "
@@ -125,6 +130,9 @@ class IbkrConnectionManager:
 
     def disconnect(self, reason: str = "manual") -> None:
         with self._lock:
+            self._last_disconnect_reason = reason
+            if "shutdown" in reason.lower():
+                self._shutdown_requested = True
             if self._client is None:
                 return
             client_id = self._connected_client_id
@@ -137,6 +145,38 @@ class IbkrConnectionManager:
             self._client = None
             self._connected_client_id = None
 
+    def ensure_connection_health(self) -> Optional[IbkrClient]:
+        with self._lock:
+            if self._shutdown_requested:
+                return None
+            if self._client is not None and self._client.is_connected():
+                return self._client
+            print("[IBKR][MANAGER] connection_lost")
+            print("[IBKR][MANAGER] connection lost — attempting reconnect")
+            self._reconnect_count += 1
+            self._last_reconnect_time = datetime.now(timezone.utc).isoformat()
+            print(
+                "[IBKR][MANAGER] reconnect_attempt "
+                f"client_id={self._config.base_client_id}"
+            )
+            self._client = None
+            self._connected_client_id = None
+            client = self._connect_locked()
+            print(
+                "[IBKR][MANAGER] reconnect_success "
+                f"client_id={self._connected_client_id} generation={self._connection_generation}"
+            )
+            return client
+
+    def heartbeat(self) -> None:
+        if not self.is_connected():
+            self.ensure_connection_health()
+            return
+        print(
+            "[IBKR][MANAGER] heartbeat ok "
+            f"client_id={self._connected_client_id}"
+        )
+
     def connection_metadata(self) -> dict:
         return {
             "host": self._config.host,
@@ -146,6 +186,9 @@ class IbkrConnectionManager:
             "connection_generation": self._connection_generation,
             "connected": self.is_connected(),
             "last_error": self._last_error,
+            "reconnect_count": self._reconnect_count,
+            "last_reconnect_time": self._last_reconnect_time,
+            "last_disconnect_reason": self._last_disconnect_reason,
             "readonly_enabled": self._config.readonly_enabled,
         }
 
