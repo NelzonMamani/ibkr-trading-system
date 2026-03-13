@@ -22,7 +22,6 @@ def build_provider(
 ) -> ScannerDataProvider:
     mode = _source_mode()
     run_mode = get_run_mode()
-    fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
     if mode == "MOCK":
         return MockScannerProvider()
     if mode == "IBKR":
@@ -43,20 +42,6 @@ def build_provider(
             connection_manager=connection_manager,
             market_data_client=market_data_client,
         )
-        try:
-            provider.connect()
-            return provider
-        except ProviderConnectionError as exc:
-            if run_mode in {
-                RunMode.LIVE,
-                RunMode.READ_ONLY,
-            }:
-                raise
-            if run_mode == RunMode.PAPER and not fallback_enabled:
-                raise
-            logging.getLogger(__name__).warning(
-                "[SCAN][FALLBACK] IBKR unavailable — switching to MOCK provider reason=%s",
-                exc,
-            )
-            return MockScannerProvider()
+        provider.connect()
+        return provider
     raise ValueError(f"Unsupported SCANNER_DATA_SOURCE={mode}")
