@@ -1093,6 +1093,23 @@ class CoreOrchestrator:
                 print(f"[SLEEP] Sleeping for {sleep_seconds} seconds before next cycle.")
                 time.sleep(sleep_seconds)
             except (ProviderConnectionError, ConnectionError, TimeoutError) as exc:
+                if self.run_mode == RunMode.LIVE:
+                    print(f"[CONNECTIVITY] Provider connectivity failure in LIVE mode: {exc}")
+                    self._trace_halt(
+                        reason_code="CONNECTIVITY_FAILURE",
+                        message=str(exc),
+                        stage="CONNECTIVITY",
+                    )
+                    if not self.stop_controller.is_stop_requested():
+                        self._request_stop(
+                            StopMode.GRACEFUL,
+                            reason="Connectivity failure in LIVE mode",
+                            source="CoreOrchestrator",
+                        )
+                    self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
+                    performed_shutdown = True
+                    break
+
                 retry_count += 1
                 self._degraded = True
                 backoff_seconds = min(60, max(1, int(2 ** (retry_count - 1))))
@@ -1111,6 +1128,14 @@ class CoreOrchestrator:
                     self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
                     performed_shutdown = True
                     break
+                self.system_state.set_degraded(reason=str(exc))
+                print("STATE=DEGRADED")
+                print("reason=provider_connection_failure")
+                print("provider=IBKR")
+                print(
+                    "[TRACEABILITY] "
+                    "STATE=DEGRADED reason=provider_connection_failure provider=IBKR"
+                )
                 print(
                     "[CONNECTIVITY] "
                     f"STATE=DEGRADED retry={retry_count} backoff={backoff_seconds}s "
@@ -1124,6 +1149,8 @@ class CoreOrchestrator:
                         "retry": retry_count,
                         "backoff_seconds": backoff_seconds,
                         "next_attempt": next_attempt.isoformat(),
+                        "reason": "provider_connection_failure",
+                        "provider": "IBKR",
                     },
                 )
                 time.sleep(backoff_seconds)
