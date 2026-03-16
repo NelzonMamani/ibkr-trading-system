@@ -298,12 +298,12 @@ class IbkrClient(EWrapper, EClient):
         }
 
         self.reqMktData(
-            reqId=req_id,
-            contract=contract,
-            genericTickList="",
-            snapshot=True,
-            regulatorySnapshot=False,
-            mktDataOptions=[],
+            req_id,
+            contract,
+            "",
+            True,
+            False,
+            [],
         )
 
         event.wait(timeout=self.snapshot_timeout_seconds)
