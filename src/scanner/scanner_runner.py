@@ -2283,7 +2283,7 @@ def run_scanner_cycle(
         "[SESSION][MODE] "
         f"utc={session_diag.utc_time} ny={session_diag.ny_time} resolved={session_diag.resolved_session} "
         f"canonical={session_diag.canonical_session} reason={session_diag.reason} "
-        f"forced={forced_session_label or 'NONE'} forced_source={session_diag.override_source} "
+        f"forced={session_diag.resolved_session if session_diag.override_source != 'NONE' else 'NONE'} forced_source={session_diag.override_source} "
         f"reference_trading_date={session_diag.reference_trading_date} "
         f"previous_valid_market_session_date={session_diag.previous_valid_market_session_date}"
     )
@@ -2319,6 +2319,20 @@ def run_scanner_cycle(
         f"session={normalize_session_label(session_label)} execution_allowed={execution_allowed} "
         f"execution_allowlist={execution_allowlist} prep_or_closed_mode={canonical_session_label(session_label) == 'CLOSED'}"
     )
+    refresh_cycle_seconds = int(get_config("FOCUS_REFRESH_SECONDS") or 0)
+    last_refresh_utc = utc_now.isoformat()
+    next_refresh_due_utc = (utc_now + timedelta(seconds=max(refresh_cycle_seconds, 0))).isoformat()
+    print("[SCANNER][REFRESH]")
+    print(f"cycle_seconds={refresh_cycle_seconds}")
+    print("scanner_refresh_active=True")
+    print(f"last_refresh_utc={last_refresh_utc}")
+    print(f"next_refresh_due_utc={next_refresh_due_utc}")
+    diagnostics["scanner_refresh"] = {
+        "cycle_seconds": refresh_cycle_seconds,
+        "scanner_refresh_active": True,
+        "last_refresh_utc": last_refresh_utc,
+        "next_refresh_due_utc": next_refresh_due_utc,
+    }
     print(
         "[SCANNER][POLICY] source={source} policy_name={policy_name} price={price_min}-{price_max} "
         "gap_min={gap_min} watchlist_rvol_min={watchlist_rvol_min}({watchlist_src}) focus_rvol_min={focus_rvol_min}({focus_src}) float_max_millions={float_max} "
@@ -3036,6 +3050,20 @@ def run_scanner_cycle(
                     break
 
         prep_candidates = _load_premarket_prep_candidates() if can_seed_prep else {}
+        print("[PREP][ARTIFACT]")
+        print(f"session={normalized_session}")
+        print(f"prep_mode_active={prep_mode_seed_enabled}")
+        print(f"prep_seed_enabled={can_seed_prep}")
+        if not prep_mode_seed_enabled:
+            print("status=SKIPPED reason=session_not_pre")
+        elif not can_seed_prep and provider_error:
+            print("status=SKIPPED reason=provider_error")
+        elif not can_seed_prep and not symbols:
+            print("status=SKIPPED reason=empty_raw_universe")
+        elif prep_candidates:
+            print(f"status=LOADED symbols={len(prep_candidates)}")
+        else:
+            print("status=NOT_FOUND symbols=0")
         watchlist_contexts, prep_seeded_count, prep_invalidated_count = _seed_watchlist_from_prep(
             session_label=session_label,
             watchlist_contexts=watchlist_contexts,
@@ -3051,6 +3079,13 @@ def run_scanner_cycle(
                 f"session={session_label} prep_symbols={len(prep_candidates)} seeded={prep_seeded_count} "
                 f"invalidated={prep_invalidated_count}"
             )
+            if prep_seeded_count == 0:
+                print("[PREP][SEED] status=NO_SEED reason=prep_candidates_invalidated_or_unusable")
+        elif prep_mode_seed_enabled:
+            if not symbols:
+                print("[PREP][SEED] status=NO_SEED reason=raw_scanner_universe_empty")
+            else:
+                print("[PREP][SEED] status=NO_SEED reason=no_prep_artifacts")
         if not watchlist_contexts and prep_candidates:
             print(
                 "[PREP][HARD_FAIL] PRE watchlist empty after prep seeding "
@@ -3204,6 +3239,43 @@ def run_scanner_cycle(
         print(f"survivor_count_after_gates={len(watchlist_contexts)}")
         print(f"watchlist_count={len(watchlist_symbols)}")
         print(f"focus_count={len(focus_symbols)}")
+
+        scanner_contract = {
+            "top_n": requested_top_n,
+            "watchlist_k": len(watchlist_symbols),
+            "focus_m": len(focus_symbols),
+        }
+        contract_valid = 0 <= scanner_contract["focus_m"] <= scanner_contract["watchlist_k"] <= scanner_contract["top_n"]
+        scanner_contract["contract_valid"] = contract_valid
+        print("[SCANNER][CONTRACT]")
+        print(f"top_n={scanner_contract['top_n']}")
+        print(f"watchlist_k={scanner_contract['watchlist_k']}")
+        print(f"focus_m={scanner_contract['focus_m']}")
+        print(f"contract_valid={contract_valid}")
+        diagnostics["scanner_contract"] = scanner_contract
+
+        raw_zero_payload = {
+            "provider": flow.get("provider", provider_source),
+            "broker_returned_zero": broker_zero,
+            "instrument": flow.get("instrument", request.instrument),
+            "location": flow.get("location", request.location_code),
+            "scanCode": flow.get("scanCode", request.ibkr_scan_code),
+            "requested_top_n": flow.get("requested_top_n", request.requested_top_n),
+            "broker_rows_requested": flow.get("broker_rows_requested", limits["resolved_symbol_limit"]),
+            "effective_internal_processing_limit": flow.get("effective_internal_processing_limit", limits["resolved_symbol_limit"]),
+            "translation_or_truncation_occurred": bool(flow.get("translation_applied") or flow.get("truncation_applied")),
+            "local_gating_applied": raw_count > 0,
+            "local_gating_eliminated_all": local_gating_eliminated_all,
+            "raw_broker_count": raw_count,
+            "candidate_count_entering_gates": len(symbols),
+            "survivor_count_after_gates": len(watchlist_contexts),
+            "watchlist_count": len(watchlist_symbols),
+            "focus_count": len(focus_symbols),
+            "drop_reasons": drop_summary if (local_gating_eliminated_all or drop_summary) else {},
+        }
+        diagnostics["raw_zero_attribution"] = raw_zero_payload
+        if not contract_valid:
+            diagnostics["scanner_contract_invalid"] = True
 
         previous_watch = set(daily_state.watchlist_k.keys())
         previous_focus = set(daily_state.focus_m.keys())

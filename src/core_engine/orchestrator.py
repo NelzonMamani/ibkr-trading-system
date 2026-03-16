@@ -302,12 +302,15 @@ def run_cycle(
         f"scan_only={execution_intent.scan_only} "
         f"enforcement={execution_intent.enforcement}"
     )
-    scanner_payload = run_scanner_cycle(
-        mode=mode.value,
-        policy=scanner_policy,
-        scanner_request=scanner_request,
-        forced_session_label=session.value,
-    )
+    scanner_kwargs = {
+        "mode": mode.value,
+        "policy": scanner_policy,
+        "scanner_request": scanner_request,
+    }
+    if forced_session_state is not None:
+        scanner_kwargs["forced_session_label"] = session.value
+        scanner_kwargs["forced_session_source"] = "TEST_OVERRIDE"
+    scanner_payload = run_scanner_cycle(**scanner_kwargs)
     watchlist = scanner_payload.get("watchlist_k_symbols", [])
     focus = scanner_payload.get("focus_m_symbols", [])
     if not watchlist:

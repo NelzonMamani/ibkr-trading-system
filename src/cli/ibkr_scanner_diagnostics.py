@@ -4,6 +4,7 @@ import argparse
 from typing import Any, Sequence
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
+from src.config.config_resolver import get_config
 from src.core.managers.market_data_snapshot_manager import MarketDataSnapshotManager
 from src.scanner.scanner_contract import scanner_request_from_policy
 from src.scanner.scanner_runner import run_scanner_cycle
@@ -19,16 +20,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def run_diagnostics(*, dry_run: bool) -> dict[str, Any]:
     policy = RossMomentumPolicy().stock_selection
     request = scanner_request_from_policy(policy, strategy_name="ross_momentum", session_phase="PREMARKET")
-    manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
-    metadata = manager.connection_metadata()
+    manager = None
+    metadata: dict[str, Any] = {
+        "host": get_config("IBKR_HOST"),
+        "port": get_config("IBKR_PORT"),
+        "base_client_id": get_config("IBKR_CLIENT_ID"),
+    }
+    market_data_type = str(get_config("IBKR_MARKET_DATA_TYPE") or "UNKNOWN")
 
     status = "DRY_RUN"
     scanner_operational = True
     symbols: list[str] = []
     rows: list[tuple[str, Any, Any, Any]] = []
+    diagnostics: dict[str, Any] = {}
 
     if not dry_run:
         try:
+            manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
+            metadata = manager.connection_metadata()
+            market_data_type = str(getattr(manager.config, "market_data_type", market_data_type) or market_data_type)
             manager.ensure_connected()
             status = "ACTIVE"
         except Exception as exc:
@@ -42,6 +52,7 @@ def run_diagnostics(*, dry_run: bool) -> dict[str, Any]:
                     policy=policy,
                     scanner_request=request,
                 )
+                diagnostics = payload.get("diagnostics") or {}
                 universe_entries = payload.get("universe_top_n") or []
                 symbols = [str(entry.get("symbol") or "") for entry in universe_entries if isinstance(entry, dict)]
                 symbols = [symbol for symbol in symbols if symbol]
@@ -49,14 +60,44 @@ def run_diagnostics(*, dry_run: bool) -> dict[str, Any]:
                 for symbol in symbols:
                     snapshot, quality = snapshot_manager.get_snapshot(symbol)
                     hydration = "PARTIAL" if quality.missing_fields else "SUCCESS"
-                    rows.append((symbol, snapshot.last, None, snapshot.volume if hydration else None))
+                    price = snapshot.last if snapshot.last is not None else "UNAVAILABLE"
+                    volume = snapshot.volume if snapshot.volume is not None else "UNAVAILABLE"
+                    rows.append((symbol, price, hydration, volume))
             except Exception as exc:
                 scanner_operational = False
                 status = status if status.startswith("FAILED:") else "ACTIVE"
                 rows = [("SCANNER_ERROR", None, None, str(exc))]
     else:
         symbols = ["AAPL", "TSLA"]
-        rows = [("AAPL", 175.0, 1.2, 1_500_000), ("TSLA", 240.0, 2.4, 2_100_000)]
+        rows = [("AAPL", 175.0, "SUCCESS", 1_500_000), ("TSLA", 240.0, "SUCCESS", 2_100_000)]
+        diagnostics = {
+            "scanner_contract": {"top_n": 50, "watchlist_k": 2, "focus_m": 1, "contract_valid": True},
+            "raw_zero_attribution": {
+                "provider": "IBKR",
+                "broker_returned_zero": False,
+                "instrument": "STK",
+                "location": "STK.US",
+                "scanCode": "TOP_PERC_GAIN",
+                "requested_top_n": 50,
+                "broker_rows_requested": 50,
+                "effective_internal_processing_limit": 50,
+                "translation_or_truncation_occurred": False,
+                "local_gating_applied": True,
+                "local_gating_eliminated_all": False,
+                "raw_broker_count": 2,
+                "candidate_count_entering_gates": 2,
+                "survivor_count_after_gates": 2,
+                "watchlist_count": 2,
+                "focus_count": 1,
+                "drop_reasons": {},
+            },
+            "scanner_refresh": {
+                "cycle_seconds": 5,
+                "scanner_refresh_active": True,
+                "last_refresh_utc": "DRY_RUN",
+                "next_refresh_due_utc": "DRY_RUN",
+            },
+        }
 
     return {
         "broker": {
@@ -65,12 +106,16 @@ def run_diagnostics(*, dry_run: bool) -> dict[str, Any]:
             "host": metadata.get("host"),
             "port": metadata.get("port"),
             "client_id": metadata.get("base_client_id"),
-            "market_data_type": manager.config.market_data_type,
+            "market_data_type": market_data_type,
         },
         "scanner": {
             "returned_symbols": len(symbols),
             "rows": rows,
             "scanner_operational": scanner_operational,
+            "diagnostics": diagnostics,
+            "scanner_contract": diagnostics.get("scanner_contract") or {},
+            "raw_zero_attribution": diagnostics.get("raw_zero_attribution") or {},
+            "scanner_refresh": diagnostics.get("scanner_refresh") or {},
         },
     }
 
@@ -92,9 +137,46 @@ def main(argv: Sequence[str] | None = None) -> int:
     scanner = result["scanner"]
     print(f"returned_symbols={scanner['returned_symbols']}")
     print("\nSYMBOLS")
-    print("SYMBOL PRICE PCT_CHANGE VOLUME")
-    for symbol, price, pct_change, volume in scanner["rows"]:
-        print(f"{symbol} {price if price is not None else 'N/A'} {pct_change if pct_change is not None else 'N/A'} {volume if volume is not None else 'N/A'}")
+    print("SYMBOL PRICE HYDRATION VOLUME")
+    for symbol, price, hydration, volume in scanner["rows"]:
+        print(f"{symbol} {price if price is not None else 'N/A'} {hydration if hydration is not None else 'N/A'} {volume if volume is not None else 'N/A'}")
+
+    contract = scanner.get("scanner_contract") or {}
+    print("\n[SCANNER][CONTRACT]")
+    print(f"top_n={contract.get('top_n', 0)}")
+    print(f"watchlist_k={contract.get('watchlist_k', 0)}")
+    print(f"focus_m={contract.get('focus_m', 0)}")
+    print(f"contract_valid={contract.get('contract_valid', False)}")
+
+    refresh = scanner.get("scanner_refresh") or {}
+    print("\n[SCANNER][REFRESH]")
+    print(f"cycle_seconds={refresh.get('cycle_seconds', 0)}")
+    print(f"scanner_refresh_active={refresh.get('scanner_refresh_active', False)}")
+    print(f"last_refresh_utc={refresh.get('last_refresh_utc', 'UNKNOWN')}")
+    print(f"next_refresh_due_utc={refresh.get('next_refresh_due_utc', 'UNKNOWN')}")
+
+    raw_zero = scanner.get("raw_zero_attribution") or {}
+    print("\n[SCANNER][RAW_ZERO]")
+    for key in [
+        "provider",
+        "broker_returned_zero",
+        "instrument",
+        "location",
+        "scanCode",
+        "requested_top_n",
+        "broker_rows_requested",
+        "effective_internal_processing_limit",
+        "translation_or_truncation_occurred",
+        "local_gating_applied",
+        "local_gating_eliminated_all",
+        "raw_broker_count",
+        "candidate_count_entering_gates",
+        "survivor_count_after_gates",
+        "watchlist_count",
+        "focus_count",
+        "drop_reasons",
+    ]:
+        print(f"{key}={raw_zero.get(key)}")
 
     print("\n[SCANNER_TEST_SUMMARY]")
     print(f"symbols_returned={scanner['returned_symbols']}")

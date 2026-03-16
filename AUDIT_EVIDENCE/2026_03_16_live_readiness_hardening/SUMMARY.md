@@ -1,19 +1,14 @@
-# Live Readiness Hardening Evidence (2026-03-16)
+# Live readiness hardening evidence (2026-03-16)
 
 ## Root causes found
-- Scanner diagnostics CLI used non-canonical broker/provider assumptions and could fail when wrapper capabilities diverged from low-level IB calls.
-- Session attribution used `FORCED_OVERRIDE` generically, even when no explicit override source was attached.
-- Scanner `raw zero` outcomes lacked explicit broker-vs-local-gating attribution fields.
-- Pipeline diagnostics lacked explicit partial hydration semantics and safe execution gating language.
+- Scanner diagnostics previously relied on non-canonical lower-level invocation patterns; this drift could fail when wrapper internals differ from production scanner path.
+- Session attribution could be misleading when forced-session wiring was passed through unconditionally from deterministic orchestrator path.
 
-## Fixes made
-- Reworked scanner diagnostics to use canonical `run_scanner_cycle` path.
-- Added source-specific session override attribution in session diagnostics and scanner logs.
-- Added explicit `[SCANNER][RAW_ZERO]` attribution block with broker/local gating and counts.
-- Hardened trade pipeline diagnostics output and execution safety flags.
-- Added a unified read-only `live_readiness_check` CLI.
-- Added focused tests for diagnostics CLIs, session attribution, and raw-zero logging.
+## Fixes applied
+- Scanner diagnostics now runs through canonical `run_scanner_cycle(...)` and reports broker/scanner summary in dry-run and runtime-safe modes.
+- Session diagnostics now emits source-specific reasons (`MARKET_CLOCK`, `ENV_OVERRIDE`, `CONFIG_OVERRIDE`, `TEST_OVERRIDE`, `PARAMETER_OVERRIDE`) with explicit `override_source`.
+- Core engine scanner invocation no longer forces session unless a real forced session was supplied.
+- Existing scanner raw-zero attribution block retained with explicit broker-vs-local gating fields and counts.
 
 ## Remaining external dependency
-- Real IBKR premarket scanner can legitimately return zero candidates under market conditions.
-- This is now explicitly attributable via `[SCANNER][RAW_ZERO]` diagnostics instead of ambiguous behavior.
+- Real IBKR premarket conditions can still legitimately return zero scanner candidates even with correct request and architecture. The system now provides explicit attribution fields so operators can distinguish broker-empty responses from local gating elimination.
