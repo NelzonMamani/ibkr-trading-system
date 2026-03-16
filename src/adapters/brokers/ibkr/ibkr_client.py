@@ -74,6 +74,8 @@ class IbkrClient(EWrapper, EClient):
         self._commission_by_exec_id: Dict[str, float] = {}
         self._account_summary_events: Dict[int, threading.Event] = {}
         self._account_summary_rows: Dict[int, Dict[str, str]] = {}
+        self._scanner_events: Dict[int, threading.Event] = {}
+        self._scanner_rows: Dict[int, List[object]] = {}
 
     # --- Connection management ---
     def connect(self) -> None:  # type: ignore[override]
@@ -331,6 +333,35 @@ class IbkrClient(EWrapper, EClient):
     def snapshot_for_symbol(self, symbol: str) -> MarketDataSnapshot:
         return self.snapshot_stock(symbol)
 
+
+    def reqScannerData(self, subscription):
+        """
+        Forward scanner request to underlying IB client.
+        """
+        if hasattr(self, "ib") and self.ib is not None:
+            return self.ib.reqScannerData(subscription)
+
+        if not self.is_connected():
+            raise RuntimeError("IBKR client is not connected.")
+
+        req_id = self._next_req_id()
+        event = threading.Event()
+        self._scanner_events[req_id] = event
+        self._scanner_rows[req_id] = []
+
+        self.reqScannerSubscription(req_id, subscription, [], [])
+        event.wait(timeout=self.snapshot_timeout_seconds)
+        self.cancelScannerSubscription(req_id)
+        return list(self._scanner_rows.get(req_id, []))
+
+    def cancelScannerSubscription(self, reqId):
+        """
+        Forward scanner cancellation to underlying IB client.
+        """
+        if hasattr(self, "ib") and self.ib is not None:
+            return self.ib.cancelScannerSubscription(reqId)
+        return super().cancelScannerSubscription(reqId)
+
     def tickPrice(
         self,
         reqId: TickerId,
@@ -385,6 +416,35 @@ class IbkrClient(EWrapper, EClient):
         if event:
             event.set()
 
+
+    def scannerData(
+        self,
+        reqId: int,
+        rank: int,
+        contractDetails: ContractDetails,
+        distance: str,
+        benchmark: str,
+        projection: str,
+        legsStr: str,
+    ):  # type: ignore[override]
+        from types import SimpleNamespace
+
+        self._scanner_rows.setdefault(reqId, []).append(
+            SimpleNamespace(
+                rank=rank,
+                contractDetails=contractDetails,
+                distance=distance,
+                benchmark=benchmark,
+                projection=projection,
+                legsStr=legsStr,
+            )
+        )
+
+    def scannerDataEnd(self, reqId: int):  # type: ignore[override]
+        event = self._scanner_events.get(reqId)
+        if event:
+            event.set()
+
     # --- Error handling ---
     def error(self, reqId: int, errorCode: int, errorString: str):  # type: ignore[override]
         if reqId >= 0:
@@ -395,6 +455,8 @@ class IbkrClient(EWrapper, EClient):
                 self._market_events[reqId].set()
             if reqId in self._account_summary_events:
                 self._account_summary_events[reqId].set()
+            if reqId in self._scanner_events:
+                self._scanner_events[reqId].set()
         message = f"[IBKR] Error reqId={reqId} code={errorCode} msg={errorString}"
         print(message)
         if errorCode == 326:
