@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, time as dtime, timedelta, timezone
 import hashlib
 import json
+import logging
 from pathlib import Path
 import sys
 import time
@@ -85,6 +86,8 @@ _WATCHLIST_HASH: Optional[str] = None
 _LAST_SESSION_LABEL: Optional[str] = None
 _SCAN_CYCLE_COUNT = 0
 _LAST_PRINT_CYCLE = 0
+_LAST_BROKER_SCAN_TS: float | None = None
+_LAST_SCANNER_PAYLOAD: Dict[str, Any] | None = None
 NEWS_AGE_MAX_MINUTES = 360
 ETF_EXCLUDED_SYMBOLS = {"SPY", "QQQ", "DIA", "IWM"}
 NY_TZ = ZoneInfo("America/New_York")
@@ -207,12 +210,14 @@ def _utc_now() -> datetime:
 
 def reset_scanner_runtime_state(*, clear_persistent_provider: bool = True) -> None:
     """Reset scanner module runtime globals to avoid cross-test/runtime leakage."""
-    global _WATCHLIST_HASH, _LAST_SESSION_LABEL, _SCAN_CYCLE_COUNT, _LAST_PRINT_CYCLE, _PERSISTENT_PROVIDER, _PERSISTENT_PROVIDER_SOURCE, _ROSS_DAILY_STATE
+    global _WATCHLIST_HASH, _LAST_SESSION_LABEL, _SCAN_CYCLE_COUNT, _LAST_PRINT_CYCLE, _PERSISTENT_PROVIDER, _PERSISTENT_PROVIDER_SOURCE, _ROSS_DAILY_STATE, _LAST_BROKER_SCAN_TS, _LAST_SCANNER_PAYLOAD
     _PREV_WATCHLIST.clear()
     _WATCHLIST_HASH = None
     _LAST_SESSION_LABEL = None
     _SCAN_CYCLE_COUNT = 0
     _LAST_PRINT_CYCLE = 0
+    _LAST_BROKER_SCAN_TS = None
+    _LAST_SCANNER_PAYLOAD = None
     _ROSS_DAILY_STATE = None
     if clear_persistent_provider:
         if _PERSISTENT_PROVIDER is not None:
@@ -311,7 +316,7 @@ def _print_symbol_limits(
     )
     print(f"[SCANNER][LIMITS] Focus list limit={focus_limit}")
 
-    return {
+    _LAST_SCANNER_PAYLOAD = {
         "resolved_symbol_limit": resolved,
         "reductions": reductions,
         "watchlist_limit": watchlist_limit,
@@ -2223,7 +2228,7 @@ def _scanner_request_reject_payload(
         continuing_symbols=[],
         dropped_symbols=[],
     )
-    return {
+    _LAST_SCANNER_PAYLOAD = {
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
         "timestamp_utc": utc_now.isoformat(),
@@ -2250,6 +2255,7 @@ def _scanner_request_reject_payload(
         "data_quality_counts": {},
         "diagnostics": diagnostics,
     }
+    return dict(_LAST_SCANNER_PAYLOAD)
 
 
 def run_scanner_cycle(
@@ -2263,7 +2269,7 @@ def run_scanner_cycle(
     forced_session_label: str | None = None,
     forced_session_source: str | None = None,
 ) -> Dict[str, Any]:
-    global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE, _PERSISTENT_PROVIDER, _PERSISTENT_PROVIDER_SOURCE
+    global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE, _PERSISTENT_PROVIDER, _PERSISTENT_PROVIDER_SOURCE, _LAST_BROKER_SCAN_TS, _LAST_SCANNER_PAYLOAD
     _SCAN_CYCLE_COUNT += 1
     utc_now = _utc_now()
     session_ctx = _market_session_context_utc(utc_now)
@@ -2401,6 +2407,19 @@ def run_scanner_cycle(
         )
     diagnostics["scanner_request_valid"] = True
 
+    logger = logging.getLogger(__name__)
+    if _LAST_BROKER_SCAN_TS is not None and _LAST_SCANNER_PAYLOAD is not None:
+        time_since_last_scan = time.time() - _LAST_BROKER_SCAN_TS
+        if time_since_last_scan < 15:
+            logger.debug(
+                "[SCANNER] skipping scan — IBKR refresh window protection"
+            )
+            diagnostics["scanner_refresh_window_protection"] = {
+                "applied": True,
+                "time_since_last_scan": round(time_since_last_scan, 3),
+            }
+            return dict(_LAST_SCANNER_PAYLOAD)
+
     run_mode = get_run_mode()
     fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
     explicit_mock = str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
@@ -2480,6 +2499,7 @@ def run_scanner_cycle(
     print("[SCANNER][STAGE] bootstrap")
 
     try:
+        _LAST_BROKER_SCAN_TS = time.time()
         try:
             if provider is None:
                 symbols = []
@@ -2553,6 +2573,13 @@ def run_scanner_cycle(
             "truncation_applied": truncation_applied,
             "raw_broker_count": len(raw_symbols),
         }
+        if len(symbols) == 0:
+            logger.error(
+                "[SCANNER][BROKER_EMPTY] IBKR returned zero symbols "
+                f"(scanCode={request.ibkr_scan_code}, "
+                f"location={request.location_code}, "
+                f"price_range={request.above_price}-{request.below_price})"
+            )
         print(f"SCANNER_RAW_N={requested_top_n} returned {len(symbols)} symbols")
         if event_collector is not None:
             event_payload = {
@@ -3407,6 +3434,10 @@ def run_scanner_cycle(
         _WATCHLIST_HASH = watchlist_hash
         _LAST_SESSION_LABEL = session_label
         _log_ross_lists(daily_state)
+        logger.info(
+            f"[SCANNER][RESULT] broker_rows={len(symbols)} "
+            f"watchlist_k={len(watchlist_symbols)} focus_m={len(focus_symbols)}"
+        )
 
         watchlist_dir = Path("output/watchlists")
         watchlist_dir.mkdir(parents=True, exist_ok=True)
@@ -3491,7 +3522,7 @@ def run_scanner_cycle(
         if reason.startswith("DROP_MD"):
             data_quality_counts[reason] = data_quality_counts.get(reason, 0) + 1
 
-    return {
+    _LAST_SCANNER_PAYLOAD = {
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
         "timestamp_utc": utc_now.isoformat(),
@@ -3542,6 +3573,8 @@ def run_scanner_cycle(
             for symbol in sorted(symbol_contexts.keys())
         },
     }
+    return dict(_LAST_SCANNER_PAYLOAD)
+
 
 
 if __name__ == "__main__":
