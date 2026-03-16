@@ -322,6 +322,7 @@ def _print_symbol_limits(
         "watchlist_limit": watchlist_limit,
         "focus_limit": focus_limit,
     }
+    return _LAST_SCANNER_PAYLOAD
 
 
 def _watchlist_hash(symbols: list[str], focus: list[str]) -> str:
@@ -2495,6 +2496,34 @@ def run_scanner_cycle(
         resolved_policy,
         requested_top_n=request.requested_top_n,
     )
+    # --- HARD INVARIANT: scanner limits must always be valid ---
+    if limits is None:
+        limits = {}
+
+    resolved_symbol_limit = limits.get("resolved_symbol_limit")
+
+    if resolved_symbol_limit is None:
+        # canonical Ross Momentum scanner limit fallback
+        resolved_symbol_limit = 50
+        limits["resolved_symbol_limit"] = resolved_symbol_limit
+
+    if limits.get("watchlist_limit") is None:
+        limits["watchlist_limit"] = int(resolved_policy.watchlist_limit_k)
+
+    if limits.get("focus_limit") is None:
+        focus_limit = int(resolved_policy.focus_limit_m)
+        watchlist_limit = int(limits["watchlist_limit"])
+        limits["focus_limit"] = min(focus_limit, watchlist_limit)
+
+    if limits.get("reductions") is None:
+        limits["reductions"] = []
+
+    # additional safety guard
+    if "resolved_symbol_limit" not in limits:
+        raise RuntimeError(
+            "[SCANNER][INVARIANT] resolved_symbol_limit missing from limits structure"
+        )
+
     diagnostics["symbol_limits"] = limits
     print("[SCANNER][STAGE] bootstrap")
 
@@ -2530,6 +2559,34 @@ def run_scanner_cycle(
                         resolved_policy,
                         requested_top_n=request.requested_top_n,
                     )
+                    # --- HARD INVARIANT: scanner limits must always be valid ---
+                    if limits is None:
+                        limits = {}
+
+                    resolved_symbol_limit = limits.get("resolved_symbol_limit")
+
+                    if resolved_symbol_limit is None:
+                        # canonical Ross Momentum scanner limit fallback
+                        resolved_symbol_limit = 50
+                        limits["resolved_symbol_limit"] = resolved_symbol_limit
+
+                    if limits.get("watchlist_limit") is None:
+                        limits["watchlist_limit"] = int(resolved_policy.watchlist_limit_k)
+
+                    if limits.get("focus_limit") is None:
+                        focus_limit = int(resolved_policy.focus_limit_m)
+                        watchlist_limit = int(limits["watchlist_limit"])
+                        limits["focus_limit"] = min(focus_limit, watchlist_limit)
+
+                    if limits.get("reductions") is None:
+                        limits["reductions"] = []
+
+                    # additional safety guard
+                    if "resolved_symbol_limit" not in limits:
+                        raise RuntimeError(
+                            "[SCANNER][INVARIANT] resolved_symbol_limit missing from limits structure"
+                        )
+
                     diagnostics["symbol_limits"] = limits
                     symbols = _resolve_universe_symbols(
                         provider=provider,
