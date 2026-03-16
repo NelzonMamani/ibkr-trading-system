@@ -204,8 +204,18 @@ def resolve_session_diagnostics(now: Optional[datetime] = None, forced_session_l
     ref_day = reference_trading_day(now_utc)
     prev_day = previous_valid_trading_day(now_utc)
     if forced_session_label:
-        reason = forced_session_source or "TEST_OVERRIDE"
-        override_source = forced_session_source or "PARAMETER"
+        normalized_source = str(forced_session_source or "PARAMETER").upper()
+        if normalized_source in {"FORCE_SESSION", "SESSION_OVERRIDE", "MARKET_SESSION_OVERRIDE", "ENV", "ENV_VAR", "ENV_OVERRIDE"}:
+            reason = "ENV_OVERRIDE"
+        elif normalized_source in {"CONFIG", "CONFIG_OVERRIDE"}:
+            reason = "CONFIG_OVERRIDE"
+        elif normalized_source in {"TEST", "TEST_OVERRIDE", "PYTEST"}:
+            reason = "TEST_OVERRIDE"
+        elif normalized_source in {"PARAMETER", "PARAM"}:
+            reason = "PARAMETER_OVERRIDE"
+        else:
+            reason = normalized_source
+        override_source = normalized_source
     else:
         reason = "MARKET_CLOCK"
         override_source = "NONE"

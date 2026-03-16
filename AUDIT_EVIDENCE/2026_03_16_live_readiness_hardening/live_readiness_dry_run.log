@@ -4,7 +4,6 @@
 [CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
 [CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
 [CONFIG] No ambiguous defaults detected
-[IBKR][MANAGER] init host=127.0.0.1 port=7497 base_client_id=7 readonly=True market_data_type=DELAYED snapshot_timeout_seconds=5
 [PATTERN] AAPL Gap & Go not detected (reason=gap not holding above premarket high)
 [PATTERN] AAPL Opening Range Breakout not detected (reason=not regular session)
 [PATTERN] AAPL First Pullback not detected (reason=insufficient candles)
@@ -47,7 +46,7 @@
 [STRATEGY] Aggregated TradeIntents from all strategies: 0 total
 [LIVE_READINESS]
 broker_connected=True
-session_resolved=PRE
+session_resolved=RTH_OPEN
 scanner_operational=True
 scanner_symbols_returned=2
 pipeline_operational=True

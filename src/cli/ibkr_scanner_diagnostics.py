@@ -4,6 +4,7 @@ import argparse
 from typing import Any, Sequence
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
+from src.config.config_resolver import get_config
 from src.core.managers.market_data_snapshot_manager import MarketDataSnapshotManager
 from src.scanner.scanner_contract import scanner_request_from_policy
 from src.scanner.scanner_runner import run_scanner_cycle
@@ -19,16 +20,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def run_diagnostics(*, dry_run: bool) -> dict[str, Any]:
     policy = RossMomentumPolicy().stock_selection
     request = scanner_request_from_policy(policy, strategy_name="ross_momentum", session_phase="PREMARKET")
-    manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
-    metadata = manager.connection_metadata()
+    manager = None
+    metadata: dict[str, Any] = {
+        "host": get_config("IBKR_HOST"),
+        "port": get_config("IBKR_PORT"),
+        "base_client_id": get_config("IBKR_CLIENT_ID"),
+    }
+    market_data_type = str(get_config("IBKR_MARKET_DATA_TYPE") or "UNKNOWN")
 
     status = "DRY_RUN"
     scanner_operational = True
     symbols: list[str] = []
     rows: list[tuple[str, Any, Any, Any]] = []
+    diagnostics: dict[str, Any] = {}
 
     if not dry_run:
         try:
+            manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
+            metadata = manager.connection_metadata()
+            market_data_type = str(getattr(manager.config, "market_data_type", market_data_type) or market_data_type)
             manager.ensure_connected()
             status = "ACTIVE"
         except Exception as exc:
@@ -42,6 +52,7 @@ def run_diagnostics(*, dry_run: bool) -> dict[str, Any]:
                     policy=policy,
                     scanner_request=request,
                 )
+                diagnostics = payload.get("diagnostics") or {}
                 universe_entries = payload.get("universe_top_n") or []
                 symbols = [str(entry.get("symbol") or "") for entry in universe_entries if isinstance(entry, dict)]
                 symbols = [symbol for symbol in symbols if symbol]
@@ -49,14 +60,16 @@ def run_diagnostics(*, dry_run: bool) -> dict[str, Any]:
                 for symbol in symbols:
                     snapshot, quality = snapshot_manager.get_snapshot(symbol)
                     hydration = "PARTIAL" if quality.missing_fields else "SUCCESS"
-                    rows.append((symbol, snapshot.last, None, snapshot.volume if hydration else None))
+                    price = snapshot.last if snapshot.last is not None else "UNAVAILABLE"
+                    volume = snapshot.volume if snapshot.volume is not None else "UNAVAILABLE"
+                    rows.append((symbol, price, hydration, volume))
             except Exception as exc:
                 scanner_operational = False
                 status = status if status.startswith("FAILED:") else "ACTIVE"
                 rows = [("SCANNER_ERROR", None, None, str(exc))]
     else:
         symbols = ["AAPL", "TSLA"]
-        rows = [("AAPL", 175.0, 1.2, 1_500_000), ("TSLA", 240.0, 2.4, 2_100_000)]
+        rows = [("AAPL", 175.0, "SUCCESS", 1_500_000), ("TSLA", 240.0, "SUCCESS", 2_100_000)]
 
     return {
         "broker": {
@@ -65,12 +78,13 @@ def run_diagnostics(*, dry_run: bool) -> dict[str, Any]:
             "host": metadata.get("host"),
             "port": metadata.get("port"),
             "client_id": metadata.get("base_client_id"),
-            "market_data_type": manager.config.market_data_type,
+            "market_data_type": market_data_type,
         },
         "scanner": {
             "returned_symbols": len(symbols),
             "rows": rows,
             "scanner_operational": scanner_operational,
+            "diagnostics": diagnostics,
         },
     }
 

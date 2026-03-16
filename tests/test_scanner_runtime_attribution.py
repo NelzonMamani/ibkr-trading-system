@@ -39,3 +39,12 @@ def test_session_mode_logs_source_when_forced(capsys) -> None:
     out = capsys.readouterr().out
     assert "reason=TEST_OVERRIDE" in out
     assert "forced_source=TEST_OVERRIDE" in out
+
+
+def test_session_mode_logs_market_clock_when_not_forced(capsys) -> None:
+    run_scanner_cycle(mode="READ_ONLY", provider=_ZeroProvider())
+    out = capsys.readouterr().out
+    assert "[SESSION][MODE]" in out
+    assert "reason=MARKET_CLOCK" in out
+    assert "forced=NONE" in out
+    assert "forced_source=NONE" in out
