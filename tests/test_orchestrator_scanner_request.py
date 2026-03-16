@@ -13,7 +13,7 @@ def test_orchestrator_builds_scanner_request_from_policy():
     assert request.universe_source == UniverseSource.IBKR_TOP_GAINERS
     assert request.requested_top_n == stock_policy.top_gainers_n
     assert request.instrument == "STK"
-    assert request.location_code == "STK.US.MAJOR"
+    assert request.location_code == "STK.US"
     assert request.ibkr_scan_code == "TOP_PERC_GAIN"
     assert request.above_price == stock_policy.price_min
     assert request.below_price == stock_policy.price_max
