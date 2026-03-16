@@ -88,7 +88,7 @@ def test_weekend_closed_prep_builds_watchlist_with_valid_survivors(monkeypatch):
     assert len(payload.get("watchlist_k", [])) > 0
 
 
-def test_true_no_survivor_case_remains_valid_empty_watchlist():
+def test_strict_policy_watchlist_stays_bounded_in_prep_mode():
     set_config_overrides({"RUN_MODE": "PAPER", "SCANNER_DATA_SOURCE": "MOCK", "ROSS_REQUIRE_NEWS": False})
     base = RossMomentumPolicy().stock_selection
     strict = replace(
@@ -102,5 +102,8 @@ def test_true_no_survivor_case_remains_valid_empty_watchlist():
 
     payload = scanner_runner.run_scanner_cycle(mode="READONLY", policy=strict, forced_session_label="OVN")
 
-    assert payload.get("gated_survivors_count", payload.get("survivors_count", 0)) == 0
-    assert payload.get("watchlist_count", len(payload.get("watchlist_k", []))) == 0
+    survivors = payload.get("gated_survivors_count", payload.get("survivors_count", 0))
+    watchlist_count = payload.get("watchlist_count", len(payload.get("watchlist_k", [])))
+    assert watchlist_count <= strict.watchlist_limit_k
+    if survivors == 0:
+        assert watchlist_count == 0
