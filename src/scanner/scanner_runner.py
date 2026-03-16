@@ -60,6 +60,8 @@ from src.scanner.providers.mock_provider import MockScannerProvider
 from src.scanner.ranking_registry import resolve_watchlist_selector
 from src.scanner.result_models import CandidateMetrics, ScannerResult
 from src.scanner.reference_resolver import resolve_reference_bundle
+from src.market_data.market_snapshot_enricher import MarketSnapshotEnricher
+
 from src.scanner.session_pct_change import (
     canonical_session_label,
     compute_phase_aware_rvol,
@@ -650,7 +652,8 @@ def _evaluate_price_gate(
     thresholds: GateThresholds,
 ) -> Optional[str]:
     price = _safe_float(context.get("last_price"), None)
-    if thresholds.require_price and price is None:
+    snapshot_fetch_attempted = bool(context.get("snapshot_fetch_attempted"))
+    if thresholds.require_price and price is None and snapshot_fetch_attempted:
         return "DROP_MISSING_PRICE"
     return None
 
@@ -2777,11 +2780,23 @@ def run_scanner_cycle(
             f"unchanged={len(unchanged_symbols_delta)} escalated={len(escalated_symbols_delta)}"
         )
 
+        snapshot_enricher = MarketSnapshotEnricher(
+            connection_manager=getattr(provider, "connection_manager", None),
+            batch_timeout_seconds=5.0,
+        )
+        market_snapshots = snapshot_enricher.fetch_snapshots(symbols)
+        diagnostics["market_snapshot_enrichment"] = {
+            "requested_symbols": len(symbols),
+            "snapshots_returned": len(market_snapshots),
+            "batch_timeout_seconds": 5.0,
+        }
+
         float_cache = _bootstrap_float_cache(symbols, provider)
         thresholds = _gate_thresholds(resolved_policy, runtime_thresholds)
         candidates: List[Dict[str, Any]] = []
         evaluated_contexts: List[Dict[str, Any]] = []
 
+        print("[SCANNER][STAGE] market_snapshot_enrichment")
         print("[SCANNER][STAGE] gates")
         for rank, symbol in enumerate(symbols, start=1):
             symbol_state = daily_state.top_universe.get(symbol)
@@ -2853,6 +2868,30 @@ def run_scanner_cycle(
                     )
                 evaluated_contexts.append(context)
                 continue
+            snapshot_data = market_snapshots.get(symbol, {}) if isinstance(market_snapshots, dict) else {}
+            context["snapshot_fetch_attempted"] = True
+            if isinstance(snapshot_data, dict):
+                context["snapshot_last_price"] = snapshot_data.get("last_price")
+                context["snapshot_bid"] = snapshot_data.get("bid")
+                context["snapshot_ask"] = snapshot_data.get("ask")
+                context["snapshot_volume"] = snapshot_data.get("volume")
+                context["snapshot_close"] = snapshot_data.get("close")
+                if context.get("last_price") is None and snapshot_data.get("last_price") is not None:
+                    context["last_price"] = snapshot_data.get("last_price")
+                if context.get("bid") is None and snapshot_data.get("bid") is not None:
+                    context["bid"] = snapshot_data.get("bid")
+                if context.get("ask") is None and snapshot_data.get("ask") is not None:
+                    context["ask"] = snapshot_data.get("ask")
+                if context.get("volume") is None and snapshot_data.get("volume") is not None:
+                    context["volume"] = snapshot_data.get("volume")
+                if context.get("close") is None and snapshot_data.get("close") is not None:
+                    context["close"] = snapshot_data.get("close")
+            snapshot_failed = all(context.get(key) is None for key in ("last_price", "bid", "ask", "volume", "close"))
+            context["snapshot_fetch_failed"] = snapshot_failed
+            if snapshot_failed:
+                print(f"[SCANNER][DROP] symbol={symbol} reason=DATA_QUALITY_FAIL_SNAPSHOT")
+                context.setdefault("data_quality_flags", []).append("DATA_QUALITY_FAIL_SNAPSHOT")
+
             if context.get("snapshot_timeout"):
                 drop_ledger.setdefault(symbol, "DROP_SNAPSHOT_TIMEOUT")
                 print(f"[SCANNER][DROP] symbol={symbol} reason=DROP_SNAPSHOT_TIMEOUT")
