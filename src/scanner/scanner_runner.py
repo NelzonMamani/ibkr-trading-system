@@ -1936,7 +1936,12 @@ def _resolve_universe_symbols(
             request,
             instrument="STK",
             location_code=ibkr_location_code,
+            ibkr_scan_code="TOP_PERC_GAIN",
         )
+        effective_location_code = primary_request.location_code
+        effective_scan_code = primary_request.ibkr_scan_code
+        retry_attempts = 0
+        retry_exhausted = False
         symbols = provider.get_top_gainers(
             limits["resolved_symbol_limit"],
             request=primary_request,
@@ -1944,12 +1949,19 @@ def _resolve_universe_symbols(
         print(f"[SCANNER][RAW_RESULT] broker_symbols={len(symbols)}")
         if not symbols:
             print("[SCANNER][BROKER_EMPTY] retrying alternate scan codes")
-            fallback_scan_codes = ["TOP_OPEN_PERC_GAIN", "HOT_BY_VOLUME"]
-            for alt_code in fallback_scan_codes:
-                print(f"[SCANNER][RETRY] scanCode={alt_code}")
+            fallback_sequence = [
+                ("STK.US.MAJOR", "TOP_OPEN_PERC_GAIN"),
+                ("STK.US.MAJOR", "HOT_BY_VOLUME"),
+                ("STK.US", "TOP_PERC_GAIN"),
+                ("STK.US", "HOT_BY_VOLUME"),
+            ]
+            for location_code, scan_code in fallback_sequence:
+                retry_attempts += 1
+                print(f"[SCANNER][RETRY] location={location_code} scanCode={scan_code}")
                 alt_request = replace(
                     primary_request,
-                    ibkr_scan_code=alt_code,
+                    location_code=location_code,
+                    ibkr_scan_code=scan_code,
                 )
                 alt_results = provider.get_top_gainers(
                     limits["resolved_symbol_limit"],
@@ -1957,12 +1969,22 @@ def _resolve_universe_symbols(
                 )
                 if alt_results:
                     symbols = alt_results
-                    print(f"[SCANNER][RETRY_SUCCESS] symbols={len(symbols)}")
+                    effective_location_code = location_code
+                    effective_scan_code = scan_code
+                    print(
+                        f"[SCANNER][RETRY_SUCCESS] symbols={len(symbols)} "
+                        f"location={location_code} scanCode={scan_code}"
+                    )
                     break
-        if not symbols:
-            raise RuntimeError(
-                "[SCANNER][FATAL] IBKR scanner returned zero symbols after retries"
-            )
+            if not symbols:
+                retry_exhausted = True
+        if symbols:
+            if retry_attempts == 0:
+                effective_location_code = primary_request.location_code
+                effective_scan_code = primary_request.ibkr_scan_code
+        else:
+            effective_location_code = primary_request.location_code
+            effective_scan_code = primary_request.ibkr_scan_code
         ibkr_returned_count = len(symbols)
         requested_top_n = int(request.requested_top_n)
         truncation = ibkr_returned_count != requested_top_n
@@ -1976,6 +1998,10 @@ def _resolve_universe_symbols(
             "requested_top_n": requested_top_n,
             "truncation": truncation,
             "reasons": reasons,
+            "effective_location_code": effective_location_code,
+            "effective_scan_code": effective_scan_code,
+            "retry_attempts": retry_attempts,
+            "retry_exhausted": retry_exhausted,
         }
         print(
             "[SCANNER][IBKR] universe_return "
@@ -1987,7 +2013,8 @@ def _resolve_universe_symbols(
         print(
             "[SCANNER][IBKR][ATTRIBUTION] "
             f"raw_zero={ibkr_returned_count == 0} "
-            f"reason={'broker_returned_zero_candidates' if ibkr_returned_count == 0 else 'broker_returned_candidates'}"
+            f"reason={'broker_returned_zero_candidates' if ibkr_returned_count == 0 else 'broker_returned_candidates'} "
+            f"effective_location={effective_location_code} effective_scanCode={effective_scan_code}"
         )
         if truncation and not reasons:
             print(
@@ -2283,8 +2310,43 @@ def _scanner_request_reject_payload(
         "data_quality_by_symbol": {},
         "data_quality_counts": {},
         "diagnostics": diagnostics,
+        "cacheable": False,
     }
     return dict(_LAST_SCANNER_PAYLOAD)
+
+
+def _payload_indicates_broker_empty(payload: Dict[str, Any]) -> bool:
+    diagnostics = payload.get("diagnostics", {}) if isinstance(payload, dict) else {}
+    raw_zero = diagnostics.get("raw_zero_attribution", {}) if isinstance(diagnostics, dict) else {}
+    raw_broker_count = payload.get("raw_broker_count")
+    if raw_broker_count is None:
+        raw_broker_count = raw_zero.get("raw_broker_count")
+    watchlist_count = payload.get("watchlist_count")
+    if watchlist_count is None:
+        watchlist_count = raw_zero.get("watchlist_count")
+    if watchlist_count is None:
+        watchlist_count = len(payload.get("watchlist_k_symbols", payload.get("watchlist", [])))
+    broker_zero = payload.get("broker_returned_zero")
+    if broker_zero is None:
+        broker_zero = raw_zero.get("broker_returned_zero")
+    try:
+        raw_broker_count_int = int(raw_broker_count)
+    except Exception:
+        raw_broker_count_int = -1
+    return bool(broker_zero) or raw_broker_count_int == 0 or (
+        watchlist_count == 0 and raw_broker_count_int == 0
+    )
+
+
+def _is_payload_cacheable(payload: Dict[str, Any]) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    explicit_cacheable = payload.get("cacheable")
+    if explicit_cacheable is False:
+        return False
+    if _payload_indicates_broker_empty(payload):
+        return False
+    return True
 
 
 def run_scanner_cycle(
@@ -2439,15 +2501,32 @@ def run_scanner_cycle(
     logger = logging.getLogger(__name__)
     if _LAST_BROKER_SCAN_TS is not None and _LAST_SCANNER_PAYLOAD is not None:
         time_since_last_scan = time.time() - _LAST_BROKER_SCAN_TS
-        if time_since_last_scan < 15:
-            logger.debug(
-                "[SCANNER] skipping scan — IBKR refresh window protection"
-            )
+        payload_is_broker_empty = _payload_indicates_broker_empty(_LAST_SCANNER_PAYLOAD)
+        in_live_mode = get_run_mode() == RunMode.LIVE
+        if in_live_mode and payload_is_broker_empty:
+            print("[SCANNER][REFRESH_BYPASS] previous payload empty from broker; forcing fresh rescan")
             diagnostics["scanner_refresh_window_protection"] = {
-                "applied": True,
+                "applied": False,
                 "time_since_last_scan": round(time_since_last_scan, 3),
+                "bypassed_for_broker_empty": True,
             }
-            return dict(_LAST_SCANNER_PAYLOAD)
+        elif time_since_last_scan < 15:
+            if not _is_payload_cacheable(_LAST_SCANNER_PAYLOAD):
+                print("[SCANNER][REFRESH_BYPASS] previous payload empty from broker; forcing fresh rescan")
+                diagnostics["scanner_refresh_window_protection"] = {
+                    "applied": False,
+                    "time_since_last_scan": round(time_since_last_scan, 3),
+                    "bypassed_for_non_cacheable": True,
+                }
+            else:
+                logger.debug(
+                    "[SCANNER] skipping scan — IBKR refresh window protection"
+                )
+                diagnostics["scanner_refresh_window_protection"] = {
+                    "applied": True,
+                    "time_since_last_scan": round(time_since_last_scan, 3),
+                }
+                return dict(_LAST_SCANNER_PAYLOAD)
 
     run_mode = get_run_mode()
     fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
@@ -2642,13 +2721,18 @@ def run_scanner_cycle(
         truncation_applied = len(upper_symbols) > limits["resolved_symbol_limit"]
         symbols = upper_symbols[: limits["resolved_symbol_limit"]]
         requested_top_n = int(request.requested_top_n or len(symbols))
+        ibkr_universe_diag = diagnostics.get("ibkr_universe", {})
         diagnostics["scanner_flow"] = {
             "requested_top_n": requested_top_n,
             "broker_rows_requested": int(limits["resolved_symbol_limit"]),
             "effective_internal_processing_limit": int(limits["resolved_symbol_limit"]),
             "instrument": request.instrument,
-            "location": request.location_code,
-            "scanCode": request.ibkr_scan_code,
+            "location": ibkr_universe_diag.get("effective_location_code", request.location_code),
+            "scanCode": ibkr_universe_diag.get("effective_scan_code", request.ibkr_scan_code),
+            "effective_location_code": ibkr_universe_diag.get("effective_location_code", request.location_code),
+            "effective_scan_code": ibkr_universe_diag.get("effective_scan_code", request.ibkr_scan_code),
+            "retry_attempts": int(ibkr_universe_diag.get("retry_attempts", 0) or 0),
+            "retry_exhausted": bool(ibkr_universe_diag.get("retry_exhausted", False)),
             "provider": provider_source,
             "translation_applied": translation_applied,
             "truncation_applied": truncation_applied,
@@ -2657,8 +2741,8 @@ def run_scanner_cycle(
         if len(symbols) == 0:
             logger.error(
                 "[SCANNER][BROKER_EMPTY] IBKR returned zero symbols "
-                f"(scanCode={request.ibkr_scan_code}, "
-                f"location={request.location_code}, "
+                f"(scanCode={diagnostics['scanner_flow'].get('effective_scan_code', request.ibkr_scan_code)}, "
+                f"location={diagnostics['scanner_flow'].get('effective_location_code', request.location_code)}, "
                 f"price_range={request.above_price}-{request.below_price})"
             )
         print(f"SCANNER_RAW_N={requested_top_n} returned {len(symbols)} symbols")
@@ -3334,6 +3418,10 @@ def run_scanner_cycle(
         print(f"instrument={flow.get('instrument', request.instrument)}")
         print(f"location={flow.get('location', request.location_code)}")
         print(f"scanCode={flow.get('scanCode', request.ibkr_scan_code)}")
+        print(f"effective_location_code={flow.get('effective_location_code', flow.get('location', request.location_code))}")
+        print(f"effective_scan_code={flow.get('effective_scan_code', flow.get('scanCode', request.ibkr_scan_code))}")
+        print(f"retry_attempts={flow.get('retry_attempts', 0)}")
+        print(f"retry_exhausted={flow.get('retry_exhausted', False)}")
         print(f"requested_top_n={flow.get('requested_top_n', request.requested_top_n)}")
         print(f"broker_rows_requested={flow.get('broker_rows_requested', limits['resolved_symbol_limit'])}")
         print(f"effective_internal_processing_limit={flow.get('effective_internal_processing_limit', limits['resolved_symbol_limit'])}")
@@ -3368,6 +3456,10 @@ def run_scanner_cycle(
             "instrument": flow.get("instrument", request.instrument),
             "location": flow.get("location", request.location_code),
             "scanCode": flow.get("scanCode", request.ibkr_scan_code),
+            "effective_location_code": flow.get("effective_location_code", flow.get("location", request.location_code)),
+            "effective_scan_code": flow.get("effective_scan_code", flow.get("scanCode", request.ibkr_scan_code)),
+            "retry_attempts": int(flow.get("retry_attempts", 0) or 0),
+            "retry_exhausted": bool(flow.get("retry_exhausted", False)),
             "requested_top_n": flow.get("requested_top_n", request.requested_top_n),
             "broker_rows_requested": flow.get("broker_rows_requested", limits["resolved_symbol_limit"]),
             "effective_internal_processing_limit": flow.get("effective_internal_processing_limit", limits["resolved_symbol_limit"]),
@@ -3603,6 +3695,11 @@ def run_scanner_cycle(
         if reason.startswith("DROP_MD"):
             data_quality_counts[reason] = data_quality_counts.get(reason, 0) + 1
 
+    broker_returned_zero = bool(raw_zero_payload.get("broker_returned_zero", False))
+    raw_broker_count = int(raw_zero_payload.get("raw_broker_count", len(raw_symbols)))
+    watchlist_count = len(watchlist_symbols)
+    cacheable = not (broker_returned_zero or raw_broker_count == 0)
+
     _LAST_SCANNER_PAYLOAD = {
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
@@ -3648,6 +3745,10 @@ def run_scanner_cycle(
             row.symbol: list(row.data_quality_flags or []) for row in fast_rows
         },
         "data_quality_counts": data_quality_counts,
+        "broker_returned_zero": broker_returned_zero,
+        "raw_broker_count": raw_broker_count,
+        "watchlist_count": watchlist_count,
+        "cacheable": cacheable,
         "diagnostics": diagnostics,
         "symbol_context_registry": {
             symbol: symbol_contexts[symbol]
