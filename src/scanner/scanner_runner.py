@@ -303,8 +303,11 @@ def _print_symbol_limits(
     if watchlist_limit and focus_limit > watchlist_limit:
         focus_limit = watchlist_limit
     print(
-        "[SCANNER][LIMITS] Resolved symbol request limit="
-        f"{resolved} reductions={reductions or ['none']}"
+        "[SCANNER][LIMITS] "
+        f"requested_top_n={resolved_top_n} requested_top_n_source=scanner_request_or_policy "
+        f"broker_rows_requested={resolved} broker_rows_source=resolved_symbol_limit "
+        f"effective_internal_processing_limit={resolved} effective_limit_source=resolved_symbol_limit "
+        f"reductions={reductions or ['none']}"
     )
     print(f"[SCANNER][LIMITS] Focus list limit={focus_limit}")
 
@@ -1947,6 +1950,11 @@ def _resolve_universe_symbols(
             f"truncation={truncation} "
             f"reasons={reasons or ['none']}"
         )
+        print(
+            "[SCANNER][IBKR][ATTRIBUTION] "
+            f"raw_zero={ibkr_returned_count == 0} "
+            f"reason={'broker_returned_zero_candidates' if ibkr_returned_count == 0 else 'broker_returned_candidates'}"
+        )
         if truncation and not reasons:
             print(
                 "[SCANNER][WARN] IBKR universe mismatch without explicit reason "
@@ -2289,10 +2297,11 @@ def run_scanner_cycle(
         f"session={normalize_session_label(session_label)} pct_reference=LAST_RTH_CLOSE "
         "gap_reference=SESSION_OPEN_VS_LAST_RTH_CLOSE closed_prep_reference=LAST_SESSION_REFERENCE"
     )
+    prep_mode_seed_enabled = normalize_session_label(session_label) == "PRE"
     print(
         "[PREP][MODE] "
         f"session={normalize_session_label(session_label)} prep_watchlist_enabled=True "
-        f"seed_enabled={normalize_session_label(session_label) == 'PRE'} execution_allowed={execution_allowed}"
+        f"seed_enabled={prep_mode_seed_enabled} seed_semantics=PRE_ONLY execution_allowed={execution_allowed}"
     )
     print(
         "[PREP][REFERENCE] "
@@ -2326,17 +2335,21 @@ def run_scanner_cycle(
             focus_m=resolved_policy.focus_limit_m,
         )
     )
+    # Authority chain audit note:
+    # strategy policy (StockSelectionSpec.universe) -> scanner_request_from_policy -> ScannerRequest
+    # -> _resolve_universe_symbols / provider.get_top_gainers -> broker subscription.
+    # Adapter defaults are generic safety defaults only and must not silently narrow strategy intent.
     request = scanner_request or scanner_request_from_policy(resolved_policy)
     print(
         "[SCANNER][ENTRY] "
-        f"strategy={resolved_policy.policy_name} "
+        f"strategy={resolved_policy.policy_name} strategy_policy_version=v1 "
         f"requested_top_n={request.requested_top_n} "
         f"watchlist_k={resolved_policy.watchlist_limit_k} "
         f"focus_m={resolved_policy.focus_limit_m} "
-        f"universe={request.universe_source.value} "
-        f"scan_code={request.ibkr_scan_code} "
-        f"instrument={request.instrument} "
-        f"location={request.location_code} "
+        f"universe={request.universe_source.value} universe_source=scanner_request "
+        f"scan_code={request.ibkr_scan_code} scan_code_source=scanner_request "
+        f"instrument={request.instrument} instrument_source=scanner_request "
+        f"location={request.location_code} location_source=scanner_request "
         f"above_price={request.above_price} "
         f"below_price={request.below_price}"
     )
@@ -2875,8 +2888,18 @@ def run_scanner_cycle(
                     break
 
         normalized_session = normalize_session_label(session_label)
-        can_seed_prep = normalized_session == "PRE" and not provider_error and bool(symbols)
-        print(f"[SCANNER][SESSION_AWARE] session={normalized_session} prep_seed_enabled={can_seed_prep}")
+        prep_mode_seed_enabled = normalized_session == "PRE"
+        can_seed_prep = prep_mode_seed_enabled and not provider_error and bool(symbols)
+        prep_seed_blockers = []
+        if provider_error:
+            prep_seed_blockers.append("provider_error")
+        if not symbols:
+            prep_seed_blockers.append("empty_universe")
+        print(
+            "[SCANNER][SESSION_AWARE] "
+            f"session={normalized_session} prep_mode_seed_enabled={prep_mode_seed_enabled} "
+            f"prep_seed_enabled={can_seed_prep} prep_seed_blockers={prep_seed_blockers or ['none']}"
+        )
         if can_seed_prep and len(watchlist_contexts) < 10:
             selected_symbols = {context["symbol"] for context in watchlist_contexts}
             topn_gap_sorted = sorted(
