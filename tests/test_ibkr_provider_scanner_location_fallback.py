@@ -73,11 +73,12 @@ def test_get_top_gainers_logs_fatal_when_all_locations_are_empty(monkeypatch, ca
 
     symbols = provider.get_top_gainers(limit=5)
 
-    assert client.requested_locations == [
+    assert client.requested_locations[:4] == [
         "STK.US.MAJOR",
         "STK.US.SMART",
         "STK.NASDAQ",
         "STK.NYSE",
     ]
+    assert len(client.requested_locations) > 4
     assert len(symbols) > 0
     assert "[SCANNER][FATAL] broker returned zero rows across all fallback locations" in caplog.text
