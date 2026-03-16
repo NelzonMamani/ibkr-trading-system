@@ -2261,6 +2261,7 @@ def run_scanner_cycle(
     disconnect_provider: bool | None = None,
     market_data_client: object | None = None,
     forced_session_label: str | None = None,
+    forced_session_source: str | None = None,
 ) -> Dict[str, Any]:
     global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE, _PERSISTENT_PROVIDER, _PERSISTENT_PROVIDER_SOURCE
     _SCAN_CYCLE_COUNT += 1
@@ -2268,7 +2269,11 @@ def run_scanner_cycle(
     session_ctx = _market_session_context_utc(utc_now)
     session_label = forced_session_label or session_ctx.phase
     session_phase = forced_session_label or session_ctx.phase
-    session_diag = resolve_session_diagnostics(utc_now, forced_session_label=forced_session_label)
+    session_diag = resolve_session_diagnostics(
+        utc_now,
+        forced_session_label=forced_session_label,
+        forced_session_source=forced_session_source,
+    )
     daily_state = _get_ross_daily_state(utc_now, session_label)
     diagnostics: Dict[str, Any] = {"mode": mode, "ross_trading_day": daily_state.trading_day, "session_phase": session_phase}
     drop_ledger: Dict[str, str] = {}
@@ -2278,7 +2283,8 @@ def run_scanner_cycle(
         "[SESSION][MODE] "
         f"utc={session_diag.utc_time} ny={session_diag.ny_time} resolved={session_diag.resolved_session} "
         f"canonical={session_diag.canonical_session} reason={session_diag.reason} "
-        f"forced={forced_session_label or 'NONE'} reference_trading_date={session_diag.reference_trading_date} "
+        f"forced={forced_session_label or 'NONE'} forced_source={session_diag.override_source} "
+        f"reference_trading_date={session_diag.reference_trading_date} "
         f"previous_valid_market_session_date={session_diag.previous_valid_market_session_date}"
     )
     scanner_mode = get_scanner_mode()
@@ -2515,8 +2521,24 @@ def run_scanner_cycle(
                 limits["resolved_symbol_limit"]
             )
             diagnostics["symbol_fallback"] = "MOCK_UNIVERSE"
-        symbols = [symbol.upper() for symbol in symbols][: limits["resolved_symbol_limit"]]
+        raw_symbols = list(symbols)
+        upper_symbols = [symbol.upper() for symbol in raw_symbols]
+        translation_applied = any(before != after for before, after in zip(raw_symbols, upper_symbols))
+        truncation_applied = len(upper_symbols) > limits["resolved_symbol_limit"]
+        symbols = upper_symbols[: limits["resolved_symbol_limit"]]
         requested_top_n = int(request.requested_top_n or len(symbols))
+        diagnostics["scanner_flow"] = {
+            "requested_top_n": requested_top_n,
+            "broker_rows_requested": int(limits["resolved_symbol_limit"]),
+            "effective_internal_processing_limit": int(limits["resolved_symbol_limit"]),
+            "instrument": request.instrument,
+            "location": request.location_code,
+            "scanCode": request.ibkr_scan_code,
+            "provider": provider_source,
+            "translation_applied": translation_applied,
+            "truncation_applied": truncation_applied,
+            "raw_broker_count": len(raw_symbols),
+        }
         print(f"SCANNER_RAW_N={requested_top_n} returned {len(symbols)} symbols")
         if event_collector is not None:
             event_payload = {
@@ -3158,6 +3180,30 @@ def run_scanner_cycle(
 
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
         focus_symbols = [row.symbol for row in deep_rows]
+
+        flow = diagnostics.get("scanner_flow", {})
+        raw_count = int(flow.get("raw_broker_count", len(symbols)))
+        broker_zero = raw_count == 0
+        local_gating_eliminated_all = raw_count > 0 and len(watchlist_symbols) == 0
+        print("[SCANNER][RAW_ZERO]")
+        print(f"provider={flow.get('provider', provider_source)}")
+        print(f"broker_returned_zero={broker_zero}")
+        print(f"instrument={flow.get('instrument', request.instrument)}")
+        print(f"location={flow.get('location', request.location_code)}")
+        print(f"scanCode={flow.get('scanCode', request.ibkr_scan_code)}")
+        print(f"requested_top_n={flow.get('requested_top_n', request.requested_top_n)}")
+        print(f"broker_rows_requested={flow.get('broker_rows_requested', limits['resolved_symbol_limit'])}")
+        print(f"effective_internal_processing_limit={flow.get('effective_internal_processing_limit', limits['resolved_symbol_limit'])}")
+        print(f"translation_or_truncation_occurred={bool(flow.get('translation_applied') or flow.get('truncation_applied'))}")
+        print(f"local_gating_applied={raw_count > 0}")
+        print(f"local_gating_eliminated_all={local_gating_eliminated_all}")
+        if local_gating_eliminated_all:
+            print(f"drop_reasons={drop_summary}")
+        print(f"raw_broker_count={raw_count}")
+        print(f"candidate_count_entering_gates={len(symbols)}")
+        print(f"survivor_count_after_gates={len(watchlist_contexts)}")
+        print(f"watchlist_count={len(watchlist_symbols)}")
+        print(f"focus_count={len(focus_symbols)}")
 
         previous_watch = set(daily_state.watchlist_k.keys())
         previous_focus = set(daily_state.focus_m.keys())

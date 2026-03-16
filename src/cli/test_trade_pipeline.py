@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
-from typing import Sequence
+from typing import Any, Sequence
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
+from src.core.managers.market_data_snapshot_manager import MarketDataSnapshotManager
 from src.models.data_models import PatternResult
 from src.risk.risk_engine import RiskEngine
 from src.strategies.common.candles.candle_types import Candle
@@ -19,28 +20,35 @@ from src.strategy.strategy_runner import StrategyRunner
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Verify trade pipeline for one symbol without placing orders by default")
     parser.add_argument("--symbol", required=True, help="Ticker symbol to run through diagnostics")
-    parser.add_argument("--execute-live", action="store_true", help="Enable LIVE readiness decision flag (still diagnostic-only)")
+    parser.add_argument("--execute-live", action="store_true", help="Enable LIVE readiness decision flag")
+    parser.add_argument("--dangerous-submit-live-order", action="store_true", help="DANGEROUS: allow real order submission path")
     parser.add_argument("--dry-run", action="store_true", help="Use deterministic synthetic market data instead of IBKR snapshot")
     return parser.parse_args(argv)
 
 
-def _hydrate_symbol(symbol: str, dry_run: bool) -> tuple[bool, dict]:
+def _hydrate_symbol(symbol: str, dry_run: bool) -> tuple[str, dict[str, Any]]:
     if dry_run:
-        return True, {"last": 10.0, "bid": 9.98, "ask": 10.02, "volume": 120_000}
+        return "SUCCESS", {"last": 10.0, "bid": 9.98, "ask": 10.02, "volume": 120_000}
 
     manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
-    client = manager.get_client()
-    snapshot = client.get_market_snapshot(symbol)
-    hydrated = any(value is not None for value in (snapshot.last, snapshot.bid, snapshot.ask))
-    return hydrated, {
+    manager.ensure_connected()
+    snapshot_manager = MarketDataSnapshotManager(manager.get_client())
+    snapshot, quality = snapshot_manager.get_snapshot(symbol)
+    if quality.missing_fields:
+        hydration = "PARTIAL"
+    else:
+        hydration = "SUCCESS"
+    return hydration, {
         "last": snapshot.last,
         "bid": snapshot.bid,
         "ask": snapshot.ask,
         "volume": snapshot.volume,
+        "missing_fields": quality.missing_fields,
+        "quality_flags": quality.data_quality_flags,
     }
 
 
-def _pattern_inputs(symbol: str, data: dict) -> PatternInputs:
+def _pattern_inputs(symbol: str, data: dict[str, Any]) -> PatternInputs:
     last = float(data.get("last") or 10.0)
     bid = float(data.get("bid") or (last - 0.02))
     ask = float(data.get("ask") or (last + 0.02))
@@ -85,52 +93,97 @@ def _to_strategy_pattern(symbol: str, summary) -> list[PatternResult]:
     ]
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
-    symbol = args.symbol.upper()
-
+def run_pipeline(*, symbol: str, dry_run: bool, execute_live: bool, dangerous_submit_live_order: bool) -> dict[str, Any]:
     _ = RossMomentumPolicy()
-
-    print("[PIPELINE_TEST]")
-    print(f"symbol={symbol}")
-
-    print("\n[DATA]")
-    try:
-        hydration_ok, hydrated = _hydrate_symbol(symbol, args.dry_run)
-    except Exception as exc:
-        hydration_ok, hydrated = False, {}
-        print(f"hydration=FAILED ({exc})")
-    else:
-        print(f"hydration={'SUCCESS' if hydration_ok else 'FAILED'}")
+    hydration, hydrated = _hydrate_symbol(symbol, dry_run)
 
     evaluator = PatternEvaluator()
     summary = evaluator.evaluate([_pattern_inputs(symbol, hydrated)])
-    pattern_detected = bool(summary.best_long_setup or summary.best_short_setup)
-    print("\n[PATTERN]")
-    print(f"pattern_detected={pattern_detected}")
-
     strategy_patterns = _to_strategy_pattern(symbol, summary)
     strategy_runner = StrategyRunner(strategies=[MomentumContinuationStrategy()])
     intents = strategy_runner.generate_trade_intents(strategy_patterns)
-    intent_generated = len(intents) > 0
-    print("\n[STRATEGY]")
-    print(f"intent_generated={intent_generated}")
 
     risk_approved = False
+    risk_reason = "NO_INTENT"
     if intents:
         intent = intents[0]
         intent.decision_id = f"pipeline-test:{symbol}:{datetime.now(timezone.utc).timestamp()}"
         risk_decision = RiskEngine().evaluate_trade_intent(intent)
         risk_approved = bool(risk_decision.allowed)
-    print("\n[RISK]")
-    print(f"risk_approved={risk_approved}")
+        risk_reason = "APPROVED" if risk_approved else (risk_decision.reason or "DENIED")
 
-    order_would_be_placed = bool(intent_generated and risk_approved)
+    order_would_be_placed = bool(intents and risk_approved)
+    live_submit_requested = bool(execute_live and dangerous_submit_live_order and order_would_be_placed)
+
+    return {
+        "symbol": symbol,
+        "hydration": hydration,
+        "hydrated": hydrated,
+        "pattern": {
+            "best_long_setup": getattr(summary.best_long_setup, "pattern_name", "NONE"),
+            "best_short_setup": getattr(summary.best_short_setup, "pattern_name", "NONE"),
+            "detected_patterns": [p.pattern_name for p in strategy_patterns],
+        },
+        "strategy": {
+            "strategies_evaluated": ["MomentumContinuationStrategy"],
+            "intents_generated": len(intents),
+        },
+        "risk": {
+            "first_decision_result": "ALLOW" if risk_approved else "DENY",
+            "deny_reason": None if risk_approved else risk_reason,
+        },
+        "execution": {
+            "order_would_be_placed": order_would_be_placed,
+            "execute_live_requested": execute_live,
+            "dangerous_submit_live_order": dangerous_submit_live_order,
+            "live_execution_submitted": live_submit_requested,
+        },
+    }
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    symbol = args.symbol.upper()
+
+    print("[PIPELINE_TEST]")
+    print(f"symbol={symbol}")
+
+    try:
+        result = run_pipeline(
+            symbol=symbol,
+            dry_run=args.dry_run,
+            execute_live=args.execute_live,
+            dangerous_submit_live_order=args.dangerous_submit_live_order,
+        )
+    except Exception as exc:
+        print(f"pipeline_status=FAILED ({exc})")
+        return 1
+
+    print("\n[DATA]")
+    print(f"hydration={result['hydration']}")
+    print(f"last={result['hydrated'].get('last')}")
+    print(f"bid={result['hydrated'].get('bid')}")
+    print(f"ask={result['hydrated'].get('ask')}")
+    print(f"volume={result['hydrated'].get('volume')}")
+
+    print("\n[PATTERN]")
+    print(f"best_long_setup={result['pattern']['best_long_setup']}")
+    print(f"best_short_setup={result['pattern']['best_short_setup']}")
+    print(f"detected_patterns={result['pattern']['detected_patterns']}")
+
+    print("\n[STRATEGY]")
+    print(f"strategies_evaluated={result['strategy']['strategies_evaluated']}")
+    print(f"intents_generated={result['strategy']['intents_generated']}")
+
+    print("\n[RISK]")
+    print(f"first_decision_result={result['risk']['first_decision_result']}")
+    print(f"deny_reason={result['risk']['deny_reason']}")
+
     print("\n[EXECUTION]")
-    print(f"order_would_be_placed={order_would_be_placed}")
-    if args.execute_live and order_would_be_placed:
-        print("live_execution_requested=True")
-        print("live_execution_submitted=False")
+    print(f"order_would_be_placed={result['execution']['order_would_be_placed']}")
+    print(f"execute_live_requested={result['execution']['execute_live_requested']}")
+    print(f"dangerous_submit_live_order={result['execution']['dangerous_submit_live_order']}")
+    print(f"live_execution_submitted={result['execution']['live_execution_submitted']}")
 
     return 0
 
