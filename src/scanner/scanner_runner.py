@@ -1919,22 +1919,50 @@ def _resolve_universe_symbols(
     diagnostics: Dict[str, Any],
     allow_mock_fallback: bool,
 ) -> List[str]:
+    ibkr_location_code = "STK.US.MAJOR"
     diagnostics["universe_request"] = {
         "source": request.universe_source.value,
         "scan_code": request.ibkr_scan_code,
         "requested_top_n": request.requested_top_n,
         "region": request.region,
         "instrument": request.instrument,
-        "location_code": request.location_code,
+        "location_code": ibkr_location_code if request.universe_source == UniverseSource.IBKR_TOP_GAINERS else request.location_code,
         "above_price": request.above_price,
         "below_price": request.below_price,
         "exchanges": list(request.exchanges or []),
     }
     if request.universe_source == UniverseSource.IBKR_TOP_GAINERS:
+        primary_request = replace(
+            request,
+            instrument="STK",
+            location_code=ibkr_location_code,
+        )
         symbols = provider.get_top_gainers(
             limits["resolved_symbol_limit"],
-            request=request,
+            request=primary_request,
         )
+        print(f"[SCANNER][RAW_RESULT] broker_symbols={len(symbols)}")
+        if not symbols:
+            print("[SCANNER][BROKER_EMPTY] retrying alternate scan codes")
+            fallback_scan_codes = ["TOP_OPEN_PERC_GAIN", "HOT_BY_VOLUME"]
+            for alt_code in fallback_scan_codes:
+                print(f"[SCANNER][RETRY] scanCode={alt_code}")
+                alt_request = replace(
+                    primary_request,
+                    ibkr_scan_code=alt_code,
+                )
+                alt_results = provider.get_top_gainers(
+                    limits["resolved_symbol_limit"],
+                    request=alt_request,
+                )
+                if alt_results:
+                    symbols = alt_results
+                    print(f"[SCANNER][RETRY_SUCCESS] symbols={len(symbols)}")
+                    break
+        if not symbols:
+            raise RuntimeError(
+                "[SCANNER][FATAL] IBKR scanner returned zero symbols after retries"
+            )
         ibkr_returned_count = len(symbols)
         requested_top_n = int(request.requested_top_n)
         truncation = ibkr_returned_count != requested_top_n
@@ -2508,12 +2536,10 @@ def run_scanner_cycle(
         limits["resolved_symbol_limit"] = resolved_symbol_limit
 
     if limits.get("watchlist_limit") is None:
-        limits["watchlist_limit"] = int(resolved_policy.watchlist_limit_k)
+        limits["watchlist_limit"] = 15
 
     if limits.get("focus_limit") is None:
-        focus_limit = int(resolved_policy.focus_limit_m)
-        watchlist_limit = int(limits["watchlist_limit"])
-        limits["focus_limit"] = min(focus_limit, watchlist_limit)
+        limits["focus_limit"] = 5
 
     if limits.get("reductions") is None:
         limits["reductions"] = []
@@ -2571,12 +2597,10 @@ def run_scanner_cycle(
                         limits["resolved_symbol_limit"] = resolved_symbol_limit
 
                     if limits.get("watchlist_limit") is None:
-                        limits["watchlist_limit"] = int(resolved_policy.watchlist_limit_k)
+                        limits["watchlist_limit"] = 15
 
                     if limits.get("focus_limit") is None:
-                        focus_limit = int(resolved_policy.focus_limit_m)
-                        watchlist_limit = int(limits["watchlist_limit"])
-                        limits["focus_limit"] = min(focus_limit, watchlist_limit)
+                        limits["focus_limit"] = 5
 
                     if limits.get("reductions") is None:
                         limits["reductions"] = []
