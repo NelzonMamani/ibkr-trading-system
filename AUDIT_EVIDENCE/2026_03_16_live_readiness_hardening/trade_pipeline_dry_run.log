@@ -49,6 +49,8 @@ symbol=AAPL
 
 [DATA]
 hydration=SUCCESS
+missing_fields=[]
+quality_flags=[]
 last=10.0
 bid=9.98
 ask=10.02
@@ -57,7 +59,7 @@ volume=120000
 [PATTERN]
 best_long_setup=NONE
 best_short_setup=NONE
-detected_patterns=[]
+detected_patterns=['NONE']
 
 [STRATEGY]
 strategies_evaluated=['MomentumContinuationStrategy']
@@ -66,9 +68,19 @@ intents_generated=0
 [RISK]
 first_decision_result=DENY
 deny_reason=NO_INTENT
+explicit_no_intent=True
 
 [EXECUTION]
 order_would_be_placed=False
+execution_blocked_reason=NO_INTENT
 execute_live_requested=False
 dangerous_submit_live_order=False
 live_execution_submitted=False
+
+[ROSS][TRADE_WINDOW]
+session=RTH_OPEN
+execution_allowed=True
+available_capital=UNKNOWN
+max_positions=UNKNOWN
+max_position_size=UNKNOWN
+trade_enabled=False

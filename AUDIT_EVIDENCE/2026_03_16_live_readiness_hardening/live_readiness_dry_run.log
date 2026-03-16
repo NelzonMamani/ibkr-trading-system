@@ -47,9 +47,14 @@
 [LIVE_READINESS]
 broker_connected=True
 session_resolved=RTH_OPEN
+session_source=NONE
 scanner_operational=True
 scanner_symbols_returned=2
+scanner_broker_returned_zero=False
+prep_operational=True
 pipeline_operational=True
+pattern_engine_operational=True
+strategy_engine_operational=True
 risk_engine_operational=True
 execution_path_operational=True
 overall_ready=True

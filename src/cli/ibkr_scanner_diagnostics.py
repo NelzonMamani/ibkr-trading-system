@@ -70,6 +70,34 @@ def run_diagnostics(*, dry_run: bool) -> dict[str, Any]:
     else:
         symbols = ["AAPL", "TSLA"]
         rows = [("AAPL", 175.0, "SUCCESS", 1_500_000), ("TSLA", 240.0, "SUCCESS", 2_100_000)]
+        diagnostics = {
+            "scanner_contract": {"top_n": 50, "watchlist_k": 2, "focus_m": 1, "contract_valid": True},
+            "raw_zero_attribution": {
+                "provider": "IBKR",
+                "broker_returned_zero": False,
+                "instrument": "STK",
+                "location": "STK.US",
+                "scanCode": "TOP_PERC_GAIN",
+                "requested_top_n": 50,
+                "broker_rows_requested": 50,
+                "effective_internal_processing_limit": 50,
+                "translation_or_truncation_occurred": False,
+                "local_gating_applied": True,
+                "local_gating_eliminated_all": False,
+                "raw_broker_count": 2,
+                "candidate_count_entering_gates": 2,
+                "survivor_count_after_gates": 2,
+                "watchlist_count": 2,
+                "focus_count": 1,
+                "drop_reasons": {},
+            },
+            "scanner_refresh": {
+                "cycle_seconds": 5,
+                "scanner_refresh_active": True,
+                "last_refresh_utc": "DRY_RUN",
+                "next_refresh_due_utc": "DRY_RUN",
+            },
+        }
 
     return {
         "broker": {
@@ -85,6 +113,9 @@ def run_diagnostics(*, dry_run: bool) -> dict[str, Any]:
             "rows": rows,
             "scanner_operational": scanner_operational,
             "diagnostics": diagnostics,
+            "scanner_contract": diagnostics.get("scanner_contract") or {},
+            "raw_zero_attribution": diagnostics.get("raw_zero_attribution") or {},
+            "scanner_refresh": diagnostics.get("scanner_refresh") or {},
         },
     }
 
@@ -106,9 +137,46 @@ def main(argv: Sequence[str] | None = None) -> int:
     scanner = result["scanner"]
     print(f"returned_symbols={scanner['returned_symbols']}")
     print("\nSYMBOLS")
-    print("SYMBOL PRICE PCT_CHANGE VOLUME")
-    for symbol, price, pct_change, volume in scanner["rows"]:
-        print(f"{symbol} {price if price is not None else 'N/A'} {pct_change if pct_change is not None else 'N/A'} {volume if volume is not None else 'N/A'}")
+    print("SYMBOL PRICE HYDRATION VOLUME")
+    for symbol, price, hydration, volume in scanner["rows"]:
+        print(f"{symbol} {price if price is not None else 'N/A'} {hydration if hydration is not None else 'N/A'} {volume if volume is not None else 'N/A'}")
+
+    contract = scanner.get("scanner_contract") or {}
+    print("\n[SCANNER][CONTRACT]")
+    print(f"top_n={contract.get('top_n', 0)}")
+    print(f"watchlist_k={contract.get('watchlist_k', 0)}")
+    print(f"focus_m={contract.get('focus_m', 0)}")
+    print(f"contract_valid={contract.get('contract_valid', False)}")
+
+    refresh = scanner.get("scanner_refresh") or {}
+    print("\n[SCANNER][REFRESH]")
+    print(f"cycle_seconds={refresh.get('cycle_seconds', 0)}")
+    print(f"scanner_refresh_active={refresh.get('scanner_refresh_active', False)}")
+    print(f"last_refresh_utc={refresh.get('last_refresh_utc', 'UNKNOWN')}")
+    print(f"next_refresh_due_utc={refresh.get('next_refresh_due_utc', 'UNKNOWN')}")
+
+    raw_zero = scanner.get("raw_zero_attribution") or {}
+    print("\n[SCANNER][RAW_ZERO]")
+    for key in [
+        "provider",
+        "broker_returned_zero",
+        "instrument",
+        "location",
+        "scanCode",
+        "requested_top_n",
+        "broker_rows_requested",
+        "effective_internal_processing_limit",
+        "translation_or_truncation_occurred",
+        "local_gating_applied",
+        "local_gating_eliminated_all",
+        "raw_broker_count",
+        "candidate_count_entering_gates",
+        "survivor_count_after_gates",
+        "watchlist_count",
+        "focus_count",
+        "drop_reasons",
+    ]:
+        print(f"{key}={raw_zero.get(key)}")
 
     print("\n[SCANNER_TEST_SUMMARY]")
     print(f"symbols_returned={scanner['returned_symbols']}")

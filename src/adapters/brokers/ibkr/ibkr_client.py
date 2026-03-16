@@ -11,6 +11,7 @@ from ibapi.contract import Contract, ContractDetails
 from ibapi.wrapper import EWrapper
 
 from src.domain.market_snapshot import MarketSnapshot
+from src.ibkr.market_data_client import MarketDataSnapshot
 from src.ibkr.read_only_guard import assert_read_only_allows
 
 
@@ -301,6 +302,34 @@ class IbkrClient(EWrapper, EClient):
                 f"[IBKR] Snapshot timeout symbol={symbol} req_id={req_id} (bid/ask/last may be None)"
             )
         return snapshot
+
+    def snapshot_stock(self, symbol: str) -> MarketDataSnapshot:
+        """Compatibility wrapper matching MarketDataClient snapshot contract."""
+        snapshot = self.get_market_snapshot(symbol)
+        return MarketDataSnapshot(
+            symbol=symbol,
+            bid=snapshot.bid,
+            ask=snapshot.ask,
+            last=snapshot.last,
+            bid_size=None,
+            ask_size=None,
+            last_size=None,
+            volume=snapshot.volume,
+            vwap=None,
+            open=None,
+            high=None,
+            low=None,
+            close=snapshot.last,
+            change_percent=None,
+            spread=(snapshot.ask - snapshot.bid)
+            if snapshot.ask is not None and snapshot.bid is not None
+            else None,
+            timestamp_utc=snapshot.asof_utc.isoformat(),
+            data_quality_flags=[],
+        )
+
+    def snapshot_for_symbol(self, symbol: str) -> MarketDataSnapshot:
+        return self.snapshot_stock(symbol)
 
     def tickPrice(
         self,
