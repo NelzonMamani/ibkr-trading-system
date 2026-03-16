@@ -1847,7 +1847,7 @@ def _build_symbol_context(
             f"source={pct_source}"
         )
 
-    scan_details = getattr(provider, "last_scan_details", {}) or {}
+    scan_details = _provider_symbol_scan_details(provider)
     scan_detail = scan_details.get(symbol, {}) if isinstance(scan_details, dict) else {}
     con_id = scan_detail.get("conId")
     if con_id in {None, 0, "0"} and getattr(provider, "source_name", "") != "IBKR":
@@ -1938,54 +1938,34 @@ def _resolve_universe_symbols(
             location_code=ibkr_location_code,
             ibkr_scan_code="TOP_PERC_GAIN",
         )
-        effective_location_code = primary_request.location_code
-        effective_scan_code = primary_request.ibkr_scan_code
-        retry_attempts = 0
-        retry_exhausted = False
         symbols = provider.get_top_gainers(
             limits["resolved_symbol_limit"],
             request=primary_request,
         )
-        print(f"[SCANNER][RAW_RESULT] broker_symbols={len(symbols)}")
-        if not symbols:
-            print("[SCANNER][BROKER_EMPTY] retrying alternate scan codes")
-            fallback_sequence = [
-                ("STK.US.MAJOR", "TOP_OPEN_PERC_GAIN"),
-                ("STK.US.MAJOR", "HOT_BY_VOLUME"),
-                ("STK.US", "TOP_PERC_GAIN"),
-                ("STK.US", "HOT_BY_VOLUME"),
-            ]
-            for location_code, scan_code in fallback_sequence:
-                retry_attempts += 1
-                print(f"[SCANNER][RETRY] location={location_code} scanCode={scan_code}")
-                alt_request = replace(
-                    primary_request,
-                    location_code=location_code,
-                    ibkr_scan_code=scan_code,
-                )
-                alt_results = provider.get_top_gainers(
-                    limits["resolved_symbol_limit"],
-                    request=alt_request,
-                )
-                if alt_results:
-                    symbols = alt_results
-                    effective_location_code = location_code
-                    effective_scan_code = scan_code
-                    print(
-                        f"[SCANNER][RETRY_SUCCESS] symbols={len(symbols)} "
-                        f"location={location_code} scanCode={scan_code}"
-                    )
-                    break
-            if not symbols:
-                retry_exhausted = True
-        if symbols:
-            if retry_attempts == 0:
-                effective_location_code = primary_request.location_code
-                effective_scan_code = primary_request.ibkr_scan_code
-        else:
-            effective_location_code = primary_request.location_code
-            effective_scan_code = primary_request.ibkr_scan_code
-        ibkr_returned_count = len(symbols)
+        provider_scan_details = getattr(provider, "last_scan_details", {}) or {}
+        effective_location_code = provider_scan_details.get(
+            "selected_location_code",
+            provider_scan_details.get("requested_location_code", primary_request.location_code),
+        )
+        effective_scan_code = provider_scan_details.get(
+            "selected_scan_code",
+            provider_scan_details.get("requested_scan_code", primary_request.ibkr_scan_code),
+        )
+        retry_attempts = int(provider_scan_details.get("retry_attempts", 0) or 0)
+        retry_exhausted = bool(provider_scan_details.get("retry_exhausted", False))
+        returned_rows = int(provider_scan_details.get("returned_rows", len(symbols)) or 0)
+        print(
+            f"[SCANNER][RAW_RESULT] broker_symbols={returned_rows} "
+            f"provider_symbols={len(symbols)}"
+        )
+        if (
+            not symbols
+            and effective_location_code == primary_request.location_code
+            and retry_attempts == 0
+        ):
+            print("[SCANNER][INVARIANT_WARNING] provider fallback did not execute in live path")
+
+        ibkr_returned_count = returned_rows
         requested_top_n = int(request.requested_top_n)
         truncation = ibkr_returned_count != requested_top_n
         reasons: list[str] = []
@@ -2002,6 +1982,7 @@ def _resolve_universe_symbols(
             "effective_scan_code": effective_scan_code,
             "retry_attempts": retry_attempts,
             "retry_exhausted": retry_exhausted,
+            "returned_rows": returned_rows,
         }
         print(
             "[SCANNER][IBKR] universe_return "
@@ -2062,9 +2043,21 @@ def _resolve_universe_symbols(
     return symbols
 
 
+def _provider_symbol_scan_details(provider: ScannerDataProvider | None) -> Dict[str, Dict[str, Any]]:
+    if provider is None:
+        return {}
+    scan_details = getattr(provider, "last_scan_details", {}) or {}
+    if not isinstance(scan_details, dict):
+        return {}
+    symbol_details = scan_details.get("symbol_details")
+    if isinstance(symbol_details, dict):
+        return symbol_details
+    return scan_details
+
+
 def _build_universe_entries(symbols: list[str], provider: ScannerDataProvider | None = None) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
-    scan_details = getattr(provider, "last_scan_details", {}) if provider else {}
+    scan_details = _provider_symbol_scan_details(provider)
     for rank, symbol in enumerate(symbols, start=1):
         details = scan_details.get(symbol, {}) if isinstance(scan_details, dict) else {}
         entries.append(
@@ -2085,7 +2078,7 @@ def _apply_non_tradable_universe_gate(
     event_collector: EventCollector | None = None,
 ) -> list[str]:
     blocked_trading_classes = {"EXPERT", "OTCID", "LIMITED"}
-    scan_details = getattr(provider, "last_scan_details", {}) if provider else {}
+    scan_details = _provider_symbol_scan_details(provider)
     filtered: list[str] = []
     for symbol in symbols:
         details = scan_details.get(symbol, {})
@@ -2733,10 +2726,11 @@ def run_scanner_cycle(
             "effective_scan_code": ibkr_universe_diag.get("effective_scan_code", request.ibkr_scan_code),
             "retry_attempts": int(ibkr_universe_diag.get("retry_attempts", 0) or 0),
             "retry_exhausted": bool(ibkr_universe_diag.get("retry_exhausted", False)),
+            "returned_rows": int(ibkr_universe_diag.get("returned_rows", len(raw_symbols)) or 0),
             "provider": provider_source,
             "translation_applied": translation_applied,
             "truncation_applied": truncation_applied,
-            "raw_broker_count": len(raw_symbols),
+            "raw_broker_count": int(ibkr_universe_diag.get("returned_rows", len(raw_symbols)) or 0),
         }
         if len(symbols) == 0:
             logger.error(
@@ -3422,6 +3416,7 @@ def run_scanner_cycle(
         print(f"effective_scan_code={flow.get('effective_scan_code', flow.get('scanCode', request.ibkr_scan_code))}")
         print(f"retry_attempts={flow.get('retry_attempts', 0)}")
         print(f"retry_exhausted={flow.get('retry_exhausted', False)}")
+        print(f"returned_rows={flow.get('returned_rows', raw_count)}")
         print(f"requested_top_n={flow.get('requested_top_n', request.requested_top_n)}")
         print(f"broker_rows_requested={flow.get('broker_rows_requested', limits['resolved_symbol_limit'])}")
         print(f"effective_internal_processing_limit={flow.get('effective_internal_processing_limit', limits['resolved_symbol_limit'])}")
@@ -3460,6 +3455,7 @@ def run_scanner_cycle(
             "effective_scan_code": flow.get("effective_scan_code", flow.get("scanCode", request.ibkr_scan_code)),
             "retry_attempts": int(flow.get("retry_attempts", 0) or 0),
             "retry_exhausted": bool(flow.get("retry_exhausted", False)),
+            "returned_rows": int(flow.get("returned_rows", raw_count) or 0),
             "requested_top_n": flow.get("requested_top_n", request.requested_top_n),
             "broker_rows_requested": flow.get("broker_rows_requested", limits["resolved_symbol_limit"]),
             "effective_internal_processing_limit": flow.get("effective_internal_processing_limit", limits["resolved_symbol_limit"]),
