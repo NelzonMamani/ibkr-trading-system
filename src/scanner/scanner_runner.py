@@ -2283,7 +2283,7 @@ def run_scanner_cycle(
         "[SESSION][MODE] "
         f"utc={session_diag.utc_time} ny={session_diag.ny_time} resolved={session_diag.resolved_session} "
         f"canonical={session_diag.canonical_session} reason={session_diag.reason} "
-        f"forced={forced_session_label or 'NONE'} forced_source={session_diag.override_source} "
+        f"forced={session_diag.resolved_session if session_diag.override_source != 'NONE' else 'NONE'} forced_source={session_diag.override_source} "
         f"reference_trading_date={session_diag.reference_trading_date} "
         f"previous_valid_market_session_date={session_diag.previous_valid_market_session_date}"
     )

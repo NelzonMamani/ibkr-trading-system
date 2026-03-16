@@ -4,7 +4,6 @@
 [CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
 [CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
 [CONFIG] No ambiguous defaults detected
-[IBKR][MANAGER] init host=127.0.0.1 port=7497 base_client_id=7 readonly=True market_data_type=DELAYED snapshot_timeout_seconds=5
 [BROKER]
 provider=IBKR
 connection=DRY_RUN
@@ -18,8 +17,8 @@ returned_symbols=2
 
 SYMBOLS
 SYMBOL PRICE PCT_CHANGE VOLUME
-AAPL 175.0 1.2 1500000
-TSLA 240.0 2.4 2100000
+AAPL 175.0 SUCCESS 1500000
+TSLA 240.0 SUCCESS 2100000
 
 [SCANNER_TEST_SUMMARY]
 symbols_returned=2
