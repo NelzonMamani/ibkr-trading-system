@@ -34,6 +34,7 @@ class MarketSnapshotEnricher:
         self.default_exchange = default_exchange
         self.default_currency = default_currency
         self.batch_timeout_seconds = float(batch_timeout_seconds)
+        self.last_fetch_diagnostics: Dict[str, Dict[str, Any]] = {}
 
     def _resolve_ib(self):
         if self.connection_manager is None:
@@ -43,8 +44,54 @@ class MarketSnapshotEnricher:
         except Exception:
             return None
 
-    def fetch_snapshots(self, symbols: Iterable[str]) -> Dict[str, Dict[str, Optional[float]]]:
+    def _build_contract_from_metadata(self, symbol: str, metadata: Any, stock_cls: Any) -> tuple[Any, str]:
+        if metadata is None:
+            return stock_cls(symbol, self.default_exchange, self.default_currency), "GENERIC_STOCK"
+
+        if hasattr(metadata, "symbol"):
+            contract = metadata
+            if not getattr(contract, "symbol", None):
+                contract.symbol = symbol
+            return contract, "SCANNER_METADATA"
+
+        if isinstance(metadata, dict):
+            scanner_contract = metadata.get("contract")
+            if scanner_contract is not None and hasattr(scanner_contract, "symbol"):
+                if not getattr(scanner_contract, "symbol", None):
+                    scanner_contract.symbol = symbol
+                return scanner_contract, "SCANNER_METADATA"
+
+            sec_type = str(metadata.get("secType") or "STK").upper()
+            if sec_type == "STK":
+                contract = stock_cls(
+                    symbol,
+                    metadata.get("exchange") or self.default_exchange,
+                    metadata.get("currency") or self.default_currency,
+                )
+                for field in (
+                    "conId",
+                    "primaryExchange",
+                    "tradingClass",
+                    "localSymbol",
+                ):
+                    value = metadata.get(field)
+                    if value is not None:
+                        setattr(contract, field, value)
+                return contract, "SCANNER_METADATA"
+
+        return stock_cls(symbol, self.default_exchange, self.default_currency), "GENERIC_STOCK"
+
+    def fetch_snapshots(
+        self,
+        symbols: Iterable[str],
+        contract_details_by_symbol: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Dict[str, Optional[float]]]:
         resolved_symbols = [str(symbol or "").upper().strip() for symbol in symbols if str(symbol or "").strip()]
+        metadata_lookup = {
+            str(symbol or "").upper().strip(): details
+            for symbol, details in (contract_details_by_symbol or {}).items()
+            if str(symbol or "").strip()
+        }
         snapshots: Dict[str, Dict[str, Optional[float]]] = {
             symbol: {
                 "last_price": None,
@@ -55,6 +102,22 @@ class MarketSnapshotEnricher:
             }
             for symbol in resolved_symbols
         }
+        diagnostics: Dict[str, Dict[str, Any]] = {
+            symbol: {
+                "contract_build_source": "GENERIC_STOCK",
+                "qualified_ok": False,
+                "snapshot_requested": False,
+                "snapshot_received": False,
+                "last_price": None,
+                "bid": None,
+                "ask": None,
+                "volume": None,
+                "close": None,
+                "exception": None,
+            }
+            for symbol in resolved_symbols
+        }
+        self.last_fetch_diagnostics = diagnostics
         if not resolved_symbols:
             return snapshots
 
@@ -66,8 +129,17 @@ class MarketSnapshotEnricher:
         requested_contracts: dict[str, Any] = {}
         for symbol in resolved_symbols:
             try:
-                requested_contracts[symbol] = Stock(symbol, self.default_exchange, self.default_currency)
-            except Exception:
+                contract, source = self._build_contract_from_metadata(
+                    symbol,
+                    metadata_lookup.get(symbol),
+                    Stock,
+                )
+                requested_contracts[symbol] = contract
+                diagnostics[symbol]["contract_build_source"] = source
+                print(f"[SNAPSHOT][REQUEST] symbol={symbol} source={source}")
+            except Exception as exc:
+                diagnostics[symbol]["exception"] = str(exc)
+                print(f"[SNAPSHOT][FAIL] symbol={symbol} reason=build_contract:{exc}")
                 continue
 
         if not requested_contracts:
@@ -75,7 +147,10 @@ class MarketSnapshotEnricher:
 
         try:
             qualified_contracts = ib.qualifyContracts(*requested_contracts.values())
-        except Exception:
+        except Exception as exc:
+            for symbol in requested_contracts:
+                diagnostics[symbol]["exception"] = f"qualify:{exc}"
+                print(f"[SNAPSHOT][FAIL] symbol={symbol} reason=qualify:{exc}")
             return snapshots
 
         contracts_by_symbol: dict[str, Any] = {
@@ -87,11 +162,19 @@ class MarketSnapshotEnricher:
         for symbol in resolved_symbols:
             contract = contracts_by_symbol.get(symbol)
             if contract is None:
+                print(f"[SNAPSHOT][FAIL] symbol={symbol} reason=qualify_missing_contract")
                 continue
+            diagnostics[symbol]["qualified_ok"] = True
+            print(
+                f"[SNAPSHOT][QUALIFY_OK] symbol={symbol} conId={getattr(contract, 'conId', None)}"
+            )
             try:
                 ticker = ib.reqMktData(contract, genericTickList="", snapshot=True, regulatorySnapshot=False)
                 ticker_by_symbol[symbol] = ticker
-            except Exception:
+                diagnostics[symbol]["snapshot_requested"] = True
+            except Exception as exc:
+                diagnostics[symbol]["exception"] = f"reqMktData:{exc}"
+                print(f"[SNAPSHOT][FAIL] symbol={symbol} reason=reqMktData:{exc}")
                 continue
 
         deadline = time.time() + self.batch_timeout_seconds
@@ -114,10 +197,22 @@ class MarketSnapshotEnricher:
                     "volume": volume,
                     "close": close,
                 }
+                diagnostics[symbol].update(snapshots[symbol])
+                has_data = any(value is not None for value in snapshots[symbol].values())
+                diagnostics[symbol]["snapshot_received"] = has_data
+                if has_data:
+                    print(
+                        "[SNAPSHOT][RESULT] "
+                        f"symbol={symbol} last={last_price} bid={bid} ask={ask} volume={volume}"
+                    )
                 if last_price is None and bid is None and ask is None and volume is None and close is None:
                     all_resolved = False
             if all_resolved:
                 break
+
+        for symbol in resolved_symbols:
+            if diagnostics[symbol]["snapshot_requested"] and not diagnostics[symbol]["snapshot_received"]:
+                print("[SNAPSHOT][FAIL] symbol={} reason=snapshot_empty".format(symbol))
 
         for symbol, contract in contracts_by_symbol.items():
             if symbol not in ticker_by_symbol:
@@ -127,5 +222,6 @@ class MarketSnapshotEnricher:
             except Exception:
                 pass
 
-        return snapshots
+        self.last_fetch_diagnostics = diagnostics
 
+        return snapshots
