@@ -258,6 +258,17 @@ class MarketDataClient:
             return None
         return qualified[0]
 
+    def qualifyContracts(self, *contracts):
+        """
+        Compatibility wrapper for ib_insync-style APIs used by the
+        snapshot enrichment layer.
+        """
+        ib = self._resolve_ib_client()
+        try:
+            return ib.qualifyContracts(*contracts)
+        except Exception:
+            return []
+
     def snapshot_stock(self, symbol: str) -> MarketDataSnapshot:
         now_utc = datetime.now(timezone.utc)
         flags = _market_data_type_flags(self.market_data_type)
