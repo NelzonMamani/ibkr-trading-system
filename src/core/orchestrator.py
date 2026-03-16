@@ -1279,6 +1279,21 @@ class CoreOrchestrator:
             )
             print(f"[POSITION_MANAGE] symbol={trade.symbol} state={getattr(trade.state, 'value', trade.state)}")
         self._last_position_management_tick_utc = now
+
+    def _log_broker_cycle_diagnostics(self, *, provider: str) -> None:
+        health = self.connection_manager.healthcheck()
+        connection = "ACTIVE" if health.get("connected") else "FAILED"
+        market_data_type = str(health.get("market_data_type") or "UNKNOWN").upper()
+        host = health.get("host")
+        port = health.get("port")
+        client_id = health.get("client_id")
+        print(f"[BROKER] provider={provider}")
+        print(f"[BROKER] connection={connection}")
+        print(f"[BROKER] market_data_type={market_data_type}")
+        print(f"[BROKER] host={host}")
+        print(f"[BROKER] port={port}")
+        print(f"[BROKER] client_id={client_id}")
+
     def _run_manager_pipeline(
         self,
         *,
@@ -1304,12 +1319,17 @@ class CoreOrchestrator:
                 print("STATE=DEGRADED")
                 print(f"[CONNECTIVITY] IBKR connection failed: {exc}")
                 self._trace_halt(reason_code="CONNECTIVITY_FAILURE", message=str(exc), stage="CONNECTIVITY")
+                if self.run_mode == RunMode.LIVE:
+                    print("[CRITICAL] IBKR connection lost in LIVE mode")
+                    print("[CRITICAL] trading halted")
+                    return False
                 fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
                 force_mock_provider = fallback_enabled or str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
 
         if self.market_data_snapshot_manager is None:
             self.market_data_snapshot_manager = MarketDataSnapshotManager(self.connection_manager.optional_client)
         provider_override = MockScannerProvider() if force_mock_provider else None
+        self._log_broker_cycle_diagnostics(provider="MOCK" if provider_override is not None else "IBKR")
 
         top_refresh = int(get_config("TOPN_REFRESH_SECONDS"))
         watch_refresh = int(get_config("WATCHLIST_REFRESH_SECONDS"))

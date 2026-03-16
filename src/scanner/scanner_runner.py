@@ -2421,6 +2421,11 @@ def run_scanner_cycle(
             provider = None
     if provider is not None:
         provider_source = provider.source_name
+    if run_mode == RunMode.LIVE and provider_source == "MOCK":
+        print("[CRITICAL] LIVE mode requires real broker")
+        print("[CRITICAL] Scanner provider MOCK is not permitted")
+        print("[CRITICAL] Shutting down trading loop")
+        raise RuntimeError("LIVE mode requires IBKR scanner provider; MOCK is not permitted")
     fallback_reason = (
         provider_error
         if provider_error
@@ -2430,10 +2435,21 @@ def run_scanner_cycle(
         if explicit_mock and provider_source == "MOCK"
         else None
     )
+    provider_trace_source = (
+        "fallback"
+        if provider_fallback
+        else "live_broker"
+        if provider_source == "IBKR"
+        else "scanner_request"
+    )
     print(
         "[SCANNER][PROVIDER] "
-        f"provider={provider_source} fallback_reason={fallback_reason or 'none'}"
+        f"provider={provider_source}"
     )
+    print(f"[SCANNER][PROVIDER] source={provider_trace_source}")
+    diagnostics["provider_trace_source"] = provider_trace_source
+    if fallback_reason:
+        print(f"[SCANNER][PROVIDER] fallback_reason={fallback_reason}")
     limits = _print_symbol_limits(
         scanner_mode,
         provider_source,
