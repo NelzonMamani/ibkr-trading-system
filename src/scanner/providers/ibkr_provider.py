@@ -61,10 +61,14 @@ class IbkrScannerProvider(ScannerDataProvider):
         resolved_requested_top_n = min(limit, get_ibkr_max_symbols_per_cycle())
 
         instrument = request.instrument if request and request.instrument else "STK"
+        instrument_source = "scanner_request" if request and request.instrument else "adapter_default"
+        location_from_request = bool(request and request.location_code)
         location_code = (
-            request.location_code if request and request.location_code else "STK.US.MAJOR"
+            request.location_code if location_from_request else "STK.US"
         )
+        location_source = "scanner_request" if location_from_request else "adapter_default"
         scan_code = request.ibkr_scan_code if request and request.ibkr_scan_code else "TOP_PERC_GAIN"
+        scan_code_source = "scanner_request" if request and request.ibkr_scan_code else "adapter_default"
         above_price = (
             request.above_price
             if request and request.above_price is not None
@@ -87,8 +91,10 @@ class IbkrScannerProvider(ScannerDataProvider):
 
         print(
             "[SCANNER][IBKR][SUBSCRIPTION] "
-            f"instrument={instrument} location={location_code} "
-            f"scanCode={scan_code} numberOfRows={resolved_requested_top_n} "
+            f"instrument={instrument} instrument_source={instrument_source} "
+            f"location={location_code} location_source={location_source} "
+            f"scanCode={scan_code} scan_code_source={scan_code_source} "
+            f"numberOfRows={resolved_requested_top_n} "
             f"abovePrice={above_price} belowPrice={below_price}"
         )
 
@@ -137,10 +143,20 @@ class IbkrScannerProvider(ScannerDataProvider):
                 )
             return symbols
 
+        print(
+            "[SCANNER][IBKR][RAW_ZERO] reason=BROKER_RETURNED_ZERO_CANDIDATES "
+            f"requested_rows={resolved_requested_top_n} location={location_code} scanCode={scan_code}"
+        )
         symbols = get_scanner_symbols(default=[])
+        fallback_source = "config_scanner_symbols"
         if not symbols:
             symbols = ["AAPL", "MSFT", "NVDA", "AMD", "TSLA"]
+            fallback_source = "hardcoded_teaching_fallback"
         symbols = [symbol.upper() for symbol in symbols][:limit]
+        print(
+            "[SCANNER][IBKR][RAW_ZERO] "
+            f"local_fallback_source={fallback_source} fallback_symbol_count={len(symbols)}"
+        )
         print(f"RAW_SCAN_SYMBOLS (N={len(symbols)}): {symbols}")
         return symbols
 

@@ -804,7 +804,9 @@ class UniverseSpec:
     top_n: Optional[int] = None
     region: Optional[str] = None
     instrument: Optional[str] = "STK"
-    location_code: Optional[str] = "STK.US.MAJOR"
+    # Ross momentum authority uses broad US scanner coverage unless explicitly
+    # overridden by policy. Adapter layers must not silently narrow this.
+    location_code: Optional[str] = "STK.US"
     exchanges: Sequence[str] = ()
 
 
