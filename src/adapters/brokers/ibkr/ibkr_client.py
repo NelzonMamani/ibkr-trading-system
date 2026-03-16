@@ -249,6 +249,30 @@ class IbkrClient(EWrapper, EClient):
         )
         return resolved
 
+    def qualifyContracts(self, *contracts):
+        """
+        Compatibility wrapper for ib_insync-style APIs used by snapshot enrichment.
+        """
+        qualified = []
+        for contract in contracts:
+            symbol = getattr(contract, "symbol", None)
+            if not symbol:
+                continue
+            try:
+                details = self.resolve_contract(
+                    symbol=symbol,
+                    exchange=getattr(contract, "exchange", "SMART") or "SMART",
+                    currency=getattr(contract, "currency", "USD") or "USD",
+                )
+                resolved_contract = details.contract
+                for attr in ("conId", "primaryExchange", "tradingClass", "localSymbol"):
+                    if hasattr(resolved_contract, attr):
+                        setattr(contract, attr, getattr(resolved_contract, attr))
+                qualified.append(contract)
+            except Exception:
+                continue
+        return qualified
+
     def contractDetails(self, reqId: int, contractDetails: ContractDetails):  # type: ignore[override]
         self._contract_details.setdefault(reqId, []).append(contractDetails)
 
