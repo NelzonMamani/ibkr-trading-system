@@ -23,6 +23,12 @@ from .base import IntradayStats, ProviderConnectionError, QuoteData, ScannerData
 
 class IbkrScannerProvider(ScannerDataProvider):
     source_name = "IBKR"
+    _LOCATION_FALLBACK_CHAIN = (
+        "STK.US.MAJOR",
+        "STK.US.SMART",
+        "STK.NASDAQ",
+        "STK.NYSE",
+    )
 
     def __init__(
         self,
@@ -105,31 +111,28 @@ class IbkrScannerProvider(ScannerDataProvider):
             f"abovePrice={above_price} belowPrice={below_price}"
         )
 
-        scan_items = _execute_ibkr_scan(subscription)
+        location_candidates: list[str] = [location_code]
+        for fallback_location in self._LOCATION_FALLBACK_CHAIN:
+            if fallback_location not in location_candidates:
+                location_candidates.append(fallback_location)
 
-        if len(scan_items) == 0:
-            logger.warning(
-                "[SCANNER][RETRY] IBKR returned zero results — retrying with broader universe"
+        scan_items: list = []
+        selected_location = location_code
+        for fallback_location in location_candidates:
+            subscription.locationCode = fallback_location
+            candidate_items = _execute_ibkr_scan(subscription)
+            logger.info(
+                "[SCANNER][IBKR][FALLBACK] "
+                f"location={fallback_location} returned {len(candidate_items)}"
             )
-            subscription.locationCode = "STK.US.MAJOR"
-            retry_results = _execute_ibkr_scan(subscription)
-            if len(retry_results) > 0:
+            if len(candidate_items) > 0:
+                scan_items = candidate_items
+                selected_location = fallback_location
                 logger.info(
-                    f"[SCANNER][RETRY_SUCCESS] recovered {len(retry_results)} symbols"
+                    "[SCANNER][IBKR][SUCCESS] "
+                    f"using_location={selected_location} symbols={len(scan_items)}"
                 )
-                scan_items = retry_results
-
-        if len(scan_items) == 0:
-            logger.warning(
-                "[SCANNER][FALLBACK] switching scanCode to MOST_ACTIVE"
-            )
-            subscription.scanCode = "MOST_ACTIVE"
-            fallback_results = _execute_ibkr_scan(subscription)
-            if len(fallback_results) > 0:
-                logger.info(
-                    f"[SCANNER][FALLBACK_SUCCESS] recovered {len(fallback_results)} symbols"
-                )
-                scan_items = fallback_results
+                break
 
         self.last_scan_details = {}
         returned_rows = len(scan_items)
@@ -174,6 +177,9 @@ class IbkrScannerProvider(ScannerDataProvider):
                 )
             return symbols
 
+        logger.error(
+            "[SCANNER][FATAL] broker returned zero rows across all fallback locations"
+        )
         logger.error(
             "[SCANNER][BROKER_EMPTY] IBKR returned zero symbols "
             f"(scanCode={subscription.scanCode}, "
