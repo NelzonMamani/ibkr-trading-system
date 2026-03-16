@@ -5,9 +5,11 @@ from datetime import datetime, timezone
 from typing import Any, Sequence
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
+from src.config.config_resolver import ConfigResolutionError, get_config
 from src.core.managers.market_data_snapshot_manager import MarketDataSnapshotManager
 from src.models.data_models import PatternResult
 from src.risk.risk_engine import RiskEngine
+from src.scanner.session_pct_change import resolve_session_diagnostics
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.ross_momentum.patterns.pattern_evaluator import PatternEvaluator
 from src.strategies.ross_momentum.patterns.pattern_inputs import IndicatorSet, LevelSet, LiquidityContext, PatternInputs
@@ -26,9 +28,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+
+
+def _safe_config(name: str, default: Any = None) -> Any:
+    try:
+        return get_config(name)
+    except ConfigResolutionError:
+        return default
+
 def _hydrate_symbol(symbol: str, dry_run: bool) -> tuple[str, dict[str, Any]]:
     if dry_run:
-        return "SUCCESS", {"last": 10.0, "bid": 9.98, "ask": 10.02, "volume": 120_000}
+        return "SUCCESS", {"last": 10.0, "bid": 9.98, "ask": 10.02, "volume": 120_000, "missing_fields": [], "quality_flags": []}
 
     manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
     manager.ensure_connected()
@@ -94,7 +104,7 @@ def _to_strategy_pattern(symbol: str, summary) -> list[PatternResult]:
 
 
 def run_pipeline(*, symbol: str, dry_run: bool, execute_live: bool, dangerous_submit_live_order: bool) -> dict[str, Any]:
-    _ = RossMomentumPolicy()
+    policy = RossMomentumPolicy()
     hydration, hydrated = _hydrate_symbol(symbol, dry_run)
 
     evaluator = PatternEvaluator()
@@ -114,6 +124,11 @@ def run_pipeline(*, symbol: str, dry_run: bool, execute_live: bool, dangerous_su
 
     order_would_be_placed = bool(intents and risk_approved)
     live_submit_requested = bool(execute_live and dangerous_submit_live_order and order_would_be_placed)
+    deny_reason = None if risk_approved else risk_reason
+
+    session_diag = resolve_session_diagnostics()
+    execution_allowlist = {value.upper() for value in getattr(policy.stock_selection, "execution_permitted_sessions", ())}
+    execution_allowed = session_diag.resolved_session.upper() in execution_allowlist
 
     return {
         "symbol": symbol,
@@ -122,7 +137,7 @@ def run_pipeline(*, symbol: str, dry_run: bool, execute_live: bool, dangerous_su
         "pattern": {
             "best_long_setup": getattr(summary.best_long_setup, "pattern_name", "NONE"),
             "best_short_setup": getattr(summary.best_short_setup, "pattern_name", "NONE"),
-            "detected_patterns": [p.pattern_name for p in strategy_patterns],
+            "detected_patterns": [p.pattern_name for p in strategy_patterns] or ["NONE"],
         },
         "strategy": {
             "strategies_evaluated": ["MomentumContinuationStrategy"],
@@ -130,13 +145,23 @@ def run_pipeline(*, symbol: str, dry_run: bool, execute_live: bool, dangerous_su
         },
         "risk": {
             "first_decision_result": "ALLOW" if risk_approved else "DENY",
-            "deny_reason": None if risk_approved else risk_reason,
+            "deny_reason": deny_reason,
+            "explicit_no_intent": not intents,
         },
         "execution": {
             "order_would_be_placed": order_would_be_placed,
             "execute_live_requested": execute_live,
             "dangerous_submit_live_order": dangerous_submit_live_order,
             "live_execution_submitted": live_submit_requested,
+            "blocked_reason": None if order_would_be_placed else ("NO_INTENT" if not intents else deny_reason),
+        },
+        "trade_window": {
+            "session": session_diag.resolved_session,
+            "execution_allowed": execution_allowed,
+            "available_capital": _safe_config("ACCOUNT_SIZE", _safe_config("ACCOUNT_EQUITY", "UNKNOWN")),
+            "max_positions": _safe_config("MAX_OPEN_POSITIONS", "UNKNOWN"),
+            "max_position_size": _safe_config("MAX_POSITION_SIZE_PCT", _safe_config("MAX_RISK_PER_TRADE", "UNKNOWN")),
+            "trade_enabled": bool(execute_live),
         },
     }
 
@@ -161,6 +186,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     print("\n[DATA]")
     print(f"hydration={result['hydration']}")
+    print(f"missing_fields={result['hydrated'].get('missing_fields', [])}")
+    print(f"quality_flags={result['hydrated'].get('quality_flags', [])}")
     print(f"last={result['hydrated'].get('last')}")
     print(f"bid={result['hydrated'].get('bid')}")
     print(f"ask={result['hydrated'].get('ask')}")
@@ -178,12 +205,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     print("\n[RISK]")
     print(f"first_decision_result={result['risk']['first_decision_result']}")
     print(f"deny_reason={result['risk']['deny_reason']}")
+    print(f"explicit_no_intent={result['risk']['explicit_no_intent']}")
 
     print("\n[EXECUTION]")
     print(f"order_would_be_placed={result['execution']['order_would_be_placed']}")
+    print(f"execution_blocked_reason={result['execution']['blocked_reason']}")
     print(f"execute_live_requested={result['execution']['execute_live_requested']}")
     print(f"dangerous_submit_live_order={result['execution']['dangerous_submit_live_order']}")
     print(f"live_execution_submitted={result['execution']['live_execution_submitted']}")
+
+    print("\n[ROSS][TRADE_WINDOW]")
+    print(f"session={result['trade_window']['session']}")
+    print(f"execution_allowed={result['trade_window']['execution_allowed']}")
+    print(f"available_capital={result['trade_window']['available_capital']}")
+    print(f"max_positions={result['trade_window']['max_positions']}")
+    print(f"max_position_size={result['trade_window']['max_position_size']}")
+    print(f"trade_enabled={result['trade_window']['trade_enabled']}")
 
     return 0
 
