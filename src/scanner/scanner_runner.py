@@ -2058,6 +2058,29 @@ def _provider_symbol_scan_details(provider: ScannerDataProvider | None) -> Dict[
     return scan_details
 
 
+def _provider_contract_details_by_symbol(provider: ScannerDataProvider | None) -> Dict[str, Dict[str, Any]]:
+    details = _provider_symbol_scan_details(provider)
+    if not isinstance(details, dict):
+        return {}
+    payload: Dict[str, Dict[str, Any]] = {}
+    for symbol, meta in details.items():
+        if not isinstance(meta, dict):
+            continue
+        normalized = str(symbol or "").upper().strip()
+        if not normalized:
+            continue
+        payload[normalized] = {
+            "symbol": normalized,
+            "secType": "STK",
+            "conId": meta.get("conId"),
+            "primaryExchange": meta.get("primaryExchange"),
+            "tradingClass": meta.get("tradingClass"),
+            "exchange": "SMART",
+            "currency": "USD",
+        }
+    return payload
+
+
 def _build_universe_entries(symbols: list[str], provider: ScannerDataProvider | None = None) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     scan_details = _provider_symbol_scan_details(provider)
@@ -2784,11 +2807,21 @@ def run_scanner_cycle(
             connection_manager=getattr(provider, "connection_manager", None),
             batch_timeout_seconds=5.0,
         )
-        market_snapshots = snapshot_enricher.fetch_snapshots(symbols)
+        contract_details_by_symbol = _provider_contract_details_by_symbol(provider)
+        market_snapshots = snapshot_enricher.fetch_snapshots(
+            symbols,
+            contract_details_by_symbol=contract_details_by_symbol,
+        )
+        snapshot_diag = getattr(snapshot_enricher, "last_fetch_diagnostics", {}) or {}
         diagnostics["market_snapshot_enrichment"] = {
             "requested_symbols": len(symbols),
             "snapshots_returned": len(market_snapshots),
             "batch_timeout_seconds": 5.0,
+            "snapshot_success_count": sum(1 for d in snapshot_diag.values() if d.get("snapshot_received")),
+            "snapshot_failure_count": sum(1 for d in snapshot_diag.values() if not d.get("snapshot_received")),
+            "symbols_with_last_price": sum(1 for d in snapshot_diag.values() if d.get("last_price") is not None),
+            "symbols_with_bid_ask": sum(1 for d in snapshot_diag.values() if d.get("bid") is not None and d.get("ask") is not None),
+            "symbols_with_volume": sum(1 for d in snapshot_diag.values() if d.get("volume") is not None),
         }
 
         float_cache = _bootstrap_float_cache(symbols, provider)
