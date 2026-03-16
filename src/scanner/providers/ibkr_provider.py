@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import re
 
@@ -46,7 +46,7 @@ class IbkrScannerProvider(ScannerDataProvider):
             raise RuntimeError(
                 "IBKR connections must be created only by IBKRConnectionManager"
             )
-        self.last_scan_details: dict[str, dict[str, Optional[str]]] = {}
+        self.last_scan_details: dict[str, Any] = {}
         self.last_float_source: Optional[str] = None
         self.last_float_failures: list[tuple[str, str]] = []
 
@@ -118,6 +118,7 @@ class IbkrScannerProvider(ScannerDataProvider):
 
         scan_items: list = []
         selected_location = location_code
+        retry_attempts = 0
         for fallback_location in location_candidates:
             subscription.locationCode = fallback_location
             candidate_items = _execute_ibkr_scan(subscription)
@@ -133,8 +134,11 @@ class IbkrScannerProvider(ScannerDataProvider):
                     f"using_location={selected_location} symbols={len(scan_items)}"
                 )
                 break
+            retry_attempts += 1
 
-        self.last_scan_details = {}
+        retry_exhausted = len(scan_items) == 0 and retry_attempts > 0
+
+        symbol_details: dict[str, dict[str, Optional[str]]] = {}
         returned_rows = len(scan_items)
         print(
             "[SCANNER][IBKR] "
@@ -153,11 +157,22 @@ class IbkrScannerProvider(ScannerDataProvider):
             contract = item.contractDetails.contract
             symbol = contract.symbol.upper()
             symbols.append(symbol)
-            self.last_scan_details[symbol] = {
+            symbol_details[symbol] = {
                 "conId": getattr(contract, "conId", None),
                 "tradingClass": getattr(contract, "tradingClass", None),
                 "primaryExchange": getattr(contract, "primaryExchange", None),
             }
+        self.last_scan_details = {
+            "requested_location_code": location_code,
+            "requested_scan_code": scan_code,
+            "selected_location_code": selected_location,
+            "selected_scan_code": subscription.scanCode,
+            "retry_attempts": retry_attempts,
+            "retry_exhausted": retry_exhausted,
+            "returned_rows": returned_rows,
+            "symbols": symbols,
+            "symbol_details": symbol_details,
+        }
         if symbols:
             print(f"RAW_SCAN_SYMBOLS (N={len(symbols)}): {symbols}")
             for idx, item in enumerate(scan_items, start=1):
