@@ -21,15 +21,86 @@ from src.scanner.scanner_contract import ScannerRequest
 from .base import IntradayStats, ProviderConnectionError, QuoteData, ScannerDataProvider
 
 
+SCAN_CODES = [
+    "TOP_PERC_GAIN",
+    "TOP_OPEN_PERC_GAIN",
+    "HOT_BY_VOLUME",
+    "MOST_ACTIVE",
+]
+
+LOCATIONS = [
+    "STK.US.MAJOR",
+    "STK.US.SMART",
+    "STK.NASDAQ",
+    "STK.NYSE",
+]
+
+PRICE_RANGES = [
+    (1, 20),
+    (1, 50),
+    (1, 100),
+]
+
+
+def _with_preferred(preferred: str | None, defaults: list[str]) -> list[str]:
+    values: list[str] = []
+    if preferred:
+        values.append(preferred)
+    for value in defaults:
+        if value not in values:
+            values.append(value)
+    return values
+
+
+def robust_scan(
+    client: MarketDataClient,
+    scanner_subscription_cls: Any,
+    instrument: str,
+    preferred_scan_code: str | None = None,
+    preferred_location: str | None = None,
+    preferred_price_range: tuple[float, float] | None = None,
+) -> tuple[list, dict[str, Any]]:
+    scan_codes = _with_preferred(preferred_scan_code, SCAN_CODES)
+    locations = _with_preferred(preferred_location, LOCATIONS)
+    price_ranges = list(PRICE_RANGES)
+    if preferred_price_range is not None and preferred_price_range not in price_ranges:
+        price_ranges.insert(0, preferred_price_range)
+
+    attempts = 0
+    for price_low, price_high in price_ranges:
+        for scan_code in scan_codes:
+            for location in locations:
+                attempts += 1
+                sub = scanner_subscription_cls(
+                    instrument=instrument,
+                    locationCode=location,
+                    scanCode=scan_code,
+                    numberOfRows=50,
+                    abovePrice=price_low,
+                    belowPrice=price_high,
+                )
+                results = client.request_scanner_data(sub) or []
+                print(
+                    f"[SCANNER][ATTEMPT] scan={scan_code} "
+                    f"loc={location} price={price_low}-{price_high} "
+                    f"rows={len(results)}"
+                )
+                if len(results) > 0:
+                    print("[SCANNER][SUCCESS]")
+                    return results, {
+                        "scan_code": scan_code,
+                        "location": location,
+                        "price_low": price_low,
+                        "price_high": price_high,
+                        "attempts": attempts,
+                    }
+
+    return [], {"attempts": attempts}
+
+
+
 class IbkrScannerProvider(ScannerDataProvider):
     source_name = "IBKR"
-    _LOCATION_FALLBACK_CHAIN = (
-        "STK.US.MAJOR",
-        "STK.US.SMART",
-        "STK.NASDAQ",
-        "STK.NYSE",
-    )
-
     def __init__(
         self,
         connection_manager: Optional[IbkrConnectionManager] = None,
@@ -69,74 +140,37 @@ class IbkrScannerProvider(ScannerDataProvider):
 
         instrument = request.instrument if request and request.instrument else "STK"
         instrument_source = "scanner_request" if request and request.instrument else "adapter_default"
-        location_from_request = bool(request and request.location_code)
-        location_code = (
-            request.location_code if location_from_request else "STK.US.MAJOR"
-        )
-        location_source = "scanner_request" if location_from_request else "adapter_default"
+        location_code = request.location_code if request and request.location_code else "STK.US.MAJOR"
         scan_code = request.ibkr_scan_code if request and request.ibkr_scan_code else "TOP_PERC_GAIN"
-        scan_code_source = "scanner_request" if request and request.ibkr_scan_code else "adapter_default"
-        above_price = (
-            request.above_price
-            if request and request.above_price is not None
-            else 1
-        )
-        below_price = (
-            request.below_price
-            if request and request.below_price is not None
-            else 20
-        )
         _, _, ScannerSubscription = safe_import_ib_insync()
-        subscription = ScannerSubscription(
-            instrument=instrument,
-            locationCode=location_code,
-            scanCode=scan_code,
-            numberOfRows=resolved_requested_top_n,
-            abovePrice=above_price,
-            belowPrice=below_price,
-        )
-        assert subscription.numberOfRows == 50
 
         logger = logging.getLogger(__name__)
-
-        def _execute_ibkr_scan(scanner_subscription: ScannerSubscription) -> list:
-            return self.market_data_client.request_scanner_data(scanner_subscription) or []
 
         print(
             "[SCANNER][IBKR][SUBSCRIPTION] "
             f"instrument={instrument} instrument_source={instrument_source} "
-            f"location={location_code} location_source={location_source} "
-            f"scanCode={scan_code} scan_code_source={scan_code_source} "
-            f"numberOfRows={resolved_requested_top_n} "
-            f"abovePrice={above_price} belowPrice={below_price}"
+            f"location={location_code} scanCode={scan_code} "
+            f"numberOfRows={resolved_requested_top_n}"
         )
 
-        location_candidates: list[str] = [location_code]
-        for fallback_location in self._LOCATION_FALLBACK_CHAIN:
-            if fallback_location not in location_candidates:
-                location_candidates.append(fallback_location)
-
-        scan_items: list = []
-        selected_location = location_code
-        retry_attempts = 0
-        for fallback_location in location_candidates:
-            subscription.locationCode = fallback_location
-            candidate_items = _execute_ibkr_scan(subscription)
+        scan_items, scan_context = robust_scan(
+            self.market_data_client,
+            ScannerSubscription,
+            instrument,
+            preferred_scan_code=scan_code,
+            preferred_location=location_code,
+            preferred_price_range=(
+                request.above_price if request and request.above_price is not None else 1,
+                request.below_price if request and request.below_price is not None else 20,
+            ),
+        )
+        retry_attempts = int(scan_context.get("attempts") or 0)
+        retry_exhausted = len(scan_items) == 0
+        if not retry_exhausted:
             logger.info(
-                "[SCANNER][IBKR][FALLBACK] "
-                f"location={fallback_location} returned {len(candidate_items)}"
+                "[SCANNER][IBKR][SUCCESS] "
+                f"using_location={scan_context.get('location')} symbols={len(scan_items)}"
             )
-            if len(candidate_items) > 0:
-                scan_items = candidate_items
-                selected_location = fallback_location
-                logger.info(
-                    "[SCANNER][IBKR][SUCCESS] "
-                    f"using_location={selected_location} symbols={len(scan_items)}"
-                )
-                break
-            retry_attempts += 1
-
-        retry_exhausted = len(scan_items) == 0 and retry_attempts > 0
 
         symbol_details: dict[str, dict[str, Optional[str]]] = {}
         returned_rows = len(scan_items)
@@ -165,8 +199,8 @@ class IbkrScannerProvider(ScannerDataProvider):
         self.last_scan_details = {
             "requested_location_code": location_code,
             "requested_scan_code": scan_code,
-            "selected_location_code": selected_location,
-            "selected_scan_code": subscription.scanCode,
+            "selected_location_code": scan_context.get("location"),
+            "selected_scan_code": scan_context.get("scan_code"),
             "retry_attempts": retry_attempts,
             "retry_exhausted": retry_exhausted,
             "returned_rows": returned_rows,
@@ -197,9 +231,7 @@ class IbkrScannerProvider(ScannerDataProvider):
         )
         logger.error(
             "[SCANNER][BROKER_EMPTY] IBKR returned zero symbols "
-            f"(scanCode={subscription.scanCode}, "
-            f"location={subscription.locationCode}, "
-            f"price_range={subscription.abovePrice}-{subscription.belowPrice})"
+            "(scanCode=ALL_FALLBACKS, location=ALL_FALLBACKS, price_range=ALL_FALLBACKS)"
         )
         symbols = get_scanner_symbols(default=[])
         fallback_source = "config_scanner_symbols"
