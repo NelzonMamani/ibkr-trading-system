@@ -95,6 +95,7 @@ class SessionResolutionDiagnostics:
     reference_trading_date: str
     previous_valid_market_session_date: str
     reason: str
+    override_source: str
 
 
 _SESSION_LABEL_MAP = {
@@ -195,14 +196,19 @@ def reference_trading_day(now: Optional[datetime] = None) -> datetime.date:
     return ny_time.date()
 
 
-def resolve_session_diagnostics(now: Optional[datetime] = None, forced_session_label: Optional[str] = None) -> SessionResolutionDiagnostics:
+def resolve_session_diagnostics(now: Optional[datetime] = None, forced_session_label: Optional[str] = None, forced_session_source: Optional[str] = None) -> SessionResolutionDiagnostics:
     now_utc = now or datetime.now(timezone.utc)
     session_ctx = resolve_market_session_context(now_utc)
     resolved = normalize_session_label(forced_session_label or session_ctx.phase)
     canonical = canonical_session_label(resolved)
     ref_day = reference_trading_day(now_utc)
     prev_day = previous_valid_trading_day(now_utc)
-    reason = "FORCED_OVERRIDE" if forced_session_label else "MARKET_CLOCK"
+    if forced_session_label:
+        reason = forced_session_source or "TEST_OVERRIDE"
+        override_source = forced_session_source or "PARAMETER"
+    else:
+        reason = "MARKET_CLOCK"
+        override_source = "NONE"
     return SessionResolutionDiagnostics(
         utc_time=now_utc.astimezone(timezone.utc).isoformat(),
         ny_time=now_utc.astimezone(_NY_TZ).isoformat(),
@@ -211,6 +217,7 @@ def resolve_session_diagnostics(now: Optional[datetime] = None, forced_session_l
         reference_trading_date=ref_day.isoformat(),
         previous_valid_market_session_date=prev_day.isoformat(),
         reason=reason,
+        override_source=override_source,
     )
 
 

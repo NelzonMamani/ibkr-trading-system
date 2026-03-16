@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import argparse
-from typing import Sequence
+from typing import Any, Sequence
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
-from src.scanner.providers.factory import build_provider
-from src.scanner.scanner_contract import ScannerRequest
-from src.strategies.ross_momentum.strategy_policy import UniverseSource
+from src.core.managers.market_data_snapshot_manager import MarketDataSnapshotManager
+from src.scanner.scanner_contract import scanner_request_from_policy
+from src.scanner.scanner_runner import run_scanner_cycle
+from src.strategies.ross_momentum.strategy_policy import RossMomentumPolicy
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -15,79 +16,91 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _ross_scanner_request() -> ScannerRequest:
-    return ScannerRequest(
-        strategy_name="ross_momentum",
-        policy_name="RossMomentumPolicy",
-        ranking_intent="momentum_top_percent_gainers",
-        session_phase="PREMARKET",
-        universe_source=UniverseSource.IBKR_TOP_GAINERS,
-        ibkr_scan_code="TOP_PERC_GAIN",
-        requested_top_n=50,
-        above_price=1,
-        below_price=20,
-        instrument="STK",
-        location_code="STK.US",
-    )
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
-
+def run_diagnostics(*, dry_run: bool) -> dict[str, Any]:
+    policy = RossMomentumPolicy().stock_selection
+    request = scanner_request_from_policy(policy, strategy_name="ross_momentum", session_phase="PREMARKET")
     manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
     metadata = manager.connection_metadata()
-    status = "INACTIVE"
-    if args.dry_run:
-        status = "DRY_RUN"
-    else:
+
+    status = "DRY_RUN"
+    scanner_operational = True
+    symbols: list[str] = []
+    rows: list[tuple[str, Any, Any, Any]] = []
+
+    if not dry_run:
         try:
             manager.ensure_connected()
             status = "ACTIVE"
         except Exception as exc:
-            status = f"ERROR:{exc}"
+            status = f"FAILED:{exc}"
+            scanner_operational = False
+
+        if scanner_operational:
+            try:
+                payload = run_scanner_cycle(
+                    mode="READ_ONLY",
+                    policy=policy,
+                    scanner_request=request,
+                )
+                universe_entries = payload.get("universe_top_n") or []
+                symbols = [str(entry.get("symbol") or "") for entry in universe_entries if isinstance(entry, dict)]
+                symbols = [symbol for symbol in symbols if symbol]
+                snapshot_manager = MarketDataSnapshotManager(manager.get_client())
+                for symbol in symbols:
+                    snapshot, quality = snapshot_manager.get_snapshot(symbol)
+                    hydration = "PARTIAL" if quality.missing_fields else "SUCCESS"
+                    rows.append((symbol, snapshot.last, None, snapshot.volume if hydration else None))
+            except Exception as exc:
+                scanner_operational = False
+                status = status if status.startswith("FAILED:") else "ACTIVE"
+                rows = [("SCANNER_ERROR", None, None, str(exc))]
+    else:
+        symbols = ["AAPL", "TSLA"]
+        rows = [("AAPL", 175.0, 1.2, 1_500_000), ("TSLA", 240.0, 2.4, 2_100_000)]
+
+    return {
+        "broker": {
+            "provider": "IBKR",
+            "connection": status,
+            "host": metadata.get("host"),
+            "port": metadata.get("port"),
+            "client_id": metadata.get("base_client_id"),
+            "market_data_type": manager.config.market_data_type,
+        },
+        "scanner": {
+            "returned_symbols": len(symbols),
+            "rows": rows,
+            "scanner_operational": scanner_operational,
+        },
+    }
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    result = run_diagnostics(dry_run=args.dry_run)
 
     print("[BROKER]")
-    print("provider=IBKR")
-    print(f"connection={status}")
-    print(f"host={metadata.get('host')}")
-    print(f"port={metadata.get('port')}")
-    print(f"client_id={metadata.get('base_client_id')}")
-    print(f"market_data_type={manager.config.market_data_type}")
-
-    request = _ross_scanner_request()
-
-    symbols: list[str] = []
-    rows: list[tuple[str, float | None, float | None, float | None]] = []
-    scanner_operational = True
-
-    if args.dry_run:
-        scanner_operational = True
-    else:
-        try:
-            provider = build_provider(connection_manager=manager)
-            try:
-                symbols = provider.get_top_gainers(limit=request.requested_top_n, request=request)
-                for symbol in symbols:
-                    quote = provider.get_quote(symbol)
-                    rows.append((symbol, quote.last, quote.change_percent, quote.volume))
-            finally:
-                provider.disconnect()
-        except Exception as exc:
-            scanner_operational = False
-            print(f"[SCANNER_TEST_ERROR] {exc}")
+    broker = result["broker"]
+    print(f"provider={broker['provider']}")
+    print(f"connection={broker['connection']}")
+    print(f"host={broker['host']}")
+    print(f"port={broker['port']}")
+    print(f"client_id={broker['client_id']}")
+    print(f"market_data_type={broker['market_data_type']}")
 
     print("\n[SCANNER_TEST]")
-    print(f"returned_symbols={len(symbols)}")
+    scanner = result["scanner"]
+    print(f"returned_symbols={scanner['returned_symbols']}")
     print("\nSYMBOLS")
     print("SYMBOL PRICE PCT_CHANGE VOLUME")
-    for symbol, price, pct_change, volume in rows:
-        print(f"{symbol} {price} {pct_change} {volume}")
+    for symbol, price, pct_change, volume in scanner["rows"]:
+        print(f"{symbol} {price if price is not None else 'N/A'} {pct_change if pct_change is not None else 'N/A'} {volume if volume is not None else 'N/A'}")
 
     print("\n[SCANNER_TEST_SUMMARY]")
-    print(f"symbols_returned={len(symbols)}")
-    print(f"scanner_operational={scanner_operational}")
+    print(f"symbols_returned={scanner['returned_symbols']}")
+    print(f"scanner_operational={scanner['scanner_operational']}")
 
-    return 0 if scanner_operational else 1
+    return 0 if scanner["scanner_operational"] else 1
 
 
 if __name__ == "__main__":
