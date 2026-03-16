@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 import re
@@ -8,7 +9,7 @@ import requests
 
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 
-from src.config.runtime_config import get_ibkr_max_symbols_per_cycle, get_scanner_symbols
+from src.config.runtime_config import get_scanner_symbols
 from src.adapters.brokers.ibkr.ibkr_connection_manager import (
     IbkrConnectionManager,
     get_shared_ibkr_connection_manager,
@@ -58,13 +59,13 @@ class IbkrScannerProvider(ScannerDataProvider):
         limit: int,
         request: ScannerRequest | None = None,
     ) -> list[str]:
-        resolved_requested_top_n = min(limit, get_ibkr_max_symbols_per_cycle())
+        resolved_requested_top_n = 50
 
         instrument = request.instrument if request and request.instrument else "STK"
         instrument_source = "scanner_request" if request and request.instrument else "adapter_default"
         location_from_request = bool(request and request.location_code)
         location_code = (
-            request.location_code if location_from_request else "STK.US"
+            request.location_code if location_from_request else "STK.US.MAJOR"
         )
         location_source = "scanner_request" if location_from_request else "adapter_default"
         scan_code = request.ibkr_scan_code if request and request.ibkr_scan_code else "TOP_PERC_GAIN"
@@ -88,6 +89,12 @@ class IbkrScannerProvider(ScannerDataProvider):
             abovePrice=above_price,
             belowPrice=below_price,
         )
+        assert subscription.numberOfRows == 50
+
+        logger = logging.getLogger(__name__)
+
+        def _execute_ibkr_scan(scanner_subscription: ScannerSubscription) -> list:
+            return self.market_data_client.request_scanner_data(scanner_subscription) or []
 
         print(
             "[SCANNER][IBKR][SUBSCRIPTION] "
@@ -98,8 +105,32 @@ class IbkrScannerProvider(ScannerDataProvider):
             f"abovePrice={above_price} belowPrice={below_price}"
         )
 
-        scan_data = self.market_data_client.request_scanner_data(subscription)
-        scan_items = scan_data or []
+        scan_items = _execute_ibkr_scan(subscription)
+
+        if len(scan_items) == 0:
+            logger.warning(
+                "[SCANNER][RETRY] IBKR returned zero results — retrying with broader universe"
+            )
+            subscription.locationCode = "STK.US.MAJOR"
+            retry_results = _execute_ibkr_scan(subscription)
+            if len(retry_results) > 0:
+                logger.info(
+                    f"[SCANNER][RETRY_SUCCESS] recovered {len(retry_results)} symbols"
+                )
+                scan_items = retry_results
+
+        if len(scan_items) == 0:
+            logger.warning(
+                "[SCANNER][FALLBACK] switching scanCode to MOST_ACTIVE"
+            )
+            subscription.scanCode = "MOST_ACTIVE"
+            fallback_results = _execute_ibkr_scan(subscription)
+            if len(fallback_results) > 0:
+                logger.info(
+                    f"[SCANNER][FALLBACK_SUCCESS] recovered {len(fallback_results)} symbols"
+                )
+                scan_items = fallback_results
+
         self.last_scan_details = {}
         returned_rows = len(scan_items)
         print(
@@ -143,9 +174,11 @@ class IbkrScannerProvider(ScannerDataProvider):
                 )
             return symbols
 
-        print(
-            "[SCANNER][IBKR][RAW_ZERO] reason=BROKER_RETURNED_ZERO_CANDIDATES "
-            f"requested_rows={resolved_requested_top_n} location={location_code} scanCode={scan_code}"
+        logger.error(
+            "[SCANNER][BROKER_EMPTY] IBKR returned zero symbols "
+            f"(scanCode={subscription.scanCode}, "
+            f"location={subscription.locationCode}, "
+            f"price_range={subscription.abovePrice}-{subscription.belowPrice})"
         )
         symbols = get_scanner_symbols(default=[])
         fallback_source = "config_scanner_symbols"
