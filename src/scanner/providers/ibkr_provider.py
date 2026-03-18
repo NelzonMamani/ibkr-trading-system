@@ -271,6 +271,32 @@ class IbkrScannerProvider(ScannerDataProvider):
         snapshot = self.market_data_client.snapshot_stock(symbol)
         return snapshot.close
 
+    def _qualify_identity_contract(self, identity):
+        if hasattr(identity, "con_id") and getattr(identity, "con_id", None):
+            contract = self.market_data_client.qualify_contract(getattr(identity, "symbol", ""))
+            if contract is not None and getattr(contract, "conId", None) == getattr(identity, "con_id", None):
+                return contract
+            if contract is not None:
+                contract.conId = getattr(identity, "con_id", None)
+                if getattr(identity, "local_symbol", None):
+                    contract.localSymbol = identity.local_symbol
+                if getattr(identity, "trading_class", None):
+                    contract.tradingClass = identity.trading_class
+                return contract
+        return self.market_data_client.qualify_contract(getattr(identity, "symbol", identity))
+
+    def get_previous_rth_close(self, identity) -> Optional[float]:
+        contract = self._qualify_identity_contract(identity)
+        return self.market_data_client.prev_close_from_history(contract if contract is not None else getattr(identity, "symbol", identity), use_rth=True)
+
+    def get_average_daily_volume(self, identity, window: int) -> tuple[Optional[int], Optional[int]]:
+        contract = self._qualify_identity_contract(identity)
+        return self.market_data_client.average_daily_volume_from_history(contract if contract is not None else getattr(identity, "symbol", identity), window=window, use_rth=True)
+
+    def get_daily_bars(self, identity, lookback_days: int):
+        contract = self._qualify_identity_contract(identity)
+        return self.market_data_client.daily_bars_from_history(contract if contract is not None else getattr(identity, "symbol", identity), lookback_days=lookback_days, use_rth=True)
+
     def get_intraday_stats(self, symbol: str) -> IntradayStats:
         snapshot = self.market_data_client.snapshot_stock(symbol)
         volume = int(snapshot.volume) if snapshot.volume is not None else None
@@ -324,25 +350,7 @@ class IbkrScannerProvider(ScannerDataProvider):
         contract = self.market_data_client.qualify_contract(symbol)
         if contract is None:
             return None, None
-        try:
-            bars = self.market_data_client.ib.reqHistoricalData(
-                contract,
-                endDateTime="",
-                durationStr="20 D",
-                barSizeSetting="1 day",
-                whatToShow="TRADES",
-                useRTH=True,
-                formatDate=1,
-            )
-        except Exception:
-            return None, None
-        if not bars:
-            return None, None
-        volumes = [getattr(bar, "volume", None) for bar in bars if getattr(bar, "volume", None)]
-        if not volumes:
-            return None, None
-        avg_volume = int(sum(volumes) / len(volumes))
-        return avg_volume, len(volumes)
+        return self.market_data_client.average_daily_volume_from_history(contract, window=20, use_rth=True)
 
     @staticmethod
     def _fetch_yahoo_float(symbol: str) -> Optional[int]:

@@ -82,6 +82,19 @@ class DummyProvider:
         mapping = {"BRK B": 10.0, "ABC PRA": 8.0}
         return mapping.get(symbol)
 
+    def get_previous_rth_close(self, identity):
+        return self.get_prev_close(getattr(identity, "symbol", identity))
+
+    def get_average_daily_volume(self, identity, window: int):
+        stats = self.get_intraday_stats(getattr(identity, "symbol", identity))
+        return stats.average_daily_volume_20d, min(window, stats.average_daily_volume_window_days)
+
+    def get_daily_bars(self, identity, lookback_days: int):
+        symbol = getattr(identity, "symbol", identity)
+        prev = self.get_prev_close(symbol)
+        avg, window = self.get_average_daily_volume(identity, lookback_days)
+        return [SimpleNamespace(date=f"2026-01-{idx+1:02d}", close=prev, volume=avg) for idx in range(window)]
+
 
 def _build_client() -> IbkrClient:
     return IbkrClient(
@@ -250,3 +263,79 @@ def test_summary_audit_fields_distinguish_true_gate_passes_from_prep_backfill_an
     assert enrich["reference_ok"] == 1
     assert enrich["pct_ready"] == 1
     assert summary == {"true_gate_pass_count": 1, "backfill_count": 1, "seeded_count": 1}
+
+
+def test_reference_resolver_reads_persistent_cache_on_subsequent_attempts(tmp_path):
+    from src.scanner.reference_resolver import CanonicalReferenceResolver, PersistentReferenceCache
+
+    provider = DummyProvider()
+    cache = PersistentReferenceCache(tmp_path / 'reference_cache.json')
+    resolver = CanonicalReferenceResolver(cache)
+    identity = CandidateIdentity.from_mapping(provider.last_scan_details['symbol_details']['BRK B'] | {'symbol': 'BRK B'})
+
+    first = resolver.resolve(
+        identity=identity,
+        provider=provider,
+        session_label='PRE',
+        current_volume=250_000,
+        intraday_avg_volume_20d=None,
+        current_last_price=11.0,
+        rth_open_price=10.5,
+        rth_close_price=None,
+        ibkr_change_pct=None,
+        persisted_pct_change=None,
+    )
+    assert first.reference_price == 10.0
+
+    class BrokenProvider(DummyProvider):
+        def get_daily_bars(self, identity, lookback_days: int):
+            return []
+
+    second = CanonicalReferenceResolver(cache).resolve(
+        identity=identity,
+        provider=BrokenProvider(),
+        session_label='PRE',
+        current_volume=250_000,
+        intraday_avg_volume_20d=None,
+        current_last_price=11.0,
+        rth_open_price=10.5,
+        rth_close_price=None,
+        ibkr_change_pct=None,
+        persisted_pct_change=None,
+    )
+    assert second.reference_price == 10.0
+    assert second.reference_source == 'IBKR_DAILY_BARS'
+
+
+def test_reference_resolver_exposes_explicit_failure_reasons_when_history_unavailable():
+    from src.scanner.reference_resolver import CanonicalReferenceResolver
+
+    class EmptyProvider(DummyProvider):
+        def get_intraday_stats(self, symbol: str):
+            return SimpleNamespace(
+                current_intraday_volume=250_000,
+                average_daily_volume_20d=None,
+                average_daily_volume_window_days=None,
+                relative_volume=None,
+                day_high=None,
+            )
+
+        def get_daily_bars(self, identity, lookback_days: int):
+            return []
+
+    resolver = CanonicalReferenceResolver()
+    identity = CandidateIdentity.from_mapping({'symbol': 'MISS', 'conId': 999, 'exchange': 'SMART', 'currency': 'USD'})
+    result = resolver.resolve(
+        identity=identity,
+        provider=EmptyProvider(),
+        session_label='PRE',
+        current_volume=250_000,
+        intraday_avg_volume_20d=None,
+        current_last_price=11.0,
+        rth_open_price=10.5,
+        rth_close_price=None,
+        ibkr_change_pct=None,
+        persisted_pct_change=None,
+    )
+    assert result.reference_failure_reason == 'HISTORY_UNAVAILABLE'
+    assert result.rvol_failure_reason == 'ADV20_UNAVAILABLE'
