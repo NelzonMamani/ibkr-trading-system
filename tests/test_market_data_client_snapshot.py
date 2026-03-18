@@ -169,3 +169,19 @@ def test_history_helpers_retry_with_use_rth_false_when_primary_returns_zero_bars
     assert window == 1
     assert dummy_ib.history_calls[0]["useRTH"] is True
     assert dummy_ib.history_calls[1]["useRTH"] is False
+
+
+class FallbackDummyIB(DummyIB):
+    async def qualifyContractsAsync(self, contract):  # noqa: N802 - IBKR naming
+        raise RuntimeError("loop broken")
+
+
+def test_snapshot_qualification_falls_back_to_sync_when_async_fails():
+    client = MarketDataClient(snapshot_timeout_seconds=1)
+    dummy_ib = FallbackDummyIB()
+    client.ib = dummy_ib
+    client.connection_manager = DummyConnectionManager(dummy_ib)
+
+    contract = client.qualify_contract("AAPL")
+
+    assert contract.symbol == "AAPL"

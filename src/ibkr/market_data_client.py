@@ -9,6 +9,7 @@ from typing import Any, Optional, TYPE_CHECKING
 import threading
 
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
+from src.ibkr.contract_qualification import qualify_contracts_resilient
 
 
 from src.config.config_resolver import get_config
@@ -267,43 +268,16 @@ class MarketDataClient:
             exchange="SMART",
             currency="USD",
         )
-        last_error: Exception | None = None
-        for attempt in range(1, 4):
-            try:
-                async def _qualify_with_timeout():
-                    return await asyncio.wait_for(
-                        self._resolve_ib_client().qualifyContractsAsync(contract),
-                        timeout=self.snapshot_timeout_seconds,
-                    )
-
-                qualify_coro = _qualify_with_timeout()
-                qualified = self._run_async(qualify_coro)
-            except Exception as exc:
-                last_error = exc
-                if "qualify_coro" in locals():
-                    qualify_coro.close()
-                print(
-                    "[SNAPSHOT][QUALITY] CONTRACT_QUALIFY_FAILED "
-                    f"symbol={contract.symbol} attempt={attempt}/3 error={exc}"
-                )
-                if attempt >= 3:
-                    raise RuntimeError(
-                        f"CONTRACT_QUALIFY_FAILED symbol={contract.symbol} error={exc}"
-                    ) from exc
-                continue
-            if qualified:
-                return qualified[0]
-            last_error = RuntimeError("qualifyContractsAsync returned no contracts")
-            print(
-                "[SNAPSHOT][QUALITY] CONTRACT_QUALIFY_FAILED "
-                f"symbol={contract.symbol} attempt={attempt}/3 error={last_error}"
-            )
-            if attempt >= 3:
-                raise RuntimeError(
-                    f"CONTRACT_QUALIFY_FAILED symbol={contract.symbol} error={last_error}"
-                )
+        qualified = qualify_contracts_resilient(
+            self._resolve_ib_client(),
+            contract,
+            timeout_seconds=self.snapshot_timeout_seconds,
+            log_prefix="[EXECUTION][QUALIFY]",
+        )
+        if qualified:
+            return qualified[0]
         raise RuntimeError(
-            f"CONTRACT_QUALIFY_FAILED symbol={contract.symbol} error={last_error or 'unknown'}"
+            f"CONTRACT_QUALIFY_FAILED symbol={contract.symbol} error=NO_QUALIFIED_CONTRACT"
         )
 
     def qualifyContracts(self, *contracts):
@@ -312,10 +286,12 @@ class MarketDataClient:
         snapshot enrichment layer.
         """
         ib = self._resolve_ib_client()
-        try:
-            return ib.qualifyContracts(*contracts)
-        except Exception:
-            return []
+        return qualify_contracts_resilient(
+            ib,
+            *contracts,
+            timeout_seconds=self.snapshot_timeout_seconds,
+            log_prefix="[EXECUTION][QUALIFY]",
+        )
 
     def snapshot_stock(self, contract_or_symbol) -> MarketDataSnapshot:
         now_utc = datetime.now(timezone.utc)
