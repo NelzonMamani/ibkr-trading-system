@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -12,6 +14,16 @@ from src.scanner.candidate_identity import CandidateIdentity
 from src.scanner.providers.base import IntradayStats, QuoteData, ScannerDataProvider
 from src.scanner.reference_resolver import CanonicalReferenceResolver, HistoricalDailyBar, PersistentReferenceCache
 from src.scanner.scanner_runner import GateThresholds, _build_symbol_context, _evaluate_gates, _score_context, reset_scanner_runtime_state
+
+NY_TZ = ZoneInfo("America/New_York")
+
+
+def _ny_dates() -> tuple[str, str]:
+    today = datetime.now(NY_TZ).date()
+    prior = today - timedelta(days=1)
+    while prior.weekday() >= 5:
+        prior -= timedelta(days=1)
+    return today.isoformat(), prior.isoformat()
 
 
 @dataclass(frozen=True)
@@ -165,6 +177,18 @@ class _QuoteCloseFallbackProvider(_BaseProvider):
         return []
 
 
+class _TodayAndPriorBarProvider(_BaseProvider):
+    def __init__(self):
+        super().__init__(last=110.0, close=None, volume=180_000, adv20=100_000)
+
+    def get_daily_bars(self, identity, lookback_days: int, *, use_rth: bool = True, end_datetime: str = ""):
+        today, prior = _ny_dates()
+        return [
+            _Bar(prior, 100.0, 120_000),
+            _Bar(today, 110.0, 125_000),
+        ]
+
+
 @pytest.fixture(autouse=True)
 def _reset_scanner_state() -> None:
     reset_scanner_runtime_state()
@@ -252,6 +276,8 @@ def test_cached_close_fallback_is_degraded_but_qualification_usable(tmp_path: Pa
     assert initial.reference_source == "IBKR_DAILY_BARS"
     assert second.reference_source == "CACHED_CLOSE_FALLBACK"
     assert second.reference_quality_tier == "SECONDARY"
+    assert second.reference_semantics == "PREVIOUS_COMPLETED_RTH_CLOSE"
+    assert second.reference_is_previous_completed_session is True
     assert second.qualification_usable_reference is True
 
 
@@ -275,9 +301,10 @@ def test_rth_zero_bars_recovers_reference_from_provider_prev_close() -> None:
     assert context["reference_source"] == "PROVIDER_PREV_CLOSE_FALLBACK"
     assert context["reference_quality_tier"] == "SECONDARY"
     assert context["pct_change"] == pytest.approx(8.91, rel=1e-2)
-    assert context["pct_change_qualification_usable"] is True
-    assert context["pct_change_execution_usable"] is True
-    assert context["focus_eligible"] is True
+    assert context["reference_semantics"] == "DEGRADED_FALLBACK"
+    assert context["pct_change_qualification_usable"] is False
+    assert context["pct_change_execution_usable"] is False
+    assert context["focus_eligible"] is False
     assert context["reference_price"] == 101.0
     assert context["pct_change_resolved"] == context["pct_change"]
     assert context["gap_pct_resolved"] is not None
@@ -288,8 +315,9 @@ def test_rth_zero_bars_recovers_reference_from_quote_close() -> None:
     assert context is not None
     assert context["reference_source"] == "QUOTE_CLOSE_FALLBACK"
     assert context["reference_resolved"] is True
-    assert context["pct_change_qualification_usable"] is True
-    assert context["execution_eligible"] is True
+    assert context["reference_semantics"] == "DEGRADED_FALLBACK"
+    assert context["pct_change_qualification_usable"] is False
+    assert context["execution_eligible"] is False
     assert context["pct_change_resolved"] is not None
     assert context["avg_volume_20d"] == 100_000
     assert context["adv20_resolved"] is True
@@ -539,3 +567,99 @@ def test_rth_history_qualification_does_not_fail_when_primary_exchange_is_smart(
     assert context is not None
     assert context["reference_source"] == "IBKR_DAILY_BARS"
     assert context["pct_change_resolved"] == 10.0
+
+
+def test_rth_mid_excludes_current_day_daily_bar_for_previous_close() -> None:
+    provider = _TodayAndPriorBarProvider()
+    context = _build_symbol_context(provider, "AAPL", "RTH_MID", {})
+
+    today, prior = _ny_dates()
+    assert context is not None
+    assert context["reference_source"] == "IBKR_DAILY_BARS"
+    assert context["reference_price"] == 100.0
+    assert context["reference_trading_date"] == prior
+    assert context["reference_semantics"] == "PREVIOUS_COMPLETED_RTH_CLOSE"
+    assert context["reference_is_previous_completed_session"] is True
+    assert context["reference_trading_date"] != today
+    assert context["pct_change_resolved"] == 10.0
+
+
+def test_cached_reference_equal_to_current_last_in_rth_is_degraded_and_not_qualification_usable(tmp_path: Path) -> None:
+    today, _ = _ny_dates()
+    cache = PersistentReferenceCache(tmp_path / "reference_cache.json")
+    cache.put(("conid:101",), {
+        "identity_key": "conid:101",
+        "symbol": "AAPL",
+        "reference_price": 110.0,
+        "reference_label": "LAST_RTH_CLOSE",
+        "reference_source": "IBKR_DAILY_BARS",
+        "reference_resolved": True,
+        "reference_semantics": "CURRENT_SESSION_CLOSE",
+        "reference_trading_date": today,
+        "reference_is_previous_completed_session": False,
+        "asof_trading_date": today,
+        "cache_trading_date": today,
+        "avg_volume_20d": 100000,
+        "average_daily_volume_window_days": 20,
+        "adv20_source": "IBKR_DAILY_BARS",
+        "adv20_resolved": True,
+    })
+    identity = CandidateIdentity.from_mapping({
+        "symbol": "AAPL",
+        "conId": 101,
+        "secType": "STK",
+        "exchange": "SMART",
+        "primaryExchange": "NASDAQ",
+        "currency": "USD",
+        "localSymbol": "AAPL",
+    })
+
+    result = CanonicalReferenceResolver(cache=cache).resolve(
+        identity=identity,
+        provider=_DailyBarProvider(last=110.0),
+        session_label="RTH_MID",
+        current_volume=150_000,
+        intraday_avg_volume_20d=None,
+        current_last_price=110.0,
+        rth_open_price=108.0,
+        rth_close_price=None,
+        ibkr_change_pct=None,
+        persisted_pct_change=None,
+    )
+
+    assert result.reference_source == "CACHED_CLOSE_FALLBACK"
+    assert result.reference_semantics == "CURRENT_SESSION_CLOSE"
+    assert result.reference_is_previous_completed_session is False
+    assert result.reference_degraded is True
+    assert result.qualification_usable_reference is False
+    assert result.execution_usable_reference is False
+
+
+def test_current_day_partial_bar_is_not_selected_as_last_rth_close() -> None:
+    provider = _TodayAndPriorBarProvider()
+    identity = CandidateIdentity.from_mapping({
+        "symbol": "AAPL",
+        "conId": 101,
+        "secType": "STK",
+        "exchange": "SMART",
+        "primaryExchange": "NASDAQ",
+        "currency": "USD",
+    })
+
+    result = CanonicalReferenceResolver(cache=PersistentReferenceCache(Path("/tmp/nonpersistent_reference_cache.json"))).resolve(
+        identity=identity,
+        provider=provider,
+        session_label="RTH_OPEN",
+        current_volume=180_000,
+        intraday_avg_volume_20d=100_000,
+        current_last_price=110.0,
+        rth_open_price=108.0,
+        rth_close_price=None,
+        ibkr_change_pct=None,
+        persisted_pct_change=None,
+    )
+
+    assert result.reference_price == 100.0
+    assert result.reference_semantics == "PREVIOUS_COMPLETED_RTH_CLOSE"
+    assert result.reference_is_previous_completed_session is True
+    assert result.reference_trading_date != _ny_dates()[0]
