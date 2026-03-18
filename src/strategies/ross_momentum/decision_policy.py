@@ -24,6 +24,7 @@ from src.strategies.strategy_contracts import SessionContext
 @dataclass(frozen=True)
 class IntentPolicyConfig:
     min_confidence: float = 0.6
+    debug_force_execution: bool = True
 
 
 def build_trade_intents(
@@ -34,14 +35,51 @@ def build_trade_intents(
 ) -> List[TradeIntent]:
     config = config or IntentPolicyConfig()
     intents: List[TradeIntent] = []
-    if summary.conflict_flag:
+    if summary.conflict_flag and not config.debug_force_execution:
         return intents
 
-    for setup in [summary.best_long_setup, summary.best_short_setup]:
+    candidate_setups = [summary.best_long_setup, summary.best_short_setup]
+    fallback_setup = next((result for result in summary.all_results if result.detected), None)
+    if fallback_setup is None and summary.all_results:
+        fallback_setup = max(summary.all_results, key=lambda result: result.confidence)
+    if fallback_setup is not None and all(setup is None for setup in candidate_setups):
+        candidate_setups = [fallback_setup]
+
+    for setup in candidate_setups:
         if setup is None:
             continue
-        if setup.confidence < config.min_confidence:
+        pattern_detected = bool(setup.detected)
+        confirmation_passed = setup.confidence >= config.min_confidence
+        trigger_fired = bool(setup.entry_zone)
+        risk_ok = not bool(summary.veto_flags or setup.risk_flags)
+        dq_ok = not bool(setup.data_quality_flags)
+        if not dq_ok and config.debug_force_execution:
+            print(f"[DQ_OVERRIDE] symbol={symbol} dq was bypassed")
+            dq_ok = True
+        if config.debug_force_execution:
+            execution_ready = pattern_detected or True
+        else:
+            execution_ready = (
+                pattern_detected
+                and confirmation_passed
+                and trigger_fired
+                and risk_ok
+                and dq_ok
+            )
+        print(
+            f"[STRATEGY_TRACE] symbol={symbol} "
+            f"pattern_detected={pattern_detected} "
+            f"confirmation_passed={confirmation_passed} "
+            f"trigger_fired={trigger_fired} "
+            f"risk_ok={risk_ok} "
+            f"dq_ok={dq_ok} "
+            f"execution_ready={execution_ready}"
+        )
+        if not execution_ready:
             continue
+        if not trigger_fired and config.debug_force_execution:
+            print(f"[DEBUG] forcing trigger for {symbol}")
+            trigger_fired = True
         direction = (
             IntentDirection.LONG if setup.direction == Direction.LONG else IntentDirection.SHORT
         )
@@ -49,20 +87,20 @@ def build_trade_intents(
         invalidations = []
         if summary.veto_flags:
             invalidations.append("veto_flags_present")
-        intents.append(
-            TradeIntent(
-                intent_id=intent_id,
-                symbol=symbol,
-                direction=direction,
-                entry_model=setup.entry_zone or "Breakout trigger",
-                stop_model=setup.stop_suggestion or "Structure-based stop",
-                target_model=setup.target_suggestion,
-                time_in_force_policy=TimeInForcePolicy.DAY,
-                invalidations=invalidations,
-                rationale_text=setup.rationale_text,
-                risk_flags=setup.risk_flags,
-            )
+        intent = TradeIntent(
+            intent_id=intent_id,
+            symbol=symbol,
+            direction=direction,
+            entry_model=setup.entry_zone or "Breakout trigger",
+            stop_model=setup.stop_suggestion or "Structure-based stop",
+            target_model=setup.target_suggestion,
+            time_in_force_policy=TimeInForcePolicy.DAY,
+            invalidations=invalidations,
+            rationale_text=setup.rationale_text or "Debug-forced Ross Momentum intent.",
+            risk_flags=setup.risk_flags,
         )
+        intents.append(intent)
+        print(f"[INTENT_CREATED] symbol={symbol}")
 
     return intents
 
