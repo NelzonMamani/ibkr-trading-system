@@ -8,6 +8,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
+from src.config.runtime_config import resolve_ibkr_connection
 from src.scanner.candidate_identity import CandidateIdentity
 from src.scanner.reference_resolver import CanonicalReferenceResolver
 from src.scanner.providers.ibkr_provider import IbkrScannerProvider
@@ -29,7 +30,13 @@ def _build_identity(symbol: str, details: dict) -> CandidateIdentity:
 
 
 def main() -> None:
-    provider = IbkrScannerProvider()
+    host, port, client_id, mode = resolve_ibkr_connection()
+    print(f"[VERIFY] mode={mode} port={port}")
+    provider = IbkrScannerProvider(
+        host=host,
+        port=port,
+        client_id=client_id,
+    )
     resolver = CanonicalReferenceResolver()
     failures: list[str] = []
     try:

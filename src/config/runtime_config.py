@@ -94,12 +94,44 @@ def get_ibkr_host(default: str = "127.0.0.1") -> str:
     return str(_with_default("IBKR_HOST", default))
 
 
+def resolve_ibkr_connection() -> tuple[str, int, int, str]:
+    raw_run_mode = (
+        os.getenv("RUN_MODE")
+        or get_config("RUN_MODE_EFFECTIVE")
+        or get_config("RUN_MODE")
+        or RunMode.READ_ONLY.value
+    )
+    run_mode = str(raw_run_mode).upper()
+    host = str(os.getenv("IBKR_HOST") or _with_default("IBKR_HOST", "127.0.0.1"))
+
+    env_port = os.getenv("IBKR_PORT")
+    if env_port is not None:
+        port = int(env_port)
+    elif run_mode == RunMode.LIVE.value:
+        port = 7496
+    else:
+        port = 7497
+
+    client_id = int(
+        os.getenv("IBKR_CLIENT_ID") or _with_default("IBKR_CLIENT_ID", 7)
+    )
+
+    if run_mode == RunMode.LIVE.value and port != 7496:
+        raise RuntimeConfigError("LIVE mode must use port 7496")
+    if run_mode in {RunMode.PAPER.value, RunMode.SIM.value} and port != 7497:
+        raise RuntimeConfigError("PAPER mode must use port 7497")
+
+    return host, port, client_id, run_mode
+
+
 def get_ibkr_port(default: int = 7497) -> int:
-    return int(_with_default("IBKR_PORT", default))
+    _, port, _, _ = resolve_ibkr_connection()
+    return port
 
 
 def get_ibkr_client_id(default: int = 7) -> int:
-    return int(_with_default("IBKR_CLIENT_ID", default))
+    _, _, client_id, _ = resolve_ibkr_connection()
+    return client_id
 
 
 def get_ibkr_snapshot_timeout_seconds(default: int = 5) -> int:

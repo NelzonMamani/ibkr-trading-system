@@ -11,6 +11,7 @@ from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 
 from src.config.runtime_config import get_scanner_symbols
 from src.adapters.brokers.ibkr.ibkr_connection_manager import (
+    IbkrConnectionConfig,
     IbkrConnectionManager,
     get_shared_ibkr_connection_manager,
 )
@@ -103,12 +104,33 @@ class IbkrScannerProvider(ScannerDataProvider):
     source_name = "IBKR"
     def __init__(
         self,
+        host: str | None = None,
+        port: int | None = None,
+        client_id: int | None = None,
         connection_manager: Optional[IbkrConnectionManager] = None,
         market_data_client: Optional[MarketDataClient] = None,
     ) -> None:
-        self.connection_manager = connection_manager or get_shared_ibkr_connection_manager(
-            readonly_enabled=True
-        )
+        if connection_manager is None and any(
+            value is not None for value in (host, port, client_id)
+        ):
+            shared_manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
+            manager_config = shared_manager.config
+            self.connection_manager = IbkrConnectionManager(
+                IbkrConnectionConfig(
+                    host=host or manager_config.host,
+                    port=port or manager_config.port,
+                    base_client_id=client_id or manager_config.base_client_id,
+                    run_mode=manager_config.run_mode,
+                    snapshot_timeout_seconds=manager_config.snapshot_timeout_seconds,
+                    market_data_type=manager_config.market_data_type,
+                    readonly_enabled=True,
+                    max_client_id_retries=manager_config.max_client_id_retries,
+                )
+            )
+        else:
+            self.connection_manager = connection_manager or get_shared_ibkr_connection_manager(
+                readonly_enabled=True
+            )
         self.market_data_client = market_data_client or MarketDataClient(
             connection_manager=self.connection_manager,
             allow_direct_connection=False,
