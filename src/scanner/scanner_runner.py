@@ -243,6 +243,7 @@ class GateThresholds:
     focus_volume_min: int
     focus_volume_min_early_rth: int
     focus_volume_min_early_rth_ratio: float
+    session_focus_volume_min: Dict[str, int]
     min_volume: int
     min_premarket_volume: int
     max_float: int
@@ -842,8 +843,18 @@ def _resolve_runtime_thresholds(policy: StockSelectionPolicy, session_label: str
 def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdResolution) -> GateThresholds:
     execution_min_volume = int(policy.min_volume)
     premarket_min_volume = int(getattr(policy, "premarket_volume_min", policy.min_premarket_volume))
+    configured_session_focus_volume = getattr(policy, "session_focus_volume_min", {}) or {}
     early_rth_focus_ratio = 0.25
-    early_rth_focus_min = max(premarket_min_volume, int(execution_min_volume * early_rth_focus_ratio))
+    early_rth_focus_min = max(
+        premarket_min_volume,
+        int(configured_session_focus_volume.get("RTH_OPEN", execution_min_volume * early_rth_focus_ratio)),
+    )
+    session_focus_volume_min = {
+        str(session).upper(): int(value)
+        for session, value in configured_session_focus_volume.items()
+        if value is not None
+    }
+    session_focus_volume_min["RTH_OPEN"] = early_rth_focus_min
     return GateThresholds(
         min_price=policy.price_min,
         max_price=policy.price_max,
@@ -854,6 +865,7 @@ def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdReso
         focus_volume_min=execution_min_volume,
         focus_volume_min_early_rth=early_rth_focus_min,
         focus_volume_min_early_rth_ratio=early_rth_focus_ratio,
+        session_focus_volume_min=session_focus_volume_min,
         min_volume=execution_min_volume,
         min_premarket_volume=premarket_min_volume,
         max_float=int(policy.float_max_millions * 1_000_000),
@@ -1448,14 +1460,18 @@ def _resolve_premarket_volume_threshold(session_time_ny: dtime, thresholds: Gate
 
 
 def _focus_volume_threshold_for_session(session: str, thresholds: GateThresholds) -> tuple[float, str]:
-    if session == "RTH_OPEN":
-        return (
-            float(thresholds.focus_volume_min_early_rth),
-            (
-                "early_rth_focus=max(policy.min_premarket_volume, "
-                f"policy.min_volume*{thresholds.focus_volume_min_early_rth_ratio:.2f})"
-            ),
-        )
+    session_key = normalize_session_label(session).upper()
+    session_threshold = thresholds.session_focus_volume_min.get(session_key)
+    if session_threshold is not None:
+        if session_key == "RTH_OPEN":
+            return (
+                float(session_threshold),
+                (
+                    "policy.session_focus_volume_min[RTH_OPEN]=max(policy.min_premarket_volume, "
+                    f"policy.min_volume*{thresholds.focus_volume_min_early_rth_ratio:.2f})"
+                ),
+            )
+        return float(session_threshold), f"policy.session_focus_volume_min[{session_key}]"
     return float(thresholds.focus_volume_min), "policy.min_volume"
 
 
