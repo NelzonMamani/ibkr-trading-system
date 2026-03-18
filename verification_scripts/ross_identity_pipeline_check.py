@@ -89,10 +89,21 @@ def main() -> None:
     provider = DiagnosticProvider()
     contexts = []
     failures: list[str] = []
+    seen_identity_keys: dict[str, str] = {}
     for symbol in ("BRK B", "ABC PRA"):
         context = _build_symbol_context(provider, symbol, "PRE", float_cache={}, include_pct_change=True)
         if context:
             contexts.append(context)
+            lookup_key = str(context.get("history_lookup_key_used") or context.get("identity_key") or "")
+            identity_key = str(context.get("identity_key") or "")
+            if lookup_key in {"symbol:SCM", "symbol:NMS"} and identity_key.startswith("conid:"):
+                failures.append(f"{symbol}:invalid_lookup_key:{lookup_key}")
+                print(f"[FAIL] symbol={symbol} check=lookup_key value={lookup_key}")
+            existing_symbol = seen_identity_keys.get(identity_key)
+            if existing_symbol and existing_symbol != symbol:
+                failures.append(f"shared_identity_key:{identity_key}:{existing_symbol}:{symbol}")
+                print(f"[FAIL] symbol={symbol} check=identity_key_reuse value={identity_key}")
+            seen_identity_keys[identity_key] = symbol
             checks = {
                 "reference_price": context.get("reference_price") is not None,
                 "pct_change": context.get("pct_change") is not None,
@@ -119,6 +130,9 @@ def main() -> None:
         "[SCANNER][SUMMARY] "
         f"true_gate_pass_count={gate['true_gate_pass_count']} backfill_count={gate['backfill_count']} seeded_count={gate['seeded_count']}"
     )
+    if contexts and enrich['reference_ok'] == 0:
+        failures.append('reference_ok_zero_with_broker_rows')
+        print('[FAIL] summary=reference_ok_zero_with_broker_rows')
     if failures:
         print(f"VERDICT: FAIL failures={failures}")
         raise SystemExit(1)

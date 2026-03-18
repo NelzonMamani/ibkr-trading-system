@@ -5,7 +5,7 @@ import time
 from typing import Any, Dict, Iterable, Optional
 
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
-from src.scanner.candidate_identity import CandidateIdentity, bridge_identity_keys
+from src.scanner.candidate_identity import CandidateIdentity
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -159,9 +159,12 @@ class MarketSnapshotEnricher:
         contracts_by_symbol: dict[str, Any] = {}
         for contract in (qualified_contracts or []):
             identity = CandidateIdentity.from_contract(contract)
-            for alias_key in bridge_identity_keys(identity):
-                alias_symbol = alias_key.split(":", 1)[1]
-                contracts_by_symbol.setdefault(alias_symbol, contract)
+            for alias in identity.aliases:
+                contracts_by_symbol.setdefault(alias, contract)
+            if identity.con_id not in {None, 0}:
+                for symbol, requested_identity in requested_identities.items():
+                    if requested_identity.con_id == identity.con_id:
+                        contracts_by_symbol.setdefault(symbol, contract)
         ticker_by_symbol: dict[str, Any] = {}
         for symbol in resolved_symbols:
             contract = contracts_by_symbol.get(symbol)
