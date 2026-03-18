@@ -5,6 +5,7 @@ import time
 from typing import Any, Dict, Iterable, Optional
 
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
+from src.scanner.candidate_identity import CandidateIdentity, bridge_identity_keys
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -127,6 +128,7 @@ class MarketSnapshotEnricher:
 
         _, Stock, _ = safe_import_ib_insync()
         requested_contracts: dict[str, Any] = {}
+        requested_identities: dict[str, CandidateIdentity] = {}
         for symbol in resolved_symbols:
             try:
                 contract, source = self._build_contract_from_metadata(
@@ -135,8 +137,9 @@ class MarketSnapshotEnricher:
                     Stock,
                 )
                 requested_contracts[symbol] = contract
+                requested_identities[symbol] = CandidateIdentity.from_contract(contract, fallback_symbol=symbol)
                 diagnostics[symbol]["contract_build_source"] = source
-                print(f"[SNAPSHOT][REQUEST] symbol={symbol} source={source}")
+                print(f"[SNAPSHOT][REQUEST] symbol={symbol} source={source} identity_key={requested_identities[symbol].key}")
             except Exception as exc:
                 diagnostics[symbol]["exception"] = str(exc)
                 print(f"[SNAPSHOT][FAIL] symbol={symbol} reason=build_contract:{exc}")
@@ -153,11 +156,12 @@ class MarketSnapshotEnricher:
                 print(f"[SNAPSHOT][FAIL] symbol={symbol} reason=qualify:{exc}")
             return snapshots
 
-        contracts_by_symbol: dict[str, Any] = {
-            str(getattr(contract, "symbol", "") or "").upper(): contract
-            for contract in (qualified_contracts or [])
-            if getattr(contract, "symbol", None)
-        }
+        contracts_by_symbol: dict[str, Any] = {}
+        for contract in (qualified_contracts or []):
+            identity = CandidateIdentity.from_contract(contract)
+            for alias_key in bridge_identity_keys(identity):
+                alias_symbol = alias_key.split(":", 1)[1]
+                contracts_by_symbol.setdefault(alias_symbol, contract)
         ticker_by_symbol: dict[str, Any] = {}
         for symbol in resolved_symbols:
             contract = contracts_by_symbol.get(symbol)
@@ -165,8 +169,10 @@ class MarketSnapshotEnricher:
                 print(f"[SNAPSHOT][FAIL] symbol={symbol} reason=qualify_missing_contract")
                 continue
             diagnostics[symbol]["qualified_ok"] = True
+            qualified_identity = CandidateIdentity.from_contract(contract, fallback_symbol=symbol)
+            diagnostics[symbol]["identity_key"] = qualified_identity.key
             print(
-                f"[SNAPSHOT][QUALIFY_OK] symbol={symbol} conId={getattr(contract, 'conId', None)}"
+                f"[SNAPSHOT][QUALIFY_OK] symbol={symbol} conId={getattr(contract, 'conId', None)} identity_key={qualified_identity.key}"
             )
             try:
                 ticker = ib.reqMktData(contract, genericTickList="", snapshot=True, regulatorySnapshot=False)
@@ -203,7 +209,7 @@ class MarketSnapshotEnricher:
                 if has_data:
                     print(
                         "[SNAPSHOT][RESULT] "
-                        f"symbol={symbol} last={last_price} bid={bid} ask={ask} volume={volume}"
+                        f"symbol={symbol} identity_key={diagnostics[symbol].get('identity_key')} last={last_price} bid={bid} ask={ask} volume={volume}"
                     )
                 if last_price is None and bid is None and ask is None and volume is None and close is None:
                     all_resolved = False

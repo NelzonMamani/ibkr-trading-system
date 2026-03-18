@@ -61,6 +61,7 @@ from src.scanner.ranking_registry import resolve_watchlist_selector
 from src.scanner.result_models import CandidateMetrics, ScannerResult
 from src.scanner.reference_resolver import resolve_reference_bundle
 from src.market_data.market_snapshot_enricher import MarketSnapshotEnricher
+from src.scanner.candidate_identity import CandidateIdentity
 
 from src.scanner.session_pct_change import (
     canonical_session_label,
@@ -93,6 +94,52 @@ _LAST_SCANNER_PAYLOAD: Dict[str, Any] | None = None
 NEWS_AGE_MAX_MINUTES = 360
 ETF_EXCLUDED_SYMBOLS = {"SPY", "QQQ", "DIA", "IWM"}
 NY_TZ = ZoneInfo("America/New_York")
+
+
+def _context_identity(context: Dict[str, Any]) -> CandidateIdentity:
+    return CandidateIdentity.from_mapping({
+        "symbol": context.get("symbol"),
+        "conId": context.get("con_id") or context.get("conId"),
+        "secType": context.get("instrument_type") or context.get("secType") or "STK",
+        "exchange": context.get("exchange") or "SMART",
+        "primaryExchange": context.get("primary_exchange") or context.get("exchange"),
+        "tradingClass": context.get("trading_class"),
+        "currency": context.get("currency") or "USD",
+        "localSymbol": context.get("local_symbol"),
+    })
+
+
+def _history_symbol_keys(symbol: str, context: Dict[str, Any] | None = None) -> list[str]:
+    keys: list[str] = []
+    values = [symbol]
+    if context is not None:
+        values.extend([context.get("local_symbol"), context.get("trading_class")])
+    for value in values:
+        normalized = str(value or "").upper().strip()
+        if normalized and normalized not in keys:
+            keys.append(normalized)
+    return keys
+
+
+def _enrichment_audit_summary(evaluated_contexts: list[Dict[str, Any]]) -> dict[str, int]:
+    return {
+        "candidates": len(evaluated_contexts),
+        "snapshot_ok": sum(1 for c in evaluated_contexts if any(c.get(k) is not None for k in ("last_price", "bid", "ask", "volume", "close"))),
+        "reference_ok": sum(1 for c in evaluated_contexts if c.get("reference_price") is not None),
+        "pct_ready": sum(1 for c in evaluated_contexts if c.get("pct_change") is not None),
+        "gap_ready": sum(1 for c in evaluated_contexts if c.get("gap_pct_resolved") is not None),
+        "rvol_ready": sum(1 for c in evaluated_contexts if c.get("rvol_discovery") is not None or c.get("rvol_phase") is not None),
+        "float_ready": sum(1 for c in evaluated_contexts if c.get("float_shares") is not None),
+        "identity_merge_failures": sum(1 for c in evaluated_contexts if c.get("identity_merge_failed")),
+    }
+
+
+def _gate_outcome_summary(watchlist_contexts: list[Dict[str, Any]]) -> dict[str, int]:
+    return {
+        "true_gate_pass_count": sum(1 for c in watchlist_contexts if not c.get("prep_seeded") and str(c.get("promotion_reason") or "LIVE_SCAN") != "PREP_CONTEXT_BACKFILL"),
+        "backfill_count": sum(1 for c in watchlist_contexts if str(c.get("promotion_reason") or "") == "PREP_CONTEXT_BACKFILL"),
+        "seeded_count": sum(1 for c in watchlist_contexts if c.get("prep_seeded")),
+    }
 
 CATALYST_KEYWORDS = {
     "earnings": "EARNINGS",
@@ -476,25 +523,32 @@ def _allow_history_enrichment(provider: ScannerDataProvider | None = None) -> bo
     return bool(get_config("HISTORICAL_ENRICH_ENABLED"))
 
 
-def _history_snapshot(symbol: str, provider: ScannerDataProvider) -> Dict[str, Any]:
+def _history_snapshot(symbol: str, provider: ScannerDataProvider, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
     if not _allow_history_enrichment(provider):
-        return {"prev_close": None, "average_daily_volume_20d": None, "average_daily_volume_window_days": None}
-    cached = _HISTORY_CACHE.get(symbol)
-    if cached:
-        return cached
-    snapshot: Dict[str, Any] = {}
-    try:
-        snapshot["prev_close"] = provider.get_prev_close(symbol)
-    except Exception:
-        snapshot["prev_close"] = None
-    try:
-        intraday = provider.get_intraday_stats(symbol)
-        snapshot["average_daily_volume_20d"] = intraday.average_daily_volume_20d
-        snapshot["average_daily_volume_window_days"] = intraday.average_daily_volume_window_days
-    except Exception:
-        snapshot["average_daily_volume_20d"] = None
-        snapshot["average_daily_volume_window_days"] = None
-    _HISTORY_CACHE[symbol] = snapshot
+        return {"prev_close": None, "average_daily_volume_20d": None, "average_daily_volume_window_days": None, "lookup_key": symbol}
+    for lookup_key in _history_symbol_keys(symbol, context):
+        cached = _HISTORY_CACHE.get(lookup_key)
+        if cached:
+            return cached
+    snapshot: Dict[str, Any] = {"prev_close": None, "average_daily_volume_20d": None, "average_daily_volume_window_days": None, "lookup_key": symbol}
+    for lookup_key in _history_symbol_keys(symbol, context):
+        snapshot["lookup_key"] = lookup_key
+        if snapshot["prev_close"] is None:
+            try:
+                snapshot["prev_close"] = provider.get_prev_close(lookup_key)
+            except Exception:
+                snapshot["prev_close"] = None
+        if snapshot["average_daily_volume_20d"] is None:
+            try:
+                intraday = provider.get_intraday_stats(lookup_key)
+                snapshot["average_daily_volume_20d"] = intraday.average_daily_volume_20d
+                snapshot["average_daily_volume_window_days"] = intraday.average_daily_volume_window_days
+            except Exception:
+                pass
+        if snapshot["prev_close"] is not None or snapshot["average_daily_volume_20d"] is not None:
+            break
+    for lookup_key in _history_symbol_keys(symbol, context):
+        _HISTORY_CACHE[lookup_key] = dict(snapshot)
     return snapshot
 
 
@@ -752,11 +806,17 @@ def _populate_pct_change(
     last_price = _safe_float(context.get("last_price"), None)
     prev_close = _safe_float(context.get("prev_close"), None)
     if prev_close is None:
-        history = _history_snapshot(context["symbol"], provider)
+        history = _history_snapshot(context["symbol"], provider, context)
         prev_close = history.get("prev_close")
         context["prev_close"] = prev_close
         if prev_close is None:
             context.setdefault("data_quality_flags", []).append("HISTORY_UNKNOWN")
+    identity = _context_identity(context)
+    print(
+        "[REFERENCE][REQUEST] "
+        f"symbol={context['symbol']} conId={identity.con_id} session={normalize_session_label(str(context.get('session') or ''))} "
+        "reference_type=LAST_RTH_CLOSE source=history_or_snapshot"
+    )
     pct_payload = compute_session_aligned_pct_change(
         session_label=str(context.get("session") or ""),
         cur_last=last_price,
@@ -779,6 +839,22 @@ def _populate_pct_change(
     context["ibkr_change_pct"] = pct_payload.ibkr_change_pct
     context["pct_source"] = pct_payload.pct_source
     context["open_relative_pct_change"] = pct_payload.open_relative_pct_change
+    context["gap_pct_resolved"] = pct_payload.open_relative_pct_change if pct_payload.open_relative_pct_change is not None else pct_payload.final_pct
+    context["gap_source"] = "SESSION_OPEN_VS_REF" if pct_payload.open_relative_pct_change is not None else pct_payload.pct_source
+    print(
+        "[REFERENCE][RESULT] "
+        f"symbol={context['symbol']} conId={identity.con_id} found={pct_payload.reference_price is not None} "
+        f"value={pct_payload.reference_price} asof={history.get('lookup_key') if 'history' in locals() else context.get('symbol')} source=history_or_snapshot"
+    )
+    print(
+        "[REFERENCE][MERGE] "
+        f"symbol={context['symbol']} merge_target_found=True reference_label={pct_payload.reference_label} value={pct_payload.reference_price}"
+    )
+    print(
+        "[DERIVED][PCT_GAP] "
+        f"symbol={context['symbol']} last={last_price} reference={pct_payload.reference_price} pct_change={pct_payload.final_pct} gap={context['gap_pct_resolved']} "
+        f"pct_source={pct_payload.pct_source} gap_source={context['gap_source']}"
+    )
     print(
         "[PCT] "
         f"symbol={context['symbol']} session={normalize_session_label(str(context.get('session') or ''))} "
@@ -1710,6 +1786,8 @@ def _build_symbol_context(
             f"close={quote.close} volume={quote.volume} vwap={quote.vwap}"
         )
 
+    scan_details = _provider_symbol_scan_details(provider)
+    scan_detail = scan_details.get(symbol, {}) if isinstance(scan_details, dict) else {}
     intraday = None
     try:
         intraday = provider.get_intraday_stats(symbol)
@@ -1759,7 +1837,7 @@ def _build_symbol_context(
     session_close = _safe_float(getattr(quote, "close", None), None)
     prev_close = session_close
     if include_pct_change and prev_close is None:
-        history = _history_snapshot(symbol, provider)
+        history = _history_snapshot(symbol, provider, {"local_symbol": scan_detail.get("localSymbol"), "trading_class": scan_detail.get("tradingClass")})
         prev_close = history.get("prev_close")
         if prev_close is None and not _allow_history_enrichment(provider):
             data_quality_flags.append("HISTORY_DISABLED")
@@ -1778,6 +1856,21 @@ def _build_symbol_context(
         if normalized_session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"} and ibkr_change_pct is None:
             rth_open_price = None
         rth_close_price = session_close if normalized_session == "AH" else prev_close
+        reference_identity = CandidateIdentity.from_mapping({
+            "symbol": symbol,
+            "conId": scan_detail.get("conId"),
+            "secType": scan_detail.get("secType") or "STK",
+            "exchange": scan_detail.get("exchange") or scan_detail.get("primaryExchange") or "SMART",
+            "primaryExchange": scan_detail.get("primaryExchange"),
+            "tradingClass": scan_detail.get("tradingClass"),
+            "currency": scan_detail.get("currency") or "USD",
+            "localSymbol": scan_detail.get("localSymbol") or symbol,
+        })
+        print(
+            "[REFERENCE][REQUEST] "
+            f"symbol={symbol} conId={reference_identity.con_id} session={normalized_session} "
+            "reference_type=LAST_RTH_CLOSE source=history_or_snapshot"
+        )
         pct_payload = compute_session_aligned_pct_change(
             session_label=normalized_session,
             cur_last=last_price,
@@ -1792,6 +1885,21 @@ def _build_symbol_context(
         reference_price = pct_payload.reference_price
         reference_label = pct_payload.reference_label
         open_relative_pct_change = pct_payload.open_relative_pct_change
+        print(
+            "[REFERENCE][RESULT] "
+            f"symbol={symbol} conId={reference_identity.con_id} found={pct_payload.reference_price is not None} "
+            f"value={pct_payload.reference_price} asof={(history.get('lookup_key') if 'history' in locals() else symbol)} source=history_or_snapshot"
+        )
+        print(
+            "[REFERENCE][MERGE] "
+            f"symbol={symbol} merge_target_found=True reference_label={pct_payload.reference_label} value={pct_payload.reference_price}"
+        )
+        print(
+            "[DERIVED][PCT_GAP] "
+            f"symbol={symbol} last={last_price} reference={pct_payload.reference_price} pct_change={pct_payload.final_pct} "
+            f"gap={(pct_payload.open_relative_pct_change if pct_payload.open_relative_pct_change is not None else pct_payload.final_pct)} "
+            f"pct_source={pct_payload.pct_source} gap_source={'SESSION_OPEN_VS_REF' if pct_payload.open_relative_pct_change is not None else pct_payload.pct_source}"
+        )
     bundle = resolve_reference_bundle(
         session_label=session_label,
         reference_price=reference_price,
@@ -1850,8 +1958,6 @@ def _build_symbol_context(
             f"source={pct_source}"
         )
 
-    scan_details = _provider_symbol_scan_details(provider)
-    scan_detail = scan_details.get(symbol, {}) if isinstance(scan_details, dict) else {}
     con_id = scan_detail.get("conId")
     if con_id in {None, 0, "0"} and getattr(provider, "source_name", "") != "IBKR":
         con_id = abs(hash(symbol)) % 10_000_000 + 1
@@ -1859,8 +1965,12 @@ def _build_symbol_context(
         "symbol": symbol,
         "session": session_label,
         "con_id": con_id,
-        "exchange": scan_detail.get("primaryExchange"),
-        "instrument_type": scan_detail.get("secType"),
+        "exchange": scan_detail.get("exchange") or scan_detail.get("primaryExchange"),
+        "primary_exchange": scan_detail.get("primaryExchange"),
+        "trading_class": scan_detail.get("tradingClass"),
+        "local_symbol": scan_detail.get("localSymbol") or symbol,
+        "currency": scan_detail.get("currency") or "USD",
+        "instrument_type": scan_detail.get("secType") or "STK",
         "last_price": last_price,
         "close": quote.close,
         "prev_close": prev_close,
@@ -2071,12 +2181,13 @@ def _provider_contract_details_by_symbol(provider: ScannerDataProvider | None) -
             continue
         payload[normalized] = {
             "symbol": normalized,
-            "secType": "STK",
+            "secType": meta.get("secType") or "STK",
             "conId": meta.get("conId"),
             "primaryExchange": meta.get("primaryExchange"),
             "tradingClass": meta.get("tradingClass"),
-            "exchange": "SMART",
-            "currency": "USD",
+            "localSymbol": meta.get("localSymbol") or normalized,
+            "exchange": meta.get("exchange") or "SMART",
+            "currency": meta.get("currency") or "USD",
         }
     return payload
 
@@ -2919,6 +3030,14 @@ def run_scanner_cycle(
                     context["volume"] = snapshot_data.get("volume")
                 if context.get("close") is None and snapshot_data.get("close") is not None:
                     context["close"] = snapshot_data.get("close")
+            identity = _context_identity(context)
+            merge_target_found = isinstance(snapshot_data, dict) and any(snapshot_data.get(key) is not None for key in ("last_price", "bid", "ask", "volume", "close"))
+            context["identity_key"] = identity.key
+            context["identity_merge_failed"] = bool(context.get("snapshot_fetch_attempted") and not merge_target_found and symbol in market_snapshots)
+            print(
+                "[ENRICH][SNAPSHOT_MERGE] "
+                f"symbol={symbol} conId={identity.con_id} last={context.get('last_price')} bid={context.get('bid')} ask={context.get('ask')} volume={context.get('volume')} merge_target_found={merge_target_found}"
+            )
             snapshot_failed = all(context.get(key) is None for key in ("last_price", "bid", "ask", "volume", "close"))
             context["snapshot_fetch_failed"] = snapshot_failed
             if snapshot_failed:
@@ -2975,16 +3094,16 @@ def run_scanner_cycle(
             rvol_baseline = context.get("rvol_baseline") or "UNKNOWN"
             rvol_method = context.get("rvol_method") or "UNKNOWN"
             print(
-                "[RVOL_DEBUG] "
-                f"symbol={symbol} session={normalize_session_label(session_label)} "
-                f"current_volume={context.get('volume')} expected_phase_volume={context.get('expected_phase_volume')} "
-                f"rvol_discovery={context.get('rvol_discovery')} rvol_phase={context.get('rvol_phase')}"
+                "[RVOL][REQUEST] "
+                f"symbol={symbol} conId={identity.con_id} session={normalize_session_label(session_label)} source=intraday_stats"
             )
             print(
-                "[RVOL] "
-                f"symbol={symbol} session={normalize_session_label(session_label)} "
-                f"baseline={rvol_baseline} method={rvol_method} rvol_discovery={context.get('rvol_discovery')} "
-                f"rvol_phase={context.get('rvol_phase')} phase_ratio={context.get('phase_volume_ratio')}"
+                "[RVOL][BASELINE] "
+                f"symbol={symbol} avg_volume_20d={context.get('avg_volume_20d')} expected_phase_volume={context.get('expected_phase_volume')} source={rvol_method} found={context.get('avg_volume_20d') is not None}"
+            )
+            print(
+                "[RVOL][MERGE] "
+                f"symbol={symbol} merge_target_found=True rvol_discovery={context.get('rvol_discovery')} rvol_phase={context.get('rvol_phase')}"
             )
 
             price_gate_reason = _evaluate_price_gate(context, thresholds)
@@ -3232,6 +3351,15 @@ def run_scanner_cycle(
                 selected_symbols.add(symbol)
                 if len(watchlist_contexts) >= target_size:
                     break
+        enrich_summary = _enrichment_audit_summary(evaluated_contexts)
+        diagnostics["enrichment_summary"] = enrich_summary
+        print(
+            "[ENRICH][SUMMARY] "
+            f"candidates={enrich_summary['candidates']} snapshot_ok={enrich_summary['snapshot_ok']} reference_ok={enrich_summary['reference_ok']} "
+            f"pct_ready={enrich_summary['pct_ready']} gap_ready={enrich_summary['gap_ready']} rvol_ready={enrich_summary['rvol_ready']} "
+            f"float_ready={enrich_summary['float_ready']} identity_merge_failures={enrich_summary['identity_merge_failures']}"
+        )
+
         discovery_stats = {
             "pct_change_pass": sum(1 for c in evaluated_contexts if _safe_float(c.get("pct_change"), None) is not None and _safe_float(c.get("pct_change"), None) >= _resolve_pct_change_min_for_session(str(c.get("session") or ""), thresholds)),
             "price_pass": sum(1 for c in evaluated_contexts if _evaluate_price_gate(c, thresholds) is None),
@@ -3465,10 +3593,16 @@ def run_scanner_cycle(
         exclusion_counts = Counter(drop_ledger.values())
         drop_summary = dict(exclusion_counts)
         diagnostics["drop_ledger_summary"] = drop_summary
+        gate_outcome_summary = _gate_outcome_summary(watchlist_contexts)
+        true_gate_pass_count = gate_outcome_summary["true_gate_pass_count"]
+        backfill_count = gate_outcome_summary["backfill_count"]
+        seeded_count = gate_outcome_summary["seeded_count"]
+        diagnostics["gate_outcome_summary"] = gate_outcome_summary
         print(
             "[SCANNER][SUMMARY] "
             f"session={session_label} candidates={len(symbols)} survivors={len(watchlist_contexts)} "
-            f"watchlist={len(watchlist_contexts)} drop_reasons={drop_summary}"
+            f"watchlist={len(watchlist_contexts)} true_gate_pass_count={true_gate_pass_count} "
+            f"backfill_count={backfill_count} seeded_count={seeded_count} drop_reasons={drop_summary}"
         )
 
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
