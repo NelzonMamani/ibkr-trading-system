@@ -9,6 +9,7 @@ from ibapi.contract import Contract, ContractDetails
 from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
 from src.market_data.market_snapshot_enricher import MarketSnapshotEnricher
 from src.scanner.candidate_identity import CandidateIdentity, bridge_identity_keys
+from src.scanner import scanner_runner
 from src.scanner.scanner_runner import (
     GateThresholds,
     _build_symbol_context,
@@ -281,6 +282,20 @@ def test_all_backfill_watchlist_is_flagged_non_operational() -> None:
     assert summary["true_gate_pass_count"] == 0
     assert summary["backfill_count"] == 2
     assert summary["all_backfilled"] is True
+
+
+def test_non_operational_backfill_marker_is_applied_when_qualification_dead() -> None:
+    contexts = [
+        {"symbol": "BACK1", "promotion_reason": "PREP_CONTEXT_BACKFILL", "prep_seeded": False, "data_quality_flags": []},
+        {"symbol": "LIVE", "promotion_reason": "LIVE_SCAN", "prep_seeded": False, "data_quality_flags": []},
+    ]
+
+    scanner_runner._apply_non_operational_backfill_markers(contexts, qualification_dead=True)
+
+    assert contexts[0]["qualification_dead"] is True
+    assert contexts[0]["scanner_operational"] is False
+    assert "NON_OPERATIONAL_BACKFILL" in contexts[0]["data_quality_flags"]
+    assert contexts[1].get("qualification_dead") is None
 
 
 def test_reference_resolver_reads_persistent_cache_on_subsequent_attempts(tmp_path):

@@ -162,11 +162,10 @@ class CanonicalReferenceResolver:
         )
         if primary_exchange in {None, "", "SMART"}:
             print(
-                f"[REFERENCE][INVALID_PRIMARY_EXCHANGE] symbol={identity.symbol} identity_key={identity.key} "
+                f"[REFERENCE][QUALIFIED_DEGRADED] symbol={identity.symbol} identity_key={identity.key} "
                 f"conId={getattr(contract, 'conId', None)} exchange={getattr(contract, 'exchange', None)} "
-                f"primaryExchange={primary_exchange}"
+                f"primaryExchange={primary_exchange} action=USE_QUALIFIED_CONTRACT_ANYWAY"
             )
-            return identity, False
 
         return CandidateIdentity.from_contract(contract, fallback_symbol=identity.symbol), True
 
@@ -244,6 +243,7 @@ class CanonicalReferenceResolver:
         else:
             print(f"[REFERENCE][CACHE_MISS] symbol={identity.symbol} identity_key={identity.key} source=persistent_skipped_no_conid")
 
+        debug_trace = bool(getattr(provider, "debug_reference_trace", False))
         history_identity, qualified_ok = self._qualify_history_identity(provider, identity)
         bars = self._request_historical_daily_bars(provider, history_identity, session_label=session_label) if qualified_ok else []
         prev_close = self._last_completed_close(bars)
@@ -274,6 +274,16 @@ class CanonicalReferenceResolver:
         resolved_avg_volume = intraday_avg_volume_20d if intraday_avg_volume_20d is not None else (avg_volume if avg_volume is not None else provider_avg_volume)
         resolved_window_days = 20 if intraday_avg_volume_20d is not None else (window_days if window_days is not None else provider_window)
         rvol_failure_reason = None if resolved_avg_volume is not None else "ADV20_UNAVAILABLE"
+        if debug_trace:
+            print(
+                "[REFERENCE][TRACE] "
+                f"symbol={identity.symbol} session={normalize_session_label(session_label)} "
+                f"qualified_ok={qualified_ok} history_identity={history_identity.key} "
+                f"last={current_last_price} volume={current_volume} intraday_adv20={intraday_avg_volume_20d} "
+                f"rth_open={rth_open_price} rth_close={rth_close_price} ibkr_change_pct={ibkr_change_pct} "
+                f"selected_reference_source={reference_source} selected_reference={prev_close} "
+                f"selected_adv20_source={adv_source} selected_adv20={resolved_avg_volume}"
+            )
         if bars:
             print(
                 f"[REFERENCE][HISTORICAL_RESULT] symbol={identity.symbol} identity_key={identity.key} "
@@ -450,7 +460,10 @@ class CanonicalReferenceResolver:
             quote = get_quote(identity.symbol)
         except Exception:
             return None
-        return _to_float(getattr(quote, "close", None))
+        value = _to_float(getattr(quote, "close", None))
+        if value is not None:
+            print(f"[REFERENCE][QUOTE_CLOSE_FALLBACK] symbol={identity.symbol} identity_key={identity.key} value={value}")
+        return value
 
     def _provider_adv20_fallback(self, provider: Any, identity: CandidateIdentity) -> tuple[Optional[int], Optional[int]]:
         avg_volume = getattr(provider, "get_average_daily_volume", None)

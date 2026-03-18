@@ -244,8 +244,13 @@ def test_rth_zero_bars_recovers_reference_from_quote_close() -> None:
     context = _build_symbol_context(_QuoteCloseFallbackProvider(), "AAPL", "RTH_OPEN", {})
     assert context is not None
     assert context["reference_source"] == "QUOTE_CLOSE_FALLBACK"
+    assert context["reference_resolved"] is True
     assert context["pct_change_qualification_usable"] is True
     assert context["execution_eligible"] is True
+    assert context["pct_change_resolved"] is not None
+    assert context["avg_volume_20d"] == 100_000
+    assert context["adv20_resolved"] is True
+    assert context["rvol_status"] == "RESOLVED"
 
 
 def test_rth_synthetic_pct_reference_is_explicitly_degraded_and_not_execution_usable(tmp_path: Path) -> None:
@@ -396,3 +401,22 @@ def test_rth_mid_zero_bars_retries_with_use_rth_false_and_recovers_reference() -
     assert provider.calls[0] == (True, "")
     assert provider.calls[1][0] is False
     assert provider.calls[1][1].endswith("US/Eastern")
+
+def test_rth_history_qualification_does_not_fail_when_primary_exchange_is_smart() -> None:
+    class _QualifiedSmartProvider(_RetryAwareProvider):
+        source_name = "IBKR"
+
+        def get_daily_bars(self, identity, lookback_days: int, *, use_rth: bool = True, end_datetime: str = ""):
+            return super().get_daily_bars(identity, lookback_days, use_rth=use_rth, end_datetime=end_datetime)
+
+        def qualifyContracts(self, contract):
+            contract.conId = 12345
+            contract.exchange = "SMART"
+            contract.primaryExchange = "SMART"
+            return [contract]
+
+    context = _build_symbol_context(_QualifiedSmartProvider(), "AAPL", "RTH_MID", {})
+
+    assert context is not None
+    assert context["reference_source"] == "IBKR_DAILY_BARS"
+    assert context["pct_change_resolved"] == 10.0
