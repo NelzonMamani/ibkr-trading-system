@@ -223,6 +223,8 @@ class IbkrConnectionManager:
             "last_reconnect_time": self._last_reconnect_time,
             "last_disconnect_reason": self._last_disconnect_reason,
             "readonly_enabled": self._config.readonly_enabled,
+            "market_data_type": self._config.market_data_type,
+            "snapshot_timeout_seconds": self._config.snapshot_timeout_seconds,
         }
 
     @staticmethod
