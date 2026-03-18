@@ -1,25 +1,52 @@
-# PyCharm / IDE
+# =========================
+# IDE / ENVIRONMENT
+# =========================
 .idea/
-
-# Virtual environments
 .venv/
+.env
 
-# Python
+# =========================
+# PYTHON
+# =========================
 __pycache__/
 *.pyc
 
-# Environment variables
-.env
-
-# SQLite data and backups
-data/ibkr_system.db
-data/ibkr_system.sqlite
-data/backups/
-
-# Runtime/generated artifacts
+# =========================
+# RUNTIME / GENERATED DATA (CRITICAL)
+# =========================
 output/
 logs/
-data/*.db
-data/*.sqlite
-data/**/*.log
-data/**/*.jsonl
+
+# Databases
+*.db
+*.sqlite
+
+# Large structured data
+*.jsonl
+
+# Logs anywhere
+*.log
+
+# =========================
+# DATA LAYER (CACHE / NON-DETERMINISTIC)
+# =========================
+data/backups/
+data/tmp/
+data/cache/
+
+# Reference & fundamentals caches (NON-SOURCE-OF-TRUTH)
+data/reference/*.json
+data/fundamentals/*.json
+
+# =========================
+# SAFETY (TRADING SYSTEM)
+# =========================
+# Prevent accidental large files
+*.csv
+*.parquet
+
+# =========================
+# OS JUNK
+# =========================
+.DS_Store
+Thumbs.db
