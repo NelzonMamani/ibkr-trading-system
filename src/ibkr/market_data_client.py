@@ -423,8 +423,11 @@ class MarketDataClient:
         for attempt in attempts:
             print(
                 "[IBKR][HIST_ATTEMPT] "
-                f"symbol={getattr(contract, 'symbol', None)} label={attempt['label']} "
-                f"useRTH={attempt['useRTH']} endDateTime='{attempt['endDateTime']}' durationStr={attempt['durationStr']}"
+                f"symbol={getattr(contract, 'symbol', None)} conId={getattr(contract, 'conId', None)} "
+                f"secType={getattr(contract, 'secType', None)} exchange={getattr(contract, 'exchange', None)} "
+                f"primaryExchange={getattr(contract, 'primaryExchange', None)} tradingClass={getattr(contract, 'tradingClass', None)} "
+                f"localSymbol={getattr(contract, 'localSymbol', None)} currency={getattr(contract, 'currency', None)} "
+                f"label={attempt['label']} useRTH={attempt['useRTH']} endDateTime='{attempt['endDateTime']}' durationStr={attempt['durationStr']} whatToShow=TRADES"
             )
             try:
                 bars = self._resolve_ib_client().reqHistoricalData(
@@ -439,12 +442,12 @@ class MarketDataClient:
             except Exception as exc:
                 print(
                     "[IBKR][HIST_ATTEMPT_FAIL] "
-                    f"symbol={getattr(contract, 'symbol', None)} label={attempt['label']} error={exc}"
+                    f"symbol={getattr(contract, 'symbol', None)} conId={getattr(contract, 'conId', None)} label={attempt['label']} error={exc}"
                 )
                 bars = []
             print(
                 "[IBKR][HIST_ATTEMPT_RESULT] "
-                f"symbol={getattr(contract, 'symbol', None)} label={attempt['label']} raw_bar_count={len(bars)}"
+                f"symbol={getattr(contract, 'symbol', None)} conId={getattr(contract, 'conId', None)} label={attempt['label']} raw_bar_count={len(bars)}"
             )
             if bars:
                 return bars
