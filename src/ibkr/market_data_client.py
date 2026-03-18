@@ -382,6 +382,25 @@ class MarketDataClient:
     def _ticker_snapshot_complete(ticker) -> bool:
         return bool(getattr(ticker, "snapshotEnd", False))
 
+    def _canonicalize_history_contract(self, contract_or_symbol):
+        contract = contract_or_symbol
+        if isinstance(contract_or_symbol, str):
+            try:
+                contract = self.qualify_contract(contract_or_symbol)
+            except Exception:
+                return None
+            return contract
+        if contract_or_symbol is None:
+            return None
+        con_id = getattr(contract_or_symbol, "conId", None)
+        primary_exchange = getattr(contract_or_symbol, "primaryExchange", None)
+        if con_id not in {None, 0} and primary_exchange not in {None, ""}:
+            return contract_or_symbol
+        qualified = self.qualifyContracts(contract_or_symbol)
+        if not qualified:
+            return None
+        return qualified[0]
+
     def prev_close_from_history(self, symbol: str, use_rth: bool = True) -> Optional[float]:
         try:
             contract = self.qualify_contract(symbol)
@@ -407,12 +426,7 @@ class MarketDataClient:
         return _clean(getattr(latest, "close", None))
 
     def daily_bars_from_history(self, contract_or_symbol, *, lookback_days: int = 25, use_rth: bool = True):
-        contract = contract_or_symbol
-        if isinstance(contract_or_symbol, str):
-            try:
-                contract = self.qualify_contract(contract_or_symbol)
-            except Exception:
-                return []
+        contract = self._canonicalize_history_contract(contract_or_symbol)
         if contract is None:
             return []
         try:

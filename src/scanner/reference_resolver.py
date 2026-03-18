@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
+from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
+
 from src.scanner.candidate_identity import CandidateIdentity, bridge_identity_keys
 from src.scanner.session_pct_change import (
     compute_phase_aware_rvol,
@@ -90,6 +92,68 @@ class PersistentReferenceCache:
 
 
 class CanonicalReferenceResolver:
+    def _contract_from_identity(self, identity: CandidateIdentity):
+        _, Stock, Contract = safe_import_ib_insync()
+        exchange = identity.exchange or "SMART"
+        currency = identity.currency or "USD"
+        symbol = identity.symbol or identity.local_symbol or identity.trading_class or ""
+        contract = Stock(symbol, exchange, currency) if identity.sec_type in {None, "", "STK"} else Contract()
+        if not hasattr(contract, "symbol"):
+            contract.symbol = symbol
+        contract.secType = identity.sec_type or getattr(contract, "secType", None) or "STK"
+        contract.exchange = exchange
+        contract.currency = currency
+        if identity.con_id not in {None, 0}:
+            contract.conId = int(identity.con_id)
+        if identity.primary_exchange:
+            contract.primaryExchange = identity.primary_exchange
+        if identity.trading_class:
+            contract.tradingClass = identity.trading_class
+        if identity.local_symbol:
+            contract.localSymbol = identity.local_symbol
+        return contract
+
+    def _qualify_history_identity(self, provider: Any, identity: CandidateIdentity) -> tuple[CandidateIdentity, bool]:
+        qualify_contracts = getattr(provider, "qualifyContracts", None)
+        if not callable(qualify_contracts):
+            if getattr(provider, "source_name", "") != "IBKR":
+                return identity, True
+            print(
+                f"[REFERENCE][QUALIFY_FAIL] symbol={identity.symbol} identity_key={identity.key} reason=QUALIFY_METHOD_UNAVAILABLE"
+            )
+            return identity, False
+
+        contract = self._contract_from_identity(identity)
+        try:
+            qualified = qualify_contracts(contract)
+        except Exception as exc:
+            print(
+                f"[REFERENCE][QUALIFY_FAIL] symbol={identity.symbol} identity_key={identity.key} reason=QUALIFY_EXCEPTION error={exc}"
+            )
+            return identity, False
+
+        if not qualified or getattr(qualified[0], "conId", None) in (None, 0):
+            print(
+                f"[REFERENCE][QUALIFY_FAIL] symbol={identity.symbol} identity_key={identity.key} reason=INVALID_CONTRACT"
+            )
+            return identity, False
+
+        contract = qualified[0]
+        primary_exchange = getattr(contract, "primaryExchange", None)
+        print(
+            f"[REFERENCE][QUALIFIED] symbol={identity.symbol} identity_key={identity.key} conId={getattr(contract, 'conId', None)} "
+            f"primaryExchange={primary_exchange} exchange={getattr(contract, 'exchange', None)}"
+        )
+        if primary_exchange in {None, "", "SMART"}:
+            print(
+                f"[REFERENCE][INVALID_PRIMARY_EXCHANGE] symbol={identity.symbol} identity_key={identity.key} "
+                f"conId={getattr(contract, 'conId', None)} exchange={getattr(contract, 'exchange', None)} "
+                f"primaryExchange={primary_exchange}"
+            )
+            return identity, False
+
+        return CandidateIdentity.from_contract(contract, fallback_symbol=identity.symbol), True
+
     def __init__(self, cache: PersistentReferenceCache | None = None) -> None:
         self.cache = cache or PersistentReferenceCache()
         self._cycle_cache: dict[str, CanonicalReferenceResult] = {}
@@ -161,11 +225,16 @@ class CanonicalReferenceResolver:
         else:
             print(f"[REFERENCE][CACHE_MISS] symbol={identity.symbol} identity_key={identity.key} source=persistent_skipped_no_conid")
 
-        bars = self._request_historical_daily_bars(provider, identity)
-        lookup_key_used = identity.key if bars else None
+        history_identity, qualified_ok = self._qualify_history_identity(provider, identity)
+        bars = self._request_historical_daily_bars(provider, history_identity) if qualified_ok else []
         prev_close = self._last_completed_close(bars)
+        snapshot_reference = None
+        if prev_close is None and not bars:
+            snapshot_reference = self._snapshot_reference_fallback(session_label=session_label, rth_close_price=rth_close_price, current_last_price=current_last_price)
+            if snapshot_reference is not None:
+                prev_close = snapshot_reference
         avg_volume, window_days = self._average_volume(bars)
-        reference_failure_reason = None if prev_close is not None else "HISTORY_UNAVAILABLE"
+        reference_failure_reason = None if prev_close is not None else ("HISTORY_UNAVAILABLE" if qualified_ok else "QUALIFY_FAILED")
         adv_source = "INTRADAY_STATS" if intraday_avg_volume_20d is not None else ("IBKR_DAILY_BARS" if avg_volume is not None else "UNRESOLVED")
         resolved_avg_volume = intraday_avg_volume_20d if intraday_avg_volume_20d is not None else avg_volume
         resolved_window_days = 20 if intraday_avg_volume_20d is not None else window_days
@@ -190,7 +259,7 @@ class CanonicalReferenceResolver:
             "symbol": identity.symbol,
             "reference_price": prev_close,
             "reference_label": "LAST_RTH_CLOSE",
-            "reference_source": "IBKR_DAILY_BARS" if prev_close is not None else "UNRESOLVED",
+            "reference_source": ("IBKR_DAILY_BARS" if bars and prev_close is not None else ("SNAPSHOT_CLOSE_FALLBACK" if snapshot_reference is not None and prev_close is not None else "UNRESOLVED")),
             "reference_resolved": prev_close is not None,
             "asof_trading_date": bars[-1].trading_date if bars else None,
             "cache_trading_date": trading_date,
@@ -200,7 +269,7 @@ class CanonicalReferenceResolver:
             "adv20_resolved": resolved_avg_volume is not None,
             "resolved_at_utc": datetime.now(timezone.utc).isoformat(),
             "aliases": [] if identity.con_id not in {None, 0} else list(identity.aliases),
-            "history_lookup_key_used": lookup_key_used,
+            "history_lookup_key_used": history_identity.key if bars else None,
             "reference_failure_reason": reference_failure_reason,
             "rvol_failure_reason": rvol_failure_reason,
         }
@@ -211,6 +280,17 @@ class CanonicalReferenceResolver:
         for key in cache_keys:
             self._cycle_cache[key] = result
         return result
+
+    def _snapshot_reference_fallback(self, *, session_label: str, rth_close_price: Optional[float], current_last_price: Optional[float]) -> Optional[float]:
+        if normalize_session_label(session_label) != "PRE":
+            return None
+        if rth_close_price is not None:
+            print(f"[REFERENCE][SNAPSHOT_FALLBACK] session=PRE source=close value={rth_close_price}")
+            return float(rth_close_price)
+        if current_last_price is not None:
+            print(f"[REFERENCE][SNAPSHOT_FALLBACK] session=PRE source=last value={current_last_price}")
+            return float(current_last_price)
+        return None
 
     def _request_historical_daily_bars(self, provider: Any, identity: CandidateIdentity) -> list[HistoricalDailyBar]:
         get_bars = getattr(provider, "get_daily_bars", None)
@@ -229,6 +309,10 @@ class CanonicalReferenceResolver:
                 print(
                     f"[REFERENCE][HISTORICAL_RESPONSE] identity_key={identity.key} bar_count=0 "
                     f"fail_reason=ZERO_BARS_RETURNED"
+                )
+                print(
+                    f"[REFERENCE][ZERO_BARS_DEBUG] symbol={identity.symbol} conId={identity.con_id} exchange={identity.exchange} "
+                    f"primaryExchange={identity.primary_exchange} tradingClass={identity.trading_class} localSymbol={identity.local_symbol}"
                 )
             return bars
         prev_close = getattr(provider, "get_previous_rth_close", None)
