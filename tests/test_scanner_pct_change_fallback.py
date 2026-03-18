@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Optional
 
+from src.scanner.candidate_identity import CandidateIdentity
 from src.scanner.providers.base import IntradayStats, QuoteData, ScannerDataProvider
+from src.scanner.reference_resolver import CanonicalReferenceResolver, PersistentReferenceCache
 from src.scanner.scanner_runner import GateThresholds, _build_symbol_context, _evaluate_gates
 
 
@@ -94,3 +96,29 @@ def test_scanner_does_not_drop_pct_change_when_prev_close_present() -> None:
     drop_reason = _evaluate_gates(context, thresholds)
     assert drop_reason != "DROP_MISSING_PCT_CHANGE"
     assert drop_reason != "DROP_PCT_CHANGE"
+
+
+def test_pre_session_snapshot_fallback_keeps_pct_change_non_null() -> None:
+    class _NoHistoryProvider(_FallbackProvider):
+        def get_prev_close(self, symbol: str) -> Optional[float]:
+            return None
+
+        def get_daily_bars(self, identity, lookback_days: int):
+            return []
+
+    resolver = CanonicalReferenceResolver(cache=PersistentReferenceCache(path="data/reference/test_reference_cache_pct.json"))
+    result = resolver.resolve(
+        identity=CandidateIdentity.from_mapping({"symbol": "AAPL", "exchange": "SMART", "currency": "USD", "localSymbol": "AAPL"}),
+        provider=_NoHistoryProvider(),
+        session_label="PRE",
+        current_volume=150000,
+        intraday_avg_volume_20d=None,
+        current_last_price=110.0,
+        rth_open_price=108.0,
+        rth_close_price=None,
+        ibkr_change_pct=None,
+        persisted_pct_change=None,
+    )
+
+    assert result.reference_source == "FALLBACK"
+    assert result.reference_price == 110.0

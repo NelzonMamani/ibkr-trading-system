@@ -877,6 +877,15 @@ def _populate_pct_change(
     context["history_lookup_key_used"] = reference_snapshot.get("lookup_key")
     context["reference_failure_reason"] = reference_snapshot.get("reference_failure_reason")
     context["rvol_failure_reason"] = reference_snapshot.get("rvol_failure_reason")
+    if normalize_session_label(str(context.get("session") or "")) == "PRE":
+        if reference_snapshot.get("reference_source") == "FALLBACK" and pct_payload.final_pct is not None:
+            print(
+                f"[PRE_FALLBACK] pct_change fallback used symbol={context['symbol']} "
+                f"reference_price={pct_payload.reference_price} pct_change={pct_payload.final_pct}"
+            )
+        if not reference_snapshot.get("adv20_resolved"):
+            context["rvol_status"] = "UNKNOWN"
+            print(f"[PRE_FALLBACK] ADV20 unavailable symbol={context['symbol']}")
     print(
         "[REFERENCE][RESULT] "
         f"symbol={context['symbol']} identity_key={reference_snapshot.get('identity_key')} found={pct_payload.reference_price is not None} "
@@ -933,6 +942,10 @@ def _resolve_rvol_for_focus_gate(context: Dict[str, Any]) -> tuple[str, Optional
     if session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"}:
         return "rvol_phase", _safe_float(context.get("rvol_phase"), None)
     return "rvol_discovery", _safe_float(context.get("rvol_discovery"), None)
+
+
+def _is_pre_session(context: Dict[str, Any]) -> bool:
+    return normalize_session_label(str(context.get("session") or "")) == "PRE"
 
 
 def _load_premarket_prep_candidates() -> Dict[str, Dict[str, Any]]:
@@ -1009,6 +1022,9 @@ def _evaluate_watchlist_gates(
     pct_change = _safe_float(context.get("pct_change"), None)
 
     if pct_change is None:
+        if _is_pre_session(context):
+            print(f"[PRE_FALLBACK] pct_change fallback used symbol={context.get('symbol')} value=None tolerated=True")
+            return None
         return "DROP_MISSING_PCT_CHANGE"
     pct_change_min = _resolve_pct_change_min_for_session(str(context.get("session") or ""), thresholds)
     if pct_change < pct_change_min:
@@ -1074,6 +1090,20 @@ def _evaluate_focus_gates(
     rvol_discovery = _safe_float(context.get("rvol_discovery"), None)
     threshold_value = thresholds.focus_rvol_min
     if focus_rvol_value is None:
+        if session == "PRE":
+            context["rvol_status"] = "UNKNOWN"
+            context["priority_penalty"] = max(_safe_float(context.get("priority_penalty"), 0.0) or 0.0, 0.15)
+            print(
+                "[PRE_FALLBACK] "
+                f"RVOL bypassed symbol={context.get('symbol')} rvol_metric_used={rvol_metric_used}"
+            )
+            print(
+                "[FOCUS_GATE] "
+                f"symbol={context.get('symbol')} focus_threshold_used={threshold_value} "
+                f"rvol_metric_used={rvol_metric_used} rvol_metric_value=None "
+                "reason=WAIT_MISSING_RVOL decision=BYPASS_PRE"
+            )
+            return None
         print(
             "[FOCUS_GATE] "
             f"symbol={context.get('symbol')} focus_threshold_used={threshold_value} "
@@ -1746,14 +1776,17 @@ def _score_context(context: Dict[str, Any]) -> tuple[float, dict[str, float]]:
         priority_boost = 1.0
     if priority_boost:
         print(f"[ROSS][PRIORITY] symbol={context.get('symbol')} float_class={float_class} boost={int(priority_boost)}")
+    priority_penalty = _safe_float(context.get("priority_penalty"), 0.0) or 0.0
     components = {
         "pct_change": round(0.45 * pct_n * 100.0, 2),
         "rvol": round(0.35 * rvol_n * 100.0, 2),
         "dollar_volume": round(0.20 * dvol_n * 100.0, 2),
         "float_priority_boost": round(priority_boost, 2),
+        "pre_rvol_penalty": round(priority_penalty, 2),
     }
     score = (components["pct_change"] + components["rvol"] + components["dollar_volume"]) / 100.0
     score += priority_boost
+    score -= priority_penalty
     return round(min(score, 1.0) * 100.0, 2), components
 
 
@@ -1839,12 +1872,17 @@ def _build_symbol_context(
         f"volume={volume} avg_volume_20d={avg_volume_20d} "
         f"scanner_rvol={scanner_rvol}"
     )
+    rvol_status = "READY"
     if intraday is None:
         data_quality_flags.append("VOLUME_UNKNOWN")
     if volume is None:
         data_quality_flags.append("MISSING_VOLUME")
     if scanner_rvol is None:
         data_quality_flags.append("RVOL_UNKNOWN")
+        rvol_status = "UNKNOWN"
+    if normalize_session_label(session_label) == "PRE" and avg_volume_20d in {None, 0}:
+        rvol_status = "UNKNOWN"
+        print(f"[PRE_FALLBACK] ADV20 unavailable symbol={symbol}")
 
     session_open = _safe_float(getattr(quote, "open", None), None)
     session_close = _safe_float(getattr(quote, "close", None), None)
@@ -1899,6 +1937,11 @@ def _build_symbol_context(
         reference_price = pct_payload.reference_price
         reference_label = pct_payload.reference_label
         open_relative_pct_change = pct_payload.open_relative_pct_change
+        if normalized_session == "PRE" and reference_snapshot.get("reference_source") == "FALLBACK" and pct_change is not None:
+            print(
+                f"[PRE_FALLBACK] pct_change fallback used symbol={symbol} "
+                f"reference_price={pct_payload.reference_price} pct_change={pct_change}"
+            )
         print(
             "[REFERENCE][MERGE] "
             f"symbol={symbol} identity_key={reference_snapshot.get('identity_key')} merge_target_found=True reference_label={pct_payload.reference_label} value={pct_payload.reference_price}"
@@ -2029,6 +2072,7 @@ def _build_symbol_context(
         "time_normalized_rvol": time_normalized_rvol,
         "rvol": scanner_rvol,
         "relative_volume": time_normalized_rvol,
+        "rvol_status": rvol_status,
         "rvol_baseline": rvol_payload.baseline,
         "rvol_method": rvol_payload.method,
         "float_shares": float_shares,

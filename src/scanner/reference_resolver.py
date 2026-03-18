@@ -83,6 +83,11 @@ class PersistentReferenceCache:
             return None
         return payload
 
+    def get_any(self, key: str) -> Optional[dict[str, Any]]:
+        self._load()
+        payload = self._store.get(key)
+        return payload if isinstance(payload, dict) else None
+
     def put(self, keys: tuple[str, ...], record: dict[str, Any]) -> None:
         self._load()
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -228,12 +233,32 @@ class CanonicalReferenceResolver:
         history_identity, qualified_ok = self._qualify_history_identity(provider, identity)
         bars = self._request_historical_daily_bars(provider, history_identity) if qualified_ok else []
         prev_close = self._last_completed_close(bars)
-        snapshot_reference = None
+        fallback_reference = None
+        fallback_detail = None
         if prev_close is None and not bars:
-            snapshot_reference = self._snapshot_reference_fallback(session_label=session_label, rth_close_price=rth_close_price, current_last_price=current_last_price)
-            if snapshot_reference is not None:
-                prev_close = snapshot_reference
+            for key in cache_keys:
+                cached_payload = self.cache.get_any(key)
+                cached_reference = _to_float(cached_payload.get("reference_price")) if cached_payload else None
+                if cached_reference is not None:
+                    fallback_reference = cached_reference
+                    fallback_detail = "CACHED_CLOSE"
+                    prev_close = cached_reference
+                    print(
+                        f"[REFERENCE][CACHE_FALLBACK] symbol={identity.symbol} identity_key={identity.key} "
+                        f"lookup_key={key} value={cached_reference}"
+                    )
+                    break
+        if prev_close is None and not bars:
+            fallback_reference = self._snapshot_reference_fallback(
+                session_label=session_label,
+                rth_close_price=rth_close_price,
+                current_last_price=current_last_price,
+            )
+            if fallback_reference is not None:
+                fallback_detail = "SNAPSHOT_LAST_PRICE"
+                prev_close = fallback_reference
         avg_volume, window_days = self._average_volume(bars)
+        history_missing = prev_close is None
         reference_failure_reason = None if prev_close is not None else ("HISTORY_UNAVAILABLE" if qualified_ok else "QUALIFY_FAILED")
         adv_source = "INTRADAY_STATS" if intraday_avg_volume_20d is not None else ("IBKR_DAILY_BARS" if avg_volume is not None else "UNRESOLVED")
         resolved_avg_volume = intraday_avg_volume_20d if intraday_avg_volume_20d is not None else avg_volume
@@ -249,6 +274,7 @@ class CanonicalReferenceResolver:
                 f"[RVOL][HISTORICAL_RESULT] symbol={identity.symbol} identity_key={identity.key} avg_volume_20d={resolved_avg_volume} window_days={resolved_window_days}"
             )
         else:
+            history_missing = True
             print(
                 f"[REFERENCE][FAIL] symbol={identity.symbol} identity_key={identity.key} reason=HISTORY_UNAVAILABLE_ZERO_BARS"
             )
@@ -259,7 +285,7 @@ class CanonicalReferenceResolver:
             "symbol": identity.symbol,
             "reference_price": prev_close,
             "reference_label": "LAST_RTH_CLOSE",
-            "reference_source": ("IBKR_DAILY_BARS" if bars and prev_close is not None else ("SNAPSHOT_CLOSE_FALLBACK" if snapshot_reference is not None and prev_close is not None else "UNRESOLVED")),
+            "reference_source": ("IBKR_DAILY_BARS" if bars and prev_close is not None else ("FALLBACK" if fallback_reference is not None and prev_close is not None else "UNRESOLVED")),
             "reference_resolved": prev_close is not None,
             "asof_trading_date": bars[-1].trading_date if bars else None,
             "cache_trading_date": trading_date,
@@ -270,7 +296,7 @@ class CanonicalReferenceResolver:
             "resolved_at_utc": datetime.now(timezone.utc).isoformat(),
             "aliases": [] if identity.con_id not in {None, 0} else list(identity.aliases),
             "history_lookup_key_used": history_identity.key if bars else None,
-            "reference_failure_reason": reference_failure_reason,
+            "reference_failure_reason": ("HISTORY_UNAVAILABLE" if history_missing and qualified_ok else reference_failure_reason),
             "rvol_failure_reason": rvol_failure_reason,
         }
         if (prev_close is not None or resolved_avg_volume is not None) and identity.con_id not in {None, 0}:

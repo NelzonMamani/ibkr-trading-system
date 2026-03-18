@@ -309,7 +309,7 @@ def test_reference_resolver_reads_persistent_cache_on_subsequent_attempts(tmp_pa
 
 
 def test_reference_resolver_exposes_explicit_failure_reasons_when_history_unavailable():
-    from src.scanner.reference_resolver import CanonicalReferenceResolver
+    from src.scanner.reference_resolver import CanonicalReferenceResolver, PersistentReferenceCache
 
     class EmptyProvider(DummyProvider):
         def get_intraday_stats(self, symbol: str):
@@ -324,7 +324,7 @@ def test_reference_resolver_exposes_explicit_failure_reasons_when_history_unavai
         def get_daily_bars(self, identity, lookback_days: int):
             return []
 
-    resolver = CanonicalReferenceResolver()
+    resolver = CanonicalReferenceResolver(cache=PersistentReferenceCache(path="data/reference/test_reference_cache_missing.json"))
     identity = CandidateIdentity.from_mapping({'symbol': 'MISS', 'conId': 999, 'exchange': 'SMART', 'currency': 'USD'})
     result = resolver.resolve(
         identity=identity,
