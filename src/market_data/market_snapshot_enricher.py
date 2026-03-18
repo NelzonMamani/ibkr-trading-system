@@ -187,6 +187,7 @@ class MarketSnapshotEnricher:
                 continue
 
         deadline = time.time() + self.batch_timeout_seconds
+        result_logged: set[str] = set()
         while time.time() < deadline and ticker_by_symbol:
             try:
                 ib.waitOnUpdate(timeout=0.2)
@@ -209,7 +210,8 @@ class MarketSnapshotEnricher:
                 diagnostics[symbol].update(snapshots[symbol])
                 has_data = any(value is not None for value in snapshots[symbol].values())
                 diagnostics[symbol]["snapshot_received"] = has_data
-                if has_data:
+                if has_data and symbol not in result_logged:
+                    result_logged.add(symbol)
                     print(
                         "[SNAPSHOT][RESULT] "
                         f"symbol={symbol} identity_key={diagnostics[symbol].get('identity_key')} last={last_price} bid={bid} ask={ask} volume={volume}"
@@ -228,8 +230,8 @@ class MarketSnapshotEnricher:
                 continue
             try:
                 ib.cancelMktData(contract)
-            except Exception:
-                pass
+            except Exception as exc:
+                diagnostics[symbol]["cancel_exception"] = str(exc)
 
         self.last_fetch_diagnostics = diagnostics
 

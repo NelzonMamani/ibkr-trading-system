@@ -401,6 +401,55 @@ class MarketDataClient:
             return None
         return qualified[0]
 
+    def _request_daily_history_with_fallback(self, contract, *, lookback_days: int, use_rth: bool = True, end_datetime: str = ""):
+        attempts = [
+            {
+                "label": "primary",
+                "useRTH": use_rth,
+                "endDateTime": end_datetime,
+                "durationStr": f"{max(lookback_days, 3)} D",
+            }
+        ]
+        explicit_end = end_datetime or f"{datetime.now().strftime('%Y%m%d')} 09:29:59 US/Eastern"
+        if use_rth:
+            attempts.append(
+                {
+                    "label": "fallback_useRTH_false",
+                    "useRTH": False,
+                    "endDateTime": explicit_end,
+                    "durationStr": f"{max(lookback_days, 3)} D",
+                }
+            )
+        for attempt in attempts:
+            print(
+                "[IBKR][HIST_ATTEMPT] "
+                f"symbol={getattr(contract, 'symbol', None)} label={attempt['label']} "
+                f"useRTH={attempt['useRTH']} endDateTime='{attempt['endDateTime']}' durationStr={attempt['durationStr']}"
+            )
+            try:
+                bars = self._resolve_ib_client().reqHistoricalData(
+                    contract,
+                    endDateTime=attempt["endDateTime"],
+                    durationStr=attempt["durationStr"],
+                    barSizeSetting="1 day",
+                    whatToShow="TRADES",
+                    useRTH=attempt["useRTH"],
+                    formatDate=1,
+                ) or []
+            except Exception as exc:
+                print(
+                    "[IBKR][HIST_ATTEMPT_FAIL] "
+                    f"symbol={getattr(contract, 'symbol', None)} label={attempt['label']} error={exc}"
+                )
+                bars = []
+            print(
+                "[IBKR][HIST_ATTEMPT_RESULT] "
+                f"symbol={getattr(contract, 'symbol', None)} label={attempt['label']} raw_bar_count={len(bars)}"
+            )
+            if bars:
+                return bars
+        return []
+
     def prev_close_from_history(self, symbol: str, use_rth: bool = True) -> Optional[float]:
         try:
             contract = self.qualify_contract(symbol)
@@ -408,18 +457,7 @@ class MarketDataClient:
             return None
         if contract is None:
             return None
-        try:
-            bars = self._resolve_ib_client().reqHistoricalData(
-                contract,
-                endDateTime="",
-                durationStr="3 D",
-                barSizeSetting="1 day",
-                whatToShow="TRADES",
-                useRTH=use_rth,
-                formatDate=1,
-            )
-        except Exception:
-            return None
+        bars = self._request_daily_history_with_fallback(contract, lookback_days=3, use_rth=use_rth)
         if not bars:
             return None
         latest = bars[-1]
@@ -429,18 +467,12 @@ class MarketDataClient:
         contract = self._canonicalize_history_contract(contract_or_symbol)
         if contract is None:
             return []
-        try:
-            return self._resolve_ib_client().reqHistoricalData(
-                contract,
-                endDateTime=end_datetime,
-                durationStr=f"{max(lookback_days, 3)} D",
-                barSizeSetting="1 day",
-                whatToShow="TRADES",
-                useRTH=use_rth,
-                formatDate=1,
-            ) or []
-        except Exception:
-            return []
+        return self._request_daily_history_with_fallback(
+            contract,
+            lookback_days=lookback_days,
+            use_rth=use_rth,
+            end_datetime=end_datetime,
+        )
 
     def average_daily_volume_from_history(self, contract_or_symbol, *, window: int = 20, use_rth: bool = True) -> tuple[Optional[int], Optional[int]]:
         bars = self.daily_bars_from_history(contract_or_symbol, lookback_days=max(window, 3), use_rth=use_rth)

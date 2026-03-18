@@ -278,14 +278,14 @@ class CanonicalReferenceResolver:
             print(
                 f"[REFERENCE][HISTORICAL_RESULT] symbol={identity.symbol} identity_key={identity.key} "
                 f"bar_count={len(bars)} first_bar_date={bars[0].trading_date} last_bar_date={bars[-1].trading_date} "
-                f"found={prev_close is not None} value={prev_close} window_days={window_days}"
+                f"found={prev_close is not None} value={prev_close} window_days={window_days} selected_source={reference_source}"
             )
             print(
                 f"[RVOL][HISTORICAL_RESULT] symbol={identity.symbol} identity_key={identity.key} avg_volume_20d={resolved_avg_volume} window_days={resolved_window_days}"
             )
         else:
             print(
-                f"[REFERENCE][FAIL] symbol={identity.symbol} identity_key={identity.key} reason=HISTORY_UNAVAILABLE_ZERO_BARS"
+                f"[REFERENCE][FAIL] symbol={identity.symbol} identity_key={identity.key} reason=HISTORY_UNAVAILABLE_ZERO_BARS selected_source={reference_source}"
             )
             print(f"[RVOL][FAIL] symbol={identity.symbol} identity_key={identity.key} reason={rvol_failure_reason}")
 
@@ -336,14 +336,34 @@ class CanonicalReferenceResolver:
                 f"[REFERENCE][HISTORICAL_REQUEST] identity_key={identity.key} source=provider_daily_bars "
                 f"{self._history_contract_fields(identity)}"
             )
-            bars = self._normalize_bars(get_bars(identity, lookback_days=25))
-            if not bars and normalize_session_label(session_label) in {"RTH", "RTH_OPEN"}:
+            primary_kwargs = {"lookback_days": 25}
+            print(
+                f"[REFERENCE][HISTORICAL_REQUEST_PARAMS] identity_key={identity.key} attempt=primary "
+                f"useRTH=True endDateTime='' durationStr=25 D"
+            )
+            bars = self._normalize_bars(get_bars(identity, **primary_kwargs))
+            print(
+                f"[REFERENCE][HISTORICAL_ATTEMPT_RESULT] identity_key={identity.key} attempt=primary "
+                f"raw_bar_count={len(bars)} normalized_bar_count={len(bars)}"
+            )
+            if not bars and normalize_session_label(session_label) in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}:
                 explicit_end = f"{date.today().strftime('%Y%m%d')} 09:29:59 US/Eastern"
-                print(f"[REFERENCE][HISTORICAL_RETRY] identity_key={identity.key} reason=ZERO_BARS_RTH_PRIMARY retry_useRTH=False endDateTime='{explicit_end}'")
+                print(
+                    f"[REFERENCE][HISTORICAL_RETRY] identity_key={identity.key} reason=ZERO_BARS_RTH_PRIMARY "
+                    f"retry_useRTH=False endDateTime='{explicit_end}'"
+                )
                 try:
                     bars = self._normalize_bars(get_bars(identity, lookback_days=25, use_rth=False, end_datetime=explicit_end))
                 except TypeError:
+                    print(
+                        f"[REFERENCE][HISTORICAL_RETRY_UNSUPPORTED] identity_key={identity.key} "
+                        "provider_signature_missing_use_rth_or_end_datetime=True"
+                    )
                     bars = []
+                print(
+                    f"[REFERENCE][HISTORICAL_ATTEMPT_RESULT] identity_key={identity.key} attempt=retry_useRTH_false "
+                    f"raw_bar_count={len(bars)} normalized_bar_count={len(bars)}"
+                )
             if bars:
                 print(
                     f"[REFERENCE][HISTORICAL_RESPONSE] identity_key={identity.key} bar_count={len(bars)} "
