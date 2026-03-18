@@ -44,7 +44,10 @@ class CanonicalReferenceResult:
     reference_price: Optional[float]
     reference_label: str
     reference_source: str
+    reference_quality_tier: str
     reference_resolved: bool
+    continuity_usable_reference: bool
+    qualification_usable_reference: bool
     reference_asof_trading_date: Optional[str]
     avg_volume_20d: Optional[int]
     average_daily_volume_window_days: Optional[int]
@@ -92,6 +95,13 @@ class PersistentReferenceCache:
 
 
 class CanonicalReferenceResolver:
+    REFERENCE_QUALITY_BY_SOURCE = {
+        "IBKR_DAILY_BARS": "PRIMARY",
+        "CACHED_CLOSE_FALLBACK": "SECONDARY",
+        "SNAPSHOT_LAST_PRICE_FALLBACK": "WEAK",
+        "UNRESOLVED": "NONE",
+    }
+
     def _contract_from_identity(self, identity: CandidateIdentity):
         _, Stock, Contract = safe_import_ib_insync()
         exchange = identity.exchange or "SMART"
@@ -215,6 +225,9 @@ class CanonicalReferenceResolver:
                 if payload is not None:
                     cached_identity_key = str(payload.get("identity_key") or "")
                     self._verify_cache_hit(identity=identity, lookup_key=key, result_identity_key=cached_identity_key, source="persistent")
+                    payload = dict(payload)
+                    if _to_float(payload.get("reference_price")) is not None:
+                        payload["reference_source"] = "CACHED_CLOSE_FALLBACK"
                     result = self._result_from_cache(identity, payload, session_label, current_volume, current_last_price, rth_open_price, rth_close_price, ibkr_change_pct, persisted_pct_change)
                     for alias in cache_keys:
                         self._cycle_cache[alias] = result
@@ -229,10 +242,14 @@ class CanonicalReferenceResolver:
         bars = self._request_historical_daily_bars(provider, history_identity) if qualified_ok else []
         prev_close = self._last_completed_close(bars)
         snapshot_reference = None
+        reference_source = "UNRESOLVED"
         if prev_close is None and not bars:
             snapshot_reference = self._snapshot_reference_fallback(session_label=session_label, rth_close_price=rth_close_price, current_last_price=current_last_price)
             if snapshot_reference is not None:
                 prev_close = snapshot_reference
+                reference_source = "SNAPSHOT_LAST_PRICE_FALLBACK"
+        elif prev_close is not None:
+            reference_source = "IBKR_DAILY_BARS"
         avg_volume, window_days = self._average_volume(bars)
         reference_failure_reason = None if prev_close is not None else ("HISTORY_UNAVAILABLE" if qualified_ok else "QUALIFY_FAILED")
         adv_source = "INTRADAY_STATS" if intraday_avg_volume_20d is not None else ("IBKR_DAILY_BARS" if avg_volume is not None else "UNRESOLVED")
@@ -259,7 +276,7 @@ class CanonicalReferenceResolver:
             "symbol": identity.symbol,
             "reference_price": prev_close,
             "reference_label": "LAST_RTH_CLOSE",
-            "reference_source": ("IBKR_DAILY_BARS" if bars and prev_close is not None else ("SNAPSHOT_CLOSE_FALLBACK" if snapshot_reference is not None and prev_close is not None else "UNRESOLVED")),
+            "reference_source": reference_source,
             "reference_resolved": prev_close is not None,
             "asof_trading_date": bars[-1].trading_date if bars else None,
             "cache_trading_date": trading_date,
@@ -285,7 +302,7 @@ class CanonicalReferenceResolver:
         if normalize_session_label(session_label) != "PRE":
             return None
         if rth_close_price is not None:
-            print(f"[REFERENCE][SNAPSHOT_FALLBACK] session=PRE source=close value={rth_close_price}")
+            print(f"[REFERENCE][SNAPSHOT_FALLBACK] session=PRE source=last_close_tick value={rth_close_price}")
             return float(rth_close_price)
         if current_last_price is not None:
             print(f"[REFERENCE][SNAPSHOT_FALLBACK] session=PRE source=last value={current_last_price}")
@@ -399,13 +416,20 @@ class CanonicalReferenceResolver:
         avg_volume_20d = _to_int(payload.get("avg_volume_20d"))
         phase_payload = compute_phase_aware_rvol(session_label=session_label, session_volume=current_volume, avg_volume_20d=avg_volume_20d)
         rvol_discovery = compute_scanner_rvol(session_label=session_label, session_volume=current_volume, avg_volume_20d=avg_volume_20d, persisted_rvol=None)
+        reference_source = str(payload.get("reference_source") or "UNRESOLVED")
+        reference_quality_tier = self.REFERENCE_QUALITY_BY_SOURCE.get(reference_source, "NONE")
+        continuity_usable_reference = reference_source != "UNRESOLVED"
+        qualification_usable_reference = reference_source in {"IBKR_DAILY_BARS", "CACHED_CLOSE_FALLBACK"}
         return CanonicalReferenceResult(
             identity_key=identity.key,
             symbol=identity.symbol,
             reference_price=_to_float(payload.get("reference_price")),
             reference_label=str(payload.get("reference_label") or "LAST_RTH_CLOSE"),
-            reference_source=str(payload.get("reference_source") or "UNRESOLVED"),
+            reference_source=reference_source,
+            reference_quality_tier=reference_quality_tier,
             reference_resolved=bool(payload.get("reference_resolved")),
+            continuity_usable_reference=continuity_usable_reference,
+            qualification_usable_reference=qualification_usable_reference,
             reference_asof_trading_date=payload.get("asof_trading_date"),
             avg_volume_20d=avg_volume_20d,
             average_daily_volume_window_days=_to_int(payload.get("average_daily_volume_window_days")),

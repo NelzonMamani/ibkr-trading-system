@@ -16,9 +16,14 @@ class CandidateMetrics:
     ref_close_rth: Optional[float]
     reference_price: Optional[float]
     reference_label: Optional[str]
+    reference_source: Optional[str]
+    reference_quality_tier: Optional[str]
     gap_pct: Optional[float]
     pct_change: Optional[float]
     pct_change_resolved: Optional[float]
+    pct_change_qualification_usable: Optional[bool]
+    pct_change_source_quality: Optional[str]
+    pct_change_degraded: Optional[bool]
     gap_pct_resolved: Optional[float]
     gap_source: Optional[str]
     context_status: Optional[str]
@@ -39,6 +44,10 @@ class CandidateMetrics:
     phase_volume_ratio: Optional[float]
     relative_volume: Optional[float]
     avg_volume_20d: Optional[int]
+    adv20_resolved: Optional[bool]
+    degraded_adv20: Optional[bool]
+    rvol_status: Optional[str]
+    degraded_rvol_gate_bypass: Optional[bool]
     float_shares: Optional[int]
     float_source: Optional[str]
     float_asof: Optional[str]
@@ -64,6 +73,16 @@ class CandidateMetrics:
     news_source_mode: Optional[str]
     news_asof: Optional[str]
     data_quality_ok: bool
+    degraded_data_profile: Optional[str] = None
+    degraded_reference: Optional[bool] = None
+    degraded_pct_change: Optional[bool] = None
+    degraded_rvol: Optional[bool] = None
+    degraded_focus_eligibility: Optional[bool] = None
+    degraded_execution_eligibility: Optional[bool] = None
+    watchlist_eligible: Optional[bool] = None
+    focus_eligible: Optional[bool] = None
+    execution_eligible: Optional[bool] = None
+    eligibility_reason_codes: list[str] = field(default_factory=list)
     data_quality_flags: list[str] = field(default_factory=list)
     drop_reasons: list[str] = field(default_factory=list)
     rank_score: Optional[float] = None
