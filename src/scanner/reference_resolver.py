@@ -172,9 +172,14 @@ class CanonicalReferenceResolver:
     def __init__(self, cache: PersistentReferenceCache | None = None) -> None:
         self.cache = cache or PersistentReferenceCache()
         self._cycle_cache: dict[str, CanonicalReferenceResult] = {}
+        self._last_resolution_trace: dict[str, dict[str, Any]] = {}
 
     def reset_cycle(self) -> None:
         self._cycle_cache.clear()
+        self._last_resolution_trace.clear()
+
+    def get_last_resolution_trace(self, identity_key: str) -> dict[str, Any]:
+        return dict(self._last_resolution_trace.get(identity_key, {}))
 
     def _cache_keys(self, identity: CandidateIdentity, provider: Any) -> tuple[str, ...]:
         if identity.con_id not in {None, 0}:
@@ -236,6 +241,16 @@ class CanonicalReferenceResolver:
                     result = self._result_from_cache(identity, payload, session_label, current_volume, current_last_price, rth_open_price, rth_close_price, ibkr_change_pct, persisted_pct_change)
                     for alias in cache_keys:
                         self._cycle_cache[alias] = result
+                        self._last_resolution_trace[alias] = {
+                            "identity_key": identity.key,
+                            "symbol": identity.symbol,
+                            "cache_source": "persistent",
+                            "history_attempts": [],
+                            "selected_reference_source": result.reference_source,
+                            "selected_reference_price": result.reference_price,
+                            "selected_adv20_source": result.adv20_source,
+                            "selected_adv20": result.avg_volume_20d,
+                        }
                     print(f"[REFERENCE][CACHE_HIT] symbol={identity.symbol} identity_key={identity.key} source=persistent lookup_key={key}")
                     print(f"[RVOL][CACHE_HIT] symbol={identity.symbol} identity_key={identity.key} source=persistent lookup_key={key}")
                     return result
@@ -245,7 +260,14 @@ class CanonicalReferenceResolver:
 
         debug_trace = bool(getattr(provider, "debug_reference_trace", False))
         history_identity, qualified_ok = self._qualify_history_identity(provider, identity)
-        bars = self._request_historical_daily_bars(provider, history_identity, session_label=session_label) if qualified_ok else []
+        history_trace: dict[str, Any] = {
+            "identity_key": identity.key,
+            "symbol": identity.symbol,
+            "qualified_ok": qualified_ok,
+            "history_identity_key": history_identity.key,
+            "history_attempts": [],
+        }
+        bars = self._request_historical_daily_bars(provider, history_identity, session_label=session_label, trace=history_trace) if qualified_ok else []
         prev_close = self._last_completed_close(bars)
         snapshot_reference = None
         reference_source = "UNRESOLVED"
@@ -320,12 +342,23 @@ class CanonicalReferenceResolver:
             "reference_degraded": reference_source in {"CACHED_CLOSE_FALLBACK", "PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK", "SCANNER_PCT_SYNTHETIC_FALLBACK", "SNAPSHOT_LAST_PRICE_FALLBACK"},
             "reference_synthetic": reference_source == "SCANNER_PCT_SYNTHETIC_FALLBACK",
         }
+        history_trace.update(
+            {
+                "selected_reference_source": reference_source,
+                "selected_reference_price": prev_close,
+                "selected_adv20_source": adv_source,
+                "selected_adv20": resolved_avg_volume,
+                "reference_failure_reason": reference_failure_reason,
+                "rvol_failure_reason": rvol_failure_reason,
+            }
+        )
         if (prev_close is not None or resolved_avg_volume is not None) and identity.con_id not in {None, 0}:
             self.cache.put(cache_keys, payload)
             print(f"[REFERENCE][PERSIST] symbol={identity.symbol} identity_key={identity.key} path={self.cache.path} keys={cache_keys}")
         result = self._result_from_cache(identity, payload, session_label, current_volume, current_last_price, rth_open_price, rth_close_price, ibkr_change_pct, persisted_pct_change)
         for key in cache_keys:
             self._cycle_cache[key] = result
+            self._last_resolution_trace[key] = dict(history_trace)
         return result
 
     def _snapshot_reference_fallback(self, *, session_label: str, rth_close_price: Optional[float], current_last_price: Optional[float]) -> Optional[float]:
@@ -339,7 +372,7 @@ class CanonicalReferenceResolver:
             return float(current_last_price)
         return None
 
-    def _request_historical_daily_bars(self, provider: Any, identity: CandidateIdentity, *, session_label: str) -> list[HistoricalDailyBar]:
+    def _request_historical_daily_bars(self, provider: Any, identity: CandidateIdentity, *, session_label: str, trace: dict[str, Any] | None = None) -> list[HistoricalDailyBar]:
         get_bars = getattr(provider, "get_daily_bars", None)
         if callable(get_bars) and _has_concrete_method(provider, "get_daily_bars"):
             print(
@@ -352,6 +385,14 @@ class CanonicalReferenceResolver:
                 f"useRTH=True endDateTime='' durationStr=25 D"
             )
             bars = self._normalize_bars(get_bars(identity, **primary_kwargs))
+            if trace is not None:
+                trace.setdefault("history_attempts", []).append(
+                    {
+                        "attempt": "primary",
+                        "params": {"useRTH": True, "endDateTime": "", "durationStr": "25 D"},
+                        "raw_bar_count": len(bars),
+                    }
+                )
             print(
                 f"[REFERENCE][HISTORICAL_ATTEMPT_RESULT] identity_key={identity.key} attempt=primary "
                 f"raw_bar_count={len(bars)} normalized_bar_count={len(bars)}"
@@ -370,6 +411,14 @@ class CanonicalReferenceResolver:
                         "provider_signature_missing_use_rth_or_end_datetime=True"
                     )
                     bars = []
+                if trace is not None:
+                    trace.setdefault("history_attempts", []).append(
+                        {
+                            "attempt": "retry_useRTH_false",
+                            "params": {"useRTH": False, "endDateTime": explicit_end, "durationStr": "25 D"},
+                            "raw_bar_count": len(bars),
+                        }
+                    )
                 print(
                     f"[REFERENCE][HISTORICAL_ATTEMPT_RESULT] identity_key={identity.key} attempt=retry_useRTH_false "
                     f"raw_bar_count={len(bars)} normalized_bar_count={len(bars)}"
