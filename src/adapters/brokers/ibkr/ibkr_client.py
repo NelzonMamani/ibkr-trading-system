@@ -63,6 +63,8 @@ class IbkrClient(EWrapper, EClient):
         self._contract_details: Dict[int, List[ContractDetails]] = {}
         self._market_events: Dict[int, threading.Event] = {}
         self._market_data: Dict[int, Dict[str, Optional[float]]] = {}
+        self._historical_events: Dict[int, threading.Event] = {}
+        self._historical_data: Dict[int, List[object]] = {}
         self._errors: Dict[int, Tuple[int, str]] = {}
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -370,6 +372,62 @@ class IbkrClient(EWrapper, EClient):
             return super().cancelMktData(req_id)
         return super().cancelMktData(*args, **kwargs)
 
+    def reqHistoricalData(self, *args, **kwargs):  # type: ignore[override]
+        """
+        Compatibility wrapper supporting:
+
+        - ib_insync-style:
+            reqHistoricalData(contract, endDateTime="", durationStr="25 D", ...)
+
+        - ibapi-style:
+            reqHistoricalData(reqId, contract, ...)
+        """
+        if args and not isinstance(args[0], int):
+            contract = args[0]
+            end_date_time = kwargs.pop("endDateTime", args[1] if len(args) > 1 else "")
+            duration_str = kwargs.pop("durationStr", args[2] if len(args) > 2 else "25 D")
+            bar_size_setting = kwargs.pop("barSizeSetting", args[3] if len(args) > 3 else "1 day")
+            what_to_show = kwargs.pop("whatToShow", args[4] if len(args) > 4 else "TRADES")
+            use_rth = kwargs.pop("useRTH", args[5] if len(args) > 5 else True)
+            format_date = kwargs.pop("formatDate", args[6] if len(args) > 6 else 1)
+            keep_up_to_date = kwargs.pop("keepUpToDate", args[7] if len(args) > 7 else False)
+            chart_options = kwargs.pop("chartOptions", args[8] if len(args) > 8 else [])
+            if kwargs:
+                raise TypeError(f"Unexpected reqHistoricalData kwargs: {sorted(kwargs.keys())}")
+
+            req_id = self._next_req_id()
+            self._historical_events[req_id] = threading.Event()
+            self._historical_data[req_id] = []
+            print(
+                f"[IBKR][HIST_REQ] req_id={req_id} symbol={getattr(contract, 'symbol', None)}"
+            )
+
+            super().reqHistoricalData(
+                req_id,
+                contract,
+                end_date_time,
+                duration_str,
+                bar_size_setting,
+                what_to_show,
+                int(bool(use_rth)),
+                int(format_date),
+                bool(keep_up_to_date),
+                chart_options,
+            )
+
+            self._historical_events[req_id].wait(timeout=self.snapshot_timeout_seconds)
+            return list(self._historical_data.get(req_id, []))
+
+        if args and isinstance(args[0], int):
+            req_id = int(args[0])
+            self._historical_events.setdefault(req_id, threading.Event())
+            self._historical_data.setdefault(req_id, [])
+            return super().reqHistoricalData(*args, **kwargs)
+
+        raise TypeError(
+            "reqHistoricalData requires either (contract, ...) or (reqId, contract, ...)"
+        )
+
     def waitOnUpdate(self, timeout: float = 0.0) -> bool:
         updated = self._market_update_event.wait(timeout=timeout)
         if updated:
@@ -554,6 +612,17 @@ class IbkrClient(EWrapper, EClient):
                 event.set()
             self._market_update_event.set()
 
+    def historicalData(self, reqId: int, bar):  # type: ignore[override]
+        self._historical_data.setdefault(reqId, []).append(bar)
+
+    def historicalDataEnd(self, reqId: int, start: str, end: str):  # type: ignore[override]
+        print(
+            f"[IBKR][HIST_DONE] req_id={reqId} bars={len(self._historical_data.get(reqId, []))}"
+        )
+        event = self._historical_events.get(reqId)
+        if event:
+            event.set()
+
     def accountSummary(
         self,
         reqId: int,
@@ -614,6 +683,8 @@ class IbkrClient(EWrapper, EClient):
             if reqId in self._market_events:
                 self._market_events[reqId].set()
                 self._market_update_event.set()
+            if reqId in self._historical_events:
+                self._historical_events[reqId].set()
             if reqId in self._account_summary_events:
                 self._account_summary_events[reqId].set()
             if reqId in self._scanner_events:
