@@ -118,6 +118,45 @@ class _RetryAwareProvider(_BaseProvider):
         return [_Bar("2025-01-01", 100.0, 120_000)] * 20
 
 
+
+
+class _IdentityPropagationProvider(_BaseProvider):
+    source_name = "IBKR"
+
+    def __init__(self):
+        super().__init__(last=25.0, close=24.0, volume=220_000, adv20=150_000)
+        self.last_scan_details = {"symbol_details": {"AAPL": {"symbol": "AAPL"}}}
+
+    def qualifyContracts(self, *contracts):
+        contract = contracts[0]
+        contract.conId = 9001
+        contract.exchange = "SMART"
+        contract.primaryExchange = "NASDAQ"
+        contract.tradingClass = "NMS"
+        contract.localSymbol = "AAPL"
+        contract.currency = "USD"
+        return [contract]
+
+    def get_daily_bars(self, identity, lookback_days: int, *, use_rth: bool = True, end_datetime: str = ""):
+        return [_Bar("2025-01-01", 20.0, 100_000)] * 20
+
+
+class _HistoryAttemptedNoBarsProvider(_IdentityPropagationProvider):
+    def get_quote(self, symbol: str) -> QuoteData:
+        return QuoteData(
+            symbol=symbol, bid=24.8, ask=25.2, last=25.0, vwap=24.9, open=24.0, high=25.5, low=23.8, close=24.0,
+            change_percent=4.2, volume=220_000, timestamp_utc="2025-01-01T00:00:00Z", data_quality_flags=(),
+        )
+
+    def get_intraday_stats(self, symbol: str) -> IntradayStats:
+        return IntradayStats(
+            current_intraday_volume=None, current_volume_source_label="TEST", average_daily_volume_20d=None, average_daily_volume_window_days=None,
+            relative_volume=None, relative_volume_category=None, volume_velocity_5m=None, volume_velocity_15m=None, volume_data_quality_flag="TEST",
+        )
+
+    def get_daily_bars(self, identity, lookback_days: int, *, use_rth: bool = True, end_datetime: str = ""):
+        return []
+
 class _QuoteCloseFallbackProvider(_BaseProvider):
     def __init__(self):
         super().__init__(last=110.0, close=102.0, volume=180_000, adv20=100_000)
@@ -285,6 +324,39 @@ def test_trace_toggle_disabled_does_not_emit_targeted_trace(monkeypatch, capsys)
     assert "[SCANNER][TRACE]" not in out
 
 
+
+
+def test_qualified_identity_propagates_into_final_context() -> None:
+    context = _build_symbol_context(_IdentityPropagationProvider(), "AAPL", "RTH_OPEN", {})
+    assert context is not None
+    assert context["con_id"] == 9001
+    assert context["exchange"] == "SMART"
+    assert context["primary_exchange"] == "NASDAQ"
+    assert context["trading_class"] == "NMS"
+    assert context["local_symbol"] == "AAPL"
+    assert context["identity_key"] == "conid:9001"
+
+
+def test_quote_fields_are_preserved_in_final_context() -> None:
+    context = _build_symbol_context(_IdentityPropagationProvider(), "AAPL", "RTH_OPEN", {})
+    assert context is not None
+    assert context["last_price"] == 25.0
+    assert context["bid"] == 24.5
+    assert context["ask"] == 25.5
+    assert context["close"] == 24.0
+    assert context["volume"] == 220_000
+    assert context["ibkr_change_pct"] is None
+
+
+def test_history_attempted_without_bars_does_not_emit_false_history_or_quote_flags() -> None:
+    context = _build_symbol_context(_HistoryAttemptedNoBarsProvider(), "AAPL", "RTH_OPEN", {})
+    assert context is not None
+    assert "HISTORY_DISABLED" not in context["data_quality_flags"]
+    assert "CONTRACT_QUALIFY_FAILED" not in context["data_quality_flags"]
+    assert "MISSING_LAST" not in context["data_quality_flags"]
+    assert "MISSING_CLOSE_TICK" not in context["data_quality_flags"]
+
+
 def test_verification_script_runs_against_stubbed_live_like_provider(monkeypatch, capsys) -> None:
     from verification_scripts import verify_live_scanner_reference_pipeline as verifier
 
@@ -292,10 +364,12 @@ def test_verification_script_runs_against_stubbed_live_like_provider(monkeypatch
     verifier.main()
 
     out = capsys.readouterr().out
-    assert "[VERIFY][SYMBOL] AIM" in out
-    assert "reference_resolved: True" in out
-    assert "adv20_resolved: True" in out
-    assert "rvol_status: RESOLVED" in out
+    assert "A) scanner metadata / identity" in out
+    assert "B) direct live quote" in out
+    assert "D) direct market_data_client history" in out
+    assert "E) resolver" in out
+    assert "F) final context" in out
+    assert "RESULT: quote_ok=yes" in out
 
 
 def test_rth_synthetic_pct_reference_is_explicitly_degraded_and_not_execution_usable(tmp_path: Path) -> None:
