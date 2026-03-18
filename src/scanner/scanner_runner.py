@@ -144,6 +144,24 @@ def _gate_outcome_summary(watchlist_contexts: list[Dict[str, Any]]) -> dict[str,
         "all_backfilled": all_backfilled,
     }
 
+
+def _apply_non_operational_backfill_markers(
+    watchlist_contexts: list[Dict[str, Any]],
+    *,
+    qualification_dead: bool,
+) -> None:
+    if not qualification_dead:
+        return
+    for context in watchlist_contexts:
+        if str(context.get("promotion_reason") or "") != "PREP_CONTEXT_BACKFILL":
+            continue
+        flags = context.setdefault("data_quality_flags", [])
+        if "NON_OPERATIONAL_BACKFILL" not in flags:
+            flags.append("NON_OPERATIONAL_BACKFILL")
+        context["scanner_operational"] = False
+        context["qualification_dead"] = True
+        context["non_operational_carryover"] = True
+
 CATALYST_KEYWORDS = {
     "earnings": "EARNINGS",
     "guidance": "EARNINGS",
@@ -1736,6 +1754,7 @@ def _candidate_from_context(
         reference_label=context.get("reference_label"),
         reference_source=context.get("reference_source"),
         reference_quality_tier=context.get("reference_quality_tier"),
+        reference_resolved=context.get("reference_resolved"),
         gap_pct=context.get("pct_change"),
         pct_change=context.get("pct_change"),
         pct_change_resolved=context.get("pct_change_resolved", context.get("pct_change")),
@@ -1888,6 +1907,13 @@ def _format_watchlist_line(candidate: CandidateMetrics) -> str:
         f"promotion_reason={getattr(candidate, 'promotion_reason', 'NA') or 'NA'} "
         f"watchlist_source={getattr(candidate, 'watchlist_source', 'LIVE_SCAN')} "
         f"source_of_candidate={'PREP_SEED' if getattr(candidate, 'prep_seeded', False) else 'LIVE_RTH'} "
+        f"adv20={_format_int(getattr(candidate, 'avg_volume_20d', None))} "
+        f"adv20_source={getattr(candidate, 'adv20_source', 'NA')} "
+        f"adv20_resolved={getattr(candidate, 'adv20_resolved', False)} "
+        f"rvol_status={getattr(candidate, 'rvol_status', 'NA')} "
+        f"reference_source={getattr(candidate, 'reference_source', 'NA')} "
+        f"reference_quality={getattr(candidate, 'reference_quality_tier', 'NA')} "
+        f"reference_resolved={getattr(candidate, 'reference_resolved', 'NA')} "
         f"summary={summary} "
         f"halted={candidate.halted if candidate.halted is not None else 'NA'} "
         f"ssr={candidate.ssr if candidate.ssr is not None else 'NA'} dq={dq} "
@@ -3850,8 +3876,19 @@ def run_scanner_cycle(
         focus_eligible_count = gate_outcome_summary["focus_eligible_count"]
         execution_eligible_count = gate_outcome_summary["execution_eligible_count"]
         all_backfilled = gate_outcome_summary["all_backfilled"]
-        scanner_operational = not (enrich_summary.get("reference_ok", 0) == 0 and enrich_summary.get("pct_ready", 0) == 0 and true_gate_pass_count == 0 and all_backfilled)
+        qualification_dead = bool(
+            true_gate_pass_count == 0
+            and enrich_summary.get("reference_ok", 0) == 0
+            and enrich_summary.get("pct_ready", 0) == 0
+            and focus_eligible_count == 0
+        )
+        scanner_operational = not qualification_dead
+        _apply_non_operational_backfill_markers(
+            watchlist_contexts,
+            qualification_dead=qualification_dead,
+        )
         gate_outcome_summary["scanner_operational"] = scanner_operational
+        gate_outcome_summary["qualification_dead"] = qualification_dead
         diagnostics["gate_outcome_summary"] = gate_outcome_summary
         print(
             "[SCANNER][SUMMARY] "
@@ -3860,6 +3897,7 @@ def run_scanner_cycle(
             f"degraded_fallback_survivor_count={degraded_fallback_survivor_count} "
             f"backfill_count={backfill_count} seeded_count={seeded_count} focus_eligible_count={focus_eligible_count} "
             f"execution_eligible_count={execution_eligible_count} scanner_operational={scanner_operational} "
+            f"qualification_dead={qualification_dead} "
             f"all_backfilled={all_backfilled} drop_reasons={drop_summary}"
         )
 
@@ -4209,6 +4247,8 @@ def run_scanner_cycle(
         "raw_broker_count": raw_broker_count,
         "watchlist_count": watchlist_count,
         "cacheable": cacheable,
+        "scanner_operational": scanner_operational,
+        "qualification_dead": qualification_dead,
         "diagnostics": diagnostics,
         "symbol_context_registry": {
             symbol: symbol_contexts[symbol]
