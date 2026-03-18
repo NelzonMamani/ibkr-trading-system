@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from ibapi.client import EClient
 from ibapi.contract import Contract, ContractDetails
 
@@ -237,7 +238,7 @@ def test_symbols_with_unusual_forms_do_not_break_identity_alias_mapping():
     )
 
     assert identity.key == "conid:202"
-    assert bridge_identity_keys(identity) == ("conid:202", "symbol:ABC PRA")
+    assert bridge_identity_keys(identity) == ("conid:202",)
 
 
 def test_pre_session_candidate_with_valid_prior_close_and_snapshot_price_produces_pct_change_and_gap():
@@ -339,3 +340,66 @@ def test_reference_resolver_exposes_explicit_failure_reasons_when_history_unavai
     )
     assert result.reference_failure_reason == 'HISTORY_UNAVAILABLE'
     assert result.rvol_failure_reason == 'ADV20_UNAVAILABLE'
+
+
+def test_reference_resolver_rejects_symbol_alias_cycle_cache_hits_for_conid_identities():
+    from src.scanner.reference_resolver import CanonicalReferenceResolver
+
+    resolver = CanonicalReferenceResolver()
+    identity = CandidateIdentity.from_mapping({"symbol": "ZENA", "conId": 722705694, "exchange": "SMART", "currency": "USD"})
+    other = CandidateIdentity.from_mapping({"symbol": "SCM", "conId": 750199774, "exchange": "SMART", "currency": "USD"})
+    resolver._cycle_cache["symbol:SCM"] = SimpleNamespace(identity_key=other.key)
+
+    with pytest.raises(AssertionError, match="non-conId cycle cache key"):
+        resolver._verify_cache_hit(identity=identity, lookup_key="symbol:SCM", result_identity_key=other.key, source="cycle")
+
+
+def test_reference_resolver_rejects_cross_conid_cycle_cache_reuse():
+    from src.scanner.reference_resolver import CanonicalReferenceResolver
+
+    resolver = CanonicalReferenceResolver()
+    identity = CandidateIdentity.from_mapping({"symbol": "PDYN", "conId": 111, "exchange": "SMART", "currency": "USD"})
+
+    with pytest.raises(AssertionError, match="reused another instrument's cycle cache entry"):
+        resolver._verify_cache_hit(identity=identity, lookup_key="conid:111", result_identity_key="conid:421139451", source="cycle")
+
+
+def test_persistent_cache_writes_only_conid_keys_for_conid_backed_identities(tmp_path):
+    from src.scanner.reference_resolver import CanonicalReferenceResolver, PersistentReferenceCache
+
+    provider = DummyProvider()
+    cache = PersistentReferenceCache(tmp_path / 'reference_cache.json')
+    identity = CandidateIdentity.from_mapping(provider.last_scan_details['symbol_details']['BRK B'] | {'symbol': 'BRK B'})
+
+    CanonicalReferenceResolver(cache).resolve(
+        identity=identity,
+        provider=provider,
+        session_label='PRE',
+        current_volume=250_000,
+        intraday_avg_volume_20d=None,
+        current_last_price=11.0,
+        rth_open_price=10.5,
+        rth_close_price=None,
+        ibkr_change_pct=None,
+        persisted_pct_change=None,
+    )
+
+    payload = cache.path.read_text(encoding='utf-8')
+    assert 'conid:101' in payload
+    assert 'symbol:BRK B' not in payload
+
+
+def test_live_pre_context_with_broker_rows_does_not_end_with_zero_reference_summary():
+    provider = DummyProvider()
+    contexts = [
+        _build_symbol_context(provider, 'BRK B', 'PRE', float_cache={}, include_pct_change=True),
+        _build_symbol_context(provider, 'ABC PRA', 'PRE', float_cache={}, include_pct_change=True),
+    ]
+    contexts = [context for context in contexts if context]
+
+    enrich = _enrichment_audit_summary(contexts)
+
+    assert enrich['candidates'] == 2
+    assert enrich['reference_ok'] > 0
+    assert enrich['pct_ready'] > 0
+    assert enrich['rvol_ready'] > 0

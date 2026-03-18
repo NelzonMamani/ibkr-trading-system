@@ -45,7 +45,7 @@ class CandidateIdentity:
     @property
     def aliases(self) -> tuple[str, ...]:
         values = []
-        for value in (self.symbol, self.local_symbol, self.trading_class):
+        for value in (self.symbol, self.local_symbol):
             normalized = _normalized_text(value)
             if normalized and normalized not in values:
                 values.append(normalized)
@@ -96,6 +96,8 @@ def canonical_identity_key(payload: CandidateIdentity | dict[str, Any] | Any, *,
 
 
 def bridge_identity_keys(identity: CandidateIdentity) -> tuple[str, ...]:
+    if identity.con_id not in {None, 0}:
+        return (identity.key,)
     keys = [identity.key]
     for alias in identity.aliases:
         alias_key = f"symbol:{alias}"

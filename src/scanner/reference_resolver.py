@@ -97,6 +97,31 @@ class CanonicalReferenceResolver:
     def reset_cycle(self) -> None:
         self._cycle_cache.clear()
 
+    def _cache_keys(self, identity: CandidateIdentity, provider: Any) -> tuple[str, ...]:
+        if identity.con_id not in {None, 0}:
+            return (identity.key,)
+        provider_ns = f"provider:{getattr(provider, 'source_name', type(provider).__name__)}"
+        return tuple(f"{provider_ns}|{key}" for key in bridge_identity_keys(identity))
+
+    def _verify_cache_hit(self, *, identity: CandidateIdentity, lookup_key: str, result_identity_key: str, source: str) -> None:
+        if identity.con_id not in {None, 0} and lookup_key != identity.key:
+            raise AssertionError(
+                f"ConId-backed identity resolved through non-conId {source} cache key: "
+                f"identity_key={identity.key} lookup_key={lookup_key}"
+            )
+        if identity.con_id not in {None, 0} and result_identity_key != identity.key:
+            raise AssertionError(
+                f"ConId-backed identity reused another instrument's {source} cache entry: "
+                f"identity_key={identity.key} cached_identity_key={result_identity_key}"
+            )
+
+    def _history_contract_fields(self, identity: CandidateIdentity) -> str:
+        return (
+            f"symbol={identity.symbol} conId={identity.con_id} secType={identity.sec_type} "
+            f"exchange={identity.exchange} primaryExchange={identity.primary_exchange} "
+            f"localSymbol={identity.local_symbol} tradingClass={identity.trading_class} currency={identity.currency}"
+        )
+
     def resolve(
         self,
         *,
@@ -112,13 +137,11 @@ class CanonicalReferenceResolver:
         persisted_pct_change: Optional[float],
     ) -> CanonicalReferenceResult:
         trading_date = date.today().isoformat()
-        cache_keys = bridge_identity_keys(identity)
-        if identity.con_id in {None, 0}:
-            provider_ns = f"provider:{getattr(provider, 'source_name', type(provider).__name__)}"
-            cache_keys = tuple(f"{provider_ns}|{key}" for key in cache_keys)
+        cache_keys = self._cache_keys(identity, provider)
         for key in cache_keys:
             hit = self._cycle_cache.get(key)
             if hit is not None:
+                self._verify_cache_hit(identity=identity, lookup_key=key, result_identity_key=hit.identity_key, source="cycle")
                 print(f"[REFERENCE][CACHE_HIT] symbol={identity.symbol} identity_key={identity.key} source=cycle lookup_key={key}")
                 return hit
         print(f"[REFERENCE][CACHE_MISS] symbol={identity.symbol} identity_key={identity.key} source=cycle")
@@ -126,6 +149,8 @@ class CanonicalReferenceResolver:
             for key in cache_keys:
                 payload = self.cache.get(key, trading_date=trading_date)
                 if payload is not None:
+                    cached_identity_key = str(payload.get("identity_key") or "")
+                    self._verify_cache_hit(identity=identity, lookup_key=key, result_identity_key=cached_identity_key, source="persistent")
                     result = self._result_from_cache(identity, payload, session_label, current_volume, current_last_price, rth_open_price, rth_close_price, ibkr_change_pct, persisted_pct_change)
                     for alias in cache_keys:
                         self._cycle_cache[alias] = result
@@ -147,13 +172,17 @@ class CanonicalReferenceResolver:
         rvol_failure_reason = None if resolved_avg_volume is not None else "ADV20_UNAVAILABLE"
         if bars:
             print(
-                f"[REFERENCE][HISTORICAL_RESULT] symbol={identity.symbol} identity_key={identity.key} found={prev_close is not None} value={prev_close} window_days={window_days}"
+                f"[REFERENCE][HISTORICAL_RESULT] symbol={identity.symbol} identity_key={identity.key} "
+                f"bar_count={len(bars)} first_bar_date={bars[0].trading_date} last_bar_date={bars[-1].trading_date} "
+                f"found={prev_close is not None} value={prev_close} window_days={window_days}"
             )
             print(
                 f"[RVOL][HISTORICAL_RESULT] symbol={identity.symbol} identity_key={identity.key} avg_volume_20d={resolved_avg_volume} window_days={resolved_window_days}"
             )
         else:
-            print(f"[REFERENCE][FAIL] symbol={identity.symbol} identity_key={identity.key} reason=HISTORY_UNAVAILABLE")
+            print(
+                f"[REFERENCE][FAIL] symbol={identity.symbol} identity_key={identity.key} reason=HISTORY_UNAVAILABLE_ZERO_BARS"
+            )
             print(f"[RVOL][FAIL] symbol={identity.symbol} identity_key={identity.key} reason={rvol_failure_reason}")
 
         payload = {
@@ -170,14 +199,14 @@ class CanonicalReferenceResolver:
             "adv20_source": adv_source,
             "adv20_resolved": resolved_avg_volume is not None,
             "resolved_at_utc": datetime.now(timezone.utc).isoformat(),
-            "aliases": list(identity.aliases),
+            "aliases": [] if identity.con_id not in {None, 0} else list(identity.aliases),
             "history_lookup_key_used": lookup_key_used,
             "reference_failure_reason": reference_failure_reason,
             "rvol_failure_reason": rvol_failure_reason,
         }
         if (prev_close is not None or resolved_avg_volume is not None) and identity.con_id not in {None, 0}:
             self.cache.put(cache_keys, payload)
-            print(f"[REFERENCE][PERSIST] symbol={identity.symbol} identity_key={identity.key} path={self.cache.path}")
+            print(f"[REFERENCE][PERSIST] symbol={identity.symbol} identity_key={identity.key} path={self.cache.path} keys={cache_keys}")
         result = self._result_from_cache(identity, payload, session_label, current_volume, current_last_price, rth_open_price, rth_close_price, ibkr_change_pct, persisted_pct_change)
         for key in cache_keys:
             self._cycle_cache[key] = result
@@ -186,29 +215,54 @@ class CanonicalReferenceResolver:
     def _request_historical_daily_bars(self, provider: Any, identity: CandidateIdentity) -> list[HistoricalDailyBar]:
         get_bars = getattr(provider, "get_daily_bars", None)
         if callable(get_bars) and _has_concrete_method(provider, "get_daily_bars"):
-            print(f"[REFERENCE][HISTORICAL_REQUEST] symbol={identity.symbol} identity_key={identity.key} source=provider_daily_bars")
-            bars = get_bars(identity, lookback_days=25)
-            return self._normalize_bars(bars)
+            print(
+                f"[REFERENCE][HISTORICAL_REQUEST] identity_key={identity.key} source=provider_daily_bars "
+                f"{self._history_contract_fields(identity)}"
+            )
+            bars = self._normalize_bars(get_bars(identity, lookback_days=25))
+            if bars:
+                print(
+                    f"[REFERENCE][HISTORICAL_RESPONSE] identity_key={identity.key} bar_count={len(bars)} "
+                    f"first_bar_date={bars[0].trading_date} last_bar_date={bars[-1].trading_date}"
+                )
+            else:
+                print(
+                    f"[REFERENCE][HISTORICAL_RESPONSE] identity_key={identity.key} bar_count=0 "
+                    f"fail_reason=ZERO_BARS_RETURNED"
+                )
+            return bars
         prev_close = getattr(provider, "get_previous_rth_close", None)
         avg_volume = getattr(provider, "get_average_daily_volume", None)
         legacy_prev_close = getattr(provider, "get_prev_close", None)
         legacy_intraday = getattr(provider, "get_intraday_stats", None)
         synthetic: list[HistoricalDailyBar] = []
         if callable(prev_close) and _has_concrete_method(provider, "get_previous_rth_close"):
-            print(f"[REFERENCE][HISTORICAL_REQUEST] symbol={identity.symbol} identity_key={identity.key} source=provider_prev_close")
+            print(
+                f"[REFERENCE][HISTORICAL_REQUEST] identity_key={identity.key} source=provider_prev_close "
+                f"{self._history_contract_fields(identity)}"
+            )
             value = prev_close(identity)
         elif callable(legacy_prev_close):
-            print(f"[REFERENCE][HISTORICAL_REQUEST] symbol={identity.symbol} identity_key={identity.key} source=legacy_prev_close")
+            print(
+                f"[REFERENCE][HISTORICAL_REQUEST] identity_key={identity.key} source=legacy_prev_close "
+                f"{self._history_contract_fields(identity)}"
+            )
             value = legacy_prev_close(identity.symbol)
         else:
             value = None
         if value is not None:
             synthetic.append(HistoricalDailyBar(trading_date=date.today().isoformat(), close=float(value), volume=None))
         if callable(avg_volume) and _has_concrete_method(provider, "get_average_daily_volume"):
-            print(f"[REFERENCE][HISTORICAL_REQUEST] symbol={identity.symbol} identity_key={identity.key} source=provider_avg_volume")
+            print(
+                f"[REFERENCE][HISTORICAL_REQUEST] identity_key={identity.key} source=provider_avg_volume "
+                f"{self._history_contract_fields(identity)}"
+            )
             avg, window = avg_volume(identity, window=20)
         elif callable(legacy_intraday):
-            print(f"[REFERENCE][HISTORICAL_REQUEST] symbol={identity.symbol} identity_key={identity.key} source=legacy_intraday_stats")
+            print(
+                f"[REFERENCE][HISTORICAL_REQUEST] identity_key={identity.key} source=legacy_intraday_stats "
+                f"{self._history_contract_fields(identity)}"
+            )
             stats = legacy_intraday(identity.symbol)
             avg = getattr(stats, "average_daily_volume_20d", None)
             window = getattr(stats, "average_daily_volume_window_days", None)
@@ -216,6 +270,15 @@ class CanonicalReferenceResolver:
             avg, window = None, None
         if avg is not None:
             synthetic.extend(HistoricalDailyBar(trading_date=f"window-{idx}", close=None, volume=int(avg)) for idx in range(window or 20))
+        if synthetic:
+            print(
+                f"[REFERENCE][HISTORICAL_RESPONSE] identity_key={identity.key} bar_count={len(synthetic)} "
+                f"first_bar_date={synthetic[0].trading_date} last_bar_date={synthetic[-1].trading_date}"
+            )
+        else:
+            print(
+                f"[REFERENCE][HISTORICAL_RESPONSE] identity_key={identity.key} bar_count=0 fail_reason=NO_HISTORY_METHODS"
+            )
         return synthetic
 
     def _normalize_bars(self, bars: Any) -> list[HistoricalDailyBar]:
@@ -280,7 +343,6 @@ def _to_float(value: Any) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
-
 
 
 
