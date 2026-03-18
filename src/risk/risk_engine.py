@@ -846,6 +846,9 @@ class RiskEngine:
             "[RISK] Max position size capped at "
             f"{max_position_size} share(s) for safety and simplicity"
         )
+        print(
+            f"[RISK_CHECK] symbol={trade_intent.symbol} size={max_position_size} allowed={allowed}"
+        )
         applied_multiplier = None
         if risk_multiplier is not None:
             applied_multiplier = max(0.0, float(risk_multiplier))

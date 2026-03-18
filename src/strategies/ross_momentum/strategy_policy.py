@@ -983,6 +983,9 @@ class RossMomentumPolicy:
     market_open_time_et: str = "09:30"
     market_close_time_et: str = "16:00"
 
+    # Temporary debug override for tracing Strategy → Intent → Execution blockers.
+    debug_force_execution: bool = True
+
 
 @dataclass(frozen=True)
 class StockSelectionSpec:
