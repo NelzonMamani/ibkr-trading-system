@@ -643,6 +643,7 @@ def _resolve_reference_snapshot(
         )
     return {
         "identity": identity,
+        "qualified_identity": result.qualified_identity,
         "prev_close": result.reference_price,
         "average_daily_volume_20d": result.avg_volume_20d,
         "average_daily_volume_window_days": result.average_daily_volume_window_days,
@@ -664,6 +665,7 @@ def _resolve_reference_snapshot(
         "rvol_failure_reason": result.rvol_failure_reason,
         "reference_degraded": result.reference_degraded,
         "reference_synthetic": result.reference_synthetic,
+        "history_attempted": bool((trace.get("history_attempts") if trace_enabled else _REFERENCE_RESOLVER.get_last_resolution_trace(result.identity_key).get("history_attempts")) or []),
     }
 
 
@@ -2084,7 +2086,7 @@ def _build_symbol_context(
         return {
             "symbol": symbol,
             "session": session_label,
-            "data_quality_flags": data_quality_flags,
+            "data_quality_flags": list(dict.fromkeys(data_quality_flags)),
             "snapshot_error": "MD_CONFLICT",
         }
     last_price = _resolve_price(quote)
@@ -2112,7 +2114,8 @@ def _build_symbol_context(
     except Exception:
         intraday = None
 
-    volume = intraday.current_intraday_volume if intraday else None
+    quote_volume = _safe_float(getattr(quote, "volume", None), None)
+    volume = intraday.current_intraday_volume if intraday and intraday.current_intraday_volume is not None else quote_volume
     avg_volume_20d = intraday.average_daily_volume_20d if intraday else None
     avg_volume_window_days = intraday.average_daily_volume_window_days if intraday else None
     day_high = _safe_float(getattr(intraday, "day_high", None), None) if intraday else None
@@ -2174,7 +2177,8 @@ def _build_symbol_context(
     rvol_discovery = rvol_discovery if rvol_discovery is not None else reference_snapshot.get("rvol_discovery")
     rvol_phase = rvol_phase if rvol_phase is not None else reference_snapshot.get("rvol_phase")
     scanner_rvol = scanner_rvol if scanner_rvol is not None else (rvol_phase if rvol_phase is not None else rvol_discovery)
-    if include_pct_change and prev_close is None and not _allow_history_enrichment(provider):
+    history_attempted = bool(reference_snapshot.get("history_attempted"))
+    if include_pct_change and prev_close is None and not history_attempted and not _allow_history_enrichment(provider):
         data_quality_flags.append("HISTORY_DISABLED")
     if include_pct_change and prev_close is None:
         data_quality_flags.append("HISTORY_UNKNOWN")
@@ -2264,7 +2268,7 @@ def _build_symbol_context(
         data_quality_flags.append("SPREAD_UNKNOWN")
     if last_price is None:
         data_quality_flags.append("MISSING_LAST")
-    if quote.close is None:
+    if _safe_float(getattr(quote, "close", None), None) is None:
         data_quality_flags.append("MISSING_CLOSE_TICK")
     if include_pct_change and prev_close is None:
         data_quality_flags.append("MISSING_REF_CLOSE_RTH")
@@ -2284,19 +2288,24 @@ def _build_symbol_context(
             f"close={quote.close} volume={volume} ibkr_change_pct={ibkr_change_pct}"
         )
 
-    con_id = scan_detail.get("conId")
+    qualified_identity = reference_snapshot.get("qualified_identity") or reference_snapshot.get("identity")
+    con_id = getattr(qualified_identity, "con_id", None) or scan_detail.get("conId")
     if con_id in {None, 0, "0"} and getattr(provider, "source_name", "") != "IBKR":
         con_id = abs(hash(symbol)) % 10_000_000 + 1
+    exchange = getattr(qualified_identity, "exchange", None) or scan_detail.get("exchange") or scan_detail.get("primaryExchange")
+    primary_exchange = getattr(qualified_identity, "primary_exchange", None) or scan_detail.get("primaryExchange")
+    trading_class = getattr(qualified_identity, "trading_class", None) or scan_detail.get("tradingClass")
+    local_symbol = getattr(qualified_identity, "local_symbol", None) or scan_detail.get("localSymbol") or symbol
     context = {
         "symbol": symbol,
         "session": session_label,
         "con_id": con_id,
-        "exchange": scan_detail.get("exchange") or scan_detail.get("primaryExchange"),
-        "primary_exchange": scan_detail.get("primaryExchange"),
-        "trading_class": scan_detail.get("tradingClass"),
-        "local_symbol": scan_detail.get("localSymbol") or symbol,
-        "currency": scan_detail.get("currency") or "USD",
-        "instrument_type": scan_detail.get("secType") or "STK",
+        "exchange": exchange,
+        "primary_exchange": primary_exchange,
+        "trading_class": trading_class,
+        "local_symbol": local_symbol,
+        "currency": getattr(qualified_identity, "currency", None) or scan_detail.get("currency") or "USD",
+        "instrument_type": getattr(qualified_identity, "sec_type", None) or scan_detail.get("secType") or "STK",
         "last_price": last_price,
         "close": quote.close,
         "prev_close": prev_close,
@@ -2335,7 +2344,7 @@ def _build_symbol_context(
         "reference_asof_trading_date": reference_snapshot.get("reference_asof_trading_date"),
         "adv20_source": reference_snapshot.get("adv20_source"),
         "adv20_resolved": reference_snapshot.get("adv20_resolved"),
-        "identity_key": reference_snapshot.get("identity_key"),
+        "identity_key": getattr(qualified_identity, "key", None) or reference_snapshot.get("identity_key"),
         "history_lookup_key_used": reference_snapshot.get("lookup_key"),
         "reference_failure_reason": reference_snapshot.get("reference_failure_reason"),
         "rvol_failure_reason": reference_snapshot.get("rvol_failure_reason"),
@@ -2368,7 +2377,7 @@ def _build_symbol_context(
         "halted": None,
         "ssr": None,
         "eligibility_reason_codes": [],
-        "data_quality_flags": data_quality_flags,
+        "data_quality_flags": list(dict.fromkeys(data_quality_flags)),
         "snapshot_timeout": snapshot_timeout,
         "universe_rank": universe_rank,
     }

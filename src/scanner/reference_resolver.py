@@ -41,6 +41,7 @@ class HistoricalDailyBar:
 class CanonicalReferenceResult:
     identity_key: str
     symbol: str
+    qualified_identity: CandidateIdentity
     reference_price: Optional[float]
     reference_label: str
     reference_source: str
@@ -245,6 +246,15 @@ class CanonicalReferenceResolver:
                             "identity_key": identity.key,
                             "symbol": identity.symbol,
                             "cache_source": "persistent",
+                            "qualified_identity": {
+                                "conId": result.qualified_identity.con_id,
+                                "secType": result.qualified_identity.sec_type,
+                                "exchange": result.qualified_identity.exchange,
+                                "primaryExchange": result.qualified_identity.primary_exchange,
+                                "tradingClass": result.qualified_identity.trading_class,
+                                "localSymbol": result.qualified_identity.local_symbol,
+                                "currency": result.qualified_identity.currency,
+                            },
                             "history_attempts": [],
                             "selected_reference_source": result.reference_source,
                             "selected_reference_price": result.reference_price,
@@ -265,6 +275,15 @@ class CanonicalReferenceResolver:
             "symbol": identity.symbol,
             "qualified_ok": qualified_ok,
             "history_identity_key": history_identity.key,
+            "qualified_identity": {
+                "conId": history_identity.con_id,
+                "secType": history_identity.sec_type,
+                "exchange": history_identity.exchange,
+                "primaryExchange": history_identity.primary_exchange,
+                "tradingClass": history_identity.trading_class,
+                "localSymbol": history_identity.local_symbol,
+                "currency": history_identity.currency,
+            },
             "history_attempts": [],
         }
         bars = self._request_historical_daily_bars(provider, history_identity, session_label=session_label, trace=history_trace) if qualified_ok else []
@@ -355,7 +374,7 @@ class CanonicalReferenceResolver:
         if (prev_close is not None or resolved_avg_volume is not None) and identity.con_id not in {None, 0}:
             self.cache.put(cache_keys, payload)
             print(f"[REFERENCE][PERSIST] symbol={identity.symbol} identity_key={identity.key} path={self.cache.path} keys={cache_keys}")
-        result = self._result_from_cache(identity, payload, session_label, current_volume, current_last_price, rth_open_price, rth_close_price, ibkr_change_pct, persisted_pct_change)
+        result = self._result_from_cache(history_identity if qualified_ok else identity, payload, session_label, current_volume, current_last_price, rth_open_price, rth_close_price, ibkr_change_pct, persisted_pct_change)
         for key in cache_keys:
             self._cycle_cache[key] = result
             self._last_resolution_trace[key] = dict(history_trace)
@@ -579,6 +598,7 @@ class CanonicalReferenceResolver:
         return CanonicalReferenceResult(
             identity_key=identity.key,
             symbol=identity.symbol,
+            qualified_identity=identity,
             reference_price=_to_float(payload.get("reference_price")),
             reference_label=str(payload.get("reference_label") or "LAST_RTH_CLOSE"),
             reference_source=reference_source,
