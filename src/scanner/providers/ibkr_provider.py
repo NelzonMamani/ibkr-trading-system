@@ -18,6 +18,7 @@ from src.adapters.brokers.ibkr.ibkr_connection_manager import (
 from src.ibkr.market_data_client import MarketDataClient
 from src.data.fundamentals.float_provider import FloatProvider
 from src.scanner.scanner_contract import ScannerRequest
+from src.scanner.candidate_identity import CandidateIdentity
 
 from .base import IntradayStats, ProviderConnectionError, QuoteData, ScannerDataProvider
 
@@ -269,7 +270,26 @@ class IbkrScannerProvider(ScannerDataProvider):
         return symbols
 
     def get_quote(self, symbol: str) -> QuoteData:
-        snapshot = self.market_data_client.snapshot_stock(symbol)
+        contract = self._qualified_contract_for_symbol(symbol)
+        print(
+            "[IBKR][PROVIDER][QUOTE] "
+            f"symbol={symbol} contract_symbol={getattr(contract, 'symbol', None) if contract is not None else None} "
+            f"conId={getattr(contract, 'conId', None) if contract is not None else None} "
+            f"exchange={getattr(contract, 'exchange', None) if contract is not None else None} "
+            f"primaryExchange={getattr(contract, 'primaryExchange', None) if contract is not None else None}"
+        )
+        snapshot = self.market_data_client.snapshot_stock(contract if contract is not None else symbol)
+        debug = getattr(self.market_data_client, "last_snapshot_debug", {}) or {}
+        raw_fields = debug.get("raw_fields", {})
+        waited_seconds = debug.get("waited_seconds", 0.0)
+        timeout_occurred = bool(debug.get("timeout_occurred"))
+        print(
+            "[IBKR][PROVIDER][QUOTE][SNAPSHOT] "
+            f"symbol={symbol} raw_fields={raw_fields} waited_seconds={waited_seconds} timeout_occurred={timeout_occurred}"
+        )
+        flags = list(snapshot.data_quality_flags)
+        if "MD_TIMEOUT" in flags:
+            flags = ["SNAPSHOT_TIMEOUT" if flag == "MD_TIMEOUT" else flag for flag in flags]
         return QuoteData(
             symbol=snapshot.symbol,
             bid=snapshot.bid,
@@ -283,7 +303,7 @@ class IbkrScannerProvider(ScannerDataProvider):
             change_percent=snapshot.change_percent,
             volume=snapshot.volume,
             timestamp_utc=snapshot.timestamp_utc,
-            data_quality_flags=tuple(snapshot.data_quality_flags),
+            data_quality_flags=tuple(flags),
         )
 
     def qualifyContracts(self, *contracts):
@@ -297,18 +317,55 @@ class IbkrScannerProvider(ScannerDataProvider):
         return snapshot.close
 
     def _qualify_identity_contract(self, identity):
-        if hasattr(identity, "con_id") and getattr(identity, "con_id", None):
-            contract = self.market_data_client.qualify_contract(getattr(identity, "symbol", ""))
-            if contract is not None and getattr(contract, "conId", None) == getattr(identity, "con_id", None):
-                return contract
-            if contract is not None:
-                contract.conId = getattr(identity, "con_id", None)
-                if getattr(identity, "local_symbol", None):
-                    contract.localSymbol = identity.local_symbol
-                if getattr(identity, "trading_class", None):
-                    contract.tradingClass = identity.trading_class
-                return contract
-        return self.market_data_client.qualify_contract(getattr(identity, "symbol", identity))
+        candidate = self._candidate_identity(identity)
+        contract = self._contract_from_candidate_identity(candidate)
+        qualified = self.market_data_client.qualifyContracts(contract)
+        if qualified:
+            return qualified[0]
+        if getattr(contract, "conId", None) not in {None, 0}:
+            return contract
+        return self.market_data_client.qualify_contract(getattr(candidate, "symbol", getattr(identity, "symbol", identity)))
+
+    def _candidate_identity(self, identity) -> CandidateIdentity:
+        if isinstance(identity, CandidateIdentity):
+            return identity
+        if hasattr(identity, "__dict__") or hasattr(identity, "con_id"):
+            return CandidateIdentity(
+                symbol=str(getattr(identity, "symbol", identity)).upper(),
+                con_id=getattr(identity, "con_id", None) or getattr(identity, "conId", None),
+                sec_type=getattr(identity, "sec_type", None) or getattr(identity, "secType", None) or "STK",
+                exchange=getattr(identity, "exchange", None),
+                primary_exchange=getattr(identity, "primary_exchange", None) or getattr(identity, "primaryExchange", None),
+                trading_class=getattr(identity, "trading_class", None) or getattr(identity, "tradingClass", None),
+                currency=getattr(identity, "currency", None) or "USD",
+                local_symbol=getattr(identity, "local_symbol", None) or getattr(identity, "localSymbol", None),
+            )
+        return CandidateIdentity(symbol=str(identity).upper())
+
+    def _contract_from_candidate_identity(self, identity: CandidateIdentity):
+        _, Stock, Contract = safe_import_ib_insync()
+        exchange = identity.exchange or "SMART"
+        currency = identity.currency or "USD"
+        symbol = identity.symbol or identity.local_symbol or identity.trading_class or ""
+        contract = Stock(symbol, exchange, currency) if identity.sec_type in {None, "", "STK"} else Contract()
+        contract.symbol = symbol
+        contract.secType = identity.sec_type or "STK"
+        contract.exchange = exchange
+        contract.currency = currency
+        if identity.con_id not in {None, 0}:
+            contract.conId = int(identity.con_id)
+        if identity.primary_exchange:
+            contract.primaryExchange = identity.primary_exchange
+        if identity.trading_class:
+            contract.tradingClass = identity.trading_class
+        if identity.local_symbol:
+            contract.localSymbol = identity.local_symbol
+        return contract
+
+    def _qualified_contract_for_symbol(self, symbol: str):
+        detail = ((self.last_scan_details or {}).get("symbol_details") or {}).get(symbol.upper(), {})
+        identity = CandidateIdentity.from_mapping({"symbol": symbol.upper(), **detail})
+        return self._qualify_identity_contract(identity)
 
     def get_previous_rth_close(self, identity) -> Optional[float]:
         contract = self._qualify_identity_contract(identity)
@@ -319,13 +376,32 @@ class IbkrScannerProvider(ScannerDataProvider):
         return self.market_data_client.average_daily_volume_from_history(contract if contract is not None else getattr(identity, "symbol", identity), window=window, use_rth=True)
 
     def get_daily_bars(self, identity, lookback_days: int, *, use_rth: bool = True, end_datetime: str = ""):
+        candidate = self._candidate_identity(identity)
+        print(
+            "[IBKR][PROVIDER][HISTORY] "
+            f"identity_key={candidate.key} symbol={candidate.symbol} conId={candidate.con_id} "
+            f"exchange={candidate.exchange} primaryExchange={candidate.primary_exchange} "
+            f"tradingClass={candidate.trading_class} localSymbol={candidate.local_symbol}"
+        )
         contract = self._qualify_identity_contract(identity)
-        return self.market_data_client.daily_bars_from_history(
+        print(
+            "[IBKR][PROVIDER][HISTORY][CONTRACT] "
+            f"symbol={getattr(contract, 'symbol', None) if contract is not None else None} "
+            f"conId={getattr(contract, 'conId', None) if contract is not None else None} "
+            f"exchange={getattr(contract, 'exchange', None) if contract is not None else None} "
+            f"primaryExchange={getattr(contract, 'primaryExchange', None) if contract is not None else None}"
+        )
+        bars = self.market_data_client.daily_bars_from_history(
             contract if contract is not None else getattr(identity, "symbol", identity),
             lookback_days=lookback_days,
             use_rth=use_rth,
             end_datetime=end_datetime,
         )
+        print(
+            "[IBKR][PROVIDER][HISTORY][RESULT] "
+            f"symbol={candidate.symbol} raw_bars={len(bars)} normalized_bars={len(bars)}"
+        )
+        return bars
 
     def get_intraday_stats(self, symbol: str) -> IntradayStats:
         snapshot = self.market_data_client.snapshot_stock(symbol)

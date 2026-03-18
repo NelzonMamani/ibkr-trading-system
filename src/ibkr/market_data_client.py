@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import math
 import time
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 import threading
 
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
@@ -123,6 +123,7 @@ class MarketDataClient:
         self._scanner_results_received = False
         self._scanner_request_active = False
         self._recent_error_codes: dict[str, int] = {}
+        self.last_snapshot_debug: dict[str, Any] = {}
         try:
             if self.ib is not None:
                 self.ib.errorEvent += self._on_ib_error
@@ -269,17 +270,43 @@ class MarketDataClient:
         except Exception:
             return []
 
-    def snapshot_stock(self, symbol: str) -> MarketDataSnapshot:
+    def snapshot_stock(self, contract_or_symbol) -> MarketDataSnapshot:
         now_utc = datetime.now(timezone.utc)
         flags = _market_data_type_flags(self.market_data_type)
+        symbol = getattr(contract_or_symbol, "symbol", None) or str(contract_or_symbol or "").upper()
+        self.last_snapshot_debug = {
+            "requested_symbol": symbol,
+            "requested_contract": {
+                "symbol": getattr(contract_or_symbol, "symbol", None),
+                "conId": getattr(contract_or_symbol, "conId", None),
+                "exchange": getattr(contract_or_symbol, "exchange", None),
+                "primaryExchange": getattr(contract_or_symbol, "primaryExchange", None),
+                "tradingClass": getattr(contract_or_symbol, "tradingClass", None),
+                "localSymbol": getattr(contract_or_symbol, "localSymbol", None),
+            } if not isinstance(contract_or_symbol, str) else None,
+        }
         try:
-            contract = self.qualify_contract(symbol)
+            contract = self._canonicalize_history_contract(contract_or_symbol)
         except Exception as exc:
             flags.append("CONTRACT_QUALIFY_FAILED")
+            self.last_snapshot_debug.update(
+                {"qualification_error": str(exc), "timeout_occurred": False, "waited_seconds": 0.0}
+            )
             return self._empty_snapshot(symbol, flags, error=str(exc))
         if contract is None:
             flags.append("CONTRACT_QUALIFY_FAILED")
+            self.last_snapshot_debug.update(
+                {"qualification_error": "contract_none", "timeout_occurred": False, "waited_seconds": 0.0}
+            )
             return self._empty_snapshot(symbol, flags)
+        self.last_snapshot_debug["contract"] = {
+            "symbol": getattr(contract, "symbol", None),
+            "conId": getattr(contract, "conId", None),
+            "exchange": getattr(contract, "exchange", None),
+            "primaryExchange": getattr(contract, "primaryExchange", None),
+            "tradingClass": getattr(contract, "tradingClass", None),
+            "localSymbol": getattr(contract, "localSymbol", None),
+        }
 
         ib = self._resolve_ib_client()
         ticker = ib.reqMktData(
@@ -288,6 +315,7 @@ class MarketDataClient:
             snapshot=True,
             regulatorySnapshot=False,
         )
+        started_at = time.time()
         timeout_at = time.time() + self.snapshot_timeout_seconds
         snapshot_complete = False
         while time.time() < timeout_at:
@@ -300,10 +328,14 @@ class MarketDataClient:
                 break
         else:
             flags.append("MD_TIMEOUT")
+        waited_seconds = round(time.time() - started_at, 3)
+        self.last_snapshot_debug["waited_seconds"] = waited_seconds
+        self.last_snapshot_debug["timeout_occurred"] = "MD_TIMEOUT" in flags
 
         if not snapshot_complete:
             ib.cancelMktData(contract)
         if "MD_TIMEOUT" in flags and not self._ticker_has_data(ticker):
+            self.last_snapshot_debug["raw_fields"] = self._snapshot_debug_fields(ticker)
             return self._empty_snapshot(symbol, flags)
 
         snapshot_timestamp = _resolve_snapshot_timestamp(ticker, now_utc)
@@ -325,6 +357,7 @@ class MarketDataClient:
         close = _clean(getattr(ticker, "close", None))
         open_price = _clean(getattr(ticker, "open", None))
         change_percent = _clean(getattr(ticker, "changePercent", None))
+        self.last_snapshot_debug["raw_fields"] = self._snapshot_debug_fields(ticker)
         if get_config("DEBUG_MARKET_DATA"):
             print(
                 "[IBKR][MD][DEBUG] ticks "
@@ -381,6 +414,20 @@ class MarketDataClient:
     @staticmethod
     def _ticker_snapshot_complete(ticker) -> bool:
         return bool(getattr(ticker, "snapshotEnd", False))
+
+    @staticmethod
+    def _snapshot_debug_fields(ticker) -> dict[str, Optional[float]]:
+        return {
+            "bid": _clean(getattr(ticker, "bid", None)),
+            "ask": _clean(getattr(ticker, "ask", None)),
+            "last": _clean(getattr(ticker, "last", None)),
+            "close": _clean(getattr(ticker, "close", None)),
+            "volume": _clean(getattr(ticker, "volume", None)),
+            "open": _clean(getattr(ticker, "open", None)),
+            "high": _clean(getattr(ticker, "high", None)),
+            "low": _clean(getattr(ticker, "low", None)),
+            "vwap": _clean(getattr(ticker, "vwap", None)),
+        }
 
     def _canonicalize_history_contract(self, contract_or_symbol):
         contract = contract_or_symbol
