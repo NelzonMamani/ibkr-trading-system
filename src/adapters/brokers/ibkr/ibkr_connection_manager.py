@@ -34,6 +34,7 @@ class IbkrConnectionManager:
     def __init__(self, config: IbkrConnectionConfig) -> None:
         self._config = config
         self._client: Optional[IbkrClient] = None
+        self._market_data_client = None
         self._connected_client_id: Optional[int] = None
         self._connection_generation = 0
         self._last_error: Optional[str] = None
@@ -191,6 +192,22 @@ class IbkrConnectionManager:
             "[IBKR][MANAGER] heartbeat ok "
             f"client_id={self._connected_client_id}"
         )
+
+
+    def get_market_data_client(self):
+        """Return the shared market data client bound to this manager."""
+        if self._market_data_client is None:
+            from src.ibkr.market_data_client import MarketDataClient
+
+            self._market_data_client = MarketDataClient(
+                market_data_type=self._config.market_data_type,
+                snapshot_timeout_seconds=self._config.snapshot_timeout_seconds,
+                default_exchange="SMART",
+                default_currency="USD",
+                connection_manager=self,
+                allow_direct_connection=False,
+            )
+        return self._market_data_client
 
     def connection_metadata(self) -> dict:
         return {
