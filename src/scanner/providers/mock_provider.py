@@ -166,6 +166,19 @@ class MockScannerProvider(ScannerDataProvider):
             volume_data_quality_flag="MOCK",
         )
 
+    def get_previous_rth_close(self, identity) -> Optional[float]:
+        return self.get_prev_close(getattr(identity, "symbol", identity))
+
+    def get_average_daily_volume(self, identity, window: int) -> tuple[Optional[int], Optional[int]]:
+        stats = self.get_intraday_stats(getattr(identity, "symbol", identity))
+        return stats.average_daily_volume_20d, min(window, stats.average_daily_volume_window_days or window)
+
+    def get_daily_bars(self, identity, lookback_days: int):
+        symbol = getattr(identity, "symbol", identity)
+        prev = self.get_prev_close(symbol)
+        avg, window = self.get_average_daily_volume(identity, lookback_days)
+        return [type("Bar", (), {"date": f"2026-01-{idx+1:02d}", "close": prev, "volume": avg})() for idx in range(window or 0)]
+
     def get_float(self, symbol: str) -> Optional[int]:
         cached = self.float_cache.get(symbol)
         try:

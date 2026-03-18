@@ -59,7 +59,7 @@ from src.scanner.providers.factory import build_provider
 from src.scanner.providers.mock_provider import MockScannerProvider
 from src.scanner.ranking_registry import resolve_watchlist_selector
 from src.scanner.result_models import CandidateMetrics, ScannerResult
-from src.scanner.reference_resolver import resolve_reference_bundle
+from src.scanner.reference_resolver import CanonicalReferenceResolver, resolve_reference_bundle
 from src.market_data.market_snapshot_enricher import MarketSnapshotEnricher
 from src.scanner.candidate_identity import CandidateIdentity
 
@@ -82,7 +82,7 @@ _FLOAT_CACHE_STATE: Dict[str, Any] = {
 }
 _FLOAT_SOURCE_BY_SYMBOL: Dict[str, str] = {}
 _FLOAT_CACHE_HIT_SYMBOLS: set[str] = set()
-_HISTORY_CACHE: Dict[str, Dict[str, Any]] = {}
+_REFERENCE_RESOLVER = CanonicalReferenceResolver()
 _NEWS_CACHE: Dict[str, Dict[str, Any]] = {}
 _PREV_WATCHLIST: set[str] = set()
 _WATCHLIST_HASH: Optional[str] = None
@@ -107,18 +107,6 @@ def _context_identity(context: Dict[str, Any]) -> CandidateIdentity:
         "currency": context.get("currency") or "USD",
         "localSymbol": context.get("local_symbol"),
     })
-
-
-def _history_symbol_keys(symbol: str, context: Dict[str, Any] | None = None) -> list[str]:
-    keys: list[str] = []
-    values = [symbol]
-    if context is not None:
-        values.extend([context.get("local_symbol"), context.get("trading_class")])
-    for value in values:
-        normalized = str(value or "").upper().strip()
-        if normalized and normalized not in keys:
-            keys.append(normalized)
-    return keys
 
 
 def _enrichment_audit_summary(evaluated_contexts: list[Dict[str, Any]]) -> dict[str, int]:
@@ -523,33 +511,60 @@ def _allow_history_enrichment(provider: ScannerDataProvider | None = None) -> bo
     return bool(get_config("HISTORICAL_ENRICH_ENABLED"))
 
 
-def _history_snapshot(symbol: str, provider: ScannerDataProvider, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
-    if not _allow_history_enrichment(provider):
-        return {"prev_close": None, "average_daily_volume_20d": None, "average_daily_volume_window_days": None, "lookup_key": symbol}
-    for lookup_key in _history_symbol_keys(symbol, context):
-        cached = _HISTORY_CACHE.get(lookup_key)
-        if cached:
-            return cached
-    snapshot: Dict[str, Any] = {"prev_close": None, "average_daily_volume_20d": None, "average_daily_volume_window_days": None, "lookup_key": symbol}
-    for lookup_key in _history_symbol_keys(symbol, context):
-        snapshot["lookup_key"] = lookup_key
-        if snapshot["prev_close"] is None:
-            try:
-                snapshot["prev_close"] = provider.get_prev_close(lookup_key)
-            except Exception:
-                snapshot["prev_close"] = None
-        if snapshot["average_daily_volume_20d"] is None:
-            try:
-                intraday = provider.get_intraday_stats(lookup_key)
-                snapshot["average_daily_volume_20d"] = intraday.average_daily_volume_20d
-                snapshot["average_daily_volume_window_days"] = intraday.average_daily_volume_window_days
-            except Exception:
-                pass
-        if snapshot["prev_close"] is not None or snapshot["average_daily_volume_20d"] is not None:
-            break
-    for lookup_key in _history_symbol_keys(symbol, context):
-        _HISTORY_CACHE[lookup_key] = dict(snapshot)
-    return snapshot
+def _resolve_reference_snapshot(
+    *,
+    provider: ScannerDataProvider,
+    symbol: str,
+    session_label: str,
+    scan_detail: Dict[str, Any],
+    last_price: Optional[float],
+    current_volume: Optional[int],
+    intraday_avg_volume_20d: Optional[int],
+    rth_open_price: Optional[float],
+    rth_close_price: Optional[float],
+    ibkr_change_pct: Optional[float],
+    persisted_pct_change: Optional[float],
+) -> Dict[str, Any]:
+    identity = CandidateIdentity.from_mapping({
+        "symbol": symbol,
+        "conId": scan_detail.get("conId"),
+        "secType": scan_detail.get("secType") or "STK",
+        "exchange": scan_detail.get("exchange") or scan_detail.get("primaryExchange") or "SMART",
+        "primaryExchange": scan_detail.get("primaryExchange"),
+        "tradingClass": scan_detail.get("tradingClass"),
+        "currency": scan_detail.get("currency") or "USD",
+        "localSymbol": scan_detail.get("localSymbol") or symbol,
+    })
+    result = _REFERENCE_RESOLVER.resolve(
+        identity=identity,
+        provider=provider,
+        session_label=session_label,
+        current_volume=current_volume,
+        intraday_avg_volume_20d=intraday_avg_volume_20d,
+        current_last_price=last_price,
+        rth_open_price=rth_open_price,
+        rth_close_price=rth_close_price,
+        ibkr_change_pct=ibkr_change_pct,
+        persisted_pct_change=persisted_pct_change,
+    )
+    return {
+        "identity": identity,
+        "prev_close": result.reference_price,
+        "average_daily_volume_20d": result.avg_volume_20d,
+        "average_daily_volume_window_days": result.average_daily_volume_window_days,
+        "lookup_key": result.history_lookup_key_used or result.identity_key,
+        "reference_source": result.reference_source,
+        "reference_resolved": result.reference_resolved,
+        "reference_asof_trading_date": result.reference_asof_trading_date,
+        "adv20_source": result.adv20_source,
+        "adv20_resolved": result.adv20_resolved,
+        "expected_phase_volume": result.expected_phase_volume,
+        "rvol_discovery": result.rvol_discovery,
+        "rvol_phase": result.rvol_phase,
+        "identity_key": result.identity_key,
+        "reference_failure_reason": result.reference_failure_reason,
+        "rvol_failure_reason": result.rvol_failure_reason,
+    }
 
 
 def _resolve_price(quote) -> Optional[float]:
@@ -804,19 +819,33 @@ def _populate_pct_change(
     if context.get("pct_change") is not None:
         return
     last_price = _safe_float(context.get("last_price"), None)
-    prev_close = _safe_float(context.get("prev_close"), None)
-    if prev_close is None:
-        history = _history_snapshot(context["symbol"], provider, context)
-        prev_close = history.get("prev_close")
-        context["prev_close"] = prev_close
-        if prev_close is None:
-            context.setdefault("data_quality_flags", []).append("HISTORY_UNKNOWN")
-    identity = _context_identity(context)
-    print(
-        "[REFERENCE][REQUEST] "
-        f"symbol={context['symbol']} conId={identity.con_id} session={normalize_session_label(str(context.get('session') or ''))} "
-        "reference_type=LAST_RTH_CLOSE source=history_or_snapshot"
+    scan_detail = {
+        "conId": context.get("con_id") or context.get("conId"),
+        "secType": context.get("instrument_type") or context.get("secType") or "STK",
+        "exchange": context.get("exchange") or "SMART",
+        "primaryExchange": context.get("primary_exchange") or context.get("exchange"),
+        "tradingClass": context.get("trading_class"),
+        "currency": context.get("currency") or "USD",
+        "localSymbol": context.get("local_symbol") or context.get("symbol"),
+    }
+    reference_snapshot = _resolve_reference_snapshot(
+        provider=provider,
+        symbol=context["symbol"],
+        session_label=str(context.get("session") or ""),
+        scan_detail=scan_detail,
+        last_price=last_price,
+        current_volume=_safe_float(context.get("volume"), None),
+        intraday_avg_volume_20d=_safe_float(context.get("avg_volume_20d"), None),
+        rth_open_price=_safe_float(context.get("rth_open_price"), None),
+        rth_close_price=_safe_float(context.get("rth_close_price"), None),
+        ibkr_change_pct=_safe_float(context.get("ibkr_change_pct"), None),
+        persisted_pct_change=_safe_float(context.get("persisted_pct_change"), None),
     )
+    prev_close = reference_snapshot.get("prev_close")
+    context["prev_close"] = prev_close
+    context["ref_close_rth"] = prev_close
+    context["avg_volume_20d"] = context.get("avg_volume_20d") if context.get("avg_volume_20d") is not None else reference_snapshot.get("average_daily_volume_20d")
+    context["average_daily_volume_window_days"] = context.get("average_daily_volume_window_days") if context.get("average_daily_volume_window_days") is not None else reference_snapshot.get("average_daily_volume_window_days")
     pct_payload = compute_session_aligned_pct_change(
         session_label=str(context.get("session") or ""),
         cur_last=last_price,
@@ -833,45 +862,28 @@ def _populate_pct_change(
     if pct_payload.final_pct is None:
         context.setdefault("data_quality_flags", []).append("MISSING_PCT_CHANGE")
     context["pct_change"] = pct_payload.final_pct
-    context["ref_close_rth"] = pct_payload.ref_close_rth
     context["reference_price"] = pct_payload.reference_price
     context["reference_label"] = pct_payload.reference_label
-    context["ibkr_change_pct"] = pct_payload.ibkr_change_pct
     context["pct_source"] = pct_payload.pct_source
     context["open_relative_pct_change"] = pct_payload.open_relative_pct_change
     context["gap_pct_resolved"] = pct_payload.open_relative_pct_change if pct_payload.open_relative_pct_change is not None else pct_payload.final_pct
     context["gap_source"] = "SESSION_OPEN_VS_REF" if pct_payload.open_relative_pct_change is not None else pct_payload.pct_source
+    context["reference_source"] = reference_snapshot.get("reference_source")
+    context["reference_resolved"] = reference_snapshot.get("reference_resolved")
+    context["reference_asof_trading_date"] = reference_snapshot.get("reference_asof_trading_date")
+    context["adv20_source"] = reference_snapshot.get("adv20_source")
+    context["adv20_resolved"] = reference_snapshot.get("adv20_resolved")
+    context["identity_key"] = reference_snapshot.get("identity_key")
+    context["history_lookup_key_used"] = reference_snapshot.get("lookup_key")
+    context["reference_failure_reason"] = reference_snapshot.get("reference_failure_reason")
+    context["rvol_failure_reason"] = reference_snapshot.get("rvol_failure_reason")
     print(
         "[REFERENCE][RESULT] "
-        f"symbol={context['symbol']} conId={identity.con_id} found={pct_payload.reference_price is not None} "
-        f"value={pct_payload.reference_price} asof={history.get('lookup_key') if 'history' in locals() else context.get('symbol')} source=history_or_snapshot"
+        f"symbol={context['symbol']} identity_key={reference_snapshot.get('identity_key')} found={pct_payload.reference_price is not None} "
+        f"value={pct_payload.reference_price} asof={reference_snapshot.get('lookup_key')} source={reference_snapshot.get('reference_source')}"
     )
-    print(
-        "[REFERENCE][MERGE] "
-        f"symbol={context['symbol']} merge_target_found=True reference_label={pct_payload.reference_label} value={pct_payload.reference_price}"
-    )
-    print(
-        "[DERIVED][PCT_GAP] "
-        f"symbol={context['symbol']} last={last_price} reference={pct_payload.reference_price} pct_change={pct_payload.final_pct} gap={context['gap_pct_resolved']} "
-        f"pct_source={pct_payload.pct_source} gap_source={context['gap_source']}"
-    )
-    print(
-        "[PCT] "
-        f"symbol={context['symbol']} session={normalize_session_label(str(context.get('session') or ''))} "
-        f"baseline={context.get('reference_label')} value={context.get('pct_change')}"
-    )
-    print(
-        "[GAP] "
-        f"symbol={context['symbol']} reference={context.get('reference_label')} value={context.get('pct_change')}"
-    )
-    if get_config("DEBUG_MARKET_DATA"):
-        print(
-            "[SCANNER][MD][DEBUG] pct_change "
-            f"symbol={context['symbol']} last={last_price} ref_price={context.get('reference_price')} "
-            f"ref_label={context.get('reference_label')} pct_change={context.get('pct_change')} "
-            f"open_relative_pct_change={context.get('open_relative_pct_change')} "
-            f"source={context.get('pct_source')}"
-        )
+
+
 
 
 def _missingness_map(drop_reason: str, context: Dict[str, Any]) -> Dict[str, bool]:
@@ -1796,6 +1808,7 @@ def _build_symbol_context(
 
     volume = intraday.current_intraday_volume if intraday else None
     avg_volume_20d = intraday.average_daily_volume_20d if intraday else None
+    avg_volume_window_days = intraday.average_daily_volume_window_days if intraday else None
     day_high = _safe_float(getattr(intraday, "day_high", None), None) if intraday else None
     persisted_rvol = _safe_float(getattr(quote, "persisted_rvol", None), None)
     rvol_payload = compute_session_relative_volume_with_provenance(
@@ -1835,16 +1848,31 @@ def _build_symbol_context(
 
     session_open = _safe_float(getattr(quote, "open", None), None)
     session_close = _safe_float(getattr(quote, "close", None), None)
-    prev_close = session_close
-    if include_pct_change and prev_close is None:
-        history = _history_snapshot(symbol, provider, {"local_symbol": scan_detail.get("localSymbol"), "trading_class": scan_detail.get("tradingClass")})
-        prev_close = history.get("prev_close")
-        if prev_close is None and not _allow_history_enrichment(provider):
-            data_quality_flags.append("HISTORY_DISABLED")
+    ibkr_change_pct = _safe_float(getattr(quote, "change_percent", None), None)
+    reference_snapshot = _resolve_reference_snapshot(
+        provider=provider,
+        symbol=symbol,
+        session_label=session_label,
+        scan_detail=scan_detail,
+        last_price=last_price,
+        current_volume=volume,
+        intraday_avg_volume_20d=avg_volume_20d,
+        rth_open_price=session_open,
+        rth_close_price=session_close,
+        ibkr_change_pct=ibkr_change_pct,
+        persisted_pct_change=_safe_float(getattr(quote, "persisted_pct_change", None), None),
+    )
+    prev_close = session_close if session_close is not None else reference_snapshot.get("prev_close")
+    avg_volume_20d = avg_volume_20d if avg_volume_20d is not None else reference_snapshot.get("average_daily_volume_20d")
+    avg_volume_window_days = avg_volume_window_days if avg_volume_window_days is not None else reference_snapshot.get("average_daily_volume_window_days")
+    rvol_discovery = rvol_discovery if rvol_discovery is not None else reference_snapshot.get("rvol_discovery")
+    rvol_phase = rvol_phase if rvol_phase is not None else reference_snapshot.get("rvol_phase")
+    scanner_rvol = scanner_rvol if scanner_rvol is not None else (rvol_phase if rvol_phase is not None else rvol_discovery)
+    if include_pct_change and prev_close is None and not _allow_history_enrichment(provider):
+        data_quality_flags.append("HISTORY_DISABLED")
     if include_pct_change and prev_close is None:
         data_quality_flags.append("HISTORY_UNKNOWN")
 
-    ibkr_change_pct = _safe_float(getattr(quote, "change_percent", None), None)
     pct_change = None
     pct_source = None
     reference_price = None
@@ -1856,21 +1884,7 @@ def _build_symbol_context(
         if normalized_session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"} and ibkr_change_pct is None:
             rth_open_price = None
         rth_close_price = session_close if normalized_session == "AH" else prev_close
-        reference_identity = CandidateIdentity.from_mapping({
-            "symbol": symbol,
-            "conId": scan_detail.get("conId"),
-            "secType": scan_detail.get("secType") or "STK",
-            "exchange": scan_detail.get("exchange") or scan_detail.get("primaryExchange") or "SMART",
-            "primaryExchange": scan_detail.get("primaryExchange"),
-            "tradingClass": scan_detail.get("tradingClass"),
-            "currency": scan_detail.get("currency") or "USD",
-            "localSymbol": scan_detail.get("localSymbol") or symbol,
-        })
-        print(
-            "[REFERENCE][REQUEST] "
-            f"symbol={symbol} conId={reference_identity.con_id} session={normalized_session} "
-            "reference_type=LAST_RTH_CLOSE source=history_or_snapshot"
-        )
+        reference_identity = reference_snapshot.get("identity")
         pct_payload = compute_session_aligned_pct_change(
             session_label=normalized_session,
             cur_last=last_price,
@@ -1886,13 +1900,8 @@ def _build_symbol_context(
         reference_label = pct_payload.reference_label
         open_relative_pct_change = pct_payload.open_relative_pct_change
         print(
-            "[REFERENCE][RESULT] "
-            f"symbol={symbol} conId={reference_identity.con_id} found={pct_payload.reference_price is not None} "
-            f"value={pct_payload.reference_price} asof={(history.get('lookup_key') if 'history' in locals() else symbol)} source=history_or_snapshot"
-        )
-        print(
             "[REFERENCE][MERGE] "
-            f"symbol={symbol} merge_target_found=True reference_label={pct_payload.reference_label} value={pct_payload.reference_price}"
+            f"symbol={symbol} identity_key={reference_snapshot.get('identity_key')} merge_target_found=True reference_label={pct_payload.reference_label} value={pct_payload.reference_price}"
         )
         print(
             "[DERIVED][PCT_GAP] "
@@ -1994,6 +2003,16 @@ def _build_symbol_context(
         "ibkr_change_pct": ibkr_change_pct,
         "volume": volume,
         "avg_volume_20d": avg_volume_20d,
+        "average_daily_volume_window_days": avg_volume_window_days,
+        "reference_source": reference_snapshot.get("reference_source"),
+        "reference_resolved": reference_snapshot.get("reference_resolved"),
+        "reference_asof_trading_date": reference_snapshot.get("reference_asof_trading_date"),
+        "adv20_source": reference_snapshot.get("adv20_source"),
+        "adv20_resolved": reference_snapshot.get("adv20_resolved"),
+        "identity_key": reference_snapshot.get("identity_key"),
+        "history_lookup_key_used": reference_snapshot.get("lookup_key"),
+        "reference_failure_reason": reference_snapshot.get("reference_failure_reason"),
+        "rvol_failure_reason": reference_snapshot.get("rvol_failure_reason"),
         "dollar_volume": dollar_volume,
         "bid": quote.bid,
         "ask": quote.ask,
@@ -2006,7 +2025,7 @@ def _build_symbol_context(
         "rvol_discovery": rvol_discovery,
         "rvol_phase": rvol_phase,
         "phase_volume_ratio": phase_rvol_payload.phase_ratio,
-        "expected_phase_volume": phase_rvol_payload.expected_phase_volume,
+        "expected_phase_volume": reference_snapshot.get("expected_phase_volume") if reference_snapshot.get("expected_phase_volume") is not None else phase_rvol_payload.expected_phase_volume,
         "time_normalized_rvol": time_normalized_rvol,
         "rvol": scanner_rvol,
         "relative_volume": time_normalized_rvol,
@@ -2492,6 +2511,7 @@ def run_scanner_cycle(
 ) -> Dict[str, Any]:
     global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE, _PERSISTENT_PROVIDER, _PERSISTENT_PROVIDER_SOURCE, _LAST_BROKER_SCAN_TS, _LAST_SCANNER_PAYLOAD
     _SCAN_CYCLE_COUNT += 1
+    _REFERENCE_RESOLVER.reset_cycle()
     utc_now = _utc_now()
     session_ctx = _market_session_context_utc(utc_now)
     session_label = forced_session_label or session_ctx.phase
