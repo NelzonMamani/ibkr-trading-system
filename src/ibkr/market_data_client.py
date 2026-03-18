@@ -406,6 +406,37 @@ class MarketDataClient:
         latest = bars[-1]
         return _clean(getattr(latest, "close", None))
 
+    def daily_bars_from_history(self, contract_or_symbol, *, lookback_days: int = 25, use_rth: bool = True):
+        contract = contract_or_symbol
+        if isinstance(contract_or_symbol, str):
+            try:
+                contract = self.qualify_contract(contract_or_symbol)
+            except Exception:
+                return []
+        if contract is None:
+            return []
+        try:
+            return self._resolve_ib_client().reqHistoricalData(
+                contract,
+                endDateTime="",
+                durationStr=f"{max(lookback_days, 3)} D",
+                barSizeSetting="1 day",
+                whatToShow="TRADES",
+                useRTH=use_rth,
+                formatDate=1,
+            ) or []
+        except Exception:
+            return []
+
+    def average_daily_volume_from_history(self, contract_or_symbol, *, window: int = 20, use_rth: bool = True) -> tuple[Optional[int], Optional[int]]:
+        bars = self.daily_bars_from_history(contract_or_symbol, lookback_days=max(window, 3), use_rth=use_rth)
+        volumes = [_clean(getattr(bar, "volume", None)) for bar in bars]
+        volumes = [int(v) for v in volumes if v is not None]
+        if not volumes:
+            return None, None
+        sample = volumes[-min(window, len(volumes)):]
+        return int(sum(sample) / len(sample)), len(sample)
+
     def _empty_snapshot(
         self,
         symbol: str,
