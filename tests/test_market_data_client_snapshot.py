@@ -65,6 +65,9 @@ class DummyIB:
             "volume": self.ticker.volume,
         }
 
+    def qualifyContracts(self, *contracts):
+        return list(contracts)
+
 
 class DummyConnectionManager:
     def __init__(self, client):
@@ -93,6 +96,24 @@ def test_snapshot_waits_for_required_ticks_before_cancel():
     assert snapshot.last == 101.0
     assert snapshot.close == 100.0
     assert snapshot.volume == 12000
+
+
+def test_snapshot_stock_accepts_qualified_contract_without_requalification():
+    client = _client_with_dummy_ib()
+    contract = type("Contract", (), {
+        "symbol": "AAPL",
+        "conId": 123,
+        "exchange": "SMART",
+        "primaryExchange": "NASDAQ",
+        "tradingClass": "NMS",
+        "localSymbol": "AAPL",
+    })()
+
+    snapshot = client.snapshot_stock(contract)
+
+    assert snapshot.symbol == "AAPL"
+    assert client.last_snapshot_debug["contract"]["conId"] == 123
+    assert client.last_snapshot_debug["contract"]["primaryExchange"] == "NASDAQ"
 
 
 def test_live_snapshot_populates_pct_change_before_gating():
@@ -148,4 +169,3 @@ def test_history_helpers_retry_with_use_rth_false_when_primary_returns_zero_bars
     assert window == 1
     assert dummy_ib.history_calls[0]["useRTH"] is True
     assert dummy_ib.history_calls[1]["useRTH"] is False
-
