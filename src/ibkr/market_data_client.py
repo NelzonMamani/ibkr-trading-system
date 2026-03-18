@@ -425,14 +425,14 @@ class MarketDataClient:
         latest = bars[-1]
         return _clean(getattr(latest, "close", None))
 
-    def daily_bars_from_history(self, contract_or_symbol, *, lookback_days: int = 25, use_rth: bool = True):
+    def daily_bars_from_history(self, contract_or_symbol, *, lookback_days: int = 25, use_rth: bool = True, end_datetime: str = ""):
         contract = self._canonicalize_history_contract(contract_or_symbol)
         if contract is None:
             return []
         try:
             return self._resolve_ib_client().reqHistoricalData(
                 contract,
-                endDateTime="",
+                endDateTime=end_datetime,
                 durationStr=f"{max(lookback_days, 3)} D",
                 barSizeSetting="1 day",
                 whatToShow="TRADES",

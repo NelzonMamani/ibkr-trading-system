@@ -305,11 +305,11 @@ def test_reference_resolver_reads_persistent_cache_on_subsequent_attempts(tmp_pa
         persisted_pct_change=None,
     )
     assert second.reference_price == 10.0
-    assert second.reference_source == 'IBKR_DAILY_BARS'
+    assert second.reference_source == 'CACHED_CLOSE_FALLBACK'
 
 
-def test_reference_resolver_exposes_explicit_failure_reasons_when_history_unavailable():
-    from src.scanner.reference_resolver import CanonicalReferenceResolver
+def test_reference_resolver_exposes_explicit_failure_reasons_when_history_unavailable(tmp_path):
+    from src.scanner.reference_resolver import CanonicalReferenceResolver, PersistentReferenceCache
 
     class EmptyProvider(DummyProvider):
         def get_intraday_stats(self, symbol: str):
@@ -324,7 +324,7 @@ def test_reference_resolver_exposes_explicit_failure_reasons_when_history_unavai
         def get_daily_bars(self, identity, lookback_days: int):
             return []
 
-    resolver = CanonicalReferenceResolver()
+    resolver = CanonicalReferenceResolver(PersistentReferenceCache(tmp_path / 'reference_cache.json'))
     identity = CandidateIdentity.from_mapping({'symbol': 'MISS', 'conId': 999, 'exchange': 'SMART', 'currency': 'USD'})
     result = resolver.resolve(
         identity=identity,

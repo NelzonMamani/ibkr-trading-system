@@ -22,8 +22,11 @@ class CandidateMetrics:
     pct_change: Optional[float]
     pct_change_resolved: Optional[float]
     pct_change_qualification_usable: Optional[bool]
+    pct_change_execution_usable: Optional[bool]
     pct_change_source_quality: Optional[str]
     pct_change_degraded: Optional[bool]
+    pct_change_synthetic: Optional[bool]
+    pct_change_failure_reason: Optional[str]
     gap_pct_resolved: Optional[float]
     gap_source: Optional[str]
     context_status: Optional[str]
@@ -46,7 +49,12 @@ class CandidateMetrics:
     avg_volume_20d: Optional[int]
     adv20_resolved: Optional[bool]
     degraded_adv20: Optional[bool]
+    adv20_source: Optional[str]
     rvol_status: Optional[str]
+    rvol_failure_reason: Optional[str]
+    rvol_degraded: Optional[bool]
+    rvol_qualification_usable: Optional[bool]
+    rvol_execution_usable: Optional[bool]
     degraded_rvol_gate_bypass: Optional[bool]
     float_shares: Optional[int]
     float_source: Optional[str]
@@ -77,6 +85,7 @@ class CandidateMetrics:
     degraded_reference: Optional[bool] = None
     degraded_pct_change: Optional[bool] = None
     degraded_rvol: Optional[bool] = None
+    reference_synthetic: Optional[bool] = None
     degraded_focus_eligibility: Optional[bool] = None
     degraded_execution_eligibility: Optional[bool] = None
     watchlist_eligible: Optional[bool] = None

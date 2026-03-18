@@ -87,6 +87,30 @@ class _WeakSnapshotProvider(_BaseProvider):
     pass
 
 
+class _ProviderPrevCloseFallbackProvider(_BaseProvider):
+    def get_daily_bars(self, identity, lookback_days: int):
+        return []
+
+    def get_previous_rth_close(self, identity) -> Optional[float]:
+        return 101.0
+
+
+class _SyntheticPctProvider(_BaseProvider):
+    def __init__(self):
+        super().__init__(last=110.0, close=None, volume=180_000, adv20=120_000)
+
+    def get_daily_bars(self, identity, lookback_days: int):
+        return []
+
+
+class _QuoteCloseFallbackProvider(_BaseProvider):
+    def __init__(self):
+        super().__init__(last=110.0, close=102.0, volume=180_000, adv20=100_000)
+
+    def get_daily_bars(self, identity, lookback_days: int):
+        return []
+
+
 @pytest.fixture(autouse=True)
 def _reset_scanner_state() -> None:
     reset_scanner_runtime_state()
@@ -191,6 +215,100 @@ def test_snapshot_last_price_fallback_is_continuity_only_in_pre() -> None:
     assert "PCT_CHANGE_CONTINUITY_ONLY" in context["eligibility_reason_codes"]
 
 
+def test_rth_zero_bars_recovers_reference_from_provider_prev_close() -> None:
+    context = _build_symbol_context(_ProviderPrevCloseFallbackProvider(), "AAPL", "RTH_OPEN", {})
+    assert context is not None
+    assert context["reference_source"] == "PROVIDER_PREV_CLOSE_FALLBACK"
+    assert context["reference_quality_tier"] == "SECONDARY"
+    assert context["pct_change"] == pytest.approx(8.91, rel=1e-2)
+    assert context["pct_change_qualification_usable"] is True
+    assert context["pct_change_execution_usable"] is True
+    assert context["focus_eligible"] is True
+
+
+def test_rth_zero_bars_recovers_reference_from_quote_close() -> None:
+    context = _build_symbol_context(_QuoteCloseFallbackProvider(), "AAPL", "RTH_OPEN", {})
+    assert context is not None
+    assert context["reference_source"] == "QUOTE_CLOSE_FALLBACK"
+    assert context["pct_change_qualification_usable"] is True
+    assert context["execution_eligible"] is True
+
+
+def test_rth_synthetic_pct_reference_is_explicitly_degraded_and_not_execution_usable(tmp_path: Path) -> None:
+    provider = _SyntheticPctProvider()
+    context = _build_symbol_context(provider, "AAPL", "RTH_OPEN", {})
+    assert context is not None
+    context["ibkr_change_pct"] = 10.0
+    identity = CandidateIdentity.from_mapping({
+        "symbol": "AAPL",
+        "conId": 101,
+        "secType": "STK",
+        "exchange": "SMART",
+        "primaryExchange": "NASDAQ",
+        "currency": "USD",
+    })
+    result = CanonicalReferenceResolver(cache=PersistentReferenceCache(tmp_path / "synthetic_cache.json")).resolve(
+        identity=identity,
+        provider=provider,
+        session_label="RTH_OPEN",
+        current_volume=180_000,
+        intraday_avg_volume_20d=120_000,
+        current_last_price=110.0,
+        rth_open_price=108.0,
+        rth_close_price=109.0,
+        ibkr_change_pct=10.0,
+        persisted_pct_change=None,
+    )
+    assert result.reference_source == "SCANNER_PCT_SYNTHETIC_FALLBACK"
+    assert result.reference_quality_tier == "DEGRADED_SYNTHETIC"
+    assert result.qualification_usable_reference is False
+    assert result.execution_usable_reference is False
+
+
+def test_rth_synthetic_reference_allows_degraded_focus_but_not_execution(tmp_path: Path) -> None:
+    provider = _SyntheticPctProvider()
+    identity = CandidateIdentity.from_mapping({
+        "symbol": "AAPL",
+        "conId": 101,
+        "secType": "STK",
+        "exchange": "SMART",
+        "primaryExchange": "NASDAQ",
+        "currency": "USD",
+    })
+    result = CanonicalReferenceResolver(cache=PersistentReferenceCache(tmp_path / "synthetic_focus_cache.json")).resolve(
+        identity=identity,
+        provider=provider,
+        session_label="RTH_OPEN",
+        current_volume=180_000,
+        intraday_avg_volume_20d=120_000,
+        current_last_price=110.0,
+        rth_open_price=108.0,
+        rth_close_price=109.0,
+        ibkr_change_pct=10.0,
+        persisted_pct_change=None,
+    )
+    context = {
+        "session": "RTH_OPEN",
+        "symbol": "AAPL",
+        "execution_ready": True,
+        "reference_quality_tier": "DEGRADED_SYNTHETIC",
+        "pct_change_qualification_usable": True,
+        "pct_change_execution_usable": False,
+        "pct_change_degraded": True,
+        "rvol_status": "RESOLVED",
+        "adv20_resolved": True,
+        "continuity_usable_reference": True,
+        "degraded_rvol_gate_bypass": False,
+        "eligibility_reason_codes": [],
+    }
+    scanner_runner._apply_degraded_contract(context)
+    assert context["watchlist_eligible"] is True
+    assert context["focus_eligible"] is True
+    assert context["execution_eligible"] is False
+    assert context["execution_ready"] is False
+    assert "SYNTHETIC_REFERENCE_DEGRADED" in context["eligibility_reason_codes"]
+
+
 def test_pre_missing_pct_change_does_not_hard_drop_when_continuity_only() -> None:
     provider = _WeakSnapshotProvider(last=110.0, close=None, volume=180_000, adv20=None)
     context = _build_symbol_context(provider, "AAPL", "PRE", {})
@@ -245,3 +363,10 @@ def test_fully_qualified_symbol_outranks_degraded_symbol() -> None:
 
     assert qualified_score > degraded_score
     assert degraded["execution_eligible"] is False
+
+
+def test_unresolved_reference_cannot_remain_execution_ready() -> None:
+    context = _build_symbol_context(_WeakSnapshotProvider(last=110.0, close=None, volume=180_000, adv20=None), "AAPL", "RTH_OPEN", {})
+    assert context is not None
+    assert context["reference_source"] == "UNRESOLVED" or context["execution_eligible"] is False
+    assert context["execution_ready"] is False

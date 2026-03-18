@@ -48,6 +48,7 @@ class CanonicalReferenceResult:
     reference_resolved: bool
     continuity_usable_reference: bool
     qualification_usable_reference: bool
+    execution_usable_reference: bool
     reference_asof_trading_date: Optional[str]
     avg_volume_20d: Optional[int]
     average_daily_volume_window_days: Optional[int]
@@ -59,6 +60,8 @@ class CanonicalReferenceResult:
     history_lookup_key_used: Optional[str]
     reference_failure_reason: Optional[str]
     rvol_failure_reason: Optional[str]
+    reference_degraded: bool
+    reference_synthetic: bool
 
 
 class PersistentReferenceCache:
@@ -98,6 +101,9 @@ class CanonicalReferenceResolver:
     REFERENCE_QUALITY_BY_SOURCE = {
         "IBKR_DAILY_BARS": "PRIMARY",
         "CACHED_CLOSE_FALLBACK": "SECONDARY",
+        "PROVIDER_PREV_CLOSE_FALLBACK": "SECONDARY",
+        "QUOTE_CLOSE_FALLBACK": "SECONDARY",
+        "SCANNER_PCT_SYNTHETIC_FALLBACK": "DEGRADED_SYNTHETIC",
         "SNAPSHOT_LAST_PRICE_FALLBACK": "WEAK",
         "UNRESOLVED": "NONE",
     }
@@ -239,22 +245,34 @@ class CanonicalReferenceResolver:
             print(f"[REFERENCE][CACHE_MISS] symbol={identity.symbol} identity_key={identity.key} source=persistent_skipped_no_conid")
 
         history_identity, qualified_ok = self._qualify_history_identity(provider, identity)
-        bars = self._request_historical_daily_bars(provider, history_identity) if qualified_ok else []
+        bars = self._request_historical_daily_bars(provider, history_identity, session_label=session_label) if qualified_ok else []
         prev_close = self._last_completed_close(bars)
         snapshot_reference = None
         reference_source = "UNRESOLVED"
-        if prev_close is None and not bars:
-            snapshot_reference = self._snapshot_reference_fallback(session_label=session_label, rth_close_price=rth_close_price, current_last_price=current_last_price)
-            if snapshot_reference is not None:
-                prev_close = snapshot_reference
-                reference_source = "SNAPSHOT_LAST_PRICE_FALLBACK"
-        elif prev_close is not None:
+        if prev_close is not None:
             reference_source = "IBKR_DAILY_BARS"
+        elif (provider_prev_close := self._provider_prev_close_fallback(provider, history_identity)) is not None:
+            prev_close = provider_prev_close
+            reference_source = "PROVIDER_PREV_CLOSE_FALLBACK"
+        elif (quote_close := self._quote_close_fallback(provider, identity)) is not None:
+            prev_close = quote_close
+            reference_source = "QUOTE_CLOSE_FALLBACK"
+        elif normalize_session_label(session_label) in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"} and (
+            synthetic_reference := self._scanner_pct_synthetic_fallback(current_last_price=current_last_price, ibkr_change_pct=ibkr_change_pct)
+        ) is not None:
+            prev_close = synthetic_reference
+            reference_source = "SCANNER_PCT_SYNTHETIC_FALLBACK"
+        elif (snapshot_reference := self._snapshot_reference_fallback(session_label=session_label, rth_close_price=rth_close_price, current_last_price=current_last_price)) is not None:
+            prev_close = snapshot_reference
+            reference_source = "SNAPSHOT_LAST_PRICE_FALLBACK"
         avg_volume, window_days = self._average_volume(bars)
-        reference_failure_reason = None if prev_close is not None else ("HISTORY_UNAVAILABLE" if qualified_ok else "QUALIFY_FAILED")
-        adv_source = "INTRADAY_STATS" if intraday_avg_volume_20d is not None else ("IBKR_DAILY_BARS" if avg_volume is not None else "UNRESOLVED")
-        resolved_avg_volume = intraday_avg_volume_20d if intraday_avg_volume_20d is not None else avg_volume
-        resolved_window_days = 20 if intraday_avg_volume_20d is not None else window_days
+        provider_avg_volume, provider_window = self._provider_adv20_fallback(provider, history_identity)
+        reference_failure_reason = None
+        if reference_source != "IBKR_DAILY_BARS":
+            reference_failure_reason = "HISTORY_UNAVAILABLE" if qualified_ok else "QUALIFY_FAILED"
+        adv_source = "INTRADAY_STATS" if intraday_avg_volume_20d is not None else ("IBKR_DAILY_BARS" if avg_volume is not None else ("PROVIDER_ADV20_FALLBACK" if provider_avg_volume is not None else "UNAVAILABLE"))
+        resolved_avg_volume = intraday_avg_volume_20d if intraday_avg_volume_20d is not None else (avg_volume if avg_volume is not None else provider_avg_volume)
+        resolved_window_days = 20 if intraday_avg_volume_20d is not None else (window_days if window_days is not None else provider_window)
         rvol_failure_reason = None if resolved_avg_volume is not None else "ADV20_UNAVAILABLE"
         if bars:
             print(
@@ -289,6 +307,8 @@ class CanonicalReferenceResolver:
             "history_lookup_key_used": history_identity.key if bars else None,
             "reference_failure_reason": reference_failure_reason,
             "rvol_failure_reason": rvol_failure_reason,
+            "reference_degraded": reference_source in {"CACHED_CLOSE_FALLBACK", "PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK", "SCANNER_PCT_SYNTHETIC_FALLBACK", "SNAPSHOT_LAST_PRICE_FALLBACK"},
+            "reference_synthetic": reference_source == "SCANNER_PCT_SYNTHETIC_FALLBACK",
         }
         if (prev_close is not None or resolved_avg_volume is not None) and identity.con_id not in {None, 0}:
             self.cache.put(cache_keys, payload)
@@ -309,7 +329,7 @@ class CanonicalReferenceResolver:
             return float(current_last_price)
         return None
 
-    def _request_historical_daily_bars(self, provider: Any, identity: CandidateIdentity) -> list[HistoricalDailyBar]:
+    def _request_historical_daily_bars(self, provider: Any, identity: CandidateIdentity, *, session_label: str) -> list[HistoricalDailyBar]:
         get_bars = getattr(provider, "get_daily_bars", None)
         if callable(get_bars) and _has_concrete_method(provider, "get_daily_bars"):
             print(
@@ -317,6 +337,13 @@ class CanonicalReferenceResolver:
                 f"{self._history_contract_fields(identity)}"
             )
             bars = self._normalize_bars(get_bars(identity, lookback_days=25))
+            if not bars and normalize_session_label(session_label) in {"RTH", "RTH_OPEN"}:
+                explicit_end = f"{date.today().strftime('%Y%m%d')} 09:29:59 US/Eastern"
+                print(f"[REFERENCE][HISTORICAL_RETRY] identity_key={identity.key} reason=ZERO_BARS_RTH_PRIMARY retry_useRTH=False endDateTime='{explicit_end}'")
+                try:
+                    bars = self._normalize_bars(get_bars(identity, lookback_days=25, use_rth=False, end_datetime=explicit_end))
+                except TypeError:
+                    bars = []
             if bars:
                 print(
                     f"[REFERENCE][HISTORICAL_RESPONSE] identity_key={identity.key} bar_count={len(bars)} "
@@ -382,6 +409,50 @@ class CanonicalReferenceResolver:
             )
         return synthetic
 
+    def _provider_prev_close_fallback(self, provider: Any, identity: CandidateIdentity) -> Optional[float]:
+        prev_close = getattr(provider, "get_previous_rth_close", None)
+        if callable(prev_close):
+            value = prev_close(identity)
+            if value is not None:
+                return float(value)
+        legacy_prev_close = getattr(provider, "get_prev_close", None)
+        if callable(legacy_prev_close):
+            value = legacy_prev_close(identity.symbol)
+            if value is not None:
+                return float(value)
+        return None
+
+    def _quote_close_fallback(self, provider: Any, identity: CandidateIdentity) -> Optional[float]:
+        get_quote = getattr(provider, "get_quote", None)
+        if not callable(get_quote):
+            return None
+        try:
+            quote = get_quote(identity.symbol)
+        except Exception:
+            return None
+        return _to_float(getattr(quote, "close", None))
+
+    def _provider_adv20_fallback(self, provider: Any, identity: CandidateIdentity) -> tuple[Optional[int], Optional[int]]:
+        avg_volume = getattr(provider, "get_average_daily_volume", None)
+        if callable(avg_volume):
+            try:
+                resolved = avg_volume(identity, window=20)
+            except Exception:
+                return None, None
+            if not isinstance(resolved, tuple) or len(resolved) != 2:
+                return None, None
+            avg, window = resolved
+            return _to_int(avg), _to_int(window)
+        return None, None
+
+    def _scanner_pct_synthetic_fallback(self, *, current_last_price: Optional[float], ibkr_change_pct: Optional[float]) -> Optional[float]:
+        price = _to_float(current_last_price)
+        pct = _to_float(ibkr_change_pct)
+        if price is None or pct is None or pct <= -100:
+            return None
+        base = price / (1.0 + (pct / 100.0))
+        return round(base, 4) if base > 0 else None
+
     def _normalize_bars(self, bars: Any) -> list[HistoricalDailyBar]:
         normalized: list[HistoricalDailyBar] = []
         for bar in bars or []:
@@ -420,6 +491,9 @@ class CanonicalReferenceResolver:
         reference_quality_tier = self.REFERENCE_QUALITY_BY_SOURCE.get(reference_source, "NONE")
         continuity_usable_reference = reference_source != "UNRESOLVED"
         qualification_usable_reference = reference_source in {"IBKR_DAILY_BARS", "CACHED_CLOSE_FALLBACK"}
+        if reference_source in {"PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK"}:
+            qualification_usable_reference = True
+        execution_usable_reference = reference_source in {"IBKR_DAILY_BARS", "CACHED_CLOSE_FALLBACK", "PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK"}
         return CanonicalReferenceResult(
             identity_key=identity.key,
             symbol=identity.symbol,
@@ -430,6 +504,7 @@ class CanonicalReferenceResolver:
             reference_resolved=bool(payload.get("reference_resolved")),
             continuity_usable_reference=continuity_usable_reference,
             qualification_usable_reference=qualification_usable_reference,
+            execution_usable_reference=execution_usable_reference,
             reference_asof_trading_date=payload.get("asof_trading_date"),
             avg_volume_20d=avg_volume_20d,
             average_daily_volume_window_days=_to_int(payload.get("average_daily_volume_window_days")),
@@ -441,6 +516,8 @@ class CanonicalReferenceResolver:
             history_lookup_key_used=payload.get("history_lookup_key_used"),
             reference_failure_reason=payload.get("reference_failure_reason"),
             rvol_failure_reason=payload.get("rvol_failure_reason"),
+            reference_degraded=bool(payload.get("reference_degraded")),
+            reference_synthetic=bool(payload.get("reference_synthetic")),
         )
 
 
