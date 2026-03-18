@@ -10,6 +10,7 @@ import threading
 
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 
+
 from src.config.config_resolver import get_config
 from src.config.runtime_config import (
     get_ibkr_client_id,
@@ -232,32 +233,57 @@ class MarketDataClient:
             raise
 
     def qualify_contract(self, symbol: str):
-        _, Stock, _ = safe_import_ib_insync()
-        contract = Stock(symbol, self.default_exchange, self.default_currency)
-        try:
-            import asyncio
+        from ib_insync import Contract
 
-            async def _qualify_with_timeout():
-                return await asyncio.wait_for(
-                    self._resolve_ib_client().qualifyContractsAsync(contract),
-                    timeout=self.snapshot_timeout_seconds,
+        contract = Contract(
+            symbol=str(symbol or "").upper(),
+            secType="STK",
+            exchange="SMART",
+            currency="USD",
+        )
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                async def _qualify_with_timeout():
+                    return await asyncio.wait_for(
+                        self._resolve_ib_client().qualifyContractsAsync(contract),
+                        timeout=self.snapshot_timeout_seconds,
+                    )
+
+                qualify_coro = _qualify_with_timeout()
+                ib = self._resolve_ib_client()
+                runner = getattr(ib, "run", None)
+                if callable(runner):
+                    qualified = runner(qualify_coro)
+                else:
+                    qualified = asyncio.run(qualify_coro)
+            except Exception as exc:
+                last_error = exc
+                if "qualify_coro" in locals():
+                    qualify_coro.close()
+                print(
+                    "[SNAPSHOT][QUALITY] CONTRACT_QUALIFY_FAILED "
+                    f"symbol={contract.symbol} attempt={attempt}/3 error={exc}"
                 )
-
-            qualify_coro = _qualify_with_timeout()
-
-            ib = self._resolve_ib_client()
-            runner = getattr(ib, "run", None)
-            if callable(runner):
-                qualified = runner(qualify_coro)
-            else:
-                qualified = asyncio.run(qualify_coro)
-        except Exception:
-            if "qualify_coro" in locals():
-                qualify_coro.close()
-            return None
-        if not qualified:
-            return None
-        return qualified[0]
+                if attempt >= 3:
+                    raise RuntimeError(
+                        f"CONTRACT_QUALIFY_FAILED symbol={contract.symbol} error={exc}"
+                    ) from exc
+                continue
+            if qualified:
+                return qualified[0]
+            last_error = RuntimeError("qualifyContractsAsync returned no contracts")
+            print(
+                "[SNAPSHOT][QUALITY] CONTRACT_QUALIFY_FAILED "
+                f"symbol={contract.symbol} attempt={attempt}/3 error={last_error}"
+            )
+            if attempt >= 3:
+                raise RuntimeError(
+                    f"CONTRACT_QUALIFY_FAILED symbol={contract.symbol} error={last_error}"
+                )
+        raise RuntimeError(
+            f"CONTRACT_QUALIFY_FAILED symbol={contract.symbol} error={last_error or 'unknown'}"
+        )
 
     def qualifyContracts(self, *contracts):
         """
@@ -272,7 +298,7 @@ class MarketDataClient:
 
     def snapshot_stock(self, contract_or_symbol) -> MarketDataSnapshot:
         now_utc = datetime.now(timezone.utc)
-        flags = _market_data_type_flags(self.market_data_type)
+        base_flags = _market_data_type_flags(self.market_data_type)
         symbol = getattr(contract_or_symbol, "symbol", None) or str(contract_or_symbol or "").upper()
         self.last_snapshot_debug = {
             "requested_symbol": symbol,
@@ -288,16 +314,18 @@ class MarketDataClient:
         try:
             contract = self._canonicalize_history_contract(contract_or_symbol)
         except Exception as exc:
-            flags.append("CONTRACT_QUALIFY_FAILED")
+            flags = list(base_flags) + ["CONTRACT_QUALIFY_FAILED"]
             self.last_snapshot_debug.update(
                 {"qualification_error": str(exc), "timeout_occurred": False, "waited_seconds": 0.0}
             )
+            print(f"[SNAPSHOT][QUALITY] CONTRACT_QUALIFY_FAILED symbol={symbol} error={exc}")
             return self._empty_snapshot(symbol, flags, error=str(exc))
         if contract is None:
-            flags.append("CONTRACT_QUALIFY_FAILED")
+            flags = list(base_flags) + ["CONTRACT_QUALIFY_FAILED"]
             self.last_snapshot_debug.update(
                 {"qualification_error": "contract_none", "timeout_occurred": False, "waited_seconds": 0.0}
             )
+            print(f"[SNAPSHOT][QUALITY] CONTRACT_QUALIFY_FAILED symbol={symbol} error=contract_none")
             return self._empty_snapshot(symbol, flags)
         self.last_snapshot_debug["contract"] = {
             "symbol": getattr(contract, "symbol", None),
@@ -309,55 +337,102 @@ class MarketDataClient:
         }
 
         ib = self._resolve_ib_client()
-        ticker = ib.reqMktData(
-            contract,
-            genericTickList="",
-            snapshot=True,
-            regulatorySnapshot=False,
-        )
-        started_at = time.time()
-        timeout_at = time.time() + self.snapshot_timeout_seconds
-        snapshot_complete = False
-        while time.time() < timeout_at:
-            ib.waitOnUpdate(timeout=0.2)
-            if self._ticker_has_required_snapshot(ticker):
-                snapshot_complete = True
-                break
-            if self._ticker_snapshot_complete(ticker):
-                snapshot_complete = True
-                break
-        else:
-            flags.append("MD_TIMEOUT")
-        waited_seconds = round(time.time() - started_at, 3)
-        self.last_snapshot_debug["waited_seconds"] = waited_seconds
-        self.last_snapshot_debug["timeout_occurred"] = "MD_TIMEOUT" in flags
+        attempts = [
+            (True, self.market_data_type, "primary"),
+            (True, self.market_data_type, "snapshot_retry"),
+        ]
+        normalized_type = (self.market_data_type or "").upper()
+        if normalized_type not in {"DELAYED", "DELAYED_FROZEN"}:
+            attempts.append((True, "DELAYED", "delayed_fallback"))
 
-        if not snapshot_complete:
-            ib.cancelMktData(contract)
-        if "MD_TIMEOUT" in flags and not self._ticker_has_data(ticker):
-            self.last_snapshot_debug["raw_fields"] = self._snapshot_debug_fields(ticker)
-            return self._empty_snapshot(symbol, flags)
+        best_ticker = None
+        best_debug = None
+        best_fields = None
+        final_flags = list(base_flags)
+        snapshot_timestamp = now_utc
 
-        snapshot_timestamp = _resolve_snapshot_timestamp(ticker, now_utc)
+        for attempt_index, (snapshot_mode, market_data_type, attempt_label) in enumerate(attempts, start=1):
+            flags = _market_data_type_flags(market_data_type)
+            data_type_code = _market_data_type_code(market_data_type)
+            req_market_data_type = getattr(ib, "reqMarketDataType", None)
+            if callable(req_market_data_type):
+                req_market_data_type(data_type_code)
+            ticker = ib.reqMktData(
+                contract,
+                genericTickList="",
+                snapshot=snapshot_mode,
+                regulatorySnapshot=False,
+            )
+            started_at = time.time()
+            timeout_at = started_at + self.snapshot_timeout_seconds
+            snapshot_complete = False
+            while time.time() < timeout_at:
+                ib.waitOnUpdate(timeout=0.2)
+                if self._ticker_has_required_snapshot(ticker):
+                    snapshot_complete = True
+                    break
+                if self._ticker_snapshot_complete(ticker):
+                    snapshot_complete = True
+                    break
+            waited_seconds = round(time.time() - started_at, 3)
+            raw_fields = self._snapshot_debug_fields(ticker)
+            missing_fields = [field for field in ("last", "close", "volume") if raw_fields.get(field) is None]
+            attempt_debug = {
+                "attempt": attempt_index,
+                "label": attempt_label,
+                "market_data_type": market_data_type,
+                "waited_seconds": waited_seconds,
+                "timeout_occurred": not snapshot_complete,
+                "raw_fields": raw_fields,
+                "missing_fields": missing_fields,
+            }
+            self.last_snapshot_debug = {**self.last_snapshot_debug, **attempt_debug}
+            if not snapshot_complete:
+                flags.append("MD_TIMEOUT")
+            if not snapshot_complete or missing_fields:
+                ib.cancelMktData(contract)
+            if best_fields is None or sum(v is not None for v in raw_fields.values()) > sum(v is not None for v in (best_fields or {}).values()):
+                best_ticker = ticker
+                best_debug = attempt_debug
+                best_fields = raw_fields
+                final_flags = list(flags)
+                snapshot_timestamp = _resolve_snapshot_timestamp(ticker, now_utc)
+            if not missing_fields:
+                best_ticker = ticker
+                best_debug = attempt_debug
+                best_fields = raw_fields
+                final_flags = list(flags)
+                snapshot_timestamp = _resolve_snapshot_timestamp(ticker, now_utc)
+                break
+            print(
+                f"[SNAPSHOT][RETRY] symbol={symbol} attempt={attempt_index}/{len(attempts)} "
+                f"label={attempt_label} missing={missing_fields} market_data_type={market_data_type}"
+            )
+
+        if best_ticker is None or best_fields is None or best_debug is None:
+            return self._empty_snapshot(symbol, list(base_flags) + ["MD_EMPTY"])
+
+        self.last_snapshot_debug.update(best_debug)
+        self.last_snapshot_debug["raw_fields"] = best_fields
+
         max_age_seconds = int(get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS"))
         age_seconds = (now_utc - snapshot_timestamp).total_seconds()
         if age_seconds > max_age_seconds:
-            flags.append("MD_STALE")
+            final_flags.append("MD_STALE")
 
-        bid = _clean(getattr(ticker, "bid", None))
-        ask = _clean(getattr(ticker, "ask", None))
-        last = _clean(getattr(ticker, "last", None))
-        last_size = _clean(getattr(ticker, "lastSize", None))
-        bid_size = _clean(getattr(ticker, "bidSize", None))
-        ask_size = _clean(getattr(ticker, "askSize", None))
-        volume = _clean(getattr(ticker, "volume", None))
-        vwap = _clean(getattr(ticker, "vwap", None))
-        high = _clean(getattr(ticker, "high", None))
-        low = _clean(getattr(ticker, "low", None))
-        close = _clean(getattr(ticker, "close", None))
-        open_price = _clean(getattr(ticker, "open", None))
-        change_percent = _clean(getattr(ticker, "changePercent", None))
-        self.last_snapshot_debug["raw_fields"] = self._snapshot_debug_fields(ticker)
+        bid = _clean(getattr(best_ticker, "bid", None))
+        ask = _clean(getattr(best_ticker, "ask", None))
+        last = _clean(getattr(best_ticker, "last", None))
+        last_size = _clean(getattr(best_ticker, "lastSize", None))
+        bid_size = _clean(getattr(best_ticker, "bidSize", None))
+        ask_size = _clean(getattr(best_ticker, "askSize", None))
+        volume = _clean(getattr(best_ticker, "volume", None))
+        vwap = _clean(getattr(best_ticker, "vwap", None))
+        high = _clean(getattr(best_ticker, "high", None))
+        low = _clean(getattr(best_ticker, "low", None))
+        close = _clean(getattr(best_ticker, "close", None))
+        open_price = _clean(getattr(best_ticker, "open", None))
+        change_percent = _clean(getattr(best_ticker, "changePercent", None))
         if get_config("DEBUG_MARKET_DATA"):
             print(
                 "[IBKR][MD][DEBUG] ticks "
@@ -366,15 +441,18 @@ class MarketDataClient:
             )
         spread = (ask - bid) if bid is not None and ask is not None else None
         if self._recent_error_codes.get("10197"):
-            flags.append("MD_CONFLICT_10197")
+            final_flags.append("MD_CONFLICT_10197")
         if bid is None and ask is None and last is None:
-            flags.append("MD_EMPTY")
+            final_flags.append("MD_EMPTY")
         if last is None:
-            flags.append("MD_MISSING_LAST")
+            final_flags.append("MD_MISSING_LAST")
         if close is None:
-            flags.append("MD_MISSING_CLOSE")
+            final_flags.append("MD_MISSING_CLOSE")
         if volume is None:
-            flags.append("MD_MISSING_VOLUME")
+            final_flags.append("MD_MISSING_VOLUME")
+        final_flags = list(dict.fromkeys(final_flags))
+        if last is not None and volume is not None:
+            print(f"[SNAPSHOT_OK] symbol={symbol} last={last} close={close} volume={volume}")
 
         return MarketDataSnapshot(
             symbol=symbol,
@@ -393,7 +471,7 @@ class MarketDataClient:
             change_percent=change_percent,
             spread=spread,
             timestamp_utc=snapshot_timestamp.isoformat(),
-            data_quality_flags=flags,
+            data_quality_flags=final_flags,
         )
 
     @staticmethod
