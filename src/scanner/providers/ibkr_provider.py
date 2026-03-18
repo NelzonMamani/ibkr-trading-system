@@ -132,10 +132,7 @@ class IbkrScannerProvider(ScannerDataProvider):
             self.connection_manager = connection_manager or get_shared_ibkr_connection_manager(
                 readonly_enabled=True
             )
-        self.market_data_client = market_data_client or MarketDataClient(
-            connection_manager=self.connection_manager,
-            allow_direct_connection=False,
-        )
+        self.market_data_client = market_data_client or self.connection_manager.get_market_data_client()
         if getattr(self.market_data_client, "connection_manager", None) is None:
             raise RuntimeError(
                 "IBKR connections must be created only by IBKRConnectionManager"

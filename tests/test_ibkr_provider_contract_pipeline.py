@@ -104,3 +104,23 @@ def test_provider_get_quote_uses_symbol_metadata_backed_contract_and_renames_tim
     assert quote.last == 10.5
     assert "CONTRACT_QUALIFY_FAILED" not in quote.data_quality_flags
     assert "SNAPSHOT_TIMEOUT" in quote.data_quality_flags
+
+
+class DummyConnectionManager:
+    def __init__(self, client):
+        self._client = client
+        self.calls = 0
+
+    def get_market_data_client(self):
+        self.calls += 1
+        return self._client
+
+
+def test_provider_uses_connection_manager_market_data_client_factory():
+    client = DummyMarketDataClient()
+    manager = DummyConnectionManager(client)
+
+    provider = IbkrScannerProvider(connection_manager=manager)
+
+    assert provider.market_data_client is client
+    assert manager.calls == 1

@@ -4045,6 +4045,8 @@ def run_scanner_cycle(
         print(f"survivor_count_after_gates={len(watchlist_contexts)}")
         print(f"watchlist_count={len(watchlist_symbols)}")
         print(f"focus_count={len(focus_symbols)}")
+        print(f"[SCANNER_OK] topn_count={raw_count}")
+        print(f"[WATCHLIST_OK] size={len(watchlist_symbols)}")
 
         scanner_contract = {
             "top_n": requested_top_n,
