@@ -120,3 +120,32 @@ def test_snapshot_flags_delayed_frozen_and_stale():
         assert "MD_STALE" in snapshot.data_quality_flags
     finally:
         set_config_overrides(None)
+
+
+class HistoryDummyIB(DummyIB):
+    def __init__(self) -> None:
+        super().__init__()
+        self.history_calls = []
+
+    def reqHistoricalData(self, contract, endDateTime="", durationStr="3 D", barSizeSetting="1 day", whatToShow="TRADES", useRTH=True, formatDate=1):
+        self.history_calls.append({"endDateTime": endDateTime, "durationStr": durationStr, "useRTH": useRTH})
+        if useRTH:
+            return []
+        return [type("Bar", (), {"close": 99.0, "volume": 1000})()]
+
+
+def test_history_helpers_retry_with_use_rth_false_when_primary_returns_zero_bars():
+    client = MarketDataClient(snapshot_timeout_seconds=1)
+    dummy_ib = HistoryDummyIB()
+    client.ib = dummy_ib
+    client.connection_manager = DummyConnectionManager(dummy_ib)
+
+    prev_close = client.prev_close_from_history("AAPL", use_rth=True)
+    avg_volume, window = client.average_daily_volume_from_history("AAPL", window=1, use_rth=True)
+
+    assert prev_close == 99.0
+    assert avg_volume == 1000
+    assert window == 1
+    assert dummy_ib.history_calls[0]["useRTH"] is True
+    assert dummy_ib.history_calls[1]["useRTH"] is False
+
