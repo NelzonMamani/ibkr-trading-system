@@ -415,8 +415,30 @@ class IbkrClient(EWrapper, EClient):
                 chart_options,
             )
 
-            self._historical_events[req_id].wait(timeout=self.snapshot_timeout_seconds)
-            return list(self._historical_data.get(req_id, []))
+            event = self._historical_events[req_id]
+            start = time.time()
+            timeout = self.snapshot_timeout_seconds
+
+            while True:
+                if event.is_set():
+                    break
+
+                data = self._historical_data.get(req_id, [])
+                if data:
+                    break
+
+                if time.time() - start > timeout:
+                    break
+
+                time.sleep(0.01)
+
+            data = self._historical_data.get(req_id, [])
+            if not data:
+                print(f"[IBKR][HIST_EMPTY_FINAL] req_id={req_id}")
+            else:
+                print(f"[IBKR][HIST_RETURN] req_id={req_id} bars={len(data)}")
+
+            return list(data)
 
         if args and isinstance(args[0], int):
             req_id = int(args[0])

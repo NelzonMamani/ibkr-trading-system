@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import threading
+import time
+
 from ibapi.client import EClient
 from ibapi.contract import Contract, ContractDetails
 
@@ -133,3 +136,39 @@ def test_snapshot_enricher_uses_ib_style_req_mkt_data_without_signature_error(mo
     assert snapshots["AAPL"]["bid"] == 123.4
     assert snapshots["AAPL"]["ask"] == 123.5
     assert snapshots["AAPL"]["volume"] == 2000.0
+
+
+def test_req_historical_data_returns_bars_when_data_arrives_before_end_signal(monkeypatch):
+    client = _build_client()
+    client.snapshot_timeout_seconds = 0.2
+
+    contract = Contract()
+    contract.symbol = "AAPL"
+    contract.secType = "STK"
+    contract.exchange = "SMART"
+    contract.currency = "USD"
+
+    def fake_req_historical_data(
+        self,
+        req_id,
+        _contract,
+        end_date_time,
+        duration_str,
+        bar_size_setting,
+        what_to_show,
+        use_rth,
+        format_date,
+        keep_up_to_date,
+        chart_options,
+    ):
+        def deliver():
+            time.sleep(0.05)
+            client.historicalData(req_id, {"close": 123.45})
+
+        threading.Thread(target=deliver, daemon=True).start()
+
+    monkeypatch.setattr(EClient, "reqHistoricalData", fake_req_historical_data)
+
+    bars = client.reqHistoricalData(contract)
+
+    assert bars == [{"close": 123.45}]
