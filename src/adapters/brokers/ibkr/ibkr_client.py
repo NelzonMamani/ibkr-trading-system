@@ -75,6 +75,8 @@ class IbkrClient(EWrapper, EClient):
         self._commission_by_exec_id: Dict[str, float] = {}
         self._account_summary_events: Dict[int, threading.Event] = {}
         self._account_summary_rows: Dict[int, Dict[str, str]] = {}
+        self._managed_accounts_event = threading.Event()
+        self._managed_accounts: list[str] = []
         self._scanner_events: Dict[int, threading.Event] = {}
         self._scanner_rows: Dict[int, List[object]] = {}
         self._ticker_by_req_id: Dict[int, object] = {}
@@ -240,6 +242,17 @@ class IbkrClient(EWrapper, EClient):
         event.wait(timeout=timeout)
         self.cancelAccountSummary(req_id)
         return dict(self._account_summary_rows.get(req_id, {}))
+
+    def get_primary_account(self, timeout_seconds: Optional[int] = None) -> Optional[str]:
+        if not self.is_connected():
+            raise RuntimeError("IBKR client is not connected.")
+
+        self._managed_accounts_event.clear()
+        self._managed_accounts = []
+        self.reqManagedAccts()
+        timeout = timeout_seconds or self.snapshot_timeout_seconds
+        self._managed_accounts_event.wait(timeout=timeout)
+        return self._managed_accounts[0] if self._managed_accounts else None
 
     # --- Contract resolution ---
     def resolve_contract(
@@ -556,6 +569,12 @@ class IbkrClient(EWrapper, EClient):
         event = self._account_summary_events.get(reqId)
         if event:
             event.set()
+
+    def managedAccounts(self, accountsList: str):  # type: ignore[override]
+        self._managed_accounts = [
+            account.strip() for account in accountsList.split(",") if account.strip()
+        ]
+        self._managed_accounts_event.set()
 
 
     def scannerData(

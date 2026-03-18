@@ -7,12 +7,12 @@ from typing import Optional
 
 from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
 from src.config.runtime_config import (
-    get_ibkr_client_id,
-    get_ibkr_host,
+    RuntimeConfigError,
+    get_execution_enabled,
     get_ibkr_market_data_type,
-    get_ibkr_port,
     get_ibkr_readonly_enabled,
     get_ibkr_snapshot_timeout_seconds,
+    resolve_ibkr_connection,
 )
 
 
@@ -21,6 +21,7 @@ class IbkrConnectionConfig:
     host: str
     port: int
     base_client_id: int
+    run_mode: str
     snapshot_timeout_seconds: int
     market_data_type: str
     readonly_enabled: bool
@@ -42,8 +43,14 @@ class IbkrConnectionManager:
         self._shutdown_requested = False
         self._lock = Lock()
         print(
+            "[IBKR][CONFIG] "
+            f"mode={config.run_mode} port={config.port} host={config.host} "
+            f"client_id={config.base_client_id}"
+        )
+        print(
             "[IBKR][MANAGER] init "
-            f"host={config.host} port={config.port} base_client_id={config.base_client_id} "
+            f"mode={config.run_mode} host={config.host} port={config.port} "
+            f"base_client_id={config.base_client_id} "
             f"readonly={config.readonly_enabled} market_data_type={config.market_data_type} "
             f"snapshot_timeout_seconds={config.snapshot_timeout_seconds}"
         )
@@ -76,6 +83,7 @@ class IbkrConnectionManager:
         config = self._config
         if not config.host or config.port <= 0:
             raise RuntimeError("INVALID_RETRY_CONFIGURATION")
+        self._validate_runtime_safety()
 
         self._last_error = None
         for offset in range(config.max_client_id_retries):
@@ -103,7 +111,9 @@ class IbkrConnectionManager:
                     "[IBKR][MANAGER] connect_failed "
                     f"client_id={client_id} reason={exc}"
                 )
-                raise
+                raise SystemExit(
+                    "IBKR CONNECTION FAILED — SYSTEM NOT SAFE TO RUN"
+                ) from exc
 
             if not client.is_connected():
                 self._last_error = "connect() returned without active connection"
@@ -120,12 +130,17 @@ class IbkrConnectionManager:
                 "[IBKR][MANAGER] connected "
                 f"client_id={client_id} generation={self._connection_generation}"
             )
+            account_id = self._resolve_account_id(client)
+            print(
+                f"[IBKR][SESSION] mode={config.run_mode} "
+                f"account={account_id} readonly={config.readonly_enabled}"
+            )
             return client
 
-        raise RuntimeError(
-            "IBKR manager connection failed after retries "
-            f"host={config.host} port={config.port} base_client_id={config.base_client_id} "
-            f"last_error={self._last_error}"
+        raise SystemExit(
+            "IBKR CONNECTION FAILED — SYSTEM NOT SAFE TO RUN "
+            f"(host={config.host} port={config.port} "
+            f"base_client_id={config.base_client_id} last_error={self._last_error})"
         )
 
     def disconnect(self, reason: str = "manual") -> None:
@@ -182,6 +197,7 @@ class IbkrConnectionManager:
             "host": self._config.host,
             "port": self._config.port,
             "base_client_id": self._config.base_client_id,
+            "run_mode": self._config.run_mode,
             "connected_client_id": self._connected_client_id,
             "connection_generation": self._connection_generation,
             "connected": self.is_connected(),
@@ -197,6 +213,25 @@ class IbkrConnectionManager:
         message = str(exc).lower()
         return "client id" in message or "clientid" in message or "326" in message
 
+    def _validate_runtime_safety(self) -> None:
+        run_mode = self._config.run_mode.upper()
+        if run_mode == "LIVE" and self._config.port != 7496:
+            raise RuntimeConfigError("LIVE mode must use port 7496")
+        if run_mode in {"PAPER", "SIM"} and self._config.port != 7497:
+            raise RuntimeConfigError("PAPER mode must use port 7497")
+        if run_mode == "LIVE" and not self._config.readonly_enabled and not get_execution_enabled():
+            raise RuntimeConfigError(
+                "LIVE trading requires EXECUTION_ENABLED=true before orders are allowed"
+            )
+
+    @staticmethod
+    def _resolve_account_id(client: IbkrClient) -> str:
+        try:
+            account_id = client.get_primary_account()
+        except Exception:
+            account_id = None
+        return account_id or "UNKNOWN"
+
 
 _default_manager: Optional[IbkrConnectionManager] = None
 _default_manager_lock = Lock()
@@ -209,11 +244,13 @@ def get_shared_ibkr_connection_manager(
     global _default_manager
     with _default_manager_lock:
         if _default_manager is None:
+            host, port, client_id, run_mode = resolve_ibkr_connection()
             _default_manager = IbkrConnectionManager(
                 IbkrConnectionConfig(
-                    host=get_ibkr_host(),
-                    port=get_ibkr_port(),
-                    base_client_id=get_ibkr_client_id(),
+                    host=host,
+                    port=port,
+                    base_client_id=client_id,
+                    run_mode=run_mode,
                     snapshot_timeout_seconds=get_ibkr_snapshot_timeout_seconds(),
                     market_data_type=get_ibkr_market_data_type(),
                     readonly_enabled=(
