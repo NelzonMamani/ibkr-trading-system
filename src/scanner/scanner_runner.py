@@ -554,7 +554,10 @@ def _resolve_reference_snapshot(
         "average_daily_volume_window_days": result.average_daily_volume_window_days,
         "lookup_key": result.history_lookup_key_used or result.identity_key,
         "reference_source": result.reference_source,
+        "reference_quality_tier": result.reference_quality_tier,
         "reference_resolved": result.reference_resolved,
+        "continuity_usable_reference": result.continuity_usable_reference,
+        "qualification_usable_reference": result.qualification_usable_reference,
         "reference_asof_trading_date": result.reference_asof_trading_date,
         "adv20_source": result.adv20_source,
         "adv20_resolved": result.adv20_resolved,
@@ -565,6 +568,73 @@ def _resolve_reference_snapshot(
         "reference_failure_reason": result.reference_failure_reason,
         "rvol_failure_reason": result.rvol_failure_reason,
     }
+
+
+def _reference_quality_penalty(context: Dict[str, Any]) -> float:
+    quality = str(context.get("reference_quality_tier") or "NONE").upper()
+    if quality == "WEAK":
+        return 18.0
+    if quality == "SECONDARY":
+        return 8.0
+    return 0.0
+
+
+def _apply_degraded_contract(context: Dict[str, Any]) -> None:
+    reason_codes = list(dict.fromkeys(context.get("eligibility_reason_codes", []) or []))
+    session = normalize_session_label(str(context.get("session") or ""))
+    reference_quality_tier = str(context.get("reference_quality_tier") or "NONE").upper()
+    pct_usable = bool(context.get("pct_change_qualification_usable"))
+    degraded_reference = reference_quality_tier in {"SECONDARY", "WEAK"}
+    degraded_pct = bool(context.get("pct_change_degraded"))
+    degraded_rvol = bool(context.get("rvol_status") == "UNKNOWN")
+    degraded_adv20 = not bool(context.get("adv20_resolved"))
+    major_degraded_count = sum(int(flag) for flag in (degraded_reference, degraded_pct, degraded_rvol, degraded_adv20))
+
+    if not bool(context.get("continuity_usable_reference")) and reference_quality_tier == "NONE":
+        profile = "UNQUALIFIED_CONTINUITY_ONLY"
+    elif major_degraded_count >= 2:
+        profile = "MULTI_FACTOR_DEGRADED"
+    elif degraded_rvol:
+        profile = "RVOL_DEGRADED"
+    elif degraded_reference or degraded_pct:
+        profile = "REFERENCE_DEGRADED"
+    else:
+        profile = "NONE"
+
+    watchlist_eligible = True
+    focus_eligible = context.get("focus_eligible")
+    execution_eligible = context.get("execution_eligible")
+    if focus_eligible is None:
+        focus_eligible = pct_usable and reference_quality_tier in {"PRIMARY", "SECONDARY"}
+    if execution_eligible is None:
+        execution_eligible = focus_eligible and not degraded_rvol and not degraded_adv20
+    if reference_quality_tier == "WEAK" and not bool(context.get("degraded_rvol_gate_bypass")):
+        focus_eligible = False
+        execution_eligible = False
+        reason_codes.extend(["PCT_CHANGE_CONTINUITY_ONLY", "PCT_CHANGE_NOT_QUALIFICATION_USABLE", "DEGRADED_EXECUTION_BLOCKED"])
+    if profile == "MULTI_FACTOR_DEGRADED" and session == "PRE":
+        execution_eligible = False
+        if not focus_eligible:
+            profile = "UNQUALIFIED_CONTINUITY_ONLY"
+        reason_codes.append("DEGRADED_EXECUTION_BLOCKED")
+    if profile == "UNQUALIFIED_CONTINUITY_ONLY":
+        focus_eligible = False
+        execution_eligible = False
+        reason_codes.append("UNQUALIFIED_CONTINUITY_ONLY")
+    if focus_eligible and (degraded_reference or degraded_rvol or degraded_adv20):
+        reason_codes.append("DEGRADED_FOCUS_ALLOWED")
+
+    context["degraded_reference"] = degraded_reference
+    context["degraded_pct_change"] = degraded_pct
+    context["degraded_rvol"] = degraded_rvol
+    context["degraded_adv20"] = degraded_adv20
+    context["degraded_focus_eligibility"] = bool(focus_eligible and (degraded_reference or degraded_rvol or degraded_adv20))
+    context["degraded_execution_eligibility"] = bool(not execution_eligible and (degraded_reference or degraded_rvol or degraded_adv20))
+    context["degraded_data_profile"] = profile
+    context["watchlist_eligible"] = watchlist_eligible
+    context["focus_eligible"] = bool(focus_eligible)
+    context["execution_eligible"] = bool(execution_eligible)
+    context["eligibility_reason_codes"] = list(dict.fromkeys(reason_codes))
 
 
 def _resolve_price(quote) -> Optional[float]:
@@ -749,8 +819,9 @@ def _watchlist_gate_checks(
     pct_change = _safe_float(context.get("pct_change"), None)
     _, scanner_rvol = _resolve_rvol_for_focus_gate(context)
     float_shares = context.get("float_shares")
+    pct_qualification_usable = bool(context.get("pct_change_qualification_usable", pct_change is not None))
 
-    pct_ok = pct_change is not None and pct_change >= thresholds.min_pct_change
+    pct_ok = pct_change is not None and pct_qualification_usable and pct_change >= thresholds.min_pct_change
     if thresholds.max_pct_change is not None:
         pct_ok = pct_ok and pct_change is not None and pct_change <= thresholds.max_pct_change
     rvol_ok = scanner_rvol is not None and scanner_rvol >= thresholds.watchlist_rvol_min
@@ -865,6 +936,13 @@ def _populate_pct_change(
     context["reference_price"] = pct_payload.reference_price
     context["reference_label"] = pct_payload.reference_label
     context["pct_source"] = pct_payload.pct_source
+    context["pct_change_resolved"] = pct_payload.final_pct
+    context["reference_quality_tier"] = reference_snapshot.get("reference_quality_tier")
+    context["continuity_usable_reference"] = reference_snapshot.get("continuity_usable_reference")
+    context["qualification_usable_reference"] = reference_snapshot.get("qualification_usable_reference")
+    context["pct_change_qualification_usable"] = bool(reference_snapshot.get("qualification_usable_reference")) and pct_payload.final_pct is not None
+    context["pct_change_source_quality"] = reference_snapshot.get("reference_quality_tier")
+    context["pct_change_degraded"] = pct_payload.final_pct is not None and str(reference_snapshot.get("reference_quality_tier") or "NONE") in {"SECONDARY", "WEAK"}
     context["open_relative_pct_change"] = pct_payload.open_relative_pct_change
     context["gap_pct_resolved"] = pct_payload.open_relative_pct_change if pct_payload.open_relative_pct_change is not None else pct_payload.final_pct
     context["gap_source"] = "SESSION_OPEN_VS_REF" if pct_payload.open_relative_pct_change is not None else pct_payload.pct_source
@@ -877,6 +955,7 @@ def _populate_pct_change(
     context["history_lookup_key_used"] = reference_snapshot.get("lookup_key")
     context["reference_failure_reason"] = reference_snapshot.get("reference_failure_reason")
     context["rvol_failure_reason"] = reference_snapshot.get("rvol_failure_reason")
+    _apply_degraded_contract(context)
     print(
         "[REFERENCE][RESULT] "
         f"symbol={context['symbol']} identity_key={reference_snapshot.get('identity_key')} found={pct_payload.reference_price is not None} "
@@ -1007,8 +1086,20 @@ def _evaluate_watchlist_gates(
 ) -> Optional[str]:
     _evaluate_float_gate(context, thresholds)
     pct_change = _safe_float(context.get("pct_change"), None)
+    session = normalize_session_label(str(context.get("session") or ""))
+    pct_qualification_usable = bool(context.get("pct_change_qualification_usable", pct_change is not None))
 
     if pct_change is None:
+        if session == "PRE":
+            context.setdefault("eligibility_reason_codes", []).append("PCT_CHANGE_CONTINUITY_ONLY")
+            _apply_degraded_contract(context)
+            return None
+        return "DROP_MISSING_PCT_CHANGE"
+    if not pct_qualification_usable:
+        if session == "PRE":
+            context.setdefault("eligibility_reason_codes", []).extend(["PCT_CHANGE_CONTINUITY_ONLY", "PCT_CHANGE_NOT_QUALIFICATION_USABLE"])
+            _apply_degraded_contract(context)
+            return None
         return "DROP_MISSING_PCT_CHANGE"
     pct_change_min = _resolve_pct_change_min_for_session(str(context.get("session") or ""), thresholds)
     if pct_change < pct_change_min:
@@ -1036,6 +1127,38 @@ def _evaluate_float_gate(
     if float_shares > thresholds.max_float:
         return "DROP_FLOAT_MAX"
     return None
+
+
+def _allow_pre_rvol_bypass(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+) -> bool:
+    session = normalize_session_label(str(context.get("session") or ""))
+    if session != "PRE":
+        return False
+    price = _safe_float(context.get("last_price"), None)
+    if price is None or price < thresholds.min_price or price > thresholds.max_price:
+        return False
+    volume = _safe_float(context.get("premarket_volume"), None)
+    if volume is None:
+        volume = _safe_float(context.get("volume"), None)
+    if volume is None or volume < thresholds.min_premarket_volume:
+        return False
+    spread_limit = thresholds.spread_max_pct
+    spread_pct = _safe_float(context.get("spread_pct"), None)
+    if spread_limit is not None and spread_pct is not None and spread_pct > spread_limit:
+        return False
+    if thresholds.require_catalyst and not bool(context.get("catalyst_present") or context.get("news_present") or context.get("catalyst_summary")):
+        return False
+    float_status = str(context.get("float_status") or "")
+    if float_status == "UNKNOWN" and not thresholds.allow_unknown_float:
+        return False
+    has_strong_anchor = (
+        str(context.get("reference_quality_tier") or "").upper() in {"PRIMARY", "SECONDARY"}
+        or bool(context.get("prep_seeded"))
+        or bool(context.get("valid_premarket_prep_anchor"))
+    )
+    return has_strong_anchor
 
 
 def _is_etf_context(context: Dict[str, Any]) -> bool:
@@ -1074,6 +1197,19 @@ def _evaluate_focus_gates(
     rvol_discovery = _safe_float(context.get("rvol_discovery"), None)
     threshold_value = thresholds.focus_rvol_min
     if focus_rvol_value is None:
+        context["rvol_status"] = "UNKNOWN"
+        if _allow_pre_rvol_bypass(context, thresholds):
+            context["degraded_rvol_gate_bypass"] = True
+            context.setdefault("eligibility_reason_codes", []).append("PRE_RVOL_BYPASS_APPLIED")
+            _apply_degraded_contract(context)
+            print(
+                "[FOCUS_GATE] "
+                f"symbol={context.get('symbol')} focus_threshold_used={threshold_value} "
+                f"rvol_metric_used={rvol_metric_used} rvol_metric_value=None "
+                "reason=PRE_RVOL_BYPASS_APPLIED decision=KEEP_DEGRADED"
+            )
+            return None
+        context.setdefault("eligibility_reason_codes", []).append("PRE_RVOL_BYPASS_REJECTED")
         print(
             "[FOCUS_GATE] "
             f"symbol={context.get('symbol')} focus_threshold_used={threshold_value} "
@@ -1081,6 +1217,7 @@ def _evaluate_focus_gates(
             "reason=WAIT_MISSING_RVOL decision=WAIT"
         )
         return "DROP_MISSING_RVOL"
+    context["rvol_status"] = "RESOLVED"
 
     early_rth = session == "RTH_OPEN"
     has_momentum_context = bool(
@@ -1569,9 +1706,14 @@ def _candidate_from_context(
         ref_close_rth=context.get("ref_close_rth"),
         reference_price=context.get("reference_price"),
         reference_label=context.get("reference_label"),
+        reference_source=context.get("reference_source"),
+        reference_quality_tier=context.get("reference_quality_tier"),
         gap_pct=context.get("pct_change"),
         pct_change=context.get("pct_change"),
         pct_change_resolved=context.get("pct_change_resolved", context.get("pct_change")),
+        pct_change_qualification_usable=context.get("pct_change_qualification_usable"),
+        pct_change_source_quality=context.get("pct_change_source_quality"),
+        pct_change_degraded=context.get("pct_change_degraded"),
         gap_pct_resolved=context.get("gap_pct_resolved", context.get("open_relative_pct_change")),
         gap_source=context.get("gap_source"),
         context_status=context.get("context_status"),
@@ -1592,6 +1734,10 @@ def _candidate_from_context(
         phase_volume_ratio=context.get("phase_volume_ratio"),
         relative_volume=context.get("relative_volume"),
         avg_volume_20d=context.get("avg_volume_20d"),
+        adv20_resolved=context.get("adv20_resolved"),
+        degraded_adv20=context.get("degraded_adv20"),
+        rvol_status=context.get("rvol_status"),
+        degraded_rvol_gate_bypass=context.get("degraded_rvol_gate_bypass"),
         float_shares=float_shares,
         float_source=context.get("float_source"),
         float_asof=context.get("float_asof"),
@@ -1617,6 +1763,16 @@ def _candidate_from_context(
         news_source_mode=news_source_mode,
         news_asof=news_asof,
         data_quality_ok=not data_quality_flags,
+        degraded_data_profile=context.get("degraded_data_profile"),
+        degraded_reference=context.get("degraded_reference"),
+        degraded_pct_change=context.get("degraded_pct_change"),
+        degraded_rvol=context.get("degraded_rvol"),
+        degraded_focus_eligibility=context.get("degraded_focus_eligibility"),
+        degraded_execution_eligibility=context.get("degraded_execution_eligibility"),
+        watchlist_eligible=context.get("watchlist_eligible"),
+        focus_eligible=context.get("focus_eligible"),
+        execution_eligible=context.get("execution_eligible"),
+        eligibility_reason_codes=list(context.get("eligibility_reason_codes", []) or []),
         data_quality_flags=data_quality_flags,
         drop_reasons=[drop_reason] if drop_reason else [],
         rank_score=context.get("scanner_score"),
@@ -1754,7 +1910,22 @@ def _score_context(context: Dict[str, Any]) -> tuple[float, dict[str, float]]:
     }
     score = (components["pct_change"] + components["rvol"] + components["dollar_volume"]) / 100.0
     score += priority_boost
-    return round(min(score, 1.0) * 100.0, 2), components
+    penalty = 0.0
+    if str(context.get("rvol_status") or "").upper() == "UNKNOWN":
+        penalty += 15.0
+        components["unknown_rvol_penalty"] = -15.0
+    ref_penalty = _reference_quality_penalty(context)
+    if ref_penalty:
+        penalty += ref_penalty
+        components["reference_quality_penalty"] = -ref_penalty
+    if bool(context.get("degraded_pct_change")) and bool(context.get("degraded_rvol")):
+        penalty += 12.0
+        components["multi_factor_degraded_penalty"] = -12.0
+    if str(context.get("degraded_data_profile") or "").upper() == "UNQUALIFIED_CONTINUITY_ONLY":
+        penalty += 30.0
+        components["continuity_only_penalty"] = -30.0
+    final_score = max(0.0, round(min(score, 1.0) * 100.0 - penalty, 2))
+    return final_score, components
 
 
 def _build_symbol_context(
@@ -1878,6 +2049,9 @@ def _build_symbol_context(
     reference_price = None
     reference_label = None
     open_relative_pct_change = None
+    pct_change_qualification_usable = False
+    pct_change_source_quality = str(reference_snapshot.get("reference_quality_tier") or "NONE")
+    pct_change_degraded = False
     if include_pct_change:
         normalized_session = normalize_session_label(session_label)
         rth_open_price = session_open
@@ -1899,6 +2073,8 @@ def _build_symbol_context(
         reference_price = pct_payload.reference_price
         reference_label = pct_payload.reference_label
         open_relative_pct_change = pct_payload.open_relative_pct_change
+        pct_change_qualification_usable = bool(reference_snapshot.get("qualification_usable_reference")) and pct_change is not None
+        pct_change_degraded = pct_change is not None and pct_change_source_quality in {"SECONDARY", "WEAK"}
         print(
             "[REFERENCE][MERGE] "
             f"symbol={symbol} identity_key={reference_snapshot.get('identity_key')} merge_target_found=True reference_label={pct_payload.reference_label} value={pct_payload.reference_price}"
@@ -1970,7 +2146,7 @@ def _build_symbol_context(
     con_id = scan_detail.get("conId")
     if con_id in {None, 0, "0"} and getattr(provider, "source_name", "") != "IBKR":
         con_id = abs(hash(symbol)) % 10_000_000 + 1
-    return {
+    context = {
         "symbol": symbol,
         "session": session_label,
         "con_id": con_id,
@@ -1988,8 +2164,12 @@ def _build_symbol_context(
         "rth_close_price": session_close,
         "reference_price": reference_price,
         "reference_label": reference_label,
+        "reference_quality_tier": reference_snapshot.get("reference_quality_tier"),
         "pct_change": pct_change,
         "pct_change_resolved": pct_change,
+        "pct_change_qualification_usable": pct_change_qualification_usable,
+        "pct_change_source_quality": pct_change_source_quality,
+        "pct_change_degraded": pct_change_degraded,
         "pct_source": pct_source,
         "open_relative_pct_change": open_relative_pct_change,
         "gap_pct_resolved": gap_pct_resolved,
@@ -2006,6 +2186,8 @@ def _build_symbol_context(
         "average_daily_volume_window_days": avg_volume_window_days,
         "reference_source": reference_snapshot.get("reference_source"),
         "reference_resolved": reference_snapshot.get("reference_resolved"),
+        "continuity_usable_reference": reference_snapshot.get("continuity_usable_reference"),
+        "qualification_usable_reference": reference_snapshot.get("qualification_usable_reference"),
         "reference_asof_trading_date": reference_snapshot.get("reference_asof_trading_date"),
         "adv20_source": reference_snapshot.get("adv20_source"),
         "adv20_resolved": reference_snapshot.get("adv20_resolved"),
@@ -2024,6 +2206,8 @@ def _build_symbol_context(
         "scanner_rvol": scanner_rvol,
         "rvol_discovery": rvol_discovery,
         "rvol_phase": rvol_phase,
+        "rvol_status": "RESOLVED" if scanner_rvol is not None else "UNKNOWN",
+        "degraded_rvol_gate_bypass": False,
         "phase_volume_ratio": phase_rvol_payload.phase_ratio,
         "expected_phase_volume": reference_snapshot.get("expected_phase_volume") if reference_snapshot.get("expected_phase_volume") is not None else phase_rvol_payload.expected_phase_volume,
         "time_normalized_rvol": time_normalized_rvol,
@@ -2037,11 +2221,14 @@ def _build_symbol_context(
         "float_cache_hit": float_cache_hit,
         "halted": None,
         "ssr": None,
+        "eligibility_reason_codes": [],
         "data_quality_flags": data_quality_flags,
         "snapshot_timeout": snapshot_timeout,
         "universe_rank": universe_rank,
     }
-
+    _apply_degraded_contract(context)
+    return context
+    
 
 def _resolve_universe_symbols(
     *,
