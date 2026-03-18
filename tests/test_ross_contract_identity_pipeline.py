@@ -263,7 +263,24 @@ def test_summary_audit_fields_distinguish_true_gate_passes_from_prep_backfill_an
 
     assert enrich["reference_ok"] == 1
     assert enrich["pct_ready"] == 1
-    assert summary == {"true_gate_pass_count": 1, "backfill_count": 1, "seeded_count": 1}
+    assert summary["true_gate_pass_count"] == 1
+    assert summary["backfill_count"] == 1
+    assert summary["seeded_count"] == 1
+    assert summary["degraded_fallback_survivor_count"] == 0
+    assert summary["all_backfilled"] is False
+
+
+def test_all_backfill_watchlist_is_flagged_non_operational() -> None:
+    contexts = [
+        {"symbol": "BACK1", "promotion_reason": "PREP_CONTEXT_BACKFILL", "prep_seeded": False},
+        {"symbol": "BACK2", "promotion_reason": "PREP_CONTEXT_BACKFILL", "prep_seeded": False},
+    ]
+
+    summary = _gate_outcome_summary(contexts)
+
+    assert summary["true_gate_pass_count"] == 0
+    assert summary["backfill_count"] == 2
+    assert summary["all_backfilled"] is True
 
 
 def test_reference_resolver_reads_persistent_cache_on_subsequent_attempts(tmp_path):

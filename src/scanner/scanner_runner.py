@@ -122,11 +122,26 @@ def _enrichment_audit_summary(evaluated_contexts: list[Dict[str, Any]]) -> dict[
     }
 
 
-def _gate_outcome_summary(watchlist_contexts: list[Dict[str, Any]]) -> dict[str, int]:
+def _gate_outcome_summary(watchlist_contexts: list[Dict[str, Any]]) -> dict[str, Any]:
+    true_gate_pass_count = sum(
+        1 for c in watchlist_contexts if not c.get("prep_seeded") and str(c.get("promotion_reason") or "LIVE_SCAN") != "PREP_CONTEXT_BACKFILL"
+    )
+    backfill_count = sum(1 for c in watchlist_contexts if str(c.get("promotion_reason") or "") == "PREP_CONTEXT_BACKFILL")
+    seeded_count = sum(1 for c in watchlist_contexts if c.get("prep_seeded"))
+    degraded_fallback_survivors = sum(
+        1 for c in watchlist_contexts if c.get("reference_degraded") or c.get("degraded_pct_change") or c.get("degraded_rvol")
+    )
+    focus_eligible_count = sum(1 for c in watchlist_contexts if c.get("focus_eligible"))
+    execution_eligible_count = sum(1 for c in watchlist_contexts if c.get("execution_eligible"))
+    all_backfilled = bool(watchlist_contexts) and backfill_count == len(watchlist_contexts)
     return {
-        "true_gate_pass_count": sum(1 for c in watchlist_contexts if not c.get("prep_seeded") and str(c.get("promotion_reason") or "LIVE_SCAN") != "PREP_CONTEXT_BACKFILL"),
-        "backfill_count": sum(1 for c in watchlist_contexts if str(c.get("promotion_reason") or "") == "PREP_CONTEXT_BACKFILL"),
-        "seeded_count": sum(1 for c in watchlist_contexts if c.get("prep_seeded")),
+        "true_gate_pass_count": true_gate_pass_count,
+        "backfill_count": backfill_count,
+        "seeded_count": seeded_count,
+        "degraded_fallback_survivor_count": degraded_fallback_survivors,
+        "focus_eligible_count": focus_eligible_count,
+        "execution_eligible_count": execution_eligible_count,
+        "all_backfilled": all_backfilled,
     }
 
 CATALYST_KEYWORDS = {
@@ -3831,12 +3846,21 @@ def run_scanner_cycle(
         true_gate_pass_count = gate_outcome_summary["true_gate_pass_count"]
         backfill_count = gate_outcome_summary["backfill_count"]
         seeded_count = gate_outcome_summary["seeded_count"]
+        degraded_fallback_survivor_count = gate_outcome_summary["degraded_fallback_survivor_count"]
+        focus_eligible_count = gate_outcome_summary["focus_eligible_count"]
+        execution_eligible_count = gate_outcome_summary["execution_eligible_count"]
+        all_backfilled = gate_outcome_summary["all_backfilled"]
+        scanner_operational = not (enrich_summary.get("reference_ok", 0) == 0 and enrich_summary.get("pct_ready", 0) == 0 and true_gate_pass_count == 0 and all_backfilled)
+        gate_outcome_summary["scanner_operational"] = scanner_operational
         diagnostics["gate_outcome_summary"] = gate_outcome_summary
         print(
             "[SCANNER][SUMMARY] "
             f"session={session_label} candidates={len(symbols)} survivors={len(watchlist_contexts)} "
             f"watchlist={len(watchlist_contexts)} true_gate_pass_count={true_gate_pass_count} "
-            f"backfill_count={backfill_count} seeded_count={seeded_count} drop_reasons={drop_summary}"
+            f"degraded_fallback_survivor_count={degraded_fallback_survivor_count} "
+            f"backfill_count={backfill_count} seeded_count={seeded_count} focus_eligible_count={focus_eligible_count} "
+            f"execution_eligible_count={execution_eligible_count} scanner_operational={scanner_operational} "
+            f"all_backfilled={all_backfilled} drop_reasons={drop_summary}"
         )
 
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]

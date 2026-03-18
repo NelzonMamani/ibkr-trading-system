@@ -103,6 +103,20 @@ class _SyntheticPctProvider(_BaseProvider):
         return []
 
 
+
+
+class _RetryAwareProvider(_BaseProvider):
+    def __init__(self):
+        super().__init__(last=110.0, close=None, volume=180_000, adv20=None)
+        self.calls = []
+
+    def get_daily_bars(self, identity, lookback_days: int, *, use_rth: bool = True, end_datetime: str = ""):
+        self.calls.append((use_rth, end_datetime))
+        if use_rth:
+            return []
+        return [_Bar("2025-01-01", 100.0, 120_000)] * 20
+
+
 class _QuoteCloseFallbackProvider(_BaseProvider):
     def __init__(self):
         super().__init__(last=110.0, close=102.0, volume=180_000, adv20=100_000)
@@ -370,3 +384,15 @@ def test_unresolved_reference_cannot_remain_execution_ready() -> None:
     assert context is not None
     assert context["reference_source"] == "UNRESOLVED" or context["execution_eligible"] is False
     assert context["execution_ready"] is False
+
+
+def test_rth_mid_zero_bars_retries_with_use_rth_false_and_recovers_reference() -> None:
+    provider = _RetryAwareProvider()
+    context = _build_symbol_context(provider, "AAPL", "RTH_MID", {})
+
+    assert context is not None
+    assert context["reference_source"] == "IBKR_DAILY_BARS"
+    assert context["pct_change"] == 10.0
+    assert provider.calls[0] == (True, "")
+    assert provider.calls[1][0] is False
+    assert provider.calls[1][1].endswith("US/Eastern")
