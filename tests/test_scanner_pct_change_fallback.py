@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 from typing import Optional
 
 import pytest
@@ -238,6 +239,9 @@ def test_rth_zero_bars_recovers_reference_from_provider_prev_close() -> None:
     assert context["pct_change_qualification_usable"] is True
     assert context["pct_change_execution_usable"] is True
     assert context["focus_eligible"] is True
+    assert context["reference_price"] == 101.0
+    assert context["pct_change_resolved"] == context["pct_change"]
+    assert context["gap_pct_resolved"] is not None
 
 
 def test_rth_zero_bars_recovers_reference_from_quote_close() -> None:
@@ -251,6 +255,47 @@ def test_rth_zero_bars_recovers_reference_from_quote_close() -> None:
     assert context["avg_volume_20d"] == 100_000
     assert context["adv20_resolved"] is True
     assert context["rvol_status"] == "RESOLVED"
+
+
+def test_retry_history_path_allows_smart_primary_exchange_tolerance() -> None:
+    provider = _RetryAwareProvider()
+    context = _build_symbol_context(provider, "AAPL", "RTH_OPEN", {})
+
+    assert context is not None
+    assert len(provider.calls) == 2
+    assert provider.calls[0] == (True, "")
+    assert provider.calls[1][0] is False
+    assert "09:29:59 US/Eastern" in provider.calls[1][1]
+    assert context["reference_source"] == "IBKR_DAILY_BARS"
+    assert context["reference_resolved"] is True
+    assert context["reference_price"] == 100.0
+    assert context["pct_change_resolved"] == 10.0
+    assert context["avg_volume_20d"] == 120_000
+    assert context["adv20_resolved"] is True
+    assert context["rvol_status"] == "RESOLVED"
+
+
+def test_trace_toggle_disabled_does_not_emit_targeted_trace(monkeypatch, capsys) -> None:
+    monkeypatch.delenv("SCANNER_REFERENCE_TRACE_SYMBOLS", raising=False)
+
+    context = _build_symbol_context(_DailyBarProvider(), "AAPL", "RTH", {})
+
+    assert context is not None
+    out = capsys.readouterr().out
+    assert "[SCANNER][TRACE]" not in out
+
+
+def test_verification_script_runs_against_stubbed_live_like_provider(monkeypatch, capsys) -> None:
+    from verification_scripts import verify_live_scanner_reference_pipeline as verifier
+
+    monkeypatch.setattr(sys, "argv", ["verify_live_scanner_reference_pipeline.py", "--provider", "stub", "--symbols", "AIM", "ARTL"])
+    verifier.main()
+
+    out = capsys.readouterr().out
+    assert "[VERIFY][SYMBOL] AIM" in out
+    assert "reference_resolved: True" in out
+    assert "adv20_resolved: True" in out
+    assert "rvol_status: RESOLVED" in out
 
 
 def test_rth_synthetic_pct_reference_is_explicitly_degraded_and_not_execution_usable(tmp_path: Path) -> None:
