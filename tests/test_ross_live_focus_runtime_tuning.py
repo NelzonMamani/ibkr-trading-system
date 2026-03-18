@@ -174,7 +174,7 @@ def test_drop_volume_logs_threshold_context(capsys) -> None:
     assert "[VOLUME_GATE]" in output
     assert "symbol=THIN" in output
     assert "stage=focus" in output
-    assert "threshold_source=early_rth_focus" in output
+    assert "threshold_source=policy.session_focus_volume_min[RTH_OPEN]" in output
     assert "session=RTH_OPEN" in output
     assert "phase=OPENING" in output
 
@@ -230,3 +230,141 @@ def test_unknown_float_allowed_removes_degrading_flag() -> None:
     assert context["float_status"] == "UNKNOWN"
     assert context["float_tolerated"] is True
     assert context["data_quality_flags"] == ["SPREAD_UNKNOWN"]
+
+
+
+def test_midday_focus_volume_threshold_is_session_aware_for_ross_policy() -> None:
+    policy = RossMomentumPolicy().stock_selection
+    runtime = _resolve_runtime_thresholds(policy)
+    thresholds = _gate_thresholds(policy, runtime)
+
+    assert thresholds.focus_volume_min == policy.min_volume
+    assert thresholds.session_focus_volume_min["RTH_MID"] == 300_000
+    assert thresholds.session_focus_volume_min["RTH_MID"] < thresholds.focus_volume_min
+
+
+def test_rth_mid_candidate_with_realistic_intraday_volume_can_enter_focus() -> None:
+    policy = RossMomentumPolicy().stock_selection
+    runtime = _resolve_runtime_thresholds(policy)
+    thresholds = _gate_thresholds(policy, runtime)
+    thresholds = replace(thresholds, watchlist_rvol_min=0.5, focus_rvol_min=2.0, spread_max_pct=0.02)
+
+    context = {
+        "symbol": "ARTL",
+        "session": "RTH_MID",
+        "phase": "RTH_MID",
+        "pct_change": 31.5,
+        "rvol_discovery": 6.1,
+        "rvol_phase": 4.4,
+        "volume": 511_545,
+        "premarket_volume": 175_000,
+        "dollar_volume": 2_813_497.5,
+        "last_price": 5.5,
+        "spread_pct": 0.012,
+        "bid": 5.49,
+        "ask": 5.51,
+        "catalyst_present": True,
+        "halted": False,
+        "ssr": False,
+    }
+
+    assert _evaluate_watchlist_gates(context, thresholds) is None
+    assert _evaluate_focus_gates(context, thresholds) is None
+
+
+def test_rth_mid_illiquid_candidate_still_fails_focus_volume_gate() -> None:
+    policy = RossMomentumPolicy().stock_selection
+    runtime = _resolve_runtime_thresholds(policy)
+    thresholds = _gate_thresholds(policy, runtime)
+    thresholds = replace(thresholds, watchlist_rvol_min=0.5, focus_rvol_min=2.0, spread_max_pct=0.02)
+
+    context = {
+        "symbol": "MNDR",
+        "session": "RTH_MID",
+        "phase": "RTH_MID",
+        "pct_change": 22.0,
+        "rvol_discovery": 3.0,
+        "rvol_phase": 2.7,
+        "volume": 6_144,
+        "premarket_volume": 2_000,
+        "dollar_volume": 24_576,
+        "last_price": 4.0,
+        "spread_pct": 0.015,
+        "bid": 3.99,
+        "ask": 4.01,
+        "catalyst_present": True,
+        "halted": False,
+        "ssr": False,
+    }
+
+    assert _evaluate_watchlist_gates(context, thresholds) is None
+    assert _evaluate_focus_gates(context, thresholds) == "DROP_VOLUME"
+
+
+def test_live_like_focus_list_can_be_non_zero_in_rth_mid() -> None:
+    policy = RossMomentumPolicy().stock_selection
+    runtime = _resolve_runtime_thresholds(policy)
+    thresholds = _gate_thresholds(policy, runtime)
+    thresholds = replace(thresholds, watchlist_rvol_min=0.5, focus_rvol_min=2.0, spread_max_pct=0.02)
+
+    live_like = [
+        {
+            "symbol": "AIB",
+            "session": "RTH_MID",
+            "phase": "RTH_MID",
+            "pct_change": 18.2,
+            "rvol_discovery": 3.4,
+            "rvol_phase": 2.8,
+            "volume": 66_247,
+            "premarket_volume": 18_000,
+            "dollar_volume": 264_988,
+            "last_price": 4.0,
+            "spread_pct": 0.018,
+            "bid": 3.99,
+            "ask": 4.01,
+            "catalyst_present": True,
+            "halted": False,
+            "ssr": False,
+        },
+        {
+            "symbol": "ARTL",
+            "session": "RTH_MID",
+            "phase": "RTH_MID",
+            "pct_change": 31.5,
+            "rvol_discovery": 6.1,
+            "rvol_phase": 4.4,
+            "volume": 511_545,
+            "premarket_volume": 175_000,
+            "dollar_volume": 2_813_497.5,
+            "last_price": 5.5,
+            "spread_pct": 0.012,
+            "bid": 5.49,
+            "ask": 5.51,
+            "catalyst_present": True,
+            "halted": False,
+            "ssr": False,
+        },
+        {
+            "symbol": "MIDOK",
+            "session": "RTH_MID",
+            "phase": "RTH_MID",
+            "pct_change": 24.0,
+            "rvol_discovery": 5.2,
+            "rvol_phase": 3.1,
+            "volume": 342_000,
+            "premarket_volume": 120_000,
+            "dollar_volume": 1_881_000,
+            "last_price": 5.5,
+            "spread_pct": 0.01,
+            "bid": 5.49,
+            "ask": 5.51,
+            "catalyst_present": True,
+            "halted": False,
+            "ssr": False,
+        },
+    ]
+
+    focus = [ctx["symbol"] for ctx in live_like if _evaluate_watchlist_gates(ctx, thresholds) is None and _evaluate_focus_gates(ctx, thresholds) is None]
+
+    assert focus == ["ARTL", "MIDOK"]
+    assert len(focus) > 0
