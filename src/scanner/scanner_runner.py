@@ -655,6 +655,9 @@ def _resolve_reference_snapshot(
         "qualification_usable_reference": result.qualification_usable_reference,
         "execution_usable_reference": result.execution_usable_reference,
         "reference_asof_trading_date": result.reference_asof_trading_date,
+        "reference_semantics": result.reference_semantics,
+        "reference_trading_date": result.reference_trading_date,
+        "reference_is_previous_completed_session": result.reference_is_previous_completed_session,
         "adv20_source": result.adv20_source,
         "adv20_resolved": result.adv20_resolved,
         "expected_phase_volume": result.expected_phase_volume,
@@ -1056,6 +1059,9 @@ def _populate_pct_change(
     context["reference_source"] = reference_snapshot.get("reference_source")
     context["reference_resolved"] = reference_snapshot.get("reference_resolved")
     context["reference_asof_trading_date"] = reference_snapshot.get("reference_asof_trading_date")
+    context["reference_semantics"] = reference_snapshot.get("reference_semantics")
+    context["reference_trading_date"] = reference_snapshot.get("reference_trading_date")
+    context["reference_is_previous_completed_session"] = reference_snapshot.get("reference_is_previous_completed_session")
     context["adv20_source"] = reference_snapshot.get("adv20_source")
     context["adv20_resolved"] = reference_snapshot.get("adv20_resolved")
     context["identity_key"] = reference_snapshot.get("identity_key")
@@ -2342,6 +2348,9 @@ def _build_symbol_context(
         "continuity_usable_reference": reference_snapshot.get("continuity_usable_reference"),
         "qualification_usable_reference": reference_snapshot.get("qualification_usable_reference"),
         "reference_asof_trading_date": reference_snapshot.get("reference_asof_trading_date"),
+        "reference_semantics": reference_snapshot.get("reference_semantics"),
+        "reference_trading_date": reference_snapshot.get("reference_trading_date"),
+        "reference_is_previous_completed_session": reference_snapshot.get("reference_is_previous_completed_session"),
         "adv20_source": reference_snapshot.get("adv20_source"),
         "adv20_resolved": reference_snapshot.get("adv20_resolved"),
         "identity_key": getattr(qualified_identity, "key", None) or reference_snapshot.get("identity_key"),

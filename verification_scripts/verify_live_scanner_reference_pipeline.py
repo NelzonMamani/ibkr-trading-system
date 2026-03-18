@@ -237,10 +237,15 @@ def _verify_symbol(provider: ScannerDataProvider, symbol: str, *, session_label:
         persisted_pct_change=getattr(quote, "persisted_pct_change", None),
     )
     trace = resolver.get_last_resolution_trace(result.identity_key)
+    ny_trading_date = datetime.now(NY_TZ).date().isoformat()
     _print_block(f"[VERIFY][{symbol}] E) resolver", {
         "selected_reference_source": result.reference_source,
         "selected_reference_price": result.reference_price,
         "selected_reference_quality_tier": result.reference_quality_tier,
+        "reference_semantics": result.reference_semantics,
+        "reference_trading_date": result.reference_trading_date,
+        "current_ny_trading_date": ny_trading_date,
+        "reference_is_previous_completed_session": result.reference_is_previous_completed_session,
         "selected_adv20_source": result.adv20_source,
         "selected_avg_volume_20d": result.avg_volume_20d,
         "rvol_discovery": result.rvol_discovery,
@@ -269,6 +274,11 @@ def _verify_symbol(provider: ScannerDataProvider, symbol: str, *, session_label:
         "reference_source": context.get("reference_source"),
         "reference_resolved": context.get("reference_resolved"),
         "reference_price": context.get("reference_price"),
+        "reference_semantics": context.get("reference_semantics"),
+        "reference_trading_date": context.get("reference_trading_date"),
+        "current_ny_trading_date": ny_trading_date,
+        "reference_is_previous_completed_session": context.get("reference_is_previous_completed_session"),
+        "reference_from_current_session": context.get("reference_trading_date") == ny_trading_date,
         "pct_change_resolved": context.get("pct_change_resolved"),
         "avg_volume_20d": context.get("avg_volume_20d"),
         "adv20_resolved": context.get("adv20_resolved"),
