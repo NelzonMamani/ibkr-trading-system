@@ -1947,6 +1947,7 @@ class CoreOrchestrator:
                     "reasons": reasons[:2],
                 }
             )
+        print(f"[FOCUS] size={len(focus_payload)} symbols={[entry['symbol'] for entry in focus_payload]}")
         self._trace_event(
             "FOCUS",
             {
@@ -2140,6 +2141,9 @@ class CoreOrchestrator:
         else:
             print(f"[STRATEGY] Trade intents generated: {strategy_output}")
             for trade_intent in strategy_output:
+                print(
+                    f"[STRATEGY][SIGNAL] symbol={trade_intent.symbol} setup={getattr(trade_intent, 'pattern_name', None) or getattr(trade_intent, 'strategy_name', 'UNKNOWN')} side={trade_intent.direction} price={getattr(trade_intent, 'entry_price', None)}"
+                )
                 self.strategy_perf_tracker.record_trade_attempt(
                     getattr(trade_intent, "strategy_name", "UNKNOWN")
                 )
@@ -2208,6 +2212,9 @@ class CoreOrchestrator:
             decision_output.append(decision_artifact)
             for trade_intent in strategy_output:
                 trade_intent.decision_id = decision_artifact.decision_id
+                print(
+                    f"[INTENT] symbol={trade_intent.symbol} side={trade_intent.direction} qty={getattr(trade_intent, 'quantity', None) or getattr(trade_intent, 'requested_quantity', None) or 1} entry_type={getattr(trade_intent, 'order_type', None) or 'MKT'}"
+                )
             self.event_collector.emit(
                 event_type="DECISION_ARTIFACT_CREATED",
                 source="CoreOrchestrator",
@@ -2266,6 +2273,8 @@ class CoreOrchestrator:
                         risk_multiplier=risk_multiplier,
                     )
                     decision.trader_type = getattr(trade_intent, "trader_type", "MANUAL")
+                    verdict = "APPROVED" if getattr(decision, 'allowed', False) and getattr(decision, 'risk_level', '') != 'BLOCKED' else "REJECTED"
+                    print(f"[RISK] symbol={trade_intent.symbol} verdict={verdict} reason={getattr(decision, 'rationale', None)}")
                     if not decision.allowed or decision.risk_level == "BLOCKED":
                         blocked_symbols.add(trade_intent.symbol)
                     risk_output.append(decision)

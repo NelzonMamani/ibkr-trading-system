@@ -5,6 +5,7 @@ import time
 from typing import Any, Dict, Iterable, Optional
 
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
+from src.ibkr.contract_qualification import qualify_contracts_resilient
 from src.scanner.candidate_identity import CandidateIdentity
 
 
@@ -149,7 +150,12 @@ class MarketSnapshotEnricher:
             return snapshots
 
         try:
-            qualified_contracts = ib.qualifyContracts(*requested_contracts.values())
+            qualified_contracts = qualify_contracts_resilient(
+                ib,
+                *requested_contracts.values(),
+                timeout_seconds=self.batch_timeout_seconds,
+                log_prefix="[EXECUTION][QUALIFY]",
+            )
         except Exception as exc:
             for symbol in requested_contracts:
                 diagnostics[symbol]["exception"] = f"qualify:{exc}"

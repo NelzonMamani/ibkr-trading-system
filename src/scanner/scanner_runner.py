@@ -243,7 +243,6 @@ class GateThresholds:
     focus_volume_min: int
     focus_volume_min_early_rth: int
     focus_volume_min_early_rth_ratio: float
-    session_focus_volume_min: Dict[str, int]
     min_volume: int
     min_premarket_volume: int
     max_float: int
@@ -255,6 +254,7 @@ class GateThresholds:
     allow_halts: bool
     allow_ssr: bool
     allow_unknown_float: bool
+    session_focus_volume_min: Dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -790,6 +790,8 @@ def _ensure_provider_connection(provider: ScannerDataProvider, *, max_attempts: 
 
 
 def _resolve_runtime_thresholds(policy: StockSelectionPolicy, session_label: str | None = None) -> RuntimeThresholdResolution:
+    ross_pct_override = get_config_record("ROSS_PCT_CHANGE_MIN")
+    ross_rvol_override = get_config_record("ROSS_RVOL_MIN")
     watchlist_override = get_config_record("WATCHLIST_RVOL_MIN")
     focus_override = get_config_record("FOCUS_RVOL_MIN")
     spread_override = get_config_record("MAX_SPREAD_PCT")
@@ -807,11 +809,15 @@ def _resolve_runtime_thresholds(policy: StockSelectionPolicy, session_label: str
     )
     spread_default = getattr(policy, "spread_max_pct", None)
 
-    watchlist_rvol_min = watchlist_default
-    watchlist_source = "STRATEGY"
-    if watchlist_override.value is not None:
-        watchlist_rvol_min = float(watchlist_override.value)
-        watchlist_source = watchlist_override.source
+    if ross_rvol_override.value is not None:
+        watchlist_rvol_min = float(ross_rvol_override.value)
+        watchlist_source = ross_rvol_override.source
+    else:
+        watchlist_rvol_min = watchlist_default
+        watchlist_source = "STRATEGY"
+        if watchlist_override.value is not None:
+            watchlist_rvol_min = float(watchlist_override.value)
+            watchlist_source = watchlist_override.source
 
     focus_rvol_min = focus_default
     focus_source = "STRATEGY"
@@ -858,7 +864,7 @@ def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdReso
     return GateThresholds(
         min_price=policy.price_min,
         max_price=policy.price_max,
-        min_pct_change=policy.gap_min_pct,
+        min_pct_change=float(get_config("ROSS_PCT_CHANGE_MIN") or policy.gap_min_pct),
         max_pct_change=policy.gap_max_pct,
         watchlist_rvol_min=runtime.watchlist_rvol_min,
         focus_rvol_min=runtime.focus_rvol_min,
@@ -938,9 +944,8 @@ def _watchlist_gate_checks(
     pct_change = _safe_float(context.get("pct_change"), None)
     _, scanner_rvol = _resolve_rvol_for_focus_gate(context)
     float_shares = context.get("float_shares")
-    pct_qualification_usable = bool(context.get("pct_change_qualification_usable", pct_change is not None))
 
-    pct_ok = pct_change is not None and pct_qualification_usable and pct_change >= thresholds.min_pct_change
+    pct_ok = pct_change is not None and pct_change >= thresholds.min_pct_change
     if thresholds.max_pct_change is not None:
         pct_ok = pct_ok and pct_change is not None and pct_change <= thresholds.max_pct_change
     rvol_ok = scanner_rvol is not None and scanner_rvol >= thresholds.watchlist_rvol_min
@@ -1215,25 +1220,24 @@ def _evaluate_watchlist_gates(
     _evaluate_float_gate(context, thresholds)
     pct_change = _safe_float(context.get("pct_change"), None)
     session = normalize_session_label(str(context.get("session") or ""))
-    pct_qualification_usable = bool(context.get("pct_change_qualification_usable", pct_change is not None))
+    pct_source = context.get("pct_source") or context.get("reference_source") or "UNKNOWN"
 
     if pct_change is None:
         if session == "PRE":
             context.setdefault("eligibility_reason_codes", []).append("PCT_CHANGE_CONTINUITY_ONLY")
             _apply_degraded_contract(context)
+            print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=PASS reason=PRE_CONTINUITY_ALLOWED")
             return None
-        return "DROP_MISSING_PCT_CHANGE"
-    if not pct_qualification_usable:
-        if session == "PRE":
-            context.setdefault("eligibility_reason_codes", []).extend(["PCT_CHANGE_CONTINUITY_ONLY", "PCT_CHANGE_NOT_QUALIFICATION_USABLE"])
-            _apply_degraded_contract(context)
-            return None
+        print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=FAIL reason=MISSING_PCT_CHANGE")
         return "DROP_MISSING_PCT_CHANGE"
     pct_change_min = _resolve_pct_change_min_for_session(str(context.get("session") or ""), thresholds)
     if pct_change < pct_change_min:
+        print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=FAIL reason=BELOW_MIN threshold={pct_change_min}")
         return "DROP_PCT_CHANGE"
     if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
+        print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=FAIL reason=ABOVE_MAX threshold={thresholds.max_pct_change}")
         return "DROP_PCT_CHANGE_MAX"
+    print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=PASS reason=VALUE_PRESENT")
     return None
 
 
@@ -2914,6 +2918,9 @@ def run_scanner_cycle(
         f"focus_rvol_min={runtime_thresholds.focus_rvol_min}({runtime_thresholds.focus_rvol_source})"
     )
     print(
+        f"[CONFIG][ROSS_DEBUG_THRESHOLDS] pct_min={float(get_config('ROSS_PCT_CHANGE_MIN') or resolved_policy.gap_min_pct)} rvol_min={runtime_thresholds.watchlist_rvol_min} source=pct:{get_config_record('ROSS_PCT_CHANGE_MIN').source}|rvol:{runtime_thresholds.watchlist_rvol_source}"
+    )
+    print(
         "[SESSION][PCT_REFERENCE] "
         f"session={normalize_session_label(session_label)} pct_reference=LAST_RTH_CLOSE "
         "gap_reference=SESSION_OPEN_VS_LAST_RTH_CLOSE closed_prep_reference=LAST_SESSION_REFERENCE"
@@ -3325,8 +3332,12 @@ def run_scanner_cycle(
 
         float_cache = _bootstrap_float_cache(symbols, provider)
         thresholds = _gate_thresholds(resolved_policy, runtime_thresholds)
+        print(f"[GATE][THRESHOLDS] pct_min={thresholds.min_pct_change} rvol_min={thresholds.watchlist_rvol_min}")
         candidates: List[Dict[str, Any]] = []
         evaluated_contexts: List[Dict[str, Any]] = []
+        pct_gate_considered = 0
+        pct_gate_passed = 0
+        pct_gate_failed = 0
 
         print("[SCANNER][STAGE] market_snapshot_enrichment")
         print("[SCANNER][STAGE] gates")
@@ -3527,8 +3538,10 @@ def run_scanner_cycle(
                 print(f"[SCANNER][DROP] symbol={symbol} reason={drop_reason}")
                 evaluated_contexts.append(context)
                 continue
+            pct_gate_considered += 1
             drop_reason = _evaluate_watchlist_gates(context, thresholds)
             if drop_reason:
+                pct_gate_failed += 1
                 drop_ledger.setdefault(symbol, drop_reason)
                 print(f"[SCANNER][DROP] symbol={symbol} reason={drop_reason}")
                 if event_collector is not None:
@@ -3576,6 +3589,7 @@ def run_scanner_cycle(
             context["scanner_score"] = score
             context["scanner_score_components"] = components
             candidates.append(context)
+            pct_gate_passed += 1
             keep_parts = [
                 f"[SCANNER][KEEP] symbol={symbol}",
                 f"last={_format_value(context.get('last_price'))}",
@@ -3595,6 +3609,7 @@ def run_scanner_cycle(
             print(" ".join(keep_parts))
             evaluated_contexts.append(context)
 
+        print(f"[GATE][PCT][SUMMARY] considered={pct_gate_considered} passed={pct_gate_passed} failed={pct_gate_failed}")
         missing_pct = sum(1 for context in evaluated_contexts if context.get("pct_change") is None)
         if evaluated_contexts and missing_pct >= max(1, len(evaluated_contexts) // 2):
             print(
@@ -3798,6 +3813,13 @@ def run_scanner_cycle(
             "[WATCHLIST][SELECT] "
             f"selected={len(watchlist_contexts)} selected_symbols={[context['symbol'] for context in watchlist_contexts]}"
         )
+        print(f"[WATCHLIST] size={len(watchlist_contexts)} symbols={[context['symbol'] for context in watchlist_contexts]}")
+        for context in watchlist_contexts:
+            print(
+                "[WATCHLIST][DETAIL] "
+                f"symbol={context.get('symbol')} pct_change={context.get('pct_change')} rvol={context.get('rvol') or context.get('rvol_discovery') or context.get('rvol_phase')} "
+                f"float={context.get('float_shares')} catalyst={context.get('catalyst_summary') or context.get('catalyst_present')} spread={context.get('spread_pct')}"
+            )
         if watchlist_limit > 0 and len(watchlist_contexts) < watchlist_limit:
             ranked_all = _rank_candidates(evaluated_contexts)
             existing = {context["symbol"] for context in watchlist_contexts}

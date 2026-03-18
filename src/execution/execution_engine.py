@@ -115,6 +115,10 @@ class ExecutionEngine:
         """
 
         print("[EXECUTION] Received risk decision for broker-routed flow")
+        if risk_decision is not None:
+            action = "SUBMIT" if getattr(risk_decision, 'allowed', False) else "SKIP"
+            reason = getattr(risk_decision, 'rationale', None) or getattr(risk_decision, 'reason_code', None) or 'NO_REASON'
+            print(f"[EXECUTION] symbol={risk_decision.symbol} action={action} reason={reason}")
         if risk_decision is None:
             print("[EXECUTION] No execution performed — placeholder path")
             return ExecutionResult(
