@@ -7,6 +7,7 @@ from datetime import datetime, time as dtime, timedelta, timezone
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 import sys
 import time
@@ -96,6 +97,41 @@ ETF_EXCLUDED_SYMBOLS = {"SPY", "QQQ", "DIA", "IWM"}
 NY_TZ = ZoneInfo("America/New_York")
 
 
+def _scanner_reference_trace_symbols() -> set[str]:
+    raw = os.environ.get("SCANNER_REFERENCE_TRACE_SYMBOLS", "")
+    return {
+        symbol.strip().upper()
+        for symbol in raw.split(",")
+        if symbol.strip()
+    }
+
+
+def _should_trace_scanner_symbol(symbol: str | None) -> bool:
+    normalized = str(symbol or "").strip().upper()
+    return bool(normalized) and normalized in _scanner_reference_trace_symbols()
+
+
+def _emit_scanner_reference_trace(stage: str, context: Dict[str, Any]) -> None:
+    symbol = str(context.get("symbol") or "").upper()
+    if not _should_trace_scanner_symbol(symbol):
+        return
+    print(
+        "[SCANNER][TRACE] "
+        f"stage={stage} symbol={symbol} "
+        f"conId={context.get('con_id') or context.get('conId')} "
+        f"exchange={context.get('exchange')} primaryExchange={context.get('primary_exchange')} "
+        f"identity_key={context.get('identity_key')} last={context.get('last_price')} close={context.get('close')} "
+        f"reference_price={context.get('reference_price')} reference_source={context.get('reference_source')} "
+        f"reference_resolved={context.get('reference_resolved')} pct_change={context.get('pct_change')} "
+        f"pct_change_resolved={context.get('pct_change_resolved')} pct_source={context.get('pct_source')} "
+        f"gap_pct_resolved={context.get('gap_pct_resolved')} avg_volume_20d={context.get('avg_volume_20d')} "
+        f"adv20_resolved={context.get('adv20_resolved')} adv20_source={context.get('adv20_source')} "
+        f"rvol={context.get('rvol')} rvol_discovery={context.get('rvol_discovery')} rvol_phase={context.get('rvol_phase')} "
+        f"rvol_status={context.get('rvol_status')} focus_eligible={context.get('focus_eligible')} "
+        f"execution_eligible={context.get('execution_eligible')} dq={context.get('data_quality_flags')}"
+    )
+
+
 def _context_identity(context: Dict[str, Any]) -> CandidateIdentity:
     return CandidateIdentity.from_mapping({
         "symbol": context.get("symbol"),
@@ -143,6 +179,24 @@ def _gate_outcome_summary(watchlist_contexts: list[Dict[str, Any]]) -> dict[str,
         "execution_eligible_count": execution_eligible_count,
         "all_backfilled": all_backfilled,
     }
+
+
+def _apply_non_operational_backfill_markers(
+    watchlist_contexts: list[Dict[str, Any]],
+    *,
+    qualification_dead: bool,
+) -> None:
+    if not qualification_dead:
+        return
+    for context in watchlist_contexts:
+        if str(context.get("promotion_reason") or "") != "PREP_CONTEXT_BACKFILL":
+            continue
+        flags = context.setdefault("data_quality_flags", [])
+        if "NON_OPERATIONAL_BACKFILL" not in flags:
+            flags.append("NON_OPERATIONAL_BACKFILL")
+        context["scanner_operational"] = False
+        context["qualification_dead"] = True
+        context["non_operational_carryover"] = True
 
 CATALYST_KEYWORDS = {
     "earnings": "EARNINGS",
@@ -540,6 +594,7 @@ def _resolve_reference_snapshot(
     ibkr_change_pct: Optional[float],
     persisted_pct_change: Optional[float],
 ) -> Dict[str, Any]:
+    trace_enabled = _should_trace_scanner_symbol(symbol)
     identity = CandidateIdentity.from_mapping({
         "symbol": symbol,
         "conId": scan_detail.get("conId"),
@@ -550,18 +605,42 @@ def _resolve_reference_snapshot(
         "currency": scan_detail.get("currency") or "USD",
         "localSymbol": scan_detail.get("localSymbol") or symbol,
     })
-    result = _REFERENCE_RESOLVER.resolve(
-        identity=identity,
-        provider=provider,
-        session_label=session_label,
-        current_volume=current_volume,
-        intraday_avg_volume_20d=intraday_avg_volume_20d,
-        current_last_price=last_price,
-        rth_open_price=rth_open_price,
-        rth_close_price=rth_close_price,
-        ibkr_change_pct=ibkr_change_pct,
-        persisted_pct_change=persisted_pct_change,
-    )
+    previous_debug_trace = getattr(provider, "debug_reference_trace", False)
+    if trace_enabled:
+        setattr(provider, "debug_reference_trace", True)
+        print(
+            "[SCANNER][TRACE] "
+            f"stage=reference_resolver_input symbol={symbol} identity_key={identity.key} "
+            f"conId={scan_detail.get('conId')} exchange={scan_detail.get('exchange')} "
+            f"primaryExchange={scan_detail.get('primaryExchange')} tradingClass={scan_detail.get('tradingClass')} "
+            f"last={last_price} volume={current_volume} intraday_avg_volume_20d={intraday_avg_volume_20d} "
+            f"rth_open={rth_open_price} rth_close={rth_close_price} ibkr_change_pct={ibkr_change_pct}"
+        )
+    try:
+        result = _REFERENCE_RESOLVER.resolve(
+            identity=identity,
+            provider=provider,
+            session_label=session_label,
+            current_volume=current_volume,
+            intraday_avg_volume_20d=intraday_avg_volume_20d,
+            current_last_price=last_price,
+            rth_open_price=rth_open_price,
+            rth_close_price=rth_close_price,
+            ibkr_change_pct=ibkr_change_pct,
+            persisted_pct_change=persisted_pct_change,
+        )
+    finally:
+        setattr(provider, "debug_reference_trace", previous_debug_trace)
+    if trace_enabled:
+        trace = _REFERENCE_RESOLVER.get_last_resolution_trace(result.identity_key)
+        print(
+            "[SCANNER][TRACE] "
+            f"stage=reference_resolver_selected symbol={symbol} identity_key={result.identity_key} "
+            f"reference_source={result.reference_source} reference_price={result.reference_price} "
+            f"reference_resolved={result.reference_resolved} adv20_source={result.adv20_source} "
+            f"avg_volume_20d={result.avg_volume_20d} rvol_discovery={result.rvol_discovery} "
+            f"rvol_phase={result.rvol_phase} history_attempts={trace.get('history_attempts', [])}"
+        )
     return {
         "identity": identity,
         "prev_close": result.reference_price,
@@ -984,6 +1063,7 @@ def _populate_pct_change(
     context["reference_degraded"] = reference_snapshot.get("reference_degraded")
     context["reference_synthetic"] = reference_snapshot.get("reference_synthetic")
     _apply_degraded_contract(context)
+    _emit_scanner_reference_trace("pct_payload_created", context)
     print(
         "[REFERENCE][RESULT] "
         f"symbol={context['symbol']} identity_key={reference_snapshot.get('identity_key')} found={pct_payload.reference_price is not None} "
@@ -1244,6 +1324,7 @@ def _evaluate_focus_gates(
             f"rvol_metric_used={rvol_metric_used} rvol_metric_value=None "
             "reason=WAIT_MISSING_RVOL decision=WAIT"
         )
+        _emit_scanner_reference_trace("focus_gate_wait_missing_rvol", context)
         return "DROP_MISSING_RVOL"
     context["rvol_status"] = "RESOLVED"
 
@@ -1271,6 +1352,7 @@ def _evaluate_focus_gates(
         f"rvol_discovery={rvol_discovery} rvol_phase={rvol_phase} "
         f"reason={focus_reason} decision={focus_decision}"
     )
+    _emit_scanner_reference_trace("focus_gate_eval", context)
     if focus_decision == "WAIT":
         return "DROP_RVOL_FOCUS"
     if focus_decision == "KEEP_EARLY_RTH_CONTEXT":
@@ -1723,6 +1805,7 @@ def _candidate_from_context(
         catalyst_present=catalyst_present,
     )
     data_quality_flags = list(context.get("data_quality_flags", []) or [])
+    _emit_scanner_reference_trace("watchlist_print_payload", context)
     return CandidateMetrics(
         symbol=context.get("symbol"),
         con_id=context.get("con_id"),
@@ -1736,6 +1819,7 @@ def _candidate_from_context(
         reference_label=context.get("reference_label"),
         reference_source=context.get("reference_source"),
         reference_quality_tier=context.get("reference_quality_tier"),
+        reference_resolved=context.get("reference_resolved"),
         gap_pct=context.get("pct_change"),
         pct_change=context.get("pct_change"),
         pct_change_resolved=context.get("pct_change_resolved", context.get("pct_change")),
@@ -1888,6 +1972,13 @@ def _format_watchlist_line(candidate: CandidateMetrics) -> str:
         f"promotion_reason={getattr(candidate, 'promotion_reason', 'NA') or 'NA'} "
         f"watchlist_source={getattr(candidate, 'watchlist_source', 'LIVE_SCAN')} "
         f"source_of_candidate={'PREP_SEED' if getattr(candidate, 'prep_seeded', False) else 'LIVE_RTH'} "
+        f"adv20={_format_int(getattr(candidate, 'avg_volume_20d', None))} "
+        f"adv20_source={getattr(candidate, 'adv20_source', 'NA')} "
+        f"adv20_resolved={getattr(candidate, 'adv20_resolved', False)} "
+        f"rvol_status={getattr(candidate, 'rvol_status', 'NA')} "
+        f"reference_source={getattr(candidate, 'reference_source', 'NA')} "
+        f"reference_quality={getattr(candidate, 'reference_quality_tier', 'NA')} "
+        f"reference_resolved={getattr(candidate, 'reference_resolved', 'NA')} "
         f"summary={summary} "
         f"halted={candidate.halted if candidate.halted is not None else 'NA'} "
         f"ssr={candidate.ssr if candidate.ssr is not None else 'NA'} dq={dq} "
@@ -2008,6 +2099,13 @@ def _build_symbol_context(
 
     scan_details = _provider_symbol_scan_details(provider)
     scan_detail = scan_details.get(symbol, {}) if isinstance(scan_details, dict) else {}
+    if _should_trace_scanner_symbol(symbol):
+        print(
+            "[SCANNER][TRACE] "
+            f"stage=scanner_row_intake symbol={symbol} conId={scan_detail.get('conId')} "
+            f"exchange={scan_detail.get('exchange')} primaryExchange={scan_detail.get('primaryExchange')} "
+            f"tradingClass={scan_detail.get('tradingClass')} localSymbol={scan_detail.get('localSymbol')}"
+        )
     intraday = None
     try:
         intraday = provider.get_intraday_stats(symbol)
@@ -2179,6 +2277,12 @@ def _build_symbol_context(
             f"ref_close={prev_close} volume={volume} pct_change={pct_change} "
             f"source={pct_source}"
         )
+    if _should_trace_scanner_symbol(symbol):
+        print(
+            "[SCANNER][TRACE] "
+            f"stage=snapshot_merge symbol={symbol} last={last_price} bid={quote.bid} ask={quote.ask} "
+            f"close={quote.close} volume={volume} ibkr_change_pct={ibkr_change_pct}"
+        )
 
     con_id = scan_detail.get("conId")
     if con_id in {None, 0, "0"} and getattr(provider, "source_name", "") != "IBKR":
@@ -2269,6 +2373,7 @@ def _build_symbol_context(
         "universe_rank": universe_rank,
     }
     _apply_degraded_contract(context)
+    _emit_scanner_reference_trace("final_context_build", context)
     return context
     
 
@@ -3850,8 +3955,19 @@ def run_scanner_cycle(
         focus_eligible_count = gate_outcome_summary["focus_eligible_count"]
         execution_eligible_count = gate_outcome_summary["execution_eligible_count"]
         all_backfilled = gate_outcome_summary["all_backfilled"]
-        scanner_operational = not (enrich_summary.get("reference_ok", 0) == 0 and enrich_summary.get("pct_ready", 0) == 0 and true_gate_pass_count == 0 and all_backfilled)
+        qualification_dead = bool(
+            true_gate_pass_count == 0
+            and enrich_summary.get("reference_ok", 0) == 0
+            and enrich_summary.get("pct_ready", 0) == 0
+            and focus_eligible_count == 0
+        )
+        scanner_operational = not qualification_dead
+        _apply_non_operational_backfill_markers(
+            watchlist_contexts,
+            qualification_dead=qualification_dead,
+        )
         gate_outcome_summary["scanner_operational"] = scanner_operational
+        gate_outcome_summary["qualification_dead"] = qualification_dead
         diagnostics["gate_outcome_summary"] = gate_outcome_summary
         print(
             "[SCANNER][SUMMARY] "
@@ -3860,6 +3976,7 @@ def run_scanner_cycle(
             f"degraded_fallback_survivor_count={degraded_fallback_survivor_count} "
             f"backfill_count={backfill_count} seeded_count={seeded_count} focus_eligible_count={focus_eligible_count} "
             f"execution_eligible_count={execution_eligible_count} scanner_operational={scanner_operational} "
+            f"qualification_dead={qualification_dead} "
             f"all_backfilled={all_backfilled} drop_reasons={drop_summary}"
         )
 
@@ -4209,6 +4326,8 @@ def run_scanner_cycle(
         "raw_broker_count": raw_broker_count,
         "watchlist_count": watchlist_count,
         "cacheable": cacheable,
+        "scanner_operational": scanner_operational,
+        "qualification_dead": qualification_dead,
         "diagnostics": diagnostics,
         "symbol_context_registry": {
             symbol: symbol_contexts[symbol]

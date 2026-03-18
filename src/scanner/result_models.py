@@ -18,6 +18,7 @@ class CandidateMetrics:
     reference_label: Optional[str]
     reference_source: Optional[str]
     reference_quality_tier: Optional[str]
+    reference_resolved: Optional[bool]
     gap_pct: Optional[float]
     pct_change: Optional[float]
     pct_change_resolved: Optional[float]
