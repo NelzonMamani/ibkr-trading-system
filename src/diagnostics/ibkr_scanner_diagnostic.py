@@ -15,7 +15,6 @@ from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 from src.adapters.brokers.ibkr.ibkr_connection_manager import (
     get_shared_ibkr_connection_manager,
 )
-from src.ibkr.market_data_client import MarketDataClient
 from src.scanner.providers.ibkr_provider import IbkrScannerProvider
 from src.scanner.scanner_contract import ScannerRequest
 
@@ -64,7 +63,7 @@ def test_market_data_client():
 
     manager = get_shared_ibkr_connection_manager()
 
-    client = MarketDataClient(connection_manager=manager)
+    client = manager.get_market_data_client()
 
     try:
         client.connect()

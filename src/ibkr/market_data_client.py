@@ -140,6 +140,32 @@ class MarketDataClient:
             raise RuntimeError("IBKR client not initialized")
         return self.ib
 
+    def _run_async(self, coro):
+        """
+        Robust async runner that works in:
+        - main thread
+        - ThreadPoolExecutor threads
+        - ib_insync environments
+        """
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError as exc:
+            if "There is no current event loop in thread" in str(exc):
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            else:
+                raise
+
+        if loop.is_running():
+            ib = self._resolve_ib_client()
+            runner = getattr(ib, "run", None)
+            if callable(runner):
+                return runner(coro)
+            raise RuntimeError(
+                "No valid async runner available (loop running but no ib.run)"
+            )
+
+        return loop.run_until_complete(coro)
 
     def _on_ib_error(self, req_id, error_code, error_string, contract=None) -> None:
         code = str(error_code)
@@ -251,12 +277,7 @@ class MarketDataClient:
                     )
 
                 qualify_coro = _qualify_with_timeout()
-                ib = self._resolve_ib_client()
-                runner = getattr(ib, "run", None)
-                if callable(runner):
-                    qualified = runner(qualify_coro)
-                else:
-                    qualified = asyncio.run(qualify_coro)
+                qualified = self._run_async(qualify_coro)
             except Exception as exc:
                 last_error = exc
                 if "qualify_coro" in locals():
