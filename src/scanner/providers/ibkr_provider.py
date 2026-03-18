@@ -264,6 +264,9 @@ class IbkrScannerProvider(ScannerDataProvider):
             data_quality_flags=tuple(snapshot.data_quality_flags),
         )
 
+    def qualifyContracts(self, *contracts):
+        return self.market_data_client.qualifyContracts(*contracts)
+
     def get_prev_close(self, symbol: str) -> Optional[float]:
         prev_close = self.market_data_client.prev_close_from_history(symbol, use_rth=True)
         if prev_close is not None:

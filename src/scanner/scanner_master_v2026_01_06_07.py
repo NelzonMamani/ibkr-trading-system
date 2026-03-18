@@ -56,6 +56,15 @@ else:  # pragma: no cover
 # Section 1B: Historical request safety + pacing
 # ============================
 
+def _qualify_hist_contract(ib: IB, contract: Stock) -> Stock:
+    try:
+        qualified = ib.qualifyContracts(contract)
+    except Exception:
+        return contract
+    if not qualified:
+        return contract
+    return qualified[0]
+
 class _HistLimiter:
     """Simple pacing + hard cap for historical requests.
 
@@ -110,6 +119,8 @@ def _req_hist_safe(
 
     try:
         import asyncio  # local import (Windows policy handled above)
+
+        contract = _qualify_hist_contract(ib, contract)
 
         async def _coro():
             return await ib.reqHistoricalDataAsync(
@@ -621,6 +632,7 @@ def _try_live_intraday_volume(ib: IB, contract: Stock, wait_seconds: float = 1.2
 
     # 3) Historical daily bar for "today" (often returns volume-to-date for current session)
     try:
+        contract = _qualify_hist_contract(ib, contract)
         bars = ib.reqHistoricalData(
             contract,
             endDateTime="",
