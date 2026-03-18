@@ -1002,6 +1002,14 @@ class StockSelectionSpec:
     min_volume: int = 1_000_000
     min_premarket_volume: int = 100_000
     premarket_volume_min: int = 100_000
+    session_focus_volume_min: dict[str, int] = field(
+        default_factory=lambda: {
+            "RTH_OPEN": 250_000,
+            "RTH_MID": 300_000,
+            "RTH_LATE": 200_000,
+            "AH": 150_000,
+        }
+    )
     spread_max_pct: Optional[float] = None
     require_catalyst: bool = True
     allow_halts: bool = False
