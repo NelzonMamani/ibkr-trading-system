@@ -318,9 +318,14 @@ class IbkrScannerProvider(ScannerDataProvider):
         contract = self._qualify_identity_contract(identity)
         return self.market_data_client.average_daily_volume_from_history(contract if contract is not None else getattr(identity, "symbol", identity), window=window, use_rth=True)
 
-    def get_daily_bars(self, identity, lookback_days: int):
+    def get_daily_bars(self, identity, lookback_days: int, *, use_rth: bool = True, end_datetime: str = ""):
         contract = self._qualify_identity_contract(identity)
-        return self.market_data_client.daily_bars_from_history(contract if contract is not None else getattr(identity, "symbol", identity), lookback_days=lookback_days, use_rth=True)
+        return self.market_data_client.daily_bars_from_history(
+            contract if contract is not None else getattr(identity, "symbol", identity),
+            lookback_days=lookback_days,
+            use_rth=use_rth,
+            end_datetime=end_datetime,
+        )
 
     def get_intraday_stats(self, symbol: str) -> IntradayStats:
         snapshot = self.market_data_client.snapshot_stock(symbol)

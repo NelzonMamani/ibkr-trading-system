@@ -558,6 +558,7 @@ def _resolve_reference_snapshot(
         "reference_resolved": result.reference_resolved,
         "continuity_usable_reference": result.continuity_usable_reference,
         "qualification_usable_reference": result.qualification_usable_reference,
+        "execution_usable_reference": result.execution_usable_reference,
         "reference_asof_trading_date": result.reference_asof_trading_date,
         "adv20_source": result.adv20_source,
         "adv20_resolved": result.adv20_resolved,
@@ -567,6 +568,8 @@ def _resolve_reference_snapshot(
         "identity_key": result.identity_key,
         "reference_failure_reason": result.reference_failure_reason,
         "rvol_failure_reason": result.rvol_failure_reason,
+        "reference_degraded": result.reference_degraded,
+        "reference_synthetic": result.reference_synthetic,
     }
 
 
@@ -584,7 +587,8 @@ def _apply_degraded_contract(context: Dict[str, Any]) -> None:
     session = normalize_session_label(str(context.get("session") or ""))
     reference_quality_tier = str(context.get("reference_quality_tier") or "NONE").upper()
     pct_usable = bool(context.get("pct_change_qualification_usable"))
-    degraded_reference = reference_quality_tier in {"SECONDARY", "WEAK"}
+    pct_execution_usable = bool(context.get("pct_change_execution_usable", pct_usable))
+    degraded_reference = reference_quality_tier in {"SECONDARY", "WEAK", "DEGRADED_SYNTHETIC"}
     degraded_pct = bool(context.get("pct_change_degraded"))
     degraded_rvol = bool(context.get("rvol_status") == "UNKNOWN")
     degraded_adv20 = not bool(context.get("adv20_resolved"))
@@ -605,13 +609,16 @@ def _apply_degraded_contract(context: Dict[str, Any]) -> None:
     focus_eligible = context.get("focus_eligible")
     execution_eligible = context.get("execution_eligible")
     if focus_eligible is None:
-        focus_eligible = pct_usable and reference_quality_tier in {"PRIMARY", "SECONDARY"}
+        focus_eligible = pct_usable and reference_quality_tier in {"PRIMARY", "SECONDARY", "DEGRADED_SYNTHETIC"}
     if execution_eligible is None:
-        execution_eligible = focus_eligible and not degraded_rvol and not degraded_adv20
+        execution_eligible = focus_eligible and pct_execution_usable and not degraded_rvol and not degraded_adv20
     if reference_quality_tier == "WEAK" and not bool(context.get("degraded_rvol_gate_bypass")):
         focus_eligible = False
         execution_eligible = False
         reason_codes.extend(["PCT_CHANGE_CONTINUITY_ONLY", "PCT_CHANGE_NOT_QUALIFICATION_USABLE", "DEGRADED_EXECUTION_BLOCKED"])
+    if reference_quality_tier == "DEGRADED_SYNTHETIC":
+        execution_eligible = False
+        reason_codes.extend(["SYNTHETIC_REFERENCE_DEGRADED", "DEGRADED_EXECUTION_BLOCKED"])
     if profile == "MULTI_FACTOR_DEGRADED" and session == "PRE":
         execution_eligible = False
         if not focus_eligible:
@@ -634,6 +641,7 @@ def _apply_degraded_contract(context: Dict[str, Any]) -> None:
     context["watchlist_eligible"] = watchlist_eligible
     context["focus_eligible"] = bool(focus_eligible)
     context["execution_eligible"] = bool(execution_eligible)
+    context["execution_ready"] = bool(context.get("execution_ready")) and bool(execution_eligible)
     context["eligibility_reason_codes"] = list(dict.fromkeys(reason_codes))
 
 
@@ -941,8 +949,11 @@ def _populate_pct_change(
     context["continuity_usable_reference"] = reference_snapshot.get("continuity_usable_reference")
     context["qualification_usable_reference"] = reference_snapshot.get("qualification_usable_reference")
     context["pct_change_qualification_usable"] = bool(reference_snapshot.get("qualification_usable_reference")) and pct_payload.final_pct is not None
+    context["pct_change_execution_usable"] = bool(reference_snapshot.get("execution_usable_reference")) and pct_payload.final_pct is not None
     context["pct_change_source_quality"] = reference_snapshot.get("reference_quality_tier")
-    context["pct_change_degraded"] = pct_payload.final_pct is not None and str(reference_snapshot.get("reference_quality_tier") or "NONE") in {"SECONDARY", "WEAK"}
+    context["pct_change_degraded"] = pct_payload.final_pct is not None and str(reference_snapshot.get("reference_quality_tier") or "NONE") in {"SECONDARY", "WEAK", "DEGRADED_SYNTHETIC"}
+    context["pct_change_synthetic"] = bool(reference_snapshot.get("reference_synthetic")) and pct_payload.final_pct is not None
+    context["pct_change_failure_reason"] = None if pct_payload.final_pct is not None else reference_snapshot.get("reference_failure_reason")
     context["open_relative_pct_change"] = pct_payload.open_relative_pct_change
     context["gap_pct_resolved"] = pct_payload.open_relative_pct_change if pct_payload.open_relative_pct_change is not None else pct_payload.final_pct
     context["gap_source"] = "SESSION_OPEN_VS_REF" if pct_payload.open_relative_pct_change is not None else pct_payload.pct_source
@@ -955,6 +966,8 @@ def _populate_pct_change(
     context["history_lookup_key_used"] = reference_snapshot.get("lookup_key")
     context["reference_failure_reason"] = reference_snapshot.get("reference_failure_reason")
     context["rvol_failure_reason"] = reference_snapshot.get("rvol_failure_reason")
+    context["reference_degraded"] = reference_snapshot.get("reference_degraded")
+    context["reference_synthetic"] = reference_snapshot.get("reference_synthetic")
     _apply_degraded_contract(context)
     print(
         "[REFERENCE][RESULT] "
@@ -1712,8 +1725,11 @@ def _candidate_from_context(
         pct_change=context.get("pct_change"),
         pct_change_resolved=context.get("pct_change_resolved", context.get("pct_change")),
         pct_change_qualification_usable=context.get("pct_change_qualification_usable"),
+        pct_change_execution_usable=context.get("pct_change_execution_usable"),
         pct_change_source_quality=context.get("pct_change_source_quality"),
         pct_change_degraded=context.get("pct_change_degraded"),
+        pct_change_synthetic=context.get("pct_change_synthetic"),
+        pct_change_failure_reason=context.get("pct_change_failure_reason"),
         gap_pct_resolved=context.get("gap_pct_resolved", context.get("open_relative_pct_change")),
         gap_source=context.get("gap_source"),
         context_status=context.get("context_status"),
@@ -1736,7 +1752,12 @@ def _candidate_from_context(
         avg_volume_20d=context.get("avg_volume_20d"),
         adv20_resolved=context.get("adv20_resolved"),
         degraded_adv20=context.get("degraded_adv20"),
+        adv20_source=context.get("adv20_source"),
         rvol_status=context.get("rvol_status"),
+        rvol_failure_reason=context.get("rvol_failure_reason"),
+        rvol_degraded=context.get("degraded_rvol"),
+        rvol_qualification_usable=context.get("rvol_status") == "RESOLVED" or bool(context.get("degraded_rvol_gate_bypass")),
+        rvol_execution_usable=context.get("rvol_status") == "RESOLVED" and bool(context.get("execution_eligible")),
         degraded_rvol_gate_bypass=context.get("degraded_rvol_gate_bypass"),
         float_shares=float_shares,
         float_source=context.get("float_source"),
@@ -1767,6 +1788,7 @@ def _candidate_from_context(
         degraded_reference=context.get("degraded_reference"),
         degraded_pct_change=context.get("degraded_pct_change"),
         degraded_rvol=context.get("degraded_rvol"),
+        reference_synthetic=context.get("reference_synthetic"),
         degraded_focus_eligibility=context.get("degraded_focus_eligibility"),
         degraded_execution_eligibility=context.get("degraded_execution_eligibility"),
         watchlist_eligible=context.get("watchlist_eligible"),
@@ -2168,8 +2190,11 @@ def _build_symbol_context(
         "pct_change": pct_change,
         "pct_change_resolved": pct_change,
         "pct_change_qualification_usable": pct_change_qualification_usable,
+        "pct_change_execution_usable": bool(reference_snapshot.get("execution_usable_reference")) and pct_change is not None,
         "pct_change_source_quality": pct_change_source_quality,
         "pct_change_degraded": pct_change_degraded,
+        "pct_change_synthetic": bool(reference_snapshot.get("reference_synthetic")) and pct_change is not None,
+        "pct_change_failure_reason": None if pct_change is not None else reference_snapshot.get("reference_failure_reason"),
         "pct_source": pct_source,
         "open_relative_pct_change": open_relative_pct_change,
         "gap_pct_resolved": gap_pct_resolved,
@@ -2195,6 +2220,8 @@ def _build_symbol_context(
         "history_lookup_key_used": reference_snapshot.get("lookup_key"),
         "reference_failure_reason": reference_snapshot.get("reference_failure_reason"),
         "rvol_failure_reason": reference_snapshot.get("rvol_failure_reason"),
+        "reference_degraded": reference_snapshot.get("reference_degraded"),
+        "reference_synthetic": reference_snapshot.get("reference_synthetic"),
         "dollar_volume": dollar_volume,
         "bid": quote.bid,
         "ask": quote.ask,
