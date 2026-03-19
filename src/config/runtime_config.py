@@ -219,9 +219,12 @@ def get_ibkr_default_currency(default: str = "USD") -> str:
 
 
 def get_ibkr_order_submission_enabled(default: bool = False) -> bool:
-    return get_execution_enabled() and not get_ibkr_readonly_enabled() and bool(
-        _with_default("IBKR_ORDER_SUBMISSION_ENABLED", default)
-    )
+    run_mode, allow_orders = _resolve_runtime_authority()
+
+    if run_mode == RunMode.READ_ONLY.value:
+        return False
+
+    return allow_orders
 
 
 def get_ibkr_kill_switch(default: bool = True) -> bool:

@@ -50,7 +50,7 @@ def test_live_execution_disabled_readonly_resolves_no_orders(monkeypatch: pytest
     assert orchestrator.execution_enabled is False
 
 
-def test_live_execution_requires_submission_flag(monkeypatch: pytest.MonkeyPatch):
+def test_live_execution_ignores_submission_config_flag(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("RUN_MODE", "LIVE")
     monkeypatch.setenv("EXECUTION_ENABLED", "true")
     monkeypatch.setenv("IBKR_READONLY_ENABLED", "false")
@@ -58,11 +58,9 @@ def test_live_execution_requires_submission_flag(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("IBKR_ORDER_SUBMISSION_ENABLED", "false")
     monkeypatch.setenv("IBKR_API_WRITE_ALLOWED", "true")
 
-    with pytest.raises(
-        RuntimeSafetyError,
-        match="Execution enabled but IBKR_ORDER_SUBMISSION_ENABLED=false.",
-    ):
-        CoreOrchestrator()
+    orchestrator = CoreOrchestrator()
+
+    assert orchestrator.execution_enabled is True
 
 
 def test_startup_banner_and_orchestrator_agree(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):

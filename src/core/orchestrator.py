@@ -23,6 +23,10 @@ from src.config.runtime_config import (
     RunMode,
     get_daily_loss_hard_limit,
     get_daily_loss_warning_limit,
+    get_ibkr_api_write_allowed,
+    get_ibkr_order_submission_enabled,
+    get_ibkr_order_translation_enabled,
+    get_ibkr_readonly_enabled,
     get_run_mode,
     get_scanner_mode,
 )
@@ -346,11 +350,11 @@ class CoreOrchestrator:
                     "Install ibapi and ensure IBKR adapter dependencies are present."
                 )
             live_port = int(get_config("IBKR_LIVE_PORT"))
-            readonly = bool(get_config("IBKR_READONLY_ENABLED"))
+            readonly = get_ibkr_readonly_enabled()
             kill_switch = bool(get_config("IBKR_KILL_SWITCH"))
-            submission_enabled = bool(get_config("IBKR_ORDER_SUBMISSION_ENABLED"))
-            translation_enabled = bool(get_config("IBKR_ORDER_TRANSLATION_ENABLED"))
-            api_write_allowed = bool(get_config("IBKR_API_WRITE_ALLOWED"))
+            submission_enabled = get_ibkr_order_submission_enabled()
+            translation_enabled = get_ibkr_order_translation_enabled()
+            api_write_allowed = get_ibkr_api_write_allowed()
             if live_port != 7496:
                 raise RuntimeSafetyError(
                     f"LIVE execution requires IBKR_LIVE_PORT=7496 (resolved {live_port})."
