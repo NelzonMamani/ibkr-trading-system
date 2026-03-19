@@ -313,13 +313,17 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         env=None,
     )
 
-    scanner_data_source = "MOCK" if effective_run_mode == "SIM" else "IBKR"
-    resolved["SCANNER_DATA_SOURCE"] = ConfigRecord(
-        name="SCANNER_DATA_SOURCE",
-        value=scanner_data_source,
-        source="DERIVED",
-        env=None,
-    )
+    scanner_data_source_record = resolved["SCANNER_DATA_SOURCE"]
+    if scanner_data_source_record.source in {"OVERRIDE", "ENV"}:
+        resolved["SCANNER_DATA_SOURCE"] = scanner_data_source_record
+    else:
+        scanner_data_source = "MOCK" if effective_run_mode == "SIM" else "IBKR"
+        resolved["SCANNER_DATA_SOURCE"] = ConfigRecord(
+            name="SCANNER_DATA_SOURCE",
+            value=scanner_data_source,
+            source="DERIVED",
+            env=None,
+        )
 
     ibkr_readonly_enabled = effective_run_mode in {"SIM", "READ_ONLY"}
     resolved["IBKR_READONLY_ENABLED"] = ConfigRecord(
