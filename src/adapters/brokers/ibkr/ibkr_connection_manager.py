@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import Lock
@@ -264,6 +265,19 @@ def get_shared_ibkr_connection_manager(
     with _default_manager_lock:
         if _default_manager is None:
             host, port, client_id, run_mode = resolve_ibkr_connection()
+            env_force_live = os.getenv("EXECUTION_ENABLED", "false").lower() == "true"
+            if env_force_live:
+                readonly = False
+            else:
+                readonly = (
+                    get_ibkr_readonly_enabled()
+                    if readonly_enabled is None
+                    else readonly_enabled
+                )
+            print(
+                f"[IBKR][READONLY_OVERRIDE] readonly={readonly} "
+                f"(env_force_live={env_force_live})"
+            )
             _default_manager = IbkrConnectionManager(
                 IbkrConnectionConfig(
                     host=host,
@@ -272,11 +286,7 @@ def get_shared_ibkr_connection_manager(
                     run_mode=run_mode,
                     snapshot_timeout_seconds=get_ibkr_snapshot_timeout_seconds(),
                     market_data_type=get_ibkr_market_data_type(),
-                    readonly_enabled=(
-                        get_ibkr_readonly_enabled()
-                        if readonly_enabled is None
-                        else readonly_enabled
-                    ),
+                    readonly_enabled=readonly,
                 )
             )
         return _default_manager
