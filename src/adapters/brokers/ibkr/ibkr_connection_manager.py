@@ -7,6 +7,7 @@ from threading import Lock
 from typing import Optional
 
 from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+from src.config.config_resolver import get_run_mode
 from src.config.runtime_config import (
     RuntimeConfigError,
     get_execution_enabled,
@@ -265,18 +266,22 @@ def get_shared_ibkr_connection_manager(
     with _default_manager_lock:
         if _default_manager is None:
             host, port, client_id, run_mode = resolve_ibkr_connection()
+            readonly = (
+                get_ibkr_readonly_enabled()
+                if readonly_enabled is None
+                else readonly_enabled
+            )
             env_force_live = os.getenv("EXECUTION_ENABLED", "false").lower() == "true"
-            if env_force_live:
+            run_mode = str(get_run_mode()).upper()
+
+            if env_force_live and run_mode == "LIVE":
                 readonly = False
             else:
-                readonly = (
-                    get_ibkr_readonly_enabled()
-                    if readonly_enabled is None
-                    else readonly_enabled
-                )
+                readonly = readonly
+
             print(
                 f"[IBKR][READONLY_OVERRIDE] readonly={readonly} "
-                f"(env_force_live={env_force_live})"
+                f"(env_force_live={env_force_live}, run_mode={run_mode})"
             )
             _default_manager = IbkrConnectionManager(
                 IbkrConnectionConfig(
