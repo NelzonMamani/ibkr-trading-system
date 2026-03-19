@@ -1137,6 +1137,18 @@ class CoreOrchestrator:
                         "[CONNECTIVITY] "
                         "Max cycles set; aborting after connectivity error."
                     )
+                    self.system_state.set_degraded(reason=str(exc))
+                    self._trace_halt(
+                        reason_code="CONNECTIVITY_FAILURE",
+                        message=str(exc),
+                        stage="CONNECTIVITY",
+                        details={
+                            "retry": retry_count,
+                            "reason": "provider_connection_failure",
+                            "provider": "IBKR",
+                            "abort_reason": "max_cycles",
+                        },
+                    )
                     if not self.stop_controller.is_stop_requested():
                         self._request_stop(
                             StopMode.GRACEFUL,
