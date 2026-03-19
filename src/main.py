@@ -18,6 +18,7 @@ except RuntimeError:
     asyncio.set_event_loop(loop)
 
 import argparse
+from dataclasses import replace
 import os
 import sys
 
@@ -57,6 +58,7 @@ from src.core.managers.runtime_mode_manager import RuntimeModeManager
 from src.config.system_config import ACTIVE_SESSIONS, CYCLE_SLEEP_SECONDS
 from src.domain.models.internal_order import InternalOrder
 from src.core.orchestrator import CoreOrchestrator
+from src.strategies.ross_momentum import strategy_policy as ross_strategy_policy
 from src.core.readiness import run_readiness_check
 from src.adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
 from src.ibkr.read_only_guard import validate_read_only_guard
@@ -148,6 +150,29 @@ def _apply_cli_overrides(args: argparse.Namespace) -> None:
         set_config_overrides(overrides)
 
 
+
+def _apply_temp_validation_override() -> None:
+    """Temporarily relax runtime policy gates to validate the full trade pipeline."""
+    # === TEMP VALIDATION OVERRIDE — REMOVE AFTER FIRST TRADE ===
+    ross_strategy_policy.CANONICAL_POLICY = replace(
+        ross_strategy_policy.CANONICAL_POLICY,
+        stock_selection=replace(
+            ross_strategy_policy.CANONICAL_POLICY.stock_selection,
+            watchlist_rvol_min=0.2,
+            focus_rvol_min=0.2,
+            min_volume=0,
+            min_premarket_volume=0,
+            require_catalyst=False,
+        ),
+    )
+    ross_strategy_policy.ROSS_POLICY = ross_strategy_policy.CANONICAL_POLICY
+    ross_strategy_policy.RossMomentumPolicy = lambda: ross_strategy_policy.CANONICAL_POLICY
+    print(
+        "[DEBUG OVERRIDE ACTIVE]",
+        ross_strategy_policy.CANONICAL_POLICY.stock_selection.watchlist_rvol_min,
+        ross_strategy_policy.CANONICAL_POLICY.stock_selection.focus_rvol_min,
+    )
+    # === END TEMP OVERRIDE ===
 
 
 def _print_enabled_strategies_banner() -> None:
@@ -300,6 +325,7 @@ def main() -> None:
         print("[SAFETY] LIVE DATA — READ ONLY MODE")
         print("[SAFETY] NO ORDERS WILL BE SENT")
     validate_read_only_guard()
+    _apply_temp_validation_override()
 
     translation_test_symbol = str(get_config("IBKR_TRANSLATION_TEST_SYMBOL") or "").strip().upper()
     translation_test_direction = str(
