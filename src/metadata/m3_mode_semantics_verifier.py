@@ -121,9 +121,9 @@ def verify_mode_semantics() -> dict:
         violations=violations,
         run_mode="PAPER",
         execution_enabled=False,
-        expected_effective=True,
-        expected_submission=True,
-        expected_translation=True,
+        expected_effective=False,
+        expected_submission=False,
+        expected_translation=False,
     )
     _verify_sim_broker_isolation(violations)
 

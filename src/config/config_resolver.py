@@ -27,6 +27,7 @@ class ConfigRecord:
     value: Any
     source: str
     env: str | None
+    trace: tuple[str, ...] = ()
 
 
 _CONFIG_CACHE: Dict[str, ConfigRecord] | None = None
@@ -199,17 +200,24 @@ def _resolve_entry(name: str, entry: Dict[str, Any]) -> ConfigRecord:
     if name in _CONFIG_OVERRIDES:
         value = _CONFIG_OVERRIDES[name]
         source = "OVERRIDE"
+        trace = (f"{name}=override({value!r})",)
     elif env_value is not None:
         value = _parse_value(env_value, entry)
         source = "ENV"
+        trace = (
+            f"{name}=env[{env_used}] raw={env_value!r} parsed={value!r}",
+        )
     else:
         if "default_factory" in entry:
             value = entry["default_factory"]()
         else:
             value = entry.get("default")
         source = "DEFAULT"
+        trace = (f"{name}=default({value!r})",)
 
     value = _normalize(value, entry.get("normalizer"))
+    if trace and value is not None:
+        trace = (*trace, f"{name}=normalized({value!r})")
     if value is None and entry.get("enforcement") == "HARD" and not entry.get("allow_none"):
         raise ConfigResolutionError(
             f"Missing required configuration value for {name}"
@@ -243,7 +251,18 @@ def _resolve_entry(name: str, entry: Dict[str, Any]) -> ConfigRecord:
             f"Config {name} must be one of {choices}; got {value}"
         )
 
-    return ConfigRecord(name=name, value=value, source=source, env=env_used)
+    return ConfigRecord(name=name, value=value, source=source, env=env_used, trace=trace)
+
+
+def _derive_record(
+    name: str,
+    value: Any,
+    *,
+    source: str = "DERIVED",
+    env: str | None = None,
+    trace: Iterable[str] = (),
+) -> ConfigRecord:
+    return ConfigRecord(name=name, value=value, source=source, env=env, trace=tuple(trace))
 
 
 def _resolve_git_sha() -> str | None:
@@ -283,18 +302,23 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
     if effective_run_mode == "SIM" and market_data_type == "LIVE":
         # SIM with live market data is allowed for diagnostics, scanner validation,
         # and read-only observation. Execution must be forcibly disabled.
-        resolved["EXECUTION_ENABLED"] = ConfigRecord(
-            name="EXECUTION_ENABLED",
-            value=False,
-            source="DERIVED",
-            env=None,
+        prior = resolved["EXECUTION_ENABLED"]
+        resolved["EXECUTION_ENABLED"] = _derive_record(
+            "EXECUTION_ENABLED",
+            False,
+            trace=(
+                *prior.trace,
+                "EXECUTION_ENABLED overridden to False because RUN_MODE=SIM with IBKR_MARKET_DATA_TYPE=LIVE",
+            ),
         )
 
-    resolved["RUN_MODE_EFFECTIVE"] = ConfigRecord(
-        name="RUN_MODE_EFFECTIVE",
-        value=effective_run_mode,
-        source="DERIVED",
-        env=None,
+    resolved["RUN_MODE_EFFECTIVE"] = _derive_record(
+        "RUN_MODE_EFFECTIVE",
+        effective_run_mode,
+        trace=(
+            *resolved["RUN_MODE"].trace,
+            f"RUN_MODE_EFFECTIVE derived from RUN_MODE={run_mode!r}",
+        ),
     )
 
     scanner_mode_record = resolved["SCANNER_MODE"]
@@ -306,11 +330,13 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         effective_scanner_mode = "TEACHING"
     else:
         effective_scanner_mode = scanner_mode
-    resolved["SCANNER_MODE_EFFECTIVE"] = ConfigRecord(
-        name="SCANNER_MODE_EFFECTIVE",
-        value=effective_scanner_mode,
-        source="DERIVED",
-        env=None,
+    resolved["SCANNER_MODE_EFFECTIVE"] = _derive_record(
+        "SCANNER_MODE_EFFECTIVE",
+        effective_scanner_mode,
+        trace=(
+            *scanner_mode_record.trace,
+            f"SCANNER_MODE_EFFECTIVE derived for RUN_MODE_EFFECTIVE={effective_run_mode!r}",
+        ),
     )
 
     scanner_data_source_record = resolved["SCANNER_DATA_SOURCE"]
@@ -318,48 +344,64 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         resolved["SCANNER_DATA_SOURCE"] = scanner_data_source_record
     else:
         scanner_data_source = "MOCK" if effective_run_mode == "SIM" else "IBKR"
-        resolved["SCANNER_DATA_SOURCE"] = ConfigRecord(
-            name="SCANNER_DATA_SOURCE",
-            value=scanner_data_source,
-            source="DERIVED",
-            env=None,
+        resolved["SCANNER_DATA_SOURCE"] = _derive_record(
+            "SCANNER_DATA_SOURCE",
+            scanner_data_source,
+            trace=(
+                *scanner_data_source_record.trace,
+                f"SCANNER_DATA_SOURCE derived for RUN_MODE_EFFECTIVE={effective_run_mode!r}",
+            ),
         )
 
-    ibkr_readonly_enabled = effective_run_mode in {"SIM", "READ_ONLY"}
-    resolved["IBKR_READONLY_ENABLED"] = ConfigRecord(
-        name="IBKR_READONLY_ENABLED",
-        value=ibkr_readonly_enabled,
-        source="DERIVED",
-        env=None,
-    )
-
+    ibkr_readonly_record = resolved["IBKR_READONLY_ENABLED"]
+    if ibkr_readonly_record.source == "DEFAULT":
+        default_readonly = effective_run_mode in {"SIM", "READ_ONLY"}
+        ibkr_readonly_record = _derive_record(
+            "IBKR_READONLY_ENABLED",
+            default_readonly,
+            source="DERIVED",
+            trace=(
+                *ibkr_readonly_record.trace,
+                f"IBKR_READONLY_ENABLED default adjusted for RUN_MODE_EFFECTIVE={effective_run_mode!r}",
+            ),
+        )
+        resolved["IBKR_READONLY_ENABLED"] = ibkr_readonly_record
+    ibkr_readonly_enabled = bool(ibkr_readonly_record.value)
     execution_enabled_flag = bool(resolved["EXECUTION_ENABLED"].value)
-    live_execution_enabled = effective_run_mode == "LIVE" and execution_enabled_flag
-    paper_execution_enabled = effective_run_mode == "PAPER"
-    execution_enabled_effective = live_execution_enabled or paper_execution_enabled
-
-    ibkr_submission_enabled = execution_enabled_effective
-    resolved["IBKR_ORDER_SUBMISSION_ENABLED"] = ConfigRecord(
-        name="IBKR_ORDER_SUBMISSION_ENABLED",
-        value=ibkr_submission_enabled,
-        source="DERIVED",
-        env=None,
+    execution_capable_mode = effective_run_mode in {"LIVE", "PAPER"}
+    execution_enabled_effective = (
+        execution_capable_mode
+        and execution_enabled_flag
+        and not ibkr_readonly_enabled
     )
 
-    ibkr_translation_enabled = execution_enabled_effective
-    resolved["IBKR_ORDER_TRANSLATION_ENABLED"] = ConfigRecord(
-        name="IBKR_ORDER_TRANSLATION_ENABLED",
-        value=ibkr_translation_enabled,
-        source="DERIVED",
-        env=None,
-    )
+    submission_record = resolved["IBKR_ORDER_SUBMISSION_ENABLED"]
+    if submission_record.source == "DEFAULT":
+        resolved["IBKR_ORDER_SUBMISSION_ENABLED"] = _derive_record(
+            "IBKR_ORDER_SUBMISSION_ENABLED",
+            execution_enabled_effective,
+            trace=(
+                *submission_record.trace,
+                "IBKR_ORDER_SUBMISSION_ENABLED default aligned to EXECUTION_ENABLED_EFFECTIVE",
+            ),
+        )
+
+    translation_record = resolved["IBKR_ORDER_TRANSLATION_ENABLED"]
+    if translation_record.source == "DEFAULT":
+        resolved["IBKR_ORDER_TRANSLATION_ENABLED"] = _derive_record(
+            "IBKR_ORDER_TRANSLATION_ENABLED",
+            execution_enabled_effective,
+            trace=(
+                *translation_record.trace,
+                "IBKR_ORDER_TRANSLATION_ENABLED default aligned to EXECUTION_ENABLED_EFFECTIVE",
+            ),
+        )
 
     ibkr_kill_switch = effective_run_mode == "READ_ONLY"
-    resolved["IBKR_KILL_SWITCH"] = ConfigRecord(
-        name="IBKR_KILL_SWITCH",
-        value=ibkr_kill_switch,
-        source="DERIVED",
-        env=None,
+    resolved["IBKR_KILL_SWITCH"] = _derive_record(
+        "IBKR_KILL_SWITCH",
+        ibkr_kill_switch,
+        trace=(f"IBKR_KILL_SWITCH derived from RUN_MODE_EFFECTIVE={effective_run_mode!r}",),
     )
 
     requested_replay = resolved["EVENT_REPLAY_MODE"].value
@@ -367,29 +409,34 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         replay_mode = "OFF"
     else:
         replay_mode = requested_replay
-    resolved["EVENT_REPLAY_MODE_EFFECTIVE"] = ConfigRecord(
-        name="EVENT_REPLAY_MODE_EFFECTIVE",
-        value=replay_mode,
-        source="DERIVED",
-        env=None,
+    resolved["EVENT_REPLAY_MODE_EFFECTIVE"] = _derive_record(
+        "EVENT_REPLAY_MODE_EFFECTIVE",
+        replay_mode,
+        trace=(
+            *resolved["EVENT_REPLAY_MODE"].trace,
+            f"EVENT_REPLAY_MODE_EFFECTIVE derived for RUN_MODE_EFFECTIVE={effective_run_mode!r}",
+        ),
     )
 
-    resolved["EXECUTION_ENABLED_EFFECTIVE"] = ConfigRecord(
-        name="EXECUTION_ENABLED_EFFECTIVE",
-        value=execution_enabled_effective,
-        source="DERIVED",
-        env=None,
+    resolved["EXECUTION_ENABLED_EFFECTIVE"] = _derive_record(
+        "EXECUTION_ENABLED_EFFECTIVE",
+        execution_enabled_effective,
+        trace=(
+            *resolved["EXECUTION_ENABLED"].trace,
+            *ibkr_readonly_record.trace,
+            "EXECUTION_ENABLED_EFFECTIVE requires RUN_MODE_EFFECTIVE in {'LIVE', 'PAPER'}",
+            f"EXECUTION_ENABLED_EFFECTIVE derived={execution_enabled_effective!r}",
+        ),
     )
 
     selected_strategy = str(resolved["SELECTED_STRATEGY"].value or "").strip().lower()
     if selected_strategy == "statistical_intraday_momentum":
         current_enabled = resolved["STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"].value
         if not current_enabled:
-            resolved["STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"] = ConfigRecord(
-                name="STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED",
-                value=True,
-                source="DERIVED",
-                env=None,
+            resolved["STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED"] = _derive_record(
+                "STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED",
+                True,
+                trace=("Forced by SELECTED_STRATEGY=statistical_intraday_momentum",),
             )
             print(
                 "[CONFIG] Selected strategy=statistical_intraday_momentum; "
@@ -398,11 +445,10 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
     if selected_strategy == "mean_reversion":
         current_enabled = resolved["MEAN_REVERSION_STRATEGY_ENABLED"].value
         if not current_enabled:
-            resolved["MEAN_REVERSION_STRATEGY_ENABLED"] = ConfigRecord(
-                name="MEAN_REVERSION_STRATEGY_ENABLED",
-                value=True,
-                source="DERIVED",
-                env=None,
+            resolved["MEAN_REVERSION_STRATEGY_ENABLED"] = _derive_record(
+                "MEAN_REVERSION_STRATEGY_ENABLED",
+                True,
+                trace=("Forced by SELECTED_STRATEGY=mean_reversion",),
             )
             print(
                 "[CONFIG] Selected strategy=mean_reversion; "
@@ -412,11 +458,10 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
     if selected_strategy == "long_horizon_value":
         current_enabled = resolved["LONG_HORIZON_VALUE_STRATEGY_ENABLED"].value
         if not current_enabled:
-            resolved["LONG_HORIZON_VALUE_STRATEGY_ENABLED"] = ConfigRecord(
-                name="LONG_HORIZON_VALUE_STRATEGY_ENABLED",
-                value=True,
-                source="DERIVED",
-                env=None,
+            resolved["LONG_HORIZON_VALUE_STRATEGY_ENABLED"] = _derive_record(
+                "LONG_HORIZON_VALUE_STRATEGY_ENABLED",
+                True,
+                trace=("Forced by SELECTED_STRATEGY=long_horizon_value",),
             )
             print(
                 "[CONFIG] Selected strategy=long_horizon_value; "
@@ -463,11 +508,10 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         strategy_name = by_key[selected_strategy]
         if not enabled_strategies.get(strategy_name, False):
             enabled_strategies[strategy_name] = True
-            resolved["ENABLED_STRATEGIES"] = ConfigRecord(
-                name="ENABLED_STRATEGIES",
-                value=enabled_strategies,
-                source="DERIVED",
-                env=None,
+            resolved["ENABLED_STRATEGIES"] = _derive_record(
+                "ENABLED_STRATEGIES",
+                enabled_strategies,
+                trace=(f"Forced ENABLED_STRATEGIES[{strategy_name}]=True by SELECTED_STRATEGY",),
             )
             print(
                 f"[CONFIG] Selected strategy={selected_strategy}; "
@@ -475,13 +519,35 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
             )
 
     if resolved["GIT_SHA"].value is None:
-        resolved["GIT_SHA"] = ConfigRecord(
-            name="GIT_SHA",
-            value=_resolve_git_sha(),
+        resolved["GIT_SHA"] = _derive_record(
+            "GIT_SHA",
+            _resolve_git_sha(),
             source="DEFAULT",
-            env=None,
+            trace=("GIT_SHA resolved from git rev-parse HEAD",),
         )
 
+    return resolved
+
+
+def _apply_post_derived_overrides(resolved: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]:
+    for name, value in _CONFIG_OVERRIDES.items():
+        if name not in resolved:
+            continue
+        if not CONFIG_REGISTRY.get(name, {}).get("derived"):
+            continue
+        record = resolved[name]
+        if record.source == "OVERRIDE":
+            continue
+        resolved[name] = ConfigRecord(
+            name=name,
+            value=_normalize(value, CONFIG_REGISTRY.get(name, {}).get("normalizer")),
+            source="OVERRIDE",
+            env=record.env,
+            trace=(
+                *record.trace,
+                f"{name}=override({value!r}) applied after derived resolution",
+            ),
+        )
     return resolved
 
 
@@ -541,6 +607,7 @@ def resolve_config() -> Dict[str, ConfigRecord]:
         resolved[name] = record
 
     resolved = _resolve_derived(resolved)
+    resolved = _apply_post_derived_overrides(resolved)
     _validate_config(resolved)
 
     _CONFIG_CACHE = resolved
@@ -606,8 +673,24 @@ def get_config_snapshot() -> Dict[str, Any]:
         "values": {name: record.value for name, record in resolved.items()},
         "sources": {name: record.source for name, record in resolved.items()},
         "env": {name: record.env for name, record in resolved.items()},
+        "traces": {name: list(record.trace) for name, record in resolved.items()},
     }
     return snapshot
+
+
+def get_config_resolution_trace(names: Iterable[str] | None = None) -> Dict[str, Dict[str, Any]]:
+    resolved = resolve_config()
+    selected = names or resolved.keys()
+    trace: Dict[str, Dict[str, Any]] = {}
+    for name in selected:
+        record = resolved[name]
+        trace[name] = {
+            "value": record.value,
+            "source": record.source,
+            "env": record.env,
+            "trace": list(record.trace),
+        }
+    return trace
 
 
 def emit_config_event(event_collector) -> None:
@@ -623,6 +706,7 @@ def emit_config_event(event_collector) -> None:
             "advisory": snapshot["advisory"],
             "values": snapshot["values"],
             "sources": snapshot["sources"],
+            "traces": snapshot["traces"],
         },
         include_cycle=False,
     )

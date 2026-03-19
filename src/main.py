@@ -21,7 +21,12 @@ import argparse
 import os
 import sys
 
-from src.config.config_resolver import get_config, get_config_record, set_config_overrides
+from src.config.config_resolver import (
+    get_config,
+    get_config_record,
+    get_config_resolution_trace,
+    set_config_overrides,
+)
 from src.config.runtime_config import (
     DEFAULT_EVENT_REPLAY_MODE,
     DEFAULT_RUN_MODE,
@@ -184,6 +189,29 @@ def _print_startup_banner(run_mode: RunMode, event_replay_mode) -> None:
     print(f"  - DB_EXISTS: {'Y' if db_exists else 'N'}")
 
 
+def _print_config_resolution_trace() -> None:
+    print("[CONFIG] Resolution trace")
+    keys = [
+        "RUN_MODE",
+        "RUN_MODE_EFFECTIVE",
+        "SCANNER_MODE",
+        "SCANNER_MODE_EFFECTIVE",
+        "EXECUTION_ENABLED",
+        "EXECUTION_ENABLED_EFFECTIVE",
+        "IBKR_READONLY_ENABLED",
+        "IBKR_API_WRITE_ALLOWED",
+        "IBKR_ORDER_TRANSLATION_ENABLED",
+        "IBKR_ORDER_SUBMISSION_ENABLED",
+    ]
+    for key, payload in get_config_resolution_trace(keys).items():
+        print(
+            f"  - {key}: {payload['value']} "
+            f"(source={payload['source']} env={payload['env'] or 'N/A'})"
+        )
+        for step in payload["trace"]:
+            print(f"      · {step}")
+
+
 def main() -> None:
     """Run the minimal teaching-first entry point."""
     args = _parse_args()
@@ -217,6 +245,7 @@ def main() -> None:
     print(f"[CONFIG] Runtime mode manager: {mode_manager.describe()}")
     if mode_manager.is_live_like:
         print("[STARTUP] EVENT_REPLAY_MODE forced OFF for live-like modes")
+    _print_config_resolution_trace()
     print(f"  - CYCLE_SLEEP_SECONDS: {CYCLE_SLEEP_SECONDS}")
     print(f"  - ACTIVE_SESSIONS: {', '.join(ACTIVE_SESSIONS)}")
     _print_startup_banner(run_mode, event_replay_mode)

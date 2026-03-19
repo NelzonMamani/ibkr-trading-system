@@ -56,7 +56,7 @@ def test_execution_engine_blocks_read_only() -> None:
 
 
 def test_execution_engine_uses_paper_provider_by_default() -> None:
-    set_config_overrides({"RUN_MODE": "PAPER"})
+    set_config_overrides({"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True})
     engine = ExecutionEngine(
         provider=None,
         trade_registry=ActiveTradeRegistry(),
