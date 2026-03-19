@@ -4,8 +4,15 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from src.config.config_resolver import resolve_config, set_config_overrides
-from src.config.runtime_config import RunMode
+from src.config.config_resolver import set_config_overrides
+from src.config.runtime_config import (
+    RunMode,
+    get_execution_enabled,
+    get_ibkr_api_write_allowed,
+    get_ibkr_order_submission_enabled,
+    get_ibkr_order_translation_enabled,
+    get_ibkr_readonly_enabled,
+)
 from src.core.managers.connection_manager import ConnectionManager
 from src.metadata.m0_canon_helpers import write_json
 
@@ -15,6 +22,17 @@ class ModeCheck:
     name: str
     expected: Any
     actual: Any
+
+
+@dataclass(frozen=True)
+class ModeExpectation:
+    run_mode: str
+    execution_enabled: bool
+    expected_execution: bool
+    expected_readonly: bool
+    expected_submission: bool
+    expected_api_write: bool
+    expected_translation: bool
 
 
 def _record_violation(violations: list[dict], check: ModeCheck) -> None:
@@ -27,48 +45,50 @@ def _record_violation(violations: list[dict], check: ModeCheck) -> None:
     )
 
 
-def _verify_execution_gate(
-    violations: list[dict],
-    run_mode: str,
-    execution_enabled: bool,
-    expected_effective: bool,
-    expected_submission: bool,
-    expected_translation: bool,
-) -> None:
+def _verify_execution_gate(violations: list[dict], expectation: ModeExpectation) -> None:
     set_config_overrides(
         {
-            "RUN_MODE": run_mode,
-            "EXECUTION_ENABLED": execution_enabled,
+            "RUN_MODE": expectation.run_mode,
+            "EXECUTION_ENABLED": expectation.execution_enabled,
         }
     )
-    resolved = resolve_config()
-    effective = bool(resolved["EXECUTION_ENABLED_EFFECTIVE"].value)
-    submission = bool(resolved["IBKR_ORDER_SUBMISSION_ENABLED"].value)
-    translation = bool(resolved["IBKR_ORDER_TRANSLATION_ENABLED"].value)
+    actual_execution = get_execution_enabled()
+    actual_readonly = get_ibkr_readonly_enabled()
+    actual_submission = get_ibkr_order_submission_enabled()
+    actual_api_write = get_ibkr_api_write_allowed()
+    actual_translation = get_ibkr_order_translation_enabled()
 
-    check = ModeCheck(
-        name=f"EXECUTION_ENABLED_EFFECTIVE[{run_mode}|{execution_enabled}]",
-        expected=expected_effective,
-        actual=effective,
+    checks = (
+        ModeCheck(
+            name=f"EXECUTION_ENABLED_EFFECTIVE[{expectation.run_mode}|{expectation.execution_enabled}]",
+            expected=expectation.expected_execution,
+            actual=actual_execution,
+        ),
+        ModeCheck(
+            name=f"IBKR_READONLY_ENABLED[{expectation.run_mode}|{expectation.execution_enabled}]",
+            expected=expectation.expected_readonly,
+            actual=actual_readonly,
+        ),
+        ModeCheck(
+            name=f"IBKR_ORDER_SUBMISSION_ENABLED[{expectation.run_mode}|{expectation.execution_enabled}]",
+            expected=expectation.expected_submission,
+            actual=actual_submission,
+        ),
+        ModeCheck(
+            name=f"IBKR_API_WRITE_ALLOWED[{expectation.run_mode}|{expectation.execution_enabled}]",
+            expected=expectation.expected_api_write,
+            actual=actual_api_write,
+        ),
+        ModeCheck(
+            name=f"IBKR_ORDER_TRANSLATION_ENABLED[{expectation.run_mode}|{expectation.execution_enabled}]",
+            expected=expectation.expected_translation,
+            actual=actual_translation,
+        ),
     )
-    if effective != expected_effective:
-        _record_violation(violations, check)
 
-    submission_check = ModeCheck(
-        name=f"IBKR_ORDER_SUBMISSION_ENABLED[{run_mode}|{execution_enabled}]",
-        expected=expected_submission,
-        actual=submission,
-    )
-    if submission != expected_submission:
-        _record_violation(violations, submission_check)
-
-    translation_check = ModeCheck(
-        name=f"IBKR_ORDER_TRANSLATION_ENABLED[{run_mode}|{execution_enabled}]",
-        expected=expected_translation,
-        actual=translation,
-    )
-    if translation != expected_translation:
-        _record_violation(violations, translation_check)
+    for check in checks:
+        if check.actual != check.expected:
+            _record_violation(violations, check)
 
     set_config_overrides(None)
 
@@ -101,30 +121,56 @@ def _verify_sim_broker_isolation(violations: list[dict]) -> None:
 
 def verify_mode_semantics() -> dict:
     violations: list[dict] = []
-    _verify_execution_gate(
-        violations=violations,
-        run_mode="LIVE",
-        execution_enabled=False,
-        expected_effective=False,
-        expected_submission=False,
-        expected_translation=False,
+    expectations = (
+        ModeExpectation(
+            run_mode="LIVE",
+            execution_enabled=False,
+            expected_execution=False,
+            expected_readonly=True,
+            expected_submission=False,
+            expected_api_write=False,
+            expected_translation=False,
+        ),
+        ModeExpectation(
+            run_mode="LIVE",
+            execution_enabled=True,
+            expected_execution=True,
+            expected_readonly=False,
+            expected_submission=True,
+            expected_api_write=True,
+            expected_translation=True,
+        ),
+        ModeExpectation(
+            run_mode="READ_ONLY",
+            execution_enabled=True,
+            expected_execution=False,
+            expected_readonly=True,
+            expected_submission=False,
+            expected_api_write=False,
+            expected_translation=False,
+        ),
+        ModeExpectation(
+            run_mode="PAPER",
+            execution_enabled=True,
+            expected_execution=True,
+            expected_readonly=False,
+            expected_submission=True,
+            expected_api_write=True,
+            expected_translation=True,
+        ),
+        ModeExpectation(
+            run_mode="SIM",
+            execution_enabled=True,
+            expected_execution=False,
+            expected_readonly=True,
+            expected_submission=False,
+            expected_api_write=False,
+            expected_translation=False,
+        ),
     )
-    _verify_execution_gate(
-        violations=violations,
-        run_mode="LIVE",
-        execution_enabled=True,
-        expected_effective=True,
-        expected_submission=True,
-        expected_translation=True,
-    )
-    _verify_execution_gate(
-        violations=violations,
-        run_mode="PAPER",
-        execution_enabled=False,
-        expected_effective=False,
-        expected_submission=False,
-        expected_translation=False,
-    )
+
+    for expectation in expectations:
+        _verify_execution_gate(violations=violations, expectation=expectation)
     _verify_sim_broker_isolation(violations)
 
     return {
