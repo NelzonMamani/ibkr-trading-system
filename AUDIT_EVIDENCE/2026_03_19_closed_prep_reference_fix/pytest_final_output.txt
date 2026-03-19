@@ -1,0 +1,62 @@
+.....................................................................[FLOAT][DISCOVERY_WORKER] symbol=PLTR provider=YAHOO result=FAIL reason=REQUEST_ERROR
+... [ 17%]
+[FLOAT][DISCOVERY_WORKER] symbol=PLTR provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=RIVN provider=YAHOO result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=RIVN provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=SNOW provider=YAHOO result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=SNOW provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=CRWD provider=YAHOO result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=CRWD provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=COIN provider=YAHOO result=FAIL reason=REQUEST_ERROR
+...[FLOAT][DISCOVERY_WORKER] symbol=COIN provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=SOFI provider=YAHOO result=FAIL reason=REQUEST_ERROR
+......[FLOAT][DISCOVERY_WORKER] symbol=SOFI provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=LCID provider=YAHOO result=FAIL reason=REQUEST_ERROR
+...[FLOAT][DISCOVERY_WORKER] symbol=NIO provider=YAHOO result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=NIO provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+.[FLOAT][DISCOVERY_WORKER] symbol=MARA provider=YAHOO result=FAIL reason=REQUEST_ERROR
+....[FLOAT][DISCOVERY_WORKER] symbol=MARA provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=RIOT provider=YAHOO result=FAIL reason=REQUEST_ERROR
+....[FLOAT][DISCOVERY_WORKER] symbol=RIOT provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=CLSK provider=YAHOO result=FAIL reason=REQUEST_ERROR
+...[FLOAT][DISCOVERY_WORKER] symbol=CLSK provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+.[FLOAT][DISCOVERY_WORKER] symbol=GME provider=YAHOO result=FAIL reason=REQUEST_ERROR
+.......[FLOAT][DISCOVERY_WORKER] symbol=UPST provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+....[FLOAT][DISCOVERY_WORKER] symbol=AI provider=YAHOO result=FAIL reason=REQUEST_ERROR
+...[FLOAT][DISCOVERY_WORKER] symbol=PATH provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+......... [ 35%]
+........................................................................ [ 53%]
+..........[FLOAT][DISCOVERY_WORKER] symbol=SNOW provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+.[FLOAT][DISCOVERY_WORKER] symbol=AI provider=YAHOO result=FAIL reason=REQUEST_ERROR
+...[FLOAT][DISCOVERY_WORKER] symbol=FUBO provider=YAHOO result=FAIL reason=REQUEST_ERROR
+.[FLOAT][DISCOVERY_WORKER] symbol=FUBO provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+.[FLOAT][DISCOVERY_WORKER] symbol=SOUN provider=YAHOO result=FAIL reason=REQUEST_ERROR
+.[FLOAT][DISCOVERY_WORKER] symbol=IONQ provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+.[FLOAT][DISCOVERY_WORKER] symbol=INTC provider=YAHOO result=FAIL reason=REQUEST_ERROR
+.[FLOAT][DISCOVERY_WORKER] symbol=MU provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=UBER provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+...[FLOAT][DISCOVERY_WORKER] symbol=BA provider=YAHOO result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=GE provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+......[FLOAT][DISCOVERY_WORKER] symbol=NFLX provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+.[FLOAT][DISCOVERY_WORKER] symbol=PLTR provider=YAHOO result=FAIL reason=REQUEST_ERROR
+.[FLOAT][DISCOVERY_WORKER] symbol=CRWD provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+...[FLOAT][DISCOVERY_WORKER] symbol=ORCL provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=QCOM provider=YAHOO result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=SPOT provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=UBER provider=YAHOO result=FAIL reason=REQUEST_ERROR
+............................. [ 70%]
+..............................................................[FLOAT][DISCOVERY_WORKER] symbol=AAPL provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+[FLOAT][DISCOVERY_WORKER] symbol=SNOW provider=YAHOO result=FAIL reason=REQUEST_ERROR
+...[FLOAT][DISCOVERY_WORKER] symbol=COIN provider=YAHOO result=FAIL reason=REQUEST_ERROR
+.[FLOAT][DISCOVERY_WORKER] symbol=SOUN provider=YAHOO result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=IONQ provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+.... [ 88%]
+..[FLOAT][DISCOVERY_WORKER] symbol=INTC provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+...[FLOAT][DISCOVERY_WORKER] symbol=SPOT provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+.....[FLOAT][DISCOVERY_WORKER] symbol=COIN provider=YAHOO result=FAIL reason=REQUEST_ERROR
+.[FLOAT][DISCOVERY_WORKER] symbol=LCID provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+..[FLOAT][DISCOVERY_WORKER] symbol=MARA provider=YAHOO result=FAIL reason=REQUEST_ERROR
+....[FLOAT][DISCOVERY_WORKER] symbol=UBER provider=YAHOO result=FAIL reason=REQUEST_ERROR
+...................[FLOAT][DISCOVERY_WORKER] symbol=CRWD provider=FINVIZ result=FAIL reason=REQUEST_ERROR
+..........                           [100%]
+406 passed in 25.48s

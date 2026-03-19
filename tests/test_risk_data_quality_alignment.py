@@ -36,7 +36,13 @@ def _payload(*, flags: list[str]) -> StrategyRiskPayload:
 
 
 def test_live_intent_not_blocked_for_nonblocking_data_quality_flags() -> None:
-    set_config_overrides({"RUN_MODE": "LIVE", "EXECUTION_ENABLED": True})
+    set_config_overrides(
+        {
+            "RUN_MODE": "LIVE",
+            "EXECUTION_ENABLED": True,
+            "ACTIVE_SESSIONS": ["PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN", "CLOSED", "WEEKEND"],
+        }
+    )
     try:
         engine = RiskEngine(stop_controller=StopController())
         decision = engine.evaluate_strategy_payload(_payload(flags=["NEWS_DELAYED"]))

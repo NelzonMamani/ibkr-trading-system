@@ -809,30 +809,34 @@ def _resolve_runtime_thresholds(policy: StockSelectionPolicy, session_label: str
     )
     spread_default = getattr(policy, "spread_max_pct", None)
 
-    if ross_rvol_override.value is not None:
+    if ross_rvol_override.source in {"OVERRIDE", "ENV"} and ross_rvol_override.value is not None:
         watchlist_rvol_min = float(ross_rvol_override.value)
         watchlist_source = ross_rvol_override.source
     else:
         watchlist_rvol_min = watchlist_default
         watchlist_source = "STRATEGY"
-        if watchlist_override.value is not None:
+        if watchlist_override.source in {"OVERRIDE", "ENV"} and watchlist_override.value is not None:
             watchlist_rvol_min = float(watchlist_override.value)
             watchlist_source = watchlist_override.source
 
     focus_rvol_min = focus_default
     focus_source = "STRATEGY"
-    if focus_override.value is not None:
+    if focus_override.source in {"OVERRIDE", "ENV"} and focus_override.value is not None:
         focus_rvol_min = float(focus_override.value)
         focus_source = focus_override.source
 
     spread_max_pct = spread_default
     spread_source = "STRATEGY"
-    if spread_override.value is not None:
+    if spread_override.source in {"OVERRIDE", "ENV"} and spread_override.value is not None:
         spread_max_pct = float(spread_override.value)
         spread_source = spread_override.source
 
-    allow_unknown_float = bool(allow_unknown_float_override.value)
-    allow_unknown_float_source = allow_unknown_float_override.source
+    if allow_unknown_float_override.source in {"OVERRIDE", "ENV"}:
+        allow_unknown_float = bool(allow_unknown_float_override.value)
+        allow_unknown_float_source = allow_unknown_float_override.source
+    else:
+        allow_unknown_float = bool(getattr(policy, "allow_unknown_float", True))
+        allow_unknown_float_source = "STRATEGY"
 
     return RuntimeThresholdResolution(
         watchlist_rvol_min=watchlist_rvol_min,
@@ -929,6 +933,11 @@ def _evaluate_gates(
     drop_reason = _evaluate_price_gate(context, thresholds)
     if drop_reason:
         return drop_reason
+    session = normalize_session_label(str(context.get("session") or ""))
+    if session == "PRE":
+        focus_drop_reason = _evaluate_focus_gates(context, thresholds)
+        if focus_drop_reason == "DROP_MISSING_RVOL":
+            return focus_drop_reason
     drop_reason = _evaluate_watchlist_gates(context, thresholds)
     if drop_reason == "DROP_FLOAT_MISSING":
         drop_reason = None

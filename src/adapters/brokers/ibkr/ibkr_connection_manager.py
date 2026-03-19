@@ -21,10 +21,10 @@ class IbkrConnectionConfig:
     host: str
     port: int
     base_client_id: int
-    run_mode: str
     snapshot_timeout_seconds: int
     market_data_type: str
     readonly_enabled: bool
+    run_mode: str = "READ_ONLY"
     max_client_id_retries: int = 10
 
 
@@ -112,7 +112,7 @@ class IbkrConnectionManager:
                     "[IBKR][MANAGER] connect_failed "
                     f"client_id={client_id} reason={exc}"
                 )
-                raise SystemExit(
+                raise RuntimeError(
                     "IBKR CONNECTION FAILED — SYSTEM NOT SAFE TO RUN"
                 ) from exc
 
@@ -138,7 +138,7 @@ class IbkrConnectionManager:
             )
             return client
 
-        raise SystemExit(
+        raise RuntimeError(
             "IBKR CONNECTION FAILED — SYSTEM NOT SAFE TO RUN "
             f"(host={config.host} port={config.port} "
             f"base_client_id={config.base_client_id} last_error={self._last_error})"
