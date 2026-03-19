@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import Lock
@@ -270,16 +269,16 @@ def get_shared_ibkr_connection_manager(
                 if readonly_enabled is None
                 else readonly_enabled
             )
-            env_force_live = os.getenv("EXECUTION_ENABLED", "false").lower() == "true"
+            execution_enabled = get_execution_enabled()
 
             run_mode_upper = str(run_mode).upper()
 
-            if env_force_live and run_mode_upper == "LIVE":
+            if execution_enabled and run_mode_upper == "LIVE":
                 readonly = False
 
             print(
                 f"[IBKR][READONLY_OVERRIDE] readonly={readonly} "
-                f"(env_force_live={env_force_live}, run_mode={run_mode_upper})"
+                f"(execution_enabled={execution_enabled}, run_mode={run_mode_upper})"
             )
             _default_manager = IbkrConnectionManager(
                 IbkrConnectionConfig(
