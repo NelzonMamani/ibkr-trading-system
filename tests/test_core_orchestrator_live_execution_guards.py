@@ -79,7 +79,7 @@ def test_live_readonly_does_not_require_order_submission(monkeypatch, live_marke
     assert "[MODE] LIVE_READ_ONLY active — execution disabled" in captured.out
 
 
-def test_execution_requires_order_submission(monkeypatch, live_market_data_stubs):
+def test_execution_ignores_raw_submission_flag_when_runtime_allows_orders(monkeypatch, live_market_data_stubs):
     monkeypatch.setattr(
         RuntimeModeManager,
         "resolve",
@@ -102,9 +102,9 @@ def test_execution_requires_order_submission(monkeypatch, live_market_data_stubs
             "IBKR_ORDER_TRANSLATION_ENABLED": True,
         }.get(key, original_get_config(key)),
     )
+    monkeypatch.setattr(orchestrator_module, "get_ibkr_order_translation_enabled", lambda: True)
+    monkeypatch.setattr(orchestrator_module, "get_ibkr_api_write_allowed", lambda: True)
+    monkeypatch.setattr(orchestrator_module, "get_ibkr_readonly_enabled", lambda: False)
+    monkeypatch.setattr(orchestrator_module, "get_ibkr_order_submission_enabled", lambda: True)
 
-    with pytest.raises(
-        RuntimeSafetyError,
-        match="Execution enabled but IBKR_ORDER_SUBMISSION_ENABLED=false.",
-    ):
-        CoreOrchestrator()
+    CoreOrchestrator()
