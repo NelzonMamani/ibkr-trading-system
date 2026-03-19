@@ -22,6 +22,17 @@ DEFAULT_SYMBOLS = ["AIM", "ARTL", "AGRO", "ALDX", "BATL"]
 NY_TZ = ZoneInfo("America/New_York")
 
 
+def parse_symbols(symbols_arg) -> list[str]:
+    if isinstance(symbols_arg, list):
+        parsed: list[str] = []
+        for symbol in symbols_arg:
+            parsed.extend(parse_symbols(symbol))
+        return parsed
+    if isinstance(symbols_arg, str):
+        return [s.strip().upper() for s in symbols_arg.split(",") if s.strip()]
+    return []
+
+
 @dataclass(frozen=True)
 class _Bar:
     date: str
@@ -304,6 +315,7 @@ def main() -> None:
     parser.add_argument("--session", default="RTH_OPEN")
     parser.add_argument("--provider", choices=("live", "stub"), default="live")
     args = parser.parse_args()
+    symbols = parse_symbols(args.symbols)
 
     provider: ScannerDataProvider
     if args.provider == "stub":
@@ -318,7 +330,7 @@ def main() -> None:
     scanner_runner._REFERENCE_RESOLVER.reset_cycle()
     try:
         provider.connect()
-        for symbol in args.symbols:
+        for symbol in symbols:
             try:
                 _verify_symbol(provider, symbol.upper(), session_label=args.session)
             except Exception as exc:
