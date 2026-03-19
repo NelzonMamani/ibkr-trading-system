@@ -1065,7 +1065,8 @@ class CoreOrchestrator:
         while True:
             try:
                 if self.stop_controller.is_stop_requested():
-                    self._emit_pending_connectivity_halt()
+                    if self._pending_connectivity_halt and not self._halt_emitted:
+                        self._trace_halt(**self._pending_connectivity_halt)
                     self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
                     performed_shutdown = True
                     break
@@ -1219,7 +1220,8 @@ class CoreOrchestrator:
                     reason="Run loop complete",
                     source="CoreOrchestrator",
                 )
-            self._emit_pending_connectivity_halt()
+            if self._pending_connectivity_halt and not self._halt_emitted:
+                self._trace_halt(**self._pending_connectivity_halt)
             self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
 
     def run_once(self) -> bool:
