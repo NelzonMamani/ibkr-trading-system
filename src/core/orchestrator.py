@@ -251,6 +251,8 @@ class CoreOrchestrator:
         if not self.execution_enabled:
             print("[SAFETY] EXECUTION: HARD DISABLED")
             print("[SAFETY] ORDER ROUTING: BLOCKED")
+            if self.run_mode == RunMode.LIVE:
+                print("[MODE] LIVE_READ_ONLY active — execution disabled")
         if self.run_mode == RunMode.PAPER:
             print("[SAFETY] PAPER-EXECUTION MODE ACTIVE")
         if self.run_mode in {RunMode.LIVE, RunMode.READ_ONLY, RunMode.PAPER}:
@@ -347,6 +349,8 @@ class CoreOrchestrator:
             readonly = bool(get_config("IBKR_READONLY_ENABLED"))
             kill_switch = bool(get_config("IBKR_KILL_SWITCH"))
             submission_enabled = bool(get_config("IBKR_ORDER_SUBMISSION_ENABLED"))
+            translation_enabled = bool(get_config("IBKR_ORDER_TRANSLATION_ENABLED"))
+            api_write_allowed = bool(get_config("IBKR_API_WRITE_ALLOWED"))
             if live_port != 7496:
                 raise RuntimeSafetyError(
                     f"LIVE execution requires IBKR_LIVE_PORT=7496 (resolved {live_port})."
@@ -357,7 +361,15 @@ class CoreOrchestrator:
                 raise RuntimeSafetyError("LIVE execution blocked: IBKR_KILL_SWITCH=true.")
             if not submission_enabled:
                 raise RuntimeSafetyError(
-                    "LIVE execution requires IBKR_ORDER_SUBMISSION_ENABLED=true."
+                    "Execution enabled but IBKR_ORDER_SUBMISSION_ENABLED=false."
+                )
+            if not translation_enabled:
+                raise RuntimeSafetyError(
+                    "Execution enabled but IBKR_ORDER_TRANSLATION_ENABLED=false."
+                )
+            if not api_write_allowed:
+                raise RuntimeSafetyError(
+                    "Execution enabled but IBKR_API_WRITE_ALLOWED=false."
                 )
             broker = IbkrLiveBroker(
                 event_collector=self.event_collector,
