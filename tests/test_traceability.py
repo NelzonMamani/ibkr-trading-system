@@ -17,6 +17,13 @@ def _reset_overrides():
     set_config_overrides(None)
 
 
+def _halt_metadata(record: dict) -> dict:
+    metadata = record.get("metadata")
+    if isinstance(metadata, dict):
+        return metadata
+    return record
+
+
 @pytest.fixture(autouse=True)
 def _cleanup_overrides():
     yield
@@ -90,6 +97,68 @@ def test_live_readonly_connectivity_retry(monkeypatch, tmp_path, capsys):
         if record.get("stage") == "HALT":
             halt_lines.append(record)
     assert halt_lines, "HALT trace missing"
+    halt_record = None
+    for candidate in halt_lines:
+        metadata = _halt_metadata(candidate)
+        if metadata.get("reason_code") == "CONNECTIVITY_FAILURE":
+            halt_record = metadata
+            break
+    assert halt_record is not None
+    assert halt_record["stage"] == "HALT"
+    assert halt_record["halt_stage"] == "CONNECTIVITY"
+    assert halt_record["reason_code"] == "CONNECTIVITY_FAILURE"
+    assert halt_record["message"]
+    assert halt_record["details"] == {} or isinstance(halt_record["details"], dict)
+
+    stop_complete_index = None
+    halt_index = None
+    for index, line in enumerate(log_files[0].read_text(encoding="utf-8").splitlines()):
+        record = json.loads(line)
+        if record.get("stage") == "HALT" and halt_index is None:
+            halt_index = index
+        if record.get("stage") == "STOP_COMPLETE" and stop_complete_index is None:
+            stop_complete_index = index
+    assert halt_index is not None
+    if stop_complete_index is not None:
+        assert halt_index < stop_complete_index
+
+
+def test_canonical_halt_schema_and_origin_are_stable(monkeypatch, tmp_path):
+    monkeypatch.setenv("TRACE_LOG_DIR", str(tmp_path))
+    set_config_overrides(
+        {
+            "RUN_MODE": "PAPER",
+            "SELECTED_STRATEGY": "ross_momentum",
+        }
+    )
+
+    orchestrator = CoreOrchestrator()
+    orchestrator._emit_canonical_halt(
+        reason_code="UNIT_TEST",
+        message="halt schema check",
+        halt_stage="CONNECTIVITY",
+        details={"stage": "SHOULD_NOT_OVERWRITE", "origin": "unit-test"},
+    )
+
+    log_files = list(tmp_path.glob("trace_*.jsonl"))
+    assert log_files, "trace log file missing"
+
+    halt_record = None
+    for line in log_files[0].read_text(encoding="utf-8").splitlines():
+        record = json.loads(line)
+        if record.get("stage") == "HALT":
+            halt_record = record
+
+    assert halt_record is not None
+    halt_record = _halt_metadata(halt_record)
+    assert halt_record["stage"] == "HALT"
+    assert halt_record["halt_stage"] == "CONNECTIVITY"
+    assert halt_record["reason_code"] == "UNIT_TEST"
+    assert halt_record["message"] == "halt schema check"
+    assert halt_record["details"] == {
+        "stage": "SHOULD_NOT_OVERWRITE",
+        "origin": "unit-test",
+    }
 
 
 def test_statistical_stock_selection_differs_from_ross():
