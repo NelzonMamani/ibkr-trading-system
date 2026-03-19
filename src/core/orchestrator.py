@@ -81,6 +81,7 @@ from src.scanner.scanner_runner import run_scanner_cycle
 from src.scanner.providers.base import ProviderConnectionError
 from src.scanner.providers.mock_provider import MockScannerProvider
 from src.scanner.session_pct_change import normalize_session_label
+from src.scanner.session_pct_change import resolve_market_session_label
 from src.sim.clock import SimClock, WallClock
 from src.sim.price_feed import DeterministicPriceFeed
 from src.signals.signal_engine_v1 import SignalEngineV1
@@ -3150,6 +3151,9 @@ class CoreOrchestrator:
         _, scanner_policy = self._build_scanner_policy_for_strategy(self.primary_strategy_key, "CLOSED")
         scanner_request = self._build_scanner_request(scanner_policy, strategy_name=self.primary_strategy_key, session_phase="CLOSED")
         scanner_request = replace(scanner_request, requested_top_n=50)
+        prep_session_label = normalize_session_label(resolve_market_session_label(datetime.now(timezone.utc)))
+        if prep_session_label not in {"WEEKEND", "CLOSED", "OVN", "AH"}:
+            prep_session_label = "CLOSED"
         payload = run_scanner_cycle(
             mode="integrated",
             policy=scanner_policy,
@@ -3158,7 +3162,8 @@ class CoreOrchestrator:
             provider=provider_override,
             market_data_client=self.connection_manager.optional_client,
             disconnect_provider=provider_override is not None,
-            forced_session_label="WEEKEND",
+            forced_session_label=prep_session_label,
+            forced_session_source="PREPARATION_MODE",
         )
         write_premarket_prep_artifact(
             mode=self.run_mode.value,

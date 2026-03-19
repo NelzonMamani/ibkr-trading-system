@@ -9,6 +9,7 @@ from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
 from src.config.runtime_config import (
     RuntimeConfigError,
     get_execution_enabled,
+    get_ibkr_api_write_allowed,
     get_ibkr_market_data_type,
     get_ibkr_readonly_enabled,
     get_ibkr_snapshot_timeout_seconds,
@@ -21,10 +22,10 @@ class IbkrConnectionConfig:
     host: str
     port: int
     base_client_id: int
-    run_mode: str
     snapshot_timeout_seconds: int
     market_data_type: str
     readonly_enabled: bool
+    run_mode: str = "READ_ONLY"
     max_client_id_retries: int = 10
 
 
@@ -52,7 +53,8 @@ class IbkrConnectionManager:
             "[IBKR][MANAGER] init "
             f"mode={config.run_mode} host={config.host} port={config.port} "
             f"base_client_id={config.base_client_id} "
-            f"readonly={config.readonly_enabled} market_data_type={config.market_data_type} "
+            f"readonly={config.readonly_enabled} api_write_allowed={get_ibkr_api_write_allowed()} "
+            f"market_data_type={config.market_data_type} "
             f"snapshot_timeout_seconds={config.snapshot_timeout_seconds}"
         )
 
@@ -262,21 +264,23 @@ def get_shared_ibkr_connection_manager(
 ) -> IbkrConnectionManager:
     global _default_manager
     with _default_manager_lock:
+        host, port, client_id, run_mode = resolve_ibkr_connection()
+        desired_config = IbkrConnectionConfig(
+            host=host,
+            port=port,
+            base_client_id=client_id,
+            run_mode=run_mode,
+            snapshot_timeout_seconds=get_ibkr_snapshot_timeout_seconds(),
+            market_data_type=get_ibkr_market_data_type(),
+            readonly_enabled=(
+                get_ibkr_readonly_enabled()
+                if readonly_enabled is None
+                else readonly_enabled
+            ),
+        )
+        if _default_manager is not None and _default_manager.config != desired_config:
+            _default_manager.disconnect(reason="config_changed")
+            _default_manager = None
         if _default_manager is None:
-            host, port, client_id, run_mode = resolve_ibkr_connection()
-            _default_manager = IbkrConnectionManager(
-                IbkrConnectionConfig(
-                    host=host,
-                    port=port,
-                    base_client_id=client_id,
-                    run_mode=run_mode,
-                    snapshot_timeout_seconds=get_ibkr_snapshot_timeout_seconds(),
-                    market_data_type=get_ibkr_market_data_type(),
-                    readonly_enabled=(
-                        get_ibkr_readonly_enabled()
-                        if readonly_enabled is None
-                        else readonly_enabled
-                    ),
-                )
-            )
+            _default_manager = IbkrConnectionManager(desired_config)
         return _default_manager

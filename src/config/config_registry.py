@@ -1600,8 +1600,8 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     "ENABLED_STRATEGIES": {
         "type": dict,
         "default": {
-            "GapAndGoStrategy": True,
-            "MomentumContinuationStrategy": True,
+            "GapAndGoStrategy": False,
+            "MomentumContinuationStrategy": False,
             "EventEarningsReactionStrategy": False,
             "EventNewsShockContinuationStrategy": False,
             "VolatilityContractionBreakoutStrategy": False,

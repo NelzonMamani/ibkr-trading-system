@@ -108,6 +108,7 @@ NY_TZ = ZoneInfo("America/New_York")
 class CanonicalReferenceResolver:
     REFERENCE_QUALITY_BY_SOURCE = {
         "IBKR_DAILY_BARS": "PRIMARY",
+        "SNAPSHOT_CLOSE_FALLBACK": "SECONDARY",
         "CACHED_CLOSE_FALLBACK": "SECONDARY",
         "PROVIDER_PREV_CLOSE_FALLBACK": "SECONDARY",
         "QUOTE_CLOSE_FALLBACK": "SECONDARY",
@@ -138,6 +139,11 @@ class CanonicalReferenceResolver:
         return contract
 
     def _qualify_history_identity(self, provider: Any, identity: CandidateIdentity) -> tuple[CandidateIdentity, bool]:
+        for alias in bridge_identity_keys(identity):
+            cached = getattr(self, "_qualified_identity_cache", {}).get(alias)
+            if cached is not None:
+                print(f"[REFERENCE][QUALIFIED_CACHE_HIT] symbol={identity.symbol} identity_key={identity.key} qualified_identity={cached.key}")
+                return cached, True
         qualify_contracts = getattr(provider, "qualifyContracts", None)
         if not callable(qualify_contracts):
             if getattr(provider, "source_name", "") != "IBKR":
@@ -175,15 +181,24 @@ class CanonicalReferenceResolver:
                 f"primaryExchange={primary_exchange} action=USE_QUALIFIED_CONTRACT_ANYWAY"
             )
 
-        return CandidateIdentity.from_contract(contract, fallback_symbol=identity.symbol), True
+        qualified_identity = CandidateIdentity.from_contract(contract, fallback_symbol=identity.symbol)
+        for alias in bridge_identity_keys(identity):
+            self._qualified_identity_cache[alias] = qualified_identity
+        for alias in bridge_identity_keys(qualified_identity):
+            self._qualified_identity_cache[alias] = qualified_identity
+        return qualified_identity, True
 
     def __init__(self, cache: PersistentReferenceCache | None = None) -> None:
         self.cache = cache or PersistentReferenceCache()
         self._cycle_cache: dict[str, CanonicalReferenceResult] = {}
+        self._qualified_identity_cache: dict[str, CandidateIdentity] = {}
+        self._history_cache: dict[tuple[str, str], list[HistoricalDailyBar]] = {}
         self._last_resolution_trace: dict[str, dict[str, Any]] = {}
 
     def reset_cycle(self) -> None:
         self._cycle_cache.clear()
+        self._qualified_identity_cache.clear()
+        self._history_cache.clear()
         self._last_resolution_trace.clear()
 
     def get_last_resolution_trace(self, identity_key: str) -> dict[str, Any]:
@@ -305,6 +320,10 @@ class CanonicalReferenceResolver:
         if prev_close is not None:
             reference_source = "IBKR_DAILY_BARS"
             reference_semantics = "PREVIOUS_COMPLETED_RTH_CLOSE" if reference_is_previous_completed_session else "CURRENT_SESSION_CLOSE"
+        elif (snapshot_reference := self._snapshot_reference_close_fallback(session_label=session_label, rth_close_price=rth_close_price)) is not None:
+            prev_close = snapshot_reference
+            reference_source = "SNAPSHOT_CLOSE_FALLBACK"
+            reference_semantics = "PREVIOUS_COMPLETED_RTH_CLOSE"
         elif (provider_prev_close := self._provider_prev_close_fallback(provider, history_identity)) is not None:
             prev_close = provider_prev_close
             reference_source = "PROVIDER_PREV_CLOSE_FALLBACK"
@@ -313,16 +332,16 @@ class CanonicalReferenceResolver:
             prev_close = quote_close
             reference_source = "QUOTE_CLOSE_FALLBACK"
             reference_semantics = "DEGRADED_FALLBACK"
+        elif (snapshot_reference := self._snapshot_reference_last_resort(session_label=session_label, current_last_price=current_last_price)) is not None:
+            prev_close = snapshot_reference
+            reference_source = "SNAPSHOT_LAST_PRICE_FALLBACK"
+            reference_semantics = "CURRENT_SESSION_CLOSE"
         elif normalize_session_label(session_label) in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"} and (
             synthetic_reference := self._scanner_pct_synthetic_fallback(current_last_price=current_last_price, ibkr_change_pct=ibkr_change_pct)
         ) is not None:
             prev_close = synthetic_reference
             reference_source = "SCANNER_PCT_SYNTHETIC_FALLBACK"
             reference_semantics = "DEGRADED_FALLBACK"
-        elif (snapshot_reference := self._snapshot_reference_fallback(session_label=session_label, rth_close_price=rth_close_price, current_last_price=current_last_price)) is not None:
-            prev_close = snapshot_reference
-            reference_source = "SNAPSHOT_LAST_PRICE_FALLBACK"
-            reference_semantics = "CURRENT_SESSION_CLOSE" if normalize_session_label(session_label) == "PRE" else "DEGRADED_FALLBACK"
         avg_volume, window_days = self._average_volume(bars)
         provider_avg_volume, provider_window = self._provider_adv20_fallback(provider, history_identity)
         reference_failure_reason = None
@@ -384,7 +403,7 @@ class CanonicalReferenceResolver:
             "history_lookup_key_used": history_identity.key if bars else None,
             "reference_failure_reason": reference_failure_reason,
             "rvol_failure_reason": rvol_failure_reason,
-            "reference_degraded": reference_source in {"CACHED_CLOSE_FALLBACK", "PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK", "SCANNER_PCT_SYNTHETIC_FALLBACK", "SNAPSHOT_LAST_PRICE_FALLBACK"} or reference_semantics == "DEGRADED_FALLBACK",
+            "reference_degraded": reference_source in {"SNAPSHOT_CLOSE_FALLBACK", "CACHED_CLOSE_FALLBACK", "PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK", "SCANNER_PCT_SYNTHETIC_FALLBACK", "SNAPSHOT_LAST_PRICE_FALLBACK"} or reference_semantics == "DEGRADED_FALLBACK",
             "reference_synthetic": reference_source == "SCANNER_PCT_SYNTHETIC_FALLBACK",
         }
         history_trace.update(
@@ -409,18 +428,28 @@ class CanonicalReferenceResolver:
             self._last_resolution_trace[key] = dict(history_trace)
         return result
 
-    def _snapshot_reference_fallback(self, *, session_label: str, rth_close_price: Optional[float], current_last_price: Optional[float]) -> Optional[float]:
-        if normalize_session_label(session_label) != "PRE":
+    def _snapshot_reference_close_fallback(self, *, session_label: str, rth_close_price: Optional[float]) -> Optional[float]:
+        if normalize_session_label(session_label) not in {"PRE", "AH", "OVN", "CLOSED"}:
             return None
         if rth_close_price is not None:
-            print(f"[REFERENCE][SNAPSHOT_FALLBACK] session=PRE source=last_close_tick value={rth_close_price}")
+            print(f"[REFERENCE][SNAPSHOT_FALLBACK] session={normalize_session_label(session_label)} source=close value={rth_close_price}")
             return float(rth_close_price)
+        return None
+
+    def _snapshot_reference_last_resort(self, *, session_label: str, current_last_price: Optional[float]) -> Optional[float]:
+        if normalize_session_label(session_label) != "PRE":
+            return None
         if current_last_price is not None:
             print(f"[REFERENCE][SNAPSHOT_FALLBACK] session=PRE source=last value={current_last_price}")
             return float(current_last_price)
         return None
 
     def _request_historical_daily_bars(self, provider: Any, identity: CandidateIdentity, *, session_label: str, trace: dict[str, Any] | None = None) -> list[HistoricalDailyBar]:
+        history_cache_key = (identity.key, normalize_session_label(session_label))
+        cached_bars = self._history_cache.get(history_cache_key)
+        if cached_bars is not None:
+            print(f"[REFERENCE][HISTORICAL_CACHE_HIT] identity_key={identity.key} session={normalize_session_label(session_label)} bar_count={len(cached_bars)}")
+            return list(cached_bars)
         get_bars = getattr(provider, "get_daily_bars", None)
         if callable(get_bars) and _has_concrete_method(provider, "get_daily_bars"):
             print(
@@ -485,6 +514,7 @@ class CanonicalReferenceResolver:
                     f"[REFERENCE][ZERO_BARS_DEBUG] symbol={identity.symbol} conId={identity.con_id} exchange={identity.exchange} "
                     f"primaryExchange={identity.primary_exchange} tradingClass={identity.trading_class} localSymbol={identity.local_symbol}"
                 )
+            self._history_cache[history_cache_key] = list(bars)
             return bars
         prev_close = getattr(provider, "get_previous_rth_close", None)
         avg_volume = getattr(provider, "get_average_daily_volume", None)
@@ -534,6 +564,7 @@ class CanonicalReferenceResolver:
             print(
                 f"[REFERENCE][HISTORICAL_RESPONSE] identity_key={identity.key} bar_count=0 fail_reason=NO_HISTORY_METHODS"
             )
+        self._history_cache[history_cache_key] = list(synthetic)
         return synthetic
 
     def _provider_prev_close_fallback(self, provider: Any, identity: CandidateIdentity) -> Optional[float]:
@@ -643,10 +674,10 @@ class CanonicalReferenceResolver:
         continuity_usable_reference = reference_source != "UNRESOLVED"
         reference_semantics = str(payload.get("reference_semantics") or "UNRESOLVED")
         reference_is_previous_completed_session = bool(payload.get("reference_is_previous_completed_session"))
-        qualification_usable_reference = reference_source in {"IBKR_DAILY_BARS", "CACHED_CLOSE_FALLBACK"}
+        qualification_usable_reference = reference_source in {"IBKR_DAILY_BARS", "CACHED_CLOSE_FALLBACK", "SNAPSHOT_CLOSE_FALLBACK"}
         if reference_source in {"PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK"}:
             qualification_usable_reference = True
-        execution_usable_reference = reference_source in {"IBKR_DAILY_BARS", "CACHED_CLOSE_FALLBACK", "PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK"}
+        execution_usable_reference = reference_source in {"IBKR_DAILY_BARS", "CACHED_CLOSE_FALLBACK", "SNAPSHOT_CLOSE_FALLBACK", "PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK"}
         if reference_semantics != "PREVIOUS_COMPLETED_RTH_CLOSE" and normalize_session_label(session_label) in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}:
             qualification_usable_reference = False
             execution_usable_reference = False

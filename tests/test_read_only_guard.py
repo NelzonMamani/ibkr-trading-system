@@ -26,5 +26,5 @@ def test_read_only_guard_blocks_when_readonly_enabled():
             "RUN_MODE": "READ_ONLY",
         }
     )
-    with pytest.raises(RuntimeError, match="IBKR read-only enabled"):
+    with pytest.raises(RuntimeError, match="IBKR read-only authority enabled"):
         assert_read_only_allows("PLACE_ORDER")

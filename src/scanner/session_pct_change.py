@@ -90,12 +90,14 @@ class MarketSessionContext:
 class SessionResolutionDiagnostics:
     utc_time: str
     ny_time: str
+    trading_date: str
     resolved_session: str
     canonical_session: str
     reference_trading_date: str
     previous_valid_market_session_date: str
     reason: str
     override_source: str
+    override_allowed: bool
 
 
 _SESSION_LABEL_MAP = {
@@ -109,7 +111,7 @@ _SESSION_LABEL_MAP = {
     "PRE": "PRE",
     "OVN": "OVN",
     "OVERNIGHT": "OVN",
-    "CLOSED": "WEEKEND",
+    "CLOSED": "CLOSED",
     "RTH_OPEN": "RTH_OPEN",
     "RTH_MID": "RTH_MID",
     "RTH_LATE": "RTH_LATE",
@@ -152,11 +154,11 @@ def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSess
     holidays = set(get_config("MARKET_HOLIDAYS"))
     half_days = set(get_config("MARKET_HALF_DAYS"))
     if ny_time.date() in holidays:
-        return MarketSessionContext(coarse="WEEKEND", phase="WEEKEND", market_time=market_time)
+        return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
     if ny_time.date() in half_days:
         early_close = get_config("MARKET_EARLY_CLOSE_TIME")
         if ny_time.time() >= early_close:
-            return MarketSessionContext(coarse="WEEKEND", phase="WEEKEND", market_time=market_time)
+            return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
 
     ny_clock = ny_time.time()
     if time(4, 0) <= ny_clock < time(9, 30):
@@ -203,6 +205,7 @@ def resolve_session_diagnostics(now: Optional[datetime] = None, forced_session_l
     canonical = canonical_session_label(resolved)
     ref_day = reference_trading_day(now_utc)
     prev_day = previous_valid_trading_day(now_utc)
+    override_allowed = bool(forced_session_label)
     if forced_session_label:
         normalized_source = str(forced_session_source or "PARAMETER").upper()
         if normalized_source in {"FORCE_SESSION", "SESSION_OVERRIDE", "MARKET_SESSION_OVERRIDE", "ENV", "ENV_VAR", "ENV_OVERRIDE"}:
@@ -222,12 +225,14 @@ def resolve_session_diagnostics(now: Optional[datetime] = None, forced_session_l
     return SessionResolutionDiagnostics(
         utc_time=now_utc.astimezone(timezone.utc).isoformat(),
         ny_time=now_utc.astimezone(_NY_TZ).isoformat(),
+        trading_date=now_utc.astimezone(_NY_TZ).date().isoformat(),
         resolved_session=resolved,
         canonical_session=canonical,
         reference_trading_date=ref_day.isoformat(),
         previous_valid_market_session_date=prev_day.isoformat(),
         reason=reason,
         override_source=override_source,
+        override_allowed=override_allowed,
     )
 
 
@@ -436,7 +441,7 @@ def compute_session_aligned_pct_change(
 
     open_relative_pct_change = _pct_change(current_last, rth_open)
 
-    if normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN"}:
+    if normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN", "CLOSED"}:
         reference_price = last_rth_close
         reference_label = "LAST_RTH_CLOSE"
     elif normalized_session in {"WEEKEND"}:
@@ -444,13 +449,13 @@ def compute_session_aligned_pct_change(
         reference_label = "LAST_SESSION_REFERENCE"
 
     calc_pct = _pct_change(current_last, reference_price)
-    if normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN"} and calc_pct is not None:
+    if normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN", "CLOSED"} and calc_pct is not None:
         final_pct = calc_pct
         pct_source = "CALC(SESSION_REF)"
     elif normalized_session in {"WEEKEND"} and persisted_pct is not None:
         final_pct = persisted_pct
         pct_source = "PERSISTED_LAST_SESSION"
-    elif normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN"} and ibkr_pct is not None:
+    elif normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN", "CLOSED"} and ibkr_pct is not None:
         # Fallback only when in-session reference values are unavailable.
         final_pct = ibkr_pct
         pct_source = "IBKR_FALLBACK"

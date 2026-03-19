@@ -1087,6 +1087,14 @@ def _populate_pct_change(
     context["rvol_failure_reason"] = reference_snapshot.get("rvol_failure_reason")
     context["reference_degraded"] = reference_snapshot.get("reference_degraded")
     context["reference_synthetic"] = reference_snapshot.get("reference_synthetic")
+    if context["reference_price"] is None and (
+        reference_snapshot.get("reference_source") in {"IBKR_DAILY_BARS", "SNAPSHOT_CLOSE_FALLBACK"}
+        or _safe_float(context.get("rth_close_price"), None) is not None
+    ):
+        raise AssertionError(
+            f"Reference resolution invariant violated for {context['symbol']}: "
+            "reference source indicated a usable reference but reference_price remained None"
+        )
     _apply_degraded_contract(context)
     _emit_scanner_reference_trace("pct_payload_created", context)
     print(
@@ -1230,6 +1238,14 @@ def _evaluate_watchlist_gates(
             return None
         print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=FAIL reason=MISSING_PCT_CHANGE")
         return "DROP_MISSING_PCT_CHANGE"
+    if session == "PRE" and (
+        str(context.get("reference_source") or "") == "SNAPSHOT_LAST_PRICE_FALLBACK"
+        or not bool(context.get("pct_change_qualification_usable"))
+    ):
+        context.setdefault("eligibility_reason_codes", []).append("PCT_CHANGE_CONTINUITY_ONLY")
+        _apply_degraded_contract(context)
+        print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=PASS reason=PRE_CONTINUITY_ONLY_DEGRADED")
+        return None
     pct_change_min = _resolve_pct_change_min_for_session(str(context.get("session") or ""), thresholds)
     if pct_change < pct_change_min:
         print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=FAIL reason=BELOW_MIN threshold={pct_change_min}")
@@ -2902,7 +2918,9 @@ def run_scanner_cycle(
         "[SESSION][MODE] "
         f"utc={session_diag.utc_time} ny={session_diag.ny_time} resolved={session_diag.resolved_session} "
         f"canonical={session_diag.canonical_session} reason={session_diag.reason} "
+        f"trading_date={session_diag.trading_date} "
         f"forced={session_diag.resolved_session if session_diag.override_source != 'NONE' else 'NONE'} forced_source={session_diag.override_source} "
+        f"override_allowed={session_diag.override_allowed} "
         f"reference_trading_date={session_diag.reference_trading_date} "
         f"previous_valid_market_session_date={session_diag.previous_valid_market_session_date}"
     )

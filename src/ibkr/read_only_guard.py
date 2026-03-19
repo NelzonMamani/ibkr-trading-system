@@ -5,6 +5,7 @@ from __future__ import annotations
 from src.config.runtime_config import (
     RunMode,
     get_execution_enabled,
+    get_ibkr_api_write_allowed,
     get_ibkr_readonly_enabled,
     get_run_mode,
     is_execution_enabled,
@@ -31,12 +32,19 @@ def assert_read_only_allows(
         if execution_enabled_override is not None
         else get_execution_enabled()
     )
-    readonly_enabled = get_ibkr_readonly_enabled()
+    if run_mode == RunMode.PAPER.value:
+        readonly_enabled = False
+    elif run_mode in {RunMode.READ_ONLY.value, RunMode.SIM.value}:
+        readonly_enabled = True
+    else:
+        readonly_enabled = get_ibkr_readonly_enabled()
+    api_write_allowed = get_ibkr_api_write_allowed()
 
-    if readonly_enabled:
+    if readonly_enabled or not api_write_allowed:
         raise RuntimeError(
-            "IBKR read-only enabled: blocking broker action "
-            f"{normalized} (run_mode={run_mode} execution_enabled={execution_flag})"
+            "IBKR read-only authority enabled: blocking broker action "
+            f"{normalized} (run_mode={run_mode} execution_enabled={execution_flag} "
+            f"readonly_enabled={readonly_enabled} api_write_allowed={api_write_allowed})"
         )
 
     if not execution_flag:

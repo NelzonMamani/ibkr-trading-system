@@ -313,19 +313,39 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         env=None,
     )
 
-    scanner_data_source = "MOCK" if effective_run_mode == "SIM" else "IBKR"
+    scanner_data_source_record = resolved["SCANNER_DATA_SOURCE"]
+    if scanner_data_source_record.source in {"OVERRIDE", "ENV"}:
+        scanner_data_source = scanner_data_source_record.value
+        scanner_data_source_source = scanner_data_source_record.source
+    else:
+        scanner_data_source = "MOCK" if effective_run_mode == "SIM" else "IBKR"
+        scanner_data_source_source = "DERIVED"
     resolved["SCANNER_DATA_SOURCE"] = ConfigRecord(
         name="SCANNER_DATA_SOURCE",
         value=scanner_data_source,
-        source="DERIVED",
+        source=scanner_data_source_source,
         env=None,
     )
 
-    ibkr_readonly_enabled = effective_run_mode in {"SIM", "READ_ONLY"}
+    explicit_readonly_record = resolved["IBKR_READONLY_ENABLED"]
+    explicit_api_write_record = resolved["IBKR_API_WRITE_ALLOWED"]
+    explicit_readonly = bool(explicit_readonly_record.value)
+    api_write_allowed = bool(explicit_api_write_record.value)
+    if effective_run_mode in {"SIM", "READ_ONLY"}:
+        ibkr_readonly_enabled = True
+        readonly_source = "DERIVED"
+    elif effective_run_mode == "PAPER":
+        ibkr_readonly_enabled = explicit_readonly
+        readonly_source = explicit_readonly_record.source
+    else:
+        ibkr_readonly_enabled = explicit_readonly or (not api_write_allowed)
+        readonly_source = explicit_readonly_record.source if explicit_readonly else (
+            explicit_api_write_record.source if not api_write_allowed else "DERIVED"
+        )
     resolved["IBKR_READONLY_ENABLED"] = ConfigRecord(
         name="IBKR_READONLY_ENABLED",
         value=ibkr_readonly_enabled,
-        source="DERIVED",
+        source=readonly_source,
         env=None,
     )
 
