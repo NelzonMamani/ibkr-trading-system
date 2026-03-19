@@ -2895,7 +2895,7 @@ def run_scanner_cycle(
     _REFERENCE_RESOLVER.reset_cycle()
     utc_now = _utc_now()
     session_ctx = _market_session_context_utc(utc_now)
-    session_label = forced_session_label or session_ctx.phase
+    session_label = forced_session_label or session_ctx.coarse
     session_phase = forced_session_label or session_ctx.phase
     session_diag = resolve_session_diagnostics(
         utc_now,
@@ -2907,6 +2907,12 @@ def run_scanner_cycle(
     drop_ledger: Dict[str, str] = {}
     universe_top_n: list[dict[str, Any]] = []
     print(f"[SCANNER] MODE={mode} SESSION={session_label}")
+    print(
+        "[SESSION_DEBUG] "
+        f"utc_now={session_diag.utc_time} "
+        f"eastern_now={session_diag.ny_time} "
+        f"classified_session={session_diag.canonical_session}"
+    )
     print(
         "[SESSION][MODE] "
         f"utc={session_diag.utc_time} ny={session_diag.ny_time} resolved={session_diag.resolved_session} "

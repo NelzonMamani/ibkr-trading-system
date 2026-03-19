@@ -14,6 +14,7 @@ from src.scanner.session_pct_change import (
     compute_phase_aware_rvol,
     compute_scanner_rvol,
     compute_session_aligned_pct_change,
+    get_us_eastern_now,
     normalize_session_label,
 )
 
@@ -230,7 +231,7 @@ class CanonicalReferenceResolver:
         ibkr_change_pct: Optional[float],
         persisted_pct_change: Optional[float],
     ) -> CanonicalReferenceResult:
-        trading_date = datetime.now(NY_TZ).date().isoformat()
+        trading_date = get_us_eastern_now().date().isoformat()
         cache_keys = self._cache_keys(identity, provider)
         for key in cache_keys:
             hit = self._cycle_cache.get(key)

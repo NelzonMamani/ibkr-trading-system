@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.config.runtime_config import resolve_ibkr_connection
+from src.config.system_config import get_current_market_session
 from src.scanner import scanner_runner
 from src.scanner.candidate_identity import CandidateIdentity
 from src.scanner.providers.base import IntradayStats, QuoteData, ScannerDataProvider
@@ -301,7 +302,7 @@ def _verify_symbol(provider: ScannerDataProvider, symbol: str, *, session_label:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Verify live scanner reference/pct/adv20/rvol pipeline.")
     parser.add_argument("--symbols", nargs="*", default=DEFAULT_SYMBOLS)
-    parser.add_argument("--session", default="RTH_OPEN")
+    parser.add_argument("--session", default=None)
     parser.add_argument("--provider", choices=("live", "stub"), default="live")
     args = parser.parse_args()
 
@@ -316,11 +317,13 @@ def main() -> None:
 
     scanner_runner.reset_scanner_runtime_state()
     scanner_runner._REFERENCE_RESOLVER.reset_cycle()
+    session_label = args.session or get_current_market_session()
+    print(f"[VERIFY] session={session_label}")
     try:
         provider.connect()
         for symbol in args.symbols:
             try:
-                _verify_symbol(provider, symbol.upper(), session_label=args.session)
+                _verify_symbol(provider, symbol.upper(), session_label=session_label)
             except Exception as exc:
                 print(f"[VERIFY][ERROR] symbol={symbol.upper()} error={exc!r}")
     finally:

@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 
 from src.scanner.session_pct_change import (
+    classify_session,
     compute_phase_aware_rvol,
+    get_us_eastern_now,
     normalize_session_label,
     resolve_market_session_context,
 )
@@ -20,12 +22,20 @@ def test_phase_aware_rvol_differs_by_phase() -> None:
 
 
 def test_session_classification_still_correct() -> None:
-    assert normalize_session_label("REG") == "RTH_OPEN"
+    assert normalize_session_label("REG") == "RTH"
     assert resolve_market_session_context(datetime(2024, 1, 4, 9, 42, tzinfo=timezone.utc)).phase == "PRE"
+    assert resolve_market_session_context(datetime(2024, 1, 4, 14, 31, tzinfo=timezone.utc)).coarse == "RTH"
     assert resolve_market_session_context(datetime(2024, 1, 4, 14, 31, tzinfo=timezone.utc)).phase == "RTH_OPEN"
     assert resolve_market_session_context(datetime(2024, 1, 4, 21, 30, tzinfo=timezone.utc)).phase == "AH"
-    assert resolve_market_session_context(datetime(2024, 1, 4, 7, 0, tzinfo=timezone.utc)).phase == "CLOSED"
+    assert resolve_market_session_context(datetime(2024, 1, 4, 7, 0, tzinfo=timezone.utc)).coarse == "CLOSED"
+    assert resolve_market_session_context(datetime(2024, 1, 4, 7, 0, tzinfo=timezone.utc)).phase == "OVN"
     assert resolve_market_session_context(datetime(2024, 1, 6, 17, 0, tzinfo=timezone.utc)).phase == "WEEKEND"
+
+
+def test_canonical_session_helpers_use_us_eastern() -> None:
+    assert get_us_eastern_now().tzinfo is not None
+    assert classify_session(datetime(2024, 1, 4, 5, 48, tzinfo=timezone.utc)) == "CLOSED"
+    assert classify_session(datetime(2024, 1, 4, 10, 48, tzinfo=timezone.utc)) == "PRE"
 
 
 def test_closed_phase_uses_premarket_rvol_baseline() -> None:

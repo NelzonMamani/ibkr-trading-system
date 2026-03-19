@@ -13,6 +13,7 @@ from src.config.config_resolver import get_config
 _NY_TZ = ZoneInfo("America/New_York")
 PHASE_VOLUME_RATIOS: dict[str, float] = {
     "PRE": 0.05,
+    "RTH": 1.00,
     "RTH_OPEN": 0.40,
     "RTH_MID": 0.35,
     "RTH_LATE": 0.20,
@@ -23,7 +24,7 @@ PHASE_VOLUME_FLOOR = 1.0
 
 
 def _session_elapsed_and_full_seconds(session_label: str, now_utc: datetime | None = None) -> tuple[int, int]:
-    now = (now_utc or datetime.now(timezone.utc)).astimezone(_NY_TZ)
+    now = resolve_as_eastern_datetime(now_utc)
     session = normalize_session_label(session_label)
 
     if session == "PRE":
@@ -99,9 +100,9 @@ class SessionResolutionDiagnostics:
 
 
 _SESSION_LABEL_MAP = {
-    "REG": "RTH_OPEN",
-    "REGULAR": "RTH_OPEN",
-    "RTH": "RTH_OPEN",
+    "REG": "RTH",
+    "REGULAR": "RTH",
+    "RTH": "RTH",
     "AFTER": "AH",
     "AFT": "AH",
     "AFTER_HOURS": "AH",
@@ -110,22 +111,47 @@ _SESSION_LABEL_MAP = {
     "OVN": "OVN",
     "OVERNIGHT": "OVN",
     "CLOSED": "CLOSED",
-    "RTH_OPEN": "RTH_OPEN",
-    "RTH_MID": "RTH_MID",
-    "RTH_LATE": "RTH_LATE",
+    "RTH_OPEN": "RTH",
+    "RTH_MID": "RTH",
+    "RTH_LATE": "RTH",
     "WEEKEND": "WEEKEND",
 }
 
 _CANONICAL_SESSION_MAP = {
     "PRE": "PRE",
-    "RTH_OPEN": "RTH_OPEN",
-    "RTH_MID": "RTH_MID",
-    "RTH_LATE": "RTH_LATE",
+    "RTH": "RTH",
+    "RTH_OPEN": "RTH",
+    "RTH_MID": "RTH",
+    "RTH_LATE": "RTH",
     "AH": "AH",
     "OVN": "CLOSED",
     "WEEKEND": "WEEKEND",
     "CLOSED": "CLOSED",
 }
+
+
+def get_us_eastern_now() -> datetime:
+    return datetime.now(_NY_TZ)
+
+
+def resolve_as_eastern_datetime(dt: Optional[datetime] = None) -> datetime:
+    if dt is None:
+        return get_us_eastern_now()
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=_NY_TZ)
+    return dt.astimezone(_NY_TZ)
+
+
+def classify_session(dt: datetime) -> str:
+    eastern_dt = resolve_as_eastern_datetime(dt)
+    t = eastern_dt.time()
+    if time(4, 0) <= t < time(9, 30):
+        return "PRE"
+    if time(9, 30) <= t < time(16, 0):
+        return "RTH"
+    if time(16, 0) <= t < time(20, 0):
+        return "AH"
+    return "CLOSED"
 
 
 def normalize_session_label(label: str) -> str:
@@ -136,16 +162,11 @@ def normalize_session_label(label: str) -> str:
 
 
 def resolve_market_session_label(now: Optional[datetime] = None) -> str:
-    return resolve_market_session_context(now).phase
+    return resolve_market_session_context(now).coarse
 
 
 def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSessionContext:
-    now_utc = now or datetime.now(timezone.utc)
-    if now_utc.tzinfo is None:
-        now_utc = now_utc.replace(tzinfo=timezone.utc)
-    else:
-        now_utc = now_utc.astimezone(timezone.utc)
-    ny_time = now_utc.astimezone(_NY_TZ)
+    ny_time = resolve_as_eastern_datetime(now)
     market_time = ny_time.isoformat()
     if ny_time.weekday() >= 5:
         return MarketSessionContext(coarse="WEEKEND", phase="WEEKEND", market_time=market_time)
@@ -158,17 +179,20 @@ def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSess
         if ny_time.time() >= early_close:
             return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
 
+    coarse = classify_session(ny_time)
     ny_clock = ny_time.time()
-    if time(4, 0) <= ny_clock < time(9, 30):
+    if coarse == "PRE":
         return MarketSessionContext(coarse="PRE", phase="PRE", market_time=market_time)
-    if time(9, 30) <= ny_clock < time(16, 0):
+    if coarse == "RTH":
         if ny_clock < time(10, 30):
-            return MarketSessionContext(coarse="RTH_OPEN", phase="RTH_OPEN", market_time=market_time)
+            return MarketSessionContext(coarse="RTH", phase="RTH_OPEN", market_time=market_time)
         if ny_clock < time(14, 30):
-            return MarketSessionContext(coarse="RTH_MID", phase="RTH_MID", market_time=market_time)
-        return MarketSessionContext(coarse="RTH_LATE", phase="RTH_LATE", market_time=market_time)
-    if time(16, 0) <= ny_clock < time(20, 0):
+            return MarketSessionContext(coarse="RTH", phase="RTH_MID", market_time=market_time)
+        return MarketSessionContext(coarse="RTH", phase="RTH_LATE", market_time=market_time)
+    if coarse == "AH":
         return MarketSessionContext(coarse="AH", phase="AH", market_time=market_time)
+    if ny_clock >= time(20, 0) or ny_clock < time(4, 0):
+        return MarketSessionContext(coarse="CLOSED", phase="OVN", market_time=market_time)
     return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
 
 
@@ -178,8 +202,7 @@ def canonical_session_label(label: str) -> str:
 
 
 def previous_valid_trading_day(now: Optional[datetime] = None) -> datetime.date:
-    now_utc = now or datetime.now(timezone.utc)
-    ny_time = now_utc.astimezone(_NY_TZ)
+    ny_time = resolve_as_eastern_datetime(now)
     holidays = set(get_config("MARKET_HOLIDAYS"))
     cursor = ny_time.date() - timedelta(days=1)
     while cursor.weekday() >= 5 or cursor in holidays:
@@ -188,18 +211,18 @@ def previous_valid_trading_day(now: Optional[datetime] = None) -> datetime.date:
 
 
 def reference_trading_day(now: Optional[datetime] = None) -> datetime.date:
-    now_utc = now or datetime.now(timezone.utc)
-    ny_time = now_utc.astimezone(_NY_TZ)
+    ny_time = resolve_as_eastern_datetime(now)
     holidays = set(get_config("MARKET_HOLIDAYS"))
     if ny_time.weekday() >= 5 or ny_time.date() in holidays:
-        return previous_valid_trading_day(now_utc)
+        return previous_valid_trading_day(ny_time)
     return ny_time.date()
 
 
 def resolve_session_diagnostics(now: Optional[datetime] = None, forced_session_label: Optional[str] = None, forced_session_source: Optional[str] = None) -> SessionResolutionDiagnostics:
-    now_utc = now or datetime.now(timezone.utc)
-    session_ctx = resolve_market_session_context(now_utc)
-    resolved = normalize_session_label(forced_session_label or session_ctx.phase)
+    eastern_now = resolve_as_eastern_datetime(now)
+    now_utc = eastern_now.astimezone(timezone.utc)
+    session_ctx = resolve_market_session_context(eastern_now)
+    resolved = normalize_session_label(forced_session_label or session_ctx.coarse)
     canonical = canonical_session_label(resolved)
     ref_day = reference_trading_day(now_utc)
     prev_day = previous_valid_trading_day(now_utc)
@@ -272,9 +295,11 @@ def compute_phase_aware_rvol(
     avg_volume_20d: Optional[float],
     floor_value: float = PHASE_VOLUME_FLOOR,
 ) -> PhaseAwareRelativeVolume:
+    raw_session = str(session_label or "").upper()
     normalized_session = normalize_session_label(session_label)
-    ratio = PHASE_VOLUME_RATIOS.get(normalized_session)
-    ratio_source = normalized_session
+    ratio_key = raw_session if raw_session in PHASE_VOLUME_RATIOS else normalized_session
+    ratio = PHASE_VOLUME_RATIOS.get(ratio_key)
+    ratio_source = ratio_key
     if ratio is None and normalized_session == "CLOSED":
         ratio = PHASE_VOLUME_RATIOS.get("PRE")
         ratio_source = "PREP_PRE_BASELINE"
@@ -287,7 +312,7 @@ def compute_phase_aware_rvol(
             "reason=INSUFFICIENT_INPUT"
         )
         return PhaseAwareRelativeVolume(
-            session_label=normalized_session,
+            session_label=ratio_key or normalized_session,
             phase_ratio=ratio,
             expected_phase_volume=None,
             floor_value=float(floor_value),
@@ -302,7 +327,7 @@ def compute_phase_aware_rvol(
     denominator = max(expected_phase_volume, float(floor_value))
     rvol_phase = round(volume / denominator, 2)
     return PhaseAwareRelativeVolume(
-        session_label=normalized_session,
+        session_label=ratio_key or normalized_session,
         phase_ratio=ratio,
         expected_phase_volume=round(expected_phase_volume, 2),
         floor_value=float(floor_value),

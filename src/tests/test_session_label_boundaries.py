@@ -21,11 +21,16 @@ def test_core_session_state_boundaries() -> None:
 
 
 def test_scanner_session_context_boundaries() -> None:
+    assert resolve_market_session_context(_ny_dt(3, 59)).coarse == "CLOSED"
     assert resolve_market_session_context(_ny_dt(3, 59)).phase == "OVN"
+    assert resolve_market_session_context(_ny_dt(4, 0)).coarse == "PRE"
     assert resolve_market_session_context(_ny_dt(4, 0)).phase == "PRE"
     assert resolve_market_session_context(_ny_dt(9, 29)).phase == "PRE"
+    assert resolve_market_session_context(_ny_dt(9, 30)).coarse == "RTH"
     assert resolve_market_session_context(_ny_dt(9, 30)).phase == "RTH_OPEN"
     assert resolve_market_session_context(_ny_dt(15, 59)).phase == "RTH_LATE"
+    assert resolve_market_session_context(_ny_dt(16, 0)).coarse == "AH"
     assert resolve_market_session_context(_ny_dt(16, 0)).phase == "AH"
     assert resolve_market_session_context(_ny_dt(19, 59)).phase == "AH"
+    assert resolve_market_session_context(_ny_dt(20, 0)).coarse == "CLOSED"
     assert resolve_market_session_context(_ny_dt(20, 0)).phase == "OVN"
