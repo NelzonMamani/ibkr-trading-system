@@ -199,7 +199,11 @@ def reference_trading_day(now: Optional[datetime] = None) -> datetime.date:
 def resolve_session_diagnostics(now: Optional[datetime] = None, forced_session_label: Optional[str] = None, forced_session_source: Optional[str] = None) -> SessionResolutionDiagnostics:
     now_utc = now or datetime.now(timezone.utc)
     session_ctx = resolve_market_session_context(now_utc)
-    resolved = normalize_session_label(forced_session_label or session_ctx.phase)
+    # Keep diagnostics and downstream fallback/RVOL/retry logic phase-aware.
+    # Scanner routing may still consume session_ctx.coarse elsewhere, but this
+    # path must preserve RTH_OPEN/RTH_MID/RTH_LATE instead of collapsing to RTH.
+    resolved_label = forced_session_label or session_ctx.phase
+    resolved = normalize_session_label(resolved_label)
     canonical = canonical_session_label(resolved)
     ref_day = reference_trading_day(now_utc)
     prev_day = previous_valid_trading_day(now_utc)
