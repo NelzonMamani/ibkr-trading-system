@@ -391,6 +391,8 @@ class CoreOrchestrator:
         self._degraded = False
         self._current_cycle_id: Optional[str] = None
         self._last_halt_reason: Optional[dict] = None
+        self._halt_emitted = False
+        self._pending_connectivity_halt: Optional[dict] = None
         self.trace_bus = TraceBus()
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
         self._daily_loss_warning_date: Optional[str] = None
@@ -850,7 +852,13 @@ class CoreOrchestrator:
             "details": details or {},
         }
         self._last_halt_reason = payload
+        self._halt_emitted = True
         self._trace_event("HALT", payload)
+
+    def _emit_pending_connectivity_halt(self) -> None:
+        if self._halt_emitted or self._pending_connectivity_halt is None:
+            return
+        self._trace_halt(**self._pending_connectivity_halt)
 
     def _selection_spec_summary(self, policy: StockSelectionPolicy) -> dict:
         base = StockSelectionSpec()
@@ -1051,15 +1059,19 @@ class CoreOrchestrator:
         cycles_run = 0
         retry_count = 0
         performed_shutdown = False
+        self._halt_emitted = False
+        self._pending_connectivity_halt = None
 
         while True:
             try:
                 if self.stop_controller.is_stop_requested():
+                    self._emit_pending_connectivity_halt()
                     self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
                     performed_shutdown = True
                     break
 
                 if max_cycles is not None and cycles_run >= max_cycles:
+                    self._emit_pending_connectivity_halt()
                     break
 
                 print("[CYCLE] Starting orchestrator cycle.")
@@ -1159,6 +1171,16 @@ class CoreOrchestrator:
                     performed_shutdown = True
                     break
                 self.system_state.set_degraded(reason=str(exc))
+                self._pending_connectivity_halt = {
+                    "reason_code": "CONNECTIVITY_FAILURE",
+                    "message": str(exc),
+                    "stage": "CONNECTIVITY",
+                    "details": {
+                        "reason": "provider_connection_failure",
+                        "provider": "IBKR",
+                        "mode": self.config.RUN_MODE,
+                    },
+                }
                 print("STATE=DEGRADED")
                 print("reason=provider_connection_failure")
                 print("provider=IBKR")
@@ -1171,16 +1193,19 @@ class CoreOrchestrator:
                     f"STATE=DEGRADED retry={retry_count} backoff={backoff_seconds}s "
                     f"next_attempt={next_attempt.isoformat()}"
                 )
-                self._trace_halt(
-                    reason_code="CONNECTIVITY_RETRY",
-                    message=str(exc),
-                    stage="CONNECTIVITY",
-                    details={
-                        "retry": retry_count,
-                        "backoff_seconds": backoff_seconds,
-                        "next_attempt": next_attempt.isoformat(),
-                        "reason": "provider_connection_failure",
-                        "provider": "IBKR",
+                self._trace_event(
+                    "CONNECTIVITY_RETRY",
+                    {
+                        "reason_code": "CONNECTIVITY_RETRY",
+                        "message": str(exc),
+                        "stage": "CONNECTIVITY",
+                        "details": {
+                            "retry": retry_count,
+                            "backoff_seconds": backoff_seconds,
+                            "next_attempt": next_attempt.isoformat(),
+                            "reason": "provider_connection_failure",
+                            "provider": "IBKR",
+                        },
                     },
                 )
                 time.sleep(backoff_seconds)
@@ -1194,6 +1219,7 @@ class CoreOrchestrator:
                     reason="Run loop complete",
                     source="CoreOrchestrator",
                 )
+            self._emit_pending_connectivity_halt()
             self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
 
     def run_once(self) -> bool:
