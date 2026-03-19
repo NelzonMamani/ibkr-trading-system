@@ -1520,9 +1520,15 @@ class CoreOrchestrator:
                         print(f"[SCANNER][WARN] strategy={active_strategy} err={message}")
 
             observations = list(cadence.top_n.rows)
+            payload_watch_rows = list(strategy_payload.get("watchlist_k", []))
+            payload_focus_rows = list(strategy_payload.get("focus_m", []))
+
             if watch_stale:
                 policy_v2 = resolve_policy_v2(active_strategy)
-                if policy_v2 and is_policy_v2_enabled_for_strategy(active_strategy):
+                if payload_watch_rows:
+                    watch_rows = payload_watch_rows
+                    focus_rows = payload_focus_rows
+                elif policy_v2 and is_policy_v2_enabled_for_strategy(active_strategy):
                     watch_rows, focus_rows = self._build_watchlist_focus_v2(policy_v2, observations)
                 else:
                     selector = resolve_watchlist_selector(active_scanner_policy.ranking_intent)
@@ -1536,9 +1542,9 @@ class CoreOrchestrator:
                     focus_stale = True
 
             if focus_stale:
-                base = list(cadence.watchlist.rows)[:focus_limit_max]
-                cadence.focus.rows = base
-                cadence.focus.symbols = self._symbols_from_candidates(base)
+                base = payload_focus_rows or list(cadence.watchlist.rows)[:focus_limit_max]
+                cadence.focus.rows = list(base[:focus_limit_max])
+                cadence.focus.symbols = self._symbols_from_candidates(cadence.focus.rows)
                 cadence.focus.timestamp_utc = cycle_started_at
                 self._trace_event("FOCUS_LIST_CREATED", {"strategy": active_strategy, "size": len(cadence.focus.symbols)})
 
@@ -1585,8 +1591,17 @@ class CoreOrchestrator:
             f"MANUAL_FOCUS={manual_focus_accepted_symbols} "
             f"FINAL_EVALUATION_SYMBOLS={final_evaluation_symbols}"
         )
+        scanner_kept_count = len(self._symbols_from_candidates(selected_observations))
         self._trace_event("UNIVERSE", {"universe": [{"symbol": s} for s in self._symbols_from_candidates(selected_observations)]})
+        if watchlist_symbols:
+            print(f"[WATCHLIST] size={len(watchlist_symbols)} symbols={watchlist_symbols}")
+        else:
+            print("[WATCHLIST][EMPTY] reason=no_scanner_candidates_after_gating")
         self._trace_event("WATCHLIST", {"watchlist_symbols": watchlist_symbols})
+        if final_evaluation_symbols:
+            print(f"[FOCUS] size={len(final_evaluation_symbols)} symbols={final_evaluation_symbols}")
+        else:
+            print("[FOCUS][EMPTY] reason=no_focus_symbols_after_selection")
         self._trace_event("FOCUS", {"focus": [{"symbol": s} for s in final_evaluation_symbols]})
         snapshots_by_symbol, _ = self.market_data_snapshot_manager.batch_snapshots(final_evaluation_symbols)
         session_label = normalize_session_label((selected_watchlist[0].session_label if selected_watchlist else session_phase))
@@ -1597,6 +1612,8 @@ class CoreOrchestrator:
             timestamp_utc=cycle_started_at.isoformat(),
         )
         strategy_watchlist = selected_focus
+        for symbol in final_evaluation_symbols:
+            print(f"[STRATEGY] runner=ross_momentum symbol={symbol} stage=evaluate")
         strategy_output = self.strategy_runner.process(
             strategy_key=strategy_key,
             watchlist=strategy_watchlist,
@@ -1626,6 +1643,7 @@ class CoreOrchestrator:
                 self._trace_event("INTENT_EMITTED", {"strategy": strategy_key, "symbol": symbol})
                 self._trace_event("RISK_APPROVED", {"strategy": strategy_key, "symbol": symbol, "decision": "PASS"})
             else:
+                print(f"[STRATEGY][NO_SIGNAL] symbol={symbol} reason=no_valid_setup_from_runner")
                 self._trace_event("NO_SETUP", {"strategy": strategy_key, "symbol": symbol})
 
         if mode_manager.allow_orders:
@@ -1637,9 +1655,29 @@ class CoreOrchestrator:
                 self._trace_event("SESSION_BLOCK", {"strategy": strategy_key, "symbol": intent.symbol, "reason": reason})
                 self._trace_event("ORDER_SIMULATED", {"strategy": strategy_key, "symbol": intent.symbol, "reason": reason})
 
+        intent_count = len(strategy_output or [])
+        if strategy_output:
+            for trade_intent in strategy_output:
+                print(
+                    "[INTENT] "
+                    f"symbol={trade_intent.symbol} side={trade_intent.direction} "
+                    f"entry={getattr(trade_intent, 'entry_price', None)} stop={getattr(trade_intent, 'stop_loss_price', None)} "
+                    f"qty={getattr(trade_intent, 'quantity', None) or getattr(trade_intent, 'requested_quantity', None) or 1} "
+                    f"source=ross_momentum"
+                )
+                print(
+                    "[DECISION] "
+                    f"symbol={trade_intent.symbol} verdict=emit_intent setup={getattr(trade_intent, 'pattern_name', None) or getattr(trade_intent, 'strategy_name', 'UNKNOWN')} executable={str(bool(mode_manager.allow_orders)).lower()}"
+                )
+        print(
+            "[PIPELINE] "
+            f"scanner_kept={scanner_kept_count} watchlist={len(watchlist_symbols)} focus={len(final_evaluation_symbols)} "
+            f"evaluated={len(final_evaluation_symbols)} intents={intent_count}"
+        )
+
         if self.regime_layer.enabled:
             self.regime_layer.evaluate(candidates=selected_candidates or [], session=get_current_market_session())
-        self._trace_event("ACTION", {"trade_intents": len(strategy_output or []), "allow_orders": mode_manager.allow_orders})
+        self._trace_event("ACTION", {"trade_intents": intent_count, "allow_orders": mode_manager.allow_orders})
         if not strategy_output:
             print("[STRATEGY] No trade intents generated.")
         return True
