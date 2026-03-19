@@ -80,7 +80,7 @@ from src.strategy_policy_v2.registry import resolve_policy_v2
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.scanner.providers.base import ProviderConnectionError
 from src.scanner.providers.mock_provider import MockScannerProvider
-from src.scanner.session_pct_change import normalize_session_label
+from src.scanner.session_pct_change import normalize_session_label, resolve_market_session_context
 from src.sim.clock import SimClock, WallClock
 from src.sim.price_feed import DeterministicPriceFeed
 from src.signals.signal_engine_v1 import SignalEngineV1
@@ -1142,7 +1142,11 @@ class CoreOrchestrator:
 
                 print("[CYCLE] Starting orchestrator cycle.")
                 current_session = get_current_market_session()
+                detected_session = normalize_session_label(
+                    resolve_market_session_context(datetime.now(timezone.utc)).phase
+                )
                 self._emit_market_session_state(current_session)
+                print(f"[SESSION][DETECTED] session={detected_session}")
                 print(f"[SESSION] Detected market session: {current_session}")
                 if current_session in ACTIVE_SESSIONS:
                     print(
@@ -3253,12 +3257,19 @@ class CoreOrchestrator:
         self._maybe_run_scheduled_prep_update(datetime.now(timezone.utc), get_current_market_session())
 
     def run_preparation_mode(self) -> None:
+        session_context = resolve_market_session_context(datetime.now(timezone.utc))
+        preparation_session = normalize_session_label(session_context.phase)
         print("PREPARATION MODE STARTED")
-        print("[PREP] session=CLOSED")
+        print(f"[PREP] session={preparation_session}")
+        print(f"[PREP] preparation_mode_active=True session_preserved={preparation_session == 'PRE'}")
         print("[PREP] discovering floats for top gainers")
         provider_override = MockScannerProvider() if self.run_mode == RunMode.PAPER else None
-        _, scanner_policy = self._build_scanner_policy_for_strategy(self.primary_strategy_key, "CLOSED")
-        scanner_request = self._build_scanner_request(scanner_policy, strategy_name=self.primary_strategy_key, session_phase="CLOSED")
+        _, scanner_policy = self._build_scanner_policy_for_strategy(self.primary_strategy_key, preparation_session)
+        scanner_request = self._build_scanner_request(
+            scanner_policy,
+            strategy_name=self.primary_strategy_key,
+            session_phase=preparation_session,
+        )
         scanner_request = replace(scanner_request, requested_top_n=50)
         payload = run_scanner_cycle(
             mode="integrated",
@@ -3268,11 +3279,12 @@ class CoreOrchestrator:
             provider=provider_override,
             market_data_client=self.connection_manager.optional_client,
             disconnect_provider=provider_override is not None,
-            forced_session_label="WEEKEND",
+            forced_session_label=preparation_session,
+            forced_session_source="PREPARATION_MODE_ACTIVE",
         )
         write_premarket_prep_artifact(
             mode=self.run_mode.value,
-            session="PRE",
+            session=preparation_session,
             scanner_payload=payload,
             watchlist_k=int(scanner_policy.watchlist_limit_k),
         )
