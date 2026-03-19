@@ -25,7 +25,7 @@ def _reset_scanner_state():
     set_config_overrides({})
 
 
-def test_scanner_fallback_on_provider_connect_failure(monkeypatch):
+def test_scanner_propagates_provider_connect_failure(monkeypatch):
     def _fail_build_provider():
         raise scanner_runner.ProviderConnectionError("connect failed")
 
@@ -38,10 +38,5 @@ def test_scanner_fallback_on_provider_connect_failure(monkeypatch):
         }
     )
 
-    payload = scanner_runner.run_scanner_cycle(mode="integrated")
-
-    diagnostics = payload.get("diagnostics", {})
-    assert diagnostics.get("provider_error") == "connect failed"
-    assert diagnostics.get("provider_fallback") is None
-    assert diagnostics.get("symbol_count") == 0
-    assert payload.get("watchlist_k_symbols") == []
+    with pytest.raises(scanner_runner.ProviderConnectionError, match="connect failed"):
+        scanner_runner.run_scanner_cycle(mode="integrated")

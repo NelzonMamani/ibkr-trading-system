@@ -3082,24 +3082,10 @@ def run_scanner_cycle(
         _PERSISTENT_PROVIDER_SOURCE = provider.source_name
         print(f"[IBKR][MD] persistent connection active provider={_PERSISTENT_PROVIDER_SOURCE}")
     except ProviderConnectionError as exc:
-        provider_error = str(exc)
-        diagnostics["provider_error"] = provider_error
+        diagnostics["provider_error"] = str(exc)
+        logger.error("[SCANNER][CONNECTIVITY_FAILURE] %s", str(exc))
         print("STATE=DEGRADED")
-        if allow_mock_fallback:
-            provider_fallback = {
-                "from": "IBKR",
-                "to": "MOCK",
-                "reason": provider_error,
-            }
-            diagnostics["provider_fallback"] = provider_fallback
-            print(
-                "[SCANNER][WARN] Provider connection failed — "
-                f"falling back to MOCK reason={exc}"
-            )
-            provider = MockScannerProvider()
-        else:
-            allow_symbol_fallback = False
-            provider = None
+        raise
     if provider is not None:
         provider_source = provider.source_name
     if run_mode == RunMode.LIVE and provider_source == "MOCK":
@@ -3180,63 +3166,11 @@ def run_scanner_cycle(
                     diagnostics=diagnostics,
                     allow_mock_fallback=allow_mock_fallback,
                 )
-        except Exception as exc:
+        except ProviderConnectionError as exc:
             diagnostics["provider_error"] = str(exc)
-            if provider is not None and provider.source_name != "MOCK":
-                if allow_mock_fallback:
-                    diagnostics["provider_fallback"] = {
-                        "from": provider.source_name,
-                        "to": "MOCK",
-                        "reason": str(exc),
-                    }
-                    provider.disconnect()
-                    provider = MockScannerProvider()
-                    provider_source = provider.source_name
-                    limits = _print_symbol_limits(
-                        scanner_mode,
-                        provider_source,
-                        resolved_policy,
-                        requested_top_n=request.requested_top_n,
-                    )
-                    # --- HARD INVARIANT: scanner limits must always be valid ---
-                    if limits is None:
-                        limits = {}
-
-                    resolved_symbol_limit = limits.get("resolved_symbol_limit")
-
-                    if resolved_symbol_limit is None:
-                        # canonical Ross Momentum scanner limit fallback
-                        resolved_symbol_limit = 50
-                        limits["resolved_symbol_limit"] = resolved_symbol_limit
-
-                    if limits.get("watchlist_limit") is None:
-                        limits["watchlist_limit"] = 15
-
-                    if limits.get("focus_limit") is None:
-                        limits["focus_limit"] = 5
-
-                    if limits.get("reductions") is None:
-                        limits["reductions"] = []
-
-                    # additional safety guard
-                    if "resolved_symbol_limit" not in limits:
-                        raise RuntimeError(
-                            "[SCANNER][INVARIANT] resolved_symbol_limit missing from limits structure"
-                        )
-
-                    diagnostics["symbol_limits"] = limits
-                    symbols = _resolve_universe_symbols(
-                        provider=provider,
-                        request=request,
-                        limits=limits,
-                        diagnostics=diagnostics,
-                        allow_mock_fallback=allow_mock_fallback,
-                    )
-                else:
-                    allow_symbol_fallback = False
-                    symbols = []
-            else:
-                symbols = []
+            logger.error("[SCANNER][CONNECTIVITY_FAILURE] %s", str(exc))
+            print("STATE=DEGRADED")
+            raise
 
         diagnostics["provider_source"] = provider_source
         diagnostics["symbol_count"] = len(symbols)
