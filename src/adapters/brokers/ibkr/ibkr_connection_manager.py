@@ -265,18 +265,21 @@ def get_shared_ibkr_connection_manager(
     with _default_manager_lock:
         if _default_manager is None:
             host, port, client_id, run_mode = resolve_ibkr_connection()
+            readonly = (
+                get_ibkr_readonly_enabled()
+                if readonly_enabled is None
+                else readonly_enabled
+            )
             env_force_live = os.getenv("EXECUTION_ENABLED", "false").lower() == "true"
-            if env_force_live:
+
+            run_mode_upper = str(run_mode).upper()
+
+            if env_force_live and run_mode_upper == "LIVE":
                 readonly = False
-            else:
-                readonly = (
-                    get_ibkr_readonly_enabled()
-                    if readonly_enabled is None
-                    else readonly_enabled
-                )
+
             print(
                 f"[IBKR][READONLY_OVERRIDE] readonly={readonly} "
-                f"(env_force_live={env_force_live})"
+                f"(env_force_live={env_force_live}, run_mode={run_mode_upper})"
             )
             _default_manager = IbkrConnectionManager(
                 IbkrConnectionConfig(
