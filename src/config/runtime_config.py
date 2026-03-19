@@ -58,42 +58,61 @@ def get_event_replay_mode(run_mode: RunMode | None = None) -> EventReplayMode:
     return EventReplayMode(get_config("EVENT_REPLAY_MODE_EFFECTIVE"))
 
 
+def _resolve_runtime_authority() -> tuple[str, bool]:
+    """Return the resolved runtime mode and whether order execution is allowed."""
+    from src.core.managers.runtime_mode_manager import RuntimeModeManager
+
+    resolved = RuntimeModeManager.resolve()
+    resolved_mode = str(
+        getattr(getattr(resolved, "resolved_mode", None), "value", getattr(resolved, "resolved_mode", get_run_mode()))
+    ).upper()
+    allow_orders = bool(getattr(resolved, "allow_orders", False))
+    return resolved_mode, allow_orders
+
+
 def get_ibkr_readonly_enabled(default: bool = True) -> bool:
-    run_mode = str(get_run_mode()).upper()
+    run_mode, allow_orders = _resolve_runtime_authority()
 
-    # HARD INVARIANT: READ_ONLY mode forces readonly
-    if run_mode == "READ_ONLY":
+    # Runtime authority is the single source of truth for broker mutability.
+    if run_mode == RunMode.READ_ONLY.value:
         return True
-
-    return bool(_with_default("IBKR_READONLY_ENABLED", default))
+    if not allow_orders:
+        return True
+    return False
 
 
 def get_ibkr_api_write_allowed(default: bool = True) -> bool:
-    return bool(_with_default("IBKR_API_WRITE_ALLOWED", default))
+    run_mode, allow_orders = _resolve_runtime_authority()
+    if run_mode == RunMode.READ_ONLY.value:
+        return False
+    return allow_orders
 
 
 def get_execution_enabled(default: bool = False) -> bool:
-    return bool(_with_default("EXECUTION_ENABLED_EFFECTIVE", default))
+    run_mode, allow_orders = _resolve_runtime_authority()
+    if run_mode == RunMode.READ_ONLY.value:
+        return False
+    return allow_orders
 
 
 def is_execution_enabled(run_mode: RunMode | None = None) -> bool:
     if run_mode is None:
-        return bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
+        return get_execution_enabled()
     return execution_allowed(run_mode)
 
 
 def execution_allowed(run_mode: RunMode | str | None) -> bool:
     normalized = str(getattr(run_mode, "value", run_mode) or "").upper()
-    if normalized == "LIVE":
-        return bool(get_config("EXECUTION_ENABLED"))
-    return normalized == "PAPER"
+    if normalized == RunMode.READ_ONLY.value:
+        return False
+    if normalized == RunMode.SIM.value:
+        return False
+    return normalized in {RunMode.LIVE.value, RunMode.PAPER.value}
 
 
 def broker_orders_allowed(run_mode: RunMode | str | None) -> bool:
     normalized = str(getattr(run_mode, "value", run_mode) or "").upper()
-    if normalized == "LIVE":
-        return bool(get_config("EXECUTION_ENABLED"))
-    return normalized == "PAPER"
+    return normalized in {RunMode.LIVE.value, RunMode.PAPER.value}
 
 
 def get_ibkr_host(default: str = "127.0.0.1") -> str:
@@ -188,7 +207,7 @@ def get_intent_dedup_selftest_enabled(default: bool = False) -> bool:
 
 
 def get_ibkr_order_translation_enabled() -> bool:
-    return bool(get_config("IBKR_ORDER_TRANSLATION_ENABLED"))
+    return get_execution_enabled() and bool(get_config("IBKR_ORDER_TRANSLATION_ENABLED"))
 
 
 def get_ibkr_default_exchange(default: str = "SMART") -> str:
@@ -200,7 +219,9 @@ def get_ibkr_default_currency(default: str = "USD") -> str:
 
 
 def get_ibkr_order_submission_enabled(default: bool = False) -> bool:
-    return bool(_with_default("IBKR_ORDER_SUBMISSION_ENABLED", default))
+    return get_execution_enabled() and not get_ibkr_readonly_enabled() and bool(
+        _with_default("IBKR_ORDER_SUBMISSION_ENABLED", default)
+    )
 
 
 def get_ibkr_kill_switch(default: bool = True) -> bool:

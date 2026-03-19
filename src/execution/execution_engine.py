@@ -10,6 +10,7 @@ from src.brokers.base_broker import BrokerOrderRequest
 from src.config.config_resolver import get_config
 from src.config.runtime_config import (
     RunMode,
+    get_execution_enabled,
     get_ibkr_readonly_enabled,
 )
 from src.core.active_trade_registry import ActiveTradeRegistry
@@ -38,7 +39,7 @@ class ExecutionEngine:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
         self.run_mode: RunMode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
         self.runtime_mode_manager = RuntimeModeManager.resolve()
-        self.execution_enabled = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
+        self.execution_enabled = get_execution_enabled()
         self.max_shares_per_order = self.runtime_mode_manager.max_shares_per_order
         if not self.execution_enabled:
             print("[SAFETY] EXECUTION: HARD DISABLED")
@@ -62,10 +63,6 @@ class ExecutionEngine:
         self, provider: Optional[ExecutionProvider]
     ) -> Optional[ExecutionProvider]:
         if not self.execution_enabled:
-            if provider is not None:
-                raise RuntimeError(
-                    "Execution disabled; execution providers must not be instantiated."
-                )
             return None
         if self.run_mode == RunMode.PAPER:
             if provider is not None and not isinstance(provider, PaperExecutionProvider):
@@ -79,7 +76,7 @@ class ExecutionEngine:
         if provider is None:
             raise RuntimeError(
                 "Execution provider missing in live execution mode. "
-                "Verify TWS/Gateway connectivity, RUN_MODE=LIVE, EXECUTION_ENABLED=true, "
+                "Verify TWS/Gateway connectivity, unified runtime authority allows orders, "
                 "IBKR_ORDER_SUBMISSION_ENABLED=true, IBKR_READONLY_ENABLED=false, and IBKR_LIVE_PORT=7496."
             )
         return provider
