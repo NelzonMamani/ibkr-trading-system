@@ -59,6 +59,12 @@ def get_event_replay_mode(run_mode: RunMode | None = None) -> EventReplayMode:
 
 
 def get_ibkr_readonly_enabled(default: bool = True) -> bool:
+    run_mode = str(get_run_mode()).upper()
+
+    # HARD INVARIANT: READ_ONLY mode forces readonly
+    if run_mode == "READ_ONLY":
+        return True
+
     return bool(_with_default("IBKR_READONLY_ENABLED", default))
 
 
