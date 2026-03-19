@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 from typing import Iterable, List, Optional
 
+from src.metadata.m5_strategy_certification_authority import run_strategy_certification_v2
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CATALOGUE_ROOT = REPO_ROOT / "TRADING_OS_MASTER_CATALOGUE"
@@ -121,6 +122,14 @@ def _print_checklist() -> None:
     print("- Run: pytest")
     print("- Run: targeted pytest for the epoch")
     print("- Run: SIM/PAPER/READ_ONLY/LIVE boot evidence where applicable")
+
+
+def run_m5_v2_all_strategies() -> None:
+    strategies = ["ross_momentum"]
+
+    for strategy_name in strategies:
+        result = run_strategy_certification_v2(strategy_name)
+        print(f"[M5_V2] {strategy_name} → {result['verdict']}")
 
 
 def main() -> None:

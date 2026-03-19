@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from src.metadata.m0_canon_helpers import get_repo_root
+from src.tools.verification.strategy_verification_runner import run_full_certification_v2
+from src.tools.verification.verification_evidence_writer import write_m5_v2_evidence
 
 CATALOGUE_STRATEGIES_REL = Path("TRADING_OS_MASTER_CATALOGUE/03_STRATEGIES")
 EVIDENCE_DIR_REL = Path("AUDIT_EVIDENCE/M5")
@@ -296,4 +298,15 @@ def generate_strategy_certification_artifacts(repo_root: Path | None = None) -> 
         "compileall_log_path": str((EVIDENCE_DIR_REL / "compileall_src.log")),
         "pytest_log_path": str((EVIDENCE_DIR_REL / "pytest_q.log")),
         "boot_logs_dir": str((EVIDENCE_DIR_REL / "boot")),
+    }
+
+
+def run_strategy_certification_v2(strategy_name: str) -> dict[str, str]:
+    result = run_full_certification_v2(strategy_name)
+    evidence_path = write_m5_v2_evidence(strategy_name, result)
+
+    return {
+        "strategy": strategy_name,
+        "verdict": result["verdict"],
+        "evidence": evidence_path,
     }

@@ -1,0 +1,30 @@
+{
+  "strategy": "ross_momentum",
+  "verdict": "FAIL",
+  "stages": {
+    "structural": {
+      "pass": true
+    },
+    "policy": {
+      "pass": true
+    },
+    "scanner_contract": {
+      "pass": true
+    },
+    "signal_pipeline": {
+      "pass": true
+    },
+    "risk_execution": {
+      "pass": true
+    },
+    "mode_matrix": {
+      "pass": true
+    },
+    "e2e": {
+      "pass": false
+    },
+    "determinism": {
+      "pass": true
+    }
+  }
+}
