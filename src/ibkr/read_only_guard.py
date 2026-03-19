@@ -32,6 +32,8 @@ def assert_read_only_allows(
         else get_execution_enabled()
     )
     readonly_enabled = get_ibkr_readonly_enabled()
+    if run_mode_override is not None or execution_enabled_override is not None:
+        readonly_enabled = run_mode == RunMode.READ_ONLY.value or not execution_flag
 
     if readonly_enabled:
         raise RuntimeError(

@@ -264,16 +264,21 @@ def get_shared_ibkr_connection_manager(
     with _default_manager_lock:
         if _default_manager is None:
             host, port, client_id, run_mode = resolve_ibkr_connection()
+            execution_enabled = get_execution_enabled()
             readonly = (
                 get_ibkr_readonly_enabled()
                 if readonly_enabled is None
                 else readonly_enabled
             )
-            execution_enabled = get_execution_enabled()
 
             run_mode_upper = str(run_mode).upper()
 
-            if execution_enabled and run_mode_upper == "LIVE":
+            # Unified runtime authority wins over caller overrides.
+            if run_mode_upper == "READ_ONLY":
+                readonly = True
+            elif not execution_enabled:
+                readonly = True
+            else:
                 readonly = False
 
             print(
