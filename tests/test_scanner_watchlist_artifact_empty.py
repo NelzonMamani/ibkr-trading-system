@@ -24,7 +24,7 @@ def _reset_scanner_state():
     set_config_overrides({})
 
 
-def test_watchlist_artifact_written_when_universe_empty(monkeypatch):
+def test_watchlist_artifact_not_written_on_provider_connect_failure(monkeypatch):
     def _fail_build_provider():
         raise scanner_runner.ProviderConnectionError("connect failed")
 
@@ -44,14 +44,12 @@ def test_watchlist_artifact_written_when_universe_empty(monkeypatch):
     policy = RossMomentumPolicy().stock_selection
     request = scanner_request_from_policy(policy, strategy_name="ross_momentum")
 
-    payload = scanner_runner.run_scanner_cycle(
-        mode="READONLY",
-        policy=policy,
-        scanner_request=request,
-    )
+    with pytest.raises(scanner_runner.ProviderConnectionError, match="connect failed"):
+        scanner_runner.run_scanner_cycle(
+            mode="READONLY",
+            policy=policy,
+            scanner_request=request,
+        )
 
-    assert payload.get("watchlist_k_symbols") == []
     files = list(watchlist_dir.glob("watchlist_RossMomentum_*"))
-    assert len(files) == 1
-    content = files[0].read_text(encoding="utf-8")
-    assert "watchlist_empty_reason" in content
+    assert files == []

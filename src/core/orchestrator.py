@@ -887,7 +887,9 @@ class CoreOrchestrator:
     ) -> StopMode:
         if set_degraded:
             self._degraded = True
-            self.system_state.set_degraded(reason=message)
+            system_state = getattr(self, "system_state", None)
+            if system_state is not None:
+                system_state.set_degraded(reason=message)
         if not self._halt_emitted:
             self._emit_canonical_halt(
                 reason_code=reason_code,
@@ -1226,7 +1228,7 @@ class CoreOrchestrator:
                     details={
                         "reason": "provider_connection_failure",
                         "provider": "IBKR",
-                        "mode": self.config.RUN_MODE,
+                        "mode": self.run_mode.value if hasattr(self.run_mode, "value") else str(self.run_mode),
                     },
                     set_degraded=True,
                     shutdown=False,

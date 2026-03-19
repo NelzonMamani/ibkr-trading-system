@@ -10,6 +10,7 @@ from src.ibkr.market_data_client import MarketDataClient
 from src.models.data_models import ScannerCandidate
 from src.scanner.contracts import StockSelectionPolicy, policy_from_config
 from src.scanner.scanner_contract import ScannerRequest
+from src.scanner.providers.base import ProviderConnectionError
 from src.scanner.providers.mock_provider import MockScannerProvider
 from src.scanner.session_pct_change import resolve_market_session_label
 
@@ -186,6 +187,10 @@ class LiveReadOnlyScanner:
                         data_quality_flags=data_quality_flags,
                     )
                 )
+        except ProviderConnectionError as exc:
+            self.last_connectivity_issue = f"IBKR market data error: {exc}"
+            print(f"[SCAN] Connectivity issue: {self.last_connectivity_issue}")
+            raise
         except Exception as exc:
             self.last_connectivity_issue = f"IBKR market data error: {exc}"
             print(f"[SCAN] Connectivity issue: {self.last_connectivity_issue}")
