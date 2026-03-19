@@ -846,9 +846,10 @@ class CoreOrchestrator:
         details: Optional[dict] = None,
     ) -> None:
         payload = {
+            "stage": "HALT",
             "reason_code": reason_code,
             "message": message,
-            "stage": stage,
+            "halt_stage": stage,
             "details": details or {},
         }
         self._last_halt_reason = payload
