@@ -3089,7 +3089,12 @@ class CoreOrchestrator:
             else type(broker_adapter).__name__ if broker_adapter is not None else "NONE"
         )
         print(f"[VALIDATION] Broker adapter in use: {broker_name}")
-        if self.run_mode == RunMode.LIVE and bool(get_config("IBKR_ORDER_TRANSLATION_ENABLED")) and not IBAPI_AVAILABLE:
+        if (
+            self.execution_enabled
+            and self.run_mode == RunMode.LIVE
+            and bool(get_config("IBKR_ORDER_TRANSLATION_ENABLED"))
+            and not IBAPI_AVAILABLE
+        ):
             raise RuntimeSafetyError(
                 "IBKR_ORDER_TRANSLATION_ENABLED=true but ibapi is not installed. "
                 "Install via: pip install ibapi"

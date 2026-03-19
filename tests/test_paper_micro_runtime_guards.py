@@ -27,7 +27,7 @@ def _reset_config_overrides():
 
 
 def test_execution_engine_clamps_micro_risk_profile_to_one_share(capsys) -> None:
-    set_config_overrides({"RUN_MODE": "PAPER", "RISK_PROFILE": "MICRO"})
+    set_config_overrides({"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True, "RISK_PROFILE": "MICRO"})
     engine = ExecutionEngine(
         provider=None,
         trade_registry=ActiveTradeRegistry(),
