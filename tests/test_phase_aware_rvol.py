@@ -21,7 +21,14 @@ def test_phase_aware_rvol_differs_by_phase() -> None:
 
 def test_session_classification_still_correct() -> None:
     assert normalize_session_label("REG") == "RTH_OPEN"
-    assert resolve_market_session_context(datetime(2024, 1, 2, 13, 45, tzinfo=timezone.utc)).phase == "PRE"
-    assert resolve_market_session_context(datetime(2024, 1, 2, 14, 45, tzinfo=timezone.utc)).phase == "RTH_OPEN"
-    assert resolve_market_session_context(datetime(2024, 1, 2, 17, 0, tzinfo=timezone.utc)).phase == "RTH_MID"
-    assert resolve_market_session_context(datetime(2024, 1, 2, 20, 0, tzinfo=timezone.utc)).phase == "RTH_LATE"
+    assert resolve_market_session_context(datetime(2024, 1, 4, 9, 42, tzinfo=timezone.utc)).phase == "PRE"
+    assert resolve_market_session_context(datetime(2024, 1, 4, 14, 31, tzinfo=timezone.utc)).phase == "RTH_OPEN"
+    assert resolve_market_session_context(datetime(2024, 1, 4, 21, 30, tzinfo=timezone.utc)).phase == "AH"
+    assert resolve_market_session_context(datetime(2024, 1, 4, 7, 0, tzinfo=timezone.utc)).phase == "CLOSED"
+    assert resolve_market_session_context(datetime(2024, 1, 6, 17, 0, tzinfo=timezone.utc)).phase == "WEEKEND"
+
+
+def test_closed_phase_uses_premarket_rvol_baseline() -> None:
+    payload = compute_phase_aware_rvol(session_label="CLOSED", session_volume=50_000, avg_volume_20d=1_000_000)
+    assert payload.expected_phase_volume == 50_000.0
+    assert payload.rvol_phase == 1.0
