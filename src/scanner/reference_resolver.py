@@ -690,14 +690,20 @@ class CanonicalReferenceResolver:
         phase_payload = compute_phase_aware_rvol(session_label=session_label, session_volume=current_volume, avg_volume_20d=avg_volume_20d)
         rvol_discovery = compute_scanner_rvol(session_label=session_label, session_volume=current_volume, avg_volume_20d=avg_volume_20d, persisted_rvol=None)
         reference_source = str(payload.get("reference_source") or "UNRESOLVED")
+        cache_hit = bool(payload.get("cache_trading_date"))
         reference_quality_tier = self.REFERENCE_QUALITY_BY_SOURCE.get(reference_source, "NONE")
         continuity_usable_reference = reference_source != "UNRESOLVED"
         reference_semantics = str(payload.get("reference_semantics") or "UNRESOLVED")
         reference_is_previous_completed_session = bool(payload.get("reference_is_previous_completed_session"))
         qualification_usable_reference = reference_source in {"IBKR_PREV_CLOSE", "HISTORICAL_LAST_RTH_CLOSE", "PERSISTENT_CACHE_PREV_CLOSE"}
+        if cache_hit and reference_source == "IBKR_PREV_CLOSE":
+            continuity_usable_reference = True
+            qualification_usable_reference = True
         if reference_source in {"PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK"}:
             qualification_usable_reference = True
         execution_usable_reference = reference_source in {"IBKR_PREV_CLOSE", "HISTORICAL_LAST_RTH_CLOSE", "PERSISTENT_CACHE_PREV_CLOSE", "PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK"}
+        if cache_hit and reference_source == "IBKR_PREV_CLOSE":
+            execution_usable_reference = True
         if reference_semantics != "PREVIOUS_COMPLETED_RTH_CLOSE" and normalize_session_label(session_label) in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}:
             qualification_usable_reference = False
             execution_usable_reference = False
