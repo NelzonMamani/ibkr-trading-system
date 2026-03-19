@@ -222,6 +222,48 @@ def _thresholds(*, require_catalyst: bool = False) -> GateThresholds:
         allow_unknown_float=True,
     )
 
+def test_pct_change_filters_current_trading_day_partial_bar() -> None:
+    provider = _TodayAndPriorBarProvider()
+    context = _build_symbol_context(provider, "AAPL", "RTH", {})
+
+    assert context is not None
+    assert context["prev_close"] == 100.0
+    assert context["pct_change"] == 10.0
+    assert context["reference_source"] == "HISTORICAL_LAST_RTH_CLOSE"
+    assert context["reference_trading_date"] != datetime.now(NY_TZ).date().isoformat()
+
+
+def test_reference_resolver_falls_back_when_only_current_day_bar_exists() -> None:
+    class _OnlyTodayBarProvider(_BaseProvider):
+        def __init__(self):
+            super().__init__(last=110.0, close=109.0, volume=180_000, adv20=100_000)
+
+        def get_daily_bars(self, identity, lookback_days: int, *, use_rth: bool = True, end_datetime: str = ""):
+            today, _ = _ny_dates()
+            return [_Bar(today, 110.0, 125_000)]
+
+        def get_previous_rth_close(self, identity) -> Optional[float]:
+            return 101.0
+
+    resolver = CanonicalReferenceResolver()
+    identity = CandidateIdentity.from_mapping({"symbol": "AAPL"})
+    result = resolver.resolve(
+        identity=identity,
+        provider=_OnlyTodayBarProvider(),
+        session_label="RTH",
+        current_volume=180_000,
+        intraday_avg_volume_20d=None,
+        current_last_price=110.0,
+        rth_open_price=108.0,
+        rth_close_price=None,
+        ibkr_change_pct=None,
+        persisted_pct_change=None,
+    )
+
+    assert result.reference_price == 101.0
+    assert result.reference_source == "PROVIDER_PREV_CLOSE_FALLBACK"
+    assert result.reference_semantics == "DEGRADED_FALLBACK"
+
 
 def test_pct_change_fallback_uses_prev_close() -> None:
     provider = _DailyBarProvider()
