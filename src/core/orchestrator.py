@@ -848,7 +848,7 @@ class CoreOrchestrator:
         payload = {
             "reason_code": reason_code,
             "message": message,
-            "stage": stage,
+            "halt_stage": stage,
             "details": details or {},
         }
         self._last_halt_reason = payload
