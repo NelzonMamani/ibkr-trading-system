@@ -883,18 +883,20 @@ class CoreOrchestrator:
         details: Optional[dict] = None,
         set_degraded: bool = False,
         shutdown: bool = False,
+        request_stop: bool = True,
     ) -> StopMode:
         if set_degraded:
             self._degraded = True
             self.system_state.set_degraded(reason=message)
-        self._emit_canonical_halt(
-            reason_code=reason_code,
-            message=message,
-            halt_stage=halt_stage,
-            details=details,
-        )
+        if not self._halt_emitted:
+            self._emit_canonical_halt(
+                reason_code=reason_code,
+                message=message,
+                halt_stage=halt_stage,
+                details=details,
+            )
         resolved_mode = self.stop_controller.stop_mode() or stop_mode
-        if not self.stop_controller.is_stop_requested():
+        if request_stop and not self.stop_controller.is_stop_requested():
             resolved_mode = self._request_stop(
                 stop_mode,
                 reason=stop_reason,
@@ -1214,17 +1216,23 @@ class CoreOrchestrator:
                     )
                     performed_shutdown = True
                     break
-                self.system_state.set_degraded(reason=str(exc))
-                self._pending_connectivity_halt = {
-                    "reason_code": "CONNECTIVITY_FAILURE",
-                    "message": str(exc),
-                    "halt_stage": "CONNECTIVITY",
-                    "details": {
+                self._handle_halt_worthy_failure(
+                    reason_code="CONNECTIVITY_FAILURE",
+                    message=str(exc),
+                    halt_stage="CONNECTIVITY",
+                    stop_mode=StopMode.GRACEFUL,
+                    stop_reason="Connectivity failure in READ_ONLY mode",
+                    stop_source="CoreOrchestrator",
+                    details={
                         "reason": "provider_connection_failure",
                         "provider": "IBKR",
                         "mode": self.config.RUN_MODE,
                     },
-                }
+                    set_degraded=True,
+                    shutdown=False,
+                    request_stop=False,
+                )
+                self._pending_connectivity_halt = None
                 print("STATE=DEGRADED")
                 print("reason=provider_connection_failure")
                 print("provider=IBKR")
