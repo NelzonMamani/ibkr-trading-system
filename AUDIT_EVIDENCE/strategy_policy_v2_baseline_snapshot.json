@@ -1,14 +1,14 @@
 {
   "baseline_version": "v2.0.0",
-  "generated_at_utc": "2026-03-13T23:30:18Z",
-  "matrix_generation_timestamp_utc": "2026-03-13T23:30:18Z",
-  "certification_report_timestamp_utc": "2026-03-13T23:30:18Z",
+  "generated_at_utc": "2026-03-19T09:35:18Z",
+  "matrix_generation_timestamp_utc": "2026-03-19T09:35:18Z",
+  "certification_report_timestamp_utc": "2026-03-19T09:35:18Z",
   "strategies": [
     {
       "strategy_id": "P01",
       "strategy_name": "ross_momentum",
       "policy_path": "src/strategies/ross_momentum/strategy_policy.py",
-      "sha256": "37ad97d56669ea992cf77e35a95b360894218060fbc0161c5fa3a2770fdf1744"
+      "sha256": "76bf8a9429f9ed634c673166818fd55dcc945162c67aa568dfe30fd5b8d86a7d"
     },
     {
       "strategy_id": "P02",
