@@ -230,7 +230,7 @@ class CanonicalReferenceResolver:
         ibkr_change_pct: Optional[float],
         persisted_pct_change: Optional[float],
     ) -> CanonicalReferenceResult:
-        trading_date = datetime.now(NY_TZ).date().isoformat()
+        trading_date = get_us_eastern_now().date().isoformat()
         cache_keys = self._cache_keys(identity, provider)
         for key in cache_keys:
             hit = self._cycle_cache.get(key)
@@ -635,23 +635,38 @@ class CanonicalReferenceResolver:
     ) -> tuple[Optional[float], Optional[str], bool]:
         normalized_session = normalize_session_label(session_label)
         current_date_value = _parse_trading_date(current_trading_date)
+        current_trading_day = get_us_eastern_now().date()
         eligible: list[tuple[HistoricalDailyBar, Optional[date]]] = []
         for bar in bars:
             if bar.close is None:
                 continue
             eligible.append((bar, _parse_trading_date(bar.trading_date)))
         if not eligible:
+            print(
+                f"[REFERENCE_FILTER] total_bars={len(bars)} filtered_bars=0 current_day={current_trading_day.isoformat()}"
+            )
             return None, None, False
-        for bar, bar_date in reversed(eligible):
-            if normalized_session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"} and current_date_value is not None and bar_date == current_date_value:
-                continue
-            if bar_date is None and normalized_session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}:
-                continue
-            is_previous = bool(bar_date is not None and current_date_value is not None and bar_date < current_date_value)
-            return bar.close, bar.trading_date, is_previous
-        bar, bar_date = eligible[-1]
-        is_previous = bool(bar_date is not None and current_date_value is not None and bar_date < current_date_value)
-        return bar.close, bar.trading_date, is_previous
+
+        valid_bars = [
+            (bar, bar_date)
+            for bar, bar_date in eligible
+            if bar_date is not None and bar_date < current_trading_day
+        ]
+        print(
+            f"[REFERENCE_FILTER] total_bars={len(eligible)} filtered_bars={len(valid_bars)} current_day={current_trading_day.isoformat()}"
+        )
+        if valid_bars:
+            last_completed_bar, _last_completed_bar_date = valid_bars[-1]
+            return last_completed_bar.close, last_completed_bar.trading_date, True
+
+        if normalized_session not in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}:
+            for bar, bar_date in reversed(eligible):
+                if bar_date is None:
+                    continue
+                is_previous = bool(bar_date is not None and current_date_value is not None and bar_date < current_date_value)
+                return bar.close, bar.trading_date, is_previous
+
+        return None, None, False
 
     def _average_volume(self, bars: list[HistoricalDailyBar], preferred_window: int = 20) -> tuple[Optional[int], Optional[int]]:
         volumes = [bar.volume for bar in bars if bar.volume is not None]
@@ -755,6 +770,9 @@ def resolve_reference_bundle(*, session_label: str | None, reference_price: Opti
         execution_ready=execution_ready,
         prep_only=prep_only,
     )
+
+def get_us_eastern_now() -> datetime:
+    return datetime.now(NY_TZ)
 
 
 def _parse_trading_date(value: Any) -> Optional[date]:
