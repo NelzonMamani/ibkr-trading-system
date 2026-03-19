@@ -434,19 +434,28 @@ def test_history_attempted_without_bars_does_not_emit_false_history_or_quote_fla
     assert "MISSING_CLOSE_TICK" not in context["data_quality_flags"]
 
 
+def test_parse_symbols() -> None:
+    from verification_scripts.verify_live_scanner_reference_pipeline import parse_symbols
+
+    assert parse_symbols("TSLA,AAPL") == ["TSLA", "AAPL"]
+    assert parse_symbols(" TSLA , AAPL ") == ["TSLA", "AAPL"]
+    assert parse_symbols("TSLA") == ["TSLA"]
+
+
 def test_verification_script_runs_against_stubbed_live_like_provider(monkeypatch, capsys) -> None:
     from verification_scripts import verify_live_scanner_reference_pipeline as verifier
 
-    monkeypatch.setattr(sys, "argv", ["verify_live_scanner_reference_pipeline.py", "--provider", "stub", "--symbols", "AIM", "ARTL"])
+    monkeypatch.setattr(sys, "argv", ["verify_live_scanner_reference_pipeline.py", "--provider", "stub", "--symbols", "AIM,ARTL"])
     verifier.main()
 
     out = capsys.readouterr().out
-    assert "A) scanner metadata / identity" in out
+    assert "[VERIFY][AIM] A) scanner metadata / identity" in out
+    assert "[VERIFY][ARTL] A) scanner metadata / identity" in out
     assert "B) direct live quote" in out
     assert "D) direct market_data_client history" in out
     assert "E) resolver" in out
     assert "F) final context" in out
-    assert "RESULT: quote_ok=yes" in out
+    assert out.count("RESULT: quote_ok=yes") == 2
 
 
 def test_rth_synthetic_pct_reference_is_explicitly_degraded_and_not_execution_usable(tmp_path: Path) -> None:
