@@ -230,7 +230,7 @@ def test_pct_change_fallback_uses_prev_close() -> None:
     assert context is not None
     assert context["prev_close"] == 100.0
     assert context["pct_change"] == 10.0
-    assert context["reference_source"] == "IBKR_DAILY_BARS"
+    assert context["reference_source"] == "HISTORICAL_LAST_RTH_CLOSE"
     assert context["reference_quality_tier"] == "PRIMARY"
     assert context["pct_change_qualification_usable"] is True
 
@@ -260,9 +260,16 @@ def test_cached_close_fallback_is_degraded_but_qualification_usable(tmp_path: Pa
         ibkr_change_pct=None,
         persisted_pct_change=None,
     )
+    class _BrokenHistoryProvider(_BaseProvider):
+        def get_daily_bars(self, identity, lookback_days: int):
+            return []
+
+        def get_prev_close(self, symbol: str) -> Optional[float]:
+            return None
+
     second = CanonicalReferenceResolver(cache=cache).resolve(
         identity=identity,
-        provider=provider,
+        provider=_BrokenHistoryProvider(),
         session_label="PRE",
         current_volume=150_000,
         intraday_avg_volume_20d=None,
@@ -273,8 +280,8 @@ def test_cached_close_fallback_is_degraded_but_qualification_usable(tmp_path: Pa
         persisted_pct_change=None,
     )
 
-    assert initial.reference_source == "IBKR_DAILY_BARS"
-    assert second.reference_source == "CACHED_CLOSE_FALLBACK"
+    assert initial.reference_source == "HISTORICAL_LAST_RTH_CLOSE"
+    assert second.reference_source == "PERSISTENT_CACHE_PREV_CLOSE"
     assert second.reference_quality_tier == "SECONDARY"
     assert second.reference_semantics == "PREVIOUS_COMPLETED_RTH_CLOSE"
     assert second.reference_is_previous_completed_session is True
@@ -333,7 +340,7 @@ def test_retry_history_path_allows_smart_primary_exchange_tolerance() -> None:
     assert provider.calls[0] == (True, "")
     assert provider.calls[1][0] is False
     assert "09:29:59 US/Eastern" in provider.calls[1][1]
-    assert context["reference_source"] == "IBKR_DAILY_BARS"
+    assert context["reference_source"] == "HISTORICAL_LAST_RTH_CLOSE"
     assert context["reference_resolved"] is True
     assert context["reference_price"] == 100.0
     assert context["pct_change_resolved"] == 10.0
@@ -543,7 +550,7 @@ def test_rth_mid_zero_bars_retries_with_use_rth_false_and_recovers_reference() -
     context = _build_symbol_context(provider, "AAPL", "RTH_MID", {})
 
     assert context is not None
-    assert context["reference_source"] == "IBKR_DAILY_BARS"
+    assert context["reference_source"] == "HISTORICAL_LAST_RTH_CLOSE"
     assert context["pct_change"] == 10.0
     assert provider.calls[0] == (True, "")
     assert provider.calls[1][0] is False
@@ -565,7 +572,7 @@ def test_rth_history_qualification_does_not_fail_when_primary_exchange_is_smart(
     context = _build_symbol_context(_QualifiedSmartProvider(), "AAPL", "RTH_MID", {})
 
     assert context is not None
-    assert context["reference_source"] == "IBKR_DAILY_BARS"
+    assert context["reference_source"] == "HISTORICAL_LAST_RTH_CLOSE"
     assert context["pct_change_resolved"] == 10.0
 
 
@@ -575,7 +582,7 @@ def test_rth_mid_excludes_current_day_daily_bar_for_previous_close() -> None:
 
     today, prior = _ny_dates()
     assert context is not None
-    assert context["reference_source"] == "IBKR_DAILY_BARS"
+    assert context["reference_source"] == "HISTORICAL_LAST_RTH_CLOSE"
     assert context["reference_price"] == 100.0
     assert context["reference_trading_date"] == prior
     assert context["reference_semantics"] == "PREVIOUS_COMPLETED_RTH_CLOSE"
@@ -592,7 +599,7 @@ def test_cached_reference_equal_to_current_last_in_rth_is_degraded_and_not_quali
         "symbol": "AAPL",
         "reference_price": 110.0,
         "reference_label": "LAST_RTH_CLOSE",
-        "reference_source": "IBKR_DAILY_BARS",
+        "reference_source": "HISTORICAL_LAST_RTH_CLOSE",
         "reference_resolved": True,
         "reference_semantics": "CURRENT_SESSION_CLOSE",
         "reference_trading_date": today,
@@ -601,7 +608,7 @@ def test_cached_reference_equal_to_current_last_in_rth_is_degraded_and_not_quali
         "cache_trading_date": today,
         "avg_volume_20d": 100000,
         "average_daily_volume_window_days": 20,
-        "adv20_source": "IBKR_DAILY_BARS",
+        "adv20_source": "HISTORICAL_LAST_RTH_CLOSE",
         "adv20_resolved": True,
     })
     identity = CandidateIdentity.from_mapping({
@@ -614,9 +621,16 @@ def test_cached_reference_equal_to_current_last_in_rth_is_degraded_and_not_quali
         "localSymbol": "AAPL",
     })
 
+    class _CacheOnlyProvider(_BaseProvider):
+        def get_daily_bars(self, identity, lookback_days: int):
+            return []
+
+        def get_prev_close(self, symbol: str) -> Optional[float]:
+            return None
+
     result = CanonicalReferenceResolver(cache=cache).resolve(
         identity=identity,
-        provider=_DailyBarProvider(last=110.0),
+        provider=_CacheOnlyProvider(last=110.0),
         session_label="RTH_MID",
         current_volume=150_000,
         intraday_avg_volume_20d=None,
@@ -627,7 +641,7 @@ def test_cached_reference_equal_to_current_last_in_rth_is_degraded_and_not_quali
         persisted_pct_change=None,
     )
 
-    assert result.reference_source == "CACHED_CLOSE_FALLBACK"
+    assert result.reference_source == "PERSISTENT_CACHE_PREV_CLOSE"
     assert result.reference_semantics == "CURRENT_SESSION_CLOSE"
     assert result.reference_is_previous_completed_session is False
     assert result.reference_degraded is True
@@ -663,3 +677,51 @@ def test_current_day_partial_bar_is_not_selected_as_last_rth_close() -> None:
     assert result.reference_semantics == "PREVIOUS_COMPLETED_RTH_CLOSE"
     assert result.reference_is_previous_completed_session is True
     assert result.reference_trading_date != _ny_dates()[0]
+
+
+def test_closed_session_pct_change_uses_last_rth_close_reference() -> None:
+    context = _build_symbol_context(_DailyBarProvider(), "AAPL", "CLOSED", {})
+    assert context is not None
+    assert context["reference_source"] == "HISTORICAL_LAST_RTH_CLOSE"
+    assert context["reference_price"] == 100.0
+    assert context["pct_change"] == 10.0
+
+
+def test_closed_session_rvol_uses_explicit_prep_fallback() -> None:
+    context = _build_symbol_context(_DailyBarProvider(volume=50_000, adv20=1_000_000), "AAPL", "CLOSED", {})
+    assert context is not None
+    assert context["rvol_method"] == "PREP_PHASE_FALLBACK"
+    assert context["expected_phase_volume"] == 50_000.0
+    assert context["rvol"] == 1.0
+
+
+def test_reference_missing_is_explicit_hard_fail_when_no_fallback_exists() -> None:
+    identity = CandidateIdentity.from_mapping({
+        "symbol": "AAPL",
+        "conId": 101,
+        "secType": "STK",
+        "exchange": "SMART",
+        "primaryExchange": "NASDAQ",
+        "currency": "USD",
+    })
+    result = CanonicalReferenceResolver(cache=PersistentReferenceCache(Path('/tmp/reference_missing_hard_fail.json'))).resolve(
+        identity=identity,
+        provider=_WeakSnapshotProvider(last=110.0, close=None, volume=180_000, adv20=None),
+        session_label="RTH_OPEN",
+        current_volume=180_000,
+        intraday_avg_volume_20d=None,
+        current_last_price=110.0,
+        rth_open_price=108.0,
+        rth_close_price=None,
+        ibkr_change_pct=None,
+        persisted_pct_change=None,
+    )
+    assert result.reference_source == "REFERENCE_MISSING_HARD_FAIL"
+    assert result.reference_failure_reason == "REFERENCE_MISSING_HARD_FAIL"
+
+
+def test_pre_symbol_survives_pct_gate_with_historical_reference() -> None:
+    context = _build_symbol_context(_DailyBarProvider(), "AAPL", "PRE", {})
+    assert context is not None
+    assert context["pct_change"] == 10.0
+    assert _evaluate_gates(context, _thresholds()) is None

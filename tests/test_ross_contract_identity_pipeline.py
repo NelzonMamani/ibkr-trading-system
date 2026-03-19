@@ -324,6 +324,12 @@ def test_reference_resolver_reads_persistent_cache_on_subsequent_attempts(tmp_pa
         def get_daily_bars(self, identity, lookback_days: int):
             return []
 
+        def get_prev_close(self, symbol: str):
+            return None
+
+        def get_previous_rth_close(self, identity):
+            return None
+
     second = CanonicalReferenceResolver(cache).resolve(
         identity=identity,
         provider=BrokenProvider(),
@@ -337,7 +343,7 @@ def test_reference_resolver_reads_persistent_cache_on_subsequent_attempts(tmp_pa
         persisted_pct_change=None,
     )
     assert second.reference_price == 10.0
-    assert second.reference_source == 'CACHED_CLOSE_FALLBACK'
+    assert second.reference_source == 'PERSISTENT_CACHE_PREV_CLOSE'
 
 
 def test_reference_resolver_exposes_explicit_failure_reasons_when_history_unavailable(tmp_path):

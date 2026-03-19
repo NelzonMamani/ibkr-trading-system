@@ -109,7 +109,7 @@ _SESSION_LABEL_MAP = {
     "PRE": "PRE",
     "OVN": "OVN",
     "OVERNIGHT": "OVN",
-    "CLOSED": "WEEKEND",
+    "CLOSED": "CLOSED",
     "RTH_OPEN": "RTH_OPEN",
     "RTH_MID": "RTH_MID",
     "RTH_LATE": "RTH_LATE",
@@ -123,7 +123,7 @@ _CANONICAL_SESSION_MAP = {
     "RTH_LATE": "RTH_LATE",
     "AH": "AH",
     "OVN": "CLOSED",
-    "WEEKEND": "CLOSED",
+    "WEEKEND": "WEEKEND",
     "CLOSED": "CLOSED",
 }
 
@@ -152,11 +152,11 @@ def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSess
     holidays = set(get_config("MARKET_HOLIDAYS"))
     half_days = set(get_config("MARKET_HALF_DAYS"))
     if ny_time.date() in holidays:
-        return MarketSessionContext(coarse="WEEKEND", phase="WEEKEND", market_time=market_time)
+        return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
     if ny_time.date() in half_days:
         early_close = get_config("MARKET_EARLY_CLOSE_TIME")
         if ny_time.time() >= early_close:
-            return MarketSessionContext(coarse="WEEKEND", phase="WEEKEND", market_time=market_time)
+            return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
 
     ny_clock = ny_time.time()
     if time(4, 0) <= ny_clock < time(9, 30):
@@ -169,7 +169,7 @@ def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSess
         return MarketSessionContext(coarse="RTH_LATE", phase="RTH_LATE", market_time=market_time)
     if time(16, 0) <= ny_clock < time(20, 0):
         return MarketSessionContext(coarse="AH", phase="AH", market_time=market_time)
-    return MarketSessionContext(coarse="OVN", phase="OVN", market_time=market_time)
+    return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
 
 
 def canonical_session_label(label: str) -> str:
@@ -274,9 +274,18 @@ def compute_phase_aware_rvol(
 ) -> PhaseAwareRelativeVolume:
     normalized_session = normalize_session_label(session_label)
     ratio = PHASE_VOLUME_RATIOS.get(normalized_session)
+    ratio_source = normalized_session
+    if ratio is None and normalized_session == "CLOSED":
+        ratio = PHASE_VOLUME_RATIOS.get("PRE")
+        ratio_source = "PREP_PRE_BASELINE"
     volume = _safe_float(session_volume)
     avg_volume = _safe_float(avg_volume_20d)
     if ratio is None or volume is None or avg_volume is None:
+        print(
+            "[RVOL][PHASE_FALLBACK] "
+            f"session={normalized_session} ratio_source={ratio_source} avg_volume_20d={avg_volume} session_volume={volume} "
+            "reason=INSUFFICIENT_INPUT"
+        )
         return PhaseAwareRelativeVolume(
             session_label=normalized_session,
             phase_ratio=ratio,
@@ -285,6 +294,11 @@ def compute_phase_aware_rvol(
             rvol_phase=None,
         )
     expected_phase_volume = avg_volume * ratio
+    if ratio_source != normalized_session:
+        print(
+            "[RVOL][PHASE_FALLBACK] "
+            f"session={normalized_session} ratio_source={ratio_source} avg_volume_20d={avg_volume} expected_phase_volume={round(expected_phase_volume, 2)}"
+        )
     denominator = max(expected_phase_volume, float(floor_value))
     rvol_phase = round(volume / denominator, 2)
     return PhaseAwareRelativeVolume(
@@ -334,12 +348,11 @@ def compute_session_relative_volume_with_provenance(
             expected_volume=0.0,
         )
 
-    if normalized_session in {"OVN"}:
+    if normalized_session in {"OVN", "CLOSED"}:
         if persisted_rvol_value is not None:
             print(
                 "[RVOL] "
-                f"session={normalized_session} baseline=LAST_SESSION_REFERENCE "
-                f"method=PERSISTED_RVOL value={persisted_rvol_value}"
+                f"session={normalized_session} baseline=LAST_SESSION_REFERENCE method=PERSISTED_RVOL value={persisted_rvol_value}"
             )
             return SessionRelativeVolume(
                 session_label=normalized_session,
@@ -347,10 +360,27 @@ def compute_session_relative_volume_with_provenance(
                 method="PERSISTED_RVOL",
                 value=persisted_rvol_value,
             )
+        if avg_volume_20d not in {None, 0} and session_volume is not None:
+            prep_payload = compute_phase_aware_rvol(
+                session_label="CLOSED",
+                session_volume=session_volume,
+                avg_volume_20d=avg_volume_20d,
+            )
+            if prep_payload.rvol_phase is not None:
+                print(
+                    "[RVOL] "
+                    f"session={normalized_session} baseline=PREP_PREMARKET_EXPECTED_VOLUME method=PREP_PHASE_FALLBACK value={prep_payload.rvol_phase} expected_volume={prep_payload.expected_phase_volume}"
+                )
+                return SessionRelativeVolume(
+                    session_label=normalized_session,
+                    baseline="PREP_PREMARKET_EXPECTED_VOLUME",
+                    method="PREP_PHASE_FALLBACK",
+                    value=prep_payload.rvol_phase,
+                    expected_volume=prep_payload.expected_phase_volume,
+                )
         print(
             "[RVOL] "
-            f"session={normalized_session} baseline=LAST_SESSION_REFERENCE "
-            "method=PERSISTED_RVOL value=None"
+            f"session={normalized_session} baseline=LAST_SESSION_REFERENCE method=PERSISTED_RVOL_UNAVAILABLE value=None"
         )
         return SessionRelativeVolume(
             session_label=normalized_session,
@@ -436,7 +466,7 @@ def compute_session_aligned_pct_change(
 
     open_relative_pct_change = _pct_change(current_last, rth_open)
 
-    if normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN"}:
+    if normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN", "CLOSED"}:
         reference_price = last_rth_close
         reference_label = "LAST_RTH_CLOSE"
     elif normalized_session in {"WEEKEND"}:
@@ -444,13 +474,13 @@ def compute_session_aligned_pct_change(
         reference_label = "LAST_SESSION_REFERENCE"
 
     calc_pct = _pct_change(current_last, reference_price)
-    if normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN"} and calc_pct is not None:
+    if normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN", "CLOSED"} and calc_pct is not None:
         final_pct = calc_pct
         pct_source = "CALC(SESSION_REF)"
     elif normalized_session in {"WEEKEND"} and persisted_pct is not None:
         final_pct = persisted_pct
         pct_source = "PERSISTED_LAST_SESSION"
-    elif normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN"} and ibkr_pct is not None:
+    elif normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN", "CLOSED"} and ibkr_pct is not None:
         # Fallback only when in-session reference values are unavailable.
         final_pct = ibkr_pct
         pct_source = "IBKR_FALLBACK"

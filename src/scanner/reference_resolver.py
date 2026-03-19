@@ -107,12 +107,14 @@ NY_TZ = ZoneInfo("America/New_York")
 
 class CanonicalReferenceResolver:
     REFERENCE_QUALITY_BY_SOURCE = {
-        "IBKR_DAILY_BARS": "PRIMARY",
-        "CACHED_CLOSE_FALLBACK": "SECONDARY",
+        "IBKR_PREV_CLOSE": "PRIMARY",
+        "HISTORICAL_LAST_RTH_CLOSE": "PRIMARY",
+        "PERSISTENT_CACHE_PREV_CLOSE": "SECONDARY",
         "PROVIDER_PREV_CLOSE_FALLBACK": "SECONDARY",
         "QUOTE_CLOSE_FALLBACK": "SECONDARY",
         "SCANNER_PCT_SYNTHETIC_FALLBACK": "DEGRADED_SYNTHETIC",
         "SNAPSHOT_LAST_PRICE_FALLBACK": "WEAK",
+        "REFERENCE_MISSING_HARD_FAIL": "NONE",
         "UNRESOLVED": "NONE",
     }
 
@@ -237,6 +239,8 @@ class CanonicalReferenceResolver:
                 print(f"[REFERENCE][CACHE_HIT] symbol={identity.symbol} identity_key={identity.key} source=cycle lookup_key={key}")
                 return hit
         print(f"[REFERENCE][CACHE_MISS] symbol={identity.symbol} identity_key={identity.key} source=cycle")
+        persistent_payload = None
+        persistent_lookup_key = None
         if identity.con_id not in {None, 0}:
             for key in cache_keys:
                 payload = self.cache.get(key, trading_date=trading_date)
@@ -245,33 +249,14 @@ class CanonicalReferenceResolver:
                     self._verify_cache_hit(identity=identity, lookup_key=key, result_identity_key=cached_identity_key, source="persistent")
                     payload = dict(payload)
                     if _to_float(payload.get("reference_price")) is not None:
-                        payload["reference_source"] = "CACHED_CLOSE_FALLBACK"
-                    result = self._result_from_cache(identity, payload, session_label, current_volume, current_last_price, rth_open_price, rth_close_price, ibkr_change_pct, persisted_pct_change)
-                    for alias in cache_keys:
-                        self._cycle_cache[alias] = result
-                        self._last_resolution_trace[alias] = {
-                            "identity_key": identity.key,
-                            "symbol": identity.symbol,
-                            "cache_source": "persistent",
-                            "qualified_identity": {
-                                "conId": result.qualified_identity.con_id,
-                                "secType": result.qualified_identity.sec_type,
-                                "exchange": result.qualified_identity.exchange,
-                                "primaryExchange": result.qualified_identity.primary_exchange,
-                                "tradingClass": result.qualified_identity.trading_class,
-                                "localSymbol": result.qualified_identity.local_symbol,
-                                "currency": result.qualified_identity.currency,
-                            },
-                            "history_attempts": [],
-                            "selected_reference_source": result.reference_source,
-                            "selected_reference_price": result.reference_price,
-                            "selected_adv20_source": result.adv20_source,
-                            "selected_adv20": result.avg_volume_20d,
-                        }
-                    print(f"[REFERENCE][CACHE_HIT] symbol={identity.symbol} identity_key={identity.key} source=persistent lookup_key={key}")
-                    print(f"[RVOL][CACHE_HIT] symbol={identity.symbol} identity_key={identity.key} source=persistent lookup_key={key}")
-                    return result
-            print(f"[REFERENCE][CACHE_MISS] symbol={identity.symbol} identity_key={identity.key} source=persistent")
+                        payload["reference_source"] = "PERSISTENT_CACHE_PREV_CLOSE"
+                    persistent_payload = payload
+                    persistent_lookup_key = key
+                    print(f"[REFERENCE][CACHE_CANDIDATE] symbol={identity.symbol} identity_key={identity.key} source=persistent lookup_key={key}")
+                    print(f"[RVOL][CACHE_CANDIDATE] symbol={identity.symbol} identity_key={identity.key} source=persistent lookup_key={key}")
+                    break
+            if persistent_payload is None:
+                print(f"[REFERENCE][CACHE_MISS] symbol={identity.symbol} identity_key={identity.key} source=persistent")
         else:
             print(f"[REFERENCE][CACHE_MISS] symbol={identity.symbol} identity_key={identity.key} source=persistent_skipped_no_conid")
 
@@ -300,10 +285,17 @@ class CanonicalReferenceResolver:
             session_label=session_label,
         )
         snapshot_reference = None
-        reference_source = "UNRESOLVED"
+        reference_source = "REFERENCE_MISSING_HARD_FAIL"
         reference_semantics = "UNRESOLVED"
-        if prev_close is not None:
-            reference_source = "IBKR_DAILY_BARS"
+        provider_snapshot_prev_close = self._provider_snapshot_prev_close(provider, identity)
+        if provider_snapshot_prev_close is not None:
+            prev_close = provider_snapshot_prev_close
+            reference_source = "IBKR_PREV_CLOSE" if getattr(provider, "source_name", "") == "IBKR" else "PROVIDER_PREV_CLOSE_FALLBACK"
+            reference_semantics = "PREVIOUS_COMPLETED_RTH_CLOSE"
+            reference_trading_date = reference_trading_date or trading_date
+            reference_is_previous_completed_session = True
+        elif prev_close is not None:
+            reference_source = "HISTORICAL_LAST_RTH_CLOSE"
             reference_semantics = "PREVIOUS_COMPLETED_RTH_CLOSE" if reference_is_previous_completed_session else "CURRENT_SESSION_CLOSE"
         elif (provider_prev_close := self._provider_prev_close_fallback(provider, history_identity)) is not None:
             prev_close = provider_prev_close
@@ -313,6 +305,32 @@ class CanonicalReferenceResolver:
             prev_close = quote_close
             reference_source = "QUOTE_CLOSE_FALLBACK"
             reference_semantics = "DEGRADED_FALLBACK"
+        elif persistent_payload is not None and _to_float(persistent_payload.get("reference_price")) is not None:
+            result = self._result_from_cache(identity, persistent_payload, session_label, current_volume, current_last_price, rth_open_price, rth_close_price, ibkr_change_pct, persisted_pct_change)
+            for alias in cache_keys:
+                self._cycle_cache[alias] = result
+                self._last_resolution_trace[alias] = {
+                    "identity_key": identity.key,
+                    "symbol": identity.symbol,
+                    "cache_source": "persistent",
+                    "qualified_identity": {
+                        "conId": result.qualified_identity.con_id,
+                        "secType": result.qualified_identity.sec_type,
+                        "exchange": result.qualified_identity.exchange,
+                        "primaryExchange": result.qualified_identity.primary_exchange,
+                        "tradingClass": result.qualified_identity.trading_class,
+                        "localSymbol": result.qualified_identity.local_symbol,
+                        "currency": result.qualified_identity.currency,
+                    },
+                    "history_attempts": history_trace.get("history_attempts", []),
+                    "selected_reference_source": result.reference_source,
+                    "selected_reference_price": result.reference_price,
+                    "selected_adv20_source": result.adv20_source,
+                    "selected_adv20": result.avg_volume_20d,
+                }
+            print(f"[REFERENCE][CACHE_HIT] symbol={identity.symbol} identity_key={identity.key} source=persistent lookup_key={persistent_lookup_key}")
+            print(f"[RVOL][CACHE_HIT] symbol={identity.symbol} identity_key={identity.key} source=persistent lookup_key={persistent_lookup_key}")
+            return result
         elif normalize_session_label(session_label) in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"} and (
             synthetic_reference := self._scanner_pct_synthetic_fallback(current_last_price=current_last_price, ibkr_change_pct=ibkr_change_pct)
         ) is not None:
@@ -326,13 +344,15 @@ class CanonicalReferenceResolver:
         avg_volume, window_days = self._average_volume(bars)
         provider_avg_volume, provider_window = self._provider_adv20_fallback(provider, history_identity)
         reference_failure_reason = None
-        if reference_source != "IBKR_DAILY_BARS":
+        if reference_source == "REFERENCE_MISSING_HARD_FAIL":
+            reference_failure_reason = "REFERENCE_MISSING_HARD_FAIL" if qualified_ok else "QUALIFY_FAILED"
+        elif reference_source not in {"IBKR_PREV_CLOSE", "HISTORICAL_LAST_RTH_CLOSE"}:
             reference_failure_reason = "HISTORY_UNAVAILABLE" if qualified_ok else "QUALIFY_FAILED"
         adv_source = "INTRADAY_STATS" if intraday_avg_volume_20d is not None else ("IBKR_DAILY_BARS" if avg_volume is not None else ("PROVIDER_ADV20_FALLBACK" if provider_avg_volume is not None else "UNAVAILABLE"))
         resolved_avg_volume = intraday_avg_volume_20d if intraday_avg_volume_20d is not None else (avg_volume if avg_volume is not None else provider_avg_volume)
         resolved_window_days = 20 if intraday_avg_volume_20d is not None else (window_days if window_days is not None else provider_window)
         rvol_failure_reason = None if resolved_avg_volume is not None else "ADV20_UNAVAILABLE"
-        if reference_source == "CACHED_CLOSE_FALLBACK":
+        if reference_source == "PERSISTENT_CACHE_PREV_CLOSE":
             reference_semantics = str(reference_semantics or payload.get("reference_semantics") or "DEGRADED_FALLBACK")
         if current_last_price is not None and prev_close is not None and normalize_session_label(session_label) in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"} and abs(float(prev_close) - float(current_last_price)) < 1e-9:
             if reference_semantics != "PREVIOUS_COMPLETED_RTH_CLOSE":
@@ -384,7 +404,7 @@ class CanonicalReferenceResolver:
             "history_lookup_key_used": history_identity.key if bars else None,
             "reference_failure_reason": reference_failure_reason,
             "rvol_failure_reason": rvol_failure_reason,
-            "reference_degraded": reference_source in {"CACHED_CLOSE_FALLBACK", "PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK", "SCANNER_PCT_SYNTHETIC_FALLBACK", "SNAPSHOT_LAST_PRICE_FALLBACK"} or reference_semantics == "DEGRADED_FALLBACK",
+            "reference_degraded": reference_source in {"PERSISTENT_CACHE_PREV_CLOSE", "PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK", "SCANNER_PCT_SYNTHETIC_FALLBACK", "SNAPSHOT_LAST_PRICE_FALLBACK"} or reference_semantics == "DEGRADED_FALLBACK",
             "reference_synthetic": reference_source == "SCANNER_PCT_SYNTHETIC_FALLBACK",
         }
         history_trace.update(
@@ -536,6 +556,22 @@ class CanonicalReferenceResolver:
             )
         return synthetic
 
+
+    def _provider_snapshot_prev_close(self, provider: Any, identity: CandidateIdentity) -> Optional[float]:
+        if getattr(provider, "source_name", "") != "IBKR":
+            return None
+        get_quote = getattr(provider, "get_quote", None)
+        if not callable(get_quote):
+            return None
+        try:
+            quote = get_quote(identity.symbol)
+        except Exception:
+            return None
+        value = _to_float(getattr(quote, "close", None))
+        if value is not None:
+            print(f"[REFERENCE][SNAPSHOT_PREV_CLOSE] symbol={identity.symbol} identity_key={identity.key} value={value}")
+        return value
+
     def _provider_prev_close_fallback(self, provider: Any, identity: CandidateIdentity) -> Optional[float]:
         prev_close = getattr(provider, "get_previous_rth_close", None)
         if callable(prev_close):
@@ -643,10 +679,10 @@ class CanonicalReferenceResolver:
         continuity_usable_reference = reference_source != "UNRESOLVED"
         reference_semantics = str(payload.get("reference_semantics") or "UNRESOLVED")
         reference_is_previous_completed_session = bool(payload.get("reference_is_previous_completed_session"))
-        qualification_usable_reference = reference_source in {"IBKR_DAILY_BARS", "CACHED_CLOSE_FALLBACK"}
+        qualification_usable_reference = reference_source in {"IBKR_PREV_CLOSE", "HISTORICAL_LAST_RTH_CLOSE", "PERSISTENT_CACHE_PREV_CLOSE"}
         if reference_source in {"PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK"}:
             qualification_usable_reference = True
-        execution_usable_reference = reference_source in {"IBKR_DAILY_BARS", "CACHED_CLOSE_FALLBACK", "PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK"}
+        execution_usable_reference = reference_source in {"IBKR_PREV_CLOSE", "HISTORICAL_LAST_RTH_CLOSE", "PERSISTENT_CACHE_PREV_CLOSE", "PROVIDER_PREV_CLOSE_FALLBACK", "QUOTE_CLOSE_FALLBACK"}
         if reference_semantics != "PREVIOUS_COMPLETED_RTH_CLOSE" and normalize_session_label(session_label) in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}:
             qualification_usable_reference = False
             execution_usable_reference = False
