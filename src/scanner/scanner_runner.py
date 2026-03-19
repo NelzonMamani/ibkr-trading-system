@@ -1237,6 +1237,10 @@ def _evaluate_watchlist_gates(
             _apply_degraded_contract(context)
             print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=PASS reason=PRE_CONTINUITY_ALLOWED")
             return None
+        if session in {"WEEKEND", "CLOSED"}:
+            context.setdefault("eligibility_reason_codes", []).append("PCT_CHANGE_FALLBACK_ALLOWED")
+            print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=PASS reason=CLOSED_WEEKEND_FALLBACK_ALLOWED")
+            return None
         print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=FAIL reason=MISSING_PCT_CHANGE")
         return "DROP_MISSING_PCT_CHANGE"
     pct_change_min = _resolve_pct_change_min_for_session(str(context.get("session") or ""), thresholds)

@@ -466,27 +466,23 @@ def compute_session_aligned_pct_change(
 
     open_relative_pct_change = _pct_change(current_last, rth_open)
 
-    if normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN", "CLOSED"}:
+    if normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN", "CLOSED", "WEEKEND"}:
         reference_price = last_rth_close
         reference_label = "LAST_RTH_CLOSE"
-    elif normalized_session in {"WEEKEND"}:
-        reference_price = None
-        reference_label = "LAST_SESSION_REFERENCE"
 
     calc_pct = _pct_change(current_last, reference_price)
-    if normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN", "CLOSED"} and calc_pct is not None:
+    if calc_pct is not None:
         final_pct = calc_pct
         pct_source = "CALC(SESSION_REF)"
-    elif normalized_session in {"WEEKEND"} and persisted_pct is not None:
+        if normalized_session in {"WEEKEND", "CLOSED"}:
+            print(f"[PCT][FALLBACK_USED] session={normalized_session} source=IBKR_PREV_CLOSE")
+    elif normalized_session == "WEEKEND" and persisted_pct is not None:
         final_pct = persisted_pct
         pct_source = "PERSISTED_LAST_SESSION"
-    elif normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN", "CLOSED"} and ibkr_pct is not None:
-        # Fallback only when in-session reference values are unavailable.
+    elif ibkr_pct is not None:
+        # Fallback only when session-aligned reference values are unavailable.
         final_pct = ibkr_pct
         pct_source = "IBKR_FALLBACK"
-    elif ibkr_pct is not None:
-        final_pct = ibkr_pct
-        pct_source = "IBKR_FALLBACK_CLOSED"
     else:
         final_pct = None
         pct_source = "N/A"

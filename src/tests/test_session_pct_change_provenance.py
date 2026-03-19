@@ -29,7 +29,7 @@ def test_pct_change_pre_and_rth_use_last_rth_close() -> None:
     assert rth.open_relative_pct_change == 4.76
 
 
-def test_pct_change_weekend_uses_persisted_value() -> None:
+def test_pct_change_weekend_uses_last_rth_close_fallback() -> None:
     closed = compute_session_aligned_pct_change(
         session_label="WEEKEND",
         cur_last=12.0,
@@ -40,9 +40,26 @@ def test_pct_change_weekend_uses_persisted_value() -> None:
         persisted_pct_change=7.25,
     )
 
-    assert closed.reference_label == "LAST_SESSION_REFERENCE"
-    assert closed.pct_source == "PERSISTED_LAST_SESSION"
-    assert closed.final_pct == 7.25
+    assert closed.reference_label == "LAST_RTH_CLOSE"
+    assert closed.reference_price == 10.0
+    assert closed.pct_source == "CALC(SESSION_REF)"
+    assert closed.final_pct == 20.0
+
+
+def test_pct_change_closed_uses_last_rth_close_fallback() -> None:
+    closed = compute_session_aligned_pct_change(
+        session_label="CLOSED",
+        cur_last=12.0,
+        ref_close_rth=10.0,
+        rth_open_price=10.5,
+        rth_close_price=10.0,
+        ibkr_change_pct=None,
+    )
+
+    assert closed.reference_label == "LAST_RTH_CLOSE"
+    assert closed.reference_price == 10.0
+    assert closed.pct_source == "CALC(SESSION_REF)"
+    assert closed.final_pct == 20.0
 
 
 def test_rvol_provenance_pre_session_baseline() -> None:
