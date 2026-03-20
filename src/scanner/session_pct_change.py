@@ -113,7 +113,8 @@ _SESSION_LABEL_MAP = {
     "RTH_OPEN": "RTH_OPEN",
     "RTH_MID": "RTH_MID",
     "RTH_LATE": "RTH_LATE",
-    "WEEKEND": "WEEKEND",
+    "WEEKEND": "CLOSED",
+    "MIDDAY": "RTH_MID",
 }
 
 _CANONICAL_SESSION_MAP = {
@@ -123,14 +124,15 @@ _CANONICAL_SESSION_MAP = {
     "RTH_LATE": "RTH_LATE",
     "AH": "AH",
     "OVN": "CLOSED",
-    "WEEKEND": "WEEKEND",
+    "WEEKEND": "CLOSED",
+    "MIDDAY": "RTH_MID",
     "CLOSED": "CLOSED",
 }
 
 
 def normalize_session_label(label: str) -> str:
     if not label:
-        return "NA"
+        return "CLOSED"
     upper = label.upper()
     return _SESSION_LABEL_MAP.get(upper, upper)
 
