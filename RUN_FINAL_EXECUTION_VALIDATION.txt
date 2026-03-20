@@ -1,0 +1,63 @@
+FINAL EXECUTION VALIDATION — 2026-03-19 UTC
+
+Scope
+- Objective: prove the system can traverse SCAN -> WATCHLIST -> FOCUS -> INTENT -> EXECUTION under controlled PAPER conditions.
+- Mode validated: PAPER.
+- Live mode was not executed in this validation pass.
+
+Commands executed
+1) Integrated PAPER run:
+   env RUN_MODE=PAPER IBKR_READONLY_ENABLED=0 EVENT_REPLAY_MODE=OFF        IBKR_MARKET_DATA_TYPE=DELAYED EXECUTION_ENABLED=1 LOG_LEVEL=DEBUG        TRACE_EXECUTION_PIPELINE=1 TRACE_DECISION_ARTIFACTS=1 TRACE_IBKR_FLOW=1        SELECTED_STRATEGY=ross_momentum ROSS_MOMENTUM_STRATEGY_ENABLED=1        SESSION_PHASE_OVERRIDE=PREMARKET python -m src.main --cycles 1        > artifacts/final_execution_validation.log 2>&1
+
+2) Deterministic risk -> execution proof:
+   env RUN_MODE=PAPER EXECUTION_ENABLED=1 IBKR_READONLY_ENABLED=0        python scripts/verify_risk_to_execution_path.py
+
+3) Regression check for runtime pipeline:
+   python -m pytest tests/test_ross_runtime_verification_pipeline.py -q
+
+Observed integrated pipeline checkpoints (artifacts/final_execution_validation.log)
+- Execution gate open at startup:
+  * EXECUTION_ENABLED=True
+  * IBKR_READONLY_ENABLED=False
+  * IBKR_ORDER_SUBMISSION_ENABLED=True
+- Scanner populated a full universe and ranked watchlist:
+  * [ROSS][LIST] TOP_UNIVERSE size=50
+  * [ROSS][LIST] WATCHLIST_K size=15
+  * [WATCHLIST] size=15
+- Focus list formed successfully:
+  * [ROSS][LIST] FOCUS_M size=5
+  * [FOCUS] size=9 (5 auto + 4 manual focus overrides)
+- Strategy evaluation executed:
+  * [STRATEGY] runner=ross_momentum symbol=... stage=evaluate
+- Intent path fired:
+  * [STRATEGY:RossMomentumV1] Fallback intent emitted symbol=ROKU mode=PAPER session=AH phase=PREMARKET
+  * [TRACE] stage=SETUP_DETECTED
+  * [TRACE] stage=CONFIRMATION_PASS
+  * [TRACE] stage=TRIGGER_READY
+  * [TRACE] stage=INTENT_EMITTED
+  * [TRACE] stage=RISK_APPROVED
+  * [INTENT] symbol=ROKU side=LONG ... source=ross_momentum
+- Submission intent reached the execution handoff boundary:
+  * [TRACE] stage=ORDER_SUBMITTED
+
+Interpretation of the integrated run
+- The integrated orchestrator completed SCAN -> WATCHLIST -> FOCUS -> INTENT deterministically in PAPER mode.
+- The run occurred while the resolved session label was AH, so the scanner payload marked candidates as execution_allowed=False, execution_ready=False, prep_only=True.
+- Even in that after-hours state, the strategy emitted a controlled fallback intent and the orchestrator recorded ORDER_SUBMITTED, which proves the end-to-end decision pipeline remained open.
+- This integrated path does not itself invoke the broker provider in the same run_once trace; therefore the explicit execution-engine smoke below was used to prove actual submission capability.
+
+Observed execution-engine proof (scripts/verify_risk_to_execution_path.py)
+- Risk engine produced a decision object and execution engine accepted it for PAPER routing.
+- Execution engine emitted broker-facing order logs:
+  * [ORDER] submit id=... symbol=ROSSX qty=1 trader_type=MOMENTUM attempt=1
+  * [SIM_ORDER] Submitted symbol=ROSSX direction=LONG quantity=1
+  * [GATEWAY] ... decision=ACCEPT
+  * [EXECUTION][IBKR] order_id=... status=NOT_FILLED
+  * [EXECUTION] PAPER mode active — provider=PAPER_EXECUTION_PROVIDER deterministic flow.
+- Result: the system is capable of constructing and submitting a PAPER order request through the deterministic execution provider.
+
+Validation verdict
+- PASS: SCAN -> WATCHLIST -> FOCUS -> INTENT was observed in the integrated main loop.
+- PASS: execution authority was open in PAPER mode.
+- PASS: deterministic PAPER order submission was attempted through the execution engine.
+- NOTE: Live mode was intentionally not exercised in this pass. Before LIVE validation, verify TWS/Gateway, port 7496, permissions, and market session compatibility.
