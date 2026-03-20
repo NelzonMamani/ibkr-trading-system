@@ -208,6 +208,7 @@ class ExecutionEngine:
                 rationale=f"RUN_MODE_BLOCK:{self.run_mode.value}",
             )
         if not self.execution_enabled:
+            print("[EXECUTION][BLOCKED] reason=EXECUTION_DISABLED")
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="EXECUTION_DISABLED",
@@ -343,11 +344,21 @@ class ExecutionEngine:
             next_retry_tick=None,
         )
 
+    @staticmethod
+    def route_order(request: BrokerOrderRequest) -> str:
+        # future: select best venue
+        return "IBKR_SMART"
+
     def _route_order(self, request: BrokerOrderRequest) -> ExecutionResult:
+        readonly = get_ibkr_readonly_enabled()
+        submission_enabled = bool(get_config("IBKR_ORDER_SUBMISSION_ENABLED"))
+        print("[EXECUTION][GATE]", f"execution_enabled={self.execution_enabled}", f"readonly={readonly}", f"submission_enabled={submission_enabled}")
         if not self.execution_enabled:
-            raise RuntimeError("Execution disabled: refusing to route order.")
+            print("[EXECUTION][BLOCKED] reason=EXECUTION_DISABLED")
+            return self._blocked_execution_from_request(request)
         if self._provider is None:
             raise RuntimeError("ExecutionEngine execution provider missing for execution path.")
+        print("[ORDER_SUBMIT]", f"symbol={request.symbol}", f"side={request.direction}", f"qty={request.quantity}")
         print(
             "[EXECUTION][AUDIT] "
             f"symbol={request.symbol} "
@@ -357,7 +368,8 @@ class ExecutionEngine:
             f"strategy={request.strategy_name or 'UNKNOWN'} "
             f"pattern={request.pattern_name or 'UNKNOWN'} "
             f"capital={request.quantity} "
-            f"ibkr_order_id={request.client_order_id}"
+            f"ibkr_order_id={request.client_order_id} "
+            f"route={self.route_order(request)}"
         )
         result = self._provider.place_order(request)
         self._log_ibkr_status(request, result)

@@ -4,6 +4,7 @@ Teaching-first risk engine that deterministically converts intents to risk decis
 Phase 4: Minimal live-capable scaffolding with highly constrained, conservative defaults.
 """
 
+from dataclasses import dataclass
 from typing import Optional, List, Tuple
 
 from src.core_engine.events import RiskDecisionRecord, TradeIntentRecord
@@ -49,6 +50,36 @@ from src.strategies.ross_momentum.ross_momentum_risk_overlay import (
 )
 from src.strategies.strategy_contracts import StrategyRiskPayload, TradeIntent as StrategyTradeIntent
 from src.utils.time_utils import utc_now
+
+
+
+
+@dataclass(frozen=True)
+class ValidationResult:
+    accepted: bool
+    reason: str | None = None
+
+
+def Accept() -> ValidationResult:
+    return ValidationResult(accepted=True, reason=None)
+
+
+def Reject(reason: str) -> ValidationResult:
+    return ValidationResult(accepted=False, reason=reason)
+
+
+def validate_order(order, portfolio) -> ValidationResult:
+    if getattr(portfolio, "total_exposure", 0) > getattr(portfolio, "max_exposure", float("inf")):
+        return Reject("EXPOSURE_LIMIT")
+
+    size = getattr(order, "size", getattr(order, "quantity", 0))
+    if size > getattr(portfolio, "max_position_size", float("inf")):
+        return Reject("POSITION_LIMIT")
+
+    if getattr(portfolio, "daily_loss", 0) > getattr(portfolio, "max_daily_loss", float("inf")):
+        return Reject("DAILY_LOSS_LIMIT")
+
+    return Accept()
 
 
 class RiskEngine:

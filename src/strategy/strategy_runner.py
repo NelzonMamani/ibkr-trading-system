@@ -273,6 +273,8 @@ class StrategyRunner:
             f"watchlist={len(watchlist)} session={session_norm} phase={session_phase}"
         )
         if not strategies:
+            if len(watchlist) > 0:
+                print("[ALERT] NO_INTENTS_GENERATED — CHECK STRATEGY LOGIC")
             print("[STRATEGY][PROCESS] No registered strategies; returning [].")
             return []
         results: List[TradeIntent] = []
@@ -308,6 +310,13 @@ class StrategyRunner:
                 "[STRATEGY][PROCESS] "
                 f"Strategy '{strategy.name}' has no watchlist handler; skipping."
             )
+        if len(watchlist) > 0 and len(results) == 0:
+            print("[ALERT] NO_INTENTS_GENERATED — CHECK STRATEGY LOGIC")
+        for intent in results:
+            symbol = getattr(intent, "symbol", "UNKNOWN")
+            setup_name = getattr(intent, "strategy_name", getattr(intent, "setup_name", "UNKNOWN"))
+            confidence = getattr(intent, "confidence", None)
+            print("[INTENT]", f"symbol={symbol}", f"setup={setup_name}", f"confidence={confidence}")
         return results
 
     @staticmethod
