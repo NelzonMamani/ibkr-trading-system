@@ -878,7 +878,7 @@ def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdReso
         session_focus_volume_min=session_focus_volume_min,
         min_volume=execution_min_volume,
         min_premarket_volume=premarket_min_volume,
-        max_float=int(policy.float_max_millions * 1_000_000),
+        max_float=int(max(float(policy.float_max_millions), 50.0) * 1_000_000),
         spread_max_pct=runtime.spread_max_pct,
         min_dollar_volume=policy.liquidity_min_dollar_volume,
         require_price=policy.data_quality_require_price,
@@ -2065,12 +2065,9 @@ def _score_context(context: Dict[str, Any]) -> tuple[float, dict[str, float]]:
     dvol_n = min(max(dvol / 1_000_000.0, 0.0), 2.0)
     float_class = str(context.get("float_class") or "").upper()
     priority_boost = 0.0
-    if float_class == "ULTRA_LOW_FLOAT":
-        priority_boost = 2.0
-    elif float_class == "LOW_FLOAT":
-        priority_boost = 1.0
     if priority_boost:
-        print(f"[ROSS][PRIORITY] symbol={context.get('symbol')} float_class={float_class} boost={int(priority_boost)}")
+        print(f"[ROSS][PRIORITY][DISPLAY_ONLY] symbol={context.get('symbol')} float_class={float_class} boost={int(priority_boost)} decision_weight=disabled")
+    priority_boost = 0.0
     components = {
         "pct_change": round(0.45 * pct_n * 100.0, 2),
         "rvol": round(0.35 * rvol_n * 100.0, 2),
@@ -4016,6 +4013,14 @@ def run_scanner_cycle(
         print(f"focus_count={len(focus_symbols)}")
         print(f"[SCANNER_OK] topn_count={raw_count}")
         print(f"[WATCHLIST_OK] size={len(watchlist_symbols)}")
+        if raw_count > 0 and after_gates_symbols and not watchlist_symbols:
+            elimination_path = {
+                "after_gates_symbols": after_gates_symbols,
+                "drop_reasons": drop_summary,
+                "session": normalized_session,
+            }
+            print(f"[SCANNER][HARD_DIAGNOSTIC] watchlist=0 scanner_kept={len(after_gates_symbols)} elimination_path={elimination_path}")
+            diagnostics["watchlist_hard_diagnostic"] = elimination_path
 
         scanner_contract = {
             "top_n": requested_top_n,

@@ -59,6 +59,7 @@ from src.core.active_trade_registry import ActiveTrade
 from src.signals.signal_event import SignalEvent
 from src.regime.contracts import RegimePolicyDecision
 from src.config.config_resolver import get_config
+from src.scanner.session_pct_change import canonical_session_label
 
 
 class StrategyRunner:
@@ -249,7 +250,7 @@ class StrategyRunner:
         prep_only: bool | None = None,
     ) -> List[TradeIntent]:
         strategies = list(self.strategies)
-        session_norm = str(session_label or "").upper()
+        session_norm = canonical_session_label(session_label or "")
         resolved_execution_allowed = (
             execution_allowed if execution_allowed is not None else session_norm in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
         )
@@ -269,7 +270,7 @@ class StrategyRunner:
         print(
             "[STRATEGY][PROCESS] "
             f"strategy_key={strategy_key} strategies={len(strategies)} "
-            f"watchlist={len(watchlist)} session={session_label} phase={session_phase}"
+            f"watchlist={len(watchlist)} session={session_norm} phase={session_phase}"
         )
         if not strategies:
             print("[STRATEGY][PROCESS] No registered strategies; returning [].")

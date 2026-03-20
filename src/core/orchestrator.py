@@ -84,7 +84,7 @@ from src.strategy_policy_v2.registry import resolve_policy_v2
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.scanner.providers.base import ProviderConnectionError
 from src.scanner.providers.mock_provider import MockScannerProvider
-from src.scanner.session_pct_change import normalize_session_label, resolve_market_session_context
+from src.scanner.session_pct_change import canonical_session_label, normalize_session_label, resolve_market_session_context
 from src.sim.clock import SimClock, WallClock
 from src.sim.price_feed import DeterministicPriceFeed
 from src.signals.signal_engine_v1 import SignalEngineV1
@@ -1582,8 +1582,9 @@ class CoreOrchestrator:
             "[FINAL_EVAL][MERGE] "
             f"auto_focus={auto_focus_symbols} manual_focus={manual_focus_accepted_symbols} final={final_evaluation_symbols}"
         )
+        focus_source = "MANUAL" if manual_focus_accepted_symbols and not auto_focus_symbols else "MIXED" if manual_focus_accepted_symbols and auto_focus_symbols else "AUTO"
         if not auto_focus_symbols and manual_focus_accepted_symbols:
-            print(f"[FINAL_EVAL][MANUAL_ONLY] symbols={manual_focus_accepted_symbols}")
+            print(f"[FINAL_EVAL][MANUAL_ONLY] symbols={manual_focus_accepted_symbols} reason=manual_override_only")
         print(
             "[MANUAL_FOCUS][SUMMARY] "
             f"accepted={len(manual_focus_rows)} rejected={len(manual_focus_rejections)} "
@@ -1608,7 +1609,7 @@ class CoreOrchestrator:
             print("[FOCUS][EMPTY] reason=no_focus_symbols_after_selection")
         self._trace_event("FOCUS", {"focus": [{"symbol": s} for s in final_evaluation_symbols]})
         snapshots_by_symbol, _ = self.market_data_snapshot_manager.batch_snapshots(final_evaluation_symbols)
-        session_label = normalize_session_label((selected_watchlist[0].session_label if selected_watchlist else session_phase))
+        session_label = canonical_session_label((selected_watchlist[0].session_label if selected_watchlist else session_phase))
         self.strategy_runner.receive_watchlist_snapshot(
             watchlist_symbols=final_evaluation_symbols,
             snapshots=snapshots_by_symbol,
@@ -1626,9 +1627,9 @@ class CoreOrchestrator:
             timestamp_utc=cycle_started_at.isoformat(),
             mode=self.run_mode,
             session_phase=session_phase,
-            execution_allowed=session_label in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"},
-            execution_ready=session_label in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"},
-            prep_only=session_label in {"AH", "OVN", "CLOSED", "WEEKEND"},
+            execution_allowed=session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"},
+            execution_ready=session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"},
+            prep_only=session_label in {"AH", "CLOSED"},
         )
 
         emitted_symbols = {
@@ -1638,6 +1639,13 @@ class CoreOrchestrator:
         }
         for symbol in final_evaluation_symbols:
             emitted = symbol in emitted_symbols
+            if emitted:
+                no_trade_reason = "INTENT_EMITTED"
+            elif symbol in set(manual_focus_accepted_symbols) and symbol not in set(auto_focus_symbols):
+                no_trade_reason = "MANUAL_ONLY_NO_SETUP"
+            else:
+                no_trade_reason = "NO_SETUP:no_valid_setup_from_runner"
+            print(f"[NO_TRADE_REASON] symbol={symbol} reason={no_trade_reason}")
             print(self._pattern_reason_line(symbol, emitted))
             self._trace_event("PATTERN_EVAL", {"strategy": strategy_key, "symbol": symbol, "intent_emitted": emitted})
             if emitted:
@@ -1673,6 +1681,18 @@ class CoreOrchestrator:
                     "[DECISION] "
                     f"symbol={trade_intent.symbol} verdict=emit_intent setup={getattr(trade_intent, 'pattern_name', None) or getattr(trade_intent, 'strategy_name', 'UNKNOWN')} executable={str(bool(mode_manager.allow_orders)).lower()}"
                 )
+        no_setup_count = max(len(final_evaluation_symbols) - intent_count, 0)
+        print(
+            "[CYCLE_END] "
+            f"cycle_id={self._current_cycle_id} canonical_session={session_label} "
+            f"raw_top_n_count={len(selected_observations)} candidates_entering_gates={scanner_kept_count} survivors_after_gates={scanner_kept_count} "
+            f"watchlist_count={len(watchlist_symbols)} focus_count_auto={len(auto_focus_symbols)} focus_count_manual={len(manual_focus_accepted_symbols)} "
+            f"focus_count_final={len(final_evaluation_symbols)} evaluated_count={len(final_evaluation_symbols)} setup_trigger_count={intent_count} "
+            f"no_setup_count={no_setup_count} intent_count={intent_count} order_submission_count={intent_count if mode_manager.allow_orders else 0} "
+            f"open_positions_count={self.trade_registry.count_active()} dominant_drop_reasons=NA dominant_no_trade_reasons={{'NO_SETUP': {no_setup_count}}} "
+            f"execution_allowed={session_label in {'PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE'}} "
+            f"execution_ready={session_label in {'PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE'}} focus_source={focus_source}"
+        )
         print(
             "[PIPELINE] "
             f"scanner_kept={scanner_kept_count} watchlist={len(watchlist_symbols)} focus={len(final_evaluation_symbols)} "
