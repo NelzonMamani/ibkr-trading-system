@@ -1,0 +1,266 @@
+TITLE: LIVE_DEPLOYMENT_BLOCK — FIRST REAL TRADE (CONTROLLED, SAFE, VERIFIED)
+FILE: RUN_LIVE_DEPLOYMENT.txt
+
+OBJECTIVE
+Transition from PAPER → LIVE and execute the first real trade under strict control.
+This is a controlled activation, NOT full automation.
+
+IMPORTANT REPO-ALIGNED NOTES
+- This system resolves execution authority from runtime mode + safety rules, so you must verify the startup banner instead of trusting raw env vars alone.
+- For a first live trade, use the built-in `MICRO` risk profile and `IBKR_MAX_ORDERS_PER_RUN=1`. That combination is the repo-native way to force one-share / one-order behavior.
+- In LIVE mode, port 7496 is mandatory. PAPER/SIM use 7497.
+- LIVE-like modes force `EVENT_REPLAY_MODE=OFF` during resolution.
+
+────────────────────────────────────────────────────────
+STEP 0 — IBKR PRE-CHECK (MANDATORY — DO NOT SKIP)
+────────────────────────────────────────────────────────
+Ensure all of the following are true before starting:
+
+✔ IBKR TWS or IB Gateway is RUNNING
+✔ Correct environment target:
+   - LIVE → port 7496
+   - PAPER/SIM → port 7497
+   - Do NOT use 7497 for this run
+✔ TWS / Gateway API settings:
+   - "Enable ActiveX and Socket Clients" = ON
+   - "Read-Only API" = OFF
+   - "Allow connections from localhost only" = ON
+✔ Account has buying power
+✔ Market is open, or you intentionally support the session you are trading
+✔ You are ready to stop immediately if behavior is unexpected
+
+────────────────────────────────────────────────────────
+STEP 1 — CLEAN STATE (RECOMMENDED)
+────────────────────────────────────────────────────────
+PowerShell:
+python -c "from src.storage.db_admin import hard_reset_database, resolve_sqlite_path, CONFIRM_HARD_RESET; hard_reset_database(resolve_sqlite_path(), confirm_token=CONFIRM_HARD_RESET, allow_live=True)"
+
+Why this exact command:
+- `src.storage.db_admin` exposes `hard_reset_database(...)`, not `hard_reset(...)`.
+- In LIVE / READ_ONLY modes, database reset is blocked unless `allow_live=True` is passed.
+
+────────────────────────────────────────────────────────
+STEP 2 — LIVE MODE ENVIRONMENT (STRICT)
+────────────────────────────────────────────────────────
+PowerShell:
+
+$env:RUN_MODE="LIVE"
+$env:IBKR_PORT="7496"
+$env:IBKR_READONLY_ENABLED="0"
+$env:IBKR_API_WRITE_ALLOWED="1"
+$env:EXECUTION_ENABLED="1"
+$env:EVENT_REPLAY_MODE="OFF"
+
+# Required for actual broker routing
+$env:IBKR_ORDER_TRANSLATION_ENABLED="1"
+$env:IBKR_ORDER_SUBMISSION_ENABLED="1"
+$env:IBKR_KILL_SWITCH="0"
+
+# Market data (set to LIVE if your account has the subscriptions and you want that)
+$env:IBKR_MARKET_DATA_TYPE="DELAYED"
+
+# Strategy activation
+$env:SELECTED_STRATEGY="ross_momentum"
+$env:ROSS_MOMENTUM_STRATEGY_ENABLED="1"
+
+# Session handling
+$env:SESSION_PHASE_OVERRIDE="RTH"
+$env:ACTIVE_SESSIONS="RTH"
+
+────────────────────────────────────────────────────────
+STEP 3 — RISK CONSTRAINTS (CRITICAL SAFETY LAYER)
+────────────────────────────────────────────────────────
+Use the repo-native micro guardrails for the first live trade:
+
+$env:RISK_PROFILE="MICRO"
+$env:IBKR_MAX_ORDERS_PER_RUN="1"
+$env:RISK_MAX_OPEN_POSITIONS="1"
+$env:WATCHLIST_MAX_SYMBOLS_PER_STRATEGY="15"
+$env:FOCUS_MAX_SYMBOLS_PER_STRATEGY="5"
+
+What this means in practice:
+- `RISK_PROFILE=MICRO` clamps order size to 1 share
+- `IBKR_MAX_ORDERS_PER_RUN=1` prevents more than one submitted IBKR order in the run
+- `RISK_MAX_OPEN_POSITIONS=1` blocks concurrent position expansion
+- `MICRO` also disables scaling / adds
+
+Do NOT rely on non-native variables such as:
+- `MAX_SHARES_PER_ORDER`
+- `MAX_DOLLAR_RISK_PER_TRADE`
+- `MAX_POSITIONS`
+- `FORCE_SINGLE_TRADE`
+
+Those names are not the primary repo-enforced controls for this codebase.
+
+────────────────────────────────────────────────────────
+STEP 4 — FULL TRACE / MAX OBSERVABILITY
+────────────────────────────────────────────────────────
+Use the system’s built-in startup and scanner traces:
+
+$env:INTENT_DEDUP_SELFTEST_ENABLED="0"
+$env:WATCHLIST_PRINT_EVERY_N_CYCLES="1"
+$env:CYCLE_SLEEP_SECONDS="3"
+
+Recommended log capture:
+python -m src.main *>&1 | Tee-Object -FilePath .\live_first_trade.log
+
+Note:
+- This repo already prints a runtime banner, config resolution trace, execution flags, scanner watchlist/focus output, and order-translation/submission diagnostics.
+- Variables like `TRACE_EXECUTION_PIPELINE`, `TRACE_DECISION_ARTIFACTS`, `TRACE_IBKR_FLOW`, and `LOG_LEVEL` are not the primary documented switches for this repository’s live run path.
+
+────────────────────────────────────────────────────────
+STEP 5 — OPTIONAL PREFLIGHT (STRONGLY RECOMMENDED)
+────────────────────────────────────────────────────────
+Run the dedicated live smoke preflight before the full loop:
+
+python verification_scripts/live_open_smoke_trade.py
+
+This should PASS the following preflight conditions:
+- RUN_MODE = LIVE
+- live port = 7496
+- execution enabled = true
+- translation enabled = true
+- submission enabled = true
+- readonly = false
+- kill switch = false
+- max_orders_per_run = 1
+
+If this script fails, STOP.
+Do not continue to the full live run until the preflight passes.
+
+────────────────────────────────────────────────────────
+STEP 6 — RUN SYSTEM (LIVE)
+────────────────────────────────────────────────────────
+python -m src.main
+
+────────────────────────────────────────────────────────
+STEP 7 — WHAT YOU MUST SEE (LIVE CHECKPOINTS)
+────────────────────────────────────────────────────────
+1. CONNECTION / STARTUP BANNER
+   Expect startup output showing:
+   - RUN_MODE resolved to LIVE
+   - EVENT_REPLAY_MODE resolved to OFF
+   - IBKR_PORT = 7496
+   - IBKR_MARKET_DATA_TYPE = DELAYED or LIVE
+
+   If port resolves to 7497 → STOP immediately.
+
+2. EXECUTION GATE
+   Expect the runtime banner to show:
+   - EXECUTION_ENABLED: True
+   - IBKR_READONLY_ENABLED: False
+   - IBKR_ORDER_TRANSLATION_ENABLED: True
+   - IBKR_ORDER_SUBMISSION_ENABLED: True
+
+   If any of those are false → STOP.
+
+3. STRATEGY / PIPELINE
+   Expect evidence that Ross Momentum is selected and active, plus pipeline output such as:
+   - watchlist / scanner summary
+   - [SCANNER][WATCHLIST] ...
+   - [SCANNER][FOCUS] ...
+   - intent / decision activity when valid setups appear
+
+   If there is no strategy activity, either:
+   - market conditions do not qualify, or
+   - filters are too strict, or
+   - the strategy is not actually enabled
+
+4. ORDER SUBMISSION (CRITICAL MOMENT)
+   Expect one of the following classes of evidence:
+   - order translation logs
+   - execution engine submission logs
+   - ORDER_SUBMITTED event / evidence
+   - an order immediately visible inside TWS / Gateway
+
+   If you see signs such as:
+   - readonly mode active
+   - execution hard disabled
+   - order routing blocked
+   - kill switch active
+   then STOP immediately.
+
+5. IBKR CONFIRMATION
+   In TWS / Gateway you must see:
+   ✔ exactly one order appears
+   ✔ quantity = 1 share
+   ✔ status = Submitted / Filled / Cancelled by your intervention
+
+────────────────────────────────────────────────────────
+STEP 8 — FIRST TRADE VALIDATION
+────────────────────────────────────────────────────────
+You are DONE only when all of the following are true:
+
+✔ One real order appears in IBKR
+✔ Order size is exactly 1 share
+✔ No unexpected runtime errors occurred
+✔ No repeated / duplicate / follow-on orders were sent
+✔ Risk controls remained active for the whole run
+
+────────────────────────────────────────────────────────
+STEP 9 — AFTER FIRST TRADE (DO NOT SKIP)
+────────────────────────────────────────────────────────
+Immediately:
+
+1. Stop the system (Ctrl+C)
+
+2. Review logs:
+   - Was the runtime banner correct?
+   - Was LIVE truly on 7496?
+   - Was execution authority truly enabled?
+   - Did the risk profile remain MICRO?
+   - Was only one order submitted?
+
+3. Check IBKR:
+   - Position opened or closed as expected?
+   - Fill price reasonable?
+   - No hidden duplicate orders?
+
+4. Archive evidence:
+   - saved console log (`live_first_trade.log`)
+   - any generated evidence folder from `verification_scripts/live_open_smoke_trade.py`
+   - screenshots / manual notes from TWS if desired
+
+────────────────────────────────────────────────────────
+STEP 10 — GRADUAL SCALE (NEXT SESSIONS ONLY)
+────────────────────────────────────────────────────────
+Only after a clean first success:
+
+- Keep `IBKR_MAX_ORDERS_PER_RUN=1` until you trust the path
+- Move from `RISK_PROFILE=MICRO` → `SMALL` only after review
+- Increase open-position limits slowly
+- Expand sessions beyond RTH only after validating behavior
+- Never remove safety controls and scale size on the same day
+
+────────────────────────────────────────────────────────
+FAILURE MODES (CRITICAL)
+────────────────────────────────────────────────────────
+NO ORDER APPEARS
+→ IBKR connection, permissions, translation, submission, or qualifying-setup issue
+
+ORDER BLOCKED
+→ runtime authority, readonly, kill switch, or submission flags are still wrong
+
+MULTIPLE ORDERS
+→ stop immediately; investigate `IBKR_MAX_ORDERS_PER_RUN`, active positions, and execution guard behavior
+
+NO INTENTS
+→ market conditions not qualifying, session mismatch, or filters too strict
+
+PORT DRIFT TO 7497
+→ configuration mismatch; this is not a valid first LIVE trade run
+
+────────────────────────────────────────────────────────
+HARD RULES
+────────────────────────────────────────────────────────
+❗ Never run first-time LIVE without `RISK_PROFILE=MICRO`
+❗ Never run first-time LIVE without `IBKR_MAX_ORDERS_PER_RUN=1`
+❗ Never continue if resolved port is not 7496
+❗ Never continue if readonly, kill switch, or submission state is wrong
+❗ Never assume env vars worked — verify the startup banner
+❗ Stop immediately if behavior is unexpected
+
+────────────────────────────────────────────────────────
+FINAL STATE
+────────────────────────────────────────────────────────
+When this succeeds, you have completed a controlled first LIVE trade with verified repo-native safeguards.
