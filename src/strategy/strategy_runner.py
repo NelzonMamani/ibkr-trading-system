@@ -312,6 +312,28 @@ class StrategyRunner:
             )
         if len(watchlist) > 0 and len(results) == 0:
             print("[ALERT] NO_INTENTS_GENERATED — CHECK STRATEGY LOGIC")
+
+            # --- FORCE VALIDATION TRADE (TEMPORARY) ---
+            try:
+                from src.execution.trade_intent import TradeIntent
+            except Exception:
+                TradeIntent = globals().get("TradeIntent")
+
+            if TradeIntent and len(watchlist) > 0:
+                symbol = getattr(watchlist[0], "symbol", None)
+                if symbol:
+                    print("[FORCE_TRADE] Injecting fallback trade intent for validation", symbol)
+
+                    forced_intent = TradeIntent(
+                        symbol=symbol,
+                        direction="LONG",
+                        strategy_name="ROSS_VALIDATION",
+                        confidence=0.1,
+                        rationale="Temporary forced validation trade intent to exercise execution pipeline.",
+                        pattern_name="FORCED_EXECUTION",
+                    )
+
+                    results.append(forced_intent)
         for intent in results:
             symbol = getattr(intent, "symbol", "UNKNOWN")
             setup_name = getattr(intent, "strategy_name", getattr(intent, "setup_name", "UNKNOWN"))
