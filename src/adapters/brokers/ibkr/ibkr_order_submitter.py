@@ -132,6 +132,7 @@ class IbkrOrderSubmitter:
             ack_status, acked_at = self._wait_for_ack(client, ibkr_order_id)
             if acked_at:
                 self._emit_ack(internal_order, ibkr_order_id, ack_status)
+                print("[ORDER_ACK]", f"order_id={ibkr_order_id}", f"status={ack_status}")
                 self._log(
                     f"[ACK] Order acknowledged ibkr_order_id={ibkr_order_id} status={ack_status}"
                 )

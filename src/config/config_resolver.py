@@ -280,6 +280,63 @@ def _resolve_git_sha() -> str | None:
     return sha or None
 
 
+
+
+def resolve_execution_flags(resolved: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]:
+    """Apply institutional execution authority overrides and invariants."""
+
+    updated = dict(resolved)
+    run_mode = str(updated["RUN_MODE"].value or "").upper()
+
+    execution_record = updated["EXECUTION_ENABLED"]
+    if run_mode in {"LIVE", "PAPER"} and execution_record.source == "DEFAULT":
+        updated["EXECUTION_ENABLED"] = _derive_record(
+            "EXECUTION_ENABLED",
+            True,
+            trace=(
+                *execution_record.trace,
+                f"EXECUTION_ENABLED default elevated to True for institutional RUN_MODE={run_mode}",
+            ),
+        )
+        execution_record = updated["EXECUTION_ENABLED"]
+
+    execution_enabled = bool(execution_record.value)
+    if run_mode == "LIVE" and not execution_enabled:
+        raise ConfigResolutionError(
+            "[FATAL] LIVE mode with execution disabled is not allowed in institutional mode"
+        )
+
+    readonly_record = updated["IBKR_READONLY_ENABLED"]
+    updated["IBKR_READONLY_ENABLED"] = _derive_record(
+        "IBKR_READONLY_ENABLED",
+        not execution_enabled,
+        trace=(
+            *readonly_record.trace,
+            f"IBKR_READONLY_ENABLED derived from EXECUTION_ENABLED={execution_enabled!r}",
+        ),
+    )
+
+    submission_record = updated["IBKR_ORDER_SUBMISSION_ENABLED"]
+    updated["IBKR_ORDER_SUBMISSION_ENABLED"] = _derive_record(
+        "IBKR_ORDER_SUBMISSION_ENABLED",
+        execution_enabled,
+        trace=(
+            *submission_record.trace,
+            f"IBKR_ORDER_SUBMISSION_ENABLED derived from EXECUTION_ENABLED={execution_enabled!r}",
+        ),
+    )
+
+    translation_record = updated["IBKR_ORDER_TRANSLATION_ENABLED"]
+    updated["IBKR_ORDER_TRANSLATION_ENABLED"] = _derive_record(
+        "IBKR_ORDER_TRANSLATION_ENABLED",
+        execution_enabled,
+        trace=(
+            *translation_record.trace,
+            f"IBKR_ORDER_TRANSLATION_ENABLED derived from EXECUTION_ENABLED={execution_enabled!r}",
+        ),
+    )
+    return updated
+
 def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]:
     resolved = dict(config)
 
@@ -311,6 +368,8 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
                 "EXECUTION_ENABLED overridden to False because RUN_MODE=SIM with IBKR_MARKET_DATA_TYPE=LIVE",
             ),
         )
+
+    resolved = resolve_execution_flags(resolved)
 
     resolved["RUN_MODE_EFFECTIVE"] = _derive_record(
         "RUN_MODE_EFFECTIVE",
@@ -354,48 +413,10 @@ def _resolve_derived(config: Dict[str, ConfigRecord]) -> Dict[str, ConfigRecord]
         )
 
     ibkr_readonly_record = resolved["IBKR_READONLY_ENABLED"]
-    if ibkr_readonly_record.source == "DEFAULT":
-        default_readonly = effective_run_mode in {"SIM", "READ_ONLY"}
-        ibkr_readonly_record = _derive_record(
-            "IBKR_READONLY_ENABLED",
-            default_readonly,
-            source="DERIVED",
-            trace=(
-                *ibkr_readonly_record.trace,
-                f"IBKR_READONLY_ENABLED default adjusted for RUN_MODE_EFFECTIVE={effective_run_mode!r}",
-            ),
-        )
-        resolved["IBKR_READONLY_ENABLED"] = ibkr_readonly_record
     ibkr_readonly_enabled = bool(ibkr_readonly_record.value)
     execution_enabled_flag = bool(resolved["EXECUTION_ENABLED"].value)
     execution_capable_mode = effective_run_mode in {"LIVE", "PAPER"}
-    execution_enabled_effective = (
-        execution_capable_mode
-        and execution_enabled_flag
-        and not ibkr_readonly_enabled
-    )
-
-    submission_record = resolved["IBKR_ORDER_SUBMISSION_ENABLED"]
-    if submission_record.source == "DEFAULT":
-        resolved["IBKR_ORDER_SUBMISSION_ENABLED"] = _derive_record(
-            "IBKR_ORDER_SUBMISSION_ENABLED",
-            execution_enabled_effective,
-            trace=(
-                *submission_record.trace,
-                "IBKR_ORDER_SUBMISSION_ENABLED default aligned to EXECUTION_ENABLED_EFFECTIVE",
-            ),
-        )
-
-    translation_record = resolved["IBKR_ORDER_TRANSLATION_ENABLED"]
-    if translation_record.source == "DEFAULT":
-        resolved["IBKR_ORDER_TRANSLATION_ENABLED"] = _derive_record(
-            "IBKR_ORDER_TRANSLATION_ENABLED",
-            execution_enabled_effective,
-            trace=(
-                *translation_record.trace,
-                "IBKR_ORDER_TRANSLATION_ENABLED default aligned to EXECUTION_ENABLED_EFFECTIVE",
-            ),
-        )
+    execution_enabled_effective = execution_capable_mode and execution_enabled_flag and not ibkr_readonly_enabled
 
     ibkr_kill_switch = effective_run_mode == "READ_ONLY"
     resolved["IBKR_KILL_SWITCH"] = _derive_record(

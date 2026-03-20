@@ -17,37 +17,31 @@ def _clear_overrides():
     set_config_overrides(None)
 
 
-def test_env_resolution_honors_ibkr_flags(monkeypatch: pytest.MonkeyPatch):
+def test_env_resolution_derives_ibkr_flags_from_execution_authority(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("RUN_MODE", "PAPER")
+    monkeypatch.setenv("EXECUTION_ENABLED", "true")
     monkeypatch.setenv("IBKR_READONLY_ENABLED", "true")
-    monkeypatch.setenv("IBKR_ORDER_SUBMISSION_ENABLED", "true")
-    monkeypatch.setenv("IBKR_ORDER_TRANSLATION_ENABLED", "true")
+    monkeypatch.setenv("IBKR_ORDER_SUBMISSION_ENABLED", "false")
+    monkeypatch.setenv("IBKR_ORDER_TRANSLATION_ENABLED", "false")
 
     readonly = get_config_record("IBKR_READONLY_ENABLED")
     submission = get_config_record("IBKR_ORDER_SUBMISSION_ENABLED")
     translation = get_config_record("IBKR_ORDER_TRANSLATION_ENABLED")
 
-    assert readonly.value is True
-    assert readonly.source == "ENV"
+    assert readonly.value is False
+    assert readonly.source == "DERIVED"
     assert submission.value is True
-    assert submission.source == "ENV"
+    assert submission.source == "DERIVED"
     assert translation.value is True
-    assert translation.source == "ENV"
+    assert translation.source == "DERIVED"
 
 
-def test_live_execution_disabled_readonly_resolves_no_orders(monkeypatch: pytest.MonkeyPatch):
+def test_live_execution_disabled_is_rejected(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("RUN_MODE", "LIVE")
     monkeypatch.setenv("EXECUTION_ENABLED", "false")
-    monkeypatch.setenv("IBKR_READONLY_ENABLED", "true")
-    monkeypatch.setenv("IBKR_ORDER_SUBMISSION_ENABLED", "true")
-    monkeypatch.setenv("IBKR_ORDER_TRANSLATION_ENABLED", "true")
 
-    runtime = RuntimeModeManager.resolve()
-
-    assert runtime.resolved_mode == RunMode.LIVE
-    assert runtime.allow_orders is False
-
-    orchestrator = CoreOrchestrator()
-    assert orchestrator.execution_enabled is False
+    with pytest.raises(Exception, match="LIVE mode with execution disabled"):
+        RuntimeModeManager.resolve()
 
 
 def test_live_execution_ignores_submission_config_flag(monkeypatch: pytest.MonkeyPatch):
@@ -66,10 +60,7 @@ def test_live_execution_ignores_submission_config_flag(monkeypatch: pytest.Monke
 def test_startup_banner_and_orchestrator_agree(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
     monkeypatch.setenv("RUN_MODE", "LIVE")
     monkeypatch.setenv("SCANNER_MODE", "LIVE_READONLY")
-    monkeypatch.setenv("EXECUTION_ENABLED", "false")
-    monkeypatch.setenv("IBKR_READONLY_ENABLED", "true")
-    monkeypatch.setenv("IBKR_ORDER_SUBMISSION_ENABLED", "true")
-    monkeypatch.setenv("IBKR_ORDER_TRANSLATION_ENABLED", "true")
+    monkeypatch.setenv("EXECUTION_ENABLED", "true")
 
     import src.main as main_module
 
@@ -96,9 +87,8 @@ def test_startup_banner_and_orchestrator_agree(monkeypatch: pytest.MonkeyPatch, 
         ]
     )
 
-    assert "  - IBKR_READONLY_ENABLED: True (source=ENV env=IBKR_READONLY_ENABLED)" in output
-    assert "  - IBKR_ORDER_SUBMISSION_ENABLED: True (source=ENV env=IBKR_ORDER_SUBMISSION_ENABLED)" in output
-    assert "  - IBKR_ORDER_TRANSLATION_ENABLED: True (source=ENV env=IBKR_ORDER_TRANSLATION_ENABLED)" in output
-    assert "[CONFIG] Runtime mode manager: mode=LIVE live_like=True allow_orders=False" in output
+    assert "[CONFIG] Runtime mode manager: mode=LIVE live_like=True allow_orders=True" in output
     assert trace["EXECUTION_ENABLED"]["source"] == "ENV"
-    assert trace["IBKR_READONLY_ENABLED"]["source"] == "ENV"
+    assert trace["IBKR_READONLY_ENABLED"]["source"] == "DERIVED"
+    assert trace["IBKR_ORDER_SUBMISSION_ENABLED"]["source"] == "DERIVED"
+    assert trace["IBKR_ORDER_TRANSLATION_ENABLED"]["source"] == "DERIVED"

@@ -124,15 +124,6 @@ def verify_mode_semantics() -> dict:
     expectations = (
         ModeExpectation(
             run_mode="LIVE",
-            execution_enabled=False,
-            expected_execution=False,
-            expected_readonly=True,
-            expected_submission=False,
-            expected_api_write=False,
-            expected_translation=False,
-        ),
-        ModeExpectation(
-            run_mode="LIVE",
             execution_enabled=True,
             expected_execution=True,
             expected_readonly=False,
