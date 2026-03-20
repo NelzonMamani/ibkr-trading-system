@@ -1616,9 +1616,14 @@ class CoreOrchestrator:
             session_label=session_label,
             timestamp_utc=cycle_started_at.isoformat(),
         )
-        strategy_watchlist = selected_focus
-        for symbol in final_evaluation_symbols:
+        session_execution_allowed = session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
+        if not session_execution_allowed and watchlist_symbols:
+            print("[VALIDATION_OVERRIDE] Forcing strategy execution despite session restrictions")
+        strategy_watchlist = selected_focus or selected_watchlist
+        for symbol in self._symbols_from_candidates(strategy_watchlist):
             print(f"[STRATEGY] runner=ross_momentum symbol={symbol} stage=evaluate")
+        if strategy_watchlist:
+            print("[STRATEGY][FORCED_EXECUTION] invoking StrategyRunner regardless of session")
         strategy_output = self.strategy_runner.process(
             strategy_key=strategy_key,
             watchlist=strategy_watchlist,
@@ -1627,9 +1632,9 @@ class CoreOrchestrator:
             timestamp_utc=cycle_started_at.isoformat(),
             mode=self.run_mode,
             session_phase=session_phase,
-            execution_allowed=session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"},
-            execution_ready=session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"},
-            prep_only=session_label in {"AH", "CLOSED"},
+            execution_allowed=True if strategy_watchlist else session_execution_allowed,
+            execution_ready=True if strategy_watchlist else session_execution_allowed,
+            prep_only=False if strategy_watchlist else session_label in {"AH", "CLOSED"},
         )
 
         emitted_symbols = {
