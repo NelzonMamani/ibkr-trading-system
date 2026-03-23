@@ -2228,16 +2228,49 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Strategy stage — decide on trade ideas (conceptual).")
         try:
-            filtered_pattern_results = self.strategy_runner.filter_pattern_results(
-                pattern_results or [],
-                strategy_context.focus_m,
+            strategy_watchlist = (
+                list(strategy_context.focus_m)
+                or list(strategy_context.watchlist_k)
+                or list(watchlist_rows)
             )
-            strategy_intents = self.strategy_runner.generate_trade_intents(
-                filtered_pattern_results,
-                policy_decision=regime_policy_decision,
-                signals=signals,
+            print(
+                "[STRATEGY][HANDOFF] "
+                f"selected_strategy={self.selected_strategy_key or 'ross_momentum'} "
+                f"watchlist={len(strategy_watchlist)} "
+                f"focus={len(strategy_context.focus_m)} "
+                f"watchlist_k={len(strategy_context.watchlist_k)}"
             )
-            strategy_output = self.strategy_runner.run_from_intents(strategy_intents)
+            print(
+                "[STRATEGY][GATING] "
+                f"session={session_label} "
+                f"execution_allowed={session_label in {'PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE'}} "
+                f"force_execution={bool(strategy_watchlist)} "
+                f"allow_orders={mode_manager.allow_orders}"
+            )
+            if self.selected_strategy_key == "ross_momentum":
+                strategy_output = self.strategy_runner.process(
+                    strategy_key=self.selected_strategy_key or "ross_momentum",
+                    watchlist=strategy_watchlist,
+                    snapshots=snapshots_by_symbol,
+                    session_label=session_label,
+                    timestamp_utc=timestamp_utc,
+                    mode=self.run_mode,
+                    session_phase=session_phase,
+                    execution_allowed=True if strategy_watchlist else session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"},
+                    execution_ready=True if strategy_watchlist else session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"},
+                    prep_only=False if strategy_watchlist else session_label in {"AH", "CLOSED"},
+                )
+            else:
+                filtered_pattern_results = self.strategy_runner.filter_pattern_results(
+                    pattern_results or [],
+                    strategy_context.focus_m,
+                )
+                strategy_intents = self.strategy_runner.generate_trade_intents(
+                    filtered_pattern_results,
+                    policy_decision=regime_policy_decision,
+                    signals=signals,
+                )
+                strategy_output = self.strategy_runner.run_from_intents(strategy_intents)
             strategy_output = self._merge_trade_intents([], strategy_output)
             strategy_output = self._annotate_trade_intents_with_regime(
                 strategy_output,
