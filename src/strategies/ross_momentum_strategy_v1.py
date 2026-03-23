@@ -158,6 +158,14 @@ class RossMomentumStrategyV1(BaseStrategy):
                 session_label=session_label,
                 session_phase=session_phase,
             )
+            if inputs is None:
+                print(f"[PATTERN_INPUT][SKIP] symbol={symbol} reason=failed_to_build_inputs")
+                symbol_trace.final_outcome = "SKIPPED:failed_to_build_inputs"
+                symbol_trace.pattern_traces = []
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
+
             input_summary = build_input_snapshot_summary(
                 row=row,
                 snapshot=snapshot if isinstance(snapshot, MarketSnapshot) else None,
@@ -178,6 +186,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "input_summary": input_summary.to_dict(),
             }
             registry_pattern_ids = self._pattern_registry.pattern_ids
+            print(
+                f"[PATTERN_INPUT_READY] symbol={symbol} candles={len(inputs.candles)} "
+                f"session={inputs.session_context}"
+            )
             print(
                 "[ROSS][PATTERN_RESULTS] "
                 f"symbol={symbol} registry=RossPatternRegistry audited_registry_match=true pattern_ids={registry_pattern_ids}"
