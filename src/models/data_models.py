@@ -123,6 +123,7 @@ class TradeIntent:
     regime_confidence: Optional[float] = None
     regime_policy_applied: Optional[bool] = None
     regime_notes: List[str] = field(default_factory=list)
+    synthetic: bool = False
 
 
 @dataclass(frozen=True)
