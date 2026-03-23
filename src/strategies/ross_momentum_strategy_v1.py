@@ -9,10 +9,19 @@ from __future__ import annotations
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.config.runtime_config import RunMode
+from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import PatternResult, TradeIntent
 from src.signals.signal_event import SignalEvent
 from src.strategy.base_strategy import BaseStrategy
 from src.strategy.exit_signal import ExitSignal
+from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
+from src.strategies.ross_momentum.patterns.pattern_trace import (
+    RossPatternFailureTraceCollector,
+    RossSymbolTrace,
+    build_input_snapshot_summary,
+    build_runtime_pattern_inputs,
+    infer_symbol_source,
+)
 
 
 class RossMomentumStrategyV1(BaseStrategy):
@@ -28,6 +37,10 @@ class RossMomentumStrategyV1(BaseStrategy):
         "VWAP_RECLAIM",
         "FIRST_PULLBACK_LONG",
     )
+
+    def __init__(self) -> None:
+        self._pattern_registry = RossPatternRegistry()
+        self._failure_trace_collector = RossPatternFailureTraceCollector()
 
     def evaluate(
         self,
@@ -103,7 +116,6 @@ class RossMomentumStrategyV1(BaseStrategy):
             )
         return [intent for intent, _ in limited]
 
-
     def process_watchlist(
         self,
         *,
@@ -114,6 +126,115 @@ class RossMomentumStrategyV1(BaseStrategy):
         mode: RunMode,
         session_phase: str,
     ) -> List[TradeIntent]:
+        symbol_traces: List[RossSymbolTrace] = []
+        real_detected_setups = 0
+        synthetic_forced_intents = 0
+        for row in watchlist:
+            symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
+            if not symbol:
+                continue
+            snapshot = snapshots.get(symbol) if isinstance(snapshots, dict) else None
+            symbol_source = infer_symbol_source(row)
+            symbol_trace = RossSymbolTrace(
+                symbol=symbol,
+                cycle_id=timestamp_utc,
+                strategy_key="ross_momentum",
+                session_label=session_label,
+                session_phase=session_phase,
+                runtime_mode=mode.value,
+                symbol_source=symbol_source,
+                manual_focus=symbol_source == "manual_focus",
+                bypassed_watchlist=symbol_source == "manual_focus",
+            )
+            print(
+                "[ROSS][SYMBOL_EVAL][START] "
+                f"symbol={symbol} source={symbol_source} manual_focus={symbol_trace.manual_focus} "
+                f"bypassed_watchlist={symbol_trace.bypassed_watchlist} session={session_label} phase={session_phase} mode={mode.value}"
+            )
+            inputs, quality_flags = build_runtime_pattern_inputs(
+                symbol=symbol,
+                row=row,
+                snapshot=snapshot if isinstance(snapshot, MarketSnapshot) else None,
+                session_label=session_label,
+                session_phase=session_phase,
+            )
+            input_summary = build_input_snapshot_summary(
+                row=row,
+                snapshot=snapshot if isinstance(snapshot, MarketSnapshot) else None,
+                inputs=inputs,
+                session_label=session_label,
+                quality_flags=quality_flags,
+            )
+            symbol_trace.input_summary = input_summary.to_dict()
+
+            pattern_traces = []
+            registry_context = {
+                "cycle_id": timestamp_utc,
+                "strategy_key": "ross_momentum",
+                "session_label": session_label,
+                "session_phase": session_phase,
+                "runtime_mode": mode.value,
+                "symbol_source": symbol_source,
+                "input_summary": input_summary.to_dict(),
+            }
+            registry_pattern_ids = self._pattern_registry.pattern_ids
+            print(
+                "[ROSS][PATTERN_RESULTS] "
+                f"symbol={symbol} registry=RossPatternRegistry audited_registry_match=true pattern_ids={registry_pattern_ids}"
+            )
+            results = self._pattern_registry.run(
+                inputs,
+                trace_context=registry_context,
+                trace_collector=pattern_traces.append,
+            )
+            symbol_trace.pattern_traces = pattern_traces
+            symbol_trace.detected_pattern_ids = [trace.pattern_id for trace in pattern_traces if trace.detected]
+            real_detected_setups += len(symbol_trace.detected_pattern_ids)
+            if symbol_trace.detected_pattern_ids:
+                symbol_trace.dropped_detected_pattern_ids = list(symbol_trace.detected_pattern_ids)
+                for pattern_id in symbol_trace.detected_pattern_ids:
+                    print(
+                        "[ROSS][PATTERN_DROP] "
+                        f"symbol={symbol} pattern_id={pattern_id} disposition=strategy_v1_process_watchlist_observability_only"
+                    )
+                symbol_trace.final_outcome = "NO_SETUP:detected_but_not_translated_by_strategy_v1_runtime_path"
+                for trace in symbol_trace.pattern_traces:
+                    if trace.detected:
+                        trace.post_detect_disposition = "dropped_by_strategy_v1_process_watchlist_path"
+                        trace.final_outcome = "DETECTED_BUT_DROPPED"
+            else:
+                symbol_trace.final_outcome = "NO_SETUP:no_detected_patterns"
+                print(
+                    "[ROSS][NO_SETUP_SUMMARY] "
+                    f"symbol={symbol} detected_patterns=0 rejections={[trace.rejection_reason for trace in pattern_traces if trace.rejection_reason]}"
+                )
+
+            print(
+                "[ROSS][DECISION] "
+                f"symbol={symbol} real_detected={len(symbol_trace.detected_pattern_ids)} synthetic_intents=0 final_outcome={symbol_trace.final_outcome}"
+            )
+            symbol_traces.append(symbol_trace)
+            self._failure_trace_collector.record_symbol(symbol_trace)
+
+        cycle_summary = self._failure_trace_collector.build_cycle_summary(
+            cycle_id=timestamp_utc,
+            strategy_key="ross_momentum",
+            session_label=session_label,
+            session_phase=session_phase,
+            runtime_mode=mode.value,
+            symbol_traces=symbol_traces,
+            real_setup_trigger_count=0,
+            synthetic_forced_intents=synthetic_forced_intents,
+        )
+        if cycle_summary.evaluated_count > 0 and cycle_summary.real_setup_trigger_count == 0:
+            print(f"[PATTERN_FAILURE_TRACE][SUMMARY] {cycle_summary.to_dict()}")
+        evidence_path = self._failure_trace_collector.persist_latest(
+            run_mode=mode.value,
+            session_label=session_label,
+            session_phase=session_phase,
+        )
+        print(f"[PATTERN_FAILURE_TRACE][EVIDENCE] path={evidence_path}")
+
         if mode not in {RunMode.SIM, RunMode.PAPER}:
             print(
                 "[STRATEGY:RossMomentumV1] Fallback disabled outside SIM/PAPER "
@@ -136,10 +257,11 @@ class RossMomentumStrategyV1(BaseStrategy):
             rationale="Deterministic watchlist fallback intent for RossMomentum in non-signal cycles.",
             trader_type=self.trader_type,
             pattern_name="ROSS_WATCHLIST_FALLBACK",
+            synthetic=True,
         )
         print(
             "[STRATEGY:RossMomentumV1] Fallback intent emitted "
-            f"symbol={symbol} mode={mode.value} session={session_label} phase={session_phase}"
+            f"symbol={symbol} mode={mode.value} session={session_label} phase={session_phase} synthetic=true"
         )
         return [intent]
 

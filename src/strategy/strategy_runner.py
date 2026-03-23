@@ -331,9 +331,16 @@ class StrategyRunner:
                         confidence=0.1,
                         rationale="Temporary forced validation trade intent to exercise execution pipeline.",
                         pattern_name="FORCED_EXECUTION",
+                        synthetic=True,
                     )
 
                     results.append(forced_intent)
+        real_detected_setups = sum(1 for intent in results if not getattr(intent, "synthetic", False))
+        synthetic_forced_intents = sum(1 for intent in results if getattr(intent, "synthetic", False))
+        print(
+            "[STRATEGY][PROCESS_SUMMARY] "
+            f"real_detected_setups={real_detected_setups} synthetic_forced_intents={synthetic_forced_intents}"
+        )
         for intent in results:
             symbol = getattr(intent, "symbol", "UNKNOWN")
             setup_name = getattr(intent, "strategy_name", getattr(intent, "setup_name", "UNKNOWN"))
