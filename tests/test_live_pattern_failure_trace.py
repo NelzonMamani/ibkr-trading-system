@@ -44,9 +44,13 @@ def _snapshot(symbol: str = "TMDE") -> MarketSnapshot:
     )
 
 
-def test_registry_invocation_trace_present() -> None:
+def test_registry_invocation_trace_present(monkeypatch) -> None:
     row = _manual_focus_row()
     snap = _snapshot()
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        lambda **kwargs: [Candle(open=4 + idx * 0.01, high=4.2 + idx * 0.01, low=3.9 + idx * 0.01, close=4.1 + idx * 0.01, volume=1000 + idx) for idx in range(20)],
+    )
     inputs, flags = build_runtime_pattern_inputs(
         symbol="TMDE",
         row=row,
@@ -75,9 +79,13 @@ def test_registry_invocation_trace_present() -> None:
     assert any(trace.rejection_reason for trace in traces)
 
 
-def test_pattern_trace_records_rejection_reason() -> None:
+def test_pattern_trace_records_rejection_reason(monkeypatch) -> None:
     row = _manual_focus_row()
     snap = _snapshot()
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        lambda **kwargs: [Candle(open=4 + idx * 0.01, high=4.2 + idx * 0.01, low=3.9 + idx * 0.01, close=4.1 + idx * 0.01, volume=1000 + idx) for idx in range(20)],
+    )
     inputs, flags = build_runtime_pattern_inputs(symbol="TMDE", row=row, snapshot=snap, session_label="AH", session_phase="AH")
     summary = build_input_snapshot_summary(row=row, snapshot=snap, inputs=inputs, session_label="AH", quality_flags=flags)
     traces = []
@@ -89,7 +97,7 @@ def test_pattern_trace_records_rejection_reason() -> None:
     assert any(trace.rejection_reason in {"insufficient candles", "not regular session"} for trace in traces)
 
 
-def test_no_setup_summary_aggregates_reasons(tmp_path: Path) -> None:
+def test_no_setup_summary_aggregates_reasons(tmp_path: Path, monkeypatch) -> None:
     collector = RossPatternFailureTraceCollector(evidence_root=tmp_path)
     symbol_trace = RossSymbolTrace(
         symbol="TMDE",
@@ -103,6 +111,10 @@ def test_no_setup_summary_aggregates_reasons(tmp_path: Path) -> None:
     )
     row = _manual_focus_row()
     snap = _snapshot()
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        lambda **kwargs: [Candle(open=4 + idx * 0.01, high=4.2 + idx * 0.01, low=3.9 + idx * 0.01, close=4.1 + idx * 0.01, volume=1000 + idx) for idx in range(20)],
+    )
     inputs, flags = build_runtime_pattern_inputs(symbol="TMDE", row=row, snapshot=snap, session_label="AH", session_phase="AH")
     summary = build_input_snapshot_summary(row=row, snapshot=snap, inputs=inputs, session_label="AH", quality_flags=flags)
     traces = []
@@ -126,7 +138,11 @@ def test_no_setup_summary_aggregates_reasons(tmp_path: Path) -> None:
     assert payload["cycle_summaries"]
 
 
-def test_detected_pattern_translates_to_trade_intent(tmp_path: Path) -> None:
+def test_detected_pattern_translates_to_trade_intent(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        lambda **kwargs: [Candle(open=10.5 + idx * 0.03, high=10.6 + idx * 0.03, low=10.4 + idx * 0.03, close=10.55 + idx * 0.03, volume=2000 + idx) for idx in range(25)],
+    )
     strategy = RossMomentumStrategyV1()
     strategy._failure_trace_collector = RossPatternFailureTraceCollector(evidence_root=tmp_path)
     watchlist = [{
@@ -161,7 +177,11 @@ def test_detected_pattern_translates_to_trade_intent(tmp_path: Path) -> None:
     assert cycle_summary["real_setup_trigger_count"] > 0
 
 
-def test_missing_inputs_surface_in_trace(tmp_path: Path) -> None:
+def test_missing_inputs_surface_in_trace(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        lambda **kwargs: [Candle(open=1 + idx * 0.01, high=1.1 + idx * 0.01, low=0.9 + idx * 0.01, close=1.05 + idx * 0.01, volume=500 + idx) for idx in range(20)],
+    )
     strategy = RossMomentumStrategyV1()
     strategy._failure_trace_collector = RossPatternFailureTraceCollector(evidence_root=tmp_path)
     strategy.process_watchlist(
@@ -205,7 +225,7 @@ def test_runtime_pattern_inputs_prefers_historical_candles(monkeypatch) -> None:
     assert flags == []
 
 
-def test_runtime_pattern_inputs_falls_back_to_snapshot_when_history_short(monkeypatch) -> None:
+def test_runtime_pattern_inputs_blocks_when_history_short(monkeypatch) -> None:
     row = _manual_focus_row("SNAP")
     snap = _snapshot("SNAP")
 
@@ -214,7 +234,7 @@ def test_runtime_pattern_inputs_falls_back_to_snapshot_when_history_short(monkey
         lambda **kwargs: [Candle(open=1, high=1, low=1, close=1, volume=1) for _ in range(5)],
     )
 
-    inputs, _ = build_runtime_pattern_inputs(
+    inputs, flags = build_runtime_pattern_inputs(
         symbol="SNAP",
         row=row,
         snapshot=snap,
@@ -222,7 +242,5 @@ def test_runtime_pattern_inputs_falls_back_to_snapshot_when_history_short(monkey
         session_phase="AH",
     )
 
-    assert inputs is not None
-    assert len(inputs.candles) == 1
-    assert inputs.candles[0].close == snap.last
-    assert inputs.news_context and inputs.news_context["candle_count"] == "1"
+    assert inputs is None
+    assert "insufficient_intraday_data" in flags

@@ -16,6 +16,9 @@ from src.strategies.ross_momentum.patterns.pattern_inputs import IndicatorSet, L
 from src.strategies.ross_momentum.patterns.pattern_types import PatternResult
 from src.strategies.strategy_contracts import SessionContext
 
+# Restore test monkeypatch compatibility
+historical_data_provider.get_intraday_bars = get_intraday_bars
+
 
 def _safe_float(value: Any) -> float | None:
     try:
@@ -308,28 +311,22 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     if volume is None:
         quality_flags.append("missing_volume")
     historical_data_provider.get_intraday_bars = get_intraday_bars
-    historical_bars = historical_data_provider.get_intraday_bars(
+    intraday_bars = historical_data_provider.get_intraday_bars(
         symbol=symbol,
         timeframe="1m",
         limit=50,
     )
 
-    candles: list[Candle]
-    if historical_bars and len(historical_bars) >= 20:
-        candles = historical_bars
-    else:
-        candle_volume = int(volume) if volume is not None else 0
-        candles = []
-        if last_price is not None:
-            candles = [
-                Candle(
-                    open=last_price,
-                    high=last_price,
-                    low=last_price,
-                    close=last_price,
-                    volume=candle_volume,
-                )
-            ]
+    if intraday_bars is None or len(intraday_bars) < 20:
+        print(f"[PATTERN_INPUT][BLOCK] symbol={symbol} reason=insufficient_intraday_data")
+        quality_flags.append("insufficient_intraday_data")
+        return None, sorted(set(quality_flags))
+
+    print(
+        f"[INTRADAY_FETCH] symbol={symbol} candles={len(intraday_bars)} source=IBKR_INTRADAY"
+    )
+
+    candles: list[Candle] = intraday_bars
 
     def _normalize_bar(bar: Candle) -> Candle:
         return Candle(
@@ -342,12 +339,6 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         )
 
     candles = [_normalize_bar(bar) for bar in candles]
-    print(
-        f"[CANDLE_INJECTION] symbol={symbol} candle_count={len(candles)} "
-        f"source={'HISTORICAL' if len(candles) > 1 else 'SNAPSHOT'}"
-    )
-    if len(candles) == 1:
-        print(f"[WARNING] symbol={symbol} still using single candle — patterns will not trigger")
     levels = LevelSet(
         premarket_high=_safe_float(_get_value(row, "premarket_high")),
         premarket_low=_safe_float(_get_value(row, "premarket_low")),
