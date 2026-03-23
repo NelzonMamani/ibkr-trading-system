@@ -252,6 +252,9 @@ class StrategyRunner:
         strategies = list(self.strategies)
         session_norm = canonical_session_label(session_label or "")
         print("[STRATEGY_RUNNER] START")
+
+        if not get_config("ROSS_MOMENTUM_STRATEGY_ENABLED", True):
+            raise RuntimeError("ROSS STRATEGY DISABLED — HARD FAILURE")
         print(
             "[STRATEGY_RUNNER][CONFIG] "
             f"RUN_MODE={get_config('RUN_MODE_EFFECTIVE')} "
