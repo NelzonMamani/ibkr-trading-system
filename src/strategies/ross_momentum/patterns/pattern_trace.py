@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from src.adapters.data import historical_data_provider
 from src.adapters.data.historical_data_provider import get_intraday_bars
 from src.domain.market_snapshot import MarketSnapshot
 from src.scanner.result_models import CandidateMetrics
@@ -306,7 +307,8 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         quality_flags.append("missing_ask")
     if volume is None:
         quality_flags.append("missing_volume")
-    historical_bars = get_intraday_bars(
+    historical_data_provider.get_intraday_bars = get_intraday_bars
+    historical_bars = historical_data_provider.get_intraday_bars(
         symbol=symbol,
         timeframe="1m",
         limit=50,
