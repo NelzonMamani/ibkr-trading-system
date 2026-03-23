@@ -222,10 +222,17 @@ def test_runtime_pattern_inputs_prefers_historical_candles(monkeypatch) -> None:
     assert inputs is not None
     assert len(inputs.candles) == 20
     assert inputs.news_context and inputs.news_context["candle_count"] == "20"
-    assert flags == []
+    assert "indicators_incomplete" not in flags
+    assert "levels_incomplete" not in flags
+    assert inputs.indicators.ema9 is not None
+    assert inputs.indicators.ema20 is not None
+    assert inputs.indicators.vwap is not None
+    assert inputs.levels.hod is not None
+    assert inputs.levels.lod is not None
+    assert inputs.liquidity_context.rvol is not None
 
 
-def test_runtime_pattern_inputs_blocks_when_history_short(monkeypatch) -> None:
+def test_runtime_pattern_inputs_marks_short_history_but_builds(monkeypatch) -> None:
     row = _manual_focus_row("SNAP")
     snap = _snapshot("SNAP")
 
@@ -242,5 +249,44 @@ def test_runtime_pattern_inputs_blocks_when_history_short(monkeypatch) -> None:
         session_phase="AH",
     )
 
-    assert inputs is None
-    assert "insufficient_intraday_data" in flags
+    assert inputs is not None
+    assert "insufficient_candles" in flags
+    assert inputs.indicators.ema9 is not None
+    assert inputs.indicators.vwap is not None
+
+
+def test_runtime_pattern_inputs_falls_back_bid_ask_and_float(monkeypatch) -> None:
+    row = {
+        "symbol": "MISS",
+        "promotion_reason": "manual_focus",
+        "session_label": "PRE",
+        "last_price": 5.5,
+        "volume": 25_000,
+        "prior_close": 5.0,
+    }
+    snap = MarketSnapshot(symbol="MISS", bid=None, ask=None, last=5.5, volume=25_000, asof_utc=datetime.now(timezone.utc))
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        lambda **kwargs: [Candle(open=5 + idx * 0.02, high=5.05 + idx * 0.02, low=4.98 + idx * 0.02, close=5.01 + idx * 0.02, volume=800 + idx) for idx in range(20)],
+    )
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.FloatProvider.get_float",
+        lambda self, symbol: (None, "missing"),
+    )
+
+    inputs, flags = build_runtime_pattern_inputs(
+        symbol="MISS",
+        row=row,
+        snapshot=snap,
+        session_label="PRE",
+        session_phase="PRE",
+    )
+    summary = build_input_snapshot_summary(row=row, snapshot=snap, inputs=inputs, session_label="PRE", quality_flags=flags)
+
+    assert inputs is not None
+    assert inputs.liquidity_context.float_millions is None
+    assert "float_missing" in flags
+    assert summary.bid == 5.5
+    assert summary.ask == 5.5
+    assert "bid" not in summary.missing_fields
+    assert "ask" not in summary.missing_fields

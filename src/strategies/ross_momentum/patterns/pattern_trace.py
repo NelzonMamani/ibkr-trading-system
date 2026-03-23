@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 from collections import Counter
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from src.adapters.data import historical_data_provider
 from src.adapters.data.historical_data_provider import get_intraday_bars
+from src.data.fundamentals.float_provider import FloatProvider
 from src.domain.market_snapshot import MarketSnapshot
 from src.scanner.result_models import CandidateMetrics
 from src.strategies.common.candles.candle_types import Candle
@@ -37,6 +38,99 @@ def _serialize(value: Any) -> Any:
     if isinstance(value, (list, tuple, set)):
         return [_serialize(v) for v in value]
     return value
+
+
+def _coalesce(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def _ema(values: list[float], period: int) -> float | None:
+    if not values:
+        return None
+    multiplier = 2.0 / (period + 1)
+    ema_value = float(values[0])
+    for price in values[1:]:
+        ema_value = (float(price) * multiplier) + (ema_value * (1.0 - multiplier))
+    return round(ema_value, 6)
+
+
+def _vwap(candles: list[Candle]) -> float | None:
+    total_pv = 0.0
+    total_volume = 0.0
+    for candle in candles:
+        volume = _safe_float(candle.volume) or 0.0
+        typical_price = ((_safe_float(candle.high) or 0.0) + (_safe_float(candle.low) or 0.0) + (_safe_float(candle.close) or 0.0)) / 3.0
+        total_pv += typical_price * volume
+        total_volume += volume
+    if total_volume <= 0:
+        return None
+    return round(total_pv / total_volume, 6)
+
+
+def _timestamp_as_utc(value: Any) -> datetime | None:
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _is_premarket_candle(candle: Candle) -> bool:
+    timestamp = _timestamp_as_utc(getattr(candle, "timestamp", None))
+    if timestamp is None:
+        return False
+    market_open_utc = time(14, 30)
+    return timestamp.time() < market_open_utc
+
+
+def _infer_reference_price(*, row: Any, candles: list[Candle], session: str, prior_close: float | None) -> float | None:
+    if session == "PRE":
+        return _coalesce(
+            prior_close,
+            _safe_float(_get_value(row, "reference_price")),
+            _safe_float(_get_value(row, "prev_close")),
+            _safe_float(_get_value(row, "close")),
+        )
+    first_regular_candle = next((c for c in candles if not _is_premarket_candle(c)), None)
+    return _coalesce(
+        _safe_float(_get_value(row, "session_open")),
+        _safe_float(_get_value(row, "open")),
+        _safe_float(getattr(first_regular_candle, "open", None)),
+        prior_close,
+        _safe_float(_get_value(row, "reference_price")),
+        _safe_float(_get_value(row, "prev_close")),
+    )
+
+
+def _rolling_rvol(*, total_volume: float | None, candles: list[Candle]) -> float | None:
+    if total_volume is None or total_volume <= 0 or not candles:
+        return None
+    recent = candles[-20:]
+    avg_volume_window = sum(max(_safe_float(c.volume) or 0.0, 0.0) for c in recent) / max(len(recent), 1)
+    if avg_volume_window <= 0:
+        return None
+    return round(total_volume / avg_volume_window, 6)
+
+
+def _resolve_float_millions(symbol: str, row: Any, quality_flags: list[str]) -> float | None:
+    existing_float = _coalesce(
+        _safe_float(_get_value(row, "float_millions")),
+        (_safe_float(_get_value(row, "float_shares")) or 0.0) / 1_000_000.0 if _get_value(row, "float_shares") is not None else None,
+        (_safe_float(_get_value(row, "float_shares_raw")) or 0.0) / 1_000_000.0 if _get_value(row, "float_shares_raw") is not None else None,
+    )
+    if existing_float is not None:
+        return round(existing_float, 6)
+    try:
+        float_shares, _source = FloatProvider().get_float(symbol)
+    except Exception:
+        float_shares = None
+    if float_shares is None:
+        quality_flags.append("float_missing")
+        return None
+    return round(float(float_shares) / 1_000_000.0, 6)
 
 
 @dataclass
@@ -251,24 +345,31 @@ def infer_symbol_source(row: Any) -> str:
 
 
 def build_input_snapshot_summary(*, row: Any, snapshot: MarketSnapshot | None, inputs: PatternInputs | None, session_label: str | None, quality_flags: list[str] | None = None) -> PatternInputSnapshotSummary:
+    input_flags = list(getattr(inputs, "data_quality_flags", []) if inputs else [])
     bid = _safe_float(getattr(snapshot, "bid", None))
     ask = _safe_float(getattr(snapshot, "ask", None))
     last = _safe_float(getattr(snapshot, "last", None))
     row_last = _safe_float(_get_value(row, "last_price") or _get_value(row, "price"))
     volume = _safe_float(getattr(snapshot, "volume", None) or _get_value(row, "volume"))
+    if inputs and (bid is None or ask is None):
+        bid = last if bid is None else bid
+        ask = last if ask is None else ask
     spread = _safe_float(_get_value(row, "spread"))
     if spread is None and bid is not None and ask is not None:
         spread = round(ask - bid, 4)
-    levels_present = [name for name in ("premarket_high", "premarket_low", "hod", "lod", "prior_close") if _get_value(row, name) is not None]
-    indicators_present = [name for name in ("ema9", "ema20", "ema50", "ema200", "vwap") if _get_value(row, name) is not None]
+    levels_present = []
+    indicators_present = []
+    if inputs:
+        levels_present = [name for name in ("premarket_high", "premarket_low", "hod", "lod", "prior_close") if getattr(inputs.levels, name, None) is not None]
+        indicators_present = [name.upper() for name in ("ema9", "ema20", "vwap") if getattr(inputs.indicators, name, None) is not None]
     missing_fields = []
     for name, value in {
         "last_price": last if last is not None else row_last,
         "bid": bid,
         "ask": ask,
         "volume": volume,
-        "rvol": _get_value(row, "rvol"),
-        "float_millions": _get_value(row, "float_millions"),
+        "rvol": _coalesce(getattr(inputs.liquidity_context, "rvol", None) if inputs else None, _get_value(row, "rvol")),
+        "float_millions": _coalesce(getattr(inputs.liquidity_context, "float_millions", None) if inputs else None, _get_value(row, "float_millions")),
     }.items():
         if value is None:
             missing_fields.append(name)
@@ -280,16 +381,16 @@ def build_input_snapshot_summary(*, row: Any, snapshot: MarketSnapshot | None, i
         ask=ask,
         spread=spread,
         volume=volume,
-        pct_change=_safe_float(_get_value(row, "pct_change") or _get_value(row, "pct_change_resolved")),
-        rvol=_safe_float(_get_value(row, "rvol") or _get_value(row, "relative_volume")),
-        float_millions=_safe_float(_get_value(row, "float_millions")),
+        pct_change=_coalesce(_safe_float((inputs.news_context or {}).get("pct_change")) if inputs and inputs.news_context else None, _safe_float(_get_value(row, "pct_change") or _get_value(row, "pct_change_resolved"))),
+        rvol=_coalesce(_safe_float(getattr(inputs.liquidity_context, "rvol", None) if inputs else None), _safe_float(_get_value(row, "rvol") or _get_value(row, "relative_volume"))),
+        float_millions=_coalesce(_safe_float(getattr(inputs.liquidity_context, "float_millions", None) if inputs else None), _safe_float(_get_value(row, "float_millions"))),
         has_levels=bool(levels_present),
         levels_present=levels_present,
         has_indicators=bool(indicators_present),
         indicators_present=indicators_present,
         session_context=getattr(inputs.session_context, "value", None) if inputs else session_label,
         timeframe=inputs.timeframe if inputs else None,
-        quality_flags=list(quality_flags or []) + list(getattr(inputs, "data_quality_flags", []) if inputs else []),
+        quality_flags=sorted(set(list(quality_flags or []) + input_flags)),
         missing_fields=sorted(set(missing_fields)),
     )
 
@@ -304,10 +405,10 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     last_price = last if last is not None else row_last
     if last_price is None:
         quality_flags.append("missing_last_price")
-    if bid is None:
-        quality_flags.append("missing_bid")
-    if ask is None:
-        quality_flags.append("missing_ask")
+    if bid is None and last_price is not None:
+        bid = last_price
+    if ask is None and last_price is not None:
+        ask = last_price
     if volume is None:
         quality_flags.append("missing_volume")
     historical_data_provider.get_intraday_bars = get_intraday_bars
@@ -317,10 +418,12 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         limit=50,
     )
 
-    if intraday_bars is None or len(intraday_bars) < 20:
+    if intraday_bars is None or len(intraday_bars) == 0:
         print(f"[PATTERN_INPUT][BLOCK] symbol={symbol} reason=insufficient_intraday_data")
         quality_flags.append("insufficient_intraday_data")
         return None, sorted(set(quality_flags))
+    if len(intraday_bars) < 20:
+        quality_flags.append("insufficient_candles")
 
     print(
         f"[INTRADAY_FETCH] symbol={symbol} candles={len(intraday_bars)} source=IBKR_INTRADAY"
@@ -339,29 +442,64 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         )
 
     candles = [_normalize_bar(bar) for bar in candles]
+    session = str(session_label or session_phase or _get_value(row, "session_label") or "PRE").upper()
+    premarket_candles = [candle for candle in candles if _is_premarket_candle(candle)]
+    if not premarket_candles and session == "PRE":
+        premarket_candles = candles
+    if not premarket_candles:
+        premarket_candles = candles
+    hod = max((_safe_float(candle.high) for candle in candles), default=None)
+    lod = min((_safe_float(candle.low) for candle in candles), default=None)
+    premarket_high = max((_safe_float(candle.high) for candle in premarket_candles), default=None)
+    premarket_low = min((_safe_float(candle.low) for candle in premarket_candles), default=None)
+    prior_close = _safe_float(_get_value(row, "prior_close") or _get_value(row, "reference_price") or _get_value(row, "prev_close") or _get_value(row, "close"))
+    closes = [float(candle.close) for candle in candles]
+    ema9 = _coalesce(_safe_float(_get_value(row, "ema9")), _ema(closes, 9))
+    ema20 = _coalesce(_safe_float(_get_value(row, "ema20")), _ema(closes, 20))
+    vwap = _coalesce(_safe_float(_get_value(row, "vwap")), _safe_float(_get_value(row, "vwap_price")), _vwap(candles))
+    pct_change = _coalesce(
+        _safe_float(_get_value(row, "pct_change")),
+        _safe_float(_get_value(row, "pct_change_resolved")),
+    )
+    reference_price = _infer_reference_price(row=row, candles=candles, session=session, prior_close=prior_close)
+    if pct_change is None and last_price is not None and reference_price not in (None, 0):
+        pct_change = round(((last_price - float(reference_price)) / float(reference_price)) * 100.0, 6)
+    rvol = _coalesce(
+        _safe_float(_get_value(row, "rvol")),
+        _safe_float(_get_value(row, "relative_volume")),
+        _rolling_rvol(total_volume=volume, candles=candles),
+    )
+    float_millions = _resolve_float_millions(symbol, row, quality_flags)
     levels = LevelSet(
-        premarket_high=_safe_float(_get_value(row, "premarket_high")),
-        premarket_low=_safe_float(_get_value(row, "premarket_low")),
-        hod=_safe_float(_get_value(row, "hod")),
-        lod=_safe_float(_get_value(row, "lod")),
-        prior_close=_safe_float(_get_value(row, "prior_close") or _get_value(row, "reference_price") or _get_value(row, "prev_close")),
+        premarket_high=_coalesce(_safe_float(_get_value(row, "premarket_high")), premarket_high),
+        premarket_low=_coalesce(_safe_float(_get_value(row, "premarket_low")), premarket_low),
+        hod=_coalesce(_safe_float(_get_value(row, "hod")), hod),
+        lod=_coalesce(_safe_float(_get_value(row, "lod")), lod),
+        prior_close=prior_close,
     )
     indicators = IndicatorSet(
-        ema9=_safe_float(_get_value(row, "ema9")),
-        ema20=_safe_float(_get_value(row, "ema20")),
+        ema9=ema9,
+        ema20=ema20,
         ema50=_safe_float(_get_value(row, "ema50")),
         ema200=_safe_float(_get_value(row, "ema200")),
-        vwap=_safe_float(_get_value(row, "vwap")),
+        vwap=vwap,
     )
     spread = _safe_float(_get_value(row, "spread"))
     if spread is None and bid is not None and ask is not None:
         spread = round(ask - bid, 4)
     liquidity = LiquidityContext(
         spread=spread or 0.0,
-        float_millions=_safe_float(_get_value(row, "float_millions")),
-        rvol=_safe_float(_get_value(row, "rvol") or _get_value(row, "relative_volume")),
+        float_millions=float_millions,
+        rvol=rvol,
     )
-    session = str(session_label or session_phase or _get_value(row, "session_label") or "PRE").upper()
+    if indicators.ema9 is None or indicators.ema20 is None or indicators.vwap is None:
+        quality_flags.append("indicators_incomplete")
+    if levels.premarket_high is None or levels.premarket_low is None or levels.hod is None or levels.lod is None:
+        quality_flags.append("levels_incomplete")
+    if pct_change is None:
+        quality_flags.append("pct_change_missing")
+    if rvol is None:
+        quality_flags.append("rvol_missing")
     session_context = SessionContext.REGULAR if session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE", "REGULAR"} else SessionContext.AFTER if session in {"AH", "AFTER"} else SessionContext.PRE
     inputs = PatternInputs(
         symbol=symbol,
@@ -371,7 +509,15 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         levels=levels,
         indicators=indicators,
         liquidity_context=liquidity,
-        news_context={"session_label": session, "session_phase": str(session_phase or session), "candle_count": str(len(candles))},
+        news_context={
+            "session_label": session,
+            "session_phase": str(session_phase or session),
+            "candle_count": str(len(candles)),
+            "pct_change": "" if pct_change is None else str(pct_change),
+            "reference_price": "" if reference_price is None else str(reference_price),
+            "bid": "" if bid is None else str(bid),
+            "ask": "" if ask is None else str(ask),
+        },
         data_quality_flags=sorted(set(quality_flags)),
     )
     return inputs, sorted(set(quality_flags))

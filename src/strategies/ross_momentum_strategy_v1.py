@@ -6,6 +6,7 @@ Consumes SignalEvent(s) and emits TradeIntent(s) using teaching-safe rules.
 
 from __future__ import annotations
 
+import json
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.config.runtime_config import RunMode
@@ -194,6 +195,16 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"[PATTERN_INPUT_READY] symbol={symbol} candles={len(inputs.candles)} "
                 f"session={inputs.session_context}"
             )
+            final_payload = {
+                "symbol": symbol,
+                "has_indicators": input_summary.has_indicators,
+                "has_levels": input_summary.has_levels,
+                "pct_change": input_summary.pct_change,
+                "rvol": input_summary.rvol,
+                "float_millions": input_summary.float_millions,
+                "missing_fields": input_summary.missing_fields,
+            }
+            print(f"[PATTERN_INPUT_READY_FINAL] {json.dumps(final_payload, sort_keys=True)}")
             print(
                 "[ROSS][PATTERN_RESULTS] "
                 f"symbol={symbol} registry=RossPatternRegistry audited_registry_match=true pattern_ids={registry_pattern_ids}"
