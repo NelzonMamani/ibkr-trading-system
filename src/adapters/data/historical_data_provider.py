@@ -21,11 +21,12 @@ def get_intraday_bars(*, symbol: str, timeframe: str = "1m", limit: int = 50) ->
         client = manager.get_client()
         contract_details = client.resolve_contract(symbol)
         contract = getattr(contract_details, "contract", contract_details)
-        duration_minutes = max(limit * 2, 30)
+        # IBKR expects durationStr in seconds (S) or days (D), NOT minutes (M)
+        duration_seconds = max(limit * 60 * 2, 1800)  # at least 30 minutes
         bars = client.reqHistoricalData(
             contract,
             endDateTime="",
-            durationStr=f"{duration_minutes} M",
+            durationStr=f"{duration_seconds} S",
             barSizeSetting="1 min",
             whatToShow="TRADES",
             useRTH=False,
