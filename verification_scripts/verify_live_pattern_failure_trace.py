@@ -59,11 +59,12 @@ def main() -> int:
     )
     evidence_path = OUT / "latest_pattern_failure_trace.json"
     payload = json.loads(evidence_path.read_text())
-    assert intents == []
+    assert intents
     assert payload["pattern_traces"], "expected pattern traces"
     assert payload["cycle_summaries"], "expected cycle summaries"
     assert any(item["symbol_source"] == "manual_focus" for item in payload["symbol_evaluations"])
-    assert any(item["detected_pattern_ids"] for item in payload["symbol_evaluations"]), "expected a detected-and-dropped example"
+    assert any(item["detected_pattern_ids"] for item in payload["symbol_evaluations"]), "expected a detected example"
+    assert payload["cycle_summaries"][-1]["real_setup_trigger_count"] > 0
     print(json.dumps({
         "evidence_path": str(evidence_path),
         "cycle_summaries": payload["cycle_summaries"][-1:],
