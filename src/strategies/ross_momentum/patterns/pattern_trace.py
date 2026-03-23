@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from src.adapters.data.historical_data_provider import get_intraday_bars
 from src.domain.market_snapshot import MarketSnapshot
 from src.scanner.result_models import CandidateMetrics
 from src.strategies.common.candles.candle_types import Candle
@@ -305,10 +306,46 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         quality_flags.append("missing_ask")
     if volume is None:
         quality_flags.append("missing_volume")
-    candles: list[Candle] = []
-    if last_price is not None:
+    historical_bars = get_intraday_bars(
+        symbol=symbol,
+        timeframe="1m",
+        limit=50,
+    )
+
+    candles: list[Candle]
+    if historical_bars and len(historical_bars) >= 20:
+        candles = historical_bars
+    else:
         candle_volume = int(volume) if volume is not None else 0
-        candles.append(Candle(open=last_price, high=last_price, low=last_price, close=last_price, volume=candle_volume))
+        candles = []
+        if last_price is not None:
+            candles = [
+                Candle(
+                    open=last_price,
+                    high=last_price,
+                    low=last_price,
+                    close=last_price,
+                    volume=candle_volume,
+                )
+            ]
+
+    def _normalize_bar(bar: Candle) -> Candle:
+        return Candle(
+            open=float(bar.open),
+            high=float(bar.high),
+            low=float(bar.low),
+            close=float(bar.close),
+            volume=float(bar.volume),
+            timestamp=getattr(bar, "timestamp", None),
+        )
+
+    candles = [_normalize_bar(bar) for bar in candles]
+    print(
+        f"[CANDLE_INJECTION] symbol={symbol} candle_count={len(candles)} "
+        f"source={'HISTORICAL' if len(candles) > 1 else 'SNAPSHOT'}"
+    )
+    if len(candles) == 1:
+        print(f"[WARNING] symbol={symbol} still using single candle — patterns will not trigger")
     levels = LevelSet(
         premarket_high=_safe_float(_get_value(row, "premarket_high")),
         premarket_low=_safe_float(_get_value(row, "premarket_low")),
@@ -341,7 +378,7 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         levels=levels,
         indicators=indicators,
         liquidity_context=liquidity,
-        news_context={"session_label": session, "session_phase": str(session_phase or session)},
+        news_context={"session_label": session, "session_phase": str(session_phase or session), "candle_count": str(len(candles))},
         data_quality_flags=sorted(set(quality_flags)),
     )
     return inputs, sorted(set(quality_flags))

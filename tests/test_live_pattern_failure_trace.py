@@ -13,6 +13,7 @@ from src.strategies.ross_momentum.patterns.pattern_trace import (
     build_input_snapshot_summary,
     build_runtime_pattern_inputs,
 )
+from src.strategies.common.candles.candle_types import Candle
 from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
 
 
@@ -175,3 +176,53 @@ def test_missing_inputs_surface_in_trace(tmp_path: Path) -> None:
     symbol_eval = next(item for item in payload["symbol_evaluations"] if item["symbol"] == "OCGN")
     assert "missing_last_price" in symbol_eval["input_summary"]["quality_flags"]
     assert symbol_eval["manual_focus"] is True
+
+
+def test_runtime_pattern_inputs_prefers_historical_candles(monkeypatch) -> None:
+    row = _manual_focus_row("HIST")
+    snap = _snapshot("HIST")
+
+    historical = [
+        Candle(open=10 + idx, high=10.2 + idx, low=9.8 + idx, close=10.1 + idx, volume=1000 + idx)
+        for idx in range(20)
+    ]
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        lambda **kwargs: historical,
+    )
+
+    inputs, flags = build_runtime_pattern_inputs(
+        symbol="HIST",
+        row=row,
+        snapshot=snap,
+        session_label="AH",
+        session_phase="AH",
+    )
+
+    assert inputs is not None
+    assert len(inputs.candles) == 20
+    assert inputs.news_context and inputs.news_context["candle_count"] == "20"
+    assert flags == []
+
+
+def test_runtime_pattern_inputs_falls_back_to_snapshot_when_history_short(monkeypatch) -> None:
+    row = _manual_focus_row("SNAP")
+    snap = _snapshot("SNAP")
+
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        lambda **kwargs: [Candle(open=1, high=1, low=1, close=1, volume=1) for _ in range(5)],
+    )
+
+    inputs, _ = build_runtime_pattern_inputs(
+        symbol="SNAP",
+        row=row,
+        snapshot=snap,
+        session_label="AH",
+        session_phase="AH",
+    )
+
+    assert inputs is not None
+    assert len(inputs.candles) == 1
+    assert inputs.candles[0].close == snap.last
+    assert inputs.news_context and inputs.news_context["candle_count"] == "1"
