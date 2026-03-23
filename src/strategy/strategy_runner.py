@@ -251,6 +251,14 @@ class StrategyRunner:
     ) -> List[TradeIntent]:
         strategies = list(self.strategies)
         session_norm = canonical_session_label(session_label or "")
+        print("[STRATEGY_RUNNER] START")
+        print(
+            "[STRATEGY_RUNNER][CONFIG] "
+            f"RUN_MODE={get_config('RUN_MODE_EFFECTIVE')} "
+            f"EXECUTION_ENABLED={get_config('EXECUTION_ENABLED_EFFECTIVE')} "
+            f"STRATEGY_ENABLED={bool(strategies)} "
+            f"SELECTED_STRATEGY={get_config('SELECTED_STRATEGY')}"
+        )
         resolved_execution_allowed = (
             execution_allowed if execution_allowed is not None else session_norm in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
         )

@@ -126,6 +126,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         mode: RunMode,
         session_phase: str,
     ) -> List[TradeIntent]:
+        print("[ROSS][PROCESS_WATCHLIST] symbols=", len(watchlist))
         symbol_traces: List[RossSymbolTrace] = []
         translated_intents: List[TradeIntent] = []
         synthetic_forced_intents = 0
@@ -151,6 +152,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"symbol={symbol} source={symbol_source} manual_focus={symbol_trace.manual_focus} "
                 f"bypassed_watchlist={symbol_trace.bypassed_watchlist} session={session_label} phase={session_phase} mode={mode.value}"
             )
+            print("[PATTERN_PIPELINE] invoking build_runtime_pattern_inputs")
             inputs, quality_flags = build_runtime_pattern_inputs(
                 symbol=symbol,
                 row=row,
