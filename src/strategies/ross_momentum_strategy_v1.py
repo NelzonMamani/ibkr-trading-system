@@ -126,7 +126,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         mode: RunMode,
         session_phase: str,
     ) -> List[TradeIntent]:
-        print("[ROSS][PROCESS_WATCHLIST] symbols=", len(watchlist))
+        print(f"[ROSS][PROCESS_START] symbols={len(watchlist)}")
         symbol_traces: List[RossSymbolTrace] = []
         translated_intents: List[TradeIntent] = []
         synthetic_forced_intents = 0
@@ -134,6 +134,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
             if not symbol:
                 continue
+            print(f"[ROSS][SYMBOL] processing={symbol}")
             snapshot = snapshots.get(symbol) if isinstance(snapshots, dict) else None
             symbol_source = infer_symbol_source(row)
             symbol_trace = RossSymbolTrace(
@@ -152,7 +153,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"symbol={symbol} source={symbol_source} manual_focus={symbol_trace.manual_focus} "
                 f"bypassed_watchlist={symbol_trace.bypassed_watchlist} session={session_label} phase={session_phase} mode={mode.value}"
             )
-            print("[PATTERN_PIPELINE] invoking build_runtime_pattern_inputs")
+            print("[PATTERN_PIPELINE] START")
             inputs, quality_flags = build_runtime_pattern_inputs(
                 symbol=symbol,
                 row=row,
@@ -160,6 +161,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 session_label=session_label,
                 session_phase=session_phase,
             )
+            print("[PATTERN_PIPELINE] DONE")
             if inputs is None:
                 print(f"[PATTERN_INPUT][SKIP] symbol={symbol} reason=failed_to_build_inputs")
                 symbol_trace.final_outcome = "SKIPPED:failed_to_build_inputs"
@@ -263,6 +265,11 @@ class RossMomentumStrategyV1(BaseStrategy):
             session_phase=session_phase,
         )
         print(f"[PATTERN_FAILURE_TRACE][EVIDENCE] path={evidence_path}")
+
+        print(f"[ROSS][INTENTS] generated={len(translated_intents)}")
+
+        if not translated_intents:
+            print("[ROSS][WARNING] NO TRADE INTENTS GENERATED")
 
         # LIVE MODE ENABLED — no restriction
         if translated_intents:

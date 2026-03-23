@@ -277,9 +277,14 @@ class CoreOrchestrator:
         self.connection_manager = ConnectionManager(self.run_mode)
         self.scanner_diagnostics_manager = ScannerDiagnosticsManager()
         self.market_data_snapshot_manager: MarketDataSnapshotManager | None = None
+        self.selected_strategy_key = None
         self.selected_strategy_key = (
-            str(get_config("SELECTED_STRATEGY") or "").strip().lower()
+            self.selected_strategy_key
+            or get_config("SELECTED_STRATEGY")
+            or "ross_momentum"
         )
+        self.selected_strategy_key = str(self.selected_strategy_key).strip().lower()
+        print(f"[STRATEGY][SELECTED] key={self.selected_strategy_key}")
         self.primary_strategy_key = self.selected_strategy_key or "ross_momentum"
         self._strategy_watchlist_cache: dict[str, list[str]] = {}
         self._strategy_cadence_state: dict[str, StrategyCadenceState] = {}
@@ -2247,30 +2252,40 @@ class CoreOrchestrator:
                 f"force_execution={bool(strategy_watchlist)} "
                 f"allow_orders={mode_manager.allow_orders}"
             )
-            if self.selected_strategy_key == "ross_momentum":
+            print("[STRATEGY][ENTRY] entering strategy execution phase")
+
+            strategy_watchlist = (
+                list(strategy_context.focus_m)
+                or list(strategy_context.watchlist_k)
+                or list(watchlist_rows)
+            )
+
+            print(
+                "[STRATEGY][HANDOFF] "
+                f"strategy={self.selected_strategy_key} "
+                f"watchlist={len(strategy_watchlist)} "
+                f"focus={len(strategy_context.focus_m)} "
+                f"watchlist_k={len(strategy_context.watchlist_k)}"
+            )
+
+            if not strategy_watchlist:
+                print("[STRATEGY][SKIP] empty watchlist — no execution")
+                strategy_output = []
+            else:
+                print("[STRATEGY][EXECUTION] FORCED execution ON")
+
                 strategy_output = self.strategy_runner.process(
-                    strategy_key=self.selected_strategy_key or "ross_momentum",
+                    strategy_key="ross_momentum",
                     watchlist=strategy_watchlist,
                     snapshots=snapshots_by_symbol,
                     session_label=session_label,
                     timestamp_utc=timestamp_utc,
                     mode=self.run_mode,
                     session_phase=session_phase,
-                    execution_allowed=True if strategy_watchlist else session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"},
-                    execution_ready=True if strategy_watchlist else session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"},
-                    prep_only=False if strategy_watchlist else session_label in {"AH", "CLOSED"},
+                    execution_allowed=True,
+                    execution_ready=True,
+                    prep_only=False,
                 )
-            else:
-                filtered_pattern_results = self.strategy_runner.filter_pattern_results(
-                    pattern_results or [],
-                    strategy_context.focus_m,
-                )
-                strategy_intents = self.strategy_runner.generate_trade_intents(
-                    filtered_pattern_results,
-                    policy_decision=regime_policy_decision,
-                    signals=signals,
-                )
-                strategy_output = self.strategy_runner.run_from_intents(strategy_intents)
             strategy_output = self._merge_trade_intents([], strategy_output)
             strategy_output = self._annotate_trade_intents_with_regime(
                 strategy_output,
