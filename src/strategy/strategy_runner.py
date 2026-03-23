@@ -62,6 +62,23 @@ from src.config.config_resolver import get_config
 from src.scanner.session_pct_change import canonical_session_label
 
 
+def safe_get_config(key, default=None, required=False):
+    try:
+        value = get_config(key)
+        if value is None:
+            raise ValueError(f"Config key '{key}' returned None")
+        return value
+    except Exception as e:
+        if required:
+            raise RuntimeError(
+                f"[CONFIG][FATAL] Missing required config: {key}"
+            ) from e
+        print(
+            f"[CONFIG][WARN] Missing optional config: {key} → using default={default}"
+        )
+        return default
+
+
 class StrategyRunner:
     """Dispatches registered strategies to translate PatternResults into TradeIntents."""
 
@@ -185,7 +202,9 @@ class StrategyRunner:
         self.last_watchlist_symbols: List[str] = []
         self.last_watchlist_snapshots: dict[str, MarketSnapshot] = {}
 
-        selected_strategy_key = str(get_config("SELECTED_STRATEGY") or "").strip().lower()
+        selected_strategy_key = str(
+            safe_get_config("SELECTED_STRATEGY", default="", required=False) or ""
+        ).strip().lower()
 
         if strategies is not None:
             self.strategies = list(strategies)
@@ -253,14 +272,40 @@ class StrategyRunner:
         session_norm = canonical_session_label(session_label or "")
         print("[STRATEGY_RUNNER] START")
 
-        if not get_config("ROSS_MOMENTUM_STRATEGY_ENABLED", True):
+        run_mode = safe_get_config("RUN_MODE", required=True)
+        selected_strategy = safe_get_config("SELECTED_STRATEGY", default="", required=False)
+        execution_enabled = safe_get_config(
+            "EXECUTION_ENABLED", default=False, required=False
+        )
+        max_positions = safe_get_config("MAX_POSITIONS", default=1, required=False)
+        enabled = safe_get_config(
+            "ROSS_MOMENTUM_STRATEGY_ENABLED", default=True, required=False
+        )
+
+        if not enabled:
             raise RuntimeError("ROSS STRATEGY DISABLED — HARD FAILURE")
+
+        print("[STRATEGY_RUNNER][CONFIG_SNAPSHOT]")
+        print(
+            {
+                "RUN_MODE": run_mode,
+                "EXECUTION_ENABLED": execution_enabled,
+                "MAX_POSITIONS": max_positions,
+                "ROSS_ENABLED": enabled,
+                "SESSION": session_label,
+                "SESSION_NORMALIZED": session_norm,
+                "STRATEGY_KEY": safe_get_config(
+                    "SELECTED_STRATEGY", default=strategy_key, required=False
+                )
+                or strategy_key,
+            }
+        )
         print(
             "[STRATEGY_RUNNER][CONFIG] "
-            f"RUN_MODE={get_config('RUN_MODE_EFFECTIVE')} "
-            f"EXECUTION_ENABLED={get_config('EXECUTION_ENABLED_EFFECTIVE')} "
+            f"RUN_MODE={run_mode} "
+            f"EXECUTION_ENABLED={execution_enabled} "
             f"STRATEGY_ENABLED={bool(strategies)} "
-            f"SELECTED_STRATEGY={get_config('SELECTED_STRATEGY')}"
+            f"SELECTED_STRATEGY={selected_strategy}"
         )
         resolved_execution_allowed = (
             execution_allowed if execution_allowed is not None else session_norm in {"PRE", "RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
@@ -506,7 +551,14 @@ class StrategyRunner:
     ) -> List[object]:
         if not policy_decision or not policy_decision.applied:
             return list(self.strategies)
-        mode = str(get_config("ADAPTIVE_REGIME_STRATEGY_WEIGHTING_MODE") or "OFF").upper()
+        mode = str(
+            safe_get_config(
+                "ADAPTIVE_REGIME_STRATEGY_WEIGHTING_MODE",
+                default="OFF",
+                required=False,
+            )
+            or "OFF"
+        ).upper()
         if mode != "ENABLE_DISABLE":
             return list(self.strategies)
         eligible = set(policy_decision.eligible_strategies or [])
@@ -523,7 +575,14 @@ class StrategyRunner:
     ) -> List[TradeIntent]:
         if not policy_decision or not policy_decision.applied:
             return intents
-        mode = str(get_config("ADAPTIVE_REGIME_STRATEGY_WEIGHTING_MODE") or "OFF").upper()
+        mode = str(
+            safe_get_config(
+                "ADAPTIVE_REGIME_STRATEGY_WEIGHTING_MODE",
+                default="OFF",
+                required=False,
+            )
+            or "OFF"
+        ).upper()
         if mode != "WEIGHT":
             return intents
         weight = float(policy_decision.strategy_weights.get(strategy_name, 0.0))
