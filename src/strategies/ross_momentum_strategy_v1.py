@@ -127,7 +127,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         session_phase: str,
     ) -> List[TradeIntent]:
         symbol_traces: List[RossSymbolTrace] = []
-        real_detected_setups = 0
+        translated_intents: List[TradeIntent] = []
         synthetic_forced_intents = 0
         for row in watchlist:
             symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
@@ -189,19 +189,34 @@ class RossMomentumStrategyV1(BaseStrategy):
             )
             symbol_trace.pattern_traces = pattern_traces
             symbol_trace.detected_pattern_ids = [trace.pattern_id for trace in pattern_traces if trace.detected]
-            real_detected_setups += len(symbol_trace.detected_pattern_ids)
             if symbol_trace.detected_pattern_ids:
-                symbol_trace.dropped_detected_pattern_ids = list(symbol_trace.detected_pattern_ids)
-                for pattern_id in symbol_trace.detected_pattern_ids:
-                    print(
-                        "[ROSS][PATTERN_DROP] "
-                        f"symbol={symbol} pattern_id={pattern_id} disposition=strategy_v1_process_watchlist_observability_only"
-                    )
-                symbol_trace.final_outcome = "NO_SETUP:detected_but_not_translated_by_strategy_v1_runtime_path"
+                intents = []
                 for trace in symbol_trace.pattern_traces:
-                    if trace.detected:
-                        trace.post_detect_disposition = "dropped_by_strategy_v1_process_watchlist_path"
-                        trace.final_outcome = "DETECTED_BUT_DROPPED"
+                    if not trace.detected:
+                        continue
+
+                    intent = TradeIntent(
+                        symbol=symbol,
+                        direction="LONG",
+                        strategy_name=self.name,
+                        confidence=0.65,
+                        rationale=f"pattern_detected={trace.pattern_name}",
+                        trader_type=self.trader_type,
+                        pattern_name=trace.pattern_name,
+                    )
+
+                    intents.append(intent)
+
+                    trace.post_detect_disposition = "translated_to_trade_intent"
+                    trace.final_outcome = "DETECTED_AND_EXECUTED"
+
+                translated_intents.extend(intents)
+                symbol_trace.final_outcome = "SETUP_DETECTED_AND_TRANSLATED"
+
+                print(
+                    "[ROSS][TRADE_INTENT_CREATED] "
+                    f"symbol={symbol} intents={len(intents)} patterns={symbol_trace.detected_pattern_ids}"
+                )
             else:
                 symbol_trace.final_outcome = "NO_SETUP:no_detected_patterns"
                 print(
@@ -223,7 +238,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             session_phase=session_phase,
             runtime_mode=mode.value,
             symbol_traces=symbol_traces,
-            real_setup_trigger_count=0,
+            real_setup_trigger_count=len(translated_intents),
             synthetic_forced_intents=synthetic_forced_intents,
         )
         if cycle_summary.evaluated_count > 0 and cycle_summary.real_setup_trigger_count == 0:
@@ -235,12 +250,9 @@ class RossMomentumStrategyV1(BaseStrategy):
         )
         print(f"[PATTERN_FAILURE_TRACE][EVIDENCE] path={evidence_path}")
 
-        if mode not in {RunMode.SIM, RunMode.PAPER}:
-            print(
-                "[STRATEGY:RossMomentumV1] Fallback disabled outside SIM/PAPER "
-                f"mode={mode.value}"
-            )
-            return []
+        # LIVE MODE ENABLED — no restriction
+        if translated_intents:
+            return translated_intents
         if not watchlist:
             print("[STRATEGY:RossMomentumV1] No watchlist rows — fallback emits 0 intents")
             return []

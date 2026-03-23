@@ -125,7 +125,7 @@ def test_no_setup_summary_aggregates_reasons(tmp_path: Path) -> None:
     assert payload["cycle_summaries"]
 
 
-def test_detected_pattern_post_drop_is_visible(tmp_path: Path) -> None:
+def test_detected_pattern_translates_to_trade_intent(tmp_path: Path) -> None:
     strategy = RossMomentumStrategyV1()
     strategy._failure_trace_collector = RossPatternFailureTraceCollector(evidence_root=tmp_path)
     watchlist = [{
@@ -149,11 +149,15 @@ def test_detected_pattern_post_drop_is_visible(tmp_path: Path) -> None:
         mode=RunMode.LIVE,
         session_phase="PRE",
     )
-    assert intents == []
+    assert intents
+    assert all(intent.pattern_name for intent in intents)
     payload = json.loads((tmp_path / "latest_pattern_failure_trace.json").read_text())
     symbol_eval = next(item for item in payload["symbol_evaluations"] if item["symbol"] == "TEST")
     assert symbol_eval["detected_pattern_ids"]
-    assert symbol_eval["dropped_detected_pattern_ids"]
+    assert not symbol_eval["dropped_detected_pattern_ids"]
+    assert symbol_eval["final_outcome"] == "SETUP_DETECTED_AND_TRANSLATED"
+    cycle_summary = payload["cycle_summaries"][-1]
+    assert cycle_summary["real_setup_trigger_count"] > 0
 
 
 def test_missing_inputs_surface_in_trace(tmp_path: Path) -> None:
