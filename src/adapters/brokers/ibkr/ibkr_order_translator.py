@@ -83,7 +83,7 @@ class IbkrOrderTranslator:
         order_log = (
             f"[IBKR][ORDER_TRANSLATION] Translated Order: action={order.action} "
             f"orderType={order.orderType} totalQuantity={order.totalQuantity} "
-            f"tif={order.tif}"
+            f"tif={order.tif} outsideRth={getattr(order, 'outsideRth', None)}"
         )
         if getattr(order, "lmtPrice", None) is not None:
             order_log += f" lmtPrice={order.lmtPrice}"
