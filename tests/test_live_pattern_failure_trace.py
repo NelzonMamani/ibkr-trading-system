@@ -14,6 +14,7 @@ from src.strategies.ross_momentum.patterns.pattern_trace import (
     build_runtime_pattern_inputs,
 )
 from src.strategies.common.candles.candle_types import Candle
+from src.strategies.strategy_contracts import SessionContext
 from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
 
 
@@ -95,6 +96,24 @@ def test_pattern_trace_records_rejection_reason(monkeypatch) -> None:
         trace_collector=traces.append,
     )
     assert any(trace.rejection_reason in {"insufficient candles", "not regular session"} for trace in traces)
+
+
+def test_power_hour_maps_to_regular_session_context(monkeypatch) -> None:
+    row = _manual_focus_row()
+    snap = _snapshot()
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        lambda **kwargs: [Candle(open=4 + idx * 0.01, high=4.2 + idx * 0.01, low=3.9 + idx * 0.01, close=4.1 + idx * 0.01, volume=1000 + idx) for idx in range(20)],
+    )
+    inputs, _flags = build_runtime_pattern_inputs(
+        symbol="TMDE",
+        row=row,
+        snapshot=snap,
+        session_label="POWER_HOUR",
+        session_phase="POWER_HOUR",
+    )
+    assert inputs is not None
+    assert inputs.session_context == SessionContext.REGULAR
 
 
 def test_no_setup_summary_aggregates_reasons(tmp_path: Path, monkeypatch) -> None:

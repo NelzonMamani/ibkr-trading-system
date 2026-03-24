@@ -500,7 +500,7 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         quality_flags.append("pct_change_missing")
     if rvol is None:
         quality_flags.append("rvol_missing")
-    session_context = SessionContext.REGULAR if session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE", "REGULAR"} else SessionContext.AFTER if session in {"AH", "AFTER"} else SessionContext.PRE
+    session_context = SessionContext.REGULAR if session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE", "REGULAR", "POWER_HOUR", "LATE"} else SessionContext.AFTER if session in {"AH", "AFTER"} else SessionContext.PRE
     inputs = PatternInputs(
         symbol=symbol,
         timeframe="1m",

@@ -9,6 +9,8 @@ from src.scanner.session_pct_change import canonical_session_label, normalize_se
 def test_noncanonical_aliases_canonicalize_for_policy() -> None:
     assert normalize_session_label('MIDDAY') == 'RTH_MID'
     assert canonical_session_label('MIDDAY') == 'RTH_MID'
+    assert normalize_session_label('POWER_HOUR') == 'RTH_LATE'
+    assert canonical_session_label('POWER_HOUR') == 'RTH_LATE'
     assert canonical_session_label('WEEKEND') == 'CLOSED'
 
 
