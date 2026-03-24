@@ -316,12 +316,12 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "IBKR_PORT": {
         "type": int,
-        "default": 7497,
-        "env": ["IBKR_PORT"],
+        "default": 7496,
+        "env": [],
         "affects": ["IBKR", "MarketDataHub", "StorageEngine"],
-        "enforcement": "SOFT",
+        "enforcement": "HARD",
         "mutable": "static",
-        "description": "IBKR gateway port.",
+        "description": "IBKR gateway port baseline. Runtime enforces RUN_MODE=LIVE->7496 and RUN_MODE=PAPER/SIM->7497.",
     },
     "IBKR_CLIENT_ID": {
         "type": int,

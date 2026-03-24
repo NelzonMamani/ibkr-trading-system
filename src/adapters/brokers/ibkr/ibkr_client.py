@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import socket
 import threading
 import time
 from datetime import datetime, timezone
@@ -30,6 +32,7 @@ def _market_data_type_code(market_data_type: str) -> int:
 class IbkrClient(EWrapper, EClient):
     MAX_CLIENT_ID_RETRIES = 10
     NON_REJECTING_ORDER_WARNING_CODES = {2109}
+    CONNECT_RETRY_DELAYS_SECONDS = (2, 5, 10)
 
     """
     Thin wrapper around ibapi for read-only operations.
@@ -95,22 +98,49 @@ class IbkrClient(EWrapper, EClient):
                 "INVALID_RETRY_CONFIGURATION: host/port must be configured before IBKR connect"
             )
 
+        run_mode = str(os.getenv("RUN_MODE", "READ_ONLY")).upper()
+        if run_mode == "LIVE":
+            self.port = 7496
+        elif run_mode == "PAPER":
+            self.port = 7497
+
+        print("[IBKR][CONFIG]")
+        print(f"host={self.host}")
+        print(f"port={self.port}")
+        print(f"mode={run_mode}")
+
+        if not self._is_socket_reachable(timeout_seconds=2.0):
+            print(
+                f"[IBKR][PRECHECK_FAIL] host={self.host} port={self.port} reason=SOCKET_UNAVAILABLE"
+            )
+            raise RuntimeError("IBKR_CONNECTION_PRECHECK_FAILED")
+
         print(
             "[IBKR][CLIENT] connect "
             f"host={self.host} port={self.port} client_id={self.client_id} "
             f"timeout={self.snapshot_timeout_seconds} market_data_type={self.market_data_type} "
             f"readonly={self.readonly_enabled}"
         )
-        self._connection_event.clear()
-        super().connect(self.host, self.port, int(self.client_id))
+        for retry_index in range(len(self.CONNECT_RETRY_DELAYS_SECONDS) + 1):
+            if retry_index > 0:
+                print(
+                    f"[IBKR][RETRY] attempt={retry_index}/{len(self.CONNECT_RETRY_DELAYS_SECONDS)}"
+                )
+            try:
+                self._connection_event.clear()
+                self._stop_event.clear()
+                super().connect(self.host, self.port, int(self.client_id))
+                self._thread = threading.Thread(target=self._run_loop, daemon=True)
+                self._thread.start()
 
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run_loop, daemon=True)
-        self._thread.start()
-
-        if not self._connection_event.wait(timeout=self.snapshot_timeout_seconds):
-            self.disconnect()
-            raise RuntimeError("IBKR connection timeout waiting for handshake")
+                if not self._connection_event.wait(timeout=self.snapshot_timeout_seconds):
+                    raise RuntimeError("IBKR_CONNECTION_HANDSHAKE_FAILED")
+                break
+            except Exception:
+                self.disconnect()
+                if retry_index >= len(self.CONNECT_RETRY_DELAYS_SECONDS):
+                    raise
+                time.sleep(self.CONNECT_RETRY_DELAYS_SECONDS[retry_index])
 
         data_type_code = _market_data_type_code(self.market_data_type)
         print(f"[IBKR] Setting market data type={self.market_data_type} code={data_type_code}")
@@ -125,9 +155,11 @@ class IbkrClient(EWrapper, EClient):
             super().disconnect()
         finally:
             if self._thread and self._thread.is_alive():
-                self._thread.join(timeout=2)
+                if self._thread is not threading.current_thread():
+                    self._thread.join(timeout=2)
                 if self._thread.is_alive():  # pragma: no cover - defensive
                     print("[IBKR] Warning: network thread still alive after disconnect.")
+            self._thread = None
             print("[IBKR][DISCONNECTED] client disconnected")
 
     def ensure_connection(self) -> None:
@@ -159,6 +191,13 @@ class IbkrClient(EWrapper, EClient):
                 time.sleep(0.1)
             else:
                 break
+
+    def _is_socket_reachable(self, timeout_seconds: float = 2.0) -> bool:
+        try:
+            with socket.create_connection((self.host, int(self.port)), timeout=timeout_seconds):
+                return True
+        except OSError:
+            return False
 
     # --- Request/response helpers ---
     def _next_req_id(self) -> int:
