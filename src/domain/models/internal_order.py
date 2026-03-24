@@ -9,13 +9,13 @@ class InternalOrder:
     """
     Canonical internal order model for broker translations.
 
-    direction: "LONG" or "SHORT"
+    direction: "LONG", "SHORT", or "SELL" (close-long semantic)
     order_type: "MKT" or "LMT"
     """
 
     client_order_id: str
     symbol: str
-    direction: str  # "LONG" or "SHORT"
+    direction: str  # "LONG" | "SHORT" | "SELL"
     quantity: int
     order_type: str  # "MKT" | "LMT"
     limit_price: Optional[float] = None

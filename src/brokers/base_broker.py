@@ -9,13 +9,13 @@ class BrokerOrderRequest:
     """
     System-language order request (NOT broker-specific).
 
-    direction: "LONG" or "SHORT"
+    direction: "LONG", "SHORT", or "SELL" (close-long semantic)
     order_type: e.g. "MKT" for now (teaching)
     """
 
     client_order_id: str
     symbol: str
-    direction: str  # "LONG" or "SHORT" (system language)
+    direction: str  # "LONG" | "SHORT" | "SELL" (system language)
     quantity: int
     order_type: str = "MKT"  # teaching default
     trader_type: Optional[str] = None

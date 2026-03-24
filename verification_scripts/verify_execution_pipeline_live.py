@@ -26,6 +26,18 @@ def _normalize_submit_status(raw_status: str) -> str:
     return raw_status
 
 
+def _is_real_rejection(result) -> bool:
+    status = str(getattr(result, "status", "") or "").upper()
+    rejection_reason = str(getattr(result, "rejection_reason", "") or "").strip()
+    broker_code = str(getattr(result, "broker_error_code", "") or "").strip()
+
+    if status in {"REJECTED", "FAILED", "BLOCKED", "TIMED_OUT", "CANCELLED", "CANCELED"}:
+        return True
+    if rejection_reason and broker_code != "2109":
+        return True
+    return False
+
+
 def _decision(*, symbol: str, direction: str, decision_id: str) -> RiskDecision:
     return RiskDecision(
         symbol=symbol,
@@ -86,11 +98,13 @@ def main() -> int:
     submit_status = _normalize_submit_status(getattr(buy, "status", "UNKNOWN"))
     exit_submit_status = _normalize_submit_status(getattr(sell, "status", "UNKNOWN"))
     no_integrity_flags = not bool(engine.execution_integrity_flag)
+    no_real_rejection = not _is_real_rejection(buy) and not _is_real_rejection(sell)
     status = "PASS" if (
         fill_ok
         and position_open
         and closed
         and no_integrity_flags
+        and no_real_rejection
         and submit_status in {"Submitted", "Filled"}
         and exit_submit_status in {"Submitted", "Filled"}
     ) else "FAIL"

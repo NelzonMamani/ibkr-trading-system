@@ -59,7 +59,7 @@ class IbkrOrderTranslator:
     def validate(self, internal_order: InternalOrder) -> None:
         self._ensure_enabled()
 
-        if internal_order.direction not in {"LONG", "SHORT"}:
+        if internal_order.direction not in {"LONG", "SHORT", "SELL"}:
             raise RuntimeError(f"Unsupported direction: {internal_order.direction}")
 
         if internal_order.quantity <= 0:
@@ -109,6 +109,8 @@ class IbkrOrderTranslator:
         if direction == "LONG":
             return "BUY"
         if direction == "SHORT":
+            return "SELL"
+        if direction == "SELL":
             return "SELL"
         raise RuntimeError(f"Unsupported direction: {direction}")
 

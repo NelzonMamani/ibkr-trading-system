@@ -29,6 +29,7 @@ def _market_data_type_code(market_data_type: str) -> int:
 
 class IbkrClient(EWrapper, EClient):
     MAX_CLIENT_ID_RETRIES = 10
+    NON_REJECTING_ORDER_WARNING_CODES = {2109}
 
     """
     Thin wrapper around ibapi for read-only operations.
@@ -74,6 +75,7 @@ class IbkrClient(EWrapper, EClient):
         self._order_status_events: Dict[int, threading.Event] = {}
         self._order_status: Dict[int, Dict[str, Optional[float | int | str]]] = {}
         self._order_errors: Dict[int, Tuple[int, str]] = {}
+        self._order_warnings: Dict[int, Tuple[int, str]] = {}
         self._exec_details_by_order: Dict[int, List[dict]] = {}
         self._commission_by_exec_id: Dict[str, float] = {}
         self._account_summary_events: Dict[int, threading.Event] = {}
@@ -231,6 +233,9 @@ class IbkrClient(EWrapper, EClient):
 
     def get_order_error(self, order_id: int) -> Optional[Tuple[int, str]]:
         return self._order_errors.get(order_id)
+
+    def get_order_warning(self, order_id: int) -> Optional[Tuple[int, str]]:
+        return self._order_warnings.get(order_id)
 
 
     def get_account_summary(self, timeout_seconds: Optional[int] = None) -> Dict[str, str]:
@@ -702,18 +707,29 @@ class IbkrClient(EWrapper, EClient):
 
     # --- Error handling ---
     def error(self, reqId: int, errorCode: int, errorString: str):  # type: ignore[override]
+        is_non_rejecting_order_warning = (
+            errorCode in self.NON_REJECTING_ORDER_WARNING_CODES and reqId in self._order_status_events
+        )
         if reqId >= 0:
             self._errors[reqId] = (errorCode, errorString)
             if reqId in self._order_status_events:
-                self._order_errors[reqId] = (errorCode, errorString)
                 existing = self._order_status.get(reqId, {})
-                self._order_status[reqId] = {
-                    **existing,
-                    "status": existing.get("status", "REJECTED"),
-                    "broker_error_code": str(errorCode),
-                    "broker_error_message": errorString,
-                }
-                self._order_status_events[reqId].set()
+                if is_non_rejecting_order_warning:
+                    self._order_warnings[reqId] = (errorCode, errorString)
+                    self._order_status[reqId] = {
+                        **existing,
+                        "broker_warning_code": str(errorCode),
+                        "broker_warning_message": errorString,
+                    }
+                else:
+                    self._order_errors[reqId] = (errorCode, errorString)
+                    self._order_status[reqId] = {
+                        **existing,
+                        "status": existing.get("status", "REJECTED"),
+                        "broker_error_code": str(errorCode),
+                        "broker_error_message": errorString,
+                    }
+                    self._order_status_events[reqId].set()
             if reqId in self._contract_events:
                 self._contract_events[reqId].set()
             if reqId in self._market_events:
@@ -725,7 +741,11 @@ class IbkrClient(EWrapper, EClient):
                 self._account_summary_events[reqId].set()
             if reqId in self._scanner_events:
                 self._scanner_events[reqId].set()
-        message = f"[IBKR] Error reqId={reqId} code={errorCode} msg={errorString}"
+        if is_non_rejecting_order_warning:
+            print(f"[IBKR][WARN] order_id={reqId} code={errorCode} message={errorString}")
+            message = f"[IBKR] Warning reqId={reqId} code={errorCode} msg={errorString}"
+        else:
+            message = f"[IBKR] Error reqId={reqId} code={errorCode} msg={errorString}"
         print(message)
         if errorCode == 326:
             print("[IBKR][CONNECT_FAIL] code=326 client id already in use")
