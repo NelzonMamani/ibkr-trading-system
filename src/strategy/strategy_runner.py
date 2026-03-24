@@ -369,29 +369,6 @@ class StrategyRunner:
             )
         if len(watchlist) > 0 and len(results) == 0:
             print("[ALERT] NO_INTENTS_GENERATED — CHECK STRATEGY LOGIC")
-
-            # --- FORCE VALIDATION TRADE (TEMPORARY) ---
-            try:
-                from src.execution.trade_intent import TradeIntent
-            except Exception:
-                TradeIntent = globals().get("TradeIntent")
-
-            if TradeIntent and len(watchlist) > 0:
-                symbol = getattr(watchlist[0], "symbol", None)
-                if symbol:
-                    print("[FORCE_TRADE] Injecting fallback trade intent for validation", symbol)
-
-                    forced_intent = TradeIntent(
-                        symbol=symbol,
-                        direction="LONG",
-                        strategy_name="ROSS_VALIDATION",
-                        confidence=0.1,
-                        rationale="Temporary forced validation trade intent to exercise execution pipeline.",
-                        pattern_name="FORCED_EXECUTION",
-                        synthetic=True,
-                    )
-
-                    results.append(forced_intent)
         real_detected_setups = sum(1 for intent in results if not getattr(intent, "synthetic", False))
         synthetic_forced_intents = sum(1 for intent in results if getattr(intent, "synthetic", False))
         print(
@@ -403,6 +380,44 @@ class StrategyRunner:
             setup_name = getattr(intent, "strategy_name", getattr(intent, "setup_name", "UNKNOWN"))
             confidence = getattr(intent, "confidence", None)
             print("[INTENT]", f"symbol={symbol}", f"setup={setup_name}", f"confidence={confidence}")
+        if len(watchlist) > 0 and len(results) == 0:
+            patterns_called = 0
+            patterns_detected = 0
+            missing_inputs_count = 0
+            dominant_failure_reason = "no_pattern_traces"
+            for strategy in strategies:
+                collector = getattr(strategy, "_failure_trace_collector", None)
+                traces = getattr(collector, "_symbols", []) if collector is not None else []
+                if not traces:
+                    continue
+                cycle_slice = traces[-len(watchlist) :]
+                reasons: list[str] = []
+                for trace in cycle_slice:
+                    patterns_called += len(getattr(trace, "pattern_traces", []) or [])
+                    patterns_detected += len(getattr(trace, "detected_pattern_ids", []) or [])
+                    if getattr(trace, "pre_registry_failure_reason", None):
+                        missing_inputs_count += 1
+                    reasons.extend(
+                        [
+                            pattern_trace.rejection_reason
+                            for pattern_trace in (getattr(trace, "pattern_traces", []) or [])
+                            if getattr(pattern_trace, "rejection_reason", None)
+                        ]
+                    )
+                    if getattr(trace, "pre_registry_failure_reason", None):
+                        reasons.append(getattr(trace, "pre_registry_failure_reason"))
+                if reasons:
+                    reason_counts: dict[str, int] = defaultdict(int)
+                    for reason in reasons:
+                        reason_counts[str(reason)] += 1
+                    dominant_failure_reason = max(reason_counts.items(), key=lambda item: item[1])[0]
+                break
+            print("[ROSS][GLOBAL_DIAG]")
+            print(f"- symbols_evaluated={len(watchlist)}")
+            print(f"- patterns_called={patterns_called}")
+            print(f"- patterns_detected={patterns_detected}")
+            print(f"- dominant_failure_reason={dominant_failure_reason}")
+            print(f"- missing_inputs_count={missing_inputs_count}")
         results = self._apply_one_setup_per_symbol(results)
         results = self._apply_premarket_safety_filter(results, session_norm=session_norm, snapshots=snapshots)
         results = self._inject_live_probe_intents(results)
