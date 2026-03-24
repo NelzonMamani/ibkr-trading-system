@@ -28,29 +28,54 @@ class MicroPullbackPattern(PatternBase):
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
         candles = inputs.candles
-        if len(candles) < 5:
+        if len(candles) < 7:
             return self._rejected("insufficient candles", inputs)
         ema9 = inputs.indicators.ema9
         if ema9 is None:
             return self._rejected("missing EMA9", inputs)
-        last = candles[-1]
-        if last.close < ema9:
+        trigger = candles[-1]
+        if trigger.close < ema9:
             return self._rejected("price below EMA9", inputs)
+        if trigger.close <= trigger.open:
+            return self._rejected("no continuation close", inputs)
 
-        pullback = candles[-4:-1]
-        pullback_down = all(c.close <= c.open for c in pullback)
-        if not pullback_down:
+        pullback: list = []
+        cursor = len(candles) - 2
+        while cursor >= 0 and len(pullback) < 3:
+            candle = candles[cursor]
+            if candle.close <= candle.open:
+                pullback.insert(0, candle)
+                cursor -= 1
+                continue
+            break
+        if not pullback:
             return self._rejected("no 1-3 bar pullback", inputs)
+        impulse = candles[max(0, cursor - 2) : cursor + 1]
+        if len(impulse) < 2:
+            return self._rejected("missing initial impulse", inputs)
+        impulse_gain = impulse[-1].close - impulse[0].open
+        min_impulse = max(abs(impulse[0].open) * 0.003, 0.05)
+        if impulse_gain <= min_impulse:
+            return self._rejected("missing initial impulse", inputs)
+        impulse_high = max(c.high for c in impulse)
+        impulse_low = min(c.low for c in impulse)
+        pullback_low = min(c.low for c in pullback)
+        depth = (impulse_high - pullback_low) / max(impulse_high - impulse_low, 1e-9)
+        if depth > 0.45:
+            return self._rejected("pullback too deep", inputs)
+        pullback_high = max(c.high for c in pullback)
+        if trigger.close <= pullback_high:
+            return self._rejected("no continuation close", inputs)
 
         volume_avg = _avg_volume(candles)
-        volume_ok = last.volume >= volume_avg
+        volume_ok = trigger.volume >= volume_avg
         confidence = 0.65 if volume_ok else 0.55
-        tags = ["volume_confirmed" if volume_ok else "volume_soft"]
+        tags = ["volume_confirmed" if volume_ok else "volume_soft", "continuation_confirmed"]
 
         candle_evidence = [
             evidence
             for evidence in [
-                detect_long_wick(last),
+                detect_long_wick(trigger),
                 detect_engulfing(candles),
                 detect_three_soldiers_crows(candles),
             ]
@@ -59,8 +84,8 @@ class MicroPullbackPattern(PatternBase):
         tags.extend(evidence_tags(candle_evidence))
 
         rationale = (
-            "Price holding above EMA9 with 1-3 bar pullback.\n"
-            f"Last close={last.close:.2f}, EMA9={ema9:.2f}."
+            "Impulse, controlled 1-3 bar pullback, and continuation close back through pullback highs.\n"
+            f"Impulse gain={impulse_gain:.2f}, pullback depth={depth:.2%}, close={trigger.close:.2f}, EMA9={ema9:.2f}."
         )
         return self._detected(
             inputs,

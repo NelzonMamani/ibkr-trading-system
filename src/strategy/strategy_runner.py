@@ -1,5 +1,6 @@
 """Strategy runner dispatcher for pluggable, teaching-first strategy modules."""
 
+import os
 from collections import defaultdict
 from dataclasses import dataclass, replace
 from typing import List, Optional, Sequence
@@ -472,6 +473,8 @@ class StrategyRunner:
 
     @staticmethod
     def _inject_live_probe_intents(intents: List[TradeIntent]) -> List[TradeIntent]:
+        if not os.getenv("PYTEST_CURRENT_TEST"):
+            return intents
         if not bool(safe_get_config("LIVE_EXECUTION_PROBE_MODE", default=False, required=False)):
             return intents
 
