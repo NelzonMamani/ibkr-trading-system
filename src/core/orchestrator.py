@@ -911,7 +911,14 @@ class CoreOrchestrator:
             system_state = getattr(self, "system_state", None)
             if system_state is not None:
                 system_state.set_degraded(reason=message)
-        if not self._halt_emitted:
+        should_emit_halt = (not self._halt_emitted)
+        if not should_emit_halt and self._last_halt_reason is not None:
+            should_emit_halt = (
+                self._last_halt_reason.get("reason_code") != reason_code
+                or self._last_halt_reason.get("halt_stage") != halt_stage
+                or self._last_halt_reason.get("message") != message
+            )
+        if should_emit_halt:
             self._emit_canonical_halt(
                 reason_code=reason_code,
                 message=message,

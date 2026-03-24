@@ -123,6 +123,45 @@ def test_live_readonly_connectivity_retry(monkeypatch, tmp_path, capsys):
         assert halt_index < stop_complete_index
 
 
+def test_connectivity_halt_not_suppressed_by_prior_halt(monkeypatch, tmp_path):
+    monkeypatch.setenv("TRACE_LOG_DIR", str(tmp_path))
+    set_config_overrides({"RUN_MODE": "READ_ONLY", "IBKR_FALLBACK_ENABLED": False})
+
+    orchestrator = CoreOrchestrator()
+    orchestrator._emit_canonical_halt(
+        reason_code="PREVIOUS_HALT",
+        message="older halt should not suppress connectivity halt",
+        halt_stage="RISK",
+    )
+
+    def fake_run_once():
+        raise ProviderConnectionError("IBKR down")
+
+    monkeypatch.setattr(orchestrator, "run_once", fake_run_once)
+
+    def fake_sleep(_seconds):
+        orchestrator.stop_controller.request_stop(
+            StopMode.GRACEFUL, reason="test", source="test"
+        )
+
+    monkeypatch.setattr(time, "sleep", fake_sleep)
+
+    orchestrator.run_forever(max_cycles=None, cycle_sleep_seconds=0)
+
+    log_files = list(tmp_path.glob("trace_*.jsonl"))
+    assert log_files, "trace log file missing"
+
+    halt_reason_codes = []
+    for line in log_files[0].read_text(encoding="utf-8").splitlines():
+        record = json.loads(line)
+        if record.get("stage") != "HALT":
+            continue
+        metadata = _halt_metadata(record)
+        halt_reason_codes.append(metadata.get("reason_code"))
+
+    assert "PREVIOUS_HALT" in halt_reason_codes
+    assert "CONNECTIVITY_FAILURE" in halt_reason_codes
+
 def test_canonical_halt_schema_and_origin_are_stable(monkeypatch, tmp_path):
     monkeypatch.setenv("TRACE_LOG_DIR", str(tmp_path))
     set_config_overrides(
