@@ -41,6 +41,8 @@ class IbkrOrderTranslator:
         order.totalQuantity = internal_order.quantity
         order.orderType = self._map_order_type(internal_order.order_type)
         order.tif = self._map_time_in_force(internal_order.time_in_force)
+        order.eTradeOnly = False
+        order.firmQuoteOnly = False
 
         if order.orderType == "LMT":
             order.lmtPrice = internal_order.limit_price
