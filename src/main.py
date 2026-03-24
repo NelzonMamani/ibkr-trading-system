@@ -365,7 +365,7 @@ def main() -> None:
             trader_type=translation_trader_type,
         )
         translator.translate(internal_order)
-        print("[IBKR][DRY-RUN] Translation complete. Exiting before any broker connectivity.")
+        print("[IBKR][ORDER_TRANSLATION] Translation preview complete. Exiting before broker connectivity test.")
         return
 
     smoke_symbol = str(get_config("IBKR_SMOKE_SYMBOL") or "").strip().upper()

@@ -58,6 +58,7 @@ class ExecutionEngine:
         self._seen_idempotency_keys: set[str] = set()
         self.execution_integrity_flag: bool = False
         self._order_trace_stages: dict[str, set[str]] = {}
+        self._require_exit_stage: set[str] = set()
         self.position_records: dict[str, dict] = {}
         self._provider = self._resolve_provider(provider)
         self.provider: Optional[ExecutionProvider] = self._provider
@@ -321,7 +322,7 @@ class ExecutionEngine:
         self._assert_execution_enabled_for_order_construction("risk decision")
         raw_quantity = int(getattr(risk_decision, "max_position_size", 0) or 0)
         if str(getattr(risk_decision, "strategy_name", "")).upper() == "LIVE_EXECUTION_PROBE":
-            raw_quantity = int(get_config("PROBE_ORDER_SIZE") or 1)
+            raw_quantity = 1
         if self.run_mode == RunMode.LIVE and raw_quantity <= 0:
             raise RuntimeError("INVALID_INTERNAL_ORDER_QUANTITY")
         raw_quantity = max(1, raw_quantity)
@@ -369,6 +370,9 @@ class ExecutionEngine:
             return self._blocked_execution_from_request(request)
         if self._provider is None:
             raise RuntimeError("ExecutionEngine execution provider missing for execution path.")
+        if self.run_mode == RunMode.LIVE and str(request.strategy_name or "").upper() == "LIVE_EXECUTION_PROBE" and str(request.direction).upper() == "LONG":
+            print(f"[PROBE][BUY] symbol={request.symbol} qty={request.quantity}")
+            self._require_exit_stage.add(request.client_order_id)
         print("[ORDER_SUBMIT]", f"symbol={request.symbol}", f"side={request.direction}", f"qty={request.quantity}")
         self._record_order_stage(request.client_order_id, "SUBMIT")
         print(
@@ -513,6 +517,7 @@ class ExecutionEngine:
             next_retry_tick=None,
         )
         print(f"[PROBE][SELL] symbol={request.symbol} qty={filled_quantity}")
+        self._record_order_stage(request.client_order_id, "EXIT")
         exit_result = self._provider.place_order(exit_order)
         self._confirm_broker_ack(exit_order, exit_result)
         self._record_fill_and_position(exit_order, exit_result)
@@ -526,6 +531,8 @@ class ExecutionEngine:
 
     def _validate_trace_integrity(self, client_order_id: str) -> None:
         required = {"SUBMIT", "ACK", "FILL"}
+        if client_order_id in self._require_exit_stage:
+            required.add("EXIT")
         stages = self._order_trace_stages.get(client_order_id, set())
         missing = sorted(required - stages)
         if missing:
