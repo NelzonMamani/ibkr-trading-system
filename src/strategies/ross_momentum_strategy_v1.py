@@ -23,6 +23,24 @@ from src.strategies.ross_momentum.patterns.pattern_trace import (
     build_runtime_pattern_inputs,
     infer_symbol_source,
 )
+PATTERN_PRIORITY = {
+    "P_ORB": 100,
+    "P_PREMKT_BREAK": 95,
+    "P_OPENING_DRIVE": 90,
+    "P_HOD_BREAK": 85,
+    "P_FIRST_PULLBACK": 80,
+    "P_MICRO_PULLBACK": 75,
+    "P_BULL_FLAG": 70,
+    "P_CUP_HANDLE": 65,
+    "P_MOMENTUM_RECLAIM": 60,
+    "P_RANGE_BREAKOUT": 55,
+    "P_ASCENDING_TRIANGLE_BREAKOUT": 50,
+    "P_PENNANT_BREAK": 45,
+    "P_EMA_PULLBACK": 40,
+    "P_VWAP_PULLBACK": 35,
+    "P_THREE_BAR_PULLBACK": 30,
+    "P_SECOND_PULLBACK": 25,
+}
 
 
 class RossMomentumStrategyV1(BaseStrategy):
@@ -282,50 +300,66 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "[ROSS][CONFIRMATION][RESULT] "
                 f"symbol={symbol} passed={confirmation_passed} reasons={confirmation_reasons}"
             )
-            if symbol_trace.detected_pattern_ids:
-                intents = []
-                for trace in symbol_trace.pattern_traces:
-                    if not trace.detected:
-                        continue
+            for trace, result in zip(pattern_traces, results):
+                trace.confidence = float(getattr(result, "confidence", 0.0) or 0.0)
 
-                    intent = TradeIntent(
-                        symbol=symbol,
-                        direction="LONG",
-                        strategy_name=self.name,
-                        confidence=0.65,
-                        rationale=f"pattern_detected={trace.pattern_name}",
-                        trader_type=self.trader_type,
-                        pattern_name=trace.pattern_name,
-                    )
+            best_pattern = self._select_best_pattern(symbol_trace.pattern_traces)
 
-                    intents.append(intent)
-
-                    trace.post_detect_disposition = "translated_to_trade_intent"
-                    trace.final_outcome = "DETECTED_AND_EXECUTED"
-
-                translated_intents.extend(intents)
-                symbol_trace.final_outcome = "SETUP_DETECTED_AND_TRANSLATED"
-                print(f"[ROSS][TRIGGER][RESULT] symbol={symbol} triggered={bool(intents)}")
-
+            if not best_pattern:
+                symbol_trace.final_outcome = "NO_SETUP:no_valid_pattern"
                 print(
-                    "[ROSS][TRADE_INTENT_CREATED] "
-                    f"symbol={symbol} intents={len(intents)} patterns={symbol_trace.detected_pattern_ids}"
+                    f"[ROSS][DECISION] symbol={symbol} outcome=NO_TRADE reason=no_valid_pattern"
                 )
-                print(
-                    "[ROSS][DECISION] "
-                    f"symbol={symbol} outcome=TRADE_READY reason=patterns_detected:{symbol_trace.detected_pattern_ids}"
-                )
-            else:
-                symbol_trace.final_outcome = "NO_SETUP:no_detected_patterns"
                 print(f"[ROSS][TRIGGER][RESULT] symbol={symbol} triggered=False")
                 print(
                     "[ROSS][NO_SETUP_SUMMARY] "
                     f"symbol={symbol} detected_patterns=0 rejections={[trace.rejection_reason for trace in pattern_traces if trace.rejection_reason]}"
                 )
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
+
+            trade = self._build_trade_from_pattern(best_pattern, inputs)
+            if not trade:
+                symbol_trace.final_outcome = "NO_SETUP:invalid_trade_structure"
                 print(
-                    "[ROSS][DECISION] "
-                    f"symbol={symbol} outcome=NO_TRADE reason={symbol_trace.final_outcome}"
+                    f"[ROSS][DECISION] symbol={symbol} outcome=NO_TRADE reason=invalid_trade_structure"
                 )
+                print(f"[ROSS][TRIGGER][RESULT] symbol={symbol} triggered=False")
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
+
+            entry, stop = trade
+
+            intent = TradeIntent(
+                symbol=symbol,
+                direction="LONG",
+                strategy_name=self.name,
+                confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
+                rationale=(
+                    f"pattern_detected={best_pattern.pattern_id} | entry={entry:.4f} | stop={stop:.4f}"
+                ),
+                trader_type=self.trader_type,
+                stop_loss_price=stop,
+                invalidation_level=stop,
+                pattern_name=best_pattern.pattern_id,
+            )
+
+            translated_intents.append(intent)
+            best_pattern.post_detect_disposition = "translated_to_trade_intent"
+            best_pattern.final_outcome = "DETECTED_AND_EXECUTED"
+            symbol_trace.final_outcome = "SETUP_DETECTED_AND_TRANSLATED"
+            print(f"[ROSS][TRIGGER][RESULT] symbol={symbol} triggered=True")
+            print(
+                "[ROSS][FINAL_SELECTION] "
+                f"symbol={symbol} selected_pattern={best_pattern.pattern_id} "
+                f"entry={entry} stop={stop}"
+            )
+            print(
+                "[ROSS][DECISION] "
+                f"symbol={symbol} outcome=TRADE_READY reason=selected_pattern:{best_pattern.pattern_id}"
+            )
             symbol_traces.append(symbol_trace)
             self._failure_trace_collector.record_symbol(symbol_trace)
 
@@ -353,6 +387,61 @@ class RossMomentumStrategyV1(BaseStrategy):
         if not translated_intents:
             print("[ROSS][WARNING] NO TRADE INTENTS GENERATED")
         return translated_intents
+
+
+    def _select_best_pattern(self, pattern_traces):
+        detected = [pattern for pattern in pattern_traces if pattern.detected]
+
+        if not detected:
+            return None
+
+        for pattern in detected:
+            pattern.priority = PATTERN_PRIORITY.get(pattern.pattern_id, 0)
+            pattern.confidence = float(getattr(pattern, "confidence", 0.0) or 0.0)
+
+        detected.sort(
+            key=lambda pattern: (pattern.priority, pattern.confidence),
+            reverse=True,
+        )
+        return detected[0]
+
+    @staticmethod
+    def _build_trade_from_pattern(pattern, inputs):
+        candles = list(getattr(inputs, "candles", []) or [])
+        last_candle = candles[-1] if candles else None
+        price = getattr(inputs, "last_price", None)
+        if price is None and last_candle is not None:
+            price = getattr(last_candle, "close", None)
+
+        levels = getattr(inputs, "levels", None)
+        indicators = getattr(inputs, "indicators", None)
+
+        if pattern.pattern_id == "P_ORB":
+            entry = getattr(levels, "hod", None)
+            stop = getattr(levels, "lod", None)
+        elif pattern.pattern_id in {"P_HOD_BREAK", "P_PREMKT_BREAK"}:
+            entry = getattr(levels, "hod", None)
+            stop = (entry * 0.97) if entry is not None else None
+        elif pattern.pattern_id in {"P_MICRO_PULLBACK", "P_FIRST_PULLBACK"}:
+            entry = price
+            stop = getattr(indicators, "ema9", None)
+        elif pattern.pattern_id == "P_EMA_PULLBACK":
+            entry = price
+            stop = getattr(indicators, "ema20", None)
+        elif pattern.pattern_id == "P_VWAP_PULLBACK":
+            entry = price
+            stop = getattr(indicators, "vwap", None)
+        else:
+            entry = price
+            stop = (price * 0.97) if price is not None else None
+
+        if entry is None or stop is None:
+            return None
+
+        if stop >= entry:
+            return None
+
+        return float(entry), float(stop)
 
     def evaluate_exit_signals(self, active_trades: List, current_tick: int) -> List[ExitSignal]:
         return []

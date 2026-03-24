@@ -418,7 +418,6 @@ class StrategyRunner:
             print(f"- patterns_detected={patterns_detected}")
             print(f"- dominant_failure_reason={dominant_failure_reason}")
             print(f"- missing_inputs_count={missing_inputs_count}")
-        results = self._apply_one_setup_per_symbol(results)
         results = self._apply_premarket_safety_filter(results, session_norm=session_norm, snapshots=snapshots)
         results = self._inject_live_probe_intents(results)
         return results
