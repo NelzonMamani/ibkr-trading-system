@@ -47,6 +47,10 @@ class IbkrOrderTranslator:
         if order.orderType == "LMT":
             order.lmtPrice = internal_order.limit_price
 
+        # Keep outside regular trading hours enabled in translated orders.
+        # IBKR may still emit warning 2109 for certain destinations/order
+        # combinations, but that warning is handled by execution verification
+        # logic and must not be treated as an order rejection.
         order.outsideRth = True
 
         self.log_translation(contract, order)
