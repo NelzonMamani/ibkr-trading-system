@@ -1668,11 +1668,12 @@ class CoreOrchestrator:
                 print(f"[STRATEGY][NO_SIGNAL] symbol={symbol} reason=no_valid_setup_from_runner")
                 self._trace_event("NO_SETUP", {"strategy": strategy_key, "symbol": symbol})
 
+        gated_strategy_output = self._enforce_ross_execution_integrity(strategy_output or [])
         if mode_manager.allow_orders:
-            for intent in strategy_output or []:
+            for intent in gated_strategy_output:
                 self._trace_event("ORDER_SUBMITTED", {"strategy": strategy_key, "symbol": intent.symbol})
-        elif strategy_output:
-            for intent in strategy_output:
+        elif gated_strategy_output:
+            for intent in gated_strategy_output:
                 reason = "SESSION_BLOCK" if self.run_mode == RunMode.READ_ONLY else "EXECUTION_DISABLED"
                 self._trace_event("SESSION_BLOCK", {"strategy": strategy_key, "symbol": intent.symbol, "reason": reason})
                 self._trace_event("ORDER_SIMULATED", {"strategy": strategy_key, "symbol": intent.symbol, "reason": reason})
@@ -2420,6 +2421,7 @@ class CoreOrchestrator:
             strategy_output=strategy_output,
         )
         print("[TEACH] <<< Intent normalization stage complete — moving to risk stage.")
+        strategy_output = self._enforce_ross_execution_integrity(strategy_output)
 
         decision_output = []
         if strategy_output:
@@ -3171,6 +3173,31 @@ class CoreOrchestrator:
             "dropped": dropped,
         }
         return normalized
+
+    def _enforce_ross_execution_integrity(
+        self,
+        intents: List[TradeIntent],
+    ) -> List[TradeIntent]:
+        allowed_intents: List[TradeIntent] = []
+        for intent in intents or []:
+            strategy_name = str(getattr(intent, "strategy_name", "") or "")
+            if "ross" not in strategy_name.lower():
+                allowed_intents.append(intent)
+                continue
+            has_valid_pattern = bool(getattr(intent, "has_valid_pattern", False))
+            confirmation_passed = bool(getattr(intent, "confirmation_passed", False))
+            trigger_ready = bool(getattr(intent, "trigger_ready", False))
+            if not has_valid_pattern:
+                print(f"[ROSS][EXECUTION][REJECT] symbol={intent.symbol} reason=NO_VALID_PATTERN")
+                continue
+            if not confirmation_passed:
+                print(f"[ROSS][EXECUTION][REJECT] symbol={intent.symbol} reason=CONFIRMATION_FAILED")
+                continue
+            if not trigger_ready:
+                print(f"[ROSS][EXECUTION][REJECT] symbol={intent.symbol} reason=TRIGGER_NOT_READY")
+                continue
+            allowed_intents.append(intent)
+        return allowed_intents
 
     def _run_startup_validations(self) -> None:
         print("[VALIDATION] Running startup validations")
