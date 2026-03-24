@@ -9,6 +9,7 @@ from config.runtime_config import (  # noqa: E402
     EventReplayMode,
     RunMode,
     get_event_replay_mode,
+    resolve_ibkr_connection,
     get_run_mode,
 )
 from config.config_resolver import set_config_overrides  # noqa: E402
@@ -65,3 +66,14 @@ def test_read_only_execution_disabled(monkeypatch: pytest.MonkeyPatch):
     from config.runtime_config import execution_allowed  # noqa: E402
 
     assert execution_allowed(RunMode.READ_ONLY) is False
+
+
+def test_read_only_mode_does_not_force_paper_port(monkeypatch: pytest.MonkeyPatch):
+    set_config_overrides(None)
+    monkeypatch.setenv("RUN_MODE", RunMode.READ_ONLY.value)
+    monkeypatch.setenv("IBKR_PORT", "7600")
+
+    _, port, _, run_mode = resolve_ibkr_connection()
+
+    assert run_mode == RunMode.READ_ONLY.value
+    assert port == 7600

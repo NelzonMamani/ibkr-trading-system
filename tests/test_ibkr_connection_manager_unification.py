@@ -89,6 +89,34 @@ def test_manager_retries_deterministic_client_ids_and_keeps_config(monkeypatch):
     assert metadata["port"] == 7497
 
 
+def test_read_only_mode_skips_real_connection(monkeypatch):
+    from src.adapters.brokers.ibkr import ibkr_connection_manager as module
+
+    class ShouldNotConnectClient(FakeManagedClient):
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("IbkrClient should not be constructed in READ_ONLY mode")
+
+    monkeypatch.setattr(module, "IbkrClient", ShouldNotConnectClient)
+    manager = IbkrConnectionManager(
+        IbkrConnectionConfig(
+            host="127.0.0.1",
+            port=7497,
+            base_client_id=12,
+            snapshot_timeout_seconds=1,
+            market_data_type="LIVE",
+            readonly_enabled=True,
+            run_mode=RunMode.READ_ONLY.value,
+        )
+    )
+
+    client = manager.get_client()
+    metadata = manager.connection_metadata()
+
+    assert client.is_connected() is True
+    assert metadata["connected"] is True
+    assert metadata["connected_client_id"] == 12
+
+
 def test_live_capital_path_uses_manager(monkeypatch):
     class FakeManager:
         def __init__(self):

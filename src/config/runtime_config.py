@@ -134,8 +134,10 @@ def resolve_ibkr_connection() -> tuple[str, int, int, str]:
         port = int(env_port)
     elif run_mode == RunMode.LIVE.value:
         port = 7496
-    else:
+    elif run_mode == RunMode.PAPER.value:
         port = 7497
+    else:
+        port = int(_with_default("IBKR_PORT", 7497))
 
     client_id = int(
         os.getenv("IBKR_CLIENT_ID") or _with_default("IBKR_CLIENT_ID", 7)
@@ -143,7 +145,7 @@ def resolve_ibkr_connection() -> tuple[str, int, int, str]:
 
     if run_mode == RunMode.LIVE.value and port != 7496:
         raise RuntimeConfigError("LIVE mode must use port 7496")
-    if run_mode in {RunMode.PAPER.value, RunMode.SIM.value} and port != 7497:
+    if run_mode == RunMode.PAPER.value and port != 7497:
         raise RuntimeConfigError("PAPER mode must use port 7497")
 
     return host, port, client_id, run_mode

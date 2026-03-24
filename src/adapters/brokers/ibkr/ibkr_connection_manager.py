@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import socket
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import Lock
@@ -85,6 +86,22 @@ class IbkrConnectionManager:
         if not config.host or config.port <= 0:
             raise RuntimeError("INVALID_RETRY_CONFIGURATION")
         self._validate_runtime_safety()
+        run_mode = str(config.run_mode).upper()
+
+        if run_mode in {"LIVE", "PAPER"}:
+            if not self._is_socket_reachable(timeout_seconds=2.0):
+                print(
+                    f"[IBKR][PRECHECK_FAIL] host={config.host} port={config.port} reason=SOCKET_UNAVAILABLE"
+                )
+                raise RuntimeError("IBKR_CONNECTION_PRECHECK_FAILED")
+        elif config.readonly_enabled:
+            print("[IBKR][PRECHECK_SKIPPED] mode does not require live socket")
+            print("[IBKR][TEST_MODE] skipping real connection")
+            bypass_client = _BypassIbkrClient(mode=run_mode)
+            self._client = bypass_client  # type: ignore[assignment]
+            self._connected_client_id = config.base_client_id
+            self._connection_generation += 1
+            return bypass_client  # type: ignore[return-value]
 
         self._last_error = None
         for offset in range(config.max_client_id_retries):
@@ -143,6 +160,16 @@ class IbkrConnectionManager:
             f"(host={config.host} port={config.port} "
             f"base_client_id={config.base_client_id} last_error={self._last_error})"
         )
+
+    def _is_socket_reachable(self, timeout_seconds: float = 2.0) -> bool:
+        try:
+            with socket.create_connection(
+                (self._config.host, int(self._config.port)),
+                timeout=timeout_seconds,
+            ):
+                return True
+        except OSError:
+            return False
 
     def disconnect(self, reason: str = "manual") -> None:
         with self._lock:
@@ -236,7 +263,7 @@ class IbkrConnectionManager:
         run_mode = self._config.run_mode.upper()
         if run_mode == "LIVE" and self._config.port != 7496:
             raise RuntimeConfigError("LIVE mode must use port 7496")
-        if run_mode in {"PAPER", "SIM"} and self._config.port != 7497:
+        if run_mode == "PAPER" and self._config.port != 7497:
             raise RuntimeConfigError("PAPER mode must use port 7497")
         if run_mode == "LIVE" and not self._config.readonly_enabled and not get_execution_enabled():
             raise RuntimeConfigError(
@@ -297,3 +324,19 @@ def get_shared_ibkr_connection_manager(
                 )
             )
         return _default_manager
+
+
+class _BypassIbkrClient:
+    """No-op stand-in for non-tradeable modes that must not require a live socket."""
+
+    def __init__(self, mode: str) -> None:
+        self._mode = mode
+
+    def is_connected(self) -> bool:
+        return True
+
+    def disconnect(self) -> None:
+        return
+
+    def get_primary_account(self, timeout_seconds: Optional[int] = None) -> str:
+        return f"{self._mode}_SIMULATED"
