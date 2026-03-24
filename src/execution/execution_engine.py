@@ -4,6 +4,7 @@ Execution engine that routes through a broker adapter with deterministic retry s
 
 import hashlib
 import os
+import time
 from typing import List, Optional
 
 from src.brokers.base_broker import BrokerOrderRequest
@@ -55,6 +56,9 @@ class ExecutionEngine:
         self.pending_book = PendingOrderBook()
         self.current_tick: Optional[int] = None
         self._seen_idempotency_keys: set[str] = set()
+        self.execution_integrity_flag: bool = False
+        self._order_trace_stages: dict[str, set[str]] = {}
+        self.position_records: dict[str, dict] = {}
         self._provider = self._resolve_provider(provider)
         self.provider: Optional[ExecutionProvider] = self._provider
         self.broker = getattr(self._provider, "broker", None)
@@ -140,7 +144,12 @@ class ExecutionEngine:
         if gate_result is not None:
             return gate_result
 
+        if getattr(risk_decision, "entry_price", None) is None:
+            risk_decision.entry_price = self.price_feed.price_for(risk_decision.symbol, tick)
         order = self._order_from_risk_decision(risk_decision, tick)
+        required_fields_check = self._validate_required_order_fields(risk_decision, order)
+        if required_fields_check is not None:
+            return required_fields_check
         return self._route_order(order)
 
     def _session_gate_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
@@ -311,6 +320,8 @@ class ExecutionEngine:
     ) -> BrokerOrderRequest:
         self._assert_execution_enabled_for_order_construction("risk decision")
         raw_quantity = int(getattr(risk_decision, "max_position_size", 0) or 0)
+        if str(getattr(risk_decision, "strategy_name", "")).upper() == "LIVE_EXECUTION_PROBE":
+            raw_quantity = int(get_config("PROBE_ORDER_SIZE") or 1)
         if self.run_mode == RunMode.LIVE and raw_quantity <= 0:
             raise RuntimeError("INVALID_INTERNAL_ORDER_QUANTITY")
         raw_quantity = max(1, raw_quantity)
@@ -359,6 +370,11 @@ class ExecutionEngine:
         if self._provider is None:
             raise RuntimeError("ExecutionEngine execution provider missing for execution path.")
         print("[ORDER_SUBMIT]", f"symbol={request.symbol}", f"side={request.direction}", f"qty={request.quantity}")
+        self._record_order_stage(request.client_order_id, "SUBMIT")
+        print(
+            f"[ORDER][SUBMIT] order_id={request.client_order_id} symbol={request.symbol} "
+            f"side={request.direction} qty={request.quantity}"
+        )
         print(
             "[EXECUTION][AUDIT] "
             f"symbol={request.symbol} "
@@ -372,7 +388,11 @@ class ExecutionEngine:
             f"route={self.route_order(request)}"
         )
         result = self._provider.place_order(request)
+        result = self._confirm_broker_ack(request, result)
         self._log_ibkr_status(request, result)
+        self._record_fill_and_position(request, result)
+        self._run_live_probe_exit_if_needed(request, result)
+        self._validate_trace_integrity(request.client_order_id)
         if not self._provider.is_live():
             print(
                 f"[EXECUTION] {self.run_mode.value} mode active — "
@@ -382,6 +402,138 @@ class ExecutionEngine:
             print("[EXECUTION] LIVE broker order routed.")
         self._schedule_retry(request, result)
         return result
+
+    def _validate_required_order_fields(
+        self, risk_decision: RiskDecision, request: BrokerOrderRequest
+    ) -> Optional[ExecutionResult]:
+        entry_price = getattr(risk_decision, "entry_price", None)
+        quantity = getattr(request, "quantity", None)
+        side = getattr(request, "direction", None)
+        if entry_price is None or quantity is None or side is None:
+            print(
+                "[EXECUTION][BLOCK] "
+                f"symbol={request.symbol} reason=invalid_order_fields "
+                f"entry_price={entry_price} quantity={quantity} side={side}"
+            )
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="invalid_order_fields",
+            )
+        return None
+
+    def _confirm_broker_ack(
+        self, request: BrokerOrderRequest, result: ExecutionResult
+    ) -> ExecutionResult:
+        ibkr_order_id = getattr(result, "client_order_id", None) or request.client_order_id
+        status_raw = str(getattr(result, "status", "") or "").upper()
+        if not status_raw or status_raw == "UNKNOWN":
+            print(
+                f"[EXECUTION][ERROR] order_id={ibkr_order_id} reason=no_broker_ack"
+            )
+            self.execution_integrity_flag = True
+            return ExecutionResult(
+                symbol=request.symbol,
+                trader_type=request.trader_type or "UNKNOWN",
+                attempted=True,
+                status="FAILED",
+                rationale="no_broker_ack",
+                direction=request.direction,
+                quantity=request.quantity,
+                requested_quantity=request.quantity,
+                filled_quantity=0,
+                remaining_quantity=request.quantity,
+                fill_status="NONE",
+                note="no_broker_ack",
+                rejection_reason="no_broker_ack",
+                client_order_id=ibkr_order_id,
+                attempt_number=request.attempt_number,
+            )
+
+        broker_status = "Submitted"
+        if status_raw in {"FILLED"} or getattr(result, "filled_quantity", 0) > 0:
+            broker_status = "Filled"
+        elif status_raw in {"REJECTED", "FAILED", "BLOCKED", "TIMED_OUT"}:
+            broker_status = "Rejected"
+        print(f"[ORDER][ACK] order_id={ibkr_order_id} status={broker_status}")
+        self._record_order_stage(request.client_order_id, "ACK")
+        return result
+
+    def _record_fill_and_position(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
+        filled_quantity = int(getattr(result, "filled_quantity", 0) or 0)
+        if filled_quantity <= 0:
+            return
+        entry_price = getattr(result, "entry_price", None) or getattr(result, "average_fill_price", None)
+        print(
+            f"[ORDER][FILL] order_id={request.client_order_id} "
+            f"symbol={request.symbol} qty={filled_quantity} entry_price={entry_price}"
+        )
+        self._record_order_stage(request.client_order_id, "FILL")
+        self.position_records[request.symbol] = {
+            "entry_price": entry_price,
+            "quantity": filled_quantity,
+            "timestamp": time.time(),
+        }
+        if str(request.direction).upper() in {"SHORT", "SELL"}:
+            print(
+                f"[ORDER][EXIT] order_id={request.client_order_id} symbol={request.symbol} qty={filled_quantity}"
+            )
+            self._record_order_stage(request.client_order_id, "EXIT")
+
+    def _run_live_probe_exit_if_needed(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
+        if self.run_mode != RunMode.LIVE:
+            return
+        if not bool(get_config("LIVE_EXECUTION_PROBE_MODE")):
+            return
+        if str(request.strategy_name or "").upper() != "LIVE_EXECUTION_PROBE":
+            return
+        if str(request.direction).upper() != "LONG":
+            return
+        filled_quantity = int(getattr(result, "filled_quantity", 0) or 0)
+        if filled_quantity <= 0:
+            return
+
+        hold_seconds = int(get_config("PROBE_HOLD_SECONDS") or 60)
+        print(f"[PROBE][FILLED] symbol={request.symbol} qty={filled_quantity}")
+        print(f"[PROBE][HOLD] symbol={request.symbol} seconds={hold_seconds}")
+        time.sleep(max(0, hold_seconds))
+        exit_order = BrokerOrderRequest(
+            client_order_id=f"{request.client_order_id}-EXIT",
+            symbol=request.symbol,
+            direction="SHORT",
+            quantity=filled_quantity,
+            order_type="MKT",
+            trader_type=request.trader_type,
+            strategy_name=request.strategy_name,
+            attempt_number=1,
+            created_tick=request.created_tick,
+            stop_loss_price=None,
+            take_profit_price=None,
+            pattern_name=request.pattern_name,
+            invalidation_level=request.invalidation_level,
+            next_retry_tick=None,
+        )
+        print(f"[PROBE][SELL] symbol={request.symbol} qty={filled_quantity}")
+        exit_result = self._provider.place_order(exit_order)
+        self._confirm_broker_ack(exit_order, exit_result)
+        self._record_fill_and_position(exit_order, exit_result)
+        print(
+            f"[PROBE][CLOSED] symbol={request.symbol} status={getattr(exit_result, 'status', 'UNKNOWN')}"
+        )
+
+    def _record_order_stage(self, client_order_id: str, stage: str) -> None:
+        stages = self._order_trace_stages.setdefault(client_order_id, set())
+        stages.add(stage)
+
+    def _validate_trace_integrity(self, client_order_id: str) -> None:
+        required = {"SUBMIT", "ACK", "FILL"}
+        stages = self._order_trace_stages.get(client_order_id, set())
+        missing = sorted(required - stages)
+        if missing:
+            self.execution_integrity_flag = True
+            print(
+                f"[EXECUTION][INTEGRITY] order_id={client_order_id} "
+                f"missing_stages={','.join(missing)} execution_integrity_flag=True"
+            )
 
     def _log_ibkr_status(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
         normalized = str(getattr(result, "status", "UNKNOWN") or "UNKNOWN").upper()

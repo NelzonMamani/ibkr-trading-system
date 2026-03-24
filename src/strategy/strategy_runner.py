@@ -1,5 +1,6 @@
 """Strategy runner dispatcher for pluggable, teaching-first strategy modules."""
 
+from collections import defaultdict
 from dataclasses import dataclass, replace
 from typing import List, Optional, Sequence
 
@@ -402,7 +403,86 @@ class StrategyRunner:
             setup_name = getattr(intent, "strategy_name", getattr(intent, "setup_name", "UNKNOWN"))
             confidence = getattr(intent, "confidence", None)
             print("[INTENT]", f"symbol={symbol}", f"setup={setup_name}", f"confidence={confidence}")
+        results = self._apply_one_setup_per_symbol(results)
+        results = self._apply_premarket_safety_filter(results, session_norm=session_norm, snapshots=snapshots)
+        results = self._inject_live_probe_intents(results)
         return results
+
+    @staticmethod
+    def _apply_one_setup_per_symbol(intents: List[TradeIntent]) -> List[TradeIntent]:
+        grouped: dict[str, List[TradeIntent]] = defaultdict(list)
+        for intent in intents:
+            grouped[getattr(intent, "symbol", "UNKNOWN")].append(intent)
+
+        selected: List[TradeIntent] = []
+        for symbol, symbol_intents in grouped.items():
+            ranked = sorted(
+                symbol_intents,
+                key=lambda i: float(getattr(i, "confidence", 0.0) or 0.0),
+                reverse=True,
+            )
+            winner = ranked[0]
+            selected.append(winner)
+            for dropped in ranked[1:]:
+                dropped_setup = getattr(dropped, "strategy_name", getattr(dropped, "setup_name", "UNKNOWN"))
+                print(
+                    "[SETUP][DROP] "
+                    f"symbol={symbol} setup={dropped_setup} reason=multi_setup_conflict"
+                )
+        return selected
+
+    @staticmethod
+    def _apply_premarket_safety_filter(
+        intents: List[TradeIntent],
+        *,
+        session_norm: str,
+        snapshots: dict[str, MarketSnapshot],
+    ) -> List[TradeIntent]:
+        if session_norm != "PRE":
+            return intents
+
+        filtered: List[TradeIntent] = []
+        for intent in intents:
+            symbol = getattr(intent, "symbol", "")
+            snapshot = snapshots.get(symbol)
+            volume = getattr(snapshot, "volume", None)
+            rvol = getattr(intent, "rvol", None)
+            if volume is None or float(volume) < 1000 or rvol is None:
+                print(
+                    "[PRE][BLOCK] "
+                    f"symbol={symbol} volume={volume} rvol={rvol} reason=low_quality_data"
+                )
+                continue
+            filtered.append(intent)
+        return filtered
+
+    @staticmethod
+    def _inject_live_probe_intents(intents: List[TradeIntent]) -> List[TradeIntent]:
+        if not bool(safe_get_config("LIVE_EXECUTION_PROBE_MODE", default=False, required=False)):
+            return intents
+
+        probe_symbols = list(safe_get_config("PROBE_SYMBOLS", default=["UGRO"], required=False) or ["UGRO"])
+        merged = list(intents)
+        existing_symbols = {getattr(intent, "symbol", "").upper() for intent in intents}
+        for symbol in probe_symbols:
+            normalized_symbol = str(symbol or "").strip().upper()
+            if not normalized_symbol:
+                continue
+            if normalized_symbol in existing_symbols:
+                continue
+            print(f"[PROBE][BUY] symbol={normalized_symbol} source=forced_intent")
+            merged.append(
+                TradeIntent(
+                    symbol=normalized_symbol,
+                    direction="LONG",
+                    strategy_name="LIVE_EXECUTION_PROBE",
+                    confidence=1.0,
+                    rationale="Forced probe-mode buy intent for broker-path validation.",
+                    trader_type="MANUAL",
+                    synthetic=True,
+                )
+            )
+        return merged
 
     @staticmethod
     def _build_runner_registry(strategies: Sequence[object]) -> dict[str, object]:
