@@ -77,8 +77,8 @@ class RossPatternRegistry:
                 input_quality_flags=list(inputs.data_quality_flags),
             )
             print(
-                "[PATTERN_TRACE][START] "
-                f"symbol={inputs.symbol} pattern_id={pattern_id} pattern={pattern.name} "
+                "[PATTERN_TRACE][CALL] "
+                f"symbol={inputs.symbol} pattern={pattern.name} pattern_id={pattern_id} "
                 f"registry=RossPatternRegistry strategy={(trace_context or {}).get('strategy_key', 'ross_momentum')}"
             )
             print(
@@ -92,8 +92,9 @@ class RossPatternRegistry:
                 pattern_trace.final_outcome = "DETECTED" if result.detected else "REJECTED"
                 print(
                     "[PATTERN_TRACE][RESULT] "
-                    f"symbol={inputs.symbol} pattern_id={pattern_id} detected={result.detected} "
-                    f"rejection_reason={result.rejection_reason} pattern_name={result.pattern_name}"
+                    f"symbol={inputs.symbol} pattern={pattern.name} pattern_id={pattern_id} "
+                    f"detected={bool(result.detected)} reason={result.rejection_reason or 'detected'} "
+                    f"pattern_name={result.pattern_name}"
                 )
                 results.append(result)
             except Exception as exc:
@@ -105,7 +106,11 @@ class RossPatternRegistry:
                     "[PATTERN_TRACE][ERROR] "
                     f"symbol={inputs.symbol} pattern_id={pattern_id} pattern={pattern.name} error={exc!r}"
                 )
-                raise
+                print(
+                    "[PATTERN_TRACE][RESULT] "
+                    f"symbol={inputs.symbol} pattern={pattern.name} pattern_id={pattern_id} "
+                    "detected=False reason=exception"
+                )
             finally:
                 if trace_collector is not None:
                     trace_collector(pattern_trace)

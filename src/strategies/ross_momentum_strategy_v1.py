@@ -43,6 +43,39 @@ class RossMomentumStrategyV1(BaseStrategy):
         self._pattern_registry = RossPatternRegistry()
         self._failure_trace_collector = RossPatternFailureTraceCollector()
 
+    @staticmethod
+    def _pattern_input_validation(inputs) -> tuple[dict[str, object], list[str]]:
+        candle_count = len(getattr(inputs, "candles", []) or [])
+        has_recent_candles = candle_count >= 3
+        levels = getattr(inputs, "levels", None)
+        indicators = getattr(inputs, "indicators", None)
+        liquidity = getattr(inputs, "liquidity_context", None)
+        has_levels = bool(
+            levels
+            and any(
+                getattr(levels, key, None) is not None
+                for key in ("premarket_high", "premarket_low", "hod", "lod", "prior_close")
+            )
+        )
+        has_trend = bool(
+            indicators
+            and any(getattr(indicators, key, None) is not None for key in ("ema9", "ema20", "ema50", "ema200"))
+        )
+        has_volume = any(float(getattr(candle, "volume", 0.0) or 0.0) > 0.0 for candle in (getattr(inputs, "candles", []) or []))
+        has_rvol = bool(liquidity and getattr(liquidity, "rvol", None) is not None)
+        has_float = bool(liquidity and getattr(liquidity, "float_millions", None) is not None)
+        payload = {
+            "candle_count": candle_count,
+            "has_recent_candles": has_recent_candles,
+            "has_levels": has_levels,
+            "has_trend": has_trend,
+            "has_volume": has_volume,
+            "has_rvol": has_rvol,
+            "has_float": has_float,
+        }
+        missing = [name for name, ok in payload.items() if name != "candle_count" and not bool(ok)]
+        return payload, missing
+
     def evaluate(
         self,
         pattern_results: List[PatternResult],
@@ -135,7 +168,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
             if not symbol:
                 continue
-            print(f"[ROSS][SYMBOL] processing={symbol}")
+            print(f"[ROSS][SYMBOL_START] symbol={symbol}")
             snapshot = snapshots.get(symbol) if isinstance(snapshots, dict) else None
             symbol_source = infer_symbol_source(row)
             symbol_trace = RossSymbolTrace(
@@ -165,7 +198,13 @@ class RossMomentumStrategyV1(BaseStrategy):
             print("[PATTERN_PIPELINE] DONE")
             if inputs is None:
                 print(f"[PATTERN_INPUT][SKIP] symbol={symbol} reason=failed_to_build_inputs")
-                symbol_trace.final_outcome = "SKIPPED:failed_to_build_inputs"
+                symbol_trace.pre_registry_failure_reason = "failed_to_build_inputs"
+                symbol_trace.final_outcome = "NO_SETUP:failed_to_build_inputs"
+                print(f"[ROSS][NO_SETUP_SUMMARY] symbol={symbol} reason=failed_to_build_inputs")
+                print(
+                    "[ROSS][DECISION] "
+                    f"symbol={symbol} outcome=NO_TRADE reason={symbol_trace.final_outcome}"
+                )
                 symbol_trace.pattern_traces = []
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
@@ -179,6 +218,16 @@ class RossMomentumStrategyV1(BaseStrategy):
                 quality_flags=quality_flags,
             )
             symbol_trace.input_summary = input_summary.to_dict()
+            print(
+                "[ROSS][INPUT_SUMMARY] "
+                f"symbol={symbol} candle_count={input_summary.candle_count} last={input_summary.last_price} "
+                f"rvol={input_summary.rvol} float={input_summary.float_millions} "
+                f"levels_present={input_summary.levels_present} indicators_present={input_summary.indicators_present}"
+            )
+
+            print("[ROSS][SETUP_PHASE][START]")
+            setup_count = 1 if input_summary.candle_count > 0 else 0
+            print(f"[ROSS][SETUP_PHASE][RESULT] symbol={symbol} setups_found={setup_count}")
 
             pattern_traces = []
             registry_context = {
@@ -209,6 +258,17 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "[ROSS][PATTERN_RESULTS] "
                 f"symbol={symbol} registry=RossPatternRegistry audited_registry_match=true pattern_ids={registry_pattern_ids}"
             )
+            pattern_inputs, missing_inputs = self._pattern_input_validation(inputs)
+            print(
+                "[PATTERN_TRACE][INPUTS] "
+                f"symbol={symbol} payload={json.dumps(pattern_inputs, sort_keys=True)}"
+            )
+            if missing_inputs:
+                print(
+                    "[PATTERN_TRACE][INPUT_ERROR] "
+                    f"symbol={symbol} missing={missing_inputs}"
+                )
+                symbol_trace.pre_registry_failure_reason = f"missing_inputs:{','.join(missing_inputs)}"
             results = self._pattern_registry.run(
                 inputs,
                 trace_context=registry_context,
@@ -216,6 +276,12 @@ class RossMomentumStrategyV1(BaseStrategy):
             )
             symbol_trace.pattern_traces = pattern_traces
             symbol_trace.detected_pattern_ids = [trace.pattern_id for trace in pattern_traces if trace.detected]
+            confirmation_reasons = [trace.rejection_reason for trace in pattern_traces if trace.rejection_reason]
+            confirmation_passed = bool(symbol_trace.detected_pattern_ids)
+            print(
+                "[ROSS][CONFIRMATION][RESULT] "
+                f"symbol={symbol} passed={confirmation_passed} reasons={confirmation_reasons}"
+            )
             if symbol_trace.detected_pattern_ids:
                 intents = []
                 for trace in symbol_trace.pattern_traces:
@@ -239,22 +305,27 @@ class RossMomentumStrategyV1(BaseStrategy):
 
                 translated_intents.extend(intents)
                 symbol_trace.final_outcome = "SETUP_DETECTED_AND_TRANSLATED"
+                print(f"[ROSS][TRIGGER][RESULT] symbol={symbol} triggered={bool(intents)}")
 
                 print(
                     "[ROSS][TRADE_INTENT_CREATED] "
                     f"symbol={symbol} intents={len(intents)} patterns={symbol_trace.detected_pattern_ids}"
                 )
+                print(
+                    "[ROSS][DECISION] "
+                    f"symbol={symbol} outcome=TRADE_READY reason=patterns_detected:{symbol_trace.detected_pattern_ids}"
+                )
             else:
                 symbol_trace.final_outcome = "NO_SETUP:no_detected_patterns"
+                print(f"[ROSS][TRIGGER][RESULT] symbol={symbol} triggered=False")
                 print(
                     "[ROSS][NO_SETUP_SUMMARY] "
                     f"symbol={symbol} detected_patterns=0 rejections={[trace.rejection_reason for trace in pattern_traces if trace.rejection_reason]}"
                 )
-
-            print(
-                "[ROSS][DECISION] "
-                f"symbol={symbol} real_detected={len(symbol_trace.detected_pattern_ids)} synthetic_intents=0 final_outcome={symbol_trace.final_outcome}"
-            )
+                print(
+                    "[ROSS][DECISION] "
+                    f"symbol={symbol} outcome=NO_TRADE reason={symbol_trace.final_outcome}"
+                )
             symbol_traces.append(symbol_trace)
             self._failure_trace_collector.record_symbol(symbol_trace)
 
@@ -281,33 +352,7 @@ class RossMomentumStrategyV1(BaseStrategy):
 
         if not translated_intents:
             print("[ROSS][WARNING] NO TRADE INTENTS GENERATED")
-
-        # LIVE MODE ENABLED — no restriction
-        if translated_intents:
-            return translated_intents
-        if not watchlist:
-            print("[STRATEGY:RossMomentumV1] No watchlist rows — fallback emits 0 intents")
-            return []
-        row = watchlist[0]
-        symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
-        if not symbol:
-            print("[STRATEGY:RossMomentumV1] Watchlist row missing symbol — fallback emits 0 intents")
-            return []
-        intent = TradeIntent(
-            symbol=symbol,
-            direction="LONG",
-            strategy_name=self.name,
-            confidence=0.61,
-            rationale="Deterministic watchlist fallback intent for RossMomentum in non-signal cycles.",
-            trader_type=self.trader_type,
-            pattern_name="ROSS_WATCHLIST_FALLBACK",
-            synthetic=True,
-        )
-        print(
-            "[STRATEGY:RossMomentumV1] Fallback intent emitted "
-            f"symbol={symbol} mode={mode.value} session={session_label} phase={session_phase} synthetic=true"
-        )
-        return [intent]
+        return translated_intents
 
     def evaluate_exit_signals(self, active_trades: List, current_tick: int) -> List[ExitSignal]:
         return []
