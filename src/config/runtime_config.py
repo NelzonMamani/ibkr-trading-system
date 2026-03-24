@@ -264,6 +264,9 @@ def get_ibkr_submit_only_symbol(default: str | None = None) -> str | None:
 
 
 def get_ibkr_paper_only_enforced(default: bool = True) -> bool:
+    run_mode = get_run_mode()
+    if run_mode == RunMode.LIVE:
+        return False
     return bool(_with_default("IBKR_PAPER_ONLY_ENFORCED", default))
 
 

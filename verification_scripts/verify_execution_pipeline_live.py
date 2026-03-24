@@ -8,8 +8,22 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from src.brokers.ibkr_live_broker import IbkrLiveBroker
+from src.config.runtime_config import get_run_mode
+from src.core.active_trade_registry import ActiveTradeRegistry
+from src.core.event_collector import EventCollector
 from src.execution.execution_engine import ExecutionEngine
+from src.execution.execution_providers import IbkrExecutionProvider
 from src.models.data_models import RiskDecision
+
+
+def _normalize_submit_status(raw_status: str) -> str:
+    normalized = str(raw_status or "").upper()
+    if normalized in {"ACKED", "ACKNOWLEDGED", "SUBMITTED"}:
+        return "Submitted"
+    if normalized == "FILLED":
+        return "Filled"
+    return raw_status
 
 
 def _decision(*, symbol: str, direction: str, decision_id: str) -> RiskDecision:
@@ -26,8 +40,36 @@ def _decision(*, symbol: str, direction: str, decision_id: str) -> RiskDecision:
     )
 
 
+def _build_execution_engine() -> ExecutionEngine:
+    mode = get_run_mode()
+    print(f"[VERIFY_EXECUTION] run_mode={mode.value}")
+
+    trade_registry = ActiveTradeRegistry()
+    event_collector = EventCollector()
+    broker = IbkrLiveBroker(
+        event_collector=event_collector,
+        trade_registry=trade_registry,
+        run_mode=mode,
+    )
+    broker.ensure_connection()
+    if broker.connection_manager is None or not broker.connection_manager.is_connected():
+        raise RuntimeError("[VERIFY_EXECUTION][ERROR] IBKR not connected")
+    print("[VERIFY_EXECUTION] IBKR connection active")
+
+    provider = IbkrExecutionProvider(
+        broker=broker,
+        trade_registry=trade_registry,
+        run_mode=mode,
+    )
+    return ExecutionEngine(
+        provider=provider,
+        trade_registry=trade_registry,
+        event_collector=event_collector,
+    )
+
+
 def main() -> int:
-    engine = ExecutionEngine()
+    engine = _build_execution_engine()
     symbol = "UGRO"
 
     buy = engine.execute_trade(_decision(symbol=symbol, direction="LONG", decision_id="verify-buy"))
@@ -39,9 +81,19 @@ def main() -> int:
     ) >= 1
     closed = bool(exit_recorded)
 
-    status = "PASS" if fill_ok and position_open and closed else "FAIL"
-    print(f"submit_status={buy.status}")
-    print(f"exit_submit_status={sell.status}")
+    submit_status = _normalize_submit_status(getattr(buy, "status", "UNKNOWN"))
+    exit_submit_status = _normalize_submit_status(getattr(sell, "status", "UNKNOWN"))
+    no_integrity_flags = not bool(engine.execution_integrity_flag)
+    status = "PASS" if (
+        fill_ok
+        and position_open
+        and closed
+        and no_integrity_flags
+        and submit_status in {"Submitted", "Filled"}
+        and exit_submit_status in {"Submitted", "Filled"}
+    ) else "FAIL"
+    print(f"submit_status={submit_status}")
+    print(f"exit_submit_status={exit_submit_status}")
     print(f"fill_ok={fill_ok}")
     print(f"position_open={position_open}")
     print(f"exit_recorded={exit_recorded}")

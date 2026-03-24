@@ -70,23 +70,22 @@ class IbkrOrderTranslator:
 
     def log_translation(self, contract: Contract, order: Order) -> None:
         print(
-            "[IBKR][DRY-RUN] Translated Contract: "
+            "[IBKR][ORDER_TRANSLATION] Translated Contract: "
             f"symbol={contract.symbol} exchange={contract.exchange} "
             f"currency={contract.currency} secType={contract.secType}"
         )
         order_log = (
-            f"[IBKR][DRY-RUN] Translated Order: action={order.action} "
+            f"[IBKR][ORDER_TRANSLATION] Translated Order: action={order.action} "
             f"orderType={order.orderType} totalQuantity={order.totalQuantity} "
-            f"tif={order.tif} outsideRth={getattr(order, 'outsideRth', None)}"
+            f"tif={order.tif}"
         )
         if getattr(order, "lmtPrice", None) is not None:
             order_log += f" lmtPrice={order.lmtPrice}"
         print(order_log)
-        print("IBKR ORDER TRANSLATION DRY-RUN — NO SUBMISSION PERFORMED")
 
     def _log_pre_translation(self, internal_order: InternalOrder) -> None:
         print(
-            "[IBKR][DRY-RUN] Preparing translation for "
+            "[IBKR][ORDER_TRANSLATION] Preparing translation for "
             f"client_order_id={internal_order.client_order_id} "
             f"symbol={internal_order.symbol} "
             f"direction={internal_order.direction} "

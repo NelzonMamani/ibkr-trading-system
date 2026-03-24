@@ -17,6 +17,16 @@ from src.execution.execution_providers import IbkrExecutionProvider
 from src.models.data_models import RiskDecision
 
 
+
+
+def _normalize_submit_status(raw_status: str) -> str:
+    normalized = str(raw_status or "").upper()
+    if normalized in {"ACKED", "ACKNOWLEDGED", "SUBMITTED"}:
+        return "Submitted"
+    if normalized == "FILLED":
+        return "Filled"
+    return raw_status
+
 def _decision(symbol: str, direction: str, decision_id: str) -> RiskDecision:
     return RiskDecision(
         symbol=symbol,
@@ -84,10 +94,20 @@ def main() -> int:
 
     closed = bool(exit_recorded)
 
-    status = "PASS" if fill_ok and position_open and closed else "FAIL"
+    submit_status = _normalize_submit_status(getattr(buy, "status", "UNKNOWN"))
+    exit_submit_status = _normalize_submit_status(getattr(sell, "status", "UNKNOWN"))
+    no_integrity_flags = not bool(engine.execution_integrity_flag)
+    status = "PASS" if (
+        fill_ok
+        and position_open
+        and closed
+        and no_integrity_flags
+        and submit_status in {"Submitted", "Filled"}
+        and exit_submit_status in {"Submitted", "Filled"}
+    ) else "FAIL"
 
-    print(f"submit_status={buy.status}")
-    print(f"exit_submit_status={sell.status}")
+    print(f"submit_status={submit_status}")
+    print(f"exit_submit_status={exit_submit_status}")
     print(f"fill_ok={fill_ok}")
     print(f"position_open={position_open}")
     print(f"exit_recorded={exit_recorded}")

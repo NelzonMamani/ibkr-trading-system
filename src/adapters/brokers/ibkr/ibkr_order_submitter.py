@@ -111,6 +111,9 @@ class IbkrOrderSubmitter:
         try:
             self._emit_attempted(internal_order, ibkr_order_id=None)
             try:
+                run_mode = str(getattr(self.config.run_mode, "value", self.config.run_mode)).upper()
+                if run_mode == "LIVE" and self.config.order_submission_enabled:
+                    self._log("[IBKR][LIVE_SUBMIT] sending real order")
                 ibkr_order_id = client.submit_order(contract, order)
             except Exception as exc:
                 error = f"IBKR placeOrder failed: {exc}"

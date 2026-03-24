@@ -79,12 +79,17 @@ class IbkrLiveBroker(BaseBroker):
                 default_exchange=get_ibkr_default_exchange(),
                 default_currency=get_ibkr_default_currency(),
             )
+        paper_only_enforced = get_ibkr_paper_only_enforced()
+        if self.run_mode == RunMode.LIVE:
+            paper_only_enforced = False
+            print("[EXECUTION][MODE] LIVE execution unlocked")
+
         settings = OrderSubmissionSettings(
             run_mode=self.run_mode,
             order_submission_enabled=get_ibkr_order_submission_enabled(default=False),
             kill_switch=get_ibkr_kill_switch(),
             max_orders_per_run=get_ibkr_max_orders_per_run(),
-            paper_only_enforced=get_ibkr_paper_only_enforced(),
+            paper_only_enforced=paper_only_enforced,
             paper_host=get_ibkr_paper_host(),
             paper_port=get_ibkr_paper_port(),
             live_port=get_ibkr_live_port(),

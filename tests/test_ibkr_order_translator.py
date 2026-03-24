@@ -47,7 +47,7 @@ def test_long_market_translation(capsys):
     assert order.outsideRth is True
 
     captured = capsys.readouterr().out
-    assert "IBKR ORDER TRANSLATION DRY-RUN — NO SUBMISSION PERFORMED" in captured
+    assert "[IBKR][ORDER_TRANSLATION] Translated Order:" in captured
 
 
 def test_short_limit_translation():
