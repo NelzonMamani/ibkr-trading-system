@@ -139,6 +139,13 @@ class IbkrOrderSubmitter:
             if acked_at:
                 broker_error_code = self._extract_broker_error_code(client, ibkr_order_id, status_payload)
                 broker_error_message = self._extract_broker_error_message(client, ibkr_order_id, status_payload)
+                broker_warning_code = self._extract_broker_warning_code(client, ibkr_order_id, status_payload)
+                broker_warning_message = self._extract_broker_warning_message(client, ibkr_order_id, status_payload)
+                if broker_warning_code == "2109":
+                    self._log(
+                        f"[IBKR][WARN] order_id={ibkr_order_id} code={broker_warning_code} "
+                        f"message={broker_warning_message or ''}".rstrip()
+                    )
                 if str(ack_status or "").upper() in {"REJECTED", "FAILED", "BLOCKED", "TIMED_OUT", "CANCELLED", "CANCELED"}:
                     rejection_reason = broker_error_message or ack_status or "IBKR_REJECTED"
                     self._log(
@@ -177,8 +184,8 @@ class IbkrOrderSubmitter:
                     submitted_at=submitted_at,
                     acked_at=acked_at,
                     ibkr_order_id=ibkr_order_id,
-                    broker_error_code=broker_error_code,
-                    broker_error_message=broker_error_message,
+                    broker_error_code=broker_error_code or broker_warning_code,
+                    broker_error_message=broker_error_message or broker_warning_message,
                     **fill_payload,
                 )
 
@@ -284,6 +291,28 @@ class IbkrOrderSubmitter:
             order_error = client.get_order_error(ibkr_order_id)
             if order_error is not None:
                 return str(order_error[1])
+        return None
+
+    @staticmethod
+    def _extract_broker_warning_code(client, ibkr_order_id: int, status_payload: dict[str, Any]) -> Optional[str]:
+        code = status_payload.get("broker_warning_code")
+        if code is not None:
+            return str(code)
+        if hasattr(client, "get_order_warning"):
+            order_warning = client.get_order_warning(ibkr_order_id)
+            if order_warning is not None:
+                return str(order_warning[0])
+        return None
+
+    @staticmethod
+    def _extract_broker_warning_message(client, ibkr_order_id: int, status_payload: dict[str, Any]) -> Optional[str]:
+        message = status_payload.get("broker_warning_message")
+        if message:
+            return str(message)
+        if hasattr(client, "get_order_warning"):
+            order_warning = client.get_order_warning(ibkr_order_id)
+            if order_warning is not None:
+                return str(order_warning[1])
         return None
 
     def _capture_fill_details(self, client, internal_order: InternalOrder, ibkr_order_id: int) -> dict:
