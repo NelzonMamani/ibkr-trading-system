@@ -1394,6 +1394,17 @@ class CoreOrchestrator:
             return f"[FOCUS][REASON] {symbol} pattern_detected_but_risk_blocked"
         return f"[FOCUS][REASON] {symbol} no_pattern"
 
+    @staticmethod
+    def _enforce_ross_execution_integrity(strategy_output: List[TradeIntent]) -> List[TradeIntent]:
+        """
+        Preserve execution integrity filtering behavior for Ross intents.
+
+        This is currently a pass-through to avoid changing business behavior in
+        trace-completeness fixes that must still account for a potential empty
+        post-gating intent list.
+        """
+        return list(strategy_output or [])
+
     def _run_position_management_tick(self, now: datetime) -> None:
         tick_seconds = int(get_config("POSITION_MANAGEMENT_TICK_SECONDS"))
         if tick_seconds <= 0:
@@ -1668,14 +1679,31 @@ class CoreOrchestrator:
                 print(f"[STRATEGY][NO_SIGNAL] symbol={symbol} reason=no_valid_setup_from_runner")
                 self._trace_event("NO_SETUP", {"strategy": strategy_key, "symbol": symbol})
 
+        raw_strategy_output = strategy_output or []
+        gated_strategy_output = self._enforce_ross_execution_integrity(raw_strategy_output)
+
         if mode_manager.allow_orders:
-            for intent in strategy_output or []:
-                self._trace_event("ORDER_SUBMITTED", {"strategy": strategy_key, "symbol": intent.symbol})
-        elif strategy_output:
-            for intent in strategy_output:
-                reason = "SESSION_BLOCK" if self.run_mode == RunMode.READ_ONLY else "EXECUTION_DISABLED"
-                self._trace_event("SESSION_BLOCK", {"strategy": strategy_key, "symbol": intent.symbol, "reason": reason})
-                self._trace_event("ORDER_SIMULATED", {"strategy": strategy_key, "symbol": intent.symbol, "reason": reason})
+            if gated_strategy_output:
+                for intent in gated_strategy_output:
+                    self._trace_event("ORDER_SUBMITTED", {"strategy": strategy_key, "symbol": intent.symbol})
+            else:
+                # CRITICAL: emit trace even when nothing passed gating
+                self._trace_event("ORDER_SIMULATED", {
+                    "strategy": strategy_key,
+                    "reason": "NO_VALID_INTENTS_AFTER_GATING",
+                })
+        else:
+            if raw_strategy_output:
+                for intent in raw_strategy_output:
+                    reason = "SESSION_BLOCK" if self.run_mode == RunMode.READ_ONLY else "EXECUTION_DISABLED"
+                    self._trace_event("SESSION_BLOCK", {"strategy": strategy_key, "symbol": intent.symbol, "reason": reason})
+                    self._trace_event("ORDER_SIMULATED", {"strategy": strategy_key, "symbol": intent.symbol, "reason": reason})
+            else:
+                # CRITICAL: still emit trace even with zero intents
+                self._trace_event("ORDER_SIMULATED", {
+                    "strategy": strategy_key,
+                    "reason": "NO_INTENTS_PRODUCED",
+                })
 
         intent_count = len(strategy_output or [])
         if strategy_output:
