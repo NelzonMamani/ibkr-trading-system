@@ -74,7 +74,8 @@ def main() -> int:
     print(f"[VERIFY_EXECUTION] probe_symbol={symbol}")
 
     buy = engine.execute_trade(_decision(symbol=symbol, direction="LONG", decision_id="verify-buy"))
-    sell = engine.execute_trade(_decision(symbol=symbol, direction="SHORT", decision_id="verify-sell"))
+    print(f"[PROBE][EXIT_INTENT] symbol={symbol} side=SELL close_position=True")
+    sell = engine.execute_trade(_decision(symbol=symbol, direction="SELL", decision_id="verify-sell"))
     fill_ok = int(getattr(buy, "filled_quantity", 0) or 0) >= 1
     position_open = symbol in engine.position_records
     exit_recorded = any("EXIT" in stages for stages in engine._order_trace_stages.values()) or int(

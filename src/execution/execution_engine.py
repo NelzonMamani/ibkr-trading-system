@@ -5,6 +5,7 @@ Execution engine that routes through a broker adapter with deterministic retry s
 import hashlib
 import os
 import time
+import uuid
 from typing import List, Optional
 
 from src.brokers.base_broker import BrokerOrderRequest
@@ -327,13 +328,7 @@ class ExecutionEngine:
             raise RuntimeError("INVALID_INTERNAL_ORDER_QUANTITY")
         raw_quantity = max(1, raw_quantity)
         requested_quantity = self._clamp_order_quantity(raw_quantity, symbol=risk_decision.symbol)
-        client_order_id = self._client_order_id(
-            risk_decision.symbol,
-            risk_decision.trader_type,
-            risk_decision.strategy_name,
-            risk_decision.direction,
-            tick,
-        )
+        client_order_id = f"{risk_decision.decision_id}-{uuid.uuid4().hex[:8]}"
         print(
             "[ORDER] submit "
             f"id={client_order_id} symbol={risk_decision.symbol} qty={requested_quantity} "
@@ -373,6 +368,8 @@ class ExecutionEngine:
         if self.run_mode == RunMode.LIVE and str(request.strategy_name or "").upper() == "LIVE_EXECUTION_PROBE" and str(request.direction).upper() == "LONG":
             print(f"[PROBE][BUY] symbol={request.symbol} qty={request.quantity}")
             self._require_exit_stage.add(request.client_order_id)
+        if str(request.direction).upper() == "SELL" and request.symbol in self.position_records:
+            print(f"[EXECUTION][CLOSE] symbol={request.symbol} qty={request.quantity}")
         print("[ORDER_SUBMIT]", f"symbol={request.symbol}", f"side={request.direction}", f"qty={request.quantity}")
         self._record_order_stage(request.client_order_id, "SUBMIT")
         print(
@@ -505,7 +502,7 @@ class ExecutionEngine:
         exit_order = BrokerOrderRequest(
             client_order_id=f"{request.client_order_id}-EXIT",
             symbol=request.symbol,
-            direction="SHORT",
+            direction="SELL",
             quantity=filled_quantity,
             order_type="MKT",
             trader_type=request.trader_type,
@@ -518,6 +515,7 @@ class ExecutionEngine:
             invalidation_level=request.invalidation_level,
             next_retry_tick=None,
         )
+        print(f"[PROBE][EXIT_INTENT] symbol={request.symbol} side=SELL close_position=True")
         print(f"[PROBE][SELL] symbol={request.symbol} qty={filled_quantity}")
         self._record_order_stage(request.client_order_id, "EXIT")
         exit_result = self._provider.place_order(exit_order)
