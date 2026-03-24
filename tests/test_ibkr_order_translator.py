@@ -48,6 +48,7 @@ def test_long_market_translation(capsys):
 
     captured = capsys.readouterr().out
     assert "[IBKR][ORDER_TRANSLATION] Translated Order:" in captured
+    assert "outsideRth=True" in captured
 
 
 def test_short_limit_translation():
