@@ -449,6 +449,8 @@ class ExecutionEngine:
                 fill_status="NONE",
                 note="no_broker_ack",
                 rejection_reason="no_broker_ack",
+                broker_error_code=str(getattr(result, "broker_error_code", "") or "") or None,
+                broker_error_message=getattr(result, "broker_error_message", None),
                 client_order_id=ibkr_order_id,
                 attempt_number=request.attempt_number,
             )
@@ -551,6 +553,9 @@ class ExecutionEngine:
             print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=FILLED")
         if normalized in {"BLOCKED", "FAILED", "REJECTED", "TIMED_OUT"}:
             print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=REJECTED")
+            reason = getattr(result, "rejection_reason", None) or getattr(result, "rationale", None) or "UNKNOWN"
+            code = getattr(result, "broker_error_code", None) or "UNKNOWN"
+            print(f"[EXECUTION][REJECT] symbol={request.symbol} reason={reason} code={code}")
         if normalized in {"CANCELLED", "CANCELED"}:
             print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=CANCELLED")
 

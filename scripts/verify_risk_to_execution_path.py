@@ -82,6 +82,7 @@ def main() -> int:
     engine = _build_execution_engine()
 
     symbol = "UGRO"
+    print(f"[VERIFY_EXECUTION] probe_symbol={symbol}")
 
     buy = engine.execute_trade(_decision(symbol=symbol, direction="LONG", decision_id="verify-buy"))
     sell = engine.execute_trade(_decision(symbol=symbol, direction="SHORT", decision_id="verify-sell"))
@@ -108,6 +109,12 @@ def main() -> int:
 
     print(f"submit_status={submit_status}")
     print(f"exit_submit_status={exit_submit_status}")
+    print(f"buy_rejection_reason={getattr(buy, 'rejection_reason', None)}")
+    print(f"buy_broker_error_code={getattr(buy, 'broker_error_code', None)}")
+    print(f"buy_broker_error_message={getattr(buy, 'broker_error_message', None)}")
+    print(f"sell_rejection_reason={getattr(sell, 'rejection_reason', None)}")
+    print(f"sell_broker_error_code={getattr(sell, 'broker_error_code', None)}")
+    print(f"sell_broker_error_message={getattr(sell, 'broker_error_message', None)}")
     print(f"fill_ok={fill_ok}")
     print(f"position_open={position_open}")
     print(f"exit_recorded={exit_recorded}")

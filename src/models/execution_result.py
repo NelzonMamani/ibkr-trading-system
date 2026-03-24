@@ -41,6 +41,8 @@ class ExecutionResult:
     retry_scheduled: bool = False
     next_retry_tick: Optional[int] = None
     rejection_reason: Optional[str] = None
+    broker_error_code: Optional[str] = None
+    broker_error_message: Optional[str] = None
     spread: Optional[Decimal] = None
     bid_price: Optional[Decimal] = None
     ask_price: Optional[Decimal] = None
