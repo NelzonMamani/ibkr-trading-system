@@ -73,6 +73,7 @@ class IbkrClient(EWrapper, EClient):
         self._next_order_id: Optional[int] = None
         self._order_status_events: Dict[int, threading.Event] = {}
         self._order_status: Dict[int, Dict[str, Optional[float | int | str]]] = {}
+        self._order_errors: Dict[int, Tuple[int, str]] = {}
         self._exec_details_by_order: Dict[int, List[dict]] = {}
         self._commission_by_exec_id: Dict[str, float] = {}
         self._account_summary_events: Dict[int, threading.Event] = {}
@@ -227,6 +228,9 @@ class IbkrClient(EWrapper, EClient):
             found = True
             total_commission += commission
         return round(total_commission, 2) if found else None
+
+    def get_order_error(self, order_id: int) -> Optional[Tuple[int, str]]:
+        return self._order_errors.get(order_id)
 
 
     def get_account_summary(self, timeout_seconds: Optional[int] = None) -> Dict[str, str]:
@@ -700,6 +704,16 @@ class IbkrClient(EWrapper, EClient):
     def error(self, reqId: int, errorCode: int, errorString: str):  # type: ignore[override]
         if reqId >= 0:
             self._errors[reqId] = (errorCode, errorString)
+            if reqId in self._order_status_events:
+                self._order_errors[reqId] = (errorCode, errorString)
+                existing = self._order_status.get(reqId, {})
+                self._order_status[reqId] = {
+                    **existing,
+                    "status": existing.get("status", "REJECTED"),
+                    "broker_error_code": str(errorCode),
+                    "broker_error_message": errorString,
+                }
+                self._order_status_events[reqId].set()
             if reqId in self._contract_events:
                 self._contract_events[reqId].set()
             if reqId in self._market_events:
@@ -738,7 +752,9 @@ class IbkrClient(EWrapper, EClient):
         whyHeld: str,
         mktCapPrice: float,
     ):  # type: ignore[override]
+        existing = self._order_status.get(orderId, {})
         self._order_status[orderId] = {
+            **existing,
             "status": status,
             "filled": int(filled),
             "remaining": int(remaining),

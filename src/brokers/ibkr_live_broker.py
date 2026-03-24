@@ -412,6 +412,9 @@ class IbkrLiveBroker(BaseBroker):
             retry_scheduled=False,
             next_retry_tick=None,
             gateway_decision="BLOCK" if status == "BLOCKED" else "LIVE",
+            rejection_reason=result.rejection_reason or result.error,
+            broker_error_code=result.broker_error_code,
+            broker_error_message=result.broker_error_message,
         )
 
     def cancel_order(self, client_order_id: str) -> None:

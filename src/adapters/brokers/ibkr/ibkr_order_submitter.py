@@ -37,6 +37,9 @@ class SubmissionResult:
     fill_status: Optional[str] = None
     commission: Optional[float] = None
     slippage: Optional[float] = None
+    rejection_reason: Optional[str] = None
+    broker_error_code: Optional[str] = None
+    broker_error_message: Optional[str] = None
 
 
 @dataclass
@@ -132,8 +135,31 @@ class IbkrOrderSubmitter:
                 f"submitted_count={self.guard.submitted_count()}"
             )
 
-            ack_status, acked_at = self._wait_for_ack(client, ibkr_order_id)
+            ack_status, acked_at, status_payload = self._wait_for_ack(client, ibkr_order_id)
             if acked_at:
+                broker_error_code = self._extract_broker_error_code(client, ibkr_order_id, status_payload)
+                broker_error_message = self._extract_broker_error_message(client, ibkr_order_id, status_payload)
+                if str(ack_status or "").upper() in {"REJECTED", "FAILED", "BLOCKED", "TIMED_OUT", "CANCELLED", "CANCELED"}:
+                    rejection_reason = broker_error_message or ack_status or "IBKR_REJECTED"
+                    self._log(
+                        f"[IBKR][REJECT] order_id={ibkr_order_id} code={broker_error_code or 'UNKNOWN'} message={rejection_reason}"
+                    )
+                    self._emit_failed(
+                        internal_order,
+                        reason=rejection_reason,
+                        ibkr_order_id=ibkr_order_id,
+                    )
+                    return self._result(
+                        internal_order,
+                        status=str(ack_status or "REJECTED").upper(),
+                        error=rejection_reason,
+                        submitted_at=submitted_at,
+                        acked_at=acked_at,
+                        ibkr_order_id=ibkr_order_id,
+                        rejection_reason=rejection_reason,
+                        broker_error_code=broker_error_code,
+                        broker_error_message=broker_error_message,
+                    )
                 self._emit_ack(internal_order, ibkr_order_id, ack_status)
                 print("[ORDER_ACK]", f"order_id={ibkr_order_id}", f"status={ack_status}")
                 self._log(
@@ -151,6 +177,8 @@ class IbkrOrderSubmitter:
                     submitted_at=submitted_at,
                     acked_at=acked_at,
                     ibkr_order_id=ibkr_order_id,
+                    broker_error_code=broker_error_code,
+                    broker_error_message=broker_error_message,
                     **fill_payload,
                 )
 
@@ -225,14 +253,38 @@ class IbkrOrderSubmitter:
 
         return None
 
-    def _wait_for_ack(self, client, ibkr_order_id: int) -> tuple[Optional[str], Optional[datetime]]:
+    def _wait_for_ack(
+        self, client, ibkr_order_id: int
+    ) -> tuple[Optional[str], Optional[datetime], dict[str, Any]]:
         status = client.wait_for_order_status(
             ibkr_order_id, timeout_seconds=self.config.ack_timeout_seconds
         )
         if status is None:
-            return None, None
+            return None, None, {}
         ack_status = status.get("status")
-        return ack_status, datetime.now(timezone.utc)
+        return ack_status, datetime.now(timezone.utc), status
+
+    @staticmethod
+    def _extract_broker_error_code(client, ibkr_order_id: int, status_payload: dict[str, Any]) -> Optional[str]:
+        code = status_payload.get("broker_error_code")
+        if code is not None:
+            return str(code)
+        if hasattr(client, "get_order_error"):
+            order_error = client.get_order_error(ibkr_order_id)
+            if order_error is not None:
+                return str(order_error[0])
+        return None
+
+    @staticmethod
+    def _extract_broker_error_message(client, ibkr_order_id: int, status_payload: dict[str, Any]) -> Optional[str]:
+        message = status_payload.get("broker_error_message")
+        if message:
+            return str(message)
+        if hasattr(client, "get_order_error"):
+            order_error = client.get_order_error(ibkr_order_id)
+            if order_error is not None:
+                return str(order_error[1])
+        return None
 
     def _capture_fill_details(self, client, internal_order: InternalOrder, ibkr_order_id: int) -> dict:
         status = client.wait_for_order_status(
@@ -406,6 +458,9 @@ class IbkrOrderSubmitter:
         fill_status: Optional[str] = None,
         commission: Optional[float] = None,
         slippage: Optional[float] = None,
+        rejection_reason: Optional[str] = None,
+        broker_error_code: Optional[str] = None,
+        broker_error_message: Optional[str] = None,
     ) -> SubmissionResult:
         return SubmissionResult(
             client_order_id=internal_order.client_order_id,
@@ -422,6 +477,9 @@ class IbkrOrderSubmitter:
             fill_status=fill_status,
             commission=commission,
             slippage=slippage,
+            rejection_reason=rejection_reason,
+            broker_error_code=broker_error_code,
+            broker_error_message=broker_error_message,
         )
 
     def _log_banner(self) -> None:
