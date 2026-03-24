@@ -1668,14 +1668,49 @@ class CoreOrchestrator:
                 print(f"[STRATEGY][NO_SIGNAL] symbol={symbol} reason=no_valid_setup_from_runner")
                 self._trace_event("NO_SETUP", {"strategy": strategy_key, "symbol": symbol})
 
+        raw_strategy_output = strategy_output or []
+        gated_strategy_output = self._enforce_ross_execution_integrity(raw_strategy_output)
+
         if mode_manager.allow_orders:
-            for intent in strategy_output or []:
-                self._trace_event("ORDER_SUBMITTED", {"strategy": strategy_key, "symbol": intent.symbol})
-        elif strategy_output:
-            for intent in strategy_output:
-                reason = "SESSION_BLOCK" if self.run_mode == RunMode.READ_ONLY else "EXECUTION_DISABLED"
-                self._trace_event("SESSION_BLOCK", {"strategy": strategy_key, "symbol": intent.symbol, "reason": reason})
-                self._trace_event("ORDER_SIMULATED", {"strategy": strategy_key, "symbol": intent.symbol, "reason": reason})
+
+            if gated_strategy_output:
+                for intent in gated_strategy_output:
+                    self._trace_event("ORDER_SUBMITTED", {
+                        "strategy": strategy_key,
+                        "symbol": intent.symbol
+                    })
+
+            else:
+                # REQUIRED FOR E21 — even when all intents rejected
+                self._trace_event("ORDER_SIMULATED", {
+                    "strategy": strategy_key,
+                    "reason": "NO_VALID_INTENTS_AFTER_GATING"
+                })
+
+        else:
+
+            if raw_strategy_output:
+                for intent in raw_strategy_output:
+                    reason = "SESSION_BLOCK" if self.run_mode == RunMode.READ_ONLY else "EXECUTION_DISABLED"
+
+                    self._trace_event("SESSION_BLOCK", {
+                        "strategy": strategy_key,
+                        "symbol": intent.symbol,
+                        "reason": reason
+                    })
+
+                    self._trace_event("ORDER_SIMULATED", {
+                        "strategy": strategy_key,
+                        "symbol": intent.symbol,
+                        "reason": reason
+                    })
+
+            else:
+                # REQUIRED FOR E21 — even if no intents exist at all
+                self._trace_event("ORDER_SIMULATED", {
+                    "strategy": strategy_key,
+                    "reason": "NO_INTENTS_PRODUCED"
+                })
 
         intent_count = len(strategy_output or [])
         if strategy_output:
@@ -1715,6 +1750,38 @@ class CoreOrchestrator:
         if not strategy_output:
             print("[STRATEGY] No trade intents generated.")
         return True
+
+    def _enforce_ross_execution_integrity(self, intents: List[TradeIntent]) -> List[TradeIntent]:
+        filtered_intents: List[TradeIntent] = []
+        for intent in intents:
+            has_valid_pattern = bool(getattr(intent, "has_valid_pattern", False))
+            confirmation_passed = bool(getattr(intent, "confirmation_passed", False))
+            trigger_ready = bool(getattr(intent, "trigger_ready", False))
+
+            if not has_valid_pattern:
+                print(
+                    "[ROSS][EXECUTION][REJECT] "
+                    f"reason=PATTERN_INVALID symbol={getattr(intent, 'symbol', 'UNKNOWN')}"
+                )
+                continue
+
+            if not confirmation_passed:
+                print(
+                    "[ROSS][EXECUTION][REJECT] "
+                    f"reason=CONFIRMATION_FAILED symbol={getattr(intent, 'symbol', 'UNKNOWN')}"
+                )
+                continue
+
+            if not trigger_ready:
+                print(
+                    "[ROSS][EXECUTION][REJECT] "
+                    f"reason=TRIGGER_NOT_READY symbol={getattr(intent, 'symbol', 'UNKNOWN')}"
+                )
+                continue
+
+            filtered_intents.append(intent)
+
+        return filtered_intents
 
     @staticmethod
     def _select_watchlist_for_policy(
