@@ -40,6 +40,8 @@ class SubmissionResult:
     rejection_reason: Optional[str] = None
     broker_error_code: Optional[str] = None
     broker_error_message: Optional[str] = None
+    broker_warning_code: Optional[str] = None
+    broker_warning_message: Optional[str] = None
 
 
 @dataclass
@@ -139,7 +141,14 @@ class IbkrOrderSubmitter:
             if acked_at:
                 broker_error_code = self._extract_broker_error_code(client, ibkr_order_id, status_payload)
                 broker_error_message = self._extract_broker_error_message(client, ibkr_order_id, status_payload)
-                if str(ack_status or "").upper() in {"REJECTED", "FAILED", "BLOCKED", "TIMED_OUT", "CANCELLED", "CANCELED"}:
+                broker_warning_code = self._extract_broker_warning_code(client, ibkr_order_id, status_payload)
+                broker_warning_message = self._extract_broker_warning_message(client, ibkr_order_id, status_payload)
+                if broker_warning_code == "2109":
+                    self._log(
+                        f"[IBKR][WARN] order_id={ibkr_order_id} code={broker_warning_code} message={broker_warning_message}"
+                    )
+                fatal_statuses = {"REJECTED", "FAILED", "BLOCKED", "TIMED_OUT", "CANCELLED", "CANCELED", "INACTIVE", "API_ERROR"}
+                if str(ack_status or "").upper() in fatal_statuses:
                     rejection_reason = broker_error_message or ack_status or "IBKR_REJECTED"
                     self._log(
                         f"[IBKR][REJECT] order_id={ibkr_order_id} code={broker_error_code or 'UNKNOWN'} message={rejection_reason}"
@@ -159,6 +168,8 @@ class IbkrOrderSubmitter:
                         rejection_reason=rejection_reason,
                         broker_error_code=broker_error_code,
                         broker_error_message=broker_error_message,
+                        broker_warning_code=broker_warning_code,
+                        broker_warning_message=broker_warning_message,
                     )
                 self._emit_ack(internal_order, ibkr_order_id, ack_status)
                 print("[ORDER_ACK]", f"order_id={ibkr_order_id}", f"status={ack_status}")
@@ -179,6 +190,8 @@ class IbkrOrderSubmitter:
                     ibkr_order_id=ibkr_order_id,
                     broker_error_code=broker_error_code,
                     broker_error_message=broker_error_message,
+                    broker_warning_code=broker_warning_code,
+                    broker_warning_message=broker_warning_message,
                     **fill_payload,
                 )
 
@@ -215,7 +228,17 @@ class IbkrOrderSubmitter:
                 "IBKR submission requires RUN_MODE in {LIVE, PAPER}"
             )
 
-        if not self.guard.can_submit():
+        verification_strategies = {"VERIFICATIONHARNESS", "LIVE_EXECUTION_PROBE"}
+        strategy_name = str(getattr(internal_order, "strategy_name", "") or "").upper()
+        direction = str(getattr(internal_order, "direction", "") or "").upper()
+        verification_exit_exempt = (
+            strategy_name in verification_strategies
+            and direction in {"SELL", "SHORT"}
+            and self.guard.submitted_count() >= 1
+        )
+        if verification_exit_exempt:
+            self._log("[EXECUTION][GUARD] probe_exit_exempt_from_cap=True")
+        if not self.guard.can_submit() and not verification_exit_exempt:
             return "Submission limit reached for this run"
 
         if self.guard.already_submitted(internal_order.client_order_id):
@@ -284,6 +307,28 @@ class IbkrOrderSubmitter:
             order_error = client.get_order_error(ibkr_order_id)
             if order_error is not None:
                 return str(order_error[1])
+        return None
+
+    @staticmethod
+    def _extract_broker_warning_code(client, ibkr_order_id: int, status_payload: dict[str, Any]) -> Optional[str]:
+        code = status_payload.get("broker_warning_code")
+        if code is not None:
+            return str(code)
+        if hasattr(client, "get_order_warnings"):
+            warnings = client.get_order_warnings(ibkr_order_id)
+            if warnings:
+                return str(warnings[-1][0])
+        return None
+
+    @staticmethod
+    def _extract_broker_warning_message(client, ibkr_order_id: int, status_payload: dict[str, Any]) -> Optional[str]:
+        message = status_payload.get("broker_warning_message")
+        if message:
+            return str(message)
+        if hasattr(client, "get_order_warnings"):
+            warnings = client.get_order_warnings(ibkr_order_id)
+            if warnings:
+                return str(warnings[-1][1])
         return None
 
     def _capture_fill_details(self, client, internal_order: InternalOrder, ibkr_order_id: int) -> dict:
@@ -461,6 +506,8 @@ class IbkrOrderSubmitter:
         rejection_reason: Optional[str] = None,
         broker_error_code: Optional[str] = None,
         broker_error_message: Optional[str] = None,
+        broker_warning_code: Optional[str] = None,
+        broker_warning_message: Optional[str] = None,
     ) -> SubmissionResult:
         return SubmissionResult(
             client_order_id=internal_order.client_order_id,
@@ -480,6 +527,8 @@ class IbkrOrderSubmitter:
             rejection_reason=rejection_reason,
             broker_error_code=broker_error_code,
             broker_error_message=broker_error_message,
+            broker_warning_code=broker_warning_code,
+            broker_warning_message=broker_warning_message,
         )
 
     def _log_banner(self) -> None:

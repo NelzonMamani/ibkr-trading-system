@@ -382,7 +382,7 @@ class IbkrLiveBroker(BaseBroker):
                 )
 
         status = "ACKED" if result.status == "ACKED" else result.status
-        attempted = result.status in {"ACKED"}
+        attempted = result.status in {"ACKED", "FILLED"}
         print(
             "[TRACE] "
             f"cycle_id={cycle_id} trace_id={trace_id} symbol={request.symbol} stage=submission "
@@ -415,6 +415,8 @@ class IbkrLiveBroker(BaseBroker):
             rejection_reason=result.rejection_reason or result.error,
             broker_error_code=result.broker_error_code,
             broker_error_message=result.broker_error_message,
+            broker_warning_code=result.broker_warning_code,
+            broker_warning_message=result.broker_warning_message,
         )
 
     def cancel_order(self, client_order_id: str) -> None:

@@ -47,7 +47,7 @@ class IbkrOrderTranslator:
         if order.orderType == "LMT":
             order.lmtPrice = internal_order.limit_price
 
-        order.outsideRth = True
+        order.outsideRth = False
 
         self.log_translation(contract, order)
         return contract, order
@@ -55,7 +55,7 @@ class IbkrOrderTranslator:
     def validate(self, internal_order: InternalOrder) -> None:
         self._ensure_enabled()
 
-        if internal_order.direction not in {"LONG", "SHORT"}:
+        if internal_order.direction not in {"LONG", "SHORT", "SELL", "BUY"}:
             raise RuntimeError(f"Unsupported direction: {internal_order.direction}")
 
         if internal_order.quantity <= 0:
@@ -102,9 +102,10 @@ class IbkrOrderTranslator:
 
     @staticmethod
     def _map_direction(direction: str) -> str:
-        if direction == "LONG":
+        normalized = str(direction or "").upper()
+        if normalized in {"LONG", "BUY"}:
             return "BUY"
-        if direction == "SHORT":
+        if normalized in {"SHORT", "SELL"}:
             return "SELL"
         raise RuntimeError(f"Unsupported direction: {direction}")
 

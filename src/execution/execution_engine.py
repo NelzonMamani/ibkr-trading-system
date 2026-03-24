@@ -6,6 +6,7 @@ import hashlib
 import os
 import time
 import uuid
+from dataclasses import replace
 from typing import List, Optional
 
 from src.brokers.base_broker import BrokerOrderRequest
@@ -357,6 +358,7 @@ class ExecutionEngine:
         return "IBKR_SMART"
 
     def _route_order(self, request: BrokerOrderRequest) -> ExecutionResult:
+        request = self._normalize_exit_request(request)
         readonly = get_ibkr_readonly_enabled()
         submission_enabled = bool(get_config("IBKR_ORDER_SUBMISSION_ENABLED"))
         print("[EXECUTION][GATE]", f"execution_enabled={self.execution_enabled}", f"readonly={readonly}", f"submission_enabled={submission_enabled}")
@@ -368,8 +370,6 @@ class ExecutionEngine:
         if self.run_mode == RunMode.LIVE and str(request.strategy_name or "").upper() == "LIVE_EXECUTION_PROBE" and str(request.direction).upper() == "LONG":
             print(f"[PROBE][BUY] symbol={request.symbol} qty={request.quantity}")
             self._require_exit_stage.add(request.client_order_id)
-        if str(request.direction).upper() == "SELL" and request.symbol in self.position_records:
-            print(f"[EXECUTION][CLOSE] symbol={request.symbol} qty={request.quantity}")
         print("[ORDER_SUBMIT]", f"symbol={request.symbol}", f"side={request.direction}", f"qty={request.quantity}")
         self._record_order_stage(request.client_order_id, "SUBMIT")
         print(
@@ -403,6 +403,21 @@ class ExecutionEngine:
             print("[EXECUTION] LIVE broker order routed.")
         self._schedule_retry(request, result)
         return result
+
+    def _normalize_exit_request(self, request: BrokerOrderRequest) -> BrokerOrderRequest:
+        direction = str(request.direction or "").upper()
+        if direction != "SELL":
+            return request
+        open_position = self.position_records.get(request.symbol)
+        if not open_position:
+            return request
+        close_quantity = int(open_position.get("quantity", request.quantity) or request.quantity)
+        if close_quantity <= 0:
+            close_quantity = request.quantity
+        print(f"[EXECUTION][CLOSE] symbol={request.symbol} qty={close_quantity}")
+        if close_quantity != request.quantity:
+            return replace(request, quantity=close_quantity)
+        return request
 
     def _validate_required_order_fields(
         self, risk_decision: RiskDecision, request: BrokerOrderRequest
@@ -455,7 +470,7 @@ class ExecutionEngine:
         broker_status = "Submitted"
         if status_raw in {"FILLED"} or getattr(result, "filled_quantity", 0) > 0:
             broker_status = "Filled"
-        elif status_raw in {"REJECTED", "FAILED", "BLOCKED", "TIMED_OUT"}:
+        elif status_raw in {"REJECTED", "FAILED", "BLOCKED", "TIMED_OUT", "CANCELLED", "CANCELED", "INACTIVE", "API_ERROR"}:
             broker_status = "Rejected"
         print(f"[ORDER][ACK] order_id={ibkr_order_id} status={broker_status}")
         self._record_order_stage(request.client_order_id, "ACK")
@@ -471,16 +486,20 @@ class ExecutionEngine:
             f"symbol={request.symbol} qty={filled_quantity} entry_price={entry_price}"
         )
         self._record_order_stage(request.client_order_id, "FILL")
+        direction = str(request.direction).upper()
+        if direction in {"SELL", "SHORT"} and request.symbol in self.position_records:
+            print(
+                f"[ORDER][EXIT] order_id={request.client_order_id} symbol={request.symbol} qty={filled_quantity}"
+            )
+            self._record_order_stage(request.client_order_id, "EXIT")
+            self.position_records.pop(request.symbol, None)
+            return
+
         self.position_records[request.symbol] = {
             "entry_price": entry_price,
             "quantity": filled_quantity,
             "timestamp": time.time(),
         }
-        if str(request.direction).upper() in {"SHORT", "SELL"}:
-            print(
-                f"[ORDER][EXIT] order_id={request.client_order_id} symbol={request.symbol} qty={filled_quantity}"
-            )
-            self._record_order_stage(request.client_order_id, "EXIT")
 
     def _run_live_probe_exit_if_needed(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
         if self.run_mode != RunMode.LIVE:
@@ -499,11 +518,13 @@ class ExecutionEngine:
         print(f"[PROBE][FILLED] symbol={request.symbol} qty={filled_quantity}")
         print(f"[PROBE][HOLD] symbol={request.symbol} seconds={hold_seconds}")
         time.sleep(max(0, hold_seconds))
+        open_position = self.position_records.get(request.symbol, {})
+        close_quantity = int(open_position.get("quantity", filled_quantity) or filled_quantity)
         exit_order = BrokerOrderRequest(
-            client_order_id=f"{request.client_order_id}-EXIT",
+            client_order_id=f"{request.client_order_id}-EXIT-{uuid.uuid4().hex[:8]}",
             symbol=request.symbol,
             direction="SELL",
-            quantity=filled_quantity,
+            quantity=close_quantity,
             order_type="MKT",
             trader_type=request.trader_type,
             strategy_name=request.strategy_name,
@@ -516,7 +537,7 @@ class ExecutionEngine:
             next_retry_tick=None,
         )
         print(f"[PROBE][EXIT_INTENT] symbol={request.symbol} side=SELL close_position=True")
-        print(f"[PROBE][SELL] symbol={request.symbol} qty={filled_quantity}")
+        print(f"[PROBE][SELL] symbol={request.symbol} qty={close_quantity}")
         self._record_order_stage(request.client_order_id, "EXIT")
         exit_result = self._provider.place_order(exit_order)
         self._confirm_broker_ack(exit_order, exit_result)
