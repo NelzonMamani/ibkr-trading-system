@@ -11,6 +11,11 @@ from src.strategies.ross_momentum.decision_policy import (
     build_trade_intents,
 )
 from src.strategies.ross_momentum.patterns.pattern_evaluator import PatternEvaluator
+from src.strategies.ross_momentum.patterns.pattern_types import (
+    Direction as PatternDirection,
+    PatternFamily,
+    PatternResult,
+)
 from src.strategies.strategy_base import StrategyBase
 from src.strategies.strategy_contracts import (
     DecisionType,
@@ -103,6 +108,129 @@ def _log_setup_eval(
         f"reason={reason}"
     )
 
+
+def _as_float(value: object) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_valid_fast_trigger(symbol: str, inputs: StrategyInput) -> PatternResult | None:
+    """Prioritize first valid momentum break (PMH/HOD/first pullback high)."""
+
+    price = _as_float(getattr(inputs.market_context, "price", None))
+    rvol = _as_float(getattr(inputs.market_context, "rvol", None))
+    pct_change = _as_float((inputs.news_context or {}).get("pct_change"))
+    if pct_change is None:
+        pct_change = _as_float((inputs.news_context or {}).get("gap_pct"))
+
+    levels = getattr(inputs.market_context, "key_levels", {}) or {}
+    pattern_levels = {}
+    if inputs.pattern_inputs:
+        first_levels = getattr(inputs.pattern_inputs[0], "levels", None)
+        if first_levels is not None:
+            pattern_levels = {
+                "PREMARKET_HIGH": _as_float(getattr(first_levels, "premarket_high", None)),
+                "HOD": _as_float(getattr(first_levels, "hod", None)),
+                "PULLBACK_HIGH": _as_float((getattr(first_levels, "key_levels", {}) or {}).get("PULLBACK_HIGH")),
+            }
+
+    canonical_levels = {
+        "HOD": _as_float(levels.get("HOD")) or pattern_levels.get("HOD"),
+        "PREMARKET_HIGH": _as_float(levels.get("PREMARKET_HIGH")) or pattern_levels.get("PREMARKET_HIGH"),
+        "PULLBACK_HIGH": _as_float(levels.get("PULLBACK_HIGH")) or pattern_levels.get("PULLBACK_HIGH"),
+    }
+    trigger_specs = (
+        ("HOD", "HOD_BREAK_FAST", "XL_HOD_BREAK_FAST"),
+        ("PREMARKET_HIGH", "PMH_BREAK_FAST", "XL_PREMARKET_HIGH_BREAK_FAST"),
+        ("PULLBACK_HIGH", "PULLBACK_BREAK_FAST", "XL_FIRST_PULLBACK_BREAK_FAST"),
+    )
+    rvol_ok = (rvol or 0.0) >= 2.0
+
+    if (
+        pct_change is not None
+        and pct_change >= 10.0
+        and rvol_ok
+        and price is not None
+        and canonical_levels.get("HOD") is not None
+        and price > float(canonical_levels["HOD"])
+    ):
+        hod_level = float(canonical_levels["HOD"])
+        print(
+            "[ROSS][TRIGGER_OVERRIDE] "
+            "reason=HIGH_MOMENTUM_BREAK "
+            f"symbol={symbol} level={hod_level} price={price} rvol={rvol} pct_change={pct_change}"
+        )
+        print(
+            "[ROSS][TRIGGER] "
+            f"symbol={symbol} trigger_type=HOD_BREAK_FAST level={hod_level} price={price} "
+            f"rvol={rvol} pct_change={pct_change}"
+        )
+        return PatternResult(
+            setup_id="XL_HOD_BREAK_FAST_OVERRIDE",
+            pattern_name="HOD_BREAK_FAST",
+            pattern_family=PatternFamily.BREAKOUT,
+            detected=True,
+            direction=PatternDirection.LONG,
+            confidence=0.99,
+            setup_quality_tags=["FAST_TRIGGER", "OVERRIDE", "K_VOLUME_CONFIRM"],
+            tags=["HIGH_MOMENTUM_BREAK", "K_BREAK_AND_HOLD_CONFIRM_OPTIONAL"],
+            entry_zone=f"Break above intraday high {hod_level:.4f}",
+            stop_suggestion=f"Below intraday high {hod_level:.4f}",
+            rationale_text="High momentum override activated despite incomplete pattern stack.",
+        )
+
+    for level_key, trigger_type, setup_id in trigger_specs:
+        level = canonical_levels.get(level_key)
+        if level is None or price is None:
+            print(
+                "[ROSS][TRIGGER_SKIP] "
+                f"symbol={symbol} trigger_type={trigger_type} reason=MISSING_LEVEL_OR_PRICE"
+            )
+            continue
+        if price <= level:
+            print(
+                "[ROSS][TRIGGER_SKIP] "
+                f"symbol={symbol} trigger_type={trigger_type} reason=PRICE_NOT_ABOVE_LEVEL "
+                f"level={level} price={price}"
+            )
+            continue
+        if not rvol_ok:
+            print(
+                "[ROSS][TRIGGER_SKIP] "
+                f"symbol={symbol} trigger_type={trigger_type} reason=RVOL_BELOW_THRESHOLD "
+                f"rvol={rvol}"
+            )
+            continue
+        print(
+            "[ROSS][TRIGGER] "
+            f"symbol={symbol} trigger_type={trigger_type} level={level} price={price} "
+            f"rvol={rvol} pct_change={pct_change}"
+        )
+        return PatternResult(
+            setup_id=setup_id,
+            pattern_name=trigger_type,
+            pattern_family=PatternFamily.BREAKOUT,
+            detected=True,
+            direction=PatternDirection.LONG,
+            confidence=0.96,
+            setup_quality_tags=["FAST_TRIGGER", "K_VOLUME_CONFIRM"],
+            tags=["K_BREAK_AND_HOLD_CONFIRM_OPTIONAL", level_key],
+            entry_zone=f"Break above {level_key} {level:.4f}",
+            stop_suggestion=f"Below {level_key} {level:.4f}",
+            rationale_text=f"Fast-trigger activation on first valid momentum break: {trigger_type}.",
+        )
+
+    print(
+        "[ROSS][TRIGGER_SKIP] "
+        f"symbol={symbol} trigger_type=FAST_PATH reason=NO_FAST_TRIGGER "
+        f"price={price} rvol={rvol} pct_change={pct_change}"
+    )
+    return None
+
 class RossMomentumStrategy(StrategyBase):
     strategy_id = "ross_momentum"
     strategy_name = "Ross Momentum"
@@ -154,6 +282,11 @@ class RossMomentumStrategy(StrategyBase):
         else:
             pattern_inputs = [replace(item, timeframe=structure_tf) for item in inputs.pattern_inputs]
         summary = self._evaluator.evaluate(pattern_inputs)
+        fast_trigger_result = _first_valid_fast_trigger(symbol, inputs)
+        if fast_trigger_result is not None:
+            summary.all_results.append(fast_trigger_result)
+            if summary.best_long_setup is None or fast_trigger_result.confidence >= summary.best_long_setup.confidence:
+                summary = replace(summary, best_long_setup=fast_trigger_result)
         log_pattern_summary(summary)
 
         scanner_rvol = getattr(inputs.market_context, "rvol", None)
