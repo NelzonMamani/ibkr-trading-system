@@ -29,6 +29,7 @@ from src.config.runtime_config import (
     get_ibkr_readonly_enabled,
     get_run_mode,
     get_scanner_mode,
+    validate_live_execution_invariant,
 )
 from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTradeRegistry
@@ -249,6 +250,7 @@ class CoreOrchestrator:
         self.runtime_mode_manager = RuntimeModeManager.resolve()
         self.run_mode = self.runtime_mode_manager.resolved_mode
         self.execution_enabled = self.runtime_mode_manager.allow_orders
+        validate_live_execution_invariant(self.run_mode)
         self.ibkr_api_write_allowed = bool(get_config("IBKR_API_WRITE_ALLOWED"))
         self.replay_mode = self.runtime_mode_manager.event_replay_mode
         print(f"[BOOT] Runtime mode resolved: {self.runtime_mode_manager.describe()}")

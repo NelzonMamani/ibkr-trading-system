@@ -14,6 +14,7 @@ from src.config.runtime_config import (
     RunMode,
     get_execution_enabled,
     get_ibkr_readonly_enabled,
+    validate_live_execution_invariant,
 )
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
@@ -42,6 +43,7 @@ class ExecutionEngine:
         self.run_mode: RunMode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
         self.runtime_mode_manager = RuntimeModeManager.resolve()
         self.execution_enabled = get_execution_enabled()
+        validate_live_execution_invariant(self.run_mode)
         self.max_shares_per_order = self.runtime_mode_manager.max_shares_per_order
         if not self.execution_enabled:
             print("[SAFETY] EXECUTION: HARD DISABLED")
@@ -116,6 +118,7 @@ class ExecutionEngine:
         """
         Convert a risk decision into a broker request and route through the broker adapter.
         """
+        validate_live_execution_invariant(self.run_mode)
 
         print("[EXECUTION] Received risk decision for broker-routed flow")
         if risk_decision is not None:

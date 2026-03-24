@@ -95,6 +95,12 @@ def get_execution_enabled(default: bool = False) -> bool:
     return allow_orders
 
 
+def validate_live_execution_invariant(run_mode: RunMode | None = None) -> None:
+    resolved_mode = run_mode or get_run_mode()
+    if resolved_mode == RunMode.LIVE and not get_execution_enabled():
+        raise RuntimeError("[FATAL] LIVE execution disabled")
+
+
 def is_execution_enabled(run_mode: RunMode | None = None) -> bool:
     if run_mode is None:
         return get_execution_enabled()
