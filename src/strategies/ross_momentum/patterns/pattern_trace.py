@@ -11,6 +11,7 @@ from src.adapters.data import historical_data_provider
 from src.adapters.data.historical_data_provider import get_intraday_bars
 from src.data.fundamentals.float_provider import FloatProvider
 from src.domain.market_snapshot import MarketSnapshot
+from src.scanner.session_pct_change import normalize_session_label
 from src.scanner.result_models import CandidateMetrics
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.ross_momentum.patterns.pattern_inputs import IndicatorSet, LevelSet, LiquidityContext, PatternInputs
@@ -442,7 +443,10 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         )
 
     candles = [_normalize_bar(bar) for bar in candles]
-    session = str(session_label or session_phase or _get_value(row, "session_label") or "PRE").upper()
+    raw_session = session_label or session_phase or _get_value(row, "session_label")
+    if not str(raw_session or "").strip():
+        quality_flags.append("missing_canonical_session")
+    session = normalize_session_label(str(raw_session or ""))
     premarket_candles = [candle for candle in candles if _is_premarket_candle(candle)]
     if not premarket_candles and session == "PRE":
         premarket_candles = candles
@@ -511,7 +515,7 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         liquidity_context=liquidity,
         news_context={
             "session_label": session,
-            "session_phase": str(session_phase or session),
+            "session_phase": normalize_session_label(str(session_phase or session)),
             "candle_count": str(len(candles)),
             "pct_change": "" if pct_change is None else str(pct_change),
             "reference_price": "" if reference_price is None else str(reference_price),

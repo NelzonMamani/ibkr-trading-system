@@ -768,10 +768,16 @@ def _spread_values(quote) -> tuple[Optional[float], Optional[float]]:
 
 
 def _resolve_pct_change_min_for_session(session: str, thresholds: GateThresholds) -> float:
+    if not str(session or "").strip():
+        print("[ROSS][SESSION_ERROR] missing_canonical_session")
+        raise ValueError("missing_canonical_session")
     normalized = normalize_session_label(session)
+    if normalized in {"", "CLOSED"}:
+        print("[ROSS][SESSION_ERROR] missing_canonical_session")
+        raise ValueError("missing_canonical_session")
     if normalized in {"PRE", "OVN"}:
         return float(thresholds.min_pct_change)
-    print("[ROSS][GATE] session=RTH pct_change_min=5")
+    print(f"[ROSS][GATE] session={normalized} pct_change_min=5")
     return 5.0
 
 
@@ -2896,13 +2902,13 @@ def run_scanner_cycle(
     _REFERENCE_RESOLVER.reset_cycle()
     utc_now = _utc_now()
     session_ctx = _market_session_context_utc(utc_now)
-    session_label = forced_session_label or session_ctx.phase
-    session_phase = forced_session_label or session_ctx.phase
     session_diag = resolve_session_diagnostics(
         utc_now,
         forced_session_label=forced_session_label,
         forced_session_source=forced_session_source,
     )
+    session_label = session_diag.resolved_session
+    session_phase = session_diag.resolved_session
     daily_state = _get_ross_daily_state(utc_now, session_label)
     diagnostics: Dict[str, Any] = {"mode": mode, "ross_trading_day": daily_state.trading_day, "session_phase": session_phase}
     drop_ledger: Dict[str, str] = {}
@@ -3448,6 +3454,24 @@ def run_scanner_cycle(
                 "[RVOL][MERGE] "
                 f"symbol={symbol} merge_target_found=True rvol_discovery={context.get('rvol_discovery')} rvol_phase={context.get('rvol_phase')}"
             )
+            orchestrator_session = normalize_session_label(
+                str((request.session_phase if request is not None else None) or session_label)
+            )
+            scanner_session = normalize_session_label(str(context.get("session") or ""))
+            policy_session = normalize_session_label(session_label)
+            pattern_input_session = normalize_session_label(
+                str(context.get("pattern_input_session") or context.get("session") or "")
+            )
+            context["orchestrator_session"] = orchestrator_session
+            context["scanner_session"] = scanner_session
+            context["policy_session"] = policy_session
+            context["pattern_input_session"] = pattern_input_session
+            print("[ROSS][SESSION_CONTRACT]")
+            print(f"symbol={symbol}")
+            print(f"orchestrator_session={orchestrator_session}")
+            print(f"scanner_session={scanner_session}")
+            print(f"policy_session={policy_session}")
+            print(f"pattern_input_session={pattern_input_session}")
 
             price_gate_reason = _evaluate_price_gate(context, thresholds)
             if price_gate_reason:
