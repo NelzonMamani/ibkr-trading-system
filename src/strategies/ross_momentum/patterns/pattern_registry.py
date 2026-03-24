@@ -50,6 +50,14 @@ class RossPatternRegistry:
     def patterns(self) -> List[PatternBase]:
         return list(self._patterns)
 
+    @property
+    def inactive_pattern_ids(self) -> set[str]:
+        return {
+            (getattr(pattern, "pattern_id", "") or pattern.name)
+            for pattern in self._patterns
+            if bool(getattr(pattern, "is_placeholder", False))
+        }
+
     def run(
         self,
         inputs: PatternInputs,

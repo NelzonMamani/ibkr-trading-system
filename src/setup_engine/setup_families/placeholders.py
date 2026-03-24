@@ -12,6 +12,7 @@ class _PlaceholderPattern(PatternBase):
     name = ""
     family = PatternFamily.CANDLE
     direction_bias = Direction.NEUTRAL
+    is_placeholder = True
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
         return self._rejected("placeholder_family_not_enabled", inputs, direction=Direction.NEUTRAL)
