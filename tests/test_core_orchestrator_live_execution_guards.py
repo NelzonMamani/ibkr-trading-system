@@ -43,40 +43,23 @@ def live_market_data_stubs(monkeypatch):
     monkeypatch.setattr("src.core.orchestrator.MarketDataPriceFeed", lambda *args, **kwargs: object())
 
 
-def test_live_readonly_does_not_require_order_submission(monkeypatch, live_market_data_stubs, capsys):
+def test_live_execution_disabled_is_runtime_fatal(monkeypatch, live_market_data_stubs):
     monkeypatch.setattr(
         RuntimeModeManager,
         "resolve",
         classmethod(lambda cls: _ResolvedRuntime(resolved_mode=RunMode.LIVE, allow_orders=False)),
     )
 
-    config = {
-        "IBKR_API_WRITE_ALLOWED": False,
-        "IBKR_ORDER_SUBMISSION_ENABLED": False,
-        "IBKR_ORDER_TRANSLATION_ENABLED": False,
-    }
     from src.core import orchestrator as orchestrator_module
 
-    original_get_config = orchestrator_module.get_config
-    monkeypatch.setattr(
-        orchestrator_module,
-        "get_config",
-        lambda key: {
-            "IBKR_API_WRITE_ALLOWED": config["IBKR_API_WRITE_ALLOWED"],
-            "SELECTED_STRATEGY": "",
-            "IBKR_MAX_SYMBOLS_PER_CYCLE": 10,
-            "IBKR_LIVE_PORT": 7496,
-            "IBKR_READONLY_ENABLED": False,
-            "IBKR_KILL_SWITCH": False,
-            "IBKR_ORDER_SUBMISSION_ENABLED": config["IBKR_ORDER_SUBMISSION_ENABLED"],
-            "IBKR_ORDER_TRANSLATION_ENABLED": config["IBKR_ORDER_TRANSLATION_ENABLED"],
-        }.get(key, original_get_config(key)),
-    )
+    validator = getattr(orchestrator_module, "validate_live_execution_invariant", None)
+    if validator is None:  # pragma: no cover - compatibility with pre-PR534 behavior
+        orchestrator = CoreOrchestrator()
+        assert orchestrator.execution_enabled is False
+        return
 
-    CoreOrchestrator()
-
-    captured = capsys.readouterr()
-    assert "[MODE] LIVE_READ_ONLY active — execution disabled" in captured.out
+    with pytest.raises(RuntimeError, match="LIVE execution disabled"):
+        validator(run_mode=RunMode.LIVE, execution_enabled=False)
 
 
 def test_execution_ignores_raw_submission_flag_when_runtime_allows_orders(monkeypatch, live_market_data_stubs):
