@@ -113,6 +113,10 @@ _SESSION_LABEL_MAP = {
     "RTH_OPEN": "RTH_OPEN",
     "RTH_MID": "RTH_MID",
     "RTH_LATE": "RTH_LATE",
+    "LATE": "RTH_LATE",
+    "POWER_HOUR": "RTH_LATE",
+    "OPENING_0_30": "RTH_OPEN",
+    "MORNING": "RTH_OPEN",
     "WEEKEND": "CLOSED",
     "MIDDAY": "RTH_MID",
 }

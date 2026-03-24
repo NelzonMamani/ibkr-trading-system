@@ -62,6 +62,15 @@ class RossMomentumStrategyV1(BaseStrategy):
         self._failure_trace_collector = RossPatternFailureTraceCollector()
 
     @staticmethod
+    def _session_context_profile(session_label: str, session_phase: str) -> tuple[str, float, float]:
+        session = str(session_phase or session_label or "PRE").upper()
+        if session in {"POWER_HOUR", "RTH_LATE", "LATE"}:
+            return "LOWER_MOMENTUM / HIGHER_VOLATILITY", 0.92, 0.60
+        if session in {"MIDDAY", "RTH_MID"}:
+            return "LOWER_MOMENTUM / NORMAL_VOLATILITY", 0.96, 0.58
+        return "NORMAL_MOMENTUM / NORMAL_VOLATILITY", 1.00, 0.0
+
+    @staticmethod
     def _pattern_input_validation(inputs) -> tuple[dict[str, object], list[str]]:
         candle_count = len(getattr(inputs, "candles", []) or [])
         has_recent_candles = candle_count >= 3
@@ -187,6 +196,15 @@ class RossMomentumStrategyV1(BaseStrategy):
             if not symbol:
                 continue
             print(f"[ROSS][SYMBOL_START] symbol={symbol}")
+            expected_quality, confidence_multiplier, preferred_confidence_floor = self._session_context_profile(
+                session_label=session_label,
+                session_phase=session_phase,
+            )
+            session_context_label = str(session_phase or session_label or "PRE").upper()
+            print("[ROSS][SESSION_CONTEXT]")
+            print(f"symbol={symbol}")
+            print(f"session={session_context_label}")
+            print(f"expected_quality={expected_quality}")
             snapshot = snapshots.get(symbol) if isinstance(snapshots, dict) else None
             symbol_source = infer_symbol_source(row)
             symbol_trace = RossSymbolTrace(
@@ -303,7 +321,20 @@ class RossMomentumStrategyV1(BaseStrategy):
             for trace, result in zip(pattern_traces, results):
                 trace.confidence = float(getattr(result, "confidence", 0.0) or 0.0)
 
-            best_pattern = self._select_best_pattern(symbol_trace.pattern_traces)
+            detected_patterns = [pattern for pattern in symbol_trace.pattern_traces if pattern.detected]
+            preferred_patterns = [
+                pattern for pattern in detected_patterns
+                if float(getattr(pattern, "confidence", 0.0) or 0.0) >= preferred_confidence_floor
+            ]
+            if preferred_confidence_floor > 0.0:
+                print(
+                    "[ROSS][SESSION_FILTER] "
+                    f"symbol={symbol} session={session_context_label} "
+                    f"preferred_confidence_floor={preferred_confidence_floor:.2f} "
+                    f"detected={len(detected_patterns)} preferred={len(preferred_patterns)}"
+                )
+            selection_pool = preferred_patterns or detected_patterns or symbol_trace.pattern_traces
+            best_pattern = self._select_best_pattern(selection_pool)
 
             if not best_pattern:
                 symbol_trace.final_outcome = "NO_SETUP:no_valid_pattern"
@@ -332,11 +363,20 @@ class RossMomentumStrategyV1(BaseStrategy):
 
             entry, stop = trade
 
+            base_confidence = float(getattr(best_pattern, "confidence", 0.0) or 0.0)
+            adjusted_confidence = max(0.0, min(1.0, base_confidence * confidence_multiplier))
+            if confidence_multiplier < 1.0:
+                print(
+                    "[ROSS][SESSION_ADJUSTMENT] "
+                    f"symbol={symbol} session={session_context_label} "
+                    f"confidence_before={base_confidence:.4f} confidence_after={adjusted_confidence:.4f} "
+                    f"adjustment=market_condition_context_only"
+                )
             intent = TradeIntent(
                 symbol=symbol,
                 direction="LONG",
                 strategy_name=self.name,
-                confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
+                confidence=adjusted_confidence,
                 rationale=(
                     f"pattern_detected={best_pattern.pattern_id} | entry={entry:.4f} | stop={stop:.4f}"
                 ),

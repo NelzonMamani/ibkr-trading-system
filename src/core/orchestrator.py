@@ -1621,7 +1621,7 @@ class CoreOrchestrator:
             session_label=session_label,
             timestamp_utc=cycle_started_at.isoformat(),
         )
-        session_execution_allowed = session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
+        session_execution_allowed = session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "POWER_HOUR"}
         if not session_execution_allowed and watchlist_symbols:
             print("[VALIDATION_OVERRIDE] Forcing strategy execution despite session restrictions")
         strategy_watchlist = selected_focus or selected_watchlist
@@ -1735,8 +1735,8 @@ class CoreOrchestrator:
             f"focus_count_final={len(final_evaluation_symbols)} evaluated_count={len(final_evaluation_symbols)} setup_trigger_count={intent_count} "
             f"no_setup_count={no_setup_count} intent_count={intent_count} order_submission_count={intent_count if mode_manager.allow_orders else 0} "
             f"open_positions_count={self.trade_registry.count_active()} dominant_drop_reasons=NA dominant_no_trade_reasons={{'NO_SETUP': {no_setup_count}}} "
-            f"execution_allowed={session_label in {'PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE'}} "
-            f"execution_ready={session_label in {'PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE'}} focus_source={focus_source}"
+            f"execution_allowed={session_label in {'PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE', 'POWER_HOUR'}} "
+            f"execution_ready={session_label in {'PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE', 'POWER_HOUR'}} focus_source={focus_source}"
         )
         print(
             "[PIPELINE] "
@@ -2315,7 +2315,7 @@ class CoreOrchestrator:
             print(
                 "[STRATEGY][GATING] "
                 f"session={session_label} "
-                f"execution_allowed={session_label in {'PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE'}} "
+                f"execution_allowed={session_label in {'PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE', 'POWER_HOUR'}} "
                 f"force_execution={bool(strategy_watchlist)} "
                 f"allow_orders={mode_manager.allow_orders}"
             )
