@@ -117,7 +117,13 @@ class ExecutionEngine:
         Convert a risk decision into a broker request and route through the broker adapter.
         """
 
-        print("[EXECUTION] Received risk decision for broker-routed flow")
+        print(
+            "[EXECUTION][RECEIVED] "
+            f"symbol={getattr(risk_decision, 'symbol', 'UNKNOWN') if risk_decision else 'UNKNOWN'} "
+            f"action=BUY qty={getattr(risk_decision, 'max_position_size', None) if risk_decision else None} "
+            f"entry={getattr(risk_decision, 'entry_price', None) if risk_decision else None} "
+            f"stop={getattr(risk_decision, 'stop_loss_price', None) if risk_decision else None}"
+        )
         if risk_decision is not None:
             action = "SUBMIT" if getattr(risk_decision, 'allowed', False) else "SKIP"
             reason = getattr(risk_decision, 'rationale', None) or getattr(risk_decision, 'reason_code', None) or 'NO_REASON'
@@ -164,19 +170,19 @@ class ExecutionEngine:
 
         context = self._execution_context(risk_decision)
         if not context["execution_allowed"]:
-            print("[EXECUTION][BLOCKED] reason=session_not_permitted")
+            print("[EXECUTION][BLOCK] reason=session_not_permitted")
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="SESSION_NOT_PERMITTED",
             )
         if not context["execution_ready"]:
-            print("[EXECUTION][BLOCKED] reason=execution_not_ready")
+            print("[EXECUTION][BLOCK] reason=execution_not_ready")
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="EXECUTION_NOT_READY",
             )
         if context["prep_only"]:
-            print("[EXECUTION][BLOCKED] reason=prep_only_mode")
+            print("[EXECUTION][BLOCK] reason=prep_only_mode")
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="PREP_ONLY_MODE",
@@ -330,9 +336,8 @@ class ExecutionEngine:
         requested_quantity = self._clamp_order_quantity(raw_quantity, symbol=risk_decision.symbol)
         client_order_id = f"{risk_decision.decision_id}-{uuid.uuid4().hex[:8]}"
         print(
-            "[ORDER] submit "
-            f"id={client_order_id} symbol={risk_decision.symbol} qty={requested_quantity} "
-            f"trader_type={risk_decision.trader_type} attempt=1"
+            "[ORDER][BUILD] "
+            f"symbol={risk_decision.symbol} order_type=MKT qty={requested_quantity} side=BUY"
         )
         return BrokerOrderRequest(
             client_order_id=client_order_id,
@@ -374,7 +379,7 @@ class ExecutionEngine:
         self._record_order_stage(request.client_order_id, "SUBMIT")
         print(
             f"[ORDER][SUBMIT] order_id={request.client_order_id} symbol={request.symbol} "
-            f"side={request.direction} qty={request.quantity}"
+            f"side={request.direction} qty={request.quantity} order_type={request.order_type}"
         )
         print(
             "[EXECUTION][AUDIT] "

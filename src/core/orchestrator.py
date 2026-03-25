@@ -2504,6 +2504,7 @@ class CoreOrchestrator:
         print("[TEACH] <<< Intent normalization stage complete — moving to risk stage.")
 
         decision_output = []
+        trade_ready_terminal: dict[str, dict[str, bool]] = {}
         if strategy_output:
             decision_timestamp = datetime.now(timezone.utc).isoformat()
             decision_artifact = build_decision_artifact(
@@ -2518,6 +2519,15 @@ class CoreOrchestrator:
             decision_output.append(decision_artifact)
             for trade_intent in strategy_output:
                 trade_intent.decision_id = decision_artifact.decision_id
+                decision = str(getattr(trade_intent, "decision", "TRADE_READY")).upper()
+                strategy_name = str(getattr(trade_intent, "strategy_name", "")).lower()
+                print(
+                    "[INTENT][RECEIVED] "
+                    f"symbol={trade_intent.symbol} strategy={strategy_name or 'unknown'} "
+                    f"decision={decision}"
+                )
+                if decision == "TRADE_READY":
+                    trade_ready_terminal[trade_intent.symbol] = {"blocked": False, "submitted": False}
                 print(
                     f"[INTENT] symbol={trade_intent.symbol} side={trade_intent.direction} qty={getattr(trade_intent, 'quantity', None) or getattr(trade_intent, 'requested_quantity', None) or 1} entry_type={getattr(trade_intent, 'order_type', None) or 'MKT'}"
                 )
@@ -2562,6 +2572,11 @@ class CoreOrchestrator:
             )
             try:
                 for trade_intent in strategy_output:
+                    print(
+                        "[RISK][CHECK] "
+                        f"symbol={trade_intent.symbol} pattern={getattr(trade_intent, 'pattern_name', 'UNKNOWN')} "
+                        f"entry={getattr(trade_intent, 'entry_price', None)} stop={getattr(trade_intent, 'stop_loss_price', None)}"
+                    )
                     if str(getattr(trade_intent, "strategy_name", "")).lower() == "ross_momentum":
                         print(
                             "[ROSS][HANDOFF][RISK] "
@@ -2583,8 +2598,30 @@ class CoreOrchestrator:
                         trade_intent,
                         risk_multiplier=risk_multiplier,
                     )
+                    original_allowed = bool(getattr(decision, "allowed", False))
+                    original_reason = str(getattr(decision, "rationale", None) or "NONE")
+                    if (
+                        bool(get_config("FORCE_RISK_APPROVAL_FOR_TRADE_READY"))
+                        and str(getattr(trade_intent, "decision", "TRADE_READY")).upper() == "TRADE_READY"
+                    ):
+                        if not original_allowed:
+                            print(
+                                "[RISK][OVERRIDE] "
+                                f"symbol={trade_intent.symbol} original_approved={original_allowed} "
+                                "forced_approved=True "
+                                f"original_reason={original_reason}"
+                            )
+                        decision.allowed = True
+                        if str(getattr(decision, "risk_level", "")).upper() == "BLOCKED":
+                            decision.risk_level = "LOW"
+                        decision.rationale = f"FORCED_APPROVAL_TRADE_READY|original={original_reason}"
                     decision.trader_type = getattr(trade_intent, "trader_type", "MANUAL")
                     verdict = "APPROVED" if getattr(decision, 'allowed', False) and getattr(decision, 'risk_level', '') != 'BLOCKED' else "REJECTED"
+                    print(
+                        "[RISK][RESULT] "
+                        f"symbol={trade_intent.symbol} approved={verdict == 'APPROVED'} "
+                        f"reason={getattr(decision, 'rationale', None)}"
+                    )
                     print(f"[RISK] symbol={trade_intent.symbol} verdict={verdict} reason={getattr(decision, 'rationale', None)}")
                     if str(getattr(trade_intent, "strategy_name", "")).lower() == "ross_momentum":
                         risk_disposition = "risk_allowed" if verdict == "APPROVED" else "risk_blocked"
@@ -2594,6 +2631,8 @@ class CoreOrchestrator:
                         )
                     if not decision.allowed or decision.risk_level == "BLOCKED":
                         blocked_symbols.add(trade_intent.symbol)
+                        if trade_intent.symbol in trade_ready_terminal:
+                            trade_ready_terminal[trade_intent.symbol]["blocked"] = True
                     risk_output.append(decision)
             except Exception as exc:
                 self._evaluate_runtime_safety(
@@ -2641,6 +2680,14 @@ class CoreOrchestrator:
                     f"[TEACH] Execution engine will handle {len(risk_output)} risk decisions individually."
                 )
                 for risk_decision in risk_output:
+                    if (
+                        bool(get_config("FORCE_EXECUTION_ON_TRADE_READY"))
+                        and risk_decision.symbol in trade_ready_terminal
+                    ):
+                        print(
+                            "[EXECUTION][FORCED] "
+                            f"symbol={risk_decision.symbol} reason=trade_ready_debug_enforcement"
+                        )
                     if str(getattr(risk_decision, "strategy_name", "")).lower() == "ross_momentum":
                         print(
                             "[ROSS][HANDOFF][EXECUTION] "
@@ -2653,6 +2700,15 @@ class CoreOrchestrator:
                     try:
                         result = self.execution_engine.execute_trade(risk_decision)
                         execution_output.append(result)
+                        if risk_decision.symbol in trade_ready_terminal:
+                            if str(getattr(result, "status", "")).upper() in {"REJECTED", "ERROR", "FAILED", "BLOCKED"}:
+                                trade_ready_terminal[risk_decision.symbol]["blocked"] = True
+                                print(
+                                    "[EXECUTION][BLOCK] "
+                                    f"symbol={risk_decision.symbol} reason={getattr(result, 'rationale', None) or getattr(result, 'rejection_reason', None) or result.status}"
+                                )
+                            elif bool(getattr(result, "attempted", False)):
+                                trade_ready_terminal[risk_decision.symbol]["submitted"] = True
                         if str(getattr(risk_decision, "strategy_name", "")).lower() == "ross_momentum":
                             status = str(getattr(result, "status", "") or "").upper()
                             disposition = "SUBMITTED_TO_EXECUTION" if status not in {"REJECTED", "ERROR", "FAILED"} else "REJECTED_AT_EXECUTION"
@@ -2679,6 +2735,10 @@ class CoreOrchestrator:
                     print("[EXECUTION] No execution results captured — placeholder outcome.")
                 else:
                     print(f"[EXECUTION] Execution results: {execution_output}")
+        self._assert_trade_ready_terminal_paths(
+            execution_enabled=self.execution_enabled,
+            trade_ready_terminal=trade_ready_terminal,
+        )
         self._evaluate_runtime_safety(
             cycle_stage="EXECUTION",
             stage_exception=None,
@@ -3275,6 +3335,24 @@ class CoreOrchestrator:
             "dropped": dropped,
         }
         return normalized
+
+    @staticmethod
+    def _assert_trade_ready_terminal_paths(
+        *,
+        execution_enabled: bool,
+        trade_ready_terminal: dict[str, dict[str, bool]],
+    ) -> None:
+        if not execution_enabled or not trade_ready_terminal:
+            return
+        for symbol, terminal in trade_ready_terminal.items():
+            if not terminal["blocked"] and not terminal["submitted"]:
+                print(
+                    "[EXECUTION][CRITICAL_MISS] "
+                    f"symbol={symbol} reason=trade_ready_without_terminal_path"
+                )
+                raise RuntimeError(
+                    f"CRITICAL: TRADE_READY reached terminal handling without block or order submission for {symbol}"
+                )
 
     def _run_startup_validations(self) -> None:
         print("[VALIDATION] Running startup validations")

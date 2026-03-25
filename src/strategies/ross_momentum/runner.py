@@ -18,4 +18,13 @@ class RossMomentumRunner:
             mode=context.get("mode"),
             session_phase=context.get("session_phase"),
         )
-        return {"trade_intents": intents, "reports": []}
+        trade_ready_count = sum(
+            1
+            for intent in intents
+            if str(getattr(intent, "decision", "TRADE_READY")).upper() == "TRADE_READY"
+        )
+        return {
+            "trade_intents": intents,
+            "trade_ready_count": trade_ready_count,
+            "reports": [],
+        }

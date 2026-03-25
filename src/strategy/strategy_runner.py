@@ -349,7 +349,22 @@ class StrategyRunner:
                         "session_phase": session_phase,
                     }
                 )
-                results.extend(list(result.get("trade_intents", [])))
+                trade_intents = list(result.get("trade_intents", []))
+                trade_ready_count = int(result.get("trade_ready_count", 0) or 0)
+                if trade_ready_count > 0 and not trade_intents:
+                    raise RuntimeError("Ross emitted TRADE_READY without concrete intent object")
+                for intent in trade_intents:
+                    if str(getattr(intent, "strategy_name", "")).lower() == "rossmomentumstrategyv1":
+                        decision = str(getattr(intent, "decision", "TRADE_READY")).upper()
+                        if decision == "TRADE_READY":
+                            print(
+                                "[INTENT][FORWARD] "
+                                f"symbol={getattr(intent, 'symbol', 'UNKNOWN')} "
+                                "strategy=ross_momentum "
+                                f"pattern={getattr(intent, 'pattern_name', 'UNKNOWN')} "
+                                f"decision={decision} forwarded=True"
+                            )
+                results.extend(trade_intents)
                 continue
             handler = getattr(strategy, "process_watchlist", None)
             if callable(handler):
