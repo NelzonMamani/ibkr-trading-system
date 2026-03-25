@@ -3620,6 +3620,8 @@ def run_scanner_cycle(
         # Watchlist gate is created here from the raw scanner universe (cheap metrics only).
         print("[SCANNER][STAGE] watchlist")
         ranked = _rank_candidates(candidates)
+        print("[WATCHLIST][BUILD_START]")
+        print(f"candidates_incoming={len(ranked)}")
         print(
             "[WATCHLIST][INPUT] "
             f"session={normalize_session_label(session_label)} gated_survivors={len(ranked)} k={watchlist_limit}"
@@ -3730,10 +3732,33 @@ def run_scanner_cycle(
             )
 
         watchlist_set = {context["symbol"] for context in watchlist_contexts}
+        watchlist_rejection_counter: Counter[str] = Counter()
+        watchlist_passed = 0
         for context in ranked:
-            if context["symbol"] in watchlist_set:
-                drop_ledger.pop(context["symbol"], None)
+            symbol = context["symbol"]
+            if symbol in watchlist_set:
+                watchlist_passed += 1
+                print(
+                    "[WATCHLIST][EVAL] "
+                    f"symbol={symbol} passed=true reasons=['SELECTED_FOR_WATCHLIST']"
+                )
                 continue
+
+            reject_reasons: list[str] = []
+            if watchlist_limit > 0 and len(ranked) > watchlist_limit:
+                reject_reasons.append("RANK_BELOW_WATCHLIST_LIMIT")
+            else:
+                reject_reasons.append("SELECTOR_REJECTED")
+            watchlist_rejection_counter.update(reject_reasons)
+            print(
+                "[WATCHLIST][EVAL] "
+                f"symbol={symbol} passed=false reasons={reject_reasons}"
+            )
+            print(
+                "[WATCHLIST][REJECT] "
+                f"symbol={symbol} reasons={reject_reasons}"
+            )
+
             drop_ledger.setdefault(context["symbol"], "DROP_RANK_BELOW_WATCHLIST")
             rank_value = next((idx for idx, row in enumerate(ranked, start=1) if row["symbol"] == context["symbol"]), None)
             print(
@@ -3755,6 +3780,14 @@ def run_scanner_cycle(
                         "threshold": watchlist_limit,
                     },
                 )
+        watchlist_rejected = len(ranked) - watchlist_passed
+        print("[WATCHLIST][SUMMARY]")
+        print(f"total_incoming={len(ranked)}")
+        print(f"total_passed={watchlist_passed}")
+        print(f"total_rejected={watchlist_rejected}")
+        print(f"dominant_rejection_reasons={dict(watchlist_rejection_counter.most_common(5))}")
+        if len(ranked) > 0 and len(watchlist_contexts) == 0:
+            print("[WATCHLIST][CRITICAL_FAILURE] reason=ALL_SYMBOLS_REJECTED_POST_SCANNER action_required=true")
         print(
             "[WATCHLIST][SELECT] "
             f"selected={len(watchlist_contexts)} selected_symbols={[context['symbol'] for context in watchlist_contexts]}"
@@ -4015,6 +4048,8 @@ def run_scanner_cycle(
         print(f"focus_count={len(focus_symbols)}")
         print(f"[SCANNER_OK] topn_count={raw_count}")
         print(f"[WATCHLIST_OK] size={len(watchlist_symbols)}")
+        if len(candidates) > 0 and len(watchlist_symbols) == 0:
+            print("[WATCHLIST][CRITICAL_FAILURE] reason=ALL_SYMBOLS_REJECTED_POST_SCANNER action_required=true")
         if raw_count > 0 and after_gates_symbols and not watchlist_symbols:
             elimination_path = {
                 "after_gates_symbols": after_gates_symbols,
