@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import List
 
+from src.config.config_resolver import get_config
 from src.strategies.ross_momentum.decision_policy import (
     IntentPolicyConfig,
     build_trade_intents,
@@ -251,6 +252,26 @@ class RossMomentumStrategy(StrategyBase):
 
     def evaluate(self, symbol: str, inputs: StrategyInput) -> StrategyDecision:
         log_strategy_header(self.strategy_name, symbol)
+
+        mode_value = getattr(inputs, "execution_mode", None) or get_config("RUN_MODE_EFFECTIVE")
+        try:
+            execution_mode = mode_value if isinstance(mode_value, ExecutionMode) else ExecutionMode(str(mode_value))
+        except ValueError:
+            execution_mode = None
+        if execution_mode == ExecutionMode.READ_ONLY:
+            print(f"[ROSS][BLOCK] symbol={symbol} reason=READ_ONLY_MODE")
+            decision = StrategyDecision(
+                symbol=symbol,
+                strategy_id=self.strategy_id,
+                decision_type=DecisionType.BLOCK,
+                confidence=0.0,
+                rationale_text="Execution blocked in READ_ONLY mode",
+                risk_flags=["READ_ONLY_MODE"],
+                intents=[],
+            )
+            log_decision(decision)
+            return decision
+
         if not inputs.pattern_inputs:
             decision = StrategyDecision(
                 symbol=symbol,
