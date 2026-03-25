@@ -1485,10 +1485,10 @@ def _evaluate_focus_gates(
 
 
 def _resolve_premarket_volume_threshold(session_time_ny: dtime, thresholds: GateThresholds) -> int:
-    if session_time_ny < dtime(7, 30):
-        return 10_000
+    if session_time_ny < dtime(9, 0):
+        return 500
     if session_time_ny < dtime(9, 30):
-        return 50_000
+        return 2_000
     return int(thresholds.min_premarket_volume)
 
 
@@ -3929,6 +3929,28 @@ def run_scanner_cycle(
                 else 0.0
             ),
         )[:focus_limit]
+        focus_min_target = min(3, len(watchlist_contexts))
+        if len(focus_contexts) < focus_min_target:
+            existing_focus = {context.get("symbol") for context in focus_contexts}
+            fallback_candidates = sorted(
+                (context for context in watchlist_contexts if context.get("symbol") not in existing_focus),
+                key=lambda item: float(item.get("pct_change") or 0.0),
+                reverse=True,
+            )
+            promoted_fallback: list[str] = []
+            for fallback in fallback_candidates:
+                if len(focus_contexts) >= focus_min_target:
+                    break
+                focus_contexts.append(fallback)
+                symbol = str(fallback.get("symbol") or "")
+                if symbol:
+                    promoted_fallback.append(symbol)
+            if promoted_fallback:
+                print(
+                    "[FOCUS][FALLBACK] "
+                    f"reason=MIN_TARGET_UNDERFLOW target={focus_min_target} "
+                    f"result={len(focus_contexts)} promoted={promoted_fallback}"
+                )
         deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
 
         if not deep_rows and watchlist_contexts:

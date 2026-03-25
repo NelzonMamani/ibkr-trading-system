@@ -20,7 +20,7 @@ def test_premarket_volume_gate_enforced() -> None:
         focus_volume_min_early_rth=250_000,
         focus_volume_min_early_rth_ratio=0.25,
         min_volume=1_000_000,
-        min_premarket_volume=100_000,
+        min_premarket_volume=500,
         max_float=20_000_000,
         spread_max_pct=None,
         min_dollar_volume=None,
@@ -36,7 +36,7 @@ def test_premarket_volume_gate_enforced() -> None:
         "session": "PRE",
         "last_price": 4.2,
         "volume": 150_000,
-        "premarket_volume": 5_000,
+        "premarket_volume": 100,
         "dollar_volume": 500_000,
         "halted": False,
         "ssr": False,
@@ -59,7 +59,7 @@ def test_resolve_premarket_volume_threshold() -> None:
         focus_volume_min_early_rth=250_000,
         focus_volume_min_early_rth_ratio=0.25,
         min_volume=1_000_000,
-        min_premarket_volume=100_000,
+        min_premarket_volume=500,
         max_float=20_000_000,
         spread_max_pct=None,
         min_dollar_volume=None,
@@ -71,8 +71,8 @@ def test_resolve_premarket_volume_threshold() -> None:
         allow_unknown_float=True,
     )
 
-    assert _resolve_premarket_volume_threshold(time(4, 0), thresholds) == 10_000
-    assert _resolve_premarket_volume_threshold(time(7, 29), thresholds) == 10_000
-    assert _resolve_premarket_volume_threshold(time(7, 30), thresholds) == 50_000
-    assert _resolve_premarket_volume_threshold(time(9, 29), thresholds) == 50_000
+    assert _resolve_premarket_volume_threshold(time(4, 0), thresholds) == 500
+    assert _resolve_premarket_volume_threshold(time(8, 59), thresholds) == 500
+    assert _resolve_premarket_volume_threshold(time(9, 0), thresholds) == 2_000
+    assert _resolve_premarket_volume_threshold(time(9, 29), thresholds) == 2_000
     assert _resolve_premarket_volume_threshold(time(9, 30), thresholds) == thresholds.min_premarket_volume

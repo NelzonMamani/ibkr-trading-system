@@ -4,7 +4,9 @@ from src.core.orchestrator import CoreOrchestrator
 
 
 def _orchestrator() -> CoreOrchestrator:
-    return CoreOrchestrator.__new__(CoreOrchestrator)
+    orchestrator = CoreOrchestrator.__new__(CoreOrchestrator)
+    orchestrator._manual_focus_enabled = True
+    return orchestrator
 
 
 def _symbols(rows: list[object]) -> list[str]:
@@ -42,7 +44,7 @@ def test_auto_plus_manual_union() -> None:
         session_phase="PRE",
     )
 
-    assert _symbols(merged) == ["TMDE", "BNRG", "OCGN"]
+    assert _symbols(merged) == ["TMDE", "BNRG"]
 
 
 def test_manual_focus_disabled() -> None:
@@ -83,7 +85,7 @@ def test_manual_focus_bypasses_watchlist() -> None:
         session_phase="PRE",
     )
 
-    assert "OCGN" in _symbols(merged)
+    assert "OCGN" not in _symbols(merged)
 
 
 def test_manual_focus_with_empty_scanner_focus_runtime_regression() -> None:

@@ -815,7 +815,14 @@ class CoreOrchestrator:
                 continue
             seen.add(symbol)
             merged.append(row)
-        for manual_row in manual_candidates:
+        manual_allowed = bool(self._manual_focus_enabled) and not merged
+        if not manual_allowed and manual_candidates:
+            print(
+                "[MANUAL_FOCUS][SKIP] "
+                f"enabled={self._manual_focus_enabled} scanner_focus_size={len(merged)} "
+                "reason=SCANNER_FOCUS_NON_EMPTY"
+            )
+        for manual_row in (manual_candidates if manual_allowed else []):
             symbol = getattr(manual_row, "symbol", None)
             if symbol in seen:
                 continue
@@ -1620,10 +1627,11 @@ class CoreOrchestrator:
         else:
             print("[FOCUS][EMPTY] reason=no_focus_symbols_after_selection")
         self._trace_event("FOCUS", {"focus": [{"symbol": s} for s in final_evaluation_symbols]})
-        snapshots_by_symbol, _ = self.market_data_snapshot_manager.batch_snapshots(final_evaluation_symbols)
+        print(f"[WATCHLIST][HANDOFF] size={len(watchlist_symbols)} symbols={watchlist_symbols}")
+        snapshots_by_symbol, _ = self.market_data_snapshot_manager.batch_snapshots(watchlist_symbols)
         session_label = canonical_session_label((selected_watchlist[0].session_label if selected_watchlist else session_phase))
         self.strategy_runner.receive_watchlist_snapshot(
-            watchlist_symbols=final_evaluation_symbols,
+            watchlist_symbols=watchlist_symbols,
             snapshots=snapshots_by_symbol,
             session_label=session_label,
             timestamp_utc=cycle_started_at.isoformat(),
@@ -1631,7 +1639,7 @@ class CoreOrchestrator:
         session_execution_allowed = session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
         if not session_execution_allowed and watchlist_symbols:
             print("[VALIDATION_OVERRIDE] Forcing strategy execution despite session restrictions")
-        strategy_watchlist = selected_focus or selected_watchlist
+        strategy_watchlist = selected_watchlist or selected_focus
         for symbol in self._symbols_from_candidates(strategy_watchlist):
             print(f"[STRATEGY] runner=ross_momentum symbol={symbol} stage=evaluate")
         if strategy_watchlist:
@@ -2308,8 +2316,8 @@ class CoreOrchestrator:
         print("[TEACH] >>> Strategy stage — decide on trade ideas (conceptual).")
         try:
             strategy_watchlist = (
-                list(strategy_context.focus_m)
-                or list(strategy_context.watchlist_k)
+                list(strategy_context.watchlist_k)
+                or list(strategy_context.focus_m)
                 or list(watchlist_rows)
             )
             print(
@@ -2329,10 +2337,11 @@ class CoreOrchestrator:
             print("[STRATEGY][ENTRY] entering strategy execution phase")
 
             strategy_watchlist = (
-                list(strategy_context.focus_m)
-                or list(strategy_context.watchlist_k)
+                list(strategy_context.watchlist_k)
+                or list(strategy_context.focus_m)
                 or list(watchlist_rows)
             )
+            print(f"[WATCHLIST][HANDOFF] size={len(watchlist_symbols)} symbols={watchlist_symbols}")
 
             print(
                 "[STRATEGY][HANDOFF] "

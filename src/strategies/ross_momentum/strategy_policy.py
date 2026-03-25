@@ -1008,8 +1008,8 @@ class StockSelectionSpec:
     float_max_millions: float = 20.0
     liquidity_min_dollar_volume: Optional[float] = None
     min_volume: int = 1_000_000
-    min_premarket_volume: int = 100_000
-    premarket_volume_min: int = 100_000
+    min_premarket_volume: int = 500
+    premarket_volume_min: int = 500
     session_focus_volume_min: dict[str, int] = field(
         default_factory=lambda: {
             "RTH_OPEN": 250_000,
@@ -1043,14 +1043,14 @@ class StockSelectionSpec:
     )
     session_focus_rvol_min: dict[str, float] = field(
         default_factory=lambda: {
-            "PRE": 2.0,
-            "RTH_OPEN": 2.5,
+            "PRE": 1.2,
+            "RTH_OPEN": 2.0,
             "RTH_MID": 2.0,
             "RTH_LATE": 1.5,
             "AH": 1.25,
             "CLOSED": 999.0,
             "WEEKEND": 999.0,
-            "OVN": 1.0,
+            "OVN": 1.2,
         }
     )
     execution_permitted_sessions: Sequence[str] = ("PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE")
