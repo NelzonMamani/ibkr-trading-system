@@ -64,12 +64,12 @@ from src.scanner.reference_resolver import CanonicalReferenceResolver, resolve_r
 from src.market_data.market_snapshot_enricher import MarketSnapshotEnricher
 from src.scanner.candidate_identity import CandidateIdentity
 
+from src.scanner.market_metrics_context import (
+    build_market_metrics_context,
+    log_market_metrics_context,
+)
 from src.scanner.session_pct_change import (
     canonical_session_label,
-    compute_phase_aware_rvol,
-    compute_scanner_rvol,
-    compute_session_aligned_pct_change,
-    compute_session_relative_volume_with_provenance,
     normalize_session_label,
     resolve_market_session_context,
     resolve_market_session_label,
@@ -1056,38 +1056,48 @@ def _populate_pct_change(
     context["ref_close_rth"] = prev_close
     context["avg_volume_20d"] = context.get("avg_volume_20d") if context.get("avg_volume_20d") is not None else reference_snapshot.get("average_daily_volume_20d")
     context["average_daily_volume_window_days"] = context.get("average_daily_volume_window_days") if context.get("average_daily_volume_window_days") is not None else reference_snapshot.get("average_daily_volume_window_days")
-    pct_payload = compute_session_aligned_pct_change(
+    metrics_context = build_market_metrics_context(
+        symbol=str(context.get("symbol") or ""),
         session_label=str(context.get("session") or ""),
-        cur_last=last_price,
-        ref_close_rth=prev_close,
+        last_price=last_price,
+        bid=_safe_float(context.get("bid"), None),
+        ask=_safe_float(context.get("ask"), None),
+        spread_abs=_safe_float(context.get("spread"), None),
+        spread_pct=_safe_float(context.get("spread_pct"), None),
+        current_volume=_safe_float(context.get("volume"), None),
+        avg_volume_20d=_safe_float(context.get("avg_volume_20d"), None),
+        last_rth_close=prev_close,
         rth_open_price=_safe_float(context.get("rth_open_price"), None),
         rth_close_price=_safe_float(context.get("rth_close_price"), None),
         ibkr_change_pct=_safe_float(context.get("ibkr_change_pct"), None),
         persisted_pct_change=_safe_float(context.get("persisted_pct_change"), None),
+        persisted_rvol=_safe_float(context.get("persisted_rvol"), None),
+        float_shares=_safe_float(context.get("float_shares"), None),
+        reference_source=str(reference_snapshot.get("reference_source") or "UNRESOLVED"),
     )
     if last_price is None:
         context.setdefault("data_quality_flags", []).append("MISSING_LAST")
     if prev_close is None:
         context.setdefault("data_quality_flags", []).append("MISSING_REF_CLOSE_RTH")
-    if pct_payload.final_pct is None:
+    if metrics_context.pct_change is None:
         context.setdefault("data_quality_flags", []).append("MISSING_PCT_CHANGE")
-    context["pct_change"] = pct_payload.final_pct
-    context["reference_price"] = pct_payload.reference_price
-    context["reference_label"] = pct_payload.reference_label
-    context["pct_source"] = pct_payload.pct_source
-    context["pct_change_resolved"] = pct_payload.final_pct
+    context["pct_change"] = metrics_context.pct_change
+    context["reference_price"] = metrics_context.last_rth_close
+    context["reference_label"] = "LAST_RTH_CLOSE"
+    context["pct_source"] = metrics_context.pct_source
+    context["pct_change_resolved"] = metrics_context.pct_change
     context["reference_quality_tier"] = reference_snapshot.get("reference_quality_tier")
     context["continuity_usable_reference"] = reference_snapshot.get("continuity_usable_reference")
     context["qualification_usable_reference"] = reference_snapshot.get("qualification_usable_reference")
-    context["pct_change_qualification_usable"] = bool(reference_snapshot.get("qualification_usable_reference")) and pct_payload.final_pct is not None
-    context["pct_change_execution_usable"] = bool(reference_snapshot.get("execution_usable_reference")) and pct_payload.final_pct is not None
+    context["pct_change_qualification_usable"] = bool(reference_snapshot.get("qualification_usable_reference")) and metrics_context.pct_change is not None
+    context["pct_change_execution_usable"] = bool(reference_snapshot.get("execution_usable_reference")) and metrics_context.pct_change is not None
     context["pct_change_source_quality"] = reference_snapshot.get("reference_quality_tier")
-    context["pct_change_degraded"] = pct_payload.final_pct is not None and str(reference_snapshot.get("reference_quality_tier") or "NONE") in {"SECONDARY", "WEAK", "DEGRADED_SYNTHETIC"}
-    context["pct_change_synthetic"] = bool(reference_snapshot.get("reference_synthetic")) and pct_payload.final_pct is not None
-    context["pct_change_failure_reason"] = None if pct_payload.final_pct is not None else reference_snapshot.get("reference_failure_reason")
-    context["open_relative_pct_change"] = pct_payload.open_relative_pct_change
-    context["gap_pct_resolved"] = pct_payload.open_relative_pct_change if pct_payload.open_relative_pct_change is not None else pct_payload.final_pct
-    context["gap_source"] = "SESSION_OPEN_VS_REF" if pct_payload.open_relative_pct_change is not None else pct_payload.pct_source
+    context["pct_change_degraded"] = metrics_context.pct_change is not None and str(reference_snapshot.get("reference_quality_tier") or "NONE") in {"SECONDARY", "WEAK", "DEGRADED_SYNTHETIC"}
+    context["pct_change_synthetic"] = bool(reference_snapshot.get("reference_synthetic")) and metrics_context.pct_change is not None
+    context["pct_change_failure_reason"] = None if metrics_context.pct_change is not None else reference_snapshot.get("reference_failure_reason")
+    context["open_relative_pct_change"] = metrics_context.open_relative_pct_change
+    context["gap_pct_resolved"] = metrics_context.gap_pct
+    context["gap_source"] = "SESSION_OPEN_VS_REF" if metrics_context.open_relative_pct_change is not None else metrics_context.pct_source
     context["reference_source"] = reference_snapshot.get("reference_source")
     context["reference_resolved"] = reference_snapshot.get("reference_resolved")
     context["reference_asof_trading_date"] = reference_snapshot.get("reference_asof_trading_date")
@@ -1106,8 +1116,8 @@ def _populate_pct_change(
     _emit_scanner_reference_trace("pct_payload_created", context)
     print(
         "[REFERENCE][RESULT] "
-        f"symbol={context['symbol']} identity_key={reference_snapshot.get('identity_key')} found={pct_payload.reference_price is not None} "
-        f"value={pct_payload.reference_price} asof={reference_snapshot.get('lookup_key')} source={reference_snapshot.get('reference_source')}"
+        f"symbol={context['symbol']} identity_key={reference_snapshot.get('identity_key')} found={metrics_context.last_rth_close is not None} "
+        f"value={metrics_context.last_rth_close} asof={reference_snapshot.get('lookup_key')} source={reference_snapshot.get('reference_source')}"
     )
 
 
@@ -2162,40 +2172,10 @@ def _build_symbol_context(
     avg_volume_window_days = intraday.average_daily_volume_window_days if intraday else None
     day_high = _safe_float(getattr(intraday, "day_high", None), None) if intraday else None
     persisted_rvol = _safe_float(getattr(quote, "persisted_rvol", None), None)
-    rvol_payload = compute_session_relative_volume_with_provenance(
-        session_label=session_label,
-        session_volume=volume,
-        avg_volume_20d=avg_volume_20d,
-        persisted_rvol=persisted_rvol,
-    )
-    time_normalized_rvol = rvol_payload.value
-    if time_normalized_rvol is None:
-        time_normalized_rvol = intraday.relative_volume if intraday else None
-    rvol_discovery = compute_scanner_rvol(
-        session_label=session_label,
-        session_volume=volume,
-        avg_volume_20d=avg_volume_20d,
-        persisted_rvol=persisted_rvol,
-    )
-    phase_rvol_payload = compute_phase_aware_rvol(
-        session_label=session_label,
-        session_volume=volume,
-        avg_volume_20d=avg_volume_20d,
-    )
-    rvol_phase = phase_rvol_payload.rvol_phase
-    scanner_rvol = rvol_phase if rvol_phase is not None else rvol_discovery
-    print(
-        "[SCANNER_RVOL] "
-        f"symbol={symbol} session={normalize_session_label(session_label)} "
-        f"volume={volume} avg_volume_20d={avg_volume_20d} "
-        f"scanner_rvol={scanner_rvol}"
-    )
     if intraday is None:
         data_quality_flags.append("VOLUME_UNKNOWN")
     if volume is None:
         data_quality_flags.append("MISSING_VOLUME")
-    if scanner_rvol is None:
-        data_quality_flags.append("RVOL_UNKNOWN")
 
     session_open = _safe_float(getattr(quote, "open", None), None)
     session_close = _safe_float(getattr(quote, "close", None), None)
@@ -2216,56 +2196,54 @@ def _build_symbol_context(
     prev_close = session_close if session_close is not None else reference_snapshot.get("prev_close")
     avg_volume_20d = avg_volume_20d if avg_volume_20d is not None else reference_snapshot.get("average_daily_volume_20d")
     avg_volume_window_days = avg_volume_window_days if avg_volume_window_days is not None else reference_snapshot.get("average_daily_volume_window_days")
-    rvol_discovery = rvol_discovery if rvol_discovery is not None else reference_snapshot.get("rvol_discovery")
-    rvol_phase = rvol_phase if rvol_phase is not None else reference_snapshot.get("rvol_phase")
-    scanner_rvol = scanner_rvol if scanner_rvol is not None else (rvol_phase if rvol_phase is not None else rvol_discovery)
+
     history_attempted = bool(reference_snapshot.get("history_attempted"))
     if include_pct_change and prev_close is None and not history_attempted and not _allow_history_enrichment(provider):
         data_quality_flags.append("HISTORY_DISABLED")
     if include_pct_change and prev_close is None:
         data_quality_flags.append("HISTORY_UNKNOWN")
 
-    pct_change = None
-    pct_source = None
-    reference_price = None
-    reference_label = None
-    open_relative_pct_change = None
-    pct_change_qualification_usable = False
+    float_entry = float_cache.get(symbol) or {}
+    float_shares = float_entry.get("float_value") if isinstance(float_entry, dict) else None
+
+    metrics_context = build_market_metrics_context(
+        symbol=symbol,
+        session_label=session_label,
+        last_price=last_price,
+        bid=_safe_float(getattr(quote, "bid", None), None),
+        ask=_safe_float(getattr(quote, "ask", None), None),
+        spread_abs=spread,
+        spread_pct=spread_pct,
+        current_volume=volume,
+        avg_volume_20d=avg_volume_20d,
+        last_rth_close=prev_close,
+        rth_open_price=session_open,
+        rth_close_price=session_close,
+        ibkr_change_pct=ibkr_change_pct,
+        persisted_pct_change=_safe_float(getattr(quote, "persisted_pct_change", None), None),
+        persisted_rvol=persisted_rvol,
+        float_shares=_safe_float(float_shares, None),
+        reference_source=str(reference_snapshot.get("reference_source") or "UNRESOLVED"),
+    )
+    if metrics_context.rvol is None:
+        data_quality_flags.append("RVOL_UNKNOWN")
+
+    pct_change = metrics_context.pct_change if include_pct_change else None
+    pct_source = metrics_context.pct_source if include_pct_change else None
+    reference_price = metrics_context.last_rth_close if include_pct_change else None
+    reference_label = "LAST_RTH_CLOSE" if include_pct_change else None
+    open_relative_pct_change = metrics_context.open_relative_pct_change if include_pct_change else None
+    rvol_discovery = metrics_context.rvol
+    rvol_phase = metrics_context.rvol
+    scanner_rvol = metrics_context.rvol
+    pct_change_qualification_usable = bool(reference_snapshot.get("qualification_usable_reference")) and pct_change is not None
     pct_change_source_quality = str(reference_snapshot.get("reference_quality_tier") or "NONE")
-    pct_change_degraded = False
-    if include_pct_change:
-        normalized_session = normalize_session_label(session_label)
-        rth_open_price = session_open
-        if normalized_session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"} and ibkr_change_pct is None:
-            rth_open_price = None
-        rth_close_price = session_close if normalized_session == "AH" else prev_close
-        reference_identity = reference_snapshot.get("identity")
-        pct_payload = compute_session_aligned_pct_change(
-            session_label=normalized_session,
-            cur_last=last_price,
-            ref_close_rth=prev_close,
-            rth_open_price=rth_open_price,
-            rth_close_price=rth_close_price,
-            ibkr_change_pct=ibkr_change_pct,
-            persisted_pct_change=_safe_float(getattr(quote, "persisted_pct_change", None), None),
-        )
-        pct_change = pct_payload.final_pct
-        pct_source = pct_payload.pct_source
-        reference_price = pct_payload.reference_price
-        reference_label = pct_payload.reference_label
-        open_relative_pct_change = pct_payload.open_relative_pct_change
-        pct_change_qualification_usable = bool(reference_snapshot.get("qualification_usable_reference")) and pct_change is not None
-        pct_change_degraded = pct_change is not None and pct_change_source_quality in {"SECONDARY", "WEAK"}
-        print(
-            "[REFERENCE][MERGE] "
-            f"symbol={symbol} identity_key={reference_snapshot.get('identity_key')} merge_target_found=True reference_label={pct_payload.reference_label} value={pct_payload.reference_price}"
-        )
-        print(
-            "[DERIVED][PCT_GAP] "
-            f"symbol={symbol} last={last_price} reference={pct_payload.reference_price} pct_change={pct_payload.final_pct} "
-            f"gap={(pct_payload.open_relative_pct_change if pct_payload.open_relative_pct_change is not None else pct_payload.final_pct)} "
-            f"pct_source={pct_payload.pct_source} gap_source={'SESSION_OPEN_VS_REF' if pct_payload.open_relative_pct_change is not None else pct_payload.pct_source}"
-        )
+    pct_change_degraded = pct_change is not None and pct_change_source_quality in {"SECONDARY", "WEAK"}
+    print(
+        "[REFERENCE][MERGE] "
+        f"symbol={symbol} identity_key={reference_snapshot.get('identity_key')} merge_target_found=True reference_label=LAST_RTH_CLOSE value={metrics_context.last_rth_close}"
+    )
+    log_market_metrics_context(metrics_context)
     bundle = resolve_reference_bundle(
         session_label=session_label,
         reference_price=reference_price,
@@ -2408,13 +2386,13 @@ def _build_symbol_context(
         "rvol_phase": rvol_phase,
         "rvol_status": "RESOLVED" if scanner_rvol is not None else "UNKNOWN",
         "degraded_rvol_gate_bypass": False,
-        "phase_volume_ratio": phase_rvol_payload.phase_ratio,
-        "expected_phase_volume": reference_snapshot.get("expected_phase_volume") if reference_snapshot.get("expected_phase_volume") is not None else phase_rvol_payload.expected_phase_volume,
-        "time_normalized_rvol": time_normalized_rvol,
+        "phase_volume_ratio": None,
+        "expected_phase_volume": metrics_context.expected_volume,
+        "time_normalized_rvol": metrics_context.time_normalized_rvol,
         "rvol": scanner_rvol,
-        "relative_volume": time_normalized_rvol,
-        "rvol_baseline": rvol_payload.baseline,
-        "rvol_method": rvol_payload.method,
+        "relative_volume": metrics_context.time_normalized_rvol,
+        "rvol_baseline": metrics_context.rvol_baseline,
+        "rvol_method": metrics_context.rvol_method,
         "float_shares": float_shares,
         "float_source": float_source,
         "float_asof": float_asof,
