@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, time, timezone, timedelta
 import math
+import os
 from typing import Optional
 
 from zoneinfo import ZoneInfo
@@ -150,6 +151,13 @@ def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSess
     else:
         now_utc = now_utc.astimezone(timezone.utc)
     ny_time = now_utc.astimezone(_NY_TZ)
+    run_mode = str(os.getenv("RUN_MODE") or "").upper()
+    if run_mode in {"SIM", "PAPER", "READ_ONLY"}:
+        return MarketSessionContext(
+            coarse="RTH",
+            phase="RTH",
+            market_time=ny_time.isoformat(),
+        )
     market_time = ny_time.isoformat()
     if ny_time.weekday() >= 5:
         return MarketSessionContext(coarse="WEEKEND", phase="WEEKEND", market_time=market_time)
