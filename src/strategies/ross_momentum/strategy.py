@@ -4,12 +4,11 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import List
+from typing import Any, List
 
 from src.config.config_resolver import get_config
 from src.strategies.ross_momentum.decision_policy import (
     IntentPolicyConfig,
-    build_trade_intents,
 )
 from src.strategies.ross_momentum.patterns.pattern_evaluator import PatternEvaluator
 from src.strategies.ross_momentum.patterns.pattern_types import (
@@ -20,11 +19,14 @@ from src.strategies.ross_momentum.patterns.pattern_types import (
 from src.strategies.strategy_base import StrategyBase
 from src.strategies.strategy_contracts import (
     DecisionType,
+    Direction as IntentDirection,
     ExecutionMode,
     StrategyDecision,
     StrategyExecutionProfile,
     StrategyFoundationComponents,
     StrategyInput,
+    TimeInForcePolicy,
+    TradeIntent,
 )
 from src.utils.teacher_logs import (
     log_decision,
@@ -232,6 +234,134 @@ def _first_valid_fast_trigger(symbol: str, inputs: StrategyInput) -> PatternResu
     )
     return None
 
+
+def _setup_family_name(pattern_name: str) -> str:
+    upper = (pattern_name or "").upper()
+    if "PREMARKET" in upper or "PMH" in upper:
+        return "PREMARKET_HIGH_BREAK"
+    if "GAP" in upper:
+        return "GAP_AND_GO"
+    if "FIRST_PULLBACK" in upper or "PULLBACK_BREAK" in upper:
+        return "FIRST_PULLBACK"
+    if "MICRO_PULLBACK" in upper:
+        return "MICRO_PULLBACK"
+    if "FLAG" in upper or "CONSOLIDATION" in upper:
+        return "BULL_FLAG"
+    if "HOD" in upper:
+        return "HOD_BREAK"
+    return "TIGHT_CONSOLIDATION_CONTINUATION"
+
+
+def _evaluate_confirmation_stage(
+    *,
+    symbol: str,
+    session_label: str,
+    inputs: StrategyInput,
+    setup: PatternResult,
+) -> dict[str, Any]:
+    print(f"[ROSS][CONFIRM][START] symbol={symbol} pattern={setup.pattern_name}")
+    session = (session_label or "").upper()
+    spread = _as_float(getattr(inputs.market_context, "spread", None)) or 0.0
+    rvol = _as_float(getattr(inputs.market_context, "rvol", None)) or 0.0
+    volume = _as_float(getattr(inputs.market_context, "volume", None)) or 0.0
+    price = _as_float(getattr(inputs.market_context, "price", None)) or 0.0
+    confirmations_passed: list[str] = []
+    confirmations_failed: list[str] = []
+    warnings: list[str] = []
+    min_rvol = 1.2 if session in {"PRE", "RTH_OPEN"} else 1.8
+    max_spread = 0.06 if price < 20.0 else 0.12
+    if rvol >= min_rvol:
+        confirmations_passed.append("VOLUME_CONTEXT_OK")
+    else:
+        confirmations_failed.append("VOLUME_CONTEXT_TOO_WEAK")
+    if volume >= 50_000 or session in {"PRE", "RTH_OPEN"}:
+        confirmations_passed.append("ABSOLUTE_VOLUME_OK")
+    else:
+        confirmations_failed.append("ABSOLUTE_VOLUME_TOO_LOW")
+    if spread <= max_spread:
+        confirmations_passed.append("SPREAD_OK")
+    else:
+        confirmations_failed.append("SPREAD_TOO_WIDE")
+    if setup.confidence >= (0.55 if session in {"PRE", "RTH_OPEN"} else 0.65):
+        confirmations_passed.append("STRUCTURE_CONFIRMED")
+    else:
+        confirmations_failed.append("STRUCTURE_NOT_CONFIRMED")
+    if session in {"PRE", "RTH_OPEN"} and rvol < 2.0:
+        warnings.append("EARLY_SESSION_VOLUME_STILL_BUILDING")
+    block_trade = bool(confirmations_failed)
+    print(
+        "[ROSS][CONFIRM][RESULT] "
+        f"symbol={symbol} confirmations_passed={confirmations_passed} "
+        f"confirmations_failed={confirmations_failed} warnings={warnings} block_trade={block_trade}"
+    )
+    if block_trade:
+        print(f"[ROSS][CONFIRM][BLOCK] symbol={symbol} reason={confirmations_failed[0]}")
+    return {
+        "confirmations_passed": confirmations_passed,
+        "confirmations_failed": confirmations_failed,
+        "warnings": warnings,
+        "block_trade": block_trade,
+    }
+
+
+def _evaluate_trigger_stage(symbol: str, inputs: StrategyInput, setup: PatternResult) -> dict[str, Any]:
+    print(f"[ROSS][TRIGGER][START] symbol={symbol} setup={setup.pattern_name}")
+    price = _as_float(getattr(inputs.market_context, "price", None))
+    levels = dict(getattr(inputs.market_context, "key_levels", {}) or {})
+    if inputs.pattern_inputs:
+        first_levels = getattr(inputs.pattern_inputs[0], "levels", None)
+        if first_levels is not None:
+            levels.setdefault("PREMARKET_HIGH", _as_float(getattr(first_levels, "premarket_high", None)))
+            levels.setdefault("HOD", _as_float(getattr(first_levels, "hod", None)))
+    family = _setup_family_name(setup.pattern_name)
+    trigger_name = "FIRST_NEW_HIGH_AFTER_PULLBACK"
+    trigger_level = _as_float(levels.get("PULLBACK_HIGH") or levels.get("FIRST_PULLBACK_HIGH"))
+    stop_anchor = _as_float(levels.get("PULLBACK_LOW") or levels.get("MICRO_PULLBACK_LOW") or levels.get("VWAP"))
+    if stop_anchor is None:
+        stop_anchor = trigger_level
+    invalidation_level = stop_anchor
+    warnings: list[str] = []
+    if family == "PREMARKET_HIGH_BREAK":
+        trigger_name = "PREMARKET_HIGH_BREAK_TRIGGER"
+        trigger_level = _as_float(levels.get("PREMARKET_HIGH"))
+        stop_anchor = stop_anchor or _as_float(levels.get("PREMARKET_LOW"))
+        invalidation_level = stop_anchor
+    elif family == "HOD_BREAK":
+        trigger_name = "HOD_BREAK_TRIGGER"
+        trigger_level = _as_float(levels.get("HOD"))
+    elif family == "MICRO_PULLBACK":
+        trigger_name = "MICRO_PULLBACK_FAST_TRIGGER"
+        trigger_level = _as_float(levels.get("PULLBACK_HIGH") or levels.get("MICRO_PULLBACK_HIGH"))
+    if stop_anchor is None:
+        stop_anchor = trigger_level
+    invalidation_level = invalidation_level if invalidation_level is not None else stop_anchor
+    rejection_reason = None
+    triggered = bool(
+        price is not None
+        and trigger_level is not None
+        and stop_anchor is not None
+        and invalidation_level is not None
+        and price > trigger_level
+    )
+    if not triggered:
+        rejection_reason = "TRIGGER_CONDITIONS_NOT_MET_OR_MISSING_STOP"
+    payload = {
+        "trigger_name": trigger_name,
+        "triggered": triggered,
+        "trigger_level": trigger_level,
+        "trigger_time": "runtime_now",
+        "rationale": f"{trigger_name} evaluated for {family}",
+        "rejection_reason": rejection_reason,
+        "stop_anchor": stop_anchor,
+        "invalidation_level": invalidation_level,
+        "entry_style": "BREAKOUT_CONTINUATION",
+        "post_trigger_warnings": warnings,
+    }
+    print(f"[ROSS][TRIGGER][RESULT] symbol={symbol} {payload}")
+    if not triggered:
+        print(f"[ROSS][TRIGGER][REJECT] symbol={symbol} reason={rejection_reason}")
+    return payload
+
 class RossMomentumStrategy(StrategyBase):
     strategy_id = "ross_momentum"
     strategy_name = "Ross Momentum"
@@ -302,6 +432,7 @@ class RossMomentumStrategy(StrategyBase):
             pattern_inputs = []
         else:
             pattern_inputs = [replace(item, timeframe=structure_tf) for item in inputs.pattern_inputs]
+        print(f"[ROSS][PATTERN][START] symbol={symbol} watchlist_symbol=True")
         summary = self._evaluator.evaluate(pattern_inputs)
         fast_trigger_result = _first_valid_fast_trigger(symbol, inputs)
         if fast_trigger_result is not None:
@@ -319,6 +450,23 @@ class RossMomentumStrategy(StrategyBase):
             hod_pct = inputs.news_context.get("hod_pct")
 
         for result in summary.all_results:
+            print(
+                "[ROSS][PATTERN][RESULT] "
+                f"symbol={symbol} setup_family={_setup_family_name(result.pattern_name)} pattern_name={result.pattern_name} "
+                f"detected={bool(result.detected)} rejection_reason={result.rejection_reason} "
+                f"pullback_high={(getattr(inputs.market_context, 'key_levels', {}) or {}).get('PULLBACK_HIGH')} "
+                f"pullback_low={(getattr(inputs.market_context, 'key_levels', {}) or {}).get('PULLBACK_LOW')} "
+                f"impulse_high={(getattr(inputs.market_context, 'key_levels', {}) or {}).get('IMPULSE_HIGH')} "
+                f"impulse_low={(getattr(inputs.market_context, 'key_levels', {}) or {}).get('IMPULSE_LOW')} "
+                f"structure_assessment=confidence:{result.confidence:.2f} "
+                f"volume_assessment=rvol:{getattr(inputs.market_context, 'rvol', None)} "
+                f"invalidation_ready={bool(result.stop_suggestion)}"
+            )
+            if not result.detected:
+                print(
+                    "[ROSS][PATTERN][REJECT] "
+                    f"symbol={symbol} pattern={result.pattern_name} reason={result.rejection_reason or 'not_detected'}"
+                )
             decision = "TRIGGER" if result.detected else "REJECT"
             reason = "SETUP_DETECTED" if result.detected else _reason_code(result.rejection_reason)
             _log_setup_eval(
@@ -345,11 +493,59 @@ class RossMomentumStrategy(StrategyBase):
                     f"symbol={symbol} pattern={result.pattern_name} reason={reason}"
                 )
 
-        intents = build_trade_intents(
-            strategy_id=self.strategy_id,
-            symbol=symbol,
-            summary=summary,
-            config=self._policy_config,
+        intents: list[TradeIntent] = []
+        terminal_disposition = "BLOCKED_AT_PATTERN"
+        selected_setup = summary.best_long_setup or next(
+            (result for result in summary.all_results if result.detected and result.direction == PatternDirection.LONG),
+            None,
+        )
+        if selected_setup is not None:
+            confirm = _evaluate_confirmation_stage(
+                symbol=symbol,
+                session_label=session_label,
+                inputs=inputs,
+                setup=selected_setup,
+            )
+            if confirm["block_trade"]:
+                terminal_disposition = "BLOCKED_AT_CONFIRMATION"
+            else:
+                trigger = _evaluate_trigger_stage(symbol, inputs, selected_setup)
+                if not trigger["triggered"]:
+                    terminal_disposition = "BLOCKED_AT_TRIGGER"
+                else:
+                    print(f"[ROSS][INTENT][START] symbol={symbol} trigger={trigger['trigger_name']}")
+                    if not trigger["stop_anchor"] or not trigger["invalidation_level"] or not trigger["trigger_level"]:
+                        print(f"[ROSS][INTENT][REJECT] symbol={symbol} reason=MISSING_ACTIONABILITY_FIELDS")
+                        terminal_disposition = "BLOCKED_AT_INTENT"
+                    else:
+                        intent = TradeIntent(
+                            intent_id=f"{self.strategy_id}:{symbol}:{trigger['trigger_name']}",
+                            symbol=symbol,
+                            direction=IntentDirection.LONG,
+                            entry_model=f"trigger={trigger['trigger_level']}",
+                            stop_model=f"stop={trigger['stop_anchor']}",
+                            target_model=selected_setup.target_suggestion,
+                            time_in_force_policy=TimeInForcePolicy.DAY,
+                            invalidations=[f"invalidation={trigger['invalidation_level']}"],
+                            rationale_text=(
+                                f"strategy_id={self.strategy_id}; setup_family={_setup_family_name(selected_setup.pattern_name)}; "
+                                f"pattern_name={selected_setup.pattern_name}; trigger_name={trigger['trigger_name']}; "
+                                f"entry={trigger['trigger_level']}; stop={trigger['stop_anchor']}; "
+                                f"invalidation={trigger['invalidation_level']}; confidence={selected_setup.confidence:.2f}; "
+                                f"quality_tags={selected_setup.setup_quality_tags}; risk_flags={selected_setup.risk_flags}; "
+                                f"warnings={confirm['warnings'] + trigger['post_trigger_warnings']}"
+                            ),
+                            risk_flags=list(selected_setup.risk_flags) + list(confirm["warnings"]),
+                        )
+                        intents = [intent]
+                        print(
+                            "[ROSS][INTENT][CREATED] "
+                            f"symbol={symbol} trigger={trigger['trigger_name']} tif={intent.time_in_force_policy.value}"
+                        )
+                        terminal_disposition = "SUBMITTED_TO_EXECUTION"
+        print(
+            f"[ROSS][END_TO_END][{'PASS' if intents else 'NO_SIGNAL'}] "
+            f"symbol={symbol} disposition={terminal_disposition}"
         )
         confidence = max(
             [result.confidence for result in summary.all_results if result.detected],

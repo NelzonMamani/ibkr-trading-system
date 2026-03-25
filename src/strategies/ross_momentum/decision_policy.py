@@ -24,7 +24,7 @@ from src.strategies.strategy_contracts import SessionContext
 @dataclass(frozen=True)
 class IntentPolicyConfig:
     min_confidence: float = 0.6
-    debug_force_execution: bool = True
+    debug_force_execution: bool = False
 
 
 def build_trade_intents(
@@ -56,16 +56,13 @@ def build_trade_intents(
         if not dq_ok and config.debug_force_execution:
             print(f"[DQ_OVERRIDE] symbol={symbol} dq was bypassed")
             dq_ok = True
-        if config.debug_force_execution:
-            execution_ready = pattern_detected or True
-        else:
-            execution_ready = (
-                pattern_detected
-                and confirmation_passed
-                and trigger_fired
-                and risk_ok
-                and dq_ok
-            )
+        execution_ready = (
+            pattern_detected
+            and confirmation_passed
+            and trigger_fired
+            and risk_ok
+            and dq_ok
+        )
         print(
             f"[STRATEGY_TRACE] symbol={symbol} "
             f"pattern_detected={pattern_detected} "
