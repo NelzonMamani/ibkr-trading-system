@@ -157,31 +157,41 @@ def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSess
             f"[SESSION][NONLIVE_FALLBACK] run_mode={run_mode} "
             "coarse=RTH phase=RTH source=DETERMINISTIC_MODE_POLICY"
         )
-        return MarketSessionContext(coarse="RTH", phase="RTH", market_time=market_time)
+        context = MarketSessionContext(coarse="RTH", phase="RTH", market_time=market_time)
+    elif ny_time.weekday() >= 5:
+        context = MarketSessionContext(coarse="WEEKEND", phase="WEEKEND", market_time=market_time)
+    else:
+        holidays = set(get_config("MARKET_HOLIDAYS"))
+        half_days = set(get_config("MARKET_HALF_DAYS"))
+        if ny_time.date() in holidays:
+            context = MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
+        elif ny_time.date() in half_days and ny_time.time() >= get_config("MARKET_EARLY_CLOSE_TIME"):
+            context = MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
+        else:
+            ny_clock = ny_time.time()
+            if time(4, 0) <= ny_clock < time(9, 30):
+                context = MarketSessionContext(coarse="PRE", phase="PRE", market_time=market_time)
+            elif time(9, 30) <= ny_clock < time(16, 0):
+                if ny_clock < time(10, 30):
+                    context = MarketSessionContext(coarse="RTH_OPEN", phase="RTH_OPEN", market_time=market_time)
+                elif ny_clock < time(14, 30):
+                    context = MarketSessionContext(coarse="RTH_MID", phase="RTH_MID", market_time=market_time)
+                else:
+                    context = MarketSessionContext(coarse="RTH_LATE", phase="RTH_LATE", market_time=market_time)
+            elif time(16, 0) <= ny_clock < time(20, 0):
+                context = MarketSessionContext(coarse="AH", phase="AH", market_time=market_time)
+            else:
+                context = MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
 
-    if ny_time.weekday() >= 5:
-        return MarketSessionContext(coarse="WEEKEND", phase="WEEKEND", market_time=market_time)
-    holidays = set(get_config("MARKET_HOLIDAYS"))
-    half_days = set(get_config("MARKET_HALF_DAYS"))
-    if ny_time.date() in holidays:
-        return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
-    if ny_time.date() in half_days:
-        early_close = get_config("MARKET_EARLY_CLOSE_TIME")
-        if ny_time.time() >= early_close:
-            return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
-
-    ny_clock = ny_time.time()
-    if time(4, 0) <= ny_clock < time(9, 30):
-        return MarketSessionContext(coarse="PRE", phase="PRE", market_time=market_time)
-    if time(9, 30) <= ny_clock < time(16, 0):
-        if ny_clock < time(10, 30):
-            return MarketSessionContext(coarse="RTH_OPEN", phase="RTH_OPEN", market_time=market_time)
-        if ny_clock < time(14, 30):
-            return MarketSessionContext(coarse="RTH_MID", phase="RTH_MID", market_time=market_time)
-        return MarketSessionContext(coarse="RTH_LATE", phase="RTH_LATE", market_time=market_time)
-    if time(16, 0) <= ny_clock < time(20, 0):
-        return MarketSessionContext(coarse="AH", phase="AH", market_time=market_time)
-    return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
+    print(
+        "[SESSION][TIME] "
+        f"utc={now_utc.isoformat()} "
+        f"ny={ny_time.isoformat()} "
+        f"run_mode={run_mode} "
+        f"phase={context.phase} "
+        f"coarse={context.coarse}"
+    )
+    return context
 
 
 def canonical_session_label(label: str) -> str:
