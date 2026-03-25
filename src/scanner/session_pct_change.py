@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, time, timezone, timedelta
 import math
+import os
 from typing import Optional
 
 from zoneinfo import ZoneInfo
@@ -144,6 +145,17 @@ def resolve_market_session_label(now: Optional[datetime] = None) -> str:
 
 
 def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSessionContext:
+    run_mode = str(os.getenv("RUN_MODE") or "").upper()
+
+    def _sim_fallback_context() -> MarketSessionContext | None:
+        if run_mode in {"SIM", "PAPER", "READ_ONLY"}:
+            return MarketSessionContext(
+                coarse="RTH",
+                phase="RTH",
+                market_time=market_time,
+            )
+        return None
+
     now_utc = now or datetime.now(timezone.utc)
     if now_utc.tzinfo is None:
         now_utc = now_utc.replace(tzinfo=timezone.utc)
@@ -152,14 +164,23 @@ def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSess
     ny_time = now_utc.astimezone(_NY_TZ)
     market_time = ny_time.isoformat()
     if ny_time.weekday() >= 5:
+        fallback = _sim_fallback_context()
+        if fallback is not None:
+            return fallback
         return MarketSessionContext(coarse="WEEKEND", phase="WEEKEND", market_time=market_time)
     holidays = set(get_config("MARKET_HOLIDAYS"))
     half_days = set(get_config("MARKET_HALF_DAYS"))
     if ny_time.date() in holidays:
+        fallback = _sim_fallback_context()
+        if fallback is not None:
+            return fallback
         return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
     if ny_time.date() in half_days:
         early_close = get_config("MARKET_EARLY_CLOSE_TIME")
         if ny_time.time() >= early_close:
+            fallback = _sim_fallback_context()
+            if fallback is not None:
+                return fallback
             return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
 
     ny_clock = ny_time.time()
@@ -173,6 +194,9 @@ def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSess
         return MarketSessionContext(coarse="RTH_LATE", phase="RTH_LATE", market_time=market_time)
     if time(16, 0) <= ny_clock < time(20, 0):
         return MarketSessionContext(coarse="AH", phase="AH", market_time=market_time)
+    fallback = _sim_fallback_context()
+    if fallback is not None:
+        return fallback
     return MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
 
 
