@@ -1329,8 +1329,17 @@ class CoreOrchestrator:
         cycle_started_at = datetime.now(timezone.utc)
         ny_time = to_ny_time(cycle_started_at)
         uk_time = to_uk_time(cycle_started_at)
+        forced_session_env = str(os.getenv("FORCE_SESSION") or "").strip().upper()
+        forced_session_applied = normalize_session_label(forced_session_env) if forced_session_env else ""
+        if forced_session_env:
+            if not forced_session_applied:
+                forced_session_applied = forced_session_env
+            print(
+                "[SESSION][FORCED_OVERRIDE] "
+                f"requested={forced_session_env} applied={forced_session_applied}"
+            )
         session_override = str(get_config("SESSION_PHASE_OVERRIDE") or "").strip().upper()
-        session_phase = session_override or market_session_phase(cycle_started_at)
+        session_phase = forced_session_applied or session_override or market_session_phase(cycle_started_at)
         print(
             "[SESSION] "
             f"phase={session_phase} ny_time={ny_time.isoformat()} "
@@ -1345,6 +1354,8 @@ class CoreOrchestrator:
             ny_time=ny_time,
             uk_time=uk_time,
             session_phase=session_phase,
+            forced_session_label=forced_session_applied or None,
+            forced_session_source="FORCE_SESSION" if forced_session_applied else None,
         )
 
     def _active_policy_v2(self) -> StrategyPolicyV2 | None:
@@ -1444,6 +1455,8 @@ class CoreOrchestrator:
         ny_time: datetime,
         uk_time: datetime,
         session_phase: str,
+        forced_session_label: str | None = None,
+        forced_session_source: str | None = None,
     ) -> bool:
         self.runtime_mode_manager = RuntimeModeManager.resolve()
         mode_manager = self.runtime_mode_manager
@@ -1509,6 +1522,8 @@ class CoreOrchestrator:
                         provider=provider_override,
                         market_data_client=self.connection_manager.optional_client,
                         disconnect_provider=provider_override is not None,
+                        forced_session_label=forced_session_label,
+                        forced_session_source=forced_session_source,
                     )
                     observations = list(strategy_payload.get("candidate_metrics", []))
                     universe_entries = list(strategy_payload.get("universe_top_n", []))
@@ -1623,7 +1638,10 @@ class CoreOrchestrator:
             print("[FOCUS][EMPTY] reason=no_focus_symbols_after_selection")
         self._trace_event("FOCUS", {"focus": [{"symbol": s} for s in final_evaluation_symbols]})
         snapshots_by_symbol, _ = self.market_data_snapshot_manager.batch_snapshots(final_evaluation_symbols)
-        session_label = canonical_session_label((selected_watchlist[0].session_label if selected_watchlist else session_phase))
+        session_label = canonical_session_label(
+            forced_session_label
+            or (selected_watchlist[0].session_label if selected_watchlist else session_phase)
+        )
         self.strategy_runner.receive_watchlist_snapshot(
             watchlist_symbols=final_evaluation_symbols,
             snapshots=snapshots_by_symbol,

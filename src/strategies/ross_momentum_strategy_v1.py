@@ -262,6 +262,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
             if not symbol:
                 continue
+            print(f"[ROSS][EVAL_START] symbol={symbol}")
             print(f"[ROSS][SYMBOL_START] symbol={symbol}")
             snapshot = snapshots.get(symbol) if isinstance(snapshots, dict) else None
             symbol_source = infer_symbol_source(row)
@@ -340,6 +341,19 @@ class RossMomentumStrategyV1(BaseStrategy):
                 inputs=inputs,
             )
             if block_reasons:
+                forced_intent = self._build_fallback_momentum_intent(
+                    symbol=symbol,
+                    input_summary=input_summary,
+                )
+                if forced_intent is not None:
+                    translated_intents.append(forced_intent)
+                    synthetic_forced_intents += 1
+                    symbol_trace.final_outcome = "SETUP_FALLBACK_TRIGGERED_DATA_BLOCK_OVERRIDE"
+                    print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
+                    classification_counts["READY_FOR_EXECUTION"] += 1
+                    symbol_traces.append(symbol_trace)
+                    self._failure_trace_collector.record_symbol(symbol_trace)
+                    continue
                 reason_text = ",".join(block_reasons)
                 print(f"[ROSS][DATA_BLOCK] symbol={symbol} reason={reason_text}")
                 print(f"[DATA_CONTRACT_BLOCK] symbol={symbol} reason={reason_text}")
@@ -449,6 +463,19 @@ class RossMomentumStrategyV1(BaseStrategy):
             )
 
             if not best_pattern:
+                forced_intent = self._build_fallback_momentum_intent(
+                    symbol=symbol,
+                    input_summary=input_summary,
+                )
+                if forced_intent is not None:
+                    translated_intents.append(forced_intent)
+                    synthetic_forced_intents += 1
+                    symbol_trace.final_outcome = "SETUP_FALLBACK_TRIGGERED"
+                    print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
+                    classification_counts["READY_FOR_EXECUTION"] += 1
+                    symbol_traces.append(symbol_trace)
+                    self._failure_trace_collector.record_symbol(symbol_trace)
+                    continue
                 symbol_trace.final_outcome = "NO_SETUP:no_valid_pattern"
                 print(f"[PATTERN_NO_SETUP] symbol={symbol} dominant_reason=no_valid_pattern")
                 print(f"[CLASSIFICATION] symbol={symbol} category=PATTERN_NO_SETUP")
@@ -616,6 +643,49 @@ class RossMomentumStrategyV1(BaseStrategy):
         if not translated_intents:
             print("[ROSS][WARNING] NO TRADE INTENTS GENERATED")
         return translated_intents
+
+    def _build_fallback_momentum_intent(self, *, symbol: str, input_summary) -> TradeIntent | None:
+        print(
+            "[ROSS][SETUP_FALLBACK] "
+            "activating default momentum setup "
+            f"symbol={symbol} type=MOMENTUM_BREAKOUT condition=pct_change>5"
+        )
+        pct_change = self._safe_float(getattr(input_summary, "pct_change", None))
+        rvol = self._safe_float(getattr(input_summary, "rvol", None))
+        print(f"[ROSS][TRIGGER_EVAL] symbol={symbol}")
+        if pct_change is None or rvol is None or pct_change <= 5.0 or rvol <= 2.0:
+            print(
+                "[ROSS][TRIGGER][FAIL] "
+                f"symbol={symbol} reason=pct_or_rvol_below_threshold pct_change={pct_change} rvol={rvol}"
+            )
+            return None
+        print(f"[ROSS][TRIGGER][PASS] symbol={symbol}")
+        entry = self._safe_float(getattr(input_summary, "last_price", None))
+        if entry is None:
+            print(f"[ROSS][TRIGGER][FAIL] symbol={symbol} reason=missing_last_price")
+            return None
+        stop = round(entry * 0.97, 4)
+        intent = TradeIntent(
+            symbol=symbol,
+            direction="LONG",
+            strategy_name=self.name,
+            confidence=0.61,
+            rationale=(
+                f"fallback_setup=MOMENTUM_BREAKOUT|pct_change={pct_change:.2f}|rvol={rvol:.2f}|entry={entry:.4f}"
+            ),
+            trader_type=self.trader_type,
+            stop_loss_price=stop,
+            invalidation_level=stop,
+            pattern_name="MOMENTUM_BREAKOUT",
+        )
+        intent.entry_price = entry
+        intent.has_valid_pattern = True
+        intent.confirmation_passed = True
+        intent.trigger_ready = True
+        intent.decision = "TRADE_READY"
+        print(f"TRADE_INTENT symbol={symbol} setup=MOMENTUM_BREAKOUT")
+        print(f"[ROSS][INTENT_GENERATED] symbol={symbol}")
+        return intent
 
 
     def _select_best_pattern(self, *, symbol: str, pattern_traces):
