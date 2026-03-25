@@ -156,8 +156,6 @@ def build_symbol_context(
     float_millions = round(float_shares / 1_000_000.0, 4) if float_shares else None
 
     pct_change = _safe_float(base_context.get("pct_change"))
-    if pct_change is None and last_price is not None and prior_close not in {None, 0}:
-        pct_change = round(((last_price - prior_close) / prior_close) * 100.0, 4)
 
     gate_checks = {
         "has_price": last_price is not None,
@@ -208,7 +206,7 @@ def build_symbol_context(
         in_play=in_play,
         tradable=tradable,
         gate_checks=gate_checks,
-        gap_pct=compute_gap_pct(session_open_price, prior_close),
+        gap_pct=_safe_float(base_context.get("gap_pct_resolved")) or compute_gap_pct(session_open_price, prior_close),
         catalyst_quality=catalyst_quality,
         liquidity_penalty=liquidity_penalty,
     )
