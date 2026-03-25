@@ -99,6 +99,21 @@ class RossMomentumStrategyV1(BaseStrategy):
         session = str(session_label or "").upper()
         return session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE", "REG", "REGULAR", "POWER_HOUR", "LATE"}
 
+    def _is_strong_momentum(self, ctx) -> bool:
+        pct_change = self._safe_float(getattr(ctx, "pct_change", None))
+        rvol = self._safe_float(getattr(ctx, "rvol", None))
+        last = self._safe_float(getattr(ctx, "last", None))
+        if last is None:
+            last = self._safe_float(getattr(ctx, "last_price", None))
+        return (
+            pct_change is not None
+            and rvol is not None
+            and pct_change >= 20
+            and rvol >= 3
+            and last is not None
+            and 1.0 <= last <= 20.0
+        )
+
     def _data_contract_block_reasons(self, *, symbol: str, input_summary, inputs) -> list[str]:
         reasons: list[str] = []
         volume_min, rvol_min = self._session_thresholds(input_summary.session_context)
@@ -500,6 +515,34 @@ class RossMomentumStrategyV1(BaseStrategy):
             )
 
             if not best_pattern:
+                if self._is_strong_momentum(input_summary):
+                    pct_change = self._safe_float(getattr(input_summary, "pct_change", None)) or 0.0
+                    rvol = self._safe_float(getattr(input_summary, "rvol", None)) or 0.0
+                    print(
+                        "[ROSS][SETUP][FORCED] "
+                        f"symbol={symbol} reason=STRONG_MOMENTUM pct={pct_change:.2f} rvol={rvol:.2f}"
+                    )
+                    trigger = {
+                        "type": "XL_MOMENTUM_IMMEDIATE",
+                        "status": "READY",
+                        "reason": "FORCED_MOMENTUM_ENTRY",
+                        "source": "fallback",
+                    }
+                    print(
+                        "[ROSS][TRIGGER][FORCED] "
+                        f"symbol={symbol} trigger=XL_MOMENTUM_IMMEDIATE"
+                    )
+                    translated_intents.append(self._build_trade_intent(input_summary, trigger))
+                    synthetic_forced_intents += 1
+                    symbol_trace.final_outcome = "SETUP_FORCED_STRONG_MOMENTUM"
+                    symbol_trace.setup_stage = {"status": "PASS", "reason_code": "FORCED_SETUP_STRONG_MOMENTUM"}
+                    symbol_trace.trigger_stage = {"status": "FIRED", "reason_code": "FORCED_TRIGGER_STRONG_MOMENTUM"}
+                    symbol_trace.final_reason_code = "INTENT_GENERATED_FROM_STRONG_MOMENTUM_FORCE"
+                    print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
+                    classification_counts["READY_FOR_EXECUTION"] += 1
+                    symbol_traces.append(symbol_trace)
+                    self._failure_trace_collector.record_symbol(symbol_trace)
+                    continue
                 forced_intent = self._build_fallback_momentum_intent(
                     symbol=symbol,
                     input_summary=input_summary,
@@ -748,6 +791,31 @@ class RossMomentumStrategyV1(BaseStrategy):
         intent.decision = "TRADE_READY"
         print(f"TRADE_INTENT symbol={symbol} setup=MOMENTUM_BREAKOUT")
         print(f"[ROSS][INTENT_GENERATED] symbol={symbol}")
+        return intent
+
+    def _build_trade_intent(self, ctx, trigger: dict[str, str]) -> TradeIntent:
+        pct_change = self._safe_float(getattr(ctx, "pct_change", None))
+        rvol = self._safe_float(getattr(ctx, "rvol", None))
+        intent = TradeIntent(
+            symbol=str(getattr(ctx, "symbol", "")),
+            direction="LONG",
+            strategy_name=self.name,
+            confidence=0.7,
+            rationale=f"forced_momentum_trigger={trigger['type']}",
+            trader_type=self.trader_type,
+            pattern_name=trigger["type"],
+            rvol=rvol,
+        )
+        intent.metadata = {
+            "pct_change": pct_change,
+            "rvol": rvol,
+            "trigger": trigger["type"],
+        }
+        intent.trigger_ready = True
+        intent.confirmation_passed = True
+        intent.has_valid_pattern = True
+        intent.decision = "TRADE_READY"
+        print(f"TRADE_INTENT symbol={intent.symbol} setup={trigger['type']}")
         return intent
 
 
