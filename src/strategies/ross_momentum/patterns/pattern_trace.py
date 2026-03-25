@@ -213,11 +213,17 @@ class RossSymbolTrace:
     registry_path: str = "RossPatternRegistry"
     registry_matches_audit: bool = True
     input_summary: dict[str, Any] = field(default_factory=dict)
+    context_stage: dict[str, Any] = field(default_factory=dict)
+    structure_stage: dict[str, Any] = field(default_factory=dict)
+    setup_stage: dict[str, Any] = field(default_factory=dict)
+    confirmation_stage: dict[str, Any] = field(default_factory=dict)
+    trigger_stage: dict[str, Any] = field(default_factory=dict)
     pre_registry_failure_reason: str | None = None
     pattern_traces: list[RossPatternTrace] = field(default_factory=list)
     detected_pattern_ids: list[str] = field(default_factory=list)
     dropped_detected_pattern_ids: list[str] = field(default_factory=list)
     final_outcome: str | None = None
+    final_reason_code: str | None = None
     synthetic_forced_intent: bool = False
 
     def to_dict(self) -> dict[str, Any]:
