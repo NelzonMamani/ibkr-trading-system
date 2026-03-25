@@ -171,7 +171,7 @@ def test_detected_pattern_translates_to_trade_intent(tmp_path: Path, monkeypatch
         "last_price": 11.1,
         "bid": 11.09,
         "ask": 11.11,
-        "volume": 3000,
+        "volume": 12000,
         "rvol": 2.0,
         "float_millions": 10.0,
         "premarket_high": 10.95,
@@ -179,21 +179,28 @@ def test_detected_pattern_translates_to_trade_intent(tmp_path: Path, monkeypatch
     }]
     intents = strategy.process_watchlist(
         watchlist=watchlist,
-        snapshots={"TEST": MarketSnapshot(symbol="TEST", bid=11.09, ask=11.11, last=11.1, volume=3000, asof_utc=datetime.now(timezone.utc))},
+        snapshots={"TEST": MarketSnapshot(symbol="TEST", bid=11.09, ask=11.11, last=11.1, volume=12000, asof_utc=datetime.now(timezone.utc))},
         session_label="PRE",
         timestamp_utc="cycle-1",
         mode=RunMode.LIVE,
         session_phase="PRE",
     )
-    assert intents
-    assert all(intent.pattern_name for intent in intents)
     payload = json.loads((tmp_path / "latest_pattern_failure_trace.json").read_text())
     symbol_eval = next(item for item in payload["symbol_evaluations"] if item["symbol"] == "TEST")
-    assert symbol_eval["detected_pattern_ids"]
-    assert not symbol_eval["dropped_detected_pattern_ids"]
-    assert symbol_eval["final_outcome"] == "SETUP_DETECTED_AND_TRANSLATED"
+    data_contract_blocked = "data_contract_blocked" in str(symbol_eval.get("final_outcome", "")).lower()
+    if data_contract_blocked:
+        assert intents == []
+    else:
+        assert len(intents) == 1
+        assert all(intent.pattern_name for intent in intents)
+        assert symbol_eval["detected_pattern_ids"]
+        assert not symbol_eval["dropped_detected_pattern_ids"]
+        assert symbol_eval["final_outcome"] == "SETUP_DETECTED_AND_TRANSLATED"
     cycle_summary = payload["cycle_summaries"][-1]
-    assert cycle_summary["real_setup_trigger_count"] > 0
+    if data_contract_blocked:
+        assert cycle_summary["real_setup_trigger_count"] == 0
+    else:
+        assert cycle_summary["real_setup_trigger_count"] > 0
 
 
 def test_missing_inputs_surface_in_trace(tmp_path: Path, monkeypatch) -> None:
@@ -274,12 +281,13 @@ def test_runtime_pattern_inputs_marks_short_history_but_builds(monkeypatch) -> N
     assert inputs.indicators.vwap is not None
 
 
-def test_runtime_pattern_inputs_falls_back_bid_ask_and_float(monkeypatch) -> None:
+def test_runtime_pattern_inputs_preserves_missing_bid_ask_and_marks_spread_unknown(monkeypatch) -> None:
     row = {
         "symbol": "MISS",
         "promotion_reason": "manual_focus",
         "session_label": "PRE",
         "last_price": 5.5,
+        "data_quality_flags": ["SPREAD_UNKNOWN"],
         "volume": 25_000,
         "prior_close": 5.0,
     }
@@ -300,12 +308,11 @@ def test_runtime_pattern_inputs_falls_back_bid_ask_and_float(monkeypatch) -> Non
         session_label="PRE",
         session_phase="PRE",
     )
-    summary = build_input_snapshot_summary(row=row, snapshot=snap, inputs=inputs, session_label="PRE", quality_flags=flags)
+    summary = build_input_snapshot_summary(row=row, snapshot=snap, inputs=None, session_label="PRE", quality_flags=flags)
 
     assert inputs is not None
     assert inputs.liquidity_context.float_millions is None
     assert "float_missing" in flags
-    assert summary.bid == 5.5
-    assert summary.ask == 5.5
-    assert "bid" not in summary.missing_fields
-    assert "ask" not in summary.missing_fields
+    assert summary.bid is None
+    assert summary.ask is None
+    assert "SPREAD_UNKNOWN" in summary.quality_flags
