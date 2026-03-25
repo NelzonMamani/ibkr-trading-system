@@ -1,0 +1,220 @@
+[CONFIG] Loaded 187 variables
+[CONFIG] HARD enforced: 30
+[CONFIG] Optional: 156
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+[PIPELINE_TEST]
+symbol=AAPL
+[ROSS][PATTERN][START] symbol=AAPL
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Gap & Go pattern_id=P_GAP_GO registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_GAP_GO input_summary={}
+[PATTERN] AAPL Gap & Go not detected (reason=gap not holding above premarket high)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Gap & Go pattern_id=P_GAP_GO detected=False reason=gap not holding above premarket high pattern_name=Gap & Go
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Opening Range Breakout pattern_id=P_ORB registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_ORB input_summary={}
+[PATTERN] AAPL Opening Range Breakout not detected (reason=not regular session)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Opening Range Breakout pattern_id=P_ORB detected=False reason=not regular session pattern_name=Opening Range Breakout
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=First Pullback pattern_id=P_FIRST_PULLBACK registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_FIRST_PULLBACK input_summary={}
+[PATTERN] AAPL First Pullback not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=First Pullback pattern_id=P_FIRST_PULLBACK detected=False reason=insufficient candles pattern_name=First Pullback
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Micro Pullback pattern_id=P_MICRO_PULLBACK registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_MICRO_PULLBACK input_summary={}
+[PATTERN] AAPL Micro Pullback not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Micro Pullback pattern_id=P_MICRO_PULLBACK detected=False reason=insufficient candles pattern_name=Micro Pullback
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Bull Flag pattern_id=P_BULL_FLAG registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_BULL_FLAG input_summary={}
+[PATTERN] AAPL Bull Flag not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Bull Flag pattern_id=P_BULL_FLAG detected=False reason=insufficient candles pattern_name=Bull Flag
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Key Level Break pattern_id=P_KEY_LEVEL_BREAK registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_KEY_LEVEL_BREAK input_summary={}
+[PATTERN] AAPL Key Level Break not detected (reason=no key level break)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Key Level Break pattern_id=P_KEY_LEVEL_BREAK detected=False reason=no key level break pattern_name=Key Level Break
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=ABCD Continuation pattern_id=P_ABCD registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_ABCD input_summary={}
+[PATTERN] AAPL ABCD Continuation not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=ABCD Continuation pattern_id=P_ABCD detected=False reason=insufficient candles pattern_name=ABCD Continuation
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Cup and Handle pattern_id=P_CUP_HANDLE registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_CUP_HANDLE input_summary={}
+[PATTERN] AAPL Cup and Handle not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Cup and Handle pattern_id=P_CUP_HANDLE detected=False reason=insufficient candles pattern_name=Cup and Handle
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Momentum Reclaim pattern_id=P_MOMENTUM_RECLAIM registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_MOMENTUM_RECLAIM input_summary={}
+[PATTERN] AAPL Momentum Reclaim not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Momentum Reclaim pattern_id=P_MOMENTUM_RECLAIM detected=False reason=insufficient candles pattern_name=Momentum Reclaim
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Premarket High Break pattern_id=P_PREMKT_BREAK registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_PREMKT_BREAK input_summary={}
+[PATTERN] AAPL Premarket High Break not detected (reason=price below premarket high)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Premarket High Break pattern_id=P_PREMKT_BREAK detected=False reason=price below premarket high pattern_name=Premarket High Break
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Parabolic Exhaustion pattern_id=P_PARABOLIC_EXHAUSTION registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_PARABOLIC_EXHAUSTION input_summary={}
+[PATTERN] AAPL Parabolic Exhaustion not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Parabolic Exhaustion pattern_id=P_PARABOLIC_EXHAUSTION detected=False reason=insufficient candles pattern_name=Parabolic Exhaustion
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Gap Fill Reversal pattern_id=P_GAP_FILL_REVERSAL registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_GAP_FILL_REVERSAL input_summary={}
+[PATTERN] AAPL Gap Fill Reversal not detected (reason=missing prior close or candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Gap Fill Reversal pattern_id=P_GAP_FILL_REVERSAL detected=False reason=missing prior close or candles pattern_name=Gap Fill Reversal
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Gap & Go pattern_id=P_GAP_GO registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_GAP_GO input_summary={}
+[PATTERN] AAPL Gap & Go not detected (reason=gap not holding above premarket high)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Gap & Go pattern_id=P_GAP_GO detected=False reason=gap not holding above premarket high pattern_name=Gap & Go
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Opening Drive pattern_id=P_OPENING_DRIVE registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_OPENING_DRIVE input_summary={}
+[PATTERN] AAPL Opening Drive not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Opening Drive pattern_id=P_OPENING_DRIVE detected=False reason=insufficient candles pattern_name=Opening Drive
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Opening Fakeout pattern_id=P_OPENING_FAKEOUT registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_OPENING_FAKEOUT input_summary={}
+[PATTERN] AAPL Opening Fakeout not detected (reason=not regular session)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Opening Fakeout pattern_id=P_OPENING_FAKEOUT detected=False reason=not regular session pattern_name=Opening Fakeout
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Consolidation Breakout pattern_id=P_CONSOLIDATION_BREAK registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_CONSOLIDATION_BREAK input_summary={}
+[PATTERN] AAPL Consolidation Breakout not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Consolidation Breakout pattern_id=P_CONSOLIDATION_BREAK detected=False reason=insufficient candles pattern_name=Consolidation Breakout
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Flat Top Breakout pattern_id=P_FLAT_TOP_BREAKOUT registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_FLAT_TOP_BREAKOUT input_summary={}
+[PATTERN] AAPL Flat Top Breakout not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Flat Top Breakout pattern_id=P_FLAT_TOP_BREAKOUT detected=False reason=insufficient candles pattern_name=Flat Top Breakout
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Ascending Triangle Breakout pattern_id=P_ASCENDING_TRIANGLE_BREAKOUT registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_ASCENDING_TRIANGLE_BREAKOUT input_summary={}
+[PATTERN] AAPL Ascending Triangle Breakout not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Ascending Triangle Breakout pattern_id=P_ASCENDING_TRIANGLE_BREAKOUT detected=False reason=insufficient candles pattern_name=Ascending Triangle Breakout
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Pennant Break pattern_id=P_PENNANT_BREAK registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_PENNANT_BREAK input_summary={}
+[PATTERN] AAPL Pennant Break not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Pennant Break pattern_id=P_PENNANT_BREAK detected=False reason=insufficient candles pattern_name=Pennant Break
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Range / Rectangle Breakout pattern_id=P_RANGE_BREAKOUT registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_RANGE_BREAKOUT input_summary={}
+[PATTERN] AAPL Range / Rectangle Breakout not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Range / Rectangle Breakout pattern_id=P_RANGE_BREAKOUT detected=False reason=insufficient candles pattern_name=Range / Rectangle Breakout
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=High of Day Break pattern_id=P_HOD_BREAK registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_HOD_BREAK input_summary={}
+[PATTERN] AAPL High of Day Break not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=High of Day Break pattern_id=P_HOD_BREAK detected=False reason=insufficient candles pattern_name=High of Day Break
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=EMA Pullback pattern_id=P_EMA_PULLBACK registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_EMA_PULLBACK input_summary={}
+[PATTERN] AAPL EMA Pullback not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=EMA Pullback pattern_id=P_EMA_PULLBACK detected=False reason=insufficient candles pattern_name=EMA Pullback
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=VWAP Pullback pattern_id=P_VWAP_PULLBACK registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_VWAP_PULLBACK input_summary={}
+[PATTERN] AAPL VWAP Pullback not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=VWAP Pullback pattern_id=P_VWAP_PULLBACK detected=False reason=insufficient candles pattern_name=VWAP Pullback
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Three-Bar Pullback pattern_id=P_THREE_BAR_PULLBACK registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_THREE_BAR_PULLBACK input_summary={}
+[PATTERN] AAPL Three-Bar Pullback not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Three-Bar Pullback pattern_id=P_THREE_BAR_PULLBACK detected=False reason=insufficient candles pattern_name=Three-Bar Pullback
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Trend Continuation (Stair-Step) pattern_id=P_TREND_CONTINUATION_STAIR_STEP registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_TREND_CONTINUATION_STAIR_STEP input_summary={}
+[PATTERN] AAPL Trend Continuation (Stair-Step) not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Trend Continuation (Stair-Step) pattern_id=P_TREND_CONTINUATION_STAIR_STEP detected=False reason=insufficient candles pattern_name=Trend Continuation (Stair-Step)
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Second Pullback pattern_id=P_SECOND_PULLBACK registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_SECOND_PULLBACK input_summary={}
+[PATTERN] AAPL Second Pullback not detected (reason=insufficient candles)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Second Pullback pattern_id=P_SECOND_PULLBACK detected=False reason=insufficient candles pattern_name=Second Pullback
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Failed ORB Fakeout pattern_id=P_FAILED_ORB_FAKEOUT registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_FAILED_ORB_FAKEOUT input_summary={}
+[PATTERN] AAPL Failed ORB Fakeout not detected (reason=not regular session)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Failed ORB Fakeout pattern_id=P_FAILED_ORB_FAKEOUT detected=False reason=not regular session pattern_name=Failed ORB Fakeout
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Engulfing pattern_id=C_ENGULFING registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=C_ENGULFING input_summary={}
+[PATTERN] AAPL Engulfing not detected (reason=placeholder_family_not_enabled)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Engulfing pattern_id=C_ENGULFING detected=False reason=placeholder_family_not_enabled pattern_name=Engulfing
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Long Upper Wick pattern_id=C_LONG_UPPER_WICK registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=C_LONG_UPPER_WICK input_summary={}
+[PATTERN] AAPL Long Upper Wick not detected (reason=placeholder_family_not_enabled)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Long Upper Wick pattern_id=C_LONG_UPPER_WICK detected=False reason=placeholder_family_not_enabled pattern_name=Long Upper Wick
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Marubozu pattern_id=C_MARUBOZU registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=C_MARUBOZU input_summary={}
+[PATTERN] AAPL Marubozu not detected (reason=placeholder_family_not_enabled)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Marubozu pattern_id=C_MARUBOZU detected=False reason=placeholder_family_not_enabled pattern_name=Marubozu
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Three Soldiers / Crows pattern_id=C_THREE_SOLDIERS_CROWS registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=C_THREE_SOLDIERS_CROWS input_summary={}
+[PATTERN] AAPL Three Soldiers / Crows not detected (reason=placeholder_family_not_enabled)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Three Soldiers / Crows pattern_id=C_THREE_SOLDIERS_CROWS detected=False reason=placeholder_family_not_enabled pattern_name=Three Soldiers / Crows
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Climax Top pattern_id=P_CLIMAX_TOP registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_CLIMAX_TOP input_summary={}
+[PATTERN] AAPL Climax Top not detected (reason=placeholder_family_not_enabled)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Climax Top pattern_id=P_CLIMAX_TOP detected=False reason=placeholder_family_not_enabled pattern_name=Climax Top
+[PATTERN_TRACE][CALL] symbol=AAPL pattern=Volume Climax pattern_id=P_VOLUME_CLIMAX registry=RossPatternRegistry strategy=ross_momentum
+[PATTERN_TRACE][INPUT] symbol=AAPL pattern_id=P_VOLUME_CLIMAX input_summary={}
+[PATTERN] AAPL Volume Climax not detected (reason=placeholder_family_not_enabled)
+[PATTERN_TRACE][RESULT] symbol=AAPL pattern=Volume Climax pattern_id=P_VOLUME_CLIMAX detected=False reason=placeholder_family_not_enabled pattern_name=Volume Climax
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Gap & Go reason=gap not holding above premarket high
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Opening Range Breakout reason=not regular session
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=First Pullback reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Micro Pullback reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Bull Flag reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Key Level Break reason=no key level break
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=ABCD Continuation reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Cup and Handle reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Momentum Reclaim reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Premarket High Break reason=price below premarket high
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Parabolic Exhaustion reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Gap Fill Reversal reason=missing prior close or candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Gap & Go reason=gap not holding above premarket high
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Opening Drive reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Opening Fakeout reason=not regular session
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Consolidation Breakout reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Flat Top Breakout reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Ascending Triangle Breakout reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Pennant Break reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Range / Rectangle Breakout reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=High of Day Break reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=EMA Pullback reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=VWAP Pullback reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Three-Bar Pullback reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Trend Continuation (Stair-Step) reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Second Pullback reason=insufficient candles
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Failed ORB Fakeout reason=not regular session
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Engulfing reason=placeholder_family_not_enabled
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Long Upper Wick reason=placeholder_family_not_enabled
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Marubozu reason=placeholder_family_not_enabled
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Three Soldiers / Crows reason=placeholder_family_not_enabled
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Climax Top reason=placeholder_family_not_enabled
+[ROSS][PATTERN][FAIL] symbol=AAPL pattern=Volume Climax reason=placeholder_family_not_enabled
+[BOOT] StrategyRunner instantiated with injected strategies: MomentumContinuationStrategy
+[STRATEGY] Dispatching 1 strategy(ies)
+[STRATEGY] Evaluating strategy 'MomentumContinuationStrategy' with 0 pattern result(s)
+[STRATEGY:Momentum] Evaluation start — received 0 pattern(s) for review
+[STRATEGY:Momentum] Evaluation complete — generated 0 TradeIntent(s)
+[STRATEGY] Strategy 'MomentumContinuationStrategy' returned 0 TradeIntent(s)
+[STRATEGY] Aggregated TradeIntents from all strategies: 0 total
+[SESSION][TIME] utc=2026-03-25T21:40:50.368779+00:00 ny=2026-03-25T17:40:50.368779-04:00 run_mode=LIVE phase=AH coarse=AH
+
+[DATA]
+hydration=SUCCESS
+missing_fields=[]
+quality_flags=[]
+last=10.0
+bid=9.98
+ask=10.02
+volume=120000
+
+[PATTERN]
+best_long_setup=NONE
+best_short_setup=NONE
+detected_patterns=['NONE']
+
+[STRATEGY]
+strategies_evaluated=['MomentumContinuationStrategy']
+intents_generated=0
+
+[RISK]
+first_decision_result=DENY
+deny_reason=NO_INTENT
+explicit_no_intent=True
+
+[EXECUTION]
+order_would_be_placed=False
+execution_blocked_reason=NO_INTENT
+execute_live_requested=False
+dangerous_submit_live_order=False
+live_execution_submitted=False
+
+[ROSS][TRADE_WINDOW]
+session=AH
+execution_allowed=False
+available_capital=UNKNOWN
+max_positions=UNKNOWN
+max_position_size=UNKNOWN
+trade_enabled=False

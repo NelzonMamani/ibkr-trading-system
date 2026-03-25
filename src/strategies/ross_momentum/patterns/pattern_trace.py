@@ -199,6 +199,44 @@ class RossPatternTrace:
         return asdict(self)
 
 
+
+
+@dataclass
+class RossPipelineStageResult:
+    stage: str
+    passed: bool
+    status: str
+    reason_code: str | None = None
+    details: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class RossPipelineTrace:
+    symbol: str
+    session: str | None
+    timestamp: str | None
+    watchlist_provenance: str | None
+    context_stage: RossPipelineStageResult
+    structure_stage: RossPipelineStageResult
+    setup_stage: RossPipelineStageResult
+    confirmation_stage: RossPipelineStageResult
+    trigger_stage: RossPipelineStageResult
+    final_outcome: str
+    final_reason_code: str
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["context_stage"] = self.context_stage.to_dict()
+        payload["structure_stage"] = self.structure_stage.to_dict()
+        payload["setup_stage"] = self.setup_stage.to_dict()
+        payload["confirmation_stage"] = self.confirmation_stage.to_dict()
+        payload["trigger_stage"] = self.trigger_stage.to_dict()
+        return payload
+
+
 @dataclass
 class RossSymbolTrace:
     symbol: str
@@ -219,6 +257,7 @@ class RossSymbolTrace:
     dropped_detected_pattern_ids: list[str] = field(default_factory=list)
     final_outcome: str | None = None
     synthetic_forced_intent: bool = False
+    pipeline_trace: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

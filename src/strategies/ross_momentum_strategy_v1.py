@@ -7,7 +7,7 @@ Consumes SignalEvent(s) and emits TradeIntent(s) using teaching-safe rules.
 from __future__ import annotations
 
 import json
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.config.config_resolver import get_config
 from src.config.runtime_config import RunMode
@@ -19,6 +19,8 @@ from src.strategy.exit_signal import ExitSignal
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
 from src.strategies.ross_momentum.patterns.pattern_trace import (
     RossPatternFailureTraceCollector,
+    RossPipelineStageResult,
+    RossPipelineTrace,
     RossSymbolTrace,
     build_input_snapshot_summary,
     build_runtime_pattern_inputs,
@@ -41,6 +43,19 @@ PATTERN_PRIORITY = {
     "P_VWAP_PULLBACK": 35,
     "P_THREE_BAR_PULLBACK": 30,
     "P_SECOND_PULLBACK": 25,
+}
+
+PATTERN_SETUP_FAMILY = {
+    "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
+    "P_OPENING_DRIVE": "GAP_AND_GO",
+    "P_ORB": "GAP_AND_GO",
+    "P_FIRST_PULLBACK": "FIRST_PULLBACK",
+    "P_MICRO_PULLBACK": "MICRO_PULLBACK",
+    "P_BULL_FLAG": "BULL_FLAG",
+    "P_HOD_BREAK": "HOD_BREAK",
+    "P_RANGE_BREAKOUT": "HOD_BREAK",
+    "P_VWAP_PULLBACK": "VWAP_RECLAIM",
+    "P_EMA_PULLBACK": "EMA_RECLAIM",
 }
 
 
@@ -164,6 +179,73 @@ class RossMomentumStrategyV1(BaseStrategy):
         missing = [name for name, ok in payload.items() if name != "candle_count" and not bool(ok)]
         return payload, missing
 
+    @staticmethod
+    def _default_stage(stage: str) -> RossPipelineStageResult:
+        return RossPipelineStageResult(stage=stage, passed=False, status="NOT_EVALUATED", reason_code="NOT_EVALUATED")
+
+    @staticmethod
+    def _terminal_outcome_from_stage(stage: str, reason: str) -> tuple[str, str]:
+        mapping = {
+            "context": "DROPPED_AT_CONTEXT",
+            "structure": "DROPPED_AT_STRUCTURE",
+            "setup": "DROPPED_AT_SETUP",
+            "confirmation": "DROPPED_AT_CONFIRMATION",
+        }
+        return mapping.get(stage, "DROPPED_AT_SETUP"), reason
+
+    def _evaluate_structure_stage(self, *, symbol: str, inputs, input_summary) -> RossPipelineStageResult:
+        candles = list(getattr(inputs, "candles", []) or [])
+        if len(candles) < 3:
+            return RossPipelineStageResult(
+                stage="STRUCTURE",
+                passed=False,
+                status="REJECTED",
+                reason_code="INSUFFICIENT_CANDLE_CONTINUITY",
+                details={"candle_count": len(candles)},
+            )
+        first_open = float(getattr(candles[0], "open", 0.0) or 0.0)
+        last_close = float(getattr(candles[-1], "close", 0.0) or 0.0)
+        highs = [float(getattr(c, "high", 0.0) or 0.0) for c in candles[-5:]]
+        lows = [float(getattr(c, "low", 0.0) or 0.0) for c in candles[-5:]]
+        impulse_pct = ((last_close - first_open) / first_open * 100.0) if first_open > 0 else 0.0
+        spread = input_summary.spread
+        if spread is not None and last_close > 0 and (spread / last_close) > 0.02:
+            return RossPipelineStageResult(
+                stage="STRUCTURE",
+                passed=False,
+                status="REJECTED",
+                reason_code="CHOP_BROKEN_STRUCTURE",
+                details={"spread": spread},
+            )
+        if impulse_pct <= 0.5 and (input_summary.pct_change or 0.0) <= 0.5:
+            return RossPipelineStageResult(
+                stage="STRUCTURE",
+                passed=False,
+                status="REJECTED",
+                reason_code="NO_IMPULSE",
+                details={"impulse_pct": round(impulse_pct, 4), "pct_change": input_summary.pct_change},
+            )
+        family = "MOMENTUM_CONTINUATION"
+        if input_summary.has_levels and input_summary.last_price is not None and input_summary.last_price >= (getattr(inputs.levels, "hod", 0.0) or 0.0):
+            family = "HOD_RANGE_CONTINUATION"
+        elif highs and lows and max(highs) - min(lows) <= max(last_close * 0.02, 0.05):
+            family = "BREAKOUT_STRUCTURE"
+        return RossPipelineStageResult(
+            stage="STRUCTURE",
+            passed=True,
+            status="PASS",
+            reason_code=family,
+            details={"impulse_pct": round(impulse_pct, 4), "family": family},
+        )
+
+    def _rank_setups(self, traces: list[Any]) -> list[tuple[str, Any]]:
+        ranked: list[tuple[str, Any]] = []
+        for trace in traces:
+            setup_family = PATTERN_SETUP_FAMILY.get(trace.pattern_id, "UNMAPPED_SETUP")
+            ranked.append((setup_family, trace))
+        ranked.sort(key=lambda item: (PATTERN_PRIORITY.get(item[1].pattern_id, 0), float(getattr(item[1], "confidence", 0.0) or 0.0)), reverse=True)
+        return ranked
+
     def evaluate(
         self,
         pattern_results: List[PatternResult],
@@ -276,6 +358,13 @@ class RossMomentumStrategyV1(BaseStrategy):
                 manual_focus=symbol_source == "manual_focus",
                 bypassed_watchlist=symbol_source == "manual_focus",
             )
+            context_stage = self._default_stage("CONTEXT")
+            structure_stage = self._default_stage("STRUCTURE")
+            setup_stage = self._default_stage("SETUP")
+            confirmation_stage = self._default_stage("CONFIRMATION")
+            trigger_stage = self._default_stage("TRIGGER")
+            terminal_outcome = "DROPPED_AT_CONTEXT"
+            terminal_reason = "UNINITIALIZED"
             symbol_source_tag = "MANUAL_OVERRIDE" if symbol_trace.manual_focus else "WATCHLIST"
             print(
                 "[ROSS][SYMBOL_EVAL][START] "
@@ -306,6 +395,26 @@ class RossMomentumStrategyV1(BaseStrategy):
                 )
                 self._log_pipeline_no_decision(symbol)
                 symbol_trace.pattern_traces = []
+                context_stage = RossPipelineStageResult(
+                    stage="CONTEXT",
+                    passed=False,
+                    status="REJECTED",
+                    reason_code="FAILED_TO_BUILD_INPUTS",
+                )
+                terminal_outcome, terminal_reason = self._terminal_outcome_from_stage("context", "FAILED_TO_BUILD_INPUTS")
+                symbol_trace.pipeline_trace = RossPipelineTrace(
+                    symbol=symbol,
+                    session=session_label,
+                    timestamp=timestamp_utc,
+                    watchlist_provenance=symbol_source,
+                    context_stage=context_stage,
+                    structure_stage=structure_stage,
+                    setup_stage=setup_stage,
+                    confirmation_stage=confirmation_stage,
+                    trigger_stage=trigger_stage,
+                    final_outcome=terminal_outcome,
+                    final_reason_code=terminal_reason,
+                ).to_dict()
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
@@ -354,6 +463,54 @@ class RossMomentumStrategyV1(BaseStrategy):
                 )
                 self._log_pipeline_no_decision(symbol)
                 symbol_trace.pattern_traces = []
+                context_stage = RossPipelineStageResult(
+                    stage="CONTEXT",
+                    passed=False,
+                    status="REJECTED",
+                    reason_code=f"DATA_CONTRACT_BLOCKED:{reason_text}",
+                    details={"block_reasons": block_reasons},
+                )
+                terminal_outcome, terminal_reason = self._terminal_outcome_from_stage("context", context_stage.reason_code or "DATA_CONTRACT_BLOCKED")
+                symbol_trace.pipeline_trace = RossPipelineTrace(
+                    symbol=symbol,
+                    session=session_label,
+                    timestamp=timestamp_utc,
+                    watchlist_provenance=symbol_source,
+                    context_stage=context_stage,
+                    structure_stage=structure_stage,
+                    setup_stage=setup_stage,
+                    confirmation_stage=confirmation_stage,
+                    trigger_stage=trigger_stage,
+                    final_outcome=terminal_outcome,
+                    final_reason_code=terminal_reason,
+                ).to_dict()
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
+            context_stage = RossPipelineStageResult(
+                stage="CONTEXT",
+                passed=True,
+                status="PASS",
+                reason_code="CONTEXT_READY",
+                details=input_summary.to_dict(),
+            )
+            structure_stage = self._evaluate_structure_stage(symbol=symbol, inputs=inputs, input_summary=input_summary)
+            if not structure_stage.passed:
+                terminal_outcome, terminal_reason = self._terminal_outcome_from_stage("structure", structure_stage.reason_code or "STRUCTURE_REJECTED")
+                symbol_trace.final_outcome = f"NO_SETUP:{terminal_reason}"
+                symbol_trace.pipeline_trace = RossPipelineTrace(
+                    symbol=symbol,
+                    session=session_label,
+                    timestamp=timestamp_utc,
+                    watchlist_provenance=symbol_source,
+                    context_stage=context_stage,
+                    structure_stage=structure_stage,
+                    setup_stage=setup_stage,
+                    confirmation_stage=confirmation_stage,
+                    trigger_stage=trigger_stage,
+                    final_outcome=terminal_outcome,
+                    final_reason_code=terminal_reason,
+                ).to_dict()
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
@@ -424,8 +581,21 @@ class RossMomentumStrategyV1(BaseStrategy):
                 symbol=symbol,
                 pattern_traces=symbol_trace.pattern_traces,
             )
+            detected_candidates = [
+                trace
+                for trace in symbol_trace.pattern_traces
+                if trace.detected and not self._is_inactive_pattern(trace.pattern_id)
+            ]
+            ranked_setups = self._rank_setups(detected_candidates)
 
             if not best_pattern:
+                setup_stage = RossPipelineStageResult(
+                    stage="SETUP",
+                    passed=False,
+                    status="REJECTED",
+                    reason_code="NO_SETUP_QUALIFIED",
+                    details={"rejections": [trace.rejection_reason for trace in pattern_traces if trace.rejection_reason]},
+                )
                 symbol_trace.final_outcome = "NO_SETUP:no_valid_pattern"
                 print(f"[PATTERN_NO_SETUP] symbol={symbol} dominant_reason=no_valid_pattern")
                 print(f"[CLASSIFICATION] symbol={symbol} category=PATTERN_NO_SETUP")
@@ -446,9 +616,33 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "[ROSS][NO_SETUP_SUMMARY] "
                     f"symbol={symbol} detected_patterns=0 rejections={[trace.rejection_reason for trace in pattern_traces if trace.rejection_reason]}"
                 )
+                terminal_outcome, terminal_reason = self._terminal_outcome_from_stage("setup", setup_stage.reason_code or "NO_SETUP_QUALIFIED")
+                symbol_trace.pipeline_trace = RossPipelineTrace(
+                    symbol=symbol,
+                    session=session_label,
+                    timestamp=timestamp_utc,
+                    watchlist_provenance=symbol_source,
+                    context_stage=context_stage,
+                    structure_stage=structure_stage,
+                    setup_stage=setup_stage,
+                    confirmation_stage=confirmation_stage,
+                    trigger_stage=trigger_stage,
+                    final_outcome=terminal_outcome,
+                    final_reason_code=terminal_reason,
+                ).to_dict()
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
+            setup_stage = RossPipelineStageResult(
+                stage="SETUP",
+                passed=True,
+                status="PASS",
+                reason_code=PATTERN_SETUP_FAMILY.get(best_pattern.pattern_id, "UNMAPPED_SETUP"),
+                details={
+                    "selected_pattern": best_pattern.pattern_id,
+                    "ranked_candidates": [f"{setup}:{trace.pattern_id}" for setup, trace in ranked_setups],
+                },
+            )
 
             confirmation_passed, blocking_reasons, warnings = self._evaluate_confirmation(
                 symbol=symbol,
@@ -463,6 +657,14 @@ class RossMomentumStrategyV1(BaseStrategy):
                     confirmation_passed=False,
                     trigger_name="confirmation_gate",
                     entry_price=None,
+                    last_price=input_summary.last_price,
+                )
+                confirmation_stage = RossPipelineStageResult(
+                    stage="CONFIRMATION",
+                    passed=False,
+                    status="REJECTED",
+                    reason_code="CONFIRMATION_BLOCKED",
+                    details={"blocking_reasons": blocking_reasons, "warnings": warnings},
                 )
                 symbol_trace.dropped_detected_pattern_ids = [best_pattern.pattern_id]
                 symbol_trace.final_outcome = "NO_SETUP:confirmation_blocked"
@@ -482,12 +684,39 @@ class RossMomentumStrategyV1(BaseStrategy):
                     reason=f"confirmation_blocked:{best_pattern.pattern_id}",
                 )
                 self._log_pipeline_no_decision(symbol)
+                terminal_outcome, terminal_reason = self._terminal_outcome_from_stage("confirmation", confirmation_stage.reason_code or "CONFIRMATION_BLOCKED")
+                symbol_trace.pipeline_trace = RossPipelineTrace(
+                    symbol=symbol,
+                    session=session_label,
+                    timestamp=timestamp_utc,
+                    watchlist_provenance=symbol_source,
+                    context_stage=context_stage,
+                    structure_stage=structure_stage,
+                    setup_stage=setup_stage,
+                    confirmation_stage=confirmation_stage,
+                    trigger_stage=trigger_stage,
+                    final_outcome=terminal_outcome,
+                    final_reason_code=terminal_reason,
+                ).to_dict()
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
+            confirmation_stage = RossPipelineStageResult(
+                stage="CONFIRMATION",
+                passed=True,
+                status="PASS",
+                reason_code="CONFIRMATION_PASSED",
+                details={"warnings": warnings},
+            )
 
             trade = self._build_trade_from_pattern(best_pattern, inputs)
             if not trade:
+                trigger_stage = RossPipelineStageResult(
+                    stage="TRIGGER",
+                    passed=False,
+                    status="REJECTED",
+                    reason_code="INVALID_TRADE_STRUCTURE",
+                )
                 symbol_trace.final_outcome = "NO_SETUP:invalid_trade_structure"
                 print(
                     f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
@@ -505,6 +734,19 @@ class RossMomentumStrategyV1(BaseStrategy):
                     reason="invalid_trade_structure",
                 )
                 self._log_pipeline_no_decision(symbol)
+                symbol_trace.pipeline_trace = RossPipelineTrace(
+                    symbol=symbol,
+                    session=session_label,
+                    timestamp=timestamp_utc,
+                    watchlist_provenance=symbol_source,
+                    context_stage=context_stage,
+                    structure_stage=structure_stage,
+                    setup_stage=setup_stage,
+                    confirmation_stage=confirmation_stage,
+                    trigger_stage=trigger_stage,
+                    final_outcome="DROPPED_AT_CONFIRMATION",
+                    final_reason_code="INVALID_TRADE_STRUCTURE",
+                ).to_dict()
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
@@ -512,13 +754,71 @@ class RossMomentumStrategyV1(BaseStrategy):
             entry, stop = trade
             print(f"[ROSS][ENTRY_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} entry={entry}")
             print(f"[ROSS][STOP_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} stop={stop}")
-            trigger_ready, _trigger_reason = self._evaluate_trigger(
+            trigger_state, trigger_details = self._evaluate_trigger(
                 symbol=symbol,
                 selected_pattern=best_pattern,
                 confirmation_passed=True,
                 trigger_name="confirmation_gate",
                 entry_price=entry,
+                last_price=input_summary.last_price,
             )
+            if trigger_state == "REJECTED":
+                trigger_stage = RossPipelineStageResult(stage="TRIGGER", passed=False, status="REJECTED", reason_code=str(trigger_details.get("reason", "TRIGGER_REJECTED")), details=trigger_details)
+                symbol_trace.pipeline_trace = RossPipelineTrace(
+                    symbol=symbol,
+                    session=session_label,
+                    timestamp=timestamp_utc,
+                    watchlist_provenance=symbol_source,
+                    context_stage=context_stage,
+                    structure_stage=structure_stage,
+                    setup_stage=setup_stage,
+                    confirmation_stage=confirmation_stage,
+                    trigger_stage=trigger_stage,
+                    final_outcome="DROPPED_AT_CONFIRMATION",
+                    final_reason_code=trigger_stage.reason_code or "TRIGGER_REJECTED",
+                ).to_dict()
+                symbol_trace.final_outcome = f"NO_SETUP:{trigger_stage.reason_code}"
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
+            if trigger_state == "ARMED_NOT_FIRED_YET":
+                trigger_stage = RossPipelineStageResult(stage="TRIGGER", passed=False, status="ARMED_NOT_FIRED_YET", reason_code="WAITING_TRIGGER_LEVEL", details=trigger_details)
+                symbol_trace.pipeline_trace = RossPipelineTrace(
+                    symbol=symbol,
+                    session=session_label,
+                    timestamp=timestamp_utc,
+                    watchlist_provenance=symbol_source,
+                    context_stage=context_stage,
+                    structure_stage=structure_stage,
+                    setup_stage=setup_stage,
+                    confirmation_stage=confirmation_stage,
+                    trigger_stage=trigger_stage,
+                    final_outcome="ARMED_WAITING_TRIGGER",
+                    final_reason_code=trigger_stage.reason_code or "WAITING_TRIGGER_LEVEL",
+                ).to_dict()
+                symbol_trace.final_outcome = "ARMED_WAITING_TRIGGER"
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
+            trigger_stage = RossPipelineStageResult(stage="TRIGGER", passed=True, status="FIRED", reason_code="TRIGGER_FIRED", details=trigger_details)
+            if mode == RunMode.READ_ONLY:
+                symbol_trace.final_outcome = "BLOCKED_AFTER_TRIGGER_BY_EXECUTION_PRECHECK"
+                symbol_trace.pipeline_trace = RossPipelineTrace(
+                    symbol=symbol,
+                    session=session_label,
+                    timestamp=timestamp_utc,
+                    watchlist_provenance=symbol_source,
+                    context_stage=context_stage,
+                    structure_stage=structure_stage,
+                    setup_stage=setup_stage,
+                    confirmation_stage=confirmation_stage,
+                    trigger_stage=trigger_stage,
+                    final_outcome="BLOCKED_AFTER_TRIGGER_BY_EXECUTION_PRECHECK",
+                    final_reason_code="READ_ONLY_MODE",
+                ).to_dict()
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
 
             intent = TradeIntent(
                 symbol=symbol,
@@ -536,13 +836,26 @@ class RossMomentumStrategyV1(BaseStrategy):
             intent.entry_price = entry
             intent.has_valid_pattern = True
             intent.confirmation_passed = confirmation_passed
-            intent.trigger_ready = trigger_ready
+            intent.trigger_ready = True
             intent.decision = "TRADE_READY"
 
             translated_intents.append(intent)
             best_pattern.post_detect_disposition = "translated_to_trade_intent"
             best_pattern.final_outcome = "DETECTED_AND_EXECUTED"
-            symbol_trace.final_outcome = "SETUP_DETECTED_AND_TRANSLATED"
+            symbol_trace.final_outcome = "TRIGGER_FIRED_INTENT_EMITTED"
+            symbol_trace.pipeline_trace = RossPipelineTrace(
+                symbol=symbol,
+                session=session_label,
+                timestamp=timestamp_utc,
+                watchlist_provenance=symbol_source,
+                context_stage=context_stage,
+                structure_stage=structure_stage,
+                setup_stage=setup_stage,
+                confirmation_stage=confirmation_stage,
+                trigger_stage=trigger_stage,
+                final_outcome="TRIGGER_FIRED_INTENT_EMITTED",
+                final_reason_code="INTENT_EMITTED",
+            ).to_dict()
             print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
             classification_counts["READY_FOR_EXECUTION"] += 1
             print(
@@ -766,7 +1079,8 @@ class RossMomentumStrategyV1(BaseStrategy):
         confirmation_passed: bool,
         trigger_name: str,
         entry_price: float | None,
-    ) -> tuple[bool, str]:
+        last_price: float | None,
+    ) -> tuple[str, dict[str, Any]]:
         print(
             "[ROSS][TRIGGER][START] "
             f"symbol={symbol} pattern={selected_pattern.pattern_id}"
@@ -774,16 +1088,24 @@ class RossMomentumStrategyV1(BaseStrategy):
         if not confirmation_passed:
             reason = "confirmation_not_passed"
             print(f"[ROSS][TRIGGER][FAIL] symbol={symbol} reason={reason}")
-            return False, reason
+            return "REJECTED", {"reason": reason}
         if entry_price is None:
             reason = "entry_price_missing"
             print(f"[ROSS][TRIGGER][FAIL] symbol={symbol} reason={reason}")
-            return False, reason
+            return "REJECTED", {"reason": reason}
+        if last_price is None:
+            return "ARMED_NOT_FIRED_YET", {"awaiting": f"price >= {entry_price:.4f}", "reason": "last_price_missing"}
+        if last_price < entry_price:
+            print(
+                "[ROSS][TRIGGER][ARMED] "
+                f"symbol={symbol} pattern={selected_pattern.pattern_id} awaiting=price>={entry_price} last_price={last_price}"
+            )
+            return "ARMED_NOT_FIRED_YET", {"awaiting": f"price >= {entry_price:.4f}", "last_price": last_price}
         print(
             "[ROSS][TRIGGER][PASS] "
-            f"symbol={symbol} trigger={trigger_name} entry={entry_price}"
+            f"symbol={symbol} trigger={trigger_name} entry={entry_price} last_price={last_price}"
         )
-        return True, "trigger_fired"
+        return "FIRED", {"reason": "trigger_fired", "trigger_name": trigger_name}
 
     @staticmethod
     def _log_no_trade_root_cause(*, symbol: str, pattern: str | None, primary_reason: str, details: list[str]) -> None:

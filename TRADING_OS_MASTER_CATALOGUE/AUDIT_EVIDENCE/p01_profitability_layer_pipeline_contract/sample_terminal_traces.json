@@ -1,0 +1,20 @@
+[
+  {
+    "symbol": "TEST",
+    "final_outcome": "DROPPED_AT_CONTEXT",
+    "final_reason_code": "FAILED_TO_BUILD_INPUTS",
+    "trigger_stage": {"status": "NOT_EVALUATED"}
+  },
+  {
+    "symbol": "TEST",
+    "final_outcome": "ARMED_WAITING_TRIGGER",
+    "final_reason_code": "WAITING_TRIGGER_LEVEL",
+    "trigger_stage": {"status": "ARMED_NOT_FIRED_YET", "details": {"awaiting": "price >= 10.5000"}}
+  },
+  {
+    "symbol": "TEST",
+    "final_outcome": "TRIGGER_FIRED_INTENT_EMITTED",
+    "final_reason_code": "INTENT_EMITTED",
+    "trigger_stage": {"status": "FIRED"}
+  }
+]

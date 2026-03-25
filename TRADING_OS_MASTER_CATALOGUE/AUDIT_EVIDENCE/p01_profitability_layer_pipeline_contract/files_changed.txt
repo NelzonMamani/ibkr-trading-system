@@ -1,0 +1,4 @@
+ M src/strategies/ross_momentum/patterns/pattern_trace.py
+ M src/strategies/ross_momentum_strategy_v1.py
+?? TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/p01_profitability_layer_pipeline_contract/
+?? src/strategies/ross_momentum/tests/test_profitability_pipeline_contract.py
