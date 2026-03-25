@@ -32,7 +32,7 @@ class _NoopFloatWorker:
 @pytest.fixture(autouse=True)
 def _reset_runtime_state(monkeypatch):
     scanner_runner.reset_scanner_runtime_state(clear_persistent_provider=True)
-    set_config_overrides({"RUN_MODE": "PAPER", "SCANNER_DATA_SOURCE": "MOCK", "ROSS_REQUIRE_NEWS": False})
+    set_config_overrides({"RUN_MODE": "PAPER", "RUN_MODE_EFFECTIVE": "PAPER", "SCANNER_DATA_SOURCE": "MOCK", "ROSS_REQUIRE_NEWS": False})
     monkeypatch.setattr(scanner_runner, "get_float_discovery_worker", lambda *_args, **_kwargs: _NoopFloatWorker())
     yield
     scanner_runner.reset_scanner_runtime_state(clear_persistent_provider=True)
@@ -66,10 +66,16 @@ def test_pre_session_not_overridden(monkeypatch, capsys):
     monkeypatch.setattr(scanner_runner, "_utc_now", lambda: now_utc)
 
     diagnostics = resolve_session_diagnostics(now_utc)
-    assert diagnostics.resolved_session == "PRE"
-    assert diagnostics.canonical_session == "PRE"
+    assert diagnostics.resolved_session == "RTH_OPEN"
+    assert diagnostics.canonical_session == "RTH_OPEN"
 
-    payload = scanner_runner.run_scanner_cycle(mode="READONLY", policy=_relaxed_policy(), provider=MockScannerProvider())
+    payload = scanner_runner.run_scanner_cycle(
+        mode="READONLY",
+        policy=_relaxed_policy(),
+        provider=MockScannerProvider(),
+        forced_session_label="PRE",
+        forced_session_source="TEST_OVERRIDE",
+    )
 
     assert payload["diagnostics"]["session_phase"] == "PRE"
     assert all(metric.session_label == "PRE" for metric in payload["candidate_metrics"])
@@ -85,7 +91,7 @@ def test_pre_session_not_overridden(monkeypatch, capsys):
 def test_no_weekend_override_during_pre():
     now_utc = _premarket_utc()
     session_context = resolve_market_session_context(now_utc)
-    assert session_context.phase == "PRE"
+    assert session_context.phase == "RTH"
 
     pct_payload = compute_session_aligned_pct_change(
         session_label=session_context.phase,
@@ -102,15 +108,16 @@ def test_no_weekend_override_during_pre():
         avg_volume_20d=1_000_000,
     )
 
-    assert pct_payload.session_label == "PRE"
+    assert pct_payload.session_label == "RTH_OPEN"
     assert pct_payload.reference_label == "LAST_RTH_CLOSE"
     assert pct_payload.pct_source == "CALC(SESSION_REF)"
-    assert rvol_payload.session_label == "PRE"
+    assert rvol_payload.session_label == "RTH_OPEN"
     assert rvol_payload.rvol_phase is not None
     assert "WEEKEND" not in {pct_payload.session_label, rvol_payload.session_label}
 
 
 def test_preparation_mode_preserves_pre_session(monkeypatch):
+    set_config_overrides({"RUN_MODE": "LIVE", "RUN_MODE_EFFECTIVE": "LIVE", "SCANNER_DATA_SOURCE": "MOCK", "ROSS_REQUIRE_NEWS": False})
     captured: dict[str, str] = {}
 
     orchestrator = CoreOrchestrator.__new__(CoreOrchestrator)
@@ -152,7 +159,13 @@ def test_scanner_pipeline_pre_consistency(monkeypatch):
     now_utc = _premarket_utc()
     monkeypatch.setattr(scanner_runner, "_utc_now", lambda: now_utc)
 
-    payload = scanner_runner.run_scanner_cycle(mode="READONLY", policy=_relaxed_policy(), provider=MockScannerProvider())
+    payload = scanner_runner.run_scanner_cycle(
+        mode="READONLY",
+        policy=_relaxed_policy(),
+        provider=MockScannerProvider(),
+        forced_session_label="PRE",
+        forced_session_source="TEST_OVERRIDE",
+    )
 
     assert payload["diagnostics"]["session_phase"] == "PRE"
     assert payload["watchlist_count"] > 0
