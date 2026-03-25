@@ -100,11 +100,17 @@ class MarketDataSnapshotManager:
         missing_fields: list[str] = []
         if raw.last is None:
             missing_fields.append("last")
+        if raw.bid is None:
+            missing_fields.append("bid")
+        if raw.ask is None:
+            missing_fields.append("ask")
         if raw.close is None:
             missing_fields.append("close")
         if raw.volume is None:
             missing_fields.append("volume")
         data_quality_flags = list(raw.data_quality_flags or [])
+        if raw.bid is None or raw.ask is None:
+            data_quality_flags.append("SPREAD_UNKNOWN")
         snapshot_last = raw.last if raw.last is not None else raw.close
         snapshot = MarketSnapshot(
             symbol=raw.symbol,

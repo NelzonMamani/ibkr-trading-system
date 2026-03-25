@@ -37,7 +37,8 @@ class PatternEvaluator:
         veto_flags: List[str] = []
         for inputs in inputs_list:
             all_results.extend(self._registry.run(inputs))
-            if inputs.liquidity_context.spread > 0.05:
+            spread = inputs.liquidity_context.spread
+            if spread is not None and spread > 0.05:
                 veto_flags.append("wide_spread")
             if inputs.data_quality_flags:
                 veto_flags.append("data_quality")

@@ -11,7 +11,7 @@ from src.adapters.data import historical_data_provider
 from src.adapters.data.historical_data_provider import get_intraday_bars
 from src.data.fundamentals.float_provider import FloatProvider
 from src.domain.market_snapshot import MarketSnapshot
-from src.scanner.session_pct_change import normalize_session_label
+from src.scanner.session_pct_change import compute_session_relative_volume_with_provenance, normalize_session_label
 from src.scanner.result_models import CandidateMetrics
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.ross_momentum.patterns.pattern_inputs import IndicatorSet, LevelSet, LiquidityContext, PatternInputs
@@ -20,6 +20,10 @@ from src.strategies.strategy_contracts import SessionContext
 
 # Restore test monkeypatch compatibility
 historical_data_provider.get_intraday_bars = get_intraday_bars
+_PRE_VOLUME_MIN = 10_000.0
+_RTH_VOLUME_MIN = 50_000.0
+_PRE_RVOL_MIN = 0.8
+_RTH_RVOL_MIN = 1.5
 
 
 def _safe_float(value: Any) -> float | None:
@@ -114,6 +118,16 @@ def _rolling_rvol(*, total_volume: float | None, candles: list[Candle]) -> float
     if avg_volume_window <= 0:
         return None
     return round(total_volume / avg_volume_window, 6)
+
+
+def _session_thresholds(session: str) -> tuple[float, float]:
+    if session == "PRE":
+        return _PRE_VOLUME_MIN, _PRE_RVOL_MIN
+    return _RTH_VOLUME_MIN, _RTH_RVOL_MIN
+
+
+def _is_rth_session(session: str) -> bool:
+    return session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE", "REG", "REGULAR", "POWER_HOUR", "LATE"}
 
 
 def _resolve_float_millions(symbol: str, row: Any, quality_flags: list[str]) -> float | None:
@@ -352,9 +366,6 @@ def build_input_snapshot_summary(*, row: Any, snapshot: MarketSnapshot | None, i
     last = _safe_float(getattr(snapshot, "last", None))
     row_last = _safe_float(_get_value(row, "last_price") or _get_value(row, "price"))
     volume = _safe_float(getattr(snapshot, "volume", None) or _get_value(row, "volume"))
-    if inputs and (bid is None or ask is None):
-        bid = last if bid is None else bid
-        ask = last if ask is None else ask
     spread = _safe_float(_get_value(row, "spread"))
     if spread is None and bid is not None and ask is not None:
         spread = round(ask - bid, 4)
@@ -401,15 +412,15 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     last = _safe_float(getattr(snapshot, "last", None))
     bid = _safe_float(getattr(snapshot, "bid", None))
     ask = _safe_float(getattr(snapshot, "ask", None))
-    volume = _safe_float(getattr(snapshot, "volume", None) or _get_value(row, "volume"))
+    volume = _safe_float(
+        getattr(snapshot, "volume", None)
+        or _get_value(row, "current_intraday_volume")
+        or _get_value(row, "volume")
+    )
     row_last = _safe_float(_get_value(row, "last_price") or _get_value(row, "price"))
     last_price = last if last is not None else row_last
     if last_price is None:
         quality_flags.append("missing_last_price")
-    if bid is None and last_price is not None:
-        bid = last_price
-    if ask is None and last_price is not None:
-        ask = last_price
     if volume is None:
         quality_flags.append("missing_volume")
     historical_data_provider.get_intraday_bars = get_intraday_bars
@@ -433,12 +444,17 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     candles: list[Candle] = intraday_bars
 
     def _normalize_bar(bar: Candle) -> Candle:
+        bar_volume = _safe_float(getattr(bar, "volume", None))
+        if bar_volume is None:
+            bar_volume = _safe_float(getattr(bar, "totalVolume", None))
+        if bar_volume is None:
+            bar_volume = 0.0
         return Candle(
             open=float(bar.open),
             high=float(bar.high),
             low=float(bar.low),
             close=float(bar.close),
-            volume=float(bar.volume),
+            volume=float(bar_volume),
             timestamp=getattr(bar, "timestamp", None),
         )
 
@@ -447,6 +463,7 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     if not str(raw_session or "").strip():
         quality_flags.append("missing_canonical_session")
     session = normalize_session_label(str(raw_session or ""))
+    volume_min, _rvol_min = _session_thresholds(session)
     premarket_candles = [candle for candle in candles if _is_premarket_candle(candle)]
     if not premarket_candles and session == "PRE":
         premarket_candles = candles
@@ -465,14 +482,48 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         _safe_float(_get_value(row, "pct_change")),
         _safe_float(_get_value(row, "pct_change_resolved")),
     )
+    inferred_intraday_volume = round(
+        sum(max(_safe_float(candle.volume) or 0.0, 0.0) for candle in candles),
+        2,
+    )
+    market_volume = _coalesce(volume, inferred_intraday_volume)
+    if volume is not None and volume <= 100.0 and inferred_intraday_volume > volume:
+        market_volume = inferred_intraday_volume
+    if market_volume is not None and market_volume <= 100.0:
+        quality_flags.append("INVALID_VOLUME")
+        print(f"[DATA][REJECT] symbol={symbol} reason=INVALID_VOLUME value={market_volume}")
+    elif market_volume is not None and market_volume < volume_min:
+        quality_flags.append("LOW_VOLUME")
+        print(
+            f"[DATA][REJECT] symbol={symbol} reason=LOW_VOLUME value={market_volume} "
+            f"min_required={volume_min} session={session}"
+        )
     reference_price = _infer_reference_price(row=row, candles=candles, session=session, prior_close=prior_close)
     if pct_change is None and last_price is not None and reference_price not in (None, 0):
         pct_change = round(((last_price - float(reference_price)) / float(reference_price)) * 100.0, 6)
+    avg_volume_20d = _coalesce(
+        _safe_float(_get_value(row, "avg_volume_20d")),
+        _safe_float(_get_value(row, "average_daily_volume_20d")),
+    )
+    rvol_payload = compute_session_relative_volume_with_provenance(
+        session_label=session,
+        session_volume=market_volume,
+        avg_volume_20d=avg_volume_20d,
+        persisted_rvol=_safe_float(_get_value(row, "persisted_rvol")),
+        symbol=symbol,
+    )
     rvol = _coalesce(
         _safe_float(_get_value(row, "rvol")),
         _safe_float(_get_value(row, "relative_volume")),
-        _rolling_rvol(total_volume=volume, candles=candles),
+        _safe_float(_get_value(row, "rvol_discovery")),
+        rvol_payload.value,
+        _rolling_rvol(total_volume=market_volume, candles=candles),
     )
+    if rvol is not None:
+        rvol_class = "WEAK" if rvol < 0.5 else "VALID"
+        print(f"[DATA][RVOL] symbol={symbol} rvol={round(rvol, 4)} classification={rvol_class}")
+        if rvol < 0.5:
+            quality_flags.append("RVOL_WEAK")
     float_millions = _resolve_float_millions(symbol, row, quality_flags)
     levels = LevelSet(
         premarket_high=_coalesce(_safe_float(_get_value(row, "premarket_high")), premarket_high),
@@ -491,8 +542,10 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     spread = _safe_float(_get_value(row, "spread"))
     if spread is None and bid is not None and ask is not None:
         spread = round(ask - bid, 4)
+    if spread is None and (bid is None or ask is None):
+        quality_flags.append("SPREAD_UNKNOWN")
     liquidity = LiquidityContext(
-        spread=spread or 0.0,
+        spread=spread,
         float_millions=float_millions,
         rvol=rvol,
     )
@@ -521,6 +574,9 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
             "reference_price": "" if reference_price is None else str(reference_price),
             "bid": "" if bid is None else str(bid),
             "ask": "" if ask is None else str(ask),
+            "volume": "" if market_volume is None else str(market_volume),
+            "rvol_baseline": rvol_payload.baseline,
+            "rvol_method": rvol_payload.method,
         },
         data_quality_flags=sorted(set(quality_flags)),
     )

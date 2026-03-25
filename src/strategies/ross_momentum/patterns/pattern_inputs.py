@@ -30,7 +30,7 @@ class LevelSet:
 
 @dataclass(frozen=True)
 class LiquidityContext:
-    spread: float
+    spread: Optional[float]
     float_millions: Optional[float] = None
     rvol: Optional[float] = None
 

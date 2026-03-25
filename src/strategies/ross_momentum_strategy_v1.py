@@ -82,6 +82,48 @@ class RossMomentumStrategyV1(BaseStrategy):
             "entry_or_stop_missing",
             "entry_stop_structure_invalid",
         }
+        self._pre_volume_min = 10_000.0
+        self._rth_volume_min = 50_000.0
+        self._pre_rvol_min = 0.8
+        self._rth_rvol_min = 1.5
+
+    def _session_thresholds(self, session_label: str | None) -> tuple[float, float]:
+        session = str(session_label or "").upper()
+        if session == "PRE":
+            return self._pre_volume_min, self._pre_rvol_min
+        return self._rth_volume_min, self._rth_rvol_min
+
+    @staticmethod
+    def _is_rth_session(session_label: str | None) -> bool:
+        session = str(session_label or "").upper()
+        return session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE", "REG", "REGULAR", "POWER_HOUR", "LATE"}
+
+    def _data_contract_block_reasons(self, *, symbol: str, input_summary, inputs) -> list[str]:
+        reasons: list[str] = []
+        volume_min, rvol_min = self._session_thresholds(input_summary.session_context)
+        volume = input_summary.volume
+        rvol = input_summary.rvol
+        spread = input_summary.spread
+        if "INVALID_VOLUME" in set(input_summary.quality_flags):
+            reasons.append("INVALID_VOLUME")
+        if volume is None or volume <= volume_min:
+            reasons.append(f"VOLUME_BELOW_THRESHOLD({volume_min})")
+        if rvol is None:
+            reasons.append("RVOL_MISSING")
+        elif rvol < 0.5:
+            print(f"[ROSS][MOMENTUM_CONTEXT] symbol={symbol} momentum_context=WEAK rvol={rvol}")
+            reasons.append("RVOL_WEAK")
+        elif rvol < rvol_min:
+            reasons.append(f"RVOL_BELOW_THRESHOLD({rvol_min})")
+        if self._is_rth_session(input_summary.session_context) and spread is None:
+            reasons.append("SPREAD_UNKNOWN")
+        if input_summary.last_price is None:
+            reasons.append("PRICE_MISSING")
+        if not input_summary.has_levels:
+            reasons.append("LEVELS_MISSING")
+        if not getattr(inputs, "candles", None):
+            reasons.append("CANDLES_MISSING")
+        return reasons
 
     @staticmethod
     def _pattern_input_validation(inputs) -> tuple[dict[str, object], list[str]]:
@@ -264,6 +306,24 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"rvol={input_summary.rvol} float={input_summary.float_millions} "
                 f"levels_present={input_summary.levels_present} indicators_present={input_summary.indicators_present}"
             )
+            block_reasons = self._data_contract_block_reasons(
+                symbol=symbol,
+                input_summary=input_summary,
+                inputs=inputs,
+            )
+            if block_reasons:
+                reason_text = ",".join(block_reasons)
+                print(f"[ROSS][DATA_BLOCK] symbol={symbol} reason={reason_text}")
+                symbol_trace.pre_registry_failure_reason = f"data_contract_blocked:{reason_text}"
+                symbol_trace.final_outcome = f"NO_SETUP:data_contract_blocked:{reason_text}"
+                print(
+                    "[ROSS][DECISION] "
+                    f"symbol={symbol} outcome=NO_TRADE reason=data_contract_blocked:{reason_text}"
+                )
+                symbol_trace.pattern_traces = []
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
 
             print("[ROSS][SETUP_PHASE][START]")
             setup_count = 1 if input_summary.candle_count > 0 else 0
