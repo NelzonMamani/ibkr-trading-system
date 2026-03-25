@@ -22,6 +22,7 @@ if __package__ in {None, ""}:
 from src.config.config_resolver import get_config, get_config_record
 from src.config.runtime_config import (
     RunMode,
+    get_ibkr_market_data_type,
     get_run_mode,
     get_scanner_mode,
     get_watchlist_print_every_n_cycles,
@@ -555,11 +556,14 @@ def _bootstrap_float_cache(
         else:
             reason = "schema_invalid"
         print(f"[FLOAT][PROVENANCE] symbol={symbol} reason={reason}")
+        print(f"[FLOAT][REQUIRED] symbol={symbol} status=RESOLVING")
         print(f"[FLOAT][RESOLVE] symbol={symbol} source=UNKNOWN tolerated=True")
         if worker.enqueue(symbol):
             discovery_queued += 1
             print(f"[FLOAT][QUEUE] symbol={symbol} queued_for_discovery")
             print(f"[FLOAT][RESOLVE] symbol={symbol} source=DISCOVERY_QUEUED")
+        else:
+            print(f"[FLOAT][REQUIRED] symbol={symbol} status=FAILED")
 
     _FLOAT_CACHE_STATE["data"] = float_cache
     print(
@@ -579,6 +583,16 @@ def _allow_history_enrichment(provider: ScannerDataProvider | None = None) -> bo
         if provider_name != "IbkrScannerProvider":
             return True
     return bool(get_config("HISTORICAL_ENRICH_ENABLED"))
+
+
+def _emit_watchlist_pipeline_exit(reason: str) -> None:
+    print("[WATCHLIST][SUMMARY]")
+    print("total_incoming=0")
+    print("total_passed=0")
+    print("total_rejected=0")
+    print("dominant_rejection_reasons={}")
+    print("[WATCHLIST][PIPELINE_EXIT_POINT]")
+    print(f"reason={reason}")
 
 
 def _resolve_reference_snapshot(
@@ -2279,6 +2293,10 @@ def _build_symbol_context(
     float_cache_hit = symbol in _FLOAT_CACHE_HIT_SYMBOLS and float_shares is not None
     if float_shares is None:
         data_quality_flags.append("FLOAT_UNKNOWN")
+        print(f"[FLOAT][MISSING_CRITICAL] symbol={symbol}")
+        print(f"[FLOAT][REQUIRED] symbol={symbol} status=FAILED")
+    else:
+        print(f"[FLOAT][REQUIRED] symbol={symbol} status=RECOVERED")
     print(
         "[FLOAT][PROVENANCE] "
         f"symbol={symbol} value={float_shares} source={float_source} asof={float_asof} cache_hit={float_cache_hit}"
@@ -2900,6 +2918,15 @@ def run_scanner_cycle(
         f"reference_trading_date={session_diag.reference_trading_date} "
         f"previous_valid_market_session_date={session_diag.previous_valid_market_session_date}"
     )
+    print("[WATCHLIST][BUILD_START]")
+    print("candidates_incoming=0")
+    market_data_type = str(get_ibkr_market_data_type() or "LIVE").upper()
+    data_quality_mode = "DELAYED" if market_data_type in {"DELAYED", "DELAYED_FROZEN"} else "LIVE"
+    print(f"[DATA_QUALITY] mode={data_quality_mode}")
+    if data_quality_mode == "DELAYED":
+        print("[DATA_QUALITY][WARNING] DELAYED_DATA_ACTIVE")
+    diagnostics["data_quality_mode"] = data_quality_mode
+    diagnostics["strategy_policy_hook"] = {"data_quality_mode": data_quality_mode}
     scanner_mode = get_scanner_mode()
     policy_source = "STRATEGY" if policy is not None else "CONFIG_DEFAULTS"
     resolved_policy = policy or policy_from_config()
@@ -3011,6 +3038,7 @@ def run_scanner_cycle(
         print("[SCANNER][ERROR] Invalid scanner request — aborting scan.")
         for error in validation_errors:
             print(f"[SCANNER][ERROR] {error}")
+        _emit_watchlist_pipeline_exit("INVALID_SCANNER_REQUEST")
         return _scanner_request_reject_payload(
             utc_now=utc_now,
             diagnostics=diagnostics,
@@ -3045,6 +3073,7 @@ def run_scanner_cycle(
                     "applied": True,
                     "time_since_last_scan": round(time_since_last_scan, 3),
                 }
+                _emit_watchlist_pipeline_exit("REFRESH_WINDOW_CACHE_HIT")
                 return dict(_LAST_SCANNER_PAYLOAD)
 
     run_mode = get_run_mode()
@@ -3617,9 +3646,10 @@ def run_scanner_cycle(
                 },
         )
 
+        print("[SCANNER][STAGE] rank")
+        ranked = _rank_candidates(candidates)
         # Watchlist gate is created here from the raw scanner universe (cheap metrics only).
         print("[SCANNER][STAGE] watchlist")
-        ranked = _rank_candidates(candidates)
         print("[WATCHLIST][BUILD_START]")
         print(f"candidates_incoming={len(ranked)}")
         print(
@@ -4373,6 +4403,8 @@ def run_scanner_cycle(
         "raw_broker_count": raw_broker_count,
         "watchlist_count": watchlist_count,
         "cacheable": cacheable,
+        "data_quality_mode": data_quality_mode,
+        "strategy_policy_hook": {"data_quality_mode": data_quality_mode},
         "scanner_operational": scanner_operational,
         "qualification_dead": qualification_dead,
         "diagnostics": diagnostics,
@@ -4381,6 +4413,7 @@ def run_scanner_cycle(
             for symbol in sorted(symbol_contexts.keys())
         },
     }
+    _emit_watchlist_pipeline_exit("SUCCESS")
     return dict(_LAST_SCANNER_PAYLOAD)
 
 

@@ -306,6 +306,10 @@ class CanonicalReferenceResolver:
             reference_source = "QUOTE_CLOSE_FALLBACK"
             reference_semantics = "DEGRADED_FALLBACK"
         elif persistent_payload is not None and _to_float(persistent_payload.get("reference_price")) is not None:
+            print(
+                f"[HISTORICAL][FALLBACK_USED] symbol={identity.symbol} "
+                "fallback=PERSISTENT_CACHE reason=HIST_EMPTY"
+            )
             result = self._result_from_cache(identity, persistent_payload, session_label, current_volume, current_last_price, rth_open_price, rth_close_price, ibkr_change_pct, persisted_pct_change)
             for alias in cache_keys:
                 self._cycle_cache[alias] = result
@@ -465,7 +469,7 @@ class CanonicalReferenceResolver:
                 f"[REFERENCE][HISTORICAL_ATTEMPT_RESULT] identity_key={identity.key} attempt=primary "
                 f"raw_bar_count={len(bars)} normalized_bar_count={len(bars)}"
             )
-            if not bars and normalize_session_label(session_label) in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}:
+            if not bars:
                 explicit_end = f"{date.today().strftime('%Y%m%d')} 09:29:59 US/Eastern"
                 print(
                     f"[REFERENCE][HISTORICAL_RETRY] identity_key={identity.key} reason=ZERO_BARS_RTH_PRIMARY "

@@ -62,7 +62,11 @@ class IbkrOrderTranslator:
         if internal_order.direction not in {"LONG", "SHORT", "SELL"}:
             raise RuntimeError(f"Unsupported direction: {internal_order.direction}")
 
-        if internal_order.quantity <= 0:
+        quantity = int(internal_order.quantity)
+        if quantity != internal_order.quantity:
+            raise RuntimeError(f"Quantity must be an integer. Received: {internal_order.quantity}")
+
+        if quantity <= 0:
             raise RuntimeError(f"Quantity must be positive. Received: {internal_order.quantity}")
 
         if internal_order.order_type not in {"MKT", "LMT"}:
