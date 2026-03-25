@@ -407,7 +407,30 @@ class RossMomentumStrategyV1(BaseStrategy):
                 trace_context=registry_context,
                 trace_collector=pattern_traces.append,
             )
+            setup_source = "pattern_registry"
+            if not results and not pattern_traces:
+                fallback_setups = self._detect_lightweight_setups(inputs, input_summary)
+                if fallback_setups:
+                    setup_source = "fallback_detector"
+                    print(
+                        "[ROSS][SETUP_FALLBACK] "
+                        f"symbol={symbol} setups={len(fallback_setups)} types={[setup['setup_type'] for setup in fallback_setups]}"
+                    )
+                    for setup in fallback_setups:
+                        fallback_trace = self._fallback_setup_to_trace(
+                                symbol=symbol,
+                                setup=setup,
+                                cycle_id=timestamp_utc,
+                                session_label=session_label,
+                                session_phase=session_phase,
+                                runtime_mode=mode.value,
+                                symbol_source=symbol_source,
+                                input_summary=input_summary.to_dict(),
+                            )
+                        fallback_trace.confidence = float(setup.get("confidence", 0.6))
+                        pattern_traces.append(fallback_trace)
             symbol_trace.pattern_traces = pattern_traces
+            symbol_trace.input_summary["setup_stage"] = {"details": {"source": setup_source}}
             symbol_trace.detected_pattern_ids = [
                 trace.pattern_id for trace in pattern_traces if trace.detected and not self._is_inactive_pattern(trace.pattern_id)
             ]
@@ -822,3 +845,138 @@ class RossMomentumStrategyV1(BaseStrategy):
 
     def _clamp_confidence(self, confidence: float) -> float:
         return max(0.50, min(0.90, confidence))
+
+    @staticmethod
+    def _safe_float(value) -> float | None:
+        try:
+            return None if value is None else float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _detect_lightweight_setups(self, inputs, summary) -> list[dict[str, float | str]]:
+        candles = list(getattr(inputs, "candles", []) or [])
+        if len(candles) < 3:
+            return []
+
+        closes = [self._safe_float(getattr(candle, "close", None)) for candle in candles]
+        highs = [self._safe_float(getattr(candle, "high", None)) for candle in candles]
+        lows = [self._safe_float(getattr(candle, "low", None)) for candle in candles]
+        volumes = [self._safe_float(getattr(candle, "volume", None)) or 0.0 for candle in candles]
+        last_price = self._safe_float(getattr(inputs, "last_price", None)) or closes[-1]
+        if last_price is None:
+            return []
+
+        rvol = self._safe_float(getattr(summary, "rvol", None)) or self._safe_float(
+            getattr(getattr(inputs, "liquidity_context", None), "rvol", None)
+        )
+        pct_change = self._safe_float(getattr(summary, "pct_change", None))
+        if pct_change is None and closes and closes[0]:
+            pct_change = ((last_price - closes[0]) / closes[0]) * 100.0
+
+        setups: list[dict[str, float | str]] = []
+        recent_high_candidates = [high for high in highs[-10:] if high is not None]
+        if not recent_high_candidates:
+            return []
+        recent_high = max(recent_high_candidates)
+        volume_increasing = len(volumes) >= 2 and volumes[-1] >= volumes[-2]
+
+        if (
+            pct_change is not None
+            and pct_change >= 5.0
+            and rvol is not None
+            and rvol >= 2.0
+            and last_price >= (recent_high * 0.995)
+            and volume_increasing
+        ):
+            setups.append(
+                {
+                    "setup_type": "HOD_BREAK",
+                    "pattern_id": "P_HOD_BREAK",
+                    "trigger_price": recent_high,
+                    "confidence": 0.66,
+                }
+            )
+
+        impulse_bars = 0
+        for idx in range(len(closes) - 5, len(closes) - 1):
+            if idx < 0 or closes[idx] is None or closes[idx + 1] is None:
+                continue
+            if closes[idx + 1] > closes[idx]:
+                impulse_bars += 1
+        pullback_bars = 0
+        for idx in range(max(0, len(closes) - 3), len(closes) - 1):
+            if closes[idx] is None or closes[idx + 1] is None:
+                continue
+            if closes[idx + 1] < closes[idx]:
+                pullback_bars += 1
+        indicators = getattr(inputs, "indicators", None)
+        ema9 = self._safe_float(getattr(indicators, "ema9", None))
+        vwap = self._safe_float(getattr(indicators, "vwap", None))
+        support = ema9 or vwap
+        recent_pullback_high_candidates = [high for high in highs[-3:] if high is not None]
+        recent_pullback_high = max(recent_pullback_high_candidates) if recent_pullback_high_candidates else recent_high
+        if (
+            2 <= impulse_bars <= 5
+            and 1 <= pullback_bars <= 2
+            and support is not None
+            and last_price >= support
+        ):
+            setups.append(
+                {
+                    "setup_type": "MICRO_PULLBACK",
+                    "pattern_id": "P_MICRO_PULLBACK",
+                    "trigger_price": recent_pullback_high,
+                    "confidence": 0.64,
+                }
+            )
+
+        range_window = candles[-5:]
+        range_high = max(self._safe_float(getattr(candle, "high", None)) or 0.0 for candle in range_window)
+        range_low = min(self._safe_float(getattr(candle, "low", None)) or 0.0 for candle in range_window)
+        is_tight_range = range_low > 0 and (range_high - range_low) / range_low <= 0.02
+        lows_increasing = all(
+            (self._safe_float(getattr(range_window[idx + 1], "low", None)) or 0.0)
+            >= (self._safe_float(getattr(range_window[idx], "low", None)) or 0.0)
+            for idx in range(len(range_window) - 1)
+        )
+        if is_tight_range and lows_increasing and last_price >= range_high * 0.998:
+            setups.append(
+                {
+                    "setup_type": "RANGE_BREAK",
+                    "pattern_id": "P_RANGE_BREAKOUT",
+                    "trigger_price": range_high,
+                    "confidence": 0.62,
+                }
+            )
+
+        return setups
+
+    def _fallback_setup_to_trace(
+        self,
+        *,
+        symbol: str,
+        setup: dict[str, float | str],
+        cycle_id: str,
+        session_label: str,
+        session_phase: str,
+        runtime_mode: str,
+        symbol_source: str,
+        input_summary: dict,
+    ):
+        from src.strategies.ross_momentum.patterns.pattern_trace import RossPatternTrace
+
+        return RossPatternTrace(
+            symbol=symbol,
+            cycle_id=cycle_id,
+            strategy_key="ross_momentum",
+            session_label=session_label,
+            session_phase=session_phase,
+            runtime_mode=runtime_mode,
+            symbol_source=symbol_source,
+            pattern_id=str(setup.get("pattern_id", "P_HOD_BREAK")),
+            pattern_name=str(setup.get("setup_type", "HOD_BREAK")),
+            setup_family_id=str(setup.get("pattern_id", "P_HOD_BREAK")),
+            invoked=True,
+            detected=True,
+            input_summary=input_summary,
+        )

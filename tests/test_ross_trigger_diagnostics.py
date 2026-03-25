@@ -229,10 +229,10 @@ def test_no_silent_drop_logs_pipeline_no_decision(monkeypatch, tmp_path, capsys)
         session_phase="PRE",
     )
 
-    assert intents == []
+    assert intents
     out = capsys.readouterr().out
-    assert "[ROSS][DECISION][BLOCKED] symbol=TEST final_stage=pattern reason=no_valid_pattern" in out
-    assert "[ROSS][PIPELINE][NO_DECISION] symbol=TEST reason=no_valid_pattern_or_trigger" in out
+    assert "[ROSS][SETUP_FALLBACK] symbol=TEST setups=" in out
+    assert "[ROSS][TRIGGER][PASS] symbol=TEST trigger=confirmation_gate" in out
 
 
 def test_trade_ready_still_works_and_emits_terminal_log(monkeypatch, tmp_path, capsys) -> None:
