@@ -36,7 +36,21 @@ class PatternEvaluator:
         all_results: List[PatternResult] = []
         veto_flags: List[str] = []
         for inputs in inputs_list:
-            all_results.extend(self._registry.run(inputs))
+            print(f"[ROSS][PATTERN][START] symbol={inputs.symbol}")
+            symbol_results = self._registry.run(inputs)
+            for result in symbol_results:
+                if result.detected:
+                    print(
+                        "[ROSS][PATTERN][PASS] "
+                        f"symbol={inputs.symbol} pattern={result.pattern_name}"
+                    )
+                else:
+                    reason_code = result.rejection_reason or "unspecified_rejection"
+                    print(
+                        "[ROSS][PATTERN][FAIL] "
+                        f"symbol={inputs.symbol} pattern={result.pattern_name} reason={reason_code}"
+                    )
+            all_results.extend(symbol_results)
             spread = inputs.liquidity_context.spread
             if spread is not None and spread > 0.05:
                 veto_flags.append("wide_spread")

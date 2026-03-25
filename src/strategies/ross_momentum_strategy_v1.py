@@ -289,10 +289,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                 symbol_trace.pre_registry_failure_reason = "failed_to_build_inputs"
                 symbol_trace.final_outcome = "NO_SETUP:failed_to_build_inputs"
                 print(f"[ROSS][NO_SETUP_SUMMARY] symbol={symbol} reason=failed_to_build_inputs")
-                print(
-                    "[ROSS][DECISION] "
-                    f"symbol={symbol} outcome=NO_TRADE reason={symbol_trace.final_outcome}"
+                self._log_decision_blocked(
+                    symbol=symbol,
+                    final_stage="pattern",
+                    reason=symbol_trace.final_outcome,
                 )
+                self._log_pipeline_no_decision(symbol)
                 symbol_trace.pattern_traces = []
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
@@ -322,10 +324,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                 print(f"[ROSS][DATA_BLOCK] symbol={symbol} reason={reason_text}")
                 symbol_trace.pre_registry_failure_reason = f"data_contract_blocked:{reason_text}"
                 symbol_trace.final_outcome = f"NO_SETUP:data_contract_blocked:{reason_text}"
-                print(
-                    "[ROSS][DECISION] "
-                    f"symbol={symbol} outcome=NO_TRADE reason=data_contract_blocked:{reason_text}"
+                self._log_decision_blocked(
+                    symbol=symbol,
+                    final_stage="pattern",
+                    reason=f"data_contract_blocked:{reason_text}",
                 )
+                self._log_pipeline_no_decision(symbol)
                 symbol_trace.pattern_traces = []
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
@@ -406,10 +410,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                     primary_reason="no_valid_pattern",
                     details=["no_detected_tradeable_patterns_after_arbitration"],
                 )
-                print(
-                    f"[ROSS][DECISION] symbol={symbol} outcome=NO_TRADE reason=no_valid_pattern"
+                self._log_decision_blocked(
+                    symbol=symbol,
+                    final_stage="pattern",
+                    reason="no_valid_pattern",
                 )
-                print(f"[ROSS][TRIGGER][RESULT] symbol={symbol} triggered=False")
+                self._log_pipeline_no_decision(symbol)
                 print(
                     "[ROSS][NO_SETUP_SUMMARY] "
                     f"symbol={symbol} detected_patterns=0 rejections={[trace.rejection_reason for trace in pattern_traces if trace.rejection_reason]}"
@@ -424,12 +430,14 @@ class RossMomentumStrategyV1(BaseStrategy):
                 pattern_traces=pattern_traces,
                 session_label=session_label,
             )
-            trigger_ready = confirmation_passed
-            print(
-                "[ROSS][TRIGGER][RESULT] "
-                f"symbol={symbol} triggered={trigger_ready}"
-            )
             if not confirmation_passed:
+                self._evaluate_trigger(
+                    symbol=symbol,
+                    selected_pattern=best_pattern,
+                    confirmation_passed=False,
+                    trigger_name="confirmation_gate",
+                    entry_price=None,
+                )
                 symbol_trace.dropped_detected_pattern_ids = [best_pattern.pattern_id]
                 symbol_trace.final_outcome = "NO_SETUP:confirmation_blocked"
                 self._log_no_trade_root_cause(
@@ -438,10 +446,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                     primary_reason="confirmation_blocked",
                     details=blocking_reasons or ["unspecified_blocker"],
                 )
-                print(
-                    "[ROSS][DECISION] "
-                    f"symbol={symbol} outcome=NO_TRADE reason=confirmation_blocked:{best_pattern.pattern_id}"
+                self._log_decision_blocked(
+                    symbol=symbol,
+                    final_stage="confirmation",
+                    reason=f"confirmation_blocked:{best_pattern.pattern_id}",
                 )
+                self._log_pipeline_no_decision(symbol)
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
@@ -455,9 +465,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                     primary_reason="invalid_trade_structure",
                     details=["entry_or_stop_missing_or_invalid"],
                 )
-                print(
-                    f"[ROSS][DECISION] symbol={symbol} outcome=NO_TRADE reason=invalid_trade_structure"
+                self._log_decision_blocked(
+                    symbol=symbol,
+                    final_stage="trigger",
+                    reason="invalid_trade_structure",
                 )
+                self._log_pipeline_no_decision(symbol)
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
@@ -465,6 +478,13 @@ class RossMomentumStrategyV1(BaseStrategy):
             entry, stop = trade
             print(f"[ROSS][ENTRY_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} entry={entry}")
             print(f"[ROSS][STOP_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} stop={stop}")
+            trigger_ready, _trigger_reason = self._evaluate_trigger(
+                symbol=symbol,
+                selected_pattern=best_pattern,
+                confirmation_passed=True,
+                trigger_name="confirmation_gate",
+                entry_price=entry,
+            )
 
             intent = TradeIntent(
                 symbol=symbol,
@@ -501,7 +521,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             )
             print(
                 "[ROSS][DECISION] "
-                f"symbol={symbol} outcome=TRADE_READY reason=selected_pattern:{best_pattern.pattern_id}"
+                f"symbol={symbol} outcome=TRADE_READY pattern={best_pattern.pattern_id}"
             )
             symbol_traces.append(symbol_trace)
             self._failure_trace_collector.record_symbol(symbol_trace)
@@ -616,6 +636,10 @@ class RossMomentumStrategyV1(BaseStrategy):
         pattern_traces,
         session_label: str,
     ) -> tuple[bool, list[str], list[str]]:
+        print(
+            "[ROSS][CONFIRMATION][START] "
+            f"symbol={symbol} pattern={selected_pattern.pattern_id}"
+        )
         selected_trace = next((trace for trace in pattern_traces if trace.pattern_id == selected_pattern.pattern_id), None)
         blocking_reasons: list[str] = []
         warnings: list[str] = []
@@ -636,9 +660,10 @@ class RossMomentumStrategyV1(BaseStrategy):
         ):
             blocking_reasons.append("not regular session")
         if blocking_reasons:
+            first_failed = blocking_reasons[0]
             print(
-                "[ROSS][CONFIRMATION][BLOCKED] "
-                f"symbol={symbol} pattern={selected_pattern.pattern_id} reasons={blocking_reasons}"
+                "[ROSS][CONFIRMATION][FAIL] "
+                f"symbol={symbol} failed_check={first_failed} value=failed expected=pass"
             )
         if warnings:
             print(
@@ -646,6 +671,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"symbol={symbol} pattern={selected_pattern.pattern_id} reasons={warnings}"
             )
         passed = not blocking_reasons and bool(selected_pattern.detected)
+        if passed:
+            check_list = ["pattern_detected", "session_guard"]
+            print(
+                "[ROSS][CONFIRMATION][PASS] "
+                f"symbol={symbol} checks={check_list}"
+            )
         print(
             "[ROSS][CONFIRMATION][RESULT] "
             f"symbol={symbol} pattern={selected_pattern.pattern_id} passed={passed} "
@@ -669,6 +700,47 @@ class RossMomentumStrategyV1(BaseStrategy):
 
     def _is_blocking_reason(self, reason: str) -> bool:
         return reason in self._blocking_reasons
+
+    @staticmethod
+    def _log_decision_blocked(*, symbol: str, final_stage: str, reason: str) -> None:
+        print(
+            "[ROSS][DECISION][BLOCKED] "
+            f"symbol={symbol} final_stage={final_stage} reason={reason}"
+        )
+
+    @staticmethod
+    def _log_pipeline_no_decision(symbol: str) -> None:
+        print(
+            "[ROSS][PIPELINE][NO_DECISION] "
+            f"symbol={symbol} reason=no_valid_pattern_or_trigger"
+        )
+
+    def _evaluate_trigger(
+        self,
+        *,
+        symbol: str,
+        selected_pattern,
+        confirmation_passed: bool,
+        trigger_name: str,
+        entry_price: float | None,
+    ) -> tuple[bool, str]:
+        print(
+            "[ROSS][TRIGGER][START] "
+            f"symbol={symbol} pattern={selected_pattern.pattern_id}"
+        )
+        if not confirmation_passed:
+            reason = "confirmation_not_passed"
+            print(f"[ROSS][TRIGGER][FAIL] symbol={symbol} reason={reason}")
+            return False, reason
+        if entry_price is None:
+            reason = "entry_price_missing"
+            print(f"[ROSS][TRIGGER][FAIL] symbol={symbol} reason={reason}")
+            return False, reason
+        print(
+            "[ROSS][TRIGGER][PASS] "
+            f"symbol={symbol} trigger={trigger_name} entry={entry_price}"
+        )
+        return True, "trigger_fired"
 
     @staticmethod
     def _log_no_trade_root_cause(*, symbol: str, pattern: str | None, primary_reason: str, details: list[str]) -> None:
