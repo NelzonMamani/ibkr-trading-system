@@ -1583,9 +1583,11 @@ class CoreOrchestrator:
         )
         watchlist_symbols = self._symbols_from_candidates(selected_watchlist)
         auto_focus_symbols = self._symbols_from_candidates(selected_focus)
+        merged = list(selected_focus)
+        manual_allowed = bool(getattr(self, "_manual_focus_enabled", True)) and not merged
         selected_focus = self._merge_focus_candidates(
-            scanner_focus=selected_focus,
-            manual_candidates=manual_focus_rows,
+            scanner_focus=merged,
+            manual_candidates=manual_focus_rows if manual_allowed else [],
             session_phase=session_phase,
         )
         final_evaluation_symbols = self._symbols_from_candidates(selected_focus)
@@ -1631,11 +1633,14 @@ class CoreOrchestrator:
         session_execution_allowed = session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
         if not session_execution_allowed and watchlist_symbols:
             print("[VALIDATION_OVERRIDE] Forcing strategy execution despite session restrictions")
-        strategy_watchlist = selected_focus or selected_watchlist
+        strategy_watchlist = selected_watchlist or selected_focus
         for symbol in self._symbols_from_candidates(strategy_watchlist):
             print(f"[STRATEGY] runner=ross_momentum symbol={symbol} stage=evaluate")
         if strategy_watchlist:
             print("[STRATEGY][FORCED_EXECUTION] invoking StrategyRunner regardless of session")
+            print("[ROSS][PROCESS_START]")
+            print("[ROSS][PATTERN_PIPELINE] ACTIVE")
+            print("[ROSS][TRIGGER_PIPELINE] ACTIVE")
         strategy_output = self.strategy_runner.process(
             strategy_key=strategy_key,
             watchlist=strategy_watchlist,
@@ -1990,9 +1995,11 @@ class CoreOrchestrator:
             session_phase=session_phase,
         )
         auto_focus_symbols = list(focus_symbols)
+        merged = list(focus_m)
+        manual_allowed = bool(getattr(self, "_manual_focus_enabled", True)) and not merged
         focus_m = self._merge_focus_candidates(
-            scanner_focus=focus_m,
-            manual_candidates=manual_focus_rows,
+            scanner_focus=merged,
+            manual_candidates=manual_focus_rows if manual_allowed else [],
             session_phase=session_phase,
         )
         focus_symbols = self._symbols_from_candidates(focus_m)
@@ -2274,6 +2281,7 @@ class CoreOrchestrator:
             if self._stop_requested_at_boundary("PATTERN"):
                 return False
 
+            print("[ROSS][TRIGGER_PIPELINE] ACTIVE")
             print("[TEACH] >>> Signals stage — evaluate momentum triggers (teaching).")
             signals = self.signal_engine_v1.generate(
                 scanner_output=scanner_results or [],
@@ -2308,8 +2316,8 @@ class CoreOrchestrator:
         print("[TEACH] >>> Strategy stage — decide on trade ideas (conceptual).")
         try:
             strategy_watchlist = (
-                list(strategy_context.focus_m)
-                or list(strategy_context.watchlist_k)
+                list(strategy_context.watchlist_k)
+                or list(strategy_context.focus_m)
                 or list(watchlist_rows)
             )
             print(
@@ -2329,8 +2337,8 @@ class CoreOrchestrator:
             print("[STRATEGY][ENTRY] entering strategy execution phase")
 
             strategy_watchlist = (
-                list(strategy_context.focus_m)
-                or list(strategy_context.watchlist_k)
+                list(strategy_context.watchlist_k)
+                or list(strategy_context.focus_m)
                 or list(watchlist_rows)
             )
 

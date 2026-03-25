@@ -16,6 +16,7 @@ def test_noncanonical_aliases_canonicalize_for_policy() -> None:
 
 def test_manual_focus_merge_does_not_erase_auto_focus() -> None:
     orchestrator = CoreOrchestrator.__new__(CoreOrchestrator)
+    orchestrator._manual_focus_enabled = True
     merged = orchestrator._merge_focus_candidates(
         scanner_focus=[SimpleNamespace(symbol='AAA'), SimpleNamespace(symbol='BBB')],
         manual_candidates=[SimpleNamespace(symbol='CCC')],
