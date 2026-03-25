@@ -384,8 +384,22 @@ class IbkrClient(EWrapper, EClient):
             req_id = self._req_id_by_contract_key.get(self._contract_key(contract))
             if req_id is None:
                 return None
-            return super().cancelMktData(req_id)
-        return super().cancelMktData(*args, **kwargs)
+            result = super().cancelMktData(req_id)
+            self._market_events.pop(req_id, None)
+            self._market_data.pop(req_id, None)
+            self._ticker_by_req_id.pop(req_id, None)
+            self._req_id_by_contract_key.pop(self._contract_key(contract), None)
+            return result
+        result = super().cancelMktData(*args, **kwargs)
+        if args and isinstance(args[0], int):
+            req_id = int(args[0])
+            self._market_events.pop(req_id, None)
+            self._market_data.pop(req_id, None)
+            self._ticker_by_req_id.pop(req_id, None)
+            for key, value in list(self._req_id_by_contract_key.items()):
+                if value == req_id:
+                    self._req_id_by_contract_key.pop(key, None)
+        return result
 
     def reqHistoricalData(self, *args, **kwargs):  # type: ignore[override]
         """
@@ -714,9 +728,12 @@ class IbkrClient(EWrapper, EClient):
     # --- Error handling ---
     def error(self, reqId: int, errorCode: int, errorString: str):  # type: ignore[override]
         fractional_unsupported_warning = int(errorCode) == 2176
+        stale_request_warning = int(errorCode) == 300 and "can't find eid" in str(errorString).lower()
         is_non_rejecting_order_warning = (
             errorCode in self.NON_REJECTING_ORDER_WARNING_CODES and reqId in self._order_status_events
         )
+        if stale_request_warning:
+            is_non_rejecting_order_warning = True
         if reqId >= 0:
             self._errors[reqId] = (errorCode, errorString)
             if reqId in self._order_status_events:

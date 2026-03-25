@@ -1668,6 +1668,16 @@ class CoreOrchestrator:
             else:
                 no_trade_reason = "NO_SETUP:no_valid_setup_from_runner"
             print(f"[NO_TRADE_REASON] symbol={symbol} reason={no_trade_reason}")
+            if emitted:
+                print(
+                    "[DECISION] "
+                    f"symbol={symbol} stage=FINAL verdict=EMIT reason=INTENT_EMITTED"
+                )
+            else:
+                print(
+                    "[DECISION] "
+                    f"symbol={symbol} stage=FINAL verdict=REJECT reason={no_trade_reason}"
+                )
             print(self._pattern_reason_line(symbol, emitted))
             self._trace_event("PATTERN_EVAL", {"strategy": strategy_key, "symbol": symbol, "intent_emitted": emitted})
             if emitted:
@@ -1735,8 +1745,9 @@ class CoreOrchestrator:
                     f"source=ross_momentum"
                 )
                 print(
-                    "[DECISION] "
-                    f"symbol={trade_intent.symbol} verdict=emit_intent setup={getattr(trade_intent, 'pattern_name', None) or getattr(trade_intent, 'strategy_name', 'UNKNOWN')} executable={str(bool(mode_manager.allow_orders)).lower()}"
+                    "[TRADE_INTENT] "
+                    f"symbol={trade_intent.symbol} trigger={getattr(trade_intent, 'pattern_name', None) or 'UNSPECIFIED'} "
+                    f"confidence={getattr(trade_intent, 'confidence', None)} executable={str(bool(mode_manager.allow_orders)).lower()}"
                 )
         no_setup_count = max(len(final_evaluation_symbols) - intent_count, 0)
         print(
@@ -2379,12 +2390,50 @@ class CoreOrchestrator:
                 regime_snapshot,
                 regime_policy_decision,
             )
+            force_trade_if_eligible = bool(get_config("FORCE_TRADE_IF_ELIGIBLE"))
+            fallback_candidate = next(
+                (
+                    row
+                    for row in strategy_watchlist
+                    if getattr(row, "symbol", None)
+                    and getattr(row, "pct_change", None) is not None
+                    and getattr(row, "rvol", None) is not None
+                    and float(getattr(row, "pct_change", 0.0) or 0.0) >= 10.0
+                    and float(getattr(row, "rvol", 0.0) or 0.0) >= 5.0
+                ),
+                None,
+            )
+            if not strategy_output and fallback_candidate is not None:
+                spike_symbol = str(getattr(fallback_candidate, "symbol", "UNKNOWN"))
+                spike_pct = float(getattr(fallback_candidate, "pct_change", 0.0) or 0.0)
+                spike_rvol = float(getattr(fallback_candidate, "rvol", 0.0) or 0.0)
+                strategy_output = [
+                    TradeIntent(
+                        symbol=spike_symbol,
+                        direction="LONG",
+                        strategy_name="RossMomentumStrategyV1",
+                        confidence=0.6,
+                        rationale=(
+                            f"trigger=MOMENTUM_SPIKE confidence=MEDIUM pct_change={spike_pct:.2f} rvol={spike_rvol:.2f}"
+                        ),
+                        trader_type="MOMENTUM",
+                        pattern_name="MOMENTUM_SPIKE",
+                        gap_percent=spike_pct,
+                        rvol=spike_rvol,
+                    )
+                ]
+                print(
+                    "[TRADE_INTENT] "
+                    f"symbol={spike_symbol} trigger=MOMENTUM_SPIKE confidence=MEDIUM pct_change={spike_pct:.2f} rvol={spike_rvol:.2f}"
+                )
             if (
                 not strategy_output
                 and self.selected_strategy_key in {"ross_momentum", "long_horizon_value", "mean_reversion"}
-                and watchlist_symbols
+                and strategy_watchlist
+                and force_trade_if_eligible
             ):
-                fallback_symbol = watchlist_symbols[0]
+                fallback_row = strategy_watchlist[0]
+                fallback_symbol = str(getattr(fallback_row, "symbol", watchlist_symbols[0] if watchlist_symbols else "UNKNOWN"))
                 strategy_name = (
                     "LongHorizonValue"
                     if self.selected_strategy_key == "long_horizon_value"
@@ -2401,14 +2450,20 @@ class CoreOrchestrator:
                         direction="LONG",
                         strategy_name=strategy_name,
                         confidence=0.6,
-                        rationale="Deterministic fallback intent emitted from watchlist when no signals fire.",
+                        rationale="FORCE_TRADE_IF_ELIGIBLE enabled: first eligible candidate routed when no setup fired.",
                         trader_type=trader_type,
-                        pattern_name="WATCHLIST_DETERMINISTIC_FALLBACK",
+                        pattern_name="FORCE_TRADE_IF_ELIGIBLE",
+                        gap_percent=getattr(fallback_row, "pct_change", None),
+                        rvol=getattr(fallback_row, "rvol", None),
                     )
                 ]
                 print(
                     "[STRATEGY][FALLBACK] "
-                    f"strategy={self.selected_strategy_key} symbol={fallback_symbol}"
+                    f"strategy={self.selected_strategy_key} symbol={fallback_symbol} mode=FORCE_TRADE_IF_ELIGIBLE"
+                )
+                print(
+                    "[TRADE_INTENT] "
+                    f"symbol={fallback_symbol} trigger=FORCE_TRADE_IF_ELIGIBLE confidence=MEDIUM"
                 )
             if strategy_key == "statistical_intraday_momentum":
                 interface_intents = []

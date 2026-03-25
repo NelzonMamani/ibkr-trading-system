@@ -115,6 +115,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Temporary debug override to force approved=True for TRADE_READY intents while preserving original risk evaluation output.",
     },
+    "FORCE_TRADE_IF_ELIGIBLE": {
+        "type": bool,
+        "default": True,
+        "env": ["FORCE_TRADE_IF_ELIGIBLE"],
+        "affects": ["CoreOrchestrator"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Temporary profitability override: if strategy emits no intents, route the first eligible candidate as a trade intent.",
+    },
     "PREMARKET_MIN_VOLUME": {
         "type": int,
         "default": 2_000,
