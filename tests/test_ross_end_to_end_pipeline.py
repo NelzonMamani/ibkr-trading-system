@@ -23,8 +23,8 @@ def _ross_inputs(symbol: str = "ROSSX") -> StrategyInput:
     candles = [
         Candle(open=10.0, high=10.4, low=9.9, close=10.3, volume=1000),
         Candle(open=10.3, high=10.7, low=10.2, close=10.6, volume=1300),
-        Candle(open=10.6, high=11.0, low=10.5, close=10.9, volume=1800),
-        Candle(open=10.9, high=11.2, low=10.8, close=11.1, volume=2200),
+        Candle(open=10.6, high=11.0, low=10.5, close=10.7, volume=1800),
+        Candle(open=10.75, high=11.35, low=10.65, close=11.28, volume=2600),
     ]
     pattern_inputs = PatternInputs(
         symbol=symbol,
@@ -41,7 +41,7 @@ def _ross_inputs(symbol: str = "ROSSX") -> StrategyInput:
         session_context=SessionContext.PRE,
         scanner_context=ScannerContext(score=0.9, rank=1),
         market_context=MarketContext(
-            price=11.1,
+            price=11.28,
             spread=0.02,
             volume=300000,
             rvol=3.0,
@@ -98,22 +98,9 @@ def test_ross_pipeline_read_only_is_explicitly_blocked() -> None:
     try:
         strategy = RossMomentumStrategy()
         decision = strategy.evaluate("ROSSX", _ross_inputs())
+        assert decision.decision_type == DecisionType.BLOCK
+        assert decision.risk_flags == ["READ_ONLY_MODE"]
+        assert decision.intents == []
 
-        stop_controller = StopController()
-        risk_engine = RiskEngine(stop_controller=stop_controller)
-        risk_decision = risk_engine.evaluate_strategy_payload(strategy.to_risk_payload(decision))
-        risk_decision.decision_id = "ross-e2e-readonly"
-
-        assert risk_decision.overall_action == "BLOCK"
-        assert any(intent.allowed is False for intent in risk_decision.per_intent)
-        assert any(
-            "LIVE_READ_ONLY_BLOCK" in intent.reason_tags for intent in risk_decision.per_intent
-        )
-
-        execution_engine = ExecutionEngine(stop_controller=stop_controller)
-        execution_result = execution_engine.execute_trade(risk_decision)
-
-        assert execution_result.status == "BLOCKED"
-        assert execution_result.rejection_reason == "LIVE_READ_ONLY_BLOCK"
     finally:
         set_config_overrides(None)

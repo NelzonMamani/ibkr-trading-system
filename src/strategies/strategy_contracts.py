@@ -16,6 +16,7 @@ class SessionContext(str, Enum):
 
 
 class DecisionType(str, Enum):
+    BLOCK = "BLOCK"
     NO_ACTION = "NO_ACTION"
     WATCH = "WATCH"
     CONSIDER = "CONSIDER"
