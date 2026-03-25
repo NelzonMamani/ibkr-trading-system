@@ -2562,6 +2562,11 @@ class CoreOrchestrator:
             )
             try:
                 for trade_intent in strategy_output:
+                    if str(getattr(trade_intent, "strategy_name", "")).lower() == "ross_momentum":
+                        print(
+                            "[ROSS][HANDOFF][RISK] "
+                            f"symbol={trade_intent.symbol} disposition=passed_to_risk intent_id={getattr(trade_intent, 'intent_id', None)}"
+                        )
                     if trade_intent.symbol in blocked_symbols:
                         print(
                             "[RISK] Skipping duplicate blocked intent for "
@@ -2581,6 +2586,12 @@ class CoreOrchestrator:
                     decision.trader_type = getattr(trade_intent, "trader_type", "MANUAL")
                     verdict = "APPROVED" if getattr(decision, 'allowed', False) and getattr(decision, 'risk_level', '') != 'BLOCKED' else "REJECTED"
                     print(f"[RISK] symbol={trade_intent.symbol} verdict={verdict} reason={getattr(decision, 'rationale', None)}")
+                    if str(getattr(trade_intent, "strategy_name", "")).lower() == "ross_momentum":
+                        risk_disposition = "risk_allowed" if verdict == "APPROVED" else "risk_blocked"
+                        print(
+                            "[ROSS][HANDOFF][RISK] "
+                            f"symbol={trade_intent.symbol} disposition={risk_disposition} reason={getattr(decision, 'rationale', None)}"
+                        )
                     if not decision.allowed or decision.risk_level == "BLOCKED":
                         blocked_symbols.add(trade_intent.symbol)
                     risk_output.append(decision)
@@ -2630,14 +2641,25 @@ class CoreOrchestrator:
                     f"[TEACH] Execution engine will handle {len(risk_output)} risk decisions individually."
                 )
                 for risk_decision in risk_output:
+                    if str(getattr(risk_decision, "strategy_name", "")).lower() == "ross_momentum":
+                        print(
+                            "[ROSS][HANDOFF][EXECUTION] "
+                            f"symbol={risk_decision.symbol} disposition=passed_to_execution allowed={getattr(risk_decision, 'allowed', None)}"
+                        )
                     print(
                         f"[TEACH] Routing execution for symbol: {risk_decision.symbol} "
                         f"(trader_type={risk_decision.trader_type})"
                     )
                     try:
-                        execution_output.append(
-                            self.execution_engine.execute_trade(risk_decision)
-                        )
+                        result = self.execution_engine.execute_trade(risk_decision)
+                        execution_output.append(result)
+                        if str(getattr(risk_decision, "strategy_name", "")).lower() == "ross_momentum":
+                            status = str(getattr(result, "status", "") or "").upper()
+                            disposition = "SUBMITTED_TO_EXECUTION" if status not in {"REJECTED", "ERROR", "FAILED"} else "REJECTED_AT_EXECUTION"
+                            print(
+                                "[ROSS][EXECUTION][OUTCOME] "
+                                f"symbol={risk_decision.symbol} disposition={disposition} status={status}"
+                            )
                     except Exception as exc:
                         self._evaluate_runtime_safety(
                             cycle_stage="EXECUTION",
