@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from src.config.config_resolver import set_config_overrides
 from src.scanner.scanner_contract import ScannerRequest
 from src.scanner.scanner_runner import _resolve_universe_symbols
 from src.strategies.ross_momentum.strategy_policy import UniverseSource
@@ -114,6 +117,13 @@ class _RuntimeMetadataProvider(_MetadataProvider):
 
     def get_float(self, symbol: str):
         return 10_000_000
+
+
+@pytest.fixture(autouse=True)
+def _runtime_mode_overrides():
+    set_config_overrides({"RUN_MODE": "READ_ONLY", "RUN_MODE_EFFECTIVE": "READ_ONLY"})
+    yield
+    set_config_overrides({})
 
 
 def test_run_scanner_cycle_flow_uses_provider_metadata() -> None:
