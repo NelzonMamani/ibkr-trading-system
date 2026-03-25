@@ -252,6 +252,12 @@ class RossMomentumStrategyV1(BaseStrategy):
         symbol_traces: List[RossSymbolTrace] = []
         translated_intents: List[TradeIntent] = []
         synthetic_forced_intents = 0
+        classification_counts = {
+            "DATA_BLOCKED": 0,
+            "PATTERN_NO_SETUP": 0,
+            "TRIGGER_REJECTED": 0,
+            "READY_FOR_EXECUTION": 0,
+        }
         for row in watchlist:
             symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
             if not symbol:
@@ -270,9 +276,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                 manual_focus=symbol_source == "manual_focus",
                 bypassed_watchlist=symbol_source == "manual_focus",
             )
+            symbol_source_tag = "MANUAL_OVERRIDE" if symbol_trace.manual_focus else "WATCHLIST"
             print(
                 "[ROSS][SYMBOL_EVAL][START] "
-                f"symbol={symbol} source={symbol_source} manual_focus={symbol_trace.manual_focus} "
+                f"symbol={symbol} source={symbol_source_tag} manual_focus={symbol_trace.manual_focus} "
                 f"bypassed_watchlist={symbol_trace.bypassed_watchlist} session={session_label} phase={session_phase} mode={mode.value}"
             )
             print("[PATTERN_PIPELINE] START")
@@ -288,6 +295,9 @@ class RossMomentumStrategyV1(BaseStrategy):
                 print(f"[PATTERN_INPUT][SKIP] symbol={symbol} reason=failed_to_build_inputs")
                 symbol_trace.pre_registry_failure_reason = "failed_to_build_inputs"
                 symbol_trace.final_outcome = "NO_SETUP:failed_to_build_inputs"
+                print(f"[DATA_CONTRACT_BLOCK] symbol={symbol} reason=MISSING_DATA")
+                print(f"[CLASSIFICATION] symbol={symbol} category=DATA_BLOCKED")
+                classification_counts["DATA_BLOCKED"] += 1
                 print(f"[ROSS][NO_SETUP_SUMMARY] symbol={symbol} reason=failed_to_build_inputs")
                 self._log_decision_blocked(
                     symbol=symbol,
@@ -314,6 +324,16 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"rvol={input_summary.rvol} float={input_summary.float_millions} "
                 f"levels_present={input_summary.levels_present} indicators_present={input_summary.indicators_present}"
             )
+            if symbol_trace.manual_focus:
+                manual_warnings: list[str] = []
+                if input_summary.volume is None or input_summary.volume <= self._session_thresholds(input_summary.session_context)[0]:
+                    manual_warnings.append("LOW_VOLUME")
+                if input_summary.pct_change is not None and input_summary.pct_change < 0:
+                    manual_warnings.append("NEGATIVE_PCT_CHANGE")
+                if input_summary.rvol is None:
+                    manual_warnings.append("RVOL_UNAVAILABLE")
+                if manual_warnings:
+                    print(f"[MANUAL_FOCUS][WARNING] symbol={symbol} reason={','.join(manual_warnings)}")
             block_reasons = self._data_contract_block_reasons(
                 symbol=symbol,
                 input_summary=input_summary,
@@ -322,6 +342,9 @@ class RossMomentumStrategyV1(BaseStrategy):
             if block_reasons:
                 reason_text = ",".join(block_reasons)
                 print(f"[ROSS][DATA_BLOCK] symbol={symbol} reason={reason_text}")
+                print(f"[DATA_CONTRACT_BLOCK] symbol={symbol} reason={reason_text}")
+                print(f"[CLASSIFICATION] symbol={symbol} category=DATA_BLOCKED")
+                classification_counts["DATA_BLOCKED"] += 1
                 symbol_trace.pre_registry_failure_reason = f"data_contract_blocked:{reason_text}"
                 symbol_trace.final_outcome = f"NO_SETUP:data_contract_blocked:{reason_text}"
                 self._log_decision_blocked(
@@ -404,6 +427,9 @@ class RossMomentumStrategyV1(BaseStrategy):
 
             if not best_pattern:
                 symbol_trace.final_outcome = "NO_SETUP:no_valid_pattern"
+                print(f"[PATTERN_NO_SETUP] symbol={symbol} dominant_reason=no_valid_pattern")
+                print(f"[CLASSIFICATION] symbol={symbol} category=PATTERN_NO_SETUP")
+                classification_counts["PATTERN_NO_SETUP"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
                     pattern=None,
@@ -440,6 +466,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                 )
                 symbol_trace.dropped_detected_pattern_ids = [best_pattern.pattern_id]
                 symbol_trace.final_outcome = "NO_SETUP:confirmation_blocked"
+                print(
+                    f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
+                )
+                classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
                     pattern=best_pattern.pattern_id,
@@ -459,6 +489,10 @@ class RossMomentumStrategyV1(BaseStrategy):
             trade = self._build_trade_from_pattern(best_pattern, inputs)
             if not trade:
                 symbol_trace.final_outcome = "NO_SETUP:invalid_trade_structure"
+                print(
+                    f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
+                )
+                classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
                     pattern=best_pattern.pattern_id,
@@ -509,6 +543,8 @@ class RossMomentumStrategyV1(BaseStrategy):
             best_pattern.post_detect_disposition = "translated_to_trade_intent"
             best_pattern.final_outcome = "DETECTED_AND_EXECUTED"
             symbol_trace.final_outcome = "SETUP_DETECTED_AND_TRANSLATED"
+            print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
+            classification_counts["READY_FOR_EXECUTION"] += 1
             print(
                 "[ROSS][INTENT][EMIT] "
                 f"symbol={symbol} pattern={best_pattern.pattern_id} entry={entry} stop={stop} "
@@ -544,6 +580,13 @@ class RossMomentumStrategyV1(BaseStrategy):
             session_phase=session_phase,
         )
         print(f"[PATTERN_FAILURE_TRACE][EVIDENCE] path={evidence_path}")
+        print(
+            "[ROSS][PIPELINE_SUMMARY] "
+            "dominant_no_trade_reasons="
+            f"{{'DATA_BLOCKED': {classification_counts['DATA_BLOCKED']}, "
+            f"'PATTERN_NO_SETUP': {classification_counts['PATTERN_NO_SETUP']}, "
+            f"'TRIGGER_REJECTED': {classification_counts['TRIGGER_REJECTED']}}}"
+        )
 
         print(f"[ROSS][INTENTS] generated={len(translated_intents)}")
 
