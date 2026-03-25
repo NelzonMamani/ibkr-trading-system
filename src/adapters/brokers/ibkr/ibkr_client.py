@@ -204,6 +204,12 @@ class IbkrClient(EWrapper, EClient):
         order_id = self.reserve_order_id()
         self._order_status_events[order_id] = threading.Event()
         self._exec_details_by_order[order_id] = []
+        print(
+            "[ORDER][SUBMIT] "
+            f"symbol={getattr(contract, 'symbol', None)} order_id={order_id} "
+            f"qty={getattr(order, 'totalQuantity', None)} side={getattr(order, 'action', None)} "
+            f"order_type={getattr(order, 'orderType', None)}"
+        )
         self.placeOrder(order_id, contract, order)
         return order_id
 
@@ -746,6 +752,10 @@ class IbkrClient(EWrapper, EClient):
             message = f"[IBKR] Warning reqId={reqId} code={errorCode} msg={errorString}"
         else:
             message = f"[IBKR] Error reqId={reqId} code={errorCode} msg={errorString}"
+        print(
+            "[ORDER][ERROR] "
+            f"order_id={reqId} code={errorCode} message={errorString}"
+        )
         print(message)
         if errorCode == 326:
             print("[IBKR][CONNECT_FAIL] code=326 client id already in use")
@@ -781,6 +791,10 @@ class IbkrClient(EWrapper, EClient):
             "avgFillPrice": avgFillPrice,
             "lastFillPrice": lastFillPrice,
         }
+        print(
+            "[ORDER][STATUS] "
+            f"order_id={orderId} status={status} filled={int(filled)} remaining={int(remaining)}"
+        )
         event = self._order_status_events.setdefault(orderId, threading.Event())
         event.set()
 
@@ -794,7 +808,15 @@ class IbkrClient(EWrapper, EClient):
             "price": getattr(execution, "price", None),
             "shares": getattr(execution, "shares", None),
         }
+        print(
+            "[ORDER][FILL] "
+            f"symbol={getattr(contract, 'symbol', None)} order_id={order_id} "
+            f"shares={getattr(execution, 'shares', None)} avg_price={getattr(execution, 'price', None)}"
+        )
         self._exec_details_by_order.setdefault(order_id, []).append(details)
+
+    def openOrder(self, orderId, contract, order, orderState):  # type: ignore[override]
+        print(f"[ORDER][OPEN] order_id={orderId} symbol={getattr(contract, 'symbol', None)}")
 
     def commissionReport(self, commissionReport):  # type: ignore[override]
         exec_id = getattr(commissionReport, "execId", None)

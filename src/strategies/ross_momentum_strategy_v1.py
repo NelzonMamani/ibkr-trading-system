@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+from src.config.config_resolver import get_config
 from src.config.runtime_config import RunMode
 from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import PatternResult, TradeIntent
@@ -82,8 +83,8 @@ class RossMomentumStrategyV1(BaseStrategy):
             "entry_or_stop_missing",
             "entry_stop_structure_invalid",
         }
-        self._pre_volume_min = 10_000.0
-        self._rth_volume_min = 50_000.0
+        self._pre_volume_min = float(get_config("PREMARKET_MIN_VOLUME"))
+        self._rth_volume_min = float(get_config("RTH_MIN_VOLUME"))
         self._pre_rvol_min = 0.8
         self._rth_rvol_min = 1.5
 
@@ -101,6 +102,11 @@ class RossMomentumStrategyV1(BaseStrategy):
     def _data_contract_block_reasons(self, *, symbol: str, input_summary, inputs) -> list[str]:
         reasons: list[str] = []
         volume_min, rvol_min = self._session_thresholds(input_summary.session_context)
+        session = str(input_summary.session_context or "UNKNOWN").upper()
+        print(
+            "[DATA][THRESHOLD] "
+            f"symbol={symbol} session={session} min_volume={int(volume_min)}"
+        )
         volume = input_summary.volume
         rvol = input_summary.rvol
         spread = input_summary.spread
@@ -477,6 +483,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             intent.has_valid_pattern = True
             intent.confirmation_passed = confirmation_passed
             intent.trigger_ready = trigger_ready
+            intent.decision = "TRADE_READY"
 
             translated_intents.append(intent)
             best_pattern.post_detect_disposition = "translated_to_trade_intent"

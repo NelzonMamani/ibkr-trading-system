@@ -87,7 +87,19 @@ class IbkrOrderSubmitter:
             return self._result(internal_order, status="BLOCKED", error=blocked_reason)
 
         self._log("[TRANSLATE] Translating internal order via IbkrOrderTranslator")
-        contract, order = self.translator.translate(internal_order)
+        try:
+            contract, order = self.translator.translate(internal_order)
+        except Exception as exc:
+            reason = f"{exc}"
+            self._log(
+                f"[ORDER][REJECT] symbol={internal_order.symbol} stage=build reason={reason}"
+            )
+            self._emit_failed(internal_order, reason=reason, ibkr_order_id=None)
+            return self._result(
+                internal_order,
+                status="FAILED",
+                error=reason,
+            )
         self._log_translation(contract, order)
 
         host, port = self._resolve_connection(client)
@@ -120,6 +132,9 @@ class IbkrOrderSubmitter:
                 ibkr_order_id = client.submit_order(contract, order)
             except Exception as exc:
                 error = f"IBKR placeOrder failed: {exc}"
+                self._log(
+                    f"[ORDER][REJECT] symbol={internal_order.symbol} stage=submission reason={error}"
+                )
                 self._log(f"[ERROR] {error}")
                 self._emit_failed(internal_order, reason=error, ibkr_order_id=None)
                 return self._result(
