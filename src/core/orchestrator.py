@@ -1637,6 +1637,14 @@ class CoreOrchestrator:
         else:
             print("[FOCUS][EMPTY] reason=no_focus_symbols_after_selection")
         self._trace_event("FOCUS", {"focus": [{"symbol": s} for s in final_evaluation_symbols]})
+        strategy_watchlist = selected_watchlist or selected_focus
+        strategy_evaluation_symbols = self._symbols_from_candidates(strategy_watchlist)
+        if not final_evaluation_symbols and strategy_evaluation_symbols:
+            print(
+                "[FOCUS][FALLBACK_TO_WATCHLIST] "
+                f"reason=focus_empty_using_watchlist symbols={strategy_evaluation_symbols}"
+            )
+            final_evaluation_symbols = list(strategy_evaluation_symbols)
         snapshots_by_symbol, _ = self.market_data_snapshot_manager.batch_snapshots(final_evaluation_symbols)
         session_label = canonical_session_label(
             forced_session_label
@@ -1651,7 +1659,6 @@ class CoreOrchestrator:
         session_execution_allowed = session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
         if not session_execution_allowed and watchlist_symbols:
             print("[VALIDATION_OVERRIDE] Forcing strategy execution despite session restrictions")
-        strategy_watchlist = selected_watchlist or selected_focus
         for symbol in self._symbols_from_candidates(strategy_watchlist):
             print(f"[STRATEGY] runner=ross_momentum symbol={symbol} stage=evaluate")
         if strategy_watchlist:
