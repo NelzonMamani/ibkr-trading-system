@@ -2105,6 +2105,11 @@ class CoreOrchestrator:
             scanner_results=scanner_results,
         )
         diagnostics = scanner_watchlist_payload.get("diagnostics", {})
+        data_quality_mode = scanner_watchlist_payload.get("data_quality_mode") or diagnostics.get("data_quality_mode")
+        if data_quality_mode:
+            print(f"[DATA_QUALITY] mode={data_quality_mode}")
+            scanner_watchlist_payload.setdefault("strategy_policy_hook", {})
+            scanner_watchlist_payload["strategy_policy_hook"]["data_quality_mode"] = data_quality_mode
         provider_source = diagnostics.get("provider_source")
         provider_error = diagnostics.get("provider_error")
         provider_fallback = diagnostics.get("provider_fallback")

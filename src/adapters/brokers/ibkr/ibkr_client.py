@@ -713,6 +713,7 @@ class IbkrClient(EWrapper, EClient):
 
     # --- Error handling ---
     def error(self, reqId: int, errorCode: int, errorString: str):  # type: ignore[override]
+        fractional_unsupported_warning = int(errorCode) == 2176
         is_non_rejecting_order_warning = (
             errorCode in self.NON_REJECTING_ORDER_WARNING_CODES and reqId in self._order_status_events
         )
@@ -747,15 +748,25 @@ class IbkrClient(EWrapper, EClient):
                 self._account_summary_events[reqId].set()
             if reqId in self._scanner_events:
                 self._scanner_events[reqId].set()
-        if is_non_rejecting_order_warning:
+        if fractional_unsupported_warning:
+            print(
+                "[IBKR][WARN] "
+                f"type=FRACTIONAL_SHARE_UNSUPPORTED order_id={reqId} code={errorCode} message={errorString}"
+            )
+            message = (
+                "[IBKR][WARN] "
+                f"type=FRACTIONAL_SHARE_UNSUPPORTED reqId={reqId} code={errorCode} msg={errorString}"
+            )
+        elif is_non_rejecting_order_warning:
             print(f"[IBKR][WARN] order_id={reqId} code={errorCode} message={errorString}")
             message = f"[IBKR] Warning reqId={reqId} code={errorCode} msg={errorString}"
         else:
             message = f"[IBKR] Error reqId={reqId} code={errorCode} msg={errorString}"
-        print(
-            "[ORDER][ERROR] "
-            f"order_id={reqId} code={errorCode} message={errorString}"
-        )
+        if not fractional_unsupported_warning:
+            print(
+                "[ORDER][ERROR] "
+                f"order_id={reqId} code={errorCode} message={errorString}"
+            )
         print(message)
         if errorCode == 326:
             print("[IBKR][CONNECT_FAIL] code=326 client id already in use")
