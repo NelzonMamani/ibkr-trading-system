@@ -32,6 +32,7 @@ class PatternResult:
     direction: Direction
     confidence: float
     setup_quality_tags: List[str]
+    setup_family_id: Optional[str] = None
     tags: List[str] = field(default_factory=list)
     entry_zone: Optional[str] = None
     stop_suggestion: Optional[str] = None
@@ -40,3 +41,13 @@ class PatternResult:
     risk_flags: List[str] = field(default_factory=list)
     data_quality_flags: List[str] = field(default_factory=list)
     rejection_reason: Optional[str] = None
+    session_valid: bool = True
+    trigger_type: Optional[str] = None
+    trigger_level: Optional[float] = None
+    stop_level: Optional[float] = None
+    invalidation_level: Optional[float] = None
+    non_entry_signal: bool = False
+
+    def __post_init__(self) -> None:
+        if self.setup_family_id is None:
+            object.__setattr__(self, "setup_family_id", self.setup_id)
