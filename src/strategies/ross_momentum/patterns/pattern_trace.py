@@ -243,6 +243,8 @@ class RossCycleTrace:
     pattern_invocations_total: int
     patterns_detected_total: int
     dominant_skip_reasons: dict[str, int]
+    dominant_inactive_placeholder_reasons: dict[str, int]
+    dominant_real_pattern_rejections: dict[str, int]
     dominant_rejection_reasons: dict[str, int]
     symbols_with_missing_inputs: list[str]
     symbols_with_detected_but_discarded: list[str]
@@ -280,6 +282,8 @@ class RossPatternFailureTraceCollector:
     ) -> RossCycleTrace:
         traces = list(symbol_traces)
         skip_counter = Counter()
+        inactive_placeholder_counter = Counter()
+        real_rejection_counter = Counter()
         rejection_counter = Counter()
         missing_inputs = []
         detected_but_discarded = []
@@ -303,8 +307,12 @@ class RossPatternFailureTraceCollector:
                 detected_total += int(pattern_trace.detected)
                 if pattern_trace.skip_reason:
                     skip_counter[pattern_trace.skip_reason] += 1
+                    if pattern_trace.skip_reason == "inactive_placeholder":
+                        inactive_placeholder_counter[pattern_trace.skip_reason] += 1
                 if pattern_trace.rejection_reason:
                     rejection_counter[pattern_trace.rejection_reason] += 1
+                    if not pattern_trace.skip_reason:
+                        real_rejection_counter[pattern_trace.rejection_reason] += 1
         cycle = RossCycleTrace(
             cycle_id=cycle_id,
             strategy_key=strategy_key,
@@ -317,6 +325,8 @@ class RossPatternFailureTraceCollector:
             pattern_invocations_total=invocations,
             patterns_detected_total=detected_total,
             dominant_skip_reasons=dict(skip_counter.most_common(10)),
+            dominant_inactive_placeholder_reasons=dict(inactive_placeholder_counter.most_common(10)),
+            dominant_real_pattern_rejections=dict(real_rejection_counter.most_common(10)),
             dominant_rejection_reasons=dict(rejection_counter.most_common(10)),
             symbols_with_missing_inputs=sorted(set(missing_inputs)),
             symbols_with_detected_but_discarded=sorted(set(detected_but_discarded)),
@@ -479,7 +489,14 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     lod = min((_safe_float(candle.low) for candle in candles), default=None)
     premarket_high = max((_safe_float(candle.high) for candle in premarket_candles), default=None)
     premarket_low = min((_safe_float(candle.low) for candle in premarket_candles), default=None)
-    prior_close = _safe_float(_get_value(row, "prior_close") or _get_value(row, "reference_price") or _get_value(row, "prev_close") or _get_value(row, "close"))
+    prior_close = _safe_float(
+        _get_value(row, "prior_close")
+        or _get_value(row, "previous_close")
+        or _get_value(row, "last_rth_close")
+        or _get_value(row, "reference_price")
+        or _get_value(row, "prev_close")
+        or _get_value(row, "close")
+    )
     closes = [float(candle.close) for candle in candles]
     ema9 = _coalesce(_safe_float(_get_value(row, "ema9")), _ema(closes, 9))
     ema20 = _coalesce(_safe_float(_get_value(row, "ema20")), _ema(closes, 20))
@@ -531,12 +548,36 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         if rvol < 0.5:
             quality_flags.append("RVOL_WEAK")
     float_millions = _resolve_float_millions(symbol, row, quality_flags)
+    normalized_premarket_high = _coalesce(
+        _safe_float(_get_value(row, "premarket_high")),
+        _safe_float(_get_value(row, "PREMARKET_HIGH")),
+        _safe_float(_get_value(row, "pm_high")),
+        premarket_high,
+    )
+    normalized_premarket_low = _coalesce(
+        _safe_float(_get_value(row, "premarket_low")),
+        _safe_float(_get_value(row, "PREMARKET_LOW")),
+        _safe_float(_get_value(row, "pm_low")),
+        premarket_low,
+    )
+    normalized_hod = _coalesce(_safe_float(_get_value(row, "hod")), _safe_float(_get_value(row, "HOD")), hod)
+    normalized_lod = _coalesce(_safe_float(_get_value(row, "lod")), _safe_float(_get_value(row, "LOD")), lod)
+    normalized_key_levels = {
+        "PREMARKET_HIGH": normalized_premarket_high,
+        "PREMARKET_LOW": normalized_premarket_low,
+        "HOD": normalized_hod,
+        "LOD": normalized_lod,
+        "PRIOR_CLOSE": prior_close,
+        "PREVIOUS_CLOSE": prior_close,
+        "LAST_RTH_CLOSE": prior_close,
+    }
     levels = LevelSet(
-        premarket_high=_coalesce(_safe_float(_get_value(row, "premarket_high")), premarket_high),
-        premarket_low=_coalesce(_safe_float(_get_value(row, "premarket_low")), premarket_low),
-        hod=_coalesce(_safe_float(_get_value(row, "hod")), hod),
-        lod=_coalesce(_safe_float(_get_value(row, "lod")), lod),
+        premarket_high=normalized_premarket_high,
+        premarket_low=normalized_premarket_low,
+        hod=normalized_hod,
+        lod=normalized_lod,
         prior_close=prior_close,
+        key_levels={key: float(value) for key, value in normalized_key_levels.items() if value is not None},
     )
     indicators = IndicatorSet(
         ema9=ema9,

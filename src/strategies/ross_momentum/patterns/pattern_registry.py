@@ -17,7 +17,8 @@ from src.setup_engine.setup_families import (
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_trace import RossPatternTrace
-from src.strategies.ross_momentum.patterns.pattern_types import PatternResult
+from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternResult
+from src.strategies.strategy_contracts import SessionContext
 
 
 def build_additional_heuristic_patterns() -> List[PatternBase]:
@@ -45,6 +46,11 @@ class RossPatternRegistry:
                 "These are experimental and may false-positive."
             )
             self._patterns.extend(build_additional_heuristic_patterns())
+        self._session_allowlist_by_pattern: dict[str, set[SessionContext]] = {
+            "P_ORB": {SessionContext.REGULAR},
+            "P_OPENING_DRIVE": {SessionContext.REGULAR},
+            "P_FAILED_ORB_FAKEOUT": {SessionContext.REGULAR},
+        }
 
     @property
     def patterns(self) -> List[PatternBase]:
@@ -93,6 +99,53 @@ class RossPatternRegistry:
                 "[PATTERN_TRACE][INPUT] "
                 f"symbol={inputs.symbol} pattern_id={pattern_id} input_summary={input_summary}"
             )
+            session_allowlist = self._session_allowlist_by_pattern.get(pattern_id)
+            if session_allowlist and inputs.session_context not in session_allowlist:
+                pattern_trace.skipped = True
+                pattern_trace.skip_reason = "session_incompatible"
+                pattern_trace.final_outcome = "SKIPPED"
+                print(
+                    "[PATTERN_TRACE][SKIP] "
+                    f"symbol={inputs.symbol} pattern_id={pattern_id} reason=session_incompatible"
+                )
+                results.append(
+                    PatternResult(
+                        setup_id=pattern_id,
+                        pattern_name=pattern.name,
+                        pattern_family=pattern.family,
+                        detected=False,
+                        direction=getattr(pattern, "direction_bias", Direction.NEUTRAL),
+                        confidence=0.0,
+                        setup_quality_tags=[],
+                        rationale_text="Skipped: session incompatible",
+                    )
+                )
+                if trace_collector is not None:
+                    trace_collector(pattern_trace)
+                continue
+            if bool(getattr(pattern, "is_placeholder", False)):
+                pattern_trace.skipped = True
+                pattern_trace.skip_reason = "inactive_placeholder"
+                pattern_trace.final_outcome = "SKIPPED"
+                print(
+                    "[PATTERN_TRACE][SKIP] "
+                    f"symbol={inputs.symbol} pattern_id={pattern_id} reason=inactive_placeholder"
+                )
+                results.append(
+                    PatternResult(
+                        setup_id=pattern_id,
+                        pattern_name=pattern.name,
+                        pattern_family=pattern.family,
+                        detected=False,
+                        direction=getattr(pattern, "direction_bias", Direction.NEUTRAL),
+                        confidence=0.0,
+                        setup_quality_tags=[],
+                        rationale_text="Skipped: inactive placeholder",
+                    )
+                )
+                if trace_collector is not None:
+                    trace_collector(pattern_trace)
+                continue
             try:
                 result = pattern.evaluate(inputs)
                 pattern_trace.detected = bool(result.detected)
