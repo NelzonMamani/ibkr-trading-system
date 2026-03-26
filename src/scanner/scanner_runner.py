@@ -3714,13 +3714,13 @@ def run_scanner_cycle(
                 "[WATCHLIST][ORDER] "
                 f"symbols={ordered_symbols} ranking_basis=pct_change,rvol,dollar_volume"
             )
-        if watchlist_limit > 0 and len(ranked) <= watchlist_limit:
+        if selector is None and watchlist_limit > 0 and len(ranked) <= watchlist_limit:
             print(
                 "[WATCHLIST][PASS] "
                 f"survivor_count={len(ranked)} <= k={watchlist_limit}; all survivors expected unless explicitly rejected"
             )
             watchlist_contexts = ranked[:]
-        elif watchlist_limit > 0 and len(watchlist_contexts) < watchlist_limit:
+        elif selector is None and watchlist_limit > 0 and len(watchlist_contexts) < watchlist_limit:
             selected_symbols = {context["symbol"] for context in watchlist_contexts}
             for context in ranked:
                 symbol = context["symbol"]
@@ -3744,7 +3744,7 @@ def run_scanner_cycle(
             f"session={normalized_session} prep_mode_seed_enabled={prep_mode_seed_enabled} "
             f"prep_seed_enabled={can_seed_prep} prep_seed_blockers={prep_seed_blockers or ['none']}"
         )
-        if can_seed_prep and len(watchlist_contexts) < 10:
+        if selector is None and can_seed_prep and len(watchlist_contexts) < 10:
             selected_symbols = {context["symbol"] for context in watchlist_contexts}
             topn_gap_sorted = sorted(
                 [
