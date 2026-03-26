@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from src.config.config_resolver import get_config
+from src.config.config_resolver import ConfigResolutionError, get_config
 from src.config.runtime_config import RunMode
 from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import PatternResult, TradeIntent
@@ -87,12 +87,48 @@ class RossMomentumStrategyV1(BaseStrategy):
         self._rth_volume_min = float(get_config("RTH_MIN_VOLUME"))
         self._pre_rvol_min = 0.8
         self._rth_rvol_min = 1.5
+        self._pre_trigger_min_pct_change = self._cfg_float("ROSS_PRE_TRIGGER_MIN_PCT_CHANGE", 2.0)
+        self._pre_trigger_min_volume = self._cfg_float("ROSS_PRE_TRIGGER_MIN_VOLUME", max(self._pre_volume_min, 10_000.0))
+        self._pre_trigger_min_rvol = self._cfg_float("ROSS_PRE_TRIGGER_MIN_RVOL", 1.2)
+        self._rth_trigger_min_pct_change = self._cfg_float("ROSS_TRIGGER_MIN_PCT_CHANGE", 5.0)
+        self._rth_trigger_min_rvol = self._cfg_float("ROSS_TRIGGER_MIN_RVOL", 2.0)
+        self._pre_require_reclaim_or_level_pressure = self._cfg_bool(
+            "ROSS_PRE_TRIGGER_REQUIRE_RECLAIM_OR_LEVEL_PRESSURE",
+            True,
+        )
+
+    @staticmethod
+    def _cfg_float(key: str, default: float) -> float:
+        try:
+            value = get_config(key)
+        except ConfigResolutionError:
+            return float(default)
+        try:
+            return float(default if value is None else value)
+        except (TypeError, ValueError):
+            return float(default)
+
+    @staticmethod
+    def _cfg_bool(key: str, default: bool) -> bool:
+        try:
+            value = get_config(key)
+        except ConfigResolutionError:
+            return default
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
     def _session_thresholds(self, session_label: str | None) -> tuple[float, float]:
         session = str(session_label or "").upper()
         if session == "PRE":
             return self._pre_volume_min, self._pre_rvol_min
         return self._rth_volume_min, self._rth_rvol_min
+
+    @staticmethod
+    def _is_pre_session(session_label: str | None) -> bool:
+        return str(session_label or "").upper() == "PRE"
 
     @staticmethod
     def _is_rth_session(session_label: str | None) -> bool:
@@ -454,6 +490,9 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "symbol": symbol,
                 "has_indicators": input_summary.has_indicators,
                 "has_levels": input_summary.has_levels,
+                "levels_present": input_summary.levels_present,
+                "normalized_level_keys": sorted(list((getattr(inputs.levels, "key_levels", {}) or {}).keys())),
+                "prior_close_present": getattr(inputs.levels, "prior_close", None) is not None,
                 "pct_change": input_summary.pct_change,
                 "rvol": input_summary.rvol,
                 "float_millions": input_summary.float_millions,
@@ -530,6 +569,36 @@ class RossMomentumStrategyV1(BaseStrategy):
             )
 
             if not best_pattern:
+                pre_activation = self._detect_pre_breakout_pressure(
+                    symbol=symbol,
+                    inputs=inputs,
+                    input_summary=input_summary,
+                )
+                if pre_activation and pre_activation.get("status") == "READY":
+                    print(
+                        "[ROSS][PRE_ACTIVATION] "
+                        f"symbol={symbol} setup={pre_activation.get('setup_type')} classification={pre_activation.get('classification')}"
+                    )
+                    forced_intent = self._build_fallback_momentum_intent(
+                        symbol=symbol,
+                        input_summary=input_summary,
+                        setup_override=str(pre_activation.get("setup_type")),
+                    )
+                    if forced_intent is not None:
+                        translated_intents.append(
+                            self._apply_intent_contract_defaults(
+                                forced_intent, input_summary, timestamp_utc=timestamp_utc
+                            )
+                        )
+                        symbol_trace.final_outcome = "SETUP_PRE_ACTIVATION_TRIGGERED"
+                        symbol_trace.setup_stage = {"status": "PASS", "reason_code": "PRE_ACTIVATION_SETUP_TRIGGERED"}
+                        symbol_trace.trigger_stage = {"status": "FIRED", "reason_code": "PRE_TRIGGER_PASS"}
+                        symbol_trace.final_reason_code = "INTENT_GENERATED_FROM_PRE_ACTIVATION"
+                        print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
+                        classification_counts["READY_FOR_EXECUTION"] += 1
+                        symbol_traces.append(symbol_trace)
+                        self._failure_trace_collector.record_symbol(symbol_trace)
+                        continue
                 if self._is_strong_momentum(input_summary):
                     pct_change = self._safe_float(getattr(input_summary, "pct_change", None)) or 0.0
                     rvol = self._safe_float(getattr(input_summary, "rvol", None)) or 0.0
@@ -584,6 +653,14 @@ class RossMomentumStrategyV1(BaseStrategy):
                 symbol_trace.setup_stage = {"status": "FAIL", "reason_code": "NO_VALID_PATTERN"}
                 symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "NO_SETUP_AVAILABLE"}
                 symbol_trace.final_reason_code = "NO_VALID_PATTERN"
+                pre_classification = (
+                    pre_activation.get("classification")
+                    if isinstance(pre_activation, dict)
+                    else None
+                )
+                if pre_classification:
+                    symbol_trace.final_outcome = f"NO_SETUP:{pre_classification}"
+                    symbol_trace.final_reason_code = pre_classification.upper()
                 print(f"[ROSS][SETUP][FAIL] symbol={symbol} reason=no_valid_pattern")
                 print(f"[PATTERN_NO_SETUP] symbol={symbol} dominant_reason=no_valid_pattern")
                 print(f"[CLASSIFICATION] symbol={symbol} category=PATTERN_NO_SETUP")
@@ -591,8 +668,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._log_no_trade_root_cause(
                     symbol=symbol,
                     pattern=None,
-                    primary_reason="no_valid_pattern",
-                    details=["no_detected_tradeable_patterns_after_arbitration"],
+                    primary_reason=pre_classification or "no_valid_pattern",
+                    details=["no_detected_tradeable_patterns_after_arbitration"] if not pre_classification else [pre_classification],
                 )
                 self._log_decision_blocked(
                     symbol=symbol,
@@ -776,19 +853,37 @@ class RossMomentumStrategyV1(BaseStrategy):
             print("[ROSS][WARNING] NO TRADE INTENTS GENERATED")
         return translated_intents
 
-    def _build_fallback_momentum_intent(self, *, symbol: str, input_summary) -> TradeIntent | None:
-        print(f"[ROSS][SETUP] symbol={symbol} source=fallback_detector setup=MOMENTUM_BREAKOUT")
-        print(f"[ROSS][SETUP_FALLBACK] symbol={symbol} setups=1 types=['MOMENTUM_BREAKOUT']")
+    def _build_fallback_momentum_intent(
+        self,
+        *,
+        symbol: str,
+        input_summary,
+        setup_override: str | None = None,
+    ) -> TradeIntent | None:
+        setup_name = setup_override or "MOMENTUM_BREAKOUT"
+        print(f"[ROSS][SETUP] symbol={symbol} source=fallback_detector setup={setup_name}")
+        print(f"[ROSS][SETUP_FALLBACK] symbol={symbol} setups=1 types=['{setup_name}']")
         pct_change = self._safe_float(getattr(input_summary, "pct_change", None))
         rvol = self._safe_float(getattr(input_summary, "rvol", None))
+        volume = self._safe_float(getattr(input_summary, "volume", None))
+        session = str(getattr(input_summary, "session_context", "")).upper()
+        min_pct = self._pre_trigger_min_pct_change if self._is_pre_session(session) else self._rth_trigger_min_pct_change
+        min_rvol = self._pre_trigger_min_rvol if self._is_pre_session(session) else self._rth_trigger_min_rvol
+        volume_ready = volume is not None and volume >= self._pre_trigger_min_volume
+        momentum_ready = rvol is not None and rvol >= min_rvol
         print(f"[ROSS][TRIGGER_EVAL] symbol={symbol} setup=MOMENTUM_BREAKOUT")
-        if pct_change is None or rvol is None or pct_change <= 5.0 or rvol <= 2.0:
+        if self._is_pre_session(session):
+            print(
+                "[ROSS][PRE_TRIGGER] "
+                f"symbol={symbol} pct_change={pct_change} rvol={rvol} volume={volume} min_pct={min_pct} min_rvol={min_rvol} min_volume={self._pre_trigger_min_volume}"
+            )
+        if pct_change is None or pct_change < min_pct or not (momentum_ready or (self._is_pre_session(session) and volume_ready)):
             print(
                 "[ROSS][TRIGGER][FAIL] "
-                f"symbol={symbol} reason=pct_or_rvol_below_threshold pct_change={pct_change} rvol={rvol}"
+                f"symbol={symbol} reason=pct_or_rvol_below_threshold pct_change={pct_change} rvol={rvol} session={session}"
             )
             return None
-        print(f"[ROSS][TRIGGER][PASS] symbol={symbol} setup=MOMENTUM_BREAKOUT")
+        print(f"[ROSS][TRIGGER][PASS] symbol={symbol} setup={setup_name}")
         entry = self._safe_float(getattr(input_summary, "last_price", None))
         if entry is None:
             print(f"[ROSS][TRIGGER][ARMED] symbol={symbol} awaiting=last_price")
@@ -800,12 +895,12 @@ class RossMomentumStrategyV1(BaseStrategy):
             strategy_name=self.name,
             confidence=0.61,
             rationale=(
-                f"fallback_setup=MOMENTUM_BREAKOUT|pct_change={pct_change:.2f}|rvol={rvol:.2f}|entry={entry:.4f}"
+                f"fallback_setup={setup_name}|pct_change={pct_change:.2f}|rvol={(rvol or 0.0):.2f}|entry={entry:.4f}"
             ),
             trader_type=self.trader_type,
             stop_loss_price=stop,
             invalidation_level=stop,
-            pattern_name="XL_HOD_BREAK",
+            pattern_name="XL_PRE_EARLY_MOMENTUM" if setup_name.startswith("PRE_") else "XL_HOD_BREAK",
         )
         intent.entry_price = entry
         intent.has_valid_pattern = True
@@ -1070,6 +1165,70 @@ class RossMomentumStrategyV1(BaseStrategy):
             "[ROSS][NO_TRADE_ROOT_CAUSE] "
             f"symbol={symbol} pattern={pattern} primary_reason={primary_reason} details={details}"
         )
+
+    def _detect_pre_breakout_pressure(self, *, symbol: str, inputs, input_summary) -> dict[str, object] | None:
+        if not self._is_pre_session(getattr(input_summary, "session_context", None)):
+            return None
+        last_price = self._safe_float(getattr(input_summary, "last_price", None))
+        pct_change = self._safe_float(getattr(input_summary, "pct_change", None))
+        rvol = self._safe_float(getattr(input_summary, "rvol", None))
+        volume = self._safe_float(getattr(input_summary, "volume", None))
+        spread = self._safe_float(getattr(input_summary, "spread", None))
+        levels = getattr(inputs, "levels", None)
+        indicators = getattr(inputs, "indicators", None)
+        candles = list(getattr(inputs, "candles", []) or [])
+        premarket_high = self._safe_float(getattr(levels, "premarket_high", None))
+        hod = self._safe_float(getattr(levels, "hod", None))
+        ema9 = self._safe_float(getattr(indicators, "ema9", None))
+        vwap = self._safe_float(getattr(indicators, "vwap", None))
+
+        if last_price is None or pct_change is None or pct_change < self._pre_trigger_min_pct_change:
+            return None
+        strong_volume = (rvol is not None and rvol >= self._pre_trigger_min_rvol) or (
+            volume is not None and volume >= self._pre_trigger_min_volume
+        )
+        if not strong_volume:
+            return None
+        if spread is not None and spread > 0.15:
+            return None
+        levels_ready = bool(premarket_high is not None or hod is not None)
+        if not levels_ready:
+            return None
+
+        pressure_level = premarket_high if premarket_high is not None else hod
+        near_high = bool(pressure_level is not None and last_price >= pressure_level * 0.997)
+        ema_reclaim = bool(ema9 is not None and last_price >= ema9)
+        vwap_reclaim = bool(vwap is not None and last_price >= vwap)
+        tight_consolidation = False
+        if len(candles) >= 4:
+            window = candles[-4:]
+            highs = [self._safe_float(getattr(c, "high", None)) for c in window]
+            lows = [self._safe_float(getattr(c, "low", None)) for c in window]
+            valid_highs = [v for v in highs if v is not None]
+            valid_lows = [v for v in lows if v is not None]
+            if valid_highs and valid_lows and min(valid_lows) > 0:
+                tight_consolidation = ((max(valid_highs) - min(valid_lows)) / min(valid_lows)) <= 0.015
+
+        pressure_confirmed = near_high or ema_reclaim or vwap_reclaim or tight_consolidation
+        print(
+            "[ROSS][PRE_BREAKOUT_PRESSURE] "
+            f"symbol={symbol} near_high={near_high} ema_reclaim={ema_reclaim} vwap_reclaim={vwap_reclaim} "
+            f"tight_consolidation={tight_consolidation} strong_volume={strong_volume}"
+        )
+        if ema_reclaim or vwap_reclaim:
+            print(f"[ROSS][PRE_RECLAIM] symbol={symbol} ema_reclaim={ema_reclaim} vwap_reclaim={vwap_reclaim}")
+        if self._pre_require_reclaim_or_level_pressure and not pressure_confirmed:
+            return {
+                "status": "BUILDING",
+                "classification": "pre_breakout_not_ready",
+            }
+        return {
+            "status": "READY",
+            "setup_type": "PRE_EARLY_MOMENTUM",
+            "pattern_id": "P_PRE_EARLY_MOMENTUM",
+            "confidence": 0.63,
+            "classification": "pre_early_momentum_ready",
+        }
 
     def evaluate_exit_signals(self, active_trades: List, current_tick: int) -> List[ExitSignal]:
         return []
