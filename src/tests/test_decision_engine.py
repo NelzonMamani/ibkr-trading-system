@@ -38,18 +38,20 @@ def _result(
     *,
     confidence: float,
     detected: bool = True,
+    direction: Direction = Direction.LONG,
     setup_family_id: str | None = None,
     trigger_level: float | None = 10.5,
     invalidation_level: float | None = 10.0,
     non_entry_signal: bool = False,
     tags: list[str] | None = None,
+    session_valid: bool = True,
 ) -> PatternResult:
     return PatternResult(
         setup_id=pattern_id,
         pattern_name=pattern_id,
         pattern_family=PatternFamily.BREAKOUT,
         detected=detected,
-        direction=Direction.LONG,
+        direction=direction,
         confidence=confidence,
         setup_quality_tags=["test"],
         setup_family_id=setup_family_id,
@@ -57,6 +59,7 @@ def _result(
         invalidation_level=invalidation_level,
         non_entry_signal=non_entry_signal,
         tags=tags or [],
+        session_valid=session_valid,
     )
 
 
@@ -137,9 +140,57 @@ def test_decision_engine_produces_rejected_candidate_explanations() -> None:
         session_context="RTH",
     )
 
-    assert decision["decision_state"] in {"CANDIDATE_SELECTED", "CANDIDATE_REJECTED_CONFLICT"}
+    assert decision["decision_state"] == "CANDIDATE_SELECTED"
+    assert decision["decision_reason"] == "selected_best_compatible_candidate"
     assert decision["rejected_candidates"]
     assert all("reason" in item for item in decision["rejected_candidates"])
+    assert {
+        item["reason"] for item in decision["rejected_candidates"]
+    } <= {"dropped_lower_priority_compatible_candidate", "rejected_true_conflict_incompatible_execution_semantics"}
+
+
+def test_decision_engine_rejects_true_conflict_opposing_direction() -> None:
+    decision = DecisionEngine().compute_decision(
+        symbol="TEST",
+        levels={},
+        structure={"trend": "UP"},
+        setups=[{"setup_family": "ORB"}],
+        pattern_results=[
+            _result("P_ORB", confidence=0.8, direction=Direction.LONG),
+            _result("P_FAILED_ORB_FAKEOUT", confidence=0.7, direction=Direction.SHORT),
+        ],
+        session_context="RTH",
+    )
+
+    assert decision["decision_state"] == "CANDIDATE_REJECTED_CONFLICT"
+    assert decision["selected_pattern_id"] is None
+    assert decision["decision_reason"] == "rejected_true_conflict_opposing_direction"
+    assert all(
+        item["reason"] == "rejected_true_conflict_opposing_direction"
+        for item in decision["rejected_candidates"]
+    )
+
+
+def test_decision_engine_prefers_registry_candidate_over_fallback_candidate() -> None:
+    decision = DecisionEngine().compute_decision(
+        symbol="TEST",
+        levels={},
+        structure={"trend": "UP"},
+        setups=[{"setup_family": "HOD_BREAK"}],
+        pattern_results=[
+            _result("FALLBACK_HOD_BREAK", confidence=0.95, setup_family_id="HOD_BREAK"),
+            _result("P_HOD_BREAK", confidence=0.78, setup_family_id="HOD_BREAK"),
+        ],
+        session_context="RTH",
+    )
+
+    assert decision["decision_state"] == "CANDIDATE_SELECTED"
+    assert decision["selected_pattern_id"] == "P_HOD_BREAK"
+    assert any(
+        item["pattern_id"] == "FALLBACK_HOD_BREAK"
+        and item["reason"] == "dropped_lower_priority_compatible_candidate"
+        for item in decision["rejected_candidates"]
+    )
 
 
 def test_ross_process_watchlist_uses_decision_engine_selection(monkeypatch, tmp_path) -> None:
@@ -233,3 +284,84 @@ def test_ross_process_watchlist_uses_decision_engine_selection(monkeypatch, tmp_
     assert intents
     assert intents[0].pattern_name == "P_PREMKT_BREAK"
     assert intents[0].trigger_id == "confirmation_gate"
+
+
+def test_ross_process_watchlist_compatible_candidates_emit_trade_ready(monkeypatch, tmp_path, capsys) -> None:
+    bars = [
+        Candle(open=10.0, high=10.2, low=9.95, close=10.15, volume=2000),
+        Candle(open=10.15, high=10.35, low=10.1, close=10.3, volume=2200),
+        Candle(open=10.3, high=10.55, low=10.25, close=10.5, volume=2500),
+        Candle(open=10.5, high=10.8, low=10.45, close=10.72, volume=2800),
+        Candle(open=10.72, high=11.0, low=10.7, close=10.95, volume=3200),
+    ]
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        lambda **kwargs: bars,
+    )
+
+    strategy = RossMomentumStrategyV1()
+    strategy._failure_trace_collector = RossPatternFailureTraceCollector(evidence_root=tmp_path)
+    strategy._data_contract_block_reasons = lambda **kwargs: []
+    strategy._pattern_registry = _FakeRegistry(
+        traces=[
+            RossPatternTrace(
+                symbol="TEST",
+                cycle_id="decision-cycle",
+                strategy_key="ross_momentum",
+                session_label="PRE",
+                session_phase="PRE",
+                runtime_mode="LIVE",
+                symbol_source="manual_focus",
+                pattern_id="P_PREMKT_BREAK",
+                pattern_name="Premarket High Break",
+                setup_family_id="PREMARKET_HIGH_BREAK",
+                invoked=True,
+                detected=True,
+            ),
+            RossPatternTrace(
+                symbol="TEST",
+                cycle_id="decision-cycle",
+                strategy_key="ross_momentum",
+                session_label="PRE",
+                session_phase="PRE",
+                runtime_mode="LIVE",
+                symbol_source="manual_focus",
+                pattern_id="P_HOD_BREAK",
+                pattern_name="HOD Break",
+                setup_family_id="HOD_BREAK",
+                invoked=True,
+                detected=True,
+            ),
+        ],
+        results=[
+            _result("P_PREMKT_BREAK", confidence=0.68, setup_family_id="PREMARKET_HIGH_BREAK"),
+            _result("P_HOD_BREAK", confidence=0.65, setup_family_id="HOD_BREAK"),
+        ],
+    )
+
+    intents = strategy.process_watchlist(
+        watchlist=[{
+            "symbol": "TEST",
+            "promotion_reason": "manual_focus",
+            "session_label": "PRE",
+            "last_price": 11.1,
+            "bid": 11.09,
+            "ask": 11.11,
+            "volume": 600_000,
+            "rvol": 3.0,
+            "float_millions": 20.0,
+            "premarket_high": 10.95,
+            "prior_close": 10.0,
+        }],
+        snapshots={"TEST": MarketSnapshot(symbol="TEST", bid=11.09, ask=11.11, last=11.1, volume=600_000, asof_utc=datetime.now(timezone.utc))},
+        session_label="PRE",
+        timestamp_utc="decision-cycle",
+        mode=RunMode.LIVE,
+        session_phase="PRE",
+    )
+
+    assert intents
+    assert intents[0].decision == "TRADE_READY"
+    out = capsys.readouterr().out
+    assert "state=CANDIDATE_SELECTED" in out
+    assert "decision_not_candidate_selected" not in out
