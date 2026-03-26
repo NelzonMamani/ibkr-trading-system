@@ -12,31 +12,34 @@ def _clear_overrides_after_test():
     set_config_overrides(None)
 
 
-def test_nonlive_sim_mode_uses_deterministic_rth_session() -> None:
+def test_nonlive_sim_mode_uses_clock_session_logic() -> None:
     set_config_overrides({"RUN_MODE": "SIM", "RUN_MODE_EFFECTIVE": "SIM"})
 
     session = resolve_market_session_context(datetime(2024, 1, 6, 17, 0, tzinfo=timezone.utc))
 
-    assert session.coarse == "RTH"
-    assert session.phase == "RTH"
+    assert session.coarse == "WEEKEND"
+    assert session.phase == "WEEKEND"
+    assert session.source == "TIME"
 
 
-def test_nonlive_paper_mode_uses_deterministic_rth_session() -> None:
+def test_nonlive_paper_mode_uses_clock_session_logic() -> None:
     set_config_overrides({"RUN_MODE": "PAPER", "RUN_MODE_EFFECTIVE": "PAPER"})
 
     session = resolve_market_session_context(datetime(2024, 1, 1, 7, 0, tzinfo=timezone.utc))
 
-    assert session.coarse == "RTH"
-    assert session.phase == "RTH"
+    assert session.coarse == "OVN"
+    assert session.phase == "OVN"
+    assert session.source == "TIME"
 
 
-def test_nonlive_read_only_mode_uses_deterministic_rth_session() -> None:
+def test_nonlive_read_only_mode_uses_clock_session_logic() -> None:
     set_config_overrides({"RUN_MODE": "READ_ONLY", "RUN_MODE_EFFECTIVE": "READ_ONLY"})
 
     session = resolve_market_session_context(datetime(2024, 1, 1, 7, 0, tzinfo=timezone.utc))
 
-    assert session.coarse == "RTH"
-    assert session.phase == "RTH"
+    assert session.coarse == "OVN"
+    assert session.phase == "OVN"
+    assert session.source == "TIME"
 
 
 def test_live_mode_still_uses_real_market_session_logic() -> None:
@@ -46,3 +49,4 @@ def test_live_mode_still_uses_real_market_session_logic() -> None:
 
     assert session.coarse == "WEEKEND"
     assert session.phase == "WEEKEND"
+    assert session.source == "TIME"

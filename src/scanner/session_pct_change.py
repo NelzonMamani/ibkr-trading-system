@@ -83,6 +83,7 @@ class PhaseAwareRelativeVolume:
 class MarketSessionContext:
     coarse: str
     phase: str
+    source: str
     market_time: str
 
 
@@ -143,7 +144,12 @@ def resolve_market_session_label(now: Optional[datetime] = None) -> str:
     return resolve_market_session_context(now).phase
 
 
-def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSessionContext:
+def resolve_market_session_context(
+    now: Optional[datetime] = None,
+    *,
+    override_phase: Optional[str] = None,
+    override_source: Optional[str] = None,
+) -> MarketSessionContext:
     now_utc = now or datetime.now(timezone.utc)
     if now_utc.tzinfo is None:
         now_utc = now_utc.replace(tzinfo=timezone.utc)
@@ -152,36 +158,50 @@ def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSess
     ny_time = now_utc.astimezone(_NY_TZ)
     market_time = ny_time.isoformat()
     run_mode = str(get_config("RUN_MODE_EFFECTIVE") or get_config("RUN_MODE") or "LIVE").upper()
-    if run_mode in {"SIM", "PAPER", "READ_ONLY"}:
-        print(
-            f"[SESSION][NONLIVE_FALLBACK] run_mode={run_mode} "
-            "coarse=RTH phase=RTH source=DETERMINISTIC_MODE_POLICY"
-        )
-        context = MarketSessionContext(coarse="RTH", phase="RTH", market_time=market_time)
+
+    normalized_override = normalize_session_label(override_phase or "")
+    if normalized_override and normalized_override != "CLOSED":
+        source = "CONTEXT_OVERRIDE"
+        if normalized_override in {"RTH_OPEN", "RTH_MID", "RTH_LATE", "RTH"}:
+            context = MarketSessionContext(
+                coarse="RTH",
+                phase=normalized_override if normalized_override != "RTH" else "RTH_OPEN",
+                source=source,
+                market_time=market_time,
+            )
+        else:
+            context = MarketSessionContext(
+                coarse=normalized_override,
+                phase=normalized_override,
+                source=source,
+                market_time=market_time,
+            )
     elif ny_time.weekday() >= 5:
-        context = MarketSessionContext(coarse="WEEKEND", phase="WEEKEND", market_time=market_time)
+        context = MarketSessionContext(coarse="WEEKEND", phase="WEEKEND", source="TIME", market_time=market_time)
     else:
         holidays = set(get_config("MARKET_HOLIDAYS"))
         half_days = set(get_config("MARKET_HALF_DAYS"))
         if ny_time.date() in holidays:
-            context = MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
+            context = MarketSessionContext(coarse="CLOSED", phase="CLOSED", source="TIME", market_time=market_time)
         elif ny_time.date() in half_days and ny_time.time() >= get_config("MARKET_EARLY_CLOSE_TIME"):
-            context = MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
+            context = MarketSessionContext(coarse="CLOSED", phase="CLOSED", source="TIME", market_time=market_time)
         else:
             ny_clock = ny_time.time()
             if time(4, 0) <= ny_clock < time(9, 30):
-                context = MarketSessionContext(coarse="PRE", phase="PRE", market_time=market_time)
+                context = MarketSessionContext(coarse="PRE", phase="PRE", source="TIME", market_time=market_time)
             elif time(9, 30) <= ny_clock < time(16, 0):
                 if ny_clock < time(10, 30):
-                    context = MarketSessionContext(coarse="RTH_OPEN", phase="RTH_OPEN", market_time=market_time)
+                    context = MarketSessionContext(coarse="RTH", phase="RTH_OPEN", source="TIME", market_time=market_time)
                 elif ny_clock < time(14, 30):
-                    context = MarketSessionContext(coarse="RTH_MID", phase="RTH_MID", market_time=market_time)
+                    context = MarketSessionContext(coarse="RTH", phase="RTH_MID", source="TIME", market_time=market_time)
                 else:
-                    context = MarketSessionContext(coarse="RTH_LATE", phase="RTH_LATE", market_time=market_time)
+                    context = MarketSessionContext(coarse="RTH", phase="RTH_LATE", source="TIME", market_time=market_time)
             elif time(16, 0) <= ny_clock < time(20, 0):
-                context = MarketSessionContext(coarse="AH", phase="AH", market_time=market_time)
+                context = MarketSessionContext(coarse="AH", phase="AH", source="TIME", market_time=market_time)
+            elif time(20, 0) <= ny_clock or ny_clock < time(4, 0):
+                context = MarketSessionContext(coarse="OVN", phase="OVN", source="TIME", market_time=market_time)
             else:
-                context = MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
+                context = MarketSessionContext(coarse="CLOSED", phase="CLOSED", source="TIME", market_time=market_time)
 
     print(
         "[SESSION][TIME] "
@@ -189,7 +209,8 @@ def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSess
         f"ny={ny_time.isoformat()} "
         f"run_mode={run_mode} "
         f"phase={context.phase} "
-        f"coarse={context.coarse}"
+        f"coarse={context.coarse} "
+        f"source={override_source or context.source}"
     )
     return context
 

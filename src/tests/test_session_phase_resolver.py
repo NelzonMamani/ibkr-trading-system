@@ -8,7 +8,7 @@ def test_resolve_market_session_phase_rth_open_mid_late() -> None:
     mid_ctx = resolve_market_session_context(datetime(2025, 1, 6, 16, 30, tzinfo=timezone.utc))
     late_ctx = resolve_market_session_context(datetime(2025, 1, 6, 20, 0, tzinfo=timezone.utc))
 
-    assert open_ctx.coarse == "RTH_OPEN"
+    assert open_ctx.coarse == "RTH"
     assert open_ctx.phase == "RTH_OPEN"
     assert mid_ctx.phase == "RTH_MID"
     assert late_ctx.phase == "RTH_LATE"
