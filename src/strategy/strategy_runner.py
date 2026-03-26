@@ -266,6 +266,7 @@ class StrategyRunner:
         timestamp_utc: str,
         mode,
         session_phase: str,
+        session_contract: Optional[dict] = None,
         execution_allowed: bool | None = None,
         execution_ready: bool | None = None,
         prep_only: bool | None = None,
@@ -347,6 +348,7 @@ class StrategyRunner:
                         "timestamp_utc": timestamp_utc,
                         "mode": mode,
                         "session_phase": session_phase,
+                        "session_contract": session_contract or {},
                     }
                 )
                 trade_intents = list(result.get("trade_intents", []))

@@ -1,0 +1,65 @@
+[CONFIG] Loaded 187 variables
+[CONFIG] HARD enforced: 30
+[CONFIG] Optional: 156
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+[VERIFY] provider=live readonly=True mode=LIVE host=127.0.0.1 port=7496 client_id=7
+[IBKR][READONLY_OVERRIDE] readonly=False (execution_enabled=True, run_mode=LIVE)
+[IBKR][CONFIG] mode=LIVE port=7496 host=127.0.0.1 client_id=7
+[IBKR][MANAGER] init mode=LIVE host=127.0.0.1 port=7496 base_client_id=7 readonly=False market_data_type=DELAYED snapshot_timeout_seconds=5
+[IBKR][CONFIG] mode=LIVE port=7496 host=127.0.0.1 client_id=7
+[IBKR][MANAGER] init mode=LIVE host=127.0.0.1 port=7496 base_client_id=7 readonly=True market_data_type=DELAYED snapshot_timeout_seconds=5
+[IBKR][MANAGER] connect_attempt client_id=7
+[IBKR][CLIENT] connect host=127.0.0.1 port=7496 client_id=7 timeout=5 market_data_type=DELAYED readonly=True
+[ORDER][ERROR] order_id=-1 code=502 message=Couldn't connect to TWS. Confirm that "Enable ActiveX and Socket EClients" 
+is enabled and connection port is the same as "Socket Port" on the 
+TWS "Edit->Global Configuration...->API->Settings" menu. Live Trading ports: 
+TWS: 7496; IB Gateway: 4001. Simulated Trading ports for new installations 
+of version 954.1 or newer:  TWS: 7497; IB Gateway: 4002
+[IBKR] Error reqId=-1 code=502 msg=Couldn't connect to TWS. Confirm that "Enable ActiveX and Socket EClients" 
+is enabled and connection port is the same as "Socket Port" on the 
+TWS "Edit->Global Configuration...->API->Settings" menu. Live Trading ports: 
+TWS: 7496; IB Gateway: 4001. Simulated Trading ports for new installations 
+of version 954.1 or newer:  TWS: 7497; IB Gateway: 4002
+[IBKR] Disconnecting client_id=7
+[IBKR] Connection closed by broker.
+[IBKR][DISCONNECTED] client disconnected
+[IBKR] Disconnecting client_id=7
+[IBKR] Network loop error: cannot join current thread
+[IBKR] Disconnecting client_id=7
+[IBKR][DISCONNECTED] client disconnected
+[IBKR][MANAGER] connect_failed client_id=7 reason=IBKR connection timeout waiting for handshake
+STATE=DEGRADED
+Traceback (most recent call last):
+  File "/workspace/ibkr-trading-system/src/adapters/brokers/ibkr/ibkr_connection_manager.py", line 102, in _connect_locked
+    client.connect()
+  File "/workspace/ibkr-trading-system/src/adapters/brokers/ibkr/ibkr_client.py", line 113, in connect
+    raise RuntimeError("IBKR connection timeout waiting for handshake")
+RuntimeError: IBKR connection timeout waiting for handshake
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/workspace/ibkr-trading-system/src/scanner/providers/ibkr_provider.py", line 146, in connect
+    self.market_data_client.connect()
+  File "/workspace/ibkr-trading-system/src/ibkr/market_data_client.py", line 192, in connect
+    self.ib = self.connection_manager.get_client()
+  File "/workspace/ibkr-trading-system/src/adapters/brokers/ibkr/ibkr_connection_manager.py", line 67, in get_client
+    return self.ensure_connected()
+  File "/workspace/ibkr-trading-system/src/adapters/brokers/ibkr/ibkr_connection_manager.py", line 78, in ensure_connected
+    return self._connect_locked()
+  File "/workspace/ibkr-trading-system/src/adapters/brokers/ibkr/ibkr_connection_manager.py", line 115, in _connect_locked
+    raise RuntimeError(
+RuntimeError: IBKR CONNECTION FAILED — SYSTEM NOT SAFE TO RUN
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/workspace/ibkr-trading-system/verification_scripts/verify_live_scanner_reference_pipeline.py", line 343, in <module>
+    main()
+  File "/workspace/ibkr-trading-system/verification_scripts/verify_live_scanner_reference_pipeline.py", line 332, in main
+    provider.connect()
+  File "/workspace/ibkr-trading-system/src/scanner/providers/ibkr_provider.py", line 149, in connect
+    raise ProviderConnectionError(str(exc)) from exc
+src.scanner.providers.base.ProviderConnectionError: IBKR CONNECTION FAILED — SYSTEM NOT SAFE TO RUN

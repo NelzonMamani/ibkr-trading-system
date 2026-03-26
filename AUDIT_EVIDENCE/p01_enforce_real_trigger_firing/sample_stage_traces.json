@@ -1,0 +1,65 @@
+[
+  {
+    "symbol": "TRACE1",
+    "context_stage": {
+      "status": "PASS",
+      "reason_code": "CONTEXT_READY",
+      "details": {
+        "pct_change": 5.1,
+        "rvol": 2.6,
+        "float_millions": 12.0,
+        "session": "PRE"
+      }
+    },
+    "setup_stage": {
+      "status": "PASS",
+      "reason_code": "SETUP_DETECTED",
+      "details": {
+        "source": "fallback_detector",
+        "detected": [
+          "P_HOD_BREAK"
+        ]
+      }
+    },
+    "trigger_stage": {
+      "status": "FIRED",
+      "reason_code": "TRIGGER_PASS",
+      "details": {
+        "pattern": "P_HOD_BREAK",
+        "entry_price": 10.7
+      }
+    },
+    "final_outcome": "INTENT_GENERATED",
+    "final_reason_code": "INTENT_GENERATED"
+  },
+  {
+    "symbol": "TRACE2",
+    "context_stage": {
+      "status": "PASS",
+      "reason_code": "CONTEXT_READY",
+      "details": {
+        "pct_change": -0.5,
+        "rvol": 0.2,
+        "float_millions": 12.0,
+        "session": "PRE"
+      }
+    },
+    "setup_stage": {
+      "status": "FAIL",
+      "reason_code": "SETUP_BLOCKED_BY_DATA_CONTRACT",
+      "details": {
+        "reasons": [
+          "VOLUME_BELOW_THRESHOLD(2000.0)",
+          "RVOL_WEAK",
+          "PCT_CHANGE_BELOW_THRESHOLD(4.0)"
+        ]
+      }
+    },
+    "trigger_stage": {
+      "status": "REJECTED",
+      "reason_code": "NO_SETUP_AVAILABLE"
+    },
+    "final_outcome": "CONTEXT_REJECTED",
+    "final_reason_code": "DATA_CONTRACT_BLOCKED"
+  }
+]

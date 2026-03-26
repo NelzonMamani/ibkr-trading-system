@@ -1,0 +1,351 @@
+{
+  "timestamp": "2026-03-26T07:15:25.775995+00:00",
+  "run_mode": "SIM",
+  "session_label": "PRE",
+  "session_phase": "PRE",
+  "cycle_summaries": [
+    {
+      "cycle_id": "audit-cycle",
+      "strategy_key": "ross_momentum",
+      "session_label": "PRE",
+      "session_phase": "PRE",
+      "runtime_mode": "SIM",
+      "evaluated_count": 2,
+      "real_setup_trigger_count": 1,
+      "synthetic_forced_intents": 0,
+      "pattern_invocations_total": 1,
+      "patterns_detected_total": 1,
+      "dominant_skip_reasons": {},
+      "dominant_rejection_reasons": {},
+      "symbols_with_missing_inputs": [
+        "TRACE2"
+      ],
+      "symbols_with_detected_but_discarded": [],
+      "symbols_with_zero_pattern_invocations": [
+        "TRACE2"
+      ],
+      "symbols_failing_before_registry": [
+        "TRACE2"
+      ],
+      "symbols_failing_after_registry": []
+    }
+  ],
+  "symbol_evaluations": [
+    {
+      "symbol": "TRACE1",
+      "cycle_id": "audit-cycle",
+      "strategy_key": "ross_momentum",
+      "session_label": "PRE",
+      "session_phase": "PRE",
+      "runtime_mode": "SIM",
+      "symbol_source": "watchlist",
+      "manual_focus": false,
+      "bypassed_watchlist": false,
+      "registry_path": "RossPatternRegistry",
+      "registry_matches_audit": true,
+      "input_summary": {
+        "candle_count": 4,
+        "last_price": 10.4,
+        "bid": 10.39,
+        "ask": 10.41,
+        "spread": 0.02,
+        "volume": 250000.0,
+        "pct_change": 5.1,
+        "rvol": 2.6,
+        "float_millions": 12.0,
+        "has_levels": true,
+        "levels_present": [
+          "premarket_high",
+          "premarket_low",
+          "hod",
+          "lod",
+          "prior_close"
+        ],
+        "has_indicators": true,
+        "indicators_present": [
+          "EMA9",
+          "EMA20",
+          "VWAP"
+        ],
+        "session_context": "PRE",
+        "timeframe": "1m",
+        "quality_flags": [
+          "insufficient_candles"
+        ],
+        "missing_fields": [],
+        "setup_stage": {
+          "details": {
+            "source": "fallback_detector"
+          }
+        }
+      },
+      "context_stage": {
+        "status": "PASS",
+        "reason_code": "CONTEXT_READY",
+        "details": {
+          "pct_change": 5.1,
+          "rvol": 2.6,
+          "float_millions": 12.0,
+          "session": "PRE"
+        }
+      },
+      "structure_stage": {
+        "status": "COMPRESSED",
+        "reason_code": "STRUCTURE_COMPRESSED_IN_MAKE_IT_TRADE_LAYER"
+      },
+      "setup_stage": {
+        "status": "PASS",
+        "reason_code": "SETUP_DETECTED",
+        "details": {
+          "source": "fallback_detector",
+          "detected": [
+            "P_HOD_BREAK"
+          ]
+        }
+      },
+      "confirmation_stage": {
+        "status": "PASS",
+        "reason_code": "CONFIRMATION_PASS",
+        "details": {
+          "pattern": "P_HOD_BREAK",
+          "warnings": []
+        }
+      },
+      "trigger_stage": {
+        "status": "FIRED",
+        "reason_code": "TRIGGER_PASS",
+        "details": {
+          "pattern": "P_HOD_BREAK",
+          "entry_price": 10.7
+        }
+      },
+      "pre_registry_failure_reason": null,
+      "pattern_traces": [
+        {
+          "symbol": "TRACE1",
+          "cycle_id": "audit-cycle",
+          "strategy_key": "ross_momentum",
+          "session_label": "PRE",
+          "session_phase": "PRE",
+          "runtime_mode": "SIM",
+          "symbol_source": "watchlist",
+          "pattern_id": "P_HOD_BREAK",
+          "pattern_name": "HOD_BREAK",
+          "setup_family_id": "P_HOD_BREAK",
+          "invoked": true,
+          "skipped": false,
+          "skip_reason": null,
+          "detected": true,
+          "rejection_reason": null,
+          "input_summary": {
+            "candle_count": 4,
+            "last_price": 10.4,
+            "bid": 10.39,
+            "ask": 10.41,
+            "spread": 0.02,
+            "volume": 250000.0,
+            "pct_change": 5.1,
+            "rvol": 2.6,
+            "float_millions": 12.0,
+            "has_levels": true,
+            "levels_present": [
+              "premarket_high",
+              "premarket_low",
+              "hod",
+              "lod",
+              "prior_close"
+            ],
+            "has_indicators": true,
+            "indicators_present": [
+              "EMA9",
+              "EMA20",
+              "VWAP"
+            ],
+            "session_context": "PRE",
+            "timeframe": "1m",
+            "quality_flags": [
+              "insufficient_candles"
+            ],
+            "missing_fields": []
+          },
+          "input_quality_flags": [],
+          "post_detect_disposition": "translated_to_trade_intent",
+          "final_outcome": "DETECTED_AND_EXECUTED",
+          "exception": null
+        }
+      ],
+      "detected_pattern_ids": [
+        "P_HOD_BREAK"
+      ],
+      "dropped_detected_pattern_ids": [],
+      "final_outcome": "INTENT_GENERATED",
+      "final_reason_code": "INTENT_GENERATED",
+      "synthetic_forced_intent": false
+    },
+    {
+      "symbol": "TRACE2",
+      "cycle_id": "audit-cycle",
+      "strategy_key": "ross_momentum",
+      "session_label": "PRE",
+      "session_phase": "PRE",
+      "runtime_mode": "SIM",
+      "symbol_source": "watchlist",
+      "manual_focus": false,
+      "bypassed_watchlist": false,
+      "registry_path": "RossPatternRegistry",
+      "registry_matches_audit": true,
+      "input_summary": {
+        "candle_count": 4,
+        "last_price": 10.4,
+        "bid": 10.39,
+        "ask": 10.41,
+        "spread": 0.02,
+        "volume": 500.0,
+        "pct_change": -0.5,
+        "rvol": 0.2,
+        "float_millions": 12.0,
+        "has_levels": true,
+        "levels_present": [
+          "premarket_high",
+          "premarket_low",
+          "hod",
+          "lod",
+          "prior_close"
+        ],
+        "has_indicators": true,
+        "indicators_present": [
+          "EMA9",
+          "EMA20",
+          "VWAP"
+        ],
+        "session_context": "PRE",
+        "timeframe": "1m",
+        "quality_flags": [
+          "LOW_VOLUME",
+          "RVOL_WEAK",
+          "insufficient_candles"
+        ],
+        "missing_fields": []
+      },
+      "context_stage": {
+        "status": "PASS",
+        "reason_code": "CONTEXT_READY",
+        "details": {
+          "pct_change": -0.5,
+          "rvol": 0.2,
+          "float_millions": 12.0,
+          "session": "PRE"
+        }
+      },
+      "structure_stage": {
+        "status": "COMPRESSED",
+        "reason_code": "STRUCTURE_COMPRESSED_IN_MAKE_IT_TRADE_LAYER"
+      },
+      "setup_stage": {
+        "status": "FAIL",
+        "reason_code": "SETUP_BLOCKED_BY_DATA_CONTRACT",
+        "details": {
+          "reasons": [
+            "VOLUME_BELOW_THRESHOLD(2000.0)",
+            "RVOL_WEAK",
+            "PCT_CHANGE_BELOW_THRESHOLD(4.0)"
+          ]
+        }
+      },
+      "confirmation_stage": {
+        "status": "COMPRESSED",
+        "reason_code": "CONFIRMATION_COMPRESSED_IN_MAKE_IT_TRADE_LAYER"
+      },
+      "trigger_stage": {
+        "status": "REJECTED",
+        "reason_code": "NO_SETUP_AVAILABLE"
+      },
+      "pre_registry_failure_reason": "data_contract_blocked:VOLUME_BELOW_THRESHOLD(2000.0),RVOL_WEAK,PCT_CHANGE_BELOW_THRESHOLD(4.0)",
+      "pattern_traces": [],
+      "detected_pattern_ids": [],
+      "dropped_detected_pattern_ids": [],
+      "final_outcome": "CONTEXT_REJECTED",
+      "final_reason_code": "DATA_CONTRACT_BLOCKED",
+      "synthetic_forced_intent": false
+    }
+  ],
+  "pattern_traces": [
+    {
+      "symbol": "TRACE1",
+      "cycle_id": "audit-cycle",
+      "strategy_key": "ross_momentum",
+      "session_label": "PRE",
+      "session_phase": "PRE",
+      "runtime_mode": "SIM",
+      "symbol_source": "watchlist",
+      "pattern_id": "P_HOD_BREAK",
+      "pattern_name": "HOD_BREAK",
+      "setup_family_id": "P_HOD_BREAK",
+      "invoked": true,
+      "skipped": false,
+      "skip_reason": null,
+      "detected": true,
+      "rejection_reason": null,
+      "input_summary": {
+        "candle_count": 4,
+        "last_price": 10.4,
+        "bid": 10.39,
+        "ask": 10.41,
+        "spread": 0.02,
+        "volume": 250000.0,
+        "pct_change": 5.1,
+        "rvol": 2.6,
+        "float_millions": 12.0,
+        "has_levels": true,
+        "levels_present": [
+          "premarket_high",
+          "premarket_low",
+          "hod",
+          "lod",
+          "prior_close"
+        ],
+        "has_indicators": true,
+        "indicators_present": [
+          "EMA9",
+          "EMA20",
+          "VWAP"
+        ],
+        "session_context": "PRE",
+        "timeframe": "1m",
+        "quality_flags": [
+          "insufficient_candles"
+        ],
+        "missing_fields": []
+      },
+      "input_quality_flags": [],
+      "post_detect_disposition": "translated_to_trade_intent",
+      "final_outcome": "DETECTED_AND_EXECUTED",
+      "exception": null
+    }
+  ],
+  "aggregated_failure_reasons": {
+    "cycle_id": "audit-cycle",
+    "strategy_key": "ross_momentum",
+    "session_label": "PRE",
+    "session_phase": "PRE",
+    "runtime_mode": "SIM",
+    "evaluated_count": 2,
+    "real_setup_trigger_count": 1,
+    "synthetic_forced_intents": 0,
+    "pattern_invocations_total": 1,
+    "patterns_detected_total": 1,
+    "dominant_skip_reasons": {},
+    "dominant_rejection_reasons": {},
+    "symbols_with_missing_inputs": [
+      "TRACE2"
+    ],
+    "symbols_with_detected_but_discarded": [],
+    "symbols_with_zero_pattern_invocations": [
+      "TRACE2"
+    ],
+    "symbols_failing_before_registry": [
+      "TRACE2"
+    ],
+    "symbols_failing_after_registry": []
+  }
+}
