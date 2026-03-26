@@ -60,6 +60,7 @@ from src.domain.models.internal_order import InternalOrder
 from src.core.orchestrator import CoreOrchestrator
 from src.strategies.ross_momentum import strategy_policy as ross_strategy_policy
 from src.core.readiness import run_readiness_check
+from src.core.paper_trading_readiness import run_paper_trading_readiness_check
 from src.adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
 from src.ibkr.read_only_guard import validate_read_only_guard
 from src.storage.sqlite_store import SCHEMA_VERSION
@@ -123,6 +124,11 @@ def _parse_args() -> argparse.Namespace:
         "--readiness-check",
         action="store_true",
         help="Run readiness checks and exit with status code.",
+    )
+    parser.add_argument(
+        "--paper-readiness-check",
+        action="store_true",
+        help="Run pre-paper-trading execution + validation checks and exit.",
     )
     return parser.parse_args()
 
@@ -243,6 +249,10 @@ def main() -> None:
     _apply_cli_overrides(args)
     if args.readiness_check:
         report = run_readiness_check()
+        print(report.to_text())
+        raise SystemExit(0 if report.is_pass else 1)
+    if args.paper_readiness_check:
+        report = run_paper_trading_readiness_check()
         print(report.to_text())
         raise SystemExit(0 if report.is_pass else 1)
     print("[BOOT] Starting the IBKR Trading System skeleton.")
