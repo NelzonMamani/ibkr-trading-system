@@ -148,6 +148,30 @@ def test_no_silent_drop_after_context(monkeypatch, tmp_path, capsys) -> None:
     assert "[ROSS][EVAL_CONTEXT] symbol=TEST" in out
     assert "[ROSS][SETUP][FAIL] symbol=TEST" in out
     assert "[ROSS][PIPELINE][NO_DECISION] symbol=TEST" in out
+    assert "[ROSS][TERMINAL] symbol=TEST category=SETUP_NOT_FOUND" in out
+
+
+def test_data_block_does_not_force_intent(monkeypatch, tmp_path, capsys) -> None:
+    strategy = _base_strategy(monkeypatch, tmp_path)
+    strategy._data_contract_block_reasons = lambda **kwargs: ["MISSING_BID_ASK"]
+    row = _watchlist_row()
+    row["bid"] = None
+    row["ask"] = None
+    row["last_price"] = None
+
+    intents = strategy.process_watchlist(
+        watchlist=[row],
+        snapshots={},
+        session_label="PRE",
+        timestamp_utc="cycle-data-block-no-force",
+        mode=RunMode.SIM,
+        session_phase="PRE",
+    )
+
+    out = capsys.readouterr().out
+    assert intents == []
+    assert "[ROSS][DATA_BLOCK] symbol=TEST" in out
+    assert "[ROSS][TERMINAL] symbol=TEST category=DATA_BLOCKED" in out
 
 
 def test_pr554_pipeline_trace_populated_on_live_path(monkeypatch, tmp_path) -> None:

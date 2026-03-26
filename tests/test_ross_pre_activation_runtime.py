@@ -37,7 +37,7 @@ def _pre_bars() -> list[Candle]:
     ]
 
 
-def test_pre_candidate_can_emit_intent_via_pre_activation(monkeypatch, tmp_path) -> None:
+def test_pre_candidate_pre_activation_is_observable_but_not_forced(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.setattr(
         "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
         lambda **kwargs: _pre_bars(),
@@ -70,8 +70,10 @@ def test_pre_candidate_can_emit_intent_via_pre_activation(monkeypatch, tmp_path)
         session_phase="PRE",
     )
 
-    assert intents
-    assert intents[0].decision == "TRADE_READY"
+    out = capsys.readouterr().out
+    assert intents == []
+    assert "[ROSS][PRE_ACTIVATION] symbol=PREX" in out
+    assert "[ROSS][TERMINAL] symbol=PREX category=SETUP_NOT_FOUND reason=pre_early_momentum_ready" in out
 
 
 def test_registry_marks_session_incompatible_patterns_as_skipped(monkeypatch) -> None:
