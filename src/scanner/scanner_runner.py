@@ -247,6 +247,7 @@ class GateThresholds:
     focus_volume_min_early_rth_ratio: float
     min_volume: int
     min_premarket_volume: int
+    min_premarket_volume_threshold: int
     max_float: int
     spread_max_pct: Optional[float]
     min_dollar_volume: Optional[float]
@@ -880,6 +881,7 @@ def _resolve_runtime_thresholds(policy: StockSelectionPolicy, session_label: str
 def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdResolution) -> GateThresholds:
     execution_min_volume = int(policy.min_volume)
     premarket_min_volume = int(getattr(policy, "premarket_volume_min", policy.min_premarket_volume))
+    premarket_override_min_volume = int(get_config("MIN_PREMARKET_VOLUME_THRESHOLD") or 5_000)
     configured_session_focus_volume = getattr(policy, "session_focus_volume_min", {}) or {}
     early_rth_focus_ratio = 0.25
     early_rth_focus_min = max(
@@ -905,6 +907,7 @@ def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdReso
         session_focus_volume_min=session_focus_volume_min,
         min_volume=execution_min_volume,
         min_premarket_volume=premarket_min_volume,
+        min_premarket_volume_threshold=premarket_override_min_volume,
         max_float=int(max(float(policy.float_max_millions), 50.0) * 1_000_000),
         spread_max_pct=runtime.spread_max_pct,
         min_dollar_volume=policy.liquidity_min_dollar_volume,
@@ -978,6 +981,7 @@ def _watchlist_gate_checks(
     thresholds: GateThresholds,
 ) -> Dict[str, bool]:
     pct_change = _safe_float(context.get("pct_change"), None)
+    session = normalize_session_label(str(context.get("session") or ""))
     _, scanner_rvol = _resolve_rvol_for_focus_gate(context)
     float_shares = context.get("float_shares")
 
@@ -985,6 +989,8 @@ def _watchlist_gate_checks(
     if thresholds.max_pct_change is not None:
         pct_ok = pct_ok and pct_change is not None and pct_change <= thresholds.max_pct_change
     rvol_ok = scanner_rvol is not None and scanner_rvol >= thresholds.watchlist_rvol_min
+    if session == "PRE":
+        rvol_ok = _pre_rvol_override_passes(context, thresholds, normalized_rvol=scanner_rvol) or rvol_ok
     # Float can be legitimately missing on fallback/mock providers; treat missing
     # as soft-pass so deterministic fallback universes still produce candidates.
     float_ok = float_shares is None or float_shares <= thresholds.max_float
@@ -1371,6 +1377,27 @@ def _allow_pre_rvol_bypass(
     return has_strong_anchor
 
 
+def _pre_rvol_override_passes(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+    *,
+    normalized_rvol: Optional[float],
+) -> bool:
+    _ = normalized_rvol
+    session = normalize_session_label(str(context.get("session") or ""))
+    if session != "PRE":
+        return False
+    pct_change = _safe_float(context.get("pct_change"), None)
+    current_volume = _safe_float(context.get("volume"), None)
+    min_volume = int(max(0, thresholds.min_premarket_volume_threshold))
+    return bool(
+        pct_change is not None
+        and pct_change >= 5.0
+        and current_volume is not None
+        and current_volume >= float(min_volume)
+    )
+
+
 def _is_etf_context(context: Dict[str, Any]) -> bool:
     symbol = str(context.get("symbol") or "").upper()
     if symbol in ETF_EXCLUDED_SYMBOLS:
@@ -1430,6 +1457,34 @@ def _evaluate_focus_gates(
         return "DROP_MISSING_RVOL"
     context["rvol_status"] = "RESOLVED"
 
+    pre_rvol_override = _pre_rvol_override_passes(context, thresholds, normalized_rvol=focus_rvol_value)
+    if session == "PRE":
+        pre_override_decision = "PASS" if pre_rvol_override else "FAIL"
+        pre_override_reason = "PRE_VOLUME_OVERRIDE"
+        print(
+            "[RVOL_GATE][PRE_OVERRIDE] "
+            f"symbol={context.get('symbol')} pct_change={_safe_float(context.get('pct_change'), None)} "
+            f"current_volume={_safe_float(context.get('volume'), None)} "
+            f"normalized_rvol={focus_rvol_value} verdict={pre_override_decision} "
+            f"reason={pre_override_reason}"
+        )
+        if pre_rvol_override:
+            focus_decision = "KEEP_PRE_OVERRIDE"
+            focus_reason = "PASS_PRE_VOLUME_OVERRIDE"
+        elif focus_rvol_value >= threshold_value:
+            focus_decision = "KEEP"
+            focus_reason = "PASS_RVOL_THRESHOLD"
+        else:
+            focus_decision = "WAIT"
+            focus_reason = "WAIT_RVOL_BELOW_THRESHOLD"
+    else:
+        if focus_rvol_value >= threshold_value:
+            focus_decision = "KEEP"
+            focus_reason = "PASS_RVOL_THRESHOLD"
+        else:
+            focus_decision = "WAIT"
+            focus_reason = "WAIT_RVOL_BELOW_THRESHOLD"
+
     early_rth = session == "RTH_OPEN"
     has_momentum_context = bool(
         (_safe_float(context.get("pct_change"), 0.0) or 0.0) >= thresholds.min_pct_change
@@ -1437,15 +1492,16 @@ def _evaluate_focus_gates(
     )
     has_catalyst_context = bool(context.get("catalyst_present") or context.get("news_present") or context.get("catalyst_summary"))
 
-    if focus_rvol_value >= threshold_value:
-        focus_decision = "KEEP"
-        focus_reason = "PASS_RVOL_THRESHOLD"
-    elif early_rth and has_momentum_context and has_catalyst_context and rvol_phase is not None and rvol_phase >= thresholds.watchlist_rvol_min:
+    if (
+        focus_decision == "WAIT"
+        and early_rth
+        and has_momentum_context
+        and has_catalyst_context
+        and rvol_phase is not None
+        and rvol_phase >= thresholds.watchlist_rvol_min
+    ):
         focus_decision = "KEEP_EARLY_RTH_CONTEXT"
         focus_reason = "PASS_EARLY_RTH_CONTEXT"
-    else:
-        focus_decision = "WAIT"
-        focus_reason = "WAIT_RVOL_BELOW_THRESHOLD"
 
     print(
         "[FOCUS_GATE] "

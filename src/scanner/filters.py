@@ -32,6 +32,7 @@ def _ross_5_pillars(policy: StockSelectionPolicy | None = None) -> dict:
         "min_rvol": float(resolved.rvol_min),
         "min_volume": int(resolved.min_volume),
         "min_premarket_volume": int(resolved.min_premarket_volume),
+        "min_premarket_volume_threshold": int(get_config("MIN_PREMARKET_VOLUME_THRESHOLD") or 5_000),
         "require_news": bool(resolved.require_catalyst),
     }
 
@@ -47,6 +48,7 @@ def _mechanical_stock_selection_gates(policy: StockSelectionPolicy | None = None
         "min_rvol": float(resolved.rvol_min),
         "min_volume": int(resolved.min_volume),
         "min_premarket_volume": int(resolved.min_premarket_volume),
+        "min_premarket_volume_threshold": int(get_config("MIN_PREMARKET_VOLUME_THRESHOLD") or 5_000),
         "min_dollar_volume": resolved.liquidity_min_dollar_volume,
         "spread_max_pct": resolved.spread_max_pct,
         "require_news": bool(resolved.require_catalyst),
@@ -83,7 +85,12 @@ def evaluate_mechanical_stock_selection_gates(
         reasons.append("float_missing")
     elif flt > gates["max_float"]:
         reasons.append("float_above_max")
-    if rvol < gates["min_rvol"]:
+    pre_override = (
+        session_label == "PRE"
+        and pct >= 5.0
+        and vol >= gates["min_premarket_volume_threshold"]
+    )
+    if rvol < gates["min_rvol"] and not pre_override:
         reasons.append("rvol_below_min")
     if session_label in {"PRE", "OVN"}:
         if vol < gates["min_premarket_volume"]:
@@ -145,7 +152,12 @@ def evaluate_ross_5_pillars(
         reasons.append("float_missing")
     elif flt > pillars["max_float"]:
         reasons.append("float_above_max")
-    if rvol < pillars["min_rvol"]:
+    pre_override = (
+        session_label == "PRE"
+        and pct >= 5.0
+        and vol >= pillars["min_premarket_volume_threshold"]
+    )
+    if rvol < pillars["min_rvol"] and not pre_override:
         reasons.append("rvol_below_min")
     if session_label in {"PRE", "OVN"}:
         if vol < pillars["min_premarket_volume"]:

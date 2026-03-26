@@ -1020,6 +1020,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Optional runtime override for minimum RVOL required to promote a symbol from WATCHLIST_K to FOCUS_M.",
     },
+    "MIN_PREMARKET_VOLUME_THRESHOLD": {
+        "type": int,
+        "default": 5_000,
+        "env": ["MIN_PREMARKET_VOLUME_THRESHOLD"],
+        "affects": ["ScannerFilters", "RossMomentum"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Premarket-only RVOL gate override minimum volume threshold for early momentum candidates.",
+    },
     "MAX_SPREAD_PCT": {
         "type": float,
         "default": None,
