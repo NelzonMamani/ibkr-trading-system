@@ -53,6 +53,9 @@ class FloatProvider:
         self.sqlite_path = sqlite_path or get_persistence_sqlite_path(
             default="data/ibkr_system.db"
         )
+        self.last_float_failures: list[tuple[str, str]] = []
+        self.last_cache_used: bool = False
+        self.last_fallback_used: bool = False
 
         self._cache = self._load_cache()
 
@@ -69,6 +72,9 @@ class FloatProvider:
     def get_float(self, symbol: str) -> tuple[Optional[int], str]:
 
         symbol = str(symbol or "").upper().strip()
+        self.last_float_failures = []
+        self.last_cache_used = False
+        self.last_fallback_used = False
 
         if not symbol:
             return None, "UNKNOWN"
@@ -77,46 +83,59 @@ class FloatProvider:
         # DB CACHE
         # ----------------------------------
 
-        db_value = self._get_db_float(symbol)
+        db_value = self._get_db_float(symbol, allow_stale=False)
 
         if db_value is not None:
+            self.last_cache_used = True
+            print(f"[FLOAT][CACHE_USED] symbol={symbol} source=DB")
             return db_value.value, db_value.source
 
         # ----------------------------------
         # JSON CACHE
         # ----------------------------------
 
-        cache_entry = self._cache.get(symbol)
-
-        if isinstance(cache_entry, dict):
-
-            if not self._is_stale(cache_entry.get("timestamp")):
-
-                value = cache_entry.get("float")
-
-                if isinstance(value, int) and value > 0:
-
-                    source = str(cache_entry.get("source") or "CACHE")
-
-                    self._upsert_db(symbol, value, source)
-
-                    return value, source
+        cache_value = self._get_json_float(symbol, allow_stale=False)
+        if cache_value is not None:
+            self.last_cache_used = True
+            print(f"[FLOAT][CACHE_USED] symbol={symbol} source=JSON")
+            self._upsert_db(symbol, cache_value.value, cache_value.source)
+            return cache_value.value, cache_value.source
 
         # ----------------------------------
         # DISCOVERY
         # ----------------------------------
 
         value, reason = self.provider_yahoo(symbol)
+        if value is None:
+            self.last_float_failures.append(("YAHOO", reason or "UNKNOWN"))
 
         if value:
             self._handle_success(symbol, value, "YAHOO")
             return value, "YAHOO"
 
         value, reason = self.provider_finviz(symbol)
+        if value is None:
+            self.last_float_failures.append(("FINVIZ", reason or "UNKNOWN"))
 
         if value:
             self._handle_success(symbol, value, "FINVIZ")
             return value, "FINVIZ"
+
+        # Last-known-good fallback (never return None if historical data exists).
+        stale_db_value = self._get_db_float(symbol, allow_stale=True)
+        if stale_db_value is not None:
+            self.last_cache_used = True
+            self.last_fallback_used = True
+            print(f"[FLOAT][FALLBACK_USED] symbol={symbol} source=DB_LAST_KNOWN_GOOD")
+            return stale_db_value.value, stale_db_value.source
+
+        stale_json_value = self._get_json_float(symbol, allow_stale=True)
+        if stale_json_value is not None:
+            self.last_cache_used = True
+            self.last_fallback_used = True
+            print(f"[FLOAT][FALLBACK_USED] symbol={symbol} source=JSON_LAST_KNOWN_GOOD")
+            self._upsert_db(symbol, stale_json_value.value, stale_json_value.source)
+            return stale_json_value.value, stale_json_value.source
 
         return None, "UNKNOWN"
 
@@ -270,7 +289,7 @@ class FloatProvider:
 
             conn.commit()
 
-    def _get_db_float(self, symbol: str) -> FloatResult | None:
+    def _get_db_float(self, symbol: str, *, allow_stale: bool = False) -> FloatResult | None:
 
         with sqlite3.connect(self.sqlite_path) as conn:
 
@@ -291,10 +310,22 @@ class FloatProvider:
         if value is None:
             return None
 
-        if self._is_stale(last_updated):
+        if not allow_stale and self._is_stale(last_updated):
             return None
 
         return FloatResult(value=int(value), source=source)
+
+    def _get_json_float(self, symbol: str, *, allow_stale: bool = False) -> FloatResult | None:
+        cache_entry = self._cache.get(symbol)
+        if not isinstance(cache_entry, dict):
+            return None
+        if not allow_stale and self._is_stale(cache_entry.get("timestamp")):
+            return None
+        value = cache_entry.get("float")
+        if not isinstance(value, int) or value <= 0:
+            return None
+        source = str(cache_entry.get("source") or "CACHE")
+        return FloatResult(value=value, source=source)
 
     def _upsert_db(self, symbol: str, value: int, source: str) -> None:
 

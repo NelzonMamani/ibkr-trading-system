@@ -544,6 +544,9 @@ def _bootstrap_float_cache(
             source = str(cached.get("float_source") or "CACHE")
             _FLOAT_CACHE_HIT_SYMBOLS.add(symbol)
             _FLOAT_SOURCE_BY_SYMBOL[symbol] = source
+            print(f"[FLOAT][SOURCE] symbol={symbol} source={source}")
+            print(f"[FLOAT][CACHE_USED] symbol={symbol} used=True")
+            print(f"[FLOAT][FALLBACK_USED] symbol={symbol} used=False")
             print(
                 "[FLOAT][RESOLVE] "
                 f"symbol={symbol} source=CACHE value={round(value / 1_000_000.0, 2)}M"
@@ -558,6 +561,9 @@ def _bootstrap_float_cache(
             reason = "schema_invalid"
         print(f"[FLOAT][PROVENANCE] symbol={symbol} reason={reason}")
         print(f"[FLOAT][REQUIRED] symbol={symbol} status=RESOLVING")
+        print(f"[FLOAT][SOURCE] symbol={symbol} source=UNKNOWN")
+        print(f"[FLOAT][CACHE_USED] symbol={symbol} used=False")
+        print(f"[FLOAT][FALLBACK_USED] symbol={symbol} used=True")
         print(f"[FLOAT][RESOLVE] symbol={symbol} source=UNKNOWN tolerated=True")
         if worker.enqueue(symbol):
             discovery_queued += 1
@@ -1298,20 +1304,34 @@ def _evaluate_float_gate(
         volume_ok = volume is not None and volume >= float(thresholds.min_volume)
         pct_ok = pct_change is not None and pct_change >= float(thresholds.min_pct_change)
         all_threshold_inputs_present = rvol is not None and volume is not None and pct_change is not None
-        context["float_status"] = "UNKNOWN_ALLOWED"
+        context["float_status"] = "UNKNOWN_ALLOWED" if thresholds.allow_unknown_float else "UNKNOWN_DEGRADED"
         context["float_unknown_gate"] = {
             "rvol_ok": rvol_ok,
             "volume_ok": volume_ok,
             "pct_change_ok": pct_ok,
         }
         if all_threshold_inputs_present and not (rvol_ok and volume_ok and pct_ok):
+            context.setdefault("eligibility_reason_codes", []).append("FLOAT_UNKNOWN_POLICY_GATES")
             if not thresholds.allow_unknown_float:
-                return "DROP_FLOAT_MISSING"
-            return "DROP_FLOAT_UNKNOWN_POLICY_GATES"
+                degraded_flags = context.setdefault("data_quality_flags", [])
+                if "FLOAT_REQUIRED_DEGRADED" not in degraded_flags:
+                    degraded_flags.append("FLOAT_REQUIRED_DEGRADED")
+                print(
+                    f"[FLOAT][FALLBACK_USED] symbol={context.get('symbol')} used=True policy=DEGRADED_ONLY"
+                )
+                return None
         flags = context.setdefault("data_quality_flags", [])
-        context["float_tolerated"] = True
+        context["float_tolerated"] = bool(thresholds.allow_unknown_float)
         if isinstance(flags, list) and "FLOAT_UNKNOWN" in flags:
             context["data_quality_flags"] = [flag for flag in flags if flag != "FLOAT_UNKNOWN"]
+        if not thresholds.allow_unknown_float:
+            degraded_flags = context.setdefault("data_quality_flags", [])
+            if "FLOAT_REQUIRED_DEGRADED" not in degraded_flags:
+                degraded_flags.append("FLOAT_REQUIRED_DEGRADED")
+            context.setdefault("eligibility_reason_codes", []).append("FLOAT_REQUIRED_DEGRADED")
+        print(
+            f"[FLOAT][FALLBACK_USED] symbol={context.get('symbol')} used=True policy={'ALLOW_UNKNOWN' if thresholds.allow_unknown_float else 'DEGRADED_ONLY'}"
+        )
         return None
     context["float_status"] = "KNOWN"
     if float_shares > thresholds.max_float:

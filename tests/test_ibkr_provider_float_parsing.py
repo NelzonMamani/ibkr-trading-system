@@ -82,6 +82,10 @@ def test_yahoo_fetch_detailed_fallback_to_v11(monkeypatch) -> None:
 
 def test_get_float_uses_provider_order_and_logs_fetch_ok(monkeypatch, capsys) -> None:
     provider = IbkrScannerProvider.__new__(IbkrScannerProvider)
+    provider.market_data_client = None
+    provider.last_scan_details = {}
+    provider.last_float_source = None
+    provider.last_float_failures = []
 
     monkeypatch.setattr(
         IbkrScannerProvider,
@@ -93,12 +97,42 @@ def test_get_float_uses_provider_order_and_logs_fetch_ok(monkeypatch, capsys) ->
         "_fetch_yahoo_float_detailed",
         staticmethod(lambda _symbol: (7_700_000, "OK")),
     )
+    monkeypatch.setattr(
+        IbkrScannerProvider,
+        "_fetch_ibkr_float_detailed",
+        lambda self, _symbol: (None, "FIELD_NOT_FOUND"),
+    )
 
     value = provider.get_float("PRSO")
     out = capsys.readouterr().out
 
     assert value == 7_700_000
-    assert "[FLOAT][FETCH_START] symbol=PRSO provider=FINVIZ" in out
-    assert "[FLOAT][FETCH_FAIL] symbol=PRSO provider=FINVIZ reason=FIELD_NOT_FOUND" in out
-    assert "[FLOAT][FETCH_START] symbol=PRSO provider=YAHOO_FINANCE" in out
-    assert "[FLOAT][FETCH_OK] symbol=PRSO provider=YAHOO_FINANCE value=7700000" in out
+    assert "[FLOAT][FETCH_START] symbol=PRSO provider=YAHOO" in out
+    assert "[FLOAT][FETCH_OK] symbol=PRSO provider=YAHOO value=7700000" in out
+
+
+def test_get_float_uses_cached_last_known_good_when_live_sources_fail(monkeypatch) -> None:
+    provider = IbkrScannerProvider.__new__(IbkrScannerProvider)
+    provider.market_data_client = None
+    provider.last_scan_details = {}
+    provider.last_float_source = None
+    provider.last_float_failures = []
+
+    monkeypatch.setattr(IbkrScannerProvider, "_fetch_yahoo_float_detailed", staticmethod(lambda _symbol: (None, "REQUEST_ERROR")))
+    monkeypatch.setattr(IbkrScannerProvider, "_fetch_finviz_float_detailed", staticmethod(lambda _symbol: (None, "REQUEST_ERROR")))
+    monkeypatch.setattr(IbkrScannerProvider, "_fetch_ibkr_float_detailed", lambda self, _symbol: (None, "REQUEST_ERROR"))
+
+    class _Cache:
+        def __init__(self, *args, **kwargs) -> None:
+            self.last_float_failures = [("YAHOO", "REQUEST_ERROR")]
+            self.last_cache_used = True
+            self.last_fallback_used = True
+
+        def get_float(self, symbol: str):
+            return 6_600_000, "DB_LAST_KNOWN_GOOD"
+
+    monkeypatch.setattr("src.scanner.providers.ibkr_provider.FloatProvider", _Cache)
+
+    value = provider.get_float("PRSO")
+    assert value == 6_600_000
+    assert provider.last_float_source == "DB_LAST_KNOWN_GOOD"
