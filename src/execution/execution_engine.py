@@ -241,6 +241,7 @@ class ExecutionEngine:
                 rationale="BROKER_READONLY_BLOCK",
             )
         if self.run_mode == RunMode.LIVE and not getattr(risk_decision, "allowed", True):
+            effective_quantity = self._effective_quantity_from_risk_decision(risk_decision)
             return ExecutionResult(
                 symbol=risk_decision.symbol,
                 trader_type=risk_decision.trader_type,
@@ -248,9 +249,12 @@ class ExecutionEngine:
                 status="BLOCKED",
                 rationale="Risk engine blocked this trade; no execution attempted.",
                 direction=risk_decision.direction,
-                quantity=getattr(risk_decision, "max_position_size", 1),
+                quantity=effective_quantity,
                 stop_loss_price=risk_decision.stop_loss_price,
                 take_profit_price=risk_decision.take_profit_price,
+                requested_quantity=effective_quantity,
+                filled_quantity=0,
+                remaining_quantity=effective_quantity,
             )
         return None
 
@@ -288,6 +292,7 @@ class ExecutionEngine:
     def _duplicate_result(
         self, risk_decision: RiskDecision, idempotency_key: str
     ) -> ExecutionResult:
+        effective_quantity = self._effective_quantity_from_risk_decision(risk_decision)
         self.event_collector.emit(
             event_type="ORDER_BLOCKED_READONLY",
             source="ExecutionEngine",
@@ -296,7 +301,7 @@ class ExecutionEngine:
                 "trader_type": risk_decision.trader_type,
                 "strategy_name": risk_decision.strategy_name,
                 "direction": risk_decision.direction,
-                "requested_quantity": getattr(risk_decision, "max_position_size", 1),
+                "requested_quantity": effective_quantity,
                 "run_mode": self.run_mode.value,
                 "execution_enabled": self.execution_enabled,
                 "readonly_enabled": get_ibkr_readonly_enabled(),
@@ -311,12 +316,12 @@ class ExecutionEngine:
             status="DUPLICATE",
             rationale="Duplicate intent detected; skipping submission.",
             direction=risk_decision.direction,
-            quantity=getattr(risk_decision, "max_position_size", 1),
+            quantity=effective_quantity,
             stop_loss_price=risk_decision.stop_loss_price,
             take_profit_price=risk_decision.take_profit_price,
-            requested_quantity=getattr(risk_decision, "max_position_size", 1),
+            requested_quantity=effective_quantity,
             filled_quantity=0,
-            remaining_quantity=getattr(risk_decision, "max_position_size", 1),
+            remaining_quantity=effective_quantity,
             fill_status="NONE",
             note="IDEMPOTENT_DUPLICATE",
             rejection_reason="IDEMPOTENT_DUPLICATE",
@@ -574,6 +579,15 @@ class ExecutionEngine:
             )
         return clamped
 
+    def _effective_quantity_from_risk_decision(self, risk_decision: Optional[RiskDecision]) -> int:
+        if risk_decision is None:
+            return 0
+        raw_quantity = int(getattr(risk_decision, "max_position_size", 0) or 0)
+        if str(getattr(risk_decision, "strategy_name", "")).upper() == "LIVE_EXECUTION_PROBE":
+            raw_quantity = 1
+        normalized_quantity = max(1, raw_quantity)
+        return self._clamp_order_quantity(normalized_quantity, symbol=risk_decision.symbol)
+
     def _blocked_execution_from_risk_decision(
         self, risk_decision: Optional[RiskDecision], rationale: str = "EXECUTION_DISABLED"
     ) -> ExecutionResult:
@@ -587,7 +601,7 @@ class ExecutionEngine:
             symbol = risk_decision.symbol
             trader_type = risk_decision.trader_type
             direction = risk_decision.direction
-            quantity = getattr(risk_decision, "max_position_size", 1)
+            quantity = self._effective_quantity_from_risk_decision(risk_decision)
             strategy_name = risk_decision.strategy_name
 
         self.event_collector.emit(
