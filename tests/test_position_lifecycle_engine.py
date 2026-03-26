@@ -133,3 +133,45 @@ def test_invalid_intent_rejected():
     )
     assert result.accepted is False
     assert result.rejection_reason_code == "INVALID_STATE"
+
+
+def test_position_management_intents_supported():
+    engine = PositionLifecycleEngine()
+    position = PositionLifecycle(symbol="MGMT", trader_type="SIM")
+
+    opened = engine.apply_intent(
+        position,
+        LifecycleIntent.OPEN,
+        requested_quantity=2,
+        run_mode=RunMode.PAPER,
+        reason="Open position",
+    )
+    assert opened.accepted is True
+
+    add_winner = engine.apply_intent(
+        position,
+        LifecycleIntent.ADD_TO_WINNER,
+        requested_quantity=1,
+        run_mode=RunMode.PAPER,
+        reason="Add to winner",
+    )
+    assert add_winner.accepted is True
+
+    partial = engine.apply_intent(
+        position,
+        LifecycleIntent.PARTIAL_PROFIT,
+        requested_quantity=1,
+        run_mode=RunMode.PAPER,
+        reason="Take partial",
+    )
+    assert partial.accepted is True
+
+    trailing = engine.apply_intent(
+        position,
+        LifecycleIntent.TRAILING_STOP_UPDATE,
+        requested_quantity=1,
+        run_mode=RunMode.PAPER,
+        reason="trailing_stop=10.5",
+    )
+    assert trailing.accepted is True
+    assert position.trailing_stop_price == 10.5

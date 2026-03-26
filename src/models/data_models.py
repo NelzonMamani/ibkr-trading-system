@@ -124,6 +124,9 @@ class TradeIntent:
     regime_policy_applied: Optional[bool] = None
     regime_notes: List[str] = field(default_factory=list)
     synthetic: bool = False
+    strategy_prefix: Optional[str] = None
+    setup_family_id: Optional[str] = None
+    trigger_id: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -189,6 +192,9 @@ class RiskDecision:
     sizing: dict = field(default_factory=dict)
     circuit_breaker_tripped: bool = False
     execution_blocked: bool = False
+    strategy_prefix: Optional[str] = None
+    setup_family_id: Optional[str] = None
+    trigger_id: Optional[str] = None
 
 
 @dataclass
@@ -232,6 +238,10 @@ class ExecutionResult:
     rejection_reason: Optional[str] = None
     broker_error_code: Optional[str] = None
     broker_error_message: Optional[str] = None
+    strategy_name: Optional[str] = None
+    strategy_prefix: Optional[str] = None
+    setup_family_id: Optional[str] = None
+    trigger_id: Optional[str] = None
 
 
 @dataclass
