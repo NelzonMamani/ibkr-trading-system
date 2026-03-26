@@ -76,6 +76,7 @@ from src.scanner.session_pct_change import (
     resolve_market_session_label,
     resolve_session_diagnostics,
 )
+from src.scanner.session_contract import attach_session_contract, build_canonical_session_contract
 
 
 _FLOAT_CACHE_STATE: Dict[str, Any] = {
@@ -2128,11 +2129,29 @@ def _build_symbol_context(
     provider: ScannerDataProvider,
     symbol: str,
     session_label: str,
-    float_cache: Dict[str, Dict[str, Any]],
+    session_contract: Optional[Dict[str, Any]] = None,
+    float_cache: Optional[Dict[str, Dict[str, Any]]] = None,
     *,
     universe_rank: Optional[int] = None,
     include_pct_change: bool = True,
 ) -> Optional[Dict[str, Any]]:
+    is_session_contract = isinstance(session_contract, dict) and (
+        "canonical_session" in session_contract
+        or "detected_session" in session_contract
+        or "session_decision_source" in session_contract
+    )
+    if float_cache is None and isinstance(session_contract, dict) and not is_session_contract:
+        float_cache = session_contract
+        session_contract = None
+
+    if session_contract is None:
+        session_contract = build_canonical_session_contract(
+            detected_session=session_label,
+            session_decision_source="BACKWARD_COMPATIBILITY",
+        )
+
+    if float_cache is None:
+        float_cache = {}
     try:
         quote = provider.get_quote(symbol)
     except Exception as exc:
@@ -2422,6 +2441,7 @@ def _build_symbol_context(
         "snapshot_timeout": snapshot_timeout,
         "universe_rank": universe_rank,
     }
+    attach_session_contract(context, session_contract)
     _apply_degraded_contract(context)
     _emit_scanner_reference_trace("final_context_build", context)
     return context
