@@ -424,15 +424,21 @@ class IbkrScannerProvider(ScannerDataProvider):
     def get_float(self, symbol: str) -> Optional[int]:
         symbol = str(symbol or "").upper().strip()
         self.last_float_failures = []
+        self.last_float_source = None
+        fallback_used = False
 
         for provider_name, fetcher in (
+            ("YAHOO", self._fetch_yahoo_float_detailed),
             ("FINVIZ", self._fetch_finviz_float_detailed),
-            ("YAHOO_FINANCE", self._fetch_yahoo_float_detailed),
+            ("IBKR", self._fetch_ibkr_float_detailed),
         ):
             print(f"[FLOAT][FETCH_START] symbol={symbol} provider={provider_name}")
             value, reason = fetcher(symbol)
             if value is not None and value > 0:
                 self.last_float_source = provider_name
+                print(f"[FLOAT][SOURCE] symbol={symbol} source={provider_name}")
+                print(f"[FLOAT][CACHE_USED] symbol={symbol} used=False")
+                print(f"[FLOAT][FALLBACK_USED] symbol={symbol} used={fallback_used}")
                 print(
                     f"[FLOAT][FETCH_OK] symbol={symbol} provider={provider_name} value={int(value)}"
                 )
@@ -443,10 +449,15 @@ class IbkrScannerProvider(ScannerDataProvider):
                 f"[FLOAT][FETCH_FAIL] symbol={symbol} provider={provider_name} reason={fail_reason}"
             )
 
-        cache_provider = FloatProvider()
+        cache_provider = FloatProvider(ttl_days=7)
         cached_value, cached_source = cache_provider.get_float(symbol)
-        self.last_float_failures.extend(list(cache_provider.last_float_failures))
+        self.last_float_failures.extend(list(getattr(cache_provider, "last_float_failures", [])))
         self.last_float_source = cached_source
+        cache_used = bool(getattr(cache_provider, "last_cache_used", cached_value is not None))
+        fallback_used = bool(getattr(cache_provider, "last_fallback_used", False)) or fallback_used
+        print(f"[FLOAT][SOURCE] symbol={symbol} source={cached_source}")
+        print(f"[FLOAT][CACHE_USED] symbol={symbol} used={cache_used}")
+        print(f"[FLOAT][FALLBACK_USED] symbol={symbol} used={fallback_used}")
         return cached_value
 
     def _average_daily_volume(self, symbol: str) -> tuple[Optional[int], Optional[int]]:
@@ -501,6 +512,18 @@ class IbkrScannerProvider(ScannerDataProvider):
     def _fetch_finviz_float(symbol: str) -> Optional[int]:
         value, _ = IbkrScannerProvider._fetch_finviz_float_detailed(symbol)
         return value
+
+    def _fetch_ibkr_float_detailed(self, symbol: str) -> tuple[Optional[int], str]:
+        try:
+            contract = self._qualified_contract_for_symbol(symbol)
+            snapshot = self.market_data_client.snapshot_stock(contract if contract is not None else symbol)
+        except Exception:
+            return None, "REQUEST_ERROR"
+        for field_name in ("sharesOutstanding", "floatShares", "float_shares"):
+            parsed = _parse_shares_value(getattr(snapshot, field_name, None))
+            if parsed is not None and parsed > 0:
+                return parsed, "OK"
+        return None, "FIELD_NOT_FOUND"
 
     @staticmethod
     def _fetch_finviz_float_detailed(symbol: str) -> tuple[Optional[int], str]:
