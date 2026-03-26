@@ -152,13 +152,7 @@ def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSess
     ny_time = now_utc.astimezone(_NY_TZ)
     market_time = ny_time.isoformat()
     run_mode = str(get_config("RUN_MODE_EFFECTIVE") or get_config("RUN_MODE") or "LIVE").upper()
-    if run_mode in {"SIM", "PAPER", "READ_ONLY"}:
-        print(
-            f"[SESSION][NONLIVE_FALLBACK] run_mode={run_mode} "
-            "coarse=RTH phase=RTH source=DETERMINISTIC_MODE_POLICY"
-        )
-        context = MarketSessionContext(coarse="RTH", phase="RTH", market_time=market_time)
-    elif ny_time.weekday() >= 5:
+    if ny_time.weekday() >= 5:
         context = MarketSessionContext(coarse="WEEKEND", phase="WEEKEND", market_time=market_time)
     else:
         holidays = set(get_config("MARKET_HOLIDAYS"))
@@ -184,7 +178,7 @@ def resolve_market_session_context(now: Optional[datetime] = None) -> MarketSess
                 context = MarketSessionContext(coarse="CLOSED", phase="CLOSED", market_time=market_time)
 
     print(
-        "[SESSION][TIME] "
+        "[SESSION][TIME_BASED] "
         f"utc={now_utc.isoformat()} "
         f"ny={ny_time.isoformat()} "
         f"run_mode={run_mode} "

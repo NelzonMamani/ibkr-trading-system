@@ -12,37 +12,32 @@ def _clear_overrides_after_test():
     set_config_overrides(None)
 
 
-def test_nonlive_sim_mode_uses_deterministic_rth_session() -> None:
-    set_config_overrides({"RUN_MODE": "SIM", "RUN_MODE_EFFECTIVE": "SIM"})
+@pytest.mark.parametrize("run_mode", ["SIM", "PAPER", "READ_ONLY"])
+@pytest.mark.parametrize(
+    ("timestamp_utc", "expected_phase"),
+    [
+        (datetime(2024, 1, 3, 12, 0, tzinfo=timezone.utc), "PRE"),
+        (datetime(2024, 1, 3, 15, 0, tzinfo=timezone.utc), "RTH_OPEN"),
+        (datetime(2024, 1, 3, 22, 0, tzinfo=timezone.utc), "AH"),
+        (datetime(2024, 1, 3, 2, 0, tzinfo=timezone.utc), "CLOSED"),
+        (datetime(2024, 1, 6, 17, 0, tzinfo=timezone.utc), "WEEKEND"),
+    ],
+)
+def test_nonlive_modes_use_time_based_session_resolution(
+    run_mode: str,
+    timestamp_utc: datetime,
+    expected_phase: str,
+) -> None:
+    set_config_overrides({"RUN_MODE": run_mode, "RUN_MODE_EFFECTIVE": run_mode})
 
-    session = resolve_market_session_context(datetime(2024, 1, 6, 17, 0, tzinfo=timezone.utc))
+    session = resolve_market_session_context(timestamp_utc)
 
-    assert session.coarse == "RTH"
-    assert session.phase == "RTH"
-
-
-def test_nonlive_paper_mode_uses_deterministic_rth_session() -> None:
-    set_config_overrides({"RUN_MODE": "PAPER", "RUN_MODE_EFFECTIVE": "PAPER"})
-
-    session = resolve_market_session_context(datetime(2024, 1, 1, 7, 0, tzinfo=timezone.utc))
-
-    assert session.coarse == "RTH"
-    assert session.phase == "RTH"
-
-
-def test_nonlive_read_only_mode_uses_deterministic_rth_session() -> None:
-    set_config_overrides({"RUN_MODE": "READ_ONLY", "RUN_MODE_EFFECTIVE": "READ_ONLY"})
-
-    session = resolve_market_session_context(datetime(2024, 1, 1, 7, 0, tzinfo=timezone.utc))
-
-    assert session.coarse == "RTH"
-    assert session.phase == "RTH"
+    assert session.phase == expected_phase
 
 
-def test_live_mode_still_uses_real_market_session_logic() -> None:
+def test_live_mode_uses_same_time_based_session_resolution() -> None:
     set_config_overrides({"RUN_MODE": "LIVE", "RUN_MODE_EFFECTIVE": "LIVE"})
 
     session = resolve_market_session_context(datetime(2024, 1, 6, 17, 0, tzinfo=timezone.utc))
 
-    assert session.coarse == "WEEKEND"
     assert session.phase == "WEEKEND"
