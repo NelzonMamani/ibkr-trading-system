@@ -76,6 +76,11 @@ from src.scanner.session_pct_change import (
     resolve_market_session_label,
     resolve_session_diagnostics,
 )
+from src.scanner.session_contract import (
+    CanonicalSessionContract,
+    attach_session_contract,
+    build_canonical_session_contract,
+)
 
 
 _FLOAT_CACHE_STATE: Dict[str, Any] = {
@@ -2128,6 +2133,7 @@ def _build_symbol_context(
     provider: ScannerDataProvider,
     symbol: str,
     session_label: str,
+    session_contract: CanonicalSessionContract,
     float_cache: Dict[str, Dict[str, Any]],
     *,
     universe_rank: Optional[int] = None,
@@ -2137,24 +2143,24 @@ def _build_symbol_context(
         quote = provider.get_quote(symbol)
     except Exception as exc:
         if _is_unsubscribed_market_data_error(exc):
-            return {
+            return attach_session_contract({
                 "symbol": symbol,
                 "session": session_label,
                 "data_quality_flags": ["UNSUBSCRIBED_MARKET_DATA"],
                 "snapshot_error": "UNSUBSCRIBED_MARKET_DATA",
-            }
+            }, session_contract)
         return None
 
     data_quality_flags = list(getattr(quote, "data_quality_flags", []) or [])
     if any("10197" in str(flag) for flag in data_quality_flags):
         if "MD_CONFLICT_10197" not in data_quality_flags:
             data_quality_flags.append("MD_CONFLICT_10197")
-        return {
+        return attach_session_contract({
             "symbol": symbol,
             "session": session_label,
             "data_quality_flags": list(dict.fromkeys(data_quality_flags)),
             "snapshot_error": "MD_CONFLICT",
-        }
+        }, session_contract)
     last_price = _resolve_price(quote)
     spread, spread_pct = _spread_values(quote)
     snapshot_timeout = "MD_TIMEOUT" in data_quality_flags
@@ -2422,6 +2428,7 @@ def _build_symbol_context(
         "snapshot_timeout": snapshot_timeout,
         "universe_rank": universe_rank,
     }
+    attach_session_contract(context, session_contract)
     _apply_degraded_contract(context)
     _emit_scanner_reference_trace("final_context_build", context)
     return context
@@ -2905,6 +2912,10 @@ def run_scanner_cycle(
     )
     session_label = session_diag.resolved_session
     session_phase = session_diag.resolved_session
+    canonical_session_contract = build_canonical_session_contract(
+        detected_session=session_label,
+        session_decision_source=session_diag.reason,
+    )
     daily_state = _get_ross_daily_state(utc_now, session_label)
     diagnostics: Dict[str, Any] = {"mode": mode, "ross_trading_day": daily_state.trading_day, "session_phase": session_phase}
     drop_ledger: Dict[str, str] = {}
@@ -2917,6 +2928,17 @@ def run_scanner_cycle(
         f"forced={session_diag.resolved_session if session_diag.override_source != 'NONE' else 'NONE'} forced_source={session_diag.override_source} "
         f"reference_trading_date={session_diag.reference_trading_date} "
         f"previous_valid_market_session_date={session_diag.previous_valid_market_session_date}"
+    )
+    print(
+        "[SESSION][CONTRACT] "
+        f"raw={canonical_session_contract.raw_detected_session} canonical={canonical_session_contract.canonical_session} "
+        f"source={canonical_session_contract.session_decision_source} "
+        f"pct_reference={canonical_session_contract.pct_reference_price_type} "
+        f"gap_reference={canonical_session_contract.gap_reference_type} "
+        f"expected_volume_model={canonical_session_contract.expected_volume_model_id} "
+        f"execution_window_allowed={canonical_session_contract.execution_window_allowed} "
+        f"setup_profile={canonical_session_contract.setup_family_profile} "
+        f"trigger_profile={canonical_session_contract.trigger_profile_id}"
     )
     print("[WATCHLIST][BUILD_START]")
     print("candidates_incoming=0")
@@ -3315,6 +3337,7 @@ def run_scanner_cycle(
                 provider,
                 symbol,
                 session_label,
+                canonical_session_contract,
                 float_cache,
                 universe_rank=rank,
                 include_pct_change=False,
@@ -3334,11 +3357,14 @@ def run_scanner_cycle(
                         },
                     )
                 evaluated_contexts.append(
-                    {
-                        "symbol": symbol,
-                        "session": session_label,
-                        "data_quality_flags": ["QUOTE_UNAVAILABLE"],
-                    }
+                    attach_session_contract(
+                        {
+                            "symbol": symbol,
+                            "session": session_label,
+                            "data_quality_flags": ["QUOTE_UNAVAILABLE"],
+                        },
+                        canonical_session_contract,
+                    )
                 )
                 continue
             if context.get("snapshot_error") == "MD_CONFLICT":
@@ -3473,12 +3499,20 @@ def run_scanner_cycle(
             context["scanner_session"] = scanner_session
             context["policy_session"] = policy_session
             context["pattern_input_session"] = pattern_input_session
-            print("[ROSS][SESSION_CONTRACT]")
-            print(f"symbol={symbol}")
-            print(f"orchestrator_session={orchestrator_session}")
-            print(f"scanner_session={scanner_session}")
-            print(f"policy_session={policy_session}")
-            print(f"pattern_input_session={pattern_input_session}")
+            drift = len({orchestrator_session, scanner_session, policy_session, pattern_input_session}) > 1
+            context["session_contract_drift"] = drift
+            print(
+                "[ROSS][SESSION_CONTRACT] "
+                f"symbol={symbol} canonical={context.get('canonical_session')} "
+                f"orchestrator_session={orchestrator_session} scanner_session={scanner_session} "
+                f"policy_session={policy_session} pattern_input_session={pattern_input_session} "
+                f"drift={drift}"
+            )
+            if drift:
+                print(
+                    "[ROSS][SESSION_CONTRACT_ERROR] "
+                    f"symbol={symbol} reason=SESSION_DRIFT_DETECTED"
+                )
 
             price_gate_reason = _evaluate_price_gate(context, thresholds)
             if price_gate_reason:

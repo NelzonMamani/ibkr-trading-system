@@ -262,8 +262,15 @@ class RossMomentumStrategyV1(BaseStrategy):
         timestamp_utc: str,
         mode: RunMode,
         session_phase: str,
+        session_contract: dict | None = None,
     ) -> List[TradeIntent]:
         print(f"[ROSS][PROCESS_START] symbols={len(watchlist)}")
+        if session_contract:
+            print(
+                "[ROSS][SESSION_CONTRACT] "
+                f"raw={session_contract.get('raw_detected_session')} canonical={session_contract.get('canonical_session')} "
+                f"source={session_contract.get('session_decision_source')} trigger_profile={session_contract.get('trigger_profile_id')}"
+            )
         symbol_traces: List[RossSymbolTrace] = []
         translated_intents: List[TradeIntent] = []
         synthetic_forced_intents = 0
@@ -332,6 +339,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 symbol_trace.pattern_traces = []
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
+                print(f"[ROSS][TERMINAL_STAGE] symbol={symbol} outcome=CONTEXT_REJECTED")
                 continue
 
             input_summary = build_input_snapshot_summary(
@@ -394,6 +402,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     classification_counts["READY_FOR_EXECUTION"] += 1
                     symbol_traces.append(symbol_trace)
                     self._failure_trace_collector.record_symbol(symbol_trace)
+                    print(f"[ROSS][TERMINAL_STAGE] symbol={symbol} outcome=INTENT_GENERATED")
                     continue
                 reason_text = ",".join(block_reasons)
                 print(f"[ROSS][DATA_BLOCK] symbol={symbol} reason={reason_text}")
@@ -414,6 +423,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 symbol_trace.pattern_traces = []
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
+                print(f"[ROSS][TERMINAL_STAGE] symbol={symbol} outcome=CONTEXT_REJECTED")
                 continue
 
             print("[ROSS][SETUP_PHASE][START]")
@@ -542,6 +552,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     classification_counts["READY_FOR_EXECUTION"] += 1
                     symbol_traces.append(symbol_trace)
                     self._failure_trace_collector.record_symbol(symbol_trace)
+                    print(f"[ROSS][TERMINAL_STAGE] symbol={symbol} outcome=INTENT_GENERATED")
                     continue
                 forced_intent = self._build_fallback_momentum_intent(
                     symbol=symbol,
@@ -558,6 +569,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     classification_counts["READY_FOR_EXECUTION"] += 1
                     symbol_traces.append(symbol_trace)
                     self._failure_trace_collector.record_symbol(symbol_trace)
+                    print(f"[ROSS][TERMINAL_STAGE] symbol={symbol} outcome=INTENT_GENERATED")
                     continue
                 symbol_trace.final_outcome = "NO_SETUP:no_valid_pattern"
                 symbol_trace.setup_stage = {"status": "FAIL", "reason_code": "NO_VALID_PATTERN"}
@@ -585,6 +597,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 )
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
+                print(f"[ROSS][TERMINAL_STAGE] symbol={symbol} outcome=SETUP_REJECTED")
                 continue
 
             confirmation_passed, blocking_reasons, warnings = self._evaluate_confirmation(
@@ -628,6 +641,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._log_pipeline_no_decision(symbol)
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
+                print(f"[ROSS][TERMINAL_STAGE] symbol={symbol} outcome=CONFIRMATION_REJECTED")
                 continue
 
             trade = self._build_trade_from_pattern(best_pattern, inputs)
@@ -653,6 +667,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._log_pipeline_no_decision(symbol)
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
+                print(f"[ROSS][TERMINAL_STAGE] symbol={symbol} outcome=TRIGGER_REJECTED")
                 continue
 
             entry, stop = trade
@@ -720,6 +735,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             )
             symbol_traces.append(symbol_trace)
             self._failure_trace_collector.record_symbol(symbol_trace)
+            print(f"[ROSS][TERMINAL_STAGE] symbol={symbol} outcome=INTENT_GENERATED")
 
         cycle_summary = self._failure_trace_collector.build_cycle_summary(
             cycle_id=timestamp_utc,

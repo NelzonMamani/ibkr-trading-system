@@ -1,0 +1,119 @@
+[CONFIG] Loaded 187 variables
+[CONFIG] HARD enforced: 30
+[CONFIG] Optional: 156
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+[INFO] Core Orchestrator initialised.
+[CONFIG] Loaded 187 variables
+[CONFIG] HARD enforced: 30
+[CONFIG] Optional: 156
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+[BOOT] Runtime mode resolved: mode=PAPER live_like=False allow_orders=False max_shares_per_order=None event_replay=CYCLE
+[SAFETY] EXECUTION: HARD DISABLED
+[SAFETY] ORDER ROUTING: BLOCKED
+[SAFETY] PAPER-EXECUTION MODE ACTIVE
+[SCHEMA] event=CONFIG_RESOLVED has extra keys: traces
+[BOOT] EventCollector initialised
+[STRATEGY][SELECTED] key=ross_momentum
+[MARKET_DATA][PAPER] Deterministic/mock market data feed active (no IBKR connectivity).
+[BOOT] PatternEngine instantiated — Ross Momentum pattern suite enabled
+[BOOT] SignalEngineV1 instantiated
+[BOOT] Strategy 'GapAndGoStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'MomentumContinuationStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'RossMomentumStrategyV1' ENABLED via config and registered.
+[BOOT] Strategy 'StatisticalIntradayMomentum' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'MeanReversionStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'LongHorizonValueStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'OpeningDriveStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'VwapReclaimStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'PowerHourStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'VolatilityExpansionStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'RangeBoundFadeStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'SupportResistanceChannelStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'EventEarningsReactionStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'EventNewsShockContinuationStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'VolatilityContractionBreakoutStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'VolatilityCarryRiskPremiumStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'PairsDivergenceReversionStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'CrossSectionalRelativeStrengthRotationStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'TimeBasedSeasonalityStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'TrendFollowingClassicStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'LongHorizonQualityCompounderStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] Strategy 'RegimeAdaptiveMetaAllocatorStrategy' skipped due to selection (selected=ross_momentum).
+[BOOT] StrategyRunner instantiated with strategies: RossMomentumStrategyV1
+[BOOT] RiskEngine instantiated — phase 4 teaching rules active
+[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow
+[SAFETY] EXECUTION: HARD DISABLED
+[EXECUTION] Gateway: DISABLED
+[EXECUTION] Liquidity checks: DISABLED
+[EXECUTION] Broker submission: DISABLED
+[STORAGE] SQLite path resolved to /workspace/ibkr-trading-system/data/ibkr_system.db
+[BOOT] StorageEngine initialised
+[BOOT] Event replay mode resolved — mode=CYCLE
+[VALIDATION] Running startup validations
+[VALIDATION] Config resolved
+[VALIDATION] Effective run mode: PAPER
+[VALIDATION] Scanner mode resolved: LIVE_READONLY
+[VALIDATION] Scanner data source: IBKR
+[VALIDATION] Execution policy: HARD DISABLED
+[VALIDATION] Market data source: IBKR
+[VALIDATION] IBKR API WRITE: ENABLED
+[VALIDATION] EXECUTION: HARD DISABLED
+[VALIDATION] ORDER ROUTING: BLOCKED
+[VALIDATION] MARKET DATA: LIVE IBKR
+[VALIDATION] Broker adapter in use: NONE
+[VALIDATION] Storage OK — SQLite opened
+[PREP] hydrate ok path=data/prep/premarket_prep.json restored_symbols=2
+[PREP] scheduled update due in 4:00:00
+[INFO] Starting orchestrator cycle (teaching-only).
+[SESSION] phase=CLOSED ny_time=2026-03-25T20:25:10.825829-04:00 uk_time=2026-03-26T00:25:10.825829+00:00 utc=2026-03-26T00:25:10.825829+00:00
+[RUNTIME] mode=PAPER live_like=False allow_orders=False max_shares_per_order=None event_replay=CYCLE
+[CONNECTIVITY][PAPER] Skipping IBKR connectivity check; forcing MOCK scanner provider.
+[BROKER] provider=MOCK
+[BROKER] connection=FAILED
+[BROKER] market_data_type=UNKNOWN
+[BROKER] host=None
+[BROKER] port=None
+[BROKER] client_id=None
+[ORCH][SCANNER_REQUEST] strategy=ross_momentum policy=ROSS_MOMENTUM instrument=STK locationCode=STK.US scanCode=TOP_PERC_GAIN numberOfRows=150 abovePrice=1.0 belowPrice=20.0
+[TOPN_REFRESH] strategy=ross_momentum added=['AAPL'] removed=[]
+[TRACE] stage=TOPN_REFRESH cycle_id=8e79d782-04e9-4d55-bcd4-c58dff8df46e run_mode=PAPER strategy=ross_momentum 
+[TRACE] stage=WATCHLIST_CREATED cycle_id=8e79d782-04e9-4d55-bcd4-c58dff8df46e run_mode=PAPER strategy=ross_momentum 
+[TRACE] stage=FOCUS_LIST_CREATED cycle_id=8e79d782-04e9-4d55-bcd4-c58dff8df46e run_mode=PAPER strategy=ross_momentum 
+[STRATEGY_AUDIT] strategy=ross_momentum topn_size=1 watchlist_size=1 focus_size=1 open_positions=0
+[MANUAL_FOCUS][CONFIG_PATH] /workspace/ibkr-trading-system/config/manual_focus.json
+[MANUAL_FOCUS][LOAD] enabled=True symbols=['TMDE', 'HURA', 'CYN', 'OCGN'] max=5 reload_seconds=60
+[MANUAL_FOCUS][NORMALIZED] symbols=['TMDE', 'HURA', 'CYN', 'OCGN']
+[MANUAL_FOCUS] update_detected symbols=['TMDE', 'HURA', 'CYN', 'OCGN']
+[MANUAL_FOCUS][ACCEPT] symbol=TMDE reason=DIRECT_OVERRIDE
+[MANUAL_FOCUS][ACCEPT] symbol=HURA reason=DIRECT_OVERRIDE
+[MANUAL_FOCUS][ACCEPT] symbol=CYN reason=DIRECT_OVERRIDE
+[MANUAL_FOCUS][ACCEPT] symbol=OCGN reason=DIRECT_OVERRIDE
+[FINAL_EVAL][MERGE] auto_focus=['AAPL'] manual_focus=['TMDE', 'HURA', 'CYN', 'OCGN'] final=['AAPL']
+[MANUAL_FOCUS][SUMMARY] accepted=4 rejected=0 final_contribution=0
+[FINAL_EVAL][SUMMARY] AUTO_FOCUS_M=['AAPL'] MANUAL_FOCUS=['TMDE', 'HURA', 'CYN', 'OCGN'] FINAL_EVALUATION_SYMBOLS=['AAPL']
+[TRACE] stage=UNIVERSE cycle_id=8e79d782-04e9-4d55-bcd4-c58dff8df46e run_mode=PAPER strategy=ross_momentum top_n=1 symbols=['AAPL']
+[WATCHLIST] size=1 symbols=['AAPL']
+[TRACE] stage=WATCHLIST cycle_id=8e79d782-04e9-4d55-bcd4-c58dff8df46e run_mode=PAPER strategy=ross_momentum watchlist=1 symbols=['AAPL']
+[FOCUS] size=1 symbols=['AAPL']
+[TRACE] stage=FOCUS cycle_id=8e79d782-04e9-4d55-bcd4-c58dff8df46e run_mode=PAPER strategy=ross_momentum focus=1 symbols=['AAPL']
+[STRATEGY] runner=ross_momentum symbol=AAPL stage=evaluate
+[STRATEGY][FORCED_EXECUTION] invoking StrategyRunner regardless of session
+[ROSS][PROCESS_START]
+[ROSS][PATTERN_PIPELINE] ACTIVE
+[ROSS][TRIGGER_PIPELINE] ACTIVE
+[NO_TRADE_REASON] symbol=AAPL reason=NO_SETUP:no_valid_setup_from_runner
+[FOCUS][REASON] AAPL no_pattern
+[TRACE] stage=PATTERN_EVAL cycle_id=8e79d782-04e9-4d55-bcd4-c58dff8df46e run_mode=PAPER strategy=ross_momentum 
+[STRATEGY][NO_SIGNAL] symbol=AAPL reason=no_valid_setup_from_runner
+[TRACE] stage=NO_SETUP cycle_id=8e79d782-04e9-4d55-bcd4-c58dff8df46e run_mode=PAPER strategy=ross_momentum 
+[TRACE] stage=ORDER_SIMULATED cycle_id=8e79d782-04e9-4d55-bcd4-c58dff8df46e run_mode=PAPER strategy=ross_momentum 
+[CYCLE_END] cycle_id=8e79d782-04e9-4d55-bcd4-c58dff8df46e canonical_session=PRE raw_top_n_count=1 candidates_entering_gates=1 survivors_after_gates=1 watchlist_count=1 focus_count_auto=1 focus_count_manual=4 focus_count_final=1 evaluated_count=1 setup_trigger_count=0 no_setup_count=1 intent_count=0 order_submission_count=0 open_positions_count=0 dominant_drop_reasons=NA dominant_no_trade_reasons={'NO_SETUP': 1} execution_allowed=True execution_ready=True focus_source=MIXED
+[PIPELINE] scanner_kept=1 watchlist=1 focus=1 evaluated=1 intents=0
+[TRACE] stage=ACTION cycle_id=8e79d782-04e9-4d55-bcd4-c58dff8df46e run_mode=PAPER strategy=ross_momentum action=None orders=0
+[STRATEGY] No trade intents generated.
+.
+1 passed in 3.24s

@@ -62,6 +62,7 @@ from src.signals.signal_event import SignalEvent
 from src.regime.contracts import RegimePolicyDecision
 from src.config.config_resolver import get_config
 from src.scanner.session_pct_change import canonical_session_label
+from src.scanner.session_contract import build_canonical_session_contract
 
 
 def safe_get_config(key, default=None, required=False):
@@ -272,6 +273,10 @@ class StrategyRunner:
     ) -> List[TradeIntent]:
         strategies = list(self.strategies)
         session_norm = canonical_session_label(session_label or "")
+        session_contract = build_canonical_session_contract(
+            detected_session=session_label,
+            session_decision_source="STRATEGY_RUNNER_INPUT",
+        )
         print("[STRATEGY_RUNNER] START")
 
         run_mode = safe_get_config("RUN_MODE", required=True)
@@ -326,6 +331,11 @@ class StrategyRunner:
             f"prep_only={resolved_prep_only}"
         )
         print(
+            "[STRATEGY_RUNNER][SESSION_CONTRACT] "
+            f"raw={session_contract.raw_detected_session} canonical={session_contract.canonical_session} "
+            f"trigger_profile={session_contract.trigger_profile_id} setup_profile={session_contract.setup_family_profile}"
+        )
+        print(
             "[STRATEGY][PROCESS] "
             f"strategy_key={strategy_key} strategies={len(strategies)} "
             f"watchlist={len(watchlist)} session={session_norm} phase={session_phase}"
@@ -347,6 +357,7 @@ class StrategyRunner:
                         "timestamp_utc": timestamp_utc,
                         "mode": mode,
                         "session_phase": session_phase,
+                        "session_contract": session_contract.to_dict(),
                     }
                 )
                 trade_intents = list(result.get("trade_intents", []))

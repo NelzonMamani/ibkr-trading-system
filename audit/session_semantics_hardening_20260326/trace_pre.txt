@@ -1,0 +1,242 @@
+[CONFIG] Loaded 187 variables
+[CONFIG] HARD enforced: 30
+[CONFIG] Optional: 156
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=DEFAULT)
+[CONFIG] No ambiguous defaults detected
+[SESSION][NONLIVE_FALLBACK] run_mode=PAPER coarse=RTH phase=RTH source=DETERMINISTIC_MODE_POLICY
+[SESSION][TIME] utc=2026-03-26T00:24:22.760869+00:00 ny=2026-03-25T20:24:22.760869-04:00 run_mode=PAPER phase=RTH coarse=RTH
+[SESSION][NONLIVE_FALLBACK] run_mode=PAPER coarse=RTH phase=RTH source=DETERMINISTIC_MODE_POLICY
+[SESSION][TIME] utc=2026-03-26T00:24:22.760869+00:00 ny=2026-03-25T20:24:22.760869-04:00 run_mode=PAPER phase=RTH coarse=RTH
+[ROSS][STATE] reset trading_day=2026-03-26 session=PRE
+[SCANNER] MODE=integrated SESSION=PRE
+[SESSION][MODE] utc=2026-03-26T00:24:22.760869+00:00 ny=2026-03-25T20:24:22.760869-04:00 resolved=PRE canonical=PRE reason=TEST_OVERRIDE forced=PRE forced_source=TEST reference_trading_date=2026-03-25 previous_valid_market_session_date=2026-03-24
+[SESSION][CONTRACT] raw=PRE canonical=PRE source=TEST_OVERRIDE pct_reference=LAST_COMPLETED_RTH_CLOSE gap_reference=SESSION_OPEN_VS_LAST_COMPLETED_RTH_CLOSE expected_volume_model=SESSION_PHASE_EXPECTED_VOLUME:PRE execution_window_allowed=True setup_profile=ROSS_PREMARKET_CONTINUATION trigger_profile=ROSS_TRIGGER_PRE_V1
+[WATCHLIST][BUILD_START]
+candidates_incoming=0
+[DATA_QUALITY] mode=DELAYED
+[DATA_QUALITY][WARNING] DELAYED_DATA_ACTIVE
+[SESSION][RVOL_POLICY] session=PRE watchlist_rvol_min=0.5(STRATEGY) focus_rvol_min=2.0(STRATEGY)
+[CONFIG][ROSS_DEBUG_THRESHOLDS] pct_min=3.0 rvol_min=0.5 source=pct:DEFAULT|rvol:STRATEGY
+[SESSION][PCT_REFERENCE] session=PRE pct_reference=LAST_RTH_CLOSE gap_reference=SESSION_OPEN_VS_LAST_RTH_CLOSE closed_prep_reference=LAST_SESSION_REFERENCE
+[PREP][MODE] session=PRE prep_watchlist_enabled=True seed_enabled=True seed_semantics=PRE_ONLY execution_allowed=True
+[PREP][REFERENCE] session=PRE pct_reference=LAST_RTH_CLOSE gap_reference=SESSION_OPEN_VS_LAST_RTH_CLOSE reference_date=2026-03-25
+[SESSION][EXECUTION_WINDOW] session=PRE execution_allowed=True execution_allowlist=['PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE'] prep_or_closed_mode=False
+[SCANNER][REFRESH]
+cycle_seconds=10
+scanner_refresh_active=True
+last_refresh_utc=2026-03-26T00:24:22.760869+00:00
+next_refresh_due_utc=2026-03-26T00:24:32.760869+00:00
+[SCANNER][POLICY] source=CONFIG_DEFAULTS policy_name=CONFIG_DEFAULTS price=1.0-20.0 gap_min=10.0 watchlist_rvol_min=0.5(STRATEGY) focus_rvol_min=2.0(STRATEGY) float_max_millions=20.0 spread_max_pct=None(STRATEGY) allow_unknown_float=True(STRATEGY) watchlist_k=15 focus_m=5
+[SCANNER][ENTRY] strategy=CONFIG_DEFAULTS strategy_policy_version=v1 requested_top_n=50 watchlist_k=15 focus_m=5 universe=IBKR_TOP_GAINERS universe_source=scanner_request scan_code=TOP_PERC_GAIN scan_code_source=scanner_request instrument=STK instrument_source=scanner_request location=STK.US location_source=scanner_request above_price=1.0 below_price=20.0
+[IBKR][MD] heartbeat ok
+[IBKR][MD] persistent connection active provider=MOCK
+[SCANNER][PROVIDER] provider=MOCK
+[SCANNER][PROVIDER] source=scanner_request
+[SCANNER][LIMITS] Symbol limits (value/source/env)
+[SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=DEFAULT env=-
+[SCANNER][LIMITS] SCANNER_TEACHING_SYMBOL_CAP=0 source=DEFAULT env=-
+[SCANNER][LIMITS] Policy caps top_gainers_n=50 watchlist_k=15 focus_m=5 max_symbols_per_cycle=50
+[SCANNER][LIMITS] requested_top_n=50 requested_top_n_source=scanner_request_or_policy broker_rows_requested=50 broker_rows_source=resolved_symbol_limit effective_internal_processing_limit=50 effective_limit_source=resolved_symbol_limit reductions=['none']
+[SCANNER][LIMITS] Focus list limit=5
+[SCANNER][STAGE] bootstrap
+[SCANNER][RAW_RESULT] broker_symbols=2 provider_symbols=2
+[SCANNER][IBKR] universe_return ibkr_returned_count=2 requested_top_n=50 truncation=True reasons=['ibkr_returned_fewer_than_requested']
+[SCANNER][IBKR][ATTRIBUTION] raw_zero=False reason=broker_returned_candidates effective_location=STK.US.MAJOR effective_scanCode=TOP_PERC_GAIN
+SCANNER_RAW_N=50 returned 2 symbols
+[ROSS][DELTA] new=2 exited=0 unchanged=0 escalated=0
+[FLOAT][CACHE_PATH] path=/workspace/ibkr-trading-system/data/reference/float_cache.json
+[FLOAT][CACHE_PATH] path=/workspace/ibkr-trading-system/data/reference/float_cache.json
+[FLOAT][CACHE_LOAD] path=/workspace/ibkr-trading-system/data/reference/float_cache.json entries=0
+[FLOAT][PROVENANCE] symbol=AAPL reason=cache_missing
+[FLOAT][REQUIRED] symbol=AAPL status=RESOLVING
+[FLOAT][RESOLVE] symbol=AAPL source=UNKNOWN tolerated=True
+[FLOAT][QUEUE] symbol=AAPL queued_for_discovery
+[FLOAT][RESOLVE] symbol=AAPL source=DISCOVERY_QUEUED
+[FLOAT][PROVENANCE] symbol=TSLA reason=cache_missing
+[FLOAT][REQUIRED] symbol=TSLA status=RESOLVING
+[FLOAT][RESOLVE] symbol=TSLA source=UNKNOWN tolerated=True
+[FLOAT][QUEUE] symbol=TSLA queued_for_discovery
+[FLOAT][RESOLVE] symbol=TSLA source=DISCOVERY_QUEUED
+[FLOAT][SUMMARY] requested=2 cache_hits=0 unknown_tolerated=2 discovery_queued=2
+[GATE][THRESHOLDS] pct_min=3.0 rvol_min=0.5
+[SCANNER][STAGE] market_snapshot_enrichment
+[SCANNER][STAGE] gates
+[REFERENCE][CACHE_MISS] symbol=AAPL identity_key=symbol:AAPL|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:AAPL source=cycle
+[REFERENCE][CACHE_MISS] symbol=AAPL identity_key=symbol:AAPL|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:AAPL source=persistent_skipped_no_conid
+[REFERENCE][HISTORICAL_REQUEST] identity_key=symbol:AAPL|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:AAPL source=provider_daily_bars symbol=AAPL conId=None secType=STK exchange=SMART primaryExchange=None localSymbol=AAPL tradingClass=None currency=USD
+[REFERENCE][HISTORICAL_REQUEST_PARAMS] identity_key=symbol:AAPL|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:AAPL attempt=primary useRTH=True endDateTime='' durationStr=25 D
+[REFERENCE][HISTORICAL_ATTEMPT_RESULT] identity_key=symbol:AAPL|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:AAPL attempt=primary raw_bar_count=20 normalized_bar_count=20
+[REFERENCE][HISTORICAL_RESPONSE] identity_key=symbol:AAPL|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:AAPL bar_count=20 first_bar_date=2026-01-01 last_bar_date=2026-01-20
+[REFERENCE_FILTER] total_bars=20 filtered_bars=20 current_day=2026-03-25
+[REFERENCE][HISTORICAL_RESULT] symbol=AAPL identity_key=symbol:AAPL|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:AAPL bar_count=20 first_bar_date=2026-01-01 last_bar_date=2026-01-20 found=True value=9.69 window_days=20 selected_source=HISTORICAL_LAST_RTH_CLOSE
+[RVOL][HISTORICAL_RESULT] symbol=AAPL identity_key=symbol:AAPL|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:AAPL avg_volume_20d=3378599 window_days=20
+[RVOL_DEBUG] symbol=NA session=PRE current_volume=27515675 expected_volume=3378599.0 normalized_rvol=8.14
+[RVOL_DEBUG] symbol=AAPL session=PRE current_volume=27515675.0 expected_volume=3378599.0 normalized_rvol=8.14
+[REFERENCE][MERGE] symbol=AAPL identity_key=symbol:AAPL|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:AAPL merge_target_found=True reference_label=LAST_RTH_CLOSE value=9.69
+[MARKET_CONTEXT] symbol=AAPL session=PRE phase=PRE last=12.07 prev_close=9.69 pct_change=24.56 current_volume=27515675.0 avg_volume_20d=3378599.0 expected_volume=168929.95 rvol=162.88 spread_pct=0.0058 float_millions=None sources=pct:CALC(SESSION_REF)|rvol:PHASE_MODEL|ref:HISTORICAL_LAST_RTH_CLOSE
+[FLOAT][MISSING_CRITICAL] symbol=AAPL
+[FLOAT][REQUIRED] symbol=AAPL status=FAILED
+[FLOAT][PROVENANCE] symbol=AAPL value=None source=UNKNOWN asof=None cache_hit=False
+[ENRICH][SNAPSHOT_MERGE] symbol=AAPL conId=8421739 last=12.07 bid=12.05 ask=12.12 volume=27515675 merge_target_found=False
+[REFERENCE][CACHE_MISS] symbol=AAPL identity_key=conid:8421739 source=cycle
+[REFERENCE][CACHE_MISS] symbol=AAPL identity_key=conid:8421739 source=persistent
+[REFERENCE][HISTORICAL_REQUEST] identity_key=conid:8421739 source=provider_daily_bars symbol=AAPL conId=8421739 secType=STK exchange=SMART primaryExchange=SMART localSymbol=AAPL tradingClass=None currency=USD
+[REFERENCE][HISTORICAL_REQUEST_PARAMS] identity_key=conid:8421739 attempt=primary useRTH=True endDateTime='' durationStr=25 D
+[REFERENCE][HISTORICAL_ATTEMPT_RESULT] identity_key=conid:8421739 attempt=primary raw_bar_count=20 normalized_bar_count=20
+[REFERENCE][HISTORICAL_RESPONSE] identity_key=conid:8421739 bar_count=20 first_bar_date=2026-01-01 last_bar_date=2026-01-20
+[REFERENCE_FILTER] total_bars=20 filtered_bars=20 current_day=2026-03-25
+[REFERENCE][HISTORICAL_RESULT] symbol=AAPL identity_key=conid:8421739 bar_count=20 first_bar_date=2026-01-01 last_bar_date=2026-01-20 found=True value=9.69 window_days=20 selected_source=HISTORICAL_LAST_RTH_CLOSE
+[RVOL][HISTORICAL_RESULT] symbol=AAPL identity_key=conid:8421739 avg_volume_20d=3378599.0 window_days=20
+[REFERENCE][PERSIST] symbol=AAPL identity_key=conid:8421739 path=data/reference/reference_cache.json keys=('conid:8421739',)
+[RVOL_DEBUG] symbol=NA session=PRE current_volume=27515675.0 expected_volume=3378599.0 normalized_rvol=8.14
+[RVOL_DEBUG] symbol=AAPL session=PRE current_volume=27515675.0 expected_volume=3378599.0 normalized_rvol=8.14
+[REFERENCE][RESULT] symbol=AAPL identity_key=conid:8421739 found=True value=9.69 asof=conid:8421739 source=HISTORICAL_LAST_RTH_CLOSE
+[PCT] symbol=AAPL session=PRE baseline=LAST_RTH_CLOSE value=24.56
+[PCT_DEBUG] symbol=AAPL session=PRE reference=LAST_RTH_CLOSE last_price=12.07 reference_price=9.69 pct_change=24.56
+[GAP] symbol=AAPL source=prep reference=LAST_RTH_CLOSE value=24.56
+[RVOL][REQUEST] symbol=AAPL conId=8421739 session=PRE source=intraday_stats
+[RVOL][BASELINE] symbol=AAPL avg_volume_20d=3378599 expected_phase_volume=168929.95 source=SESSION_NORMALIZED_RVOL found=True
+[RVOL][MERGE] symbol=AAPL merge_target_found=True rvol_discovery=162.88 rvol_phase=162.88
+[ROSS][SESSION_CONTRACT] symbol=AAPL canonical=PRE orchestrator_session=PRE scanner_session=PRE policy_session=PRE pattern_input_session=PRE drift=False
+[GATE][PCT] symbol=AAPL pct_change=24.56 source=CALC(SESSION_REF) verdict=PASS reason=VALUE_PRESENT
+[SCANNER][KEEP] symbol=AAPL last=12.07 final_pct=24.56 pct_source=CALC(SESSION_REF) vol=27515675 bid=12.05 ask=12.12 spread=0.0700
+[REFERENCE][CACHE_MISS] symbol=TSLA identity_key=symbol:TSLA|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:TSLA source=cycle
+[REFERENCE][CACHE_MISS] symbol=TSLA identity_key=symbol:TSLA|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:TSLA source=persistent_skipped_no_conid
+[REFERENCE][HISTORICAL_REQUEST] identity_key=symbol:TSLA|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:TSLA source=provider_daily_bars symbol=TSLA conId=None secType=STK exchange=SMART primaryExchange=None localSymbol=TSLA tradingClass=None currency=USD
+[REFERENCE][HISTORICAL_REQUEST_PARAMS] identity_key=symbol:TSLA|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:TSLA attempt=primary useRTH=True endDateTime='' durationStr=25 D
+[REFERENCE][HISTORICAL_ATTEMPT_RESULT] identity_key=symbol:TSLA|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:TSLA attempt=primary raw_bar_count=20 normalized_bar_count=20
+[REFERENCE][HISTORICAL_RESPONSE] identity_key=symbol:TSLA|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:TSLA bar_count=20 first_bar_date=2026-01-01 last_bar_date=2026-01-20
+[REFERENCE_FILTER] total_bars=20 filtered_bars=20 current_day=2026-03-25
+[REFERENCE][HISTORICAL_RESULT] symbol=TSLA identity_key=symbol:TSLA|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:TSLA bar_count=20 first_bar_date=2026-01-01 last_bar_date=2026-01-20 found=True value=8.32 window_days=20 selected_source=HISTORICAL_LAST_RTH_CLOSE
+[RVOL][HISTORICAL_RESULT] symbol=TSLA identity_key=symbol:TSLA|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:TSLA avg_volume_20d=2847998 window_days=20
+[RVOL_DEBUG] symbol=NA session=PRE current_volume=21329714 expected_volume=2847998.0 normalized_rvol=7.49
+[RVOL_DEBUG] symbol=TSLA session=PRE current_volume=21329714.0 expected_volume=2847998.0 normalized_rvol=7.49
+[REFERENCE][MERGE] symbol=TSLA identity_key=symbol:TSLA|sectype:STK|exchange:SMART|primary:NA|trading:NA|currency:USD|local:TSLA merge_target_found=True reference_label=LAST_RTH_CLOSE value=8.32
+[MARKET_CONTEXT] symbol=TSLA session=PRE phase=PRE last=10.15 prev_close=8.32 pct_change=22.0 current_volume=21329714.0 avg_volume_20d=2847998.0 expected_volume=142399.9 rvol=149.79 spread_pct=0.0079 float_millions=None sources=pct:CALC(SESSION_REF)|rvol:PHASE_MODEL|ref:HISTORICAL_LAST_RTH_CLOSE
+[FLOAT][MISSING_CRITICAL] symbol=TSLA
+[FLOAT][REQUIRED] symbol=TSLA status=FAILED
+[FLOAT][PROVENANCE] symbol=TSLA value=None source=UNKNOWN asof=None cache_hit=False
+[ENRICH][SNAPSHOT_MERGE] symbol=TSLA conId=1606420 last=10.15 bid=10.11 ask=10.19 volume=21329714 merge_target_found=False
+[REFERENCE][CACHE_MISS] symbol=TSLA identity_key=conid:1606420 source=cycle
+[REFERENCE][CACHE_MISS] symbol=TSLA identity_key=conid:1606420 source=persistent
+[REFERENCE][HISTORICAL_REQUEST] identity_key=conid:1606420 source=provider_daily_bars symbol=TSLA conId=1606420 secType=STK exchange=SMART primaryExchange=SMART localSymbol=TSLA tradingClass=None currency=USD
+[REFERENCE][HISTORICAL_REQUEST_PARAMS] identity_key=conid:1606420 attempt=primary useRTH=True endDateTime='' durationStr=25 D
+[REFERENCE][HISTORICAL_ATTEMPT_RESULT] identity_key=conid:1606420 attempt=primary raw_bar_count=20 normalized_bar_count=20
+[REFERENCE][HISTORICAL_RESPONSE] identity_key=conid:1606420 bar_count=20 first_bar_date=2026-01-01 last_bar_date=2026-01-20
+[REFERENCE_FILTER] total_bars=20 filtered_bars=20 current_day=2026-03-25
+[REFERENCE][HISTORICAL_RESULT] symbol=TSLA identity_key=conid:1606420 bar_count=20 first_bar_date=2026-01-01 last_bar_date=2026-01-20 found=True value=8.32 window_days=20 selected_source=HISTORICAL_LAST_RTH_CLOSE
+[RVOL][HISTORICAL_RESULT] symbol=TSLA identity_key=conid:1606420 avg_volume_20d=2847998.0 window_days=20
+[REFERENCE][PERSIST] symbol=TSLA identity_key=conid:1606420 path=data/reference/reference_cache.json keys=('conid:1606420',)
+[RVOL_DEBUG] symbol=NA session=PRE current_volume=21329714.0 expected_volume=2847998.0 normalized_rvol=7.49
+[RVOL_DEBUG] symbol=TSLA session=PRE current_volume=21329714.0 expected_volume=2847998.0 normalized_rvol=7.49
+[REFERENCE][RESULT] symbol=TSLA identity_key=conid:1606420 found=True value=8.32 asof=conid:1606420 source=HISTORICAL_LAST_RTH_CLOSE
+[PCT] symbol=TSLA session=PRE baseline=LAST_RTH_CLOSE value=22.0
+[PCT_DEBUG] symbol=TSLA session=PRE reference=LAST_RTH_CLOSE last_price=10.15 reference_price=8.32 pct_change=22.0
+[GAP] symbol=TSLA source=prep reference=LAST_RTH_CLOSE value=22.0
+[RVOL][REQUEST] symbol=TSLA conId=1606420 session=PRE source=intraday_stats
+[RVOL][BASELINE] symbol=TSLA avg_volume_20d=2847998 expected_phase_volume=142399.9 source=SESSION_NORMALIZED_RVOL found=True
+[RVOL][MERGE] symbol=TSLA merge_target_found=True rvol_discovery=149.79 rvol_phase=149.79
+[ROSS][SESSION_CONTRACT] symbol=TSLA canonical=PRE orchestrator_session=PRE scanner_session=PRE policy_session=PRE pattern_input_session=PRE drift=False
+[GATE][PCT] symbol=TSLA pct_change=22.0 source=CALC(SESSION_REF) verdict=PASS reason=VALUE_PRESENT
+[SCANNER][KEEP] symbol=TSLA last=10.15 final_pct=22.00 pct_source=CALC(SESSION_REF) vol=21329714 bid=10.11 ask=10.19 spread=0.0800
+[GATE][PCT][SUMMARY] considered=2 passed=2 failed=0
+AFTER_GATES_SYMBOLS (N=2): ['AAPL', 'TSLA']
+[SCANNER][STAGE] rank
+[SCANNER][STAGE] watchlist
+[WATCHLIST][BUILD_START]
+candidates_incoming=2
+[WATCHLIST][INPUT] session=PRE gated_survivors=2 k=15
+[WATCHLIST][ORDER] symbols=['AAPL', 'TSLA'] ranking_basis=pct_change,rvol,dollar_volume
+[WATCHLIST][PASS] survivor_count=2 <= k=15; all survivors expected unless explicitly rejected
+[SCANNER][SESSION_AWARE] session=PRE prep_mode_seed_enabled=True prep_seed_enabled=True prep_seed_blockers=['none']
+[ENRICH][SUMMARY] candidates=2 snapshot_ok=2 reference_ok=2 pct_ready=2 gap_ready=2 rvol_ready=2 float_ready=0 identity_merge_failures=2
+[DISCOVERY_STATS] pct_change_pass=2 price_pass=2 float_pass=2 watchlist_final=2
+[WATCHLIST][EVAL] symbol=AAPL passed=true reasons=['SELECTED_FOR_WATCHLIST']
+[WATCHLIST][EVAL] symbol=TSLA passed=true reasons=['SELECTED_FOR_WATCHLIST']
+[WATCHLIST][SUMMARY]
+total_incoming=2
+total_passed=2
+total_rejected=0
+dominant_rejection_reasons={}
+[WATCHLIST][SELECT] selected=2 selected_symbols=['AAPL', 'TSLA']
+[WATCHLIST] size=2 symbols=['AAPL', 'TSLA']
+[WATCHLIST][DETAIL] symbol=AAPL pct_change=24.56 rvol=162.88 float=None catalyst=None spread=0.0058
+[WATCHLIST][DETAIL] symbol=TSLA pct_change=22.0 rvol=149.79 float=None catalyst=None spread=0.0079
+[PREP][ARTIFACT]
+session=PRE
+prep_mode_active=True
+prep_seed_enabled=True
+status=LOADED symbols=2
+[PREP][SEED] session=PRE prep_symbols=2 seeded=2 invalidated=0
+[SCANNER][STAGE] enrich
+WATCHLIST_K_SELECTED (K=4): ['AAPL', 'TSLA', 'QQQ', 'SPY']
+[SCANNER][STAGE] print
+[FOCUS_GATE] symbol=AAPL focus_threshold_used=2.0 rvol_metric_used=scanner_rvol rvol_metric_value=162.88 rvol_discovery=162.88 rvol_phase=162.88 reason=PASS_RVOL_THRESHOLD decision=KEEP
+[VOLUME_GATE_POLICY] session=PRE time_ny=20:24 threshold=100000 symbol_volume=27515675 decision=PASS
+[FOCUS_GATE] symbol=AAPL focus_threshold_used=2.0 rvol_metric_used=scanner_rvol rvol_metric_value=162.88 reason=PASS_ALL_FOCUS_GATES decision=PASS
+[FOCUS_GATE] symbol=TSLA focus_threshold_used=2.0 rvol_metric_used=scanner_rvol rvol_metric_value=149.79 rvol_discovery=149.79 rvol_phase=149.79 reason=PASS_RVOL_THRESHOLD decision=KEEP
+[VOLUME_GATE_POLICY] session=PRE time_ny=20:24 threshold=100000 symbol_volume=21329714 decision=PASS
+[FOCUS_GATE] symbol=TSLA focus_threshold_used=2.0 rvol_metric_used=scanner_rvol rvol_metric_value=149.79 reason=PASS_ALL_FOCUS_GATES decision=PASS
+[SCANNER][FOCUS_DROP] symbol=QQQ reason=DROP_MISSING_PRICE
+[SCANNER][FOCUS_DROP] symbol=SPY reason=DROP_MISSING_PRICE
+[SCANNER][SUMMARY] session=PRE candidates=2 survivors=4 watchlist=4 true_gate_pass_count=2 degraded_fallback_survivor_count=0 backfill_count=0 seeded_count=2 focus_eligible_count=0 execution_eligible_count=0 scanner_operational=True qualification_dead=False all_backfilled=False drop_reasons={}
+[SCANNER][RAW_ZERO]
+provider=MOCK
+broker_returned_zero=False
+instrument=STK
+location=STK.US.MAJOR
+scanCode=TOP_PERC_GAIN
+effective_location_code=STK.US.MAJOR
+effective_scan_code=TOP_PERC_GAIN
+retry_attempts=0
+retry_exhausted=False
+returned_rows=2
+requested_top_n=50
+broker_rows_requested=50
+effective_internal_processing_limit=50
+translation_or_truncation_occurred=False
+local_gating_applied=True
+local_gating_eliminated_all=False
+raw_broker_count=2
+candidate_count_entering_gates=2
+survivor_count_after_gates=4
+watchlist_count=4
+focus_count=2
+[SCANNER_OK] topn_count=2
+[WATCHLIST_OK] size=4
+[SCANNER][CONTRACT]
+top_n=50
+watchlist_k=4
+focus_m=2
+contract_valid=True
+[ROSS][PROMOTE] symbol=AAPL from=TOP_UNIVERSE to=WATCHLIST_K reason=LIVE_SCAN
+[ROSS][PROMOTE] symbol=TSLA from=TOP_UNIVERSE to=WATCHLIST_K reason=LIVE_SCAN
+[ROSS][PROMOTE] symbol=AAPL from=WATCHLIST_K to=FOCUS_M reason=SETUP_READY
+[ROSS][PROMOTE] symbol=TSLA from=WATCHLIST_K to=FOCUS_M reason=SETUP_READY
+[SCANNER][DROP_SUMMARY] topn=2 evaluated=2 dropped=0 reasons={}
+[SCANNER][WATCHLIST] session=PRE count=2
+AAPL session=PRE price=$12.07 gap=19.98% LAST_RTH_CLOSE=9.69 ibkr_pct=24.58% pct_change_resolved=24.56% pct_source=CALC(SESSION_REF) gap_pct_resolved=19.98% gap_source=SESSION_OPEN_VS_REF reference_label=LAST_RTH_CLOSE context_status=live_candidate rvol=162.88 rvol_discovery=162.88 rvol_phase=162.88 phase_volume_ratio=NA float=NA vol=27515675 pm=27515675 spread=0.0058% news_flag=YES news_count=0 news_fresh_count=0 float_source=UNKNOWN float_asof=NA execution_ready=False prep_only=False live_rvol_deferred=False prep_seeded=False live_confirmation_pending=False promotion_reason=LIVE_SCAN watchlist_source=LIVE_SCAN source_of_candidate=LIVE_RTH adv20=3378599 adv20_source=INTRADAY_STATS adv20_resolved=True rvol_status=RESOLVED reference_source=HISTORICAL_LAST_RTH_CLOSE reference_quality=PRIMARY reference_resolved=True summary=NA halted=NA ssr=NA dq=BAD score=100.00
+TSLA session=PRE price=$10.15 gap=21.41% LAST_RTH_CLOSE=8.32 ibkr_pct=21.96% pct_change_resolved=22.00% pct_source=CALC(SESSION_REF) gap_pct_resolved=21.41% gap_source=SESSION_OPEN_VS_REF reference_label=LAST_RTH_CLOSE context_status=live_candidate rvol=149.79 rvol_discovery=149.79 rvol_phase=149.79 phase_volume_ratio=NA float=NA vol=21329714 pm=21329714 spread=0.0079% news_flag=YES news_count=0 news_fresh_count=0 float_source=UNKNOWN float_asof=NA execution_ready=False prep_only=False live_rvol_deferred=False prep_seeded=False live_confirmation_pending=False promotion_reason=LIVE_SCAN watchlist_source=LIVE_SCAN source_of_candidate=LIVE_RTH adv20=2847998 adv20_source=INTRADAY_STATS adv20_resolved=True rvol_status=RESOLVED reference_source=HISTORICAL_LAST_RTH_CLOSE reference_quality=PRIMARY reference_resolved=True summary=NA halted=NA ssr=NA dq=BAD score=100.00
+[SCANNER][FOCUS] session=PRE count=2
+AAPL session=PRE price=$12.07 gap=19.98% LAST_RTH_CLOSE=9.69 ibkr_pct=24.58% pct_change_resolved=24.56% pct_source=CALC(SESSION_REF) gap_pct_resolved=19.98% gap_source=SESSION_OPEN_VS_REF reference_label=LAST_RTH_CLOSE context_status=live_candidate rvol=162.88 rvol_discovery=162.88 rvol_phase=162.88 phase_volume_ratio=NA float=NA vol=27515675 pm=27515675 spread=0.0058% news_flag=YES news_count=0 news_fresh_count=0 float_source=UNKNOWN float_asof=NA execution_ready=False prep_only=False live_rvol_deferred=False prep_seeded=False live_confirmation_pending=False promotion_reason=LIVE_SCAN watchlist_source=LIVE_SCAN source_of_candidate=LIVE_RTH adv20=3378599 adv20_source=INTRADAY_STATS adv20_resolved=True rvol_status=RESOLVED reference_source=HISTORICAL_LAST_RTH_CLOSE reference_quality=PRIMARY reference_resolved=True summary=NA halted=NA ssr=NA dq=BAD score=100.00 components=pct_change=55.3,rvol=70.0,dollar_volume=40.0,float_priority_boost=0.0 gates=watch_pct_change=OK watch_rvol=OK watch_float=OK focus_volume=OK focus_spread=OK focus_bid_ask=OK focus_halt=OK focus_ssr=OK focus_dollar_volume=OK catalyst_ok=OK why=NA
+TSLA session=PRE price=$10.15 gap=21.41% LAST_RTH_CLOSE=8.32 ibkr_pct=21.96% pct_change_resolved=22.00% pct_source=CALC(SESSION_REF) gap_pct_resolved=21.41% gap_source=SESSION_OPEN_VS_REF reference_label=LAST_RTH_CLOSE context_status=live_candidate rvol=149.79 rvol_discovery=149.79 rvol_phase=149.79 phase_volume_ratio=NA float=NA vol=21329714 pm=21329714 spread=0.0079% news_flag=YES news_count=0 news_fresh_count=0 float_source=UNKNOWN float_asof=NA execution_ready=False prep_only=False live_rvol_deferred=False prep_seeded=False live_confirmation_pending=False promotion_reason=LIVE_SCAN watchlist_source=LIVE_SCAN source_of_candidate=LIVE_RTH adv20=2847998 adv20_source=INTRADAY_STATS adv20_resolved=True rvol_status=RESOLVED reference_source=HISTORICAL_LAST_RTH_CLOSE reference_quality=PRIMARY reference_resolved=True summary=NA halted=NA ssr=NA dq=BAD score=100.00 components=pct_change=49.5,rvol=70.0,dollar_volume=40.0,float_priority_boost=0.0 gates=watch_pct_change=OK watch_rvol=OK watch_float=OK focus_volume=OK focus_spread=OK focus_bid_ask=OK focus_halt=OK focus_ssr=OK focus_dollar_volume=OK catalyst_ok=OK why=NA
+[ROSS][LIST] TOP_UNIVERSE size=2
+[ROSS][LIST] WATCHLIST_K size=2
+[ROSS][LIST] FOCUS_M size=2
+[ROSS][LIST] REJECTED_TRACKED size=0
+TopN: 2
+GatedSurvivors: 4
+DropReasons: {}
+WATCHLIST_K: ['AAPL', 'TSLA', 'QQQ', 'SPY']
+FOCUS_M: ['AAPL', 'TSLA']
+NEW: ['AAPL', 'QQQ', 'SPY', 'TSLA']
+CONTINUING: []
+DROPPED: []
+[WATCHLIST][SUMMARY]
+total_incoming=0
+total_passed=0
+total_rejected=0
+dominant_rejection_reasons={}
+[WATCHLIST][PIPELINE_EXIT_POINT]
+reason=SUCCESS
