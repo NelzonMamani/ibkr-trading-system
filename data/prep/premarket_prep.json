@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-03-11T10:49:06.468186+00:00",
+  "timestamp": "2026-03-26T15:23:02.097528+00:00",
   "symbols": [
     {
       "symbol": "SPY",
@@ -14,14 +14,14 @@
       "float_source": "missing",
       "float_classification": "standard",
       "float_cache_hit": false,
-      "float_asof": null,
+      "float_asof": "2026-03-25T14:57:01.307189+00:00",
       "news_context": [],
       "news_count": 0,
       "fresh_news_count": 0,
       "stale_news_count": 0,
       "top_news_title": null,
       "top_news_catalyst_tag": null,
-      "news_asof": "2026-03-11T10:48:46.680119+00:00",
+      "news_asof": "2026-03-26T15:22:43.921568+00:00",
       "premarket_high": null,
       "premarket_low": null,
       "prior_day_high": null,
@@ -35,7 +35,7 @@
       "persisted_volume": null,
       "persisted_reference_label": null,
       "persisted_session_label": null,
-      "persisted_asof": null,
+      "persisted_asof": "2026-03-25T14:57:01.307189+00:00",
       "data_quality_flags": [
         "MISSING_FLOAT",
         "PREP_CONTEXT_ONLY"
@@ -65,14 +65,14 @@
       "float_source": "missing",
       "float_classification": "standard",
       "float_cache_hit": false,
-      "float_asof": null,
+      "float_asof": "2026-03-25T14:57:01.307189+00:00",
       "news_context": [],
       "news_count": 0,
       "fresh_news_count": 0,
       "stale_news_count": 0,
       "top_news_title": null,
       "top_news_catalyst_tag": null,
-      "news_asof": "2026-03-11T10:48:46.680119+00:00",
+      "news_asof": "2026-03-26T15:22:43.921568+00:00",
       "premarket_high": null,
       "premarket_low": null,
       "prior_day_high": null,
@@ -86,7 +86,7 @@
       "persisted_volume": null,
       "persisted_reference_label": null,
       "persisted_session_label": null,
-      "persisted_asof": null,
+      "persisted_asof": "2026-03-25T14:57:01.307189+00:00",
       "data_quality_flags": [
         "MISSING_FLOAT",
         "PREP_CONTEXT_ONLY"
