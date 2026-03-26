@@ -31,7 +31,7 @@ from src.config.runtime_config import (
     get_scanner_mode,
 )
 from src.config.system_config import get_current_market_session
-from src.core.active_trade_registry import ActiveTradeRegistry
+from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.data.fundamentals.float_provider import FloatProvider
 from src.data.manual_focus_loader import ManualFocusConfig
@@ -1425,6 +1425,7 @@ class CoreOrchestrator:
             if elapsed < tick_seconds:
                 return
         open_positions = self.trade_registry.snapshot()
+        self._detect_unprotected_positions(open_positions, stage="runtime")
         for trade in open_positions:
             self._trace_event(
                 "POSITION_MANAGE",
@@ -1437,6 +1438,16 @@ class CoreOrchestrator:
             )
             print(f"[POSITION_MANAGE] symbol={trade.symbol} state={getattr(trade.state, 'value', trade.state)}")
         self._last_position_management_tick_utc = now
+
+    def _detect_unprotected_positions(self, open_positions: list[ActiveTrade], *, stage: str) -> None:
+        for trade in open_positions:
+            if getattr(trade, "stop_loss_price", None) is not None:
+                continue
+            print(
+                "[CRITICAL][UNPROTECTED_POSITION] "
+                f"stage={stage} symbol={trade.symbol} trader_type={trade.trader_type} "
+                f"strategy={trade.strategy_name} quantity={trade.quantity}"
+            )
 
     def _log_broker_cycle_diagnostics(self, *, provider: str) -> None:
         health = self.connection_manager.healthcheck()

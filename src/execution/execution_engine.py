@@ -15,11 +15,12 @@ from src.config.runtime_config import (
     get_execution_enabled,
     get_ibkr_readonly_enabled,
 )
-from src.core.active_trade_registry import ActiveTradeRegistry
+from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.core.stop_controller import StopController
 from src.core.managers.runtime_mode_manager import RuntimeModeManager
 from src.execution.execution_providers import ExecutionProvider, PaperExecutionProvider
+from src.execution.exit_plan import compute_stop_price
 from src.execution.order_models import PendingOrderBook
 from src.models.execution_result import ExecutionResult
 from src.models.data_models import RiskDecision
@@ -64,6 +65,7 @@ class ExecutionEngine:
         self._provider = self._resolve_provider(provider)
         self.provider: Optional[ExecutionProvider] = self._provider
         self.broker = getattr(self._provider, "broker", None)
+        self._recover_startup_state()
 
     def _resolve_provider(
         self, provider: Optional[ExecutionProvider]
@@ -86,6 +88,72 @@ class ExecutionEngine:
                 "IBKR_ORDER_SUBMISSION_ENABLED=true, IBKR_READONLY_ENABLED=false, and IBKR_LIVE_PORT=7496."
             )
         return provider
+
+    def _recover_startup_state(self) -> None:
+        if self._provider is None:
+            return
+        try:
+            positions_snapshot = self._provider.get_positions()
+            open_orders = self._provider.get_open_orders()
+        except Exception as exc:
+            print(f"[RECOVERY][STARTUP] broker_snapshot_failed reason={exc}")
+            return
+
+        positions = list(getattr(positions_snapshot, "positions", []) or [])
+        print(
+            "[RECOVERY][STARTUP] "
+            f"provider={self._provider.name()} "
+            f"open_positions={len(positions)} open_orders={len(open_orders)}"
+        )
+        for position in positions:
+            symbol = str(getattr(position, "symbol", "") or "").upper()
+            trader_type = str(getattr(position, "trader_type", "UNKNOWN") or "UNKNOWN")
+            if not symbol:
+                continue
+            if self.trade_registry.get_trade(symbol, trader_type) is not None:
+                print(
+                    "[RECOVERY][DEDUP] "
+                    f"symbol={symbol} trader_type={trader_type} reason=already_registered"
+                )
+                continue
+
+            stop_loss_price = getattr(position, "stop_loss_price", None)
+            quantity = int(getattr(position, "quantity", 0) or 0)
+            if quantity <= 0:
+                continue
+            if stop_loss_price is None:
+                print(
+                    "[CRITICAL][UNPROTECTED_POSITION] "
+                    f"stage=startup_recovery symbol={symbol} trader_type={trader_type} quantity={quantity}"
+                )
+                continue
+
+            entry_tick = int(getattr(position, "entry_tick", 0) or 0)
+            entry_price = float(getattr(position, "entry_price", 0.0) or 0.0)
+            direction = str(getattr(position, "direction", "UNKNOWN") or "UNKNOWN")
+            strategy_name = str(getattr(position, "strategy_name", "UNKNOWN") or "UNKNOWN")
+            take_profit_price = getattr(position, "take_profit_price", None)
+            pattern_name = getattr(position, "pattern_name", None)
+            invalidation_level = getattr(position, "invalidation_level", None)
+
+            recovered_trade = ActiveTrade(
+                symbol=symbol,
+                trader_type=trader_type,
+                entry_tick=entry_tick,
+                entry_price=entry_price,
+                direction=direction,
+                quantity=quantity,
+                strategy_name=strategy_name,
+                stop_loss_price=float(stop_loss_price),
+                take_profit_price=float(take_profit_price) if take_profit_price is not None else None,
+                pattern_name=pattern_name,
+                invalidation_level=float(invalidation_level) if invalidation_level is not None else None,
+            )
+            self.trade_registry.register_trade(recovered_trade)
+            print(
+                "[RECOVERY][RESTORED] "
+                f"symbol={symbol} trader_type={trader_type} quantity={quantity}"
+            )
 
     @staticmethod
     def _max_attempts(trader_type: str) -> int:
@@ -139,6 +207,19 @@ class ExecutionEngine:
             )
 
         tick = self.current_tick if self.current_tick is not None else 0
+        if getattr(risk_decision, "entry_price", None) is None:
+            risk_decision.entry_price = self.price_feed.price_for(risk_decision.symbol, tick)
+        if self.run_mode in {RunMode.PAPER, RunMode.LIVE} and getattr(risk_decision, "stop_loss_price", None) is None:
+            fallback_stop = getattr(risk_decision, "invalidation_level", None)
+            if fallback_stop is None and getattr(risk_decision, "entry_price", None) is not None:
+                fallback_stop = compute_stop_price(
+                    float(risk_decision.entry_price),
+                    str(getattr(risk_decision, "direction", "LONG") or "LONG"),
+                    pattern_name=getattr(risk_decision, "pattern_name", None),
+                    strategy_name=getattr(risk_decision, "strategy_name", None),
+                )
+            risk_decision.stop_loss_price = fallback_stop
+
         idempotency_key = self._resolve_idempotency_key(risk_decision, tick)
         if self._is_duplicate(idempotency_key):
             return self._duplicate_result(risk_decision, idempotency_key)
@@ -152,8 +233,6 @@ class ExecutionEngine:
         if gate_result is not None:
             return gate_result
 
-        if getattr(risk_decision, "entry_price", None) is None:
-            risk_decision.entry_price = self.price_feed.price_for(risk_decision.symbol, tick)
         order = self._order_from_risk_decision(risk_decision, tick)
         required_fields_check = self._validate_required_order_fields(risk_decision, order)
         if required_fields_check is not None:
@@ -429,6 +508,16 @@ class ExecutionEngine:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="invalid_order_fields",
+            )
+        stop_loss_price = getattr(request, "stop_loss_price", None)
+        if self.run_mode in {RunMode.PAPER, RunMode.LIVE} and stop_loss_price is None:
+            print(
+                "[EXECUTION][BLOCK] "
+                f"symbol={request.symbol} trader_type={request.trader_type} reason=missing_stop_loss_price"
+            )
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="MISSING_STOP_LOSS_PRICE",
             )
         return None
 
