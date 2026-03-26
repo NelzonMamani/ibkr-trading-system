@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from uuid import uuid4
 from typing import Optional
+try:
+    from ibapi.order import Order
+except ModuleNotFoundError:  # pragma: no cover - optional dependency missing
+    Order = None  # type: ignore
 
 from src.adapters.brokers.ibkr.ibkr_order_submitter import (
     IbkrOrderSubmitter,
@@ -111,6 +115,7 @@ class IbkrLiveBroker(BaseBroker):
             guard=guard,
             client_provider=self.connection_manager.get_client,
         )
+        self.recover_state_from_broker()
 
     def name(self) -> str:
         return "IBKR_LIVE_BROKER"
@@ -134,6 +139,25 @@ class IbkrLiveBroker(BaseBroker):
         self.connection_manager.disconnect(reason=reason)
 
     def place_order(self, request: BrokerOrderRequest) -> ExecutionResult:
+        if request.stop_loss_price is None:
+            rationale = "missing_stop_loss_price"
+            return ExecutionResult(
+                symbol=request.symbol,
+                trader_type=request.trader_type or "UNKNOWN",
+                attempted=False,
+                status="BLOCKED",
+                rationale=rationale,
+                direction=request.direction,
+                quantity=request.quantity,
+                requested_quantity=request.quantity,
+                filled_quantity=0,
+                remaining_quantity=request.quantity,
+                fill_status="NONE",
+                note=rationale,
+                rejection_reason=rationale,
+                client_order_id=request.client_order_id,
+                attempt_number=request.attempt_number,
+            )
         profile_name = str(get_risk_profile_name() or "NORMAL").upper()
         profile = RISK_PROFILES.get(profile_name)
         if profile and profile.max_shares is not None and request.quantity > profile.max_shares:
@@ -235,10 +259,32 @@ class IbkrLiveBroker(BaseBroker):
                 client_order_id=request.client_order_id,
                 attempt_number=request.attempt_number,
             )
+        bracket_ids: dict[str, int] = {}
         try:
             self.ensure_connection()
-            assert self.submitter is not None
-            result = self.submitter.submit_once(internal_order)
+            assert self.connection_manager is not None
+            client = self.connection_manager.get_client()
+            contract, parent_order = self.translator.translate(internal_order)
+            stop_order = self._build_stop_order(request, internal_order.quantity)
+            target_order = self._build_target_order(request, internal_order.quantity)
+            bracket_ids = client.submit_bracket_order(
+                contract=contract,
+                parent_order=parent_order,
+                stop_order=stop_order,
+                target_order=target_order,
+            )
+            result = self.submitter._result(  # noqa: SLF001 - internal helper reuse
+                internal_order,
+                status="ACKED",
+                error=None,
+                submitted_at=datetime.now(timezone.utc),
+                acked_at=datetime.now(timezone.utc),
+                ibkr_order_id=bracket_ids["entry_order_id"],
+                filled_quantity=0,
+                remaining_quantity=request.quantity,
+                average_fill_price=None,
+                fill_status="NONE",
+            )
         except Exception as exc:
             rationale = f"LIVE_SUBMISSION_FAILED: {exc}"
             return ExecutionResult(
@@ -303,6 +349,10 @@ class IbkrLiveBroker(BaseBroker):
                     take_profit_price=resolved_take_profit,
                     pattern_name=pattern_name,
                     invalidation_level=request.invalidation_level,
+                    entry_order_id=str(bracket_ids.get("entry_order_id")),
+                    stop_order_id=str(bracket_ids.get("stop_order_id")),
+                    target_order_id=str(bracket_ids.get("target_order_id")) if bracket_ids.get("target_order_id") is not None else None,
+                    broker_status="ACKED",
                 )
                 self.event_collector.emit(
                     event_type="PROTECTIVE_STOP_PLACED",
@@ -315,6 +365,9 @@ class IbkrLiveBroker(BaseBroker):
                         "stop_loss_price": float(resolved_stop_loss),
                         "take_profit_price": float(resolved_take_profit),
                         "rationale": "Protective stop assigned immediately upon fill.",
+                        "entry_order_id": active_trade.entry_order_id,
+                        "stop_order_id": active_trade.stop_order_id,
+                        "target_order_id": active_trade.target_order_id,
                         "tick": request.created_tick or 0,
                     },
                 )
@@ -369,6 +422,7 @@ class IbkrLiveBroker(BaseBroker):
                     trader_type=request.trader_type or "UNKNOWN",
                     quantity=0,
                     state=PositionState.FLAT,
+                    stop_order_id=active_trade.stop_order_id,
                 )
                 lifecycle_engine.apply_intent(
                     lifecycle_position,
@@ -415,6 +469,10 @@ class IbkrLiveBroker(BaseBroker):
             rejection_reason=result.rejection_reason or result.error,
             broker_error_code=result.broker_error_code,
             broker_error_message=result.broker_error_message,
+            entry_order_id=str(bracket_ids.get("entry_order_id")),
+            stop_order_id=str(bracket_ids.get("stop_order_id")),
+            target_order_id=str(bracket_ids.get("target_order_id")) if bracket_ids.get("target_order_id") is not None else None,
+            broker_status=status,
         )
 
     def cancel_order(self, client_order_id: str) -> None:
@@ -422,3 +480,144 @@ class IbkrLiveBroker(BaseBroker):
 
     def replace_order(self, client_order_id: str, new_request: BrokerOrderRequest) -> None:
         raise RuntimeError("Live order replace not implemented in LIVE mode.")
+
+    @staticmethod
+    def _build_stop_order(request: BrokerOrderRequest, quantity: int):
+        if Order is None:
+            raise RuntimeError("ibapi dependency missing; cannot build broker-native stop order.")
+        order = Order()
+        order.action = "SELL" if str(request.direction).upper() == "LONG" else "BUY"
+        order.totalQuantity = int(quantity)
+        order.orderType = "STP"
+        order.auxPrice = float(request.stop_loss_price)
+        order.tif = "GTC"
+        order.eTradeOnly = False
+        order.firmQuoteOnly = False
+        order.outsideRth = True
+        return order
+
+    @staticmethod
+    def _build_target_order(request: BrokerOrderRequest, quantity: int):
+        take_profit = request.take_profit_price
+        if take_profit is None:
+            return None
+        if Order is None:
+            raise RuntimeError("ibapi dependency missing; cannot build broker-native target order.")
+        order = Order()
+        order.action = "SELL" if str(request.direction).upper() == "LONG" else "BUY"
+        order.totalQuantity = int(quantity)
+        order.orderType = "LMT"
+        order.lmtPrice = float(take_profit)
+        order.tif = "GTC"
+        order.eTradeOnly = False
+        order.firmQuoteOnly = False
+        order.outsideRth = True
+        return order
+
+    def recover_state_from_broker(self) -> None:
+        try:
+            self.ensure_connection()
+            assert self.connection_manager is not None
+            client = self.connection_manager.get_client()
+            positions = client.get_open_positions_snapshot()
+            open_orders = client.get_open_orders_snapshot()
+        except Exception as exc:
+            print(f"[RECOVERY][WARN] broker state recovery skipped: {exc}")
+            return
+
+        orders_by_symbol: dict[str, dict[str, dict]] = {}
+        for order in open_orders:
+            symbol = str(order.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            symbol_orders = orders_by_symbol.setdefault(symbol, {})
+            order_type = str(order.get("order_type") or "").upper()
+            if order_type == "STP":
+                symbol_orders["stop"] = order
+            elif order_type == "LMT":
+                symbol_orders["target"] = order
+
+        for position in positions:
+            symbol = str(position.get("symbol") or "").upper()
+            qty = int(abs(float(position.get("position") or 0.0)))
+            if not symbol or qty <= 0:
+                continue
+            linked = orders_by_symbol.get(symbol, {})
+            stop_order = linked.get("stop")
+            target_order = linked.get("target")
+            if stop_order is None:
+                self.event_collector.emit(
+                    event_type="[CRITICAL][UNPROTECTED_POSITION]",
+                    source="IbkrLiveBroker",
+                    payload={"symbol": symbol, "reason": "No broker stop order found during recovery."},
+                )
+                continue
+            restored = ActiveTrade(
+                symbol=symbol,
+                trader_type="UNKNOWN",
+                entry_tick=0,
+                entry_price=float(position.get("avg_cost") or 0.0),
+                direction="LONG" if float(position.get("position") or 0.0) > 0 else "SHORT",
+                quantity=qty,
+                strategy_name="RECOVERED",
+                stop_loss_price=float(stop_order.get("aux_price") or 0.0),
+                take_profit_price=float(target_order.get("limit_price")) if target_order else None,
+                entry_order_id=None,
+                stop_order_id=str(stop_order.get("order_id")),
+                target_order_id=str(target_order.get("order_id")) if target_order else None,
+                broker_status=str(stop_order.get("status") or "UNKNOWN"),
+            )
+            self.trade_registry.register_trade(restored)
+
+    def verify_broker_protection(self) -> None:
+        try:
+            self.ensure_connection()
+            assert self.connection_manager is not None
+            client = self.connection_manager.get_client()
+            open_orders = client.get_open_orders_snapshot()
+        except Exception as exc:
+            print(f"[PROTECTION][WARN] protection check skipped: {exc}")
+            return
+
+        stop_symbols = {
+            str(order.get("symbol") or "").upper()
+            for order in open_orders
+            if str(order.get("order_type") or "").upper() == "STP"
+        }
+        for trade in self.trade_registry.snapshot():
+            symbol = str(getattr(trade, "symbol", "") or "").upper()
+            if symbol and symbol not in stop_symbols:
+                self.event_collector.emit(
+                    event_type="[CRITICAL][UNPROTECTED_POSITION]",
+                    source="IbkrLiveBroker",
+                    payload={"symbol": symbol, "reason": "Open position has no active broker stop order."},
+                )
+
+    def sync_trailing_stop(self, symbol: str, order_id: str, new_stop_price: float) -> None:
+        self.ensure_connection()
+        assert self.connection_manager is not None
+        client = self.connection_manager.get_client()
+        open_orders = client.get_open_orders_snapshot()
+        target = next((o for o in open_orders if str(o.get("order_id")) == str(order_id)), None)
+        if target is None:
+            raise RuntimeError(f"Cannot sync trailing stop; order not found order_id={order_id}")
+        contract = self.translator.translate(
+            InternalOrder(
+                client_order_id=f"trail-sync-{symbol}",
+                symbol=symbol,
+                direction="LONG",
+                quantity=1,
+                order_type="MKT",
+            )
+        )[0]
+        stop_order = self._build_stop_order(
+            BrokerOrderRequest(
+                client_order_id=f"trail-sync-{symbol}",
+                symbol=symbol,
+                direction="LONG",
+                quantity=1,
+                stop_loss_price=float(new_stop_price),
+            ),
+            quantity=1,
+        )
+        client.modify_order(int(order_id), contract, stop_order)

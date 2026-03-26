@@ -425,6 +425,15 @@ class ExecutionEngine:
                 risk_decision,
                 rationale="invalid_order_fields",
             )
+        if getattr(request, "stop_loss_price", None) is None:
+            print(
+                "[EXECUTION][BLOCK] "
+                f"symbol={request.symbol} reason=missing_stop_loss_price"
+            )
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="missing_stop_loss_price",
+            )
         return None
 
     def _confirm_broker_ack(

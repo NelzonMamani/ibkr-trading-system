@@ -87,6 +87,10 @@ class IbkrClient(EWrapper, EClient):
         self._ticker_by_req_id: Dict[int, object] = {}
         self._req_id_by_contract_key: Dict[tuple, int] = {}
         self._market_update_event = threading.Event()
+        self._open_orders_event = threading.Event()
+        self._open_orders: Dict[int, Dict[str, object]] = {}
+        self._positions_event = threading.Event()
+        self._positions: Dict[str, Dict[str, object]] = {}
 
     # --- Connection management ---
     def connect(self) -> None:  # type: ignore[override]
@@ -212,6 +216,69 @@ class IbkrClient(EWrapper, EClient):
         )
         self.placeOrder(order_id, contract, order)
         return order_id
+
+    def submit_bracket_order(self, contract: Contract, parent_order, stop_order, target_order=None) -> Dict[str, int]:
+        if not self.is_connected():
+            raise RuntimeError("IBKR client is not connected.")
+        assert_read_only_allows("PLACE_ORDER")
+
+        parent_id = self.reserve_order_id()
+        stop_id = self.reserve_order_id()
+        target_id = self.reserve_order_id() if target_order is not None else None
+
+        parent_order.orderId = parent_id
+        parent_order.transmit = False
+        self._order_status_events[parent_id] = threading.Event()
+        self._exec_details_by_order[parent_id] = []
+
+        stop_order.orderId = stop_id
+        stop_order.parentId = parent_id
+        stop_order.transmit = target_order is None
+        self._order_status_events[stop_id] = threading.Event()
+        self._exec_details_by_order[stop_id] = []
+
+        if target_order is not None:
+            target_order.orderId = target_id
+            target_order.parentId = parent_id
+            target_order.transmit = True
+            self._order_status_events[target_id] = threading.Event()
+            self._exec_details_by_order[target_id] = []
+
+        print(f"[ORDER][BRACKET_SUBMIT] symbol={getattr(contract, 'symbol', None)} parent={parent_id} stop={stop_id} target={target_id}")
+        self.placeOrder(parent_id, contract, parent_order)
+        self.placeOrder(stop_id, contract, stop_order)
+        if target_order is not None and target_id is not None:
+            self.placeOrder(target_id, contract, target_order)
+
+        result: Dict[str, int] = {"entry_order_id": parent_id, "stop_order_id": stop_id}
+        if target_id is not None:
+            result["target_order_id"] = target_id
+        return result
+
+    def modify_order(self, order_id: int, contract: Contract, order) -> None:
+        if not self.is_connected():
+            raise RuntimeError("IBKR client is not connected.")
+        assert_read_only_allows("PLACE_ORDER")
+        order.orderId = int(order_id)
+        self.placeOrder(int(order_id), contract, order)
+
+    def get_open_orders_snapshot(self, timeout_seconds: Optional[int] = None) -> List[Dict[str, object]]:
+        if not self.is_connected():
+            raise RuntimeError("IBKR client is not connected.")
+        self._open_orders = {}
+        self._open_orders_event.clear()
+        self.reqOpenOrders()
+        self._open_orders_event.wait(timeout=timeout_seconds or self.snapshot_timeout_seconds)
+        return list(self._open_orders.values())
+
+    def get_open_positions_snapshot(self, timeout_seconds: Optional[int] = None) -> List[Dict[str, object]]:
+        if not self.is_connected():
+            raise RuntimeError("IBKR client is not connected.")
+        self._positions = {}
+        self._positions_event.clear()
+        self.reqPositions()
+        self._positions_event.wait(timeout=timeout_seconds or self.snapshot_timeout_seconds)
+        return list(self._positions.values())
 
     def wait_for_order_status(
         self, order_id: int, timeout_seconds: int
@@ -828,6 +895,33 @@ class IbkrClient(EWrapper, EClient):
 
     def openOrder(self, orderId, contract, order, orderState):  # type: ignore[override]
         print(f"[ORDER][OPEN] order_id={orderId} symbol={getattr(contract, 'symbol', None)}")
+        self._open_orders[int(orderId)] = {
+            "order_id": int(orderId),
+            "symbol": getattr(contract, "symbol", None),
+            "action": getattr(order, "action", None),
+            "order_type": getattr(order, "orderType", None),
+            "status": getattr(orderState, "status", None),
+            "parent_id": getattr(order, "parentId", None),
+            "aux_price": getattr(order, "auxPrice", None),
+            "limit_price": getattr(order, "lmtPrice", None),
+        }
+
+    def openOrderEnd(self):  # type: ignore[override]
+        self._open_orders_event.set()
+
+    def position(self, account, contract, position, avgCost):  # type: ignore[override]
+        symbol = str(getattr(contract, "symbol", "") or "").upper()
+        if not symbol:
+            return
+        self._positions[symbol] = {
+            "account": account,
+            "symbol": symbol,
+            "position": float(position),
+            "avg_cost": float(avgCost),
+        }
+
+    def positionEnd(self):  # type: ignore[override]
+        self._positions_event.set()
 
     def commissionReport(self, commissionReport):  # type: ignore[override]
         exec_id = getattr(commissionReport, "execId", None)

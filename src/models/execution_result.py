@@ -43,6 +43,10 @@ class ExecutionResult:
     rejection_reason: Optional[str] = None
     broker_error_code: Optional[str] = None
     broker_error_message: Optional[str] = None
+    entry_order_id: Optional[str] = None
+    stop_order_id: Optional[str] = None
+    target_order_id: Optional[str] = None
+    broker_status: Optional[str] = None
     spread: Optional[Decimal] = None
     bid_price: Optional[Decimal] = None
     ask_price: Optional[Decimal] = None

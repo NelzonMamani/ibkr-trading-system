@@ -143,6 +143,7 @@ class IbkrExecutionProvider(ExecutionProvider):
 
     def get_positions(self) -> PositionSnapshot:
         timestamp = datetime.now(timezone.utc).isoformat()
+        self.broker.verify_broker_protection()
         return PositionSnapshot(positions=self.trade_registry.snapshot(), as_of=timestamp)
 
     def get_open_orders(self) -> List[OrderSnapshot]:

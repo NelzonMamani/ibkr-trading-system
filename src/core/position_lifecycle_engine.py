@@ -70,6 +70,7 @@ class PositionLifecycle:
     quantity: int = 0
     state: PositionState = PositionState.FLAT
     stop_loss_price: float | None = None
+    stop_order_id: str | None = None
     trailing_stop_price: float | None = None
     partial_profit_taken: bool = False
     state_history: list[dict] = field(default_factory=list)
@@ -136,11 +137,13 @@ class PositionLifecycleEngine:
         event_collector=None,
         storage_engine: StorageEngine | None = None,
         now_fn: Callable[[], datetime] | None = None,
+        trailing_stop_sync_fn: Callable[[str, str, float], None] | None = None,
     ) -> None:
         self.event_collector = event_collector
         self.storage_engine = storage_engine
         self._seq = 0
         self._now = now_fn or (lambda: datetime.now(timezone.utc))
+        self._trailing_stop_sync_fn = trailing_stop_sync_fn
 
     def _next_seq(self) -> int:
         self._seq += 1
@@ -439,6 +442,8 @@ class PositionLifecycleEngine:
                         "TRAILING_STOP_UPDATE requires OPEN state.",
                     )
                 position.trailing_stop_price = float(reason.split("=")[-1]) if "=" in reason else position.trailing_stop_price
+                if self._trailing_stop_sync_fn and position.trailing_stop_price is not None and position.stop_order_id:
+                    self._trailing_stop_sync_fn(position.symbol, position.stop_order_id, position.trailing_stop_price)
                 transitions.append(
                     self._apply_transition(
                         position=position,

@@ -2846,7 +2846,19 @@ class CoreOrchestrator:
                             )
                             for result in execution_output
                         ],
-                        {"count": len(execution_output), "authority": "execution"},
+                        {
+                            "count": len(execution_output),
+                            "authority": "execution",
+                            "orders_by_symbol": {
+                                str(result.symbol).upper(): {
+                                    "entry_order_id": getattr(result, "entry_order_id", None),
+                                    "stop_order_id": getattr(result, "stop_order_id", None),
+                                    "target_order_id": getattr(result, "target_order_id", None),
+                                    "broker_status": getattr(result, "broker_status", None) or getattr(result, "status", None),
+                                }
+                                for result in execution_output
+                            },
+                        },
                     )
         self._assert_trade_ready_terminal_paths(
             execution_enabled=self.execution_enabled,
@@ -3412,6 +3424,15 @@ class CoreOrchestrator:
                     decision_reason=str(getattr(intent, "rationale", "NONE") or "NONE"),
                 )
                 self.decision_trace_store.upsert(trace)
+            trace = self.decision_trace_store.by_symbol(symbol)
+            orders_by_symbol = stage_payload.get("orders_by_symbol", {}) if isinstance(stage_payload, dict) else {}
+            if trace is not None and isinstance(orders_by_symbol, dict):
+                broker_payload = orders_by_symbol.get(symbol, {})
+                if isinstance(broker_payload, dict):
+                    trace.entry_order_id = broker_payload.get("entry_order_id")
+                    trace.stop_order_id = broker_payload.get("stop_order_id")
+                    trace.target_order_id = broker_payload.get("target_order_id")
+                    trace.broker_status = broker_payload.get("broker_status")
             self.decision_trace_store.update_stage(symbol, stage, stage_payload)
             print(
                 "[TRACE][DECISION] "

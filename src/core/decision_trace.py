@@ -15,6 +15,10 @@ class SymbolDecisionTrace:
     trigger_id: str
     setup_id: str
     decision_reason: str
+    entry_order_id: str | None = None
+    stop_order_id: str | None = None
+    target_order_id: str | None = None
+    broker_status: str | None = None
     stage_results: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 

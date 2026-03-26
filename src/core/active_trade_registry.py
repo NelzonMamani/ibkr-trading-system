@@ -20,6 +20,10 @@ class ActiveTrade:
     strategy_name: str = "UNKNOWN"
     stop_loss_price: Optional[float] = None
     take_profit_price: Optional[float] = None
+    entry_order_id: Optional[str] = None
+    stop_order_id: Optional[str] = None
+    target_order_id: Optional[str] = None
+    broker_status: Optional[str] = None
     pattern_name: Optional[str] = None
     invalidation_level: Optional[float] = None
     state: PositionState = PositionState.FLAT
