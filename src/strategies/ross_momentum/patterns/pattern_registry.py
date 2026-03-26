@@ -111,12 +111,15 @@ class RossPatternRegistry:
                 results.append(
                     PatternResult(
                         setup_id=pattern_id,
+                        setup_family_id=pattern_id,
                         pattern_name=pattern.name,
                         pattern_family=pattern.family,
                         detected=False,
+                        session_valid=False,
                         direction=getattr(pattern, "direction_bias", Direction.NEUTRAL),
                         confidence=0.0,
                         setup_quality_tags=[],
+                        reason_if_false="session_incompatible",
                         rationale_text="Skipped: session incompatible",
                     )
                 )
@@ -134,12 +137,15 @@ class RossPatternRegistry:
                 results.append(
                     PatternResult(
                         setup_id=pattern_id,
+                        setup_family_id=pattern_id,
                         pattern_name=pattern.name,
                         pattern_family=pattern.family,
                         detected=False,
+                        session_valid=True,
                         direction=getattr(pattern, "direction_bias", Direction.NEUTRAL),
                         confidence=0.0,
                         setup_quality_tags=[],
+                        reason_if_false="inactive_placeholder",
                         rationale_text="Skipped: inactive placeholder",
                     )
                 )

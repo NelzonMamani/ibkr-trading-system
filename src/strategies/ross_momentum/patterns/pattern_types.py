@@ -26,12 +26,22 @@ class Direction(str, Enum):
 @dataclass(frozen=True)
 class PatternResult:
     setup_id: str
+    setup_family_id: str
     pattern_name: str
     pattern_family: PatternFamily
     detected: bool
+    session_valid: bool
     direction: Direction
     confidence: float
     setup_quality_tags: List[str]
+    trigger_type: Optional[str] = None
+    trigger_level: Optional[float] = None
+    entry_reference: Optional[str] = None
+    stop_reference: Optional[str] = None
+    invalidation_reference: Optional[str] = None
+    required_confirmations: List[str] = field(default_factory=list)
+    structural_notes: List[str] = field(default_factory=list)
+    non_entry_classification: Optional[str] = None
     tags: List[str] = field(default_factory=list)
     entry_zone: Optional[str] = None
     stop_suggestion: Optional[str] = None
@@ -40,3 +50,4 @@ class PatternResult:
     risk_flags: List[str] = field(default_factory=list)
     data_quality_flags: List[str] = field(default_factory=list)
     rejection_reason: Optional[str] = None
+    reason_if_false: Optional[str] = None

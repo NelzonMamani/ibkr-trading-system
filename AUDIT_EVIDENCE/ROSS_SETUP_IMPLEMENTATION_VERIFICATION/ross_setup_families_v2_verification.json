@@ -1,0 +1,593 @@
+{
+  "generated_at_utc": "2026-03-26T16:33:42.503964+00:00",
+  "families": [
+    {
+      "setup_family_id": "ABCD",
+      "file_paths": [
+        "src/setup_engine/setup_families/ross_families.py"
+      ],
+      "class_name": "ABCDPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "measured_move_trigger",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "ASCENDING_TRIANGLE",
+      "file_paths": [
+        "src/setup_engine/setup_families/pullbacks.py"
+      ],
+      "class_name": "AscendingTriangleBreakoutPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_pattern_resistance",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "BULL_FLAG",
+      "file_paths": [
+        "src/setup_engine/setup_families/momentum.py"
+      ],
+      "class_name": "BullFlagPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_flag_high",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "CONSOLIDATION_BREAKOUT",
+      "file_paths": [
+        "src/setup_engine/setup_families/breakouts.py"
+      ],
+      "class_name": "ConsolidationBreakoutPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_pattern_resistance",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "CUP_HANDLE",
+      "file_paths": [
+        "src/setup_engine/setup_families/ross_families.py"
+      ],
+      "class_name": "CupHandlePattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_pattern_resistance",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "EMA_PULLBACK",
+      "file_paths": [
+        "src/setup_engine/setup_families/pullbacks.py"
+      ],
+      "class_name": "EmaPullbackPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "reclaim_and_hold",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "reclaim_not_confirmed"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "FAILED_ORB_FAKEOUT",
+      "file_paths": [
+        "src/setup_engine/setup_families/ross_families.py"
+      ],
+      "class_name": "FailedOrbFakeoutPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": false,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_below_failed_orb_level",
+        "non_entry_classification": "AVOID"
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "AVOID"
+    },
+    {
+      "setup_family_id": "FIRST_PULLBACK",
+      "file_paths": [
+        "src/setup_engine/setup_families/ross_families.py"
+      ],
+      "class_name": "FirstPullbackPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_pullback_high",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "FLAT_TOP_BREAKOUT",
+      "file_paths": [
+        "src/setup_engine/setup_families/pullbacks.py"
+      ],
+      "class_name": "FlatTopBreakoutPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_pattern_resistance",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "GAP_CONTINUATION",
+      "file_paths": [
+        "src/setup_engine/setup_families/ross_families.py"
+      ],
+      "class_name": "GapGoPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_above_level",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "GAP_FILL",
+      "file_paths": [
+        "src/setup_engine/setup_families/ross_families.py"
+      ],
+      "class_name": "GapFillReversalPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": false,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "gap_fill_reversal_reclaim",
+        "non_entry_classification": "CAUTION"
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "missing prior close or candles"
+      },
+      "classification": "CAUTION"
+    },
+    {
+      "setup_family_id": "GAP_GO",
+      "file_paths": [
+        "src/setup_engine/setup_families/ross_families.py"
+      ],
+      "class_name": "GapGoPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_above_level",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "HALT_RESUME",
+      "file_paths": [
+        "src/setup_engine/setup_families/ross_families.py"
+      ],
+      "class_name": "HaltResumePattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "post_halt_resume_break",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "HOD_BREAK",
+      "file_paths": [
+        "src/setup_engine/setup_families/pullbacks.py"
+      ],
+      "class_name": "HODBreakPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_hod",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "hod_not_broken"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "KEY_LEVEL_BREAK",
+      "file_paths": [
+        "src/setup_engine/setup_families/ross_families.py"
+      ],
+      "class_name": "KeyLevelBreakPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_above_level",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "no key level break"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "MICRO_PULLBACK",
+      "file_paths": [
+        "src/setup_engine/setup_families/momentum.py"
+      ],
+      "class_name": "MicroPullbackPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_pullback_high",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "MOMENTUM_RECLAIM",
+      "file_paths": [
+        "src/setup_engine/setup_families/ross_families.py"
+      ],
+      "class_name": "MomentumReclaimPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "reclaim_and_hold",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "OPENING_DRIVE",
+      "file_paths": [
+        "src/setup_engine/setup_families/pullbacks.py"
+      ],
+      "class_name": "OpeningDrivePattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_above_level",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "OPENING_FAKEOUT",
+      "file_paths": [
+        "src/setup_engine/setup_families/ross_families.py"
+      ],
+      "class_name": "OpeningFakeoutPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": false,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "opening_fakeout_warning",
+        "non_entry_classification": "AVOID"
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "AVOID"
+    },
+    {
+      "setup_family_id": "ORB",
+      "file_paths": [
+        "src/setup_engine/setup_families/breakouts.py"
+      ],
+      "class_name": "OpeningRangeBreakoutPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_opening_range_high",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "PARABOLIC_EXHAUSTION",
+      "file_paths": [
+        "src/setup_engine/setup_families/ross_families.py"
+      ],
+      "class_name": "ParabolicExhaustionPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": false,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "exhaustion_warning",
+        "non_entry_classification": "EXIT"
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "EXIT"
+    },
+    {
+      "setup_family_id": "PENNANT",
+      "file_paths": [
+        "src/setup_engine/setup_families/pullbacks.py"
+      ],
+      "class_name": "PennantBreakPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_pattern_resistance",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "PREMARKET_HIGH_BREAK",
+      "file_paths": [
+        "src/setup_engine/setup_families/breakouts.py"
+      ],
+      "class_name": "PremarketHighBreakPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_premarket_high",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "price below premarket high"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "RANGE_BREAK",
+      "file_paths": [
+        "src/setup_engine/setup_families/pullbacks.py"
+      ],
+      "class_name": "RangeBreakoutPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_pattern_resistance",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "SECOND_PULLBACK",
+      "file_paths": [
+        "src/setup_engine/setup_families/pullbacks.py"
+      ],
+      "class_name": "SecondPullbackPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_pullback_high",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "THREE_BAR_PULLBACK",
+      "file_paths": [
+        "src/setup_engine/setup_families/pullbacks.py"
+      ],
+      "class_name": "ThreeBarPullbackPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_pullback_high",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "TREND_CONTINUATION_STAIR_STEP",
+      "file_paths": [
+        "src/setup_engine/setup_families/pullbacks.py"
+      ],
+      "class_name": "TrendContinuationStairStepPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "break_of_pattern_resistance",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "insufficient candles"
+      },
+      "classification": "ENTRY"
+    },
+    {
+      "setup_family_id": "VWAP_PULLBACK",
+      "file_paths": [
+        "src/setup_engine/setup_families/pullbacks.py"
+      ],
+      "class_name": "VwapPullbackPattern",
+      "setup_logic_real": true,
+      "trigger_logic_real": true,
+      "runtime_invocation_status": "invoked_by_RossPatternRegistry",
+      "can_produce_trade_intent": true,
+      "positive_case": {
+        "detected": true,
+        "trigger_type": "reclaim_and_hold",
+        "non_entry_classification": null
+      },
+      "negative_case": {
+        "detected": false,
+        "reason": "reclaim_not_confirmed"
+      },
+      "classification": "ENTRY"
+    }
+  ]
+}

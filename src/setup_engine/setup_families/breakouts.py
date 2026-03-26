@@ -54,6 +54,13 @@ class PremarketHighBreakPattern(PatternBase):
             stop_suggestion="Below premarket high",
             target_suggestion="HOD extension",
             setup_quality_tags=tags,
+            trigger_type="break_of_premarket_high",
+            trigger_level=level,
+            entry_reference=f"break>{level:.4f}",
+            stop_reference=f"below_premarket_high<{level:.4f}",
+            invalidation_reference=f"close_below<{level:.4f}",
+            required_confirmations=["rvol_min", "spread_ok"],
+            structural_notes=[f"pmh={level:.4f}"],
         )
 
 
@@ -65,7 +72,7 @@ class OpeningRangeBreakoutPattern(PatternBase):
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
         if inputs.session_context != SessionContext.REGULAR:
-            return self._rejected("not regular session", inputs)
+            return self._rejected("not regular session", inputs, session_valid=False)
         if len(inputs.candles) < 6:
             return self._rejected("insufficient candles", inputs)
         opening_range = inputs.candles[:5]
@@ -91,6 +98,13 @@ class OpeningRangeBreakoutPattern(PatternBase):
             stop_suggestion=f"Below range low ({range_low:.2f})",
             target_suggestion="Measured move",
             setup_quality_tags=tags,
+            trigger_type="break_of_opening_range_high",
+            trigger_level=range_high,
+            entry_reference=f"break>{range_high:.4f}",
+            stop_reference=f"below_opening_range_low<{range_low:.4f}",
+            invalidation_reference=f"close_below<{range_low:.4f}",
+            required_confirmations=["volume_expansion", "spread_ok"],
+            structural_notes=[f"or_high={range_high:.4f}", f"or_low={range_low:.4f}"],
         )
 
 
@@ -133,4 +147,11 @@ class ConsolidationBreakoutPattern(PatternBase):
             stop_suggestion="Below consolidation low",
             target_suggestion="Range expansion",
             setup_quality_tags=tags,
+            trigger_type="break_of_pattern_resistance",
+            trigger_level=range_high,
+            entry_reference=f"break>{range_high:.4f}",
+            stop_reference=f"below_consolidation_low<{range_low:.4f}",
+            invalidation_reference=f"close_below<{range_low:.4f}",
+            required_confirmations=["volume_expansion", "spread_ok"],
+            structural_notes=[f"range_width={range_width:.4f}"],
         )

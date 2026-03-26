@@ -53,6 +53,13 @@ class GapGoPattern(PatternBase):
             stop_suggestion="Under premarket high or opening pullback low",
             target_suggestion="Range expansion toward HOD extension",
             setup_quality_tags=["gap_up", "rvol_confirmed", "go_not_fill"],
+            trigger_type="break_above_level",
+            trigger_level=level,
+            entry_reference=f"break>{level:.4f}",
+            stop_reference=f"below_premarket_high<{level:.4f}",
+            invalidation_reference=f"close_below<{level:.4f}",
+            required_confirmations=["rvol_min_1_3", "spread_ok", "volume_ok"],
+            structural_notes=[f"gap_pct={gap_pct:.4f}", f"prior_close={prior_close:.4f}"],
         )
 
 
@@ -92,6 +99,13 @@ class FirstPullbackPattern(PatternBase):
             stop_suggestion="Below pullback low",
             target_suggestion="Retest impulse high then measured extension",
             setup_quality_tags=["first_pullback", "continuation_structure"],
+            trigger_type="break_of_pullback_high",
+            trigger_level=max(c.high for c in pullback),
+            entry_reference=f"break>{max(c.high for c in pullback):.4f}",
+            stop_reference=f"below_pullback_low<{pullback_low:.4f}",
+            invalidation_reference=f"close_below<{pullback_low:.4f}",
+            required_confirmations=["controlled_pullback", "volume_context_ok", "spread_ok"],
+            structural_notes=[f"retrace={pullback_retrace:.4f}"],
         )
 
 
@@ -129,6 +143,13 @@ class MomentumReclaimPattern(PatternBase):
             stop_suggestion="Back below reclaim level",
             target_suggestion="Prior swing high",
             setup_quality_tags=["reclaim", "shakeout_absorbed"],
+            trigger_type="reclaim_and_hold",
+            trigger_level=reclaim_level,
+            entry_reference=f"reclaim>{reclaim_level:.4f}",
+            stop_reference=f"below_reclaim<{reclaim_level:.4f}",
+            invalidation_reference=f"close_below<{reclaim_level:.4f}",
+            required_confirmations=["reclaim_close", "spread_ok"],
+            structural_notes=[f"reclaim={reclaim_level:.4f}"],
         )
 
 
@@ -141,7 +162,7 @@ class FailedOrbFakeoutPattern(PatternBase):
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
         candles = inputs.candles
         if inputs.session_context != SessionContext.REGULAR:
-            return self._rejected("not regular session", inputs)
+            return self._rejected("not regular session", inputs, session_valid=False)
         if len(candles) < 7:
             return self._rejected("insufficient candles", inputs)
         opening = candles[:5]
@@ -167,6 +188,14 @@ class FailedOrbFakeoutPattern(PatternBase):
             target_suggestion="Opening range midpoint/low",
             setup_quality_tags=["orb_failure", "trap_move"],
             risk_flags=["FAKEOUT_VOLATILITY"],
+            trigger_type="break_below_failed_orb_level",
+            trigger_level=range_high,
+            entry_reference=f"fail_back_below<{range_high:.4f}",
+            stop_reference=f"above_probe_high>{probe.high:.4f}",
+            invalidation_reference=f"close_above>{probe.high:.4f}",
+            required_confirmations=["opening_range_defined", "rejection_confirmed"],
+            structural_notes=[f"or_low={range_low:.4f}"],
+            non_entry_classification="AVOID",
         )
 
 
@@ -201,6 +230,14 @@ class GapFillReversalPattern(PatternBase):
             target_suggestion="VWAP / opening range reclaim",
             setup_quality_tags=["gap_fill", "reversal_confirmation"],
             risk_flags=["COUNTERTREND_IF_WEAK"],
+            trigger_type="gap_fill_reversal_reclaim",
+            trigger_level=prev.high,
+            entry_reference=f"break>{prev.high:.4f}",
+            stop_reference=f"below_fill_test_low<{min(c.low for c in recent):.4f}",
+            invalidation_reference=f"close_below<{min(c.low for c in recent):.4f}",
+            required_confirmations=["fill_touch", "reversal_close"],
+            structural_notes=[f"prior_close={prior_close:.4f}"],
+            non_entry_classification="CAUTION",
         )
 
 
@@ -241,6 +278,13 @@ class ABCDPattern(PatternBase):
             stop_suggestion="Below C swing low",
             target_suggestion="1.0-1.27 AB projection",
             setup_quality_tags=["ab_cd", "measured_move"],
+            trigger_type="measured_move_trigger",
+            trigger_level=d.high,
+            entry_reference=f"break>{d.high:.4f}",
+            stop_reference=f"below_c_low<{c.low:.4f}",
+            invalidation_reference=f"close_below<{c.low:.4f}",
+            required_confirmations=["bc_retrace_valid", "cd_extension_valid"],
+            structural_notes=[f"bc_ab={retrace:.4f}", f"cd_ab={extension:.4f}"],
         )
 
 
@@ -282,6 +326,13 @@ class CupHandlePattern(PatternBase):
             stop_suggestion="Below handle low",
             target_suggestion="Cup depth measured move",
             setup_quality_tags=["cup_handle", "base_breakout"],
+            trigger_type="break_of_pattern_resistance",
+            trigger_level=rim,
+            entry_reference=f"break>{rim:.4f}",
+            stop_reference=f"below_handle_low<{handle_low:.4f}",
+            invalidation_reference=f"close_below<{handle_low:.4f}",
+            required_confirmations=["handle_tight", "rim_break"],
+            structural_notes=[f"cup_depth={cup_depth:.4f}", f"handle_depth={handle_depth:.4f}"],
         )
 
 
@@ -292,10 +343,37 @@ class HaltResumePattern(PatternBase):
     direction_bias = Direction.NEUTRAL
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
-        return self._rejected(
-            "disabled_no_halt_tape_in_pattern_inputs",
+        if len(inputs.candles) < 4:
+            return self._rejected("insufficient candles", inputs, direction=Direction.NEUTRAL)
+        halt_ref = inputs.levels.key_levels.get("HALT_RESUME_LEVEL")
+        stabilization_bars = inputs.candles[-3:-1]
+        trigger = inputs.candles[-1]
+        if halt_ref is None:
+            halt_ref = max(c.high for c in stabilization_bars)
+        stable = all((c.high - c.low) / max(c.close, 1e-9) < 0.04 for c in stabilization_bars)
+        vol_ok = trigger.volume >= _avg_volume(inputs.candles, lookback=4) * 1.1
+        if not stable:
+            return self._rejected("post_halt_not_stabilized", inputs, direction=Direction.NEUTRAL)
+        if trigger.close <= halt_ref:
+            return self._rejected("halt_resume_level_not_broken", inputs, direction=Direction.NEUTRAL)
+        if not vol_ok:
+            return self._rejected("post_halt_volume_not_confirmed", inputs, direction=Direction.NEUTRAL)
+        return self._detected(
             inputs,
-            direction=Direction.NEUTRAL,
+            direction=Direction.LONG,
+            confidence=0.66,
+            rationale="Post-halt stabilization with resume break confirmed.",
+            entry_zone="Break above post-halt stabilization range",
+            stop_suggestion="Below stabilization low",
+            target_suggestion="Halt continuation extension",
+            setup_quality_tags=["halt_resume", "stabilized", "volume_confirmed"],
+            trigger_type="post_halt_resume_break",
+            trigger_level=halt_ref,
+            entry_reference=f"break>{halt_ref:.4f}",
+            stop_reference=f"below_stabilization_low<{min(c.low for c in stabilization_bars):.4f}",
+            invalidation_reference=f"close_below<{min(c.low for c in stabilization_bars):.4f}",
+            required_confirmations=["stabilization", "volume_expansion"],
+            structural_notes=[f"halt_ref={halt_ref:.4f}"],
         )
 
 
@@ -332,6 +410,14 @@ class ParabolicExhaustionPattern(PatternBase):
             target_suggestion="VWAP/EMA mean reversion",
             setup_quality_tags=["parabolic", "volume_climax", "rejection_wick"],
             risk_flags=["EXHAUSTION_REVERSAL"],
+            trigger_type="exhaustion_warning",
+            trigger_level=last.low,
+            entry_reference=f"avoid_long_above<{last.high:.4f}",
+            stop_reference=f"n/a_non_entry_{last.high:.4f}",
+            invalidation_reference=f"resume_only_if_hold>{last.high:.4f}",
+            required_confirmations=["climax_volume", "upper_wick_rejection"],
+            structural_notes=[f"acceleration={acceleration:.4f}", f"wick_ratio={wick_ratio:.4f}"],
+            non_entry_classification="EXIT",
         )
 
 
@@ -368,6 +454,13 @@ class KeyLevelBreakPattern(PatternBase):
             stop_suggestion="Back below broken level",
             target_suggestion="Next overhead key level",
             setup_quality_tags=["key_level_break", *sorted(broken)[:2]],
+            trigger_type="break_above_level",
+            trigger_level=max(levels[name] for name in broken),
+            entry_reference=f"break>{max(levels[name] for name in broken):.4f}",
+            stop_reference=f"below_broken_level<{max(levels[name] for name in broken):.4f}",
+            invalidation_reference=f"close_below<{max(levels[name] for name in broken):.4f}",
+            required_confirmations=["break_close_confirmed", "spread_ok"],
+            structural_notes=[f"broken={','.join(sorted(broken))}"],
         )
 
 
@@ -380,7 +473,7 @@ class OpeningFakeoutPattern(PatternBase):
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
         candles = inputs.candles
         if inputs.session_context != SessionContext.REGULAR:
-            return self._rejected("not regular session", inputs)
+            return self._rejected("not regular session", inputs, session_valid=False)
         if len(candles) < 6:
             return self._rejected("insufficient candles", inputs)
         opening = candles[:5]
@@ -404,4 +497,12 @@ class OpeningFakeoutPattern(PatternBase):
             target_suggestion="Opening range midpoint/low",
             setup_quality_tags=["opening_fakeout", "rejection"],
             risk_flags=["OPENING_VOLATILITY"],
+            trigger_type="opening_fakeout_warning",
+            trigger_level=range_high,
+            entry_reference=f"avoid_long_while_below<{range_high:.4f}",
+            stop_reference=f"n/a_non_entry_{last.high:.4f}",
+            invalidation_reference=f"close_above>{last.high:.4f}",
+            required_confirmations=["opening_rejection", "wick_dominant"],
+            structural_notes=[f"or_low={range_low:.4f}"],
+            non_entry_classification="AVOID",
         )

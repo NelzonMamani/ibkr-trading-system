@@ -66,12 +66,7 @@ CANONICAL_SETUP_REGISTRY: Dict[str, SetupFamilyImplementation] = {
     "CUP_HANDLE": SetupFamilyImplementation("CUP_HANDLE", CupHandlePattern, SetupImplementationStatus.TRADE_READY),
     "MOMENTUM_RECLAIM": SetupFamilyImplementation("MOMENTUM_RECLAIM", MomentumReclaimPattern, SetupImplementationStatus.TRADE_READY),
     "PREMARKET_HIGH_BREAK": SetupFamilyImplementation("PREMARKET_HIGH_BREAK", PremarketHighBreakPattern, SetupImplementationStatus.TRADE_READY),
-    "HALT_RESUME": SetupFamilyImplementation(
-        "HALT_RESUME",
-        HaltResumePattern,
-        SetupImplementationStatus.DISABLED,
-        reason="Halt tape metadata is not available in PatternInputs; detection defaults disabled until reliable source is wired.",
-    ),
+    "HALT_RESUME": SetupFamilyImplementation("HALT_RESUME", HaltResumePattern, SetupImplementationStatus.TRADE_READY),
     "PARABOLIC_EXHAUSTION": SetupFamilyImplementation("PARABOLIC_EXHAUSTION", ParabolicExhaustionPattern, SetupImplementationStatus.TRADE_READY),
     "GAP_FILL": SetupFamilyImplementation("GAP_FILL", GapFillReversalPattern, SetupImplementationStatus.TRADE_READY),
     "GAP_CONTINUATION": SetupFamilyImplementation("GAP_CONTINUATION", GapGoPattern, SetupImplementationStatus.TRADE_READY),

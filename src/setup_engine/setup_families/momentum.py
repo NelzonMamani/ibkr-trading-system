@@ -61,7 +61,7 @@ class MicroPullbackPattern(PatternBase):
         impulse_low = min(c.low for c in impulse)
         pullback_low = min(c.low for c in pullback)
         depth = (impulse_high - pullback_low) / max(impulse_high - impulse_low, 1e-9)
-        if depth > 0.45:
+        if depth > 0.65:
             return self._rejected("pullback too deep", inputs)
         pullback_high = max(c.high for c in pullback)
         if trigger.close <= pullback_high:
@@ -96,6 +96,13 @@ class MicroPullbackPattern(PatternBase):
             stop_suggestion="Below pullback low",
             target_suggestion="Prior high / HOD",
             setup_quality_tags=tags,
+            trigger_type="break_of_pullback_high",
+            trigger_level=pullback_high,
+            entry_reference=f"break>{pullback_high:.4f}",
+            stop_reference=f"below_pullback_low<{pullback_low:.4f}",
+            invalidation_reference=f"close_below<{pullback_low:.4f}",
+            required_confirmations=["volume_expansion", "ema9_hold", "spread_ok"],
+            structural_notes=[f"impulse_gain={impulse_gain:.4f}", f"pullback_depth={depth:.4f}"],
         )
 
 
@@ -142,4 +149,11 @@ class BullFlagPattern(PatternBase):
             stop_suggestion="Below flag low",
             target_suggestion="Measured move",
             setup_quality_tags=tags,
+            trigger_type="break_of_flag_high",
+            trigger_level=max(c.high for c in flag),
+            entry_reference=f"break>{max(c.high for c in flag):.4f}",
+            stop_reference=f"below_flag_low<{min(c.low for c in flag):.4f}",
+            invalidation_reference=f"close_below<{min(c.low for c in flag):.4f}",
+            required_confirmations=["volume_expansion", "ema20_hold", "spread_ok"],
+            structural_notes=[f"impulse_gain={impulse_gain:.4f}", f"flag_range={flag_range:.4f}"],
         )

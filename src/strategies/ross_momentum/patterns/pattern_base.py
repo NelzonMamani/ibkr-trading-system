@@ -25,6 +25,10 @@ class PatternBase(ABC):
         inputs: PatternInputs,
         confidence: float = 0.0,
         direction: Optional[Direction] = None,
+        session_valid: bool = True,
+        required_confirmations: Optional[list[str]] = None,
+        structural_notes: Optional[list[str]] = None,
+        non_entry_classification: Optional[str] = None,
     ) -> PatternResult:
         dir_value = direction or self.direction_bias
         rationale = f"Rejected: {reason}"
@@ -33,12 +37,17 @@ class PatternBase(ABC):
         )
         return PatternResult(
             setup_id=self.pattern_id or self.name,
+            setup_family_id=self.pattern_id or self.name,
             pattern_name=self.name,
             pattern_family=self.family,
             detected=False,
+            session_valid=session_valid,
             direction=dir_value,
             confidence=confidence,
             setup_quality_tags=[],
+            required_confirmations=required_confirmations or [],
+            structural_notes=structural_notes or [],
+            non_entry_classification=non_entry_classification,
             tags=[],
             entry_zone=None,
             stop_suggestion=None,
@@ -47,6 +56,7 @@ class PatternBase(ABC):
             risk_flags=[],
             data_quality_flags=inputs.data_quality_flags,
             rejection_reason=reason,
+            reason_if_false=reason,
         )
 
     def _detected(
@@ -60,6 +70,14 @@ class PatternBase(ABC):
         target_suggestion: Optional[str] = None,
         setup_quality_tags: Optional[list[str]] = None,
         risk_flags: Optional[list[str]] = None,
+        trigger_type: Optional[str] = None,
+        trigger_level: Optional[float] = None,
+        entry_reference: Optional[str] = None,
+        stop_reference: Optional[str] = None,
+        invalidation_reference: Optional[str] = None,
+        required_confirmations: Optional[list[str]] = None,
+        structural_notes: Optional[list[str]] = None,
+        non_entry_classification: Optional[str] = None,
     ) -> PatternResult:
         setup_quality_tags = setup_quality_tags or []
         risk_flags = risk_flags or []
@@ -75,12 +93,22 @@ class PatternBase(ABC):
             print(f"  - {line}")
         return PatternResult(
             setup_id=self.pattern_id or self.name,
+            setup_family_id=self.pattern_id or self.name,
             pattern_name=self.name,
             pattern_family=self.family,
             detected=True,
+            session_valid=True,
             direction=direction,
             confidence=confidence,
             setup_quality_tags=setup_quality_tags,
+            trigger_type=trigger_type,
+            trigger_level=trigger_level,
+            entry_reference=entry_reference,
+            stop_reference=stop_reference,
+            invalidation_reference=invalidation_reference,
+            required_confirmations=required_confirmations or [],
+            structural_notes=structural_notes or [],
+            non_entry_classification=non_entry_classification,
             tags=setup_quality_tags,
             entry_zone=entry_zone,
             stop_suggestion=stop_suggestion,
@@ -88,4 +116,5 @@ class PatternBase(ABC):
             rationale_text=rationale,
             risk_flags=risk_flags,
             data_quality_flags=inputs.data_quality_flags,
+            reason_if_false=None,
         )
