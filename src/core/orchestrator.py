@@ -1625,15 +1625,21 @@ class CoreOrchestrator:
             f"MANUAL_FOCUS={manual_focus_accepted_symbols} "
             f"FINAL_EVALUATION_SYMBOLS={final_evaluation_symbols}"
         )
+        for symbol in self._symbols_from_candidates(selected_observations):
+            print(f"[PIPELINE][SCAN] symbol={symbol} stage=SCANNER")
         scanner_kept_count = len(self._symbols_from_candidates(selected_observations))
         self._trace_event("UNIVERSE", {"universe": [{"symbol": s} for s in self._symbols_from_candidates(selected_observations)]})
         if watchlist_symbols:
             print(f"[WATCHLIST] size={len(watchlist_symbols)} symbols={watchlist_symbols}")
+            for symbol in watchlist_symbols:
+                print(f"[PIPELINE][WATCHLIST] symbol={symbol} stage=WATCHLIST")
         else:
             print("[WATCHLIST][EMPTY] reason=no_scanner_candidates_after_gating")
         self._trace_event("WATCHLIST", {"watchlist_symbols": watchlist_symbols})
         if final_evaluation_symbols:
             print(f"[FOCUS] size={len(final_evaluation_symbols)} symbols={final_evaluation_symbols}")
+            for symbol in final_evaluation_symbols:
+                print(f"[PIPELINE][FOCUS] symbol={symbol} stage=FOCUS")
         else:
             print("[FOCUS][EMPTY] reason=no_focus_symbols_after_selection")
         self._trace_event("FOCUS", {"focus": [{"symbol": s} for s in final_evaluation_symbols]})
@@ -2572,6 +2578,14 @@ class CoreOrchestrator:
             decision_output.append(decision_artifact)
             for trade_intent in strategy_output:
                 trade_intent.decision_id = decision_artifact.decision_id
+                quantity = int(
+                    getattr(trade_intent, "quantity", None)
+                    or getattr(trade_intent, "requested_quantity", None)
+                    or 1
+                )
+                quantity = max(1, quantity)
+                setattr(trade_intent, "quantity", quantity)
+                setattr(trade_intent, "requested_quantity", quantity)
                 decision = str(getattr(trade_intent, "decision", "TRADE_READY")).upper()
                 strategy_name = str(getattr(trade_intent, "strategy_name", "")).lower()
                 print(
@@ -2579,6 +2593,7 @@ class CoreOrchestrator:
                     f"symbol={trade_intent.symbol} strategy={strategy_name or 'unknown'} "
                     f"decision={decision}"
                 )
+                print(f"[PIPELINE][INTENT] symbol={trade_intent.symbol} quantity={quantity} decision={decision}")
                 if decision == "TRADE_READY":
                     trade_ready_terminal[trade_intent.symbol] = {"blocked": False, "submitted": False}
                 print(
@@ -2683,6 +2698,10 @@ class CoreOrchestrator:
                             f"symbol={trade_intent.symbol} disposition={risk_disposition} reason={getattr(decision, 'rationale', None)}"
                         )
                     if not decision.allowed or decision.risk_level == "BLOCKED":
+                        print(
+                            "[INTENT_BLOCKED] "
+                            f"reason={getattr(decision, 'rationale', 'RISK_BLOCKED')} symbol={trade_intent.symbol}"
+                        )
                         blocked_symbols.add(trade_intent.symbol)
                         if trade_intent.symbol in trade_ready_terminal:
                             trade_ready_terminal[trade_intent.symbol]["blocked"] = True
@@ -2751,6 +2770,7 @@ class CoreOrchestrator:
                         f"(trader_type={risk_decision.trader_type})"
                     )
                     try:
+                        print(f"[PIPELINE][EXECUTION] symbol={risk_decision.symbol} allowed={bool(getattr(risk_decision, 'allowed', False))}")
                         result = self.execution_engine.execute_trade(risk_decision)
                         execution_output.append(result)
                         if risk_decision.symbol in trade_ready_terminal:
@@ -2759,6 +2779,10 @@ class CoreOrchestrator:
                                 print(
                                     "[EXECUTION][BLOCK] "
                                     f"symbol={risk_decision.symbol} reason={getattr(result, 'rationale', None) or getattr(result, 'rejection_reason', None) or result.status}"
+                                )
+                                print(
+                                    "[INTENT_BLOCKED] "
+                                    f"reason={getattr(result, 'rationale', None) or getattr(result, 'rejection_reason', None) or result.status} symbol={risk_decision.symbol}"
                                 )
                             elif bool(getattr(result, "attempted", False)):
                                 trade_ready_terminal[risk_decision.symbol]["submitted"] = True
@@ -2827,6 +2851,28 @@ class CoreOrchestrator:
         else:
             action_label = "NO_ORDERS"
             action_reason = "No eligible orders to place"
+        trades_executed_count = len(
+            [
+                result
+                for result in execution_output
+                if str(getattr(result, "status", "")).upper() in {"ACKED", "FILLED"}
+                and bool(getattr(result, "attempted", False))
+            ]
+        )
+        if len(final_evaluation_symbols) > 0 and trades_executed_count == 0:
+            intents_created_count = len(strategy_output or [])
+            triggers_fired_count = len(
+                [intent for intent in strategy_output or [] if bool(getattr(intent, "trigger_ready", False))]
+            )
+            setups_detected_count = len(
+                [intent for intent in strategy_output or [] if bool(getattr(intent, "has_valid_pattern", False))]
+            )
+            intents_blocked_count = max(intents_created_count - trades_executed_count, 0)
+            print("[CRITICAL][NO_TRADES]")
+            print(f"- setups_detected_count={setups_detected_count}")
+            print(f"- triggers_fired_count={triggers_fired_count}")
+            print(f"- intents_created_count={intents_created_count}")
+            print(f"- intents_blocked_count={intents_blocked_count}")
         self._trace_event(
             "ACTION",
             {

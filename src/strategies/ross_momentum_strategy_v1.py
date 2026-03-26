@@ -281,13 +281,19 @@ class RossMomentumStrategyV1(BaseStrategy):
             "TRIGGER_REJECTED": 0,
             "READY_FOR_EXECUTION": 0,
         }
+        setups_detected_count = 0
+        triggers_fired_count = 0
+        intents_created_count = 0
         for row in watchlist:
             symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
             if not symbol:
                 continue
+            print(f"[PIPELINE][SCAN] symbol={symbol} status=SEEN")
+            print(f"[PIPELINE][WATCHLIST] symbol={symbol} status=ENROLLED")
             if focus_symbols and str(symbol).upper() not in focus_symbols:
                 print(f"[ROSS][FOCUS][SKIP] symbol={symbol} reason=NOT_IN_FOCUS_LIST")
                 continue
+            print(f"[PIPELINE][FOCUS] symbol={symbol} status=SELECTED")
             print(f"[ROSS][EVAL_START] symbol={symbol}")
             print(f"[ROSS][SYMBOL_START] symbol={symbol}")
             snapshot = snapshots.get(symbol) if isinstance(snapshots, dict) else None
@@ -503,6 +509,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                         fallback_trace.confidence = float(setup.get("confidence", 0.6))
                         pattern_traces.append(fallback_trace)
             if pattern_traces:
+                setups_detected_count += 1
+                print(f"[PIPELINE][SETUP] symbol={symbol} setup_detected=True")
                 selected_setup_name = next((trace.pattern_name for trace in pattern_traces if trace.detected), "UNKNOWN")
                 print(f"[ROSS][SETUP] symbol={symbol} source={setup_source} setup={selected_setup_name}")
                 symbol_trace.setup_stage = {
@@ -547,9 +555,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                         "[ROSS][TRIGGER][FORCED] "
                         f"symbol={symbol} trigger=XL_HOD_BREAK"
                     )
+                    print(f"[PIPELINE][TRIGGER] symbol={symbol} trigger_valid=true type=XL_HOD_BREAK")
+                    triggers_fired_count += 1
                     translated_intents.append(
                         self._build_trade_intent(input_summary, trigger, timestamp_utc=timestamp_utc)
                     )
+                    intents_created_count += 1
                     synthetic_forced_intents += 1
                     symbol_trace.final_outcome = "SETUP_FORCED_STRONG_MOMENTUM"
                     symbol_trace.setup_stage = {"status": "PASS", "reason_code": "FORCED_SETUP_STRONG_MOMENTUM"}
@@ -565,11 +576,14 @@ class RossMomentumStrategyV1(BaseStrategy):
                     input_summary=input_summary,
                 )
                 if forced_intent is not None:
+                    print(f"[PIPELINE][TRIGGER] symbol={symbol} trigger_valid=true type=MOMENTUM_BREAKOUT")
+                    triggers_fired_count += 1
                     translated_intents.append(
                         self._apply_intent_contract_defaults(
                             forced_intent, input_summary, timestamp_utc=timestamp_utc
                         )
                     )
+                    intents_created_count += 1
                     synthetic_forced_intents += 1
                     symbol_trace.final_outcome = "SETUP_FALLBACK_TRIGGERED"
                     symbol_trace.setup_stage = {"status": "PASS", "reason_code": "FALLBACK_SETUP_TRIGGERED"}
@@ -581,6 +595,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     self._failure_trace_collector.record_symbol(symbol_trace)
                     continue
                 symbol_trace.final_outcome = "NO_SETUP:no_valid_pattern"
+                print(f"[PIPELINE][SETUP] symbol={symbol} setup_detected=False")
                 symbol_trace.setup_stage = {"status": "FAIL", "reason_code": "NO_VALID_PATTERN"}
                 symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "NO_SETUP_AVAILABLE"}
                 symbol_trace.final_reason_code = "NO_VALID_PATTERN"
@@ -614,14 +629,16 @@ class RossMomentumStrategyV1(BaseStrategy):
                 pattern_traces=pattern_traces,
                 session_label=session_label,
             )
+            print(f"[PIPELINE][SETUP] symbol={symbol} setup_detected=True pattern={best_pattern.pattern_id}")
             if not confirmation_passed:
-                self._evaluate_trigger(
+                trigger_ready, _ = self._evaluate_trigger(
                     symbol=symbol,
                     selected_pattern=best_pattern,
                     confirmation_passed=False,
                     trigger_name="confirmation_gate",
                     entry_price=None,
                 )
+                print(f"[PIPELINE][TRIGGER] symbol={symbol} trigger_valid={str(bool(trigger_ready)).lower()} reason=confirmation_blocked")
                 symbol_trace.dropped_detected_pattern_ids = [best_pattern.pattern_id]
                 symbol_trace.final_outcome = "NO_SETUP:confirmation_blocked"
                 symbol_trace.confirmation_stage = {
@@ -653,6 +670,14 @@ class RossMomentumStrategyV1(BaseStrategy):
 
             trade = self._build_trade_from_pattern(best_pattern, inputs)
             if not trade:
+                trigger_ready, _ = self._evaluate_trigger(
+                    symbol=symbol,
+                    selected_pattern=best_pattern,
+                    confirmation_passed=True,
+                    trigger_name="first_valid_breakout",
+                    entry_price=None,
+                )
+                print(f"[PIPELINE][TRIGGER] symbol={symbol} trigger_valid={str(bool(trigger_ready)).lower()} reason=invalid_trade_structure")
                 symbol_trace.final_outcome = "NO_SETUP:invalid_trade_structure"
                 symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "INVALID_TRADE_STRUCTURE"}
                 symbol_trace.final_reason_code = "INVALID_TRADE_STRUCTURE"
@@ -683,14 +708,17 @@ class RossMomentumStrategyV1(BaseStrategy):
                 symbol=symbol,
                 selected_pattern=best_pattern,
                 confirmation_passed=True,
-                trigger_name="confirmation_gate",
+                trigger_name="first_valid_breakout",
                 entry_price=entry,
             )
+            print(f"[PIPELINE][TRIGGER] symbol={symbol} trigger_valid={str(bool(trigger_ready)).lower()} trigger_reason={_trigger_reason}")
             symbol_trace.trigger_stage = {
                 "status": "FIRED" if trigger_ready else "ARMED_NOT_FIRED_YET",
                 "reason_code": "TRIGGER_PASS" if trigger_ready else "TRIGGER_NOT_READY",
                 "details": {"pattern": best_pattern.pattern_id, "entry_price": entry},
             }
+            if trigger_ready:
+                triggers_fired_count += 1
 
             intent = TradeIntent(
                 symbol=symbol,
@@ -711,6 +739,8 @@ class RossMomentumStrategyV1(BaseStrategy):
             intent.trigger_ready = trigger_ready
             intent.decision = "TRADE_READY"
             intent = self._apply_intent_contract_defaults(intent, input_summary, timestamp_utc=timestamp_utc)
+            print(f"[PIPELINE][INTENT] symbol={symbol} intent_created=true")
+            intents_created_count += 1
 
             translated_intents.append(intent)
             best_pattern.post_detect_disposition = "translated_to_trade_intent"
@@ -773,6 +803,13 @@ class RossMomentumStrategyV1(BaseStrategy):
 
         if not translated_intents:
             print("[ROSS][WARNING] NO TRADE INTENTS GENERATED")
+        intents_blocked_count = max(setups_detected_count - intents_created_count, 0)
+        if len(watchlist) > 0 and len(translated_intents) == 0:
+            print("[CRITICAL][NO_TRADES]")
+            print(f"- setups_detected_count={setups_detected_count}")
+            print(f"- triggers_fired_count={triggers_fired_count}")
+            print(f"- intents_created_count={intents_created_count}")
+            print(f"- intents_blocked_count={intents_blocked_count}")
         return translated_intents
 
     def _build_fallback_momentum_intent(self, *, symbol: str, input_summary) -> TradeIntent | None:
@@ -1048,11 +1085,19 @@ class RossMomentumStrategyV1(BaseStrategy):
             reason = "entry_price_missing"
             print(f"[ROSS][TRIGGER][ARMED] symbol={symbol} awaiting=entry_price")
             return False, reason
+        aggressive_trigger_map = {
+            "P_HOD_BREAK": "FIRST_NEW_HIGH_BREAKOUT",
+            "P_PREMKT_BREAK": "FIRST_NEW_HIGH_BREAKOUT",
+            "P_MICRO_PULLBACK": "MICRO_PULLBACK_BREAK",
+            "P_FIRST_PULLBACK": "MICRO_PULLBACK_BREAK",
+            "P_RANGE_BREAKOUT": "FLAG_BREAKOUT",
+        }
+        trigger_rule = aggressive_trigger_map.get(str(getattr(selected_pattern, "pattern_id", "")), "FIRST_VALID_BREAKOUT")
         print(
             "[ROSS][TRIGGER][PASS] "
-            f"symbol={symbol} trigger={trigger_name} entry={entry_price}"
+            f"symbol={symbol} trigger={trigger_name} entry={entry_price} rule={trigger_rule}"
         )
-        return True, "trigger_fired"
+        return True, "first_valid_breakout"
 
     @staticmethod
     def _log_no_trade_root_cause(*, symbol: str, pattern: str | None, primary_reason: str, details: list[str]) -> None:
