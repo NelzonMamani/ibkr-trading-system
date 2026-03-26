@@ -1333,15 +1333,12 @@ class CoreOrchestrator:
         cycle_started_at = datetime.now(timezone.utc)
         ny_time = to_ny_time(cycle_started_at)
         uk_time = to_uk_time(cycle_started_at)
-        forced_session_env = str(os.getenv("FORCE_SESSION") or "").strip().upper()
-        forced_session_applied = normalize_session_label(forced_session_env) if forced_session_env else ""
-        if forced_session_env:
+        forced_session = str(os.getenv("FORCE_SESSION") or "").strip().upper()
+        forced_session_applied = normalize_session_label(forced_session) if forced_session else ""
+        if forced_session:
             if not forced_session_applied:
-                forced_session_applied = forced_session_env
-            print(
-                "[SESSION][FORCED_OVERRIDE] "
-                f"requested={forced_session_env} applied={forced_session_applied}"
-            )
+                forced_session_applied = forced_session
+            print(f"[SESSION][FORCED] session={forced_session_applied}")
         session_override = str(get_config("SESSION_PHASE_OVERRIDE") or "").strip().upper()
         session_phase = forced_session_applied or session_override or market_session_phase(cycle_started_at)
         print(
@@ -1678,28 +1675,38 @@ class CoreOrchestrator:
             session_label=session_label,
             timestamp_utc=cycle_started_at.isoformat(),
         )
-        session_execution_allowed = session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
-        if not session_execution_allowed and watchlist_symbols:
-            print("[VALIDATION_OVERRIDE] Forcing strategy execution despite session restrictions")
-        for symbol in self._symbols_from_candidates(strategy_watchlist):
-            print(f"[STRATEGY] runner=ross_momentum symbol={symbol} stage=evaluate")
-        if strategy_watchlist:
-            print("[STRATEGY][FORCED_EXECUTION] invoking StrategyRunner regardless of session")
+        print(f"[ORCHESTRATOR][WATCHLIST_READY] size={len(strategy_watchlist)}")
+        if not strategy_watchlist:
+            print("[ORCHESTRATOR][SKIP] empty_watchlist")
+            strategy_output = []
+        else:
+            print("[ORCHESTRATOR][DISPATCH] sending_watchlist_to_strategy")
+            execution_forced = os.getenv("FORCE_EXECUTION_WINDOW", "false").lower() == "true"
+            if execution_forced:
+                print("[EXECUTION][FORCED] execution_window_override=TRUE")
+            execution_allowed = execution_forced or session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
+
+            for symbol in self._symbols_from_candidates(strategy_watchlist):
+                print(f"[STRATEGY] runner=ross_momentum symbol={symbol} stage=evaluate")
             print("[ROSS][PROCESS_START]")
             print("[ROSS][PATTERN_PIPELINE] ACTIVE")
             print("[ROSS][TRIGGER_PIPELINE] ACTIVE")
-        strategy_output = self.strategy_runner.process(
-            strategy_key=strategy_key,
-            watchlist=strategy_watchlist,
-            snapshots=snapshots_by_symbol,
-            session_label=session_label,
-            timestamp_utc=cycle_started_at.isoformat(),
-            mode=self.run_mode,
-            session_phase=session_phase,
-            execution_allowed=True if strategy_watchlist else session_execution_allowed,
-            execution_ready=True if strategy_watchlist else session_execution_allowed,
-            prep_only=False if strategy_watchlist else session_label in {"AH", "CLOSED"},
-        )
+            strategy_output = self.strategy_runner.process(
+                strategy_key=strategy_key,
+                watchlist=strategy_watchlist,
+                snapshots=snapshots_by_symbol,
+                session_label=session_label,
+                timestamp_utc=cycle_started_at.isoformat(),
+                mode=self.run_mode,
+                session_phase=session_phase,
+                execution_allowed=execution_allowed,
+                execution_ready=execution_allowed,
+                prep_only=False,
+            )
+
+        print(f"[ORCHESTRATOR][INTENTS] count={len(strategy_output) if strategy_output else 0}")
+        if strategy_watchlist and not strategy_output:
+            print("[CRITICAL][STRATEGY_NOT_TRIGGERED] watchlist_present_but_no_intents")
 
         emitted_symbols = {
             getattr(intent, "symbol", None)
