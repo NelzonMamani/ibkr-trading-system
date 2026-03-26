@@ -1344,6 +1344,8 @@ class CoreOrchestrator:
             )
         session_override = str(get_config("SESSION_PHASE_OVERRIDE") or "").strip().upper()
         session_phase = forced_session_applied or session_override or market_session_phase(cycle_started_at)
+        session_phase = os.getenv("FORCE_SESSION") or session_phase
+        print(f"[SESSION][FORCED] session_label={session_phase} session_phase={session_phase}")
         print(
             "[SESSION] "
             f"phase={session_phase} ny_time={ny_time.isoformat()} "
@@ -1672,18 +1674,28 @@ class CoreOrchestrator:
             forced_session_label
             or (selected_watchlist[0].session_label if selected_watchlist else session_phase)
         )
+        session_label = os.getenv("FORCE_SESSION") or session_label
+        session_phase = os.getenv("FORCE_SESSION") or session_phase
+        print(f"[SESSION][FORCED] session_label={session_label} session_phase={session_phase}")
         self.strategy_runner.receive_watchlist_snapshot(
             watchlist_symbols=final_evaluation_symbols,
             snapshots=snapshots_by_symbol,
             session_label=session_label,
             timestamp_utc=cycle_started_at.isoformat(),
         )
+        print(f"[ORCHESTRATOR][WATCHLIST_READY] size={len(strategy_watchlist)}")
+        execution_window_forced = os.getenv("FORCE_EXECUTION_WINDOW", "false").lower() == "true"
+        if execution_window_forced:
+            print("[EXECUTION][FORCED] execution_window_override=TRUE")
         session_execution_allowed = session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
         if not session_execution_allowed and watchlist_symbols:
             print("[VALIDATION_OVERRIDE] Forcing strategy execution despite session restrictions")
         for symbol in self._symbols_from_candidates(strategy_watchlist):
             print(f"[STRATEGY] runner=ross_momentum symbol={symbol} stage=evaluate")
-        if strategy_watchlist:
+        if not strategy_watchlist:
+            print("[ORCHESTRATOR][SKIP] empty_watchlist")
+        else:
+            print("[ORCHESTRATOR][DISPATCH] sending_watchlist_to_strategy")
             print("[STRATEGY][FORCED_EXECUTION] invoking StrategyRunner regardless of session")
             print("[ROSS][PROCESS_START]")
             print("[ROSS][PATTERN_PIPELINE] ACTIVE")
@@ -1696,10 +1708,13 @@ class CoreOrchestrator:
             timestamp_utc=cycle_started_at.isoformat(),
             mode=self.run_mode,
             session_phase=session_phase,
-            execution_allowed=True if strategy_watchlist else session_execution_allowed,
-            execution_ready=True if strategy_watchlist else session_execution_allowed,
+            execution_allowed=execution_window_forced or bool(strategy_watchlist) or session_execution_allowed,
+            execution_ready=execution_window_forced or bool(strategy_watchlist) or session_execution_allowed,
             prep_only=False if strategy_watchlist else session_label in {"AH", "CLOSED"},
         )
+        print(f"[ORCHESTRATOR][INTENTS] count={len(strategy_output) if strategy_output else 0}")
+        if strategy_watchlist and (not strategy_output):
+            print("[CRITICAL][STRATEGY_NOT_TRIGGERED] watchlist_present_but_no_intents")
 
         emitted_symbols = {
             getattr(intent, "symbol", None)
@@ -2212,6 +2227,9 @@ class CoreOrchestrator:
         session_label = normalize_session_label(
             (getattr(watchlist_rows[0], "session", "") if watchlist_rows else session_phase)
         )
+        session_label = os.getenv("FORCE_SESSION") or session_label
+        session_phase = os.getenv("FORCE_SESSION") or session_phase
+        print(f"[SESSION][FORCED] session_label={session_label} session_phase={session_phase}")
         timestamp_utc = scanner_watchlist_payload.get("timestamp_utc") or datetime.now(
             timezone.utc
         ).isoformat()
@@ -2419,9 +2437,17 @@ class CoreOrchestrator:
             )
 
             if not strategy_watchlist:
+                print(f"[ORCHESTRATOR][WATCHLIST_READY] size={len(strategy_watchlist)}")
+                print("[ORCHESTRATOR][SKIP] empty_watchlist")
                 print("[STRATEGY][SKIP] empty watchlist — no execution")
                 strategy_output = []
             else:
+                print(f"[ORCHESTRATOR][WATCHLIST_READY] size={len(strategy_watchlist)}")
+                print("[ORCHESTRATOR][DISPATCH] sending_watchlist_to_strategy")
+                execution_allowed = os.getenv("FORCE_EXECUTION_WINDOW", "false").lower() == "true"
+                if execution_allowed:
+                    print("[EXECUTION][FORCED] execution_window_override=TRUE")
+                execution_allowed = execution_allowed or session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
                 print("[STRATEGY][EXECUTION] FORCED execution ON")
 
                 strategy_output = self.strategy_runner.process(
@@ -2432,10 +2458,13 @@ class CoreOrchestrator:
                     timestamp_utc=timestamp_utc,
                     mode=self.run_mode,
                     session_phase=session_phase,
-                    execution_allowed=True,
-                    execution_ready=True,
+                    execution_allowed=execution_allowed,
+                    execution_ready=execution_allowed,
                     prep_only=False,
                 )
+            print(f"[ORCHESTRATOR][INTENTS] count={len(strategy_output) if strategy_output else 0}")
+            if strategy_watchlist and (not strategy_output):
+                print("[CRITICAL][STRATEGY_NOT_TRIGGERED] watchlist_present_but_no_intents")
             strategy_output = self._merge_trade_intents([], strategy_output)
             strategy_output = self._annotate_trade_intents_with_regime(
                 strategy_output,
