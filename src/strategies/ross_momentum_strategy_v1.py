@@ -43,6 +43,14 @@ PATTERN_PRIORITY = {
     "P_SECOND_PULLBACK": 25,
 }
 
+TERMINAL_CATEGORY = {
+    "DATA_BLOCKED": "DATA_BLOCKED",
+    "SETUP_NOT_FOUND": "SETUP_NOT_FOUND",
+    "SETUP_FOUND_CONFIRMATION_BLOCKED": "SETUP_FOUND_CONFIRMATION_BLOCKED",
+    "SETUP_FOUND_TRIGGER_NOT_READY": "SETUP_FOUND_TRIGGER_NOT_READY",
+    "INTENT_CREATED": "INTENT_CREATED",
+}
+
 
 class RossMomentumStrategyV1(BaseStrategy):
     """Deterministic momentum strategy that converts signals into TradeIntents."""
@@ -317,6 +325,9 @@ class RossMomentumStrategyV1(BaseStrategy):
             "TRIGGER_REJECTED": 0,
             "READY_FOR_EXECUTION": 0,
         }
+
+        def _terminal(symbol: str, category: str, reason: str) -> None:
+            print(f"[ROSS][TERMINAL] symbol={symbol} category={category} reason={reason}")
         for row in watchlist:
             symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
             if not symbol:
@@ -426,30 +437,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                 inputs=inputs,
             )
             if block_reasons:
-                forced_intent = self._build_fallback_momentum_intent(
-                    symbol=symbol,
-                    input_summary=input_summary,
-                )
-                if forced_intent is not None:
-                    translated_intents.append(
-                        self._apply_intent_contract_defaults(
-                            forced_intent, input_summary, timestamp_utc=timestamp_utc
-                        )
-                    )
-                    synthetic_forced_intents += 1
-                    symbol_trace.final_outcome = "SETUP_FALLBACK_TRIGGERED_DATA_BLOCK_OVERRIDE"
-                    symbol_trace.setup_stage = {"status": "PASS", "reason_code": "FALLBACK_SETUP_TRIGGERED_FROM_CONTEXT"}
-                    symbol_trace.trigger_stage = {"status": "FIRED", "reason_code": "FALLBACK_TRIGGER_PASS"}
-                    symbol_trace.final_reason_code = "INTENT_GENERATED_FROM_DATA_BLOCK_OVERRIDE"
-                    print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
-                    classification_counts["READY_FOR_EXECUTION"] += 1
-                    symbol_traces.append(symbol_trace)
-                    self._failure_trace_collector.record_symbol(symbol_trace)
-                    continue
                 reason_text = ",".join(block_reasons)
                 print(f"[ROSS][DATA_BLOCK] symbol={symbol} reason={reason_text}")
                 print(f"[DATA_CONTRACT_BLOCK] symbol={symbol} reason={reason_text}")
+                print(f"[ROSS][SETUP_REJECT] symbol={symbol} reason=DATA_CONTRACT_BLOCKED")
                 print(f"[CLASSIFICATION] symbol={symbol} category=DATA_BLOCKED")
+                _terminal(symbol, TERMINAL_CATEGORY["DATA_BLOCKED"], reason_text)
                 classification_counts["DATA_BLOCKED"] += 1
                 symbol_trace.pre_registry_failure_reason = f"data_contract_blocked:{reason_text}"
                 symbol_trace.final_outcome = f"NO_SETUP:data_contract_blocked:{reason_text}"
@@ -544,6 +537,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             if pattern_traces:
                 selected_setup_name = next((trace.pattern_name for trace in pattern_traces if trace.detected), "UNKNOWN")
                 print(f"[ROSS][SETUP] symbol={symbol} source={setup_source} setup={selected_setup_name}")
+                print(f"[ROSS][SETUP_FOUND] symbol={symbol} source={setup_source} setup={selected_setup_name}")
                 symbol_trace.setup_stage = {
                     "status": "PASS",
                     "reason_code": "SETUP_DETECTED",
@@ -579,76 +573,6 @@ class RossMomentumStrategyV1(BaseStrategy):
                         "[ROSS][PRE_ACTIVATION] "
                         f"symbol={symbol} setup={pre_activation.get('setup_type')} classification={pre_activation.get('classification')}"
                     )
-                    forced_intent = self._build_fallback_momentum_intent(
-                        symbol=symbol,
-                        input_summary=input_summary,
-                        setup_override=str(pre_activation.get("setup_type")),
-                    )
-                    if forced_intent is not None:
-                        translated_intents.append(
-                            self._apply_intent_contract_defaults(
-                                forced_intent, input_summary, timestamp_utc=timestamp_utc
-                            )
-                        )
-                        symbol_trace.final_outcome = "SETUP_PRE_ACTIVATION_TRIGGERED"
-                        symbol_trace.setup_stage = {"status": "PASS", "reason_code": "PRE_ACTIVATION_SETUP_TRIGGERED"}
-                        symbol_trace.trigger_stage = {"status": "FIRED", "reason_code": "PRE_TRIGGER_PASS"}
-                        symbol_trace.final_reason_code = "INTENT_GENERATED_FROM_PRE_ACTIVATION"
-                        print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
-                        classification_counts["READY_FOR_EXECUTION"] += 1
-                        symbol_traces.append(symbol_trace)
-                        self._failure_trace_collector.record_symbol(symbol_trace)
-                        continue
-                if self._is_strong_momentum(input_summary):
-                    pct_change = self._safe_float(getattr(input_summary, "pct_change", None)) or 0.0
-                    rvol = self._safe_float(getattr(input_summary, "rvol", None)) or 0.0
-                    print(
-                        "[ROSS][SETUP][FORCED] "
-                        f"symbol={symbol} reason=STRONG_MOMENTUM pct={pct_change:.2f} rvol={rvol:.2f}"
-                    )
-                    trigger = {
-                        "type": "XL_HOD_BREAK",
-                        "status": "READY",
-                        "reason": "FORCED_MOMENTUM_ENTRY",
-                        "source": "fallback",
-                    }
-                    print(
-                        "[ROSS][TRIGGER][FORCED] "
-                        f"symbol={symbol} trigger=XL_HOD_BREAK"
-                    )
-                    translated_intents.append(
-                        self._build_trade_intent(input_summary, trigger, timestamp_utc=timestamp_utc)
-                    )
-                    synthetic_forced_intents += 1
-                    symbol_trace.final_outcome = "SETUP_FORCED_STRONG_MOMENTUM"
-                    symbol_trace.setup_stage = {"status": "PASS", "reason_code": "FORCED_SETUP_STRONG_MOMENTUM"}
-                    symbol_trace.trigger_stage = {"status": "FIRED", "reason_code": "FORCED_TRIGGER_STRONG_MOMENTUM"}
-                    symbol_trace.final_reason_code = "INTENT_GENERATED_FROM_STRONG_MOMENTUM_FORCE"
-                    print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
-                    classification_counts["READY_FOR_EXECUTION"] += 1
-                    symbol_traces.append(symbol_trace)
-                    self._failure_trace_collector.record_symbol(symbol_trace)
-                    continue
-                forced_intent = self._build_fallback_momentum_intent(
-                    symbol=symbol,
-                    input_summary=input_summary,
-                )
-                if forced_intent is not None:
-                    translated_intents.append(
-                        self._apply_intent_contract_defaults(
-                            forced_intent, input_summary, timestamp_utc=timestamp_utc
-                        )
-                    )
-                    synthetic_forced_intents += 1
-                    symbol_trace.final_outcome = "SETUP_FALLBACK_TRIGGERED"
-                    symbol_trace.setup_stage = {"status": "PASS", "reason_code": "FALLBACK_SETUP_TRIGGERED"}
-                    symbol_trace.trigger_stage = {"status": "FIRED", "reason_code": "FALLBACK_TRIGGER_PASS"}
-                    symbol_trace.final_reason_code = "INTENT_GENERATED_FROM_FALLBACK"
-                    print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
-                    classification_counts["READY_FOR_EXECUTION"] += 1
-                    symbol_traces.append(symbol_trace)
-                    self._failure_trace_collector.record_symbol(symbol_trace)
-                    continue
                 symbol_trace.final_outcome = "NO_SETUP:no_valid_pattern"
                 symbol_trace.setup_stage = {"status": "FAIL", "reason_code": "NO_VALID_PATTERN"}
                 symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "NO_SETUP_AVAILABLE"}
@@ -662,8 +586,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                     symbol_trace.final_outcome = f"NO_SETUP:{pre_classification}"
                     symbol_trace.final_reason_code = pre_classification.upper()
                 print(f"[ROSS][SETUP][FAIL] symbol={symbol} reason=no_valid_pattern")
+                print(f"[ROSS][SETUP_REJECT] symbol={symbol} reason=NO_VALID_PATTERN")
                 print(f"[PATTERN_NO_SETUP] symbol={symbol} dominant_reason=no_valid_pattern")
                 print(f"[CLASSIFICATION] symbol={symbol} category=PATTERN_NO_SETUP")
+                _terminal(symbol, TERMINAL_CATEGORY["SETUP_NOT_FOUND"], pre_classification or "no_valid_pattern")
                 classification_counts["PATTERN_NO_SETUP"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
@@ -711,6 +637,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 print(
                     f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
                 )
+                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=CONFIRMATION_BLOCKED")
+                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_CONFIRMATION_BLOCKED"], "confirmation_blocked")
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
@@ -736,6 +664,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 print(
                     f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
                 )
+                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
+                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], "invalid_trade_structure")
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
@@ -757,6 +687,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             print(f"[ROSS][ENTRY_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} entry={entry}")
             print(f"[ROSS][STOP_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} stop={stop}")
             print(f"[ROSS][TRIGGER][PASS] symbol={symbol} trigger=confirmation_gate")
+            print(f"[ROSS][TRIGGER_PASS] symbol={symbol} trigger=confirmation_gate")
             trigger_ready, _trigger_reason = self._evaluate_trigger(
                 symbol=symbol,
                 selected_pattern=best_pattern,
@@ -782,6 +713,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 stop_loss_price=stop,
                 invalidation_level=stop,
                 pattern_name=best_pattern.pattern_id,
+                setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
+                trigger_id="confirmation_gate",
             )
             intent.entry_price = entry
             intent.has_valid_pattern = bool(getattr(best_pattern, "detected", False))
@@ -809,6 +742,13 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"symbol={symbol} pattern={best_pattern.pattern_id} entry={entry} stop={stop} "
                 f"has_valid_pattern={intent.has_valid_pattern} confirmation_passed={intent.confirmation_passed} trigger_ready={intent.trigger_ready}"
             )
+            print(
+                "[ROSS][INTENT_READY] "
+                f"symbol={symbol} setup_family_id={intent.setup_family_id} trigger_type={intent.trigger_id} "
+                f"entry_reference={intent.entry_price} stop_reference={intent.stop_loss_price} "
+                f"invalidation_reference={intent.invalidation_level}"
+            )
+            _terminal(symbol, TERMINAL_CATEGORY["INTENT_CREATED"], "intent_created")
             print(
                 "[ROSS][FINAL_SELECTION] "
                 f"symbol={symbol} selected_pattern={best_pattern.pattern_id} "
@@ -960,6 +900,28 @@ class RossMomentumStrategyV1(BaseStrategy):
         if getattr(intent, "synthetic", None) is None:
             intent.synthetic = False
         return intent
+
+    @staticmethod
+    def _setup_family_from_pattern_id(pattern_id: str | None) -> str:
+        mapping = {
+            "P_ORB": "ORB",
+            "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
+            "P_OPENING_DRIVE": "OPENING_DRIVE",
+            "P_HOD_BREAK": "HOD_BREAK",
+            "P_FIRST_PULLBACK": "FIRST_PULLBACK",
+            "P_MICRO_PULLBACK": "MICRO_PULLBACK",
+            "P_BULL_FLAG": "BULL_FLAG",
+            "P_CUP_HANDLE": "CUP_HANDLE",
+            "P_MOMENTUM_RECLAIM": "MOMENTUM_RECLAIM",
+            "P_RANGE_BREAKOUT": "RANGE_BREAK",
+            "P_ASCENDING_TRIANGLE_BREAKOUT": "ASCENDING_TRIANGLE",
+            "P_PENNANT_BREAK": "PENNANT",
+            "P_EMA_PULLBACK": "EMA_PULLBACK",
+            "P_VWAP_PULLBACK": "VWAP_PULLBACK",
+            "P_THREE_BAR_PULLBACK": "THREE_BAR_PULLBACK",
+            "P_SECOND_PULLBACK": "SECOND_PULLBACK",
+        }
+        return mapping.get(str(pattern_id or "").upper(), "UNKNOWN")
 
 
     def _select_best_pattern(self, *, symbol: str, pattern_traces):

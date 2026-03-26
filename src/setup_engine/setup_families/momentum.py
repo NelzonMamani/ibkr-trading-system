@@ -28,7 +28,7 @@ class MicroPullbackPattern(PatternBase):
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
         candles = inputs.candles
-        if len(candles) < 7:
+        if len(candles) < 5:
             return self._rejected("insufficient candles", inputs)
         ema9 = inputs.indicators.ema9
         if ema9 is None:
@@ -61,7 +61,7 @@ class MicroPullbackPattern(PatternBase):
         impulse_low = min(c.low for c in impulse)
         pullback_low = min(c.low for c in pullback)
         depth = (impulse_high - pullback_low) / max(impulse_high - impulse_low, 1e-9)
-        if depth > 0.45:
+        if depth > 0.65:
             return self._rejected("pullback too deep", inputs)
         pullback_high = max(c.high for c in pullback)
         if trigger.close <= pullback_high:
