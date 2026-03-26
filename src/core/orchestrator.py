@@ -1638,6 +1638,13 @@ class CoreOrchestrator:
             print("[FOCUS][EMPTY] reason=no_focus_symbols_after_selection")
         self._trace_event("FOCUS", {"focus": [{"symbol": s} for s in final_evaluation_symbols]})
         strategy_watchlist = selected_watchlist or selected_focus
+        if final_evaluation_symbols:
+            focus_only = {symbol.upper() for symbol in final_evaluation_symbols}
+            strategy_watchlist = [
+                candidate
+                for candidate in strategy_watchlist
+                if str(getattr(candidate, "symbol", "")).upper() in focus_only
+            ]
         strategy_evaluation_symbols = self._symbols_from_candidates(strategy_watchlist)
         if not final_evaluation_symbols and strategy_evaluation_symbols:
             print(
@@ -2350,6 +2357,16 @@ class CoreOrchestrator:
                 or list(strategy_context.focus_m)
                 or list(watchlist_rows)
             )
+            focus_only = {
+                str(getattr(candidate, "symbol", "")).upper()
+                for candidate in list(strategy_context.focus_m)
+            }
+            if focus_only:
+                strategy_watchlist = [
+                    candidate
+                    for candidate in strategy_watchlist
+                    if str(getattr(candidate, "symbol", "")).upper() in focus_only
+                ]
             print(
                 "[STRATEGY][HANDOFF] "
                 f"selected_strategy={self.selected_strategy_key or 'ross_momentum'} "
@@ -2371,6 +2388,12 @@ class CoreOrchestrator:
                 or list(strategy_context.focus_m)
                 or list(watchlist_rows)
             )
+            if focus_only:
+                strategy_watchlist = [
+                    candidate
+                    for candidate in strategy_watchlist
+                    if str(getattr(candidate, "symbol", "")).upper() in focus_only
+                ]
 
             print(
                 "[STRATEGY][HANDOFF] "

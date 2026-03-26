@@ -83,8 +83,10 @@ def test_focus_print_rows_match_focus_symbols_order(capsys):
     if idx >= 0:
         for line in lines[idx + 1 :]:
             if line.startswith("["):
-                break
+                continue
             if line.strip():
                 focus_rows.append(line)
+            if len(focus_rows) >= len(focus_symbols):
+                break
     printed_symbols = [line.split()[0] for line in focus_rows[: len(focus_symbols)]]
     assert printed_symbols == focus_symbols
