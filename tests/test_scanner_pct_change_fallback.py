@@ -224,7 +224,7 @@ def _thresholds(*, require_catalyst: bool = False) -> GateThresholds:
 
 def test_pct_change_filters_current_trading_day_partial_bar() -> None:
     provider = _TodayAndPriorBarProvider()
-    context = _build_symbol_context(provider, "AAPL", "RTH", {})
+    context = _build_symbol_context(provider=provider, symbol="AAPL", session_label="RTH", float_cache={})
 
     assert context is not None
     assert context["prev_close"] == 100.0
@@ -267,7 +267,7 @@ def test_reference_resolver_falls_back_when_only_current_day_bar_exists() -> Non
 
 def test_pct_change_fallback_uses_prev_close() -> None:
     provider = _DailyBarProvider()
-    context = _build_symbol_context(provider, "AAPL", "RTH", {})
+    context = _build_symbol_context(provider=provider, symbol="AAPL", session_label="RTH", float_cache={})
 
     assert context is not None
     assert context["prev_close"] == 100.0
@@ -332,7 +332,7 @@ def test_cached_close_fallback_is_degraded_but_qualification_usable(tmp_path: Pa
 
 def test_snapshot_last_price_fallback_is_continuity_only_in_pre() -> None:
     provider = _WeakSnapshotProvider(last=110.0, close=None, volume=180_000, adv20=None)
-    context = _build_symbol_context(provider, "AAPL", "PRE", {})
+    context = _build_symbol_context(provider=provider, symbol="AAPL", session_label="PRE", float_cache={})
 
     assert context is not None
     assert context["reference_source"] == "SNAPSHOT_LAST_PRICE_FALLBACK"
@@ -345,7 +345,7 @@ def test_snapshot_last_price_fallback_is_continuity_only_in_pre() -> None:
 
 
 def test_rth_zero_bars_recovers_reference_from_provider_prev_close() -> None:
-    context = _build_symbol_context(_ProviderPrevCloseFallbackProvider(), "AAPL", "RTH_OPEN", {})
+    context = _build_symbol_context(provider=_ProviderPrevCloseFallbackProvider(), symbol="AAPL", session_label="RTH_OPEN", float_cache={})
     assert context is not None
     assert context["reference_source"] == "PROVIDER_PREV_CLOSE_FALLBACK"
     assert context["reference_quality_tier"] == "SECONDARY"
@@ -360,7 +360,7 @@ def test_rth_zero_bars_recovers_reference_from_provider_prev_close() -> None:
 
 
 def test_rth_zero_bars_recovers_reference_from_quote_close() -> None:
-    context = _build_symbol_context(_QuoteCloseFallbackProvider(), "AAPL", "RTH_OPEN", {})
+    context = _build_symbol_context(provider=_QuoteCloseFallbackProvider(), symbol="AAPL", session_label="RTH_OPEN", float_cache={})
     assert context is not None
     assert context["reference_source"] == "QUOTE_CLOSE_FALLBACK"
     assert context["reference_resolved"] is True
@@ -375,7 +375,7 @@ def test_rth_zero_bars_recovers_reference_from_quote_close() -> None:
 
 def test_retry_history_path_allows_smart_primary_exchange_tolerance() -> None:
     provider = _RetryAwareProvider()
-    context = _build_symbol_context(provider, "AAPL", "RTH_OPEN", {})
+    context = _build_symbol_context(provider=provider, symbol="AAPL", session_label="RTH_OPEN", float_cache={})
 
     assert context is not None
     assert len(provider.calls) == 2
@@ -394,7 +394,7 @@ def test_retry_history_path_allows_smart_primary_exchange_tolerance() -> None:
 def test_trace_toggle_disabled_does_not_emit_targeted_trace(monkeypatch, capsys) -> None:
     monkeypatch.delenv("SCANNER_REFERENCE_TRACE_SYMBOLS", raising=False)
 
-    context = _build_symbol_context(_DailyBarProvider(), "AAPL", "RTH", {})
+    context = _build_symbol_context(provider=_DailyBarProvider(), symbol="AAPL", session_label="RTH", float_cache={})
 
     assert context is not None
     out = capsys.readouterr().out
@@ -404,7 +404,7 @@ def test_trace_toggle_disabled_does_not_emit_targeted_trace(monkeypatch, capsys)
 
 
 def test_qualified_identity_propagates_into_final_context() -> None:
-    context = _build_symbol_context(_IdentityPropagationProvider(), "AAPL", "RTH_OPEN", {})
+    context = _build_symbol_context(provider=_IdentityPropagationProvider(), symbol="AAPL", session_label="RTH_OPEN", float_cache={})
     assert context is not None
     assert context["con_id"] == 9001
     assert context["exchange"] == "SMART"
@@ -415,7 +415,7 @@ def test_qualified_identity_propagates_into_final_context() -> None:
 
 
 def test_quote_fields_are_preserved_in_final_context() -> None:
-    context = _build_symbol_context(_IdentityPropagationProvider(), "AAPL", "RTH_OPEN", {})
+    context = _build_symbol_context(provider=_IdentityPropagationProvider(), symbol="AAPL", session_label="RTH_OPEN", float_cache={})
     assert context is not None
     assert context["last_price"] == 25.0
     assert context["bid"] == 24.5
@@ -426,7 +426,7 @@ def test_quote_fields_are_preserved_in_final_context() -> None:
 
 
 def test_history_attempted_without_bars_does_not_emit_false_history_or_quote_flags() -> None:
-    context = _build_symbol_context(_HistoryAttemptedNoBarsProvider(), "AAPL", "RTH_OPEN", {})
+    context = _build_symbol_context(provider=_HistoryAttemptedNoBarsProvider(), symbol="AAPL", session_label="RTH_OPEN", float_cache={})
     assert context is not None
     assert "HISTORY_DISABLED" not in context["data_quality_flags"]
     assert "CONTRACT_QUALIFY_FAILED" not in context["data_quality_flags"]
@@ -460,7 +460,7 @@ def test_verification_script_runs_against_stubbed_live_like_provider(monkeypatch
 
 def test_rth_synthetic_pct_reference_is_explicitly_degraded_and_not_execution_usable(tmp_path: Path) -> None:
     provider = _SyntheticPctProvider()
-    context = _build_symbol_context(provider, "AAPL", "RTH_OPEN", {})
+    context = _build_symbol_context(provider=provider, symbol="AAPL", session_label="RTH_OPEN", float_cache={})
     assert context is not None
     context["ibkr_change_pct"] = 10.0
     identity = CandidateIdentity.from_mapping({
@@ -535,7 +535,7 @@ def test_rth_synthetic_reference_allows_degraded_focus_but_not_execution(tmp_pat
 
 def test_pre_missing_pct_change_does_not_hard_drop_when_continuity_only() -> None:
     provider = _WeakSnapshotProvider(last=110.0, close=None, volume=180_000, adv20=None)
-    context = _build_symbol_context(provider, "AAPL", "PRE", {})
+    context = _build_symbol_context(provider=provider, symbol="AAPL", session_label="PRE", float_cache={})
     assert context is not None
 
     drop_reason = _evaluate_gates(context, _thresholds())
@@ -545,7 +545,7 @@ def test_pre_missing_pct_change_does_not_hard_drop_when_continuity_only() -> Non
 
 def test_pre_missing_rvol_bypass_requires_strong_anchor() -> None:
     provider = _DailyBarProvider()
-    context = _build_symbol_context(provider, "AAPL", "PRE", {})
+    context = _build_symbol_context(provider=provider, symbol="AAPL", session_label="PRE", float_cache={})
     assert context is not None
     context["rvol"] = None
     context["scanner_rvol"] = None
@@ -563,7 +563,7 @@ def test_pre_missing_rvol_bypass_requires_strong_anchor() -> None:
 
 def test_pre_missing_rvol_without_strong_anchor_is_rejected() -> None:
     provider = _WeakSnapshotProvider(last=110.0, close=None, volume=180_000, adv20=None)
-    context = _build_symbol_context(provider, "AAPL", "PRE", {})
+    context = _build_symbol_context(provider=provider, symbol="AAPL", session_label="PRE", float_cache={})
     assert context is not None
     context["rvol"] = None
     context["scanner_rvol"] = None
@@ -578,8 +578,8 @@ def test_pre_missing_rvol_without_strong_anchor_is_rejected() -> None:
 
 
 def test_fully_qualified_symbol_outranks_degraded_symbol() -> None:
-    qualified = _build_symbol_context(_DailyBarProvider(), "AAPL", "PRE", {})
-    degraded = _build_symbol_context(_WeakSnapshotProvider(last=110.0, close=None, volume=180_000, adv20=None), "MSFT", "PRE", {})
+    qualified = _build_symbol_context(provider=_DailyBarProvider(), symbol="AAPL", session_label="PRE", float_cache={})
+    degraded = _build_symbol_context(provider=_WeakSnapshotProvider(last=110.0, close=None, volume=180_000, adv20=None), symbol="MSFT", session_label="PRE", float_cache={})
     assert qualified is not None and degraded is not None
 
     qualified_score, _ = _score_context(qualified)
@@ -590,7 +590,7 @@ def test_fully_qualified_symbol_outranks_degraded_symbol() -> None:
 
 
 def test_unresolved_reference_cannot_remain_execution_ready() -> None:
-    context = _build_symbol_context(_WeakSnapshotProvider(last=110.0, close=None, volume=180_000, adv20=None), "AAPL", "RTH_OPEN", {})
+    context = _build_symbol_context(provider=_WeakSnapshotProvider(last=110.0, close=None, volume=180_000, adv20=None), symbol="AAPL", session_label="RTH_OPEN", float_cache={})
     assert context is not None
     assert context["reference_source"] == "UNRESOLVED" or context["execution_eligible"] is False
     assert context["execution_ready"] is False
@@ -598,7 +598,7 @@ def test_unresolved_reference_cannot_remain_execution_ready() -> None:
 
 def test_rth_mid_zero_bars_retries_with_use_rth_false_and_recovers_reference() -> None:
     provider = _RetryAwareProvider()
-    context = _build_symbol_context(provider, "AAPL", "RTH_MID", {})
+    context = _build_symbol_context(provider=provider, symbol="AAPL", session_label="RTH_MID", float_cache={})
 
     assert context is not None
     assert context["reference_source"] == "HISTORICAL_LAST_RTH_CLOSE"
@@ -620,7 +620,7 @@ def test_rth_history_qualification_does_not_fail_when_primary_exchange_is_smart(
             contract.primaryExchange = "SMART"
             return [contract]
 
-    context = _build_symbol_context(_QualifiedSmartProvider(), "AAPL", "RTH_MID", {})
+    context = _build_symbol_context(provider=_QualifiedSmartProvider(), symbol="AAPL", session_label="RTH_MID", float_cache={})
 
     assert context is not None
     assert context["reference_source"] == "HISTORICAL_LAST_RTH_CLOSE"
@@ -629,7 +629,7 @@ def test_rth_history_qualification_does_not_fail_when_primary_exchange_is_smart(
 
 def test_rth_mid_excludes_current_day_daily_bar_for_previous_close() -> None:
     provider = _TodayAndPriorBarProvider()
-    context = _build_symbol_context(provider, "AAPL", "RTH_MID", {})
+    context = _build_symbol_context(provider=provider, symbol="AAPL", session_label="RTH_MID", float_cache={})
 
     today, prior = _ny_dates()
     assert context is not None
@@ -731,7 +731,7 @@ def test_current_day_partial_bar_is_not_selected_as_last_rth_close() -> None:
 
 
 def test_closed_session_pct_change_uses_last_rth_close_reference() -> None:
-    context = _build_symbol_context(_DailyBarProvider(), "AAPL", "CLOSED", {})
+    context = _build_symbol_context(provider=_DailyBarProvider(), symbol="AAPL", session_label="CLOSED", float_cache={})
     assert context is not None
     assert context["reference_source"] == "HISTORICAL_LAST_RTH_CLOSE"
     assert context["reference_price"] == 100.0
@@ -739,7 +739,7 @@ def test_closed_session_pct_change_uses_last_rth_close_reference() -> None:
 
 
 def test_closed_session_rvol_uses_explicit_prep_fallback() -> None:
-    context = _build_symbol_context(_DailyBarProvider(volume=50_000, adv20=1_000_000), "AAPL", "CLOSED", {})
+    context = _build_symbol_context(provider=_DailyBarProvider(volume=50_000, adv20=1_000_000), symbol="AAPL", session_label="CLOSED", float_cache={})
     assert context is not None
     assert context["rvol_method"] == "PREP_PHASE_FALLBACK"
     assert context["expected_phase_volume"] == 50_000.0
@@ -772,7 +772,7 @@ def test_reference_missing_is_explicit_hard_fail_when_no_fallback_exists() -> No
 
 
 def test_pre_symbol_survives_pct_gate_with_historical_reference() -> None:
-    context = _build_symbol_context(_DailyBarProvider(), "AAPL", "PRE", {})
+    context = _build_symbol_context(provider=_DailyBarProvider(), symbol="AAPL", session_label="PRE", float_cache={})
     assert context is not None
     assert context["pct_change"] == 10.0
     assert _evaluate_gates(context, _thresholds()) is None

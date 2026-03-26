@@ -91,7 +91,7 @@ def main() -> None:
     failures: list[str] = []
     seen_identity_keys: dict[str, str] = {}
     for symbol in ("BRK B", "ABC PRA"):
-        context = _build_symbol_context(provider, symbol, "PRE", float_cache={}, include_pct_change=True)
+        context = _build_symbol_context(provider=provider, symbol=symbol, session_label="PRE", float_cache={}, include_pct_change=True)
         if context:
             contexts.append(context)
             lookup_key = str(context.get("history_lookup_key_used") or context.get("identity_key") or "")

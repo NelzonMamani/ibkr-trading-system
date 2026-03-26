@@ -120,7 +120,7 @@ def test_live_snapshot_populates_pct_change_before_gating():
     client = _client_with_dummy_ib()
     provider = IbkrScannerProvider(market_data_client=client)
 
-    context = _build_symbol_context(provider, "AAPL", "RTH", {})
+    context = _build_symbol_context(provider=provider, symbol="AAPL", session_label="RTH", float_cache={})
 
     assert context is not None
     assert context["pct_change"] is not None

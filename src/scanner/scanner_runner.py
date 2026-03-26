@@ -3332,10 +3332,10 @@ def run_scanner_cycle(
             if provider_source != "MOCK" and not should_recheck and symbol in daily_state.rejected_tracked:
                 continue
             context = _build_symbol_context(
-                provider,
-                symbol,
-                session_label,
-                float_cache,
+                provider=provider,
+                symbol=symbol,
+                session_label=session_label,
+                float_cache=float_cache,
                 universe_rank=rank,
                 include_pct_change=False,
             )
