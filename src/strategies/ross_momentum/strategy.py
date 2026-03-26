@@ -165,7 +165,8 @@ def _first_valid_fast_trigger(symbol: str, inputs: StrategyInput) -> PatternResu
         print(
             "[ROSS][TRIGGER_OVERRIDE] "
             "reason=HIGH_MOMENTUM_BREAK "
-            f"symbol={symbol} level={hod_level} price={price} rvol={rvol} pct_change={pct_change}"
+            f"symbol={symbol} trigger_type=HOD_BREAK_FAST level={hod_level} "
+            f"price={price} rvol={rvol} pct_change={pct_change}"
         )
         print(
             "[ROSS][TRIGGER] "
@@ -174,6 +175,7 @@ def _first_valid_fast_trigger(symbol: str, inputs: StrategyInput) -> PatternResu
         )
         return PatternResult(
             setup_id="XL_HOD_BREAK_FAST_OVERRIDE",
+            setup_family_id="HOD_BREAK",
             pattern_name="HOD_BREAK_FAST",
             pattern_family=PatternFamily.BREAKOUT,
             detected=True,
@@ -184,6 +186,10 @@ def _first_valid_fast_trigger(symbol: str, inputs: StrategyInput) -> PatternResu
             entry_zone=f"Break above intraday high {hod_level:.4f}",
             stop_suggestion=f"Below intraday high {hod_level:.4f}",
             rationale_text="High momentum override activated despite incomplete pattern stack.",
+            trigger_type="HOD_BREAK_FAST",
+            trigger_level=hod_level,
+            stop_level=hod_level,
+            invalidation_level=hod_level,
         )
 
     for level_key, trigger_type, setup_id in trigger_specs:
@@ -215,6 +221,7 @@ def _first_valid_fast_trigger(symbol: str, inputs: StrategyInput) -> PatternResu
         )
         return PatternResult(
             setup_id=setup_id,
+            setup_family_id=_setup_family_name(trigger_type),
             pattern_name=trigger_type,
             pattern_family=PatternFamily.BREAKOUT,
             detected=True,
@@ -225,6 +232,10 @@ def _first_valid_fast_trigger(symbol: str, inputs: StrategyInput) -> PatternResu
             entry_zone=f"Break above {level_key} {level:.4f}",
             stop_suggestion=f"Below {level_key} {level:.4f}",
             rationale_text=f"Fast-trigger activation on first valid momentum break: {trigger_type}.",
+            trigger_type=trigger_type,
+            trigger_level=level,
+            stop_level=level,
+            invalidation_level=level,
         )
 
     print(
@@ -314,22 +325,26 @@ def _evaluate_trigger_stage(symbol: str, inputs: StrategyInput, setup: PatternRe
             levels.setdefault("PREMARKET_HIGH", _as_float(getattr(first_levels, "premarket_high", None)))
             levels.setdefault("HOD", _as_float(getattr(first_levels, "hod", None)))
     family = _setup_family_name(setup.pattern_name)
-    trigger_name = "FIRST_NEW_HIGH_AFTER_PULLBACK"
-    trigger_level = _as_float(levels.get("PULLBACK_HIGH") or levels.get("FIRST_PULLBACK_HIGH"))
-    stop_anchor = _as_float(levels.get("PULLBACK_LOW") or levels.get("MICRO_PULLBACK_LOW") or levels.get("VWAP"))
+    trigger_name = setup.trigger_type or "FIRST_NEW_HIGH_AFTER_PULLBACK"
+    trigger_level = setup.trigger_level
+    if trigger_level is None:
+        trigger_level = _as_float(levels.get("PULLBACK_HIGH") or levels.get("FIRST_PULLBACK_HIGH"))
+    stop_anchor = setup.stop_level
+    if stop_anchor is None:
+        stop_anchor = _as_float(levels.get("PULLBACK_LOW") or levels.get("MICRO_PULLBACK_LOW") or levels.get("VWAP"))
     if stop_anchor is None:
         stop_anchor = trigger_level
-    invalidation_level = stop_anchor
+    invalidation_level = setup.invalidation_level if setup.invalidation_level is not None else stop_anchor
     warnings: list[str] = []
-    if family == "PREMARKET_HIGH_BREAK":
+    if setup.trigger_type is None and family == "PREMARKET_HIGH_BREAK":
         trigger_name = "PREMARKET_HIGH_BREAK_TRIGGER"
         trigger_level = _as_float(levels.get("PREMARKET_HIGH"))
         stop_anchor = stop_anchor or _as_float(levels.get("PREMARKET_LOW"))
         invalidation_level = stop_anchor
-    elif family == "HOD_BREAK":
+    elif setup.trigger_type is None and family == "HOD_BREAK":
         trigger_name = "HOD_BREAK_TRIGGER"
         trigger_level = _as_float(levels.get("HOD"))
-    elif family == "MICRO_PULLBACK":
+    elif setup.trigger_type is None and family == "MICRO_PULLBACK":
         trigger_name = "MICRO_PULLBACK_FAST_TRIGGER"
         trigger_level = _as_float(levels.get("PULLBACK_HIGH") or levels.get("MICRO_PULLBACK_HIGH"))
     if stop_anchor is None:

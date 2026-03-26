@@ -47,7 +47,63 @@ class PatternBase(ABC):
             risk_flags=[],
             data_quality_flags=inputs.data_quality_flags,
             rejection_reason=reason,
+            session_valid=inputs.session_context.value in {"PRE", "REGULAR", "AFTER"},
         )
+
+    def _infer_trigger_level(self, inputs: PatternInputs, direction: Direction) -> float | None:
+        levels = inputs.levels
+        key_levels = levels.key_levels or {}
+        if direction == Direction.SHORT:
+            candidates = [
+                key_levels.get("PULLBACK_LOW"),
+                key_levels.get("MICRO_PULLBACK_LOW"),
+                levels.premarket_low,
+                levels.lod,
+                min((c.low for c in inputs.candles), default=None),
+            ]
+        else:
+            candidates = [
+                key_levels.get("PULLBACK_HIGH"),
+                key_levels.get("MICRO_PULLBACK_HIGH"),
+                levels.premarket_high,
+                levels.hod,
+                max((c.high for c in inputs.candles), default=None),
+            ]
+        for value in candidates:
+            if value is not None:
+                return float(value)
+        return None
+
+    def _infer_stop_level(self, inputs: PatternInputs, direction: Direction, trigger_level: float | None) -> float | None:
+        levels = inputs.levels
+        key_levels = levels.key_levels or {}
+        if direction == Direction.SHORT:
+            candidates = [
+                key_levels.get("PULLBACK_HIGH"),
+                key_levels.get("MICRO_PULLBACK_HIGH"),
+                levels.premarket_high,
+                levels.hod,
+                inputs.indicators.ema20,
+                inputs.indicators.vwap,
+                max((c.high for c in inputs.candles), default=None),
+            ]
+            fallback_delta = 0.01
+            if trigger_level is not None:
+                return float(next((c for c in candidates if c is not None), trigger_level + fallback_delta))
+        else:
+            candidates = [
+                key_levels.get("PULLBACK_LOW"),
+                key_levels.get("MICRO_PULLBACK_LOW"),
+                levels.premarket_low,
+                levels.lod,
+                inputs.indicators.ema20,
+                inputs.indicators.vwap,
+                min((c.low for c in inputs.candles), default=None),
+            ]
+            fallback_delta = 0.01
+            if trigger_level is not None:
+                return float(next((c for c in candidates if c is not None), trigger_level - fallback_delta))
+        return float(next((c for c in candidates if c is not None), 0.0)) if candidates else None
 
     def _detected(
         self,
@@ -73,6 +129,8 @@ class PatternBase(ABC):
         )
         for line in rationale.split("\n"):
             print(f"  - {line}")
+        trigger_level = self._infer_trigger_level(inputs, direction)
+        stop_level = self._infer_stop_level(inputs, direction, trigger_level)
         return PatternResult(
             setup_id=self.pattern_id or self.name,
             pattern_name=self.name,
@@ -88,4 +146,9 @@ class PatternBase(ABC):
             rationale_text=rationale,
             risk_flags=risk_flags,
             data_quality_flags=inputs.data_quality_flags,
+            session_valid=inputs.session_context.value in {"PRE", "REGULAR", "AFTER"},
+            trigger_type=f"{(self.pattern_id or self.name).upper()}_TRIGGER",
+            trigger_level=trigger_level,
+            stop_level=stop_level,
+            invalidation_level=stop_level,
         )
