@@ -11,6 +11,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.config.config_resolver import ConfigResolutionError, get_config
 from src.config.runtime_config import RunMode
+from src.core.engines.decision_engine import DecisionEngine
 from src.core.engines.level_engine import LevelEngine
 from src.core.engines.structure_engine import StructureEngine
 from src.core.engines.setup_engine import SetupEngine
@@ -27,25 +28,6 @@ from src.strategies.ross_momentum.patterns.pattern_trace import (
     build_runtime_pattern_inputs,
     infer_symbol_source,
 )
-PATTERN_PRIORITY = {
-    "P_ORB": 100,
-    "P_PREMKT_BREAK": 95,
-    "P_OPENING_DRIVE": 90,
-    "P_HOD_BREAK": 85,
-    "P_FIRST_PULLBACK": 80,
-    "P_MICRO_PULLBACK": 75,
-    "P_BULL_FLAG": 70,
-    "P_CUP_HANDLE": 65,
-    "P_MOMENTUM_RECLAIM": 60,
-    "P_RANGE_BREAKOUT": 55,
-    "P_ASCENDING_TRIANGLE_BREAKOUT": 50,
-    "P_PENNANT_BREAK": 45,
-    "P_EMA_PULLBACK": 40,
-    "P_VWAP_PULLBACK": 35,
-    "P_THREE_BAR_PULLBACK": 30,
-    "P_SECOND_PULLBACK": 25,
-}
-
 TERMINAL_CATEGORY = {
     "DATA_BLOCKED": "DATA_BLOCKED",
     "SETUP_NOT_FOUND": "SETUP_NOT_FOUND",
@@ -71,6 +53,7 @@ class RossMomentumStrategyV1(BaseStrategy):
 
     def __init__(self) -> None:
         self._pattern_registry = RossPatternRegistry()
+        self._decision_engine = DecisionEngine()
         self._failure_trace_collector = RossPatternFailureTraceCollector()
         self._session_allowlist_by_pattern: Dict[str, set[str]] = {
             "P_ORB": {"REGULAR"},
@@ -604,8 +587,24 @@ class RossMomentumStrategyV1(BaseStrategy):
                         f"symbol={symbol} pattern_id={trace.pattern_id}"
                     )
 
-            best_pattern = self._select_best_pattern(
+            decision = self._decision_engine.compute_decision(
                 symbol=symbol,
+                levels=levels,
+                structure=structure,
+                setups=setups,
+                pattern_results=results or symbol_trace.pattern_traces,
+                session_context=input_summary.session_context,
+                pattern_traces=symbol_trace.pattern_traces,
+                inactive_pattern_ids=getattr(self._pattern_registry, "inactive_pattern_ids", set()),
+            )
+            print(
+                "[ROSS][DECISION_ENGINE] "
+                f"symbol={symbol} state={decision['decision_state']} "
+                f"selected_pattern={decision['selected_pattern_id']} "
+                f"selected_setup={decision['selected_setup_family']} reason={decision['decision_reason']}"
+            )
+            best_pattern = self._resolve_selected_pattern_trace(
+                selected_pattern_id=decision.get("selected_pattern_id"),
                 pattern_traces=symbol_trace.pattern_traces,
             )
 
@@ -641,8 +640,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._log_no_trade_root_cause(
                     symbol=symbol,
                     pattern=None,
-                    primary_reason=pre_classification or "no_valid_pattern",
-                    details=["no_detected_tradeable_patterns_after_arbitration"] if not pre_classification else [pre_classification],
+                    primary_reason=pre_classification or decision.get("decision_reason") or "no_valid_pattern",
+                    details=[decision.get("decision_reason") or "no_detected_tradeable_patterns_after_decision_engine"]
+                    if not pre_classification
+                    else [pre_classification],
                 )
                 self._log_decision_blocked(
                     symbol=symbol,
@@ -971,40 +972,15 @@ class RossMomentumStrategyV1(BaseStrategy):
         return mapping.get(str(pattern_id or "").upper(), "UNKNOWN")
 
 
-    def _select_best_pattern(self, *, symbol: str, pattern_traces):
-        all_detected = [pattern for pattern in pattern_traces if pattern.detected]
-        tradeable_detected = [pattern for pattern in all_detected if not self._is_inactive_pattern(pattern.pattern_id)]
-        rejected_patterns = []
-        for pattern in all_detected:
-            if self._is_inactive_pattern(pattern.pattern_id):
-                rejected_patterns.append(f"{pattern.pattern_id}:inactive")
-        detected = []
-        for pattern in tradeable_detected:
-            pattern.priority = PATTERN_PRIORITY.get(pattern.pattern_id, 0)
-            pattern.confidence = float(getattr(pattern, "confidence", 0.0) or 0.0)
-            if pattern.priority <= 0:
-                rejected_patterns.append(f"{pattern.pattern_id}:unknown_priority")
-                continue
-            detected.append(pattern)
-
-        if not detected:
-            print(
-                "[ROSS][ARBITRATION] "
-                f"symbol={symbol} detected_patterns={[pattern.pattern_id for pattern in tradeable_detected]} selected_pattern=None rejected_patterns={rejected_patterns}"
-            )
+    @staticmethod
+    def _resolve_selected_pattern_trace(*, selected_pattern_id: str | None, pattern_traces):
+        if not selected_pattern_id:
             return None
-
-        detected.sort(
-            key=lambda pattern: (pattern.priority, pattern.confidence),
-            reverse=True,
-        )
-        selected = detected[0]
-        print(
-            "[ROSS][ARBITRATION] "
-            f"symbol={symbol} detected_patterns={[pattern.pattern_id for pattern in detected]} "
-            f"selected_pattern={selected.pattern_id} rejected_patterns={rejected_patterns}"
-        )
-        return selected
+        normalized_pattern_id = str(selected_pattern_id).upper()
+        for pattern in pattern_traces:
+            if str(getattr(pattern, "pattern_id", "")).upper() == normalized_pattern_id:
+                return pattern
+        return None
 
     @staticmethod
     def _build_trade_from_pattern(pattern, inputs):
