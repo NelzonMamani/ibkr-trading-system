@@ -1291,9 +1291,23 @@ def _evaluate_float_gate(
 ) -> Optional[str]:
     float_shares = context.get("float_shares")
     if float_shares is None:
-        context["float_status"] = "UNKNOWN"
-        if not thresholds.allow_unknown_float:
-            return "DROP_FLOAT_MISSING"
+        rvol = _safe_float(context.get("rvol"), None)
+        volume = _safe_float(context.get("volume"), None)
+        pct_change = _safe_float(context.get("pct_change"), None)
+        rvol_ok = rvol is not None and rvol >= float(thresholds.watchlist_rvol_min)
+        volume_ok = volume is not None and volume >= float(thresholds.min_volume)
+        pct_ok = pct_change is not None and pct_change >= float(thresholds.min_pct_change)
+        all_threshold_inputs_present = rvol is not None and volume is not None and pct_change is not None
+        context["float_status"] = "UNKNOWN_ALLOWED"
+        context["float_unknown_gate"] = {
+            "rvol_ok": rvol_ok,
+            "volume_ok": volume_ok,
+            "pct_change_ok": pct_ok,
+        }
+        if all_threshold_inputs_present and not (rvol_ok and volume_ok and pct_ok):
+            if not thresholds.allow_unknown_float:
+                return "DROP_FLOAT_MISSING"
+            return "DROP_FLOAT_UNKNOWN_POLICY_GATES"
         flags = context.setdefault("data_quality_flags", [])
         context["float_tolerated"] = True
         if isinstance(flags, list) and "FLOAT_UNKNOWN" in flags:

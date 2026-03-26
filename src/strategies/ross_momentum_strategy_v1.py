@@ -264,6 +264,14 @@ class RossMomentumStrategyV1(BaseStrategy):
         session_phase: str,
     ) -> List[TradeIntent]:
         print(f"[ROSS][PROCESS_START] symbols={len(watchlist)}")
+        focus_symbols: set[str] = set()
+        for row in watchlist:
+            if not isinstance(row, dict):
+                continue
+            for key in ("focus_list", "focus_symbols", "focus_m_symbols"):
+                value = row.get(key)
+                if isinstance(value, list):
+                    focus_symbols.update(str(symbol).upper() for symbol in value if symbol)
         symbol_traces: List[RossSymbolTrace] = []
         translated_intents: List[TradeIntent] = []
         synthetic_forced_intents = 0
@@ -276,6 +284,9 @@ class RossMomentumStrategyV1(BaseStrategy):
         for row in watchlist:
             symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
             if not symbol:
+                continue
+            if focus_symbols and str(symbol).upper() not in focus_symbols:
+                print(f"[ROSS][FOCUS][SKIP] symbol={symbol} reason=NOT_IN_FOCUS_LIST")
                 continue
             print(f"[ROSS][EVAL_START] symbol={symbol}")
             print(f"[ROSS][SYMBOL_START] symbol={symbol}")
@@ -384,7 +395,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                     input_summary=input_summary,
                 )
                 if forced_intent is not None:
-                    translated_intents.append(forced_intent)
+                    translated_intents.append(
+                        self._apply_intent_contract_defaults(
+                            forced_intent, input_summary, timestamp_utc=timestamp_utc
+                        )
+                    )
                     synthetic_forced_intents += 1
                     symbol_trace.final_outcome = "SETUP_FALLBACK_TRIGGERED_DATA_BLOCK_OVERRIDE"
                     symbol_trace.setup_stage = {"status": "PASS", "reason_code": "FALLBACK_SETUP_TRIGGERED_FROM_CONTEXT"}
@@ -523,16 +538,18 @@ class RossMomentumStrategyV1(BaseStrategy):
                         f"symbol={symbol} reason=STRONG_MOMENTUM pct={pct_change:.2f} rvol={rvol:.2f}"
                     )
                     trigger = {
-                        "type": "XL_MOMENTUM_IMMEDIATE",
+                        "type": "XL_HOD_BREAK",
                         "status": "READY",
                         "reason": "FORCED_MOMENTUM_ENTRY",
                         "source": "fallback",
                     }
                     print(
                         "[ROSS][TRIGGER][FORCED] "
-                        f"symbol={symbol} trigger=XL_MOMENTUM_IMMEDIATE"
+                        f"symbol={symbol} trigger=XL_HOD_BREAK"
                     )
-                    translated_intents.append(self._build_trade_intent(input_summary, trigger))
+                    translated_intents.append(
+                        self._build_trade_intent(input_summary, trigger, timestamp_utc=timestamp_utc)
+                    )
                     synthetic_forced_intents += 1
                     symbol_trace.final_outcome = "SETUP_FORCED_STRONG_MOMENTUM"
                     symbol_trace.setup_stage = {"status": "PASS", "reason_code": "FORCED_SETUP_STRONG_MOMENTUM"}
@@ -548,7 +565,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                     input_summary=input_summary,
                 )
                 if forced_intent is not None:
-                    translated_intents.append(forced_intent)
+                    translated_intents.append(
+                        self._apply_intent_contract_defaults(
+                            forced_intent, input_summary, timestamp_utc=timestamp_utc
+                        )
+                    )
                     synthetic_forced_intents += 1
                     symbol_trace.final_outcome = "SETUP_FALLBACK_TRIGGERED"
                     symbol_trace.setup_stage = {"status": "PASS", "reason_code": "FALLBACK_SETUP_TRIGGERED"}
@@ -689,6 +710,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             intent.confirmation_passed = confirmation_passed
             intent.trigger_ready = trigger_ready
             intent.decision = "TRADE_READY"
+            intent = self._apply_intent_contract_defaults(intent, input_summary, timestamp_utc=timestamp_utc)
 
             translated_intents.append(intent)
             best_pattern.post_detect_disposition = "translated_to_trade_intent"
@@ -782,18 +804,18 @@ class RossMomentumStrategyV1(BaseStrategy):
             trader_type=self.trader_type,
             stop_loss_price=stop,
             invalidation_level=stop,
-            pattern_name="MOMENTUM_BREAKOUT",
+            pattern_name="XL_HOD_BREAK",
         )
         intent.entry_price = entry
         intent.has_valid_pattern = True
         intent.confirmation_passed = True
         intent.trigger_ready = True
         intent.decision = "TRADE_READY"
-        print(f"TRADE_INTENT symbol={symbol} setup=MOMENTUM_BREAKOUT")
+        print(f"TRADE_INTENT symbol={symbol} setup=XL_HOD_BREAK")
         print(f"[ROSS][INTENT_GENERATED] symbol={symbol}")
         return intent
 
-    def _build_trade_intent(self, ctx, trigger: dict[str, str]) -> TradeIntent:
+    def _build_trade_intent(self, ctx, trigger: dict[str, str], *, timestamp_utc: str) -> TradeIntent:
         pct_change = self._safe_float(getattr(ctx, "pct_change", None))
         rvol = self._safe_float(getattr(ctx, "rvol", None))
         intent = TradeIntent(
@@ -815,7 +837,32 @@ class RossMomentumStrategyV1(BaseStrategy):
         intent.confirmation_passed = True
         intent.has_valid_pattern = True
         intent.decision = "TRADE_READY"
+        intent = self._apply_intent_contract_defaults(intent, ctx, timestamp_utc=timestamp_utc)
         print(f"TRADE_INTENT symbol={intent.symbol} setup={trigger['type']}")
+        return intent
+
+    def _apply_intent_contract_defaults(self, intent: TradeIntent, ctx, *, timestamp_utc: str) -> TradeIntent:
+        if getattr(intent, "entry_price", None) is None:
+            entry_price = self._safe_float(getattr(ctx, "last_price", None))
+            if entry_price is None:
+                entry_price = self._safe_float(getattr(ctx, "last", None))
+            if entry_price is not None:
+                intent.entry_price = float(entry_price)
+        if getattr(intent, "entry_price", None) is not None:
+            intent.entry_price = float(intent.entry_price)
+        intent.side = "BUY" if str(getattr(intent, "direction", "LONG")).upper() == "LONG" else "SELL"
+        intent.decision = "TRADE_READY"
+        if not getattr(intent, "pattern_name", None):
+            intent.pattern_name = "XL_HOD_BREAK"
+        intent.timestamp_utc = str(timestamp_utc)
+        intent.stop_loss_price = getattr(intent, "stop_loss_price", None)
+        intent.take_profit_price = getattr(intent, "take_profit_price", None)
+        if getattr(intent, "float_millions", None) is None:
+            intent.float_millions = self._safe_float(getattr(ctx, "float_millions", None))
+        if getattr(intent, "rvol", None) is None:
+            intent.rvol = self._safe_float(getattr(ctx, "rvol", None))
+        if getattr(intent, "synthetic", None) is None:
+            intent.synthetic = False
         return intent
 
 

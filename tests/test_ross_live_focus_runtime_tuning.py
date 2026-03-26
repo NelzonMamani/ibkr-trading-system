@@ -75,7 +75,7 @@ def test_unknown_float_allowed_does_not_drop_watchlist() -> None:
     }
 
     assert _evaluate_watchlist_gates(context, thresholds) is None
-    assert context["float_status"] == "UNKNOWN"
+    assert context["float_status"] == "UNKNOWN_ALLOWED"
 
 
 
@@ -227,7 +227,7 @@ def test_unknown_float_allowed_removes_degrading_flag() -> None:
     }
 
     assert _evaluate_watchlist_gates(context, thresholds) is None
-    assert context["float_status"] == "UNKNOWN"
+    assert context["float_status"] == "UNKNOWN_ALLOWED"
     assert context["float_tolerated"] is True
     assert context["data_quality_flags"] == ["SPREAD_UNKNOWN"]
 

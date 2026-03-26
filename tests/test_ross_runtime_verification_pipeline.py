@@ -238,7 +238,7 @@ def test_runtime_pipeline_routes_ross_through_watchlist_processor(monkeypatch):
         orchestrator.strategy_runner.generate_trade_intents = _generate
 
         assert orchestrator.run_once() is True
-        assert set(calls["process_watchlist"]) == {"AAPL", "MSFT"}
+        assert set(calls["process_watchlist"]) == {"AAPL"}
         assert "generate_trade_intents" not in calls
     finally:
         set_config_overrides(None)
