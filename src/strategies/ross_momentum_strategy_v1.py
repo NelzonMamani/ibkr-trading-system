@@ -31,6 +31,7 @@ from src.strategies.ross_momentum.patterns.pattern_trace import (
 TERMINAL_CATEGORY = {
     "DATA_BLOCKED": "DATA_BLOCKED",
     "SETUP_NOT_FOUND": "SETUP_NOT_FOUND",
+    "SETUP_FOUND_DECISION_REJECTED": "SETUP_FOUND_DECISION_REJECTED",
     "SETUP_FOUND_CONFIRMATION_BLOCKED": "SETUP_FOUND_CONFIRMATION_BLOCKED",
     "SETUP_FOUND_TRIGGER_NOT_READY": "SETUP_FOUND_TRIGGER_NOT_READY",
     "INTENT_CREATED": "INTENT_CREATED",
@@ -619,41 +620,52 @@ class RossMomentumStrategyV1(BaseStrategy):
                         "[ROSS][PRE_ACTIVATION] "
                         f"symbol={symbol} setup={pre_activation.get('setup_type')} classification={pre_activation.get('classification')}"
                     )
-                symbol_trace.final_outcome = "NO_SETUP:no_valid_pattern"
-                symbol_trace.setup_stage = {"status": "FAIL", "reason_code": "NO_VALID_PATTERN"}
-                symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "NO_SETUP_AVAILABLE"}
-                symbol_trace.final_reason_code = "NO_VALID_PATTERN"
-                pre_classification = (
-                    pre_activation.get("classification")
-                    if isinstance(pre_activation, dict)
-                    else None
-                )
-                if pre_classification:
-                    symbol_trace.final_outcome = f"NO_SETUP:{pre_classification}"
-                    symbol_trace.final_reason_code = pre_classification.upper()
-                print(f"[ROSS][SETUP][FAIL] symbol={symbol} reason=no_valid_pattern")
-                print(f"[ROSS][SETUP_REJECT] symbol={symbol} reason=NO_VALID_PATTERN")
-                print(f"[PATTERN_NO_SETUP] symbol={symbol} dominant_reason=no_valid_pattern")
-                print(f"[CLASSIFICATION] symbol={symbol} category=PATTERN_NO_SETUP")
-                _terminal(symbol, TERMINAL_CATEGORY["SETUP_NOT_FOUND"], pre_classification or "no_valid_pattern")
-                classification_counts["PATTERN_NO_SETUP"] += 1
+                detected_patterns = bool(symbol_trace.detected_pattern_ids)
+                if detected_patterns:
+                    decision_reason = decision.get("decision_reason") or "decision_not_candidate_selected"
+                    symbol_trace.final_outcome = "SETUP_FOUND_DECISION_REJECTED"
+                    symbol_trace.setup_stage = {"status": "PASS", "reason_code": "SETUP_DETECTED"}
+                    symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "DECISION_REJECTED"}
+                    symbol_trace.final_reason_code = "DECISION_REJECTED"
+                    print(f"[ROSS][SETUP_REJECT] symbol={symbol} reason=DECISION_REJECTED:{decision_reason}")
+                    print(f"[CLASSIFICATION] symbol={symbol} category=SETUP_FOUND_DECISION_REJECTED")
+                    _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_DECISION_REJECTED"], decision_reason)
+                    classification_counts["TRIGGER_REJECTED"] += 1
+                else:
+                    symbol_trace.final_outcome = "NO_SETUP:no_valid_pattern"
+                    symbol_trace.setup_stage = {"status": "FAIL", "reason_code": "NO_VALID_PATTERN"}
+                    symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "NO_SETUP_AVAILABLE"}
+                    symbol_trace.final_reason_code = "NO_VALID_PATTERN"
+                    pre_classification = (
+                        pre_activation.get("classification")
+                        if isinstance(pre_activation, dict)
+                        else None
+                    )
+                    if pre_classification:
+                        symbol_trace.final_outcome = f"NO_SETUP:{pre_classification}"
+                        symbol_trace.final_reason_code = pre_classification.upper()
+                    print(f"[ROSS][SETUP][FAIL] symbol={symbol} reason=no_valid_pattern")
+                    print(f"[ROSS][SETUP_REJECT] symbol={symbol} reason=NO_VALID_PATTERN")
+                    print(f"[PATTERN_NO_SETUP] symbol={symbol} dominant_reason=no_valid_pattern")
+                    print(f"[CLASSIFICATION] symbol={symbol} category=PATTERN_NO_SETUP")
+                    _terminal(symbol, TERMINAL_CATEGORY["SETUP_NOT_FOUND"], pre_classification or "no_valid_pattern")
+                    classification_counts["PATTERN_NO_SETUP"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
                     pattern=None,
-                    primary_reason=pre_classification or decision.get("decision_reason") or "no_valid_pattern",
-                    details=[decision.get("decision_reason") or "no_detected_tradeable_patterns_after_decision_engine"]
-                    if not pre_classification
-                    else [pre_classification],
+                    primary_reason=decision.get("decision_reason") or "no_valid_pattern",
+                    details=[decision.get("decision_reason") or "no_detected_tradeable_patterns_after_decision_engine"],
                 )
                 self._log_decision_blocked(
                     symbol=symbol,
                     final_stage="pattern",
-                    reason="no_valid_pattern",
+                    reason=decision.get("decision_reason") or "no_valid_pattern",
                 )
                 self._log_pipeline_no_decision(symbol)
                 print(
                     "[ROSS][NO_SETUP_SUMMARY] "
-                    f"symbol={symbol} detected_patterns=0 rejections={[trace.rejection_reason for trace in pattern_traces if trace.rejection_reason]}"
+                    f"symbol={symbol} detected_patterns={len(symbol_trace.detected_pattern_ids)} "
+                    f"rejections={[trace.rejection_reason for trace in pattern_traces if trace.rejection_reason]}"
                 )
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
@@ -674,7 +686,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     entry_price=None,
                 )
                 symbol_trace.dropped_detected_pattern_ids = [best_pattern.pattern_id]
-                symbol_trace.final_outcome = "NO_SETUP:confirmation_blocked"
+                symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
                 symbol_trace.confirmation_stage = {
                     "status": "FAIL",
                     "reason_code": "CONFIRMATION_BLOCKED",
@@ -686,7 +698,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
                 )
                 print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=CONFIRMATION_BLOCKED")
-                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_CONFIRMATION_BLOCKED"], "confirmation_blocked")
+                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], "confirmation_blocked")
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
@@ -706,7 +718,7 @@ class RossMomentumStrategyV1(BaseStrategy):
 
             trade = self._build_trade_from_pattern(best_pattern, inputs)
             if not trade:
-                symbol_trace.final_outcome = "NO_SETUP:invalid_trade_structure"
+                symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
                 symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "INVALID_TRADE_STRUCTURE"}
                 symbol_trace.final_reason_code = "INVALID_TRADE_STRUCTURE"
                 print(
