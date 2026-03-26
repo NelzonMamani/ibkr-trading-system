@@ -257,6 +257,7 @@ class GateThresholds:
     allow_ssr: bool
     allow_unknown_float: bool
     session_focus_volume_min: Dict[str, int] = field(default_factory=dict)
+    min_premarket_volume_threshold: int = 5_000
 
 
 @dataclass(frozen=True)
@@ -914,6 +915,7 @@ def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdReso
         allow_halts=policy.allow_halts,
         allow_ssr=policy.allow_ssr,
         allow_unknown_float=runtime.allow_unknown_float,
+        min_premarket_volume_threshold=premarket_min_volume,
     )
 
 
