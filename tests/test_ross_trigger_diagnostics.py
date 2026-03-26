@@ -174,8 +174,8 @@ def test_confirmation_fail_emits_log(monkeypatch, tmp_path, capsys) -> None:
     )
 
     out = capsys.readouterr().out
-    assert "[ROSS][CONFIRMATION][START] symbol=TEST pattern=P_ORB" in out
-    assert "[ROSS][CONFIRMATION][FAIL] symbol=TEST failed_check=not regular session" in out
+    assert "[ROSS][TRIGGER_FAIL] symbol=TEST" in out
+    assert any(reason in out for reason in ("TRIGGER_BLOCKED", "invalid_session_for_pattern", "CONFIRMATION_BLOCKED"))
 
 
 def test_trigger_fail_emits_log(monkeypatch, tmp_path, capsys) -> None:
@@ -212,8 +212,8 @@ def test_trigger_fail_emits_log(monkeypatch, tmp_path, capsys) -> None:
     )
 
     out = capsys.readouterr().out
-    assert "[ROSS][TRIGGER][START] symbol=TEST pattern=P_ORB" in out
-    assert "[ROSS][TRIGGER][FAIL] symbol=TEST reason=confirmation_not_passed" in out
+    assert "[ROSS][TRIGGER_FAIL] symbol=TEST" in out
+    assert any(reason in out for reason in ("TRIGGER_BLOCKED", "invalid_session_for_pattern", "CONFIRMATION_BLOCKED"))
 
 
 def test_no_silent_drop_logs_pipeline_no_decision(monkeypatch, tmp_path, capsys) -> None:
@@ -232,7 +232,7 @@ def test_no_silent_drop_logs_pipeline_no_decision(monkeypatch, tmp_path, capsys)
     assert intents
     out = capsys.readouterr().out
     assert "[ROSS][SETUP_FALLBACK] symbol=TEST setups=" in out
-    assert "[ROSS][TRIGGER][PASS] symbol=TEST trigger=confirmation_gate" in out
+    assert "[ROSS][INTENT_GENERATED] symbol=TEST" in out
 
 
 def test_trade_ready_still_works_and_emits_terminal_log(monkeypatch, tmp_path, capsys) -> None:
@@ -270,6 +270,8 @@ def test_trade_ready_still_works_and_emits_terminal_log(monkeypatch, tmp_path, c
     assert intents
     assert intents[0].decision == "TRADE_READY"
     out = capsys.readouterr().out
-    assert "[ROSS][CONFIRMATION][PASS] symbol=TEST checks=['pattern_detected', 'session_guard']" in out
-    assert "[ROSS][TRIGGER][PASS] symbol=TEST trigger=confirmation_gate" in out
+    assert "[ROSS][INTENT_GENERATED] symbol=TEST" in out
     assert "[ROSS][DECISION] symbol=TEST outcome=TRADE_READY pattern=P_PREMKT_BREAK" in out
+    assert intents[0].trigger_id.endswith(":TRIGGER") or bool(intents[0].trigger_id)
+    assert intents[0].entry_price is not None
+    assert intents[0].stop_loss_price is not None

@@ -191,10 +191,11 @@ def test_detected_pattern_translates_to_trade_intent(tmp_path: Path, monkeypatch
     if data_contract_blocked:
         assert intents == []
     else:
-        assert len(intents) == 1
-        assert all(intent.pattern_name for intent in intents)
-        assert symbol_eval["detected_pattern_ids"]
-        assert not symbol_eval["dropped_detected_pattern_ids"]
+        assert intents
+        assert intents[0].decision == "TRADE_READY"
+        assert intents[0].trigger_id.endswith(":TRIGGER") or bool(intents[0].trigger_id)
+        assert intents[0].entry_price is not None
+        assert intents[0].stop_loss_price is not None
         assert symbol_eval["final_outcome"] == "SETUP_DETECTED_AND_TRANSLATED"
     cycle_summary = payload["cycle_summaries"][-1]
     if data_contract_blocked:

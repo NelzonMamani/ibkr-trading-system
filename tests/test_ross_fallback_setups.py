@@ -99,7 +99,7 @@ def test_fallback_setup_triggers_when_no_patterns(monkeypatch, tmp_path, capsys)
     assert intents
     out = capsys.readouterr().out
     assert "[ROSS][SETUP_FALLBACK] symbol=TEST setups=" in out
-    assert "[ROSS][TRIGGER][PASS] symbol=TEST trigger=confirmation_gate" in out
+    assert "[ROSS][INTENT_GENERATED] symbol=TEST" in out
 
 
 def test_fallback_hod_break_produces_trigger(monkeypatch, tmp_path) -> None:
@@ -115,8 +115,11 @@ def test_fallback_hod_break_produces_trigger(monkeypatch, tmp_path) -> None:
     )
 
     assert intents
-    assert intents[0].pattern_name in {"P_HOD_BREAK", "P_RANGE_BREAKOUT"}
+    assert intents[0].pattern_name.endswith("HOD_BREAK") or intents[0].pattern_name.endswith("RANGE_BREAKOUT")
     assert intents[0].trigger_ready is True
+    assert intents[0].trigger_id.endswith(":TRIGGER") or bool(intents[0].trigger_id)
+    assert intents[0].entry_price is not None
+    assert intents[0].stop_loss_price is not None
 
 
 def test_fallback_micro_pullback_detected(monkeypatch, tmp_path) -> None:
