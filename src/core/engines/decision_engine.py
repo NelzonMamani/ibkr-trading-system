@@ -74,6 +74,14 @@ class DecisionEngine:
             candidate["score_reasons"] = reasons
             scored_candidates.append(candidate)
 
+        print(
+            "[DECISION_ENGINE][CANDIDATES] "
+            f"symbol={symbol} total={len(normalized_candidates)} "
+            f"detected={sum(1 for item in normalized_candidates if item['detected'])} "
+            f"scored={len(scored_candidates)} "
+            f"ids={[item['pattern_id'] for item in normalized_candidates]}"
+        )
+
         if not normalized_candidates or not any(item["detected"] for item in normalized_candidates):
             return self._no_candidate(symbol=symbol, rejected_candidates=rejected_candidates, reason="no_detected_actionable_candidate")
 
@@ -93,41 +101,104 @@ class DecisionEngine:
                 "decision_reason": "all_detected_candidates_rejected",
             }
 
-        scored_candidates.sort(key=lambda item: (item["score"], item["confidence"], item["pattern_id"]), reverse=True)
-        selected = scored_candidates[0]
-        top_score = selected["score"]
-        tied = [item for item in scored_candidates if item["score"] == top_score]
-        conflict = len(tied) > 1
+        direction_buckets: dict[str, list[dict]] = {}
+        for candidate in scored_candidates:
+            direction_buckets.setdefault(candidate["direction"], []).append(candidate)
 
-        for loser in scored_candidates[1:]:
-            loser_reason = "lower_score_than_selected"
-            if loser["score"] == top_score:
-                loser_reason = "score_tie_resolved_by_pattern_id"
-            rejected_candidates.append(self._reject(loser, loser_reason, score=loser["score"]))
+        if len(direction_buckets) > 1:
+            print(
+                "[DECISION_ENGINE][TRUE_CONFLICT] "
+                f"symbol={symbol} reason=rejected_true_conflict_opposing_direction "
+                f"directions={sorted(direction_buckets.keys())}"
+            )
+            for candidate in scored_candidates:
+                rejected_candidates.append(
+                    self._reject(
+                        candidate,
+                        "rejected_true_conflict_opposing_direction",
+                        score=candidate["score"],
+                    )
+                )
+            return {
+                "symbol": symbol,
+                "selected_setup_family": None,
+                "selected_pattern_id": None,
+                "selected_pattern_name": None,
+                "decision_state": "CANDIDATE_REJECTED_CONFLICT",
+                "confidence": 0.0,
+                "entry_bias": "NONE",
+                "trigger_level": None,
+                "invalidation_level": None,
+                "supporting_factors": [],
+                "rejected_candidates": rejected_candidates,
+                "decision_reason": "rejected_true_conflict_opposing_direction",
+            }
 
-        decision_state = "CANDIDATE_REJECTED_CONFLICT" if conflict else "CANDIDATE_SELECTED"
-        decision_reason = "best_compatible_detected_candidate"
-        if conflict:
-            decision_reason = "conflict_resolved_by_deterministic_tiebreak"
+        compatibility_partitions = {"compatible": [], "incompatible": []}
+        for candidate in scored_candidates:
+            if self._is_execution_compatible(candidate, session_context=session_context):
+                compatibility_partitions["compatible"].append(candidate)
+            else:
+                compatibility_partitions["incompatible"].append(candidate)
+        print(
+            "[DECISION_ENGINE][COMPATIBILITY] "
+            f"symbol={symbol} compatible={[item['pattern_id'] for item in compatibility_partitions['compatible']]} "
+            f"incompatible={[item['pattern_id'] for item in compatibility_partitions['incompatible']]}"
+        )
+
+        compatible_pool = compatibility_partitions["compatible"] or scored_candidates
+        ranked = sorted(compatible_pool, key=self._ranking_key, reverse=True)
+        selected = ranked[0]
+        print(
+            "[DECISION_ENGINE][RANKING] "
+            f"symbol={symbol} order={[(item['pattern_id'], self._ranking_key(item)) for item in ranked]}"
+        )
+
+        for loser in ranked[1:]:
+            rejected_candidates.append(
+                self._reject(
+                    loser,
+                    "dropped_lower_priority_compatible_candidate",
+                    score=loser["score"],
+                )
+            )
+            print(
+                "[DECISION_ENGINE][DROP] "
+                f"symbol={symbol} pattern_id={loser['pattern_id']} "
+                "reason=dropped_lower_priority_compatible_candidate"
+            )
+        for incompatible in compatibility_partitions["incompatible"]:
+            rejected_candidates.append(
+                self._reject(
+                    incompatible,
+                    "rejected_true_conflict_incompatible_execution_semantics",
+                    score=incompatible["score"],
+                )
+            )
+            print(
+                "[DECISION_ENGINE][DROP] "
+                f"symbol={symbol} pattern_id={incompatible['pattern_id']} "
+                "reason=rejected_true_conflict_incompatible_execution_semantics"
+            )
 
         output = {
             "symbol": symbol,
             "selected_setup_family": selected["setup_family"],
             "selected_pattern_id": selected["pattern_id"],
             "selected_pattern_name": selected["pattern_name"],
-            "decision_state": decision_state,
+            "decision_state": "CANDIDATE_SELECTED",
             "confidence": selected["confidence"],
             "entry_bias": selected["direction"],
             "trigger_level": selected["trigger_level"],
             "invalidation_level": selected["invalidation_level"],
             "supporting_factors": selected["score_reasons"],
             "rejected_candidates": rejected_candidates,
-            "decision_reason": decision_reason,
+            "decision_reason": "selected_best_compatible_candidate",
         }
         print(
-            "[DECISION_ENGINE] "
-            f"symbol={symbol} state={decision_state} selected_pattern={selected['pattern_id']} "
-            f"selected_setup={selected['setup_family']} reason={decision_reason}"
+            "[DECISION_ENGINE][SELECTED] "
+            f"symbol={symbol} state=CANDIDATE_SELECTED selected_pattern={selected['pattern_id']} "
+            "reason=selected_best_compatible_candidate"
         )
         return output
 
@@ -214,8 +285,26 @@ class DecisionEngine:
             "session_valid": self._get_first(item, "session_valid", default=True),
             "setup_family": setup_family,
             "non_entry": non_entry_flag or self._is_non_entry(tags=tags, risk_flags=risk_flags, reason=rejection_reason),
+            "is_fallback": pattern_id.startswith("FALLBACK_"),
         }
         return candidate
+
+    def _ranking_key(self, candidate: dict) -> tuple:
+        return (
+            1 if self._is_execution_compatible(candidate, session_context=None) else 0,
+            1 if "setup_compatible" in candidate.get("score_reasons", []) else 0,
+            1 if candidate["trigger_level"] is not None else 0,
+            1 if candidate["invalidation_level"] is not None else 0,
+            0 if candidate.get("is_fallback") else 1,
+            candidate["score"],
+            candidate["confidence"],
+            candidate["pattern_id"],
+        )
+
+    @staticmethod
+    def _is_execution_compatible(candidate: dict, *, session_context: str | None) -> bool:
+        _ = session_context
+        return candidate.get("session_valid", True) is not False
 
     @staticmethod
     def _get_first(item: Any, *keys: str, default: Any = None) -> Any:
