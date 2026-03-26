@@ -186,7 +186,7 @@ def test_reference_close_hydration_merges_into_same_candidate_and_pct_change_bec
 
 def test_rvol_baseline_hydration_merges_into_same_candidate_and_focus_gate_reads_it():
     provider = DummyProvider()
-    context = _build_symbol_context(provider, "BRK B", "PRE", float_cache={}, include_pct_change=True)
+    context = _build_symbol_context(provider=provider, symbol="BRK B", session_label="PRE", float_cache={}, include_pct_change=True)
     assert context is not None
     context.update(
         {
@@ -244,7 +244,7 @@ def test_symbols_with_unusual_forms_do_not_break_identity_alias_mapping():
 
 def test_pre_session_candidate_with_valid_prior_close_and_snapshot_price_produces_pct_change_and_gap():
     provider = DummyProvider()
-    context = _build_symbol_context(provider, "BRK B", "PRE", float_cache={}, include_pct_change=True)
+    context = _build_symbol_context(provider=provider, symbol="BRK B", session_label="PRE", float_cache={}, include_pct_change=True)
 
     assert context is not None
     assert context["reference_label"] == "LAST_RTH_CLOSE"
@@ -430,8 +430,8 @@ def test_persistent_cache_writes_only_conid_keys_for_conid_backed_identities(tmp
 def test_live_pre_context_with_broker_rows_does_not_end_with_zero_reference_summary():
     provider = DummyProvider()
     contexts = [
-        _build_symbol_context(provider, 'BRK B', 'PRE', float_cache={}, include_pct_change=True),
-        _build_symbol_context(provider, 'ABC PRA', 'PRE', float_cache={}, include_pct_change=True),
+        _build_symbol_context(provider=provider, symbol='BRK B', session_label='PRE', float_cache={}, include_pct_change=True),
+        _build_symbol_context(provider=provider, symbol='ABC PRA', session_label='PRE', float_cache={}, include_pct_change=True),
     ]
     contexts = [context for context in contexts if context]
 

@@ -266,7 +266,7 @@ def _verify_symbol(provider: ScannerDataProvider, symbol: str, *, session_label:
         "history_attempts_trace": trace.get("history_attempts"),
     })
 
-    context = scanner_runner._build_symbol_context(provider, symbol, session_label, float_cache={}, include_pct_change=True)
+    context = scanner_runner._build_symbol_context(provider=provider, symbol=symbol, session_label=session_label, float_cache={}, include_pct_change=True)
     if context is None:
         print(f"[VERIFY][ERROR] symbol={symbol} reason=context_build_failed")
         return
