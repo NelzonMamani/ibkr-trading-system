@@ -232,4 +232,4 @@ def test_ross_process_watchlist_uses_decision_engine_selection(monkeypatch, tmp_
 
     assert intents
     assert intents[0].pattern_name == "P_PREMKT_BREAK"
-    assert intents[0].trigger_id == "confirmation_gate"
+    assert intents[0].trigger_id.endswith(":TRIGGER")

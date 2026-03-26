@@ -1,0 +1,63 @@
+{
+  "files_changed": [
+    "src/core/engines/trigger_engine.py",
+    "src/core/engines/__init__.py",
+    "src/strategies/ross_momentum_strategy_v1.py",
+    "src/tests/test_trigger_engine.py",
+    "src/tests/test_decision_engine.py",
+    "tests/test_ross_trigger_diagnostics.py",
+    "tests/test_ross_strategy_integrity_alignment.py"
+  ],
+  "trigger_contract_summary": {
+    "authoritative_source": "DecisionEngine output",
+    "required_fields": ["trigger_level", "invalidation_level"],
+    "market_sanity_checks": [
+      "bid_ask_present",
+      "spread_ratio_max_0.03",
+      "anchor_price_distance_max_0.05"
+    ],
+    "session_guard": "pattern allowlist enforced in TriggerEngine",
+    "entry_price_rules": {
+      "LONG": "max(trigger_level, ask)",
+      "SHORT": "min(trigger_level, bid)"
+    },
+    "stop_loss_rule": "stop_loss_price = invalidation_level",
+    "quantity_hint": 1
+  },
+  "ready_vs_blocked_examples": {
+    "ready": {
+      "symbol": "TEST",
+      "trigger_state": "TRIGGER_READY",
+      "entry_price": 11.0,
+      "stop_loss_price": 10.7,
+      "reason": "trigger_ready"
+    },
+    "blocked": {
+      "symbol": "TEST",
+      "trigger_state": "TRIGGER_BLOCKED",
+      "reason": "missing_trigger_level",
+      "blocking_factors": ["missing_trigger_level", "missing_invalidation_level"]
+    }
+  },
+  "integration_summary": {
+    "pipeline": "DecisionEngine -> TriggerEngine -> TradeIntent",
+    "trade_intent_source": "TriggerEngine output only",
+    "blocked_behavior": "explicit logging + no TradeIntent",
+    "ready_behavior": "TradeIntent emitted with TRADE_READY decision"
+  },
+  "tests_run": [
+    "pytest -q src/tests/test_level_engine.py src/tests/test_structure_engine.py src/tests/test_setup_engine.py src/tests/test_decision_engine.py src/tests/test_trigger_engine.py",
+    "pytest -q tests/test_p01_make_it_trade_layer.py tests/test_ross_pre_activation_runtime.py tests/test_ross_fast_trigger_activation.py tests/test_ross_profitability_activation.py tests/test_ross_trigger_diagnostics.py tests/test_ross_strategy_integrity_alignment.py"
+  ],
+  "pass_fail_summary": {
+    "status": "PASS",
+    "details": [
+      "28/28 targeted src/tests passing",
+      "28/28 targeted integration/runtime tests passing"
+    ]
+  },
+  "known_limitations": [
+    "quantity_hint is fixed to 1 until sizing layer is implemented",
+    "spread and distance checks use deterministic static thresholds"
+  ]
+}

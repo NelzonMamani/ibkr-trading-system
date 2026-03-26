@@ -15,6 +15,7 @@ from src.core.engines.decision_engine import DecisionEngine
 from src.core.engines.level_engine import LevelEngine
 from src.core.engines.structure_engine import StructureEngine
 from src.core.engines.setup_engine import SetupEngine
+from src.core.engines.trigger_engine import TriggerEngine
 from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import PatternResult, TradeIntent
 from src.signals.signal_event import SignalEvent
@@ -54,6 +55,7 @@ class RossMomentumStrategyV1(BaseStrategy):
     def __init__(self) -> None:
         self._pattern_registry = RossPatternRegistry()
         self._decision_engine = DecisionEngine()
+        self._trigger_engine = TriggerEngine()
         self._failure_trace_collector = RossPatternFailureTraceCollector()
         self._session_allowlist_by_pattern: Dict[str, set[str]] = {
             "P_ORB": {"REGULAR"},
@@ -542,10 +544,16 @@ class RossMomentumStrategyV1(BaseStrategy):
                 trace_context=registry_context,
                 trace_collector=pattern_traces.append,
             )
+            normalized_results = list(results or [])
             setup_source = "pattern_registry"
             if not results and not pattern_traces:
                 fallback_setups = self._detect_lightweight_setups(inputs, input_summary)
                 if fallback_setups:
+                    from src.strategies.ross_momentum.patterns.pattern_types import (
+                        Direction as RossDirection,
+                        PatternFamily as RossPatternFamily,
+                        PatternResult as RossPatternResult,
+                    )
                     setup_source = "fallback_detector"
                     print(
                         "[ROSS][SETUP_FALLBACK] "
@@ -564,6 +572,24 @@ class RossMomentumStrategyV1(BaseStrategy):
                             )
                         fallback_trace.confidence = float(setup.get("confidence", 0.6))
                         pattern_traces.append(fallback_trace)
+                        trigger_price = self._safe_float(setup.get("trigger_price"))
+                        invalidation_level = None
+                        if trigger_price is not None:
+                            invalidation_level = round(trigger_price * 0.97, 4)
+                        normalized_results.append(
+                            RossPatternResult(
+                                setup_id=str(setup.get("pattern_id", "P_HOD_BREAK")),
+                                pattern_name=str(setup.get("setup_type", "HOD_BREAK")),
+                                pattern_family=RossPatternFamily.BREAKOUT,
+                                detected=True,
+                                direction=RossDirection.LONG,
+                                confidence=float(setup.get("confidence", 0.6)),
+                                setup_quality_tags=["fallback_detector"],
+                                setup_family_id=str(setup.get("pattern_id", "P_HOD_BREAK")),
+                                trigger_level=trigger_price,
+                                invalidation_level=invalidation_level,
+                            )
+                        )
             if pattern_traces:
                 selected_setup_name = next((trace.pattern_name for trace in pattern_traces if trace.detected), "UNKNOWN")
                 print(f"[ROSS][SETUP] symbol={symbol} source={setup_source} setup={selected_setup_name}")
@@ -578,7 +604,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol_trace.detected_pattern_ids = [
                 trace.pattern_id for trace in pattern_traces if trace.detected and not self._is_inactive_pattern(trace.pattern_id)
             ]
-            for trace, result in zip(pattern_traces, results):
+            for trace, result in zip(pattern_traces, normalized_results):
                 trace.confidence = float(getattr(result, "confidence", 0.0) or 0.0)
             for trace in pattern_traces:
                 if self._is_inactive_pattern(trace.pattern_id):
@@ -592,7 +618,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 levels=levels,
                 structure=structure,
                 setups=setups,
-                pattern_results=results or symbol_trace.pattern_traces,
+                pattern_results=normalized_results or symbol_trace.pattern_traces,
                 session_context=input_summary.session_context,
                 pattern_traces=symbol_trace.pattern_traces,
                 inactive_pattern_ids=getattr(self._pattern_registry, "inactive_pattern_ids", set()),
@@ -603,12 +629,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"selected_pattern={decision['selected_pattern_id']} "
                 f"selected_setup={decision['selected_setup_family']} reason={decision['decision_reason']}"
             )
-            best_pattern = self._resolve_selected_pattern_trace(
-                selected_pattern_id=decision.get("selected_pattern_id"),
-                pattern_traces=symbol_trace.pattern_traces,
-            )
-
-            if not best_pattern:
+            selected_pattern_id = decision.get("selected_pattern_id")
+            if not selected_pattern_id:
                 pre_activation = self._detect_pre_breakout_pressure(
                     symbol=symbol,
                     inputs=inputs,
@@ -659,135 +681,86 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
 
-            confirmation_passed, blocking_reasons, warnings = self._evaluate_confirmation(
+            trigger = self._trigger_engine.compute_trigger(
                 symbol=symbol,
-                selected_pattern=best_pattern,
-                pattern_traces=pattern_traces,
-                session_label=session_label,
+                decision=decision,
+                market_snapshot=snapshot if isinstance(snapshot, MarketSnapshot) else None,
+                session_context=input_summary.session_context,
             )
-            if not confirmation_passed:
-                self._evaluate_trigger(
-                    symbol=symbol,
-                    selected_pattern=best_pattern,
-                    confirmation_passed=False,
-                    trigger_name="confirmation_gate",
-                    entry_price=None,
-                )
-                symbol_trace.dropped_detected_pattern_ids = [best_pattern.pattern_id]
-                symbol_trace.final_outcome = "NO_SETUP:confirmation_blocked"
-                symbol_trace.confirmation_stage = {
-                    "status": "FAIL",
-                    "reason_code": "CONFIRMATION_BLOCKED",
-                    "details": {"pattern": best_pattern.pattern_id, "blocking_reasons": blocking_reasons},
-                }
-                symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "CONFIRMATION_BLOCKED"}
-                symbol_trace.final_reason_code = "CONFIRMATION_BLOCKED"
+            if trigger["trigger_state"] != "TRIGGER_READY":
+                reason = str(trigger.get("reason") or "trigger_blocked")
                 print(
-                    f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
+                    "[ROSS][TRIGGER_ENGINE] "
+                    f"symbol={symbol} state=TRIGGER_BLOCKED reason={reason}"
                 )
-                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=CONFIRMATION_BLOCKED")
-                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_CONFIRMATION_BLOCKED"], "confirmation_blocked")
+                symbol_trace.final_outcome = f"NO_SETUP:{reason}"
+                symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "TRIGGER_BLOCKED", "details": trigger}
+                symbol_trace.final_reason_code = "TRIGGER_BLOCKED"
+                print(f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED")
+                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason={reason}")
+                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], reason)
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
-                    pattern=best_pattern.pattern_id,
-                    primary_reason="confirmation_blocked",
-                    details=blocking_reasons or ["unspecified_blocker"],
-                )
-                self._log_decision_blocked(
-                    symbol=symbol,
-                    final_stage="confirmation",
-                    reason=f"confirmation_blocked:{best_pattern.pattern_id}",
-                )
-                self._log_pipeline_no_decision(symbol)
-                symbol_traces.append(symbol_trace)
-                self._failure_trace_collector.record_symbol(symbol_trace)
-                continue
-
-            trade = self._build_trade_from_pattern(best_pattern, inputs)
-            if not trade:
-                symbol_trace.final_outcome = "NO_SETUP:invalid_trade_structure"
-                symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "INVALID_TRADE_STRUCTURE"}
-                symbol_trace.final_reason_code = "INVALID_TRADE_STRUCTURE"
-                print(
-                    f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
-                )
-                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
-                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], "invalid_trade_structure")
-                classification_counts["TRIGGER_REJECTED"] += 1
-                self._log_no_trade_root_cause(
-                    symbol=symbol,
-                    pattern=best_pattern.pattern_id,
-                    primary_reason="invalid_trade_structure",
-                    details=["entry_or_stop_missing_or_invalid"],
+                    pattern=selected_pattern_id,
+                    primary_reason=reason,
+                    details=list(trigger.get("blocking_factors") or [reason]),
                 )
                 self._log_decision_blocked(
                     symbol=symbol,
                     final_stage="trigger",
-                    reason="invalid_trade_structure",
+                    reason=reason,
                 )
                 self._log_pipeline_no_decision(symbol)
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
 
-            entry, stop = trade
-            print(f"[ROSS][ENTRY_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} entry={entry}")
-            print(f"[ROSS][STOP_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} stop={stop}")
-            print(f"[ROSS][TRIGGER][PASS] symbol={symbol} trigger=confirmation_gate")
-            print(f"[ROSS][TRIGGER_PASS] symbol={symbol} trigger=confirmation_gate")
-            trigger_ready, _trigger_reason = self._evaluate_trigger(
-                symbol=symbol,
-                selected_pattern=best_pattern,
-                confirmation_passed=True,
-                trigger_name="first_valid_breakout",
-                entry_price=entry,
+            entry = float(trigger["entry_price"])
+            stop = float(trigger["stop_loss_price"])
+            print(
+                "[ROSS][TRIGGER_ENGINE] "
+                f"symbol={symbol} state=TRIGGER_READY entry={entry} stop={stop}"
             )
             symbol_trace.trigger_stage = {
-                "status": "FIRED" if trigger_ready else "ARMED_NOT_FIRED_YET",
-                "reason_code": "TRIGGER_PASS" if trigger_ready else "TRIGGER_NOT_READY",
-                "details": {"pattern": best_pattern.pattern_id, "entry_price": entry},
+                "status": "FIRED",
+                "reason_code": "TRIGGER_PASS",
+                "details": trigger,
             }
 
             intent = TradeIntent(
                 symbol=symbol,
-                direction="LONG",
+                direction=str(decision.get("entry_bias") or "LONG"),
                 strategy_name=self.name,
-                confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
+                confidence=float(decision.get("confidence") or 0.0),
                 rationale=(
-                    f"pattern_detected={best_pattern.pattern_id} | entry={entry:.4f} | stop={stop:.4f}"
+                    f"pattern_detected={selected_pattern_id} | entry={entry:.4f} | stop={stop:.4f}"
                 ),
                 trader_type=self.trader_type,
                 stop_loss_price=stop,
                 invalidation_level=stop,
-                pattern_name=best_pattern.pattern_id,
-                setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
-                trigger_id="confirmation_gate",
+                pattern_name=decision.get("selected_pattern_name"),
+                setup_family_id=decision.get("selected_setup_family"),
+                trigger_id=trigger["trigger_id"],
             )
             intent.entry_price = entry
-            intent.has_valid_pattern = bool(getattr(best_pattern, "detected", False))
-            intent.confirmation_passed = confirmation_passed
-            intent.trigger_ready = trigger_ready
+            intent.has_valid_pattern = True
+            intent.confirmation_passed = True
+            intent.trigger_ready = True
             intent.decision = "TRADE_READY"
             intent = self._apply_intent_contract_defaults(intent, input_summary, timestamp_utc=timestamp_utc)
 
             translated_intents.append(intent)
-            best_pattern.post_detect_disposition = "translated_to_trade_intent"
-            best_pattern.final_outcome = "DETECTED_AND_EXECUTED"
             symbol_trace.final_outcome = "SETUP_DETECTED_AND_TRANSLATED"
-            symbol_trace.confirmation_stage = {
-                "status": "PASS",
-                "reason_code": "CONFIRMATION_PASS",
-                "details": {"pattern": best_pattern.pattern_id, "warnings": warnings},
-            }
+            symbol_trace.confirmation_stage = {"status": "PASS", "reason_code": "DECISION_ENGINE_SELECTED"}
             symbol_trace.final_reason_code = "INTENT_GENERATED"
             print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
             classification_counts["READY_FOR_EXECUTION"] += 1
-            print(f"TRADE_INTENT symbol={symbol} setup={best_pattern.pattern_id}")
+            print(f"TRADE_INTENT symbol={symbol} setup={selected_pattern_id}")
             print(f"[ROSS][INTENT_GENERATED] symbol={symbol}")
             print(
                 "[ROSS][INTENT][EMIT] "
-                f"symbol={symbol} pattern={best_pattern.pattern_id} entry={entry} stop={stop} "
+                f"symbol={symbol} pattern={selected_pattern_id} entry={entry} stop={stop} "
                 f"has_valid_pattern={intent.has_valid_pattern} confirmation_passed={intent.confirmation_passed} trigger_ready={intent.trigger_ready}"
             )
             print(
@@ -799,12 +772,12 @@ class RossMomentumStrategyV1(BaseStrategy):
             _terminal(symbol, TERMINAL_CATEGORY["INTENT_CREATED"], "intent_created")
             print(
                 "[ROSS][FINAL_SELECTION] "
-                f"symbol={symbol} selected_pattern={best_pattern.pattern_id} "
+                f"symbol={symbol} selected_pattern={selected_pattern_id} "
                 f"entry={entry} stop={stop}"
             )
             print(
                 "[ROSS][DECISION] "
-                f"symbol={symbol} outcome=TRADE_READY pattern={best_pattern.pattern_id}"
+                f"symbol={symbol} outcome=TRADE_READY pattern={selected_pattern_id}"
             )
             symbol_traces.append(symbol_trace)
             self._failure_trace_collector.record_symbol(symbol_trace)

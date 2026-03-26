@@ -88,6 +88,8 @@ def _detected_result(pattern_id: str, confidence: float = 0.82) -> PatternResult
         direction=Direction.LONG,
         confidence=confidence,
         setup_quality_tags=["test"],
+        trigger_level=10.95,
+        invalidation_level=10.7,
     )
 
 
@@ -174,8 +176,8 @@ def test_confirmation_fail_emits_log(monkeypatch, tmp_path, capsys) -> None:
     )
 
     out = capsys.readouterr().out
-    assert "[ROSS][CONFIRMATION][START] symbol=TEST pattern=P_ORB" in out
-    assert "[ROSS][CONFIRMATION][FAIL] symbol=TEST failed_check=not regular session" in out
+    assert "[TRIGGER_ENGINE] symbol=TEST state=TRIGGER_BLOCKED reason=invalid_session_for_pattern" in out
+    assert "[ROSS][TRIGGER_ENGINE] symbol=TEST state=TRIGGER_BLOCKED reason=invalid_session_for_pattern" in out
 
 
 def test_trigger_fail_emits_log(monkeypatch, tmp_path, capsys) -> None:
@@ -212,8 +214,8 @@ def test_trigger_fail_emits_log(monkeypatch, tmp_path, capsys) -> None:
     )
 
     out = capsys.readouterr().out
-    assert "[ROSS][TRIGGER][START] symbol=TEST pattern=P_ORB" in out
-    assert "[ROSS][TRIGGER][FAIL] symbol=TEST reason=confirmation_not_passed" in out
+    assert "[TRIGGER_ENGINE] symbol=TEST state=TRIGGER_BLOCKED reason=invalid_session_for_pattern" in out
+    assert "[ROSS][TRIGGER_FAIL] symbol=TEST reason=invalid_session_for_pattern" in out
 
 
 def test_no_silent_drop_logs_pipeline_no_decision(monkeypatch, tmp_path, capsys) -> None:
@@ -232,7 +234,7 @@ def test_no_silent_drop_logs_pipeline_no_decision(monkeypatch, tmp_path, capsys)
     assert intents
     out = capsys.readouterr().out
     assert "[ROSS][SETUP_FALLBACK] symbol=TEST setups=" in out
-    assert "[ROSS][TRIGGER][PASS] symbol=TEST trigger=confirmation_gate" in out
+    assert "[ROSS][TRIGGER_ENGINE] symbol=TEST state=TRIGGER_READY" in out
 
 
 def test_trade_ready_still_works_and_emits_terminal_log(monkeypatch, tmp_path, capsys) -> None:
@@ -270,6 +272,6 @@ def test_trade_ready_still_works_and_emits_terminal_log(monkeypatch, tmp_path, c
     assert intents
     assert intents[0].decision == "TRADE_READY"
     out = capsys.readouterr().out
-    assert "[ROSS][CONFIRMATION][PASS] symbol=TEST checks=['pattern_detected', 'session_guard']" in out
-    assert "[ROSS][TRIGGER][PASS] symbol=TEST trigger=confirmation_gate" in out
+    assert "[ROSS][TRIGGER_ENGINE] symbol=TEST state=TRIGGER_READY" in out
+    assert "[ROSS][INTENT_GENERATED] symbol=TEST" in out
     assert "[ROSS][DECISION] symbol=TEST outcome=TRADE_READY pattern=P_PREMKT_BREAK" in out

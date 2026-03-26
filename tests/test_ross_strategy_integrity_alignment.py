@@ -77,6 +77,8 @@ def _detected_result(pattern_id: str, confidence: float = 0.8) -> PatternResult:
         direction=Direction.LONG,
         confidence=confidence,
         setup_quality_tags=["test"],
+        trigger_level=10.95,
+        invalidation_level=10.7,
     )
 
 
