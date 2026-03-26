@@ -24,9 +24,11 @@ class E22PolicyConfig:
     max_strategies_per_cycle: int = 20
     max_intents_per_cycle: int = 200
     max_positions_per_cycle: int = 50
+    max_position_per_symbol: int = 1
     symbol_exclusivity: bool = True
     strategy_priority: Dict[str, int] = field(default_factory=dict)
     strategy_max_intents: Dict[str, int] = field(default_factory=dict)
+    merge_policy: str = "WINNER_TAKE_ALL"
 
 
 @dataclass(frozen=True)
@@ -98,6 +100,7 @@ class IntentArbitrator:
         suppressed: List[SuppressedIntent] = list(scheduler_suppressed)
         per_strategy_count: Dict[str, int] = {}
         seen_symbols: set[str] = set()
+        symbol_position_budget: Dict[str, int] = {}
 
         for intent in ordered:
             if intent.strategy_name not in allowed_strategy_set:
@@ -138,6 +141,29 @@ class IntentArbitrator:
                 )
                 continue
 
+            requested_quantity = int(getattr(intent, "quantity", None) or getattr(intent, "requested_quantity", None) or 1)
+            if requested_quantity <= 0:
+                requested_quantity = 1
+
+            used_symbol_budget = symbol_position_budget.get(intent.symbol, 0)
+            if used_symbol_budget + requested_quantity > max(config.max_position_per_symbol, 0):
+                suppressed.append(
+                    SuppressedIntent(
+                        strategy_name=intent.strategy_name,
+                        symbol=intent.symbol,
+                        direction=intent.direction,
+                        reason_code="SYMBOL_POSITION_LIMIT",
+                        context={
+                            "cap": "max_position_per_symbol",
+                            "max": config.max_position_per_symbol,
+                            "requested": requested_quantity,
+                            "already_allocated": used_symbol_budget,
+                            "merge_policy": config.merge_policy,
+                        },
+                    )
+                )
+                continue
+
             if len(allowed) >= max(config.max_intents_per_cycle, 0):
                 suppressed.append(
                     SuppressedIntent(
@@ -165,6 +191,7 @@ class IntentArbitrator:
             allowed.append(intent)
             per_strategy_count[intent.strategy_name] = current_strategy_count + 1
             seen_symbols.add(intent.symbol)
+            symbol_position_budget[intent.symbol] = used_symbol_budget + requested_quantity
 
         suppression_counts: Dict[str, int] = {}
         for item in suppressed:
@@ -176,7 +203,9 @@ class IntentArbitrator:
                 "max_strategies_per_cycle": config.max_strategies_per_cycle,
                 "max_intents_per_cycle": config.max_intents_per_cycle,
                 "max_positions_per_cycle": config.max_positions_per_cycle,
+                "max_position_per_symbol": config.max_position_per_symbol,
                 "symbol_exclusivity": config.symbol_exclusivity,
+                "merge_policy": config.merge_policy,
             },
             allowed_intents=allowed,
             suppressed_intents=suppressed,

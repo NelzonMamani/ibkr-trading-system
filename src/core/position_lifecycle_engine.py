@@ -23,6 +23,9 @@ class LifecycleIntent(str, Enum):
     OPEN = "OPEN"
     ADD = "ADD"
     SCALE_OUT = "SCALE_OUT"
+    ADD_TO_WINNER = "ADD_TO_WINNER"
+    PARTIAL_PROFIT = "PARTIAL_PROFIT"
+    TRAILING_STOP_UPDATE = "TRAILING_STOP_UPDATE"
     FULL_EXIT = "FULL_EXIT"
     STOP_EXIT = "STOP_EXIT"
     TIME_EXIT = "TIME_EXIT"
@@ -36,6 +39,7 @@ ALLOWED_TRANSITIONS = {
     (PositionState.OPEN, PositionState.REDUCING),
     (PositionState.SCALING_IN, PositionState.OPEN),
     (PositionState.REDUCING, PositionState.OPEN),
+    (PositionState.OPEN, PositionState.OPEN),
     (PositionState.OPEN, PositionState.CLOSING),
     (PositionState.CLOSING, PositionState.CLOSED),
 }
@@ -65,6 +69,9 @@ class PositionLifecycle:
     trader_type: str
     quantity: int = 0
     state: PositionState = PositionState.FLAT
+    stop_loss_price: float | None = None
+    trailing_stop_price: float | None = None
+    partial_profit_taken: bool = False
     state_history: list[dict] = field(default_factory=list)
 
 
@@ -346,7 +353,7 @@ class PositionLifecycleEngine:
                         reason=reason,
                     )
                 )
-            elif intent == LifecycleIntent.ADD:
+            elif intent in {LifecycleIntent.ADD, LifecycleIntent.ADD_TO_WINNER}:
                 if position.state != PositionState.OPEN:
                     raise LifecycleTransitionError(
                         "INVALID_STATE",
@@ -364,7 +371,7 @@ class PositionLifecycleEngine:
                         fill_status=fill_status,
                         execution_blocked=execution_blocked,
                         fill_latency_ms=fill_latency_ms,
-                        reason_code="ADD_INTENT_ACCEPTED",
+                        reason_code="ADD_TO_WINNER_ACCEPTED" if intent == LifecycleIntent.ADD_TO_WINNER else "ADD_INTENT_ACCEPTED",
                         reason=reason,
                     )
                 )
@@ -383,7 +390,7 @@ class PositionLifecycleEngine:
                         reason="Scaling in completed.",
                     )
                 )
-            elif intent == LifecycleIntent.SCALE_OUT:
+            elif intent in {LifecycleIntent.SCALE_OUT, LifecycleIntent.PARTIAL_PROFIT}:
                 if position.state != PositionState.OPEN:
                     raise LifecycleTransitionError(
                         "INVALID_STATE",
@@ -406,7 +413,7 @@ class PositionLifecycleEngine:
                         fill_status=fill_status,
                         execution_blocked=execution_blocked,
                         fill_latency_ms=fill_latency_ms,
-                        reason_code="SCALE_OUT_ACCEPTED",
+                        reason_code="PARTIAL_PROFIT_ACCEPTED" if intent == LifecycleIntent.PARTIAL_PROFIT else "SCALE_OUT_ACCEPTED",
                         reason=reason,
                     )
                 )
@@ -423,6 +430,28 @@ class PositionLifecycleEngine:
                         fill_latency_ms=fill_latency_ms,
                         reason_code="REDUCING_COMPLETE",
                         reason="Scale-out completed.",
+                    )
+                )
+            elif intent == LifecycleIntent.TRAILING_STOP_UPDATE:
+                if position.state != PositionState.OPEN:
+                    raise LifecycleTransitionError(
+                        "INVALID_STATE",
+                        "TRAILING_STOP_UPDATE requires OPEN state.",
+                    )
+                position.trailing_stop_price = float(reason.split("=")[-1]) if "=" in reason else position.trailing_stop_price
+                transitions.append(
+                    self._apply_transition(
+                        position=position,
+                        to_state=PositionState.OPEN,
+                        intent=intent,
+                        run_mode=run_mode,
+                        requested_quantity=requested_quantity,
+                        filled_quantity=0,
+                        fill_status="NONE",
+                        execution_blocked=execution_blocked,
+                        fill_latency_ms=fill_latency_ms,
+                        reason_code="TRAILING_STOP_UPDATED",
+                        reason=reason,
                     )
                 )
             else:

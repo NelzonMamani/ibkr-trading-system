@@ -76,3 +76,14 @@ def test_e22_enabled_returns_explainable_artifact() -> None:
     assert artifact.strategy_order == ["alpha", "beta"]
     assert artifact.suppressed_intents
     assert artifact.suppressed_intents[0].reason_code
+
+
+def test_e22_symbol_position_limit_enforced() -> None:
+    first = _intent("alpha", "ABC")
+    setattr(first, "requested_quantity", 2)
+    second = _intent("alpha", "ABC")
+    setattr(second, "requested_quantity", 1)
+    config = E22PolicyConfig(enabled=True, max_position_per_symbol=2, symbol_exclusivity=False)
+    artifact = IntentArbitrator().arbitrate([first, second], config)
+    assert len(artifact.allowed_intents) == 1
+    assert artifact.suppression_counts_by_reason_code["SYMBOL_POSITION_LIMIT"] == 1

@@ -45,6 +45,7 @@ from src.core.stop_controller import StopController, StopMode
 from src.core.performance_registry import PerformanceRegistry
 from src.core.replay_engine import ReplayEngine
 from src.core.trace_bus import TraceBus
+from src.core.decision_trace import DecisionTraceStore, SymbolDecisionTrace
 from src.execution.execution_engine import ExecutionEngine
 from src.execution.execution_providers import IbkrExecutionProvider, PaperExecutionProvider
 from src.core.managers import (
@@ -407,6 +408,9 @@ class CoreOrchestrator:
             stop_controller=self.stop_controller,
         )
         self.storage_engine = StorageEngine()
+        self.decision_trace_store = DecisionTraceStore(
+            persist_path=os.getenv("DECISION_TRACE_PATH")
+        )
         self.learning_scheduler = LearningScheduler()
         self._halted = False
         self._degraded = False
@@ -2511,6 +2515,12 @@ class CoreOrchestrator:
         print("[TEACH] >>> Intent normalization stage — enforce deduplication.")
         try:
             strategy_output = self._normalize_trade_intents(strategy_output)
+            strategy_output = self._enforce_intent_identity(strategy_output)
+            self._record_decision_trace_stage(
+                "INTENT",
+                strategy_output,
+                {"count": len(strategy_output), "authority": "strategy"},
+            )
             e22_config = E22PolicyConfig(
                 enabled=bool(get_config("E22_STRATEGY_SCALABILITY_ENABLED")),
                 max_strategies_per_cycle=int(get_config("E22_MAX_STRATEGIES_PER_CYCLE")),
@@ -2519,8 +2529,15 @@ class CoreOrchestrator:
                 symbol_exclusivity=bool(get_config("E22_SYMBOL_EXCLUSIVITY")),
                 strategy_priority=dict(get_config("E22_STRATEGY_PRIORITY") or {}),
                 strategy_max_intents=dict(get_config("E22_STRATEGY_MAX_INTENTS") or {}),
+                max_position_per_symbol=int(get_config("E22_MAX_POSITION_PER_SYMBOL") or 1),
+                merge_policy=str(get_config("E22_MERGE_POLICY") or "WINNER_TAKE_ALL"),
             )
             strategy_output, e22_artifact = apply_e22_arbitration_layer(strategy_output, e22_config)
+            self._record_decision_trace_stage(
+                "ARBITRATION",
+                strategy_output,
+                {"count": len(strategy_output), "authority": "arbitration"},
+            )
             if e22_artifact is not None:
                 self.event_collector.emit(
                     event_type="E22_ARBITRATION",
@@ -2686,6 +2703,9 @@ class CoreOrchestrator:
                         blocked_symbols.add(trade_intent.symbol)
                         if trade_intent.symbol in trade_ready_terminal:
                             trade_ready_terminal[trade_intent.symbol]["blocked"] = True
+                    decision.strategy_prefix = getattr(trade_intent, "strategy_prefix", None)
+                    decision.setup_family_id = getattr(trade_intent, "setup_family_id", None)
+                    decision.trigger_id = getattr(trade_intent, "trigger_id", None)
                     risk_output.append(decision)
             except Exception as exc:
                 self._evaluate_runtime_safety(
@@ -2705,6 +2725,24 @@ class CoreOrchestrator:
                 print("[RISK] No risk decision produced — placeholder outcome.")
             else:
                 print(f"[RISK] Risk decision produced: {risk_output}")
+                self._record_decision_trace_stage(
+                    "RISK",
+                    [
+                        TradeIntent(
+                            symbol=decision.symbol,
+                            direction=getattr(decision, "direction", "UNKNOWN"),
+                            strategy_name=getattr(decision, "strategy_name", "UNKNOWN"),
+                            confidence=1.0,
+                            rationale=getattr(decision, "rationale", "NONE"),
+                            trader_type=getattr(decision, "trader_type", "UNKNOWN"),
+                            strategy_prefix=getattr(decision, "strategy_prefix", None),
+                            setup_family_id=getattr(decision, "setup_family_id", None),
+                            trigger_id=getattr(decision, "trigger_id", None),
+                        )
+                        for decision in risk_output
+                    ],
+                    {"count": len(risk_output), "authority": "risk"},
+                )
         self._evaluate_runtime_safety(
             cycle_stage="RISK",
             stage_exception=None,
@@ -2752,6 +2790,10 @@ class CoreOrchestrator:
                     )
                     try:
                         result = self.execution_engine.execute_trade(risk_decision)
+                        result.strategy_name = getattr(risk_decision, "strategy_name", None)
+                        result.strategy_prefix = getattr(risk_decision, "strategy_prefix", None)
+                        result.setup_family_id = getattr(risk_decision, "setup_family_id", None)
+                        result.trigger_id = getattr(risk_decision, "trigger_id", None)
                         execution_output.append(result)
                         if risk_decision.symbol in trade_ready_terminal:
                             if str(getattr(result, "status", "")).upper() in {"REJECTED", "ERROR", "FAILED", "BLOCKED"}:
@@ -2788,6 +2830,24 @@ class CoreOrchestrator:
                     print("[EXECUTION] No execution results captured — placeholder outcome.")
                 else:
                     print(f"[EXECUTION] Execution results: {execution_output}")
+                    self._record_decision_trace_stage(
+                        "EXECUTION",
+                        [
+                            TradeIntent(
+                                symbol=result.symbol,
+                                direction=getattr(result, "direction", "UNKNOWN"),
+                                strategy_name=getattr(result, "strategy_name", "UNKNOWN") or "UNKNOWN",
+                                confidence=1.0,
+                                rationale=getattr(result, "rationale", "NONE") or "NONE",
+                                trader_type=getattr(result, "trader_type", "UNKNOWN"),
+                                strategy_prefix=getattr(result, "strategy_prefix", None),
+                                setup_family_id=getattr(result, "setup_family_id", None),
+                                trigger_id=getattr(result, "trigger_id", None),
+                            )
+                            for result in execution_output
+                        ],
+                        {"count": len(execution_output), "authority": "execution"},
+                    )
         self._assert_trade_ready_terminal_paths(
             execution_enabled=self.execution_enabled,
             trade_ready_terminal=trade_ready_terminal,
@@ -3304,6 +3364,59 @@ class CoreOrchestrator:
                 )
             )
         return annotated
+
+    def _enforce_intent_identity(self, intents: List[TradeIntent]) -> List[TradeIntent]:
+        enforced: List[TradeIntent] = []
+        for intent in intents:
+            strategy_name = str(getattr(intent, "strategy_name", "") or "UNKNOWN")
+            strategy_prefix = str(
+                getattr(intent, "strategy_prefix", None)
+                or strategy_name.split("_")[0].split(" ")[0].upper()[:8]
+                or "UNKNOWN"
+            )
+            setup_family_id = str(
+                getattr(intent, "setup_family_id", None)
+                or getattr(intent, "pattern_name", None)
+                or "UNSPECIFIED_SETUP"
+            )
+            trigger_id = str(getattr(intent, "trigger_id", None) or getattr(intent, "intent_id", None) or f"{strategy_prefix}:TRIGGER")
+            canonical = replace(
+                intent,
+                strategy_name=strategy_name,
+                strategy_prefix=strategy_prefix,
+                setup_family_id=setup_family_id,
+                trigger_id=trigger_id,
+            )
+            enforced.append(canonical)
+            print(
+                "[IDENTITY] "
+                f"symbol={canonical.symbol} strategy={canonical.strategy_name} "
+                f"strategy_prefix={canonical.strategy_prefix} setup_family_id={canonical.setup_family_id} trigger_id={canonical.trigger_id}"
+            )
+        return enforced
+
+    def _record_decision_trace_stage(self, stage: str, intents: List[TradeIntent], stage_payload: dict) -> None:
+        for intent in intents:
+            symbol = str(getattr(intent, "symbol", "")).upper()
+            if not symbol:
+                continue
+            existing = self.decision_trace_store.by_symbol(symbol)
+            if existing is None:
+                trace = SymbolDecisionTrace(
+                    symbol=symbol,
+                    strategy_name=str(getattr(intent, "strategy_name", "UNKNOWN") or "UNKNOWN"),
+                    strategy_prefix=str(getattr(intent, "strategy_prefix", "UNKNOWN") or "UNKNOWN"),
+                    setup_family_id=str(getattr(intent, "setup_family_id", "UNSPECIFIED_SETUP") or "UNSPECIFIED_SETUP"),
+                    trigger_id=str(getattr(intent, "trigger_id", "UNKNOWN_TRIGGER") or "UNKNOWN_TRIGGER"),
+                    setup_id=str(getattr(intent, "pattern_name", None) or getattr(intent, "setup_family_id", "UNSPECIFIED_SETUP")),
+                    decision_reason=str(getattr(intent, "rationale", "NONE") or "NONE"),
+                )
+                self.decision_trace_store.upsert(trace)
+            self.decision_trace_store.update_stage(symbol, stage, stage_payload)
+            print(
+                "[TRACE][DECISION] "
+                f"symbol={symbol} stage={stage} strategy={getattr(intent, 'strategy_name', 'UNKNOWN')} reason={getattr(intent, 'rationale', None) or 'NONE'}"
+            )
 
     def _normalize_trade_intents(self, intents: List[TradeIntent]) -> List[TradeIntent]:
         intents_to_process = list(intents)
