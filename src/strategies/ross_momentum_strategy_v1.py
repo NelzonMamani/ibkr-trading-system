@@ -12,6 +12,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 from src.config.config_resolver import ConfigResolutionError, get_config
 from src.config.runtime_config import RunMode
 from src.core.engines.level_engine import LevelEngine
+from src.core.engines.structure_engine import StructureEngine
 from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import PatternResult, TradeIntent
 from src.signals.signal_event import SignalEvent
@@ -423,8 +424,17 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"symbol={symbol} premarket_high={levels.get('premarket_high')} "
                 f"hod={levels.get('hod')} lod={levels.get('lod')} vwap={levels.get('vwap')}"
             )
+            structure = StructureEngine().compute_structure(
+                candles=list(getattr(inputs, "candles", []) or [])
+            )
+            print(
+                "[STRUCTURE_ENGINE] "
+                f"symbol={symbol} trend={structure.get('trend')} "
+                f"state={structure.get('structure_state')}"
+            )
             symbol_trace.input_summary = input_summary.to_dict()
             symbol_trace.input_summary["levels"] = levels
+            symbol_trace.input_summary["structure"] = structure
             print(
                 "[ROSS][INPUT_SUMMARY] "
                 f"symbol={symbol} candle_count={input_summary.candle_count} last={input_summary.last_price} "
@@ -498,7 +508,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "runtime_mode": mode.value,
                 "symbol_source": symbol_source,
                 "input_summary": input_summary.to_dict(),
-                "pattern_inputs": {"levels": levels},
+                "pattern_inputs": {"levels": levels, "structure": structure},
             }
             registry_pattern_ids = self._pattern_registry.pattern_ids
             print(
