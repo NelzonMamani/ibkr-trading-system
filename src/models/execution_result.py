@@ -48,6 +48,7 @@ class ExecutionResult:
     ask_price: Optional[Decimal] = None
     reference_price: Optional[Decimal] = None
     execution_price: Optional[Decimal] = None
+    synthetic: bool = False
 
     def __post_init__(self) -> None:
         self.entry_price = self._maybe_quantize(self.entry_price)

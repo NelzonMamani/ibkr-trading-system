@@ -12,7 +12,8 @@ from config.config_resolver import set_config_overrides
 
 
 def _risk(symbol: str, trader_type: str, qty: int) -> RiskDecision:
-    return RiskDecision(
+    entry_price = 10.0
+    decision = RiskDecision(
         symbol=symbol,
         allowed=True,
         max_position_size=qty,
@@ -21,8 +22,11 @@ def _risk(symbol: str, trader_type: str, qty: int) -> RiskDecision:
         trader_type=trader_type,
         strategy_name="UnitTestStrategy",
         direction="LONG",
+        stop_loss_price=round(entry_price * 0.99, 4),
         decision_id=f"decision-{symbol}-{trader_type}",
     )
+    decision.entry_price = entry_price
+    return decision
 
 
 def _find_tick_for_decision(symbol: str, trader_type: str, decision: GatewayDecision):
@@ -85,5 +89,28 @@ def test_gateway_rejections_and_retries():
         assert expire_result.status == "EXPIRED"
         assert expire_result.rejection_reason == "EXPIRED"
         assert execution_engine.pending_book.count() == 0
+    finally:
+        set_config_overrides(None)
+
+
+def test_allows_missing_stop_loss_in_test_mode_and_marks_synthetic(capsys):
+    set_config_overrides(
+        {
+            "RUN_MODE": "PAPER",
+            "EXECUTION_ENABLED": True,
+            "ALLOW_MISSING_STOP_LOSS_FOR_TESTS": True,
+        }
+    )
+    try:
+        execution_engine = ExecutionEngine(trade_registry=ActiveTradeRegistry(), event_collector=EventCollector())
+        execution_engine.current_tick = 3
+        decision = _risk("MSFT", "SCALPER", 1)
+        decision.stop_loss_price = None
+
+        result = execution_engine.execute_trade(decision)
+
+        assert result.attempted is True
+        assert result.synthetic is True
+        assert "[TEST_MODE][STOP_LOSS_BYPASSED]" in capsys.readouterr().out
     finally:
         set_config_overrides(None)

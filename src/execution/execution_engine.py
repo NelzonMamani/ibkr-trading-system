@@ -12,6 +12,7 @@ from src.brokers.base_broker import BrokerOrderRequest
 from src.config.config_resolver import get_config
 from src.config.runtime_config import (
     RunMode,
+    get_allow_missing_stop_loss_for_tests,
     get_execution_enabled,
     get_ibkr_readonly_enabled,
 )
@@ -60,6 +61,7 @@ class ExecutionEngine:
         self.execution_integrity_flag: bool = False
         self._order_trace_stages: dict[str, set[str]] = {}
         self._require_exit_stage: set[str] = set()
+        self._stop_loss_bypass_orders: set[str] = set()
         self.position_records: dict[str, dict] = {}
         self._provider = self._resolve_provider(provider)
         self.provider: Optional[ExecutionProvider] = self._provider
@@ -394,6 +396,8 @@ class ExecutionEngine:
             f"route={self.route_order(request)}"
         )
         result = self._provider.place_order(request)
+        if request.client_order_id in self._stop_loss_bypass_orders:
+            result.synthetic = True
         result = self._confirm_broker_ack(request, result)
         self._log_ibkr_status(request, result)
         self._record_fill_and_position(request, result)
@@ -415,6 +419,21 @@ class ExecutionEngine:
         entry_price = getattr(risk_decision, "entry_price", None)
         quantity = getattr(request, "quantity", None)
         side = getattr(request, "direction", None)
+        stop_loss_price = getattr(request, "stop_loss_price", None)
+        allow_missing_stop = get_allow_missing_stop_loss_for_tests()
+        if stop_loss_price is None:
+            if allow_missing_stop:
+                print("[TEST_MODE][STOP_LOSS_BYPASSED]")
+                self._stop_loss_bypass_orders.add(request.client_order_id)
+            else:
+                print(
+                    "[EXECUTION][BLOCK] "
+                    f"symbol={request.symbol} reason=missing_stop_loss_price"
+                )
+                return self._blocked_execution_from_risk_decision(
+                    risk_decision,
+                    rationale="missing_stop_loss_price",
+                )
         if entry_price is None or quantity is None or side is None:
             print(
                 "[EXECUTION][BLOCK] "

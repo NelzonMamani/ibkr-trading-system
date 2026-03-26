@@ -15,7 +15,8 @@ from config.config_resolver import set_config_overrides
 
 
 def _build_risk_decision(symbol: str, trader_type: str, quantity: int) -> RiskDecision:
-    return RiskDecision(
+    entry_price = 10.0
+    decision = RiskDecision(
         symbol=symbol,
         allowed=True,
         max_position_size=quantity,
@@ -24,8 +25,11 @@ def _build_risk_decision(symbol: str, trader_type: str, quantity: int) -> RiskDe
         trader_type=trader_type,
         strategy_name="UnitTestStrategy",
         direction="LONG",
+        stop_loss_price=round(entry_price * 0.99, 4),
         decision_id=f"decision-{symbol}-{trader_type}",
     )
+    decision.entry_price = entry_price
+    return decision
 
 
 def test_deterministic_liquidity_outcomes_and_replay():

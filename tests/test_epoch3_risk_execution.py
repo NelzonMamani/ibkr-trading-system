@@ -48,6 +48,10 @@ def _payload(intent_id: str = "intent-1", symbol: str = "ABC") -> StrategyRiskPa
 
 def _attach_decision_id(decision, decision_id: str) -> None:
     decision.decision_id = decision_id
+    entry_price = getattr(decision, "entry_price", None) or 10.0
+    decision.entry_price = entry_price
+    if getattr(decision, "stop_loss_price", None) is None:
+        decision.stop_loss_price = round(float(entry_price) * 0.99, 4)
 
 
 def test_risk_engine_blocks_live_read_only():

@@ -95,6 +95,10 @@ def get_execution_enabled(default: bool = False) -> bool:
     return allow_orders
 
 
+def get_allow_missing_stop_loss_for_tests(default: bool = False) -> bool:
+    return bool(_with_default("ALLOW_MISSING_STOP_LOSS_FOR_TESTS", default))
+
+
 def is_execution_enabled(run_mode: RunMode | None = None) -> bool:
     if run_mode is None:
         return get_execution_enabled()

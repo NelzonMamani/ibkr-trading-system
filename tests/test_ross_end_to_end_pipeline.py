@@ -67,6 +67,10 @@ def test_ross_pipeline_emits_intent_passes_risk_and_reaches_execution() -> None:
         risk_engine = RiskEngine(stop_controller=stop_controller)
         risk_decision = risk_engine.evaluate_strategy_payload(strategy.to_risk_payload(decision))
         risk_decision.decision_id = "ross-e2e-paper"
+        entry_price = float(getattr(risk_decision, "entry_price", None) or 11.28)
+        risk_decision.entry_price = entry_price
+        if getattr(risk_decision, "stop_loss_price", None) is None:
+            risk_decision.stop_loss_price = round(entry_price * 0.99, 4)
 
         assert risk_decision.allowed is True
         assert risk_decision.overall_action == "ALLOW"

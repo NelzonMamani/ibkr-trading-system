@@ -851,6 +851,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                 intent.entry_price = float(entry_price)
         if getattr(intent, "entry_price", None) is not None:
             intent.entry_price = float(intent.entry_price)
+        if getattr(intent, "stop_loss_price", None) is None and getattr(intent, "entry_price", None) is not None:
+            fallback_stop = round(float(intent.entry_price) * 0.95, 4)
+            intent.stop_loss_price = fallback_stop
+            if getattr(intent, "invalidation_level", None) is None:
+                intent.invalidation_level = fallback_stop
         intent.side = "BUY" if str(getattr(intent, "direction", "LONG")).upper() == "LONG" else "SELL"
         intent.decision = "TRADE_READY"
         if not getattr(intent, "pattern_name", None):

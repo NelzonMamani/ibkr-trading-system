@@ -78,6 +78,8 @@ class IbkrClient(EWrapper, EClient):
         self._order_warnings: Dict[int, Tuple[int, str]] = {}
         self._exec_details_by_order: Dict[int, List[dict]] = {}
         self._commission_by_exec_id: Dict[str, float] = {}
+        self._open_orders: Dict[int, dict] = {}
+        self._positions: Dict[str, dict] = {}
         self._account_summary_events: Dict[int, threading.Event] = {}
         self._account_summary_rows: Dict[int, Dict[str, str]] = {}
         self._managed_accounts_event = threading.Event()
@@ -188,6 +190,12 @@ class IbkrClient(EWrapper, EClient):
             askSize=None,
             lastSize=None,
         )
+
+    def _ensure_test_state_defaults(self) -> None:
+        if not hasattr(self, "_open_orders"):
+            self._open_orders = {}
+        if not hasattr(self, "_positions"):
+            self._positions = {}
 
     def reserve_order_id(self) -> int:
         with self._lock:
@@ -827,6 +835,11 @@ class IbkrClient(EWrapper, EClient):
         self._exec_details_by_order.setdefault(order_id, []).append(details)
 
     def openOrder(self, orderId, contract, order, orderState):  # type: ignore[override]
+        self._ensure_test_state_defaults()
+        self._open_orders[int(orderId)] = {
+            "symbol": getattr(contract, "symbol", None),
+            "status": getattr(orderState, "status", None),
+        }
         print(f"[ORDER][OPEN] order_id={orderId} symbol={getattr(contract, 'symbol', None)}")
 
     def commissionReport(self, commissionReport):  # type: ignore[override]

@@ -97,6 +97,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "static",
         "description": "Execution enable flag required for LIVE order routing.",
     },
+    "ALLOW_MISSING_STOP_LOSS_FOR_TESTS": {
+        "type": bool,
+        "default": False,
+        "env": ["ALLOW_MISSING_STOP_LOSS_FOR_TESTS"],
+        "affects": ["ExecutionEngine", "Tests"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Test-only override that allows execution to proceed when stop_loss_price is missing.",
+    },
     "FORCE_EXECUTION_ON_TRADE_READY": {
         "type": bool,
         "default": True,
