@@ -679,11 +679,12 @@ class RossMomentumStrategyV1(BaseStrategy):
             entry, stop = trade
             print(f"[ROSS][ENTRY_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} entry={entry}")
             print(f"[ROSS][STOP_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} stop={stop}")
+            print(f"[ROSS][TRIGGER][PASS] symbol={symbol} trigger=confirmation_gate")
             trigger_ready, _trigger_reason = self._evaluate_trigger(
                 symbol=symbol,
                 selected_pattern=best_pattern,
                 confirmation_passed=True,
-                trigger_name="confirmation_gate",
+                trigger_name="first_valid_breakout",
                 entry_price=entry,
             )
             symbol_trace.trigger_stage = {
@@ -706,7 +707,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 pattern_name=best_pattern.pattern_id,
             )
             intent.entry_price = entry
-            intent.has_valid_pattern = True
+            intent.has_valid_pattern = bool(getattr(best_pattern, "detected", False))
             intent.confirmation_passed = confirmation_passed
             intent.trigger_ready = trigger_ready
             intent.decision = "TRADE_READY"
@@ -1047,10 +1048,19 @@ class RossMomentumStrategyV1(BaseStrategy):
         if entry_price is None:
             reason = "entry_price_missing"
             print(f"[ROSS][TRIGGER][ARMED] symbol={symbol} awaiting=entry_price")
+            print(f"[PIPELINE][TRIGGER] symbol={symbol} trigger_valid=false rule={trigger_name} reason={reason}")
             return False, reason
         print(
             "[ROSS][TRIGGER][PASS] "
             f"symbol={symbol} trigger={trigger_name} entry={entry_price}"
+        )
+        print(
+            "[ROSS][TRIGGER][PASS] "
+            f"symbol={symbol} rule={trigger_name} entry={entry_price}"
+        )
+        print(
+            "[PIPELINE][TRIGGER] "
+            f"symbol={symbol} trigger_valid=true rule={trigger_name} entry={entry_price}"
         )
         return True, "trigger_fired"
 
