@@ -87,16 +87,16 @@ class RossMomentumStrategyV1(BaseStrategy):
         }
         self._pre_volume_min = float(get_config("PREMARKET_MIN_VOLUME"))
         self._rth_volume_min = float(get_config("RTH_MIN_VOLUME"))
-        self._pre_rvol_min = 0.8
+        self._pre_rvol_min = 0.35
         self._rth_rvol_min = 1.5
-        self._pre_trigger_min_pct_change = self._cfg_float("ROSS_PRE_TRIGGER_MIN_PCT_CHANGE", 2.0)
-        self._pre_trigger_min_volume = self._cfg_float("ROSS_PRE_TRIGGER_MIN_VOLUME", max(self._pre_volume_min, 10_000.0))
-        self._pre_trigger_min_rvol = self._cfg_float("ROSS_PRE_TRIGGER_MIN_RVOL", 1.2)
+        self._pre_trigger_min_pct_change = self._cfg_float("ROSS_PRE_TRIGGER_MIN_PCT_CHANGE", 0.5)
+        self._pre_trigger_min_volume = self._cfg_float("ROSS_PRE_TRIGGER_MIN_VOLUME", 5_000.0)
+        self._pre_trigger_min_rvol = self._cfg_float("ROSS_PRE_TRIGGER_MIN_RVOL", 0.35)
         self._rth_trigger_min_pct_change = self._cfg_float("ROSS_TRIGGER_MIN_PCT_CHANGE", 5.0)
         self._rth_trigger_min_rvol = self._cfg_float("ROSS_TRIGGER_MIN_RVOL", 2.0)
         self._pre_require_reclaim_or_level_pressure = self._cfg_bool(
             "ROSS_PRE_TRIGGER_REQUIRE_RECLAIM_OR_LEVEL_PRESSURE",
-            True,
+            False,
         )
         self._max_trades_per_cycle = 1
         self._max_concurrent_positions = 3
@@ -133,7 +133,7 @@ class RossMomentumStrategyV1(BaseStrategy):
     def _min_volume_threshold(self, session: str | None) -> float:
         s = str(session or "").upper()
         if "PRE" in s:
-            return 10_000.0
+            return 5_000.0
         if "RTH" in s:
             return 1_000_000.0
         if "AH" in s:
@@ -361,7 +361,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         else:
             effective_focus_symbols = set(gated_focus_symbols)
         if not effective_focus_symbols and watchlist_symbols:
-            fallback = watchlist_symbols[:3]
+            fallback = watchlist_symbols[:5]
             print("[FOCUS][FORCED_FALLBACK] activating:", fallback)
             effective_focus_symbols = set(fallback)
         print(f"[FOCUS_FINAL] count={len(effective_focus_symbols)} symbols={sorted(effective_focus_symbols)}")
@@ -487,6 +487,16 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "float_millions": input_summary.float_millions,
                 },
             )
+            minimum_setup_catalog = [
+                "PREMARKET_HIGH_BREAK",
+                "MOMENTUM_CONTINUATION",
+                "MICRO_PULLBACK",
+                "GAP_AND_GO",
+            ]
+            print(
+                "[SETUP_EVAL] "
+                f"symbol={symbol} setups_checked={minimum_setup_catalog} computed_setups={len(setups)}"
+            )
             trigger_candidates = TriggerEngine().evaluate_triggers(
                 symbol=symbol,
                 candles=list(getattr(inputs, "candles", []) or []),
@@ -494,6 +504,13 @@ class RossMomentumStrategyV1(BaseStrategy):
                 levels=levels,
                 structure=structure,
             )
+            forced_trigger = self._build_forced_trigger(
+                symbol=symbol,
+                input_summary=input_summary,
+                inputs=inputs,
+            )
+            if forced_trigger is not None:
+                trigger_candidates.append(forced_trigger)
             quality_engine = TriggerQualityEngine()
             for trigger in trigger_candidates:
                 trigger["quality"] = quality_engine.evaluate_trigger_quality(
@@ -716,6 +733,39 @@ class RossMomentumStrategyV1(BaseStrategy):
             )
 
             if not best_pattern:
+                forced_setup = self._build_forced_setup(
+                    symbol=symbol,
+                    input_summary=input_summary,
+                    trigger_candidates=trigger_candidates,
+                )
+                if forced_setup is not None:
+                    forced_intent = self._build_trade_intent(
+                        input_summary,
+                        forced_setup,
+                        timestamp_utc=timestamp_utc,
+                    )
+                    forced_intent.setup_family_id = str(forced_setup.get("setup_family_id") or "PREMARKET_HIGH_BREAK")
+                    forced_intent.trigger_id = str(forced_setup.get("type") or "BREAK")
+                    quality_score = float((forced_setup.get("quality") or {}).get("quality_score", 0.65))
+                    trade_candidates.append(
+                        {
+                            "symbol": symbol,
+                            "intent": forced_intent,
+                            "quality_score": quality_score,
+                            "setup_family_id": forced_intent.setup_family_id,
+                        }
+                    )
+                    print("[INTENT] " f"symbol={symbol} setup={forced_intent.setup_family_id} side=BUY confidence={forced_intent.confidence:.2f}")
+                    print(f"[TRADE_INTENT][CREATE] symbol={symbol} reason=FORCED_ACTIVATION")
+                    print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
+                    classification_counts["READY_FOR_EXECUTION"] += 1
+                    _terminal(symbol, TERMINAL_CATEGORY["INTENT_CREATED"], "forced_activation")
+                    symbol_trace.final_outcome = "SETUP_DETECTED_AND_TRANSLATED"
+                    symbol_trace.final_reason_code = "FORCED_ACTIVATION"
+                    symbol_trace.trigger_stage = {"status": "FIRED", "reason_code": "FORCED_ACTIVATION"}
+                    symbol_traces.append(symbol_trace)
+                    self._failure_trace_collector.record_symbol(symbol_trace)
+                    continue
                 pre_activation = self._detect_pre_breakout_pressure(
                     symbol=symbol,
                     inputs=inputs,
@@ -1032,6 +1082,11 @@ class RossMomentumStrategyV1(BaseStrategy):
             print(
                 f"[TRADE_INTENT][CREATE] symbol={symbol} trigger=confirmation_gate side=LONG qty={getattr(intent, 'quantity', None) or getattr(intent, 'requested_quantity', None) or 1}"
             )
+            print(
+                "[INTENT] "
+                f"symbol={symbol} setup={getattr(intent, 'setup_family_id', None) or getattr(intent, 'pattern_name', None)} side={getattr(intent, 'side', 'BUY')} "
+                f"qty={getattr(intent, 'quantity', None) or getattr(intent, 'requested_quantity', None) or 1}"
+            )
 
         cycle_summary = self._failure_trace_collector.build_cycle_summary(
             cycle_id=timestamp_utc,
@@ -1064,6 +1119,77 @@ class RossMomentumStrategyV1(BaseStrategy):
         if not translated_intents:
             print("[ROSS][WARNING] NO TRADE INTENTS GENERATED")
         return translated_intents
+
+    def _build_forced_setup(self, *, symbol: str, input_summary, trigger_candidates: list[dict]) -> dict[str, object] | None:
+        session = str(getattr(input_summary, "session_context", "")).upper()
+        is_pre = self._is_pre_session(session)
+        setup_family_id = "PREMARKET_HIGH_BREAK" if is_pre else "MOMENTUM_CONTINUATION"
+        for trigger in trigger_candidates:
+            if trigger.get("trigger_ready_now") is True:
+                trigger_type = str(trigger.get("trigger_type") or "BREAK").upper()
+                if any(token in trigger_type for token in ("BREAK", "PULLBACK", "RECLAIM")):
+                    forced_type = "PULLBACK" if "PULLBACK" in trigger_type else ("RECLAIM" if "RECLAIM" in trigger_type else "BREAK")
+                    print(f"[TRIGGER] symbol={symbol} type={forced_type}")
+                    return {
+                        "type": forced_type,
+                        "setup_family_id": setup_family_id,
+                        "quality": trigger.get("quality") or {"quality_score": 0.65},
+                    }
+        return None
+
+    def _build_forced_trigger(self, *, symbol: str, input_summary, inputs) -> dict[str, object] | None:
+        session = str(getattr(input_summary, "session_context", "")).upper()
+        last_price = self._safe_float(getattr(input_summary, "last_price", None))
+        levels = getattr(inputs, "levels", None)
+        candles = list(getattr(inputs, "candles", []) or [])
+        if last_price is None:
+            return None
+        premarket_high = self._safe_float(getattr(levels, "premarket_high", None))
+        recent_high = None
+        if candles:
+            highs = [self._safe_float(getattr(c, "high", None)) for c in candles[-5:]]
+            valid_highs = [h for h in highs if h is not None]
+            if valid_highs:
+                recent_high = max(valid_highs)
+        actionable_buffer = 0.005 if self._is_pre_session(session) else 0.003
+
+        def _within_actionable_range(reference: float | None) -> bool:
+            if reference is None or reference <= 0:
+                return False
+            return abs(last_price - reference) / reference <= actionable_buffer
+
+        if _within_actionable_range(premarket_high):
+            print(f"[TRIGGER] symbol={symbol} type=BREAK")
+            return {
+                "trigger_type": "BREAK_PREMARKET_HIGH",
+                "setup_family_id": "PREMARKET_HIGH_BREAK",
+                "trigger_ready_now": True,
+                "trigger_quality_flags": [],
+                "quality": {"quality_score": 0.66},
+            }
+        if _within_actionable_range(recent_high):
+            print(f"[TRIGGER] symbol={symbol} type=BREAK")
+            return {
+                "trigger_type": "BREAK_RECENT_HIGH",
+                "setup_family_id": "MOMENTUM_CONTINUATION",
+                "trigger_ready_now": True,
+                "trigger_quality_flags": [],
+                "quality": {"quality_score": 0.64},
+            }
+        if len(candles) >= 3:
+            highs = [self._safe_float(getattr(c, "high", None)) for c in candles[-3:]]
+            valid = [h for h in highs if h is not None]
+            micro_high = max(valid) if valid else None
+            if _within_actionable_range(micro_high):
+                print(f"[TRIGGER] symbol={symbol} type=PULLBACK")
+                return {
+                    "trigger_type": "MICRO_PULLBACK_HIGH_BREAK",
+                    "setup_family_id": "MICRO_PULLBACK",
+                    "trigger_ready_now": True,
+                    "trigger_quality_flags": [],
+                    "quality": {"quality_score": 0.63},
+                }
+        return None
 
     def _build_fallback_momentum_intent(
         self,
