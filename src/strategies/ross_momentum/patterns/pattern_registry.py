@@ -75,6 +75,7 @@ class RossPatternRegistry:
         results: List[PatternResult] = []
         for pattern in self._patterns:
             pattern_id = getattr(pattern, "pattern_id", "") or pattern.name
+            print(f"[PATTERN_TRACE][INVOKE] symbol={inputs.symbol} pattern={pattern.name}")
             pattern_trace = RossPatternTrace(
                 symbol=inputs.symbol,
                 cycle_id=(trace_context or {}).get("cycle_id"),
@@ -105,6 +106,12 @@ class RossPatternRegistry:
                 pattern_trace.skip_reason = "session_incompatible"
                 pattern_trace.final_outcome = "SKIPPED"
                 print(
+                    f"[PATTERN_TRACE][RESULT] symbol={inputs.symbol} pattern={pattern.name} detected=False"
+                )
+                print(
+                    f"[PATTERN_TRACE][REJECT] symbol={inputs.symbol} pattern={pattern.name} reason=session_incompatible"
+                )
+                print(
                     "[PATTERN_TRACE][SKIP] "
                     f"symbol={inputs.symbol} pattern_id={pattern_id} reason=session_incompatible"
                 )
@@ -127,6 +134,12 @@ class RossPatternRegistry:
                 pattern_trace.skipped = True
                 pattern_trace.skip_reason = "inactive_placeholder"
                 pattern_trace.final_outcome = "SKIPPED"
+                print(
+                    f"[PATTERN_TRACE][RESULT] symbol={inputs.symbol} pattern={pattern.name} detected=False"
+                )
+                print(
+                    f"[PATTERN_TRACE][REJECT] symbol={inputs.symbol} pattern={pattern.name} reason=inactive_placeholder"
+                )
                 print(
                     "[PATTERN_TRACE][SKIP] "
                     f"symbol={inputs.symbol} pattern_id={pattern_id} reason=inactive_placeholder"
@@ -152,6 +165,13 @@ class RossPatternRegistry:
                 pattern_trace.rejection_reason = result.rejection_reason
                 pattern_trace.final_outcome = "DETECTED" if result.detected else "REJECTED"
                 print(
+                    f"[PATTERN_TRACE][RESULT] symbol={inputs.symbol} pattern={pattern.name} detected={bool(result.detected)}"
+                )
+                if not result.detected and result.rejection_reason:
+                    print(
+                        f"[PATTERN_TRACE][REJECT] symbol={inputs.symbol} pattern={pattern.name} reason={result.rejection_reason}"
+                    )
+                print(
                     "[PATTERN_TRACE][RESULT] "
                     f"symbol={inputs.symbol} pattern={pattern.name} pattern_id={pattern_id} "
                     f"detected={bool(result.detected)} reason={result.rejection_reason or 'detected'} "
@@ -163,6 +183,12 @@ class RossPatternRegistry:
                 pattern_trace.final_outcome = "ERROR"
                 pattern_trace.rejection_reason = f"exception:{exc}"
                 pattern_trace.exception = repr(exc)
+                print(
+                    f"[PATTERN_TRACE][RESULT] symbol={inputs.symbol} pattern={pattern.name} detected=False"
+                )
+                print(
+                    f"[PATTERN_TRACE][REJECT] symbol={inputs.symbol} pattern={pattern.name} reason=exception:{exc}"
+                )
                 print(
                     "[PATTERN_TRACE][ERROR] "
                     f"symbol={inputs.symbol} pattern_id={pattern_id} pattern={pattern.name} error={exc!r}"

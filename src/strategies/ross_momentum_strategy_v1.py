@@ -420,6 +420,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"symbol={symbol} source={symbol_source_tag} manual_focus={symbol_trace.manual_focus} "
                 f"bypassed_watchlist={symbol_trace.bypassed_watchlist} session={session_label} phase={session_phase} mode={mode.value}"
             )
+            print(f"[ROSS][SYMBOL_EVAL][START] symbol={symbol}")
             print("[PATTERN_PIPELINE] START")
             inputs, quality_flags = build_runtime_pattern_inputs(
                 symbol=symbol,
@@ -628,12 +629,21 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "[PATTERN_TRACE][INPUTS] "
                 f"symbol={symbol} payload={json.dumps(pattern_inputs, sort_keys=True)}"
             )
+            print(
+                f"[PATTERN_INPUT] symbol={symbol} "
+                f"candles={len(getattr(inputs, 'candles', []) or [])} "
+                f"rvol={input_summary.rvol} "
+                f"float={input_summary.float_millions} "
+                f"has_levels={input_summary.has_levels} "
+                f"session={input_summary.session_context}"
+            )
             if missing_inputs:
                 print(
                     "[PATTERN_TRACE][INPUT_ERROR] "
                     f"symbol={symbol} missing={missing_inputs}"
                 )
                 symbol_trace.pre_registry_failure_reason = f"missing_inputs:{','.join(missing_inputs)}"
+            print(f"[ROSS][PATTERN_ENGINE][START] symbol={symbol}")
             results = self._pattern_registry.run(
                 inputs,
                 trace_context=registry_context,
@@ -756,6 +766,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     print(f"[ROSS][SETUP][FAIL] symbol={symbol} reason=no_valid_pattern")
                     print(f"[ROSS][SETUP_REJECT] symbol={symbol} reason=NO_VALID_PATTERN")
                     print(f"[PATTERN_NO_SETUP] symbol={symbol} dominant_reason=no_valid_pattern")
+                    print(f"[ROSS][NO_SETUP] symbol={symbol} reason=NO_PATTERN_DETECTED")
                     print(f"[CLASSIFICATION] symbol={symbol} category=PATTERN_NO_SETUP")
                     _terminal(symbol, TERMINAL_CATEGORY["SETUP_NOT_FOUND"], pre_classification or "no_valid_pattern")
                     classification_counts["PATTERN_NO_SETUP"] += 1
@@ -1060,6 +1071,16 @@ class RossMomentumStrategyV1(BaseStrategy):
             f"{{'DATA_BLOCKED': {classification_counts['DATA_BLOCKED']}, "
             f"'PATTERN_NO_SETUP': {classification_counts['PATTERN_NO_SETUP']}, "
             f"'TRIGGER_REJECTED': {classification_counts['TRIGGER_REJECTED']}}}"
+        )
+        pattern_invocations_total = sum(len(getattr(trace, "pattern_traces", []) or []) for trace in symbol_traces)
+        pattern_detected_total = sum(
+            sum(1 for pattern_trace in (getattr(trace, "pattern_traces", []) or []) if bool(getattr(pattern_trace, "detected", False)))
+            for trace in symbol_traces
+        )
+        print(
+            f"[ROSS][SUMMARY] evaluated={len(symbol_traces)} "
+            f"patterns_invoked={pattern_invocations_total} "
+            f"patterns_detected={pattern_detected_total}"
         )
 
         print(f"[ROSS][INTENTS] generated={len(translated_intents)}")
