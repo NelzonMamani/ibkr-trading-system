@@ -66,6 +66,57 @@ class TriggerEngine:
         )
         return outputs
 
+    def evaluate_trigger(
+        self,
+        *,
+        symbol: str,
+        setup_output: dict,
+        pattern_output: dict,
+        live_bar: dict | Any | None,
+        levels: dict | None = None,
+        market_context: dict | None = None,
+    ) -> dict[str, Any]:
+        print(f"[ROSS][TRIGGER][CHECK] symbol={symbol}")
+        if not bool(setup_output.get("setup_valid")):
+            reason = "setup_invalid"
+            print(f"[ROSS][TRIGGER][REJECT] symbol={symbol} reason={reason}")
+            return {"trigger_fired": False, "trigger_type": None, "trigger_price": None, "trigger_reason": reason}
+        if not bool(pattern_output.get("pattern_valid")):
+            reason = str(pattern_output.get("pattern_reason") or "pattern_invalid")
+            print(f"[ROSS][TRIGGER][REJECT] symbol={symbol} reason={reason}")
+            return {"trigger_fired": False, "trigger_type": None, "trigger_price": None, "trigger_reason": reason}
+
+        bar_high = self._safe_float(self._read(live_bar or {}, "high"))
+        bar_close = self._safe_float(self._read(live_bar or {}, "close"))
+        candidate_entry = self._safe_float(setup_output.get("candidate_entry_level"))
+        pullback_high = self._safe_float(setup_output.get("pullback_high"))
+        threshold = max(v for v in [candidate_entry, pullback_high] if v is not None) if any(
+            v is not None for v in [candidate_entry, pullback_high]
+        ) else None
+
+        if threshold is None:
+            reason = "missing_trigger_reference"
+            print(f"[ROSS][TRIGGER][REJECT] symbol={symbol} reason={reason}")
+            return {"trigger_fired": False, "trigger_type": None, "trigger_price": None, "trigger_reason": reason}
+
+        crossed = (bar_high is not None and bar_high > threshold) or (bar_close is not None and bar_close > threshold)
+        trigger_type = self._trigger_type_for_setup(str(setup_output.get("setup_family") or ""))
+        if crossed:
+            trigger_price = bar_high if bar_high is not None and bar_high > threshold else bar_close
+            print(
+                "[ROSS][TRIGGER][FIRED] "
+                f"symbol={symbol} trigger_type={trigger_type} trigger_price={trigger_price}"
+            )
+            return {
+                "trigger_fired": True,
+                "trigger_type": trigger_type,
+                "trigger_price": trigger_price,
+                "trigger_reason": "breakout_above_candidate_entry",
+            }
+        reason = "trigger_not_fired"
+        print(f"[ROSS][TRIGGER][REJECT] symbol={symbol} reason={reason}")
+        return {"trigger_fired": False, "trigger_type": trigger_type, "trigger_price": None, "trigger_reason": reason}
+
     @staticmethod
     def _read(item: Any, field: str) -> Any:
         if isinstance(item, dict):
@@ -84,6 +135,7 @@ class TriggerEngine:
         mapping = {
             "PREMARKET_HIGH_BREAK": "premarket_high",
             "OPENING_RANGE_BREAKOUT": "active_breakout_range.upper",
+            "BREAKOUT_CONTINUATION": "active_breakout_range.upper",
             "FIRST_PULLBACK": "ema_9",
             "MICRO_PULLBACK": "ema_9",
             "BULL_FLAG": "active_breakout_range.upper",
@@ -194,3 +246,12 @@ class TriggerEngine:
             symbol = str(structure.get("symbol") or "UNKNOWN")
             print(f"[ROSS][PRE_TRIGGER_PROMOTION] symbol={symbol} reason=PRE_ACTIVATION_BREAKOUT")
         return ready, reason
+
+    @staticmethod
+    def _trigger_type_for_setup(setup_family: str) -> str:
+        family = str(setup_family or "").upper()
+        if family == "FIRST_PULLBACK":
+            return "FIRST_NEW_HIGH_BREAK"
+        if family == "MICRO_PULLBACK":
+            return "MICRO_PULLBACK_BREAK"
+        return "CONTINUATION_BREAK"

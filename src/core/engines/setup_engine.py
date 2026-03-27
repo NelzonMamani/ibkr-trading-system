@@ -62,8 +62,8 @@ class SetupEngine:
 
         add_candidate(
             self._setup_break(
-                family="OPENING_RANGE_BREAKOUT",
-                name="Opening Range Breakout",
+                family="BREAKOUT_CONTINUATION",
+                name="Breakout Continuation",
                 direction="LONG",
                 rationale="Break above active opening range upper bound.",
                 confidence=0.62,
@@ -230,6 +230,65 @@ class SetupEngine:
         )
         return setups
 
+    def evaluate_setup(
+        self,
+        *,
+        symbol: str,
+        session_context: str | None,
+        structure_output: dict,
+        candles: list,
+        levels: dict,
+        indicators: dict | None = None,
+        liquidity_context: dict | None = None,
+        market_context: dict | None = None,
+    ) -> dict[str, Any]:
+        print(f"[ROSS][SETUP][CHECK] symbol={symbol}")
+        setups = self.compute_setups(
+            candles=candles,
+            levels=levels,
+            structure=structure_output,
+            session_context=session_context,
+            tradability_context={
+                "liquidity_context": liquidity_context or {},
+                "market_context": market_context or {},
+            },
+        )
+        ranked = list(setups)
+        if not ranked:
+            reason = "no_ross_setup_from_structure"
+            print(f"[ROSS][SETUP][REJECT] symbol={symbol} reason={reason}")
+            return {
+                "setup_family": None,
+                "setup_valid": False,
+                "rejection_reason": reason,
+                "setup_quality": 0.0,
+                "candidate_entry_level": None,
+                "pullback_high": None,
+                "pullback_low": None,
+                "structure_reference": {
+                    "trend": structure_output.get("trend"),
+                    "dominant_direction": structure_output.get("dominant_direction"),
+                },
+                "supporting_tags": [],
+            }
+        selected = max(ranked, key=lambda item: float(item.get("confidence") or 0.0))
+        print(
+            "[ROSS][SETUP][VALID] "
+            f"symbol={symbol} family={selected.get('setup_family')} quality={selected.get('confidence')}"
+        )
+        normalized_family = self._normalize_family(str(selected.get("setup_family") or ""))
+        return {
+            "setup_family": normalized_family,
+            "setup_valid": True,
+            "rejection_reason": None,
+            "setup_quality": float(selected.get("confidence") or 0.0),
+            "candidate_entry_level": self._safe_float(selected.get("candidate_entry_level") or selected.get("trigger_level")),
+            "pullback_high": self._safe_float(selected.get("pullback_high")),
+            "pullback_low": self._safe_float(selected.get("pullback_low") or selected.get("invalidation_level")),
+            "structure_reference": selected.get("structure_context") or {},
+            "supporting_tags": sorted(set(selected.get("quality_flags") or [])),
+        }
+
     @staticmethod
     def _read(item: Any, field: str) -> Any:
         if isinstance(item, dict):
@@ -292,6 +351,18 @@ class SetupEngine:
             "context": "continuation" if "PULLBACK" in family or "RECLAIM" in family else "breakout",
             "trigger_level": self._primary_trigger_level(family=family, levels=levels),
             "confidence_label": "HIGH" if confidence >= 0.67 else ("MEDIUM" if confidence >= 0.55 else "LOW"),
+            "setup_valid": True,
+            "rejection_reason": None,
+            "setup_quality": round(max(0.0, min(1.0, confidence)), self._ROUNDING),
+            "candidate_entry_level": self._primary_trigger_level(family=family, levels=levels),
+            "pullback_high": self._safe_float((levels.get("active_breakout_range") or {}).get("upper"))
+            if isinstance(levels.get("active_breakout_range"), dict)
+            else None,
+            "pullback_low": self._safe_float((levels.get("active_breakout_range") or {}).get("lower"))
+            if isinstance(levels.get("active_breakout_range"), dict)
+            else self._resolve_invalidation_level(invalidation_anchor=invalidation_anchor, levels=levels),
+            "structure_reference": {},
+            "supporting_tags": sorted(set(str(flag) for flag in quality_flags if flag)),
         }
         return setup
 
@@ -317,6 +388,7 @@ class SetupEngine:
             "HOD_BREAK": "hod",
             "VWAP_RECLAIM_CONTINUATION": "vwap",
             "OPENING_RANGE_BREAKOUT": "active_breakout_range.upper",
+            "BREAKOUT_CONTINUATION": "active_breakout_range.upper",
             "CONSOLIDATION_BREAKOUT": "active_breakout_range.upper",
             "FLAT_TOP_BREAKOUT": "hod",
             "BULL_FLAG": "active_breakout_range.upper",
@@ -331,3 +403,10 @@ class SetupEngine:
             payload = levels.get(root, {}) if isinstance(levels.get(root), dict) else {}
             return self._safe_float(payload.get(child))
         return self._safe_float(levels.get(key))
+
+    @staticmethod
+    def _normalize_family(family: str) -> str:
+        fam = family.upper()
+        if fam in {"FIRST_PULLBACK", "MICRO_PULLBACK", "BREAKOUT_CONTINUATION"}:
+            return fam
+        return "BREAKOUT_CONTINUATION"

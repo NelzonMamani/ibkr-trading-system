@@ -13,6 +13,7 @@ from src.config.config_resolver import ConfigResolutionError, get_config
 from src.config.runtime_config import RunMode
 from src.core.engines.decision_engine import DecisionEngine
 from src.core.engines.level_engine import LevelEngine
+from src.core.engines.pattern_engine import PatternEngine
 from src.core.engines.structure_engine import StructureEngine
 from src.core.engines.setup_engine import SetupEngine
 from src.core.engines.trigger_engine import TriggerEngine
@@ -381,6 +382,9 @@ class RossMomentumStrategyV1(BaseStrategy):
             "TRIGGER_REJECTED": 0,
             "READY_FOR_EXECUTION": 0,
         }
+        setup_engine = SetupEngine()
+        pattern_engine = PatternEngine()
+        trigger_engine = TriggerEngine()
 
         def _terminal(symbol: str, category: str, reason: str) -> None:
             print(f"[ROSS][TERMINAL] symbol={symbol} category={category} reason={reason}")
@@ -388,6 +392,15 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "outcome": str(category),
                 "reason": str(reason),
             }
+            setup_found = category not in {TERMINAL_CATEGORY["DATA_BLOCKED"], TERMINAL_CATEGORY["SETUP_NOT_FOUND"]}
+            pattern_confirmed = category not in {TERMINAL_CATEGORY["DATA_BLOCKED"], TERMINAL_CATEGORY["SETUP_NOT_FOUND"], TERMINAL_CATEGORY["SETUP_FOUND_DECISION_REJECTED"]}
+            trigger_fired = category == TERMINAL_CATEGORY["INTENT_CREATED"]
+            intent_created = category == TERMINAL_CATEGORY["INTENT_CREATED"]
+            print(
+                "[ROSS][SYMBOL_SUMMARY] "
+                f"symbol={symbol} evaluated=True setup_found={setup_found} pattern_confirmed={pattern_confirmed} "
+                f"trigger_fired={trigger_fired} intent_created={intent_created} reason={reason}"
+            )
         for row in symbols:
             symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
             if not symbol:
@@ -497,7 +510,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             structure = StructureEngine().compute_structure(
                 candles=list(getattr(inputs, "candles", []) or [])
             )
-            setups = SetupEngine().compute_setups(
+            setups = setup_engine.compute_setups(
                 candles=list(getattr(inputs, "candles", []) or []),
                 levels=levels,
                 structure=structure,
@@ -507,6 +520,25 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "rvol": input_summary.rvol,
                     "float_millions": input_summary.float_millions,
                 },
+            )
+            setup_evaluation = setup_engine.evaluate_setup(
+                symbol=str(symbol),
+                session_context=input_summary.session_context,
+                structure_output=structure,
+                candles=list(getattr(inputs, "candles", []) or []),
+                levels=levels,
+                indicators=getattr(inputs, "indicators", None),
+                liquidity_context=getattr(inputs, "liquidity_context", None),
+                market_context={"session_phase": session_phase, "mode": mode.value},
+            )
+            pattern_evaluation = pattern_engine.evaluate_pattern(
+                symbol=str(symbol),
+                setup_output=setup_evaluation,
+                candles=list(getattr(inputs, "candles", []) or []),
+                indicators=getattr(inputs, "indicators", None).__dict__ if getattr(inputs, "indicators", None) is not None else None,
+                volume_context={"rvol": input_summary.rvol, "volume": input_summary.volume},
+                levels=levels,
+                liquidity_context=getattr(inputs, "liquidity_context", None).__dict__ if getattr(inputs, "liquidity_context", None) is not None else None,
             )
             pre_activation = self._detect_pre_breakout_pressure(
                 symbol=symbol,
@@ -522,12 +554,20 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "[ROSS][PRE_ACTIVATION] "
                     f"symbol={symbol} setup={pre_activation.get('setup_type')} classification={pre_activation.get('classification')}"
                 )
-            trigger_candidates = TriggerEngine().evaluate_triggers(
+            trigger_candidates = trigger_engine.evaluate_triggers(
                 symbol=symbol,
                 candles=list(getattr(inputs, "candles", []) or []),
                 setups=setups,
                 levels=levels,
                 structure=structure,
+            )
+            trigger_evaluation = trigger_engine.evaluate_trigger(
+                symbol=str(symbol),
+                setup_output=setup_evaluation,
+                pattern_output=pattern_evaluation,
+                live_bar=(list(getattr(inputs, "candles", []) or [])[-1] if list(getattr(inputs, "candles", []) or []) else None),
+                levels=levels,
+                market_context={"session_phase": session_phase, "mode": mode.value},
             )
             quality_engine = TriggerQualityEngine()
             for trigger in trigger_candidates:
@@ -560,6 +600,9 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol_trace.input_summary["structure"] = structure
             symbol_trace.input_summary["setups"] = setups
             symbol_trace.input_summary["trigger_candidates"] = trigger_candidates
+            symbol_trace.input_summary["ross_setup_evaluation"] = setup_evaluation
+            symbol_trace.input_summary["ross_pattern_evaluation"] = pattern_evaluation
+            symbol_trace.input_summary["ross_trigger_evaluation"] = trigger_evaluation
             symbol_trace.input_summary["pre_activation_ready"] = pre_activation_ready
             symbol_trace.input_summary["trigger_reason"] = next(
                 (
@@ -973,7 +1016,16 @@ class RossMomentumStrategyV1(BaseStrategy):
                 trigger_name="first_valid_breakout",
                 entry_price=entry,
             )
-            trigger_ready = bool(trigger_ready and selected_trigger.get("trigger_ready_now"))
+            explicit_trigger_gate = (
+                bool(trigger_evaluation.get("trigger_fired"))
+                if bool(setup_evaluation.get("setup_valid")) and bool(pattern_evaluation.get("pattern_valid"))
+                else True
+            )
+            trigger_ready = bool(
+                trigger_ready
+                and selected_trigger.get("trigger_ready_now")
+                and explicit_trigger_gate
+            )
             symbol_trace.trigger_stage = {
                 "status": "FIRED" if trigger_ready else "ARMED_NOT_FIRED_YET",
                 "reason_code": "TRIGGER_PASS" if trigger_ready else "TRIGGER_NOT_READY",
@@ -1033,16 +1085,18 @@ class RossMomentumStrategyV1(BaseStrategy):
                 strategy_name=self.name,
                 confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
                 rationale=(
-                    f"pattern_detected={best_pattern.pattern_id} | entry={entry:.4f} | stop={stop:.4f}"
+                    f"setup={setup_evaluation.get('setup_family') or self._setup_family_from_pattern_id(best_pattern.pattern_id)} "
+                    f"trigger={trigger_evaluation.get('trigger_type') or (selected_trigger.get('trigger_type') if selected_trigger else 'UNKNOWN')} "
+                    f"| entry={entry:.4f} | stop={stop:.4f}"
                 ),
                 trader_type=self.trader_type,
-                stop_loss_price=stop,
-                invalidation_level=stop,
+                stop_loss_price=self._safe_float(setup_evaluation.get("pullback_low")) or stop,
+                invalidation_level=self._safe_float(setup_evaluation.get("pullback_low")) or stop,
                 pattern_name=best_pattern.pattern_id,
-                setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
-                trigger_id=(selected_trigger.get("trigger_type") if selected_trigger else "confirmation_gate"),
+                setup_family_id=(setup_evaluation.get("setup_family") or self._setup_family_from_pattern_id(best_pattern.pattern_id)),
+                trigger_id=(trigger_evaluation.get("trigger_type") or (selected_trigger.get("trigger_type") if selected_trigger else "confirmation_gate")),
             )
-            intent.entry_price = entry
+            intent.entry_price = self._safe_float(trigger_evaluation.get("trigger_price")) or entry
             intent.has_valid_pattern = bool(getattr(best_pattern, "detected", False))
             intent.confirmation_passed = confirmation_passed
             intent.trigger_ready = trigger_ready
@@ -1060,6 +1114,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "quality_score": quality_score,
                     "setup_family_id": setup_family,
                 }
+            )
+            print(
+                "[ROSS][INTENT][CREATE] "
+                f"symbol={symbol} setup={intent.setup_family_id} trigger={intent.trigger_id} entry={intent.entry_price} stop={intent.stop_loss_price}"
             )
             print(f"[TRADE_SELECTION] symbol={symbol} selected=False reason=awaiting_ranked_cycle_selection")
             best_pattern.post_detect_disposition = "translated_to_trade_intent"
@@ -1137,6 +1195,10 @@ class RossMomentumStrategyV1(BaseStrategy):
             translated_intents.append(intent)
             print(f"[CAPITAL_ALLOCATION] symbol={symbol} size={size_multiplier:.2f} reason=quality_scaled")
             print(
+                "[ROSS][INTENT][DISPATCH] "
+                f"symbol={symbol} setup={getattr(intent, 'setup_family_id', None)} trigger={getattr(intent, 'trigger_id', None)}"
+            )
+            print(
                 f"[TRADE_INTENT][CREATE] symbol={symbol} trigger=confirmation_gate side=LONG qty={getattr(intent, 'quantity', None) or getattr(intent, 'requested_quantity', None) or 1}"
             )
 
@@ -1180,6 +1242,12 @@ class RossMomentumStrategyV1(BaseStrategy):
 
         if not translated_intents:
             print("[ROSS][WARNING] NO TRADE INTENTS GENERATED")
+            print(
+                "[ROSS][ROOT_CAUSE_SUMMARY] "
+                f"data_blocked={classification_counts['DATA_BLOCKED']} "
+                f"pattern_no_setup={classification_counts['PATTERN_NO_SETUP']} "
+                f"trigger_rejected={classification_counts['TRIGGER_REJECTED']}"
+            )
         return translated_intents
 
     def _build_fallback_momentum_intent(

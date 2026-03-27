@@ -52,10 +52,10 @@ def test_setup_engine_detects_ema_pullback() -> None:
     setups = SetupEngine().compute_setups(
         candles=[_candle(9.8, 0), _candle(10.0, 1)],
         levels={"ema9": 10.03},
-        structure={"trend": "UP"},
+        structure={"trend": "UP", "pullback_active": True, "pullback_depth": {"pct": 0.4}},
     )
 
-    assert any(item["setup_family"] == "EMA_PULLBACK" for item in setups)
+    assert any(item["setup_family"] == "FIRST_PULLBACK" for item in setups)
 
 
 def test_setup_engine_detects_vwap_reclaim() -> None:
@@ -65,7 +65,7 @@ def test_setup_engine_detects_vwap_reclaim() -> None:
         structure={},
     )
 
-    assert any(item["setup_family"] == "VWAP_RECLAIM" for item in setups)
+    assert any(item["setup_family"] == "VWAP_RECLAIM_CONTINUATION" for item in setups)
 
 
 def test_setup_engine_handles_empty_input() -> None:
