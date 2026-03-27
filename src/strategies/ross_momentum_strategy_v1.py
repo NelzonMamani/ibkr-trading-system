@@ -15,6 +15,7 @@ from src.core.engines.decision_engine import DecisionEngine
 from src.core.engines.level_engine import LevelEngine
 from src.core.engines.structure_engine import StructureEngine
 from src.core.engines.setup_engine import SetupEngine
+from src.core.engines.trigger_engine import TriggerEngine
 from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import PatternResult, TradeIntent
 from src.signals.signal_event import SignalEvent
@@ -412,32 +413,38 @@ class RossMomentumStrategyV1(BaseStrategy):
                 intraday_data=intraday_payload,
                 premarket_data=premarket_payload,
             )
-            print(
-                "[LEVEL_ENGINE] "
-                f"symbol={symbol} premarket_high={levels.get('premarket_high')} "
-                f"hod={levels.get('hod')} lod={levels.get('lod')} vwap={levels.get('vwap')}"
-            )
             structure = StructureEngine().compute_structure(
                 candles=list(getattr(inputs, "candles", []) or [])
-            )
-            print(
-                "[STRUCTURE_ENGINE] "
-                f"symbol={symbol} trend={structure.get('trend')} "
-                f"state={structure.get('structure_state')}"
             )
             setups = SetupEngine().compute_setups(
                 candles=list(getattr(inputs, "candles", []) or []),
                 levels=levels,
                 structure=structure,
+                session_context=input_summary.session_context,
+                tradability_context={
+                    "session": input_summary.session_context,
+                    "rvol": input_summary.rvol,
+                    "float_millions": input_summary.float_millions,
+                },
+            )
+            trigger_candidates = TriggerEngine().evaluate_triggers(
+                symbol=symbol,
+                candles=list(getattr(inputs, "candles", []) or []),
+                setups=setups,
+                levels=levels,
+                structure=structure,
             )
             print(
-                "[SETUP_ENGINE] "
-                f"symbol={symbol} setups={[s['setup_family'] for s in setups]}"
+                "[ROSS][ENGINE_STACK] "
+                f"symbol={symbol} levels={len(levels)} structure_direction={structure.get('dominant_direction')} "
+                f"setups={len(setups)} triggers={len(trigger_candidates)} "
+                f"ready_triggers={sum(1 for t in trigger_candidates if t.get('trigger_ready_now'))}"
             )
             symbol_trace.input_summary = input_summary.to_dict()
             symbol_trace.input_summary["levels"] = levels
             symbol_trace.input_summary["structure"] = structure
             symbol_trace.input_summary["setups"] = setups
+            symbol_trace.input_summary["trigger_candidates"] = trigger_candidates
             print(
                 "[ROSS][INPUT_SUMMARY] "
                 f"symbol={symbol} candle_count={input_summary.candle_count} last={input_summary.last_price} "
@@ -511,7 +518,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "runtime_mode": mode.value,
                 "symbol_source": symbol_source,
                 "input_summary": input_summary.to_dict(),
-                "pattern_inputs": {"levels": levels, "structure": structure, "setups": setups},
+                "pattern_inputs": {"levels": levels, "structure": structure, "setups": setups, "triggers": trigger_candidates},
             }
             registry_pattern_ids = self._pattern_registry.pattern_ids
             print(
@@ -610,11 +617,18 @@ class RossMomentumStrategyV1(BaseStrategy):
                 pattern_traces=symbol_trace.pattern_traces,
                 inactive_pattern_ids=getattr(self._pattern_registry, "inactive_pattern_ids", set()),
             )
+            selected_trigger = self._select_trigger_candidate(
+                setup_family_id=decision.get("selected_setup_family"),
+                trigger_candidates=trigger_candidates,
+            )
             print(
                 "[ROSS][DECISION_ENGINE] "
                 f"symbol={symbol} state={decision['decision_state']} "
                 f"selected_pattern={decision['selected_pattern_id']} "
-                f"selected_setup={decision['selected_setup_family']} reason={decision['decision_reason']}"
+                f"selected_setup={decision['selected_setup_family']} "
+                f"selected_trigger={selected_trigger.get('trigger_type') if selected_trigger else None} "
+                f"trigger_ready={selected_trigger.get('trigger_ready_now') if selected_trigger else None} "
+                f"reason={decision['decision_reason']}"
             )
             best_pattern = self._resolve_selected_pattern_trace(
                 selected_pattern_id=decision.get("selected_pattern_id"),
@@ -796,7 +810,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 invalidation_level=stop,
                 pattern_name=best_pattern.pattern_id,
                 setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
-                trigger_id="confirmation_gate",
+                trigger_id=(selected_trigger.get("trigger_type") if selected_trigger else "confirmation_gate"),
             )
             intent.entry_price = entry
             intent.has_valid_pattern = bool(getattr(best_pattern, "detected", False))
@@ -1010,6 +1024,23 @@ class RossMomentumStrategyV1(BaseStrategy):
         }
         return mapping.get(str(pattern_id or "").upper(), "UNKNOWN")
 
+
+    @staticmethod
+    def _select_trigger_candidate(*, setup_family_id: str | None, trigger_candidates: list[dict] | None) -> dict | None:
+        family = str(setup_family_id or "").upper()
+        candidates = [c for c in (trigger_candidates or []) if str(c.get("setup_family_id") or "").upper() == family]
+        if not candidates:
+            return None
+        ranked = sorted(
+            candidates,
+            key=lambda item: (
+                1 if bool(item.get("trigger_ready_now")) else 0,
+                0 if "MISSING_TRIGGER_REFERENCE" in set(item.get("trigger_quality_flags") or []) else 1,
+                str(item.get("trigger_type") or ""),
+            ),
+            reverse=True,
+        )
+        return ranked[0]
 
     @staticmethod
     def _resolve_selected_pattern_trace(*, selected_pattern_id: str | None, pattern_traces):
