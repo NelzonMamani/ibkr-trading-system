@@ -259,6 +259,7 @@ class CoreOrchestrator:
         self.ibkr_api_write_allowed = bool(get_config("IBKR_API_WRITE_ALLOWED"))
         self.replay_mode = self.runtime_mode_manager.event_replay_mode
         print(f"[BOOT] Runtime mode resolved: {self.runtime_mode_manager.describe()}")
+        self._enforce_runtime_invariants()
         if not self.execution_enabled:
             print("[SAFETY] EXECUTION: HARD DISABLED")
             print("[SAFETY] ORDER ROUTING: BLOCKED")
@@ -438,6 +439,24 @@ class CoreOrchestrator:
             self.learning_scheduler.on_startup()
         except Exception as exc:
             print(f"[LEARNING][SCHEDULER] Startup check failed: {exc}")
+
+    def _enforce_runtime_invariants(self):
+        from src.config.config_resolver import get_config
+        from src.config.runtime_config import resolve_ibkr_connection
+
+        run_mode = str(get_config("RUN_MODE_EFFECTIVE")).upper()
+        execution_enabled = bool(get_config("EXECUTION_ENABLED"))
+
+        if run_mode == "LIVE" and not execution_enabled:
+            raise RuntimeError(
+                "[FATAL] LIVE mode cannot run with execution disabled (runtime enforcement)"
+            )
+
+        _, port, _, _ = resolve_ibkr_connection()
+        if run_mode == "LIVE" and port != 7496:
+            raise RuntimeError(
+                "[FATAL] LIVE mode must use IBKR port 7496 (runtime enforcement)"
+            )
 
     @staticmethod
     def _strategy_mode_for_session_phase(session_phase: str) -> str:
