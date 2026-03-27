@@ -3525,10 +3525,18 @@ def run_scanner_cycle(
             pattern_input_session = normalize_session_label(
                 str(context.get("pattern_input_session") or context.get("session") or "")
             )
+            resolved_session = normalize_session_label(
+                orchestrator_session or policy_session or scanner_session or pattern_input_session
+            )
+            scanner_session = resolved_session
+            policy_session = resolved_session
+            pattern_input_session = resolved_session
+            context["session"] = resolved_session
             context["orchestrator_session"] = orchestrator_session
             context["scanner_session"] = scanner_session
             context["policy_session"] = policy_session
             context["pattern_input_session"] = pattern_input_session
+            print(f"[SESSION][FINAL] resolved_session={resolved_session}")
             print("[ROSS][SESSION_CONTRACT]")
             print(f"symbol={symbol}")
             print(f"orchestrator_session={orchestrator_session}")

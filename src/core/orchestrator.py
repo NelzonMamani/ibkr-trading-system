@@ -1344,8 +1344,13 @@ class CoreOrchestrator:
                 "[SESSION][FORCED_OVERRIDE] "
                 f"requested={forced_session} applied={forced_session_applied}"
             )
-        session_override = str(get_config("SESSION_PHASE_OVERRIDE") or "").strip().upper()
-        session_phase = forced_session_applied or session_override or market_session_phase(cycle_started_at)
+        resolved_session = (
+            normalize_session_label(forced_session)
+            if forced_session
+            else normalize_session_label(market_session_phase(cycle_started_at))
+        )
+        session_phase = resolved_session
+        print(f"[SESSION][FINAL] resolved_session={resolved_session}")
         print(
             "[SESSION] "
             f"phase={session_phase} ny_time={ny_time.isoformat()} "
@@ -1353,7 +1358,7 @@ class CoreOrchestrator:
         )
         self._maybe_run_scheduled_prep_update(
             cycle_started_at,
-            get_current_market_session(cycle_started_at),
+            session_phase,
         )
         return self._run_manager_pipeline(
             cycle_started_at=cycle_started_at,
