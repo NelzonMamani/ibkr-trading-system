@@ -482,6 +482,18 @@ class RossMomentumStrategyV1(BaseStrategy):
                 intraday_data=intraday_payload,
                 premarket_data=premarket_payload,
             )
+            row_premarket_high = self._safe_float(row.get("premarket_high") if isinstance(row, dict) else None)
+            row_premarket_low = self._safe_float(row.get("premarket_low") if isinstance(row, dict) else None)
+            row_prior_close = self._safe_float(row.get("prior_close") if isinstance(row, dict) else None)
+            if levels.get("premarket_high") is None and row_premarket_high is not None:
+                levels["premarket_high"] = row_premarket_high
+                print(f"[ROSS][LEVEL_OVERRIDE] symbol={symbol} field=premarket_high source=watchlist value={row_premarket_high}")
+            if levels.get("premarket_low") is None and row_premarket_low is not None:
+                levels["premarket_low"] = row_premarket_low
+                print(f"[ROSS][LEVEL_OVERRIDE] symbol={symbol} field=premarket_low source=watchlist value={row_premarket_low}")
+            if levels.get("prior_close") is None and row_prior_close is not None:
+                levels["prior_close"] = row_prior_close
+                print(f"[ROSS][LEVEL_OVERRIDE] symbol={symbol} field=prior_close source=watchlist value={row_prior_close}")
             structure = StructureEngine().compute_structure(
                 candles=list(getattr(inputs, "candles", []) or [])
             )
@@ -659,27 +671,35 @@ class RossMomentumStrategyV1(BaseStrategy):
                 trace_collector=pattern_traces.append,
             )
             setup_source = "pattern_registry"
-            if not results and not pattern_traces:
-                fallback_setups = self._detect_lightweight_setups(inputs, input_summary)
-                if fallback_setups:
-                    setup_source = "fallback_detector"
-                    print(
-                        "[ROSS][SETUP_FALLBACK] "
-                        f"symbol={symbol} setups={len(fallback_setups)} types={[setup['setup_type'] for setup in fallback_setups]}"
+            setup_driven_results: list[dict[str, object]] = []
+            if not results and not pattern_traces and setups:
+                setup_source = "setup_engine"
+                trigger_by_family = {
+                    self._normalize_setup_family_id(trigger.get("setup_family_id")): trigger
+                    for trigger in trigger_candidates
+                }
+                print(
+                    "[ROSS][SETUP_RESULT] "
+                    f"symbol={symbol} source=setup_engine setup_count={len(setups)} families={[s.get('setup_family_id') for s in setups]}"
+                )
+                for setup in setups:
+                    setup_trace = self._setup_to_pattern_trace(
+                        symbol=symbol,
+                        setup=setup,
+                        cycle_id=timestamp_utc,
+                        session_label=session_label,
+                        session_phase=session_phase,
+                        runtime_mode=mode.value,
+                        symbol_source=symbol_source,
+                        input_summary=input_summary.to_dict(),
                     )
-                    for setup in fallback_setups:
-                        fallback_trace = self._fallback_setup_to_trace(
-                                symbol=symbol,
-                                setup=setup,
-                                cycle_id=timestamp_utc,
-                                session_label=session_label,
-                                session_phase=session_phase,
-                                runtime_mode=mode.value,
-                                symbol_source=symbol_source,
-                                input_summary=input_summary.to_dict(),
-                            )
-                        fallback_trace.confidence = float(setup.get("confidence", 0.6))
-                        pattern_traces.append(fallback_trace)
+                    pattern_traces.append(setup_trace)
+                    setup_driven_results.append(
+                        self._setup_to_decision_candidate(
+                            setup,
+                            trigger=trigger_by_family.get(self._normalize_setup_family_id(setup.get("setup_family_id"))),
+                        )
+                    )
             if pattern_traces:
                 selected_setup_name = next((trace.pattern_name for trace in pattern_traces if trace.detected), "UNKNOWN")
                 print(f"[ROSS][SETUP] symbol={symbol} source={setup_source} setup={selected_setup_name}")
@@ -711,14 +731,14 @@ class RossMomentumStrategyV1(BaseStrategy):
                 levels=levels,
                 structure=structure,
                 setups=setups,
-                pattern_results=results or symbol_trace.pattern_traces,
+                pattern_results=results or setup_driven_results or symbol_trace.pattern_traces,
                 session_context=input_summary.session_context,
                 pattern_traces=symbol_trace.pattern_traces,
                 inactive_pattern_ids=getattr(self._pattern_registry, "inactive_pattern_ids", set()),
             )
             selected_trigger = self._select_trigger_candidate(
                 setup_family_id=decision.get("selected_setup_family"),
-                trigger_candidates=ranked_triggers or trigger_candidates,
+                trigger_candidates=trigger_candidates,
             )
             print(
                 "[ROSS][DECISION_ENGINE] "
@@ -849,6 +869,73 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
 
+            print(
+                "[ROSS][TRIGGER_EVAL] "
+                f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} trigger={selected_trigger.get('trigger_type') if selected_trigger else None}"
+            )
+            if selected_trigger is None:
+                pre_activation = self._detect_pre_breakout_pressure(
+                    symbol=symbol,
+                    inputs=inputs,
+                    input_summary=input_summary,
+                )
+                if pre_activation and pre_activation.get("status") == "READY":
+                    print(
+                        "[ROSS][PRE_ACTIVATION] "
+                        f"symbol={symbol} setup={pre_activation.get('setup_type')} classification={pre_activation.get('classification')}"
+                    )
+                print(
+                    "[ROSS][NO_TRIGGER] "
+                    f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} reason=no_trigger_candidate_for_selected_setup"
+                )
+                symbol_trace.final_outcome = "SETUP_FOUND_BUT_NO_TRIGGER"
+                symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "NO_TRIGGER_CANDIDATE"}
+                symbol_trace.final_reason_code = "NO_TRIGGER_CANDIDATE"
+                print(f"[CLASSIFICATION] symbol={symbol} category=SETUP_FOUND_BUT_NO_TRIGGER")
+                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=NO_TRIGGER_CANDIDATE")
+                _terminal(symbol, "SETUP_FOUND_BUT_NO_TRIGGER", "no_trigger_candidate")
+                classification_counts["TRIGGER_REJECTED"] += 1
+                self._log_decision_blocked(symbol=symbol, final_stage="trigger", reason="no_trigger_candidate")
+                self._log_pipeline_no_decision(symbol)
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
+            if selected_trigger.get("trigger_ready_now") is not True:
+                pre_activation = self._detect_pre_breakout_pressure(
+                    symbol=symbol,
+                    inputs=inputs,
+                    input_summary=input_summary,
+                )
+                if pre_activation and pre_activation.get("status") == "READY":
+                    print(
+                        "[ROSS][PRE_ACTIVATION] "
+                        f"symbol={symbol} setup={pre_activation.get('setup_type')} classification={pre_activation.get('classification')}"
+                    )
+                print(
+                    "[ROSS][NO_TRIGGER] "
+                    f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} reason={selected_trigger.get('trigger_reason')}"
+                )
+                symbol_trace.final_outcome = "SETUP_FOUND_BUT_NO_TRIGGER"
+                symbol_trace.trigger_stage = {
+                    "status": "REJECTED",
+                    "reason_code": str(selected_trigger.get("trigger_reason") or "TRIGGER_NOT_READY"),
+                    "details": {"selected_trigger": selected_trigger},
+                }
+                symbol_trace.final_reason_code = str(selected_trigger.get("trigger_reason") or "TRIGGER_NOT_READY").upper()
+                print(f"[CLASSIFICATION] symbol={symbol} category=SETUP_FOUND_BUT_NO_TRIGGER")
+                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason={selected_trigger.get('trigger_reason')}")
+                _terminal(symbol, "SETUP_FOUND_BUT_NO_TRIGGER", str(selected_trigger.get("trigger_reason") or "trigger_not_ready"))
+                classification_counts["TRIGGER_REJECTED"] += 1
+                self._log_decision_blocked(
+                    symbol=symbol,
+                    final_stage="trigger",
+                    reason=str(selected_trigger.get("trigger_reason") or "trigger_not_ready"),
+                )
+                self._log_pipeline_no_decision(symbol)
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
+
             pipeline_trace("TRIGGER", symbol)
             trade = self._build_trade_from_pattern(best_pattern, inputs)
             if not trade:
@@ -893,6 +980,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 trigger_name="first_valid_breakout",
                 entry_price=entry,
             )
+            trigger_ready = bool(trigger_ready and selected_trigger.get("trigger_ready_now"))
             symbol_trace.trigger_stage = {
                 "status": "FIRED" if trigger_ready else "ARMED_NOT_FIRED_YET",
                 "reason_code": "TRIGGER_PASS" if trigger_ready else "TRIGGER_NOT_READY",
@@ -1595,109 +1683,11 @@ class RossMomentumStrategyV1(BaseStrategy):
         except (TypeError, ValueError):
             return None
 
-    def _detect_lightweight_setups(self, inputs, summary) -> list[dict[str, float | str]]:
-        candles = list(getattr(inputs, "candles", []) or [])
-        if len(candles) < 3:
-            return []
-
-        closes = [self._safe_float(getattr(candle, "close", None)) for candle in candles]
-        highs = [self._safe_float(getattr(candle, "high", None)) for candle in candles]
-        lows = [self._safe_float(getattr(candle, "low", None)) for candle in candles]
-        volumes = [self._safe_float(getattr(candle, "volume", None)) or 0.0 for candle in candles]
-        last_price = self._safe_float(getattr(inputs, "last_price", None)) or closes[-1]
-        if last_price is None:
-            return []
-
-        rvol = self._safe_float(getattr(summary, "rvol", None)) or self._safe_float(
-            getattr(getattr(inputs, "liquidity_context", None), "rvol", None)
-        )
-        pct_change = self._safe_float(getattr(summary, "pct_change", None))
-        if pct_change is None and closes and closes[0]:
-            pct_change = ((last_price - closes[0]) / closes[0]) * 100.0
-
-        setups: list[dict[str, float | str]] = []
-        recent_high_candidates = [high for high in highs[-10:] if high is not None]
-        if not recent_high_candidates:
-            return []
-        recent_high = max(recent_high_candidates)
-        volume_increasing = len(volumes) >= 2 and volumes[-1] >= volumes[-2]
-
-        if (
-            pct_change is not None
-            and pct_change >= 5.0
-            and rvol is not None
-            and rvol >= 2.0
-            and last_price >= (recent_high * 0.995)
-            and volume_increasing
-        ):
-            setups.append(
-                {
-                    "setup_type": "HOD_BREAK",
-                    "pattern_id": "P_HOD_BREAK",
-                    "trigger_price": recent_high,
-                    "confidence": 0.66,
-                }
-            )
-
-        impulse_bars = 0
-        for idx in range(len(closes) - 5, len(closes) - 1):
-            if idx < 0 or closes[idx] is None or closes[idx + 1] is None:
-                continue
-            if closes[idx + 1] > closes[idx]:
-                impulse_bars += 1
-        pullback_bars = 0
-        for idx in range(max(0, len(closes) - 3), len(closes) - 1):
-            if closes[idx] is None or closes[idx + 1] is None:
-                continue
-            if closes[idx + 1] < closes[idx]:
-                pullback_bars += 1
-        indicators = getattr(inputs, "indicators", None)
-        ema9 = self._safe_float(getattr(indicators, "ema9", None))
-        vwap = self._safe_float(getattr(indicators, "vwap", None))
-        support = ema9 or vwap
-        recent_pullback_high_candidates = [high for high in highs[-3:] if high is not None]
-        recent_pullback_high = max(recent_pullback_high_candidates) if recent_pullback_high_candidates else recent_high
-        if (
-            2 <= impulse_bars <= 5
-            and 1 <= pullback_bars <= 2
-            and support is not None
-            and last_price >= support
-        ):
-            setups.append(
-                {
-                    "setup_type": "MICRO_PULLBACK",
-                    "pattern_id": "P_MICRO_PULLBACK",
-                    "trigger_price": recent_pullback_high,
-                    "confidence": 0.64,
-                }
-            )
-
-        range_window = candles[-5:]
-        range_high = max(self._safe_float(getattr(candle, "high", None)) or 0.0 for candle in range_window)
-        range_low = min(self._safe_float(getattr(candle, "low", None)) or 0.0 for candle in range_window)
-        is_tight_range = range_low > 0 and (range_high - range_low) / range_low <= 0.02
-        lows_increasing = all(
-            (self._safe_float(getattr(range_window[idx + 1], "low", None)) or 0.0)
-            >= (self._safe_float(getattr(range_window[idx], "low", None)) or 0.0)
-            for idx in range(len(range_window) - 1)
-        )
-        if is_tight_range and lows_increasing and last_price >= range_high * 0.998:
-            setups.append(
-                {
-                    "setup_type": "RANGE_BREAK",
-                    "pattern_id": "P_RANGE_BREAKOUT",
-                    "trigger_price": range_high,
-                    "confidence": 0.62,
-                }
-            )
-
-        return setups
-
-    def _fallback_setup_to_trace(
+    def _setup_to_pattern_trace(
         self,
         *,
         symbol: str,
-        setup: dict[str, float | str],
+        setup: dict[str, object],
         cycle_id: str,
         session_label: str,
         session_phase: str,
@@ -1707,7 +1697,7 @@ class RossMomentumStrategyV1(BaseStrategy):
     ):
         from src.strategies.ross_momentum.patterns.pattern_trace import RossPatternTrace
 
-        return RossPatternTrace(
+        trace = RossPatternTrace(
             symbol=symbol,
             cycle_id=cycle_id,
             strategy_key="ross_momentum",
@@ -1715,10 +1705,30 @@ class RossMomentumStrategyV1(BaseStrategy):
             session_phase=session_phase,
             runtime_mode=runtime_mode,
             symbol_source=symbol_source,
-            pattern_id=str(setup.get("pattern_id", "P_HOD_BREAK")),
-            pattern_name=str(setup.get("setup_type", "HOD_BREAK")),
-            setup_family_id=str(setup.get("pattern_id", "P_HOD_BREAK")),
+            pattern_id=f"S_{str(setup.get('setup_family_id') or 'UNKNOWN').upper()}",
+            pattern_name=str(setup.get("setup_name") or setup.get("pattern_name") or setup.get("setup_family_id") or "UNKNOWN"),
+            setup_family_id=str(setup.get("setup_family_id") or "UNKNOWN"),
             invoked=True,
             detected=True,
             input_summary=input_summary,
         )
+        trace.confidence = float(setup.get("confidence") or 0.0)
+        return trace
+
+    @staticmethod
+    def _setup_to_decision_candidate(setup: dict[str, object], *, trigger: dict[str, object] | None = None) -> dict[str, object]:
+        family = str(setup.get("setup_family_id") or "UNKNOWN").upper()
+        trigger_ready = bool(trigger and trigger.get("trigger_ready_now") is True)
+        trigger_level = setup.get("trigger_level") if trigger_ready else None
+        return {
+            "pattern_id": f"S_{family}",
+            "pattern_name": str(setup.get("setup_name") or setup.get("pattern_name") or family),
+            "setup_family_id": family,
+            "detected": True,
+            "direction": str(setup.get("direction") or "LONG"),
+            "confidence": float(setup.get("confidence") or 0.0),
+            "trigger_level": trigger_level,
+            "invalidation_level": setup.get("invalidation_level"),
+            "trigger_type": (trigger or {}).get("trigger_type") or (setup.get("required_trigger_types") or [None])[0],
+            "session_valid": True,
+        }

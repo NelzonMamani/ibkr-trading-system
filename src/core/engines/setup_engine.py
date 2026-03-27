@@ -20,6 +20,7 @@ class SetupEngine:
         normalized_levels = levels if isinstance(levels, dict) else {}
         normalized_structure = structure if isinstance(structure, dict) else {}
         last_close = self._last_close(candles)
+        last_high = self._last_high(candles)
         if last_close is None:
             print("[SETUP_ENGINE] no setups: missing_last_close")
             return []
@@ -158,7 +159,7 @@ class SetupEngine:
                 confidence=0.67,
                 trigger_types=["HOD_BREAK", "BREAKOUT_HIGH"],
                 invalidation_anchor="prior_pivot_low",
-                condition=(hod is not None and last_close >= hod),
+                condition=(hod is not None and ((last_close is not None and last_close >= hod) or (last_high is not None and last_high >= hod))),
                 levels=normalized_levels,
                 quality_flags=[],
                 blocking_flags=[] if hod is not None else ["MISSING_HOD"],
@@ -202,27 +203,25 @@ class SetupEngine:
             )
         )
 
-        if len(setups) == 0:
-            print("[SETUP_ENGINE][FALLBACK] symbol=XYZ reason=NO_STRUCTURAL_SETUPS")
-            add_candidate(
-                self._setup_break(
-                    family="GENERIC_MOMENTUM_PROBE",
-                    name="Generic Momentum Probe",
-                    direction="LONG",
-                    rationale="Fallback under unresolved structure to maintain pipeline continuity",
-                    confidence=0.25,
-                    trigger_types=["BREAKOUT_HIGH"],
-                    invalidation_anchor="recent_low",
-                    condition=True,
-                    levels=normalized_levels,
-                    quality_flags=["FALLBACK_STRUCTURE"],
-                    blocking_flags=["LOW_CONFIDENCE"],
-                )
-            )
-
         for setup in setups:
             setup["session_context"] = str(session_context or "UNKNOWN").upper()
             setup["tradability_context"] = dict(tradability_context or {})
+            setup["structure_context"] = {
+                "trend": normalized_structure.get("trend"),
+                "dominant_direction": normalized_structure.get("dominant_direction"),
+                "impulse_active": bool(normalized_structure.get("impulse_active")),
+                "consolidation_active": bool(normalized_structure.get("consolidation_active")),
+                "pullback_active": bool(normalized_structure.get("pullback_active")),
+                "compression_active": bool(normalized_structure.get("compression_active")),
+            }
+            setup["levels_context"] = {
+                "premarket_high": normalized_levels.get("premarket_high"),
+                "premarket_low": normalized_levels.get("premarket_low"),
+                "hod": normalized_levels.get("hod"),
+                "lod": normalized_levels.get("lod"),
+                "vwap": normalized_levels.get("vwap"),
+                "active_breakout_range": normalized_levels.get("active_breakout_range"),
+            }
             if ema9 is None:
                 setup["quality_flags"].append("EMA9_MISSING")
         print(
@@ -254,6 +253,11 @@ class SetupEngine:
             return None
         return self._safe_float(self._read(candles[-2], "close"))
 
+    def _last_high(self, candles: list) -> float | None:
+        if not candles:
+            return None
+        return self._safe_float(self._read(candles[-1], "high"))
+
     def _setup_break(
         self,
         *,
@@ -275,12 +279,14 @@ class SetupEngine:
             "setup_family_id": family,
             "setup_family": family,
             "setup_name": name,
+            "pattern_name": name,
             "direction": direction,
             "rationale": rationale,
             "confidence": round(max(0.0, min(1.0, confidence)), self._ROUNDING),
             "quality_flags": sorted(set(str(flag) for flag in quality_flags if flag)),
             "blocking_flags": sorted(set(str(flag) for flag in blocking_flags if flag)),
             "invalidation_anchor": invalidation_anchor,
+            "invalidation_level": self._resolve_invalidation_level(invalidation_anchor=invalidation_anchor, levels=levels),
             "required_trigger_types": [str(t).upper() for t in trigger_types],
             # backward compatibility fields expected by some existing consumers
             "context": "continuation" if "PULLBACK" in family or "RECLAIM" in family else "breakout",
@@ -288,6 +294,22 @@ class SetupEngine:
             "confidence_label": "HIGH" if confidence >= 0.67 else ("MEDIUM" if confidence >= 0.55 else "LOW"),
         }
         return setup
+
+    def _resolve_invalidation_level(self, *, invalidation_anchor: str, levels: dict) -> float | None:
+        mapping = {
+            "premarket_low": "premarket_low",
+            "vwap": "vwap",
+            "active_breakout_range.lower": "active_breakout_range.lower",
+            "range_floor": "active_breakout_range.lower",
+        }
+        key = mapping.get(str(invalidation_anchor or "").lower())
+        if not key:
+            return None
+        if "." in key:
+            root, child = key.split(".", 1)
+            payload = levels.get(root, {}) if isinstance(levels.get(root), dict) else {}
+            return self._safe_float(payload.get(child))
+        return self._safe_float(levels.get(key))
 
     def _primary_trigger_level(self, *, family: str, levels: dict) -> float | None:
         mapping = {
