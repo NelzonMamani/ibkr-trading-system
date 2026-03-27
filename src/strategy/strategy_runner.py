@@ -430,6 +430,9 @@ class StrategyRunner:
             symbol = getattr(intent, "symbol", "UNKNOWN")
             setup_name = getattr(intent, "strategy_name", getattr(intent, "setup_name", "UNKNOWN"))
             confidence = getattr(intent, "confidence", None)
+            print(
+                f"[ROSS][INTENT_READY] symbol={symbol} synthetic={getattr(intent, 'synthetic', False)}"
+            )
             print("[INTENT]", f"symbol={symbol}", f"setup={setup_name}", f"confidence={confidence}")
         if len(watchlist) > 0 and len(results) == 0:
             patterns_called = 0

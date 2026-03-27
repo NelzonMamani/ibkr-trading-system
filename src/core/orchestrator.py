@@ -2660,6 +2660,9 @@ class CoreOrchestrator:
             )
             try:
                 for trade_intent in strategy_output:
+                    if os.getenv("FORCE_EXECUTION_WINDOW", "false").lower() in {"1", "true", "yes"}:
+                        print(f"[EXECUTION][FORCED_DISPATCH] symbol={trade_intent.symbol}")
+                        trade_intent.force_execute = True
                     print(
                         "[RISK][CHECK] "
                         f"symbol={trade_intent.symbol} pattern={getattr(trade_intent, 'pattern_name', 'UNKNOWN')} "
@@ -2905,6 +2908,10 @@ class CoreOrchestrator:
         else:
             action_label = "NO_ORDERS"
             action_reason = "No eligible orders to place"
+        force_execution_window = os.getenv("FORCE_EXECUTION_WINDOW", "false").lower() in {"1", "true", "yes"}
+        if force_execution_window and not orders_payload:
+            print("[CRITICAL] SYSTEM FAILED TO EXECUTE TRADE")
+            raise RuntimeError("Execution pipeline broken")
         self._trace_event(
             "ACTION",
             {

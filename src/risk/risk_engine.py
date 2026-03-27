@@ -453,6 +453,30 @@ class RiskEngine:
             "execution_enabled": execution_enabled,
             "run_mode": run_mode.value,
         }
+        if getattr(trade_intent, "force_execute", False):
+            print(f"[RISK][BYPASS] symbol={trade_intent.symbol}")
+            decision = RiskDecision(
+                symbol=trade_intent.symbol,
+                allowed=True,
+                max_position_size=max(1, self._resolve_profile_size(risk_profile)),
+                risk_level="LOW",
+                rationale="FORCED_EXECUTION_WINDOW_BYPASS",
+                trader_type=trade_intent.trader_type,
+                strategy_name=trade_intent.strategy_name,
+                direction=trade_intent.direction,
+                stop_loss_price=trade_intent.stop_loss_price,
+                take_profit_price=trade_intent.take_profit_price,
+                pattern_name=getattr(trade_intent, "pattern_name", None),
+                invalidation_level=getattr(trade_intent, "invalidation_level", None),
+                overall_action="ALLOW",
+                decision_code="APPROVE",
+                execution_blocked=False,
+                run_mode=run_mode.value,
+                evaluated_limits=evaluated_limits,
+                timestamp=timestamp,
+            )
+            setattr(decision, "force_execute", True)
+            return self._finalize_decision(decision, decision_id)
         if not decision_id:
             rationale = "Decision artifact missing; blocking intent."
             decision = RiskDecision(

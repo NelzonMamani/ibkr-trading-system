@@ -410,6 +410,8 @@ class ExecutionEngine:
     def _order_from_risk_decision(
         self, risk_decision: RiskDecision, tick: int
     ) -> BrokerOrderRequest:
+        if getattr(risk_decision, "force_execute", False):
+            print(f"[ORDER][FORCED_CREATE] symbol={risk_decision.symbol}")
         self._assert_execution_enabled_for_order_construction("risk decision")
         raw_quantity = int(getattr(risk_decision, "max_position_size", 0) or 0)
         if str(getattr(risk_decision, "strategy_name", "")).upper() == "LIVE_EXECUTION_PROBE":
@@ -476,6 +478,9 @@ class ExecutionEngine:
             f"capital={request.quantity} "
             f"ibkr_order_id={request.client_order_id} "
             f"route={self.route_order(request)}"
+        )
+        print(
+            f"[ORDER_SUBMITTED] symbol={request.symbol} qty={request.quantity} type={request.order_type}"
         )
         result = self._provider.place_order(request)
         result = self._confirm_broker_ack(request, result)
