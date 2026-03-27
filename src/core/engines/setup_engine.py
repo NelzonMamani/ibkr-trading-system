@@ -40,6 +40,101 @@ class SetupEngine:
         range_upper = self._safe_float((range_info or {}).get("upper"))
         range_lower = self._safe_float((range_info or {}).get("lower"))
         pullback_depth = self._safe_float((normalized_structure.get("pullback_depth") or {}).get("pct"))
+        prev_close = self._previous_close(candles)
+        pullback_high = self._safe_float(
+            normalized_levels.get("pullback_high")
+            or normalized_levels.get("first_pullback_high")
+            or normalized_levels.get("micro_pullback_high")
+        )
+        micro_range_high = self._safe_float(
+            normalized_levels.get("micro_range_high")
+            or normalized_levels.get("micro_pullback_high")
+            or range_upper
+        )
+        near_high_band = 0.0025
+        near_hod = bool(hod is not None and last_close >= hod * (1.0 - near_high_band))
+        early_session = str(session_context or "").upper() in {"PRE", "PREMARKET", "RTH_OPEN", "OPENING_DRIVE", "MORNING_MOMENTUM", "EARLY"}
+        sequence_first_pullback = self._has_impulse_pullback_continuation(candles)
+        contraction_active = self._has_range_contraction(candles)
+
+        first_pullback_trigger = bool(
+            pullback_high is not None
+            and prev_close is not None
+            and prev_close < pullback_high <= last_close
+            and (hod is None or last_close < hod)
+        )
+        first_pullback_valid = bool(
+            trend == "UP"
+            and sequence_first_pullback
+            and bool(normalized_structure.get("pullback_active"))
+            and pullback_depth is not None
+            and pullback_depth <= 0.5
+            and first_pullback_trigger
+        )
+
+        micro_pullback_trigger = bool(
+            micro_range_high is not None and prev_close is not None and prev_close < micro_range_high <= last_close
+        )
+        micro_pullback_valid = bool(
+            trend == "UP"
+            and bool(normalized_structure.get("compression_active"))
+            and pullback_depth is not None
+            and pullback_depth <= 0.3
+            and micro_pullback_trigger
+        )
+
+        bull_flag_trigger = bool(
+            range_upper is not None
+            and prev_close is not None
+            and prev_close < range_upper <= last_close
+        )
+        bull_flag_valid = bool(
+            trend == "UP"
+            and bool(normalized_structure.get("impulse_active"))
+            and bool(normalized_structure.get("consolidation_active"))
+            and contraction_active
+            and bull_flag_trigger
+        )
+
+        pmh_trigger = bool(
+            premarket_high is not None
+            and prev_close is not None
+            and prev_close < premarket_high <= last_close
+        )
+        premarket_high_break_valid = bool(
+            pmh_trigger
+            and early_session
+        )
+
+        hod_break_valid = bool(
+            hod is not None
+            and prev_close is not None
+            and prev_close < hod <= last_close
+            and near_hod
+        )
+
+        # Structural distinction hard-constraint: these setup families must not fire on the same candle.
+        distinction_flags = {
+            "FIRST_PULLBACK": first_pullback_valid,
+            "MICRO_PULLBACK": micro_pullback_valid,
+            "BULL_FLAG": bull_flag_valid,
+            "HOD_BREAK": hod_break_valid,
+            "PREMARKET_HIGH_BREAK": premarket_high_break_valid,
+        }
+        primary_setup = self._primary_distinct_setup(distinction_flags)
+        for key in tuple(distinction_flags.keys()):
+            distinction_flags[key] = bool(primary_setup == key)
+        first_pullback_valid = distinction_flags["FIRST_PULLBACK"]
+        micro_pullback_valid = distinction_flags["MICRO_PULLBACK"]
+        bull_flag_valid = distinction_flags["BULL_FLAG"]
+        hod_break_valid = distinction_flags["HOD_BREAK"]
+        premarket_high_break_valid = distinction_flags["PREMARKET_HIGH_BREAK"]
+        print("[SETUP_ENGINE][DISTINCTION_CHECK]")
+        print(
+            f"symbol={normalized_levels.get('symbol') or normalized_levels.get('ticker') or 'UNKNOWN'} "
+            f"first_pullback={first_pullback_valid} micro_pullback={micro_pullback_valid} "
+            f"bull_flag={bull_flag_valid} hod_break={hod_break_valid}"
+        )
 
         add_candidate(
             self._setup_break(
@@ -50,9 +145,9 @@ class SetupEngine:
                 confidence=0.64,
                 trigger_types=["PMH_BREAK", "BREAKOUT_HIGH"],
                 invalidation_anchor="premarket_low",
-                condition=(premarket_high is not None and last_close >= premarket_high),
+                condition=premarket_high_break_valid,
                 levels=normalized_levels,
-                quality_flags=["LEVEL_CONFLUENCE"] if premarket_high is not None else ["MISSING_PMH"],
+                quality_flags=["EARLY_SESSION"] if early_session else ["OUTSIDE_EARLY_SESSION"],
                 blocking_flags=[] if premarket_high is not None else ["MISSING_PREMARKET_HIGH"],
             )
         )
@@ -82,14 +177,9 @@ class SetupEngine:
                 confidence=0.66,
                 trigger_types=["PULLBACK_HIGH_BREAK", "RECLAIM"],
                 invalidation_anchor="pullback_low",
-                condition=(
-                    trend == "UP"
-                    and bool(normalized_structure.get("pullback_active"))
-                    and pullback_depth is not None
-                    and pullback_depth <= 0.55
-                ),
+                condition=first_pullback_valid,
                 levels=normalized_levels,
-                quality_flags=[],
+                quality_flags=["STRUCTURE_SEQUENCE"],
                 blocking_flags=[] if trend == "UP" else ["TREND_NOT_UP"],
             )
         )
@@ -101,11 +191,11 @@ class SetupEngine:
                 direction="LONG",
                 rationale="Uptrend micro pause with compression and impulse potential.",
                 confidence=0.58,
-                trigger_types=["PULLBACK_HIGH_BREAK"],
+                trigger_types=["MICRO_RANGE_BREAK"],
                 invalidation_anchor="micro_pullback_low",
-                condition=(trend == "UP" and bool(normalized_structure.get("compression_active"))),
+                condition=micro_pullback_valid,
                 levels=normalized_levels,
-                quality_flags=["MICRO_STRUCTURE"],
+                quality_flags=["MICRO_STRUCTURE", "COMPRESSION_ACTIVE"],
                 blocking_flags=[] if trend == "UP" else ["TREND_NOT_UP"],
             )
         )
@@ -119,13 +209,9 @@ class SetupEngine:
                 confidence=0.6,
                 trigger_types=["RANGE_BREAK", "BREAK_AND_HOLD"],
                 invalidation_anchor="flag_low",
-                condition=(
-                    trend == "UP"
-                    and bool(normalized_structure.get("consolidation_active"))
-                    and bool(normalized_structure.get("impulse_active"))
-                ),
+                condition=bull_flag_valid,
                 levels=normalized_levels,
-                quality_flags=[],
+                quality_flags=["IMPULSE_PLUS_CONSOLIDATION", "RANGE_CONTRACTION"],
                 blocking_flags=[] if trend == "UP" else ["TREND_NOT_UP"],
             )
         )
@@ -156,14 +242,13 @@ class SetupEngine:
                 confidence=0.67,
                 trigger_types=["HOD_BREAK", "BREAKOUT_HIGH"],
                 invalidation_anchor="prior_pivot_low",
-                condition=(hod is not None and last_close >= hod),
+                condition=hod_break_valid,
                 levels=normalized_levels,
-                quality_flags=[],
+                quality_flags=["NEAR_HIGHS"],
                 blocking_flags=[] if hod is not None else ["MISSING_HOD"],
             )
         )
 
-        prev_close = self._previous_close(candles)
         add_candidate(
             self._setup_break(
                 family="VWAP_RECLAIM_CONTINUATION",
@@ -268,6 +353,44 @@ class SetupEngine:
             "confidence_label": "HIGH" if confidence >= 0.67 else ("MEDIUM" if confidence >= 0.55 else "LOW"),
         }
         return setup
+
+    def _has_impulse_pullback_continuation(self, candles: list) -> bool:
+        if len(candles) < 4:
+            return False
+        closes = [self._safe_float(self._read(c, "close")) for c in candles[-6:]]
+        if any(v is None for v in closes):
+            return False
+        first, second, third, fourth = closes[-4:]
+        return bool(second > first and third < second and fourth > third and fourth >= second)
+
+    def _has_range_contraction(self, candles: list) -> bool:
+        if len(candles) < 5:
+            return False
+        window = candles[-5:]
+        widths: list[float] = []
+        for candle in window:
+            high = self._safe_float(self._read(candle, "high"))
+            low = self._safe_float(self._read(candle, "low"))
+            if high is None or low is None:
+                return False
+            widths.append(max(high - low, 0.0))
+        head = sum(widths[:2]) / 2.0
+        tail = sum(widths[-2:]) / 2.0
+        return bool(head > 0 and tail <= head * 0.85)
+
+    @staticmethod
+    def _primary_distinct_setup(flags: dict[str, bool]) -> str | None:
+        priority = [
+            "PREMARKET_HIGH_BREAK",
+            "FIRST_PULLBACK",
+            "MICRO_PULLBACK",
+            "BULL_FLAG",
+            "HOD_BREAK",
+        ]
+        for family in priority:
+            if flags.get(family):
+                return family
+        return None
 
     def _primary_trigger_level(self, *, family: str, levels: dict) -> float | None:
         mapping = {
