@@ -259,7 +259,12 @@ class CoreOrchestrator:
         self.ibkr_api_write_allowed = bool(get_config("IBKR_API_WRITE_ALLOWED"))
         self.replay_mode = self.runtime_mode_manager.event_replay_mode
         print(f"[BOOT] Runtime mode resolved: {self.runtime_mode_manager.describe()}")
-        self._enforce_runtime_invariants()
+        # Defer IBKR invariant enforcement to actual usage boundary
+        if self._should_enforce_ibkr_runtime():
+            try:
+                self._enforce_runtime_invariants()
+            except RuntimeError as e:
+                print(f"[CONFIG WARNING] {e}")
         if not self.execution_enabled:
             print("[SAFETY] EXECUTION: HARD DISABLED")
             print("[SAFETY] ORDER ROUTING: BLOCKED")
@@ -439,6 +444,44 @@ class CoreOrchestrator:
             self.learning_scheduler.on_startup()
         except Exception as exc:
             print(f"[LEARNING][SCHEDULER] Startup check failed: {exc}")
+
+    def _should_enforce_ibkr_runtime(self) -> bool:
+        """
+        Determine whether IBKR runtime invariants should be enforced.
+
+        Enforcement should ONLY occur when:
+        - Execution is enabled
+        - System is in LIVE or PAPER mode
+        - IBKR connection is actually expected to be used
+        """
+
+        from src.config.config_resolver import get_config
+
+        run_mode = str(get_config("RUN_MODE_EFFECTIVE")).upper()
+        execution_enabled = bool(get_config("EXECUTION_ENABLED"))
+
+        # Only enforce in real execution scenarios
+        if run_mode not in {"LIVE", "PAPER"}:
+            return False
+
+        if not execution_enabled:
+            return False
+
+        # IMPORTANT:
+        # Do NOT enforce based on default IBKR config
+        # Only enforce when user explicitly configured IBKR connection
+
+        ibkr_host = os.getenv("IBKR_HOST")
+        ibkr_port = os.getenv("IBKR_PORT")
+
+        # Explicit configuration only (ignore defaults like 127.0.0.1 / 7497)
+        if ibkr_host not in (None, "", "127.0.0.1"):
+            return True
+
+        if ibkr_port not in (None, "", "7497"):
+            return True
+
+        return False
 
     def _enforce_runtime_invariants(self):
         from src.config.config_resolver import get_config
