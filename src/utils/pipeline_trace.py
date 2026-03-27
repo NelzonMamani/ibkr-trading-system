@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from src.core.decision_pipeline import DecisionStage
+
 _intent_stage_seen: bool = False
 
 
@@ -17,6 +19,8 @@ def pipeline_trace(stage: str, symbol: Optional[str] = None) -> None:
     """Print canonical pipeline trace line for each stage execution."""
     global _intent_stage_seen
     stage_name = str(stage or "").strip().upper() or "UNKNOWN"
+    if stage_name in {stage.value for stage in DecisionStage}:
+        stage_name = DecisionStage(stage_name).value
     symbol_value = str(symbol).upper() if symbol else "GLOBAL"
     print(f"[PIPELINE][{stage_name}] symbol={symbol_value}")
     if stage_name == "INTENT":
@@ -26,4 +30,3 @@ def pipeline_trace(stage: str, symbol: Optional[str] = None) -> None:
 def intent_stage_seen() -> bool:
     """Return whether an INTENT stage has been traced in the active cycle."""
     return _intent_stage_seen
-

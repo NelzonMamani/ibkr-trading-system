@@ -91,7 +91,7 @@ def test_structure_setup_trigger_stack_runs_under_partial_indicator_context() ->
     assert all("trigger_ready_now" in item for item in triggers)
 
 
-def test_setup_engine_adds_fallback_when_structure_is_unresolved() -> None:
+def test_setup_engine_returns_no_synthetic_fallback_when_structure_is_unresolved() -> None:
     candles = _candles(count=6)
     structure = {
         "trend": "UNKNOWN",
@@ -115,6 +115,5 @@ def test_setup_engine_adds_fallback_when_structure_is_unresolved() -> None:
         structure=structure,
     )
 
-    assert len(setups) >= 1
-    assert any(item["setup_family_id"] == "GENERIC_MOMENTUM_PROBE" for item in setups)
-    assert len(triggers) >= 1
+    assert setups == []
+    assert triggers == []

@@ -7,6 +7,17 @@ class TriggerEngine:
     """Shared trigger engine mapping setup candidates to actionability states."""
 
     _ROUNDING = 6
+    _SETUP_TRIGGER_CLASS_MAP: dict[str, str] = {
+        "PREMARKET_HIGH_BREAK": "BREAKOUT",
+        "OPENING_RANGE_BREAKOUT": "BREAKOUT",
+        "CONSOLIDATION_BREAKOUT": "BREAKOUT",
+        "FLAT_TOP_BREAKOUT": "BREAKOUT",
+        "HOD_BREAK": "HOD_LOD_BREAK",
+        "FIRST_PULLBACK": "PULLBACK_ENTRY",
+        "MICRO_PULLBACK": "PULLBACK_ENTRY",
+        "BULL_FLAG": "PULLBACK_ENTRY",
+        "VWAP_RECLAIM_CONTINUATION": "RECLAIM",
+    }
 
     def evaluate_triggers(
         self,
@@ -51,11 +62,31 @@ class TriggerEngine:
                 "setup_family_id": setup.get("setup_family_id"),
                 "setup_name": setup.get("setup_name"),
                 "trigger_type": trigger_type,
+                "trigger_class": self._SETUP_TRIGGER_CLASS_MAP.get(
+                    str(setup.get("setup_family_id") or "").upper(),
+                    "BREAKOUT",
+                ),
+                "required_trigger_types": required_types,
                 "trigger_ready_now": trigger_ready_now,
                 "trigger_reason": trigger_reason,
                 "trigger_price_reference": trigger_price_reference,
                 "invalidation_price_reference": invalidation_price_reference,
                 "stop_anchor_type": str(setup.get("invalidation_anchor") or "STRUCTURE"),
+                "structure_context": {
+                    "trend": structure.get("trend"),
+                    "dominant_direction": structure.get("dominant_direction"),
+                    "impulse_active": bool(structure.get("impulse_active")),
+                    "consolidation_active": bool(structure.get("consolidation_active")),
+                    "reclaim_state": structure.get("reclaim_state"),
+                },
+                "levels_context": {
+                    "hod": levels.get("hod"),
+                    "lod": levels.get("lod"),
+                    "premarket_high": levels.get("premarket_high"),
+                    "premarket_low": levels.get("premarket_low"),
+                    "vwap": levels.get("vwap"),
+                    "active_breakout_range": levels.get("active_breakout_range"),
+                },
                 "trigger_quality_flags": sorted(set(quality_flags + [*setup.get("quality_flags", [])])),
             }
             outputs.append(output)

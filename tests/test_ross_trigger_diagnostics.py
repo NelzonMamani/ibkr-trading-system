@@ -230,10 +230,10 @@ def test_no_silent_drop_logs_pipeline_no_decision(monkeypatch, tmp_path, capsys)
         session_phase="PRE",
     )
 
-    assert intents
+    assert intents == []
     out = capsys.readouterr().out
-    assert "[ROSS][SETUP_FALLBACK] symbol=TEST setups=" in out
-    assert "[ROSS][INTENT_GENERATED] symbol=TEST" in out
+    assert "[ROSS][NO_SETUP_AFTER_PATTERN] symbol=TEST" in out
+    assert "[ROSS][PIPELINE][NO_DECISION] symbol=TEST" in out
 
 
 def test_trade_ready_still_works_and_emits_terminal_log(monkeypatch, tmp_path, capsys) -> None:
@@ -303,13 +303,13 @@ def test_trade_permission_allows_non_high_quality_when_trigger_fired() -> None:
     assert reason == "trigger_fired"
 
 
-def test_trade_permission_blocks_generic_momentum_probe() -> None:
+def test_trade_permission_blocks_unready_setup() -> None:
     allow_trade, reason = RossMomentumStrategyV1._trade_permission(
-        trigger_ready=True,
-        setup_family_id="GENERIC_MOMENTUM_PROBE",
+        trigger_ready=False,
+        setup_family_id="HOD_BREAK",
     )
     assert allow_trade is False
-    assert reason == "fallback_setup_blocked"
+    assert reason == "trigger_not_ready"
 
 
 def test_trigger_quality_engine_scores_high_quality_ready_setup() -> None:

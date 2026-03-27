@@ -84,7 +84,7 @@ def _micro_pullback_bars() -> list[Candle]:
     ]
 
 
-def test_fallback_setup_triggers_when_no_patterns(monkeypatch, tmp_path, capsys) -> None:
+def test_no_synthetic_fallback_setup_when_no_patterns(monkeypatch, tmp_path, capsys) -> None:
     strategy = _base_strategy(monkeypatch, tmp_path, _hod_break_bars())
 
     intents = strategy.process_watchlist(
@@ -96,13 +96,13 @@ def test_fallback_setup_triggers_when_no_patterns(monkeypatch, tmp_path, capsys)
         session_phase="PRE",
     )
 
-    assert intents
+    assert intents == []
     out = capsys.readouterr().out
-    assert "[ROSS][SETUP_FALLBACK] symbol=TEST setups=" in out
-    assert "[ROSS][INTENT_GENERATED] symbol=TEST" in out
+    assert "[ROSS][NO_SETUP_AFTER_PATTERN] symbol=TEST" in out
+    assert "[ROSS][TERMINAL] symbol=TEST category=SETUP_NOT_FOUND" in out
 
 
-def test_fallback_hod_break_produces_trigger(monkeypatch, tmp_path) -> None:
+def test_no_fallback_hod_break_produces_trigger(monkeypatch, tmp_path) -> None:
     strategy = _base_strategy(monkeypatch, tmp_path, _hod_break_bars())
 
     intents = strategy.process_watchlist(
@@ -114,12 +114,7 @@ def test_fallback_hod_break_produces_trigger(monkeypatch, tmp_path) -> None:
         session_phase="PRE",
     )
 
-    assert intents
-    assert intents[0].pattern_name.endswith("HOD_BREAK") or intents[0].pattern_name.endswith("RANGE_BREAKOUT")
-    assert intents[0].trigger_ready is True
-    assert intents[0].trigger_id.endswith(":TRIGGER") or bool(intents[0].trigger_id)
-    assert intents[0].entry_price is not None
-    assert intents[0].stop_loss_price is not None
+    assert intents == []
 
 
 def test_fallback_micro_pullback_detected(monkeypatch, tmp_path) -> None:
@@ -150,7 +145,7 @@ def test_fallback_micro_pullback_detected(monkeypatch, tmp_path) -> None:
     assert any(setup["setup_type"] == "MICRO_PULLBACK" for setup in setups)
 
 
-def test_pipeline_not_blocked_by_missing_patterns(monkeypatch, tmp_path) -> None:
+def test_pipeline_truthful_when_patterns_missing(monkeypatch, tmp_path) -> None:
     strategy = _base_strategy(monkeypatch, tmp_path, _hod_break_bars())
 
     intents = strategy.process_watchlist(
@@ -162,5 +157,4 @@ def test_pipeline_not_blocked_by_missing_patterns(monkeypatch, tmp_path) -> None
         session_phase="PRE",
     )
 
-    assert intents
-    assert intents[0].decision in {"TRADE_READY", "ARMED_WAITING_TRIGGER", "TRIGGER_FIRED_INTENT_EMITTED"}
+    assert intents == []

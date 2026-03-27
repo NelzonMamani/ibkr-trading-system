@@ -11,6 +11,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.config.config_resolver import ConfigResolutionError, get_config
 from src.config.runtime_config import RunMode
+from src.core.decision_pipeline import DecisionFailureClassification, DecisionStage
 from src.core.engines.decision_engine import DecisionEngine
 from src.core.engines.level_engine import LevelEngine
 from src.core.engines.structure_engine import StructureEngine
@@ -32,12 +33,13 @@ from src.strategies.ross_momentum.patterns.pattern_trace import (
     infer_symbol_source,
 )
 TERMINAL_CATEGORY = {
-    "DATA_BLOCKED": "DATA_BLOCKED",
-    "SETUP_NOT_FOUND": "SETUP_NOT_FOUND",
-    "SETUP_FOUND_DECISION_REJECTED": "SETUP_FOUND_DECISION_REJECTED",
-    "SETUP_FOUND_CONFIRMATION_BLOCKED": "SETUP_FOUND_CONFIRMATION_BLOCKED",
-    "SETUP_FOUND_TRIGGER_NOT_READY": "SETUP_FOUND_TRIGGER_NOT_READY",
-    "INTENT_CREATED": "INTENT_CREATED",
+    "DATA_BLOCKED_AT_CONTEXT": DecisionFailureClassification.DATA_BLOCKED_AT_CONTEXT.value,
+    "STRUCTURE_NOT_ACTIONABLE": DecisionFailureClassification.STRUCTURE_NOT_ACTIONABLE.value,
+    "SETUP_NOT_FOUND": DecisionFailureClassification.SETUP_NOT_FOUND.value,
+    "SETUP_FAILED_CONFIRMATION": DecisionFailureClassification.SETUP_FAILED_CONFIRMATION.value,
+    "SETUP_FOUND_BUT_NO_TRIGGER": DecisionFailureClassification.SETUP_FOUND_BUT_NO_TRIGGER.value,
+    "TRIGGER_FOUND_BUT_INTENT_BLOCKED": DecisionFailureClassification.TRIGGER_FOUND_BUT_INTENT_BLOCKED.value,
+    "FULL_PIPELINE_SUCCESS": DecisionFailureClassification.FULL_PIPELINE_SUCCESS.value,
 }
 
 
@@ -370,7 +372,12 @@ class RossMomentumStrategyV1(BaseStrategy):
             fallback = watchlist_symbols[:3]
             print("[FOCUS][FORCED_FALLBACK] activating:", fallback)
             effective_focus_symbols = set(fallback)
-        print(f"[FOCUS_FINAL] count={len(effective_focus_symbols)} symbols={sorted(effective_focus_symbols)}")
+        print(
+            f"[SELECTION][WATCHLIST] count={len(watchlist_symbols)} symbols={sorted(set(watchlist_symbols))}"
+        )
+        print(
+            f"[SELECTION][FOCUS] count={len(effective_focus_symbols)} symbols={sorted(effective_focus_symbols)}"
+        )
         symbol_traces: List[RossSymbolTrace] = []
         translated_intents: List[TradeIntent] = []
         trade_candidates: list[dict[str, object]] = []
@@ -401,6 +408,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             print(f"[ROSS][EVAL_START] symbol={symbol}")
             print(f"[ROSS][SYMBOL_START] symbol={symbol}")
             print(f"[ROSS][PIPELINE_ENTRY] symbol={symbol}")
+            pipeline_trace(DecisionStage.SCAN.value, symbol)
             snapshot = snapshots.get(symbol) if isinstance(snapshots, dict) else None
             symbol_source = infer_symbol_source(row)
             symbol_trace = RossSymbolTrace(
@@ -534,16 +542,15 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol_trace.input_summary["structure"] = structure
             symbol_trace.input_summary["setups"] = setups
             symbol_trace.input_summary["trigger_candidates"] = trigger_candidates
+            pipeline_trace(DecisionStage.CONTEXT.value, symbol)
+            print(f"[ROSS][CONTEXT][START] symbol={symbol}")
             print(
-                "[ROSS][INPUT_SUMMARY] "
-                f"symbol={symbol} candle_count={input_summary.candle_count} last={input_summary.last_price} "
-                f"rvol={input_summary.rvol} float={input_summary.float_millions} "
-                f"levels_present={input_summary.levels_present} indicators_present={input_summary.indicators_present}"
-            )
-            print(
-                "[ROSS][EVAL_CONTEXT] "
-                f"symbol={symbol} pct_change={input_summary.pct_change} rvol={input_summary.rvol} "
-                f"float_millions={input_summary.float_millions} session={input_summary.session_context}"
+                "[ROSS][CONTEXT][RESULT] "
+                f"symbol={symbol} session={input_summary.session_context} last={input_summary.last_price} "
+                f"bid={getattr(input_summary, 'bid', None)} ask={getattr(input_summary, 'ask', None)} spread={input_summary.spread} "
+                f"volume={input_summary.volume} rvol={input_summary.rvol} float_millions={input_summary.float_millions} "
+                f"has_levels={input_summary.has_levels} has_indicators={input_summary.has_indicators} "
+                f"news_visible={bool(getattr(inputs, 'news_context', None))} missing={input_summary.missing_fields}"
             )
             symbol_trace.context_stage = {
                 "status": "PASS",
@@ -553,6 +560,27 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "rvol": input_summary.rvol,
                     "float_millions": input_summary.float_millions,
                     "session": input_summary.session_context,
+                },
+            }
+            pipeline_trace(DecisionStage.STRUCTURE.value, symbol)
+            print(f"[ROSS][STRUCTURE][START] symbol={symbol}")
+            print(
+                "[ROSS][STRUCTURE][RESULT] "
+                f"symbol={symbol} directional_bias={structure.get('directional_bias')} trend={structure.get('trend')} "
+                f"dominant_direction={structure.get('dominant_direction')} impulse_active={bool(structure.get('impulse_active'))} "
+                f"consolidation_active={bool(structure.get('consolidation_active'))} reclaim_state={structure.get('reclaim_state')} "
+                f"flags={structure.get('structure_quality_flags') or []}"
+            )
+            symbol_trace.structure_stage = {
+                "status": "PASS",
+                "reason_code": "STRUCTURE_READY",
+                "details": {
+                    "directional_bias": structure.get("directional_bias"),
+                    "trend": structure.get("trend"),
+                    "dominant_direction": structure.get("dominant_direction"),
+                    "impulse_active": bool(structure.get("impulse_active")),
+                    "consolidation_active": bool(structure.get("consolidation_active")),
+                    "reclaim_state": structure.get("reclaim_state"),
                 },
             }
             if symbol_trace.manual_focus:
@@ -575,8 +603,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 print(f"[ROSS][DATA_BLOCK] symbol={symbol} reason={reason_text}")
                 print(f"[DATA_CONTRACT_BLOCK] symbol={symbol} reason={reason_text}")
                 print(f"[ROSS][SETUP_REJECT] symbol={symbol} reason=DATA_CONTRACT_BLOCKED")
-                print(f"[CLASSIFICATION] symbol={symbol} category=DATA_BLOCKED")
-                _terminal(symbol, TERMINAL_CATEGORY["DATA_BLOCKED"], reason_text)
+                print(f"[CLASSIFICATION] symbol={symbol} category=DATA_BLOCKED_AT_CONTEXT")
+                _terminal(symbol, TERMINAL_CATEGORY["DATA_BLOCKED_AT_CONTEXT"], reason_text)
                 classification_counts["DATA_BLOCKED"] += 1
                 symbol_trace.pre_registry_failure_reason = f"data_contract_blocked:{reason_text}"
                 symbol_trace.final_outcome = f"NO_SETUP:data_contract_blocked:{reason_text}"
@@ -594,10 +622,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
 
-            pipeline_trace("SETUP", symbol)
-            print("[ROSS][SETUP_PHASE][START]")
+            pipeline_trace(DecisionStage.SETUP.value, symbol)
+            print("[ROSS][SETUP][START] " f"symbol={symbol}")
             setup_count = 1 if input_summary.candle_count > 0 else 0
-            print(f"[ROSS][SETUP_PHASE][RESULT] symbol={symbol} setups_found={setup_count}")
+            print(f"[ROSS][SETUP_RESULT] symbol={symbol} setups_found={setup_count}")
 
             pattern_traces = []
             registry_context = {
@@ -659,27 +687,6 @@ class RossMomentumStrategyV1(BaseStrategy):
                 trace_collector=pattern_traces.append,
             )
             setup_source = "pattern_registry"
-            if not results and not pattern_traces:
-                fallback_setups = self._detect_lightweight_setups(inputs, input_summary)
-                if fallback_setups:
-                    setup_source = "fallback_detector"
-                    print(
-                        "[ROSS][SETUP_FALLBACK] "
-                        f"symbol={symbol} setups={len(fallback_setups)} types={[setup['setup_type'] for setup in fallback_setups]}"
-                    )
-                    for setup in fallback_setups:
-                        fallback_trace = self._fallback_setup_to_trace(
-                                symbol=symbol,
-                                setup=setup,
-                                cycle_id=timestamp_utc,
-                                session_label=session_label,
-                                session_phase=session_phase,
-                                runtime_mode=mode.value,
-                                symbol_source=symbol_source,
-                                input_summary=input_summary.to_dict(),
-                            )
-                        fallback_trace.confidence = float(setup.get("confidence", 0.6))
-                        pattern_traces.append(fallback_trace)
             if pattern_traces:
                 selected_setup_name = next((trace.pattern_name for trace in pattern_traces if trace.detected), "UNKNOWN")
                 print(f"[ROSS][SETUP] symbol={symbol} source={setup_source} setup={selected_setup_name}")
@@ -755,11 +762,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                     symbol_trace.final_reason_code = "DECISION_REJECTED"
                     print(f"[ROSS][SETUP_REJECT] symbol={symbol} reason=DECISION_REJECTED:{decision_reason}")
                     print(f"[CLASSIFICATION] symbol={symbol} category=SETUP_FOUND_DECISION_REJECTED")
-                    _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_DECISION_REJECTED"], decision_reason)
+                    _terminal(symbol, TERMINAL_CATEGORY["STRUCTURE_NOT_ACTIONABLE"], decision_reason)
                     classification_counts["TRIGGER_REJECTED"] += 1
                 else:
                     reason = decision.get("decision_reason") or "no_valid_pattern"
                     print(f"[ROSS][DECISION] symbol={symbol} verdict=REJECT reason={reason}")
+                    print(f"[ROSS][NO_SETUP_AFTER_PATTERN] symbol={symbol} reason={reason}")
                     symbol_trace.final_outcome = "NO_SETUP:no_valid_pattern"
                     symbol_trace.setup_stage = {"status": "FAIL", "reason_code": "NO_VALID_PATTERN"}
                     symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "NO_SETUP_AVAILABLE"}
@@ -800,7 +808,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
 
-            pipeline_trace("CONFIRMATION", symbol)
+            pipeline_trace(DecisionStage.CONFIRMATION.value, symbol)
             confirmation_passed, blocking_reasons, warnings = self._evaluate_confirmation(
                 symbol=symbol,
                 selected_pattern=best_pattern,
@@ -811,6 +819,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=confirmation_gate")
                 print(f"[TRIGGER][REJECT] symbol={symbol} reason=CONFIRMATION_BLOCKED")
                 print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason=CONFIRMATION_BLOCKED")
+                print(f"[ROSS][INTENT_REJECTED] symbol={symbol} reason=CONFIRMATION_BLOCKED")
                 self._evaluate_trigger(
                     symbol=symbol,
                     selected_pattern=best_pattern,
@@ -831,7 +840,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
                 )
                 print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=CONFIRMATION_BLOCKED")
-                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], "confirmation_blocked")
+                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FAILED_CONFIRMATION"], "confirmation_blocked")
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
@@ -849,12 +858,13 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
 
-            pipeline_trace("TRIGGER", symbol)
+            pipeline_trace(DecisionStage.TRIGGER.value, symbol)
             trade = self._build_trade_from_pattern(best_pattern, inputs)
             if not trade:
                 print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=trade_structure")
                 print(f"[TRIGGER][REJECT] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
                 print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
+                print(f"[ROSS][NO_TRIGGER] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
                 symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
                 symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "INVALID_TRADE_STRUCTURE"}
                 symbol_trace.final_reason_code = "INVALID_TRADE_STRUCTURE"
@@ -862,7 +872,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
                 )
                 print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
-                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], "invalid_trade_structure")
+                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_BUT_NO_TRIGGER"], "invalid_trade_structure")
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
@@ -921,6 +931,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             if not allow_trade:
                 print(f"[TRIGGER][REJECT] symbol={symbol} reason={permission_reason}")
                 print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason={permission_reason}")
+                print(f"[ROSS][INTENT_REJECTED] symbol={symbol} reason={permission_reason}")
                 symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
                 symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": permission_reason}
                 symbol_trace.final_reason_code = permission_reason
@@ -928,7 +939,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
                 )
                 print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason={permission_reason}")
-                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], permission_reason)
+                _terminal(symbol, TERMINAL_CATEGORY["TRIGGER_FOUND_BUT_INTENT_BLOCKED"], permission_reason)
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
@@ -967,10 +978,15 @@ class RossMomentumStrategyV1(BaseStrategy):
             intent.trigger_ready = trigger_ready
             intent.decision = "TRADE_READY"
             intent = self._apply_intent_contract_defaults(intent, input_summary, timestamp_utc=timestamp_utc)
-            pipeline_trace("INTENT", symbol)
+            pipeline_trace(DecisionStage.INTENT.value, symbol)
             quality_score = float((selected_trigger or {}).get("quality", {}).get("quality_score", 0.0))
             if not intent.symbol:
                 raise ValueError(f"[TRADE_INTENT][INVALID] empty symbol for intent: {intent}")
+            print(
+                "[ROSS][TRADE_INTENT] "
+                f"symbol={symbol} setup={intent.setup_family_id} trigger={intent.trigger_id} "
+                f"entry={intent.entry_price} stop={intent.stop_loss_price}"
+            )
             print(f"[TRADE_INTENT][VALID] symbol={intent.symbol}")
             trade_candidates.append(
                 {
@@ -1005,7 +1021,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"entry_reference={intent.entry_price} stop_reference={intent.stop_loss_price} "
                 f"invalidation_reference={intent.invalidation_level}"
             )
-            _terminal(symbol, TERMINAL_CATEGORY["INTENT_CREATED"], "intent_created")
+            _terminal(symbol, TERMINAL_CATEGORY["FULL_PIPELINE_SUCCESS"], "intent_created")
             print(
                 "[ROSS][FINAL_SELECTION] "
                 f"symbol={symbol} selected_pattern={best_pattern.pattern_id} "

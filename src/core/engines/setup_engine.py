@@ -202,24 +202,6 @@ class SetupEngine:
             )
         )
 
-        if len(setups) == 0:
-            print("[SETUP_ENGINE][FALLBACK] symbol=XYZ reason=NO_STRUCTURAL_SETUPS")
-            add_candidate(
-                self._setup_break(
-                    family="GENERIC_MOMENTUM_PROBE",
-                    name="Generic Momentum Probe",
-                    direction="LONG",
-                    rationale="Fallback under unresolved structure to maintain pipeline continuity",
-                    confidence=0.25,
-                    trigger_types=["BREAKOUT_HIGH"],
-                    invalidation_anchor="recent_low",
-                    condition=True,
-                    levels=normalized_levels,
-                    quality_flags=["FALLBACK_STRUCTURE"],
-                    blocking_flags=["LOW_CONFIDENCE"],
-                )
-            )
-
         for setup in setups:
             setup["session_context"] = str(session_context or "UNKNOWN").upper()
             setup["tradability_context"] = dict(tradability_context or {})
