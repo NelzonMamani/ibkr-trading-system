@@ -128,6 +128,10 @@ class TradeIntent:
     setup_family_id: Optional[str] = None
     trigger_id: Optional[str] = None
 
+    def __post_init__(self) -> None:
+        if not self.symbol:
+            raise ValueError("TradeIntent.symbol cannot be empty")
+
 
 @dataclass(frozen=True)
 class DecisionArtifact:
