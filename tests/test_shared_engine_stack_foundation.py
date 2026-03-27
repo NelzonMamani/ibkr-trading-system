@@ -89,3 +89,32 @@ def test_structure_setup_trigger_stack_runs_under_partial_indicator_context() ->
     assert len(triggers) == len(setups)
     assert all("trigger_type" in item for item in triggers)
     assert all("trigger_ready_now" in item for item in triggers)
+
+
+def test_setup_engine_adds_fallback_when_structure_is_unresolved() -> None:
+    candles = _candles(count=6)
+    structure = {
+        "trend": "UNKNOWN",
+        "pullback_active": False,
+        "compression_active": False,
+        "consolidation_active": False,
+        "impulse_active": False,
+    }
+    setups = SetupEngine().compute_setups(
+        candles=candles,
+        levels={},
+        structure=structure,
+        session_context="RTH",
+        tradability_context={"rvol": None},
+    )
+    triggers = TriggerEngine().evaluate_triggers(
+        symbol="STACK",
+        candles=candles,
+        setups=setups,
+        levels={},
+        structure=structure,
+    )
+
+    assert len(setups) >= 1
+    assert any(item["setup_family_id"] == "GENERIC_MOMENTUM_PROBE" for item in setups)
+    assert len(triggers) >= 1

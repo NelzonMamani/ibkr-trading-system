@@ -27,7 +27,7 @@ class StructureEngine:
             "swing_highs": [],
             "swing_lows": [],
             # backward compatibility fields
-            "trend": None,
+            "trend": "UNKNOWN",
             "structure_state": None,
             "last_higher_high": None,
             "last_higher_low": None,
@@ -36,8 +36,8 @@ class StructureEngine:
             "explain": [],
         }
         if len(candles) < 3:
-            structure["structure_quality_flags"] = ["INSUFFICIENT_CANDLES"]
-            structure["trend"] = "SIDEWAYS" if candles else None
+            structure["structure_quality_flags"] = ["INSUFFICIENT_CANDLES", "LOW_CONFIDENCE"]
+            structure["trend"] = "SIDEWAYS" if candles else "UNKNOWN"
             structure["structure_state"] = "RANGE" if candles else None
             print(f"[STRUCTURE_ENGINE] candles={len(candles)} quality={structure['structure_quality_flags']}")
             return structure
@@ -53,7 +53,7 @@ class StructureEngine:
         structure["swing_lows"] = swing_lows
 
         trend = self._detect_trend(swing_highs=swing_highs, swing_lows=swing_lows)
-        dominant_direction = {"UP": "LONG", "DOWN": "SHORT", "SIDEWAYS": "NEUTRAL", None: "UNKNOWN"}.get(trend, "UNKNOWN")
+        dominant_direction = {"UP": "LONG", "DOWN": "SHORT", "SIDEWAYS": "NEUTRAL", "UNKNOWN": "UNKNOWN"}.get(trend, "UNKNOWN")
         structure["trend"] = trend
         structure["dominant_direction"] = dominant_direction
 
@@ -102,8 +102,9 @@ class StructureEngine:
             flags.append("LIMITED_SWING_CONTEXT")
         if self._has_missing_ohlc(highs=highs, lows=lows, closes=closes):
             flags.append("PARTIAL_OHLC_DATA")
-        if trend is None:
+        if trend == "UNKNOWN":
             flags.append("TREND_UNRESOLVED")
+            flags.append("LOW_CONFIDENCE")
 
         structure.update(
             {
@@ -171,9 +172,9 @@ class StructureEngine:
         return pivots
 
     @staticmethod
-    def _detect_trend(*, swing_highs: list[float], swing_lows: list[float]) -> str | None:
+    def _detect_trend(*, swing_highs: list[float], swing_lows: list[float]) -> str:
         if len(swing_highs) < 2 or len(swing_lows) < 2:
-            return "SIDEWAYS" if (swing_highs or swing_lows) else None
+            return "SIDEWAYS" if (swing_highs or swing_lows) else "UNKNOWN"
         highs_rising = swing_highs[-1] > swing_highs[-2]
         lows_rising = swing_lows[-1] > swing_lows[-2]
         highs_falling = swing_highs[-1] < swing_highs[-2]
@@ -208,7 +209,7 @@ class StructureEngine:
     def _pullback_depth(
         self,
         *,
-        trend: str | None,
+        trend: str,
         recent_high: float | None,
         recent_low: float | None,
         last_close: float | None,
@@ -231,7 +232,7 @@ class StructureEngine:
     def _context_states(
         self,
         *,
-        trend: str | None,
+        trend: str,
         opens: list[float | None],
         closes: list[float | None],
         highs: list[float | None],
