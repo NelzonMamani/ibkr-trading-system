@@ -46,3 +46,7 @@ class PatternInputs:
     liquidity_context: LiquidityContext
     news_context: Optional[Dict[str, str]] = None
     data_quality_flags: List[str] = field(default_factory=list)
+    quality_flags: Dict[str, bool] = field(default_factory=dict)
+    missing_fields: List[str] = field(default_factory=list)
+    is_valid: bool = True
+    block_reason: Optional[str] = None

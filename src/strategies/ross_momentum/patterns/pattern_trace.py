@@ -423,7 +423,7 @@ def build_input_snapshot_summary(*, row: Any, snapshot: MarketSnapshot | None, i
     )
 
 
-def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnapshot | None, session_label: str | None, session_phase: str | None) -> tuple[PatternInputs | None, list[str]]:
+def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnapshot | None, session_label: str | None, session_phase: str | None) -> tuple[PatternInputs, list[str]]:
     quality_flags: list[str] = list(_get_value(row, "data_quality_flags") or [])
     last = _safe_float(getattr(snapshot, "last", None))
     bid = _safe_float(getattr(snapshot, "bid", None))
@@ -435,21 +435,29 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     )
     row_last = _safe_float(_get_value(row, "last_price") or _get_value(row, "price"))
     last_price = last if last is not None else row_last
+    missing_fields: list[str] = []
+    contract_symbol = str(symbol or "").strip()
+    if not contract_symbol:
+        quality_flags.append("invalid_symbol")
+        missing_fields.append("symbol")
     if last_price is None:
         quality_flags.append("missing_last_price")
+        missing_fields.append("last_price")
     if volume is None:
         quality_flags.append("missing_volume")
+        missing_fields.append("volume")
     historical_data_provider.get_intraday_bars = get_intraday_bars
     intraday_bars = historical_data_provider.get_intraday_bars(
         symbol=symbol,
         timeframe="1m",
         limit=50,
     )
+    intraday_bars = list(intraday_bars or [])
 
-    if intraday_bars is None or len(intraday_bars) == 0:
+    if len(intraday_bars) == 0:
         print(f"[PATTERN_INPUT][BLOCK] symbol={symbol} reason=insufficient_intraday_data")
         quality_flags.append("insufficient_intraday_data")
-        return None, sorted(set(quality_flags))
+        missing_fields.append("candles")
     if len(intraday_bars) < 20:
         quality_flags.append("insufficient_candles")
 
@@ -591,6 +599,10 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         spread = round(ask - bid, 4)
     if spread is None and (bid is None or ask is None):
         quality_flags.append("SPREAD_UNKNOWN")
+        if bid is None:
+            missing_fields.append("bid")
+        if ask is None:
+            missing_fields.append("ask")
     liquidity = LiquidityContext(
         spread=spread,
         float_millions=float_millions,
@@ -598,12 +610,42 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     )
     if indicators.ema9 is None or indicators.ema20 is None or indicators.vwap is None:
         quality_flags.append("indicators_incomplete")
+        missing_fields.append("indicators")
     if levels.premarket_high is None or levels.premarket_low is None or levels.hod is None or levels.lod is None:
         quality_flags.append("levels_incomplete")
+        missing_fields.append("levels")
     if pct_change is None:
         quality_flags.append("pct_change_missing")
+        missing_fields.append("pct_change")
     if rvol is None:
         quality_flags.append("rvol_missing")
+        missing_fields.append("rvol")
+    if float_millions is None:
+        missing_fields.append("float_millions")
+
+    candle_count = len(candles)
+    block_reason: str | None = None
+    if candle_count == 0:
+        block_reason = "NO_CANDLES"
+    elif last_price is None:
+        block_reason = "NO_PRICE_DATA"
+    elif not contract_symbol:
+        block_reason = "INVALID_SYMBOL"
+    is_valid = block_reason is None
+    structured_quality_flags = {
+        "missing_candles": candle_count == 0,
+        "missing_indicators": "indicators_incomplete" in quality_flags,
+        "missing_levels": "levels_incomplete" in quality_flags,
+        "low_data_quality": any(
+            flag in quality_flags
+            for flag in (
+                "LOW_VOLUME",
+                "RVOL_WEAK",
+                "INVALID_VOLUME",
+                "insufficient_candles",
+            )
+        ),
+    }
     session_context = SessionContext.REGULAR if session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE", "REGULAR", "POWER_HOUR", "LATE"} else SessionContext.AFTER if session in {"AH", "AFTER"} else SessionContext.PRE
     inputs = PatternInputs(
         symbol=symbol,
@@ -626,5 +668,9 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
             "rvol_method": rvol_payload.method,
         },
         data_quality_flags=sorted(set(quality_flags)),
+        quality_flags=structured_quality_flags,
+        missing_fields=sorted(set(missing_fields)),
+        is_valid=is_valid,
+        block_reason=block_reason,
     )
     return inputs, sorted(set(quality_flags))

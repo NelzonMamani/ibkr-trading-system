@@ -375,6 +375,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         translated_intents: List[TradeIntent] = []
         trade_candidates: list[dict[str, object]] = []
         synthetic_forced_intents = 0
+        setup_stage_reached = False
         classification_counts = {
             "DATA_BLOCKED": 0,
             "PATTERN_NO_SETUP": 0,
@@ -438,14 +439,33 @@ class RossMomentumStrategyV1(BaseStrategy):
                 session_phase=session_phase,
             )
             print("[PATTERN_PIPELINE] DONE")
-            if inputs is None:
-                print(f"[PATTERN_INPUT][SKIP] symbol={symbol} reason=failed_to_build_inputs")
-                symbol_trace.pre_registry_failure_reason = "failed_to_build_inputs"
-                symbol_trace.final_outcome = "NO_SETUP:failed_to_build_inputs"
+            print(
+                "[ROSS][INPUT_SUMMARY] "
+                f"symbol={symbol} candles={len(getattr(inputs, 'candles', []) or [])} "
+                f"indicators={sum(1 for v in vars(inputs.indicators).values() if v is not None)} "
+                f"levels_present={bool(getattr(inputs.levels, 'key_levels', {}))} "
+                f"rvol={inputs.liquidity_context.rvol} missing={getattr(inputs, 'missing_fields', [])} "
+                f"valid={getattr(inputs, 'is_valid', True)}"
+            )
+            if not inputs.is_valid:
+                reason = inputs.block_reason or "INVALID_INPUTS"
+                symbol_trace.input_summary = {
+                    "candle_count": len(getattr(inputs, "candles", []) or []),
+                    "quality_flags": list(getattr(inputs, "data_quality_flags", []) or []),
+                    "missing_fields": list(getattr(inputs, "missing_fields", []) or []),
+                    "is_valid": False,
+                    "block_reason": reason,
+                }
+                print(
+                    f"[ROSS][INPUT_INVALID] symbol={symbol} reason={reason} "
+                    f"missing_fields={getattr(inputs, 'missing_fields', [])}"
+                )
+                symbol_trace.pre_registry_failure_reason = f"invalid_inputs:{reason}"
+                symbol_trace.final_outcome = f"NO_SETUP:invalid_inputs:{reason}"
                 print(f"[DATA_CONTRACT_BLOCK] symbol={symbol} reason=MISSING_DATA")
                 print(f"[CLASSIFICATION] symbol={symbol} category=DATA_BLOCKED")
                 classification_counts["DATA_BLOCKED"] += 1
-                print(f"[ROSS][NO_SETUP_SUMMARY] symbol={symbol} reason=failed_to_build_inputs")
+                print(f"[ROSS][NO_SETUP_SUMMARY] symbol={symbol} reason=invalid_inputs:{reason}")
                 self._log_decision_blocked(
                     symbol=symbol,
                     final_stage="pattern",
@@ -456,6 +476,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
+            setup_stage_reached = True
 
             input_summary = build_input_snapshot_summary(
                 row=row,
@@ -1099,6 +1120,8 @@ class RossMomentumStrategyV1(BaseStrategy):
 
         if not translated_intents:
             print("[ROSS][WARNING] NO TRADE INTENTS GENERATED")
+        if not setup_stage_reached:
+            raise RuntimeError("NO SYMBOL REACHED SETUP STAGE")
         return translated_intents
 
     def _build_fallback_momentum_intent(

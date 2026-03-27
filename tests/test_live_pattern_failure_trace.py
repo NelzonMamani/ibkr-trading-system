@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from src.config.runtime_config import RunMode
 from src.domain.market_snapshot import MarketSnapshot
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
@@ -204,7 +206,7 @@ def test_detected_pattern_translates_to_trade_intent(tmp_path: Path, monkeypatch
         assert cycle_summary["real_setup_trigger_count"] > 0
 
 
-def test_missing_inputs_surface_in_trace(tmp_path: Path, monkeypatch) -> None:
+def test_missing_inputs_surface_in_trace(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
         lambda **kwargs: [Candle(open=1 + idx * 0.01, high=1.1 + idx * 0.01, low=0.9 + idx * 0.01, close=1.05 + idx * 0.01, volume=500 + idx) for idx in range(20)],
@@ -212,17 +214,43 @@ def test_missing_inputs_surface_in_trace(tmp_path: Path, monkeypatch) -> None:
     strategy = RossMomentumStrategyV1()
     strategy._failure_trace_collector = RossPatternFailureTraceCollector(evidence_root=tmp_path)
     strategy.process_watchlist(
-        watchlist=[{"symbol": "OCGN", "promotion_reason": "manual_focus", "session_label": "AH"}],
-        snapshots={"OCGN": MarketSnapshot(symbol="OCGN", bid=None, ask=None, last=None, volume=None, asof_utc=datetime.now(timezone.utc))},
+        watchlist=[
+            {"symbol": "OCGN", "promotion_reason": "manual_focus", "session_label": "AH", "volume": 150000},
+            {"symbol": "NVDA", "promotion_reason": "manual_focus", "session_label": "AH", "last_price": 120.5, "bid": 120.4, "ask": 120.6, "volume": 200000},
+        ],
+        snapshots={
+            "OCGN": MarketSnapshot(symbol="OCGN", bid=None, ask=None, last=None, volume=150000, asof_utc=datetime.now(timezone.utc)),
+            "NVDA": MarketSnapshot(symbol="NVDA", bid=120.4, ask=120.6, last=120.5, volume=200000, asof_utc=datetime.now(timezone.utc)),
+        },
         session_label="AH",
         timestamp_utc="cycle-2",
         mode=RunMode.LIVE,
         session_phase="AH",
     )
+    out = capsys.readouterr().out
     payload = json.loads((tmp_path / "latest_pattern_failure_trace.json").read_text())
     symbol_eval = next(item for item in payload["symbol_evaluations"] if item["symbol"] == "OCGN")
     assert "missing_last_price" in symbol_eval["input_summary"]["quality_flags"]
     assert symbol_eval["manual_focus"] is True
+    assert "[ROSS][INPUT_INVALID] symbol=OCGN reason=NO_PRICE_DATA" in out
+
+
+def test_no_symbol_reaches_setup_raises_runtime_error(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        lambda **kwargs: [],
+    )
+    strategy = RossMomentumStrategyV1()
+    strategy._failure_trace_collector = RossPatternFailureTraceCollector(evidence_root=tmp_path)
+    with pytest.raises(RuntimeError, match="NO SYMBOL REACHED SETUP STAGE"):
+        strategy.process_watchlist(
+            watchlist=[{"symbol": "ONLY", "promotion_reason": "manual_focus", "session_label": "AH"}],
+            snapshots={"ONLY": MarketSnapshot(symbol="ONLY", bid=None, ask=None, last=None, volume=None, asof_utc=datetime.now(timezone.utc))},
+            session_label="AH",
+            timestamp_utc="cycle-invalid-all",
+            mode=RunMode.LIVE,
+            session_phase="AH",
+        )
 
 
 def test_runtime_pattern_inputs_prefers_historical_candles(monkeypatch) -> None:

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+import pytest
+
 from src.config.config_resolver import set_config_overrides
 from src.config.runtime_config import RunMode
 from src.core.orchestrator import CoreOrchestrator
@@ -157,7 +159,7 @@ def test_data_block_does_not_force_intent(monkeypatch, tmp_path, capsys) -> None
     row = _watchlist_row()
     row["bid"] = None
     row["ask"] = None
-    row["last_price"] = None
+    row["last_price"] = 11.6
 
     intents = strategy.process_watchlist(
         watchlist=[row],
@@ -172,6 +174,23 @@ def test_data_block_does_not_force_intent(monkeypatch, tmp_path, capsys) -> None
     assert intents == []
     assert "[ROSS][DATA_BLOCK] symbol=TEST" in out
     assert "[ROSS][TERMINAL] symbol=TEST category=DATA_BLOCKED" in out
+
+
+def test_all_invalid_inputs_fault_orchestrator_path(monkeypatch, tmp_path) -> None:
+    strategy = _base_strategy(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        lambda **kwargs: [],
+    )
+    with pytest.raises(RuntimeError, match="NO SYMBOL REACHED SETUP STAGE"):
+        strategy.process_watchlist(
+            watchlist=[_watchlist_row(symbol="BAD1"), _watchlist_row(symbol="BAD2")],
+            snapshots={},
+            session_label="PRE",
+            timestamp_utc="cycle-all-invalid",
+            mode=RunMode.SIM,
+            session_phase="PRE",
+        )
 
 
 def test_pr554_pipeline_trace_populated_on_live_path(monkeypatch, tmp_path) -> None:
