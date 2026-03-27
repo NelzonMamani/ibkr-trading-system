@@ -381,6 +381,12 @@ class RossMomentumStrategyV1(BaseStrategy):
             "TRIGGER_REJECTED": 0,
             "READY_FOR_EXECUTION": 0,
         }
+        pipeline_classification_counts = {
+            "SETUP_FOUND_BUT_NO_TRIGGER": 0,
+            "TRIGGER_FOUND_BUT_BLOCKED_BY_RISK": 0,
+            "DATA_BLOCKED": 0,
+            "FULL_PIPELINE_SUCCESS": 0,
+        }
 
         def _terminal(symbol: str, category: str, reason: str) -> None:
             print(f"[ROSS][TERMINAL] symbol={symbol} category={category} reason={reason}")
@@ -496,7 +502,21 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "float_millions": input_summary.float_millions,
                 },
             )
-            trigger_candidates = TriggerEngine().evaluate_triggers(
+            setup_ids = [str(setup.get("setup_family_id") or "") for setup in setups]
+            print(f"[ROSS][SETUP_RESULT] symbol={symbol} setups_detected={setup_ids}")
+            if not setups:
+                print(f"[ROSS][NO_SETUP_AFTER_PATTERN] symbol={symbol} reason=SETUP_ENGINE_NO_OUTPUT")
+            else:
+                for setup in setups:
+                    print(
+                        "[ROSS][SETUP_CONTRACT] "
+                        f"symbol={symbol} setup_family_id={setup.get('setup_family_id')} "
+                        f"direction={setup.get('direction')} "
+                        f"has_trigger_level={setup.get('trigger_level') is not None} "
+                        f"has_structure_context={bool(structure)} "
+                        f"key_levels={sorted(levels.keys())[:8]}"
+                    )
+            trigger_candidates = TriggerEngine().evaluate(
                 symbol=symbol,
                 candles=list(getattr(inputs, "candles", []) or []),
                 setups=setups,
@@ -720,6 +740,46 @@ class RossMomentumStrategyV1(BaseStrategy):
                 setup_family_id=decision.get("selected_setup_family"),
                 trigger_candidates=ranked_triggers or trigger_candidates,
             )
+            if selected_trigger is None and decision.get("selected_setup_family"):
+                decision_trigger_level = self._safe_float(decision.get("trigger_level"))
+                decision_invalidation = self._safe_float(decision.get("invalidation_level"))
+                if decision_trigger_level is not None and decision_invalidation is not None:
+                    selected_trigger = {
+                        "symbol": symbol,
+                        "setup_family_id": decision.get("selected_setup_family"),
+                        "setup_name": decision.get("selected_pattern_name"),
+                        "trigger_type": "BREAKOUT",
+                        "trigger_ready_now": decision_trigger_level > decision_invalidation,
+                        "trigger_reason": "decision_engine_fallback_trigger",
+                        "trigger_price_reference": decision_trigger_level,
+                        "invalidation_price_reference": decision_invalidation,
+                        "entry_price": decision_trigger_level,
+                        "stop_reference": decision_invalidation,
+                        "trigger_quality_flags": ["DECISION_FALLBACK_TRIGGER"],
+                        "quality": {"quality_score": float(decision.get("confidence") or 0.0)},
+                    }
+                    print(
+                        "[ROSS][TRIGGER_FALLBACK] "
+                        f"symbol={symbol} setup={decision.get('selected_setup_family')} "
+                        "reason=decision_engine_trigger_contract"
+                    )
+            if decision.get("selected_setup_family"):
+                trigger_count_for_setup = sum(
+                    1
+                    for item in (trigger_candidates or [])
+                    if self._normalize_setup_family_id(item.get("setup_family_id"))
+                    == self._normalize_setup_family_id(decision.get("selected_setup_family"))
+                )
+                print(
+                    "[ROSS][TRIGGER_EVAL] "
+                    f"symbol={symbol} setup={decision.get('selected_setup_family')} "
+                    f"triggers_found={trigger_count_for_setup}"
+                )
+                if trigger_count_for_setup == 0 and selected_trigger is None:
+                    print(
+                        "[ROSS][NO_TRIGGER] "
+                        f"symbol={symbol} setup={decision.get('selected_setup_family')} reason=no_trigger_candidates_for_selected_setup"
+                    )
             print(
                 "[ROSS][DECISION_ENGINE] "
                 f"symbol={symbol} state={decision['decision_state']} "
@@ -850,37 +910,71 @@ class RossMomentumStrategyV1(BaseStrategy):
                 continue
 
             pipeline_trace("TRIGGER", symbol)
-            trade = self._build_trade_from_pattern(best_pattern, inputs)
-            if not trade:
-                print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=trade_structure")
-                print(f"[TRIGGER][REJECT] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
-                print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
-                symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
-                symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "INVALID_TRADE_STRUCTURE"}
-                symbol_trace.final_reason_code = "INVALID_TRADE_STRUCTURE"
+            if selected_trigger is None:
                 print(
-                    f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
+                    "[ROSS][NO_TRIGGER] "
+                    f"symbol={symbol} setup={decision.get('selected_setup_family')} reason=selected_setup_has_no_eligible_trigger"
                 )
-                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
-                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], "invalid_trade_structure")
+                print(f"[TRIGGER][REJECT] symbol={symbol} reason=NO_TRIGGER_FOR_SELECTED_SETUP")
+                print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason=NO_TRIGGER_FOR_SELECTED_SETUP")
+                symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
+                symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "NO_TRIGGER_FOR_SELECTED_SETUP"}
+                symbol_trace.final_reason_code = "NO_TRIGGER_FOR_SELECTED_SETUP"
+                print(f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED")
+                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=NO_TRIGGER_FOR_SELECTED_SETUP")
+                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], "no_trigger_for_selected_setup")
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
                     pattern=best_pattern.pattern_id,
-                    primary_reason="invalid_trade_structure",
-                    details=["entry_or_stop_missing_or_invalid"],
+                    primary_reason="no_trigger_for_selected_setup",
+                    details=["trigger_engine_returned_no_match_for_selected_setup"],
                 )
                 self._log_decision_blocked(
                     symbol=symbol,
                     final_stage="trigger",
-                    reason="invalid_trade_structure",
+                    reason="no_trigger_for_selected_setup",
                 )
                 self._log_pipeline_no_decision(symbol)
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
 
-            entry, stop = trade
+            entry = self._safe_float(selected_trigger.get("entry_price") or selected_trigger.get("trigger_price_reference"))
+            stop = self._safe_float(selected_trigger.get("stop_reference") or selected_trigger.get("invalidation_price_reference"))
+            if entry is None or stop is None or stop >= entry:
+                print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=trade_structure")
+                print(
+                    "[ROSS][NO_TRIGGER] "
+                    f"symbol={symbol} setup={decision.get('selected_setup_family')} reason=trigger_missing_entry_or_stop"
+                )
+                print(f"[TRIGGER][REJECT] symbol={symbol} reason=INVALID_TRIGGER_STRUCTURE")
+                print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason=INVALID_TRIGGER_STRUCTURE")
+                symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
+                symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "INVALID_TRIGGER_STRUCTURE"}
+                symbol_trace.final_reason_code = "INVALID_TRIGGER_STRUCTURE"
+                print(
+                    f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
+                )
+                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=INVALID_TRIGGER_STRUCTURE")
+                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], "invalid_trigger_structure")
+                classification_counts["TRIGGER_REJECTED"] += 1
+                self._log_no_trade_root_cause(
+                    symbol=symbol,
+                    pattern=best_pattern.pattern_id,
+                    primary_reason="invalid_trigger_structure",
+                    details=["trigger_entry_or_stop_missing_or_invalid"],
+                )
+                self._log_decision_blocked(
+                    symbol=symbol,
+                    final_stage="trigger",
+                    reason="invalid_trigger_structure",
+                )
+                self._log_pipeline_no_decision(symbol)
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
+
             print(f"[ROSS][ENTRY_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} entry={entry}")
             print(f"[ROSS][STOP_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} stop={stop}")
             print(f"[ROSS][TRIGGER][PASS] symbol={symbol} trigger=confirmation_gate")
@@ -921,6 +1015,10 @@ class RossMomentumStrategyV1(BaseStrategy):
             if not allow_trade:
                 print(f"[TRIGGER][REJECT] symbol={symbol} reason={permission_reason}")
                 print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason={permission_reason}")
+                print(
+                    "[ROSS][INTENT_REJECTED] "
+                    f"symbol={symbol} reason={permission_reason} trigger={selected_trigger.get('trigger_type') if selected_trigger else None}"
+                )
                 symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
                 symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": permission_reason}
                 symbol_trace.final_reason_code = permission_reason
@@ -930,6 +1028,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason={permission_reason}")
                 _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], permission_reason)
                 classification_counts["TRIGGER_REJECTED"] += 1
+                if permission_reason not in {"trigger_not_ready"}:
+                    pipeline_classification_counts["TRIGGER_FOUND_BUT_BLOCKED_BY_RISK"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
                     pattern=best_pattern.pattern_id,
@@ -952,14 +1052,15 @@ class RossMomentumStrategyV1(BaseStrategy):
                 strategy_name=self.name,
                 confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
                 rationale=(
-                    f"pattern_detected={best_pattern.pattern_id} | entry={entry:.4f} | stop={stop:.4f}"
+                    f"trigger={selected_trigger.get('trigger_type') if selected_trigger else 'confirmation_gate'} "
+                    f"setup={setup_family} pattern={best_pattern.pattern_id} | entry={entry:.4f} | stop={stop:.4f}"
                 ),
                 trader_type=self.trader_type,
                 stop_loss_price=stop,
                 invalidation_level=stop,
                 pattern_name=best_pattern.pattern_id,
                 setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
-                trigger_id=(selected_trigger.get("trigger_type") if selected_trigger else "confirmation_gate"),
+                trigger_id="confirmation_gate",
             )
             intent.entry_price = entry
             intent.has_valid_pattern = bool(getattr(best_pattern, "detected", False))
@@ -992,7 +1093,13 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol_trace.final_reason_code = "INTENT_GENERATED"
             print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
             classification_counts["READY_FOR_EXECUTION"] += 1
+            pipeline_classification_counts["FULL_PIPELINE_SUCCESS"] += 1
             print(f"TRADE_INTENT symbol={symbol} setup={best_pattern.pattern_id}")
+            print(
+                "[ROSS][TRADE_INTENT] "
+                f"symbol={symbol} trigger={selected_trigger.get('trigger_type') if selected_trigger else 'confirmation_gate'} "
+                f"setup={setup_family}"
+            )
             print(f"[ROSS][INTENT_GENERATED] symbol={symbol}")
             print(
                 "[ROSS][INTENT][EMIT] "
@@ -1083,6 +1190,14 @@ class RossMomentumStrategyV1(BaseStrategy):
             f"{{'DATA_BLOCKED': {classification_counts['DATA_BLOCKED']}, "
             f"'PATTERN_NO_SETUP': {classification_counts['PATTERN_NO_SETUP']}, "
             f"'TRIGGER_REJECTED': {classification_counts['TRIGGER_REJECTED']}}}"
+        )
+        pipeline_classification_counts["DATA_BLOCKED"] = classification_counts["DATA_BLOCKED"]
+        pipeline_classification_counts["SETUP_FOUND_BUT_NO_TRIGGER"] = (
+            classification_counts["TRIGGER_REJECTED"] - pipeline_classification_counts["TRIGGER_FOUND_BUT_BLOCKED_BY_RISK"]
+        )
+        print(
+            "[ROSS][FAILURE_CLASSIFICATION] "
+            f"{pipeline_classification_counts}"
         )
         pattern_invocations_total = sum(len(getattr(trace, "pattern_traces", []) or []) for trace in symbol_traces)
         pattern_detected_total = sum(
