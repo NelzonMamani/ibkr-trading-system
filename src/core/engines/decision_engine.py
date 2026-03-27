@@ -6,6 +6,12 @@ from typing import Any
 class DecisionEngine:
     """Deterministic candidate arbitration for setup/pattern decisions."""
 
+    _SETUP_FAMILY_ALIASES: dict[str, str] = {
+        "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
+        "P_HOD_BREAK": "HOD_BREAK",
+        "P_FIRST_PULLBACK": "FIRST_PULLBACK",
+    }
+
     _COMPATIBILITY_MATRIX: dict[str, set[str]] = {
         "ORB": {"P_ORB", "P_OPENING_DRIVE", "P_FAILED_ORB_FAKEOUT"},
         "OPENING_RANGE_BREAKOUT": {"P_ORB", "P_OPENING_DRIVE", "P_FAILED_ORB_FAKEOUT"},
@@ -42,7 +48,9 @@ class DecisionEngine:
         inactive_pattern_ids: set[str] | None = None,
     ) -> dict:
         normalized_setup_families = {
-            str(item.get("setup_family") or "").upper() for item in (setups or []) if isinstance(item, dict)
+            self._normalize_setup_family(item.get("setup_family"))
+            for item in (setups or [])
+            if isinstance(item, dict)
         }
         trace_by_pattern_id = {
             str(getattr(trace, "pattern_id", "") or "").upper(): trace for trace in (pattern_traces or [])
@@ -257,6 +265,7 @@ class DecisionEngine:
             confidence = self._safe_float(getattr(trace, "confidence", None))
 
         setup_family = self._to_text(self._get_first(item, "setup_family_id", "setup_family"))
+        setup_family = self._normalize_setup_family(setup_family)
         if not setup_family:
             setup_family = self._infer_setup_family(pattern_id)
 
@@ -387,6 +396,10 @@ class DecisionEngine:
             "P_SECOND_PULLBACK": "SECOND_PULLBACK",
         }
         return mapping.get(str(pattern_id or "").upper(), "UNKNOWN")
+
+    def _normalize_setup_family(self, setup_family: Any) -> str:
+        normalized = self._to_text(setup_family)
+        return self._SETUP_FAMILY_ALIASES.get(normalized, normalized)
 
     @staticmethod
     def _no_candidate(*, symbol: str, rejected_candidates: list[dict], reason: str) -> dict:

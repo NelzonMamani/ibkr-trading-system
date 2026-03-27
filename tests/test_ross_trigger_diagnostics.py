@@ -275,3 +275,37 @@ def test_trade_ready_still_works_and_emits_terminal_log(monkeypatch, tmp_path, c
     assert intents[0].trigger_id.endswith(":TRIGGER") or bool(intents[0].trigger_id)
     assert intents[0].entry_price is not None
     assert intents[0].stop_loss_price is not None
+
+
+def test_select_trigger_candidate_normalizes_setup_family_aliases() -> None:
+    selected = RossMomentumStrategyV1._select_trigger_candidate(
+        setup_family_id="P_PREMKT_BREAK",
+        trigger_candidates=[
+            {
+                "setup_family_id": "PREMARKET_HIGH_BREAK",
+                "trigger_ready_now": True,
+                "trigger_quality_flags": [],
+                "trigger_type": "PMH_BREAK",
+            }
+        ],
+    )
+    assert selected is not None
+    assert selected["trigger_type"] == "PMH_BREAK"
+
+
+def test_trade_permission_allows_non_high_quality_when_trigger_fired() -> None:
+    allow_trade, reason = RossMomentumStrategyV1._trade_permission(
+        trigger_ready=True,
+        setup_family_id="HOD_BREAK",
+    )
+    assert allow_trade is True
+    assert reason == "trigger_fired"
+
+
+def test_trade_permission_blocks_generic_momentum_probe() -> None:
+    allow_trade, reason = RossMomentumStrategyV1._trade_permission(
+        trigger_ready=True,
+        setup_family_id="GENERIC_MOMENTUM_PROBE",
+    )
+    assert allow_trade is False
+    assert reason == "fallback_setup_blocked"
