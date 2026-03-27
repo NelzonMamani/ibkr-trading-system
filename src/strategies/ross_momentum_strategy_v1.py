@@ -16,6 +16,7 @@ from src.core.engines.level_engine import LevelEngine
 from src.core.engines.structure_engine import StructureEngine
 from src.core.engines.setup_engine import SetupEngine
 from src.core.engines.trigger_engine import TriggerEngine
+from src.core.engines.trigger_quality_engine import TriggerQualityEngine
 from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import PatternResult, TradeIntent
 from src.signals.signal_event import SignalEvent
@@ -97,6 +98,8 @@ class RossMomentumStrategyV1(BaseStrategy):
             "ROSS_PRE_TRIGGER_REQUIRE_RECLAIM_OR_LEVEL_PRESSURE",
             True,
         )
+        self._max_trades_per_cycle = 1
+        self._max_concurrent_positions = 3
 
     @staticmethod
     def _cfg_float(key: str, default: float) -> float:
@@ -313,6 +316,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     focus_symbols.update(str(symbol).upper() for symbol in value if symbol)
         symbol_traces: List[RossSymbolTrace] = []
         translated_intents: List[TradeIntent] = []
+        trade_candidates: list[dict[str, object]] = []
         synthetic_forced_intents = 0
         classification_counts = {
             "DATA_BLOCKED": 0,
@@ -439,6 +443,26 @@ class RossMomentumStrategyV1(BaseStrategy):
                 levels=levels,
                 structure=structure,
             )
+            quality_engine = TriggerQualityEngine()
+            for trigger in trigger_candidates:
+                trigger["quality"] = quality_engine.evaluate_trigger_quality(
+                    trigger=trigger,
+                    structure=structure,
+                    session_context=input_summary.session_context,
+                    rvol=input_summary.rvol,
+                )
+            valid_triggers = [t for t in trigger_candidates if t.get("trigger_ready_now") is True]
+            ranked_triggers = sorted(
+                valid_triggers,
+                key=lambda t: float((t.get("quality") or {}).get("quality_score", 0.0)),
+                reverse=True,
+            )
+            for rank, trigger in enumerate(ranked_triggers, start=1):
+                print(
+                    "[TRADE_RANKING] "
+                    f"symbol={symbol} rank={rank} score={float((trigger.get('quality') or {}).get('quality_score', 0.0)):.2f} "
+                    f"setup={trigger.get('setup_family_id')}"
+                )
             print(
                 "[ROSS][ENGINE_STACK] "
                 f"symbol={symbol} levels={len(levels)} structure_direction={structure.get('dominant_direction')} "
@@ -624,7 +648,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             )
             selected_trigger = self._select_trigger_candidate(
                 setup_family_id=decision.get("selected_setup_family"),
-                trigger_candidates=trigger_candidates,
+                trigger_candidates=ranked_triggers or trigger_candidates,
             )
             print(
                 "[ROSS][DECISION_ENGINE] "
@@ -870,11 +894,16 @@ class RossMomentumStrategyV1(BaseStrategy):
             intent.trigger_ready = trigger_ready
             intent.decision = "TRADE_READY"
             intent = self._apply_intent_contract_defaults(intent, input_summary, timestamp_utc=timestamp_utc)
-
-            translated_intents.append(intent)
-            print(
-                f"[TRADE_INTENT][CREATE] symbol={symbol} trigger=confirmation_gate side=LONG qty={getattr(intent, 'quantity', None) or getattr(intent, 'requested_quantity', None) or 1}"
+            quality_score = float((selected_trigger or {}).get("quality", {}).get("quality_score", 0.0))
+            trade_candidates.append(
+                {
+                    "symbol": symbol,
+                    "intent": intent,
+                    "quality_score": quality_score,
+                    "setup_family_id": setup_family,
+                }
             )
+            print(f"[TRADE_SELECTION] symbol={symbol} selected=False reason=awaiting_ranked_cycle_selection")
             best_pattern.post_detect_disposition = "translated_to_trade_intent"
             best_pattern.final_outcome = "DETECTED_AND_EXECUTED"
             symbol_trace.final_outcome = "SETUP_DETECTED_AND_TRANSLATED"
@@ -913,6 +942,45 @@ class RossMomentumStrategyV1(BaseStrategy):
             print(f"[ROSS][BEST_PATTERN] symbol={symbol} pattern={best_pattern.pattern_id} confidence={float(getattr(best_pattern, 'confidence', 0.0) or 0.0):.4f}")
             symbol_traces.append(symbol_trace)
             self._failure_trace_collector.record_symbol(symbol_trace)
+
+        open_positions = self._infer_open_positions_count(watchlist)
+        if open_positions >= self._max_concurrent_positions:
+            for candidate in sorted(trade_candidates, key=lambda item: float(item.get("quality_score", 0.0)), reverse=True):
+                print(
+                    f"[TRADE_SELECTION] symbol={candidate.get('symbol')} selected=False reason=max_concurrent_positions_reached"
+                )
+            trade_candidates = []
+
+        ranked_candidates = sorted(
+            trade_candidates,
+            key=lambda item: float(item.get("quality_score", 0.0)),
+            reverse=True,
+        )
+        allowed_capacity = max(0, self._max_concurrent_positions - open_positions)
+        selected_count = min(self._max_trades_per_cycle, allowed_capacity)
+        selected_candidates = ranked_candidates[:selected_count]
+
+        for rank, candidate in enumerate(ranked_candidates, start=1):
+            symbol = str(candidate.get("symbol"))
+            score = float(candidate.get("quality_score", 0.0))
+            setup = str(candidate.get("setup_family_id") or "UNKNOWN")
+            print(f"[TRADE_RANKING] symbol={symbol} rank={rank} score={score:.2f} setup={setup}")
+            selected = candidate in selected_candidates
+            reason = "top_rank" if selected else "max_trades_per_cycle"
+            print(f"[TRADE_SELECTION] symbol={symbol} selected={str(selected)} reason={reason}")
+            if not selected:
+                continue
+            intent = candidate["intent"]
+            base_size = float(getattr(intent, "position_size", None) or getattr(intent, "quantity", None) or getattr(intent, "requested_quantity", None) or 1.0)
+            size_multiplier = self._size_multiplier_for_quality(score)
+            position_size = base_size * size_multiplier
+            setattr(intent, "position_size", position_size)
+            setattr(intent, "quantity", max(1, int(round(position_size))))
+            translated_intents.append(intent)
+            print(f"[CAPITAL_ALLOCATION] symbol={symbol} size={size_multiplier:.2f} reason=quality_scaled")
+            print(
+                f"[TRADE_INTENT][CREATE] symbol={symbol} trigger=confirmation_gate side=LONG qty={getattr(intent, 'quantity', None) or getattr(intent, 'requested_quantity', None) or 1}"
+            )
 
         cycle_summary = self._failure_trace_collector.build_cycle_summary(
             cycle_id=timestamp_utc,
@@ -1112,6 +1180,32 @@ class RossMomentumStrategyV1(BaseStrategy):
         if pattern_confidence >= 0.6:
             return "MEDIUM"
         return "LOW"
+
+    @staticmethod
+    def _size_multiplier_for_quality(score: float) -> float:
+        if score >= 0.8:
+            return 1.0
+        if score >= 0.7:
+            return 0.75
+        if score >= 0.6:
+            return 0.5
+        return 0.25
+
+    @staticmethod
+    def _infer_open_positions_count(watchlist: list[object]) -> int:
+        count = 0
+        for row in watchlist:
+            if not isinstance(row, dict):
+                continue
+            qty = row.get("position_qty")
+            if qty is None:
+                qty = row.get("position_size")
+            try:
+                if float(qty or 0.0) > 0.0:
+                    count += 1
+            except (TypeError, ValueError):
+                continue
+        return count
 
     @staticmethod
     def _trade_permission(*, trigger_ready: bool, setup_family_id: str) -> tuple[bool, str]:

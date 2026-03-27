@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from src.config.runtime_config import RunMode
+from src.core.engines.trigger_quality_engine import TriggerQualityEngine
 from src.domain.market_snapshot import MarketSnapshot
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.ross_momentum.patterns.pattern_evaluator import PatternEvaluator
@@ -309,3 +310,36 @@ def test_trade_permission_blocks_generic_momentum_probe() -> None:
     )
     assert allow_trade is False
     assert reason == "fallback_setup_blocked"
+
+
+def test_trigger_quality_engine_scores_high_quality_ready_setup() -> None:
+    quality = TriggerQualityEngine().evaluate_trigger_quality(
+        trigger={
+            "setup_family_id": "FIRST_PULLBACK",
+            "trigger_quality_flags": [],
+        },
+        structure={
+            "dominant_direction": "UP",
+            "pullback_depth": {"depth_pct": 0.25},
+            "compression_active": True,
+            "structure_quality_flags": [],
+        },
+        session_context="RTH_OPEN",
+        rvol=2.5,
+    )
+    assert quality["quality_score"] == 0.9
+
+
+def test_quality_size_multiplier_and_open_position_helpers() -> None:
+    assert RossMomentumStrategyV1._size_multiplier_for_quality(0.81) == 1.0
+    assert RossMomentumStrategyV1._size_multiplier_for_quality(0.71) == 0.75
+    assert RossMomentumStrategyV1._size_multiplier_for_quality(0.61) == 0.5
+    assert RossMomentumStrategyV1._size_multiplier_for_quality(0.42) == 0.25
+
+    assert RossMomentumStrategyV1._infer_open_positions_count(
+        [
+            {"symbol": "AAA", "position_qty": 10},
+            {"symbol": "BBB", "position_size": 1},
+            {"symbol": "CCC", "position_qty": 0},
+        ]
+    ) == 2
