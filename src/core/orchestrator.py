@@ -1652,7 +1652,7 @@ class CoreOrchestrator:
         scanner_kept_count = len(scanner_keep_symbols)
         pipeline_audit = PipelineAudit(self._current_cycle_id or str(uuid4()))
         pipeline_audit.mark_kept(scanner_keep_symbols)
-        print(f"[WATCHLIST][FINAL] symbols={watchlist_symbols}")
+        print(f"[WATCHLIST][FINAL] size={len(watchlist_symbols)} symbols={watchlist_symbols}")
         print(f"[FOCUS][CANDIDATES] symbols={watchlist_symbols}")
         print(f"[FOCUS][SELECTED] symbols={final_evaluation_symbols}")
         final_focus_set = {s.upper() for s in final_evaluation_symbols}
@@ -1685,6 +1685,8 @@ class CoreOrchestrator:
                 if str(getattr(candidate, "symbol", "")).upper() in focus_only
             ]
         strategy_evaluation_symbols = self._symbols_from_candidates(strategy_watchlist)
+        print(f"[ORCHESTRATOR][DISPATCH] passing {len(strategy_evaluation_symbols)} symbols to strategy")
+        strategy_inputs = strategy_watchlist
         if not final_evaluation_symbols and strategy_evaluation_symbols:
             print(
                 "[FOCUS][FALLBACK_TO_WATCHLIST] "
@@ -1713,9 +1715,12 @@ class CoreOrchestrator:
             print("[ROSS][PROCESS_START]")
             print("[ROSS][PATTERN_PIPELINE] ACTIVE")
             print("[ROSS][TRIGGER_PIPELINE] ACTIVE")
+        else:
+            print("[WARNING] condition hit but continuing for debug")
+        print("[STRATEGY_RUNNER] invoking RossMomentumStrategyV1")
         strategy_output = self.strategy_runner.process(
             strategy_key=strategy_key,
-            watchlist=strategy_watchlist,
+            watchlist=strategy_inputs,
             snapshots=snapshots_by_symbol,
             session_label=session_label,
             timestamp_utc=cycle_started_at.isoformat(),
@@ -2438,6 +2443,8 @@ class CoreOrchestrator:
                     for candidate in strategy_watchlist
                     if str(getattr(candidate, "symbol", "")).upper() in focus_only
                 ]
+            print(f"[ORCHESTRATOR][DISPATCH] passing {len(strategy_watchlist)} symbols to strategy")
+            strategy_inputs = strategy_watchlist
             print(
                 "[STRATEGY][HANDOFF] "
                 f"selected_strategy={self.selected_strategy_key or 'ross_momentum'} "
@@ -2473,25 +2480,25 @@ class CoreOrchestrator:
                 f"focus={len(strategy_context.focus_m)} "
                 f"watchlist_k={len(strategy_context.watchlist_k)}"
             )
+            print(f"[ORCHESTRATOR][DISPATCH] passing {len(strategy_watchlist)} symbols to strategy")
+            strategy_inputs = strategy_watchlist
 
             if not strategy_watchlist:
-                print("[STRATEGY][SKIP] empty watchlist — no execution")
-                strategy_output = []
-            else:
-                print("[STRATEGY][EXECUTION] FORCED execution ON")
-
-                strategy_output = self.strategy_runner.process(
-                    strategy_key="ross_momentum",
-                    watchlist=strategy_watchlist,
-                    snapshots=snapshots_by_symbol,
-                    session_label=session_label,
-                    timestamp_utc=timestamp_utc,
-                    mode=self.run_mode,
-                    session_phase=session_phase,
-                    execution_allowed=True,
-                    execution_ready=True,
-                    prep_only=False,
-                )
+                print("[WARNING] condition hit but continuing for debug")
+            print("[STRATEGY][EXECUTION] FORCED execution ON")
+            print("[STRATEGY_RUNNER] invoking RossMomentumStrategyV1")
+            strategy_output = self.strategy_runner.process(
+                strategy_key="ross_momentum",
+                watchlist=strategy_inputs,
+                snapshots=snapshots_by_symbol,
+                session_label=session_label,
+                timestamp_utc=timestamp_utc,
+                mode=self.run_mode,
+                session_phase=session_phase,
+                execution_allowed=True,
+                execution_ready=True,
+                prep_only=False,
+            )
             strategy_output = self._merge_trade_intents([], strategy_output)
             strategy_output = self._annotate_trade_intents_with_regime(
                 strategy_output,
