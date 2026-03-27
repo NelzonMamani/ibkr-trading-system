@@ -49,3 +49,9 @@ Execution may begin only once this plan and all required catalogue artifacts are
 - **Complete**: Execution plan, reality map, capability crosswalk, truth source registry, contract set, and verification runbook are all defined and ready for execution stage.
 - **Missing in underlying system**: Most capabilities are PARTIAL per the capability crosswalk; contracts exist in code but are not yet formalized against the canonical contract documents.
 - **Next when execution begins**: Follow the ordering in this plan, validate contract expectations from `CONTRACTS/`, and run the verification ladder in `VERIFICATION_RUNBOOK.md` to certify each epoch.
+
+[DEFERRED — HIGH PRIORITY]
+MarketSessionContext implementation required after trade activation phase.
+
+Trigger phrase:
+"Resume Market Context Phase-Aware Refactor"
