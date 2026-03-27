@@ -90,7 +90,7 @@ def test_structure_engine_returns_sideways_when_no_structure() -> None:
 def test_structure_engine_handles_empty_input() -> None:
     structure = StructureEngine().compute_structure([])
 
-    assert structure["trend"] is None
+    assert structure["trend"] == "UNKNOWN"
     assert structure["structure_state"] is None
     assert structure["last_higher_high"] is None
     assert structure["last_higher_low"] is None

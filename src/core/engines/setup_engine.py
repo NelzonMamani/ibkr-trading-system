@@ -32,6 +32,8 @@ class SetupEngine:
             setups.append(setup)
 
         trend = str(normalized_structure.get("trend") or "").upper()
+        trend_allows_long = trend in {"UP", "UNKNOWN"}
+        trend_quality_flags = ["LOW_STRUCTURE_CONFIDENCE"] if trend == "UNKNOWN" else []
         premarket_high = self._safe_float(normalized_levels.get("premarket_high"))
         hod = self._safe_float(normalized_levels.get("hod"))
         vwap = self._safe_float(normalized_levels.get("vwap"))
@@ -83,14 +85,14 @@ class SetupEngine:
                 trigger_types=["PULLBACK_HIGH_BREAK", "RECLAIM"],
                 invalidation_anchor="pullback_low",
                 condition=(
-                    trend == "UP"
+                    trend_allows_long
                     and bool(normalized_structure.get("pullback_active"))
                     and pullback_depth is not None
                     and pullback_depth <= 0.55
                 ),
                 levels=normalized_levels,
-                quality_flags=[],
-                blocking_flags=[] if trend == "UP" else ["TREND_NOT_UP"],
+                quality_flags=[*trend_quality_flags],
+                blocking_flags=[] if trend_allows_long else ["TREND_NOT_UP"],
             )
         )
 
@@ -103,10 +105,10 @@ class SetupEngine:
                 confidence=0.58,
                 trigger_types=["PULLBACK_HIGH_BREAK"],
                 invalidation_anchor="micro_pullback_low",
-                condition=(trend == "UP" and bool(normalized_structure.get("compression_active"))),
+                condition=(trend_allows_long and bool(normalized_structure.get("compression_active"))),
                 levels=normalized_levels,
-                quality_flags=["MICRO_STRUCTURE"],
-                blocking_flags=[] if trend == "UP" else ["TREND_NOT_UP"],
+                quality_flags=["MICRO_STRUCTURE", *trend_quality_flags],
+                blocking_flags=[] if trend_allows_long else ["TREND_NOT_UP"],
             )
         )
 
@@ -120,13 +122,13 @@ class SetupEngine:
                 trigger_types=["RANGE_BREAK", "BREAK_AND_HOLD"],
                 invalidation_anchor="flag_low",
                 condition=(
-                    trend == "UP"
+                    trend_allows_long
                     and bool(normalized_structure.get("consolidation_active"))
                     and bool(normalized_structure.get("impulse_active"))
                 ),
                 levels=normalized_levels,
-                quality_flags=[],
-                blocking_flags=[] if trend == "UP" else ["TREND_NOT_UP"],
+                quality_flags=[*trend_quality_flags],
+                blocking_flags=[] if trend_allows_long else ["TREND_NOT_UP"],
             )
         )
 
@@ -199,6 +201,24 @@ class SetupEngine:
                 blocking_flags=[] if range_upper is not None else ["MISSING_ACTIVE_BREAKOUT_RANGE"],
             )
         )
+
+        if len(setups) == 0:
+            print("[SETUP_ENGINE][FALLBACK] symbol=XYZ reason=NO_STRUCTURAL_SETUPS")
+            add_candidate(
+                self._setup_break(
+                    family="GENERIC_MOMENTUM_PROBE",
+                    name="Generic Momentum Probe",
+                    direction="LONG",
+                    rationale="Fallback under unresolved structure to maintain pipeline continuity",
+                    confidence=0.25,
+                    trigger_types=["BREAKOUT_HIGH"],
+                    invalidation_anchor="recent_low",
+                    condition=True,
+                    levels=normalized_levels,
+                    quality_flags=["FALLBACK_STRUCTURE"],
+                    blocking_flags=["LOW_CONFIDENCE"],
+                )
+            )
 
         for setup in setups:
             setup["session_context"] = str(session_context or "UNKNOWN").upper()
