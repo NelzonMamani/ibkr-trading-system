@@ -130,6 +130,16 @@ class RossMomentumStrategyV1(BaseStrategy):
             return self._pre_volume_min, self._pre_rvol_min
         return self._rth_volume_min, self._rth_rvol_min
 
+    def _min_volume_threshold(self, session: str | None) -> float:
+        session_value = str(session or "").upper()
+        if session_value.startswith("PRE"):
+            return 10_000.0
+        if session_value.startswith("RTH"):
+            return 1_000_000.0
+        if session_value.startswith("AH"):
+            return 50_000.0
+        return 100_000.0
+
     @staticmethod
     def _is_pre_session(session_label: str | None) -> bool:
         return str(session_label or "").upper() == "PRE"
@@ -306,14 +316,52 @@ class RossMomentumStrategyV1(BaseStrategy):
         print(f"[ROSS][PROCESS_START] symbols={len(watchlist)}")
         self.last_symbol_terminal_outcomes: dict[str, dict[str, str]] = {}
         self.last_evaluated_symbols: list[str] = []
+        watchlist_symbols: list[str] = []
+        gated_focus_symbols: list[str] = []
         focus_symbols: set[str] = set()
         for row in watchlist:
             if not isinstance(row, dict):
                 continue
+            symbol = str(row.get("symbol") or "").upper()
+            if symbol:
+                watchlist_symbols.append(symbol)
             for key in ("focus_list", "focus_symbols", "focus_m_symbols"):
                 value = row.get(key)
                 if isinstance(value, list):
                     focus_symbols.update(str(symbol).upper() for symbol in value if symbol)
+            session_for_gate = row.get("session_label") or session_label or session_phase
+            volume = self._safe_float(
+                row.get("volume")
+                or row.get("session_volume")
+                or row.get("day_volume")
+                or row.get("premarket_volume")
+            )
+            min_volume = self._min_volume_threshold(str(session_for_gate))
+            decision = volume is not None and volume >= min_volume
+            print(
+                "[VOLUME_GATE][SESSION_AWARE] "
+                f"symbol={symbol} session={session_for_gate} volume={volume} "
+                f"threshold={min_volume} decision={'PASS' if decision else 'DROP'}"
+            )
+            if decision:
+                gated_focus_symbols.append(symbol)
+            else:
+                print(
+                    "[ROSS][FOCUS_DROP] "
+                    f"symbol={symbol} reason=DROP_VOLUME_SESSION_ADJUSTED volume={volume} threshold={min_volume}"
+                )
+        effective_focus_symbols: set[str]
+        if focus_symbols:
+            effective_focus_symbols = focus_symbols.intersection(set(gated_focus_symbols))
+        else:
+            effective_focus_symbols = set(gated_focus_symbols)
+        if not effective_focus_symbols and watchlist_symbols:
+            fallback = watchlist_symbols[:3]
+            print(
+                "[FOCUS][FALLBACK] activating top-3 due to empty focus layer "
+                f"symbols={fallback}"
+            )
+            effective_focus_symbols = set(fallback)
         symbol_traces: List[RossSymbolTrace] = []
         translated_intents: List[TradeIntent] = []
         trade_candidates: list[dict[str, object]] = []
@@ -335,7 +383,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
             if not symbol:
                 continue
-            if focus_symbols and str(symbol).upper() not in focus_symbols:
+            if effective_focus_symbols and str(symbol).upper() not in effective_focus_symbols:
                 print(f"[ROSS][FOCUS][SKIP] symbol={symbol} reason=NOT_IN_FOCUS_LIST")
                 continue
             self.last_evaluated_symbols.append(str(symbol).upper())
