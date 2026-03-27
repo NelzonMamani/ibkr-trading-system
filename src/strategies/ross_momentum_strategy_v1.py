@@ -16,6 +16,7 @@ from src.core.engines.level_engine import LevelEngine
 from src.core.engines.structure_engine import StructureEngine
 from src.core.engines.setup_engine import SetupEngine
 from src.core.engines.trigger_engine import TriggerEngine
+from src.core.engines.trigger_quality_engine import TriggerQualityEngine
 from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import PatternResult, TradeIntent
 from src.signals.signal_event import SignalEvent
@@ -621,6 +622,44 @@ class RossMomentumStrategyV1(BaseStrategy):
                 setup_family_id=decision.get("selected_setup_family"),
                 trigger_candidates=trigger_candidates,
             )
+            setups_by_family = {
+                str(item.get("setup_family_id") or item.get("setup_family") or "").upper(): item
+                for item in setups
+                if isinstance(item, dict)
+            }
+            trigger_quality_by_family: dict[str, dict] = {}
+            for trigger in trigger_candidates:
+                setup_family = str(trigger.get("setup_family_id") or "UNKNOWN").upper()
+                quality = TriggerQualityEngine.evaluate_trigger_quality(
+                    trigger=trigger,
+                    setup=setups_by_family.get(setup_family),
+                    structure=structure,
+                    levels=levels,
+                    tradability_context={
+                        "session": input_summary.session_context,
+                        "rvol": input_summary.rvol,
+                        "float_millions": input_summary.float_millions,
+                    },
+                )
+                trigger_quality_by_family[setup_family] = quality
+                print(
+                    "[TRIGGER_QUALITY] "
+                    f"symbol={symbol} setup={setup_family} tier={quality['quality_tier']} score={quality['quality_score']:.2f}"
+                )
+                quality_tier = str(quality.get("quality_tier") or "LOW").upper()
+                if quality_tier == "HIGH":
+                    permission_decision = "ALLOW"
+                    permission_reason = "high_quality_trigger"
+                elif quality_tier == "MEDIUM":
+                    permission_decision = "WAIT"
+                    permission_reason = "medium_quality_requires_confirmation"
+                else:
+                    permission_decision = "BLOCK"
+                    permission_reason = str(quality.get("rejection_reason") or "low_quality_trigger")
+                print(
+                    "[TRADE_PERMISSION] "
+                    f"symbol={symbol} decision={permission_decision} reason={permission_reason}"
+                )
             print(
                 "[ROSS][DECISION_ENGINE] "
                 f"symbol={symbol} state={decision['decision_state']} "
@@ -634,6 +673,68 @@ class RossMomentumStrategyV1(BaseStrategy):
                 selected_pattern_id=decision.get("selected_pattern_id"),
                 pattern_traces=symbol_trace.pattern_traces,
             )
+            selected_setup_family = str(
+                decision.get("selected_setup_family")
+                or (selected_trigger or {}).get("setup_family_id")
+                or self._setup_family_from_pattern_id(getattr(best_pattern, "pattern_id", None))
+                or "UNKNOWN"
+            ).upper()
+            selected_quality = trigger_quality_by_family.get(selected_setup_family)
+            if selected_quality is None:
+                selected_quality = TriggerQualityEngine.evaluate_trigger_quality(
+                    trigger=selected_trigger or {"setup_family_id": selected_setup_family},
+                    setup=setups_by_family.get(selected_setup_family),
+                    structure=structure,
+                    levels=levels,
+                    tradability_context={
+                        "session": input_summary.session_context,
+                        "rvol": input_summary.rvol,
+                        "float_millions": input_summary.float_millions,
+                    },
+                )
+                print(
+                    "[TRIGGER_QUALITY] "
+                    f"symbol={symbol} setup={selected_setup_family} tier={selected_quality['quality_tier']} score={selected_quality['quality_score']:.2f}"
+                )
+            selected_quality_tier = str(selected_quality.get("quality_tier") or "LOW").upper()
+            if best_pattern and selected_quality_tier != "HIGH":
+                permission_decision = "WAIT" if selected_quality_tier == "MEDIUM" else "BLOCK"
+                permission_reason = str(selected_quality.get("rejection_reason") or "non_high_quality_trigger")
+                print(
+                    "[TRADE_PERMISSION] "
+                    f"symbol={symbol} decision={permission_decision} reason={permission_reason}"
+                )
+                symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
+                symbol_trace.trigger_stage = {
+                    "status": "REJECTED",
+                    "reason_code": f"TRIGGER_QUALITY_{selected_quality_tier}",
+                    "details": {
+                        "selected_setup_family": selected_setup_family,
+                        "quality_score": selected_quality.get("quality_score"),
+                        "quality_flags": selected_quality.get("quality_flags"),
+                    },
+                }
+                symbol_trace.final_reason_code = f"TRIGGER_QUALITY_{selected_quality_tier}"
+                print(f"[TRIGGER][REJECT] symbol={symbol} reason=TRIGGER_QUALITY_{selected_quality_tier}")
+                print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason=TRIGGER_QUALITY_{selected_quality_tier}")
+                print(f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED")
+                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], f"trigger_quality_{selected_quality_tier.lower()}")
+                classification_counts["TRIGGER_REJECTED"] += 1
+                self._log_no_trade_root_cause(
+                    symbol=symbol,
+                    pattern=getattr(best_pattern, "pattern_id", None),
+                    primary_reason=f"trigger_quality_{selected_quality_tier.lower()}",
+                    details=[permission_reason],
+                )
+                self._log_decision_blocked(
+                    symbol=symbol,
+                    final_stage="trigger_quality",
+                    reason=permission_reason,
+                )
+                self._log_pipeline_no_decision(symbol)
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
 
             if not best_pattern:
                 pre_activation = self._detect_pre_breakout_pressure(
