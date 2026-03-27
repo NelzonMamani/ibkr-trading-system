@@ -4,7 +4,7 @@ from typing import Any
 
 
 class SetupEngine:
-    """Detects high-level trading setups from structure + levels."""
+    """Shared setup engine translating level + structure context into setup candidates."""
 
     _ROUNDING = 6
 
@@ -13,72 +13,202 @@ class SetupEngine:
         candles: list,
         levels: dict,
         structure: dict,
+        *,
+        session_context: str | None = None,
+        tradability_context: dict | None = None,
     ) -> list[dict]:
         normalized_levels = levels if isinstance(levels, dict) else {}
         normalized_structure = structure if isinstance(structure, dict) else {}
         last_close = self._last_close(candles)
         if last_close is None:
+            print("[SETUP_ENGINE] no setups: missing_last_close")
             return []
 
         setups: list[dict] = []
 
-        premarket_high = self._safe_float(normalized_levels.get("premarket_high"))
-        if premarket_high is not None and last_close >= premarket_high:
-            setups.append(
-                self._build_setup(
-                    setup_family="PREMARKET_HIGH_BREAK",
-                    context="breakout",
-                    trigger_level=premarket_high,
-                    confidence="MEDIUM",
-                )
-            )
-
-        hod = self._safe_float(normalized_levels.get("hod"))
-        if hod is not None and last_close >= hod:
-            setups.append(
-                self._build_setup(
-                    setup_family="HOD_BREAK",
-                    context="breakout",
-                    trigger_level=hod,
-                    confidence="MEDIUM",
-                )
-            )
+        def add_candidate(setup: dict | None) -> None:
+            if not setup:
+                return
+            setups.append(setup)
 
         trend = str(normalized_structure.get("trend") or "").upper()
-        ema9 = self._safe_float(normalized_levels.get("ema9"))
-        if trend == "UP" and self._within_pct(last_close, ema9, pct=0.005):
-            setups.append(
-                self._build_setup(
-                    setup_family="EMA_PULLBACK",
-                    context="pullback",
-                    trigger_level=ema9,
-                    confidence="MEDIUM",
-                )
-            )
-
+        premarket_high = self._safe_float(normalized_levels.get("premarket_high"))
+        hod = self._safe_float(normalized_levels.get("hod"))
         vwap = self._safe_float(normalized_levels.get("vwap"))
-        previous_close = self._previous_close(candles)
-        if vwap is not None and previous_close is not None and previous_close < vwap and last_close > vwap:
-            setups.append(
-                self._build_setup(
-                    setup_family="VWAP_RECLAIM",
-                    context="reclaim",
-                    trigger_level=vwap,
-                    confidence="MEDIUM",
-                )
-            )
+        ema9 = self._safe_float(normalized_levels.get("ema_9") or normalized_levels.get("ema9"))
+        range_info = normalized_levels.get("active_breakout_range") if isinstance(normalized_levels.get("active_breakout_range"), dict) else {}
+        range_upper = self._safe_float((range_info or {}).get("upper"))
+        range_lower = self._safe_float((range_info or {}).get("lower"))
+        pullback_depth = self._safe_float((normalized_structure.get("pullback_depth") or {}).get("pct"))
 
-        swing_high = self._safe_float(self._latest_swing_high(normalized_structure))
-        if trend == "SIDEWAYS" and swing_high is not None and last_close > swing_high:
-            setups.append(
-                self._build_setup(
-                    setup_family="RANGE_BREAK",
-                    context="breakout",
-                    trigger_level=swing_high,
-                    confidence="LOW",
-                )
+        add_candidate(
+            self._setup_break(
+                family="PREMARKET_HIGH_BREAK",
+                name="Premarket High Break",
+                direction="LONG",
+                rationale="Price pressing through premarket high.",
+                confidence=0.64,
+                trigger_types=["PMH_BREAK", "BREAKOUT_HIGH"],
+                invalidation_anchor="premarket_low",
+                condition=(premarket_high is not None and last_close >= premarket_high),
+                levels=normalized_levels,
+                quality_flags=["LEVEL_CONFLUENCE"] if premarket_high is not None else ["MISSING_PMH"],
+                blocking_flags=[] if premarket_high is not None else ["MISSING_PREMARKET_HIGH"],
             )
+        )
 
+        add_candidate(
+            self._setup_break(
+                family="OPENING_RANGE_BREAKOUT",
+                name="Opening Range Breakout",
+                direction="LONG",
+                rationale="Break above active opening range upper bound.",
+                confidence=0.62,
+                trigger_types=["RANGE_BREAK", "BREAK_AND_HOLD"],
+                invalidation_anchor="active_breakout_range.lower",
+                condition=(range_upper is not None and last_close >= range_upper),
+                levels=normalized_levels,
+                quality_flags=[],
+                blocking_flags=[] if range_upper is not None else ["MISSING_ACTIVE_BREAKOUT_RANGE"],
+            )
+        )
+
+        add_candidate(
+            self._setup_break(
+                family="FIRST_PULLBACK",
+                name="First Pullback Continuation",
+                direction="LONG",
+                rationale="Trend up with controlled pullback depth and reclaim posture.",
+                confidence=0.66,
+                trigger_types=["PULLBACK_HIGH_BREAK", "RECLAIM"],
+                invalidation_anchor="pullback_low",
+                condition=(
+                    trend == "UP"
+                    and bool(normalized_structure.get("pullback_active"))
+                    and pullback_depth is not None
+                    and pullback_depth <= 0.55
+                ),
+                levels=normalized_levels,
+                quality_flags=[],
+                blocking_flags=[] if trend == "UP" else ["TREND_NOT_UP"],
+            )
+        )
+
+        add_candidate(
+            self._setup_break(
+                family="MICRO_PULLBACK",
+                name="Micro Pullback",
+                direction="LONG",
+                rationale="Uptrend micro pause with compression and impulse potential.",
+                confidence=0.58,
+                trigger_types=["PULLBACK_HIGH_BREAK"],
+                invalidation_anchor="micro_pullback_low",
+                condition=(trend == "UP" and bool(normalized_structure.get("compression_active"))),
+                levels=normalized_levels,
+                quality_flags=["MICRO_STRUCTURE"],
+                blocking_flags=[] if trend == "UP" else ["TREND_NOT_UP"],
+            )
+        )
+
+        add_candidate(
+            self._setup_break(
+                family="BULL_FLAG",
+                name="Bull Flag",
+                direction="LONG",
+                rationale="Impulse + orderly consolidation suggests continuation flag.",
+                confidence=0.6,
+                trigger_types=["RANGE_BREAK", "BREAK_AND_HOLD"],
+                invalidation_anchor="flag_low",
+                condition=(
+                    trend == "UP"
+                    and bool(normalized_structure.get("consolidation_active"))
+                    and bool(normalized_structure.get("impulse_active"))
+                ),
+                levels=normalized_levels,
+                quality_flags=[],
+                blocking_flags=[] if trend == "UP" else ["TREND_NOT_UP"],
+            )
+        )
+
+        flat_top_level = self._safe_float(normalized_levels.get("resistance_levels", [None])[-1] if normalized_levels.get("resistance_levels") else None)
+        add_candidate(
+            self._setup_break(
+                family="FLAT_TOP_BREAKOUT",
+                name="Flat Top Breakout",
+                direction="LONG",
+                rationale="Range ceiling repeatedly tested; breakout candidate.",
+                confidence=0.59,
+                trigger_types=["BREAKOUT_HIGH", "RANGE_BREAK"],
+                invalidation_anchor="range_floor",
+                condition=(flat_top_level is not None and last_close >= flat_top_level),
+                levels=normalized_levels,
+                quality_flags=["RANGE_PRESSURE"],
+                blocking_flags=[] if flat_top_level is not None else ["MISSING_FLAT_TOP_LEVEL"],
+            )
+        )
+
+        add_candidate(
+            self._setup_break(
+                family="HOD_BREAK",
+                name="High Of Day Break",
+                direction="LONG",
+                rationale="High of day breach under positive momentum.",
+                confidence=0.67,
+                trigger_types=["HOD_BREAK", "BREAKOUT_HIGH"],
+                invalidation_anchor="prior_pivot_low",
+                condition=(hod is not None and last_close >= hod),
+                levels=normalized_levels,
+                quality_flags=[],
+                blocking_flags=[] if hod is not None else ["MISSING_HOD"],
+            )
+        )
+
+        prev_close = self._previous_close(candles)
+        add_candidate(
+            self._setup_break(
+                family="VWAP_RECLAIM_CONTINUATION",
+                name="VWAP Reclaim Continuation",
+                direction="LONG",
+                rationale="Price reclaimed VWAP and held above.",
+                confidence=0.61,
+                trigger_types=["RECLAIM", "BREAK_AND_HOLD"],
+                invalidation_anchor="vwap",
+                condition=(vwap is not None and prev_close is not None and prev_close < vwap and last_close > vwap),
+                levels=normalized_levels,
+                quality_flags=[] if vwap is not None else ["MISSING_VWAP"],
+                blocking_flags=[] if vwap is not None else ["MISSING_VWAP"],
+            )
+        )
+
+        add_candidate(
+            self._setup_break(
+                family="CONSOLIDATION_BREAKOUT",
+                name="Consolidation Breakout",
+                direction="LONG",
+                rationale="Tight range resolved with directional expansion.",
+                confidence=0.57,
+                trigger_types=["RANGE_BREAK", "BREAKOUT_HIGH"],
+                invalidation_anchor="consolidation_low",
+                condition=(
+                    bool(normalized_structure.get("consolidation_active"))
+                    and range_upper is not None
+                    and last_close >= range_upper
+                ),
+                levels=normalized_levels,
+                quality_flags=[],
+                blocking_flags=[] if range_upper is not None else ["MISSING_ACTIVE_BREAKOUT_RANGE"],
+            )
+        )
+
+        for setup in setups:
+            setup["session_context"] = str(session_context or "UNKNOWN").upper()
+            setup["tradability_context"] = dict(tradability_context or {})
+            if ema9 is None:
+                setup["quality_flags"].append("EMA9_MISSING")
+        print(
+            "[SETUP_ENGINE] "
+            f"produced={len(setups)} families={[item.get('setup_family_id') for item in setups]}"
+        )
         return setups
 
     @staticmethod
@@ -104,32 +234,58 @@ class SetupEngine:
             return None
         return self._safe_float(self._read(candles[-2], "close"))
 
-    def _within_pct(self, a: float | None, b: float | None, pct: float = 0.005) -> bool:
-        if a is None or b is None:
-            return False
-        if b == 0:
-            return False
-        return abs(a - b) / abs(b) <= pct
-
-    @staticmethod
-    def _latest_swing_high(structure: dict) -> float | None:
-        swing_highs = structure.get("swing_highs")
-        if isinstance(swing_highs, list) and swing_highs:
-            return swing_highs[-1]
-        return structure.get("last_higher_high")
-
-    def _build_setup(
+    def _setup_break(
         self,
         *,
-        setup_family: str,
-        context: str,
-        trigger_level: float | None,
-        confidence: str,
-    ) -> dict:
-        normalized_trigger = None if trigger_level is None else round(float(trigger_level), self._ROUNDING)
-        return {
-            "setup_family": setup_family,
-            "context": context,
-            "trigger_level": normalized_trigger,
-            "confidence": confidence,
+        family: str,
+        name: str,
+        direction: str,
+        rationale: str,
+        confidence: float,
+        trigger_types: list[str],
+        invalidation_anchor: str,
+        condition: bool,
+        levels: dict,
+        quality_flags: list[str],
+        blocking_flags: list[str],
+    ) -> dict | None:
+        if not condition:
+            return None
+        setup = {
+            "setup_family_id": family,
+            "setup_family": family,
+            "setup_name": name,
+            "direction": direction,
+            "rationale": rationale,
+            "confidence": round(max(0.0, min(1.0, confidence)), self._ROUNDING),
+            "quality_flags": sorted(set(str(flag) for flag in quality_flags if flag)),
+            "blocking_flags": sorted(set(str(flag) for flag in blocking_flags if flag)),
+            "invalidation_anchor": invalidation_anchor,
+            "required_trigger_types": [str(t).upper() for t in trigger_types],
+            # backward compatibility fields expected by some existing consumers
+            "context": "continuation" if "PULLBACK" in family or "RECLAIM" in family else "breakout",
+            "trigger_level": self._primary_trigger_level(family=family, levels=levels),
+            "confidence_label": "HIGH" if confidence >= 0.67 else ("MEDIUM" if confidence >= 0.55 else "LOW"),
         }
+        return setup
+
+    def _primary_trigger_level(self, *, family: str, levels: dict) -> float | None:
+        mapping = {
+            "PREMARKET_HIGH_BREAK": "premarket_high",
+            "HOD_BREAK": "hod",
+            "VWAP_RECLAIM_CONTINUATION": "vwap",
+            "OPENING_RANGE_BREAKOUT": "active_breakout_range.upper",
+            "CONSOLIDATION_BREAKOUT": "active_breakout_range.upper",
+            "FLAT_TOP_BREAKOUT": "hod",
+            "BULL_FLAG": "active_breakout_range.upper",
+            "FIRST_PULLBACK": "ema_9",
+            "MICRO_PULLBACK": "ema_9",
+        }
+        key = mapping.get(family)
+        if not key:
+            return None
+        if "." in key:
+            root, child = key.split(".", 1)
+            payload = levels.get(root, {}) if isinstance(levels.get(root), dict) else {}
+            return self._safe_float(payload.get(child))
+        return self._safe_float(levels.get(key))

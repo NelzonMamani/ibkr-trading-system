@@ -4,26 +4,48 @@ from typing import Any
 
 
 class StructureEngine:
-    """Derives market structure context from candles."""
+    """Shared market structure engine with explainable state output."""
 
     _ROUNDING = 6
 
-    def compute_structure(
-        self,
-        candles: list,
-    ) -> dict:
+    def compute_structure(self, candles: list) -> dict:
         structure = {
+            "dominant_direction": "UNKNOWN",
+            "impulse_active": False,
+            "pullback_active": False,
+            "consolidation_active": False,
+            "compression_active": False,
+            "exhaustion_warning": False,
+            "reclaim_state": "NONE",
+            "rejection_state": "NONE",
+            "extension_state": "NONE",
+            "pullback_depth": {"pct": None, "anchor_high": None, "anchor_low": None},
+            "range_width": {"abs": None, "pct_of_price": None},
+            "trend_phase": "UNDEFINED",
+            "stair_step_state": "UNKNOWN",
+            "structure_quality_flags": [],
+            "swing_highs": [],
+            "swing_lows": [],
+            # backward compatibility fields
             "trend": None,
             "structure_state": None,
             "last_higher_high": None,
             "last_higher_low": None,
             "last_lower_high": None,
             "last_lower_low": None,
-            "swing_highs": [],
-            "swing_lows": [],
+            "explain": [],
         }
-        if len(candles) < 5:
+        if len(candles) < 3:
+            structure["structure_quality_flags"] = ["INSUFFICIENT_CANDLES"]
+            structure["trend"] = "SIDEWAYS" if candles else None
+            structure["structure_state"] = "RANGE" if candles else None
+            print(f"[STRUCTURE_ENGINE] candles={len(candles)} quality={structure['structure_quality_flags']}")
             return structure
+
+        highs = [self._safe_float(self._read(c, "high")) for c in candles]
+        lows = [self._safe_float(self._read(c, "low")) for c in candles]
+        closes = [self._safe_float(self._read(c, "close")) for c in candles]
+        opens = [self._safe_float(self._read(c, "open")) for c in candles]
 
         swing_highs = self._pivot_levels(candles, use_high=True)
         swing_lows = self._pivot_levels(candles, use_high=False)
@@ -31,26 +53,96 @@ class StructureEngine:
         structure["swing_lows"] = swing_lows
 
         trend = self._detect_trend(swing_highs=swing_highs, swing_lows=swing_lows)
+        dominant_direction = {"UP": "LONG", "DOWN": "SHORT", "SIDEWAYS": "NEUTRAL", None: "UNKNOWN"}.get(trend, "UNKNOWN")
         structure["trend"] = trend
-        if trend == "UP":
-            structure["last_higher_high"] = swing_highs[-1]
-            structure["last_higher_low"] = swing_lows[-1]
-        elif trend == "DOWN":
-            structure["last_lower_high"] = swing_highs[-1]
-            structure["last_lower_low"] = swing_lows[-1]
+        structure["dominant_direction"] = dominant_direction
 
-        structure["structure_state"] = self._detect_structure_state(
+        last_close = self._last_valid(closes)
+        recent_high = self._window_max(highs, window=min(5, len(highs)))
+        recent_low = self._window_min(lows, window=min(5, len(lows)))
+
+        impulse_active = False
+        pullback_active = False
+        if last_close is not None and recent_high is not None and recent_low is not None:
+            width = max(recent_high - recent_low, 0.0)
+            impulse_active = bool(width > 0 and ((trend == "UP" and last_close >= recent_high - (0.15 * width)) or (trend == "DOWN" and last_close <= recent_low + (0.15 * width))))
+            pullback_active = bool(width > 0 and ((trend == "UP" and last_close <= recent_high - (0.4 * width)) or (trend == "DOWN" and last_close >= recent_low + (0.4 * width))))
+
+        range_abs = None
+        range_pct = None
+        if recent_high is not None and recent_low is not None:
+            range_abs = round(max(recent_high - recent_low, 0.0), self._ROUNDING)
+            if last_close and last_close > 0:
+                range_pct = round(range_abs / last_close, self._ROUNDING)
+
+        consolidation_active = bool(range_pct is not None and range_pct <= 0.02)
+        compression_active = bool(range_pct is not None and range_pct <= 0.01)
+
+        pullback_depth = self._pullback_depth(trend=trend, recent_high=recent_high, recent_low=recent_low, last_close=last_close)
+        exhaustion_warning = bool(
+            trend in {"UP", "DOWN"}
+            and pullback_depth["pct"] is not None
+            and pullback_depth["pct"] >= 0.75
+        )
+
+        reclaim_state, rejection_state, extension_state = self._context_states(
             trend=trend,
-            candles=candles,
-            structure=structure,
+            opens=opens,
+            closes=closes,
+            highs=highs,
+            lows=lows,
+        )
+
+        structure_state = "RANGE" if trend == "SIDEWAYS" or consolidation_active else ("IMPULSE" if impulse_active else "PULLBACK")
+        trend_phase = "TRENDING" if trend in {"UP", "DOWN"} else "BASING"
+        stair_step_state = "STAIR_STEP" if trend in {"UP", "DOWN"} and len(swing_highs) >= 2 and len(swing_lows) >= 2 else "NO_STAIR_STEP"
+
+        flags: list[str] = []
+        if len(swing_highs) < 2 or len(swing_lows) < 2:
+            flags.append("LIMITED_SWING_CONTEXT")
+        if self._has_missing_ohlc(highs=highs, lows=lows, closes=closes):
+            flags.append("PARTIAL_OHLC_DATA")
+        if trend is None:
+            flags.append("TREND_UNRESOLVED")
+
+        structure.update(
+            {
+                "impulse_active": impulse_active,
+                "pullback_active": pullback_active,
+                "consolidation_active": consolidation_active,
+                "compression_active": compression_active,
+                "exhaustion_warning": exhaustion_warning,
+                "reclaim_state": reclaim_state,
+                "rejection_state": rejection_state,
+                "extension_state": extension_state,
+                "pullback_depth": pullback_depth,
+                "range_width": {"abs": range_abs, "pct_of_price": range_pct},
+                "trend_phase": trend_phase,
+                "stair_step_state": stair_step_state,
+                "structure_quality_flags": flags,
+                "structure_state": structure_state,
+                "last_higher_high": swing_highs[-1] if trend == "UP" and swing_highs else None,
+                "last_higher_low": swing_lows[-1] if trend == "UP" and swing_lows else None,
+                "last_lower_high": swing_highs[-1] if trend == "DOWN" and swing_highs else None,
+                "last_lower_low": swing_lows[-1] if trend == "DOWN" and swing_lows else None,
+                "explain": [
+                    f"trend={trend}",
+                    f"dominant_direction={dominant_direction}",
+                    f"structure_state={structure_state}",
+                    f"range_pct={range_pct}",
+                ],
+            }
+        )
+        print(
+            "[STRUCTURE_ENGINE] "
+            f"trend={trend} direction={dominant_direction} impulse={impulse_active} pullback={pullback_active} "
+            f"consolidation={consolidation_active} compression={compression_active} flags={flags}"
         )
         return structure
 
     @staticmethod
     def _read(item: Any, field: str) -> Any:
-        if isinstance(item, dict):
-            return item.get(field)
-        return getattr(item, field, None)
+        return item.get(field) if isinstance(item, dict) else getattr(item, field, None)
 
     @staticmethod
     def _safe_float(value: Any) -> float | None:
@@ -92,29 +184,87 @@ class StructureEngine:
             return "DOWN"
         return "SIDEWAYS"
 
-    def _detect_structure_state(self, *, trend: str | None, candles: list, structure: dict) -> str | None:
-        if trend is None:
-            return None
-        if trend == "SIDEWAYS":
-            return "RANGE"
+    @staticmethod
+    def _window_max(values: list[float | None], window: int) -> float | None:
+        valid = [v for v in values[-window:] if v is not None]
+        return None if not valid else max(valid)
 
-        last_close = self._safe_float(self._read(candles[-1], "close")) if candles else None
-        if last_close is None:
-            return "RANGE"
+    @staticmethod
+    def _window_min(values: list[float | None], window: int) -> float | None:
+        valid = [v for v in values[-window:] if v is not None]
+        return None if not valid else min(valid)
 
+    @staticmethod
+    def _last_valid(values: list[float | None]) -> float | None:
+        for value in reversed(values):
+            if value is not None:
+                return value
+        return None
+
+    @staticmethod
+    def _has_missing_ohlc(*, highs: list[float | None], lows: list[float | None], closes: list[float | None]) -> bool:
+        return any(v is None for v in highs[-5:] + lows[-5:] + closes[-5:])
+
+    def _pullback_depth(
+        self,
+        *,
+        trend: str | None,
+        recent_high: float | None,
+        recent_low: float | None,
+        last_close: float | None,
+    ) -> dict[str, float | None]:
+        if recent_high is None or recent_low is None or last_close is None or recent_high == recent_low:
+            return {"pct": None, "anchor_high": recent_high, "anchor_low": recent_low}
+        width = max(recent_high - recent_low, 1e-9)
         if trend == "UP":
-            last_higher_high = self._safe_float(structure.get("last_higher_high"))
-            last_higher_low = self._safe_float(structure.get("last_higher_low"))
-            if last_higher_high is not None and last_close >= last_higher_high:
-                return "IMPULSE"
-            if last_higher_low is not None and last_close < last_higher_low:
-                return "PULLBACK"
-            return "PULLBACK"
+            pct = (recent_high - last_close) / width
+        elif trend == "DOWN":
+            pct = (last_close - recent_low) / width
+        else:
+            pct = 0.0
+        return {
+            "pct": round(max(0.0, min(1.0, pct)), self._ROUNDING),
+            "anchor_high": round(recent_high, self._ROUNDING),
+            "anchor_low": round(recent_low, self._ROUNDING),
+        }
 
-        last_lower_low = self._safe_float(structure.get("last_lower_low"))
-        last_lower_high = self._safe_float(structure.get("last_lower_high"))
-        if last_lower_low is not None and last_close <= last_lower_low:
-            return "IMPULSE"
-        if last_lower_high is not None and last_close > last_lower_high:
-            return "PULLBACK"
-        return "PULLBACK"
+    def _context_states(
+        self,
+        *,
+        trend: str | None,
+        opens: list[float | None],
+        closes: list[float | None],
+        highs: list[float | None],
+        lows: list[float | None],
+    ) -> tuple[str, str, str]:
+        if len(closes) < 2:
+            return "NONE", "NONE", "NONE"
+        prev_close = self._last_valid(closes[:-1])
+        last_close = self._last_valid(closes)
+        last_open = self._last_valid(opens)
+        prev_high = self._last_valid(highs[:-1])
+        prev_low = self._last_valid(lows[:-1])
+
+        reclaim_state = "NONE"
+        rejection_state = "NONE"
+        extension_state = "NONE"
+        if prev_close is not None and last_close is not None:
+            if trend == "UP" and last_close > prev_close:
+                reclaim_state = "BULLISH_RECLAIM"
+            elif trend == "DOWN" and last_close < prev_close:
+                reclaim_state = "BEARISH_RECLAIM"
+
+        if last_open is not None and last_close is not None and prev_high is not None and prev_low is not None:
+            if last_close < last_open and last_close < prev_high:
+                rejection_state = "TOP_REJECTION"
+            elif last_close > last_open and last_close > prev_low:
+                rejection_state = "BOTTOM_REJECTION"
+
+        if last_close is not None and prev_close is not None:
+            move = abs(last_close - prev_close)
+            price_ref = max(abs(prev_close), 1e-6)
+            if move / price_ref >= 0.015:
+                extension_state = "EXTENDED"
+            else:
+                extension_state = "NORMAL"
+        return reclaim_state, rejection_state, extension_state
