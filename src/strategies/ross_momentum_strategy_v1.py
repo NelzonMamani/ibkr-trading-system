@@ -497,6 +497,18 @@ class RossMomentumStrategyV1(BaseStrategy):
             structure = StructureEngine().compute_structure(
                 candles=list(getattr(inputs, "candles", []) or [])
             )
+            structure_is_evaluable = bool(structure.get("is_evaluable"))
+            structure_is_actionable = bool(structure.get("is_actionable"))
+            symbol_trace.structure_stage = {
+                "status": "PASS" if structure_is_evaluable else "FAIL",
+                "reason_code": str(structure.get("reason_code") or "STRUCTURE_EVALUATION_UNAVAILABLE"),
+                "details": {
+                    "is_evaluable": structure_is_evaluable,
+                    "is_actionable": structure_is_actionable,
+                    "dominant_direction": structure.get("dominant_direction"),
+                    "trend": structure.get("trend"),
+                },
+            }
             setups = SetupEngine().compute_setups(
                 candles=list(getattr(inputs, "candles", []) or []),
                 levels=levels,
@@ -538,6 +550,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             print(
                 "[ROSS][ENGINE_STACK] "
                 f"symbol={symbol} levels={len(levels)} structure_direction={structure.get('dominant_direction')} "
+                f"structure_evaluable={structure_is_evaluable} structure_actionable={structure_is_actionable} "
                 f"setups={len(setups)} triggers={len(trigger_candidates)} "
                 f"ready_triggers={sum(1 for t in trigger_candidates if t.get('trigger_ready_now'))}"
             )

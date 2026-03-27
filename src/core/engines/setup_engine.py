@@ -19,6 +19,9 @@ class SetupEngine:
     ) -> list[dict]:
         normalized_levels = levels if isinstance(levels, dict) else {}
         normalized_structure = structure if isinstance(structure, dict) else {}
+        if not bool(normalized_structure.get("is_evaluable", True)):
+            print("[SETUP_ENGINE] no setups: structure_not_evaluable")
+            return []
         last_close = self._last_close(candles)
         last_high = self._last_high(candles)
         if last_close is None:

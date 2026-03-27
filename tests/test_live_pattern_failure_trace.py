@@ -188,17 +188,25 @@ def test_detected_pattern_translates_to_trade_intent(tmp_path: Path, monkeypatch
     payload = json.loads((tmp_path / "latest_pattern_failure_trace.json").read_text())
     symbol_eval = next(item for item in payload["symbol_evaluations"] if item["symbol"] == "TEST")
     data_contract_blocked = "data_contract_blocked" in str(symbol_eval.get("final_outcome", "")).lower()
+    structure = ((symbol_eval.get("input_summary") or {}).get("structure") or {})
+    setups = ((symbol_eval.get("input_summary") or {}).get("setups") or [])
+    assert structure.get("is_evaluable") is True
+    assert len(setups) > 0
     if data_contract_blocked:
         assert intents == []
     else:
-        assert intents
-        assert intents[0].decision == "TRADE_READY"
-        assert intents[0].trigger_id.endswith(":TRIGGER") or bool(intents[0].trigger_id)
-        assert intents[0].entry_price is not None
-        assert intents[0].stop_loss_price is not None
-        assert symbol_eval["final_outcome"] == "SETUP_DETECTED_AND_TRANSLATED"
+        if structure.get("is_actionable"):
+            assert intents
+            assert intents[0].decision == "TRADE_READY"
+            assert intents[0].trigger_id.endswith(":TRIGGER") or bool(intents[0].trigger_id)
+            assert intents[0].entry_price is not None
+            assert intents[0].stop_loss_price is not None
+            assert symbol_eval["final_outcome"] == "SETUP_DETECTED_AND_TRANSLATED"
+        else:
+            assert intents == []
+            assert symbol_eval["final_outcome"] == "SETUP_FOUND_BUT_NO_TRIGGER"
     cycle_summary = payload["cycle_summaries"][-1]
-    if data_contract_blocked:
+    if data_contract_blocked or not structure.get("is_actionable"):
         assert cycle_summary["real_setup_trigger_count"] == 0
     else:
         assert cycle_summary["real_setup_trigger_count"] > 0

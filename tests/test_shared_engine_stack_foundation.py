@@ -84,9 +84,13 @@ def test_structure_setup_trigger_stack_runs_under_partial_indicator_context() ->
     )
 
     assert isinstance(structure.get("structure_quality_flags"), list)
+    assert structure.get("is_evaluable") is True
     assert isinstance(setups, list)
     assert len(setups) > 0
-    assert len(triggers) == len(setups)
+    if structure.get("is_actionable"):
+        assert len(triggers) == len(setups)
+    else:
+        assert triggers == []
     assert all("trigger_type" in item for item in triggers)
     assert all("trigger_ready_now" in item for item in triggers)
 

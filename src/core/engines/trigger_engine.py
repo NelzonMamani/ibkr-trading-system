@@ -17,6 +17,10 @@ class TriggerEngine:
         levels: dict,
         structure: dict,
     ) -> list[dict]:
+        normalized_structure = structure if isinstance(structure, dict) else {}
+        if not bool(normalized_structure.get("is_actionable", True)):
+            print(f"[TRIGGER_ENGINE] symbol={symbol} skipped=structure_not_actionable")
+            return []
         last_candle = candles[-1] if candles else None
         last_close = self._safe_float(self._read(last_candle, "close")) if last_candle else None
         last_high = self._safe_float(self._read(last_candle, "high")) if last_candle else None
@@ -34,7 +38,7 @@ class TriggerEngine:
             invalidation_price_reference = self._resolve_invalidation(
                 setup=setup,
                 levels=levels,
-                structure=structure,
+                structure=normalized_structure,
                 last_low=last_low,
             )
             trigger_ready_now, trigger_reason, quality_flags = self._is_ready(
@@ -44,7 +48,7 @@ class TriggerEngine:
                 last_close=last_close,
                 last_high=last_high,
                 setup=setup,
-                structure=structure,
+                structure=normalized_structure,
             )
             output = {
                 "symbol": str(symbol),

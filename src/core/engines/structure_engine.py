@@ -7,6 +7,8 @@ class StructureEngine:
     """Shared market structure engine with explainable state output."""
 
     _ROUNDING = 6
+    STRUCTURE_MIN_CANDLES_HARD = 3
+    STRUCTURE_MIN_CANDLES_PREFERRED = 10
 
     def compute_structure(self, candles: list) -> dict:
         structure = {
@@ -33,9 +35,12 @@ class StructureEngine:
             "last_higher_low": None,
             "last_lower_high": None,
             "last_lower_low": None,
+            "is_evaluable": False,
+            "is_actionable": False,
+            "reason_code": "INSUFFICIENT_CANDLES",
             "explain": [],
         }
-        if len(candles) < 3:
+        if len(candles) < self.STRUCTURE_MIN_CANDLES_HARD:
             structure["structure_quality_flags"] = ["INSUFFICIENT_CANDLES", "LOW_CONFIDENCE"]
             structure["trend"] = "SIDEWAYS" if candles else "UNKNOWN"
             structure["structure_state"] = "RANGE" if candles else None
@@ -134,12 +139,46 @@ class StructureEngine:
                 ],
             }
         )
+        is_evaluable, is_actionable, reason_code = self._validate_structure(
+            candles=candles,
+            impulse_active=impulse_active,
+            pullback_active=pullback_active,
+        )
+        structure["is_evaluable"] = is_evaluable
+        structure["is_actionable"] = is_actionable
+        structure["reason_code"] = reason_code
         print(
             "[STRUCTURE_ENGINE] "
             f"trend={trend} direction={dominant_direction} impulse={impulse_active} pullback={pullback_active} "
-            f"consolidation={consolidation_active} compression={compression_active} flags={flags}"
+            f"consolidation={consolidation_active} compression={compression_active} "
+            f"evaluable={is_evaluable} actionable={is_actionable} reason={reason_code} flags={flags}"
         )
         return structure
+
+    def _validate_structure(
+        self,
+        *,
+        candles: list,
+        impulse_active: bool,
+        pullback_active: bool,
+    ) -> tuple[bool, bool, str]:
+        candle_count = len(candles or [])
+
+        if candle_count < self.STRUCTURE_MIN_CANDLES_HARD:
+            return False, False, "INSUFFICIENT_CANDLES"
+
+        is_evaluable = True
+
+        if not impulse_active:
+            return is_evaluable, False, "NO_IMPULSE"
+
+        if not pullback_active:
+            return is_evaluable, False, "NO_PULLBACK"
+
+        if candle_count < self.STRUCTURE_MIN_CANDLES_PREFERRED:
+            return is_evaluable, True, "VALID_LOW_SAMPLE_SIZE"
+
+        return is_evaluable, True, "VALID"
 
     @staticmethod
     def _read(item: Any, field: str) -> Any:
