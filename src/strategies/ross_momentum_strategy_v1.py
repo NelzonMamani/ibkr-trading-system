@@ -22,6 +22,7 @@ from src.models.data_models import PatternResult, TradeIntent
 from src.signals.signal_event import SignalEvent
 from src.strategy.base_strategy import BaseStrategy
 from src.strategy.exit_signal import ExitSignal
+from src.utils.pipeline_trace import pipeline_trace
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
 from src.strategies.ross_momentum.patterns.pattern_trace import (
     RossPatternFailureTraceCollector,
@@ -593,6 +594,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
 
+            pipeline_trace("SETUP", symbol)
             print("[ROSS][SETUP_PHASE][START]")
             setup_count = 1 if input_summary.candle_count > 0 else 0
             print(f"[ROSS][SETUP_PHASE][RESULT] symbol={symbol} setups_found={setup_count}")
@@ -798,6 +800,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
 
+            pipeline_trace("CONFIRMATION", symbol)
             confirmation_passed, blocking_reasons, warnings = self._evaluate_confirmation(
                 symbol=symbol,
                 selected_pattern=best_pattern,
@@ -846,6 +849,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
 
+            pipeline_trace("TRIGGER", symbol)
             trade = self._build_trade_from_pattern(best_pattern, inputs)
             if not trade:
                 print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=trade_structure")
@@ -963,6 +967,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             intent.trigger_ready = trigger_ready
             intent.decision = "TRADE_READY"
             intent = self._apply_intent_contract_defaults(intent, input_summary, timestamp_utc=timestamp_utc)
+            pipeline_trace("INTENT", symbol)
             quality_score = float((selected_trigger or {}).get("quality", {}).get("quality_score", 0.0))
             if not intent.symbol:
                 raise ValueError(f"[TRADE_INTENT][INVALID] empty symbol for intent: {intent}")

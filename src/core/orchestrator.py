@@ -126,6 +126,11 @@ from src.strategies.mean_reversion.scanner_policy import (
 )
 from src.strategies.strategy_registry import StrategyRegistry, build_default_registry
 from src.utils.time_utils import market_session_phase, to_ny_time, to_uk_time
+from src.utils.pipeline_trace import (
+    intent_stage_seen,
+    pipeline_trace,
+    reset_pipeline_trace_cycle,
+)
 from src.regime.layer import RegimeLayer
 
 
@@ -1329,6 +1334,7 @@ class CoreOrchestrator:
 
     def _run_once_inner(self) -> bool:
         print("[INFO] Starting orchestrator cycle (teaching-only).")
+        reset_pipeline_trace_cycle()
         self._current_cycle_id = str(uuid4())
         self._last_halt_reason = None
         cycle_started_at = datetime.now(timezone.utc)
@@ -1522,6 +1528,7 @@ class CoreOrchestrator:
         selected_observations: list[CandidateMetrics] = []
         selected_candidates: list[object] = []
 
+        pipeline_trace("SCAN")
         for active_strategy in active_strategy_keys:
             _, active_scanner_policy = self._build_scanner_policy_for_strategy(active_strategy, session_phase)
             active_request = self._build_scanner_request(active_scanner_policy, strategy_name=active_strategy, session_phase=session_phase)
@@ -1642,6 +1649,7 @@ class CoreOrchestrator:
                 selected_observations = observations
                 selected_candidates = list(strategy_payload.get("candidates", [])) or selected_candidates
 
+        pipeline_trace("CONTEXT")
         manual_focus_symbols = self._refresh_manual_focus_if_due(cycle_started_at)
         manual_focus_rows, manual_focus_rejections = self._resolve_manual_focus_candidates(
             manual_symbols=manual_focus_symbols,
@@ -1745,6 +1753,8 @@ class CoreOrchestrator:
             print("[ROSS][TRIGGER_PIPELINE] ACTIVE")
         else:
             print("[WARNING] condition hit but continuing for debug")
+        assert len(strategy_inputs) > 0, "WATCHLIST EMPTY — PIPELINE FAILURE"
+        pipeline_trace("STRUCTURE")
         print("[STRATEGY_RUNNER] invoking RossMomentumStrategyV1")
         strategy_output = self.strategy_runner.process(
             strategy_key=strategy_key,
@@ -1813,6 +1823,7 @@ class CoreOrchestrator:
 
             if gated_strategy_output:
                 for intent in gated_strategy_output:
+                    pipeline_trace("EXECUTION", intent.symbol)
                     self._trace_event("ORDER_SUBMITTED", {
                         "strategy": strategy_key,
                         "symbol": intent.symbol
@@ -1895,6 +1906,8 @@ class CoreOrchestrator:
         if self.regime_layer.enabled:
             self.regime_layer.evaluate(candidates=selected_candidates or [], session=get_current_market_session())
         self._trace_event("ACTION", {"trade_intents": intent_count, "allow_orders": mode_manager.allow_orders})
+        if not intent_stage_seen():
+            print("[FATAL] PIPELINE BROKEN — NO INTENT GENERATED")
         if not strategy_output:
             print("[STRATEGY] No trade intents generated.")
         return True
