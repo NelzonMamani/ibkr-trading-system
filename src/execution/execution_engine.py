@@ -464,6 +464,10 @@ class ExecutionEngine:
         print("[ORDER_SUBMIT]", f"symbol={request.symbol}", f"side={request.direction}", f"qty={request.quantity}")
         self._record_order_stage(request.client_order_id, "SUBMIT")
         print(
+            f"[EXECUTION][SUBMIT] order_id={request.client_order_id} symbol={request.symbol} "
+            f"side={request.direction} qty={request.quantity}"
+        )
+        print(
             f"[ORDER][SUBMIT] order_id={request.client_order_id} symbol={request.symbol} "
             f"side={request.direction} qty={request.quantity} order_type={request.order_type}"
         )

@@ -131,12 +131,12 @@ class RossMomentumStrategyV1(BaseStrategy):
         return self._rth_volume_min, self._rth_rvol_min
 
     def _min_volume_threshold(self, session: str | None) -> float:
-        session_value = str(session or "").upper()
-        if session_value.startswith("PRE"):
+        s = str(session or "").upper()
+        if "PRE" in s:
             return 10_000.0
-        if session_value.startswith("RTH"):
+        if "RTH" in s:
             return 1_000_000.0
-        if session_value.startswith("AH"):
+        if "AH" in s:
             return 50_000.0
         return 100_000.0
 
@@ -337,6 +337,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                 or row.get("premarket_volume")
             )
             min_volume = self._min_volume_threshold(str(session_for_gate))
+            print(
+                "[VOLUME_GATE_FIX] "
+                f"symbol={symbol} session={session_for_gate} "
+                f"threshold={min_volume}"
+            )
             decision = volume is not None and volume >= min_volume
             print(
                 "[VOLUME_GATE][SESSION_AWARE] "
@@ -357,11 +362,9 @@ class RossMomentumStrategyV1(BaseStrategy):
             effective_focus_symbols = set(gated_focus_symbols)
         if not effective_focus_symbols and watchlist_symbols:
             fallback = watchlist_symbols[:3]
-            print(
-                "[FOCUS][FALLBACK] activating top-3 due to empty focus layer "
-                f"symbols={fallback}"
-            )
+            print("[FOCUS][FORCED_FALLBACK] activating:", fallback)
             effective_focus_symbols = set(fallback)
+        print(f"[FOCUS_FINAL] count={len(effective_focus_symbols)} symbols={sorted(effective_focus_symbols)}")
         symbol_traces: List[RossSymbolTrace] = []
         translated_intents: List[TradeIntent] = []
         trade_candidates: list[dict[str, object]] = []

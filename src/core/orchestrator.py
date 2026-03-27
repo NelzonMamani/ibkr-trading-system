@@ -1691,6 +1691,7 @@ class CoreOrchestrator:
                 f"reason=focus_empty_using_watchlist symbols={strategy_evaluation_symbols}"
             )
             final_evaluation_symbols = list(strategy_evaluation_symbols)
+        print(f"[FOCUS_FINAL] count={len(final_evaluation_symbols)} symbols={final_evaluation_symbols}")
         snapshots_by_symbol, _ = self.market_data_snapshot_manager.batch_snapshots(final_evaluation_symbols)
         session_label = canonical_session_label(
             forced_session_label
@@ -1819,6 +1820,7 @@ class CoreOrchestrator:
                 })
 
         intent_count = len(strategy_output or [])
+        print(f"[INTENT] count={intent_count}")
         if strategy_output:
             for trade_intent in strategy_output:
                 print(
