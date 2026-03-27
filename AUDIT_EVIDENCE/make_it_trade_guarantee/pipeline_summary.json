@@ -1,0 +1,36 @@
+{
+  "counts": {
+    "DECISION_REJECTED": 0,
+    "EXECUTION_BLOCKED": 1,
+    "EXECUTION_SUBMITTED": 0,
+    "FOCUS_SELECTED_NO_PATTERN": 1,
+    "FOCUS_SELECTED_PATTERN_REJECTED": 0,
+    "NOT_IN_FOCUS": 1,
+    "RISK_BLOCKED": 0,
+    "TRADE_INTENT_CREATED": 0,
+    "TRIGGER_NOT_FIRED": 0
+  },
+  "cycle_id": "manual-verification-cycle",
+  "kept_symbols": [
+    "BOIL",
+    "AAPL",
+    "TSLA"
+  ],
+  "symbols": {
+    "AAPL": {
+      "outcome": "FOCUS_SELECTED_NO_PATTERN",
+      "reason": "NO_SETUP:no_valid_setup_from_runner",
+      "stage": "strategy"
+    },
+    "BOIL": {
+      "outcome": "NOT_IN_FOCUS",
+      "reason": "NOT_SELECTED_FOR_FOCUS",
+      "stage": "focus"
+    },
+    "TSLA": {
+      "outcome": "EXECUTION_BLOCKED",
+      "reason": "EXECUTION_DISABLED",
+      "stage": "execution"
+    }
+  }
+}

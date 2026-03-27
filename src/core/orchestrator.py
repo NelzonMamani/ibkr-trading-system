@@ -63,6 +63,7 @@ from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import ExecutionResult, RiskDecision, TradeIntent, TradeRecord
 from src.patterns.pattern_engine import PatternEngine
 from src.risk.risk_engine import RiskEngine
+from src.core.pipeline_audit import PipelineAudit, TerminalOutcome
 from src.core.intent import build_decision_artifact, build_execution_intent
 from src.e22.strategy_scalability_and_arbitration import (
     E22PolicyConfig,
@@ -1647,7 +1648,23 @@ class CoreOrchestrator:
             f"MANUAL_FOCUS={manual_focus_accepted_symbols} "
             f"FINAL_EVALUATION_SYMBOLS={final_evaluation_symbols}"
         )
-        scanner_kept_count = len(self._symbols_from_candidates(selected_observations))
+        scanner_keep_symbols = self._symbols_from_candidates(selected_observations)
+        scanner_kept_count = len(scanner_keep_symbols)
+        pipeline_audit = PipelineAudit(self._current_cycle_id or str(uuid4()))
+        pipeline_audit.mark_kept(scanner_keep_symbols)
+        print(f"[WATCHLIST][FINAL] symbols={watchlist_symbols}")
+        print(f"[FOCUS][CANDIDATES] symbols={watchlist_symbols}")
+        print(f"[FOCUS][SELECTED] symbols={final_evaluation_symbols}")
+        final_focus_set = {s.upper() for s in final_evaluation_symbols}
+        watchlist_set = {s.upper() for s in watchlist_symbols}
+        for symbol in scanner_keep_symbols:
+            symbol_upper = symbol.upper()
+            if symbol_upper not in watchlist_set:
+                print(f"[FOCUS][REJECT] symbol={symbol} reason=SCANNER_KEEP_NOT_IN_WATCHLIST")
+                pipeline_audit.record(symbol, TerminalOutcome.NOT_IN_FOCUS, "SCANNER_KEEP_NOT_IN_WATCHLIST", "watchlist")
+            elif symbol_upper not in final_focus_set:
+                print(f"[FOCUS][REJECT] symbol={symbol} reason=NOT_SELECTED_FOR_FOCUS")
+                pipeline_audit.record(symbol, TerminalOutcome.NOT_IN_FOCUS, "NOT_SELECTED_FOR_FOCUS", "focus")
         self._trace_event("UNIVERSE", {"universe": [{"symbol": s} for s in self._symbols_from_candidates(selected_observations)]})
         if watchlist_symbols:
             print(f"[WATCHLIST] size={len(watchlist_symbols)} symbols={watchlist_symbols}")
@@ -1707,6 +1724,15 @@ class CoreOrchestrator:
             execution_ready=True if strategy_watchlist else session_execution_allowed,
             prep_only=False if strategy_watchlist else session_label in {"AH", "CLOSED"},
         )
+        ross_strategy = next(
+            (s for s in getattr(self.strategy_runner, "strategies", []) if getattr(s, "name", "") == "RossMomentumStrategyV1"),
+            None,
+        )
+        evaluated_symbols = set(getattr(ross_strategy, "last_evaluated_symbols", []) or [])
+        for symbol in final_evaluation_symbols:
+            if symbol.upper() not in evaluated_symbols:
+                print(f"[ROSS][CONTRACT_VIOLATION] symbol={symbol} reason=FOCUS_SELECTED_BUT_NOT_EVALUATED")
+                pipeline_audit.record(symbol, TerminalOutcome.FOCUS_SELECTED_PATTERN_REJECTED, "FOCUS_SELECTED_BUT_NOT_EVALUATED", "strategy")
 
         emitted_symbols = {
             getattr(intent, "symbol", None)
@@ -1714,6 +1740,7 @@ class CoreOrchestrator:
             if getattr(intent, "symbol", None)
         }
         for symbol in final_evaluation_symbols:
+            print(f"[ROSS][EVALUATE][START] symbol={symbol}")
             emitted = symbol in emitted_symbols
             if emitted:
                 no_trade_reason = "INTENT_EMITTED"
@@ -1733,9 +1760,20 @@ class CoreOrchestrator:
             else:
                 print(f"[STRATEGY][NO_SIGNAL] symbol={symbol} reason=no_valid_setup_from_runner")
                 self._trace_event("NO_SETUP", {"strategy": strategy_key, "symbol": symbol})
+                pipeline_audit.record(symbol, TerminalOutcome.FOCUS_SELECTED_NO_PATTERN, "NO_SETUP:no_valid_setup_from_runner", "strategy")
 
         raw_strategy_output = strategy_output or []
         gated_strategy_output = self._enforce_ross_execution_integrity(raw_strategy_output)
+        gated_symbols = {getattr(intent, "symbol", "").upper() for intent in gated_strategy_output}
+        for intent in raw_strategy_output:
+            symbol = getattr(intent, "symbol", "")
+            if not symbol:
+                continue
+            symbol_upper = symbol.upper()
+            if symbol_upper not in gated_symbols:
+                pipeline_audit.record(symbol, TerminalOutcome.TRIGGER_NOT_FIRED, "INTENT_REJECTED_BY_EXECUTION_INTEGRITY", "trigger")
+            else:
+                pipeline_audit.record(symbol, TerminalOutcome.TRADE_INTENT_CREATED, "TRADE_INTENT_CREATED", "intent")
 
         if mode_manager.allow_orders:
 
@@ -1745,6 +1783,7 @@ class CoreOrchestrator:
                         "strategy": strategy_key,
                         "symbol": intent.symbol
                     })
+                    pipeline_audit.record(intent.symbol, TerminalOutcome.EXECUTION_SUBMITTED, "ORDER_SUBMITTED", "execution")
 
             else:
                 # REQUIRED FOR E21 — even when all intents rejected
@@ -1770,6 +1809,7 @@ class CoreOrchestrator:
                         "symbol": intent.symbol,
                         "reason": reason
                     })
+                    pipeline_audit.record(intent.symbol, TerminalOutcome.EXECUTION_BLOCKED, reason, "execution")
 
             else:
                 # REQUIRED FOR E21 — even if no intents exist at all
@@ -1809,6 +1849,13 @@ class CoreOrchestrator:
             f"scanner_kept={scanner_kept_count} watchlist={len(watchlist_symbols)} focus={len(final_evaluation_symbols)} "
             f"evaluated={len(final_evaluation_symbols)} intents={intent_count}"
         )
+        summary = pipeline_audit.summary_payload()
+        print(f"[PIPELINE_AUDIT][SUMMARY] counts={summary['counts']} symbols={summary['symbols']}")
+        evidence_dir = Path("AUDIT_EVIDENCE/make_it_trade_guarantee")
+        paths = pipeline_audit.persist(base_dir=evidence_dir)
+        violations = pipeline_audit.contract_violations()
+        if violations:
+            print(f"[PIPELINE_AUDIT][CONTRACT_VIOLATION] missing={[v['symbol'] for v in violations]} evidence={paths['violations']}")
 
         if self.regime_layer.enabled:
             self.regime_layer.evaluate(candidates=selected_candidates or [], session=get_current_market_session())

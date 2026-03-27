@@ -295,6 +295,8 @@ class RossMomentumStrategyV1(BaseStrategy):
         session_phase: str,
     ) -> List[TradeIntent]:
         print(f"[ROSS][PROCESS_START] symbols={len(watchlist)}")
+        self.last_symbol_terminal_outcomes: dict[str, dict[str, str]] = {}
+        self.last_evaluated_symbols: list[str] = []
         focus_symbols: set[str] = set()
         for row in watchlist:
             if not isinstance(row, dict):
@@ -315,6 +317,10 @@ class RossMomentumStrategyV1(BaseStrategy):
 
         def _terminal(symbol: str, category: str, reason: str) -> None:
             print(f"[ROSS][TERMINAL] symbol={symbol} category={category} reason={reason}")
+            self.last_symbol_terminal_outcomes[str(symbol).upper()] = {
+                "outcome": str(category),
+                "reason": str(reason),
+            }
         for row in watchlist:
             symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
             if not symbol:
@@ -322,6 +328,8 @@ class RossMomentumStrategyV1(BaseStrategy):
             if focus_symbols and str(symbol).upper() not in focus_symbols:
                 print(f"[ROSS][FOCUS][SKIP] symbol={symbol} reason=NOT_IN_FOCUS_LIST")
                 continue
+            self.last_evaluated_symbols.append(str(symbol).upper())
+            print(f"[ROSS][EVALUATE][START] symbol={symbol}")
             print(f"[ROSS][EVAL_START] symbol={symbol}")
             print(f"[ROSS][SYMBOL_START] symbol={symbol}")
             snapshot = snapshots.get(symbol) if isinstance(snapshots, dict) else None
@@ -527,6 +535,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "[ROSS][PATTERN_RESULTS] "
                 f"symbol={symbol} registry=RossPatternRegistry audited_registry_match=true pattern_ids={registry_pattern_ids}"
             )
+            attempted_count = len(registry_pattern_ids)
             pattern_inputs, missing_inputs = self._pattern_input_validation(inputs)
             print(
                 "[PATTERN_TRACE][INPUTS] "
@@ -579,6 +588,9 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol_trace.detected_pattern_ids = [
                 trace.pattern_id for trace in pattern_traces if trace.detected and not self._is_inactive_pattern(trace.pattern_id)
             ]
+            print(
+                f"[ROSS][PATTERN_RESULTS] symbol={symbol} attempted={attempted_count} detected={len(symbol_trace.detected_pattern_ids)}"
+            )
             for trace, result in zip(pattern_traces, results):
                 trace.confidence = float(getattr(result, "confidence", 0.0) or 0.0)
             for trace in pattern_traces:
@@ -623,6 +635,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 detected_patterns = bool(symbol_trace.detected_pattern_ids)
                 if detected_patterns:
                     decision_reason = decision.get("decision_reason") or "decision_not_candidate_selected"
+                    print(f"[ROSS][DECISION] symbol={symbol} verdict=REJECT reason={decision_reason}")
                     symbol_trace.final_outcome = "SETUP_FOUND_DECISION_REJECTED"
                     symbol_trace.setup_stage = {"status": "PASS", "reason_code": "SETUP_DETECTED"}
                     symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "DECISION_REJECTED"}
@@ -632,6 +645,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                     _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_DECISION_REJECTED"], decision_reason)
                     classification_counts["TRIGGER_REJECTED"] += 1
                 else:
+                    reason = decision.get("decision_reason") or "no_valid_pattern"
+                    print(f"[ROSS][DECISION] symbol={symbol} verdict=REJECT reason={reason}")
                     symbol_trace.final_outcome = "NO_SETUP:no_valid_pattern"
                     symbol_trace.setup_stage = {"status": "FAIL", "reason_code": "NO_VALID_PATTERN"}
                     symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "NO_SETUP_AVAILABLE"}
@@ -678,6 +693,9 @@ class RossMomentumStrategyV1(BaseStrategy):
                 session_label=session_label,
             )
             if not confirmation_passed:
+                print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=confirmation_gate")
+                print(f"[TRIGGER][REJECT] symbol={symbol} reason=CONFIRMATION_BLOCKED")
+                print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason=CONFIRMATION_BLOCKED")
                 self._evaluate_trigger(
                     symbol=symbol,
                     selected_pattern=best_pattern,
@@ -718,6 +736,9 @@ class RossMomentumStrategyV1(BaseStrategy):
 
             trade = self._build_trade_from_pattern(best_pattern, inputs)
             if not trade:
+                print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=trade_structure")
+                print(f"[TRIGGER][REJECT] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
+                print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
                 symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
                 symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "INVALID_TRADE_STRUCTURE"}
                 symbol_trace.final_reason_code = "INVALID_TRADE_STRUCTURE"
@@ -748,6 +769,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             print(f"[ROSS][STOP_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} stop={stop}")
             print(f"[ROSS][TRIGGER][PASS] symbol={symbol} trigger=confirmation_gate")
             print(f"[ROSS][TRIGGER_PASS] symbol={symbol} trigger=confirmation_gate")
+            print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=confirmation_gate")
             trigger_ready, _trigger_reason = self._evaluate_trigger(
                 symbol=symbol,
                 selected_pattern=best_pattern,
@@ -784,6 +806,9 @@ class RossMomentumStrategyV1(BaseStrategy):
             intent = self._apply_intent_contract_defaults(intent, input_summary, timestamp_utc=timestamp_utc)
 
             translated_intents.append(intent)
+            print(
+                f"[TRADE_INTENT][CREATE] symbol={symbol} trigger=confirmation_gate side=LONG qty={getattr(intent, 'quantity', None) or getattr(intent, 'requested_quantity', None) or 1}"
+            )
             best_pattern.post_detect_disposition = "translated_to_trade_intent"
             best_pattern.final_outcome = "DETECTED_AND_EXECUTED"
             symbol_trace.final_outcome = "SETUP_DETECTED_AND_TRANSLATED"
@@ -818,6 +843,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "[ROSS][DECISION] "
                 f"symbol={symbol} outcome=TRADE_READY pattern={best_pattern.pattern_id}"
             )
+            print(f"[ROSS][DECISION] symbol={symbol} verdict=ALLOW reason=pattern_and_trigger_valid")
+            print(f"[ROSS][BEST_PATTERN] symbol={symbol} pattern={best_pattern.pattern_id} confidence={float(getattr(best_pattern, 'confidence', 0.0) or 0.0):.4f}")
             symbol_traces.append(symbol_trace)
             self._failure_trace_collector.record_symbol(symbol_trace)
 
