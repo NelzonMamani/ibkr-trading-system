@@ -44,6 +44,11 @@ class RossMomentumStrategyV1(BaseStrategy):
 
     name = "RossMomentumStrategyV1"
     trader_type = "MOMENTUM"
+    _SETUP_FAMILY_ALIASES: dict[str, str] = {
+        "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
+        "P_HOD_BREAK": "HOD_BREAK",
+        "P_FIRST_PULLBACK": "FIRST_PULLBACK",
+    }
 
     _priority_order: Tuple[str, ...] = (
         "HOD_BREAK",
@@ -796,6 +801,53 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "reason_code": "TRIGGER_PASS" if trigger_ready else "TRIGGER_NOT_READY",
                 "details": {"pattern": best_pattern.pattern_id, "entry_price": entry},
             }
+            quality_tier = self._resolve_trigger_quality_tier(
+                selected_trigger=selected_trigger,
+                pattern_confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
+            )
+            setup_family = self._normalize_setup_family_id(
+                selected_trigger.get("setup_family_id") if selected_trigger else self._setup_family_from_pattern_id(best_pattern.pattern_id)
+            )
+            allow_trade, permission_reason = self._trade_permission(
+                trigger_ready=trigger_ready,
+                setup_family_id=setup_family,
+            )
+            print(
+                "[TRIGGER_QUALITY] "
+                f"symbol={symbol} setup_family={setup_family} tier={quality_tier}"
+            )
+            print(
+                "[TRADE_PERMISSION] "
+                f"symbol={symbol} decision={'ALLOW' if allow_trade else 'BLOCK'} "
+                f"reason={permission_reason} quality={quality_tier}"
+            )
+            if not allow_trade:
+                print(f"[TRIGGER][REJECT] symbol={symbol} reason={permission_reason}")
+                print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason={permission_reason}")
+                symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
+                symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": permission_reason}
+                symbol_trace.final_reason_code = permission_reason
+                print(
+                    f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
+                )
+                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason={permission_reason}")
+                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], permission_reason)
+                classification_counts["TRIGGER_REJECTED"] += 1
+                self._log_no_trade_root_cause(
+                    symbol=symbol,
+                    pattern=best_pattern.pattern_id,
+                    primary_reason=permission_reason,
+                    details=[f"quality={quality_tier}", f"setup_family={setup_family}"],
+                )
+                self._log_decision_blocked(
+                    symbol=symbol,
+                    final_stage="trade_permission",
+                    reason=permission_reason,
+                )
+                self._log_pipeline_no_decision(symbol)
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
 
             intent = TradeIntent(
                 symbol=symbol,
@@ -1027,8 +1079,12 @@ class RossMomentumStrategyV1(BaseStrategy):
 
     @staticmethod
     def _select_trigger_candidate(*, setup_family_id: str | None, trigger_candidates: list[dict] | None) -> dict | None:
-        family = str(setup_family_id or "").upper()
-        candidates = [c for c in (trigger_candidates or []) if str(c.get("setup_family_id") or "").upper() == family]
+        family = RossMomentumStrategyV1._normalize_setup_family_id(setup_family_id)
+        candidates = [
+            c
+            for c in (trigger_candidates or [])
+            if RossMomentumStrategyV1._normalize_setup_family_id(c.get("setup_family_id")) == family
+        ]
         if not candidates:
             return None
         ranked = sorted(
@@ -1041,6 +1097,29 @@ class RossMomentumStrategyV1(BaseStrategy):
             reverse=True,
         )
         return ranked[0]
+
+    @classmethod
+    def _normalize_setup_family_id(cls, setup_family_id: str | None) -> str:
+        normalized = str(setup_family_id or "").upper()
+        return cls._SETUP_FAMILY_ALIASES.get(normalized, normalized)
+
+    @staticmethod
+    def _resolve_trigger_quality_tier(*, selected_trigger: dict | None, pattern_confidence: float) -> str:
+        if selected_trigger and "MISSING_TRIGGER_REFERENCE" in set(selected_trigger.get("trigger_quality_flags") or []):
+            return "LOW"
+        if pattern_confidence >= 0.8:
+            return "HIGH"
+        if pattern_confidence >= 0.6:
+            return "MEDIUM"
+        return "LOW"
+
+    @staticmethod
+    def _trade_permission(*, trigger_ready: bool, setup_family_id: str) -> tuple[bool, str]:
+        if str(setup_family_id or "").upper() == "GENERIC_MOMENTUM_PROBE":
+            return False, "fallback_setup_blocked"
+        if trigger_ready:
+            return True, "trigger_fired"
+        return False, "trigger_not_ready"
 
     @staticmethod
     def _resolve_selected_pattern_trace(*, selected_pattern_id: str | None, pattern_traces):
