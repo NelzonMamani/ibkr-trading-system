@@ -453,7 +453,14 @@ class CoreOrchestrator:
             )
 
         _, port, _, _ = resolve_ibkr_connection()
-        if run_mode == "LIVE" and port != 7496:
+
+        ibkr_host = os.getenv("IBKR_HOST")
+        ibkr_port_env = os.getenv("IBKR_PORT")
+
+        # Only enforce if IBKR connection is explicitly configured
+        ibkr_connection_explicit = ibkr_host is not None or ibkr_port_env is not None
+
+        if run_mode == "LIVE" and ibkr_connection_explicit and port != 7496:
             raise RuntimeError(
                 "[FATAL] LIVE mode must use IBKR port 7496 (runtime enforcement)"
             )
