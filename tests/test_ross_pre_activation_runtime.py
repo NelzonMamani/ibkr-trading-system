@@ -73,7 +73,7 @@ def test_pre_candidate_pre_activation_is_observable_but_not_forced(monkeypatch, 
     out = capsys.readouterr().out
     assert intents == []
     assert "[ROSS][PRE_ACTIVATION] symbol=PREX" in out
-    assert "[ROSS][TERMINAL] symbol=PREX category=SETUP_NOT_FOUND reason=pre_early_momentum_ready" in out
+    assert "[ROSS][TERMINAL] symbol=PREX category=SETUP_FOUND_BUT_NO_TRIGGER" in out
 
 
 def test_registry_marks_session_incompatible_patterns_as_skipped(monkeypatch) -> None:

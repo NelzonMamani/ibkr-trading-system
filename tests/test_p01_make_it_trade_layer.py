@@ -94,7 +94,7 @@ def test_runtime_strategy_entrypoint_emits_eval_start(monkeypatch, tmp_path, cap
     assert "[ROSS][EVAL_CONTEXT] symbol=TEST" in out
 
 
-def test_pattern_registry_or_fallback_produces_setup(monkeypatch, tmp_path, capsys) -> None:
+def test_pattern_registry_or_setup_engine_produces_setup(monkeypatch, tmp_path, capsys) -> None:
     strategy = _base_strategy(monkeypatch, tmp_path)
 
     strategy.process_watchlist(
@@ -107,7 +107,7 @@ def test_pattern_registry_or_fallback_produces_setup(monkeypatch, tmp_path, caps
     )
 
     out = capsys.readouterr().out
-    assert "[ROSS][SETUP] symbol=TEST source=fallback_detector" in out
+    assert "[ROSS][SETUP] symbol=TEST source=setup_engine" in out
 
 
 def test_trigger_fired_generates_trade_intent(monkeypatch, tmp_path, capsys) -> None:
@@ -135,7 +135,7 @@ def test_no_silent_drop_after_context(monkeypatch, tmp_path, capsys) -> None:
     row["rvol"] = 0.1
     row["pct_change"] = -1.0
 
-    strategy.process_watchlist(
+    intents = strategy.process_watchlist(
         watchlist=[row],
         snapshots={"TEST": _snapshot()},
         session_label="PRE",
@@ -146,9 +146,9 @@ def test_no_silent_drop_after_context(monkeypatch, tmp_path, capsys) -> None:
 
     out = capsys.readouterr().out
     assert "[ROSS][EVAL_CONTEXT] symbol=TEST" in out
-    assert "[ROSS][SETUP][FAIL] symbol=TEST" in out
-    assert "[ROSS][PIPELINE][NO_DECISION] symbol=TEST" in out
-    assert "[ROSS][TERMINAL] symbol=TEST category=SETUP_NOT_FOUND" in out
+    assert "[ROSS][SETUP] symbol=TEST source=setup_engine" in out
+    assert "[ROSS][INTENT_GENERATED] symbol=TEST" in out
+    assert intents
 
 
 def test_data_block_does_not_force_intent(monkeypatch, tmp_path, capsys) -> None:

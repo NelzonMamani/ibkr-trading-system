@@ -84,7 +84,7 @@ def _micro_pullback_bars() -> list[Candle]:
     ]
 
 
-def test_fallback_setup_triggers_when_no_patterns(monkeypatch, tmp_path, capsys) -> None:
+def test_real_setup_engine_setup_triggers_when_no_patterns(monkeypatch, tmp_path, capsys) -> None:
     strategy = _base_strategy(monkeypatch, tmp_path, _hod_break_bars())
 
     intents = strategy.process_watchlist(
@@ -98,11 +98,11 @@ def test_fallback_setup_triggers_when_no_patterns(monkeypatch, tmp_path, capsys)
 
     assert intents
     out = capsys.readouterr().out
-    assert "[ROSS][SETUP_FALLBACK] symbol=TEST setups=" in out
+    assert "[ROSS][SETUP_RESULT] symbol=TEST source=setup_engine" in out
     assert "[ROSS][INTENT_GENERATED] symbol=TEST" in out
 
 
-def test_fallback_hod_break_produces_trigger(monkeypatch, tmp_path) -> None:
+def test_setup_engine_hod_break_produces_trigger(monkeypatch, tmp_path) -> None:
     strategy = _base_strategy(monkeypatch, tmp_path, _hod_break_bars())
 
     intents = strategy.process_watchlist(
@@ -115,39 +115,16 @@ def test_fallback_hod_break_produces_trigger(monkeypatch, tmp_path) -> None:
     )
 
     assert intents
-    assert intents[0].pattern_name.endswith("HOD_BREAK") or intents[0].pattern_name.endswith("RANGE_BREAKOUT")
+    assert intents[0].pattern_name.endswith("HOD_BREAK") or intents[0].pattern_name.endswith("RANGE_BREAKOUT") or intents[0].pattern_name.endswith("PREMARKET_HIGH_BREAK")
     assert intents[0].trigger_ready is True
     assert intents[0].trigger_id.endswith(":TRIGGER") or bool(intents[0].trigger_id)
     assert intents[0].entry_price is not None
     assert intents[0].stop_loss_price is not None
 
 
-def test_fallback_micro_pullback_detected(monkeypatch, tmp_path) -> None:
+def test_no_synthetic_lightweight_setup_detector_available(monkeypatch, tmp_path) -> None:
     strategy = _base_strategy(monkeypatch, tmp_path, _micro_pullback_bars())
-    summary = type(
-        "Summary",
-        (),
-        {
-            "rvol": 2.2,
-            "pct_change": 6.0,
-        },
-    )()
-
-    setups = strategy._detect_lightweight_setups(
-        type(
-            "Inputs",
-            (),
-            {
-                "candles": _micro_pullback_bars(),
-                "last_price": 10.57,
-                "indicators": type("Indicators", (), {"ema9": 10.5, "vwap": 10.48})(),
-                "liquidity_context": type("Liquidity", (), {"rvol": 2.2})(),
-            },
-        )(),
-        summary,
-    )
-
-    assert any(setup["setup_type"] == "MICRO_PULLBACK" for setup in setups)
+    assert not hasattr(strategy, "_detect_lightweight_setups")
 
 
 def test_pipeline_not_blocked_by_missing_patterns(monkeypatch, tmp_path) -> None:
