@@ -1,0 +1,6 @@
+symbol | kept | focus | evaluated | pattern_detected | decision | trigger | trade_intent | execution | terminal_outcome
+------------------------------------------------------------------------------------------------------------------------
+BOIL | Y | N | N | N | REJECT | REJECT | N | N/A | NOT_IN_FOCUS
+AAPL | Y | Y | Y | N | REJECT | REJECT | N | N/A | FOCUS_SELECTED_NO_PATTERN
+TSLA | Y | Y | Y | Y | ALLOW | PASS | Y | BLOCKED | EXECUTION_BLOCKED
+[VERIFY][PASS] kept_symbols=3 all_accounted_for=True
