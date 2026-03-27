@@ -357,6 +357,8 @@ class StrategyRunner:
         for strategy in strategies:
             runner = self._runner_registry.get(strategy.name)
             if runner:
+                if getattr(strategy, "name", "") == "RossMomentumStrategyV1":
+                    print("[STRATEGY_RUNNER] invoking RossMomentumStrategyV1")
                 result = runner.run(
                     {
                         "watchlist": watchlist,
@@ -386,6 +388,8 @@ class StrategyRunner:
                 continue
             handler = getattr(strategy, "process_watchlist", None)
             if callable(handler):
+                if getattr(strategy, "name", "") == "RossMomentumStrategyV1":
+                    print("[STRATEGY_RUNNER] invoking RossMomentumStrategyV1")
                 results.extend(
                     handler(
                         watchlist=watchlist,

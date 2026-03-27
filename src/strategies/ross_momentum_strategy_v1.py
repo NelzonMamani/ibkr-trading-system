@@ -314,12 +314,17 @@ class RossMomentumStrategyV1(BaseStrategy):
         session_phase: str,
     ) -> List[TradeIntent]:
         print(f"[ROSS][PROCESS_START] symbols={len(watchlist)}")
+        symbols = list(watchlist)
+        print(f"[ROSS][EVALUATE_START] symbols_received={len(symbols)}")
+        if not symbols:
+            print("[ROSS][ERROR] EMPTY_SYMBOL_LIST")
+            print("[WARNING] condition hit but continuing for debug")
         self.last_symbol_terminal_outcomes: dict[str, dict[str, str]] = {}
         self.last_evaluated_symbols: list[str] = []
         watchlist_symbols: list[str] = []
         gated_focus_symbols: list[str] = []
         focus_symbols: set[str] = set()
-        for row in watchlist:
+        for row in symbols:
             if not isinstance(row, dict):
                 continue
             symbol = str(row.get("symbol") or "").upper()
@@ -382,7 +387,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "outcome": str(category),
                 "reason": str(reason),
             }
-        for row in watchlist:
+        for row in symbols:
             symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
             if not symbol:
                 continue
@@ -390,9 +395,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                 print(f"[ROSS][FOCUS][SKIP] symbol={symbol} reason=NOT_IN_FOCUS_LIST")
                 continue
             self.last_evaluated_symbols.append(str(symbol).upper())
+            print(f"[ROSS][SYMBOL_EVAL][START] symbol={symbol}")
             print(f"[ROSS][EVALUATE][START] symbol={symbol}")
             print(f"[ROSS][EVAL_START] symbol={symbol}")
             print(f"[ROSS][SYMBOL_START] symbol={symbol}")
+            print(f"[ROSS][PIPELINE_ENTRY] symbol={symbol}")
             snapshot = snapshots.get(symbol) if isinstance(snapshots, dict) else None
             symbol_source = infer_symbol_source(row)
             symbol_trace = RossSymbolTrace(
