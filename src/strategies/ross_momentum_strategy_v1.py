@@ -508,6 +508,20 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "float_millions": input_summary.float_millions,
                 },
             )
+            pre_activation = self._detect_pre_breakout_pressure(
+                symbol=symbol,
+                inputs=inputs,
+                input_summary=input_summary,
+            )
+            pre_activation_ready = bool(isinstance(pre_activation, dict) and pre_activation.get("status") == "READY")
+            structure["is_actionable"] = bool(setups)
+            structure["pre_activation_ready"] = pre_activation_ready
+            structure["symbol"] = symbol
+            if pre_activation_ready:
+                print(
+                    "[ROSS][PRE_ACTIVATION] "
+                    f"symbol={symbol} setup={pre_activation.get('setup_type')} classification={pre_activation.get('classification')}"
+                )
             trigger_candidates = TriggerEngine().evaluate_triggers(
                 symbol=symbol,
                 candles=list(getattr(inputs, "candles", []) or []),
@@ -546,6 +560,15 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol_trace.input_summary["structure"] = structure
             symbol_trace.input_summary["setups"] = setups
             symbol_trace.input_summary["trigger_candidates"] = trigger_candidates
+            symbol_trace.input_summary["pre_activation_ready"] = pre_activation_ready
+            symbol_trace.input_summary["trigger_reason"] = next(
+                (
+                    selected.get("trigger_reason")
+                    for selected in trigger_candidates
+                    if selected.get("trigger_ready_now") is True
+                ),
+                trigger_candidates[0].get("trigger_reason") if trigger_candidates else None,
+            )
             print(
                 "[ROSS][INPUT_SUMMARY] "
                 f"symbol={symbol} candle_count={input_summary.candle_count} last={input_summary.last_price} "
@@ -755,16 +778,6 @@ class RossMomentumStrategyV1(BaseStrategy):
             )
 
             if not best_pattern:
-                pre_activation = self._detect_pre_breakout_pressure(
-                    symbol=symbol,
-                    inputs=inputs,
-                    input_summary=input_summary,
-                )
-                if pre_activation and pre_activation.get("status") == "READY":
-                    print(
-                        "[ROSS][PRE_ACTIVATION] "
-                        f"symbol={symbol} setup={pre_activation.get('setup_type')} classification={pre_activation.get('classification')}"
-                    )
                 detected_patterns = bool(symbol_trace.detected_pattern_ids)
                 if detected_patterns:
                     decision_reason = decision.get("decision_reason") or "decision_not_candidate_selected"
@@ -874,16 +887,6 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} trigger={selected_trigger.get('trigger_type') if selected_trigger else None}"
             )
             if selected_trigger is None:
-                pre_activation = self._detect_pre_breakout_pressure(
-                    symbol=symbol,
-                    inputs=inputs,
-                    input_summary=input_summary,
-                )
-                if pre_activation and pre_activation.get("status") == "READY":
-                    print(
-                        "[ROSS][PRE_ACTIVATION] "
-                        f"symbol={symbol} setup={pre_activation.get('setup_type')} classification={pre_activation.get('classification')}"
-                    )
                 print(
                     "[ROSS][NO_TRIGGER] "
                     f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} reason=no_trigger_candidate_for_selected_setup"
@@ -901,16 +904,6 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
             if selected_trigger.get("trigger_ready_now") is not True:
-                pre_activation = self._detect_pre_breakout_pressure(
-                    symbol=symbol,
-                    inputs=inputs,
-                    input_summary=input_summary,
-                )
-                if pre_activation and pre_activation.get("status") == "READY":
-                    print(
-                        "[ROSS][PRE_ACTIVATION] "
-                        f"symbol={symbol} setup={pre_activation.get('setup_type')} classification={pre_activation.get('classification')}"
-                    )
                 print(
                     "[ROSS][NO_TRIGGER] "
                     f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} reason={selected_trigger.get('trigger_reason')}"

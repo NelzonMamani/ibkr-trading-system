@@ -37,7 +37,7 @@ def _pre_bars() -> list[Candle]:
     ]
 
 
-def test_pre_candidate_pre_activation_is_observable_but_not_forced(monkeypatch, tmp_path, capsys) -> None:
+def test_pre_candidate_pre_activation_is_observable_and_can_promote_breakout_trigger(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.setattr(
         "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
         lambda **kwargs: _pre_bars(),
@@ -71,9 +71,11 @@ def test_pre_candidate_pre_activation_is_observable_but_not_forced(monkeypatch, 
     )
 
     out = capsys.readouterr().out
-    assert intents == []
+    assert intents
+    assert intents[0].trigger_ready is True
     assert "[ROSS][PRE_ACTIVATION] symbol=PREX" in out
-    assert "[ROSS][TERMINAL] symbol=PREX category=SETUP_FOUND_BUT_NO_TRIGGER" in out
+    assert "[ROSS][PRE_TRIGGER_PROMOTION] symbol=PREX reason=PRE_ACTIVATION_BREAKOUT" in out
+    assert "[ROSS][INTENT_GENERATED] symbol=PREX" in out
 
 
 def test_registry_marks_session_incompatible_patterns_as_skipped(monkeypatch) -> None:
