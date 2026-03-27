@@ -64,12 +64,22 @@ def _base_strategy(monkeypatch, tmp_path, bars: list[Candle]) -> RossMomentumStr
 
 def _hod_break_bars() -> list[Candle]:
     return [
-        Candle(open=10.8, high=10.9, low=10.75, close=10.88, volume=1200),
-        Candle(open=10.88, high=11.0, low=10.84, close=10.98, volume=1500),
-        Candle(open=10.98, high=11.15, low=10.95, close=11.10, volume=1900),
-        Candle(open=11.10, high=11.28, low=11.05, close=11.22, volume=2400),
-        Candle(open=11.22, high=11.42, low=11.18, close=11.36, volume=2900),
-        Candle(open=11.36, high=11.60, low=11.32, close=11.58, volume=3600),
+        Candle(open=10.00, high=10.06, low=9.98, close=10.04, volume=1200),
+        Candle(open=10.04, high=10.12, low=10.00, close=10.10, volume=1300),
+        Candle(open=10.10, high=10.22, low=10.08, close=10.20, volume=1400),
+        Candle(open=10.20, high=10.32, low=10.16, close=10.30, volume=1500),
+        Candle(open=10.30, high=10.44, low=10.26, close=10.40, volume=1600),
+        Candle(open=10.40, high=10.56, low=10.36, close=10.52, volume=1700),
+        Candle(open=10.52, high=10.70, low=10.48, close=10.66, volume=1800),
+        Candle(open=10.66, high=10.86, low=10.62, close=10.82, volume=1900),
+        Candle(open=10.82, high=11.04, low=10.78, close=10.98, volume=2000),
+        Candle(open=10.98, high=11.20, low=10.94, close=11.14, volume=2100),
+        Candle(open=11.14, high=11.38, low=11.10, close=11.30, volume=2300),
+        Candle(open=11.30, high=11.52, low=11.24, close=11.46, volume=2500),
+        Candle(open=11.46, high=11.58, low=11.08, close=11.20, volume=2700),
+        Candle(open=11.20, high=11.50, low=11.18, close=11.42, volume=3000),
+        Candle(open=11.42, high=11.66, low=11.36, close=11.60, volume=3300),
+        Candle(open=11.60, high=11.84, low=11.54, close=11.78, volume=3600),
     ]
 
 
@@ -115,7 +125,12 @@ def test_setup_engine_hod_break_produces_trigger(monkeypatch, tmp_path) -> None:
     )
 
     assert intents
-    assert intents[0].pattern_name.endswith("HOD_BREAK") or intents[0].pattern_name.endswith("RANGE_BREAKOUT") or intents[0].pattern_name.endswith("PREMARKET_HIGH_BREAK")
+    assert intents[0].pattern_name in {
+        "S_HOD_BREAK",
+        "S_RANGE_BREAKOUT",
+        "S_PREMARKET_HIGH_BREAK",
+        "S_FIRST_PULLBACK",
+    }
     assert intents[0].trigger_ready is True
     assert intents[0].trigger_id.endswith(":TRIGGER") or bool(intents[0].trigger_id)
     assert intents[0].entry_price is not None

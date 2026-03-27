@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class SetupEngine:
@@ -22,7 +25,13 @@ class SetupEngine:
         last_close = self._last_close(candles)
         last_high = self._last_high(candles)
         if last_close is None:
-            print("[SETUP_ENGINE] no setups: missing_last_close")
+            logger.debug("[SETUP_ENGINE] no setups: missing_last_close")
+            return []
+        if not bool(normalized_structure.get("is_valid")):
+            logger.debug(
+                "[SETUP_ENGINE] no setups: invalid_structure reason=%s",
+                normalized_structure.get("reason_code"),
+            )
             return []
 
         setups: list[dict] = []
@@ -224,9 +233,10 @@ class SetupEngine:
             }
             if ema9 is None:
                 setup["quality_flags"].append("EMA9_MISSING")
-        print(
-            "[SETUP_ENGINE] "
-            f"produced={len(setups)} families={[item.get('setup_family_id') for item in setups]}"
+        logger.debug(
+            "[SETUP_ENGINE] produced=%s families=%s",
+            len(setups),
+            [item.get("setup_family_id") for item in setups],
         )
         return setups
 

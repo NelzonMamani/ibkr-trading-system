@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class StructureEngine:
     """Shared market structure engine with explainable state output."""
 
     _ROUNDING = 6
+    STRUCTURE_MIN_CANDLES_HARD = 15
+    STRUCTURE_MIN_CANDLES_PREFERRED = 20
 
     def compute_structure(self, candles: list) -> dict:
         structure = {
@@ -33,13 +38,20 @@ class StructureEngine:
             "last_higher_low": None,
             "last_lower_high": None,
             "last_lower_low": None,
+            "is_valid": False,
+            "reason_code": "UNINITIALIZED",
             "explain": [],
         }
         if len(candles) < 3:
             structure["structure_quality_flags"] = ["INSUFFICIENT_CANDLES", "LOW_CONFIDENCE"]
             structure["trend"] = "SIDEWAYS" if candles else "UNKNOWN"
             structure["structure_state"] = "RANGE" if candles else None
-            print(f"[STRUCTURE_ENGINE] candles={len(candles)} quality={structure['structure_quality_flags']}")
+            structure["reason_code"] = "INSUFFICIENT_CANDLES"
+            logger.debug(
+                "[STRUCTURE_ENGINE] candles=%s quality=%s",
+                len(candles),
+                structure["structure_quality_flags"],
+            )
             return structure
 
         highs = [self._safe_float(self._read(c, "high")) for c in candles]
@@ -53,6 +65,8 @@ class StructureEngine:
         structure["swing_lows"] = swing_lows
 
         trend = self._detect_trend(swing_highs=swing_highs, swing_lows=swing_lows)
+        if trend in {"UNKNOWN", "SIDEWAYS"}:
+            trend = self._infer_direction_from_closes(closes=closes, current_trend=trend)
         dominant_direction = {"UP": "LONG", "DOWN": "SHORT", "SIDEWAYS": "NEUTRAL", "UNKNOWN": "UNKNOWN"}.get(trend, "UNKNOWN")
         structure["trend"] = trend
         structure["dominant_direction"] = dominant_direction
@@ -65,8 +79,21 @@ class StructureEngine:
         pullback_active = False
         if last_close is not None and recent_high is not None and recent_low is not None:
             width = max(recent_high - recent_low, 0.0)
-            impulse_active = bool(width > 0 and ((trend == "UP" and last_close >= recent_high - (0.15 * width)) or (trend == "DOWN" and last_close <= recent_low + (0.15 * width))))
-            pullback_active = bool(width > 0 and ((trend == "UP" and last_close <= recent_high - (0.4 * width)) or (trend == "DOWN" and last_close >= recent_low + (0.4 * width))))
+            recent_closes = [value for value in closes[-5:] if value is not None]
+            impulse_active = bool(
+                width > 0
+                and (
+                    (trend == "UP" and any(close >= recent_high - (0.15 * width) for close in recent_closes))
+                    or (trend == "DOWN" and any(close <= recent_low + (0.15 * width) for close in recent_closes))
+                )
+            )
+            pullback_active = bool(
+                width > 0
+                and (
+                    (trend == "UP" and any(close <= recent_high - (0.4 * width) for close in recent_closes))
+                    or (trend == "DOWN" and any(close >= recent_low + (0.4 * width) for close in recent_closes))
+                )
+            )
 
         range_abs = None
         range_pct = None
@@ -134,12 +161,44 @@ class StructureEngine:
                 ],
             }
         )
-        print(
-            "[STRUCTURE_ENGINE] "
-            f"trend={trend} direction={dominant_direction} impulse={impulse_active} pullback={pullback_active} "
-            f"consolidation={consolidation_active} compression={compression_active} flags={flags}"
+        is_valid, reason_code = self._validate_structure(
+            candles=candles,
+            impulse_active=impulse_active,
+            pullback_active=pullback_active,
+        )
+        structure["is_valid"] = is_valid
+        structure["reason_code"] = reason_code
+        logger.debug(
+            "[STRUCTURE_ENGINE] trend=%s direction=%s impulse=%s pullback=%s consolidation=%s compression=%s valid=%s reason=%s flags=%s",
+            trend,
+            dominant_direction,
+            impulse_active,
+            pullback_active,
+            consolidation_active,
+            compression_active,
+            is_valid,
+            reason_code,
+            flags,
         )
         return structure
+
+    def _validate_structure(
+        self,
+        *,
+        candles: list,
+        impulse_active: bool,
+        pullback_active: bool,
+    ) -> tuple[bool, str]:
+        candle_count = len(candles or [])
+        if candle_count < self.STRUCTURE_MIN_CANDLES_HARD:
+            return False, "INSUFFICIENT_CANDLES"
+        if not impulse_active:
+            return False, "NO_IMPULSE"
+        if not pullback_active:
+            return False, "NO_PULLBACK"
+        if candle_count < self.STRUCTURE_MIN_CANDLES_PREFERRED:
+            return True, "VALID_LOW_SAMPLE_SIZE"
+        return True, "VALID"
 
     @staticmethod
     def _read(item: Any, field: str) -> Any:
@@ -184,6 +243,22 @@ class StructureEngine:
         if highs_falling and lows_falling:
             return "DOWN"
         return "SIDEWAYS"
+
+    @staticmethod
+    def _infer_direction_from_closes(*, closes: list[float | None], current_trend: str) -> str:
+        valid = [c for c in closes[-10:] if c is not None]
+        if len(valid) < 3:
+            return current_trend
+        first = valid[0]
+        last = valid[-1]
+        if first <= 0:
+            return current_trend
+        change = (last - first) / first
+        if change >= 0.015:
+            return "UP"
+        if change <= -0.015:
+            return "DOWN"
+        return current_trend
 
     @staticmethod
     def _window_max(values: list[float | None], window: int) -> float | None:

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class TriggerEngine:
@@ -21,6 +24,14 @@ class TriggerEngine:
         last_close = self._safe_float(self._read(last_candle, "close")) if last_candle else None
         last_high = self._safe_float(self._read(last_candle, "high")) if last_candle else None
         last_low = self._safe_float(self._read(last_candle, "low")) if last_candle else None
+        structure_is_valid = bool((structure or {}).get("is_valid"))
+        if not structure_is_valid:
+            logger.debug(
+                "[TRIGGER_ENGINE] symbol=%s skipped: invalid_structure reason=%s",
+                symbol,
+                (structure or {}).get("reason_code"),
+            )
+            return []
 
         outputs: list[dict] = []
         for setup in setups or []:
@@ -60,9 +71,11 @@ class TriggerEngine:
             }
             outputs.append(output)
 
-        print(
-            "[TRIGGER_ENGINE] "
-            f"symbol={symbol} evaluated={len(outputs)} ready={sum(1 for t in outputs if t.get('trigger_ready_now'))}"
+        logger.debug(
+            "[TRIGGER_ENGINE] symbol=%s evaluated=%s ready=%s",
+            symbol,
+            len(outputs),
+            sum(1 for t in outputs if t.get("trigger_ready_now")),
         )
         return outputs
 

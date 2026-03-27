@@ -414,10 +414,6 @@ class RossMomentumStrategyV1(BaseStrategy):
                 manual_focus=symbol_source == "manual_focus",
                 bypassed_watchlist=symbol_source == "manual_focus",
             )
-            symbol_trace.structure_stage = {
-                "status": "COMPRESSED",
-                "reason_code": "STRUCTURE_COMPRESSED_IN_MAKE_IT_TRADE_LAYER",
-            }
             symbol_trace.confirmation_stage = {
                 "status": "COMPRESSED",
                 "reason_code": "CONFIRMATION_COMPRESSED_IN_MAKE_IT_TRADE_LAYER",
@@ -497,6 +493,17 @@ class RossMomentumStrategyV1(BaseStrategy):
             structure = StructureEngine().compute_structure(
                 candles=list(getattr(inputs, "candles", []) or [])
             )
+            structure_is_valid = bool(structure.get("is_valid"))
+            structure_reason = str(structure.get("reason_code") or "UNSPECIFIED")
+            symbol_trace.structure_stage = {
+                "status": "PASS" if structure_is_valid else "FAIL",
+                "reason_code": structure_reason,
+                "details": {
+                    "dominant_direction": structure.get("dominant_direction"),
+                    "impulse_active": bool(structure.get("impulse_active")),
+                    "pullback_active": bool(structure.get("pullback_active")),
+                },
+            }
             setups = SetupEngine().compute_setups(
                 candles=list(getattr(inputs, "candles", []) or []),
                 levels=levels,
