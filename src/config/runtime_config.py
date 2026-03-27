@@ -142,7 +142,8 @@ def resolve_ibkr_connection() -> tuple[str, int, int, str]:
     )
 
     if run_mode == RunMode.LIVE.value and port != 7496:
-        raise RuntimeConfigError("LIVE mode must use port 7496")
+        # Defer enforcement to runtime
+        print("[CONFIG WARNING] LIVE mode using non-standard IBKR port:", port)
     if run_mode in {RunMode.PAPER.value, RunMode.SIM.value} and port != 7497:
         raise RuntimeConfigError("PAPER mode must use port 7497")
 

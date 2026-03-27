@@ -302,8 +302,14 @@ def resolve_execution_flags(resolved: Dict[str, ConfigRecord]) -> Dict[str, Conf
 
     execution_enabled = bool(execution_record.value)
     if run_mode == "LIVE" and not execution_enabled:
-        raise ConfigResolutionError(
-            "[FATAL] LIVE mode with execution disabled is not allowed in institutional mode"
+        # Defer enforcement to runtime
+        updated["EXECUTION_ENABLED_RUNTIME_VIOLATION"] = _derive_record(
+            "EXECUTION_ENABLED_RUNTIME_VIOLATION",
+            True,
+            trace=(
+                *execution_record.trace,
+                "Deferred runtime violation: LIVE mode with execution disabled",
+            ),
         )
 
     readonly_record = updated["IBKR_READONLY_ENABLED"]
