@@ -94,6 +94,12 @@ def test_session_aware_volume_thresholds() -> None:
     assert rth_vol == 10000
 
 
+def test_premarket_volume_gate_allows_low_volume() -> None:
+    strategy = RossMomentumStrategyV1()
+    threshold = strategy._min_volume_threshold("PREMARKET")
+    assert threshold < 100_000
+
+
 def test_execution_engine_logs_receipt_build_and_submit(capsys: pytest.CaptureFixture[str]) -> None:
     set_config_overrides({"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True})
     try:
