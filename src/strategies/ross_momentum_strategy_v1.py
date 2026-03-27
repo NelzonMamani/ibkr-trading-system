@@ -314,6 +314,9 @@ class RossMomentumStrategyV1(BaseStrategy):
         mode: RunMode,
         session_phase: str,
     ) -> List[TradeIntent]:
+        print(f"[ROSS][PIPELINE_ENTRY] symbols={len(watchlist)}")
+        if len(watchlist) == 0:
+            raise RuntimeError("EMPTY WATCHLIST ENTERED STRATEGY")
         print(f"[ROSS][PROCESS_START] symbols={len(watchlist)}")
         symbols = list(watchlist)
         print(f"[ROSS][EVALUATE_START] symbols_received={len(symbols)}")
@@ -381,6 +384,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             "TRIGGER_REJECTED": 0,
             "READY_FOR_EXECUTION": 0,
         }
+        setup_stage_reached = False
 
         def _terminal(symbol: str, category: str, reason: str) -> None:
             print(f"[ROSS][TERMINAL] symbol={symbol} category={category} reason={reason}")
@@ -395,6 +399,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             if effective_focus_symbols and str(symbol).upper() not in effective_focus_symbols:
                 print(f"[ROSS][FOCUS][SKIP] symbol={symbol} reason=NOT_IN_FOCUS_LIST")
                 continue
+            print(f"[ROSS][SYMBOL_LOOP] symbol={symbol}")
             self.last_evaluated_symbols.append(str(symbol).upper())
             print(f"[ROSS][SYMBOL_EVAL][START] symbol={symbol}")
             print(f"[ROSS][EVALUATE][START] symbol={symbol}")
@@ -594,7 +599,9 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
 
+            print(f"[ROSS][SETUP_ENTRY] symbol={symbol}")
             pipeline_trace("SETUP", symbol)
+            setup_stage_reached = True
             print("[ROSS][SETUP_PHASE][START]")
             setup_count = 1 if input_summary.candle_count > 0 else 0
             print(f"[ROSS][SETUP_PHASE][RESULT] symbol={symbol} setups_found={setup_count}")
@@ -1019,6 +1026,9 @@ class RossMomentumStrategyV1(BaseStrategy):
             print(f"[ROSS][BEST_PATTERN] symbol={symbol} pattern={best_pattern.pattern_id} confidence={float(getattr(best_pattern, 'confidence', 0.0) or 0.0):.4f}")
             symbol_traces.append(symbol_trace)
             self._failure_trace_collector.record_symbol(symbol_trace)
+
+        if not setup_stage_reached:
+            raise RuntimeError("NO SYMBOL REACHED SETUP STAGE")
 
         open_positions = self._infer_open_positions_count(watchlist)
         if open_positions >= self._max_concurrent_positions:
