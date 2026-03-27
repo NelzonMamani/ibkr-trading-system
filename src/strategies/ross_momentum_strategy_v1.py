@@ -50,6 +50,12 @@ class RossMomentumStrategyV1(BaseStrategy):
         "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
         "P_HOD_BREAK": "HOD_BREAK",
         "P_FIRST_PULLBACK": "FIRST_PULLBACK",
+        "P_ORB": "OPENING_RANGE_BREAKOUT",
+        "ORB": "OPENING_RANGE_BREAKOUT",
+        "RANGE_BREAK": "RANGE_BREAKOUT",
+        "CONSOLIDATION_BREAKOUT": "RANGE_BREAKOUT",
+        "EMA_PULLBACK": "EMA_RECLAIM",
+        "VWAP_RECLAIM_CONTINUATION": "VWAP_RECLAIM",
     }
 
     _priority_order: Tuple[str, ...] = (
@@ -541,6 +547,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"setups={len(setups)} triggers={len(trigger_candidates)} "
                 f"ready_triggers={sum(1 for t in trigger_candidates if t.get('trigger_ready_now'))}"
             )
+            print(
+                "[ROSS][TRIGGER_CANDIDATES] "
+                f"symbol={symbol} total={len(trigger_candidates)} ready={sum(1 for t in trigger_candidates if t.get('trigger_ready_now'))}"
+            )
             symbol_trace.input_summary = input_summary.to_dict()
             symbol_trace.input_summary["levels"] = levels
             symbol_trace.input_summary["structure"] = structure
@@ -740,6 +750,15 @@ class RossMomentumStrategyV1(BaseStrategy):
                 setup_family_id=decision.get("selected_setup_family"),
                 trigger_candidates=trigger_candidates,
             )
+            selected_setup_family = self._normalize_setup_family_id(decision.get("selected_setup_family"))
+            selected_trigger_family = (
+                str(selected_trigger.get("trigger_family_id") or "").upper() if selected_trigger else None
+            )
+            symbol_trace.input_summary["selected_setup"] = selected_setup_family
+            symbol_trace.input_summary["selected_trigger_family"] = selected_trigger_family
+            symbol_trace.input_summary["trigger_candidate_count"] = len(trigger_candidates)
+            symbol_trace.input_summary["trigger_ready_now"] = bool(selected_trigger.get("trigger_ready_now")) if selected_trigger else None
+            symbol_trace.input_summary["trigger_reason"] = selected_trigger.get("trigger_reason") if selected_trigger else None
             print(
                 "[ROSS][DECISION_ENGINE] "
                 f"symbol={symbol} state={decision['decision_state']} "
@@ -748,6 +767,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"selected_trigger={selected_trigger.get('trigger_type') if selected_trigger else None} "
                 f"trigger_ready={selected_trigger.get('trigger_ready_now') if selected_trigger else None} "
                 f"reason={decision['decision_reason']}"
+            )
+            print(
+                "[ROSS][TRIGGER_SELECTED] "
+                f"symbol={symbol} trigger_family={selected_trigger.get('trigger_family_id') if selected_trigger else None} "
+                f"ready={selected_trigger.get('trigger_ready_now') if selected_trigger else None} "
+                f"reason={selected_trigger.get('trigger_reason') if selected_trigger else None}"
             )
             best_pattern = self._resolve_selected_pattern_trace(
                 selected_pattern_id=decision.get("selected_pattern_id"),
@@ -874,6 +899,14 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} trigger={selected_trigger.get('trigger_type') if selected_trigger else None}"
             )
             if selected_trigger is None:
+                if selected_setup_family and TriggerEngine.resolve_trigger_family_for_setup(selected_setup_family) is None:
+                    no_trigger_reason = "NO_TRIGGER_MAPPING"
+                    print(
+                        "[ROSS][NO_TRIGGER_MAPPING] "
+                        f"symbol={symbol} setup={selected_setup_family}"
+                    )
+                else:
+                    no_trigger_reason = "NO_TRIGGER_CANDIDATE"
                 pre_activation = self._detect_pre_breakout_pressure(
                     symbol=symbol,
                     inputs=inputs,
@@ -886,16 +919,16 @@ class RossMomentumStrategyV1(BaseStrategy):
                     )
                 print(
                     "[ROSS][NO_TRIGGER] "
-                    f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} reason=no_trigger_candidate_for_selected_setup"
+                    f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} reason={no_trigger_reason.lower()}"
                 )
                 symbol_trace.final_outcome = "SETUP_FOUND_BUT_NO_TRIGGER"
-                symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "NO_TRIGGER_CANDIDATE"}
-                symbol_trace.final_reason_code = "NO_TRIGGER_CANDIDATE"
+                symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": no_trigger_reason}
+                symbol_trace.final_reason_code = no_trigger_reason
                 print(f"[CLASSIFICATION] symbol={symbol} category=SETUP_FOUND_BUT_NO_TRIGGER")
-                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=NO_TRIGGER_CANDIDATE")
-                _terminal(symbol, "SETUP_FOUND_BUT_NO_TRIGGER", "no_trigger_candidate")
+                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason={no_trigger_reason}")
+                _terminal(symbol, "SETUP_FOUND_BUT_NO_TRIGGER", no_trigger_reason.lower())
                 classification_counts["TRIGGER_REJECTED"] += 1
-                self._log_decision_blocked(symbol=symbol, final_stage="trigger", reason="no_trigger_candidate")
+                self._log_decision_blocked(symbol=symbol, final_stage="trigger", reason=no_trigger_reason.lower())
                 self._log_pipeline_no_decision(symbol)
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
@@ -914,6 +947,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                 print(
                     "[ROSS][NO_TRIGGER] "
                     f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} reason={selected_trigger.get('trigger_reason')}"
+                )
+                print(
+                    "[ROSS][TRIGGER_WAIT] "
+                    f"symbol={symbol} reason={selected_trigger.get('trigger_reason')}"
                 )
                 symbol_trace.final_outcome = "SETUP_FOUND_BUT_NO_TRIGGER"
                 symbol_trace.trigger_stage = {
@@ -1000,6 +1037,12 @@ class RossMomentumStrategyV1(BaseStrategy):
             print(
                 "[TRIGGER_QUALITY] "
                 f"symbol={symbol} setup_family={setup_family} tier={quality_tier}"
+            )
+            print(
+                "[ROSS][TRIGGER_SELECTED] "
+                f"symbol={symbol} trigger_family={selected_trigger.get('trigger_family_id') if selected_trigger else None} "
+                f"ready={selected_trigger.get('trigger_ready_now') if selected_trigger else None} "
+                f"reason={selected_trigger.get('trigger_reason') if selected_trigger else None}"
             )
             print(
                 "[TRADE_PERMISSION] "
