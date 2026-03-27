@@ -1333,14 +1333,16 @@ class CoreOrchestrator:
         cycle_started_at = datetime.now(timezone.utc)
         ny_time = to_ny_time(cycle_started_at)
         uk_time = to_uk_time(cycle_started_at)
-        forced_session_env = str(os.getenv("FORCE_SESSION") or "").strip().upper()
-        forced_session_applied = normalize_session_label(forced_session_env) if forced_session_env else ""
-        if forced_session_env:
+        forced_session = str(os.getenv("FORCE_SESSION") or "").strip().upper()
+        forced_session_applied = normalize_session_label(forced_session) if forced_session else ""
+
+        if forced_session:
             if not forced_session_applied:
-                forced_session_applied = forced_session_env
+                forced_session_applied = forced_session
+
             print(
                 "[SESSION][FORCED_OVERRIDE] "
-                f"requested={forced_session_env} applied={forced_session_applied}"
+                f"requested={forced_session} applied={forced_session_applied}"
             )
         session_override = str(get_config("SESSION_PHASE_OVERRIDE") or "").strip().upper()
         session_phase = forced_session_applied or session_override or market_session_phase(cycle_started_at)
