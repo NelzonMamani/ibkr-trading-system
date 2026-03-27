@@ -1,0 +1,5 @@
+symbol | float_state | catalyst_state | prep_state | quality_score | watchlist_rank | focus_status
+TSLA | FLOAT_CONFIRMED | NO_CATALYST | NOT_READY_NO_CATALYST | 29.04 | 1 | WATCHLIST_ONLY
+NVDA | FLOAT_CONFIRMED | NO_CATALYST | NOT_READY_NO_CATALYST | 23.77 | 2 | WATCHLIST_ONLY
+AAPL | FLOAT_CONFIRMED | NO_CATALYST | NOT_READY_NO_CATALYST | 21.22 | 3 | WATCHLIST_ONLY
+artifact_path=data/prep/premarket_prep.json

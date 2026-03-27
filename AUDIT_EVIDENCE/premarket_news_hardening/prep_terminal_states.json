@@ -1,0 +1,17 @@
+[
+  {
+    "symbol": "TSLA",
+    "terminal_state": "NOT_READY_NO_CATALYST",
+    "reason": "no_credible_catalyst_found"
+  },
+  {
+    "symbol": "NVDA",
+    "terminal_state": "NOT_READY_NO_CATALYST",
+    "reason": "no_credible_catalyst_found"
+  },
+  {
+    "symbol": "AAPL",
+    "terminal_state": "NOT_READY_NO_CATALYST",
+    "reason": "no_credible_catalyst_found"
+  }
+]

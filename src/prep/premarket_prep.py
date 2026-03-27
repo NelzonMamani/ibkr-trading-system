@@ -240,8 +240,92 @@ class PreMarketPrepEngine:
         for symbol in symbols:
             snapshot = self.get_snapshot(symbol)
             if snapshot is None:
-                rows.append({"symbol": symbol, "news_context": [], "last_refresh_reasons": []})
+                rows.append(
+                    {
+                        "symbol": symbol,
+                        "news_context": [],
+                        "last_refresh_reasons": [],
+                        "terminal_state": "NOT_READY_DATA_WEAK",
+                        "terminal_reason": "no_prep_snapshot",
+                    }
+                )
                 continue
+            float_age_days = (
+                (datetime.now(timezone.utc) - snapshot.float_asof).days
+                if snapshot.float_asof is not None
+                else None
+            )
+            float_age_bucket = (
+                "UNKNOWN"
+                if float_age_days is None
+                else "FRESH_0_7D"
+                if float_age_days <= 7
+                else "STALE_8_30D"
+                if float_age_days <= 30
+                else "OLD_GT_30D"
+            )
+            float_class = _float_classification(snapshot.float_shares)
+            float_state = _float_state(snapshot.float_shares, snapshot.float_asof)
+            fresh_news = [item for item in snapshot.news_context if item.get("freshness") == "fresh"]
+            stale_news = [item for item in snapshot.news_context if item.get("freshness") != "fresh"]
+            top_news = snapshot.news_context[0] if snapshot.news_context else {}
+            catalyst_present = bool(fresh_news)
+            catalyst_confidence = 0.85 if catalyst_present else 0.0
+            catalyst_type = (
+                str(top_news.get("catalyst_tag") or "unknown").lower().replace(" ", "_")
+                if snapshot.news_context
+                else "unknown"
+            )
+            has_levels = snapshot.levels.premarket_high is not None and snapshot.levels.premarket_low is not None
+            premarket_range_pct = None
+            if (
+                has_levels
+                and snapshot.levels.premarket_low
+                and snapshot.levels.premarket_low > 0
+                and snapshot.levels.premarket_high is not None
+            ):
+                premarket_range_pct = round(
+                    ((snapshot.levels.premarket_high - snapshot.levels.premarket_low) / snapshot.levels.premarket_low) * 100.0,
+                    4,
+                )
+            pct_change_quality = min(max(float(snapshot.persisted_pct_change or 0.0) / 15.0, 0.0), 1.0)
+            rvol_quality = min(max(float(snapshot.persisted_rvol or 0.0) / 4.0, 0.0), 1.0)
+            float_quality = {
+                "ROSS_SWEET_SPOT": 1.0,
+                "LOW_FLOAT": 0.85,
+                "MID_FLOAT": 0.55,
+                "HIGH_FLOAT": 0.30,
+                "UNKNOWN_FLOAT": 0.0,
+            }.get(float_class, 0.0)
+            catalyst_quality = catalyst_confidence
+            structure_quality = 0.8 if has_levels else 0.2
+            stale_penalty = 0.3 if stale_news and not fresh_news else 0.0
+            missing_penalty = 0.4 if float_class == "UNKNOWN_FLOAT" else 0.0
+            score_raw = (
+                0.22 * pct_change_quality
+                + 0.20 * rvol_quality
+                + 0.20 * float_quality
+                + 0.20 * catalyst_quality
+                + 0.18 * structure_quality
+                - stale_penalty
+                - missing_penalty
+            )
+            premarket_quality_score = round(max(0.0, min(score_raw, 1.0)) * 100.0, 2)
+            if not catalyst_present:
+                terminal_state = "NOT_READY_NO_CATALYST"
+                terminal_reason = "no_credible_catalyst_found"
+            elif float_class == "UNKNOWN_FLOAT":
+                terminal_state = "NOT_READY_FLOAT_UNKNOWN"
+                terminal_reason = "float_unknown"
+            elif premarket_quality_score >= 75:
+                terminal_state = "READY_HIGH_QUALITY"
+                terminal_reason = "high_quality_premarket_packet"
+            elif premarket_quality_score >= 50:
+                terminal_state = "READY_MEDIUM_QUALITY"
+                terminal_reason = "adequate_quality_premarket_packet"
+            else:
+                terminal_state = "READY_LOW_QUALITY"
+                terminal_reason = "low_rank_but_usable"
             rows.append(
                 {
                     "symbol": symbol,
@@ -254,9 +338,13 @@ class PreMarketPrepEngine:
                     "float_shares": snapshot.float_shares,
                     "float_millions": round(snapshot.float_shares / 1_000_000.0, 4) if snapshot.float_shares else None,
                     "float_source": "prep_cache" if snapshot.float_shares is not None else "missing",
-                    "float_classification": "low_float" if snapshot.float_shares and snapshot.float_shares <= 20_000_000 else "standard",
+                    "float_classification": float_class,
+                    "float_state": float_state,
                     "float_cache_hit": snapshot.float_shares is not None,
                     "float_asof": snapshot.float_asof.isoformat() if snapshot.float_asof else None,
+                    "float_age_days": float_age_days,
+                    "float_age_bucket": float_age_bucket,
+                    "float_confidence": 1.0 if float_state == "FLOAT_CONFIRMED" else 0.6 if float_state == "FLOAT_ESTIMATED" else 0.0,
                     "news_context": snapshot.news_context,
                     "news_count": len(snapshot.news_context),
                     "fresh_news_count": sum(1 for item in snapshot.news_context if item.get("freshness") == "fresh"),
@@ -264,8 +352,31 @@ class PreMarketPrepEngine:
                     "top_news_title": snapshot.news_context[0].get("title") if snapshot.news_context else None,
                     "top_news_catalyst_tag": snapshot.news_context[0].get("catalyst_tag") if snapshot.news_context else None,
                     "news_asof": snapshot.news_asof.isoformat() if snapshot.news_asof else None,
+                    "catalyst_packet": {
+                        "has_news": bool(snapshot.news_context),
+                        "catalyst_present": catalyst_present,
+                        "catalyst_type": catalyst_type,
+                        "catalyst_title": top_news.get("title"),
+                        "catalyst_source_count": len({str(item.get('source') or '').lower() for item in snapshot.news_context if item.get("source")}),
+                        "catalyst_source_quality": "multi_source" if len(snapshot.news_context) >= 2 else "single_source" if snapshot.news_context else "none",
+                        "catalyst_confidence": catalyst_confidence,
+                        "stale_news_flag": bool(stale_news and not fresh_news),
+                        "no_news_reason": None if snapshot.news_context else "no_credible_catalyst_found",
+                    },
                     "premarket_high": snapshot.levels.premarket_high,
                     "premarket_low": snapshot.levels.premarket_low,
+                    "premarket_structure_packet": {
+                        "premarket_high": snapshot.levels.premarket_high,
+                        "premarket_low": snapshot.levels.premarket_low,
+                        "premarket_range_pct": premarket_range_pct,
+                        "premarket_volume": snapshot.persisted_volume,
+                        "gap_classification": "VALID_ROSS_GAP" if (snapshot.levels.gap_pct or 0) >= 5 else "SMALL_GAP" if (snapshot.levels.gap_pct or 0) > 0 else "NO_GAP",
+                        "extension_state": "EXTENDED" if (snapshot.levels.gap_pct or 0) >= 20 else "NORMAL",
+                        "clean_breakout_candidate": bool(has_levels and catalyst_present),
+                        "crowded_or_extended": bool((snapshot.levels.gap_pct or 0) >= 20),
+                        "spread_quality": "UNKNOWN",
+                        "liquidity_quality": "GOOD" if (snapshot.persisted_volume or 0) >= 100_000 else "WEAK",
+                    },
                     "prior_day_high": snapshot.levels.prior_day_high,
                     "prior_day_low": snapshot.levels.prior_day_low,
                     "multi_day_high": snapshot.levels.multi_day_high,
@@ -286,8 +397,24 @@ class PreMarketPrepEngine:
                     "last_transition_reason": snapshot.last_transition_reason,
                     "live_confirmed_fields": snapshot.live_confirmed_fields,
                     "context_only_fields": snapshot.context_only_fields,
+                    "premarket_quality_score": premarket_quality_score,
+                    "score_breakdown": {
+                        "pct_change_quality": round(pct_change_quality * 100.0, 2),
+                        "rvol_quality": round(rvol_quality * 100.0, 2),
+                        "float_quality": round(float_quality * 100.0, 2),
+                        "catalyst_quality": round(catalyst_quality * 100.0, 2),
+                        "structure_quality": round(structure_quality * 100.0, 2),
+                        "stale_penalty": round(stale_penalty * 100.0, 2),
+                        "missing_penalty": round(missing_penalty * 100.0, 2),
+                    },
+                    "terminal_state": terminal_state,
+                    "terminal_reason": terminal_reason,
                 }
             )
+        rows = sorted(rows, key=lambda row: (-float(row.get("premarket_quality_score") or 0.0), row.get("symbol") or ""))
+        for idx, row in enumerate(rows, start=1):
+            row["watchlist_rank"] = idx
+            row["focus_status"] = "IN_FOCUS_CANDIDATE" if idx <= 5 and str(row.get("terminal_state", "")).startswith("READY_") else "WATCHLIST_ONLY"
         return {"timestamp": now, "symbols": rows}
 
     def _cleanup_expired(self, now: datetime) -> None:
@@ -333,3 +460,26 @@ def _parse_datetime(raw: object) -> Optional[datetime]:
         return datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def _float_classification(float_shares: Optional[int]) -> str:
+    if float_shares is None or float_shares <= 0:
+        return "UNKNOWN_FLOAT"
+    if float_shares < 10_000_000:
+        return "LOW_FLOAT"
+    if float_shares <= 20_000_000:
+        return "ROSS_SWEET_SPOT"
+    if float_shares <= 50_000_000:
+        return "MID_FLOAT"
+    return "HIGH_FLOAT"
+
+
+def _float_state(float_shares: Optional[int], float_asof: Optional[datetime]) -> str:
+    if float_shares is None or float_shares <= 0:
+        return "FLOAT_UNKNOWN"
+    if float_asof is None:
+        return "FLOAT_ESTIMATED"
+    age_days = (datetime.now(timezone.utc) - float_asof).days
+    if age_days <= 7:
+        return "FLOAT_CONFIRMED"
+    return "FLOAT_ESTIMATED"

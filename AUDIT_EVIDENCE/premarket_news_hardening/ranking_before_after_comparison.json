@@ -1,0 +1,34 @@
+{
+  "note": "synthetic comparison for verification",
+  "before": [
+    {
+      "symbol": "AAPL",
+      "rank": 1
+    },
+    {
+      "symbol": "NVDA",
+      "rank": 2
+    },
+    {
+      "symbol": "TSLA",
+      "rank": 3
+    }
+  ],
+  "after": [
+    {
+      "symbol": "TSLA",
+      "rank": 1,
+      "score": 29.04
+    },
+    {
+      "symbol": "NVDA",
+      "rank": 2,
+      "score": 23.77
+    },
+    {
+      "symbol": "AAPL",
+      "rank": 3,
+      "score": 21.22
+    }
+  ]
+}
