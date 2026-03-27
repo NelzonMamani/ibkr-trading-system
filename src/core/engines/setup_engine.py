@@ -7,6 +7,7 @@ class SetupEngine:
     """Shared setup engine translating level + structure context into setup candidates."""
 
     _ROUNDING = 6
+    _HARD_MIN_CANDLES = 15
 
     def compute_setups(
         self,
@@ -19,6 +20,17 @@ class SetupEngine:
     ) -> list[dict]:
         normalized_levels = levels if isinstance(levels, dict) else {}
         normalized_structure = structure if isinstance(structure, dict) else {}
+        candle_count = len(candles or [])
+        structure_is_valid = bool(normalized_structure.get("is_valid"))
+        if not structure_is_valid:
+            print(
+                "[SETUP_ENGINE][GUARD] "
+                f"blocked=true reason={normalized_structure.get('reason_code') or 'STRUCTURE_INVALID'}"
+            )
+            return []
+        if candle_count < self._HARD_MIN_CANDLES:
+            print(f"[SETUP_ENGINE][GUARD] blocked=true reason=INSUFFICIENT_CANDLES_HARD_MIN candles={candle_count}")
+            return []
         last_close = self._last_close(candles)
         last_high = self._last_high(candles)
         if last_close is None:

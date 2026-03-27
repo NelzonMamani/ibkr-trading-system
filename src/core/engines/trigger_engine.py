@@ -17,6 +17,13 @@ class TriggerEngine:
         levels: dict,
         structure: dict,
     ) -> list[dict]:
+        normalized_structure = structure if isinstance(structure, dict) else {}
+        if not bool(normalized_structure.get("is_valid")):
+            print(
+                "[TRIGGER_ENGINE][GUARD] "
+                f"symbol={symbol} blocked=true reason={normalized_structure.get('reason_code') or 'STRUCTURE_INVALID'}"
+            )
+            return []
         last_candle = candles[-1] if candles else None
         last_close = self._safe_float(self._read(last_candle, "close")) if last_candle else None
         last_high = self._safe_float(self._read(last_candle, "high")) if last_candle else None

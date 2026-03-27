@@ -7,9 +7,13 @@ class StructureEngine:
     """Shared market structure engine with explainable state output."""
 
     _ROUNDING = 6
+    _HARD_MIN_CANDLES = 15
+    _PREFERRED_MIN_CANDLES = 20
 
     def compute_structure(self, candles: list) -> dict:
+        candle_count = len(candles)
         structure = {
+            "candle_count": candle_count,
             "dominant_direction": "UNKNOWN",
             "impulse_active": False,
             "pullback_active": False,
@@ -34,11 +38,15 @@ class StructureEngine:
             "last_lower_high": None,
             "last_lower_low": None,
             "explain": [],
+            "is_valid": False,
+            "reason_code": "STRUCTURE_NOT_EVALUATED",
         }
-        if len(candles) < 3:
+        if candle_count < 3:
             structure["structure_quality_flags"] = ["INSUFFICIENT_CANDLES", "LOW_CONFIDENCE"]
             structure["trend"] = "SIDEWAYS" if candles else "UNKNOWN"
             structure["structure_state"] = "RANGE" if candles else None
+            structure["is_valid"] = False
+            structure["reason_code"] = "INSUFFICIENT_CANDLES_HARD_MIN"
             print(f"[STRUCTURE_ENGINE] candles={len(candles)} quality={structure['structure_quality_flags']}")
             return structure
 
@@ -134,12 +142,39 @@ class StructureEngine:
                 ],
             }
         )
+        is_valid, reason_code = self._validate_structure(
+            candle_count=candle_count,
+            trend=trend,
+            impulse_active=impulse_active,
+            pullback_active=pullback_active,
+        )
+        structure["is_valid"] = is_valid
+        structure["reason_code"] = reason_code
         print(
             "[STRUCTURE_ENGINE] "
             f"trend={trend} direction={dominant_direction} impulse={impulse_active} pullback={pullback_active} "
-            f"consolidation={consolidation_active} compression={compression_active} flags={flags}"
+            f"consolidation={consolidation_active} compression={compression_active} flags={flags} "
+            f"is_valid={is_valid} reason_code={reason_code}"
         )
         return structure
+
+    def _validate_structure(
+        self,
+        *,
+        candle_count: int,
+        trend: str,
+        impulse_active: bool,
+        pullback_active: bool,
+    ) -> tuple[bool, str]:
+        if candle_count < self._HARD_MIN_CANDLES:
+            return False, "INSUFFICIENT_CANDLES_HARD_MIN"
+        if str(trend).upper() == "UNKNOWN":
+            return False, "TREND_UNKNOWN"
+        if not (bool(impulse_active) or bool(pullback_active)):
+            return False, "NO_IMPULSE_OR_PULLBACK"
+        if candle_count < self._PREFERRED_MIN_CANDLES:
+            return True, "MIN_CANDLES_BELOW_PREFERRED"
+        return True, "STRUCTURE_ACTIONABLE"
 
     @staticmethod
     def _read(item: Any, field: str) -> Any:

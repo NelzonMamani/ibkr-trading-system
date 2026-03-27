@@ -27,14 +27,22 @@ class EmptyRegistry:
 
 
 def _hod_break_bars() -> list[Candle]:
-    return [
-        Candle(open=10.8, high=10.9, low=10.75, close=10.88, volume=1200),
-        Candle(open=10.88, high=11.0, low=10.84, close=10.98, volume=1500),
-        Candle(open=10.98, high=11.15, low=10.95, close=11.10, volume=1900),
-        Candle(open=11.10, high=11.28, low=11.05, close=11.22, volume=2400),
-        Candle(open=11.22, high=11.42, low=11.18, close=11.36, volume=2900),
-        Candle(open=11.36, high=11.60, low=11.32, close=11.58, volume=3600),
-    ]
+    rows: list[Candle] = []
+    base = 10.2
+    for idx in range(22):
+        center = base + (idx * 0.05) + (0.08 if idx % 4 == 1 else (-0.06 if idx % 4 == 3 else 0.0))
+        open_ = center - 0.03
+        close = center + (0.30 if idx == 21 else (0.04 if idx % 3 != 0 else -0.01))
+        rows.append(
+            Candle(
+                open=open_,
+                high=max(open_, close) + (0.0 if idx == 21 else 0.05),
+                low=min(open_, close) - 0.05,
+                close=close,
+                volume=1200 + (idx * 220),
+            )
+        )
+    return rows
 
 
 def _watchlist_row(symbol: str = "TEST") -> dict:
@@ -174,6 +182,31 @@ def test_data_block_does_not_force_intent(monkeypatch, tmp_path, capsys) -> None
     assert "[ROSS][TERMINAL] symbol=TEST category=DATA_BLOCKED" in out
 
 
+def test_structure_gate_blocks_setup_and_trigger_when_not_actionable(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        lambda **kwargs: _hod_break_bars()[:10],
+    )
+    strategy = RossMomentumStrategyV1()
+    strategy._failure_trace_collector = RossPatternFailureTraceCollector(evidence_root=tmp_path)
+    strategy._pattern_registry = EmptyRegistry(inactive_pattern_ids=set())
+    strategy._data_contract_block_reasons = lambda **kwargs: []
+
+    intents = strategy.process_watchlist(
+        watchlist=[_watchlist_row()],
+        snapshots={"TEST": _snapshot()},
+        session_label="PRE",
+        timestamp_utc="cycle-structure-block",
+        mode=RunMode.LIVE,
+        session_phase="PRE",
+    )
+
+    out = capsys.readouterr().out
+    assert intents == []
+    assert "[ROSS][STRUCTURE_BLOCK] symbol=TEST reason=INVALID_STRUCTURE" in out
+    assert "[CLASSIFICATION] symbol=TEST category=STRUCTURE_NOT_ACTIONABLE" in out
+
+
 def test_pr554_pipeline_trace_populated_on_live_path(monkeypatch, tmp_path) -> None:
     strategy = _base_strategy(monkeypatch, tmp_path)
 
@@ -188,7 +221,7 @@ def test_pr554_pipeline_trace_populated_on_live_path(monkeypatch, tmp_path) -> N
 
     trace = strategy._failure_trace_collector._symbols[-1]
     assert trace.context_stage["status"] == "PASS"
-    assert trace.structure_stage["reason_code"] == "STRUCTURE_COMPRESSED_IN_MAKE_IT_TRADE_LAYER"
+    assert trace.structure_stage["status"] == "PASS"
     assert trace.setup_stage["status"] == "PASS"
     assert trace.trigger_stage["status"] == "FIRED"
     assert trace.final_outcome is not None

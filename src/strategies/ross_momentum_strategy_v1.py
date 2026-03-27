@@ -33,6 +33,7 @@ from src.strategies.ross_momentum.patterns.pattern_trace import (
 )
 TERMINAL_CATEGORY = {
     "DATA_BLOCKED": "DATA_BLOCKED",
+    "STRUCTURE_NOT_ACTIONABLE": "STRUCTURE_NOT_ACTIONABLE",
     "SETUP_NOT_FOUND": "SETUP_NOT_FOUND",
     "SETUP_FOUND_DECISION_REJECTED": "SETUP_FOUND_DECISION_REJECTED",
     "SETUP_FOUND_CONFIRMATION_BLOCKED": "SETUP_FOUND_CONFIRMATION_BLOCKED",
@@ -59,6 +60,8 @@ class RossMomentumStrategyV1(BaseStrategy):
         "VWAP_RECLAIM",
         "FIRST_PULLBACK_LONG",
     )
+    _STRUCTURE_HARD_MIN_CANDLES = 15
+    _STRUCTURE_PREFERRED_MIN_CANDLES = 20
 
     def __init__(self) -> None:
         self._pattern_registry = RossPatternRegistry()
@@ -230,6 +233,25 @@ class RossMomentumStrategyV1(BaseStrategy):
         missing = [name for name, ok in payload.items() if name != "candle_count" and not bool(ok)]
         return payload, missing
 
+    def _structure_check(self, *, symbol: str, structure: dict, candle_count: int) -> tuple[bool, str]:
+        trend = str(structure.get("trend") or "UNKNOWN").upper()
+        impulse_active = bool(structure.get("impulse_active"))
+        pullback_active = bool(structure.get("pullback_active"))
+        print(
+            "[ROSS][STRUCTURE_CHECK] "
+            f"symbol={symbol} candle_count={candle_count} trend={trend} "
+            f"impulse_active={impulse_active} pullback_active={pullback_active}"
+        )
+        if candle_count < self._STRUCTURE_HARD_MIN_CANDLES:
+            return False, "INSUFFICIENT_CANDLES_HARD_MIN"
+        if trend == "UNKNOWN":
+            return False, "TREND_UNKNOWN"
+        if not (impulse_active or pullback_active):
+            return False, "NO_IMPULSE_OR_PULLBACK"
+        if candle_count < self._STRUCTURE_PREFERRED_MIN_CANDLES:
+            return True, "MIN_CANDLES_BELOW_PREFERRED"
+        return True, "STRUCTURE_ACTIONABLE"
+
     def evaluate(
         self,
         pattern_results: List[PatternResult],
@@ -377,6 +399,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         synthetic_forced_intents = 0
         classification_counts = {
             "DATA_BLOCKED": 0,
+            "STRUCTURE_NOT_ACTIONABLE": 0,
             "PATTERN_NO_SETUP": 0,
             "TRIGGER_REJECTED": 0,
             "READY_FOR_EXECUTION": 0,
@@ -415,8 +438,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 bypassed_watchlist=symbol_source == "manual_focus",
             )
             symbol_trace.structure_stage = {
-                "status": "COMPRESSED",
-                "reason_code": "STRUCTURE_COMPRESSED_IN_MAKE_IT_TRADE_LAYER",
+                "status": "PENDING",
+                "reason_code": "STRUCTURE_NOT_EVALUATED",
             }
             symbol_trace.confirmation_stage = {
                 "status": "COMPRESSED",
@@ -497,6 +520,53 @@ class RossMomentumStrategyV1(BaseStrategy):
             structure = StructureEngine().compute_structure(
                 candles=list(getattr(inputs, "candles", []) or [])
             )
+            candle_count = len(getattr(inputs, "candles", []) or [])
+            structure_is_valid, structure_reason = self._structure_check(
+                symbol=str(symbol),
+                structure=structure,
+                candle_count=candle_count,
+            )
+            structure["is_valid"] = bool(structure_is_valid)
+            structure["reason_code"] = str(structure_reason)
+            if structure_is_valid:
+                print(f"[ROSS][STRUCTURE_PASS] symbol={symbol} reason={structure_reason}")
+                symbol_trace.structure_stage = {
+                    "status": "PASS",
+                    "reason_code": structure_reason,
+                    "details": {"candle_count": candle_count},
+                }
+            else:
+                print(f"[ROSS][STRUCTURE_FAIL] symbol={symbol} reason={structure_reason}")
+                print(f"[ROSS][STRUCTURE_BLOCK] symbol={symbol} reason=INVALID_STRUCTURE")
+                print(f"[CLASSIFICATION] symbol={symbol} category=STRUCTURE_NOT_ACTIONABLE")
+                _terminal(symbol, TERMINAL_CATEGORY["STRUCTURE_NOT_ACTIONABLE"], structure_reason)
+                classification_counts["STRUCTURE_NOT_ACTIONABLE"] += 1
+                symbol_trace.structure_stage = {
+                    "status": "FAIL",
+                    "reason_code": structure_reason,
+                    "details": {"candle_count": candle_count, "classification": "STRUCTURE_NOT_ACTIONABLE"},
+                }
+                symbol_trace.setup_stage = {
+                    "status": "FAIL",
+                    "reason_code": "STRUCTURE_NOT_ACTIONABLE",
+                    "details": {"reason": structure_reason},
+                }
+                symbol_trace.trigger_stage = {
+                    "status": "REJECTED",
+                    "reason_code": "STRUCTURE_NOT_ACTIONABLE",
+                }
+                symbol_trace.final_outcome = "NO_SETUP:STRUCTURE_NOT_ACTIONABLE"
+                symbol_trace.final_reason_code = "STRUCTURE_NOT_ACTIONABLE"
+                self._log_decision_blocked(
+                    symbol=symbol,
+                    final_stage="structure",
+                    reason=structure_reason,
+                )
+                self._log_pipeline_no_decision(symbol)
+                symbol_trace.pattern_traces = []
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
             setups = SetupEngine().compute_setups(
                 candles=list(getattr(inputs, "candles", []) or []),
                 levels=levels,
@@ -1169,6 +1239,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             "[ROSS][PIPELINE_SUMMARY] "
             "dominant_no_trade_reasons="
             f"{{'DATA_BLOCKED': {classification_counts['DATA_BLOCKED']}, "
+            f"'STRUCTURE_NOT_ACTIONABLE': {classification_counts['STRUCTURE_NOT_ACTIONABLE']}, "
             f"'PATTERN_NO_SETUP': {classification_counts['PATTERN_NO_SETUP']}, "
             f"'TRIGGER_REJECTED': {classification_counts['TRIGGER_REJECTED']}}}"
         )

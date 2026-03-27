@@ -13,10 +13,11 @@ def _candles(count: int = 25) -> list[dict]:
     rows: list[dict] = []
     base = 9.5
     for i in range(count):
-        open_ = base + (i * 0.04)
-        close = open_ + (0.03 if i % 4 != 0 else -0.01)
-        high = max(open_, close) + 0.04
-        low = min(open_, close) - 0.03
+        center = base + (i * 0.05) + (0.08 if i % 4 == 1 else (-0.06 if i % 4 == 3 else 0.0))
+        open_ = center - 0.03
+        close = center + (0.18 if i == count - 1 else (0.03 if i % 3 != 0 else -0.01))
+        high = max(open_, close) + 0.05
+        low = min(open_, close) - 0.05
         rows.append(
             {
                 "timestamp": start + timedelta(minutes=i),
@@ -84,6 +85,7 @@ def test_structure_setup_trigger_stack_runs_under_partial_indicator_context() ->
     )
 
     assert isinstance(structure.get("structure_quality_flags"), list)
+    assert structure.get("is_valid") is True
     assert isinstance(setups, list)
     assert len(setups) > 0
     assert len(triggers) == len(setups)
@@ -94,6 +96,8 @@ def test_structure_setup_trigger_stack_runs_under_partial_indicator_context() ->
 def test_setup_engine_does_not_inject_synthetic_fallback_when_structure_is_unresolved() -> None:
     candles = _candles(count=6)
     structure = {
+        "is_valid": False,
+        "reason_code": "TREND_UNKNOWN",
         "trend": "UNKNOWN",
         "pullback_active": False,
         "compression_active": False,
@@ -117,3 +121,11 @@ def test_setup_engine_does_not_inject_synthetic_fallback_when_structure_is_unres
 
     assert setups == []
     assert triggers == []
+
+
+def test_structure_engine_marks_low_candle_count_as_not_actionable() -> None:
+    candles = _candles(count=14)
+    structure = StructureEngine().compute_structure(candles=candles)
+
+    assert structure["is_valid"] is False
+    assert structure["reason_code"] == "INSUFFICIENT_CANDLES_HARD_MIN"

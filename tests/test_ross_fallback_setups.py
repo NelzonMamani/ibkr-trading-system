@@ -63,14 +63,22 @@ def _base_strategy(monkeypatch, tmp_path, bars: list[Candle]) -> RossMomentumStr
 
 
 def _hod_break_bars() -> list[Candle]:
-    return [
-        Candle(open=10.8, high=10.9, low=10.75, close=10.88, volume=1200),
-        Candle(open=10.88, high=11.0, low=10.84, close=10.98, volume=1500),
-        Candle(open=10.98, high=11.15, low=10.95, close=11.10, volume=1900),
-        Candle(open=11.10, high=11.28, low=11.05, close=11.22, volume=2400),
-        Candle(open=11.22, high=11.42, low=11.18, close=11.36, volume=2900),
-        Candle(open=11.36, high=11.60, low=11.32, close=11.58, volume=3600),
-    ]
+    rows: list[Candle] = []
+    base = 10.0
+    for idx in range(22):
+        center = base + (idx * 0.05) + (0.08 if idx % 4 == 1 else (-0.06 if idx % 4 == 3 else 0.0))
+        open_ = center - 0.03
+        close = center + (0.30 if idx == 21 else (0.04 if idx % 3 != 0 else -0.01))
+        rows.append(
+            Candle(
+                open=open_,
+                high=max(open_, close) + (0.0 if idx == 21 else 0.05),
+                low=min(open_, close) - 0.05,
+                close=close,
+                volume=1100 + (idx * 200),
+            )
+        )
+    return rows
 
 
 def _micro_pullback_bars() -> list[Candle]:
