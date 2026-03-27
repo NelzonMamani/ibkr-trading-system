@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -36,8 +37,32 @@ class PatternEvaluator:
         all_results: List[PatternResult] = []
         veto_flags: List[str] = []
         for inputs in inputs_list:
-            print(f"[ROSS][PATTERN][START] symbol={inputs.symbol}")
+            symbol = inputs.symbol
+            print(f"[ROSS][EVAL] symbol={symbol} stage=START")
+            print(f"[ROSS][PATTERN][START] symbol={symbol}")
             symbol_results = self._registry.run(inputs)
+            detected_pattern = next((result for result in symbol_results if result.detected), None)
+            print(
+                f"[ROSS][PATTERN] symbol={symbol} detected={bool(detected_pattern)} "
+                f"pattern={detected_pattern.pattern_name if detected_pattern else None}"
+            )
+            confirmations_passed = bool(detected_pattern)
+            print(f"[ROSS][CONFIRM] symbol={symbol} passed={confirmations_passed}")
+            trigger_ready = bool(
+                detected_pattern
+                and detected_pattern.trigger_level is not None
+                and detected_pattern.stop_suggestion is not None
+            )
+            print(f"[ROSS][TRIGGER_CHECK] symbol={symbol} ready={trigger_ready}")
+            force_execution_window = str(os.getenv("FORCE_EXECUTION_WINDOW", "")).strip().lower() in {"1", "true", "yes", "on"}
+            if detected_pattern and force_execution_window and (not confirmations_passed or not trigger_ready):
+                trigger = {
+                    "type": "FORCED_MARKET_ENTRY",
+                    "reason": "DIAGNOSTIC_FORCE_TRIGGER",
+                    "confidence": 0.1,
+                }
+                _ = trigger
+                print(f"[ROSS][FORCED_TRIGGER] symbol={symbol} reason=NO_TRIGGER_PIPELINE")
             for result in symbol_results:
                 if result.detected:
                     print(

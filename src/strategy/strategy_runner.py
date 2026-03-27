@@ -64,6 +64,24 @@ from src.config.config_resolver import get_config
 from src.scanner.session_pct_change import canonical_session_label
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _watchlist_symbol(entry: object) -> str | None:
+    if isinstance(entry, str):
+        symbol = entry
+    elif isinstance(entry, dict):
+        symbol = entry.get("symbol")
+    else:
+        symbol = getattr(entry, "symbol", None)
+    normalized = str(symbol or "").strip().upper()
+    return normalized or None
+
+
 def safe_get_config(key, default=None, required=False):
     try:
         value = get_config(key)
@@ -383,8 +401,25 @@ class StrategyRunner:
                 "[STRATEGY][PROCESS] "
                 f"Strategy '{strategy.name}' has no watchlist handler; skipping."
             )
+        force_execution_window = _env_flag("FORCE_EXECUTION_WINDOW", False)
         if len(watchlist) > 0 and len(results) == 0:
             print("[ALERT] NO_INTENTS_GENERATED — CHECK STRATEGY LOGIC")
+
+        if len(watchlist) > 0 and len(results) == 0 and force_execution_window:
+            fallback_symbol = next((symbol for symbol in (_watchlist_symbol(item) for item in watchlist) if symbol), None)
+            if fallback_symbol:
+                print(f"[ROSS][FORCED_TRIGGER] symbol={fallback_symbol} reason=NO_TRIGGER_PIPELINE")
+                forced_intent = TradeIntent(
+                    symbol=fallback_symbol,
+                    direction="LONG",
+                    strategy_name="ross_momentum",
+                    confidence=0.1,
+                    rationale="FORCED_INTENT_NO_TRIGGER",
+                    trader_type="MOMENTUM",
+                    synthetic=True,
+                )
+                results.append(forced_intent)
+                print(f"[ROSS][FORCED_INTENT] symbol={fallback_symbol}")
         real_detected_setups = sum(1 for intent in results if not getattr(intent, "synthetic", False))
         synthetic_forced_intents = sum(1 for intent in results if getattr(intent, "synthetic", False))
         print(
@@ -436,6 +471,9 @@ class StrategyRunner:
             print(f"- missing_inputs_count={missing_inputs_count}")
         results = self._apply_premarket_safety_filter(results, session_norm=session_norm, snapshots=snapshots)
         results = self._inject_live_probe_intents(results)
+
+        if len(watchlist) > 0 and force_execution_window and len(results) == 0:
+            print("[CRITICAL][SYSTEM_FAILURE] NO INTENTS AFTER FORCE")
         return results
 
     @staticmethod
