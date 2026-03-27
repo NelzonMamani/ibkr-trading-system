@@ -946,6 +946,9 @@ class RossMomentumStrategyV1(BaseStrategy):
             intent.decision = "TRADE_READY"
             intent = self._apply_intent_contract_defaults(intent, input_summary, timestamp_utc=timestamp_utc)
             quality_score = float((selected_trigger or {}).get("quality", {}).get("quality_score", 0.0))
+            if not intent.symbol:
+                raise ValueError(f"[TRADE_INTENT][INVALID] empty symbol for intent: {intent}")
+            print(f"[TRADE_INTENT][VALID] symbol={intent.symbol}")
             trade_candidates.append(
                 {
                     "symbol": symbol,
@@ -1123,11 +1126,19 @@ class RossMomentumStrategyV1(BaseStrategy):
         print(f"[ROSS][INTENT_GENERATED] symbol={symbol}")
         return intent
 
-    def _build_trade_intent(self, ctx, trigger: dict[str, str], *, timestamp_utc: str) -> TradeIntent:
+    def _build_trade_intent(
+        self,
+        ctx,
+        trigger: dict[str, str],
+        *,
+        timestamp_utc: str,
+        symbol: str,
+    ) -> TradeIntent:
         pct_change = self._safe_float(getattr(ctx, "pct_change", None))
         rvol = self._safe_float(getattr(ctx, "rvol", None))
+        assert symbol is not None and symbol != "", "TradeIntent symbol must be non-empty"
         intent = TradeIntent(
-            symbol=str(getattr(ctx, "symbol", "")),
+            symbol=symbol,
             direction="LONG",
             strategy_name=self.name,
             confidence=0.7,
@@ -1146,6 +1157,10 @@ class RossMomentumStrategyV1(BaseStrategy):
         intent.has_valid_pattern = True
         intent.decision = "TRADE_READY"
         intent = self._apply_intent_contract_defaults(intent, ctx, timestamp_utc=timestamp_utc)
+        if not intent.symbol:
+            raise ValueError(f"[TRADE_INTENT][INVALID] empty symbol for intent: {intent}")
+        print(f"[INTENT][FORCED] symbol={symbol} setup={intent.setup_family_id}")
+        print(f"[TRADE_INTENT][VALID] symbol={intent.symbol}")
         print(f"TRADE_INTENT symbol={intent.symbol} setup={trigger['type']}")
         return intent
 
