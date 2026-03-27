@@ -1578,15 +1578,43 @@ class CoreOrchestrator:
             payload_focus_rows = list(strategy_payload.get("focus_m", []))
 
             if watch_stale:
+                scanner_candidates = list(observations)
+                enriched_candidates = list(strategy_payload.get("candidate_metrics", [])) or list(scanner_candidates)
+                pre_gate = list(enriched_candidates)
+                post_gate = [
+                    candidate
+                    for candidate in pre_gate
+                    if str(getattr(candidate, "symbol", "")).strip()
+                ]
+                print(f"[DEBUG][SCANNER_OUTPUT] count={len(scanner_candidates)}")
+                print(f"[DEBUG][POST_ENRICHMENT] count={len(enriched_candidates)}")
+                print(f"[GATE][RESULT] before={len(pre_gate)} after={len(post_gate)}")
+                if not post_gate and pre_gate:
+                    print("[ERROR][GATE_WIPED_ALL] post_gate_empty_fallback_to_pre_gate")
+                    post_gate = list(pre_gate)
+                candidates_for_watchlist = list(post_gate)
+                print(f"[DEBUG][PRE_WATCHLIST] count={len(candidates_for_watchlist)}")
+                if not candidates_for_watchlist and scanner_candidates:
+                    print("[ERROR][PIPELINE_BREAK] scanner produced symbols but watchlist input empty")
+                    candidates_for_watchlist = list(scanner_candidates)
+                assert len(candidates_for_watchlist) > 0, "WATCHLIST INPUT EMPTY — PIPELINE FAILURE"
                 policy_v2 = resolve_policy_v2(active_strategy)
                 if payload_watch_rows:
                     watch_rows = payload_watch_rows
                     focus_rows = payload_focus_rows
                 elif policy_v2 and is_policy_v2_enabled_for_strategy(active_strategy):
-                    watch_rows, focus_rows = self._build_watchlist_focus_v2(policy_v2, observations)
+                    watch_rows, focus_rows = self._build_watchlist_focus_v2(policy_v2, candidates_for_watchlist)
                 else:
                     selector = resolve_watchlist_selector(active_scanner_policy.ranking_intent)
-                    watch_rows = selector(observations, active_scanner_policy) if selector else self._select_watchlist_for_policy(observations, active_scanner_policy, enforce_session_allowlist=False)
+                    watch_rows = (
+                        selector(candidates_for_watchlist, active_scanner_policy)
+                        if selector
+                        else self._select_watchlist_for_policy(
+                            candidates_for_watchlist,
+                            active_scanner_policy,
+                            enforce_session_allowlist=False,
+                        )
+                    )
                     focus_rows = watch_rows[: max(0, active_scanner_policy.focus_limit_m)]
                 cadence.watchlist.rows = list(watch_rows[:watch_limit])
                 cadence.watchlist.symbols = self._symbols_from_candidates(cadence.watchlist.rows)
