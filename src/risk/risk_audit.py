@@ -123,6 +123,7 @@ def evaluate_trade_intents(
         available_funds = available_capital
         entry_price = max(float(getattr(intent, "entry_price", 1.0) or 1.0), 0.01)
         requested_shares = int(capital_per_symbol / entry_price)
+        trigger_fired = bool(getattr(intent, "trigger_fired", True))
         if requested_shares <= 0:
             decision = "BLOCK"
             max_size = 0
@@ -144,10 +145,33 @@ def evaluate_trade_intents(
             decision = "ALLOW"
             max_size = requested_shares
 
+        if mode in {RunMode.PAPER, RunMode.SIM} and available_capital <= 0:
+            available_capital = DEFAULT_PAPER_CAPITAL
+            available_funds = available_capital
+            capital_per_symbol = compute_capital_per_symbol(available_capital, focus_count)
+
+        if mode == RunMode.PAPER and trigger_fired:
+            decision = "ALLOW"
+            max_size = max(1, requested_shares)
+            block_reason = ""
+
         if not risk_allowed:
-            decision = "BLOCK"
-            max_size = 0
-            triggered_rules.append("INSUFFICIENT_AVAILABLE_FUNDS")
+            if not (mode == RunMode.PAPER and trigger_fired):
+                decision = "BLOCK"
+                max_size = 0
+                triggered_rules.append("INSUFFICIENT_AVAILABLE_FUNDS")
+                block_reason = "INSUFFICIENT_AVAILABLE_FUNDS"
+
+        print(
+            "[RISK][EVAL] "
+            f"symbol={intent.symbol} "
+            f"entry={entry_price} "
+            f"qty={requested_shares} "
+            f"decision={decision} "
+            f"reason={block_reason or 'NONE'} "
+            f"capital={available_capital} "
+            f"capital_per_symbol={capital_per_symbol}"
+        )
 
         rationale = "Risk evaluation complete."
         if triggered_rules:

@@ -363,6 +363,7 @@ def run_cycle(
     intents: List[TradeIntentRecord] = []
     risk_decisions: List[RiskDecisionRecord] = []
     execution_events: List[ExecutionEvent] = []
+    trigger_fired = False
     health_triggers = []
     data_quality_flags = scanner_payload.get("data_quality_by_symbol", {})
     if any(data_quality_flags.values()):
@@ -383,6 +384,8 @@ def run_cycle(
             inputs = _build_synthetic_inputs(symbol, data_quality, session.value)
             summary = evaluator.evaluate([inputs])
             best_setup = summary.best_long_setup or summary.best_short_setup
+            if best_setup is not None and bool(getattr(best_setup, "entry_zone", None)):
+                trigger_fired = True
             best_name = best_setup.pattern_name if best_setup else "NONE"
             best_conf = best_setup.confidence if best_setup else 0.0
             rationale = summary.combined_rationale_text
@@ -427,6 +430,8 @@ def run_cycle(
             )
     else:
         print("[INTENT] 0 intents generated.")
+        if mode == RunMode.PAPER and trigger_fired:
+            print("[CRITICAL] VALID TRIGGER BUT NO INTENT — RISK BLOCKING BUG")
 
     print_section("RISK")
     health_status = None
@@ -448,6 +453,8 @@ def run_cycle(
         print(f"[TRACE][cycle={cycle_id}][symbol={output.symbol}] stage=risk approved_quantity={output.approved_quantity} capital_source={output.capital_source} available_capital={output.available_funds}")
         if output.decision == "BLOCK" and "HEALTH_CRITICAL" in output.triggered_rules:
             health_triggers.append((HealthStatus.CRITICAL, "risk_block"))
+    allowed_intents = sum(1 for output in risk_outputs if output.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"})
+    print(f"[INTENT][POST_RISK] generated={allowed_intents}")
 
     print_section("EXECUTION")
     if execution_intent.scan_only:
