@@ -51,6 +51,10 @@ class RossPatternRegistry:
             "P_OPENING_DRIVE": {SessionContext.REGULAR},
             "P_FAILED_ORB_FAKEOUT": {SessionContext.REGULAR},
         }
+        self._setup_name_by_pattern_id: dict[str, str] = {
+            "P_FIRST_PULLBACK": "FIRST_PULLBACK",
+            "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
+        }
 
     @property
     def patterns(self) -> List[PatternBase]:
@@ -75,6 +79,9 @@ class RossPatternRegistry:
         results: List[PatternResult] = []
         for pattern in self._patterns:
             pattern_id = getattr(pattern, "pattern_id", "") or pattern.name
+            setup_name = self._setup_name_by_pattern_id.get(pattern_id)
+            if setup_name is not None:
+                print(f"[SETUP][INVOKE] name={setup_name}")
             print(f"[PATTERN_TRACE][INVOKE] symbol={inputs.symbol} pattern={pattern.name}")
             pattern_trace = RossPatternTrace(
                 symbol=inputs.symbol,
@@ -164,6 +171,12 @@ class RossPatternRegistry:
                 pattern_trace.detected = bool(result.detected)
                 pattern_trace.rejection_reason = result.rejection_reason
                 pattern_trace.final_outcome = "DETECTED" if result.detected else "REJECTED"
+                if setup_name is not None:
+                    print(
+                        "[SETUP][RESULT] "
+                        f"name={setup_name} detected={bool(result.detected)} "
+                        f"reason={result.rejection_reason or 'detected'}"
+                    )
                 print(
                     f"[PATTERN_TRACE][RESULT] symbol={inputs.symbol} pattern={pattern.name} detected={bool(result.detected)}"
                 )
