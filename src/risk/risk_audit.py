@@ -149,6 +149,14 @@ def evaluate_trade_intents(
             max_size = 0
             triggered_rules.append("INSUFFICIENT_AVAILABLE_FUNDS")
 
+        approved_quantity = 0
+        if decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
+            approved_quantity = max(1, requested_shares)
+            max_size = approved_quantity
+            assert approved_quantity > 0
+
+        print(f"[RISK][FINAL] symbol={intent.symbol} approved_quantity={approved_quantity}")
+
         rationale = "Risk evaluation complete."
         if triggered_rules:
             rationale = f"Triggered rules: {', '.join(triggered_rules)}."
@@ -167,7 +175,7 @@ def evaluate_trade_intents(
                 risk_allowed=risk_allowed,
                 capital_source=resolved_account.source,
                 block_reason=block_reason,
-                approved_quantity=max_size,
+                approved_quantity=approved_quantity,
             )
         )
     return decisions
