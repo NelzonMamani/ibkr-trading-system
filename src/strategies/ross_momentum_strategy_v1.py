@@ -108,6 +108,10 @@ class RossMomentumStrategyV1(BaseStrategy):
         )
         self._max_trades_per_cycle = 1
         self._max_concurrent_positions = 3
+        self._trusted_setup_families = self._cfg_set(
+            "ROSS_TRUSTED_SETUP_FAMILIES",
+            {"GAP_GO", "BULL_FLAG", "OPENING_RANGE_BREAKOUT"},
+        )
         self._session_stats = {
             "cycles": 0,
             "symbols_evaluated": 0,
@@ -258,6 +262,23 @@ class RossMomentumStrategyV1(BaseStrategy):
         if isinstance(value, bool):
             return value
         return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _cfg_set(key: str, default: set[str]) -> set[str]:
+        try:
+            value = get_config(key)
+        except ConfigResolutionError:
+            return set(default)
+        if value is None:
+            return set(default)
+        if isinstance(value, str):
+            entries = [chunk.strip().upper() for chunk in value.split(",")]
+            cleaned = {entry for entry in entries if entry}
+            return cleaned or set(default)
+        if isinstance(value, (list, tuple, set)):
+            cleaned = {str(entry).strip().upper() for entry in value if str(entry).strip()}
+            return cleaned or set(default)
+        return set(default)
 
     def _session_thresholds(self, session_label: str | None) -> tuple[float, float]:
         session = str(session_label or "").upper()
@@ -961,14 +982,18 @@ class RossMomentumStrategyV1(BaseStrategy):
                         f"symbol={symbol} pattern_id={trace.pattern_id}"
                     )
 
+            trusted_setups = self._filter_trusted_setups(symbol=symbol, setups=setups)
+            trusted_pattern_traces = self._filter_trusted_pattern_traces(symbol=symbol, pattern_traces=pattern_traces)
+            trusted_results = self._filter_trusted_pattern_results(symbol=symbol, results=results)
+
             decision = self._decision_engine.compute_decision(
                 symbol=symbol,
                 levels=levels,
                 structure=structure,
-                setups=setups,
-                pattern_results=results or setup_driven_results or symbol_trace.pattern_traces,
+                setups=trusted_setups,
+                pattern_results=trusted_results or setup_driven_results or trusted_pattern_traces,
                 session_context=input_summary.session_context,
-                pattern_traces=symbol_trace.pattern_traces,
+                pattern_traces=trusted_pattern_traces,
                 inactive_pattern_ids=getattr(self._pattern_registry, "inactive_pattern_ids", set()),
             )
             if str(decision.get("decision_state") or "").upper() == "CANDIDATE_SELECTED":
@@ -993,7 +1018,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             )
             best_pattern = self._resolve_selected_pattern_trace(
                 selected_pattern_id=decision.get("selected_pattern_id"),
-                pattern_traces=symbol_trace.pattern_traces,
+                pattern_traces=trusted_pattern_traces,
             )
 
             if not best_pattern:
@@ -1058,6 +1083,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 selected_pattern=best_pattern,
                 pattern_traces=pattern_traces,
                 session_label=session_label,
+                inputs=inputs,
             )
             confirm_reason = "confirmation_passed" if confirmation_passed else ",".join(blocking_reasons or ["confirmation_blocked"])
             print(f"[ROSS][CONFIRM] symbol={symbol} passed={confirmation_passed} reason={confirm_reason}")
@@ -1163,7 +1189,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 continue
 
             pipeline_trace("TRIGGER", symbol)
-            trade = self._build_trade_from_pattern(best_pattern, inputs)
+            trade = self._build_trade_from_pattern(best_pattern, inputs, selected_trigger=selected_trigger)
             if not trade:
                 print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=trade_structure")
                 print(f"[TRIGGER][REJECT] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
@@ -1651,6 +1677,55 @@ class RossMomentumStrategyV1(BaseStrategy):
         normalized = str(setup_family_id or "").upper()
         return cls._SETUP_FAMILY_ALIASES.get(normalized, normalized)
 
+    def _is_trusted_setup_family(self, setup_family_id: str | None) -> bool:
+        family = self._normalize_setup_family_id(setup_family_id)
+        return family in self._trusted_setup_families
+
+    def _filter_trusted_setups(self, *, symbol: str, setups: list[dict]) -> list[dict]:
+        filtered: list[dict] = []
+        for setup in setups:
+            family = self._normalize_setup_family_id(setup.get("setup_family_id"))
+            if self._is_trusted_setup_family(family):
+                filtered.append(setup)
+                continue
+            if bool(setup.get("setup_detected", True)):
+                print(
+                    "[ROSS][PATTERN_SKIP] "
+                    f"symbol={symbol} pattern={setup.get('setup_name') or setup.get('setup_family_id')} "
+                    "reason=UNTRUSTED_SETUP_NOT_ENABLED"
+                )
+        return filtered
+
+    def _filter_trusted_pattern_traces(self, *, symbol: str, pattern_traces: list) -> list:
+        filtered: list = []
+        for trace in pattern_traces:
+            family = self._normalize_setup_family_id(getattr(trace, "setup_family_id", None))
+            if self._is_trusted_setup_family(family):
+                filtered.append(trace)
+                continue
+            if bool(getattr(trace, "detected", False)):
+                print(
+                    "[ROSS][PATTERN_SKIP] "
+                    f"symbol={symbol} pattern={getattr(trace, 'pattern_id', 'UNKNOWN')} "
+                    "reason=UNTRUSTED_SETUP_NOT_ENABLED"
+                )
+        return filtered
+
+    def _filter_trusted_pattern_results(self, *, symbol: str, results: list) -> list:
+        filtered: list = []
+        for result in results:
+            family = self._normalize_setup_family_id(getattr(result, "setup_family_id", None))
+            if self._is_trusted_setup_family(family):
+                filtered.append(result)
+                continue
+            if bool(getattr(result, "detected", False)):
+                print(
+                    "[ROSS][PATTERN_SKIP] "
+                    f"symbol={symbol} pattern={getattr(result, 'setup_id', 'UNKNOWN')} "
+                    "reason=UNTRUSTED_SETUP_NOT_ENABLED"
+                )
+        return filtered
+
     @staticmethod
     def _resolve_trigger_quality_tier(*, selected_trigger: dict | None, pattern_confidence: float) -> str:
         if selected_trigger and "MISSING_TRIGGER_REFERENCE" in set(selected_trigger.get("trigger_quality_flags") or []):
@@ -1706,7 +1781,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         return None
 
     @staticmethod
-    def _build_trade_from_pattern(pattern, inputs):
+    def _build_trade_from_pattern(pattern, inputs, *, selected_trigger: dict | None = None):
         candles = list(getattr(inputs, "candles", []) or [])
         last_candle = candles[-1] if candles else None
         price = getattr(inputs, "last_price", None)
@@ -1718,8 +1793,12 @@ class RossMomentumStrategyV1(BaseStrategy):
 
         if pattern.pattern_id == "P_ORB":
             key_levels = getattr(levels, "key_levels", {}) or {}
-            entry = key_levels.get("OPENING_RANGE_HIGH") or key_levels.get("ORB_HIGH") or getattr(levels, "hod", None)
-            stop = key_levels.get("OPENING_RANGE_LOW") or key_levels.get("ORB_LOW") or getattr(levels, "lod", None)
+            entry = (
+                RossMomentumStrategyV1._safe_float((selected_trigger or {}).get("trigger_price_reference"))
+                or key_levels.get("OPENING_RANGE_HIGH")
+                or key_levels.get("ORB_HIGH")
+            )
+            stop = key_levels.get("OPENING_RANGE_LOW") or key_levels.get("ORB_LOW")
         elif pattern.pattern_id in {"P_HOD_BREAK", "P_PREMKT_BREAK"}:
             entry = getattr(levels, "hod", None)
             stop = (entry * 0.97) if entry is not None else None
@@ -1754,6 +1833,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         selected_pattern,
         pattern_traces,
         session_label: str,
+        inputs,
     ) -> tuple[bool, list[str], list[str]]:
         print(
             "[ROSS][CONFIRMATION][START] "
@@ -1778,6 +1858,21 @@ class RossMomentumStrategyV1(BaseStrategy):
             session_label=session_label,
         ):
             blocking_reasons.append("not regular session")
+        if selected_pattern.pattern_id == "P_ORB":
+            last_candle = (getattr(inputs, "candles", []) or [])[-1] if (getattr(inputs, "candles", []) or []) else None
+            last_close = self._safe_float(getattr(last_candle, "close", None)) if last_candle is not None else None
+            vwap = self._safe_float(getattr(getattr(inputs, "indicators", None), "vwap", None))
+            ema9 = self._safe_float(getattr(getattr(inputs, "indicators", None), "ema9", None))
+            ema20 = self._safe_float(getattr(getattr(inputs, "indicators", None), "ema20", None))
+            macd = self._safe_float((getattr(inputs, "news_context", None) or {}).get("macd"))
+            if macd is None:
+                macd = self._safe_float((getattr(inputs, "news_context", None) or {}).get("macd_hist"))
+            if last_close is not None and vwap is not None and last_close <= vwap:
+                blocking_reasons.append("orb_confirm_below_vwap")
+            if macd is not None and macd <= 0:
+                blocking_reasons.append("orb_confirm_macd_not_positive")
+            if ema9 is not None and ema20 is not None and ema9 <= ema20:
+                warnings.append("orb_confirm_ema_alignment_weak")
         if blocking_reasons:
             first_failed = blocking_reasons[0]
             print(

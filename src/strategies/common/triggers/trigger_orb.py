@@ -20,8 +20,12 @@ def evaluate_orb_trigger(pattern_result, inputs):
             "trigger_reason": "missing_candles",
         }
 
+    orh = _safe_float(getattr(pattern_result, "trigger_level", None))
+    if orh is None and isinstance(pattern_result, dict):
+        orh = _safe_float(pattern_result.get("trigger_level"))
     range_info = levels.get("active_breakout_range") if isinstance(levels.get("active_breakout_range"), dict) else {}
-    orh = _safe_float(range_info.get("upper"))
+    if orh is None:
+        orh = _safe_float(range_info.get("upper"))
     if orh is None:
         key_levels = levels.get("key_levels") if isinstance(levels.get("key_levels"), dict) else {}
         orh = _safe_float(key_levels.get("OPENING_RANGE_HIGH"))

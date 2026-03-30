@@ -122,7 +122,6 @@ class TriggerEngine:
             "ASCENDING_TRIANGLE_BREAKOUT": "active_breakout_range.upper",
             "PENNANT_BREAK": "active_breakout_range.upper",
             "MOMENTUM_RECLAIM": "vwap",
-            "ORB": "active_breakout_range.upper",
         }
         key = mapping.get(family)
         if not key:
