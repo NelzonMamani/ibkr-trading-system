@@ -648,6 +648,10 @@ class ExecutionEngine:
             broker_status = "Filled"
         elif status_raw in {"REJECTED", "FAILED", "BLOCKED", "TIMED_OUT"}:
             broker_status = "Rejected"
+        print(
+            f"[IBKR][ORDER_ACK] order_id={ibkr_order_id} status={broker_status} "
+            f"symbol={request.symbol}"
+        )
         print(f"[ORDER][ACK] order_id={ibkr_order_id} status={broker_status}")
         self._execution_log(
             "ORDER_STATUS",
@@ -757,11 +761,19 @@ class ExecutionEngine:
     def _log_ibkr_status(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
         normalized = str(getattr(result, "status", "UNKNOWN") or "UNKNOWN").upper()
         print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status={normalized}")
+        print(
+            f"[IBKR][ORDER_STATUS] order_id={request.client_order_id} "
+            f"symbol={request.symbol} status={normalized}"
+        )
         if normalized in {"ACKED", "ACKNOWLEDGED"}:
             print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=ACKNOWLEDGED")
         if normalized in {"ACKED", "FILLED"} and getattr(result, "filled_quantity", 0) > 0:
             print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=FILLED")
         if normalized in {"BLOCKED", "FAILED", "REJECTED", "TIMED_OUT"}:
+            print(
+                f"[IBKR][ORDER_ERROR] order_id={request.client_order_id} "
+                f"symbol={request.symbol} status={normalized}"
+            )
             print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=REJECTED")
             reason = getattr(result, "rejection_reason", None) or getattr(result, "rationale", None) or "UNKNOWN"
             code = getattr(result, "broker_error_code", None) or "UNKNOWN"
@@ -955,6 +967,22 @@ class ExecutionEngine:
                 "Execution disabled: order construction blocked "
                 f"(context={context})."
             )
+
+    def emit_cycle_execution_summary(self) -> None:
+        orders_submitted = self.event_collector.cycle_count("ORDER_SUBMISSION_ATTEMPTED")
+        orders_acknowledged = self.event_collector.cycle_count("ORDER_SUBMITTED_ACK")
+        orders_filled = self.event_collector.cycle_count("ORDER_FILL_RECORDED")
+        orders_rejected = (
+            self.event_collector.cycle_count("ORDER_SUBMISSION_FAILED")
+            + self.event_collector.cycle_count("ORDER_SUBMISSION_BLOCKED")
+        )
+        print(
+            "[EXECUTION_SUMMARY]\n"
+            f"orders_submitted={orders_submitted}\n"
+            f"orders_acknowledged={orders_acknowledged}\n"
+            f"orders_filled={orders_filled}\n"
+            f"orders_rejected={orders_rejected}"
+        )
 
     def complete_trade(self, symbol: str, trader_type: str) -> None:
         """

@@ -3607,6 +3607,7 @@ class CoreOrchestrator:
             f"risk_decisions={len(risk_output or [])} | "
             f"execution_results={len(execution_output or [])}"
         )
+        self.execution_engine.emit_cycle_execution_summary()
 
         print("[INFO] Orchestrator cycle complete (teaching-only).")
         cycle_snapshot = cycle_events

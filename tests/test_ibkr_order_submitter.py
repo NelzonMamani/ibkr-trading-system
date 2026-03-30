@@ -207,7 +207,19 @@ def test_success_path_marks_submitted_and_emits_events():
     assert result.ibkr_order_id == 1001
 
 
-def test_placeOrder_exception_does_not_mark_submitted():
+def test_success_path_emits_ibkr_order_lifecycle_logs(capsys):
+    settings = make_settings()
+    submitter = make_submitter(settings)
+
+    _ = submitter.submit_once(make_order("log-order"))
+    out = capsys.readouterr().out
+
+    assert "[IBKR][ORDER_SUBMIT]" in out
+    assert "[IBKR][ORDER_ACK]" in out
+    assert "[IBKR][ORDER_FILL]" in out
+
+
+def test_placeOrder_exception_does_not_mark_submitted(capsys):
     settings = make_settings()
     guard = SubmissionGuard(max_orders_per_run=1, persist_path=None)
     event_bus = EventCollector()
@@ -219,3 +231,5 @@ def test_placeOrder_exception_does_not_mark_submitted():
     assert result.status == "FAILED"
     assert guard.submitted_count() == 0
     assert event_bus.count(ORDER_SUBMISSION_FAILED) == 1
+    out = capsys.readouterr().out
+    assert "[IBKR][ORDER_ERROR]" in out

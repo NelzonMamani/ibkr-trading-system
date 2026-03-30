@@ -129,9 +129,18 @@ class IbkrOrderSubmitter:
                 run_mode = str(getattr(self.config.run_mode, "value", self.config.run_mode)).upper()
                 if run_mode == "LIVE" and self.config.order_submission_enabled:
                     self._log("[IBKR][LIVE_SUBMIT] sending real order")
+                print(
+                    "[IBKR][ORDER_SUBMIT] "
+                    f"client_order_id={internal_order.client_order_id} symbol={internal_order.symbol} "
+                    f"qty={internal_order.quantity} side={internal_order.direction} order_type={internal_order.order_type}"
+                )
                 ibkr_order_id = client.submit_order(contract, order)
             except Exception as exc:
                 error = f"IBKR placeOrder failed: {exc}"
+                print(
+                    "[IBKR][ORDER_ERROR] "
+                    f"client_order_id={internal_order.client_order_id} symbol={internal_order.symbol} reason={error}"
+                )
                 self._log(
                     f"[ORDER][REJECT] symbol={internal_order.symbol} stage=submission reason={error}"
                 )
@@ -163,6 +172,10 @@ class IbkrOrderSubmitter:
                     )
                 if str(ack_status or "").upper() in {"REJECTED", "FAILED", "BLOCKED", "TIMED_OUT", "CANCELLED", "CANCELED"}:
                     rejection_reason = broker_error_message or ack_status or "IBKR_REJECTED"
+                    print(
+                        "[IBKR][ORDER_ERROR] "
+                        f"order_id={ibkr_order_id} status={ack_status} reason={rejection_reason}"
+                    )
                     self._log(
                         f"[IBKR][REJECT] order_id={ibkr_order_id} code={broker_error_code or 'UNKNOWN'} message={rejection_reason}"
                     )
@@ -183,6 +196,10 @@ class IbkrOrderSubmitter:
                         broker_error_message=broker_error_message,
                     )
                 self._emit_ack(internal_order, ibkr_order_id, ack_status)
+                print(
+                    "[IBKR][ORDER_ACK] "
+                    f"order_id={ibkr_order_id} client_order_id={internal_order.client_order_id} status={ack_status}"
+                )
                 print("[ORDER_ACK]", f"order_id={ibkr_order_id}", f"status={ack_status}")
                 self._log(
                     f"[ACK] Order acknowledged ibkr_order_id={ibkr_order_id} status={ack_status}"
@@ -205,6 +222,10 @@ class IbkrOrderSubmitter:
                 )
 
             reason = "Acknowledgement timeout"
+            print(
+                "[IBKR][ORDER_ERROR] "
+                f"order_id={ibkr_order_id} client_order_id={internal_order.client_order_id} reason={reason}"
+            )
             self._emit_failed(
                 internal_order,
                 reason=reason,
@@ -362,6 +383,11 @@ class IbkrOrderSubmitter:
             "slippage": slippage,
         }
         self._emit_fill(internal_order, ibkr_order_id, fill_payload)
+        print(
+            "[IBKR][ORDER_FILL] "
+            f"order_id={ibkr_order_id} status={fill_status} filled={filled} remaining={remaining} "
+            f"avg_fill_price={avg_fill_price}"
+        )
         self._log(
             "[FILL] ibkr_order_id={oid} status={status} filled={filled} remaining={remaining} "
             "avg_fill_price={avg} last_fill_price={last} commission={commission} slippage={slippage}".format(

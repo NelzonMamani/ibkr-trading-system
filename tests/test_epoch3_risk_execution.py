@@ -9,6 +9,7 @@ from core.active_trade_registry import ActiveTrade, ActiveTradeRegistry  # noqa:
 from core.event_collector import EventCollector  # noqa: E402
 from core.stop_controller import StopController  # noqa: E402
 from execution.execution_engine import ExecutionEngine  # noqa: E402
+from models.data_models import TradeIntent as RiskTradeIntent  # noqa: E402
 from risk.risk_engine import RiskEngine  # noqa: E402
 from strategies.strategy_contracts import (  # noqa: E402
     DecisionType,
@@ -181,5 +182,38 @@ def test_risk_engine_blocks_max_open_positions():
 
         assert decision.overall_action == "BLOCK"
         assert "RISK_MAX_OPEN_POSITIONS" in decision.risk_reasons
+    finally:
+        set_config_overrides(None)
+
+
+def test_risk_engine_clamps_position_size_to_available_capital(monkeypatch):
+    set_config_overrides(
+        {
+            "RUN_MODE": "PAPER",
+            "EXECUTION_ENABLED": True,
+            "RISK_MAX_POSITION_SIZE": 50000,
+            "RISK_ACCOUNT_EQUITY": 2_000_000.0,
+        }
+    )
+    monkeypatch.setenv("TRADING_DEFAULT_CAPITAL", "1000")
+    monkeypatch.setenv("CONFIG_MAX_POSITION_PCT", "0.1")
+    try:
+        risk_engine = RiskEngine(stop_controller=StopController())
+        intent = RiskTradeIntent(
+            symbol="CHEAP",
+            direction="LONG",
+            strategy_name="UnitTestStrategy",
+            confidence=0.9,
+            rationale="capital clamp test",
+            trader_type="MANUAL",
+            stop_loss_price=0.9,
+            decision_id="decision-capital-clamp",
+        )
+        setattr(intent, "entry_price", 1.0)
+
+        decision = risk_engine.evaluate_trade_intent(intent)
+
+        assert decision.allowed is True
+        assert decision.max_position_size == 100
     finally:
         set_config_overrides(None)
