@@ -33,6 +33,7 @@ from src.config.runtime_config import (
 )
 from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
+from src.core.engines.position_management_engine import ManagedPosition, PositionManagementEngine
 from src.core.event_collector import EventCollector
 from src.data.fundamentals.float_provider import FloatProvider
 from src.data.manual_focus_loader import ManualFocusConfig
@@ -450,6 +451,7 @@ class CoreOrchestrator:
             stop_controller=self.stop_controller,
         )
         self.execution_enabled = self.execution_engine.execution_enabled
+        self.position_management_engine = PositionManagementEngine()
         self.trade_exit_engine = TradeExitEngine(
             trade_registry=self.trade_registry,
             event_collector=self.event_collector,
@@ -481,6 +483,61 @@ class CoreOrchestrator:
             self.learning_scheduler.on_startup()
         except Exception as exc:
             print(f"[LEARNING][SCHEDULER] Startup check failed: {exc}")
+
+    def _open_position_from_execution(
+        self,
+        *,
+        risk_decision: RiskDecision,
+        execution_result: ExecutionResult,
+    ) -> ManagedPosition | None:
+        status = str(getattr(execution_result, "status", "") or "").upper()
+        if status not in {"FILLED", "PARTIAL", "ACKED", "SUBMITTED", "SIMULATED"}:
+            return None
+        quantity = int(getattr(execution_result, "filled_quantity", 0) or getattr(execution_result, "quantity", 0) or 0)
+        if quantity <= 0:
+            return None
+        entry_price = float(getattr(execution_result, "entry_price", 0.0) or getattr(execution_result, "raw_price", 0.0) or 0.0)
+        stop_price = float(getattr(risk_decision, "stop_loss_price", 0.0) or 0.0)
+        if entry_price <= 0.0 or stop_price <= 0.0:
+            return None
+
+        execution_mode = str(
+            getattr(risk_decision, "execution_refinement_mode", None)
+            or getattr(execution_result, "execution_refinement_mode", None)
+            or "NORMAL"
+        )
+        timeframe = str(getattr(risk_decision, "execution_primary_timeframe", None) or "1m")
+        return ManagedPosition(
+            symbol=str(risk_decision.symbol),
+            side=str(getattr(risk_decision, "direction", "LONG") or "LONG"),
+            quantity=quantity,
+            entry_price=entry_price,
+            stop_price=stop_price,
+            execution_mode=execution_mode,
+            timeframe=timeframe,
+        )
+
+    def _build_position_management_market_state(
+        self,
+        *,
+        execution_result: ExecutionResult,
+        session_phase: str,
+    ) -> dict:
+        current_price = float(
+            getattr(execution_result, "raw_price", None)
+            or getattr(execution_result, "entry_price", None)
+            or 0.0
+        )
+        return {
+            "current_price": current_price,
+            "breaks_new_level": False,
+            "pullback_holds_support": False,
+            "higher_low": None,
+            "structure_broken": False,
+            "vwap_lost": False,
+            "false_breakout": False,
+            "session_phase": str(session_phase),
+        }
 
     def _should_enforce_ibkr_runtime(self) -> bool:
         """
@@ -3181,6 +3238,24 @@ class CoreOrchestrator:
                         result.setup_family_id = getattr(risk_decision, "setup_family_id", None)
                         result.trigger_id = getattr(risk_decision, "trigger_id", None)
                         execution_output.append(result)
+                        managed_position = self._open_position_from_execution(
+                            risk_decision=risk_decision,
+                            execution_result=result,
+                        )
+                        if managed_position is not None:
+                            position_market_state = self._build_position_management_market_state(
+                                execution_result=result,
+                                session_phase=session_phase,
+                            )
+                            managed_position = self.position_management_engine.manage_position(
+                                managed_position,
+                                position_market_state,
+                            )
+                            print(
+                                "[POSITION][MANAGER] "
+                                f"symbol={managed_position.symbol} qty={managed_position.quantity} "
+                                f"stop={managed_position.stop_price} closed={managed_position.closed}"
+                            )
                         submit_attempt_count += 1 if bool(getattr(result, "attempted", False)) else 0
                         submit_success_count += 1 if str(getattr(result, "status", "")).upper() in {"FILLED", "PARTIAL", "ACKED", "SUBMITTED"} else 0
                         if not bool(getattr(result, "attempted", False)):
