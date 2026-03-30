@@ -12,6 +12,7 @@ from src.risk.data_quality_contract import data_quality_blocking_causes
 
 
 DEFAULT_PAPER_CAPITAL = 10000.0
+MICRO_TEST_QTY = 1
 
 
 @dataclass(frozen=True)
@@ -149,13 +150,23 @@ def evaluate_trade_intents(
             max_size = 0
             triggered_rules.append("INSUFFICIENT_AVAILABLE_FUNDS")
 
+        sizing_basis = "CAPITAL_PCT_MODE"
         approved_quantity = 0
         if decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
-            approved_quantity = max(1, requested_shares)
+            if mode == RunMode.PAPER:
+                approved_quantity = MICRO_TEST_QTY
+                sizing_basis = "MICRO_TEST_MODE"
+            else:
+                approved_quantity = max(1, requested_shares)
             max_size = approved_quantity
             assert approved_quantity > 0
 
         print(f"[RISK][FINAL] symbol={intent.symbol} approved_quantity={approved_quantity}")
+        if mode == RunMode.PAPER:
+            print(
+                f"[RISK][SIZING] symbol={intent.symbol} mode=PAPER "
+                f"sizing_basis={sizing_basis} approved_quantity={approved_quantity}"
+            )
 
         rationale = "Risk evaluation complete."
         if triggered_rules:
@@ -176,6 +187,7 @@ def evaluate_trade_intents(
                 capital_source=resolved_account.source,
                 block_reason=block_reason,
                 approved_quantity=approved_quantity,
+                sizing_basis=sizing_basis,
             )
         )
     return decisions

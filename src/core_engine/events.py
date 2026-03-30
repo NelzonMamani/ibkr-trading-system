@@ -60,6 +60,7 @@ class RiskDecisionRecord:
     capital_source: str = "UNKNOWN"
     block_reason: str = ""
     approved_quantity: int = 0
+    sizing_basis: str = "CAPITAL_PCT_MODE"
 
 
 @dataclass
