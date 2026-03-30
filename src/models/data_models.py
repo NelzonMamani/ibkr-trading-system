@@ -128,6 +128,9 @@ class TradeIntent:
     setup_family_id: Optional[str] = None
     trigger_id: Optional[str] = None
     execution_refinement_mode: Optional[str] = None
+    execution_mode: Optional[str] = None
+    execution_primary_timeframe: Optional[str] = None
+    execution_refinement_timeframe: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not self.symbol:

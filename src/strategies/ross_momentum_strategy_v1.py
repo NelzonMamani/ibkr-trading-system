@@ -12,6 +12,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 from src.config.config_resolver import ConfigResolutionError, get_config
 from src.config.runtime_config import RunMode
 from src.core.engines.decision_engine import DecisionEngine
+from src.core.engines.execution_mode_engine import ExecutionModeEngine
 from src.core.engines.level_engine import LevelEngine
 from src.core.engines.structure_engine import StructureEngine
 from src.core.engines.setup_engine import SetupEngine
@@ -82,6 +83,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         self._pattern_registry = RossPatternRegistry()
         self._decision_engine = DecisionEngine()
         self._failure_trace_collector = RossPatternFailureTraceCollector()
+        self._execution_mode_engine = ExecutionModeEngine()
         self._session_allowlist_by_pattern: Dict[str, set[str]] = {
             "P_ORB": {"REGULAR"},
             "P_OPENING_DRIVE": {"REGULAR"},
@@ -1364,6 +1366,18 @@ class RossMomentumStrategyV1(BaseStrategy):
                 stop=stop,
                 execution_refinement_mode=execution_refinement_mode,
             )
+            if intent:
+                intent = self._execution_mode_engine.apply(intent, context=input_summary)
+            if intent is None:
+                print(f"[ROSS][EXECUTION_BLOCKED] symbol={symbol}")
+                classification_counts["TRIGGER_REJECTED"] += 1
+                symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
+                symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "EXECUTION_BLOCKED"}
+                symbol_trace.final_reason_code = "EXECUTION_BLOCKED"
+                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], "execution_mode_blocked")
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
             print(f"[ROSS][INTENT_GUARD] symbol={symbol} trigger_ready={trigger_ready}")
             if trigger_ready and intent is None:
                 raise RuntimeError("CRITICAL: Trigger fired but no TradeIntent created")
