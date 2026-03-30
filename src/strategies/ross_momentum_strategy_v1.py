@@ -66,6 +66,15 @@ class RossMomentumStrategyV1(BaseStrategy):
         "VWAP_RECLAIM",
         "FIRST_PULLBACK_LONG",
     )
+    _trusted_setup_families: Tuple[str, ...] = (
+        "OPENING_RANGE_BREAKOUT",
+        "ORB_BREAK",
+        "ORB",
+        "GAP_GO",
+        "PREMARKET_HIGH_BREAK",
+        "HOD_BREAK",
+        "VWAP_RECLAIM_CONTINUATION",
+    )
 
     def __init__(self) -> None:
         self._pattern_registry = RossPatternRegistry()
@@ -508,6 +517,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         symbol_traces: List[RossSymbolTrace] = []
         translated_intents: List[TradeIntent] = []
         trade_candidates: list[dict[str, object]] = []
+        setups_detected_total = 0
         synthetic_forced_intents = 0
         classification_counts = {
             "DATA_BLOCKED": 0,
@@ -666,6 +676,9 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "float_millions": input_summary.float_millions,
                 },
             )
+            setups = self._filter_trusted_setups(setups, symbol=symbol)
+            trusted_setups = [setup for setup in setups if not bool(setup.get("untrusted"))]
+            setups_detected_total += len(setups)
             setup_evaluated = True
             setup_outputs = [
                 {
@@ -931,6 +944,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "reason_code": "SETUP_DETECTED",
                     "details": {"source": setup_source, "detected": [trace.pattern_id for trace in pattern_traces if trace.detected]},
                 }
+            pattern_traces = self._filter_trusted_pattern_traces(pattern_traces, symbol=symbol)
             symbol_trace.pattern_traces = pattern_traces
             symbol_trace.input_summary["setup_stage"] = {"details": {"source": setup_source}}
             symbol_trace.detected_pattern_ids = [
@@ -966,17 +980,43 @@ class RossMomentumStrategyV1(BaseStrategy):
                 levels=levels,
                 structure=structure,
                 setups=setups,
-                pattern_results=results or setup_driven_results or symbol_trace.pattern_traces,
+                pattern_results=self._filter_trusted_pattern_results(
+                    results or setup_driven_results or symbol_trace.pattern_traces,
+                    symbol=symbol,
+                ),
                 session_context=input_summary.session_context,
                 pattern_traces=symbol_trace.pattern_traces,
                 inactive_pattern_ids=getattr(self._pattern_registry, "inactive_pattern_ids", set()),
             )
+            if (
+                str(decision.get("decision_state") or "").upper() != "CANDIDATE_SELECTED"
+                and trusted_setups
+                and len(trusted_setups) < len(setups)
+            ):
+                fallback_decision = self._decision_engine.compute_decision(
+                    symbol=symbol,
+                    levels=levels,
+                    structure=structure,
+                    setups=setups,
+                    pattern_results=results or setup_driven_results or symbol_trace.pattern_traces,
+                    session_context=input_summary.session_context,
+                    pattern_traces=symbol_trace.pattern_traces,
+                    inactive_pattern_ids=getattr(self._pattern_registry, "inactive_pattern_ids", set()),
+                )
+                if str(fallback_decision.get("decision_state") or "").upper() == "CANDIDATE_SELECTED":
+                    print(f"[ROSS][DECISION_FALLBACK] symbol={symbol} reason=trusted_setups_no_trigger")
+                    decision = fallback_decision
             if str(decision.get("decision_state") or "").upper() == "CANDIDATE_SELECTED":
                 print(f"[DECISION][INTENT] symbol={symbol} decision=LONG")
             selected_trigger = self._select_trigger_candidate(
                 setup_family_id=decision.get("selected_setup_family"),
                 trigger_candidates=trigger_candidates,
             )
+            if selected_trigger is None:
+                selected_trigger = self._select_ready_trigger_candidate(
+                    trigger_candidates=trigger_candidates,
+                    prefer_trusted=True,
+                )
             print(
                 "[ROSS][TRIGGER_MAP] "
                 f"symbol={symbol} setup_family={decision.get('selected_setup_family')} "
@@ -1283,6 +1323,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
 
+            intent: TradeIntent | None
             if str(setup_family or "").upper() == "GAP_GO" and trigger_ready:
                 intent = TradeIntent(
                     symbol=symbol,
@@ -1320,8 +1361,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                     setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
                     trigger_id="confirmation_gate",
                 )
+            print(f"[ROSS][INTENT_GUARD] symbol={symbol} trigger_ready={trigger_ready}")
+            if trigger_ready and intent is None:
+                raise RuntimeError("CRITICAL: Trigger fired but no TradeIntent created")
             if gap_go_trigger_fired and not intent:
-                raise Exception("TRIGGER_WITHOUT_INTENT")
+                raise RuntimeError("CRITICAL: Trigger fired but no TradeIntent created")
             intent.entry_price = entry
             intent.has_valid_pattern = bool(getattr(best_pattern, "detected", False))
             intent.confirmation_passed = confirmation_passed
@@ -1477,6 +1521,8 @@ class RossMomentumStrategyV1(BaseStrategy):
 
         print(f"[ROSS][INTENTS] generated={len(translated_intents)}")
 
+        if setups_detected_total > 0 and len(translated_intents) == 0:
+            print("[ROSS][WARNING] SETUPS_PRESENT_BUT_NO_INTENTS")
         if not translated_intents:
             print("[ROSS][WARNING] NO TRADE INTENTS GENERATED")
         return translated_intents
@@ -1645,6 +1691,21 @@ class RossMomentumStrategyV1(BaseStrategy):
             reverse=True,
         )
         return ranked[0]
+
+    def _select_ready_trigger_candidate(self, *, trigger_candidates: list[dict] | None, prefer_trusted: bool) -> dict | None:
+        trusted = {self._normalize_setup_family_id(item) for item in self._trusted_setup_families}
+        ranked = sorted(
+            list(trigger_candidates or []),
+            key=lambda item: (
+                1 if bool(item.get("trigger_ready_now")) else 0,
+                1
+                if (self._normalize_setup_family_id(item.get("setup_family_id")) in trusted)
+                else (0 if prefer_trusted else 1),
+                float((item.get("quality") or {}).get("quality_score", 0.0)),
+            ),
+            reverse=True,
+        )
+        return ranked[0] if ranked else None
 
     @classmethod
     def _normalize_setup_family_id(cls, setup_family_id: str | None) -> str:
@@ -1834,6 +1895,73 @@ class RossMomentumStrategyV1(BaseStrategy):
             "[ROSS][PIPELINE][NO_DECISION] "
             f"symbol={symbol} reason=no_valid_pattern_or_trigger"
         )
+        print(
+            "[ROSS][PIPELINE_NO_DECISION] "
+            f"symbol={symbol} reason=no_valid_pattern_or_trigger"
+        )
+
+    def _filter_trusted_setups(self, setups: list[dict] | None, *, symbol: str) -> list[dict]:
+        trusted = {self._normalize_setup_family_id(item) for item in self._trusted_setup_families}
+        filtered: list[dict] = []
+        for setup in list(setups or []):
+            setup_copy = dict(setup)
+            setup_family = self._resolve_trust_family(setup_copy.get("setup_family_id"))
+            if setup_family not in trusted:
+                setup_copy["untrusted"] = True
+                print(f"[ROSS][PATTERN_UNTRUSTED] symbol={symbol} setup_family={setup_family}")
+            else:
+                setup_copy["untrusted"] = False
+            filtered.append(setup_copy)
+        return filtered
+
+    def _filter_trusted_pattern_traces(self, pattern_traces: list | None, *, symbol: str) -> list:
+        trusted = {self._normalize_setup_family_id(item) for item in self._trusted_setup_families}
+        filtered = []
+        for trace in list(pattern_traces or []):
+            setup_family = self._resolve_trust_family(getattr(trace, "setup_family_id", None))
+            is_untrusted = bool(setup_family and setup_family not in trusted)
+            if is_untrusted:
+                print(f"[ROSS][PATTERN_UNTRUSTED] symbol={symbol} setup_family={setup_family}")
+            try:
+                setattr(trace, "untrusted", is_untrusted)
+            except Exception:
+                pass
+            filtered.append(trace)
+        return filtered
+
+    def _filter_trusted_pattern_results(self, pattern_results: list | None, *, symbol: str) -> list:
+        trusted = {self._normalize_setup_family_id(item) for item in self._trusted_setup_families}
+        filtered = []
+        for result in list(pattern_results or []):
+            if isinstance(result, dict):
+                candidate = dict(result)
+                setup_family = self._resolve_trust_family(
+                    candidate.get("setup_family_id") or candidate.get("setup_family") or candidate.get("pattern_id")
+                )
+                if setup_family and setup_family not in trusted:
+                    candidate["untrusted"] = True
+                    print(f"[ROSS][PATTERN_UNTRUSTED] symbol={symbol} setup_family={setup_family}")
+                filtered.append(candidate)
+                continue
+            setup_family = self._resolve_trust_family(
+                getattr(result, "setup_family_id", None) or getattr(result, "pattern_id", None)
+            )
+            if setup_family and setup_family not in trusted:
+                try:
+                    setattr(result, "untrusted", True)
+                except Exception:
+                    pass
+                print(f"[ROSS][PATTERN_UNTRUSTED] symbol={symbol} setup_family={setup_family}")
+            filtered.append(result)
+        return filtered
+
+    def _resolve_trust_family(self, value: object) -> str:
+        normalized = self._normalize_setup_family_id(str(value or ""))
+        if normalized.startswith("P_"):
+            mapped = self._setup_family_from_pattern_id(normalized)
+            if mapped and mapped != "UNKNOWN":
+                return self._normalize_setup_family_id(mapped)
+        return normalized
 
     def _evaluate_trigger(
         self,
