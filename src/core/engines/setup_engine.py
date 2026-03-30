@@ -14,15 +14,24 @@ class SetupEngine:
         levels: dict,
         structure: dict,
         *,
+        symbol: str | None = None,
+        timeframe: str | None = None,
         session_context: str | None = None,
         tradability_context: dict | None = None,
     ) -> list[dict]:
+        symbol_label = str(symbol or "UNKNOWN").upper()
+        timeframe_label = str(timeframe or "UNKNOWN").upper()
+        session_label = str(session_context or "UNKNOWN").upper()
+        print(
+            "[SETUP_ENGINE][CALL] "
+            f"symbol={symbol_label} timeframe={timeframe_label} session={session_label}"
+        )
         normalized_levels = levels if isinstance(levels, dict) else {}
         normalized_structure = structure if isinstance(structure, dict) else {}
         last_close = self._last_close(candles)
         last_high = self._last_high(candles)
         if last_close is None:
-            print("[SETUP_ENGINE] no setups: missing_last_close")
+            print(f"[SETUP_ENGINE][EMPTY] symbol={symbol_label} reason=missing_last_close")
             return []
 
         setups: list[dict] = []
@@ -204,8 +213,10 @@ class SetupEngine:
         )
 
         for setup in setups:
-            setup["session_context"] = str(session_context or "UNKNOWN").upper()
+            setup["session_context"] = session_label
             setup["tradability_context"] = dict(tradability_context or {})
+            setup["symbol"] = symbol_label
+            setup["timeframe"] = timeframe_label
             setup["structure_context"] = {
                 "trend": normalized_structure.get("trend"),
                 "dominant_direction": normalized_structure.get("dominant_direction"),
@@ -226,7 +237,8 @@ class SetupEngine:
                 setup["quality_flags"].append("EMA9_MISSING")
         print(
             "[SETUP_ENGINE] "
-            f"produced={len(setups)} families={[item.get('setup_family_id') for item in setups]}"
+            f"symbol={symbol_label} timeframe={timeframe_label} produced={len(setups)} "
+            f"families={[item.get('setup_family_id') for item in setups]}"
         )
         return setups
 

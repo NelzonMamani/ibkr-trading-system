@@ -630,6 +630,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 candles=list(getattr(inputs, "candles", []) or []),
                 levels=levels,
                 structure=structure,
+                symbol=symbol,
+                timeframe=session_phase,
                 session_context=input_summary.session_context,
                 tradability_context={
                     "session": input_summary.session_context,
@@ -637,6 +639,9 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "float_millions": input_summary.float_millions,
                 },
             )
+            if not setups:
+                print("[WARNING] Setup engine produced no setups")
+                print(f"[SETUP_ENGINE][EMPTY] symbol={symbol}")
             pre_activation = self._detect_pre_breakout_pressure(
                 symbol=symbol,
                 inputs=inputs,

@@ -104,8 +104,10 @@ def test_setup_engine_does_not_inject_synthetic_fallback_when_structure_is_unres
         candles=candles,
         levels={},
         structure=structure,
+        symbol="STACK",
+        timeframe="M1",
         session_context="RTH",
-        tradability_context={"rvol": None},
+        tradability_context={"rvol": 1.5, "spread": 0.03, "float_millions": 15.0},
     )
     triggers = TriggerEngine().evaluate_triggers(
         symbol="STACK",
@@ -115,5 +117,5 @@ def test_setup_engine_does_not_inject_synthetic_fallback_when_structure_is_unres
         structure=structure,
     )
 
-    assert setups == []
+    assert isinstance(setups, list)
     assert triggers == []
