@@ -34,6 +34,7 @@ from src.config.runtime_config import (
 from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.engines.position_management_engine import ManagedPosition, PositionManagementEngine
+from src.core.engines.trade_lifecycle_engine import TradeLifecycleEngine
 from src.core.event_collector import EventCollector
 from src.data.fundamentals.float_provider import FloatProvider
 from src.data.manual_focus_loader import ManualFocusConfig
@@ -452,6 +453,8 @@ class CoreOrchestrator:
         )
         self.execution_enabled = self.execution_engine.execution_enabled
         self.position_management_engine = PositionManagementEngine()
+        self.trade_lifecycle_engine = TradeLifecycleEngine()
+        self._lifecycle_trade_ids_by_symbol: dict[tuple[str, str], str] = {}
         self.trade_exit_engine = TradeExitEngine(
             trade_registry=self.trade_registry,
             event_collector=self.event_collector,
@@ -538,6 +541,77 @@ class CoreOrchestrator:
             "false_breakout": False,
             "session_phase": str(session_phase),
         }
+
+    def _register_trade_lifecycle_on_execution(
+        self,
+        *,
+        risk_decision: RiskDecision,
+        execution_result: ExecutionResult,
+        managed_position: ManagedPosition,
+    ) -> str:
+        lifecycle_state = self.trade_lifecycle_engine.open_trade(
+            symbol=managed_position.symbol,
+            side=managed_position.side,
+            quantity=managed_position.quantity,
+            entry_price=managed_position.entry_price,
+            stop_price=managed_position.stop_price,
+            strategy_name=str(getattr(risk_decision, "strategy_name", "UNKNOWN") or "UNKNOWN"),
+            setup_family_id=getattr(risk_decision, "setup_family_id", None),
+            trigger_id=getattr(risk_decision, "trigger_id", None),
+            execution_mode=str(getattr(risk_decision, "execution_refinement_mode", None) or "NORMAL"),
+            execution_primary_timeframe=str(getattr(risk_decision, "execution_primary_timeframe", None) or managed_position.timeframe or "1m"),
+            execution_refinement_timeframe=getattr(risk_decision, "execution_refinement_timeframe", None),
+            broker_order_ids=[str(getattr(execution_result, "client_order_id", ""))] if getattr(execution_result, "client_order_id", None) else [],
+        )
+        key = (managed_position.symbol, str(getattr(risk_decision, "trader_type", "UNKNOWN")))
+        self._lifecycle_trade_ids_by_symbol[key] = lifecycle_state.trade_id
+        return lifecycle_state.trade_id
+
+    def _reconcile_lifecycle_with_managed_position(
+        self,
+        *,
+        trade_id: str,
+        before: ManagedPosition,
+        after: ManagedPosition,
+        current_price: float,
+    ) -> None:
+        if after.quantity > before.quantity:
+            self.trade_lifecycle_engine.apply_add(
+                trade_id,
+                add_quantity=after.quantity - before.quantity,
+                add_price=current_price,
+                note="position_management_add",
+            )
+        elif after.quantity < before.quantity:
+            self.trade_lifecycle_engine.apply_partial_exit(
+                trade_id,
+                exit_quantity=before.quantity - after.quantity,
+                exit_price=current_price,
+                note="position_management_partial",
+            )
+        if abs(after.stop_price - before.stop_price) > 1e-9:
+            self.trade_lifecycle_engine.move_stop(
+                trade_id,
+                stop_price=after.stop_price,
+                note="position_management_stop_move",
+            )
+        if after.closed:
+            self.trade_lifecycle_engine.close_trade(
+                trade_id,
+                exit_price=current_price,
+                exit_reason=str(after.exit_reason or "position_management_exit"),
+            )
+
+    def _mark_open_trades_to_market(self, tick: int) -> None:
+        for state in self.trade_lifecycle_engine.get_open_trades():
+            try:
+                current_price = float(self.price_feed.price_for(state.symbol, tick))
+            except Exception:
+                current_price = float(state.current_price)
+            self.trade_lifecycle_engine.mark_to_market(
+                state.trade_id,
+                current_price=current_price,
+            )
 
     def _should_enforce_ibkr_runtime(self) -> bool:
         """
@@ -1624,6 +1698,8 @@ class CoreOrchestrator:
                 summary=f"symbol={trade.symbol}",
             )
             print(f"[POSITION_MANAGE] symbol={trade.symbol} state={getattr(trade.state, 'value', trade.state)}")
+        self._mark_open_trades_to_market(self.tick)
+        self.trade_lifecycle_engine.summarize_session_metrics()
         self._last_position_management_tick_utc = now
 
     def _detect_unprotected_positions(self, open_positions: list[ActiveTrade], *, stage: str) -> None:
@@ -3243,13 +3319,25 @@ class CoreOrchestrator:
                             execution_result=result,
                         )
                         if managed_position is not None:
+                            lifecycle_trade_id = self._register_trade_lifecycle_on_execution(
+                                risk_decision=risk_decision,
+                                execution_result=result,
+                                managed_position=managed_position,
+                            )
                             position_market_state = self._build_position_management_market_state(
                                 execution_result=result,
                                 session_phase=session_phase,
                             )
+                            managed_position_before = replace(managed_position)
                             managed_position = self.position_management_engine.manage_position(
                                 managed_position,
                                 position_market_state,
+                            )
+                            self._reconcile_lifecycle_with_managed_position(
+                                trade_id=lifecycle_trade_id,
+                                before=managed_position_before,
+                                after=managed_position,
+                                current_price=float(position_market_state.get("current_price") or managed_position.entry_price),
                             )
                             print(
                                 "[POSITION][MANAGER] "
