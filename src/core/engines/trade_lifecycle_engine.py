@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from src.core.portfolio.broker_position_adapter import BrokerPositionSnapshot
+from src.core.portfolio.portfolio_state import PortfolioState
+from src.core.portfolio.risk_signals import LifecycleRiskSignals
 
 OPEN_STATUSES = {"OPEN", "PARTIALLY_CLOSED"}
 
@@ -64,6 +67,7 @@ class TradeLifecycleEngine:
             "reconciliation_events_count": 0,
             "duplicate_events_ignored": 0,
         }
+        self._last_portfolio_state = PortfolioState()
 
     def set_persistence_adapter(self, persistence_adapter: Any | None) -> None:
         self._persistence = persistence_adapter
@@ -380,6 +384,109 @@ class TradeLifecycleEngine:
         self._reconciliation_events.append(finding)
         return finding
 
+    @staticmethod
+    def _severity_for_status(status: str) -> str:
+        normalized = str(status or "").upper()
+        if normalized == "MATCH":
+            return "INFO"
+        if normalized == "DRIFTED":
+            return "WARNING"
+        return "CRITICAL"
+
+    def reconcile_with_broker_snapshot(
+        self,
+        snapshot: list[BrokerPositionSnapshot],
+    ) -> list[dict[str, Any]]:
+        findings: list[dict[str, Any]] = []
+        ts = self._now_iso()
+        broker_by_symbol = {
+            str(row.symbol).upper(): row for row in snapshot if str(getattr(row, "symbol", "")).strip()
+        }
+        lifecycle_open = self.open_trades()
+        lifecycle_by_symbol: dict[str, list[LifecycleTrade]] = {}
+        for trade in lifecycle_open:
+            lifecycle_by_symbol.setdefault(str(trade.symbol).upper(), []).append(trade)
+
+        all_symbols = sorted(set(lifecycle_by_symbol.keys()) | set(broker_by_symbol.keys()))
+        for symbol in all_symbols:
+            lifecycle_trades = lifecycle_by_symbol.get(symbol, [])
+            broker_position = broker_by_symbol.get(symbol)
+            broker_qty = int(getattr(broker_position, "quantity", 0) or 0) if broker_position else 0
+            broker_avg = (
+                float(getattr(broker_position, "avg_entry_price", 0.0) or 0.0) if broker_position else 0.0
+            )
+            runtime_qty = sum(int(t.quantity_open or 0) for t in lifecycle_trades)
+
+            if len(lifecycle_trades) > 1 and broker_qty > 0:
+                status = "DRIFTED"
+                finding_type = "structure_drift"
+                details = {
+                    "reason": "multiple_lifecycle_trades_single_broker_position",
+                    "lifecycle_trade_ids": [t.lifecycle_trade_id for t in lifecycle_trades],
+                    "broker_quantity": broker_qty,
+                }
+                for trade in lifecycle_trades:
+                    trade.status = "DRIFTED"
+                    trade.drift_flags.add("STRUCTURE_DRIFT")
+                    self._persist_trade_snapshot_best_effort(trade)
+            elif runtime_qty > 0 and broker_qty <= 0:
+                status = "ORPHANED"
+                finding_type = "lifecycle_open_broker_flat"
+                details = {"runtime_quantity": runtime_qty, "broker_quantity": broker_qty}
+                for trade in lifecycle_trades:
+                    trade.status = "ORPHANED"
+                    trade.reconciliation_flags.add("BROKER_FLAT")
+                    self._persist_trade_snapshot_best_effort(trade)
+            elif runtime_qty <= 0 and broker_qty > 0:
+                status = "ORPHANED"
+                finding_type = "broker_open_lifecycle_missing"
+                details = {"runtime_quantity": runtime_qty, "broker_quantity": broker_qty}
+            elif runtime_qty != broker_qty:
+                status = "DRIFTED"
+                finding_type = "qty_mismatch"
+                details = {"runtime_quantity": runtime_qty, "broker_quantity": broker_qty}
+                for trade in lifecycle_trades:
+                    trade.status = "DRIFTED"
+                    trade.drift_flags.add("BROKER_QTY_MISMATCH")
+                    self._persist_trade_snapshot_best_effort(trade)
+            else:
+                lifecycle_avg = float(lifecycle_trades[0].entry_avg_price or 0.0) if lifecycle_trades else 0.0
+                if abs(lifecycle_avg - broker_avg) > 1e-6:
+                    status = "DRIFTED"
+                    finding_type = "avg_entry_mismatch"
+                    details = {
+                        "lifecycle_avg_entry": lifecycle_avg,
+                        "broker_avg_entry": broker_avg,
+                        "runtime_quantity": runtime_qty,
+                    }
+                    for trade in lifecycle_trades:
+                        trade.status = "DRIFTED"
+                        trade.drift_flags.add("BROKER_AVG_ENTRY_MISMATCH")
+                        self._persist_trade_snapshot_best_effort(trade)
+                else:
+                    status = "MATCH"
+                    finding_type = "position_match"
+                    details = {"runtime_quantity": runtime_qty, "broker_quantity": broker_qty}
+
+            severity = self._severity_for_status(status)
+            finding = {
+                "reconciliation_id": str(uuid4()),
+                "lifecycle_trade_id": lifecycle_trades[0].lifecycle_trade_id if lifecycle_trades else None,
+                "symbol": symbol,
+                "status": status,
+                "severity": severity,
+                "finding_type": finding_type,
+                "details_json": str(details),
+                "timestamp": ts,
+                "source": "broker_snapshot",
+            }
+            print(f"[LIFECYCLE][BROKER_RECONCILE][{severity}] symbol={symbol} reason={finding_type}")
+            self._session_counts["reconciliation_events_count"] += 1
+            self._persist_reconciliation_best_effort(finding)
+            self._reconciliation_events.append(finding)
+            findings.append(finding)
+        return findings
+
     def get_trade(self, trade_id: str) -> LifecycleTrade | None:
         return self._trades.get(trade_id)
 
@@ -407,6 +514,48 @@ class TradeLifecycleEngine:
     def get_drift_report(self) -> list[dict[str, Any]]:
         return [event for event in self._reconciliation_events if event.get("status") in {"DRIFTED", "ORPHANED"}]
 
+    def build_portfolio_state(self) -> PortfolioState:
+        open_trades = self.open_trades()
+        drifted_positions = sorted(
+            {
+                trade.symbol
+                for trade in self._trades.values()
+                if trade.status in {"DRIFTED", "ORPHANED"} or bool(trade.drift_flags)
+            }
+        )
+        state = PortfolioState(
+            total_open_positions=len(open_trades),
+            total_exposure=sum(float(t.quantity_open) * float(t.entry_avg_price) for t in open_trades),
+            total_realized_pnl=sum(float(t.gross_realized_pnl or 0.0) for t in self._trades.values()),
+            total_unrealized_pnl=sum(float(t.unrealized_pnl or 0.0) for t in open_trades),
+            symbols_open=sorted({t.symbol for t in open_trades if t.symbol}),
+            drifted_positions=drifted_positions,
+        )
+        self._last_portfolio_state = state
+        return state
+
+    def compute_lifecycle_risk_signals(self) -> LifecycleRiskSignals:
+        state = self.build_portfolio_state()
+        max_drawdown_breached = state.total_realized_pnl <= -300.0
+        pnl_drop_rate_exceeded = state.total_unrealized_pnl <= -250.0
+        too_many_open_positions = state.total_open_positions > 5
+        drift_detected = len(state.drifted_positions) > 0
+        signals = LifecycleRiskSignals(
+            max_drawdown_breached=max_drawdown_breached,
+            pnl_drop_rate_exceeded=pnl_drop_rate_exceeded,
+            too_many_open_positions=too_many_open_positions,
+            drift_detected=drift_detected,
+        )
+        if max_drawdown_breached:
+            print(f"[LIFECYCLE][RISK_SIGNAL] drawdown_exceeded value={state.total_realized_pnl:.2f}")
+        if pnl_drop_rate_exceeded:
+            print(f"[LIFECYCLE][RISK_SIGNAL] pnl_drop_rate_exceeded value={state.total_unrealized_pnl:.2f}")
+        if too_many_open_positions:
+            print(f"[LIFECYCLE][RISK_SIGNAL] too_many_open_positions value={state.total_open_positions}")
+        if drift_detected:
+            print(f"[LIFECYCLE][RISK_SIGNAL] drift_detected symbols={','.join(state.drifted_positions)}")
+        return signals
+
     def summarize_session_metrics(self) -> dict[str, Any]:
         open_trades = self.open_trades()
         partially_closed = [t for t in self._trades.values() if t.status == "PARTIALLY_CLOSED"]
@@ -424,6 +573,18 @@ class TradeLifecycleEngine:
             "orphaned_trades_count": len(orphaned),
             "reconciliation_events_count": self._session_counts["reconciliation_events_count"],
             "duplicate_events_ignored": self._session_counts["duplicate_events_ignored"],
+            "portfolio_exposure": self._last_portfolio_state.total_exposure,
+            "portfolio_realized_pnl": self._last_portfolio_state.total_realized_pnl,
+            "portfolio_unrealized_pnl": self._last_portfolio_state.total_unrealized_pnl,
+            "broker_mismatch_count": len(
+                [
+                    event
+                    for event in self._reconciliation_events
+                    if event.get("source") == "broker_snapshot" and event.get("status") != "MATCH"
+                ]
+            ),
+            "drift_count": len([event for event in self._reconciliation_events if event.get("status") == "DRIFTED"]),
+            "orphan_count": len([event for event in self._reconciliation_events if event.get("status") == "ORPHANED"]),
         }
         if self._persistence is not None:
             try:
