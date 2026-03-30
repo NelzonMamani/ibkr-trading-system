@@ -50,6 +50,10 @@ def get_default_capital(default: float = DEFAULT_CAPITAL) -> float:
     return float(os.getenv("TRADING_DEFAULT_CAPITAL", str(default)))
 
 
+def get_config_max_position_pct(default: float = 0.1) -> float:
+    return float(os.getenv("CONFIG_MAX_POSITION_PCT", str(default)))
+
+
 def is_live_read_only_required() -> bool:
     return get_run_mode() == RunMode.READ_ONLY
 

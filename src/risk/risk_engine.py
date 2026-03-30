@@ -15,6 +15,7 @@ from src.config.config_resolver import get_config
 from src.config.system_config import get_current_market_session
 from src.config.runtime_config import (
     RunMode,
+    get_config_max_position_pct,
     get_default_capital,
     get_ibkr_readonly_enabled,
     get_risk_account_equity,
@@ -923,6 +924,43 @@ class RiskEngine:
                     overall_action="BLOCK",
                     decision_code="REJECT",
                     risk_reasons=["REGIME_RISK_MULTIPLIER"],
+                    execution_blocked=True,
+                    run_mode=run_mode.value,
+                    evaluated_limits=evaluated_limits,
+                    timestamp=timestamp,
+                )
+                return self._finalize_decision(decision, decision_id)
+
+        max_position_pct = max(0.0, min(float(get_config_max_position_pct()), 1.0))
+        max_position_value = min(
+            float(available_capital),
+            float(available_capital) * max_position_pct,
+        )
+        if entry_price is not None and float(entry_price) > 0:
+            max_capital_constrained_shares = int(max_position_value // float(entry_price))
+            if max_capital_constrained_shares < max_position_size:
+                print(
+                    "[RISK][CAPITAL_CLAMP] "
+                    f"symbol={trade_intent.symbol} requested_shares={max_position_size} "
+                    f"clamped_shares={max_capital_constrained_shares} entry_price={entry_price} "
+                    f"available_capital={available_capital} max_position_pct={max_position_pct}"
+                )
+            max_position_size = min(max_position_size, max_capital_constrained_shares)
+            if max_position_size <= 0:
+                rationale = "Insufficient capital under max position policy."
+                decision = RiskDecision(
+                    symbol=trade_intent.symbol,
+                    allowed=False,
+                    max_position_size=0,
+                    risk_level="BLOCKED",
+                    rationale=rationale,
+                    trader_type=trader_type,
+                    strategy_name=trade_intent.strategy_name,
+                    direction=trade_intent.direction,
+                    reason_code="INSUFFICIENT_CAPITAL",
+                    overall_action="BLOCK",
+                    decision_code="REJECT",
+                    risk_reasons=["INSUFFICIENT_CAPITAL"],
                     execution_blocked=True,
                     run_mode=run_mode.value,
                     evaluated_limits=evaluated_limits,

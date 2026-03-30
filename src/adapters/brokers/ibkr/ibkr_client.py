@@ -825,6 +825,10 @@ class IbkrClient(EWrapper, EClient):
                 "[ORDER][ERROR] "
                 f"order_id={reqId} code={errorCode} message={errorString}"
             )
+            print(
+                "[IBKR][ORDER_ERROR] "
+                f"order_id={reqId} code={errorCode} message={errorString}"
+            )
         print(message)
         if errorCode == 326:
             print("[IBKR][CONNECT_FAIL] code=326 client id already in use")
@@ -864,6 +868,11 @@ class IbkrClient(EWrapper, EClient):
             "[ORDER][STATUS] "
             f"order_id={orderId} status={status} filled={int(filled)} remaining={int(remaining)}"
         )
+        print(
+            "[IBKR][ORDER_STATUS] "
+            f"order_id={orderId} status={status} filled={int(filled)} remaining={int(remaining)} "
+            f"avg_fill_price={avgFillPrice} last_fill_price={lastFillPrice}"
+        )
         event = self._order_status_events.setdefault(orderId, threading.Event())
         event.set()
 
@@ -879,6 +888,11 @@ class IbkrClient(EWrapper, EClient):
         }
         print(
             "[ORDER][FILL] "
+            f"symbol={getattr(contract, 'symbol', None)} order_id={order_id} "
+            f"shares={getattr(execution, 'shares', None)} avg_price={getattr(execution, 'price', None)}"
+        )
+        print(
+            "[IBKR][ORDER_FILL] "
             f"symbol={getattr(contract, 'symbol', None)} order_id={order_id} "
             f"shares={getattr(execution, 'shares', None)} avg_price={getattr(execution, 'price', None)}"
         )

@@ -54,7 +54,9 @@ def build_trade_intents(
         trigger_fired = bool(setup.entry_zone)
         if trigger_fired and confirmation_passed:
             guaranteed_intent_required = True
-        risk_ok = not bool(summary.veto_flags or setup.risk_flags)
+        # `setup.risk_flags` can contain advisory warnings that do not block final
+        # risk approval; only explicit veto flags should produce a risk-stage negative.
+        risk_ok = not bool(summary.veto_flags)
         dq_ok = not bool(setup.data_quality_flags)
         if not dq_ok and config.debug_force_execution:
             print(f"[DQ_OVERRIDE] symbol={symbol} dq was bypassed")
