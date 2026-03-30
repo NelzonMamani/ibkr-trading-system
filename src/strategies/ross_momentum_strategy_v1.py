@@ -104,6 +104,8 @@ class RossMomentumStrategyV1(BaseStrategy):
         self._session_stats = {
             "cycles": 0,
             "symbols_evaluated": 0,
+            "focus_passed": 0,
+            "focus_rejected": 0,
             "structure_fail_count": 0,
             "setup_fail_count": 0,
             "trigger_fail_count": 0,
@@ -123,9 +125,13 @@ class RossMomentumStrategyV1(BaseStrategy):
         *,
         symbol_traces: Sequence[RossSymbolTrace],
         intents_generated: int,
+        focus_diagnostics: dict[str, object] | None = None,
     ) -> dict[str, int | str]:
+        focus_diagnostics = dict(focus_diagnostics or {})
         summary: dict[str, int | str] = {
             "symbols_evaluated": len(symbol_traces),
+            "focus_passed": int(focus_diagnostics.get("focus_passed", len(symbol_traces)) or 0),
+            "focus_rejected": int(focus_diagnostics.get("focus_rejected", 0) or 0),
             "structure_fail_count": 0,
             "setup_fail_count": 0,
             "trigger_fail_count": 0,
@@ -175,6 +181,8 @@ class RossMomentumStrategyV1(BaseStrategy):
         print(
             "[ROSS][CYCLE_SUMMARY] "
             f"symbols={cycle_summary['symbols_evaluated']} "
+            f"focus_passed={cycle_summary['focus_passed']} "
+            f"focus_rejected={cycle_summary['focus_rejected']} "
             f"intents={cycle_summary['intents_generated']} "
             f"fails(structure={cycle_summary['structure_fail_count']}, "
             f"setup={cycle_summary['setup_fail_count']}, "
@@ -187,6 +195,8 @@ class RossMomentumStrategyV1(BaseStrategy):
     def _update_ross_session_stats(self, cycle_summary: dict[str, int | str]) -> None:
         self._session_stats["cycles"] += 1
         self._session_stats["symbols_evaluated"] += int(cycle_summary["symbols_evaluated"])
+        self._session_stats["focus_passed"] += int(cycle_summary["focus_passed"])
+        self._session_stats["focus_rejected"] += int(cycle_summary["focus_rejected"])
         self._session_stats["structure_fail_count"] += int(cycle_summary["structure_fail_count"])
         self._session_stats["setup_fail_count"] += int(cycle_summary["setup_fail_count"])
         self._session_stats["trigger_fail_count"] += int(cycle_summary["trigger_fail_count"])
@@ -203,6 +213,8 @@ class RossMomentumStrategyV1(BaseStrategy):
             "[ROSS][FINAL_SESSION_SUMMARY] "
             f"cycles={self._session_stats['cycles']} "
             f"symbols={self._session_stats['symbols_evaluated']} "
+            f"focus_passed={self._session_stats['focus_passed']} "
+            f"focus_rejected={self._session_stats['focus_rejected']} "
             f"intents={self._session_stats['intents_generated']} "
             f"fails(structure={self._session_stats['structure_fail_count']}, "
             f"setup={self._session_stats['setup_fail_count']}, "
@@ -440,6 +452,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         timestamp_utc: str,
         mode: RunMode,
         session_phase: str,
+        focus_diagnostics: dict[str, object] | None = None,
     ) -> List[TradeIntent]:
         print(f"[ROSS][PROCESS_START] symbols={len(watchlist)}")
         symbols = list(watchlist)
@@ -1308,6 +1321,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         cycle_summary = self._build_ross_cycle_summary(
             symbol_traces=symbol_traces,
             intents_generated=len(translated_intents),
+            focus_diagnostics=focus_diagnostics,
         )
         self._last_cycle_summary = cycle_summary
         self._update_ross_session_stats(cycle_summary)

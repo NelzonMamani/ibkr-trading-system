@@ -27,17 +27,21 @@ def test_cycle_summary_and_shutdown_summary_are_emitted(capsys) -> None:
         _trace("OK", final_outcome="SETUP_DETECTED_AND_TRANSLATED", final_reason_code="INTENT_GENERATED"),
     ]
 
-    cycle_summary = strategy._build_ross_cycle_summary(symbol_traces=traces, intents_generated=1)
+    cycle_summary = strategy._build_ross_cycle_summary(
+        symbol_traces=traces,
+        intents_generated=1,
+        focus_diagnostics={"focus_passed": 2, "focus_rejected": 3},
+    )
     strategy._update_ross_session_stats(cycle_summary)
     strategy._last_cycle_summary = cycle_summary
     strategy._print_ross_cycle_summary(cycle_summary)
     strategy.emit_shutdown_summary()
 
     out = capsys.readouterr().out
-    assert "[ROSS][CYCLE_SUMMARY] symbols=5 intents=1" in out
+    assert "[ROSS][CYCLE_SUMMARY] symbols=5 focus_passed=2 focus_rejected=3 intents=1" in out
     assert "fails(structure=0, setup=1, trigger=1, filter=1, input=1)" in out
     assert "dominant=setup" in out
     assert "[SYSTEM] Shutdown requested — generating summary..." in out
-    assert "[ROSS][FINAL_SESSION_SUMMARY] cycles=1 symbols=5 intents=1" in out
+    assert "[ROSS][FINAL_SESSION_SUMMARY] cycles=1 symbols=5 focus_passed=2 focus_rejected=3 intents=1" in out
     assert "[ROSS][FAILURE_DISTRIBUTION]" in out
     assert "[ROSS][LAST_CYCLE]" in out

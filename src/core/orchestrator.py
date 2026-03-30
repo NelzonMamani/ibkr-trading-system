@@ -1841,6 +1841,12 @@ class CoreOrchestrator:
                 execution_allowed=True if strategy_watchlist else session_execution_allowed,
                 execution_ready=True if strategy_watchlist else session_execution_allowed,
                 prep_only=False if strategy_watchlist else session_label in {"AH", "CLOSED"},
+                focus_diagnostics={
+                    "focus_evaluated": int(scanner_watchlist_payload.get("focus_evaluated", 0) or 0),
+                    "focus_passed": int(scanner_watchlist_payload.get("focus_passed", len(final_evaluation_symbols)) or 0),
+                    "focus_rejected": int(scanner_watchlist_payload.get("focus_rejected", 0) or 0),
+                    "focus_dominant_reasons": dict(scanner_watchlist_payload.get("focus_dominant_reasons", {}) or {}),
+                },
             )
         else:
             print("[PIPELINE][SKIP] empty watchlist")
@@ -2616,6 +2622,12 @@ class CoreOrchestrator:
                 execution_allowed=True,
                 execution_ready=True,
                 prep_only=False,
+                focus_diagnostics={
+                    "focus_evaluated": int(scanner_watchlist_payload.get("focus_evaluated", 0) or 0),
+                    "focus_passed": int(scanner_watchlist_payload.get("focus_passed", len(strategy_context.focus_m)) or 0),
+                    "focus_rejected": int(scanner_watchlist_payload.get("focus_rejected", 0) or 0),
+                    "focus_dominant_reasons": dict(scanner_watchlist_payload.get("focus_dominant_reasons", {}) or {}),
+                },
             )
             strategy_output = self._merge_trade_intents([], strategy_output)
             strategy_output = self._annotate_trade_intents_with_regime(

@@ -2887,6 +2887,10 @@ def _scanner_request_reject_payload(
         "focus_m": [],
         "watchlist_k_symbols": [],
         "focus_m_symbols": [],
+        "focus_evaluated": 0,
+        "focus_passed": 0,
+        "focus_rejected": 0,
+        "focus_dominant_reasons": {},
         "candidates": [],
         "candidate_metrics": [],
         "scanner_result": empty_result,
@@ -4111,6 +4115,15 @@ def run_scanner_cycle(
 
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
         focus_symbols = [row.symbol for row in deep_rows]
+        focus_drop_reasons = Counter(
+            str(context.get("focus_drop_reason") or "")
+            for context in watchlist_contexts
+            if context.get("focus_drop_reason")
+        )
+        focus_evaluated = len(watchlist_contexts)
+        focus_passed = len(focus_symbols)
+        focus_rejected = max(0, focus_evaluated - focus_passed)
+        focus_dominant_reasons = dict(focus_drop_reasons.most_common(5))
 
         flow = diagnostics.get("scanner_flow", {})
         raw_count = int(flow.get("raw_broker_count", len(symbols)))
@@ -4432,7 +4445,11 @@ def run_scanner_cycle(
         "focus_m": focus_metrics,
         "watchlist_k_symbols": watchlist_symbols,
         "focus_m_symbols": focus_symbols,
-        "ross_top_universe_symbols": sorted(daily_state.top_universe.keys()),
+        "focus_evaluated": focus_evaluated,
+        "focus_passed": focus_passed,
+        "focus_rejected": focus_rejected,
+        "focus_dominant_reasons": focus_dominant_reasons,
+            "ross_top_universe_symbols": sorted(daily_state.top_universe.keys()),
         "ross_rejected_tracked_symbols": sorted(daily_state.rejected_tracked.keys()),
         "ross_daily_state": {
             "trading_day": daily_state.trading_day,

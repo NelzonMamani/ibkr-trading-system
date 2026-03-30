@@ -287,6 +287,7 @@ class StrategyRunner:
         execution_allowed: bool | None = None,
         execution_ready: bool | None = None,
         prep_only: bool | None = None,
+        focus_diagnostics: dict | None = None,
     ) -> List[TradeIntent]:
         strategies = list(self.strategies)
         session_norm = canonical_session_label(session_label or "")
@@ -367,6 +368,7 @@ class StrategyRunner:
                         "timestamp_utc": timestamp_utc,
                         "mode": mode,
                         "session_phase": session_phase,
+                        "focus_diagnostics": dict(focus_diagnostics or {}),
                     }
                 )
                 trade_intents = list(result.get("trade_intents", []))

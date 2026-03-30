@@ -17,6 +17,7 @@ class RossMomentumRunner:
             timestamp_utc=context.get("timestamp_utc"),
             mode=context.get("mode"),
             session_phase=context.get("session_phase"),
+            focus_diagnostics=context.get("focus_diagnostics", {}),
         )
         trade_ready_count = sum(
             1
