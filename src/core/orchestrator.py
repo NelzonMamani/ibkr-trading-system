@@ -1807,6 +1807,11 @@ class CoreOrchestrator:
             )
             final_evaluation_symbols = list(strategy_evaluation_symbols)
         print(f"[FOCUS_FINAL] count={len(final_evaluation_symbols)} symbols={final_evaluation_symbols}")
+        scanner_payload = locals().get("scanner_watchlist_payload") or {}
+        focus_evaluated = int(scanner_payload.get("focus_evaluated", 0))
+        focus_passed = int(scanner_payload.get("focus_passed", len(final_evaluation_symbols)) or 0)
+        focus_rejected = int(scanner_payload.get("focus_rejected", 0))
+        focus_dominant_reasons = dict(scanner_payload.get("focus_dominant_reasons", {}) or {})
         snapshots_by_symbol, _ = self.market_data_snapshot_manager.batch_snapshots(final_evaluation_symbols)
         session_label = canonical_session_label(
             forced_session_label
@@ -1956,14 +1961,15 @@ class CoreOrchestrator:
                     f"symbol={trade_intent.symbol} verdict=emit_intent setup={getattr(trade_intent, 'pattern_name', None) or getattr(trade_intent, 'strategy_name', 'UNKNOWN')} executable={str(bool(mode_manager.allow_orders)).lower()}"
                 )
         no_setup_count = max(len(final_evaluation_symbols) - intent_count, 0)
+        dominant_no_trade_reasons = focus_dominant_reasons or {"NO_SETUP": no_setup_count}
         print(
             "[CYCLE_END] "
             f"cycle_id={self._current_cycle_id} canonical_session={session_label} "
             f"raw_top_n_count={len(selected_observations)} candidates_entering_gates={scanner_kept_count} survivors_after_gates={scanner_kept_count} "
             f"watchlist_count={len(watchlist_symbols)} focus_count_auto={len(auto_focus_symbols)} focus_count_manual={len(manual_focus_accepted_symbols)} "
-            f"focus_count_final={len(final_evaluation_symbols)} evaluated_count={len(final_evaluation_symbols)} setup_trigger_count={intent_count} "
+            f"focus_count_final={focus_passed} evaluated_count={focus_evaluated} focus_rejected={focus_rejected} setup_trigger_count={intent_count} "
             f"no_setup_count={no_setup_count} intent_count={intent_count} order_submission_count={intent_count if mode_manager.allow_orders else 0} "
-            f"open_positions_count={self.trade_registry.count_active()} dominant_drop_reasons=NA dominant_no_trade_reasons={{'NO_SETUP': {no_setup_count}}} "
+            f"open_positions_count={self.trade_registry.count_active()} dominant_drop_reasons=NA dominant_no_trade_reasons={dominant_no_trade_reasons} "
             f"execution_allowed={session_label in {'PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE'}} "
             f"execution_ready={session_label in {'PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE'}} focus_source={focus_source}"
         )
@@ -2440,6 +2446,11 @@ class CoreOrchestrator:
                     "reasons": reasons[:2],
                 }
             )
+        scanner_payload = locals().get("scanner_watchlist_payload") or {}
+        focus_evaluated = int(scanner_payload.get("focus_evaluated", 0))
+        focus_passed = int(scanner_payload.get("focus_passed", len(focus_symbols)) or 0)
+        focus_rejected = int(scanner_payload.get("focus_rejected", 0))
+        focus_dominant_reasons = dict(scanner_payload.get("focus_dominant_reasons", {}) or {})
         print(f"[FOCUS] size={len(focus_payload)} symbols={[entry['symbol'] for entry in focus_payload]}")
         self._trace_event(
             "FOCUS",
@@ -2448,6 +2459,12 @@ class CoreOrchestrator:
                 "strategy_policy": strategy_policy.name,
                 "focus": focus_payload,
                 "rejected": rejected_payload,
+                "focus_diagnostics": {
+                    "evaluated": focus_evaluated,
+                    "passed": focus_passed,
+                    "rejected": focus_rejected,
+                    "dominant_reasons": focus_dominant_reasons,
+                },
             },
             summary=(
                 "focus="
