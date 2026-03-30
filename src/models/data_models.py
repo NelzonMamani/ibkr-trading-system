@@ -127,6 +127,7 @@ class TradeIntent:
     strategy_prefix: Optional[str] = None
     setup_family_id: Optional[str] = None
     trigger_id: Optional[str] = None
+    execution_refinement_mode: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not self.symbol:
@@ -199,6 +200,7 @@ class RiskDecision:
     strategy_prefix: Optional[str] = None
     setup_family_id: Optional[str] = None
     trigger_id: Optional[str] = None
+    execution_refinement_mode: Optional[str] = None
 
 
 @dataclass
@@ -246,6 +248,7 @@ class ExecutionResult:
     strategy_prefix: Optional[str] = None
     setup_family_id: Optional[str] = None
     trigger_id: Optional[str] = None
+    execution_refinement_mode: Optional[str] = None
 
 
 @dataclass

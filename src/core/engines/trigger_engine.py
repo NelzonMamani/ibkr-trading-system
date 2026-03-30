@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.strategies.common.triggers.trigger_first_pullback import evaluate_first_pullback_trigger
+from src.strategies.common.triggers.trigger_micro_pullback import evaluate_micro_pullback_trigger
 from src.strategies.common.triggers.trigger_orb import evaluate_orb_trigger
 
 
@@ -73,17 +74,21 @@ class TriggerEngine:
                     "[TRIGGER][GAP_GO] "
                     f"symbol={symbol} trigger={trigger_type} fired={bool(trigger_ready_now)}"
                 )
+            trigger_state = "FIRED" if trigger_ready_now else "ARMED"
+            if "BLOCKED" in set(str(flag).upper() for flag in quality_flags):
+                trigger_state = "BLOCKED"
             output = {
                 "symbol": str(symbol),
                 "setup_family_id": setup.get("setup_family_id"),
                 "setup_name": setup.get("setup_name"),
                 "trigger_type": trigger_type,
-                "trigger_state": "FIRED" if trigger_ready_now else "ARMED",
+                "trigger_state": trigger_state,
                 "trigger_ready_now": trigger_ready_now,
                 "trigger_event_emitted": bool(trigger_ready_now),
                 "trigger_reason": trigger_reason,
                 "trigger_price_reference": trigger_price_reference,
                 "invalidation_price_reference": invalidation_price_reference,
+                "execution_refinement_mode": str(setup.get("execution_refinement_mode") or "NONE"),
                 "stop_anchor_type": str(setup.get("invalidation_anchor") or "STRUCTURE"),
                 "trigger_quality_flags": sorted(set(quality_flags + [*setup.get("quality_flags", [])])),
             }
@@ -209,6 +214,27 @@ class TriggerEngine:
             reason = str(pullback_trigger.get("trigger_reason") or "first_pullback_trigger_not_ready")
             trigger_type = str(pullback_trigger.get("trigger_type") or trigger_type)
             flags.append(str(pullback_trigger.get("trigger_state") or ("FIRED" if ready else "ARMED")))
+            trigger_price_reference = self._safe_float(
+                pullback_trigger.get("trigger_price_reference")
+            ) or trigger_price_reference
+            invalidation_price_reference = self._safe_float(
+                pullback_trigger.get("invalidation_price_reference")
+            ) or invalidation_price_reference
+        elif setup_family in {"MICRO_PULLBACK"}:
+            micro_pullback_trigger = evaluate_micro_pullback_trigger(
+                setup,
+                {
+                    **(levels if isinstance(levels, dict) else {}),
+                    "candles": list(candles or []),
+                },
+            )
+            ready = bool(micro_pullback_trigger.get("trigger_ready_now"))
+            reason = str(micro_pullback_trigger.get("trigger_reason") or "micro_pullback_trigger_not_ready")
+            trigger_type = str(micro_pullback_trigger.get("trigger_type") or trigger_type)
+            flags.append(str(micro_pullback_trigger.get("trigger_state") or ("FIRED" if ready else "ARMED")))
+            trigger_price_reference = self._safe_float(micro_pullback_trigger.get("trigger_price_reference"))
+            invalidation_price_reference = self._safe_float(micro_pullback_trigger.get("invalidation_price_reference"))
+            setup["execution_refinement_mode"] = micro_pullback_trigger.get("execution_refinement_mode")
         elif trigger_type in {"BREAKOUT_HIGH", "HOD_BREAK", "PMH_BREAK", "RANGE_BREAK", "PULLBACK_HIGH_BREAK"}:
             ready, reason = self._evaluate_breakout_trigger(
                 last_close=last_close,
