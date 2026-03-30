@@ -125,6 +125,71 @@ class SQLiteStore:
                 created_at TEXT,
                 FOREIGN KEY(run_id) REFERENCES runs(run_id)
             );
+            CREATE TABLE IF NOT EXISTS trade_lifecycle_trades (
+                lifecycle_trade_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                symbol TEXT,
+                side TEXT,
+                strategy_name TEXT,
+                status TEXT,
+                opened_at TEXT,
+                closed_at TEXT,
+                quantity_open INTEGER,
+                quantity_closed INTEGER,
+                entry_avg_price REAL,
+                exit_avg_price REAL,
+                stop_price REAL,
+                gross_realized_pnl REAL,
+                unrealized_pnl REAL,
+                last_mark_price REAL,
+                source_order_ids_json TEXT,
+                source_execution_ids_json TEXT,
+                reconciliation_flags_json TEXT,
+                drift_flags_json TEXT,
+                notes_json TEXT,
+                updated_at TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id)
+            );
+            CREATE TABLE IF NOT EXISTS trade_lifecycle_events (
+                event_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                lifecycle_trade_id TEXT,
+                symbol TEXT,
+                side TEXT,
+                event_type TEXT,
+                quantity INTEGER,
+                price REAL,
+                timestamp TEXT,
+                order_id TEXT,
+                execution_id TEXT,
+                source TEXT,
+                payload_json TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id),
+                FOREIGN KEY(lifecycle_trade_id) REFERENCES trade_lifecycle_trades(lifecycle_trade_id)
+            );
+            CREATE TABLE IF NOT EXISTS trade_lifecycle_reconciliation_events (
+                reconciliation_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                lifecycle_trade_id TEXT,
+                symbol TEXT,
+                status TEXT,
+                finding_type TEXT,
+                details_json TEXT,
+                timestamp TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id),
+                FOREIGN KEY(lifecycle_trade_id) REFERENCES trade_lifecycle_trades(lifecycle_trade_id)
+            );
+            CREATE TABLE IF NOT EXISTS trade_lifecycle_summaries (
+                summary_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                payload_json TEXT,
+                timestamp TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id)
+            );
             CREATE TABLE IF NOT EXISTS trade_records (
                 trade_record_id TEXT PRIMARY KEY,
                 run_id TEXT,
@@ -335,6 +400,14 @@ class SQLiteStore:
                 ON position_lifecycle_transitions(run_id, transition_seq);
             CREATE INDEX IF NOT EXISTS idx_lifecycle_symbol
                 ON position_lifecycle_transitions(symbol, trader_type);
+            CREATE INDEX IF NOT EXISTS idx_tle_trades_symbol_status
+                ON trade_lifecycle_trades(symbol, status);
+            CREATE INDEX IF NOT EXISTS idx_tle_events_trade_time
+                ON trade_lifecycle_events(lifecycle_trade_id, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_tle_events_symbol_time
+                ON trade_lifecycle_events(symbol, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_tle_reconcile_symbol_time
+                ON trade_lifecycle_reconciliation_events(symbol, timestamp);
             CREATE INDEX IF NOT EXISTS idx_trade_records_run_id ON trade_records(run_id);
             CREATE INDEX IF NOT EXISTS idx_trades_run_id ON trades(run_id);
             CREATE INDEX IF NOT EXISTS idx_execution_results_run_id ON execution_results(run_id);
@@ -516,6 +589,140 @@ class SQLiteStore:
                 trade_record.get("regime_snapshot_json"),
                 trade_record.get("regime_policy_decision_json"),
                 trade_record.get("created_at"),
+            ),
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def upsert_trade_lifecycle_trade(self, trade: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO trade_lifecycle_trades (
+                lifecycle_trade_id, run_id, symbol, side, strategy_name, status, opened_at, closed_at,
+                quantity_open, quantity_closed, entry_avg_price, exit_avg_price, stop_price,
+                gross_realized_pnl, unrealized_pnl, last_mark_price, source_order_ids_json,
+                source_execution_ids_json, reconciliation_flags_json, drift_flags_json, notes_json,
+                updated_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(lifecycle_trade_id) DO UPDATE SET
+                run_id=excluded.run_id,
+                symbol=excluded.symbol,
+                side=excluded.side,
+                strategy_name=excluded.strategy_name,
+                status=excluded.status,
+                opened_at=excluded.opened_at,
+                closed_at=excluded.closed_at,
+                quantity_open=excluded.quantity_open,
+                quantity_closed=excluded.quantity_closed,
+                entry_avg_price=excluded.entry_avg_price,
+                exit_avg_price=excluded.exit_avg_price,
+                stop_price=excluded.stop_price,
+                gross_realized_pnl=excluded.gross_realized_pnl,
+                unrealized_pnl=excluded.unrealized_pnl,
+                last_mark_price=excluded.last_mark_price,
+                source_order_ids_json=excluded.source_order_ids_json,
+                source_execution_ids_json=excluded.source_execution_ids_json,
+                reconciliation_flags_json=excluded.reconciliation_flags_json,
+                drift_flags_json=excluded.drift_flags_json,
+                notes_json=excluded.notes_json,
+                updated_at=excluded.updated_at
+            """,
+            (
+                trade["lifecycle_trade_id"],
+                trade["run_id"],
+                trade.get("symbol"),
+                trade.get("side"),
+                trade.get("strategy_name"),
+                trade.get("status"),
+                trade.get("opened_at"),
+                trade.get("closed_at"),
+                trade.get("quantity_open"),
+                trade.get("quantity_closed"),
+                trade.get("entry_avg_price"),
+                trade.get("exit_avg_price"),
+                trade.get("stop_price"),
+                trade.get("gross_realized_pnl"),
+                trade.get("unrealized_pnl"),
+                trade.get("last_mark_price"),
+                trade.get("source_order_ids_json"),
+                trade.get("source_execution_ids_json"),
+                trade.get("reconciliation_flags_json"),
+                trade.get("drift_flags_json"),
+                trade.get("notes_json"),
+                trade.get("updated_at"),
+                trade.get("created_at"),
+            ),
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_trade_lifecycle_events(self, events: Iterable[dict[str, Any]]) -> None:
+        self.connection.executemany(
+            """
+            INSERT OR IGNORE INTO trade_lifecycle_events (
+                event_id, run_id, lifecycle_trade_id, symbol, side, event_type, quantity,
+                price, timestamp, order_id, execution_id, source, payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    event["event_id"],
+                    event["run_id"],
+                    event.get("lifecycle_trade_id"),
+                    event.get("symbol"),
+                    event.get("side"),
+                    event.get("event_type"),
+                    event.get("quantity"),
+                    event.get("price"),
+                    event.get("timestamp"),
+                    event.get("order_id"),
+                    event.get("execution_id"),
+                    event.get("source"),
+                    event.get("payload_json"),
+                    event.get("created_at"),
+                )
+                for event in events
+            ],
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_trade_lifecycle_reconciliation_event(self, event: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            INSERT OR IGNORE INTO trade_lifecycle_reconciliation_events (
+                reconciliation_id, run_id, lifecycle_trade_id, symbol, status, finding_type,
+                details_json, timestamp, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event["reconciliation_id"],
+                event["run_id"],
+                event.get("lifecycle_trade_id"),
+                event.get("symbol"),
+                event.get("status"),
+                event.get("finding_type"),
+                event.get("details_json"),
+                event.get("timestamp"),
+                event.get("created_at"),
+            ),
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_trade_lifecycle_summary(self, summary: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            INSERT OR IGNORE INTO trade_lifecycle_summaries (
+                summary_id, run_id, payload_json, timestamp, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                summary["summary_id"],
+                summary["run_id"],
+                summary.get("payload_json"),
+                summary.get("timestamp"),
+                summary.get("created_at"),
             ),
         )
         if self.commit_each_write:
@@ -788,6 +995,55 @@ class SQLiteStore:
     def fetch_trade_records(self, run_id: str) -> list[dict[str, Any]]:
         cursor = self.connection.execute(
             "SELECT * FROM trade_records WHERE run_id = ? ORDER BY tick ASC",
+            (run_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def fetch_trade_lifecycle_trades(
+        self,
+        run_id: str,
+        *,
+        status: str | None = None,
+        symbol: str | None = None,
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM trade_lifecycle_trades WHERE run_id = ?"
+        params: list[Any] = [run_id]
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        if symbol:
+            query += " AND symbol = ?"
+            params.append(symbol)
+        query += " ORDER BY opened_at ASC, lifecycle_trade_id ASC"
+        cursor = self.connection.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
+
+    def fetch_trade_lifecycle_events(
+        self,
+        run_id: str,
+        *,
+        lifecycle_trade_id: str | None = None,
+        symbol: str | None = None,
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM trade_lifecycle_events WHERE run_id = ?"
+        params: list[Any] = [run_id]
+        if lifecycle_trade_id:
+            query += " AND lifecycle_trade_id = ?"
+            params.append(lifecycle_trade_id)
+        if symbol:
+            query += " AND symbol = ?"
+            params.append(symbol)
+        query += " ORDER BY timestamp ASC, created_at ASC"
+        cursor = self.connection.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
+
+    def fetch_trade_lifecycle_reconciliation_events(self, run_id: str) -> list[dict[str, Any]]:
+        cursor = self.connection.execute(
+            """
+            SELECT * FROM trade_lifecycle_reconciliation_events
+            WHERE run_id = ?
+            ORDER BY timestamp ASC, created_at ASC
+            """,
             (run_id,),
         )
         return [dict(row) for row in cursor.fetchall()]
