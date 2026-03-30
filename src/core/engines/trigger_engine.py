@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.strategies.common.triggers.trigger_first_pullback import evaluate_first_pullback_trigger
 from src.strategies.common.triggers.trigger_orb import evaluate_orb_trigger
 
 
@@ -196,6 +197,18 @@ class TriggerEngine:
             trigger_type = str(orb_trigger.get("trigger_type") or trigger_type)
             flags.append(str(orb_trigger.get("trigger_state") or ("FIRED" if ready else "ARMED")))
             print(f"[TRIGGER][ORB] fired={ready} reason={reason}")
+        elif setup_family in {"FIRST_PULLBACK"}:
+            pullback_trigger = evaluate_first_pullback_trigger(
+                setup,
+                {
+                    **(levels if isinstance(levels, dict) else {}),
+                    "candles": list(candles or []),
+                },
+            )
+            ready = bool(pullback_trigger.get("trigger_ready_now"))
+            reason = str(pullback_trigger.get("trigger_reason") or "first_pullback_trigger_not_ready")
+            trigger_type = str(pullback_trigger.get("trigger_type") or trigger_type)
+            flags.append(str(pullback_trigger.get("trigger_state") or ("FIRED" if ready else "ARMED")))
         elif trigger_type in {"BREAKOUT_HIGH", "HOD_BREAK", "PMH_BREAK", "RANGE_BREAK", "PULLBACK_HIGH_BREAK"}:
             ready, reason = self._evaluate_breakout_trigger(
                 last_close=last_close,

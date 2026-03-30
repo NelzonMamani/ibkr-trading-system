@@ -74,6 +74,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         "PREMARKET_HIGH_BREAK",
         "HOD_BREAK",
         "VWAP_RECLAIM_CONTINUATION",
+        "FIRST_PULLBACK",
     )
 
     def __init__(self) -> None:
@@ -1760,8 +1761,13 @@ class RossMomentumStrategyV1(BaseStrategy):
             entry = getattr(levels, "hod", None)
             stop = (entry * 0.97) if entry is not None else None
         elif pattern.pattern_id in {"P_MICRO_PULLBACK", "P_FIRST_PULLBACK"}:
-            entry = price
-            stop = getattr(indicators, "ema9", None)
+            trigger_payload = selected_trigger or {}
+            entry = trigger_payload.get("trigger_price_reference")
+            stop = trigger_payload.get("invalidation_price_reference")
+            if entry is None:
+                entry = price
+            if stop is None:
+                stop = getattr(indicators, "ema9", None)
         elif pattern.pattern_id == "P_EMA_PULLBACK":
             entry = price
             stop = getattr(indicators, "ema20", None)
