@@ -495,7 +495,9 @@ class RossMomentumStrategyV1(BaseStrategy):
                 levels["prior_close"] = row_prior_close
                 print(f"[ROSS][LEVEL_OVERRIDE] symbol={symbol} field=prior_close source=watchlist value={row_prior_close}")
             structure = StructureEngine().compute_structure(
-                candles=list(getattr(inputs, "candles", []) or [])
+                candles=list(getattr(inputs, "candles", []) or []),
+                session_context=input_summary.session_context,
+                symbol=symbol,
             )
             setups = SetupEngine().compute_setups(
                 candles=list(getattr(inputs, "candles", []) or []),
@@ -517,6 +519,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             structure["is_actionable"] = bool(setups)
             structure["pre_activation_ready"] = pre_activation_ready
             structure["symbol"] = symbol
+            structure["session_context"] = input_summary.session_context
             if pre_activation_ready:
                 print(
                     "[ROSS][PRE_ACTIVATION] "

@@ -8,7 +8,15 @@ class StructureEngine:
 
     _ROUNDING = 6
 
-    def compute_structure(self, candles: list) -> dict:
+    def compute_structure(
+        self,
+        candles: list,
+        *,
+        session_context: str | None = None,
+        symbol: str | None = None,
+    ) -> dict:
+        session_label = str(session_context or "UNKNOWN").upper()
+        is_pre_session = session_label in {"PRE", "PREMARKET"}
         structure = {
             "dominant_direction": "UNKNOWN",
             "impulse_active": False,
@@ -34,11 +42,16 @@ class StructureEngine:
             "last_lower_high": None,
             "last_lower_low": None,
             "explain": [],
+            "previous_pullback_high": None,
         }
         if len(candles) < 3:
             structure["structure_quality_flags"] = ["INSUFFICIENT_CANDLES", "LOW_CONFIDENCE"]
             structure["trend"] = "SIDEWAYS" if candles else "UNKNOWN"
             structure["structure_state"] = "RANGE" if candles else None
+            print(
+                f"[ROSS][STRUCTURE_DEBUG] symbol={str(symbol or 'UNKNOWN')} candle_count={len(candles)} "
+                "highs=[] lows=[] impulse_inputs=insufficient pullback_inputs=insufficient"
+            )
             print(f"[STRUCTURE_ENGINE] candles={len(candles)} quality={structure['structure_quality_flags']}")
             return structure
 
@@ -53,6 +66,8 @@ class StructureEngine:
         structure["swing_lows"] = swing_lows
 
         trend = self._detect_trend(swing_highs=swing_highs, swing_lows=swing_lows)
+        if is_pre_session and len(candles) <= 5 and trend == "UNKNOWN":
+            trend = self._detect_micro_pre_trend(highs=highs, lows=lows, closes=closes)
         dominant_direction = {"UP": "LONG", "DOWN": "SHORT", "SIDEWAYS": "NEUTRAL", "UNKNOWN": "UNKNOWN"}.get(trend, "UNKNOWN")
         structure["trend"] = trend
         structure["dominant_direction"] = dominant_direction
@@ -63,10 +78,49 @@ class StructureEngine:
 
         impulse_active = False
         pullback_active = False
+        impulse_inputs: dict[str, Any] = {}
+        pullback_inputs: dict[str, Any] = {}
         if last_close is not None and recent_high is not None and recent_low is not None:
             width = max(recent_high - recent_low, 0.0)
-            impulse_active = bool(width > 0 and ((trend == "UP" and last_close >= recent_high - (0.15 * width)) or (trend == "DOWN" and last_close <= recent_low + (0.15 * width))))
-            pullback_active = bool(width > 0 and ((trend == "UP" and last_close <= recent_high - (0.4 * width)) or (trend == "DOWN" and last_close >= recent_low + (0.4 * width))))
+            impulse_threshold = 0.15
+            pullback_threshold = 0.4
+            if is_pre_session and len(candles) <= 5:
+                impulse_threshold = 0.2
+                pullback_threshold = 0.33
+            impulse_inputs = {
+                "trend": trend,
+                "last_close": last_close,
+                "recent_high": recent_high,
+                "recent_low": recent_low,
+                "width": width,
+                "threshold": impulse_threshold,
+            }
+            pullback_inputs = {
+                "trend": trend,
+                "last_close": last_close,
+                "recent_high": recent_high,
+                "recent_low": recent_low,
+                "width": width,
+                "threshold": pullback_threshold,
+            }
+            impulse_active = bool(
+                width > 0
+                and (
+                    (trend == "UP" and last_close >= recent_high - (impulse_threshold * width))
+                    or (trend == "DOWN" and last_close <= recent_low + (impulse_threshold * width))
+                )
+            )
+            pullback_active = bool(
+                width > 0
+                and (
+                    (trend == "UP" and last_close <= recent_high - (pullback_threshold * width))
+                    or (trend == "DOWN" and last_close >= recent_low + (pullback_threshold * width))
+                )
+            )
+            if is_pre_session and len(candles) <= 5 and trend == "UP" and not pullback_active:
+                pullback_active = self._detect_micro_pullback(candles)
+                if pullback_active:
+                    pullback_inputs["micro_pullback_detected"] = True
 
         range_abs = None
         range_pct = None
@@ -108,6 +162,7 @@ class StructureEngine:
 
         structure.update(
             {
+                "previous_pullback_high": self._recent_pullback_high(candles),
                 "impulse_active": impulse_active,
                 "pullback_active": pullback_active,
                 "consolidation_active": consolidation_active,
@@ -135,11 +190,58 @@ class StructureEngine:
             }
         )
         print(
+            "[ROSS][STRUCTURE_DEBUG] "
+            f"symbol={str(symbol or 'UNKNOWN')} candle_count={len(candles)} highs={highs[-5:]} lows={lows[-5:]} "
+            f"impulse_inputs={impulse_inputs} impulse_detected={impulse_active} "
+            f"pullback_inputs={pullback_inputs} pullback_detected={pullback_active}"
+        )
+        print(
             "[STRUCTURE_ENGINE] "
             f"trend={trend} direction={dominant_direction} impulse={impulse_active} pullback={pullback_active} "
             f"consolidation={consolidation_active} compression={compression_active} flags={flags}"
         )
         return structure
+
+    def _detect_micro_pre_trend(self, *, highs: list[float | None], lows: list[float | None], closes: list[float | None]) -> str:
+        valid_highs = [v for v in highs if v is not None]
+        valid_lows = [v for v in lows if v is not None]
+        valid_closes = [v for v in closes if v is not None]
+        if len(valid_highs) < 3 or len(valid_lows) < 3 or len(valid_closes) < 3:
+            return "UNKNOWN"
+        rising_highs = valid_highs[-1] > valid_highs[-2]
+        rising_lows = valid_lows[-1] > valid_lows[-2]
+        falling_highs = valid_highs[-1] < valid_highs[-2]
+        falling_lows = valid_lows[-1] < valid_lows[-2]
+        if rising_highs and rising_lows:
+            return "UP"
+        if falling_highs and falling_lows:
+            return "DOWN"
+        return "SIDEWAYS"
+
+    def _detect_micro_pullback(self, candles: list) -> bool:
+        if len(candles) < 3:
+            return False
+        closes = [self._safe_float(self._read(c, "close")) for c in candles]
+        highs = [self._safe_float(self._read(c, "high")) for c in candles]
+        if any(v is None for v in closes[-3:] + highs[-3:]):
+            return False
+        assert closes[-3] is not None and closes[-2] is not None and closes[-1] is not None
+        assert highs[-3] is not None and highs[-2] is not None and highs[-1] is not None
+        had_pause = closes[-2] <= closes[-3]
+        resumed_higher = closes[-1] >= closes[-2] and highs[-1] >= highs[-2]
+        return bool(had_pause and resumed_higher)
+
+    def _recent_pullback_high(self, candles: list) -> float | None:
+        if len(candles) < 3:
+            return None
+        previous_highs = [
+            self._safe_float(self._read(candle, "high"))
+            for candle in candles[-4:-1]
+        ]
+        valid = [v for v in previous_highs if v is not None]
+        if not valid:
+            return None
+        return round(max(valid), self._ROUNDING)
 
     @staticmethod
     def _read(item: Any, field: str) -> Any:
