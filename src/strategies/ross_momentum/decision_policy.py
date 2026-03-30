@@ -45,12 +45,15 @@ def build_trade_intents(
     if fallback_setup is not None and all(setup is None for setup in candidate_setups):
         candidate_setups = [fallback_setup]
 
+    guaranteed_intent_required = False
     for setup in candidate_setups:
         if setup is None:
             continue
         pattern_detected = bool(setup.detected)
         confirmation_passed = setup.confidence >= config.min_confidence
         trigger_fired = bool(setup.entry_zone)
+        if trigger_fired and confirmation_passed:
+            guaranteed_intent_required = True
         risk_ok = not bool(summary.veto_flags or setup.risk_flags)
         dq_ok = not bool(setup.data_quality_flags)
         if not dq_ok and config.debug_force_execution:
@@ -72,11 +75,8 @@ def build_trade_intents(
             f"dq_ok={dq_ok} "
             f"execution_ready={execution_ready}"
         )
-        if not execution_ready:
+        if not (trigger_fired and confirmation_passed):
             continue
-        if not trigger_fired and config.debug_force_execution:
-            print(f"[DEBUG] forcing trigger for {symbol}")
-            trigger_fired = True
         direction = (
             IntentDirection.LONG if setup.direction == Direction.LONG else IntentDirection.SHORT
         )
@@ -97,7 +97,18 @@ def build_trade_intents(
             risk_flags=setup.risk_flags,
         )
         intents.append(intent)
-        print(f"[INTENT_CREATED] symbol={symbol}")
+        print(
+            "[INTENT][CREATE] "
+            f"symbol={symbol} "
+            f"entry={setup.entry_zone or 'Breakout trigger'} "
+            "trigger=TRUE"
+        )
+        print(
+            f"[INTENT_CREATED] symbol={symbol} risk_ok={risk_ok} execution_ready={execution_ready}"
+        )
+
+    if guaranteed_intent_required and not intents:
+        print("[CRITICAL] TRIGGER WITHOUT INTENT — PIPELINE FAILURE")
 
     return intents
 
