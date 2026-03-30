@@ -1381,6 +1381,17 @@ def _is_etf_context(context: Dict[str, Any]) -> bool:
     return instrument_type == "ETF"
 
 
+def _resolve_focus_rvol_min_for_session(session: str) -> float:
+    session_normalized = str(session or "").upper()
+    if session_normalized in ("PRE", "PREMARKET"):
+        return 0.3
+    if session_normalized in ("RTH", "REGULAR"):
+        return 1.0
+    if session_normalized in ("AH", "AFTER_HOURS"):
+        return 0.5
+    return 1.0
+
+
 def _evaluate_focus_gates(
     context: Dict[str, Any],
     thresholds: GateThresholds,
@@ -1407,7 +1418,11 @@ def _evaluate_focus_gates(
     rvol_metric_used, focus_rvol_value = _resolve_rvol_for_focus_gate(context)
     rvol_phase = _safe_float(context.get("rvol_phase"), None)
     rvol_discovery = _safe_float(context.get("rvol_discovery"), None)
-    threshold_value = thresholds.focus_rvol_min
+    threshold_value = _resolve_focus_rvol_min_for_session(session)
+    print(
+        "[FOCUS][RVOL_THRESHOLD] "
+        f"session={session} rvol_min={threshold_value}"
+    )
     if focus_rvol_value is None:
         context["rvol_status"] = "UNKNOWN"
         if _allow_pre_rvol_bypass(context, thresholds):

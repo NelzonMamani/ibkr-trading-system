@@ -5,6 +5,7 @@ from src.scanner.scanner_runner import (
     _evaluate_focus_gates,
     _evaluate_watchlist_gates,
     _gate_thresholds,
+    _resolve_focus_rvol_min_for_session,
     _resolve_runtime_thresholds,
     _resolve_rvol_for_focus_gate,
 )
@@ -211,6 +212,16 @@ def test_focus_gate_prefers_scanner_rvol_in_rth_open(capsys) -> None:
     output = capsys.readouterr().out
     assert "rvol_metric_used=scanner_rvol" in output
     assert "reason=PASS_RVOL_THRESHOLD" in output
+
+
+def test_focus_rvol_min_is_session_aware() -> None:
+    assert _resolve_focus_rvol_min_for_session("PRE") == 0.3
+    assert _resolve_focus_rvol_min_for_session("PREMARKET") == 0.3
+    assert _resolve_focus_rvol_min_for_session("RTH") == 1.0
+    assert _resolve_focus_rvol_min_for_session("REGULAR") == 1.0
+    assert _resolve_focus_rvol_min_for_session("AH") == 0.5
+    assert _resolve_focus_rvol_min_for_session("AFTER_HOURS") == 0.5
+    assert _resolve_focus_rvol_min_for_session("RTH_OPEN") == 1.0
 
 
 def test_unknown_float_allowed_removes_degrading_flag() -> None:
