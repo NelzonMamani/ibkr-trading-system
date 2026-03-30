@@ -863,6 +863,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                 selected_setup_name = next((trace.pattern_name for trace in pattern_traces if trace.detected), "UNKNOWN")
                 print(f"[ROSS][SETUP] symbol={symbol} source={setup_source} setup={selected_setup_name}")
                 print(f"[ROSS][SETUP_FOUND] symbol={symbol} source={setup_source} setup={selected_setup_name}")
+                gap_go_detected = any(
+                    str(getattr(trace, "setup_family_id", "") or "").upper() == "GAP_GO"
+                    and bool(getattr(trace, "detected", False))
+                    for trace in pattern_traces
+                ) or any(str(setup.get("setup_family_id") or "").upper() == "GAP_GO" for setup in setups)
+                print(f"[SETUP][RESULT] name=GAP_GO detected={str(gap_go_detected)}")
                 symbol_trace.setup_stage = {
                     "status": "PASS",
                     "reason_code": "SETUP_DETECTED",
@@ -1126,6 +1132,15 @@ class RossMomentumStrategyV1(BaseStrategy):
                 trigger_ready=trigger_ready,
                 setup_family_id=setup_family,
             )
+            trigger_exists = selected_trigger is not None
+            gap_go_trigger_fired = bool(
+                trigger_ready
+                and trigger_exists
+                and str(setup_family or "").upper() == "GAP_GO"
+            )
+            print(
+                f"[TRIGGER][GAP_GO] symbol={symbol} trigger={selected_trigger.get('trigger_type') if selected_trigger else 'NONE'} fired={gap_go_trigger_fired}"
+            )
             print(
                 "[TRIGGER_QUALITY] "
                 f"symbol={symbol} setup_family={setup_family} tier={quality_tier}"
@@ -1135,6 +1150,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"symbol={symbol} decision={'ALLOW' if allow_trade else 'BLOCK'} "
                 f"reason={permission_reason} quality={quality_tier}"
             )
+            if gap_go_trigger_fired and not allow_trade:
+                print(
+                    "[TRADE_PERMISSION][OVERRIDE] "
+                    f"symbol={symbol} setup_family=GAP_GO reason={permission_reason}"
+                )
+                allow_trade = True
             if not allow_trade:
                 print(f"[TRIGGER][REJECT] symbol={symbol} reason={permission_reason}")
                 print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason={permission_reason}")
@@ -1163,21 +1184,45 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
 
-            intent = TradeIntent(
-                symbol=symbol,
-                direction="LONG",
-                strategy_name=self.name,
-                confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
-                rationale=(
-                    f"pattern_detected={best_pattern.pattern_id} | entry={entry:.4f} | stop={stop:.4f}"
-                ),
-                trader_type=self.trader_type,
-                stop_loss_price=stop,
-                invalidation_level=stop,
-                pattern_name=best_pattern.pattern_id,
-                setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
-                trigger_id=(selected_trigger.get("trigger_type") if selected_trigger else "confirmation_gate"),
-            )
+            if str(setup_family or "").upper() == "GAP_GO" and trigger_ready:
+                intent = TradeIntent(
+                    symbol=symbol,
+                    direction="LONG",
+                    strategy_name="RossMomentumStrategyV1",
+                    confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
+                    rationale="GAP_GO_TRIGGER",
+                    trader_type=self.trader_type,
+                    stop_loss_price=stop,
+                    invalidation_level=stop,
+                    pattern_name=best_pattern.pattern_id,
+                    setup_family_id="GAP_GO",
+                    trigger_id=(selected_trigger.get("trigger_type") if selected_trigger else "confirmation_gate"),
+                )
+                intent.entry_type = "BREAKOUT"
+                intent.setup_family = "GAP_GO"
+                print(
+                    "[TRADE_INTENT][GAP_GO] "
+                    f"symbol={symbol} confidence={float(getattr(best_pattern, 'confidence', 0.0) or 0.0):.4f}"
+                )
+                print("[TRADE_INTENT][GAP_GO] created=True")
+            else:
+                intent = TradeIntent(
+                    symbol=symbol,
+                    direction="LONG",
+                    strategy_name=self.name,
+                    confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
+                    rationale=(
+                        f"pattern_detected={best_pattern.pattern_id} | entry={entry:.4f} | stop={stop:.4f}"
+                    ),
+                    trader_type=self.trader_type,
+                    stop_loss_price=stop,
+                    invalidation_level=stop,
+                    pattern_name=best_pattern.pattern_id,
+                    setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
+                    trigger_id=(selected_trigger.get("trigger_type") if selected_trigger else "confirmation_gate"),
+                )
+            if gap_go_trigger_fired and not intent:
+                raise Exception("TRIGGER_WITHOUT_INTENT")
             intent.entry_price = entry
             intent.has_valid_pattern = bool(getattr(best_pattern, "detected", False))
             intent.confirmation_passed = confirmation_passed

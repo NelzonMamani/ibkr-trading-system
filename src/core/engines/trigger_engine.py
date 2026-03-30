@@ -18,9 +18,11 @@ class TriggerEngine:
         structure: dict,
     ) -> list[dict]:
         last_candle = candles[-1] if candles else None
+        prev_candle = candles[-2] if len(candles) > 1 else None
         last_close = self._safe_float(self._read(last_candle, "close")) if last_candle else None
         last_high = self._safe_float(self._read(last_candle, "high")) if last_candle else None
         last_low = self._safe_float(self._read(last_candle, "low")) if last_candle else None
+        prev_close = self._safe_float(self._read(prev_candle, "close")) if prev_candle else None
 
         outputs: list[dict] = []
         for setup in setups or []:
@@ -43,15 +45,23 @@ class TriggerEngine:
                 invalidation_price_reference=invalidation_price_reference,
                 last_close=last_close,
                 last_high=last_high,
+                prev_close=prev_close,
                 setup=setup,
+                levels=levels,
                 structure=structure,
             )
+            if str(setup.get("setup_family_id") or "").upper() == "GAP_GO":
+                print(
+                    "[TRIGGER][GAP_GO] "
+                    f"symbol={symbol} trigger={trigger_type} fired={bool(trigger_ready_now)}"
+                )
             output = {
                 "symbol": str(symbol),
                 "setup_family_id": setup.get("setup_family_id"),
                 "setup_name": setup.get("setup_name"),
                 "trigger_type": trigger_type,
                 "trigger_ready_now": trigger_ready_now,
+                "trigger_event_emitted": bool(trigger_ready_now),
                 "trigger_reason": trigger_reason,
                 "trigger_price_reference": trigger_price_reference,
                 "invalidation_price_reference": invalidation_price_reference,
@@ -119,7 +129,9 @@ class TriggerEngine:
         invalidation_price_reference: float | None,
         last_close: float | None,
         last_high: float | None,
+        prev_close: float | None,
         setup: dict,
+        levels: dict,
         structure: dict,
     ) -> tuple[bool, str, list[str]]:
         flags: list[str] = []
@@ -136,7 +148,17 @@ class TriggerEngine:
         impulse_active = bool(structure.get("impulse_active"))
         structure_is_actionable = bool(structure.get("is_actionable"))
 
-        if trigger_type in {"BREAKOUT_HIGH", "HOD_BREAK", "PMH_BREAK", "RANGE_BREAK", "PULLBACK_HIGH_BREAK"}:
+        setup_family = str(setup.get("setup_family_id") or "").upper()
+        if setup_family == "GAP_GO":
+            ready, reason = self._evaluate_gap_go_trigger(
+                trigger_type=trigger_type,
+                trigger_price_reference=trigger_price_reference,
+                last_close=last_close,
+                last_high=last_high,
+                prev_close=prev_close,
+                levels=levels,
+            )
+        elif trigger_type in {"BREAKOUT_HIGH", "HOD_BREAK", "PMH_BREAK", "RANGE_BREAK", "PULLBACK_HIGH_BREAK"}:
             ready, reason = self._evaluate_breakout_trigger(
                 last_close=last_close,
                 last_high=last_high,
@@ -167,6 +189,34 @@ class TriggerEngine:
             reason = "at_or_below_invalidation"
 
         return ready, reason, flags
+
+    def _evaluate_gap_go_trigger(
+        self,
+        *,
+        trigger_type: str,
+        trigger_price_reference: float,
+        last_close: float,
+        last_high: float | None,
+        prev_close: float | None,
+        levels: dict,
+    ) -> tuple[bool, str]:
+        premarket_high = self._safe_float(levels.get("premarket_high"))
+        hod = self._safe_float(levels.get("hod"))
+        trigger_type = str(trigger_type or "BREAKOUT_HIGH").upper()
+        if trigger_type == "PMH_BREAK":
+            level = premarket_high if premarket_high is not None else trigger_price_reference
+            ready = last_close >= level
+            return ready, "gap_go_pmh_break" if ready else "gap_go_pmh_not_broken"
+        if trigger_type == "HOD_BREAK":
+            level = hod if hod is not None else trigger_price_reference
+            ready = last_close >= level
+            return ready, "gap_go_hod_break" if ready else "gap_go_hod_not_broken"
+        if trigger_type == "BREAK_AND_HOLD":
+            hold_level = trigger_price_reference
+            ready = last_close >= hold_level and prev_close is not None and prev_close >= hold_level
+            return ready, "gap_go_break_and_hold" if ready else "gap_go_break_and_hold_not_confirmed"
+        ready = last_high is not None and last_high > trigger_price_reference
+        return ready, "gap_go_prev_high_break" if ready else "gap_go_prev_high_not_broken"
 
     def _evaluate_breakout_trigger(
         self,
