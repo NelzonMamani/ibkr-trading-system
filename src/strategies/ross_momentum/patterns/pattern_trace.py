@@ -155,8 +155,10 @@ class PatternInputSnapshotSummary:
     bid: float | None
     ask: float | None
     spread: float | None
+    spread_pct: float | None
     volume: float | None
     pct_change: float | None
+    gap_pct: float | None
     rvol: float | None
     float_millions: float | None
     has_levels: bool
@@ -408,8 +410,18 @@ def build_input_snapshot_summary(*, row: Any, snapshot: MarketSnapshot | None, i
         bid=bid,
         ask=ask,
         spread=spread,
+        spread_pct=(
+            round((float(spread) / float(last if last is not None else row_last)) * 100.0, 6)
+            if spread is not None and (last if last is not None else row_last) not in (None, 0)
+            else _safe_float(_get_value(row, "spread_pct"))
+        ),
         volume=volume,
         pct_change=_coalesce(_safe_float((inputs.news_context or {}).get("pct_change")) if inputs and inputs.news_context else None, _safe_float(_get_value(row, "pct_change") or _get_value(row, "pct_change_resolved"))),
+        gap_pct=_coalesce(
+            _safe_float((inputs.news_context or {}).get("gap_pct")) if inputs and inputs.news_context else None,
+            _safe_float(_get_value(row, "gap_pct")),
+            _safe_float(_get_value(row, "gap_percent")),
+        ),
         rvol=_coalesce(_safe_float(getattr(inputs.liquidity_context, "rvol", None) if inputs else None), _safe_float(_get_value(row, "rvol") or _get_value(row, "relative_volume"))),
         float_millions=_coalesce(_safe_float(getattr(inputs.liquidity_context, "float_millions", None) if inputs else None), _safe_float(_get_value(row, "float_millions"))),
         has_levels=bool(levels_present),

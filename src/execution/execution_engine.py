@@ -212,6 +212,16 @@ class ExecutionEngine:
             action = "SUBMIT" if getattr(risk_decision, 'allowed', False) else "SKIP"
             reason = getattr(risk_decision, 'rationale', None) or getattr(risk_decision, 'reason_code', None) or 'NO_REASON'
             print(f"[EXECUTION] symbol={risk_decision.symbol} action={action} reason={reason}")
+            broker_state = "UNAVAILABLE"
+            broker = getattr(self._provider, "broker", None) if self._provider is not None else None
+            if broker is not None and hasattr(broker, "health"):
+                try:
+                    broker_state = "CONNECTED" if bool((broker.health() or {}).get("connected", False)) else "DISCONNECTED"
+                except Exception:
+                    broker_state = "DEGRADED"
+            elif self._provider is not None:
+                broker_state = "SIMULATED_PROVIDER"
+            print(f"[EXECUTION][MODE] mode={self.run_mode.value} broker_connection_state={broker_state}")
         if risk_decision is None:
             print("[EXECUTION] No execution performed — placeholder path")
             return ExecutionResult(
@@ -481,6 +491,7 @@ class ExecutionEngine:
         if raw_quantity <= 0:
             raise RuntimeError("INVALID_INTERNAL_ORDER_QUANTITY")
         requested_quantity = self._clamp_order_quantity(raw_quantity, symbol=risk_decision.symbol)
+        print(f"[EXECUTION][SIZE_ACCEPT] symbol={risk_decision.symbol} approved_quantity={requested_quantity}")
         client_order_id = f"{risk_decision.decision_id}-{uuid.uuid4().hex[:8]}"
         print(
             "[ORDER][BUILD] "
@@ -523,6 +534,10 @@ class ExecutionEngine:
         if str(request.direction).upper() == "SELL" and request.symbol in self.position_records:
             print(f"[EXECUTION][CLOSE] symbol={request.symbol} qty={request.quantity}")
         print("[ORDER_SUBMIT]", f"symbol={request.symbol}", f"side={request.direction}", f"qty={request.quantity}")
+        print(
+            f"[IBKR][ORDER_SUBMIT] order_id={request.client_order_id} symbol={request.symbol} "
+            f"side={request.direction} qty={request.quantity} mode={self.run_mode.value}"
+        )
         self._record_order_stage(request.client_order_id, "SUBMIT")
         self._execution_log(
             "SUBMIT",
@@ -981,7 +996,8 @@ class ExecutionEngine:
             f"orders_submitted={orders_submitted}\n"
             f"orders_acknowledged={orders_acknowledged}\n"
             f"orders_filled={orders_filled}\n"
-            f"orders_rejected={orders_rejected}"
+            f"orders_rejected={orders_rejected}\n"
+            f"orders_simulated={self.event_collector.cycle_count('ORDER_SIMULATED')}"
         )
 
     def complete_trade(self, symbol: str, trader_type: str) -> None:

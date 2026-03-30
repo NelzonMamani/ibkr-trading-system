@@ -108,6 +108,12 @@ class RossPatternRegistry:
                 "[PATTERN_TRACE][INPUT] "
                 f"symbol={inputs.symbol} pattern_id={pattern_id} input_summary={input_summary}"
             )
+            missing_inputs = list(input_summary.get("missing_fields") or [])
+            if missing_inputs:
+                print(
+                    "[PATTERN_TRACE][INPUT_MISSING] "
+                    f"symbol={inputs.symbol} pattern_id={pattern_id} missing={missing_inputs}"
+                )
             session_allowlist = self._session_allowlist_by_pattern.get(pattern_id)
             if session_allowlist and inputs.session_context not in session_allowlist:
                 pattern_trace.skipped = True

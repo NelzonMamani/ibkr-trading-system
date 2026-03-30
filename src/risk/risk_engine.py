@@ -936,6 +936,13 @@ class RiskEngine:
             float(available_capital),
             float(available_capital) * max_position_pct,
         )
+        print(
+            "[RISK][SIZING] "
+            f"symbol={trade_intent.symbol} mode={run_mode.value} "
+            f"entry_price={entry_price} available_capital={available_capital} "
+            f"max_position_value={round(max_position_value, 2)} "
+            f"requested_quantity={max_position_size}"
+        )
         if entry_price is not None and float(entry_price) > 0:
             max_capital_constrained_shares = int(max_position_value // float(entry_price))
             if max_capital_constrained_shares < max_position_size:
@@ -1014,6 +1021,12 @@ class RiskEngine:
             run_mode=run_mode.value,
             evaluated_limits=evaluated_limits,
             timestamp=timestamp,
+        )
+        print(
+            "[RISK][SIZING] "
+            f"symbol={trade_intent.symbol} mode={run_mode.value} "
+            f"entry_price={entry_price} available_capital={available_capital} "
+            f"max_position_value={round(max_position_value, 2)} approved_quantity={max_position_size}"
         )
         if applied_multiplier is not None:
             decision.risk_reasons.append(
