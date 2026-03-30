@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from statistics import mean
 
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
@@ -17,6 +18,26 @@ def _avg_volume(candles, lookback: int = 8) -> float:
     return mean(c.volume for c in sample)
 
 
+def _safe_float(value: object) -> float | None:
+    try:
+        return None if value is None else float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value or "").strip().lower()
+    if text in {"1", "true", "yes", "y", "on", "active"}:
+        return True
+    if text in {"0", "false", "no", "n", "off", "inactive"}:
+        return False
+    return None
+
+
 class GapGoPattern(PatternBase):
     pattern_id = "P_GAP_GO"
     name = "Gap & Go"
@@ -24,36 +45,122 @@ class GapGoPattern(PatternBase):
     direction_bias = Direction.LONG
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
-        if len(inputs.candles) < 3:
-            return self._rejected("insufficient candles", inputs)
-        level = inputs.levels.premarket_high
-        prior_close = inputs.levels.prior_close
-        if level is None or prior_close is None:
-            return self._rejected("missing premarket_high/prior_close", inputs)
-        if level <= prior_close:
-            return self._rejected("no upward opening gap", inputs)
+        if inputs.session_context not in {SessionContext.PRE, SessionContext.REGULAR}:
+            return self._rejected("SESSION_NOT_SUPPORTED", inputs)
+        if len(inputs.candles) < 4:
+            return self._rejected("MISSING_PRICE_MOMENTUM", inputs)
+
+        key_levels = inputs.levels.key_levels or {}
+        premarket_high = _safe_float(inputs.levels.premarket_high) or _safe_float(key_levels.get("PREMARKET_HIGH"))
+        prior_close = _safe_float(inputs.levels.prior_close) or _safe_float(key_levels.get("PRIOR_CLOSE"))
+        hod = _safe_float(inputs.levels.hod) or _safe_float(key_levels.get("HOD"))
+        opening_range_high = (
+            _safe_float(key_levels.get("OPENING_RANGE_HIGH"))
+            or _safe_float(key_levels.get("ORB_HIGH"))
+            or _safe_float(key_levels.get("BREAKOUT_RANGE_UPPER"))
+        )
+        if premarket_high is None and opening_range_high is None and hod is None and prior_close is None:
+            return self._rejected("MISSING_KEY_LEVELS", inputs)
+
         last = inputs.candles[-1]
-        gap_pct = (level - prior_close) / prior_close
-        volume_ok = last.volume >= _avg_volume(inputs.candles)
-        rvol = inputs.liquidity_context.rvol or 0.0
-        if last.close <= level:
-            return self._rejected("gap not holding above premarket high", inputs)
-        if rvol < 1.3:
-            return self._rejected("insufficient relative volume", inputs)
-        confidence = min(0.87, 0.62 + gap_pct * 3 + (0.08 if volume_ok else 0.0))
-        return self._detected(
+        prev = inputs.candles[-2]
+        intraday_low = min(float(c.low) for c in inputs.candles)
+        if last.close <= intraday_low:
+            return self._rejected("MISSING_PRICE_MOMENTUM", inputs)
+
+        if prior_close is None or prior_close <= 0:
+            return self._rejected("INSUFFICIENT_GAP", inputs)
+        gap_pct = (last.close - prior_close) / prior_close
+        if gap_pct <= 0.0:
+            return self._rejected("INSUFFICIENT_GAP", inputs)
+
+        price = float(last.close)
+        press_pmh = premarket_high is not None and price >= premarket_high
+        press_orh = opening_range_high is not None and price >= opening_range_high
+        press_hod = hod is not None and price >= hod
+        continuation_above_prior_close = prior_close is not None and price > prior_close and price > float(prev.close)
+        if not any([press_pmh, press_orh, press_hod, continuation_above_prior_close]):
+            return self._rejected("NOT_AT_BREAKOUT_LEVEL", inputs)
+
+        rvol = _safe_float(inputs.liquidity_context.rvol)
+        if rvol is None:
+            return self._rejected("MISSING_TRADABILITY_CONTEXT", inputs)
+        min_rvol = 1.0 if inputs.session_context == SessionContext.PRE else 1.5
+        if rvol < min_rvol:
+            return self._rejected("INSUFFICIENT_RVOL", inputs)
+
+        structure_ctx = inputs.news_context or {}
+        trend_up = _safe_bool(structure_ctx.get("trend_up"))
+        impulse_active = _safe_bool(structure_ctx.get("impulse_active"))
+        consolidation_active = _safe_bool(structure_ctx.get("consolidation_active"))
+        compression_active = _safe_bool(structure_ctx.get("compression_active"))
+        continuation_pressure = _safe_bool(structure_ctx.get("continuation_pressure"))
+        structure_known = any(
+            value is not None
+            for value in (trend_up, impulse_active, consolidation_active, compression_active, continuation_pressure)
+        )
+        if structure_known:
+            structure_ok = bool(trend_up) or bool(impulse_active) or (bool(continuation_pressure) and (bool(consolidation_active) or bool(compression_active)))
+        else:
+            # Conservative fallback: require continuation structure visible in candles and trend references.
+            structure_ok = (
+                float(last.close) > float(prev.close)
+                and float(last.high) >= float(prev.high)
+                and (inputs.indicators.ema9 is None or float(last.close) >= float(inputs.indicators.ema9))
+                and (inputs.indicators.vwap is None or float(last.close) >= float(inputs.indicators.vwap))
+            )
+        if not structure_ok:
+            return self._rejected("WEAK_STRUCTURE", inputs)
+
+        spread = _safe_float(inputs.liquidity_context.spread)
+        if spread is None:
+            return self._rejected("MISSING_TRADABILITY_CONTEXT", inputs)
+        if spread > 0.08:
+            return self._rejected("WIDE_SPREAD", inputs)
+
+        float_millions = _safe_float(inputs.liquidity_context.float_millions)
+        risk_flags: list[str] = []
+        if float_millions is None:
+            risk_flags.append("FLOAT_CONTEXT_MISSING")
+        elif float_millions <= 8.0:
+            risk_flags.append("LOW_FLOAT")
+        if not structure_known:
+            risk_flags.append("STRUCTURE_CONTEXT_MISSING")
+
+        volume_ok = float(last.volume) >= _avg_volume(inputs.candles)
+        above_vwap = inputs.indicators.vwap is not None and price >= float(inputs.indicators.vwap)
+        setup_tags = ["HIGH_RVOL", "LEVEL_PRESSURE", "OPENING_MOMENTUM"]
+        if inputs.session_context == SessionContext.PRE:
+            setup_tags.append("PREMARKET_STRENGTH")
+        if above_vwap:
+            setup_tags.append("ABOVE_VWAP")
+        if float_millions is not None and float_millions <= 8.0:
+            setup_tags.append("LOW_FLOAT")
+
+        confidence = min(0.9, 0.62 + min(gap_pct, 0.25) * 0.8 + (0.08 if volume_ok else 0.0) + (0.06 if structure_known else 0.0))
+        detected = self._detected(
             inputs,
             direction=Direction.LONG,
             confidence=confidence,
             rationale=(
-                "Gap-up open is holding and extending above premarket high with RVOL support.\n"
-                f"Gap%={gap_pct:.2%}, PMH={level:.2f}, close={last.close:.2f}, RVOL={rvol:.2f}."
+                "Gap-up continuation context is active with level pressure and session-aligned participation.\n"
+                f"Gap%={gap_pct:.2%}, close={price:.2f}, PMH={premarket_high}, ORH={opening_range_high}, "
+                f"HOD={hod}, RVOL={rvol:.2f}, spread={spread:.4f}."
             ),
-            entry_zone="Break/hold above premarket high continuation",
+            entry_zone="Break/hold continuation through PMH/ORH/HOD context",
             stop_suggestion="Under premarket high or opening pullback low",
             target_suggestion="Range expansion toward HOD extension",
-            setup_quality_tags=["gap_up", "rvol_confirmed", "go_not_fill"],
+            setup_quality_tags=setup_tags,
+            risk_flags=risk_flags,
         )
+        trigger_type = "BREAKOUT_HIGH"
+        if press_pmh:
+            trigger_type = "PMH_BREAK"
+        elif press_hod:
+            trigger_type = "HOD_BREAK"
+        elif press_orh:
+            trigger_type = "BREAK_AND_HOLD"
+        return replace(detected, setup_family_id="GAP_GO", trigger_type=trigger_type)
 
 
 class FirstPullbackPattern(PatternBase):

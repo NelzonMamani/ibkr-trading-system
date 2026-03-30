@@ -47,6 +47,7 @@ class RossMomentumStrategyV1(BaseStrategy):
     name = "RossMomentumStrategyV1"
     trader_type = "MOMENTUM"
     _SETUP_FAMILY_ALIASES: dict[str, str] = {
+        "P_GAP_GO": "GAP_GO",
         "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
         "P_HOD_BREAK": "HOD_BREAK",
         "P_FIRST_PULLBACK": "FIRST_PULLBACK",
@@ -1447,6 +1448,7 @@ class RossMomentumStrategyV1(BaseStrategy):
     @staticmethod
     def _setup_family_from_pattern_id(pattern_id: str | None) -> str:
         mapping = {
+            "P_GAP_GO": "GAP_GO",
             "P_ORB": "ORB",
             "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
             "P_OPENING_DRIVE": "OPENING_DRIVE",

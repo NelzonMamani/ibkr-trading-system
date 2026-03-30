@@ -7,12 +7,14 @@ class DecisionEngine:
     """Deterministic candidate arbitration for setup/pattern decisions."""
 
     _SETUP_FAMILY_ALIASES: dict[str, str] = {
+        "P_GAP_GO": "GAP_GO",
         "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
         "P_HOD_BREAK": "HOD_BREAK",
         "P_FIRST_PULLBACK": "FIRST_PULLBACK",
     }
 
     _COMPATIBILITY_MATRIX: dict[str, set[str]] = {
+        "GAP_GO": {"P_GAP_GO", "P_PREMKT_BREAK", "P_ORB", "P_HOD_BREAK", "P_FIRST_PULLBACK"},
         "ORB": {"P_ORB", "P_OPENING_DRIVE", "P_FAILED_ORB_FAKEOUT"},
         "OPENING_RANGE_BREAKOUT": {"P_ORB", "P_OPENING_DRIVE", "P_FAILED_ORB_FAKEOUT"},
         "OPENING_DRIVE": {"P_OPENING_DRIVE", "P_ORB"},

@@ -52,6 +52,7 @@ class RossPatternRegistry:
             "P_FAILED_ORB_FAKEOUT": {SessionContext.REGULAR},
         }
         self._setup_name_by_pattern_id: dict[str, str] = {
+            "P_GAP_GO": "GAP_GO",
             "P_FIRST_PULLBACK": "FIRST_PULLBACK",
             "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
         }
