@@ -1745,6 +1745,15 @@ class CoreOrchestrator:
             f"auto_focus={auto_focus_symbols} manual_focus={manual_focus_accepted_symbols} final={final_evaluation_symbols}"
         )
         focus_source = "MANUAL" if manual_focus_accepted_symbols and not auto_focus_symbols else "MIXED" if manual_focus_accepted_symbols and auto_focus_symbols else "AUTO"
+        if len(final_evaluation_symbols) == 0 and len(watchlist_symbols) > 0:
+            fallback_symbols = watchlist_symbols[:3]
+            print("[FALLBACK][FOCUS_EMPTY] using_watchlist_candidates")
+            print(
+                "[FALLBACK][ENGAGED] "
+                f"reason=EMPTY_FOCUS fallback_symbols={fallback_symbols}"
+            )
+            final_evaluation_symbols = list(fallback_symbols)
+            focus_source = "FALLBACK_FROM_WATCHLIST"
         if not auto_focus_symbols and manual_focus_accepted_symbols:
             print(f"[FINAL_EVAL][MANUAL_ONLY] symbols={manual_focus_accepted_symbols} reason=manual_override_only")
         print(
@@ -1805,7 +1814,13 @@ class CoreOrchestrator:
                 "[FOCUS][FALLBACK_TO_WATCHLIST] "
                 f"reason=focus_empty_using_watchlist symbols={strategy_evaluation_symbols}"
             )
-            final_evaluation_symbols = list(strategy_evaluation_symbols)
+            fallback_symbols = list(strategy_evaluation_symbols[:3])
+            print(
+                "[FALLBACK][ENGAGED] "
+                f"reason=EMPTY_FOCUS fallback_symbols={fallback_symbols}"
+            )
+            final_evaluation_symbols = fallback_symbols
+            focus_source = "FALLBACK_FROM_WATCHLIST"
         print(f"[FOCUS_FINAL] count={len(final_evaluation_symbols)} symbols={final_evaluation_symbols}")
         scanner_payload = locals().get("scanner_watchlist_payload") or {}
         focus_evaluated = int(scanner_payload.get("focus_evaluated", 0))

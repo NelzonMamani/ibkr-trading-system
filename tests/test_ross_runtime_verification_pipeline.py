@@ -242,3 +242,61 @@ def test_runtime_pipeline_routes_ross_through_watchlist_processor(monkeypatch):
         assert "generate_trade_intents" not in calls
     finally:
         set_config_overrides(None)
+
+
+def test_runtime_pipeline_falls_back_to_watchlist_when_focus_empty(monkeypatch, capsys):
+    set_config_overrides(
+        {
+            "RUN_MODE": "SIM",
+            "EXECUTION_ENABLED": False,
+            "ROSS_MOMENTUM_STRATEGY_ENABLED": True,
+            "SELECTED_STRATEGY": "ross_momentum",
+            "SESSION_PHASE_OVERRIDE": "PREMARKET",
+            "WATCHLIST_MAX_SYMBOLS_PER_STRATEGY": 15,
+            "FOCUS_MAX_SYMBOLS_PER_STRATEGY": 5,
+        }
+    )
+    calls: dict[str, object] = {}
+
+    def _scanner_cycle(**kwargs):
+        c1 = _candidate("AAPL", 10.0)
+        c2 = _candidate("MSFT", 9.0)
+        c3 = _candidate("NVDA", 8.0)
+        c4 = _candidate("TSLA", 7.0)
+        return {
+            "candidate_metrics": [c1, c2, c3, c4],
+            "watchlist_k": [c1, c2, c3, c4],
+            "watchlist_k_symbols": ["AAPL", "MSFT", "NVDA", "TSLA"],
+            "focus_m": [],
+            "focus_m_symbols": [],
+            "universe_top_n": [{"symbol": "AAPL"}, {"symbol": "MSFT"}, {"symbol": "NVDA"}, {"symbol": "TSLA"}],
+            "candidates": [c1, c2, c3, c4],
+        }
+
+    def _process(**kwargs):
+        calls["process_watchlist"] = [getattr(row, "symbol", None) for row in kwargs["watchlist"]]
+        return []
+
+    monkeypatch.setattr("src.core.orchestrator.run_scanner_cycle", _scanner_cycle)
+    monkeypatch.setattr("src.core.orchestrator.resolve_watchlist_selector", lambda *_: (lambda observations, _policy: observations))
+    monkeypatch.setattr("src.core.orchestrator.resolve_policy_v2", lambda *_: None)
+
+    try:
+        orchestrator = CoreOrchestrator()
+        orchestrator.market_data_snapshot_manager = SimpleNamespace(
+            batch_snapshots=lambda symbols: ({}, [])
+        )
+        orchestrator._refresh_manual_focus_if_due = lambda *_args, **_kwargs: []
+        orchestrator._resolve_manual_focus_candidates = lambda **kwargs: ([], [])
+        orchestrator._merge_focus_candidates = lambda **kwargs: []
+        orchestrator.strategy_runner.receive_watchlist_snapshot = lambda **kwargs: None
+        orchestrator.strategy_runner.process = _process
+
+        assert orchestrator.run_once() is True
+        assert calls["process_watchlist"] == ["AAPL", "MSFT", "NVDA"]
+        output = capsys.readouterr().out
+        assert "[FOCUS][SELECTED] symbols=['AAPL', 'MSFT', 'NVDA']" in output
+        assert "[FALLBACK][ENGAGED] reason=EMPTY_FOCUS fallback_symbols=['AAPL', 'MSFT', 'NVDA']" in output
+        assert "[ROSS][PROCESS_START]" in output
+    finally:
+        set_config_overrides(None)
