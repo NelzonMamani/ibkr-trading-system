@@ -455,6 +455,7 @@ class CoreOrchestrator:
         self.execution_enabled = self.execution_engine.execution_enabled
         self.position_management_engine = PositionManagementEngine()
         self.trade_lifecycle_engine = TradeLifecycleEngine()
+        self.risk_engine.set_trade_lifecycle_engine(self.trade_lifecycle_engine)
         self._broker_position_adapter = BrokerPositionSnapshotAdapter()
         self.trade_exit_engine = TradeExitEngine(
             trade_registry=self.trade_registry,

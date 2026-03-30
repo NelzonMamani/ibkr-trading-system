@@ -197,6 +197,8 @@ class RiskDecision:
     sizing: dict = field(default_factory=dict)
     circuit_breaker_tripped: bool = False
     execution_blocked: bool = False
+    blocked_by_lifecycle: bool = False
+    lifecycle_block_reason: Optional[str] = None
     strategy_prefix: Optional[str] = None
     setup_family_id: Optional[str] = None
     trigger_id: Optional[str] = None
