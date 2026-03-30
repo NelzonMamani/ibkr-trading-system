@@ -1408,6 +1408,8 @@ def _evaluate_focus_gates(
     rvol_phase = _safe_float(context.get("rvol_phase"), None)
     rvol_discovery = _safe_float(context.get("rvol_discovery"), None)
     threshold_value = thresholds.focus_rvol_min
+    if session in {"PRE", "OVN"}:
+        threshold_value = min(threshold_value, 1.0)
     if focus_rvol_value is None:
         context["rvol_status"] = "UNKNOWN"
         if _allow_pre_rvol_bypass(context, thresholds):
@@ -1533,6 +1535,21 @@ def _evaluate_focus_gates(
         "reason=PASS_ALL_FOCUS_GATES decision=PASS"
     )
     return None
+
+
+def _focus_reason_from_drop_reason(drop_reason: str | None) -> str:
+    normalized = str(drop_reason or "").upper()
+    if normalized in {"DROP_RVOL_FOCUS", "DROP_MISSING_RVOL"}:
+        return "LOW_RVOL"
+    if normalized in {"DROP_SPREAD", "DROP_MISSING_SPREAD"}:
+        return "SPREAD_TOO_WIDE"
+    if normalized in {"DROP_MISSING_BID_ASK", "DROP_MISSING_PRICE"}:
+        return "BAD_DATA_QUALITY"
+    if normalized in {"DROP_FLOAT_MISSING", "DROP_FLOAT_MAX"}:
+        return "FLOAT_UNKNOWN"
+    if normalized in {"DROP_EXECUTION_NOT_READY"}:
+        return "EXECUTION_NOT_READY"
+    return normalized or "UNKNOWN"
 
 
 def _resolve_premarket_volume_threshold(session_time_ny: dtime, thresholds: GateThresholds) -> int:
@@ -4037,14 +4054,40 @@ def run_scanner_cycle(
         fast_rows = _build_fast_rows(watchlist_contexts, news_by_symbol)
         focus_limit = limits["focus_limit"]
         focus_candidates: list[Dict[str, Any]] = []
+        focus_reason_counts: Counter[str] = Counter()
         for context in watchlist_contexts:
+            session = normalize_session_label(str(context.get("session") or session_label))
+            pre_session = session in {"PRE", "OVN"}
+            rvol_metric_used, focus_rvol_value = _resolve_rvol_for_focus_gate(context)
+            spread_pct = _safe_float(context.get("spread_pct"), None)
+            float_status = str(context.get("float_status") or ("UNKNOWN" if context.get("float_shares") is None else "KNOWN"))
+            execution_ready = bool(context.get("execution_ready"))
             focus_drop = _evaluate_focus_gates(context, thresholds)
+            focus_reason = _focus_reason_from_drop_reason(focus_drop)
+            if focus_drop is None and pre_session and float_status.startswith("UNKNOWN"):
+                focus_reason = "PRE_FLOAT_UNKNOWN_ALLOWED"
+            if focus_drop is not None:
+                focus_reason_counts[focus_reason] += 1
             if focus_drop:
                 context["focus_drop_reason"] = focus_drop
+                context["focus_reject_reason"] = focus_reason
                 print(
                     "[SCANNER][FOCUS_DROP] symbol="
                     f"{context.get('symbol')} reason={focus_drop}"
                 )
+            else:
+                context["focus_reject_reason"] = None
+            result = "REJECT" if focus_drop else "PASS"
+            print("[FOCUS][EVAL]")
+            print(f"symbol={context.get('symbol')}")
+            print(f"rvol={focus_rvol_value}")
+            print(f"float={float_status}")
+            print(f"spread={spread_pct}")
+            print(f"dq={context.get('data_quality_status')}")
+            print(f"execution_ready={execution_ready}")
+            print(f"result={result}")
+            print(f"reason={focus_reason if focus_drop else 'PASS'}")
+            if focus_drop:
                 continue
             focus_candidates.append(context)
         focus_contexts = _rank_candidates(focus_candidates)
@@ -4072,6 +4115,11 @@ def run_scanner_cycle(
                 f"blocked_by_news={focus_drop_reasons.get('DROP_NO_CATALYST', 0)} "
                 f"blocked_by_data_quality={focus_drop_reasons.get('DROP_MISSING_BID_ASK', 0) + focus_drop_reasons.get('DROP_MISSING_PRICE', 0) + focus_drop_reasons.get('DROP_MISSING_RVOL', 0)}"
             )
+        print("[FOCUS][SUMMARY]")
+        print(f"evaluated={len(watchlist_contexts)}")
+        print(f"passed={len(focus_candidates)}")
+        print(f"rejected={max(len(watchlist_contexts) - len(focus_candidates), 0)}")
+        print(f"dominant_reasons={dict(focus_reason_counts)}")
 
         exclusion_counts = Counter(drop_ledger.values())
         drop_summary = dict(exclusion_counts)
