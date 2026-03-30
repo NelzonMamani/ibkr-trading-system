@@ -34,6 +34,7 @@ from src.config.runtime_config import (
 from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.engines.position_management_engine import ManagedPosition, PositionManagementEngine
+from src.core.engines.trade_lifecycle_engine import TradeLifecycleEngine
 from src.core.event_collector import EventCollector
 from src.data.fundamentals.float_provider import FloatProvider
 from src.data.manual_focus_loader import ManualFocusConfig
@@ -452,6 +453,7 @@ class CoreOrchestrator:
         )
         self.execution_enabled = self.execution_engine.execution_enabled
         self.position_management_engine = PositionManagementEngine()
+        self.trade_lifecycle_engine = TradeLifecycleEngine()
         self.trade_exit_engine = TradeExitEngine(
             trade_registry=self.trade_registry,
             event_collector=self.event_collector,
@@ -538,6 +540,129 @@ class CoreOrchestrator:
             "false_breakout": False,
             "session_phase": str(session_phase),
         }
+
+    @staticmethod
+    def _is_valid_managed_position(position: ManagedPosition | None) -> bool:
+        return (
+            position is not None
+            and str(getattr(position, "symbol", "")).strip() != ""
+            and int(getattr(position, "quantity", 0) or 0) > 0
+            and float(getattr(position, "entry_price", 0.0) or 0.0) > 0.0
+            and float(getattr(position, "stop_price", 0.0) or 0.0) > 0.0
+        )
+
+    def _register_trade_lifecycle_on_execution(
+        self,
+        *,
+        execution_result: ExecutionResult,
+        managed_position: ManagedPosition | None,
+    ) -> str | None:
+        eligible_status = {"FILLED", "PARTIAL", "ACKED", "SUBMITTED", "SIMULATED"}
+        status = str(getattr(execution_result, "status", "") or "").upper()
+        if status not in eligible_status:
+            print(f"[LIFECYCLE][SKIP] stage=register reason=status_not_eligible status={status}")
+            return None
+        quantity = int(getattr(execution_result, "filled_quantity", 0) or getattr(execution_result, "quantity", 0) or 0)
+        if quantity <= 0:
+            print("[LIFECYCLE][SKIP] stage=register reason=invalid_quantity")
+            return None
+        entry_price = float(getattr(execution_result, "entry_price", 0.0) or getattr(execution_result, "raw_price", 0.0) or 0.0)
+        if entry_price <= 0.0:
+            print("[LIFECYCLE][SKIP] stage=register reason=invalid_entry_price")
+            return None
+        if not self._is_valid_managed_position(managed_position):
+            print("[LIFECYCLE][SKIP] stage=register reason=invalid_managed_position")
+            return None
+        stop_price = float(getattr(managed_position, "stop_price", 0.0) or 0.0)
+        if stop_price <= 0.0:
+            print("[LIFECYCLE][SKIP] stage=register reason=invalid_stop_price")
+            return None
+        trade_id = str(getattr(execution_result, "client_order_id", None) or f"{execution_result.symbol}:{uuid4()}")
+        self.trade_lifecycle_engine.register_trade(
+            trade_id=trade_id,
+            symbol=str(execution_result.symbol),
+            quantity=quantity,
+            entry_price=entry_price,
+            stop_price=stop_price,
+        )
+        print(f"[LIFECYCLE][REGISTER] symbol={execution_result.symbol} trade_id={trade_id} qty={quantity}")
+        return trade_id
+
+    def _reconcile_lifecycle_with_managed_position(
+        self,
+        *,
+        symbol: str,
+        lifecycle_trade_id: str | None,
+        before_position: ManagedPosition | None,
+        after_position: ManagedPosition | None,
+    ) -> None:
+        if not lifecycle_trade_id:
+            print("[LIFECYCLE][SKIP] stage=reconcile reason=missing_trade_id")
+            return
+        if not self._is_valid_managed_position(before_position):
+            print("[LIFECYCLE][SKIP] stage=reconcile reason=invalid_before_position")
+            return
+        if after_position is None:
+            print("[LIFECYCLE][SKIP] stage=reconcile reason=missing_after_position")
+            return
+        open_trade_id = self.trade_lifecycle_engine.find_open_trade_id_for_symbol(str(symbol))
+        if open_trade_id != lifecycle_trade_id:
+            print("[LIFECYCLE][SKIP] stage=reconcile reason=no_open_registered_trade")
+            return
+        reconciled = self.trade_lifecycle_engine.reconcile_position(
+            trade_id=lifecycle_trade_id,
+            closed=bool(getattr(after_position, "closed", False)),
+        )
+        if reconciled is None:
+            print("[LIFECYCLE][SKIP] stage=reconcile reason=trade_not_found")
+            return
+        print(
+            "[LIFECYCLE][RECONCILE] "
+            f"symbol={symbol} trade_id={lifecycle_trade_id} closed={reconciled.status == 'CLOSED'}"
+        )
+
+    def _mark_open_trades_to_market(self) -> None:
+        try:
+            open_trades = self.trade_lifecycle_engine.open_trades()
+        except Exception as exc:
+            print(f"[LIFECYCLE][ERROR] stage=mark_to_market_open_trades error={exc}")
+            return
+        if not open_trades:
+            return
+        for trade in open_trades:
+            symbol = str(getattr(trade, "symbol", "") or "")
+            if not symbol:
+                print("[LIFECYCLE][SKIP] stage=mark_to_market reason=missing_symbol")
+                continue
+            try:
+                price = float(self.price_feed.get_price(symbol))
+            except Exception as exc:
+                print(f"[LIFECYCLE][ERROR] stage=mark_to_market_price symbol={symbol} error={exc}")
+                continue
+            try:
+                marked = self.trade_lifecycle_engine.mark_to_market(
+                    trade_id=str(trade.trade_id),
+                    price=price,
+                )
+                if marked is None:
+                    print(f"[LIFECYCLE][SKIP] stage=mark_to_market reason=trade_missing symbol={symbol}")
+                    continue
+                print(
+                    "[LIFECYCLE][MARK] "
+                    f"symbol={symbol} trade_id={trade.trade_id} price={price:.4f}"
+                )
+            except Exception as exc:
+                print(f"[LIFECYCLE][ERROR] stage=mark_to_market_apply symbol={symbol} error={exc}")
+
+    def _summarize_trade_lifecycle_session(self) -> None:
+        summary = self.trade_lifecycle_engine.summarize_session_metrics()
+        print(
+            "[LIFECYCLE][SUMMARY] "
+            f"trades={summary.get('total_trades', 0)} "
+            f"open={summary.get('open_trades', 0)} "
+            f"closed={summary.get('closed_trades', 0)} "
+            f"open_unrealized_pnl={float(summary.get('open_unrealized_pnl', 0.0)):.2f}"
+        )
 
     def _should_enforce_ibkr_runtime(self) -> bool:
         """
@@ -3242,7 +3367,9 @@ class CoreOrchestrator:
                             risk_decision=risk_decision,
                             execution_result=result,
                         )
+                        lifecycle_trade_id: str | None = None
                         if managed_position is not None:
+                            before_managed_position = replace(managed_position)
                             position_market_state = self._build_position_management_market_state(
                                 execution_result=result,
                                 session_phase=session_phase,
@@ -3256,6 +3383,22 @@ class CoreOrchestrator:
                                 f"symbol={managed_position.symbol} qty={managed_position.quantity} "
                                 f"stop={managed_position.stop_price} closed={managed_position.closed}"
                             )
+                            try:
+                                lifecycle_trade_id = self._register_trade_lifecycle_on_execution(
+                                    execution_result=result,
+                                    managed_position=managed_position,
+                                )
+                            except Exception as exc:
+                                print(f"[LIFECYCLE][ERROR] stage=register error={exc}")
+                            try:
+                                self._reconcile_lifecycle_with_managed_position(
+                                    symbol=managed_position.symbol,
+                                    lifecycle_trade_id=lifecycle_trade_id,
+                                    before_position=before_managed_position,
+                                    after_position=managed_position,
+                                )
+                            except Exception as exc:
+                                print(f"[LIFECYCLE][ERROR] stage=reconcile error={exc}")
                         submit_attempt_count += 1 if bool(getattr(result, "attempted", False)) else 0
                         submit_success_count += 1 if str(getattr(result, "status", "")).upper() in {"FILLED", "PARTIAL", "ACKED", "SUBMITTED"} else 0
                         if not bool(getattr(result, "attempted", False)):
@@ -3682,7 +3825,15 @@ class CoreOrchestrator:
             f"risk_decisions={len(risk_output or [])} | "
             f"execution_results={len(execution_output or [])}"
         )
+        try:
+            self._mark_open_trades_to_market()
+        except Exception as exc:
+            print(f"[LIFECYCLE][ERROR] stage=mark_to_market error={exc}")
         self.execution_engine.emit_cycle_execution_summary()
+        try:
+            self._summarize_trade_lifecycle_session()
+        except Exception as exc:
+            print(f"[LIFECYCLE][ERROR] stage=summary error={exc}")
 
         print("[INFO] Orchestrator cycle complete (teaching-only).")
         cycle_snapshot = cycle_events
