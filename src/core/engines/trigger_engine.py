@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.strategies.common.triggers.trigger_first_pullback import evaluate_first_pullback_trigger
-from src.strategies.common.triggers.trigger_micro_pullback import evaluate_micro_pullback_trigger
-from src.strategies.common.triggers.trigger_orb import evaluate_orb_trigger
+from src.strategies.common.triggers.trigger_registry import resolve_trigger_evaluator
 
 
 class TriggerEngine:
@@ -189,71 +187,45 @@ class TriggerEngine:
                 prev_close=prev_close,
                 levels=levels,
             )
-        elif setup_family in {"OPENING_RANGE_BREAKOUT", "ORB"}:
-            orb_trigger = evaluate_orb_trigger(
-                setup,
-                {
-                    **(levels if isinstance(levels, dict) else {}),
-                    "candles": list(candles or []),
-                },
-            )
-            ready = bool(orb_trigger.get("trigger_ready_now"))
-            reason = str(orb_trigger.get("trigger_reason") or "orb_trigger_not_ready")
-            trigger_type = str(orb_trigger.get("trigger_type") or trigger_type)
-            flags.append(str(orb_trigger.get("trigger_state") or ("FIRED" if ready else "ARMED")))
-            print(f"[TRIGGER][ORB] fired={ready} reason={reason}")
-        elif setup_family in {"FIRST_PULLBACK"}:
-            pullback_trigger = evaluate_first_pullback_trigger(
-                setup,
-                {
-                    **(levels if isinstance(levels, dict) else {}),
-                    "candles": list(candles or []),
-                },
-            )
-            ready = bool(pullback_trigger.get("trigger_ready_now"))
-            reason = str(pullback_trigger.get("trigger_reason") or "first_pullback_trigger_not_ready")
-            trigger_type = str(pullback_trigger.get("trigger_type") or trigger_type)
-            flags.append(str(pullback_trigger.get("trigger_state") or ("FIRED" if ready else "ARMED")))
-            trigger_price_reference = self._safe_float(
-                pullback_trigger.get("trigger_price_reference")
-            ) or trigger_price_reference
-            invalidation_price_reference = self._safe_float(
-                pullback_trigger.get("invalidation_price_reference")
-            ) or invalidation_price_reference
-        elif setup_family in {"MICRO_PULLBACK"}:
-            micro_pullback_trigger = evaluate_micro_pullback_trigger(
-                setup,
-                {
-                    **(levels if isinstance(levels, dict) else {}),
-                    "candles": list(candles or []),
-                },
-            )
-            ready = bool(micro_pullback_trigger.get("trigger_ready_now"))
-            reason = str(micro_pullback_trigger.get("trigger_reason") or "micro_pullback_trigger_not_ready")
-            trigger_type = str(micro_pullback_trigger.get("trigger_type") or trigger_type)
-            flags.append(str(micro_pullback_trigger.get("trigger_state") or ("FIRED" if ready else "ARMED")))
-            trigger_price_reference = self._safe_float(micro_pullback_trigger.get("trigger_price_reference"))
-            invalidation_price_reference = self._safe_float(micro_pullback_trigger.get("invalidation_price_reference"))
-            setup["execution_refinement_mode"] = micro_pullback_trigger.get("execution_refinement_mode")
-        elif trigger_type in {"BREAKOUT_HIGH", "HOD_BREAK", "PMH_BREAK", "RANGE_BREAK", "PULLBACK_HIGH_BREAK"}:
-            ready, reason = self._evaluate_breakout_trigger(
-                last_close=last_close,
-                last_high=last_high,
-                trigger_price_reference=trigger_price_reference,
-                structure=structure,
-                structure_is_actionable=structure_is_actionable,
-                invalidation_price_reference=invalidation_price_reference,
-                flags=flags,
-            )
-        elif trigger_type == "BREAK_AND_HOLD":
-            ready = last_close >= trigger_price_reference and impulse_active
-            reason = "break_and_hold_confirmed" if ready else "break_and_hold_not_confirmed"
-        elif trigger_type == "RECLAIM":
-            ready = last_close >= trigger_price_reference and "RECLAIM" in reclaim_state
-            reason = "reclaim_already_confirmed" if ready else "reclaim_not_confirmed"
         else:
-            ready = last_high is not None and last_high >= trigger_price_reference
-            reason = "high_tagged_trigger" if ready else "trigger_not_tagged"
+            registry_trigger = self._evaluate_registered_trigger(
+                setup=setup,
+                levels=levels,
+                candles=candles,
+            )
+            if registry_trigger is not None:
+                ready = bool(registry_trigger.get("trigger_ready_now"))
+                reason = str(registry_trigger.get("trigger_reason") or "registered_trigger_not_ready")
+                trigger_type = str(registry_trigger.get("trigger_type") or trigger_type)
+                flags.append(str(registry_trigger.get("trigger_state") or ("FIRED" if ready else "ARMED")))
+                flags.extend([str(flag) for flag in (registry_trigger.get("trigger_quality_flags") or [])])
+                trigger_price_reference = self._safe_float(
+                    registry_trigger.get("trigger_price_reference")
+                ) or trigger_price_reference
+                invalidation_price_reference = self._safe_float(
+                    registry_trigger.get("invalidation_price_reference")
+                ) or invalidation_price_reference
+                if registry_trigger.get("execution_refinement_mode"):
+                    setup["execution_refinement_mode"] = registry_trigger.get("execution_refinement_mode")
+            elif trigger_type in {"BREAKOUT_HIGH", "HOD_BREAK", "PMH_BREAK", "RANGE_BREAK", "PULLBACK_HIGH_BREAK"}:
+                ready, reason = self._evaluate_breakout_trigger(
+                    last_close=last_close,
+                    last_high=last_high,
+                    trigger_price_reference=trigger_price_reference,
+                    structure=structure,
+                    structure_is_actionable=structure_is_actionable,
+                    invalidation_price_reference=invalidation_price_reference,
+                    flags=flags,
+                )
+            elif trigger_type == "BREAK_AND_HOLD":
+                ready = last_close >= trigger_price_reference and impulse_active
+                reason = "break_and_hold_confirmed" if ready else "break_and_hold_not_confirmed"
+            elif trigger_type == "RECLAIM":
+                ready = last_close >= trigger_price_reference and "RECLAIM" in reclaim_state
+                reason = "reclaim_already_confirmed" if ready else "reclaim_not_confirmed"
+            else:
+                ready = last_high is not None and last_high >= trigger_price_reference
+                reason = "high_tagged_trigger" if ready else "trigger_not_tagged"
 
         if consolidation_active and trigger_type in {"RANGE_BREAK", "BREAK_AND_HOLD"}:
             flags.append("CONSOLIDATION_CONTEXT")
@@ -266,6 +238,19 @@ class TriggerEngine:
             reason = "at_or_below_invalidation"
 
         return ready, reason, flags
+
+    def _evaluate_registered_trigger(self, *, setup: dict, levels: dict, candles: list) -> dict | None:
+        evaluator = resolve_trigger_evaluator(setup.get("setup_family_id"))
+        if evaluator is None:
+            return None
+        trigger_payload = evaluator(
+            setup,
+            {
+                **(levels if isinstance(levels, dict) else {}),
+                "candles": list(candles or []),
+            },
+        )
+        return trigger_payload if isinstance(trigger_payload, dict) else None
 
     def _evaluate_gap_go_trigger(
         self,
