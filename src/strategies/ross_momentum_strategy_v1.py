@@ -381,6 +381,13 @@ class RossMomentumStrategyV1(BaseStrategy):
             "TRIGGER_REJECTED": 0,
             "READY_FOR_EXECUTION": 0,
         }
+        root_cause_counts = {
+            "structure_fail_count": 0,
+            "setup_fail_count": 0,
+            "trigger_fail_count": 0,
+            "filter_fail_count": 0,
+            "input_fail_count": 0,
+        }
 
         def _terminal(symbol: str, category: str, reason: str) -> None:
             print(f"[ROSS][TERMINAL] symbol={symbol} category={category} reason={reason}")
@@ -464,6 +471,23 @@ class RossMomentumStrategyV1(BaseStrategy):
                 session_label=session_label,
                 quality_flags=quality_flags,
             )
+            input_issues: list[str] = []
+            if int(getattr(input_summary, "candle_count", 0) or 0) <= 0:
+                input_issues.append("missing_candles")
+            if int(getattr(input_summary, "candle_count", 0) or 0) < 5:
+                input_issues.append("insufficient_history")
+            if not bool(getattr(input_summary, "has_indicators", False)):
+                input_issues.append("missing_indicators")
+            if not bool(getattr(input_summary, "has_levels", False)):
+                input_issues.append("invalid_levels")
+            if input_issues:
+                root_cause_counts["input_fail_count"] += 1
+            print(
+                "[ROSS][INPUT_QUALITY] "
+                f"symbol={symbol} valid={str(not bool(input_issues)).lower()} "
+                f"issues={input_issues or ['none']} candle_count={getattr(input_summary, 'candle_count', 0)} "
+                f"has_indicators={getattr(input_summary, 'has_indicators', False)} has_levels={getattr(input_summary, 'has_levels', False)}"
+            )
             intraday_payload = {
                 "candles": list(getattr(inputs, "candles", []) or []),
                 "last_price": input_summary.last_price,
@@ -497,6 +521,16 @@ class RossMomentumStrategyV1(BaseStrategy):
             structure = StructureEngine().compute_structure(
                 candles=list(getattr(inputs, "candles", []) or [])
             )
+            impulse_detected = bool(structure.get("impulse_active"))
+            pullback_detected = bool(structure.get("pullback_active") or structure.get("consolidation_active"))
+            structure_valid = impulse_detected and pullback_detected
+            if not structure_valid:
+                root_cause_counts["structure_fail_count"] += 1
+            print(
+                "[ROSS][STRUCTURE] "
+                f"symbol={symbol} impulse_detected={impulse_detected} pullback_detected={pullback_detected} "
+                f"classification={'IMPULSE_PULLBACK_VALID' if structure_valid else 'STRUCTURE_NOT_READY'}"
+            )
             setups = SetupEngine().compute_setups(
                 candles=list(getattr(inputs, "candles", []) or []),
                 levels=levels,
@@ -508,6 +542,15 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "float_millions": input_summary.float_millions,
                 },
             )
+            for setup in setups:
+                print(
+                    "[ROSS][SETUP_CANDIDATE] "
+                    f"symbol={symbol} family={setup.get('setup_family_id')} "
+                    f"trigger_types={setup.get('required_trigger_types')} confidence={setup.get('confidence')}"
+                )
+            if not setups:
+                root_cause_counts["setup_fail_count"] += 1
+                print(f"[ROSS][SETUP_REJECTED] symbol={symbol} reason=no_setup_candidates")
             pre_activation = self._detect_pre_breakout_pressure(
                 symbol=symbol,
                 inputs=inputs,
@@ -781,7 +824,9 @@ class RossMomentumStrategyV1(BaseStrategy):
                 detected_patterns = bool(symbol_trace.detected_pattern_ids)
                 if detected_patterns:
                     decision_reason = decision.get("decision_reason") or "decision_not_candidate_selected"
+                    root_cause_counts["filter_fail_count"] += 1
                     print(f"[ROSS][DECISION] symbol={symbol} verdict=REJECT reason={decision_reason}")
+                    print(f"[ROSS][PATTERN_DROPPED] symbol={symbol} reason={decision_reason}")
                     symbol_trace.final_outcome = "SETUP_FOUND_DECISION_REJECTED"
                     symbol_trace.setup_stage = {"status": "PASS", "reason_code": "SETUP_DETECTED"}
                     symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "DECISION_REJECTED"}
@@ -807,6 +852,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                         symbol_trace.final_reason_code = pre_classification.upper()
                     print(f"[ROSS][SETUP][FAIL] symbol={symbol} reason=no_valid_pattern")
                     print(f"[ROSS][SETUP_REJECT] symbol={symbol} reason=NO_VALID_PATTERN")
+                    print(f"[ROSS][SETUP_REJECTED] symbol={symbol} reason=NO_VALID_PATTERN")
                     print(f"[PATTERN_NO_SETUP] symbol={symbol} dominant_reason=no_valid_pattern")
                     print(f"[ROSS][NO_SETUP] symbol={symbol} reason=NO_PATTERN_DETECTED")
                     print(f"[CLASSIFICATION] symbol={symbol} category=PATTERN_NO_SETUP")
@@ -834,6 +880,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                 continue
 
             pipeline_trace("CONFIRMATION", symbol)
+            print(
+                f"[ROSS][PATTERN_DETECTED] symbol={symbol} pattern={best_pattern.pattern_id} "
+                f"setup_family={decision.get('selected_setup_family')}"
+            )
             confirmation_passed, blocking_reasons, warnings = self._evaluate_confirmation(
                 symbol=symbol,
                 selected_pattern=best_pattern,
@@ -841,8 +891,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                 session_label=session_label,
             )
             if not confirmation_passed:
+                root_cause_counts["filter_fail_count"] += 1
                 print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=confirmation_gate")
                 print(f"[TRIGGER][REJECT] symbol={symbol} reason=CONFIRMATION_BLOCKED")
+                print(f"[ROSS][PATTERN_DROPPED] symbol={symbol} reason=CONFIRMATION_BLOCKED")
                 print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason=CONFIRMATION_BLOCKED")
                 self._evaluate_trigger(
                     symbol=symbol,
@@ -887,6 +939,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} trigger={selected_trigger.get('trigger_type') if selected_trigger else None}"
             )
             if selected_trigger is None:
+                root_cause_counts["trigger_fail_count"] += 1
                 print(
                     "[ROSS][NO_TRIGGER] "
                     f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} reason=no_trigger_candidate_for_selected_setup"
@@ -904,6 +957,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
             if selected_trigger.get("trigger_ready_now") is not True:
+                root_cause_counts["trigger_fail_count"] += 1
                 print(
                     "[ROSS][NO_TRIGGER] "
                     f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} reason={selected_trigger.get('trigger_reason')}"
@@ -932,8 +986,10 @@ class RossMomentumStrategyV1(BaseStrategy):
             pipeline_trace("TRIGGER", symbol)
             trade = self._build_trade_from_pattern(best_pattern, inputs)
             if not trade:
+                root_cause_counts["trigger_fail_count"] += 1
                 print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=trade_structure")
                 print(f"[TRIGGER][REJECT] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
+                print(f"[ROSS][TRIGGER_BLOCKED] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
                 print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
                 symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
                 symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "INVALID_TRADE_STRUCTURE"}
@@ -974,6 +1030,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                 entry_price=entry,
             )
             trigger_ready = bool(trigger_ready and selected_trigger.get("trigger_ready_now"))
+            if not trigger_ready:
+                root_cause_counts["trigger_fail_count"] += 1
+                print(f"[ROSS][TRIGGER_BLOCKED] symbol={symbol} reason={_trigger_reason}")
+            else:
+                print(f"[ROSS][TRIGGER_FIRED] symbol={symbol} reason={_trigger_reason}")
             symbol_trace.trigger_stage = {
                 "status": "FIRED" if trigger_ready else "ARMED_NOT_FIRED_YET",
                 "reason_code": "TRIGGER_PASS" if trigger_ready else "TRIGGER_NOT_READY",
@@ -1000,7 +1061,9 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"reason={permission_reason} quality={quality_tier}"
             )
             if not allow_trade:
+                root_cause_counts["filter_fail_count"] += 1
                 print(f"[TRIGGER][REJECT] symbol={symbol} reason={permission_reason}")
+                print(f"[ROSS][PATTERN_DROPPED] symbol={symbol} reason={permission_reason}")
                 print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason={permission_reason}")
                 symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
                 symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": permission_reason}
@@ -1177,6 +1240,14 @@ class RossMomentumStrategyV1(BaseStrategy):
         )
 
         print(f"[ROSS][INTENTS] generated={len(translated_intents)}")
+        print(
+            "[ROSS][ROOT_CAUSE_SUMMARY] "
+            f"structure_fail_count={root_cause_counts['structure_fail_count']} "
+            f"setup_fail_count={root_cause_counts['setup_fail_count']} "
+            f"trigger_fail_count={root_cause_counts['trigger_fail_count']} "
+            f"filter_fail_count={root_cause_counts['filter_fail_count']} "
+            f"input_fail_count={root_cause_counts['input_fail_count']}"
+        )
 
         if not translated_intents:
             print("[ROSS][WARNING] NO TRADE INTENTS GENERATED")

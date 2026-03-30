@@ -21,6 +21,11 @@ class TriggerEngine:
         last_close = self._safe_float(self._read(last_candle, "close")) if last_candle else None
         last_high = self._safe_float(self._read(last_candle, "high")) if last_candle else None
         last_low = self._safe_float(self._read(last_candle, "low")) if last_candle else None
+        prior_high_window = [
+            self._safe_float(self._read(candle, "high"))
+            for candle in (candles[:-1] or [])[-5:]
+        ]
+        previous_pullback_high = max((h for h in prior_high_window if h is not None), default=None)
 
         outputs: list[dict] = []
         for setup in setups or []:
@@ -43,9 +48,28 @@ class TriggerEngine:
                 invalidation_price_reference=invalidation_price_reference,
                 last_close=last_close,
                 last_high=last_high,
+                previous_pullback_high=previous_pullback_high,
                 setup=setup,
                 structure=structure,
             )
+            print(
+                "[ROSS][TRIGGER_CHECK] "
+                f"symbol={symbol} setup={setup.get('setup_family_id')} trigger_type={trigger_type} "
+                f"last_high={last_high} prev_pullback_high={previous_pullback_high} "
+                f"trigger_ref={trigger_price_reference} ready={trigger_ready_now}"
+            )
+            if trigger_ready_now:
+                print(
+                    "[ROSS][TRIGGER_FIRED] "
+                    f"symbol={symbol} setup={setup.get('setup_family_id')} trigger_type={trigger_type} "
+                    f"reason={trigger_reason}"
+                )
+            else:
+                print(
+                    "[ROSS][TRIGGER_BLOCKED] "
+                    f"symbol={symbol} setup={setup.get('setup_family_id')} trigger_type={trigger_type} "
+                    f"reason={trigger_reason}"
+                )
             output = {
                 "symbol": str(symbol),
                 "setup_family_id": setup.get("setup_family_id"),
@@ -119,6 +143,7 @@ class TriggerEngine:
         invalidation_price_reference: float | None,
         last_close: float | None,
         last_high: float | None,
+        previous_pullback_high: float | None,
         setup: dict,
         structure: dict,
     ) -> tuple[bool, str, list[str]]:
@@ -134,14 +159,13 @@ class TriggerEngine:
         reclaim_state = str(structure.get("reclaim_state") or "NONE").upper()
         consolidation_active = bool(structure.get("consolidation_active"))
         impulse_active = bool(structure.get("impulse_active"))
-        structure_is_actionable = bool(structure.get("is_actionable"))
 
         if trigger_type in {"BREAKOUT_HIGH", "HOD_BREAK", "PMH_BREAK", "RANGE_BREAK", "PULLBACK_HIGH_BREAK"}:
             ready, reason = self._evaluate_breakout_trigger(
                 last_close=last_close,
+                last_high=last_high,
+                previous_pullback_high=previous_pullback_high,
                 trigger_price_reference=trigger_price_reference,
-                structure=structure,
-                structure_is_actionable=structure_is_actionable,
                 invalidation_price_reference=invalidation_price_reference,
                 flags=flags,
             )
@@ -171,26 +195,25 @@ class TriggerEngine:
         self,
         *,
         last_close: float,
+        last_high: float | None,
+        previous_pullback_high: float | None,
         trigger_price_reference: float,
-        structure: dict,
-        structure_is_actionable: bool,
         invalidation_price_reference: float | None,
         flags: list[str],
     ) -> tuple[bool, str]:
-        ready = last_close >= trigger_price_reference
-        reason = "BREAKOUT_CLEARED" if ready else "BREAKOUT_NOT_CLEARED"
-        pre_activation = bool(structure.get("pre_activation_ready"))
-        invalidation_violated = invalidation_price_reference is not None and last_close <= invalidation_price_reference
-        if (
-            not ready
-            and pre_activation
-            and structure_is_actionable
-            and invalidation_violated is False
-            and trigger_price_reference is not None
-        ):
+        ready = False
+        reason = "BREAKOUT_NOT_CLEARED"
+        if last_high is not None and previous_pullback_high is not None and last_high > previous_pullback_high:
             ready = True
-            reason = "PRE_ACTIVATION_BREAKOUT"
-            flags.append("PRE_ACTIVATION_TRIGGER")
-            symbol = str(structure.get("symbol") or "UNKNOWN")
-            print(f"[ROSS][PRE_TRIGGER_PROMOTION] symbol={symbol} reason=PRE_ACTIVATION_BREAKOUT")
+            reason = "FIRST_NEW_HIGH"
+        elif last_close >= trigger_price_reference:
+            ready = True
+            reason = "BREAKOUT_CLEARED"
+        else:
+            flags.append("NO_NEW_HIGH")
+
+        invalidation_violated = invalidation_price_reference is not None and last_close <= invalidation_price_reference
+        if invalidation_violated:
+            ready = False
+            reason = "at_or_below_invalidation"
         return ready, reason
