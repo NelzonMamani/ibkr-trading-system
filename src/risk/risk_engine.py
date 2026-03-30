@@ -4,9 +4,11 @@ Teaching-first risk engine that deterministically converts intents to risk decis
 Phase 4: Minimal live-capable scaffolding with highly constrained, conservative defaults.
 """
 
+import os
 from dataclasses import dataclass
 from typing import Optional, List, Tuple
 
+from src.core.engines.trade_lifecycle_engine import TradeLifecycleEngine
 from src.core_engine.events import RiskDecisionRecord, TradeIntentRecord
 from src.core_engine.health import HealthStatus
 from src.core_engine.state import RunMode as Epoch5Mode
@@ -42,7 +44,15 @@ from src.models.risk_decision import (
     RISK_SESSION_BLOCK,
     STRATEGY_READ_ONLY_EXECUTION_LOCK,
     STRATEGY_LIMIT_REACHED,
+    CAPITAL_MAX_POSITIONS,
+    CAPITAL_PORTFOLIO_LIMIT,
+    CAPITAL_POSITION_LIMIT,
+    LIFECYCLE_CRITICAL_DRIFT,
+    LIFECYCLE_DRAWDOWN_BREACHED,
+    LIFECYCLE_KILL_SWITCH_ACTIVE,
+    LIFECYCLE_TOO_MANY_OPEN_POSITIONS,
 )
+from src.risk.global_kill_switch import GlobalKillSwitch
 from src.risk.data_quality_contract import data_quality_blocking_causes
 from src.risk.no_trade_contexts import evaluate_no_trade_contexts
 from src.strategies.ross_momentum.ross_momentum_risk_overlay import (
@@ -103,6 +113,56 @@ class RiskEngine:
             "RossMomentumStrategyV1",
         }
         self.strategy_limits = dict(get_config("RISK_STRATEGY_LIMITS"))
+        self.trade_lifecycle_engine: TradeLifecycleEngine | None = None
+        self.kill_switch = GlobalKillSwitch()
+
+    def set_trade_lifecycle_engine(self, trade_lifecycle_engine: TradeLifecycleEngine) -> None:
+        self.trade_lifecycle_engine = trade_lifecycle_engine
+
+    @staticmethod
+    def _resolve_trade_value(trade_intent: TradeIntent, fallback_quantity: int) -> float:
+        entry_price = getattr(trade_intent, "entry_price", None)
+        if entry_price is None:
+            entry_price = getattr(trade_intent, "entry", None)
+        if entry_price is None or float(entry_price) <= 0:
+            return 0.0
+        quantity = int(getattr(trade_intent, "quantity", 0) or 0)
+        if quantity <= 0:
+            quantity = max(1, int(fallback_quantity))
+        return round(float(quantity) * float(entry_price), 2)
+
+    def _block_for_lifecycle(
+        self,
+        *,
+        trade_intent: TradeIntent,
+        run_mode: RunMode,
+        evaluated_limits: dict,
+        timestamp: str,
+        decision_id: str | None,
+        reason_code: str,
+        rationale: str,
+    ) -> RiskDecision:
+        decision = RiskDecision(
+            symbol=trade_intent.symbol,
+            allowed=False,
+            max_position_size=0,
+            risk_level="BLOCKED",
+            rationale=rationale,
+            trader_type=trade_intent.trader_type,
+            strategy_name=trade_intent.strategy_name,
+            direction=trade_intent.direction,
+            reason_code=reason_code,
+            overall_action="BLOCK",
+            decision_code="HALT" if self.kill_switch.active else "REJECT",
+            risk_reasons=[reason_code],
+            execution_blocked=True,
+            blocked_by_lifecycle=True,
+            lifecycle_block_reason=reason_code,
+            run_mode=run_mode.value,
+            evaluated_limits=evaluated_limits,
+            timestamp=timestamp,
+        )
+        return self._finalize_decision(decision, decision_id)
 
     @staticmethod
     def _resolve_profile_size(profile: RiskProfile) -> int:
@@ -454,6 +514,131 @@ class RiskEngine:
             "execution_enabled": execution_enabled,
             "run_mode": run_mode.value,
         }
+        trade_value = self._resolve_trade_value(
+            trade_intent=trade_intent,
+            fallback_quantity=self._resolve_profile_size(risk_profile),
+        )
+        evaluated_limits["trade_value"] = trade_value
+        evaluated_limits["kill_switch_active"] = self.kill_switch.active
+
+        try:
+            if bool(get_config("LIFECYCLE_MANUAL_KILL_SWITCH")) or os.getenv(
+                "LIFECYCLE_MANUAL_KILL_SWITCH", "0"
+            ).lower() in {"1", "true", "yes", "on"}:
+                self.kill_switch.activate("manual")
+        except Exception:
+            # config read should not crash risk evaluation paths
+            pass
+
+        lifecycle_signals = None
+        portfolio_state = None
+        lifecycle_critical_drift = False
+        if self.trade_lifecycle_engine is not None:
+            try:
+                lifecycle_signals = self.trade_lifecycle_engine.compute_lifecycle_risk_signals()
+                portfolio_state = self.trade_lifecycle_engine.build_portfolio_state()
+                findings = self.trade_lifecycle_engine.get_drift_report()
+                lifecycle_critical_drift = any(
+                    str(event.get("severity", "")).upper() == "CRITICAL"
+                    or str(event.get("status", "")).upper() == "ORPHANED"
+                    for event in findings
+                )
+            except Exception as exc:
+                print(f"[LIFECYCLE][DEGRADED] stage=risk_bridge reason={exc}")
+        if lifecycle_critical_drift:
+            self.kill_switch.activate("critical_broker_mismatch")
+
+        evaluated_limits["kill_switch_active"] = self.kill_switch.active
+        evaluated_limits["kill_switch_reason"] = self.kill_switch.reason
+        if portfolio_state is not None:
+            evaluated_limits["lifecycle_total_exposure"] = float(portfolio_state.total_exposure)
+            evaluated_limits["lifecycle_open_positions"] = int(portfolio_state.total_open_positions)
+        if lifecycle_signals is not None:
+            if lifecycle_signals.max_drawdown_breached:
+                self.kill_switch.activate("drawdown")
+            if self.kill_switch.active:
+                print(f"[RISK][BLOCKED][KILL_SWITCH] reason={self.kill_switch.reason}")
+                return self._block_for_lifecycle(
+                    trade_intent=trade_intent,
+                    run_mode=run_mode,
+                    evaluated_limits=evaluated_limits,
+                    timestamp=timestamp,
+                    decision_id=decision_id,
+                    reason_code=LIFECYCLE_KILL_SWITCH_ACTIVE,
+                    rationale=f"Lifecycle kill switch active: {self.kill_switch.reason}",
+                )
+            if lifecycle_signals.max_drawdown_breached:
+                print("[RISK][BLOCKED][LIFECYCLE] reason=drawdown")
+                return self._block_for_lifecycle(
+                    trade_intent=trade_intent,
+                    run_mode=run_mode,
+                    evaluated_limits=evaluated_limits,
+                    timestamp=timestamp,
+                    decision_id=decision_id,
+                    reason_code=LIFECYCLE_DRAWDOWN_BREACHED,
+                    rationale="Lifecycle max drawdown breached.",
+                )
+            if lifecycle_signals.drift_detected and lifecycle_critical_drift:
+                print("[RISK][BLOCKED][LIFECYCLE] reason=critical_drift")
+                return self._block_for_lifecycle(
+                    trade_intent=trade_intent,
+                    run_mode=run_mode,
+                    evaluated_limits=evaluated_limits,
+                    timestamp=timestamp,
+                    decision_id=decision_id,
+                    reason_code=LIFECYCLE_CRITICAL_DRIFT,
+                    rationale="Lifecycle drift detected with CRITICAL severity.",
+                )
+            if lifecycle_signals.too_many_open_positions:
+                print("[RISK][BLOCKED][LIFECYCLE] reason=too_many_open_positions")
+                return self._block_for_lifecycle(
+                    trade_intent=trade_intent,
+                    run_mode=run_mode,
+                    evaluated_limits=evaluated_limits,
+                    timestamp=timestamp,
+                    decision_id=decision_id,
+                    reason_code=LIFECYCLE_TOO_MANY_OPEN_POSITIONS,
+                    rationale="Lifecycle too_many_open_positions signal active.",
+                )
+
+        if portfolio_state is not None:
+            max_portfolio_exposure = float(get_config("LIFECYCLE_MAX_PORTFOLIO_EXPOSURE"))
+            max_position_exposure = float(get_config("LIFECYCLE_MAX_POSITION_EXPOSURE"))
+            max_positions = int(get_config("LIFECYCLE_MAX_POSITIONS"))
+            if float(portfolio_state.total_exposure) + float(trade_value) > max_portfolio_exposure:
+                print("[RISK][BLOCKED][CAPITAL] reason=portfolio_limit")
+                return self._block_for_lifecycle(
+                    trade_intent=trade_intent,
+                    run_mode=run_mode,
+                    evaluated_limits=evaluated_limits,
+                    timestamp=timestamp,
+                    decision_id=decision_id,
+                    reason_code=CAPITAL_PORTFOLIO_LIMIT,
+                    rationale="Portfolio exposure limit exceeded by proposed trade.",
+                )
+            if float(trade_value) > max_position_exposure:
+                print("[RISK][BLOCKED][CAPITAL] reason=position_limit")
+                return self._block_for_lifecycle(
+                    trade_intent=trade_intent,
+                    run_mode=run_mode,
+                    evaluated_limits=evaluated_limits,
+                    timestamp=timestamp,
+                    decision_id=decision_id,
+                    reason_code=CAPITAL_POSITION_LIMIT,
+                    rationale="Position exposure limit exceeded by proposed trade.",
+                )
+            if int(portfolio_state.total_open_positions) >= max_positions:
+                print("[RISK][BLOCKED][CAPITAL] reason=max_positions")
+                return self._block_for_lifecycle(
+                    trade_intent=trade_intent,
+                    run_mode=run_mode,
+                    evaluated_limits=evaluated_limits,
+                    timestamp=timestamp,
+                    decision_id=decision_id,
+                    reason_code=CAPITAL_MAX_POSITIONS,
+                    rationale="Maximum lifecycle position count reached.",
+                )
+
         if getattr(trade_intent, "force_execute", False):
             print(f"[RISK][BYPASS] symbol={trade_intent.symbol}")
             decision = RiskDecision(
