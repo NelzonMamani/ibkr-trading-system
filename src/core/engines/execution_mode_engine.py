@@ -12,31 +12,11 @@ class ExecutionModeConfig:
 
 
 EXECUTION_MODES: dict[str, dict[str, str]] = {
-    "PRE": {
-        "execution_mode": "STRICT",
-        "primary_timeframe": "1m",
-        "refinement_timeframe": "10s",
-    },
-    "RTH_OPEN": {
-        "execution_mode": "STRICT",
-        "primary_timeframe": "1m",
-        "refinement_timeframe": "10s",
-    },
-    "RTH_MID": {
-        "execution_mode": "NORMAL",
-        "primary_timeframe": "3m",
-        "refinement_timeframe": "30s",
-    },
-    "RTH_LATE": {
-        "execution_mode": "CONSERVATIVE",
-        "primary_timeframe": "5m",
-        "refinement_timeframe": "1m",
-    },
-    "AH": {
-        "execution_mode": "BLOCKED",
-        "primary_timeframe": "5m",
-        "refinement_timeframe": "1m",
-    },
+    "PRE": {"primary": "1m", "refinement": "10s", "mode": "CONDITIONAL"},
+    "RTH_OPEN": {"primary": "1m", "refinement": "10s", "mode": "AGGRESSIVE"},
+    "RTH_MID": {"primary": "1m", "refinement": "10s", "mode": "NORMAL"},
+    "RTH_LATE": {"primary": "5m", "refinement": "1m", "mode": "STRUCTURAL"},
+    "AH": {"primary": "5m", "refinement": "1m", "mode": "LOW_LIQUIDITY"},
 }
 
 
@@ -74,6 +54,47 @@ class ExecutionModeEngine:
         except (TypeError, ValueError):
             return None
 
+    def _is_ross_strategy(self, intent: Any, context: Any) -> bool:
+        strategy_name = str(
+            getattr(intent, "strategy_name", None)
+            or getattr(intent, "strategy_id", None)
+            or getattr(context, "strategy_name", None)
+            or getattr(context, "strategy_id", None)
+            or ""
+        ).upper()
+        return "ROSS" in strategy_name
+
+    def _apply_fast_micro_pullback_rules(self, intent: Any, session: str, rvol: float, spread: float, is_ross: bool) -> Any:
+        refinement_mode = str(getattr(intent, "execution_refinement_mode", "") or "").upper()
+        if refinement_mode != "FAST_MICRO_PULLBACK":
+            return intent
+
+        if session == "RTH_LATE":
+            intent.execution_refinement_mode = "NONE"
+            intent.execution_block_reason = "FAST_MICRO_PULLBACK_BLOCKED_RTH_LATE"
+            print("[EXECUTION_BLOCKED] FAST_MICRO_PULLBACK blocked in RTH_LATE")
+            return intent
+
+        if session == "AH" and is_ross:
+            intent.execution_refinement_mode = "NONE"
+            intent.execution_block_reason = "FAST_MICRO_PULLBACK_BLOCKED_AH_ROSS"
+            print("[EXECUTION_BLOCKED] FAST_MICRO_PULLBACK blocked in AH for Ross")
+            return intent
+
+        if session == "PRE" and (rvol < 2.0 or spread > 0.12):
+            intent.execution_refinement_mode = "NONE"
+            intent.execution_block_reason = "FAST_MICRO_PULLBACK_BLOCKED_PRE_LIQUIDITY"
+            print("[EXECUTION_BLOCKED] FAST_MICRO_PULLBACK blocked in PRE due to liquidity")
+            return intent
+
+        if session == "RTH_MID" and (rvol < 1.5 or spread > 0.15):
+            intent.execution_refinement_mode = "MICRO_PULLBACK"
+            intent.execution_block_reason = "FAST_MICRO_PULLBACK_DOWNGRADED_RTH_MID"
+            print("[EXECUTION_DOWNGRADE] FAST_MICRO_PULLBACK -> MICRO_PULLBACK in RTH_MID")
+            return intent
+
+        return intent
+
     def apply(self, intent: Any, context: Any) -> Any:
         session_label = getattr(context, "session", None) or getattr(context, "session_context", None)
         session = self.normalize_session(session_label)
@@ -83,39 +104,28 @@ class ExecutionModeEngine:
         if self._is_context_incomplete(context):
             print("[EXECUTION_FALLBACK] incomplete_context → bypass_strict_checks")
             intent.execution_mode = "FALLBACK"
-            intent.execution_primary_timeframe = config["primary_timeframe"]
-            intent.execution_refinement_timeframe = config["refinement_timeframe"]
+            intent.execution_primary_timeframe = config["primary"]
+            intent.execution_refinement_timeframe = config["refinement"]
+            print(f"[EXECUTION_MODE] {intent.execution_mode}")
+            print(f"[EXECUTION_REFINEMENT] {intent.execution_refinement_timeframe}")
             return intent
 
         rvol = self._as_float(getattr(context, "rvol", None)) or 0.0
         spread = self._as_float(getattr(context, "spread", None)) or 0.0
 
-        intent.execution_mode = config["execution_mode"]
-        intent.execution_primary_timeframe = config["primary_timeframe"]
-        intent.execution_refinement_timeframe = config["refinement_timeframe"]
+        intent.execution_mode = config["mode"]
+        intent.execution_primary_timeframe = config["primary"]
+        intent.execution_refinement_timeframe = config["refinement"]
+        print(f"[EXECUTION_MODE] session={session} mode={intent.execution_mode}")
+        print(f"[EXECUTION_REFINEMENT] primary={intent.execution_primary_timeframe} refinement={intent.execution_refinement_timeframe}")
 
-        # Keep strict live validation semantics.
-        if session == "PRE":
-            if rvol < 2.0 or spread > 0.12:
-                intent.execution_mode = "REJECTED"
-                intent.execution_block_reason = "PRE_STRICT_REJECTION"
-                return intent
-
-        if session == "AH":
+        is_ross = self._is_ross_strategy(intent, context)
+        if is_ross and session == "AH":
             intent.execution_mode = "REJECTED"
-            intent.execution_block_reason = "AH_BLOCKED"
+            intent.execution_block_reason = "ROSS_AH_BLOCKED"
+            print("[EXECUTION_BLOCKED] Ross execution blocked in AH")
             return intent
 
-        if session == "RTH_LATE":
-            intent.execution_mode = "REJECTED"
-            intent.execution_block_reason = "RTH_LATE_BLOCKED"
-            return intent
-
-        if session == "RTH_MID" and (rvol < 1.5 or spread > 0.15):
-            intent.execution_mode = "DOWNGRADED"
-            intent.execution_primary_timeframe = "5m"
-            intent.execution_refinement_timeframe = "1m"
-            intent.execution_block_reason = "RTH_MID_DOWNGRADE"
-            return intent
+        intent = self._apply_fast_micro_pullback_rules(intent, session, rvol, spread, is_ross)
 
         return intent
