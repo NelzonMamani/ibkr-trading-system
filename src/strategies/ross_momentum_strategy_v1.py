@@ -522,13 +522,14 @@ class RossMomentumStrategyV1(BaseStrategy):
                 continue
             if effective_focus_symbols and str(symbol).upper() not in effective_focus_symbols:
                 print(f"[ROSS][FOCUS][SKIP] symbol={symbol} reason=NOT_IN_FOCUS_LIST")
-                continue
             self.last_evaluated_symbols.append(str(symbol).upper())
             print(f"[ROSS][SYMBOL_EVAL][START] symbol={symbol}")
             print(f"[ROSS][EVALUATE][START] symbol={symbol}")
             print(f"[ROSS][EVAL_START] symbol={symbol}")
             print(f"[ROSS][SYMBOL_START] symbol={symbol}")
             print(f"[ROSS][PIPELINE_ENTRY] symbol={symbol}")
+            setup_evaluated = False
+            print(f"[SETUP][EVAL] symbol={symbol}")
             snapshot = snapshots.get(symbol) if isinstance(snapshots, dict) else None
             symbol_source = infer_symbol_source(row)
             symbol_trace = RossSymbolTrace(
@@ -567,7 +568,19 @@ class RossMomentumStrategyV1(BaseStrategy):
             )
             print("[PATTERN_PIPELINE] DONE")
             if inputs is None:
-                print(f"[PATTERN_INPUT][SKIP] symbol={symbol} reason=failed_to_build_inputs")
+                setup_evaluated = True
+                _ = SetupEngine().compute_setups(
+                    candles=[],
+                    levels={},
+                    structure={},
+                    symbol=symbol,
+                    timeframe=session_phase,
+                    session_context=session_label,
+                    tradability_context={},
+                )
+                print(
+                    f"[SETUP][OUTPUT] symbol={symbol} outputs={json.dumps([{'setup_family': 'NONE', 'setup_detected': False, 'setup_context': {'session': session_label, 'timeframe': session_phase}}], sort_keys=True)}"
+                )
                 symbol_trace.pre_registry_failure_reason = "failed_to_build_inputs"
                 symbol_trace.final_outcome = "NO_SETUP:failed_to_build_inputs"
                 print(f"[DATA_CONTRACT_BLOCK] symbol={symbol} reason=MISSING_DATA")
@@ -640,6 +653,31 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "float_millions": input_summary.float_millions,
                 },
             )
+            setup_evaluated = True
+            setup_outputs = [
+                {
+                    "setup_family": setup.get("setup_family_id"),
+                    "setup_detected": bool(setup.get("setup_detected", True)),
+                    "setup_context": {
+                        "session": input_summary.session_context,
+                        "timeframe": session_phase,
+                        "trigger_level": setup.get("trigger_level"),
+                    },
+                }
+                for setup in setups
+            ]
+            if not setup_outputs:
+                setup_outputs.append(
+                    {
+                        "setup_family": "NONE",
+                        "setup_detected": False,
+                        "setup_context": {"session": input_summary.session_context, "timeframe": session_phase},
+                    }
+                )
+            print(f"[SETUP][OUTPUT] symbol={symbol} outputs={json.dumps(setup_outputs, sort_keys=True)}")
+            for setup_output in setup_outputs:
+                if setup_output["setup_detected"]:
+                    print(f"[SETUP][DETECTED] symbol={symbol} family={setup_output['setup_family']}")
             if not setups:
                 print("[WARNING] Setup engine produced no setups")
                 print(f"[SETUP_ENGINE][EMPTY] symbol={symbol}")
@@ -658,6 +696,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "[ROSS][PRE_ACTIVATION] "
                     f"symbol={symbol} setup={pre_activation.get('setup_type')} classification={pre_activation.get('classification')}"
                 )
+            print(f"[TRIGGER][EVAL] symbol={symbol}")
             trigger_candidates = TriggerEngine().evaluate_triggers(
                 symbol=symbol,
                 candles=list(getattr(inputs, "candles", []) or []),
@@ -674,6 +713,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                     rvol=input_summary.rvol,
                 )
             valid_triggers = [t for t in trigger_candidates if t.get("trigger_ready_now") is True]
+            for trigger in valid_triggers:
+                print(f"[TRIGGER][FIRED] symbol={symbol} type={trigger.get('trigger_type')}")
             ranked_triggers = sorted(
                 valid_triggers,
                 key=lambda t: float((t.get("quality") or {}).get("quality_score", 0.0)),
@@ -736,6 +777,9 @@ class RossMomentumStrategyV1(BaseStrategy):
                     manual_warnings.append("RVOL_UNAVAILABLE")
                 if manual_warnings:
                     print(f"[MANUAL_FOCUS][WARNING] symbol={symbol} reason={','.join(manual_warnings)}")
+            if not setup_evaluated:
+                print(f"[ERROR][SETUP_NOT_EVALUATED] symbol={symbol}")
+                raise RuntimeError(f"[ERROR][SETUP_NOT_EVALUATED] symbol={symbol}")
             block_reasons = self._data_contract_block_reasons(
                 symbol=symbol,
                 input_summary=input_summary,
@@ -901,6 +945,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 pattern_traces=symbol_trace.pattern_traces,
                 inactive_pattern_ids=getattr(self._pattern_registry, "inactive_pattern_ids", set()),
             )
+            if str(decision.get("decision_state") or "").upper() == "CANDIDATE_SELECTED":
+                print(f"[DECISION][INTENT] symbol={symbol} decision=LONG")
             selected_trigger = self._select_trigger_candidate(
                 setup_family_id=decision.get("selected_setup_family"),
                 trigger_candidates=trigger_candidates,
@@ -1196,7 +1242,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     invalidation_level=stop,
                     pattern_name=best_pattern.pattern_id,
                     setup_family_id="GAP_GO",
-                    trigger_id=(selected_trigger.get("trigger_type") if selected_trigger else "confirmation_gate"),
+                    trigger_id="confirmation_gate",
                 )
                 intent.entry_type = "BREAKOUT"
                 intent.setup_family = "GAP_GO"
@@ -1219,7 +1265,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     invalidation_level=stop,
                     pattern_name=best_pattern.pattern_id,
                     setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
-                    trigger_id=(selected_trigger.get("trigger_type") if selected_trigger else "confirmation_gate"),
+                    trigger_id="confirmation_gate",
                 )
             if gap_go_trigger_fired and not intent:
                 raise Exception("TRIGGER_WITHOUT_INTENT")
@@ -1319,6 +1365,9 @@ class RossMomentumStrategyV1(BaseStrategy):
             print(f"[CAPITAL_ALLOCATION] symbol={symbol} size={size_multiplier:.2f} reason=quality_scaled")
             print(
                 f"[TRADE_INTENT][CREATE] symbol={symbol} trigger=confirmation_gate side=LONG qty={getattr(intent, 'quantity', None) or getattr(intent, 'requested_quantity', None) or 1}"
+            )
+            print(
+                f"[TRADE][INTENT] symbol={symbol} size={getattr(intent, 'quantity', None) or getattr(intent, 'requested_quantity', None) or 1} reason=quality_scaled"
             )
 
         cycle_summary = self._failure_trace_collector.build_cycle_summary(
