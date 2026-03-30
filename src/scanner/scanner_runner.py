@@ -4073,6 +4073,23 @@ def run_scanner_cycle(
                 else 0.0
             ),
         )[:focus_limit]
+        if normalize_session_label(session_label) in {"PRE", "PREMARKET"}:
+            if not focus_contexts and watchlist_contexts:
+                spread_limit = thresholds.spread_max_pct
+                eligible = [
+                    context
+                    for context in watchlist_contexts
+                    if _safe_float(context.get("pct_change"), 0.0) >= thresholds.min_pct_change
+                    and _safe_float(context.get("rvol_phase"), 0.0) >= 0.3
+                    and _safe_float(context.get("last_price"), None) is not None
+                    and (
+                        spread_limit is None
+                        or _safe_float(context.get("spread_pct"), None) is None
+                        or _safe_float(context.get("spread_pct"), None) <= spread_limit
+                    )
+                ]
+                focus_contexts = eligible[: min(5, len(eligible))]
+                print(f"[FOCUS][FORCED_PROMOTION_PREMARKET] count={len(focus_contexts)}")
         deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
 
         if not deep_rows and watchlist_contexts:
