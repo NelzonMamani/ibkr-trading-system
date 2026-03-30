@@ -1673,25 +1673,28 @@ class CoreOrchestrator:
                 if not candidates_for_watchlist and scanner_candidates:
                     print("[ERROR][PIPELINE_BREAK] scanner produced symbols but watchlist input empty")
                     candidates_for_watchlist = list(scanner_candidates)
-                assert len(candidates_for_watchlist) > 0, "WATCHLIST INPUT EMPTY — PIPELINE FAILURE"
-                policy_v2 = resolve_policy_v2(active_strategy)
-                if payload_watch_rows:
-                    watch_rows = payload_watch_rows
-                    focus_rows = payload_focus_rows
-                elif policy_v2 and is_policy_v2_enabled_for_strategy(active_strategy):
-                    watch_rows, focus_rows = self._build_watchlist_focus_v2(policy_v2, candidates_for_watchlist)
+                if not candidates_for_watchlist:
+                    watch_rows = []
+                    focus_rows = []
                 else:
-                    selector = resolve_watchlist_selector(active_scanner_policy.ranking_intent)
-                    watch_rows = (
-                        selector(candidates_for_watchlist, active_scanner_policy)
-                        if selector
-                        else self._select_watchlist_for_policy(
-                            candidates_for_watchlist,
-                            active_scanner_policy,
-                            enforce_session_allowlist=False,
+                    policy_v2 = resolve_policy_v2(active_strategy)
+                    if payload_watch_rows:
+                        watch_rows = payload_watch_rows
+                        focus_rows = payload_focus_rows
+                    elif policy_v2 and is_policy_v2_enabled_for_strategy(active_strategy):
+                        watch_rows, focus_rows = self._build_watchlist_focus_v2(policy_v2, candidates_for_watchlist)
+                    else:
+                        selector = resolve_watchlist_selector(active_scanner_policy.ranking_intent)
+                        watch_rows = (
+                            selector(candidates_for_watchlist, active_scanner_policy)
+                            if selector
+                            else self._select_watchlist_for_policy(
+                                candidates_for_watchlist,
+                                active_scanner_policy,
+                                enforce_session_allowlist=False,
+                            )
                         )
-                    )
-                    focus_rows = watch_rows[: max(0, active_scanner_policy.focus_limit_m)]
+                        focus_rows = watch_rows[: max(0, active_scanner_policy.focus_limit_m)]
                 cadence.watchlist.rows = list(watch_rows[:watch_limit])
                 cadence.watchlist.symbols = self._symbols_from_candidates(cadence.watchlist.rows)
                 cadence.watchlist.timestamp_utc = cycle_started_at
@@ -1781,6 +1784,9 @@ class CoreOrchestrator:
         else:
             print("[FOCUS][EMPTY] reason=no_focus_symbols_after_selection")
         self._trace_event("FOCUS", {"focus": [{"symbol": s} for s in final_evaluation_symbols]})
+        if not watchlist_symbols:
+            print("[PIPELINE][SKIP] empty watchlist")
+            final_evaluation_symbols = []
         strategy_watchlist = selected_watchlist or selected_focus
         if final_evaluation_symbols:
             focus_only = {symbol.upper() for symbol in final_evaluation_symbols}
@@ -1820,23 +1826,23 @@ class CoreOrchestrator:
             print("[ROSS][PROCESS_START]")
             print("[ROSS][PATTERN_PIPELINE] ACTIVE")
             print("[ROSS][TRIGGER_PIPELINE] ACTIVE")
+            pipeline_trace("STRUCTURE")
+            print("[STRATEGY_RUNNER] invoking RossMomentumStrategyV1")
+            strategy_output = self.strategy_runner.process(
+                strategy_key=strategy_key,
+                watchlist=strategy_inputs,
+                snapshots=snapshots_by_symbol,
+                session_label=session_label,
+                timestamp_utc=cycle_started_at.isoformat(),
+                mode=self.run_mode,
+                session_phase=session_phase,
+                execution_allowed=True if strategy_watchlist else session_execution_allowed,
+                execution_ready=True if strategy_watchlist else session_execution_allowed,
+                prep_only=False if strategy_watchlist else session_label in {"AH", "CLOSED"},
+            )
         else:
-            print("[WARNING] condition hit but continuing for debug")
-        assert len(strategy_inputs) > 0, "WATCHLIST EMPTY — PIPELINE FAILURE"
-        pipeline_trace("STRUCTURE")
-        print("[STRATEGY_RUNNER] invoking RossMomentumStrategyV1")
-        strategy_output = self.strategy_runner.process(
-            strategy_key=strategy_key,
-            watchlist=strategy_inputs,
-            snapshots=snapshots_by_symbol,
-            session_label=session_label,
-            timestamp_utc=cycle_started_at.isoformat(),
-            mode=self.run_mode,
-            session_phase=session_phase,
-            execution_allowed=True if strategy_watchlist else session_execution_allowed,
-            execution_ready=True if strategy_watchlist else session_execution_allowed,
-            prep_only=False if strategy_watchlist else session_label in {"AH", "CLOSED"},
-        )
+            print("[PIPELINE][SKIP] empty watchlist")
+            strategy_output = []
         ross_strategy = next(
             (s for s in getattr(self.strategy_runner, "strategies", []) if getattr(s, "name", "") == "RossMomentumStrategyV1"),
             None,
