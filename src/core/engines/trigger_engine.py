@@ -77,6 +77,7 @@ class TriggerEngine:
                 "setup_family_id": setup.get("setup_family_id"),
                 "setup_name": setup.get("setup_name"),
                 "trigger_type": trigger_type,
+                "trigger_state": "FIRED" if trigger_ready_now else "ARMED",
                 "trigger_ready_now": trigger_ready_now,
                 "trigger_event_emitted": bool(trigger_ready_now),
                 "trigger_reason": trigger_reason,
@@ -111,7 +112,6 @@ class TriggerEngine:
         family = self._FAMILY_ALIASES.get(raw_family, raw_family)
         mapping = {
             "PREMARKET_HIGH_BREAK": "premarket_high",
-            "OPENING_RANGE_BREAKOUT": "active_breakout_range.upper",
             "FIRST_PULLBACK": "ema_9",
             "MICRO_PULLBACK": "ema_9",
             "BULL_FLAG": "active_breakout_range.upper",
@@ -122,7 +122,6 @@ class TriggerEngine:
             "ASCENDING_TRIANGLE_BREAKOUT": "active_breakout_range.upper",
             "PENNANT_BREAK": "active_breakout_range.upper",
             "MOMENTUM_RECLAIM": "vwap",
-            "ORB": "active_breakout_range.upper",
         }
         key = mapping.get(family)
         if not key:
@@ -134,6 +133,9 @@ class TriggerEngine:
         return self._safe_float(levels.get(key))
 
     def _resolve_invalidation(self, *, setup: dict, levels: dict, structure: dict, last_low: float | None) -> float | None:
+        explicit_invalidation = self._safe_float(setup.get("invalidation_level"))
+        if explicit_invalidation is not None:
+            return explicit_invalidation
         anchor = str(setup.get("invalidation_anchor") or "").lower()
         if "premarket_low" in anchor:
             return self._safe_float(levels.get("premarket_low"))
@@ -192,6 +194,7 @@ class TriggerEngine:
             ready = bool(orb_trigger.get("trigger_ready_now"))
             reason = str(orb_trigger.get("trigger_reason") or "orb_trigger_not_ready")
             trigger_type = str(orb_trigger.get("trigger_type") or trigger_type)
+            flags.append(str(orb_trigger.get("trigger_state") or ("FIRED" if ready else "ARMED")))
             print(f"[TRIGGER][ORB] fired={ready} reason={reason}")
         elif trigger_type in {"BREAKOUT_HIGH", "HOD_BREAK", "PMH_BREAK", "RANGE_BREAK", "PULLBACK_HIGH_BREAK"}:
             ready, reason = self._evaluate_breakout_trigger(

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, time, timezone
+
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
 from src.strategies.strategy_contracts import SessionContext
+
+_ORB_RANGE_LOCK: dict[tuple[str, str], tuple[float, float]] = {}
 
 
 def _safe_float(value: object) -> float | None:
@@ -12,6 +16,45 @@ def _safe_float(value: object) -> float | None:
         return None if value is None else float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _session_key(symbol: str, candles: list) -> tuple[str, str] | None:
+    dated = next((getattr(c, "timestamp", None) for c in candles if getattr(c, "timestamp", None) is not None), None)
+    if not isinstance(dated, datetime):
+        return None
+    date_key = dated.astimezone(timezone.utc).date().isoformat() if dated.tzinfo else dated.date().isoformat()
+    return symbol.upper(), date_key
+
+
+def _is_opening_window_candle(candle) -> bool:
+    ts = getattr(candle, "timestamp", None)
+    if not isinstance(ts, datetime):
+        return False
+    ts_utc = ts.astimezone(timezone.utc) if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    return time(14, 30) <= ts_utc.time() <= time(14, 34)
+
+
+def _resolve_orb_levels(inputs: PatternInputs) -> tuple[float | None, float | None, str | None]:
+    key_levels = inputs.levels.key_levels or {}
+    provided_orh = _safe_float(key_levels.get("OPENING_RANGE_HIGH"))
+    provided_orl = _safe_float(key_levels.get("OPENING_RANGE_LOW"))
+    session_key = _session_key(inputs.symbol, inputs.candles)
+    if session_key and session_key in _ORB_RANGE_LOCK:
+        return *_ORB_RANGE_LOCK[session_key], None
+    if provided_orh is not None and provided_orl is not None:
+        if session_key:
+            _ORB_RANGE_LOCK[session_key] = (provided_orh, provided_orl)
+        return provided_orh, provided_orl, None
+    if len(inputs.candles) < 5:
+        return None, None, "incomplete_opening_range_window"
+    opening = [c for c in inputs.candles if _is_opening_window_candle(c)]
+    if len(opening) < 5:
+        return None, None, "missing_opening_range_timestamps"
+    orh = max(float(c.high) for c in opening)
+    orl = min(float(c.low) for c in opening)
+    if session_key:
+        _ORB_RANGE_LOCK[session_key] = (orh, orl)
+    return orh, orl, None
 
 
 def detect_orb(inputs: PatternInputs) -> PatternResult:
@@ -46,9 +89,6 @@ def detect_orb(inputs: PatternInputs) -> PatternResult:
     if session_label != SessionContext.REGULAR.value and session_phase not in {"RTH_OPEN", "MORNING"}:
         return reject("session_not_rth_open_or_morning")
 
-    key_levels = inputs.levels.key_levels or {}
-    provided_orh = _safe_float(inputs.levels.hod) or _safe_float(key_levels.get("OPENING_RANGE_HIGH"))
-    provided_orl = _safe_float(inputs.levels.lod) or _safe_float(key_levels.get("OPENING_RANGE_LOW"))
     premarket_high = _safe_float(inputs.levels.premarket_high)
     premarket_low = _safe_float(inputs.levels.premarket_low)
     if premarket_high is None or premarket_low is None:
@@ -73,13 +113,15 @@ def detect_orb(inputs: PatternInputs) -> PatternResult:
 
     opening = inputs.candles[:5]
     last = inputs.candles[-1]
-    orh = max(float(c.high) for c in opening)
-    orl = min(float(c.low) for c in opening)
+    prev = inputs.candles[-2]
+    orh, orl, range_error = _resolve_orb_levels(inputs)
+    if range_error:
+        return reject(range_error)
+    if orh is None or orl is None:
+        return reject("missing_orh_or_orl")
 
-    if provided_orh is not None:
-        orh = max(orh, provided_orh)
-    if provided_orl is not None:
-        orl = min(orl, provided_orl)
+    if float(prev.high) < (orh * 0.999):
+        return reject("price_not_near_orh")
 
     if float(last.high) <= orh:
         return reject("no_break_above_orh")
@@ -102,8 +144,7 @@ def detect_orb(inputs: PatternInputs) -> PatternResult:
     if spread_pct > spread_threshold:
         return reject("spread_too_wide")
 
-    pullback_low = _safe_float((inputs.news_context or {}).get("last_pullback_low"))
-    stop_anchor = pullback_low if pullback_low is not None else orl
+    stop_anchor = orl
     if stop_anchor is None:
         return reject("missing_stop_anchor")
 
