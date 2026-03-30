@@ -35,6 +35,7 @@ from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.engines.position_management_engine import ManagedPosition, PositionManagementEngine
 from src.core.engines.trade_lifecycle_engine import LifecycleEvent, TradeLifecycleEngine
+from src.core.portfolio import BrokerPositionSnapshotAdapter
 from src.core.event_collector import EventCollector
 from src.data.fundamentals.float_provider import FloatProvider
 from src.data.manual_focus_loader import ManualFocusConfig
@@ -454,6 +455,7 @@ class CoreOrchestrator:
         self.execution_enabled = self.execution_engine.execution_enabled
         self.position_management_engine = PositionManagementEngine()
         self.trade_lifecycle_engine = TradeLifecycleEngine()
+        self._broker_position_adapter = BrokerPositionSnapshotAdapter()
         self.trade_exit_engine = TradeExitEngine(
             trade_registry=self.trade_registry,
             event_collector=self.event_collector,
@@ -702,8 +704,62 @@ class CoreOrchestrator:
             f"open_unrealized_pnl={float(summary.get('open_unrealized_pnl', 0.0)):.2f} "
             f"drifted={summary.get('drifted_trades_count', 0)} "
             f"orphaned={summary.get('orphaned_trades_count', 0)} "
-            f"reconcile_events={summary.get('reconciliation_events_count', 0)}"
+            f"reconcile_events={summary.get('reconciliation_events_count', 0)} "
+            f"portfolio_exposure={float(summary.get('portfolio_exposure', 0.0)):.2f} "
+            f"portfolio_realized_pnl={float(summary.get('portfolio_realized_pnl', 0.0)):.2f} "
+            f"portfolio_unrealized_pnl={float(summary.get('portfolio_unrealized_pnl', 0.0)):.2f} "
+            f"broker_mismatch_count={summary.get('broker_mismatch_count', 0)} "
+            f"drift_count={summary.get('drift_count', 0)} "
+            f"orphan_count={summary.get('orphan_count', 0)}"
         )
+
+    def _run_lifecycle_authority_overlay(self) -> None:
+        provider = getattr(self.execution_engine, "provider", None)
+        broker = getattr(provider, "broker", None)
+        connection_manager = getattr(broker, "connection_manager", None)
+        if connection_manager is not None and hasattr(connection_manager, "get_client"):
+            try:
+                self._broker_position_adapter._broker_client = connection_manager.get_client()
+            except Exception as exc:
+                print(f"[LIFECYCLE][BROKER_SNAPSHOT][DEGRADED] reason=client_resolution_failed error={exc}")
+        try:
+            snapshot = self._broker_position_adapter.fetch_broker_positions()
+        except Exception as exc:
+            print(f"[LIFECYCLE][ERROR] stage=broker_snapshot_fetch error={exc}")
+            snapshot = []
+        try:
+            findings = self.trade_lifecycle_engine.reconcile_with_broker_snapshot(snapshot)
+        except Exception as exc:
+            print(f"[LIFECYCLE][ERROR] stage=broker_reconcile error={exc}")
+            findings = []
+        try:
+            portfolio_state = self.trade_lifecycle_engine.build_portfolio_state()
+        except Exception as exc:
+            print(f"[LIFECYCLE][ERROR] stage=portfolio_build error={exc}")
+            portfolio_state = None
+        try:
+            risk_signals = self.trade_lifecycle_engine.compute_lifecycle_risk_signals()
+        except Exception as exc:
+            print(f"[LIFECYCLE][ERROR] stage=lifecycle_risk_signals error={exc}")
+            risk_signals = None
+        if portfolio_state is not None:
+            print(
+                "[LIFECYCLE][PORTFOLIO] "
+                f"open_positions={portfolio_state.total_open_positions} "
+                f"exposure={portfolio_state.total_exposure:.2f} "
+                f"realized={portfolio_state.total_realized_pnl:.2f} "
+                f"unrealized={portfolio_state.total_unrealized_pnl:.2f} "
+                f"drifted={len(portfolio_state.drifted_positions)}"
+            )
+        if risk_signals is not None:
+            print(
+                "[LIFECYCLE][RISK_SIGNALS] "
+                f"max_drawdown_breached={risk_signals.max_drawdown_breached} "
+                f"pnl_drop_rate_exceeded={risk_signals.pnl_drop_rate_exceeded} "
+                f"too_many_open_positions={risk_signals.too_many_open_positions} "
+                f"drift_detected={risk_signals.drift_detected}"
+            )
+        print(f"[LIFECYCLE][BROKER_RECONCILE][SUMMARY] findings={len(findings)}")
 
     def _should_enforce_ibkr_runtime(self) -> bool:
         """
@@ -3870,6 +3926,10 @@ class CoreOrchestrator:
             self._mark_open_trades_to_market()
         except Exception as exc:
             print(f"[LIFECYCLE][ERROR] stage=mark_to_market error={exc}")
+        try:
+            self._run_lifecycle_authority_overlay()
+        except Exception as exc:
+            print(f"[LIFECYCLE][ERROR] stage=authority_overlay error={exc}")
         self.execution_engine.emit_cycle_execution_summary()
         try:
             self._summarize_trade_lifecycle_session()

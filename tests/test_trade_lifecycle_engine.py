@@ -7,6 +7,7 @@ from src.config.config_resolver import set_config_overrides
 from src.core.orchestrator import CoreOrchestrator
 from src.core.engines.position_management_engine import ManagedPosition
 from src.core.engines.trade_lifecycle_engine import LifecycleEvent, TradeLifecycleEngine
+from src.core.portfolio.broker_position_adapter import BrokerPositionSnapshot
 from src.models.data_models import ExecutionResult, RiskDecision, TradeIntent
 from src.scanner.result_models import CandidateMetrics
 
@@ -431,3 +432,87 @@ def test_persistence_and_recovery_failures_are_non_blocking() -> None:
     assert summary["total_lifecycle_trades_seen"] == 1
     recovery = engine.recover_open_state()
     assert recovery["degraded"] is True
+
+
+def test_broker_reconcile_lifecycle_open_broker_flat_orphaned() -> None:
+    engine = TradeLifecycleEngine()
+    engine.apply_event(_event("1", "ENTRY_FILL", 10, 10.0))
+    findings = engine.reconcile_with_broker_snapshot(
+        [BrokerPositionSnapshot(symbol="AAPL", quantity=0, avg_entry_price=0.0, timestamp="2026-01-01T00:00:00+00:00")]
+    )
+    assert findings[0]["status"] == "ORPHANED"
+    assert findings[0]["severity"] == "CRITICAL"
+
+
+def test_broker_reconcile_broker_open_lifecycle_missing_orphaned() -> None:
+    engine = TradeLifecycleEngine()
+    findings = engine.reconcile_with_broker_snapshot(
+        [BrokerPositionSnapshot(symbol="AAPL", quantity=10, avg_entry_price=10.0, timestamp="2026-01-01T00:00:00+00:00")]
+    )
+    assert findings[0]["status"] == "ORPHANED"
+    assert findings[0]["severity"] == "CRITICAL"
+
+
+def test_broker_reconcile_qty_mismatch_drifted() -> None:
+    engine = TradeLifecycleEngine()
+    engine.apply_event(_event("1", "ENTRY_FILL", 10, 10.0))
+    findings = engine.reconcile_with_broker_snapshot(
+        [BrokerPositionSnapshot(symbol="AAPL", quantity=8, avg_entry_price=10.0, timestamp="2026-01-01T00:00:00+00:00")]
+    )
+    assert findings[0]["status"] == "DRIFTED"
+    assert findings[0]["severity"] == "WARNING"
+
+
+def test_portfolio_aggregation_and_closed_trade_exclusion() -> None:
+    engine = TradeLifecycleEngine()
+    engine.apply_event(_event("1", "ENTRY_FILL", 10, 10.0))
+    engine.apply_event(
+        LifecycleEvent(
+            event_id="2",
+            lifecycle_trade_id="T2",
+            symbol="MSFT",
+            side="LONG",
+            event_type="ENTRY_FILL",
+            quantity=5,
+            price=20.0,
+            timestamp="2026-01-01T00:00:00+00:00",
+        )
+    )
+    engine.apply_event(_event("3", "STOP_EXIT", 10, 12.0))
+    state = engine.build_portfolio_state()
+    assert state.total_open_positions == 1
+    assert state.total_exposure == 100.0
+    assert state.total_realized_pnl == 20.0
+    assert state.symbols_open == ["MSFT"]
+
+
+def test_risk_signals_drawdown_and_drift_triggered() -> None:
+    engine = TradeLifecycleEngine()
+    engine.apply_event(_event("1", "ENTRY_FILL", 10, 10.0))
+    trade = engine.get_trade("T1")
+    assert trade is not None
+    trade.gross_realized_pnl = -350.0
+    trade.status = "DRIFTED"
+    trade.drift_flags.add("BROKER_QTY_MISMATCH")
+    signals = engine.compute_lifecycle_risk_signals()
+    assert signals.max_drawdown_breached is True
+    assert signals.drift_detected is True
+
+
+def test_broker_fetch_failure_and_reconcile_failure_are_non_blocking(monkeypatch) -> None:
+    orchestrator = _build_orchestrator(monkeypatch)
+
+    class _BrokenAdapter:
+        def fetch_broker_positions(self):
+            raise RuntimeError("broker down")
+
+    orchestrator._broker_position_adapter = _BrokenAdapter()
+    monkeypatch.setattr(
+        orchestrator.trade_lifecycle_engine,
+        "reconcile_with_broker_snapshot",
+        lambda _snapshot: (_ for _ in ()).throw(RuntimeError("reconcile explode")),
+    )
+    try:
+        assert orchestrator.run_once() is True
+    finally:
+        set_config_overrides(None)
