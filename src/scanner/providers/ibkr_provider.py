@@ -426,30 +426,34 @@ class IbkrScannerProvider(ScannerDataProvider):
         self.last_float_failures = []
         self.last_float_source = None
         fallback_used = False
+        cache_provider = FloatProvider(ttl_days=7)
 
         for provider_name, fetcher in (
             ("YAHOO", self._fetch_yahoo_float_detailed),
             ("FINVIZ", self._fetch_finviz_float_detailed),
-            ("IBKR", self._fetch_ibkr_float_detailed),
         ):
-            print(f"[FLOAT][FETCH_START] symbol={symbol} provider={provider_name}")
-            value, reason = fetcher(symbol)
-            if value is not None and value > 0:
-                self.last_float_source = provider_name
-                print(f"[FLOAT][SOURCE] symbol={symbol} source={provider_name}")
-                print(f"[FLOAT][CACHE_USED] symbol={symbol} used=False")
-                print(f"[FLOAT][FALLBACK_USED] symbol={symbol} used={fallback_used}")
+            for attempt in range(1, 3):
+                print(f"[FLOAT][FETCH_START] symbol={symbol} provider={provider_name} attempt={attempt}")
+                value, reason = fetcher(symbol)
+                if value is not None and value > 0:
+                    cache_provider.record_discovery(symbol=symbol, value=int(value), source=provider_name)
+                    self.last_float_source = provider_name
+                    print(f"[FLOAT][SOURCE] symbol={symbol} source={provider_name}")
+                    print(f"[FLOAT][CACHE_USED] symbol={symbol} used=False")
+                    print(f"[FLOAT][FALLBACK_USED] symbol={symbol} used={fallback_used}")
+                    print(
+                        f"[FLOAT][FETCH_OK] symbol={symbol} provider={provider_name} value={int(value)}"
+                    )
+                    return int(value)
+                fail_reason = reason or "UNKNOWN"
+                self.last_float_failures.append((provider_name, fail_reason))
                 print(
-                    f"[FLOAT][FETCH_OK] symbol={symbol} provider={provider_name} value={int(value)}"
+                    f"[FLOAT][FAIL_REASON] symbol={symbol} provider={provider_name} "
+                    f"attempt={attempt} reason={fail_reason}"
                 )
-                return int(value)
-            fail_reason = reason or "UNKNOWN"
-            self.last_float_failures.append((provider_name, fail_reason))
-            print(
-                f"[FLOAT][FETCH_FAIL] symbol={symbol} provider={provider_name} reason={fail_reason}"
-            )
+                if fail_reason in {"FIELD_NOT_FOUND", "PARSE_ERROR"}:
+                    break
 
-        cache_provider = FloatProvider(ttl_days=7)
         cached_value, cached_source = cache_provider.get_float(symbol)
         self.last_float_failures.extend(list(getattr(cache_provider, "last_float_failures", [])))
         self.last_float_source = cached_source

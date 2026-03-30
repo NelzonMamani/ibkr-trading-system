@@ -84,10 +84,14 @@ class IbkrLiveBroker(BaseBroker):
             paper_only_enforced = False
             print("[EXECUTION][MODE] LIVE execution unlocked")
 
+        kill_switch_enabled = get_ibkr_kill_switch() if self.run_mode == RunMode.LIVE else False
+        if self.run_mode == RunMode.PAPER and get_ibkr_kill_switch():
+            print("[EXECUTION][PAPER] Ignoring IBKR_KILL_SWITCH for paper submission path")
+
         settings = OrderSubmissionSettings(
             run_mode=self.run_mode,
             order_submission_enabled=get_ibkr_order_submission_enabled(default=False),
-            kill_switch=get_ibkr_kill_switch(),
+            kill_switch=kill_switch_enabled,
             max_orders_per_run=get_ibkr_max_orders_per_run(),
             paper_only_enforced=paper_only_enforced,
             paper_host=get_ibkr_paper_host(),
