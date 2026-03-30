@@ -76,6 +76,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         "VWAP_RECLAIM_CONTINUATION",
         "FIRST_PULLBACK",
         "MICRO_PULLBACK",
+        "FLAT_TOP_BREAKOUT",
     )
 
     def __init__(self) -> None:
