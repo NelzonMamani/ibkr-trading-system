@@ -374,6 +374,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         symbol_traces: List[RossSymbolTrace] = []
         translated_intents: List[TradeIntent] = []
         trade_candidates: list[dict[str, object]] = []
+        forced_breakout_symbols: set[str] = set()
         synthetic_forced_intents = 0
         classification_counts = {
             "DATA_BLOCKED": 0,
@@ -494,6 +495,12 @@ class RossMomentumStrategyV1(BaseStrategy):
             if levels.get("prior_close") is None and row_prior_close is not None:
                 levels["prior_close"] = row_prior_close
                 print(f"[ROSS][LEVEL_OVERRIDE] symbol={symbol} field=prior_close source=watchlist value={row_prior_close}")
+            forced_breakout = self._evaluate_forced_breakout_condition(
+                symbol=symbol,
+                candles=list(getattr(inputs, "candles", []) or []),
+                levels=levels,
+                input_summary=input_summary,
+            )
             structure = StructureEngine().compute_structure(
                 candles=list(getattr(inputs, "candles", []) or [])
             )
@@ -628,6 +635,38 @@ class RossMomentumStrategyV1(BaseStrategy):
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
+            if forced_breakout and str(symbol).upper() not in forced_breakout_symbols:
+                forced_intent = self._build_forced_breakout_intent(
+                    symbol=symbol,
+                    input_summary=input_summary,
+                    timestamp_utc=timestamp_utc,
+                )
+                if forced_intent is not None:
+                    forced_breakout_symbols.add(str(symbol).upper())
+                    trade_candidates.append(
+                        {
+                            "symbol": symbol,
+                            "intent": forced_intent,
+                            "quality_score": 0.6,
+                            "setup_family_id": "FIRST_VALID_BREAKOUT",
+                        }
+                    )
+                    symbol_trace.final_outcome = "SETUP_DETECTED_AND_TRANSLATED"
+                    symbol_trace.confirmation_stage = {
+                        "status": "PASS",
+                        "reason_code": "FORCED_BREAKOUT_PASS",
+                    }
+                    symbol_trace.trigger_stage = {
+                        "status": "FIRED",
+                        "reason_code": "FORCED_BREAKOUT",
+                    }
+                    symbol_trace.final_reason_code = "INTENT_GENERATED"
+                    print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
+                    classification_counts["READY_FOR_EXECUTION"] += 1
+                    _terminal(symbol, TERMINAL_CATEGORY["INTENT_CREATED"], "forced_breakout_intent_created")
+                    symbol_traces.append(symbol_trace)
+                    self._failure_trace_collector.record_symbol(symbol_trace)
+                    continue
 
             pipeline_trace("SETUP", symbol)
             print("[ROSS][SETUP_PHASE][START]")
@@ -1237,6 +1276,77 @@ class RossMomentumStrategyV1(BaseStrategy):
         intent.trigger_ready = True
         intent.decision = "TRADE_READY"
         print(f"TRADE_INTENT symbol={symbol} setup=XL_HOD_BREAK")
+        print(f"[ROSS][INTENT_GENERATED] symbol={symbol}")
+        return intent
+
+    def _evaluate_forced_breakout_condition(
+        self,
+        *,
+        symbol: str,
+        candles: list[object],
+        levels: dict[str, object],
+        input_summary,
+    ) -> bool:
+        current_price = self._safe_float(getattr(input_summary, "last_price", None))
+        if current_price is None:
+            return False
+        pct_change = self._safe_float(getattr(input_summary, "pct_change", None))
+        session = str(getattr(input_summary, "session_context", "")).upper()
+        min_pct = self._pre_trigger_min_pct_change if self._is_pre_session(session) else self._rth_trigger_min_pct_change
+        lookback = 5
+        recent_window = list(candles[:-1])[-lookback:] if len(candles) > 1 else []
+        recent_high_from_bars = max(
+            (
+                self._safe_float(getattr(bar, "high", None))
+                for bar in recent_window
+                if self._safe_float(getattr(bar, "high", None)) is not None
+            ),
+            default=None,
+        )
+        hod = self._safe_float((levels or {}).get("hod"))
+        candidates = [value for value in (recent_high_from_bars, hod) if value is not None]
+        recent_high = max(candidates) if candidates else None
+        if recent_high is None or pct_change is None:
+            return False
+        breakout_condition = current_price > recent_high and pct_change >= min_pct
+        if breakout_condition:
+            print(
+                "[ROSS][FORCED_BREAKOUT] "
+                f"symbol={symbol} price={current_price:.4f} recent_high={recent_high:.4f}"
+            )
+        return breakout_condition
+
+    def _build_forced_breakout_intent(
+        self,
+        *,
+        symbol: str,
+        input_summary,
+        timestamp_utc: str,
+    ) -> TradeIntent | None:
+        entry = self._safe_float(getattr(input_summary, "last_price", None))
+        if entry is None:
+            return None
+        stop = round(entry * 0.97, 4)
+        intent = TradeIntent(
+            symbol=symbol,
+            direction="LONG",
+            strategy_name=self.name,
+            confidence=0.65,
+            rationale="FIRST_VALID_BREAKOUT",
+            trader_type=self.trader_type,
+            stop_loss_price=stop,
+            invalidation_level=stop,
+            pattern_name="FIRST_VALID_BREAKOUT",
+            setup_family_id="FIRST_VALID_BREAKOUT",
+            trigger_id="first_valid_breakout",
+        )
+        intent.entry_price = entry
+        intent.has_valid_pattern = True
+        intent.confirmation_passed = True
+        intent.trigger_ready = True
+        intent.decision = "TRADE_READY"
+        intent = self._apply_intent_contract_defaults(intent, input_summary, timestamp_utc=timestamp_utc)
+        print(f"TRADE_INTENT symbol={symbol} setup=FIRST_VALID_BREAKOUT")
         print(f"[ROSS][INTENT_GENERATED] symbol={symbol}")
         return intent
 
