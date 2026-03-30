@@ -67,6 +67,15 @@ class ExecutionEngine:
         self.broker = getattr(self._provider, "broker", None)
         self._recover_startup_state()
 
+    def _execution_log(self, stage: str, **payload: object) -> None:
+        fields = []
+        for key, value in payload.items():
+            if value is None:
+                continue
+            fields.append(f"{key}={value}")
+        suffix = f" {' '.join(fields)}" if fields else ""
+        print(f"[EXECUTION][{stage}]{suffix}")
+
     def _resolve_provider(
         self, provider: Optional[ExecutionProvider]
     ) -> Optional[ExecutionProvider]:
@@ -185,12 +194,16 @@ class ExecutionEngine:
         Convert a risk decision into a broker request and route through the broker adapter.
         """
 
-        print(
-            "[EXECUTION][RECEIVED] "
-            f"symbol={getattr(risk_decision, 'symbol', 'UNKNOWN') if risk_decision else 'UNKNOWN'} "
-            f"action=BUY qty={getattr(risk_decision, 'max_position_size', None) if risk_decision else None} "
-            f"entry={getattr(risk_decision, 'entry_price', None) if risk_decision else None} "
-            f"stop={getattr(risk_decision, 'stop_loss_price', None) if risk_decision else None}"
+        self._execution_log(
+            "INTENT_RECEIVED",
+            symbol=getattr(risk_decision, "symbol", "UNKNOWN") if risk_decision else "UNKNOWN",
+            intent_id=getattr(risk_decision, "intent_id", None) if risk_decision else None,
+            strategy_id=getattr(risk_decision, "strategy_name", None) if risk_decision else None,
+            run_mode=self.run_mode.value,
+            side=getattr(risk_decision, "direction", None) if risk_decision else None,
+            qty=getattr(risk_decision, "max_position_size", None) if risk_decision else None,
+            entry_price=getattr(risk_decision, "entry_price", None) if risk_decision else None,
+            order_type="MKT",
         )
         if risk_decision is not None:
             action = "SUBMIT" if getattr(risk_decision, 'allowed', False) else "SKIP"
@@ -283,6 +296,27 @@ class ExecutionEngine:
         }
 
     def _preflight_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
+        broker = getattr(self._provider, "broker", None)
+        provider_ready = self._provider is not None
+        broker_connected = True
+        if broker is not None and hasattr(broker, "health"):
+            try:
+                health = broker.health()
+                broker_connected = bool(health.get("connected", True))
+            except Exception:
+                broker_connected = False
+        self._execution_log(
+            "PRECHECK",
+            symbol=risk_decision.symbol,
+            intent_id=getattr(risk_decision, "intent_id", None),
+            strategy_id=getattr(risk_decision, "strategy_name", None),
+            run_mode=self.run_mode.value,
+            side=getattr(risk_decision, "direction", None),
+            qty=getattr(risk_decision, "max_position_size", None),
+            execution_enabled=self.execution_enabled,
+            broker_ready=provider_ready,
+            broker_connected=broker_connected,
+        )
         if self.stop_controller.is_breaker_tripped():
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
@@ -334,6 +368,31 @@ class ExecutionEngine:
                 requested_quantity=effective_quantity,
                 filled_quantity=0,
                 remaining_quantity=effective_quantity,
+            )
+        if not provider_ready:
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="BROKER_PROVIDER_NOT_READY",
+            )
+        if not broker_connected:
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="BROKER_NOT_CONNECTED",
+            )
+        requested_quantity = int(getattr(risk_decision, "max_position_size", 0) or 0)
+        if requested_quantity <= 0:
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="INVALID_ORDER_QUANTITY",
+            )
+        duplicate = self.trade_registry.get_trade(
+            risk_decision.symbol,
+            getattr(risk_decision, "trader_type", "MANUAL"),
+        )
+        if duplicate is not None and str(getattr(risk_decision, "direction", "")).upper() in {"LONG", "BUY"}:
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="DUPLICATE_POSITION_CONFLICT",
             )
         return None
 
@@ -416,9 +475,8 @@ class ExecutionEngine:
         raw_quantity = int(getattr(risk_decision, "max_position_size", 0) or 0)
         if str(getattr(risk_decision, "strategy_name", "")).upper() == "LIVE_EXECUTION_PROBE":
             raw_quantity = 1
-        if self.run_mode == RunMode.LIVE and raw_quantity <= 0:
+        if raw_quantity <= 0:
             raise RuntimeError("INVALID_INTERNAL_ORDER_QUANTITY")
-        raw_quantity = max(1, raw_quantity)
         requested_quantity = self._clamp_order_quantity(raw_quantity, symbol=risk_decision.symbol)
         client_order_id = f"{risk_decision.decision_id}-{uuid.uuid4().hex[:8]}"
         print(
@@ -463,9 +521,15 @@ class ExecutionEngine:
             print(f"[EXECUTION][CLOSE] symbol={request.symbol} qty={request.quantity}")
         print("[ORDER_SUBMIT]", f"symbol={request.symbol}", f"side={request.direction}", f"qty={request.quantity}")
         self._record_order_stage(request.client_order_id, "SUBMIT")
-        print(
-            f"[EXECUTION][SUBMIT] order_id={request.client_order_id} symbol={request.symbol} "
-            f"side={request.direction} qty={request.quantity}"
+        self._execution_log(
+            "SUBMIT",
+            symbol=request.symbol,
+            strategy_id=request.strategy_name,
+            run_mode=self.run_mode.value,
+            side=request.direction,
+            qty=request.quantity,
+            order_type=request.order_type,
+            broker_order_id=request.client_order_id,
         )
         print(
             f"[ORDER][SUBMIT] order_id={request.client_order_id} symbol={request.symbol} "
@@ -487,6 +551,17 @@ class ExecutionEngine:
             f"[ORDER_SUBMITTED] symbol={request.symbol} qty={request.quantity} type={request.order_type}"
         )
         result = self._provider.place_order(request)
+        self._execution_log(
+            "SUBMIT_RESULT",
+            symbol=request.symbol,
+            strategy_id=request.strategy_name,
+            run_mode=self.run_mode.value,
+            side=request.direction,
+            qty=request.quantity,
+            broker_order_id=getattr(result, "client_order_id", None) or request.client_order_id,
+            status=getattr(result, "status", None),
+            reason=getattr(result, "rejection_reason", None) or getattr(result, "rationale", None),
+        )
         result = self._confirm_broker_ack(request, result)
         self._log_ibkr_status(request, result)
         self._record_fill_and_position(request, result)
@@ -566,6 +641,16 @@ class ExecutionEngine:
         elif status_raw in {"REJECTED", "FAILED", "BLOCKED", "TIMED_OUT"}:
             broker_status = "Rejected"
         print(f"[ORDER][ACK] order_id={ibkr_order_id} status={broker_status}")
+        self._execution_log(
+            "ORDER_STATUS",
+            symbol=request.symbol,
+            strategy_id=request.strategy_name,
+            run_mode=self.run_mode.value,
+            side=request.direction,
+            qty=request.quantity,
+            broker_order_id=ibkr_order_id,
+            status=broker_status,
+        )
         self._record_order_stage(request.client_order_id, "ACK")
         return result
 
@@ -577,6 +662,17 @@ class ExecutionEngine:
         print(
             f"[ORDER][FILL] order_id={request.client_order_id} "
             f"symbol={request.symbol} qty={filled_quantity} entry_price={entry_price}"
+        )
+        self._execution_log(
+            "FILL",
+            symbol=request.symbol,
+            strategy_id=request.strategy_name,
+            run_mode=self.run_mode.value,
+            side=request.direction,
+            qty=filled_quantity,
+            entry_price=entry_price,
+            broker_order_id=request.client_order_id,
+            status=getattr(result, "status", None),
         )
         self._record_order_stage(request.client_order_id, "FILL")
         self.position_records[request.symbol] = {
@@ -662,6 +758,17 @@ class ExecutionEngine:
             reason = getattr(result, "rejection_reason", None) or getattr(result, "rationale", None) or "UNKNOWN"
             code = getattr(result, "broker_error_code", None) or "UNKNOWN"
             print(f"[EXECUTION][REJECT] symbol={request.symbol} reason={reason} code={code}")
+            self._execution_log(
+                "REJECT",
+                symbol=request.symbol,
+                strategy_id=request.strategy_name,
+                run_mode=self.run_mode.value,
+                side=request.direction,
+                qty=request.quantity,
+                broker_order_id=request.client_order_id,
+                status=normalized,
+                reason=reason,
+            )
         if normalized in {"CANCELLED", "CANCELED"}:
             print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=CANCELLED")
 
@@ -717,6 +824,17 @@ class ExecutionEngine:
                 "reason": rationale,
             },
         )
+        self._execution_log(
+            "STATE_UPDATE",
+            symbol=symbol,
+            intent_id=getattr(risk_decision, "intent_id", None) if risk_decision else None,
+            strategy_id=strategy_name,
+            run_mode=self.run_mode.value,
+            side=direction,
+            qty=quantity,
+            status="BLOCKED",
+            reason=rationale,
+        )
         return ExecutionResult(
             symbol=symbol,
             trader_type=trader_type,
@@ -753,6 +871,16 @@ class ExecutionEngine:
                 "readonly_enabled": get_ibkr_readonly_enabled(),
                 "reason": rationale,
             },
+        )
+        self._execution_log(
+            "STATE_UPDATE",
+            symbol=request.symbol,
+            strategy_id=request.strategy_name,
+            run_mode=self.run_mode.value,
+            side=request.direction,
+            qty=request.quantity,
+            status="BLOCKED",
+            reason=rationale,
         )
         return ExecutionResult(
             symbol=request.symbol,

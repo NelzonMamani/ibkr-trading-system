@@ -121,9 +121,11 @@ def test_execution_engine_logs_receipt_build_and_submit(capsys: pytest.CaptureFi
 
         _ = engine.execute_trade(decision)
         out = capsys.readouterr().out
-        assert "[EXECUTION][RECEIVED] symbol=AAPL" in out
+        assert "[EXECUTION][INTENT_RECEIVED] symbol=AAPL" in out
+        assert "[EXECUTION][PRECHECK] symbol=AAPL" in out
         assert "[ORDER][BUILD] symbol=AAPL" in out
-        assert "[ORDER][SUBMIT]" in out
+        assert "[EXECUTION][SUBMIT]" in out
+        assert "[EXECUTION][SUBMIT_RESULT]" in out
     finally:
         set_config_overrides(None)
 

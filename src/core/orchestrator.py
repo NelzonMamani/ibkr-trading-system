@@ -3107,6 +3107,10 @@ class CoreOrchestrator:
             return False
 
         execution_output: List[ExecutionResult] = []
+        execution_received_count = 0
+        submit_attempt_count = 0
+        submit_success_count = 0
+        dominant_block_reasons: dict[str, int] = {}
         if execution_intent.scan_only:
             print("[EXECUTION] Execution stage skipped — intent scan_only.")
         elif not self.execution_enabled:
@@ -3122,6 +3126,7 @@ class CoreOrchestrator:
                     f"[TEACH] Execution engine will handle {len(risk_output)} risk decisions individually."
                 )
                 for risk_decision in risk_output:
+                    execution_received_count += 1
                     if (
                         bool(get_config("FORCE_EXECUTION_ON_TRADE_READY"))
                         and risk_decision.symbol in trade_ready_terminal
@@ -3146,6 +3151,15 @@ class CoreOrchestrator:
                         result.setup_family_id = getattr(risk_decision, "setup_family_id", None)
                         result.trigger_id = getattr(risk_decision, "trigger_id", None)
                         execution_output.append(result)
+                        submit_attempt_count += 1 if bool(getattr(result, "attempted", False)) else 0
+                        submit_success_count += 1 if str(getattr(result, "status", "")).upper() in {"FILLED", "PARTIAL", "ACKED", "SUBMITTED"} else 0
+                        if not bool(getattr(result, "attempted", False)):
+                            reason = str(
+                                getattr(result, "rejection_reason", None)
+                                or getattr(result, "rationale", None)
+                                or "UNKNOWN_BLOCK"
+                            )
+                            dominant_block_reasons[reason] = dominant_block_reasons.get(reason, 0) + 1
                         if risk_decision.symbol in trade_ready_terminal:
                             if str(getattr(result, "status", "")).upper() in {"REJECTED", "ERROR", "FAILED", "BLOCKED"}:
                                 trade_ready_terminal[risk_decision.symbol]["blocked"] = True
@@ -3199,6 +3213,13 @@ class CoreOrchestrator:
                         ],
                         {"count": len(execution_output), "authority": "execution"},
                     )
+        self._emit_execution_root_cause_summary(
+            approved_intents_count=sum(1 for decision in risk_output if bool(getattr(decision, "allowed", False))),
+            execution_received_count=execution_received_count,
+            submit_attempt_count=submit_attempt_count,
+            submit_success_count=submit_success_count,
+            dominant_block_reasons=dominant_block_reasons,
+        )
         self._assert_trade_ready_terminal_paths(
             execution_enabled=self.execution_enabled,
             trade_ready_terminal=trade_ready_terminal,
@@ -3501,6 +3522,12 @@ class CoreOrchestrator:
             print("[STORAGE] No storage action taken — placeholder outcome.")
         else:
             print(f"[STORAGE] Storage result: {storage_result}")
+            print(
+                "[EXECUTION][STORE] "
+                f"status={'OK' if storage_result.ok else 'FAIL'} "
+                f"records={len(execution_output or [])} "
+                f"events_persisted={getattr(storage_result, 'events_persisted', 'NA')}"
+            )
         self._evaluate_runtime_safety(
             cycle_stage="STORAGE",
             stage_exception=None,
@@ -3874,6 +3901,51 @@ class CoreOrchestrator:
                 raise RuntimeError(
                     f"CRITICAL: TRADE_READY reached terminal handling without block or order submission for {symbol}"
                 )
+
+    def _emit_execution_root_cause_summary(
+        self,
+        *,
+        approved_intents_count: int,
+        execution_received_count: int,
+        submit_attempt_count: int,
+        submit_success_count: int,
+        dominant_block_reasons: dict[str, int],
+    ) -> None:
+        if approved_intents_count <= 0 or submit_attempt_count > 0:
+            return
+        dropped_before_submit = max(0, approved_intents_count - execution_received_count)
+        reasons_sorted = sorted(
+            dominant_block_reasons.items(),
+            key=lambda item: (-item[1], item[0]),
+        )
+        reason_summary = ",".join(f"{reason}:{count}" for reason, count in reasons_sorted[:5]) or "NONE"
+        broker_not_ready_count = sum(
+            count
+            for reason, count in dominant_block_reasons.items()
+            if "BROKER" in reason.upper()
+        )
+        invalid_qty_count = sum(
+            count
+            for reason, count in dominant_block_reasons.items()
+            if "QUANTITY" in reason.upper() or "QTY" in reason.upper()
+        )
+        duplicate_position_count = sum(
+            count
+            for reason, count in dominant_block_reasons.items()
+            if "DUPLICATE_POSITION" in reason.upper()
+        )
+        print(
+            "[EXECUTION][NO_ORDER_ROOT_CAUSE] "
+            f"approved_intents_count={approved_intents_count} "
+            f"execution_received_count={execution_received_count} "
+            f"submit_attempt_count={submit_attempt_count} "
+            f"submit_success_count={submit_success_count} "
+            f"dominant_block_reasons={reason_summary} "
+            f"intents_dropped_before_submit={dropped_before_submit} "
+            f"broker_not_ready_count={broker_not_ready_count} "
+            f"invalid_qty_count={invalid_qty_count} "
+            f"duplicate_position_count={duplicate_position_count}"
+        )
 
     def _run_startup_validations(self) -> None:
         print("[VALIDATION] Running startup validations")
