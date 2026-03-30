@@ -235,6 +235,12 @@ class SetupEngine:
             }
             if ema9 is None:
                 setup["quality_flags"].append("EMA9_MISSING")
+        if not setups:
+            print(
+                "[SETUP_ENGINE] "
+                f"symbol={symbol_label} timeframe={timeframe_label} produced=0 families=[]"
+            )
+            return []
         print(
             "[SETUP_ENGINE] "
             f"symbol={symbol_label} timeframe={timeframe_label} produced={len(setups)} "

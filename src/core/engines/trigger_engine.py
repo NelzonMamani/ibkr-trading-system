@@ -17,6 +17,10 @@ class TriggerEngine:
         levels: dict,
         structure: dict,
     ) -> list[dict]:
+        if not setups:
+            print(f"[TRIGGER_ENGINE] symbol={symbol} evaluated=0 ready=0")
+            return []
+
         last_candle = candles[-1] if candles else None
         prev_candle = candles[-2] if len(candles) > 1 else None
         last_close = self._safe_float(self._read(last_candle, "close")) if last_candle else None
@@ -25,7 +29,9 @@ class TriggerEngine:
         prev_close = self._safe_float(self._read(prev_candle, "close")) if prev_candle else None
 
         outputs: list[dict] = []
-        for setup in setups or []:
+        for setup in setups:
+            if not bool(setup.get("setup_detected", True)):
+                continue
             required_types = [str(t).upper() for t in (setup.get("required_trigger_types") or [])]
             trigger_type = required_types[0] if required_types else "BREAKOUT_HIGH"
 
