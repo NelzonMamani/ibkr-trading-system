@@ -5,11 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List
 
-from src.config.config_resolver import get_config
 from src.core_engine.events import RiskDecisionRecord, TradeIntentRecord
 from src.core_engine.health import HealthStatus
 from src.core_engine.state import RunMode
 from src.risk.data_quality_contract import data_quality_blocking_causes
+
+
+DEFAULT_PAPER_CAPITAL = 10000.0
 
 
 @dataclass(frozen=True)
@@ -40,17 +42,30 @@ def evaluate_trade_intents(
         print("[CAPITAL] available_capital=0 focus_count=0 capital_per_symbol=0")
         return decisions
 
-    available_capital = float(resolved_account.available_funds)
-    capital_per_symbol = compute_capital_per_symbol(available_capital, focus_count)
+    raw_available_capital = float(resolved_account.available_funds)
+    available_capital = raw_available_capital
 
     live_capital_invalid = (
         mode == RunMode.LIVE
-        and (not resolved_account.canonical or resolved_account.source != "IBKR_CANONICAL" or available_capital <= 0)
+        and (
+            raw_available_capital <= 0
+            or not resolved_account.canonical
+            or resolved_account.source != "IBKR_CANONICAL"
+        )
     )
+    if live_capital_invalid:
+        print("[RISK][BLOCK] live mode requires valid broker capital")
+
+    if mode in {RunMode.PAPER, RunMode.SIM} and raw_available_capital <= 0:
+        available_capital = DEFAULT_PAPER_CAPITAL
+        print("[RISK][CAPITAL_OVERRIDE] using default capital=10000")
+
+    capital_per_symbol = compute_capital_per_symbol(available_capital, focus_count)
     print(
         "[CAPITAL] "
         f"source={resolved_account.source} canonical={resolved_account.canonical} "
-        f"available_capital={available_capital} focus_count={focus_count} "
+        f"raw_available_capital={raw_available_capital} available_capital={available_capital} "
+        f"focus_count={focus_count} "
         f"capital_per_symbol={capital_per_symbol} broker_connection_state={resolved_account.broker_connection_state}"
     )
 
@@ -60,6 +75,26 @@ def evaluate_trade_intents(
         decision = "ALLOW"
         max_size = 0
         block_reason = ""
+
+        if mode == RunMode.LIVE and live_capital_invalid:
+            decisions.append(
+                RiskDecisionRecord(
+                    symbol=intent.symbol,
+                    intent_id=intent.intent_id,
+                    decision="BLOCK",
+                    max_position_size=0,
+                    constraints=constraints,
+                    triggered_rules=["CANONICAL_CAPITAL_UNAVAILABLE"],
+                    rationale="Triggered rules: CANONICAL_CAPITAL_UNAVAILABLE.",
+                    available_funds=available_capital,
+                    order_value=0.0,
+                    risk_allowed=False,
+                    capital_source=resolved_account.source,
+                    block_reason="CANONICAL_CAPITAL_UNAVAILABLE",
+                    approved_quantity=0,
+                )
+            )
+            continue
 
         if health_status == HealthStatus.CRITICAL:
             decision = "BLOCK"
@@ -105,12 +140,7 @@ def evaluate_trade_intents(
         position_value = float(requested_shares) * entry_price
         risk_allowed = position_value <= capital_per_symbol + 1e-9
 
-        if mode == RunMode.LIVE and live_capital_invalid:
-            decision = "BLOCK"
-            max_size = 0
-            block_reason = "CANONICAL_CAPITAL_UNAVAILABLE"
-            triggered_rules.append("CANONICAL_CAPITAL_UNAVAILABLE")
-        elif mode == RunMode.LIVE and decision != "BLOCK":
+        if mode == RunMode.LIVE and decision != "BLOCK":
             decision = "ALLOW"
             max_size = requested_shares
 
