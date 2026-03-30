@@ -183,6 +183,26 @@ def _parse_value(raw: str, entry: Dict[str, Any]) -> Any:
     raise ConfigResolutionError(f"Unsupported config type: {type_hint}")
 
 
+def _cast_env_value(key: str, value: str, expected_type: Any, entry: Dict[str, Any]) -> Any:
+    """Cast environment variable string to a typed config value."""
+
+    try:
+        if expected_type is bool:
+            return _parse_bool(value)
+        if expected_type is int:
+            return int(value.strip())
+        if expected_type is float:
+            return float(value.strip())
+        if expected_type is str:
+            return value.strip()
+        # Delegate complex structures and date/time handling to the generic parser.
+        return _parse_value(value, entry)
+    except (TypeError, ValueError) as exc:
+        raise ConfigResolutionError(
+            f"Invalid value for {key}: {value!r} (expected {expected_type})"
+        ) from exc
+
+
 def _resolve_entry(name: str, entry: Dict[str, Any]) -> ConfigRecord:
     env_names: Iterable[str] = entry.get("env", [])
     env_value = None
@@ -202,7 +222,7 @@ def _resolve_entry(name: str, entry: Dict[str, Any]) -> ConfigRecord:
         source = "OVERRIDE"
         trace = (f"{name}=override({value!r})",)
     elif env_value is not None:
-        value = _parse_value(env_value, entry)
+        value = _cast_env_value(name, env_value, entry.get("type"), entry)
         source = "ENV"
         trace = (
             f"{name}=env[{env_used}] raw={env_value!r} parsed={value!r}",
@@ -251,6 +271,7 @@ def _resolve_entry(name: str, entry: Dict[str, Any]) -> ConfigRecord:
             f"Config {name} must be one of {choices}; got {value}"
         )
 
+    print(f"[CONFIG][RESOLVE] key={name} source={source} value={value!r}")
     return ConfigRecord(name=name, value=value, source=source, env=env_used, trace=trace)
 
 
@@ -642,9 +663,12 @@ def resolve_config() -> Dict[str, ConfigRecord]:
     return resolved
 
 
-def get_config(name: str) -> Any:
+def get_config(name: str, default: Any | None = None) -> Any:
     resolved = resolve_config()
     if name not in resolved:
+        if default is not None:
+            print(f"[CONFIG][RESOLVE] key={name} source=FALLBACK value={default!r}")
+            return default
         raise ConfigResolutionError(f"Unknown configuration key '{name}'")
     _emit_config_summary_once(resolved)
     return resolved[name].value

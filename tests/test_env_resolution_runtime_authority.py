@@ -96,3 +96,20 @@ def test_startup_banner_and_orchestrator_agree(monkeypatch: pytest.MonkeyPatch, 
     assert trace["IBKR_READONLY_ENABLED"]["source"] == "DERIVED"
     assert trace["IBKR_ORDER_SUBMISSION_ENABLED"]["source"] == "DERIVED"
     assert trace["IBKR_ORDER_TRANSLATION_ENABLED"]["source"] == "DERIVED"
+
+
+def test_env_override_takes_precedence(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("SCANNER_TOP_GAINERS_COUNT", "15")
+
+    value = get_config_record("SCANNER_TOP_GAINERS_COUNT").value
+
+    assert value == 15
+
+
+def test_override_beats_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("SCANNER_TOP_GAINERS_COUNT", "15")
+    set_config_overrides({"SCANNER_TOP_GAINERS_COUNT": 10, "SCANNER_WATCHLIST_LIMIT": 10})
+
+    value = get_config_record("SCANNER_TOP_GAINERS_COUNT").value
+
+    assert value == 10

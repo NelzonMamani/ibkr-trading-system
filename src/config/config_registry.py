@@ -694,7 +694,7 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     "SCANNER_TOP_GAINERS_COUNT": {
         "type": int,
         "default": 50,
-        "env": ["TOP_GAINERS_COUNT"],
+        "env": ["SCANNER_TOP_GAINERS_COUNT", "TOP_GAINERS_COUNT"],
         "affects": ["ScannerRunner"],
         "enforcement": "HARD",
         "mutable": "per-cycle",
