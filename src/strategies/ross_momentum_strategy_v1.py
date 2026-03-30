@@ -51,6 +51,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
         "P_HOD_BREAK": "HOD_BREAK",
         "P_FIRST_PULLBACK": "FIRST_PULLBACK",
+        "P_FLAT_TOP_BREAKOUT": "FLAT_TOP_BREAKOUT",
         "ORB": "OPENING_RANGE_BREAKOUT",
         "ORB_BREAK": "OPENING_RANGE_BREAKOUT",
         "OPENING_RANGE_BREAKOUT": "OPENING_RANGE_BREAKOUT",
@@ -76,6 +77,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         "VWAP_RECLAIM_CONTINUATION",
         "FIRST_PULLBACK",
         "MICRO_PULLBACK",
+        "FLAT_TOP_BREAKOUT",
     )
 
     def __init__(self) -> None:
@@ -1660,6 +1662,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             "P_HOD_BREAK": "HOD_BREAK",
             "P_FIRST_PULLBACK": "FIRST_PULLBACK",
             "P_MICRO_PULLBACK": "MICRO_PULLBACK",
+            "P_FLAT_TOP_BREAKOUT": "FLAT_TOP_BREAKOUT",
             "P_BULL_FLAG": "BULL_FLAG",
             "P_CUP_HANDLE": "CUP_HANDLE",
             "P_MOMENTUM_RECLAIM": "MOMENTUM_RECLAIM",

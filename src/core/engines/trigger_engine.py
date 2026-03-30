@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.strategies.common.triggers.trigger_flat_top_breakout import evaluate_flat_top_breakout_trigger
 from src.strategies.common.triggers.trigger_first_pullback import evaluate_first_pullback_trigger
 from src.strategies.common.triggers.trigger_micro_pullback import evaluate_micro_pullback_trigger
 from src.strategies.common.triggers.trigger_orb import evaluate_orb_trigger
@@ -43,6 +44,36 @@ class TriggerEngine:
         outputs: list[dict] = []
         for setup in setups:
             if not bool(setup.get("setup_detected", True)):
+                continue
+            setup_family = str(setup.get("setup_family_id") or "").upper()
+            if setup_family == "FLAT_TOP_BREAKOUT":
+                flat_top_trigger = evaluate_flat_top_breakout_trigger(
+                    setup,
+                    {
+                        **(levels if isinstance(levels, dict) else {}),
+                        "candles": list(candles or []),
+                    },
+                )
+                output = {
+                    "symbol": str(symbol),
+                    "setup_family_id": setup.get("setup_family_id"),
+                    "setup_name": setup.get("setup_name"),
+                    "trigger_type": str(flat_top_trigger.get("trigger_type") or "BREAKOUT_HIGH"),
+                    "trigger_state": str(flat_top_trigger.get("trigger_state") or "BLOCKED"),
+                    "trigger_ready_now": bool(flat_top_trigger.get("trigger_ready_now")),
+                    "trigger_event_emitted": bool(flat_top_trigger.get("trigger_event_emitted")),
+                    "trigger_reason": str(flat_top_trigger.get("trigger_reason") or "flat_top_breakout_armed"),
+                    "trigger_price_reference": self._safe_float(flat_top_trigger.get("trigger_price_reference")),
+                    "invalidation_price_reference": self._safe_float(flat_top_trigger.get("invalidation_price_reference")),
+                    "execution_refinement_mode": str(flat_top_trigger.get("execution_refinement_mode") or "NONE"),
+                    "stop_anchor_type": str(setup.get("invalidation_anchor") or "STRUCTURE"),
+                    "trigger_quality_flags": sorted(
+                        set(
+                            [*flat_top_trigger.get("trigger_quality_flags", []), *setup.get("quality_flags", [])]
+                        )
+                    ),
+                }
+                outputs.append(output)
                 continue
             required_types = [str(t).upper() for t in (setup.get("required_trigger_types") or [])]
             trigger_type = required_types[0] if required_types else "BREAKOUT_HIGH"
