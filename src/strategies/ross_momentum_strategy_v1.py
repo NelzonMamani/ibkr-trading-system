@@ -926,6 +926,19 @@ class RossMomentumStrategyV1(BaseStrategy):
             print(
                 f"[ROSS][PATTERN_RESULTS] symbol={symbol} attempted={attempted_count} detected={len(symbol_trace.detected_pattern_ids)}"
             )
+            detected_competing = [
+                {
+                    "pattern_id": trace.pattern_id,
+                    "confidence": float(getattr(trace, "confidence", 0.0) or 0.0),
+                }
+                for trace in pattern_traces
+                if bool(getattr(trace, "detected", False))
+            ]
+            if detected_competing:
+                print(
+                    "[ROSS][PATTERN_RESULTS] "
+                    f"symbol={symbol} competing_detected={json.dumps(detected_competing, sort_keys=True)}"
+                )
             for trace, result in zip(pattern_traces, results):
                 trace.confidence = float(getattr(result, "confidence", 0.0) or 0.0)
             for trace in pattern_traces:
@@ -1028,6 +1041,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 pattern_traces=pattern_traces,
                 session_label=session_label,
             )
+            confirm_reason = "confirmation_passed" if confirmation_passed else ",".join(blocking_reasons or ["confirmation_blocked"])
+            print(f"[ROSS][CONFIRM] symbol={symbol} passed={confirmation_passed} reason={confirm_reason}")
             if not confirmation_passed:
                 print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=confirmation_gate")
                 print(f"[TRIGGER][REJECT] symbol={symbol} reason=CONFIRMATION_BLOCKED")
@@ -1074,6 +1089,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "[ROSS][TRIGGER_EVAL] "
                 f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} trigger={selected_trigger.get('trigger_type') if selected_trigger else None}"
             )
+            print(
+                "[ROSS][TRIGGER_CHECK] "
+                f"symbol={symbol} ready={bool(selected_trigger is not None and selected_trigger.get('trigger_ready_now') is True)} "
+                f"reason={(selected_trigger or {}).get('trigger_reason') or ('missing_trigger_candidate' if selected_trigger is None else 'ready')}"
+            )
             if selected_trigger is None:
                 print(
                     "[ROSS][NO_TRIGGER] "
@@ -1092,6 +1112,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
             if selected_trigger.get("trigger_ready_now") is not True:
+                print(
+                    "[ROSS][TRIGGER] "
+                    f"symbol={symbol} trigger_id={selected_trigger.get('trigger_type') or 'UNKNOWN'} fired=False "
+                    f"reason={selected_trigger.get('trigger_reason') or 'trigger_not_ready'}"
+                )
                 print(
                     "[ROSS][NO_TRIGGER] "
                     f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} reason={selected_trigger.get('trigger_reason')}"
@@ -1162,6 +1187,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                 entry_price=entry,
             )
             trigger_ready = bool(trigger_ready and selected_trigger.get("trigger_ready_now"))
+            print(
+                "[ROSS][TRIGGER] "
+                f"symbol={symbol} trigger_id={selected_trigger.get('trigger_type') or 'UNKNOWN'} "
+                f"fired={trigger_ready} reason={_trigger_reason}"
+            )
             symbol_trace.trigger_stage = {
                 "status": "FIRED" if trigger_ready else "ARMED_NOT_FIRED_YET",
                 "reason_code": "TRIGGER_PASS" if trigger_ready else "TRIGGER_NOT_READY",
@@ -1302,6 +1332,11 @@ class RossMomentumStrategyV1(BaseStrategy):
             classification_counts["READY_FOR_EXECUTION"] += 1
             print(f"TRADE_INTENT symbol={symbol} setup={best_pattern.pattern_id}")
             print(f"[ROSS][INTENT_GENERATED] symbol={symbol}")
+            print(
+                "[INTENT][CREATE] "
+                f"symbol={symbol} pattern={best_pattern.pattern_id} trigger={intent.trigger_id} "
+                f"entry={intent.entry_price} stop={intent.stop_loss_price}"
+            )
             print(
                 "[ROSS][INTENT][EMIT] "
                 f"symbol={symbol} pattern={best_pattern.pattern_id} entry={entry} stop={stop} "
@@ -1763,6 +1798,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             "[ROSS][DECISION][BLOCKED] "
             f"symbol={symbol} final_stage={final_stage} reason={reason}"
         )
+        print(f"[INTENT][BLOCKED] symbol={symbol} reason={final_stage}:{reason}")
 
     @staticmethod
     def _log_pipeline_no_decision(symbol: str) -> None:

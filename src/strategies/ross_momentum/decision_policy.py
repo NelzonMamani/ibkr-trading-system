@@ -56,7 +56,7 @@ def build_trade_intents(
             guaranteed_intent_required = True
         # `setup.risk_flags` can contain advisory warnings that do not block final
         # risk approval; only explicit veto flags should produce a risk-stage negative.
-        risk_ok = not bool(summary.veto_flags)
+        risk_precheck_ok = not bool(summary.veto_flags)
         dq_ok = not bool(setup.data_quality_flags)
         if not dq_ok and config.debug_force_execution:
             print(f"[DQ_OVERRIDE] symbol={symbol} dq was bypassed")
@@ -65,7 +65,7 @@ def build_trade_intents(
             pattern_detected
             and confirmation_passed
             and trigger_fired
-            and risk_ok
+            and risk_precheck_ok
             and dq_ok
         )
         print(
@@ -73,9 +73,9 @@ def build_trade_intents(
             f"pattern_detected={pattern_detected} "
             f"confirmation_passed={confirmation_passed} "
             f"trigger_fired={trigger_fired} "
-            f"risk_ok={risk_ok} "
+            f"risk_precheck_ok={risk_precheck_ok} "
             f"dq_ok={dq_ok} "
-            f"execution_ready={execution_ready}"
+            f"execution_candidate_ready={execution_ready}"
         )
         if not (trigger_fired and confirmation_passed):
             continue
@@ -106,7 +106,7 @@ def build_trade_intents(
             "trigger=TRUE"
         )
         print(
-            f"[INTENT_CREATED] symbol={symbol} risk_ok={risk_ok} execution_ready={execution_ready}"
+            f"[INTENT_CREATED] symbol={symbol} risk_precheck_ok={risk_precheck_ok} execution_candidate_ready={execution_ready}"
         )
 
     if guaranteed_intent_required and not intents:
