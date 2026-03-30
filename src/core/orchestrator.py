@@ -1812,6 +1812,17 @@ class CoreOrchestrator:
             print("[PIPELINE][SKIP] empty watchlist")
             final_evaluation_symbols = []
         strategy_watchlist = selected_watchlist or selected_focus
+        if not strategy_watchlist:
+            fallback_candidates = list(selected_watchlist) or list(selected_observations)
+            strategy_watchlist = [
+                candidate
+                for candidate in fallback_candidates
+                if getattr(candidate, "symbol", None)
+            ]
+            print(
+                "[RECOVERY] strategy_watchlist rebuilt "
+                f"count={len(strategy_watchlist)}"
+            )
         if final_evaluation_symbols:
             focus_only = {symbol.upper() for symbol in final_evaluation_symbols}
             strategy_watchlist = [
@@ -1836,6 +1847,32 @@ class CoreOrchestrator:
                 f"requested={len(final_evaluation_symbols)} recovered={len(strategy_watchlist)}"
             )
         strategy_evaluation_symbols = self._symbols_from_candidates(strategy_watchlist)
+        print(
+            "[PIPELINE][HANDOFF] "
+            f"watchlist={len(watchlist_symbols)} "
+            f"focus={len(final_evaluation_symbols)} "
+            f"strategy_input={len(strategy_evaluation_symbols)}"
+        )
+        if watchlist_symbols and not strategy_evaluation_symbols:
+            print("[ERROR] WATCHLIST_WITHOUT_STRATEGY_INPUT")
+            strategy_evaluation_symbols = watchlist_symbols[:5]
+            lookup_candidates = list(selected_watchlist) + list(selected_focus) + list(selected_observations)
+            lookup_by_symbol = {
+                str(getattr(candidate, "symbol", "")).upper(): candidate
+                for candidate in lookup_candidates
+                if str(getattr(candidate, "symbol", "")).strip()
+            }
+            strategy_watchlist = [
+                lookup_by_symbol[symbol.upper()]
+                for symbol in strategy_evaluation_symbols
+                if symbol.upper() in lookup_by_symbol
+            ]
+            print(
+                "[RECOVERY] Using watchlist as strategy input "
+                f"symbols={strategy_evaluation_symbols}"
+            )
+        if watchlist_symbols and not strategy_evaluation_symbols:
+            raise Exception("PIPELINE_BREAK_FOCUS_TO_STRATEGY")
         print(
             "[PIPELINE] "
             f"scanner_count={scanner_kept_count} "
@@ -1887,6 +1924,7 @@ class CoreOrchestrator:
             print(f"[STRATEGY] runner=ross_momentum symbol={symbol} stage=evaluate")
             print(f"[ROSS][SYMBOL_EVAL][START] symbol={symbol} source=orchestrator_handoff")
         if strategy_watchlist:
+            print("[STRATEGY][EXECUTION] invoking StrategyRunner")
             print("[STRATEGY][FORCED_EXECUTION] invoking StrategyRunner regardless of session")
             print("[ROSS][PROCESS_START]")
             print("[ROSS][PATTERN_PIPELINE] ACTIVE")
