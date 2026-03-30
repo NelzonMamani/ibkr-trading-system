@@ -487,7 +487,60 @@ def run_cycle(
         health=health_snapshot,
         stage_order=STAGE_ORDER,
     )
+    _emit_final_decisions(
+        focus=focus,
+        pattern_summaries=pattern_summaries,
+        intents=intents,
+        risk_decisions=risk_decisions,
+        execution_events=execution_events,
+    )
     return summary
+
+
+def _emit_final_decisions(
+    *,
+    focus: List[str],
+    pattern_summaries: List[PatternSummary],
+    intents: List[TradeIntentRecord],
+    risk_decisions: List[RiskDecisionRecord],
+    execution_events: List[ExecutionEvent],
+) -> None:
+    pattern_by_symbol = {p.symbol: p for p in pattern_summaries}
+    intent_by_symbol = {i.symbol: i for i in intents}
+    risk_by_symbol = {r.symbol: r for r in risk_decisions}
+    execution_by_symbol = {e.symbol: e for e in execution_events}
+    for symbol in focus:
+        pattern = pattern_by_symbol.get(symbol)
+        intent = intent_by_symbol.get(symbol)
+        risk = risk_by_symbol.get(symbol)
+        execution = execution_by_symbol.get(symbol)
+        pattern_name = pattern.best_setup if pattern else "NONE"
+        trigger = "confirmation_gate" if intent else "NONE"
+        outcome = "NO_PATTERN"
+        reason = "NO_PATTERN_DETECTED"
+        if pattern and pattern_name not in {"NONE", ""}:
+            outcome = "PATTERN_NON_ACTIONABLE"
+            reason = "TRIGGER_NOT_READY"
+        if intent:
+            outcome = "INTENT_CREATED"
+            reason = "INTENT_CREATED"
+        if risk and risk.decision not in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
+            outcome = "RISK_BLOCKED"
+            reason = risk.block_reason or "RISK_BLOCK"
+        if execution:
+            if execution.action == "SUBMITTED":
+                outcome = "ORDER_SUBMITTED"
+                reason = execution.detail
+            elif execution.action == "BLOCKED":
+                outcome = "ORDER_REJECTED"
+                reason = execution.detail
+            else:
+                outcome = "EXECUTION_SKIPPED"
+                reason = execution.detail
+        print(
+            f"[ROSS][FINAL_DECISION] symbol={symbol} pattern={pattern_name} "
+            f"trigger={trigger} outcome={outcome} reason={reason}"
+        )
 
 
 def run_cycles(mode: str, cycles: int) -> List[CycleSummary]:

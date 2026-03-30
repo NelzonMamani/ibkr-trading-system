@@ -7,6 +7,14 @@ class TriggerEngine:
     """Shared trigger engine mapping setup candidates to actionability states."""
 
     _ROUNDING = 6
+    _FAMILY_ALIASES = {
+        "ORB": "OPENING_RANGE_BREAKOUT",
+        "PREMARKET_HIGH_BREAK": "PREMARKET_HIGH_BREAK",
+        "PMH_BREAK": "PREMARKET_HIGH_BREAK",
+        "MOMENTUM_RECLAIM": "VWAP_RECLAIM_CONTINUATION",
+        "ASCENDING_TRIANGLE_BREAKOUT": "ASCENDING_TRIANGLE_BREAKOUT",
+        "PENNANT_BREAK": "PENNANT_BREAK",
+    }
 
     def evaluate_triggers(
         self,
@@ -96,7 +104,8 @@ class TriggerEngine:
             return None
 
     def _resolve_level_for_setup(self, *, setup_family: str | None, levels: dict) -> float | None:
-        family = str(setup_family or "").upper()
+        raw_family = str(setup_family or "").upper()
+        family = self._FAMILY_ALIASES.get(raw_family, raw_family)
         mapping = {
             "PREMARKET_HIGH_BREAK": "premarket_high",
             "OPENING_RANGE_BREAKOUT": "active_breakout_range.upper",
@@ -107,6 +116,10 @@ class TriggerEngine:
             "HOD_BREAK": "hod",
             "VWAP_RECLAIM_CONTINUATION": "vwap",
             "CONSOLIDATION_BREAKOUT": "active_breakout_range.upper",
+            "ASCENDING_TRIANGLE_BREAKOUT": "active_breakout_range.upper",
+            "PENNANT_BREAK": "active_breakout_range.upper",
+            "MOMENTUM_RECLAIM": "vwap",
+            "ORB": "active_breakout_range.upper",
         }
         key = mapping.get(family)
         if not key:
@@ -179,7 +192,7 @@ class TriggerEngine:
             reason = "break_and_hold_confirmed" if ready else "break_and_hold_not_confirmed"
         elif trigger_type == "RECLAIM":
             ready = last_close >= trigger_price_reference and "RECLAIM" in reclaim_state
-            reason = "reclaim_confirmed" if ready else "reclaim_not_confirmed"
+            reason = "reclaim_already_confirmed" if ready else "reclaim_not_confirmed"
         else:
             ready = last_high is not None and last_high >= trigger_price_reference
             reason = "high_tagged_trigger" if ready else "trigger_not_tagged"
@@ -236,7 +249,7 @@ class TriggerEngine:
         flags: list[str],
     ) -> tuple[bool, str]:
         ready = last_close >= trigger_price_reference
-        reason = "BREAKOUT_CLEARED" if ready else "BREAKOUT_NOT_CLEARED"
+        reason = "breakout_already_through_level" if ready else "BREAKOUT_NOT_CLEARED"
         previous_pullback_high = self._safe_float(structure.get("previous_pullback_high"))
         session_label = str(structure.get("session_context") or "").upper()
         session_is_pre = session_label in {"PRE", "PREMARKET"}

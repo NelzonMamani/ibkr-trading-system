@@ -19,6 +19,8 @@ def execute_intents(
     decisions: List[RiskDecisionRecord],
 ) -> List[ExecutionEvent]:
     events: List[ExecutionEvent] = []
+    broker_state = "CONNECTED" if mode == RunMode.LIVE else ("SIMULATED_PROVIDER" if mode == RunMode.PAPER else "DISCONNECTED")
+    print(f"[EXECUTION][MODE] mode={mode.value} broker_connection_state={broker_state}")
     for decision in decisions:
         account = RouterAccountSnapshot(available_funds=float(decision.available_funds))
         order_value = float(decision.order_value)
@@ -31,28 +33,36 @@ def execute_intents(
         quantity = int(decision.approved_quantity)
         if decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"} and quantity <= 0:
             raise RuntimeError("INVALID ORDER: quantity=0")
+        dispatch = "SKIPPED"
         if mode in {RunMode.SIM, RunMode.READ_ONLY}:
             action = "WOULD_PLACE"
             detail = f"mode={mode.value}; decision={decision.decision}; qty={quantity}"
+            dispatch = "SKIPPED"
         elif decision.decision == "ALLOW":
             if mode == RunMode.LIVE and decision.capital_source != "IBKR_CANONICAL":
                 action = "BLOCKED"
                 detail = "reason=CANONICAL_CAPITAL_UNAVAILABLE"
+                dispatch = "SKIPPED"
             elif quantity != int(decision.max_position_size):
                 action = "BLOCKED"
                 detail = (
                     "reason=EXECUTION_QUANTITY_MISMATCH "
                     f"approved={decision.approved_quantity} max_size={decision.max_position_size}"
                 )
+                dispatch = "SKIPPED"
             else:
                 action = "SUBMITTED"
                 detail = f"submitted qty={quantity}"
+                dispatch = "REAL_BROKER" if mode == RunMode.LIVE else "SIMULATED"
         elif decision.decision == "ALLOW_WITH_CONSTRAINTS":
-            action = "BLOCKED" if mode == RunMode.LIVE else "SUBMITTED"
+            action = "BLOCKED" if mode == RunMode.LIVE else "WOULD_PLACE"
             detail = f"constraints={decision.constraints}; qty={quantity}"
+            dispatch = "SKIPPED" if mode == RunMode.LIVE else "SIMULATED"
         else:
             action = "BLOCKED"
             detail = f"decision={decision.decision}; reason={decision.block_reason or 'RISK_BLOCK'}"
+            dispatch = "SKIPPED"
+        print(f"[EXECUTION][DISPATCH] symbol={decision.symbol} dispatch={dispatch}")
         events.append(
             ExecutionEvent(
                 symbol=decision.symbol,

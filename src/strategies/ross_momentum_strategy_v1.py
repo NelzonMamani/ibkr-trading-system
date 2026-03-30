@@ -51,6 +51,12 @@ class RossMomentumStrategyV1(BaseStrategy):
         "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
         "P_HOD_BREAK": "HOD_BREAK",
         "P_FIRST_PULLBACK": "FIRST_PULLBACK",
+        "ORB": "OPENING_RANGE_BREAKOUT",
+        "ORB_BREAK": "OPENING_RANGE_BREAKOUT",
+        "OPENING_RANGE_BREAKOUT": "OPENING_RANGE_BREAKOUT",
+        "MOMENTUM_RECLAIM": "VWAP_RECLAIM_CONTINUATION",
+        "ASCENDING_TRIANGLE_BREAKOUT": "ASCENDING_TRIANGLE",
+        "PENNANT_BREAK": "PENNANT",
     }
 
     _priority_order: Tuple[str, ...] = (
@@ -516,6 +522,13 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "outcome": str(category),
                 "reason": str(reason),
             }
+            print(
+                f"[ROSS][FINAL_DECISION] symbol={symbol} pattern=UNKNOWN "
+                f"trigger=UNKNOWN outcome={category} reason={reason}"
+            )
+
+        def _actionability(symbol: str, classification: str, reason: str) -> None:
+            print(f"[ROSS][ACTIONABILITY] symbol={symbol} classification={classification} reason={reason}")
         for row in symbols:
             symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
             if not symbol:
@@ -965,6 +978,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                 trigger_candidates=trigger_candidates,
             )
             print(
+                "[ROSS][TRIGGER_MAP] "
+                f"symbol={symbol} setup_family={decision.get('selected_setup_family')} "
+                f"trigger_id={selected_trigger.get('trigger_type') if selected_trigger else 'UNMAPPED'}"
+            )
+            print(
                 "[ROSS][DECISION_ENGINE] "
                 f"symbol={symbol} state={decision['decision_state']} "
                 f"selected_pattern={decision['selected_pattern_id']} "
@@ -1105,6 +1123,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 print(f"[CLASSIFICATION] symbol={symbol} category=SETUP_FOUND_BUT_NO_TRIGGER")
                 print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=NO_TRIGGER_CANDIDATE")
                 _terminal(symbol, "SETUP_FOUND_BUT_NO_TRIGGER", "no_trigger_candidate")
+                _actionability(symbol, "BLOCKED_STRUCTURE", "TRIGGER_NOT_READY")
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_decision_blocked(symbol=symbol, final_stage="trigger", reason="no_trigger_candidate")
                 self._log_pipeline_no_decision(symbol)
@@ -1131,6 +1150,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 print(f"[CLASSIFICATION] symbol={symbol} category=SETUP_FOUND_BUT_NO_TRIGGER")
                 print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason={selected_trigger.get('trigger_reason')}")
                 _terminal(symbol, "SETUP_FOUND_BUT_NO_TRIGGER", str(selected_trigger.get("trigger_reason") or "trigger_not_ready"))
+                _actionability(symbol, "ARMED_WAITING", str(selected_trigger.get("trigger_reason") or "TRIGGER_NOT_READY"))
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_decision_blocked(
                     symbol=symbol,
@@ -1156,6 +1176,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 )
                 print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
                 _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], "invalid_trade_structure")
+                _actionability(symbol, "BLOCKED_STRUCTURE", "MISSING_STOP_ANCHOR")
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
@@ -1192,6 +1213,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"symbol={symbol} trigger_id={selected_trigger.get('trigger_type') or 'UNKNOWN'} "
                 f"fired={trigger_ready} reason={_trigger_reason}"
             )
+            _actionability(symbol, "READY_NOW" if trigger_ready else "ARMED_WAITING", str(_trigger_reason or "trigger_not_ready"))
             symbol_trace.trigger_stage = {
                 "status": "FIRED" if trigger_ready else "ARMED_NOT_FIRED_YET",
                 "reason_code": "TRIGGER_PASS" if trigger_ready else "TRIGGER_NOT_READY",
@@ -1243,6 +1265,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 )
                 print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason={permission_reason}")
                 _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], permission_reason)
+                _actionability(symbol, "BLOCKED_STRUCTURE", permission_reason)
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
@@ -1349,6 +1372,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"invalidation_reference={intent.invalidation_level}"
             )
             _terminal(symbol, TERMINAL_CATEGORY["INTENT_CREATED"], "intent_created")
+            print(
+                f"[ROSS][FINAL_DECISION] symbol={symbol} pattern={best_pattern.pattern_id} "
+                f"trigger={intent.trigger_id} outcome=INTENT_CREATED reason=intent_created"
+            )
             print(
                 "[ROSS][FINAL_SELECTION] "
                 f"symbol={symbol} selected_pattern={best_pattern.pattern_id} "
