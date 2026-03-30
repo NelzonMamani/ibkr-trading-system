@@ -26,6 +26,7 @@ from src.config.runtime_config import (
     get_ibkr_api_write_allowed,
     get_ibkr_order_submission_enabled,
     get_ibkr_order_translation_enabled,
+    get_ibkr_paper_port,
     get_ibkr_readonly_enabled,
     get_run_mode,
     get_scanner_mode,
@@ -47,7 +48,7 @@ from src.core.replay_engine import ReplayEngine
 from src.core.trace_bus import TraceBus
 from src.core.decision_trace import DecisionTraceStore, SymbolDecisionTrace
 from src.execution.execution_engine import ExecutionEngine
-from src.execution.execution_providers import IbkrExecutionProvider, PaperExecutionProvider
+from src.execution.execution_providers import IbkrExecutionProvider
 from src.core.managers import (
     ConnectionManager,
     MarketDataSnapshotManager,
@@ -362,10 +363,39 @@ class CoreOrchestrator:
         if not self.execution_enabled:
             provider = None
         elif self.run_mode == RunMode.PAPER:
-            provider = PaperExecutionProvider(
-                price_feed=self.price_feed,
-                trade_registry=self.trade_registry,
+            if IbkrLiveBroker is None:
+                raise RuntimeSafetyError(
+                    "PAPER execution requested but IbkrLiveBroker is unavailable. "
+                    "Install ibapi and ensure IBKR adapter dependencies are present."
+                )
+            paper_port = int(get_ibkr_paper_port())
+            submission_enabled = get_ibkr_order_submission_enabled()
+            translation_enabled = get_ibkr_order_translation_enabled()
+            api_write_allowed = get_ibkr_api_write_allowed()
+            if paper_port != 7497:
+                raise RuntimeSafetyError(
+                    f"PAPER execution requires IBKR_PAPER_PORT=7497 (resolved {paper_port})."
+                )
+            if not submission_enabled:
+                raise RuntimeSafetyError(
+                    "PAPER execution enabled but IBKR_ORDER_SUBMISSION_ENABLED=false."
+                )
+            if not translation_enabled:
+                raise RuntimeSafetyError(
+                    "PAPER execution enabled but IBKR_ORDER_TRANSLATION_ENABLED=false."
+                )
+            if not api_write_allowed:
+                raise RuntimeSafetyError(
+                    "PAPER execution enabled but IBKR_API_WRITE_ALLOWED=false."
+                )
+            broker = IbkrLiveBroker(
                 event_collector=self.event_collector,
+                trade_registry=self.trade_registry,
+                run_mode=self.run_mode,
+            )
+            provider = IbkrExecutionProvider(
+                broker=broker,
+                trade_registry=self.trade_registry,
                 run_mode=self.run_mode,
             )
         elif self.run_mode == RunMode.LIVE:

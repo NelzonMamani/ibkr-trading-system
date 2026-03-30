@@ -19,7 +19,7 @@ from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.core.stop_controller import StopController
 from src.core.managers.runtime_mode_manager import RuntimeModeManager
-from src.execution.execution_providers import ExecutionProvider, PaperExecutionProvider
+from src.execution.execution_providers import ExecutionProvider, IbkrExecutionProvider, PaperExecutionProvider
 from src.execution.exit_plan import compute_stop_price
 from src.execution.order_models import PendingOrderBook
 from src.models.execution_result import ExecutionResult
@@ -82,8 +82,11 @@ class ExecutionEngine:
         if not self.execution_enabled:
             return None
         if self.run_mode == RunMode.PAPER:
+            if isinstance(provider, IbkrExecutionProvider):
+                print("[EXECUTION][PAPER] IBKR paper submission provider active")
+                return provider
             if provider is not None and not isinstance(provider, PaperExecutionProvider):
-                print("[EXECUTION][PAPER] Overriding non-paper provider with PaperExecutionProvider")
+                print("[EXECUTION][PAPER] Unsupported provider type; falling back to PaperExecutionProvider")
             return provider if isinstance(provider, PaperExecutionProvider) else PaperExecutionProvider(
                 price_feed=self.price_feed,
                 trade_registry=self.trade_registry,
@@ -551,6 +554,11 @@ class ExecutionEngine:
             f"[ORDER_SUBMITTED] symbol={request.symbol} qty={request.quantity} type={request.order_type}"
         )
         result = self._provider.place_order(request)
+        if str(getattr(result, "status", "")).upper() in {"ACKED", "FILLED", "PARTIAL"}:
+            print(
+                f"[EXECUTION] SUBMITTED symbol={request.symbol} qty={request.quantity} "
+                f"order_id={getattr(result, 'client_order_id', None) or request.client_order_id}"
+            )
         self._execution_log(
             "SUBMIT_RESULT",
             symbol=request.symbol,
