@@ -16,18 +16,23 @@ def evaluate_orb_trigger(pattern_result, inputs):
     if not candles:
         return {
             "trigger_type": "XL_ORB_BREAK",
+            "trigger_state": "BLOCKED",
             "trigger_ready_now": False,
             "trigger_reason": "missing_candles",
         }
 
-    range_info = levels.get("active_breakout_range") if isinstance(levels.get("active_breakout_range"), dict) else {}
-    orh = _safe_float(range_info.get("upper"))
+    result_payload = pattern_result if isinstance(pattern_result, dict) else {}
+    orh = _safe_float(result_payload.get("trigger_level"))
     if orh is None:
-        key_levels = levels.get("key_levels") if isinstance(levels.get("key_levels"), dict) else {}
-        orh = _safe_float(key_levels.get("OPENING_RANGE_HIGH"))
+        orh = _safe_float(
+            result_payload.get("canonical_orh")
+            or result_payload.get("orb_trigger_level")
+            or result_payload.get("opening_range_high")
+        )
     if orh is None:
         return {
             "trigger_type": "XL_ORB_BREAK",
+            "trigger_state": "BLOCKED",
             "trigger_ready_now": False,
             "trigger_reason": "missing_orh",
         }
@@ -42,6 +47,7 @@ def evaluate_orb_trigger(pattern_result, inputs):
     if broke_and_held:
         return {
             "trigger_type": "XL_ORB_BREAK",
+            "trigger_state": "FIRED",
             "trigger_ready_now": True,
             "trigger_reason": "break_and_hold_above_orh",
         }
@@ -55,12 +61,14 @@ def evaluate_orb_trigger(pattern_result, inputs):
     if reclaimed:
         return {
             "trigger_type": "XL_ORB_RETEST",
+            "trigger_state": "FIRED",
             "trigger_ready_now": True,
             "trigger_reason": "retest_and_reclaim_orh",
         }
 
     return {
         "trigger_type": "XL_ORB_BREAK",
+        "trigger_state": "ARMED",
         "trigger_ready_now": False,
-        "trigger_reason": "orb_trigger_not_ready",
+        "trigger_reason": "orb_trigger_armed",
     }

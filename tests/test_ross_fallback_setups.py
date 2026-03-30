@@ -141,3 +141,46 @@ def test_pipeline_not_blocked_by_missing_patterns(monkeypatch, tmp_path) -> None
 
     assert intents
     assert intents[0].decision in {"TRADE_READY", "ARMED_WAITING_TRIGGER", "TRIGGER_FIRED_INTENT_EMITTED"}
+
+
+def test_logs_untrusted_fallback_selection(monkeypatch, tmp_path, capsys) -> None:
+    strategy = _base_strategy(monkeypatch, tmp_path, _hod_break_bars())
+    strategy._trusted_setup_families = ("OPENING_RANGE_BREAKOUT",)
+    monkeypatch.setattr(
+        strategy,
+        "_filter_trusted_setups",
+        lambda setups, *, symbol: [
+            {"setup_family_id": "OPENING_RANGE_BREAKOUT", "untrusted": False},
+            {"setup_family_id": "MICRO_PULLBACK", "untrusted": True},
+        ],
+    )
+    calls = {"count": 0}
+
+    def _decision_stub(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return {
+                "decision_state": "NO_CANDIDATE",
+                "selected_pattern_id": None,
+                "selected_setup_family": None,
+                "decision_reason": "trusted_setups_no_trigger",
+            }
+        return {
+            "decision_state": "CANDIDATE_SELECTED",
+            "selected_pattern_id": "S_MICRO_PULLBACK",
+            "selected_setup_family": "MICRO_PULLBACK",
+            "decision_reason": "fallback_selected",
+        }
+
+    monkeypatch.setattr(strategy._decision_engine, "compute_decision", _decision_stub)
+    strategy.process_watchlist(
+        watchlist=[_watchlist_row()],
+        snapshots={"TEST": _snapshot()},
+        session_label="PRE",
+        timestamp_utc="cycle-fallback-log",
+        mode=RunMode.LIVE,
+        session_phase="PRE",
+    )
+    out = capsys.readouterr().out
+    assert "[ROSS][DECISION_FALLBACK] symbol=TEST reason=trusted_setups_no_trigger" in out
+    assert "[ROSS][FALLBACK_SELECTED] symbol=TEST setup_family=MICRO_PULLBACK" in out

@@ -1005,6 +1005,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                 )
                 if str(fallback_decision.get("decision_state") or "").upper() == "CANDIDATE_SELECTED":
                     print(f"[ROSS][DECISION_FALLBACK] symbol={symbol} reason=trusted_setups_no_trigger")
+                    fallback_family = self._normalize_setup_family_id(fallback_decision.get("selected_setup_family"))
+                    trusted = {self._normalize_setup_family_id(item) for item in self._trusted_setup_families}
+                    if fallback_family and fallback_family not in trusted:
+                        print(f"[ROSS][FALLBACK_SELECTED] symbol={symbol} setup_family={fallback_family}")
                     decision = fallback_decision
             if str(decision.get("decision_state") or "").upper() == "CANDIDATE_SELECTED":
                 print(f"[DECISION][INTENT] symbol={symbol} decision=LONG")
@@ -1098,6 +1102,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 selected_pattern=best_pattern,
                 pattern_traces=pattern_traces,
                 session_label=session_label,
+                inputs=inputs,
             )
             confirm_reason = "confirmation_passed" if confirmation_passed else ",".join(blocking_reasons or ["confirmation_blocked"])
             print(f"[ROSS][CONFIRM] symbol={symbol} passed={confirmation_passed} reason={confirm_reason}")
@@ -1203,7 +1208,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 continue
 
             pipeline_trace("TRIGGER", symbol)
-            trade = self._build_trade_from_pattern(best_pattern, inputs)
+            trade = self._build_trade_from_pattern(best_pattern, inputs, selected_trigger=selected_trigger)
             if not trade:
                 print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=trade_structure")
                 print(f"[TRIGGER][REJECT] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
@@ -1323,44 +1328,14 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
 
-            intent: TradeIntent | None
-            if str(setup_family or "").upper() == "GAP_GO" and trigger_ready:
-                intent = TradeIntent(
-                    symbol=symbol,
-                    direction="LONG",
-                    strategy_name="RossMomentumStrategyV1",
-                    confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
-                    rationale="GAP_GO_TRIGGER",
-                    trader_type=self.trader_type,
-                    stop_loss_price=stop,
-                    invalidation_level=stop,
-                    pattern_name=best_pattern.pattern_id,
-                    setup_family_id="GAP_GO",
-                    trigger_id="confirmation_gate",
-                )
-                intent.entry_type = "BREAKOUT"
-                intent.setup_family = "GAP_GO"
-                print(
-                    "[TRADE_INTENT][GAP_GO] "
-                    f"symbol={symbol} confidence={float(getattr(best_pattern, 'confidence', 0.0) or 0.0):.4f}"
-                )
-                print("[TRADE_INTENT][GAP_GO] created=True")
-            else:
-                intent = TradeIntent(
-                    symbol=symbol,
-                    direction="LONG",
-                    strategy_name=self.name,
-                    confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
-                    rationale=(
-                        f"pattern_detected={best_pattern.pattern_id} | entry={entry:.4f} | stop={stop:.4f}"
-                    ),
-                    trader_type=self.trader_type,
-                    stop_loss_price=stop,
-                    invalidation_level=stop,
-                    pattern_name=best_pattern.pattern_id,
-                    setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
-                    trigger_id="confirmation_gate",
-                )
+            intent = self._build_trade_intent(
+                symbol=symbol,
+                best_pattern=best_pattern,
+                setup_family=setup_family,
+                trigger_ready=trigger_ready,
+                entry=entry,
+                stop=stop,
+            )
             print(f"[ROSS][INTENT_GUARD] symbol={symbol} trigger_ready={trigger_ready}")
             if trigger_ready and intent is None:
                 raise RuntimeError("CRITICAL: Trigger fired but no TradeIntent created")
@@ -1767,7 +1742,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         return None
 
     @staticmethod
-    def _build_trade_from_pattern(pattern, inputs):
+    def _build_trade_from_pattern(pattern, inputs, *, selected_trigger: dict | None = None):
         candles = list(getattr(inputs, "candles", []) or [])
         last_candle = candles[-1] if candles else None
         price = getattr(inputs, "last_price", None)
@@ -1778,9 +1753,9 @@ class RossMomentumStrategyV1(BaseStrategy):
         indicators = getattr(inputs, "indicators", None)
 
         if pattern.pattern_id == "P_ORB":
-            key_levels = getattr(levels, "key_levels", {}) or {}
-            entry = key_levels.get("OPENING_RANGE_HIGH") or key_levels.get("ORB_HIGH") or getattr(levels, "hod", None)
-            stop = key_levels.get("OPENING_RANGE_LOW") or key_levels.get("ORB_LOW") or getattr(levels, "lod", None)
+            trigger_payload = selected_trigger or {}
+            entry = trigger_payload.get("trigger_price_reference")
+            stop = trigger_payload.get("invalidation_price_reference")
         elif pattern.pattern_id in {"P_HOD_BREAK", "P_PREMKT_BREAK"}:
             entry = getattr(levels, "hod", None)
             stop = (entry * 0.97) if entry is not None else None
@@ -1815,6 +1790,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         selected_pattern,
         pattern_traces,
         session_label: str,
+        inputs,
     ) -> tuple[bool, list[str], list[str]]:
         print(
             "[ROSS][CONFIRMATION][START] "
@@ -1839,6 +1815,12 @@ class RossMomentumStrategyV1(BaseStrategy):
             session_label=session_label,
         ):
             blocking_reasons.append("not regular session")
+        orb_blocking, orb_warnings = self._evaluate_orb_confirmation_inputs(
+            selected_pattern_id=selected_pattern.pattern_id,
+            inputs=inputs,
+        )
+        blocking_reasons.extend(orb_blocking)
+        warnings.extend(orb_warnings)
         if blocking_reasons:
             first_failed = blocking_reasons[0]
             print(
@@ -1863,6 +1845,75 @@ class RossMomentumStrategyV1(BaseStrategy):
             f"blocking_reasons={blocking_reasons} warnings={warnings}"
         )
         return passed, blocking_reasons, warnings
+
+    def _evaluate_orb_confirmation_inputs(self, *, selected_pattern_id: str, inputs) -> tuple[list[str], list[str]]:
+        if str(selected_pattern_id).upper() != "P_ORB":
+            return [], []
+        blocking: list[str] = []
+        warnings: list[str] = []
+        candles = list(getattr(inputs, "candles", []) or [])
+        last_price = self._safe_float(getattr(candles[-1], "close", None)) if candles else None
+        indicators = getattr(inputs, "indicators", None)
+        vwap = self._safe_float(getattr(indicators, "vwap", None))
+        ema9 = self._safe_float(getattr(indicators, "ema9", None))
+        ema20 = self._safe_float(getattr(indicators, "ema20", None))
+        news_context = getattr(inputs, "news_context", {}) or {}
+        macd = self._safe_float(news_context.get("macd"))
+        if macd is None:
+            macd = self._safe_float(news_context.get("macd_hist"))
+        if vwap is not None and last_price is not None and last_price <= vwap:
+            blocking.append("orb_confirmation_below_vwap")
+        if macd is not None and macd <= 0:
+            blocking.append("orb_confirmation_negative_macd")
+        if ema9 is not None and ema20 is not None and ema9 <= ema20:
+            warnings.append("orb_confirmation_weak_ema_alignment")
+        return blocking, warnings
+
+    def _build_trade_intent(
+        self,
+        *,
+        symbol: str,
+        best_pattern,
+        setup_family: str,
+        trigger_ready: bool,
+        entry: float,
+        stop: float,
+    ) -> TradeIntent | None:
+        if str(setup_family or "").upper() == "GAP_GO" and trigger_ready:
+            intent = TradeIntent(
+                symbol=symbol,
+                direction="LONG",
+                strategy_name="RossMomentumStrategyV1",
+                confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
+                rationale="GAP_GO_TRIGGER",
+                trader_type=self.trader_type,
+                stop_loss_price=stop,
+                invalidation_level=stop,
+                pattern_name=best_pattern.pattern_id,
+                setup_family_id="GAP_GO",
+                trigger_id="confirmation_gate",
+            )
+            intent.entry_type = "BREAKOUT"
+            intent.setup_family = "GAP_GO"
+            print(
+                "[TRADE_INTENT][GAP_GO] "
+                f"symbol={symbol} confidence={float(getattr(best_pattern, 'confidence', 0.0) or 0.0):.4f}"
+            )
+            print("[TRADE_INTENT][GAP_GO] created=True")
+            return intent
+        return TradeIntent(
+            symbol=symbol,
+            direction="LONG",
+            strategy_name=self.name,
+            confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
+            rationale=f"pattern_detected={best_pattern.pattern_id} | entry={entry:.4f} | stop={stop:.4f}",
+            trader_type=self.trader_type,
+            stop_loss_price=stop,
+            invalidation_level=stop,
+            pattern_name=best_pattern.pattern_id,
+            setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
+            trigger_id="confirmation_gate",
+        )
 
     def _session_guard_passed(self, *, symbol: str, pattern: str, session_label: str) -> bool:
         allowed_sessions = self._session_allowlist_by_pattern.get(pattern)
