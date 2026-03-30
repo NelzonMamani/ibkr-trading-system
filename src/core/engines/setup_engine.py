@@ -2,11 +2,30 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.strategies.common.candles.candle_types import Candle
+from src.strategies.ross_momentum.patterns.pattern_inputs import (
+    IndicatorSet,
+    LevelSet,
+    LiquidityContext,
+    PatternInputs,
+)
+from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
+from src.strategies.ross_momentum.patterns.pattern_types import PatternResult
+from src.strategies.strategy_contracts import SessionContext
+
 
 class SetupEngine:
-    """Shared setup engine translating level + structure context into setup candidates."""
+    """Shared setup engine delegating setup detection to the Ross pattern registry."""
 
-    _ROUNDING = 6
+    _SESSION_ALIASES: dict[str, SessionContext] = {
+        "PRE": SessionContext.PRE,
+        "PREMARKET": SessionContext.PRE,
+        "REGULAR": SessionContext.REGULAR,
+        "RTH": SessionContext.REGULAR,
+        "AFTER": SessionContext.AFTER,
+        "POST": SessionContext.AFTER,
+        "AFTER_HOURS": SessionContext.AFTER,
+    }
 
     def compute_setups(
         self,
@@ -14,221 +33,110 @@ class SetupEngine:
         levels: dict,
         structure: dict,
         *,
-        session_context: str | None = None,
+        symbol: str = "UNKNOWN",
+        timeframe: str = "1m",
+        session_context: str | SessionContext | None = None,
         tradability_context: dict | None = None,
     ) -> list[dict]:
+        print(f"[SETUP_ENGINE][CALL] symbol={symbol}")
+
         normalized_levels = levels if isinstance(levels, dict) else {}
         normalized_structure = structure if isinstance(structure, dict) else {}
-        last_close = self._last_close(candles)
-        last_high = self._last_high(candles)
-        if last_close is None:
-            print("[SETUP_ENGINE] no setups: missing_last_close")
-            return []
+        normalized_tradability = tradability_context if isinstance(tradability_context, dict) else {}
 
-        setups: list[dict] = []
-
-        def add_candidate(setup: dict | None) -> None:
-            if not setup:
-                return
-            setups.append(setup)
-
-        trend = str(normalized_structure.get("trend") or "").upper()
-        trend_allows_long = trend in {"UP", "UNKNOWN"}
-        trend_quality_flags = ["LOW_STRUCTURE_CONFIDENCE"] if trend == "UNKNOWN" else []
-        premarket_high = self._safe_float(normalized_levels.get("premarket_high"))
-        hod = self._safe_float(normalized_levels.get("hod"))
-        vwap = self._safe_float(normalized_levels.get("vwap"))
-        ema9 = self._safe_float(normalized_levels.get("ema_9") or normalized_levels.get("ema9"))
-        range_info = normalized_levels.get("active_breakout_range") if isinstance(normalized_levels.get("active_breakout_range"), dict) else {}
-        range_upper = self._safe_float((range_info or {}).get("upper"))
-        range_lower = self._safe_float((range_info or {}).get("lower"))
-        pullback_depth = self._safe_float((normalized_structure.get("pullback_depth") or {}).get("pct"))
-
-        add_candidate(
-            self._setup_break(
-                family="PREMARKET_HIGH_BREAK",
-                name="Premarket High Break",
-                direction="LONG",
-                rationale="Price pressing through premarket high.",
-                confidence=0.64,
-                trigger_types=["PMH_BREAK", "BREAKOUT_HIGH"],
-                invalidation_anchor="premarket_low",
-                condition=(premarket_high is not None and last_close >= premarket_high),
-                levels=normalized_levels,
-                quality_flags=["LEVEL_CONFLUENCE"] if premarket_high is not None else ["MISSING_PMH"],
-                blocking_flags=[] if premarket_high is not None else ["MISSING_PREMARKET_HIGH"],
-            )
+        pattern_inputs = PatternInputs(
+            symbol=str(symbol),
+            timeframe=str(timeframe),
+            candles=self._coerce_candles(candles),
+            session_context=self._normalize_session_context(session_context),
+            levels=self._build_level_set(normalized_levels),
+            indicators=self._build_indicator_set(normalized_levels),
+            liquidity_context=self._build_liquidity_context(normalized_tradability),
+            data_quality_flags=list(normalized_structure.get("structure_quality_flags") or []),
         )
 
-        add_candidate(
-            self._setup_break(
-                family="OPENING_RANGE_BREAKOUT",
-                name="Opening Range Breakout",
-                direction="LONG",
-                rationale="Break above active opening range upper bound.",
-                confidence=0.62,
-                trigger_types=["RANGE_BREAK", "BREAK_AND_HOLD"],
-                invalidation_anchor="active_breakout_range.lower",
-                condition=(range_upper is not None and last_close >= range_upper),
-                levels=normalized_levels,
-                quality_flags=[],
-                blocking_flags=[] if range_upper is not None else ["MISSING_ACTIVE_BREAKOUT_RANGE"],
-            )
-        )
+        registry = RossPatternRegistry()
+        pattern_results = registry.run(pattern_inputs)
+        setups = [self._to_setup_result(result) for result in pattern_results if result.detected]
 
-        add_candidate(
-            self._setup_break(
-                family="FIRST_PULLBACK",
-                name="First Pullback Continuation",
-                direction="LONG",
-                rationale="Trend up with controlled pullback depth and reclaim posture.",
-                confidence=0.66,
-                trigger_types=["PULLBACK_HIGH_BREAK", "RECLAIM"],
-                invalidation_anchor="pullback_low",
-                condition=(
-                    trend_allows_long
-                    and bool(normalized_structure.get("pullback_active"))
-                    and pullback_depth is not None
-                    and pullback_depth <= 0.55
-                ),
-                levels=normalized_levels,
-                quality_flags=[*trend_quality_flags],
-                blocking_flags=[] if trend_allows_long else ["TREND_NOT_UP"],
-            )
-        )
-
-        add_candidate(
-            self._setup_break(
-                family="MICRO_PULLBACK",
-                name="Micro Pullback",
-                direction="LONG",
-                rationale="Uptrend micro pause with compression and impulse potential.",
-                confidence=0.58,
-                trigger_types=["PULLBACK_HIGH_BREAK"],
-                invalidation_anchor="micro_pullback_low",
-                condition=(trend_allows_long and bool(normalized_structure.get("compression_active"))),
-                levels=normalized_levels,
-                quality_flags=["MICRO_STRUCTURE", *trend_quality_flags],
-                blocking_flags=[] if trend_allows_long else ["TREND_NOT_UP"],
-            )
-        )
-
-        add_candidate(
-            self._setup_break(
-                family="BULL_FLAG",
-                name="Bull Flag",
-                direction="LONG",
-                rationale="Impulse + orderly consolidation suggests continuation flag.",
-                confidence=0.6,
-                trigger_types=["RANGE_BREAK", "BREAK_AND_HOLD"],
-                invalidation_anchor="flag_low",
-                condition=(
-                    trend_allows_long
-                    and bool(normalized_structure.get("consolidation_active"))
-                    and bool(normalized_structure.get("impulse_active"))
-                ),
-                levels=normalized_levels,
-                quality_flags=[*trend_quality_flags],
-                blocking_flags=[] if trend_allows_long else ["TREND_NOT_UP"],
-            )
-        )
-
-        flat_top_level = self._safe_float(normalized_levels.get("resistance_levels", [None])[-1] if normalized_levels.get("resistance_levels") else None)
-        add_candidate(
-            self._setup_break(
-                family="FLAT_TOP_BREAKOUT",
-                name="Flat Top Breakout",
-                direction="LONG",
-                rationale="Range ceiling repeatedly tested; breakout candidate.",
-                confidence=0.59,
-                trigger_types=["BREAKOUT_HIGH", "RANGE_BREAK"],
-                invalidation_anchor="range_floor",
-                condition=(flat_top_level is not None and last_close >= flat_top_level),
-                levels=normalized_levels,
-                quality_flags=["RANGE_PRESSURE"],
-                blocking_flags=[] if flat_top_level is not None else ["MISSING_FLAT_TOP_LEVEL"],
-            )
-        )
-
-        add_candidate(
-            self._setup_break(
-                family="HOD_BREAK",
-                name="High Of Day Break",
-                direction="LONG",
-                rationale="High of day breach under positive momentum.",
-                confidence=0.67,
-                trigger_types=["HOD_BREAK", "BREAKOUT_HIGH"],
-                invalidation_anchor="prior_pivot_low",
-                condition=(hod is not None and ((last_close is not None and last_close >= hod) or (last_high is not None and last_high >= hod))),
-                levels=normalized_levels,
-                quality_flags=[],
-                blocking_flags=[] if hod is not None else ["MISSING_HOD"],
-            )
-        )
-
-        prev_close = self._previous_close(candles)
-        add_candidate(
-            self._setup_break(
-                family="VWAP_RECLAIM_CONTINUATION",
-                name="VWAP Reclaim Continuation",
-                direction="LONG",
-                rationale="Price reclaimed VWAP and held above.",
-                confidence=0.61,
-                trigger_types=["RECLAIM", "BREAK_AND_HOLD"],
-                invalidation_anchor="vwap",
-                condition=(vwap is not None and prev_close is not None and prev_close < vwap and last_close > vwap),
-                levels=normalized_levels,
-                quality_flags=[] if vwap is not None else ["MISSING_VWAP"],
-                blocking_flags=[] if vwap is not None else ["MISSING_VWAP"],
-            )
-        )
-
-        add_candidate(
-            self._setup_break(
-                family="CONSOLIDATION_BREAKOUT",
-                name="Consolidation Breakout",
-                direction="LONG",
-                rationale="Tight range resolved with directional expansion.",
-                confidence=0.57,
-                trigger_types=["RANGE_BREAK", "BREAKOUT_HIGH"],
-                invalidation_anchor="consolidation_low",
-                condition=(
-                    bool(normalized_structure.get("consolidation_active"))
-                    and range_upper is not None
-                    and last_close >= range_upper
-                ),
-                levels=normalized_levels,
-                quality_flags=[],
-                blocking_flags=[] if range_upper is not None else ["MISSING_ACTIVE_BREAKOUT_RANGE"],
-            )
-        )
-
-        for setup in setups:
-            setup["session_context"] = str(session_context or "UNKNOWN").upper()
-            setup["tradability_context"] = dict(tradability_context or {})
-            setup["structure_context"] = {
-                "trend": normalized_structure.get("trend"),
-                "dominant_direction": normalized_structure.get("dominant_direction"),
-                "impulse_active": bool(normalized_structure.get("impulse_active")),
-                "consolidation_active": bool(normalized_structure.get("consolidation_active")),
-                "pullback_active": bool(normalized_structure.get("pullback_active")),
-                "compression_active": bool(normalized_structure.get("compression_active")),
-            }
-            setup["levels_context"] = {
-                "premarket_high": normalized_levels.get("premarket_high"),
-                "premarket_low": normalized_levels.get("premarket_low"),
-                "hod": normalized_levels.get("hod"),
-                "lod": normalized_levels.get("lod"),
-                "vwap": normalized_levels.get("vwap"),
-                "active_breakout_range": normalized_levels.get("active_breakout_range"),
-            }
-            if ema9 is None:
-                setup["quality_flags"].append("EMA9_MISSING")
-        print(
-            "[SETUP_ENGINE] "
-            f"produced={len(setups)} families={[item.get('setup_family_id') for item in setups]}"
-        )
+        print(f"[SETUP_ENGINE][RESULT] symbol={symbol} setups={len(setups)}")
         return setups
+
+    def _coerce_candles(self, candles: list) -> list[Candle]:
+        converted: list[Candle] = []
+        for candle in candles or []:
+            if isinstance(candle, Candle):
+                converted.append(candle)
+                continue
+            open_ = self._safe_float(self._read(candle, "open"))
+            high = self._safe_float(self._read(candle, "high"))
+            low = self._safe_float(self._read(candle, "low"))
+            close = self._safe_float(self._read(candle, "close"))
+            volume = self._safe_float(self._read(candle, "volume"))
+            if None in (open_, high, low, close, volume):
+                continue
+            converted.append(
+                Candle(
+                    open=open_,
+                    high=high,
+                    low=low,
+                    close=close,
+                    volume=volume,
+                    timestamp=self._read(candle, "timestamp"),
+                )
+            )
+        return converted
+
+    def _normalize_session_context(self, session_context: str | SessionContext | None) -> SessionContext:
+        if isinstance(session_context, SessionContext):
+            return session_context
+        key = str(session_context or "REGULAR").upper()
+        return self._SESSION_ALIASES.get(key, SessionContext.REGULAR)
+
+    def _build_level_set(self, levels: dict) -> LevelSet:
+        key_levels = levels.get("key_levels") if isinstance(levels.get("key_levels"), dict) else {}
+        return LevelSet(
+            premarket_high=self._safe_float(levels.get("premarket_high")),
+            premarket_low=self._safe_float(levels.get("premarket_low")),
+            hod=self._safe_float(levels.get("hod")),
+            lod=self._safe_float(levels.get("lod")),
+            prior_close=self._safe_float(levels.get("prior_close")),
+            key_levels={str(k): float(v) for k, v in key_levels.items() if self._safe_float(v) is not None},
+        )
+
+    def _build_indicator_set(self, levels: dict) -> IndicatorSet:
+        return IndicatorSet(
+            ema9=self._safe_float(levels.get("ema_9") or levels.get("ema9")),
+            ema20=self._safe_float(levels.get("ema_20") or levels.get("ema20")),
+            ema50=self._safe_float(levels.get("ema_50") or levels.get("ema50")),
+            ema200=self._safe_float(levels.get("ema_200") or levels.get("ema200")),
+            vwap=self._safe_float(levels.get("vwap")),
+        )
+
+    def _build_liquidity_context(self, tradability_context: dict) -> LiquidityContext:
+        return LiquidityContext(
+            spread=self._safe_float(tradability_context.get("spread")),
+            float_millions=self._safe_float(tradability_context.get("float_millions")),
+            rvol=self._safe_float(tradability_context.get("rvol")),
+        )
+
+    def _to_setup_result(self, pattern_result: PatternResult) -> dict:
+        trigger_type = str(pattern_result.trigger_type or "BREAKOUT_HIGH").upper()
+        return {
+            "setup_family_id": str(pattern_result.setup_family_id or pattern_result.setup_id),
+            "setup_family": str(pattern_result.setup_id),
+            "setup_name": str(pattern_result.pattern_name),
+            "pattern_name": str(pattern_result.pattern_name),
+            "direction": str(pattern_result.direction.value if hasattr(pattern_result.direction, "value") else pattern_result.direction),
+            "rationale": str(pattern_result.rationale_text or ""),
+            "confidence": float(pattern_result.confidence),
+            "quality_flags": sorted({*list(pattern_result.setup_quality_tags or []), *list(pattern_result.tags or [])}),
+            "risk_flags": list(pattern_result.risk_flags or []),
+            "required_trigger_types": [trigger_type],
+            "trigger_level": self._safe_float(pattern_result.trigger_level),
+            "invalidation_level": self._safe_float(pattern_result.invalidation_level),
+            "invalidation_anchor": "pattern_stop" if pattern_result.invalidation_level is not None else "STRUCTURE",
+        }
 
     @staticmethod
     def _read(item: Any, field: str) -> Any:
@@ -242,92 +150,3 @@ class SetupEngine:
             return None if value is None else float(value)
         except (TypeError, ValueError):
             return None
-
-    def _last_close(self, candles: list) -> float | None:
-        if not candles:
-            return None
-        return self._safe_float(self._read(candles[-1], "close"))
-
-    def _previous_close(self, candles: list) -> float | None:
-        if len(candles) < 2:
-            return None
-        return self._safe_float(self._read(candles[-2], "close"))
-
-    def _last_high(self, candles: list) -> float | None:
-        if not candles:
-            return None
-        return self._safe_float(self._read(candles[-1], "high"))
-
-    def _setup_break(
-        self,
-        *,
-        family: str,
-        name: str,
-        direction: str,
-        rationale: str,
-        confidence: float,
-        trigger_types: list[str],
-        invalidation_anchor: str,
-        condition: bool,
-        levels: dict,
-        quality_flags: list[str],
-        blocking_flags: list[str],
-    ) -> dict | None:
-        if not condition:
-            return None
-        setup = {
-            "setup_family_id": family,
-            "setup_family": family,
-            "setup_name": name,
-            "pattern_name": name,
-            "direction": direction,
-            "rationale": rationale,
-            "confidence": round(max(0.0, min(1.0, confidence)), self._ROUNDING),
-            "quality_flags": sorted(set(str(flag) for flag in quality_flags if flag)),
-            "blocking_flags": sorted(set(str(flag) for flag in blocking_flags if flag)),
-            "invalidation_anchor": invalidation_anchor,
-            "invalidation_level": self._resolve_invalidation_level(invalidation_anchor=invalidation_anchor, levels=levels),
-            "required_trigger_types": [str(t).upper() for t in trigger_types],
-            # backward compatibility fields expected by some existing consumers
-            "context": "continuation" if "PULLBACK" in family or "RECLAIM" in family else "breakout",
-            "trigger_level": self._primary_trigger_level(family=family, levels=levels),
-            "confidence_label": "HIGH" if confidence >= 0.67 else ("MEDIUM" if confidence >= 0.55 else "LOW"),
-        }
-        return setup
-
-    def _resolve_invalidation_level(self, *, invalidation_anchor: str, levels: dict) -> float | None:
-        mapping = {
-            "premarket_low": "premarket_low",
-            "vwap": "vwap",
-            "active_breakout_range.lower": "active_breakout_range.lower",
-            "range_floor": "active_breakout_range.lower",
-        }
-        key = mapping.get(str(invalidation_anchor or "").lower())
-        if not key:
-            return None
-        if "." in key:
-            root, child = key.split(".", 1)
-            payload = levels.get(root, {}) if isinstance(levels.get(root), dict) else {}
-            return self._safe_float(payload.get(child))
-        return self._safe_float(levels.get(key))
-
-    def _primary_trigger_level(self, *, family: str, levels: dict) -> float | None:
-        mapping = {
-            "PREMARKET_HIGH_BREAK": "premarket_high",
-            "HOD_BREAK": "hod",
-            "VWAP_RECLAIM_CONTINUATION": "vwap",
-            "OPENING_RANGE_BREAKOUT": "active_breakout_range.upper",
-            "CONSOLIDATION_BREAKOUT": "active_breakout_range.upper",
-            "FLAT_TOP_BREAKOUT": "hod",
-            "BULL_FLAG": "active_breakout_range.upper",
-            "FIRST_PULLBACK": "ema_9",
-            "MICRO_PULLBACK": "ema_9",
-        }
-        key = mapping.get(family)
-        if not key:
-            return None
-        if "." in key:
-            root, child = key.split(".", 1)
-            payload = levels.get(root, {}) if isinstance(levels.get(root), dict) else {}
-            return self._safe_float(payload.get(child))
-        return self._safe_float(levels.get(key))
