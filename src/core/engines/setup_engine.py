@@ -123,22 +123,10 @@ class SetupEngine:
         )
 
         add_candidate(
-            self._setup_break(
-                family="BULL_FLAG",
-                name="Bull Flag",
-                direction="LONG",
-                rationale="Impulse + orderly consolidation suggests continuation flag.",
-                confidence=0.6,
-                trigger_types=["RANGE_BREAK", "BREAK_AND_HOLD"],
-                invalidation_anchor="flag_low",
-                condition=(
-                    trend_allows_long
-                    and bool(normalized_structure.get("consolidation_active"))
-                    and bool(normalized_structure.get("impulse_active"))
-                ),
-                levels=normalized_levels,
-                quality_flags=[*trend_quality_flags],
-                blocking_flags=[] if trend_allows_long else ["TREND_NOT_UP"],
+            self._detect_bull_flag(
+                candles=candles,
+                structure=normalized_structure,
+                symbol=symbol_label,
             )
         )
 
@@ -235,12 +223,105 @@ class SetupEngine:
             }
             if ema9 is None:
                 setup["quality_flags"].append("EMA9_MISSING")
+        if not setups:
+            return [
+                {
+                    "setup_family_id": "NONE",
+                    "setup_detected": False,
+                    "setup_context": {"reason": "NO_VALID_BULL_FLAG"},
+                }
+            ]
         print(
             "[SETUP_ENGINE] "
             f"symbol={symbol_label} timeframe={timeframe_label} produced={len(setups)} "
             f"families={[item.get('setup_family_id') for item in setups]}"
         )
         return setups
+
+    def _detect_bull_flag(self, *, candles: list, structure: dict, symbol: str) -> dict | None:
+        print(f"[SETUP][BULL_FLAG][EVAL] symbol={symbol}")
+        if len(candles) < 10:
+            return None
+        if str(structure.get("trend") or "").upper() != "UP":
+            return None
+        impulse = structure.get("last_impulse_leg")
+        if not impulse:
+            return None
+
+        impulse_start = self._safe_float(self._read(impulse, "start_price"))
+        impulse_end = self._safe_float(self._read(impulse, "end_price"))
+        impulse_bars_raw = self._read(impulse, "duration_bars")
+        try:
+            impulse_bars = int(impulse_bars_raw) if impulse_bars_raw is not None else 0
+        except (TypeError, ValueError):
+            impulse_bars = 0
+        if impulse_start is None or impulse_end is None or impulse_start <= 0:
+            return None
+        impulse_pct = (impulse_end - impulse_start) / impulse_start
+        if impulse_pct < 0.05 or impulse_bars < 3:
+            return None
+
+        pullback = structure.get("pullback")
+        if not isinstance(pullback, dict):
+            return None
+        pullback_depth = self._safe_float(pullback.get("depth_pct"))
+        is_higher_low = bool(pullback.get("is_higher_low"))
+        if pullback_depth is None or pullback_depth > 0.5 or not is_higher_low:
+            return None
+
+        last_five = candles[-5:]
+        last_5_ranges = sum(
+            max(0.0, (self._safe_float(self._read(c, "high")) or 0.0) - (self._safe_float(self._read(c, "low")) or 0.0))
+            for c in last_five
+        ) / len(last_five)
+        impulse_slice_end = max(0, len(candles) - 5)
+        impulse_slice_start = max(0, impulse_slice_end - impulse_bars)
+        impulse_candles = candles[impulse_slice_start:impulse_slice_end]
+        if len(impulse_candles) < 1:
+            return None
+        impulse_ranges = sum(
+            max(0.0, (self._safe_float(self._read(c, "high")) or 0.0) - (self._safe_float(self._read(c, "low")) or 0.0))
+            for c in impulse_candles
+        ) / len(impulse_candles)
+        if not (last_5_ranges < impulse_ranges):
+            return None
+
+        flag_high = max(self._safe_float(self._read(c, "high")) or 0.0 for c in last_five)
+        flag_low = min(self._safe_float(self._read(c, "low")) or 0.0 for c in last_five)
+
+        impulse_volumes = [self._safe_float(self._read(c, "volume")) for c in impulse_candles]
+        flag_volumes = [self._safe_float(self._read(c, "volume")) for c in last_five]
+        if all(v is not None for v in impulse_volumes) and all(v is not None for v in flag_volumes):
+            avg_volume_impulse = sum(v for v in impulse_volumes if v is not None) / len(impulse_volumes)
+            avg_volume_flag = sum(v for v in flag_volumes if v is not None) / len(flag_volumes)
+            volume_quality_flag = "VOLUME_FLAG_OK" if avg_volume_flag < avg_volume_impulse else "VOLUME_FLAG_WEAK"
+        else:
+            volume_quality_flag = "VOLUME_MISSING"
+
+        print(f"[SETUP][BULL_FLAG][DETECTED] symbol={symbol} trigger={flag_high}")
+        return {
+            "setup_family_id": "BULL_FLAG",
+            "setup_family": "BULL_FLAG",
+            "setup_name": "Bull Flag",
+            "pattern_name": "Bull Flag",
+            "direction": "LONG",
+            "setup_detected": True,
+            "required_trigger_types": ["XL_FLAG_BREAK"],
+            "setup_quality": {
+                "score": min(1.0, impulse_pct * 2),
+                "impulse_strength": impulse_pct,
+                "pullback_quality": 1.0 - pullback_depth,
+                "compression_quality": impulse_ranges / (last_5_ranges + 1e-6),
+            },
+            "quality_flags": [volume_quality_flag],
+            "trigger_level": flag_high,
+            "context": {
+                "impulse_start": impulse_start,
+                "impulse_end": impulse_end,
+                "pullback_low": flag_low,
+                "flag_high": flag_high,
+            },
+        }
 
     @staticmethod
     def _read(item: Any, field: str) -> Any:
