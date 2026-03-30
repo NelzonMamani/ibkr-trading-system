@@ -1771,13 +1771,26 @@ class CoreOrchestrator:
         scanner_kept_count = len(scanner_keep_symbols)
         pipeline_audit = PipelineAudit(self._current_cycle_id or str(uuid4()))
         pipeline_audit.mark_kept(scanner_keep_symbols)
+        focus_rvol_threshold = float(get_config("FOCUS_RVOL_MIN") or 0.0)
+        print(f"[FOCUS][RVOL_THRESHOLD] value={focus_rvol_threshold}")
         print(f"[WATCHLIST][FINAL] size={len(watchlist_symbols)} symbols={watchlist_symbols}")
         print(f"[FOCUS][CANDIDATES] symbols={watchlist_symbols}")
         print(f"[FOCUS][SELECTED] symbols={final_evaluation_symbols}")
         final_focus_set = {s.upper() for s in final_evaluation_symbols}
         watchlist_set = {s.upper() for s in watchlist_symbols}
+        rvol_by_symbol = {
+            str(getattr(candidate, "symbol", "")).upper(): getattr(candidate, "rvol", None)
+            for candidate in selected_observations
+            if str(getattr(candidate, "symbol", "")).strip()
+        }
         for symbol in scanner_keep_symbols:
             symbol_upper = symbol.upper()
+            symbol_rvol = rvol_by_symbol.get(symbol_upper)
+            focus_result = "PASS" if symbol_upper in final_focus_set else "FAIL"
+            print(
+                "[FOCUS][SYMBOL] "
+                f"symbol={symbol} result={focus_result} rvol={symbol_rvol} threshold={focus_rvol_threshold}"
+            )
             if symbol_upper not in watchlist_set:
                 print(f"[FOCUS][REJECT] symbol={symbol} reason=SCANNER_KEEP_NOT_IN_WATCHLIST")
                 pipeline_audit.record(symbol, TerminalOutcome.NOT_IN_FOCUS, "SCANNER_KEEP_NOT_IN_WATCHLIST", "watchlist")
@@ -1806,7 +1819,30 @@ class CoreOrchestrator:
                 for candidate in strategy_watchlist
                 if str(getattr(candidate, "symbol", "")).upper() in focus_only
             ]
+        if final_evaluation_symbols and not strategy_watchlist:
+            lookup_candidates = list(selected_focus) + list(selected_watchlist) + list(selected_observations)
+            lookup_by_symbol = {
+                str(getattr(candidate, "symbol", "")).upper(): candidate
+                for candidate in lookup_candidates
+                if str(getattr(candidate, "symbol", "")).strip()
+            }
+            strategy_watchlist = [
+                lookup_by_symbol[symbol.upper()]
+                for symbol in final_evaluation_symbols
+                if symbol.upper() in lookup_by_symbol
+            ]
+            print(
+                "[FOCUS][HANDOFF_RECOVERY] "
+                f"requested={len(final_evaluation_symbols)} recovered={len(strategy_watchlist)}"
+            )
         strategy_evaluation_symbols = self._symbols_from_candidates(strategy_watchlist)
+        print(
+            "[PIPELINE] "
+            f"scanner_count={scanner_kept_count} "
+            f"focus_count={len(final_evaluation_symbols)} "
+            f"strategy_input_count={len(strategy_evaluation_symbols)}"
+        )
+        print(f"[STRATEGY_RUNNER][RECEIVE] symbols={strategy_evaluation_symbols}")
         print(f"[ORCHESTRATOR][DISPATCH] passing {len(strategy_evaluation_symbols)} symbols to strategy")
         strategy_inputs = strategy_watchlist
         if not final_evaluation_symbols and strategy_evaluation_symbols:
@@ -1822,6 +1858,12 @@ class CoreOrchestrator:
             final_evaluation_symbols = fallback_symbols
             focus_source = "FALLBACK_FROM_WATCHLIST"
         print(f"[FOCUS_FINAL] count={len(final_evaluation_symbols)} symbols={final_evaluation_symbols}")
+        if not final_evaluation_symbols:
+            print(
+                "[FOCUS][EMPTY_REASON] "
+                f"watchlist_count={len(watchlist_symbols)} auto_focus_count={len(auto_focus_symbols)} "
+                f"manual_focus_count={len(manual_focus_accepted_symbols)}"
+            )
         scanner_payload = locals().get("scanner_watchlist_payload") or {}
         focus_evaluated = int(scanner_payload.get("focus_evaluated", 0))
         focus_passed = int(scanner_payload.get("focus_passed", len(final_evaluation_symbols)) or 0)
@@ -1843,6 +1885,7 @@ class CoreOrchestrator:
             print("[VALIDATION_OVERRIDE] Forcing strategy execution despite session restrictions")
         for symbol in self._symbols_from_candidates(strategy_watchlist):
             print(f"[STRATEGY] runner=ross_momentum symbol={symbol} stage=evaluate")
+            print(f"[ROSS][SYMBOL_EVAL][START] symbol={symbol} source=orchestrator_handoff")
         if strategy_watchlist:
             print("[STRATEGY][FORCED_EXECUTION] invoking StrategyRunner regardless of session")
             print("[ROSS][PROCESS_START]")
