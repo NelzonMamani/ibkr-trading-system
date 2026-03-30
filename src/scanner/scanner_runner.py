@@ -1495,20 +1495,22 @@ def _evaluate_focus_gates(
         effective_premarket_volume = premarket_volume if premarket_volume is not None else volume
         now_ny = datetime.now(NY_TZ)
         premarket_threshold = _resolve_premarket_volume_threshold(now_ny.time(), thresholds)
-        decision = "PASS" if effective_premarket_volume is not None and effective_premarket_volume >= premarket_threshold else "FAIL"
+        relaxed_premarket_threshold = premarket_threshold * 0.2
+        decision = "PASS" if effective_premarket_volume is not None and effective_premarket_volume >= relaxed_premarket_threshold else "FAIL"
         print(
             "[VOLUME_GATE_POLICY] "
             f"session={session} time_ny={now_ny.strftime('%H:%M')} "
-            f"threshold={int(premarket_threshold)} symbol_volume={int(effective_premarket_volume or 0)} "
+            f"threshold={int(premarket_threshold)} relaxed_threshold={int(relaxed_premarket_threshold)} "
+            f"symbol_volume={int(effective_premarket_volume or 0)} "
             f"decision={decision}"
         )
-        if effective_premarket_volume is None or effective_premarket_volume < premarket_threshold:
+        if effective_premarket_volume is None or effective_premarket_volume < relaxed_premarket_threshold:
             _log_focus_volume_drop(
                 context=context,
                 stage="focus",
                 compared_field="premarket_volume",
-                threshold=float(premarket_threshold),
-                threshold_source="policy.session_aware_premarket_volume",
+                threshold=float(relaxed_premarket_threshold),
+                threshold_source="policy.session_aware_premarket_volume_relaxed",
             )
             print(f"[ROSS][GATE] symbol={context.get('symbol')} premarket_volume={int(effective_premarket_volume or 0)} FAIL")
             return "DROP_PREMARKET_VOLUME"
