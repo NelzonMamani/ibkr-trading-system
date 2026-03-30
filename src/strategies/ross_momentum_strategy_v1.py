@@ -75,6 +75,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         "HOD_BREAK",
         "VWAP_RECLAIM_CONTINUATION",
         "FIRST_PULLBACK",
+        "MICRO_PULLBACK",
     )
 
     def __init__(self) -> None:
@@ -293,6 +294,21 @@ class RossMomentumStrategyV1(BaseStrategy):
     def _is_rth_session(session_label: str | None) -> bool:
         session = str(session_label or "").upper()
         return session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE", "REG", "REGULAR", "POWER_HOUR", "LATE"}
+
+    @staticmethod
+    def _classify_execution_mode(session_label: str | None) -> str:
+        session = str(session_label or "").upper()
+        if session in {"PRE", "RTH_OPEN"}:
+            return "EARLY_FAST"
+        if session in {"RTH_LATE", "POWER_HOUR", "LATE"}:
+            return "LATE_SESSION"
+        return "NORMAL_INTRADAY"
+
+    @staticmethod
+    def _resolve_execution_refinement_mode(selected_trigger: dict | None) -> str:
+        if not isinstance(selected_trigger, dict):
+            return "NONE"
+        return str(selected_trigger.get("execution_refinement_mode") or "NONE").upper()
 
     def _is_strong_momentum(self, ctx) -> bool:
         pct_change = self._safe_float(getattr(ctx, "pct_change", None))
@@ -1027,6 +1043,16 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"symbol={symbol} setup_family={decision.get('selected_setup_family')} "
                 f"trigger_id={selected_trigger.get('trigger_type') if selected_trigger else 'UNMAPPED'}"
             )
+            execution_mode = self._classify_execution_mode(input_summary.session_context)
+            execution_refinement_mode = self._resolve_execution_refinement_mode(selected_trigger)
+            print(
+                "[ROSS][EXECUTION_MODE] "
+                f"symbol={symbol} mode={execution_mode} session={input_summary.session_context}"
+            )
+            print(
+                "[ROSS][EXECUTION_REFINEMENT] "
+                f"symbol={symbol} mode={execution_refinement_mode}"
+            )
             print(
                 "[ROSS][DECISION_ENGINE] "
                 f"symbol={symbol} state={decision['decision_state']} "
@@ -1336,6 +1362,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 trigger_ready=trigger_ready,
                 entry=entry,
                 stop=stop,
+                execution_refinement_mode=execution_refinement_mode,
             )
             print(f"[ROSS][INTENT_GUARD] symbol={symbol} trigger_ready={trigger_ready}")
             if trigger_ready and intent is None:
@@ -1378,7 +1405,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             print(
                 "[INTENT][CREATE] "
                 f"symbol={symbol} pattern={best_pattern.pattern_id} trigger={intent.trigger_id} "
-                f"entry={intent.entry_price} stop={intent.stop_loss_price}"
+                f"entry={intent.entry_price} stop={intent.stop_loss_price} refinement={getattr(intent, 'execution_refinement_mode', None)}"
             )
             print(
                 "[ROSS][INTENT][EMIT] "
@@ -1744,44 +1771,44 @@ class RossMomentumStrategyV1(BaseStrategy):
 
     @staticmethod
     def _build_trade_from_pattern(pattern, inputs, *, selected_trigger: dict | None = None):
-        candles = list(getattr(inputs, "candles", []) or [])
-        last_candle = candles[-1] if candles else None
-        price = getattr(inputs, "last_price", None)
-        if price is None and last_candle is not None:
-            price = getattr(last_candle, "close", None)
-
         levels = getattr(inputs, "levels", None)
-        indicators = getattr(inputs, "indicators", None)
+        trigger_payload = selected_trigger or {}
+        entry = trigger_payload.get("trigger_price_reference")
+        if entry is None:
+            entry = trigger_payload.get("trigger_level")
+        stop = trigger_payload.get("invalidation_price_reference")
+        if stop is None:
+            stop = trigger_payload.get("invalidation_level")
+        if stop is None:
+            stop = trigger_payload.get("stop_level")
 
-        if pattern.pattern_id == "P_ORB":
-            trigger_payload = selected_trigger or {}
-            entry = trigger_payload.get("trigger_price_reference")
-            stop = trigger_payload.get("invalidation_price_reference")
-        elif pattern.pattern_id in {"P_HOD_BREAK", "P_PREMKT_BREAK"}:
-            entry = getattr(levels, "hod", None)
-            stop = (entry * 0.97) if entry is not None else None
-        elif pattern.pattern_id in {"P_MICRO_PULLBACK", "P_FIRST_PULLBACK"}:
-            trigger_payload = selected_trigger or {}
-            entry = trigger_payload.get("trigger_price_reference")
-            stop = trigger_payload.get("invalidation_price_reference")
-            if entry is None:
-                entry = price
+        pattern_id = str(getattr(pattern, "pattern_id", "") or "").upper()
+        if (entry is None or stop is None) and pattern_id in {"P_HOD_BREAK", "P_PREMKT_BREAK", "S_HOD_BREAK", "S_PREMARKET_HIGH_BREAK"}:
+            if pattern_id in {"P_PREMKT_BREAK", "S_PREMARKET_HIGH_BREAK"}:
+                entry = entry if entry is not None else getattr(levels, "premarket_high", None)
+                stop = stop if stop is not None else getattr(levels, "premarket_low", None)
+                if stop is None:
+                    stop = getattr(levels, "lod", None)
+            else:
+                entry = entry if entry is not None else getattr(levels, "hod", None)
+                stop = stop if stop is not None else getattr(levels, "lod", None)
+                if stop is None and entry is not None:
+                    stop = float(entry) * 0.97
             if stop is None:
-                stop = getattr(indicators, "ema9", None)
-        elif pattern.pattern_id == "P_EMA_PULLBACK":
-            entry = price
-            stop = getattr(indicators, "ema20", None)
-        elif pattern.pattern_id == "P_VWAP_PULLBACK":
-            entry = price
-            stop = getattr(indicators, "vwap", None)
-        else:
-            entry = price
-            stop = (price * 0.97) if price is not None else None
+                stop = trigger_payload.get("stop_level")
 
         if entry is None or stop is None:
+            print(
+                "[TRADE][REJECT] "
+                f"symbol={getattr(inputs, 'symbol', 'UNKNOWN')} reason=missing_trigger_entry_or_stop"
+            )
             return None
 
-        if stop >= entry:
+        if float(stop) >= float(entry):
+            print(
+                "[TRADE][REJECT] "
+                f"symbol={getattr(inputs, 'symbol', 'UNKNOWN')} reason=entry_stop_structure_invalid"
+            )
             return None
 
         return float(entry), float(stop)
@@ -1884,6 +1911,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         trigger_ready: bool,
         entry: float,
         stop: float,
+        execution_refinement_mode: str = "NONE",
     ) -> TradeIntent | None:
         if str(setup_family or "").upper() == "GAP_GO" and trigger_ready:
             intent = TradeIntent(
@@ -1898,6 +1926,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 pattern_name=best_pattern.pattern_id,
                 setup_family_id="GAP_GO",
                 trigger_id="confirmation_gate",
+                execution_refinement_mode=execution_refinement_mode,
             )
             intent.entry_type = "BREAKOUT"
             intent.setup_family = "GAP_GO"
@@ -1919,6 +1948,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             pattern_name=best_pattern.pattern_id,
             setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
             trigger_id="confirmation_gate",
+            execution_refinement_mode=execution_refinement_mode,
         )
 
     def _session_guard_passed(self, *, symbol: str, pattern: str, session_label: str) -> bool:
