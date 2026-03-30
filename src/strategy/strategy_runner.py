@@ -703,6 +703,12 @@ class StrategyRunner:
         )
         return all_exit_signals
 
+    def emit_shutdown_summary(self) -> None:
+        for strategy in self.strategies:
+            shutdown_reporter = getattr(strategy, "emit_shutdown_summary", None)
+            if callable(shutdown_reporter):
+                shutdown_reporter()
+
     def _apply_policy_filter(
         self, policy_decision: Optional[RegimePolicyDecision]
     ) -> List[object]:
