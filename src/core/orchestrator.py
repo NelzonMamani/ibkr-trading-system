@@ -34,7 +34,7 @@ from src.config.runtime_config import (
 from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.engines.position_management_engine import ManagedPosition, PositionManagementEngine
-from src.core.engines.trade_lifecycle_engine import TradeLifecycleEngine
+from src.core.engines.trade_lifecycle_engine import LifecycleEvent, TradeLifecycleEngine
 from src.core.event_collector import EventCollector
 from src.data.fundamentals.float_provider import FloatProvider
 from src.data.manual_focus_loader import ManualFocusConfig
@@ -461,6 +461,11 @@ class CoreOrchestrator:
             stop_controller=self.stop_controller,
         )
         self.storage_engine = StorageEngine()
+        self.trade_lifecycle_engine.set_persistence_adapter(self.storage_engine)
+        try:
+            self.trade_lifecycle_engine.recover_open_state()
+        except Exception as exc:
+            print(f"[LIFECYCLE][RECOVERY][DEGRADED] reason=unexpected_error error={exc}")
         self.decision_trace_store = DecisionTraceStore(
             persist_path=os.getenv("DECISION_TRACE_PATH")
         )
@@ -578,11 +583,21 @@ class CoreOrchestrator:
             print("[LIFECYCLE][SKIP] stage=register reason=invalid_stop_price")
             return None
         trade_id = str(getattr(execution_result, "client_order_id", None) or f"{execution_result.symbol}:{uuid4()}")
-        self.trade_lifecycle_engine.register_trade(
-            trade_id=trade_id,
-            symbol=str(execution_result.symbol),
-            quantity=quantity,
-            entry_price=entry_price,
+        self.trade_lifecycle_engine.apply_event(
+            LifecycleEvent(
+                event_id=str(getattr(execution_result, "execution_id", None) or f"entry:{trade_id}:{quantity}:{entry_price}"),
+                lifecycle_trade_id=trade_id,
+                symbol=str(execution_result.symbol),
+                side=str(getattr(managed_position, "side", "LONG") or "LONG").upper(),
+                event_type="ENTRY_FILL",
+                quantity=quantity,
+                price=entry_price,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                order_id=str(getattr(execution_result, "client_order_id", "") or "") or None,
+                execution_id=str(getattr(execution_result, "execution_id", "") or "") or None,
+                source="execution_engine",
+            ),
+            strategy_name=str(getattr(execution_result, "strategy_name", "") or "") or None,
             stop_price=stop_price,
         )
         print(f"[LIFECYCLE][REGISTER] symbol={execution_result.symbol} trade_id={trade_id} qty={quantity}")
@@ -609,16 +624,37 @@ class CoreOrchestrator:
         if open_trade_id != lifecycle_trade_id:
             print("[LIFECYCLE][SKIP] stage=reconcile reason=no_open_registered_trade")
             return
-        reconciled = self.trade_lifecycle_engine.reconcile_position(
-            trade_id=lifecycle_trade_id,
-            closed=bool(getattr(after_position, "closed", False)),
+        before_qty = int(getattr(before_position, "quantity", 0) or 0)
+        after_qty = int(getattr(after_position, "quantity", 0) or 0)
+        closed = bool(getattr(after_position, "closed", False))
+        if before_qty > after_qty:
+            exit_qty = before_qty - after_qty
+            exit_price = float(
+                getattr(after_position, "entry_price", 0.0)
+                or getattr(before_position, "entry_price", 0.0)
+                or 0.0
+            )
+            self.trade_lifecycle_engine.apply_event(
+                LifecycleEvent(
+                    event_id=f"exit:{lifecycle_trade_id}:{before_qty}:{after_qty}:{closed}",
+                    lifecycle_trade_id=lifecycle_trade_id,
+                    symbol=str(symbol),
+                    side=str(getattr(before_position, "side", "LONG") or "LONG").upper(),
+                    event_type="STOP_EXIT" if closed else "PARTIAL_EXIT",
+                    quantity=exit_qty,
+                    price=exit_price,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    source="position_management",
+                )
+            )
+        reconcile_result = self.trade_lifecycle_engine.apply_reconciliation_snapshot(
+            symbol=str(symbol),
+            runtime_quantity=max(after_qty, 0),
+            runtime_avg_entry=float(getattr(after_position, "entry_price", 0.0) or 0.0),
         )
-        if reconciled is None:
-            print("[LIFECYCLE][SKIP] stage=reconcile reason=trade_not_found")
-            return
         print(
             "[LIFECYCLE][RECONCILE] "
-            f"symbol={symbol} trade_id={lifecycle_trade_id} closed={reconciled.status == 'CLOSED'}"
+            f"symbol={symbol} trade_id={lifecycle_trade_id} status={reconcile_result.get('status')}"
         )
 
     def _mark_open_trades_to_market(self) -> None:
@@ -641,7 +677,7 @@ class CoreOrchestrator:
                 continue
             try:
                 marked = self.trade_lifecycle_engine.mark_to_market(
-                    trade_id=str(trade.trade_id),
+                    trade_id=str(trade.lifecycle_trade_id),
                     price=price,
                 )
                 if marked is None:
@@ -649,7 +685,7 @@ class CoreOrchestrator:
                     continue
                 print(
                     "[LIFECYCLE][MARK] "
-                    f"symbol={symbol} trade_id={trade.trade_id} price={price:.4f}"
+                    f"symbol={symbol} trade_id={trade.lifecycle_trade_id} price={price:.4f}"
                 )
             except Exception as exc:
                 print(f"[LIFECYCLE][ERROR] stage=mark_to_market_apply symbol={symbol} error={exc}")
@@ -658,10 +694,15 @@ class CoreOrchestrator:
         summary = self.trade_lifecycle_engine.summarize_session_metrics()
         print(
             "[LIFECYCLE][SUMMARY] "
-            f"trades={summary.get('total_trades', 0)} "
-            f"open={summary.get('open_trades', 0)} "
+            f"trades={summary.get('total_lifecycle_trades_seen', 0)} "
+            f"open={summary.get('open_lifecycle_trades', 0)} "
+            f"partial={summary.get('partially_closed_trades', 0)} "
             f"closed={summary.get('closed_trades', 0)} "
-            f"open_unrealized_pnl={float(summary.get('open_unrealized_pnl', 0.0)):.2f}"
+            f"realized={float(summary.get('gross_realized_pnl', 0.0)):.2f} "
+            f"open_unrealized_pnl={float(summary.get('open_unrealized_pnl', 0.0)):.2f} "
+            f"drifted={summary.get('drifted_trades_count', 0)} "
+            f"orphaned={summary.get('orphaned_trades_count', 0)} "
+            f"reconcile_events={summary.get('reconciliation_events_count', 0)}"
         )
 
     def _should_enforce_ibkr_runtime(self) -> bool:

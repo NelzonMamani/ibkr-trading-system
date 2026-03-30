@@ -328,6 +328,83 @@ class StorageEngine:
             trader_type=trader_type,
         )
 
+    def upsert_trade_lifecycle_trade(self, trade: dict[str, Any]) -> None:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return
+        payload = dict(trade)
+        payload.setdefault("run_id", self.run_id)
+        payload.setdefault("created_at", now_iso())
+        payload.setdefault("updated_at", now_iso())
+        self._store.upsert_trade_lifecycle_trade(payload)
+
+    def insert_trade_lifecycle_event(self, event: dict[str, Any]) -> None:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return
+        payload = dict(event)
+        payload.setdefault("run_id", self.run_id)
+        payload.setdefault("created_at", now_iso())
+        self._store.insert_trade_lifecycle_events([payload])
+
+    def insert_trade_lifecycle_reconciliation_event(self, event: dict[str, Any]) -> None:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return
+        payload = dict(event)
+        payload.setdefault("run_id", self.run_id)
+        payload.setdefault("created_at", now_iso())
+        self._store.insert_trade_lifecycle_reconciliation_event(payload)
+
+    def insert_trade_lifecycle_summary(self, summary_payload: dict[str, Any]) -> None:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return
+        timestamp = now_iso()
+        summary = {
+            "summary_id": str(uuid4()),
+            "run_id": self.run_id,
+            "payload_json": canonical_json(summary_payload, allow_fallback=True),
+            "timestamp": timestamp,
+            "created_at": timestamp,
+        }
+        self._store.insert_trade_lifecycle_summary(summary)
+
+    def fetch_trade_lifecycle_trades(
+        self,
+        *,
+        run_id: str | None = None,
+        status: str | None = None,
+        symbol: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return []
+        return self._store.fetch_trade_lifecycle_trades(
+            run_id or self.run_id,
+            status=status,
+            symbol=symbol,
+        )
+
+    def fetch_trade_lifecycle_events(
+        self,
+        *,
+        run_id: str | None = None,
+        lifecycle_trade_id: str | None = None,
+        symbol: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return []
+        return self._store.fetch_trade_lifecycle_events(
+            run_id or self.run_id,
+            lifecycle_trade_id=lifecycle_trade_id,
+            symbol=symbol,
+        )
+
+    def fetch_trade_lifecycle_reconciliation_events(
+        self,
+        *,
+        run_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return []
+        return self._store.fetch_trade_lifecycle_reconciliation_events(run_id or self.run_id)
+
     def store_watchlist(
         self,
         *,
