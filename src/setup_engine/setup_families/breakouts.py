@@ -5,6 +5,7 @@ from __future__ import annotations
 from statistics import mean
 from typing import List
 
+from src.strategies.common.patterns.pattern_orb import detect_orb
 from src.strategies.common.candles.candle_evidence import evidence_tags
 from src.strategies.common.candles.single_candle import detect_marubozu
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
@@ -64,34 +65,7 @@ class OpeningRangeBreakoutPattern(PatternBase):
     direction_bias = Direction.LONG
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
-        if inputs.session_context != SessionContext.REGULAR:
-            return self._rejected("not regular session", inputs)
-        if len(inputs.candles) < 6:
-            return self._rejected("insufficient candles", inputs)
-        opening_range = inputs.candles[:5]
-        range_high = max(candle.high for candle in opening_range)
-        range_low = min(candle.low for candle in opening_range)
-        last = inputs.candles[-1]
-        if last.close <= range_high:
-            return self._rejected("no breakout above opening range", inputs)
-        volume_avg = _avg_volume(inputs.candles)
-        volume_ok = last.volume >= volume_avg
-        confidence = 0.68 if volume_ok else 0.55
-        tags = ["opening_range_break", "volume_confirmed" if volume_ok else "volume_soft"]
-        rationale = (
-            "Break above opening range high.\n"
-            f"Range high={range_high:.2f}, last close={last.close:.2f}."
-        )
-        return self._detected(
-            inputs,
-            direction=Direction.LONG,
-            confidence=confidence,
-            rationale=rationale,
-            entry_zone="Break above opening range high",
-            stop_suggestion=f"Below range low ({range_low:.2f})",
-            target_suggestion="Measured move",
-            setup_quality_tags=tags,
-        )
+        return detect_orb(inputs)
 
 
 class ConsolidationBreakoutPattern(PatternBase):
