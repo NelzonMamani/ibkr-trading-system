@@ -35,6 +35,7 @@ from src.scanner.scanner_contract import scanner_request_from_policy
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.storage.trade_store import TradeStore
 from src.strategies.ross_momentum.decision_policy import build_trade_intents
+from src.strategies.ross_momentum.decision_policy import IntentMarketContext
 from src.strategies.ross_momentum.patterns.pattern_evaluator import PatternEvaluator
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.ross_momentum.patterns.pattern_inputs import (
@@ -398,10 +399,30 @@ def run_cycle(
             print(f"[PATTERN] {symbol} best={best_name} conf={best_conf:.2f}")
 
             strategy_id = "RossMomentumStrategy"
-            trade_intents = build_trade_intents(strategy_id, symbol, summary)
+            total_volume = float(sum(max(float(candle.volume or 0.0), 0.0) for candle in inputs.candles))
+            last_price = float(inputs.candles[-1].close) if inputs.candles else None
+            spread_pct = (
+                float(inputs.liquidity_context.spread) * 100.0
+                if inputs.liquidity_context.spread is not None
+                else None
+            )
+            trade_intents = build_trade_intents(
+                strategy_id,
+                symbol,
+                summary,
+                market_context=IntentMarketContext(
+                    session_label=session.value,
+                    last_price=last_price,
+                    volume=total_volume,
+                    premarket_volume=total_volume if session.value == "PRE" else None,
+                    spread_pct=spread_pct,
+                    halted=False,
+                ),
+            )
             for intent in trade_intents:
                 print(f"[TRACE][cycle={cycle_id}][symbol={symbol}] stage=intent_creation intent_id={intent.intent_id}")
                 combined_tags = list(intent.risk_flags)
+                combined_tags.append(f"SESSION_{session.value.upper()}")
                 if data_quality:
                     combined_tags.append("DATA_QUALITY")
                 intents.append(

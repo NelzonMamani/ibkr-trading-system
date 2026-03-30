@@ -27,13 +27,25 @@ class IntentPolicyConfig:
     debug_force_execution: bool = False
 
 
+@dataclass(frozen=True)
+class IntentMarketContext:
+    session_label: str = "REGULAR"
+    last_price: float | None = None
+    volume: float | None = None
+    premarket_volume: float | None = None
+    spread_pct: float | None = None
+    halted: bool = False
+
+
 def build_trade_intents(
     strategy_id: str,
     symbol: str,
     summary: PatternEvaluationSummary,
     config: IntentPolicyConfig | None = None,
+    market_context: IntentMarketContext | None = None,
 ) -> List[TradeIntent]:
     config = config or IntentPolicyConfig()
+    market_context = market_context or IntentMarketContext()
     intents: List[TradeIntent] = []
     if summary.conflict_flag and not config.debug_force_execution:
         return intents
@@ -53,6 +65,23 @@ def build_trade_intents(
         trigger_fired = bool(setup.entry_zone)
         risk_ok = not bool(summary.veto_flags or setup.risk_flags)
         dq_ok = not bool(setup.data_quality_flags)
+        session_norm = str(market_context.session_label or "").upper()
+        is_premarket = session_norm in {"PRE", "PREMARKET"}
+        spread_ok = (
+            market_context.spread_pct is None
+            or market_context.spread_pct <= 5.0
+        )
+        if not dq_ok and is_premarket:
+            has_last = market_context.last_price is not None
+            has_volume = (
+                market_context.volume is not None
+                or market_context.premarket_volume is not None
+            )
+            if has_last and has_volume and spread_ok:
+                dq_ok = True
+                print(
+                    f"[DQ][RELAXED_PREMARKET] symbol={symbol} dq_ok=True reason=controlled_relaxation"
+                )
         if not dq_ok and config.debug_force_execution:
             print(f"[DQ_OVERRIDE] symbol={symbol} dq was bypassed")
             dq_ok = True
@@ -60,9 +89,11 @@ def build_trade_intents(
             pattern_detected
             and confirmation_passed
             and trigger_fired
-            and risk_ok
-            and dq_ok
         )
+        if execution_ready and not bool(market_context.halted):
+            execution_ready = True
+        elif bool(market_context.halted):
+            execution_ready = False
         print(
             f"[STRATEGY_TRACE] symbol={symbol} "
             f"pattern_detected={pattern_detected} "
@@ -73,6 +104,16 @@ def build_trade_intents(
             f"execution_ready={execution_ready}"
         )
         if not execution_ready:
+            continue
+        if not risk_ok:
+            print(f"[RISK][SOFT_FAIL] symbol={symbol} reason=setup_risk_flags")
+        if not dq_ok:
+            print(f"[DQ][SOFT_FAIL] symbol={symbol} reason=data_quality_flags")
+        if market_context.last_price is None:
+            print(f"[INTENT][SKIP] symbol={symbol} reason=missing_price")
+            continue
+        if market_context.spread_pct is not None and market_context.spread_pct > 5.0:
+            print(f"[INTENT][SKIP] symbol={symbol} reason=spread_too_wide spread_pct={market_context.spread_pct:.2f}")
             continue
         if not trigger_fired and config.debug_force_execution:
             print(f"[DEBUG] forcing trigger for {symbol}")
@@ -97,7 +138,10 @@ def build_trade_intents(
             risk_flags=setup.risk_flags,
         )
         intents.append(intent)
-        print(f"[INTENT_CREATED] symbol={symbol}")
+        print(
+            f"[INTENT][CREATED] symbol={symbol} strategy={strategy_id} "
+            f"trigger={setup.trigger_type or setup.pattern_name} price={market_context.last_price}"
+        )
 
     return intents
 

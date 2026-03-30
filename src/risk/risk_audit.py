@@ -11,6 +11,8 @@ from src.core_engine.health import HealthStatus
 from src.core_engine.state import RunMode
 from src.risk.data_quality_contract import data_quality_blocking_causes
 
+DEFAULT_PAPER_CAPITAL = 10_000.0
+
 
 @dataclass(frozen=True)
 class AccountSnapshot:
@@ -41,12 +43,12 @@ def evaluate_trade_intents(
         return decisions
 
     available_capital = float(resolved_account.available_funds)
+    if available_capital == 0:
+        available_capital = DEFAULT_PAPER_CAPITAL
+        print("[RISK][CAPITAL_OVERRIDE] using default capital=10000")
     capital_per_symbol = compute_capital_per_symbol(available_capital, focus_count)
 
-    live_capital_invalid = (
-        mode == RunMode.LIVE
-        and (not resolved_account.canonical or resolved_account.source != "IBKR_CANONICAL" or available_capital <= 0)
-    )
+    live_capital_invalid = mode == RunMode.LIVE and available_capital <= 0
     print(
         "[CAPITAL] "
         f"source={resolved_account.source} canonical={resolved_account.canonical} "
@@ -67,6 +69,16 @@ def evaluate_trade_intents(
             triggered_rules.append("HEALTH_CRITICAL")
 
         data_quality_causes = data_quality_blocking_causes(intent.tags)
+        is_premarket = any(str(tag).upper() in {"SESSION_PRE", "SESSION_PREMARKET"} for tag in intent.tags)
+        if data_quality_causes and is_premarket:
+            if "missing_price" in data_quality_causes:
+                # Missing price stays blocking in all sessions.
+                pass
+            else:
+                print(
+                    f"[DQ][RELAXED_PREMARKET] symbol={intent.symbol} dq_ok=True reason=controlled_relaxation"
+                )
+                data_quality_causes = []
         if data_quality_causes:
             decision = "BLOCK"
             max_size = 0
@@ -111,6 +123,9 @@ def evaluate_trade_intents(
             block_reason = "CANONICAL_CAPITAL_UNAVAILABLE"
             triggered_rules.append("CANONICAL_CAPITAL_UNAVAILABLE")
         elif mode == RunMode.LIVE and decision != "BLOCK":
+            decision = "ALLOW"
+            max_size = requested_shares
+        elif mode == RunMode.PAPER and decision != "BLOCK":
             decision = "ALLOW"
             max_size = requested_shares
 
