@@ -1605,7 +1605,7 @@ class RossMomentumStrategyV1(BaseStrategy):
     def _setup_family_from_pattern_id(pattern_id: str | None) -> str:
         mapping = {
             "P_GAP_GO": "GAP_GO",
-            "P_ORB": "ORB",
+            "P_ORB": "OPENING_RANGE_BREAKOUT",
             "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
             "P_OPENING_DRIVE": "OPENING_DRIVE",
             "P_HOD_BREAK": "HOD_BREAK",
@@ -1717,8 +1717,9 @@ class RossMomentumStrategyV1(BaseStrategy):
         indicators = getattr(inputs, "indicators", None)
 
         if pattern.pattern_id == "P_ORB":
-            entry = getattr(levels, "hod", None)
-            stop = getattr(levels, "lod", None)
+            key_levels = getattr(levels, "key_levels", {}) or {}
+            entry = key_levels.get("OPENING_RANGE_HIGH") or key_levels.get("ORB_HIGH") or getattr(levels, "hod", None)
+            stop = key_levels.get("OPENING_RANGE_LOW") or key_levels.get("ORB_LOW") or getattr(levels, "lod", None)
         elif pattern.pattern_id in {"P_HOD_BREAK", "P_PREMKT_BREAK"}:
             entry = getattr(levels, "hod", None)
             stop = (entry * 0.97) if entry is not None else None

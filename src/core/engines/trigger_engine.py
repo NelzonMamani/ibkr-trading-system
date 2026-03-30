@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.strategies.common.triggers.trigger_orb import evaluate_orb_trigger
+
 
 class TriggerEngine:
     """Shared trigger engine mapping setup candidates to actionability states."""
@@ -63,6 +65,7 @@ class TriggerEngine:
                 setup=setup,
                 levels=levels,
                 structure=structure,
+                candles=candles,
             )
             if str(setup.get("setup_family_id") or "").upper() == "GAP_GO":
                 print(
@@ -152,6 +155,7 @@ class TriggerEngine:
         setup: dict,
         levels: dict,
         structure: dict,
+        candles: list,
     ) -> tuple[bool, str, list[str]]:
         flags: list[str] = []
         if trigger_price_reference is None:
@@ -177,6 +181,18 @@ class TriggerEngine:
                 prev_close=prev_close,
                 levels=levels,
             )
+        elif setup_family in {"OPENING_RANGE_BREAKOUT", "ORB"}:
+            orb_trigger = evaluate_orb_trigger(
+                setup,
+                {
+                    **(levels if isinstance(levels, dict) else {}),
+                    "candles": list(candles or []),
+                },
+            )
+            ready = bool(orb_trigger.get("trigger_ready_now"))
+            reason = str(orb_trigger.get("trigger_reason") or "orb_trigger_not_ready")
+            trigger_type = str(orb_trigger.get("trigger_type") or trigger_type)
+            print(f"[TRIGGER][ORB] fired={ready} reason={reason}")
         elif trigger_type in {"BREAKOUT_HIGH", "HOD_BREAK", "PMH_BREAK", "RANGE_BREAK", "PULLBACK_HIGH_BREAK"}:
             ready, reason = self._evaluate_breakout_trigger(
                 last_close=last_close,

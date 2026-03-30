@@ -53,6 +53,7 @@ class RossPatternRegistry:
         }
         self._setup_name_by_pattern_id: dict[str, str] = {
             "P_GAP_GO": "GAP_GO",
+            "P_ORB": "OPENING_RANGE_BREAKOUT",
             "P_FIRST_PULLBACK": "FIRST_PULLBACK",
             "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
         }
