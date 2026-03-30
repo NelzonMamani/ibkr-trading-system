@@ -101,6 +101,133 @@ class RossMomentumStrategyV1(BaseStrategy):
         )
         self._max_trades_per_cycle = 1
         self._max_concurrent_positions = 3
+        self._session_stats = {
+            "cycles": 0,
+            "symbols_evaluated": 0,
+            "structure_fail_count": 0,
+            "setup_fail_count": 0,
+            "trigger_fail_count": 0,
+            "filter_fail_count": 0,
+            "input_fail_count": 0,
+            "intents_generated": 0,
+        }
+        self._last_cycle_summary: dict[str, int | str] | None = None
+        self._shutdown_summary_emitted = False
+
+    @staticmethod
+    def _ross_failure_layers() -> tuple[str, ...]:
+        return ("structure", "setup", "trigger", "filter", "input")
+
+    def _build_ross_cycle_summary(
+        self,
+        *,
+        symbol_traces: Sequence[RossSymbolTrace],
+        intents_generated: int,
+    ) -> dict[str, int | str]:
+        summary: dict[str, int | str] = {
+            "symbols_evaluated": len(symbol_traces),
+            "structure_fail_count": 0,
+            "setup_fail_count": 0,
+            "trigger_fail_count": 0,
+            "filter_fail_count": 0,
+            "input_fail_count": 0,
+            "intents_generated": int(intents_generated),
+        }
+        for trace in symbol_traces:
+            outcome = str(getattr(trace, "final_outcome", "") or "").upper()
+            reason = str(getattr(trace, "final_reason_code", "") or "").upper()
+            pre_failure = str(getattr(trace, "pre_registry_failure_reason", "") or "").upper()
+            if reason == "INTENT_GENERATED":
+                continue
+            if (
+                reason == "INVALID_TRADE_STRUCTURE"
+                or "INVALID_TRADE_STRUCTURE" in outcome
+                or "STRUCTURE" in reason
+            ):
+                summary["structure_fail_count"] = int(summary["structure_fail_count"]) + 1
+                continue
+            if (
+                "FAILED_TO_BUILD_INPUTS" in pre_failure
+                or "MISSING_INPUTS" in pre_failure
+                or "DATA_CONTRACT_BLOCKED" in pre_failure
+                or reason == "DATA_CONTRACT_BLOCKED"
+            ):
+                summary["input_fail_count"] = int(summary["input_fail_count"]) + 1
+                continue
+            if outcome in {"SETUP_FOUND_DECISION_REJECTED"} or reason in {"DECISION_REJECTED", "CONFIRMATION_BLOCKED"}:
+                summary["filter_fail_count"] = int(summary["filter_fail_count"]) + 1
+                continue
+            if "TRIGGER" in outcome or "TRIGGER" in reason or outcome in {"SETUP_FOUND_BUT_NO_TRIGGER"}:
+                summary["trigger_fail_count"] = int(summary["trigger_fail_count"]) + 1
+                continue
+            if outcome.startswith("NO_SETUP") or "SETUP" in outcome or "NO_VALID_PATTERN" in reason:
+                summary["setup_fail_count"] = int(summary["setup_fail_count"]) + 1
+                continue
+
+        dominant_failure_layer = max(
+            self._ross_failure_layers(),
+            key=lambda layer: int(summary[f"{layer}_fail_count"]),
+        )
+        summary["dominant_failure_layer"] = dominant_failure_layer
+        return summary
+
+    def _print_ross_cycle_summary(self, cycle_summary: dict[str, int | str]) -> None:
+        print(
+            "[ROSS][CYCLE_SUMMARY] "
+            f"symbols={cycle_summary['symbols_evaluated']} "
+            f"intents={cycle_summary['intents_generated']} "
+            f"fails(structure={cycle_summary['structure_fail_count']}, "
+            f"setup={cycle_summary['setup_fail_count']}, "
+            f"trigger={cycle_summary['trigger_fail_count']}, "
+            f"filter={cycle_summary['filter_fail_count']}, "
+            f"input={cycle_summary['input_fail_count']}) "
+            f"dominant={cycle_summary['dominant_failure_layer']}"
+        )
+
+    def _update_ross_session_stats(self, cycle_summary: dict[str, int | str]) -> None:
+        self._session_stats["cycles"] += 1
+        self._session_stats["symbols_evaluated"] += int(cycle_summary["symbols_evaluated"])
+        self._session_stats["structure_fail_count"] += int(cycle_summary["structure_fail_count"])
+        self._session_stats["setup_fail_count"] += int(cycle_summary["setup_fail_count"])
+        self._session_stats["trigger_fail_count"] += int(cycle_summary["trigger_fail_count"])
+        self._session_stats["filter_fail_count"] += int(cycle_summary["filter_fail_count"])
+        self._session_stats["input_fail_count"] += int(cycle_summary["input_fail_count"])
+        self._session_stats["intents_generated"] += int(cycle_summary["intents_generated"])
+
+    def emit_shutdown_summary(self) -> None:
+        if self._shutdown_summary_emitted:
+            return
+        self._shutdown_summary_emitted = True
+        print("[SYSTEM] Shutdown requested — generating summary...")
+        print(
+            "[ROSS][FINAL_SESSION_SUMMARY] "
+            f"cycles={self._session_stats['cycles']} "
+            f"symbols={self._session_stats['symbols_evaluated']} "
+            f"intents={self._session_stats['intents_generated']} "
+            f"fails(structure={self._session_stats['structure_fail_count']}, "
+            f"setup={self._session_stats['setup_fail_count']}, "
+            f"trigger={self._session_stats['trigger_fail_count']}, "
+            f"filter={self._session_stats['filter_fail_count']}, "
+            f"input={self._session_stats['input_fail_count']})"
+        )
+        total_fails = sum(
+            int(self._session_stats[f"{layer}_fail_count"])
+            for layer in self._ross_failure_layers()
+        )
+        if total_fails <= 0:
+            print(
+                "[ROSS][FAILURE_DISTRIBUTION] "
+                "structure=0.0% setup=0.0% trigger=0.0% filter=0.0% input=0.0%"
+            )
+        else:
+            print(
+                "[ROSS][FAILURE_DISTRIBUTION] "
+                + " ".join(
+                    f"{layer}={int(self._session_stats[f'{layer}_fail_count']) * 100.0 / total_fails:.1f}%"
+                    for layer in self._ross_failure_layers()
+                )
+            )
+        print(f"[ROSS][LAST_CYCLE] {self._last_cycle_summary}")
 
     @staticmethod
     def _cfg_float(key: str, default: float) -> float:
@@ -1178,6 +1305,13 @@ class RossMomentumStrategyV1(BaseStrategy):
             f"patterns_invoked={pattern_invocations_total} "
             f"patterns_detected={pattern_detected_total}"
         )
+        cycle_summary = self._build_ross_cycle_summary(
+            symbol_traces=symbol_traces,
+            intents_generated=len(translated_intents),
+        )
+        self._last_cycle_summary = cycle_summary
+        self._update_ross_session_stats(cycle_summary)
+        self._print_ross_cycle_summary(cycle_summary)
 
         print(f"[ROSS][INTENTS] generated={len(translated_intents)}")
 

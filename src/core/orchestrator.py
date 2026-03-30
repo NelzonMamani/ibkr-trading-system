@@ -1178,6 +1178,8 @@ class CoreOrchestrator:
         return False
 
     def _handle_keyboard_interrupt(self):
+        if hasattr(self, "strategy_runner") and self.strategy_runner is not None:
+            self.strategy_runner.emit_shutdown_summary()
         if not self.stop_controller.is_stop_requested():
             print("[SHUTDOWN] KeyboardInterrupt — requesting graceful stop.")
             self._request_stop(
