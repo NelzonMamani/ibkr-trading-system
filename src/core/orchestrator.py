@@ -301,6 +301,13 @@ class CoreOrchestrator:
         self.primary_strategy_key = self.selected_strategy_key or "ross_momentum"
         self._strategy_watchlist_cache: dict[str, list[str]] = {}
         self._strategy_cadence_state: dict[str, StrategyCadenceState] = {}
+        self._pipeline_runtime_counts: dict[str, int] = {
+            "cycles_run": 0,
+            "watchlist_count": 0,
+            "setups_detected": 0,
+            "triggers_fired": 0,
+            "trade_intents": 0,
+        }
         self._last_position_management_tick_utc: datetime | None = None
         self._manual_focus_symbols: list[str] = []
         self._manual_focus_enabled: bool = True
@@ -1178,6 +1185,14 @@ class CoreOrchestrator:
         return False
 
     def _handle_keyboard_interrupt(self):
+        print(
+            "[SUMMARY]\n"
+            f"cycles_run={self._pipeline_runtime_counts.get('cycles_run', 0)}\n"
+            f"watchlist_count={self._pipeline_runtime_counts.get('watchlist_count', 0)}\n"
+            f"setups_detected={self._pipeline_runtime_counts.get('setups_detected', 0)}\n"
+            f"triggers_fired={self._pipeline_runtime_counts.get('triggers_fired', 0)}\n"
+            f"trade_intents={self._pipeline_runtime_counts.get('trade_intents', 0)}"
+        )
         if hasattr(self, "strategy_runner") and self.strategy_runner is not None:
             self.strategy_runner.emit_shutdown_summary()
         if not self.stop_controller.is_stop_requested():
@@ -1946,6 +1961,9 @@ class CoreOrchestrator:
         else:
             print("[PIPELINE][SKIP] empty watchlist")
             strategy_output = []
+        self._pipeline_runtime_counts["cycles_run"] += 1
+        self._pipeline_runtime_counts["watchlist_count"] += len(watchlist_symbols)
+        self._pipeline_runtime_counts["trade_intents"] += len(strategy_output or [])
         ross_strategy = next(
             (s for s in getattr(self.strategy_runner, "strategies", []) if getattr(s, "name", "") == "RossMomentumStrategyV1"),
             None,
@@ -1985,6 +2003,28 @@ class CoreOrchestrator:
                 pipeline_audit.record(symbol, TerminalOutcome.FOCUS_SELECTED_NO_PATTERN, "NO_SETUP:no_valid_setup_from_runner", "strategy")
 
         raw_strategy_output = strategy_output or []
+        setup_detected_symbols = {
+            getattr(intent, "symbol", "").upper()
+            for intent in raw_strategy_output
+            if getattr(intent, "symbol", None)
+        }
+        if ross_strategy is not None:
+            collector = getattr(ross_strategy, "_failure_trace_collector", None)
+            traces = getattr(collector, "_symbols", []) if collector is not None else []
+            for trace in traces[-len(final_evaluation_symbols or []):]:
+                symbol = str(getattr(trace, "symbol", "") or "").upper()
+                detected_ids = list(getattr(trace, "detected_pattern_ids", []) or [])
+                if detected_ids and symbol:
+                    setup_detected_symbols.add(symbol)
+        self._pipeline_runtime_counts["setups_detected"] += len(setup_detected_symbols)
+        self._pipeline_runtime_counts["triggers_fired"] += sum(
+            1
+            for intent in raw_strategy_output
+            if bool(getattr(intent, "trigger_ready", False))
+        )
+        if watchlist_symbols and setup_detected_symbols and not raw_strategy_output:
+            print("[ERROR] SETUP_WITHOUT_INTENT")
+            raise Exception("PIPELINE_BREAK_SETUP_TO_INTENT")
         gated_strategy_output = self._enforce_ross_execution_integrity(raw_strategy_output)
         gated_symbols = {getattr(intent, "symbol", "").upper() for intent in gated_strategy_output}
         for intent in raw_strategy_output:
@@ -2001,6 +2041,7 @@ class CoreOrchestrator:
 
             if gated_strategy_output:
                 for intent in gated_strategy_output:
+                    print(f"[EXECUTION] symbol={intent.symbol} enabled=True")
                     pipeline_trace("EXECUTION", intent.symbol)
                     self._trace_event("ORDER_SUBMITTED", {
                         "strategy": strategy_key,
@@ -2020,6 +2061,7 @@ class CoreOrchestrator:
             if raw_strategy_output:
                 for intent in raw_strategy_output:
                     reason = "SESSION_BLOCK" if self.run_mode == RunMode.READ_ONLY else "EXECUTION_DISABLED"
+                    print(f"[EXECUTION] symbol={intent.symbol} enabled=False reason={reason}")
 
                     self._trace_event("SESSION_BLOCK", {
                         "strategy": strategy_key,
@@ -2036,6 +2078,7 @@ class CoreOrchestrator:
 
             else:
                 # REQUIRED FOR E21 — even if no intents exist at all
+                print("[EXECUTION] enabled=False reason=NO_INTENTS_PRODUCED")
                 self._trace_event("ORDER_SIMULATED", {
                     "strategy": strategy_key,
                     "reason": "NO_INTENTS_PRODUCED"

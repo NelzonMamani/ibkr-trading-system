@@ -85,7 +85,12 @@ class GapGoPattern(PatternBase):
         rvol = _safe_float(inputs.liquidity_context.rvol)
         if rvol is None:
             return self._rejected("MISSING_TRADABILITY_CONTEXT", inputs)
-        min_rvol = 1.0 if inputs.session_context == SessionContext.PRE else 1.5
+        if inputs.session_context == SessionContext.PRE:
+            min_rvol = 0.3
+        elif inputs.session_context == SessionContext.REGULAR:
+            min_rvol = 1.0
+        else:
+            min_rvol = 0.5
         if rvol < min_rvol:
             return self._rejected("INSUFFICIENT_RVOL", inputs)
 
@@ -115,7 +120,8 @@ class GapGoPattern(PatternBase):
         spread = _safe_float(inputs.liquidity_context.spread)
         if spread is None:
             return self._rejected("MISSING_TRADABILITY_CONTEXT", inputs)
-        if spread > 0.08:
+        spread_pct = spread if spread < 1 else spread / max(price, 1e-9)
+        if spread_pct > 0.08:
             return self._rejected("WIDE_SPREAD", inputs)
 
         float_millions = _safe_float(inputs.liquidity_context.float_millions)
