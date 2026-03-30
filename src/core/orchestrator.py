@@ -1895,7 +1895,7 @@ class CoreOrchestrator:
             f"strategy_input_count={len(strategy_evaluation_symbols)}"
         )
         print(f"[STRATEGY_RUNNER][RECEIVE] symbols={strategy_evaluation_symbols}")
-        print(f"[ORCHESTRATOR][DISPATCH] passing {len(strategy_evaluation_symbols)} symbols to strategy")
+        print(f"[ORCHESTRATOR][DISPATCH] focus_count={len(strategy_evaluation_symbols)}")
         strategy_inputs = strategy_watchlist
         if not final_evaluation_symbols and strategy_evaluation_symbols:
             print(
@@ -2717,7 +2717,7 @@ class CoreOrchestrator:
                     for candidate in strategy_watchlist
                     if str(getattr(candidate, "symbol", "")).upper() in focus_only
                 ]
-            print(f"[ORCHESTRATOR][DISPATCH] passing {len(strategy_watchlist)} symbols to strategy")
+            print(f"[ORCHESTRATOR][DISPATCH] focus_count={len(strategy_watchlist)}")
             strategy_inputs = strategy_watchlist
             print(
                 "[STRATEGY][HANDOFF] "
@@ -2754,7 +2754,7 @@ class CoreOrchestrator:
                 f"focus={len(strategy_context.focus_m)} "
                 f"watchlist_k={len(strategy_context.watchlist_k)}"
             )
-            print(f"[ORCHESTRATOR][DISPATCH] passing {len(strategy_watchlist)} symbols to strategy")
+            print(f"[ORCHESTRATOR][DISPATCH] focus_count={len(strategy_watchlist)}")
             strategy_inputs = strategy_watchlist
 
             if not strategy_watchlist:

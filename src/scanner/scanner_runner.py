@@ -1297,6 +1297,7 @@ def _evaluate_float_gate(
     context: Dict[str, Any],
     thresholds: GateThresholds,
 ) -> Optional[str]:
+    session = normalize_session_label(str(context.get("session") or ""))
     float_shares = context.get("float_shares")
     if float_shares is None:
         rvol = _safe_float(context.get("rvol"), None)
@@ -1336,7 +1337,12 @@ def _evaluate_float_gate(
         )
         return None
     context["float_status"] = "KNOWN"
-    if float_shares > thresholds.max_float:
+    float_max_effective = (
+        thresholds.max_float * 5
+        if session in {"PRE", "PREMARKET"}
+        else thresholds.max_float
+    )
+    if float_shares > float_max_effective:
         return "DROP_FLOAT_MAX"
     return None
 
@@ -1413,7 +1419,8 @@ def _evaluate_focus_gates(
         return "DROP_HALTED"
     if ssr is True and not thresholds.allow_ssr:
         return "DROP_SSR"
-    if bool(context.get("live_confirmation_pending")):
+    allow_without_confirmation = session in {"PRE", "PREMARKET"}
+    if bool(context.get("live_confirmation_pending")) and not allow_without_confirmation:
         return "DROP_LIVE_CONFIRMATION_PENDING"
     rvol_metric_used, focus_rvol_value = _resolve_rvol_for_focus_gate(context)
     rvol_phase = _safe_float(context.get("rvol_phase"), None)
@@ -4071,6 +4078,10 @@ def run_scanner_cycle(
                 else 0.0
             ),
         )[:focus_limit]
+        if session_label == "PRE" and not focus_contexts and watchlist_contexts:
+            forced_focus_count = min(5, len(watchlist_contexts), focus_limit if focus_limit > 0 else len(watchlist_contexts))
+            focus_contexts = watchlist_contexts[:forced_focus_count]
+            print(f"[FOCUS][FORCED_PREMARKET_FLOW] count={len(focus_contexts)}")
         deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
 
         if not deep_rows and watchlist_contexts:
