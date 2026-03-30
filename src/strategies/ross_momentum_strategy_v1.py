@@ -508,6 +508,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             "TRIGGER_REJECTED": 0,
             "READY_FOR_EXECUTION": 0,
         }
+        setup_engine_invoked = False
 
         def _terminal(symbol: str, category: str, reason: str) -> None:
             print(f"[ROSS][TERMINAL] symbol={symbol} category={category} reason={reason}")
@@ -626,7 +627,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 session_context=input_summary.session_context,
                 symbol=symbol,
             )
-            setups = SetupEngine().compute_setups(
+            print(f"[SETUP][INVOKE] symbol={symbol}")
+            setup_results = SetupEngine().compute_setups(
                 candles=list(getattr(inputs, "candles", []) or []),
                 levels=levels,
                 structure=structure,
@@ -637,6 +639,9 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "float_millions": input_summary.float_millions,
                 },
             )
+            setup_engine_invoked = True
+            print(f"[SETUP][RESULT] symbol={symbol} result={setup_results}")
+            setups = setup_results
             pre_activation = self._detect_pre_breakout_pressure(
                 symbol=symbol,
                 inputs=inputs,
@@ -652,13 +657,15 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "[ROSS][PRE_ACTIVATION] "
                     f"symbol={symbol} setup={pre_activation.get('setup_type')} classification={pre_activation.get('classification')}"
                 )
-            trigger_candidates = TriggerEngine().evaluate_triggers(
+            trigger = TriggerEngine().evaluate_triggers(
                 symbol=symbol,
                 candles=list(getattr(inputs, "candles", []) or []),
-                setups=setups,
+                setups=setup_results,
                 levels=levels,
                 structure=structure,
             )
+            print(f"[TRIGGER][RESULT] symbol={symbol} trigger={trigger}")
+            trigger_candidates = trigger
             quality_engine = TriggerQualityEngine()
             for trigger in trigger_candidates:
                 trigger["quality"] = quality_engine.evaluate_trigger_quality(
@@ -1203,6 +1210,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol_trace.final_reason_code = "INTENT_GENERATED"
             print(f"[CLASSIFICATION] symbol={symbol} category=READY_FOR_EXECUTION")
             classification_counts["READY_FOR_EXECUTION"] += 1
+            print(f"[DECISION] symbol={symbol} action=ENTER")
             print(f"TRADE_INTENT symbol={symbol} setup={best_pattern.pattern_id}")
             print(f"[ROSS][INTENT_GENERATED] symbol={symbol}")
             print(
@@ -1314,6 +1322,9 @@ class RossMomentumStrategyV1(BaseStrategy):
         self._print_ross_cycle_summary(cycle_summary)
 
         print(f"[ROSS][INTENTS] generated={len(translated_intents)}")
+
+        if self.last_evaluated_symbols and not setup_engine_invoked:
+            raise Exception("SETUP_ENGINE_NOT_CONNECTED")
 
         if not translated_intents:
             print("[ROSS][WARNING] NO TRADE INTENTS GENERATED")
