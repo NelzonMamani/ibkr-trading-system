@@ -76,6 +76,8 @@ class ExecutionEvent:
     filled_quantity: int = 0
     remaining_quantity: int = 0
     broker_status: str = "UNKNOWN"
+    avg_fill_price: float | None = None
+    last_update_time: str | None = None
 
 
 @dataclass
