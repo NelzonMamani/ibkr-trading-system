@@ -12,6 +12,7 @@ from src.risk.data_quality_contract import data_quality_blocking_causes
 
 
 DEFAULT_PAPER_CAPITAL = 10000.0
+INITIAL_POSITION_PCT = 0.25
 
 
 @dataclass(frozen=True)
@@ -149,7 +150,8 @@ def evaluate_trade_intents(
             requested_shares = 0
             print(f"[RISK][SIZE_BLOCK] symbol={intent.symbol} reason=INVALID_PRICE_SANITY_CHECK")
         else:
-            requested_shares = int(capital_per_symbol // entry_price)
+            initial_capital = capital_per_symbol * INITIAL_POSITION_PCT
+            requested_shares = int(initial_capital // entry_price)
         if requested_shares <= 0:
             decision = "BLOCK"
             max_size = 0
