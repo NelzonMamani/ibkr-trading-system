@@ -405,6 +405,33 @@ class StorageEngine:
             return []
         return self._store.fetch_trade_lifecycle_reconciliation_events(run_id or self.run_id)
 
+    def upsert_execution_order(self, order: dict[str, Any]) -> None:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return
+        payload = dict(order)
+        payload.setdefault("run_id", self.run_id)
+        payload.setdefault("created_at", now_iso())
+        payload.setdefault("updated_at", now_iso())
+        self._store.upsert_execution_order(payload)
+
+    def insert_execution_fill(self, fill: dict[str, Any]) -> None:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return
+        payload = dict(fill)
+        payload.setdefault("fill_id", str(uuid4()))
+        payload.setdefault("run_id", self.run_id)
+        payload.setdefault("created_at", now_iso())
+        self._store.insert_execution_fill(payload)
+
+    def insert_execution_position_lifecycle(self, event: dict[str, Any]) -> None:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return
+        payload = dict(event)
+        payload.setdefault("position_event_id", str(uuid4()))
+        payload.setdefault("run_id", self.run_id)
+        payload.setdefault("created_at", now_iso())
+        self._store.insert_execution_position_lifecycle(payload)
+
     def store_watchlist(
         self,
         *,

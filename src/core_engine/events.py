@@ -78,6 +78,11 @@ class ExecutionEvent:
     broker_status: str = "UNKNOWN"
     avg_fill_price: float | None = None
     last_update_time: str | None = None
+    local_submission_id: str | None = None
+    order_ref: str | None = None
+    lifecycle_source: str | None = None
+    exec_id: str | None = None
+    perm_id: int | None = None
 
 
 @dataclass

@@ -9,9 +9,56 @@ from typing import Any, List
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
+from src.execution.execution_authority import ExecutionAuthority
+from src.storage.storage_engine import StorageEngine
 from src.core_engine.state import RunMode
 
 
+
+
+_AUTHORITY: ExecutionAuthority | None = None
+_CALLBACK_EVENTS: list[tuple[str, dict[str, Any]]] = []
+
+
+def _on_ibkr_callback(event_type: str, payload: dict[str, Any]) -> None:
+    _CALLBACK_EVENTS.append((event_type, payload))
+
+
+def _drain_callbacks(events: List[ExecutionEvent]) -> None:
+    authority = _get_authority()
+    by_local = {e.local_submission_id: e for e in events if e.local_submission_id}
+    while _CALLBACK_EVENTS:
+        event_type, payload = _CALLBACK_EVENTS.pop(0)
+        if event_type == "order_status":
+            ev = authority.apply_order_status(payload, source="ibkr_order_status_callback")
+            if ev and ev.local_submission_id in by_local:
+                current = by_local[ev.local_submission_id]
+                current.broker_order_id = ev.broker_order_id
+                current.broker_status = "Filled" if ev.broker_status == "FILLED" else ev.broker_status
+                current.filled_quantity = ev.filled_quantity
+                current.remaining_quantity = ev.remaining_quantity
+                current.last_update_time = ev.last_update_time
+                print(f"[EXECUTION][BROKER_ACK] symbol={current.symbol} broker_order_id={current.broker_order_id} state={current.broker_status}")
+        elif event_type == "execution":
+            ev, _ = authority.apply_fill(payload, source="ibkr_execution_callback")
+            if ev and ev.local_submission_id in by_local:
+                current = by_local[ev.local_submission_id]
+                current.broker_order_id = ev.broker_order_id
+                current.broker_status = "Filled" if ev.broker_status == "FILLED" else ev.broker_status
+                current.filled_quantity = ev.filled_quantity
+                current.remaining_quantity = ev.remaining_quantity
+                current.avg_fill_price = ev.avg_fill_price
+                current.exec_id = ev.exec_id
+
+
+def _get_authority() -> ExecutionAuthority:
+    global _AUTHORITY
+    if _AUTHORITY is None:
+        try:
+            _AUTHORITY = ExecutionAuthority(persistence_adapter=StorageEngine())
+        except Exception:
+            _AUTHORITY = ExecutionAuthority(persistence_adapter=None)
+    return _AUTHORITY
 @dataclass(frozen=True)
 class RouterAccountSnapshot:
     available_funds: float
@@ -131,38 +178,65 @@ def _sync_submitted_events_from_ibkr(
 ) -> List[ExecutionEvent]:
     if not events:
         return events
-    open_orders, executions, positions = _fetch_ibkr_truth(mode)
-    execution_index: dict[int, Any] = {}
+    _open_orders, executions, positions = _fetch_ibkr_truth(mode)
+    authority = _get_authority()
+    by_local_id: dict[str, ExecutionEvent] = {
+        e.local_submission_id: e for e in events if e.local_submission_id
+    }
+    unmatched_local_ids = [e.local_submission_id for e in events if e.action == "SUBMITTED" and e.local_submission_id]
     for row in executions:
         order_id = _extract_exec_order_id(row)
-        if order_id is not None and order_id not in execution_index:
-            execution_index[order_id] = row
-
-    for event in events:
-        if event.action != "SUBMITTED":
+        if order_id is None:
             continue
-        event.last_update_time = _now_utc_iso()
-        if event.broker_order_id is None:
-            continue
-        match = execution_index.get(int(event.broker_order_id))
-        if match is None:
-            continue
-        event.broker_status = "Filled"
-        event.filled_quantity = _extract_exec_qty(match)
-        event.remaining_quantity = max(0, int(event.remaining_quantity or 0))
-        event.avg_fill_price = _extract_exec_price(match)
-        print(
-            f"[EXECUTION][FILL] symbol={event.symbol} qty={event.filled_quantity} "
-            f"price={event.avg_fill_price if event.avg_fill_price is not None else 'UNKNOWN'}"
+        local_submission_id = unmatched_local_ids[0] if unmatched_local_ids else None
+        status_event = authority.apply_order_status(
+            {
+                "local_submission_id": local_submission_id,
+                "order_id": order_id,
+                "status": "Submitted",
+                "filled": _extract_exec_qty(row),
+                "remaining": 0,
+                "avg_fill_price": _extract_exec_price(row),
+            },
+            source="reconciliation",
         )
-        for position in positions:
-            symbol = str(getattr(position, "symbol", "") or "").upper()
-            if symbol != str(event.symbol or "").upper():
-                continue
-            qty = int(getattr(position, "position", 0) or 0)
-            avg = getattr(position, "avgCost", None)
-            print(f"[POSITION][OPEN] symbol={symbol} qty={qty} avg_price={avg}")
-            break
+        if status_event and status_event.local_submission_id in by_local_id:
+            current = by_local_id[status_event.local_submission_id]
+            current.broker_order_id = status_event.broker_order_id
+            current.broker_status = status_event.broker_status
+        fill_event, _position_event = authority.apply_fill(
+            {
+                "local_submission_id": local_submission_id,
+                "order_id": order_id,
+                "exec_id": getattr(row, "execId", None),
+                "fill_qty": _extract_exec_qty(row),
+                "cumulative_qty": _extract_exec_qty(row),
+                "fill_price": _extract_exec_price(row),
+                "avg_fill_price": _extract_exec_price(row),
+            },
+            source="reconciliation",
+        )
+        if fill_event and fill_event.local_submission_id in by_local_id:
+            current = by_local_id[fill_event.local_submission_id]
+            current.filled_quantity = fill_event.filled_quantity
+            current.avg_fill_price = fill_event.avg_fill_price
+            current.remaining_quantity = fill_event.remaining_quantity
+            current.broker_status = "Filled" if fill_event.broker_status == "FILLED" else fill_event.broker_status
+            current.broker_order_id = fill_event.broker_order_id
+            print(
+                f"[EXECUTION][FILL] symbol={current.symbol} qty={fill_event.filled_quantity} "
+                f"price={fill_event.avg_fill_price if fill_event.avg_fill_price is not None else 'UNKNOWN'}"
+            )
+            print(
+                f"[EXECUTION][FILL_CALLBACK] symbol={current.symbol} fill_qty={fill_event.filled_quantity} "
+                f"avg_fill_price={fill_event.avg_fill_price} lifecycle_source=reconciliation"
+            )
+    for position in positions:
+        symbol = str(getattr(position, "symbol", "") or "").upper()
+        qty = int(getattr(position, "position", 0) or 0)
+        avg = getattr(position, "avgCost", None)
+        if qty != 0:
+            print(f"[EXECUTION][RECONCILE] symbol={symbol} broker_qty={qty} broker_avg={avg}")
     return events
 
 
@@ -229,6 +303,8 @@ def execute_intents(
             print("[EXECUTION][TEST_MODE] Skipping IBKR connection validation")
         else:
             _validate_ibkr_connection(mode)
+            manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
+            manager.get_client().register_execution_callback(_on_ibkr_callback)
 
     broker_state = "CONNECTED" if mode in {RunMode.PAPER, RunMode.LIVE} else "DISCONNECTED"
     print(f"[EXECUTION][MODE] mode={mode.value} broker_connection_state={broker_state}")
@@ -237,11 +313,6 @@ def execute_intents(
     existing_open_order_symbols = {_extract_symbol_from_order(row) for row in open_orders}
     existing_open_order_symbols.discard("")
 
-    order_id_seed = 0
-    if mode in {RunMode.PAPER, RunMode.LIVE} and not _is_test_environment():
-        manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
-        metadata = manager.connection_metadata()
-        order_id_seed = int(metadata.get("connected_client_id") or 0) * 1_000_000
 
     for index, decision in enumerate(decisions, start=1):
         account = RouterAccountSnapshot(available_funds=float(decision.available_funds))
@@ -338,19 +409,33 @@ def execute_intents(
             detail = f"decision={decision.decision}; reason={decision.block_reason or 'RISK_BLOCK'}"
             dispatch = "SKIPPED"
         print(f"[EXECUTION][DISPATCH] symbol={decision.symbol} dispatch={dispatch}")
-        broker_order_id = None
         if action == "SUBMITTED":
-            broker_order_id = order_id_seed + index if order_id_seed > 0 else index
-            print(f"[EXECUTION][SUBMITTED] symbol={decision.symbol} broker_order_id={broker_order_id}")
-        events.append(
-            ExecutionEvent(
-                symbol=decision.symbol,
-                intent_id=decision.intent_id,
-                action=action,
-                detail=detail,
-                broker_order_id=broker_order_id,
-                broker_status="Submitted" if action == "SUBMITTED" else ("REJECTED" if action == "BLOCKED" else "SIMULATED"),
-                last_update_time=_now_utc_iso(),
+            authority = _get_authority()
+            local_submission_id = f"{decision.intent_id}:{index}:{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+            submit_event = authority.register_submit_request(
+                decision,
+                local_submission_id=local_submission_id,
+                source="local_submit",
             )
-        )
+            submit_event.action = "SUBMITTED"
+            submit_event.detail = detail
+            submit_event.broker_status = "SUBMITTING"
+            submit_event.last_update_time = _now_utc_iso()
+            print(
+                f"[EXECUTION][SUBMIT_REQUEST] symbol={decision.symbol} intent_id={decision.intent_id} "
+                f"local_submission_id={local_submission_id} broker_order_id=PENDING"
+            )
+            events.append(submit_event)
+        else:
+            events.append(
+                ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action=action,
+                    detail=detail,
+                    broker_status="REJECTED" if action == "BLOCKED" else "SIMULATED",
+                    last_update_time=_now_utc_iso(),
+                )
+            )
+    _drain_callbacks(events)
     return _sync_submitted_events_from_ibkr(mode, events)

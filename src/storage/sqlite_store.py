@@ -10,7 +10,7 @@ from typing import Any, Iterable
 from src.storage.serialization import compute_audit_hash
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 @dataclass
@@ -190,6 +190,59 @@ class SQLiteStore:
                 created_at TEXT,
                 FOREIGN KEY(run_id) REFERENCES runs(run_id)
             );
+
+            CREATE TABLE IF NOT EXISTS execution_orders (
+                local_submission_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                broker_order_id INTEGER,
+                order_ref TEXT,
+                intent_id TEXT,
+                strategy_name TEXT,
+                symbol TEXT,
+                side TEXT,
+                requested_qty INTEGER,
+                lifecycle_state TEXT,
+                raw_broker_status TEXT,
+                lifecycle_source TEXT,
+                perm_id INTEGER,
+                created_at TEXT,
+                updated_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id)
+            );
+            CREATE TABLE IF NOT EXISTS execution_fills (
+                fill_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                broker_order_id INTEGER,
+                exec_id TEXT,
+                perm_id INTEGER,
+                symbol TEXT,
+                side TEXT,
+                fill_qty INTEGER,
+                cumulative_qty INTEGER,
+                fill_price REAL,
+                avg_fill_price REAL,
+                timestamp TEXT,
+                source TEXT,
+                created_at TEXT,
+                UNIQUE(exec_id),
+                FOREIGN KEY(run_id) REFERENCES runs(run_id)
+            );
+            CREATE TABLE IF NOT EXISTS execution_position_lifecycle (
+                position_event_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                symbol TEXT,
+                strategy_name TEXT,
+                action TEXT,
+                quantity_after INTEGER,
+                avg_entry_after REAL,
+                realized_pnl_delta REAL,
+                causal_exec_id TEXT,
+                timestamp TEXT,
+                source TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id)
+            );
+
             CREATE TABLE IF NOT EXISTS trade_records (
                 trade_record_id TEXT PRIMARY KEY,
                 run_id TEXT,
@@ -408,6 +461,9 @@ class SQLiteStore:
                 ON trade_lifecycle_events(symbol, timestamp);
             CREATE INDEX IF NOT EXISTS idx_tle_reconcile_symbol_time
                 ON trade_lifecycle_reconciliation_events(symbol, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_execution_orders_run_symbol ON execution_orders(run_id, symbol, lifecycle_state);
+            CREATE INDEX IF NOT EXISTS idx_execution_fills_order_time ON execution_fills(broker_order_id, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_execution_positions_symbol_time ON execution_position_lifecycle(symbol, timestamp);
             CREATE INDEX IF NOT EXISTS idx_trade_records_run_id ON trade_records(run_id);
             CREATE INDEX IF NOT EXISTS idx_trades_run_id ON trades(run_id);
             CREATE INDEX IF NOT EXISTS idx_execution_results_run_id ON execution_results(run_id);
@@ -724,6 +780,76 @@ class SQLiteStore:
                 summary.get("timestamp"),
                 summary.get("created_at"),
             ),
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def upsert_execution_order(self, order: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO execution_orders (
+                local_submission_id, run_id, broker_order_id, order_ref, intent_id, strategy_name,
+                symbol, side, requested_qty, lifecycle_state, raw_broker_status, lifecycle_source,
+                perm_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(local_submission_id) DO UPDATE SET
+                run_id=excluded.run_id,
+                broker_order_id=excluded.broker_order_id,
+                order_ref=excluded.order_ref,
+                intent_id=excluded.intent_id,
+                strategy_name=excluded.strategy_name,
+                symbol=excluded.symbol,
+                side=excluded.side,
+                requested_qty=excluded.requested_qty,
+                lifecycle_state=excluded.lifecycle_state,
+                raw_broker_status=excluded.raw_broker_status,
+                lifecycle_source=excluded.lifecycle_source,
+                perm_id=excluded.perm_id,
+                updated_at=excluded.updated_at
+            """,
+            (
+                order["local_submission_id"], order.get("run_id"), order.get("broker_order_id"),
+                order.get("order_ref"), order.get("intent_id"), order.get("strategy_name"),
+                order.get("symbol"), order.get("side"), order.get("requested_qty"),
+                order.get("lifecycle_state"), order.get("raw_broker_status"),
+                order.get("lifecycle_source"), order.get("perm_id"), order.get("created_at"), order.get("updated_at")
+            )
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_execution_fill(self, fill: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            INSERT OR IGNORE INTO execution_fills (
+                fill_id, run_id, broker_order_id, exec_id, perm_id, symbol, side, fill_qty,
+                cumulative_qty, fill_price, avg_fill_price, timestamp, source, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                fill["fill_id"], fill.get("run_id"), fill.get("broker_order_id"), fill.get("exec_id"),
+                fill.get("perm_id"), fill.get("symbol"), fill.get("side"), fill.get("fill_qty"),
+                fill.get("cumulative_qty"), fill.get("fill_price"), fill.get("avg_fill_price"),
+                fill.get("timestamp"), fill.get("source"), fill.get("created_at")
+            )
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_execution_position_lifecycle(self, event: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            INSERT OR IGNORE INTO execution_position_lifecycle (
+                position_event_id, run_id, symbol, strategy_name, action, quantity_after,
+                avg_entry_after, realized_pnl_delta, causal_exec_id, timestamp, source, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event["position_event_id"], event.get("run_id"), event.get("symbol"),
+                event.get("strategy_name"), event.get("action"), event.get("quantity_after"),
+                event.get("avg_entry_after"), event.get("realized_pnl_delta"), event.get("causal_exec_id"),
+                event.get("timestamp"), event.get("source"), event.get("created_at")
+            )
         )
         if self.commit_each_write:
             self.connection.commit()

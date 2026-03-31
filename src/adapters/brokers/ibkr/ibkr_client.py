@@ -90,11 +90,28 @@ class IbkrClient(EWrapper, EClient):
         self._request_type_by_req_id: Dict[int, str] = {}
         self._active_market_req_ids: set[int] = set()
         self._order_state_registry: Dict[int, dict] = {}
+        self._execution_callbacks: list = []
+        self._order_ref_by_order_id: Dict[int, str] = {}
 
+
+    def register_execution_callback(self, callback) -> None:
+        if callback not in self._execution_callbacks:
+            self._execution_callbacks.append(callback)
+
+    def _emit_execution_callback(self, event_type: str, payload: dict) -> None:
+        for callback in list(self._execution_callbacks):
+            try:
+                callback(event_type, payload)
+            except Exception as exc:
+                print(f"[EXECUTION][ERROR] stage=callback_dispatch type={event_type} error={exc}")
 
     def _ensure_order_state_registry(self) -> None:
         if not hasattr(self, "_order_state_registry") or self._order_state_registry is None:
             self._order_state_registry = {}
+        if not hasattr(self, "_execution_callbacks") or self._execution_callbacks is None:
+            self._execution_callbacks = []
+        if not hasattr(self, "_order_ref_by_order_id") or self._order_ref_by_order_id is None:
+            self._order_ref_by_order_id = {}
 
     # --- Connection management ---
     def connect(self) -> None:  # type: ignore[override]
@@ -884,6 +901,26 @@ class IbkrClient(EWrapper, EClient):
             "[EXECUTION][ORDER_TRACK] "
             f"order_id={orderId} status={status} filled={int(filled)} remaining={int(remaining)}"
         )
+        self._emit_execution_callback(
+            "order_status",
+            {
+                "order_id": orderId,
+                "status": status,
+                "filled": int(filled),
+                "remaining": int(remaining),
+                "avg_fill_price": avgFillPrice,
+                "last_fill_price": lastFillPrice,
+                "perm_id": permId,
+                "order_ref": self._order_ref_by_order_id.get(orderId),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "raw_payload": {
+                    "whyHeld": whyHeld,
+                    "clientId": clientId,
+                    "mktCapPrice": mktCapPrice,
+                    "parentId": parentId,
+                },
+            },
+        )
         event = self._order_status_events.setdefault(orderId, threading.Event())
         event.set()
 
@@ -913,9 +950,38 @@ class IbkrClient(EWrapper, EClient):
             f"order_id={order_id} status=Filled shares={getattr(execution, 'shares', None)}"
         )
         self._exec_details_by_order.setdefault(order_id, []).append(details)
+        self._emit_execution_callback(
+            "execution",
+            {
+                "order_id": order_id,
+                "exec_id": getattr(execution, "execId", None),
+                "perm_id": getattr(execution, "permId", None),
+                "order_ref": self._order_ref_by_order_id.get(order_id),
+                "symbol": getattr(contract, "symbol", None),
+                "side": getattr(execution, "side", None),
+                "fill_qty": int(getattr(execution, "shares", 0) or 0),
+                "cumulative_qty": int(getattr(execution, "cumQty", 0) or getattr(execution, "shares", 0) or 0),
+                "fill_price": getattr(execution, "price", None),
+                "avg_fill_price": getattr(execution, "avgPrice", None) or getattr(execution, "price", None),
+                "timestamp": getattr(execution, "time", None) or datetime.now(timezone.utc).isoformat(),
+                "raw_payload": details,
+            },
+        )
 
     def openOrder(self, orderId, contract, order, orderState):  # type: ignore[override]
         self._ensure_order_state_registry()
+        order_ref = str(getattr(order, "orderRef", "") or "")
+        self._order_ref_by_order_id[orderId] = order_ref
+        self._emit_execution_callback(
+            "open_order",
+            {
+                "order_id": orderId,
+                "order_ref": order_ref,
+                "symbol": getattr(contract, "symbol", None),
+                "status": getattr(orderState, "status", None),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
         print(f"[ORDER][OPEN] order_id={orderId} symbol={getattr(contract, 'symbol', None)}")
 
     def commissionReport(self, commissionReport):  # type: ignore[override]
@@ -924,6 +990,22 @@ class IbkrClient(EWrapper, EClient):
         if exec_id is None or commission is None:
             return
         self._commission_by_exec_id[exec_id] = float(commission)
+
+
+    def position(self, account, contract, pos, avgCost):  # type: ignore[override]
+        self._emit_execution_callback(
+            "position",
+            {
+                "account": account,
+                "symbol": getattr(contract, "symbol", None),
+                "position": pos,
+                "avg_cost": avgCost,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    def positionEnd(self):  # type: ignore[override]
+        self._emit_execution_callback("position_end", {"timestamp": datetime.now(timezone.utc).isoformat()})
 
     def connectionClosed(self):  # type: ignore[override]
         self._last_disconnect_reason = "connectionClosed"
