@@ -72,6 +72,8 @@ class ExecutionEvent:
     intent_id: str
     action: str
     detail: str
+    event_type: str = "ORDER_SUBMITTED"
+    source: str = "IBKR"
     broker_order_id: int | None = None
     filled_quantity: int = 0
     remaining_quantity: int = 0
