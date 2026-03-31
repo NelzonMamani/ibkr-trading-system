@@ -89,6 +89,12 @@ class IbkrClient(EWrapper, EClient):
         self._market_update_event = threading.Event()
         self._request_type_by_req_id: Dict[int, str] = {}
         self._active_market_req_ids: set[int] = set()
+        self._order_state_registry: Dict[int, dict] = {}
+
+
+    def _ensure_order_state_registry(self) -> None:
+        if not hasattr(self, "_order_state_registry") or self._order_state_registry is None:
+            self._order_state_registry = {}
 
     # --- Connection management ---
     def connect(self) -> None:  # type: ignore[override]
@@ -855,6 +861,7 @@ class IbkrClient(EWrapper, EClient):
         whyHeld: str,
         mktCapPrice: float,
     ):  # type: ignore[override]
+        self._ensure_order_state_registry()
         existing = self._order_status.get(orderId, {})
         self._order_status[orderId] = {
             **existing,
@@ -881,6 +888,7 @@ class IbkrClient(EWrapper, EClient):
         event.set()
 
     def execDetails(self, reqId, contract, execution):  # type: ignore[override]
+        self._ensure_order_state_registry()
         order_id = getattr(execution, "orderId", None)
         if order_id is None:
             return
@@ -907,6 +915,7 @@ class IbkrClient(EWrapper, EClient):
         self._exec_details_by_order.setdefault(order_id, []).append(details)
 
     def openOrder(self, orderId, contract, order, orderState):  # type: ignore[override]
+        self._ensure_order_state_registry()
         print(f"[ORDER][OPEN] order_id={orderId} symbol={getattr(contract, 'symbol', None)}")
 
     def commissionReport(self, commissionReport):  # type: ignore[override]
