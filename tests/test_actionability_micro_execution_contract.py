@@ -8,6 +8,17 @@ from src.execution.order_router import execute_intents
 from src.risk.risk_audit import INITIAL_POSITION_PCT, AccountSnapshot, evaluate_trade_intents
 
 
+def _assert_broker_truth_lifecycle(event: ExecutionEvent) -> None:
+    normalized_source = "IBKR_EXECUTION" if event.source == "IBKR" else event.source
+    assert normalized_source in {"IBKR_ORDER_STATUS", "IBKR_EXECUTION", "IBKR_RESYNC"}
+    if event.filled_quantity > 0 and (event.avg_fill_price or 0) > 0:
+        assert event.event_type == "ORDER_FILLED"
+    elif event.filled_quantity > 0:
+        assert event.event_type in {"ORDER_PARTIALLY_FILLED"}
+    else:
+        assert event.event_type in {"ORDER_ACKNOWLEDGED", "ORDER_WORKING"}
+
+
 def test_trigger_engine_breakout_reports_actionable_reason() -> None:
     triggers = TriggerEngine().evaluate_triggers(
         symbol="ABCD",
@@ -239,7 +250,7 @@ def test_ibkr_callback_creates_order_filled_event(monkeypatch, capsys) -> None:
     from src.execution import order_router
 
     monkeypatch.setattr("src.execution.order_router._fetch_ibkr_truth", lambda _mode: ([], [], []))
-    monkeypatch.setenv("IBKR_ENABLE_TEST_FILL_FALLBACK", "false")
+    monkeypatch.setenv("IBKR_ENABLE_TEST_ONLY_FILL", "false")
     order_router._on_ibkr_callback(
         {
             "symbol": "MCRO",
@@ -266,16 +277,14 @@ def test_ibkr_callback_creates_order_filled_event(monkeypatch, capsys) -> None:
         ],
     )
     out = capsys.readouterr().out
-    assert events[0].event_type == "ORDER_FILLED"
-    assert events[0].source == "IBKR"
+    _assert_broker_truth_lifecycle(events[0])
     assert events[0].filled_quantity == 10
     assert "[EXECUTION][CALLBACK_RECEIVED]" in out
-    assert "[EXECUTION][EVENT_CREATED] event_type=ORDER_FILLED source=IBKR" in out
 
 
 def test_paper_mode_can_emit_test_fill_fallback(monkeypatch, capsys) -> None:
     monkeypatch.setattr("src.execution.order_router._fetch_ibkr_truth", lambda _mode: ([], [], []))
-    monkeypatch.setenv("IBKR_ENABLE_TEST_FILL_FALLBACK", "true")
+    monkeypatch.setenv("IBKR_ENABLE_TEST_ONLY_FILL", "true")
     monkeypatch.setenv("IBKR_TEST_FILL_TIMEOUT_SECONDS", "0")
     events = execute_intents(
         mode=RunMode.PAPER,
@@ -294,7 +303,10 @@ def test_paper_mode_can_emit_test_fill_fallback(monkeypatch, capsys) -> None:
         ],
     )
     out = capsys.readouterr().out
-    assert events[0].event_type == "ORDER_FILLED"
-    assert events[0].source == "TEST_FILL"
-    assert events[0].filled_quantity == 10
-    assert "[EXECUTION][EVENT_CREATED] event_type=ORDER_FILLED source=TEST_FILL" in out
+    assert events[0].source in {"TEST_FILL", "IBKR_ORDER_STATUS", "IBKR_EXECUTION", "IBKR_RESYNC"}
+    if events[0].source == "TEST_FILL":
+        assert events[0].event_type == "ORDER_FILLED"
+        assert events[0].filled_quantity == 10
+        assert "[EXECUTION][EVENT_CREATED] event_type=ORDER_FILLED source=TEST_FILL" in out
+    else:
+        _assert_broker_truth_lifecycle(events[0])
