@@ -4,7 +4,7 @@ from src.config.config_resolver import set_config_overrides
 from src.core.intent import build_execution_intent
 from src.core.mode_authority import resolve_mode_authority
 from src.core_engine.events import TradeIntentRecord
-from src.core_engine.orchestrator import run_cycle
+from src.core_engine.orchestrator import _enforce_canonical_price_authority, run_cycle
 from src.core_engine.state import RunMode, SessionState
 from src.risk.risk_audit import INITIAL_POSITION_PCT, AccountSnapshot, evaluate_trade_intents
 from src.strategies.ross_momentum.strategy_policy import StockSelectionSpec
@@ -103,3 +103,49 @@ def test_executable_paper_cycle_does_not_skip_scan_only_and_no_readonly_rule(cap
     assert "[EXECUTION] Execution stage skipped — intent scan_only." not in out
     assert "MODE_READONLY" not in out
     assert "[PIPELINE][EXECUTION_GATE]" in out
+
+
+def test_price_authority_allows_scanner_price_for_paper_after_hours() -> None:
+    allowed, reason = _enforce_canonical_price_authority(
+        symbol="AAPL",
+        mode=RunMode.PAPER,
+        session="AFTER",
+        entry_price=100.0,
+        entry_price_source="SCANNER_LAST_PRICE",
+        scanner_payload={},
+    )
+    assert allowed is True
+    assert reason == "PAPER_FALLBACK_ALLOWED"
+
+
+def test_price_authority_blocks_scanner_price_for_paper_rth() -> None:
+    allowed, reason = _enforce_canonical_price_authority(
+        symbol="AAPL",
+        mode=RunMode.PAPER,
+        session="REG",
+        entry_price=100.0,
+        entry_price_source="SCANNER_LAST_PRICE",
+        scanner_payload={},
+    )
+    assert allowed is False
+    assert reason == "NON_CANONICAL_PRICE_SOURCE:SCANNER_LAST_PRICE"
+
+
+def test_after_hours_preserves_paper_mode_for_lifecycle_validation(capsys) -> None:
+    set_config_overrides(
+        {
+            "RUN_MODE": "PAPER",
+            "RUN_MODE_EFFECTIVE": "PAPER",
+            "EXECUTION_ENABLED": False,
+            "EXECUTION_ENABLED_EFFECTIVE": False,
+            "SCANNER_DATA_SOURCE": "MOCK",
+        }
+    )
+    try:
+        run_cycle(cycle_id=1, mode_value="PAPER", forced_session_state=SessionState.AFTER)
+    finally:
+        set_config_overrides(None)
+    out = capsys.readouterr().out
+    assert "[MODE][OVERRIDE] preserving PAPER mode during AFTER_HOURS for lifecycle validation" in out
+    assert "[MODE][EXECUTION_CONTEXT]" in out
+    assert "effective_mode=PAPER trade_enabled=True scan_only=False" in out
