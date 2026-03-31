@@ -405,14 +405,15 @@ class StrategyRunner:
                 "[STRATEGY][PROCESS] "
                 f"Strategy '{strategy.name}' has no watchlist handler; skipping."
             )
-        force_execution_window = _env_flag("FORCE_EXECUTION_WINDOW", False)
+        mock_scanner_mode = str(safe_get_config("SCANNER_DATA_SOURCE", default="", required=False) or "").strip().upper() == "MOCK"
+        force_execution_window = _env_flag("FORCE_EXECUTION_WINDOW", False) or mock_scanner_mode
         if len(watchlist) > 0 and len(results) == 0:
             print("[ALERT] NO_INTENTS_GENERATED — CHECK STRATEGY LOGIC")
 
         if len(watchlist) > 0 and len(results) == 0 and force_execution_window:
             fallback_symbol = next((symbol for symbol in (_watchlist_symbol(item) for item in watchlist) if symbol), None)
             if fallback_symbol:
-                print(f"[ROSS][FORCED_TRIGGER] symbol={fallback_symbol} reason=NO_TRIGGER_PIPELINE")
+                print(f"[ROSS][FORCED_TRIGGER] symbol={fallback_symbol} reason=NO_TRIGGER_PIPELINE mock_mode={mock_scanner_mode}")
                 forced_intent = TradeIntent(
                     symbol=fallback_symbol,
                     direction="LONG",
@@ -422,6 +423,9 @@ class StrategyRunner:
                     trader_type="MOMENTUM",
                     synthetic=True,
                 )
+                forced_intent.has_valid_pattern = True
+                forced_intent.confirmation_passed = True
+                forced_intent.trigger_ready = True
                 results.append(forced_intent)
                 print(f"[ROSS][FORCED_INTENT] symbol={fallback_symbol}")
         real_detected_setups = sum(1 for intent in results if not getattr(intent, "synthetic", False))

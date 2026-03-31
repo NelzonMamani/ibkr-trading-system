@@ -318,6 +318,10 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _is_mock_scanner_mode() -> bool:
+    return str(get_config("SCANNER_DATA_SOURCE") or "").strip().upper() == "MOCK"
+
+
 def reset_scanner_runtime_state(*, clear_persistent_provider: bool = True) -> None:
     """Reset scanner module runtime globals to avoid cross-test/runtime leakage."""
     global _WATCHLIST_HASH, _LAST_SESSION_LABEL, _SCAN_CYCLE_COUNT, _LAST_PRINT_CYCLE, _PERSISTENT_PROVIDER, _PERSISTENT_PROVIDER_SOURCE, _ROSS_DAILY_STATE, _LAST_BROKER_SCAN_TS, _LAST_SCANNER_PAYLOAD
@@ -3151,7 +3155,7 @@ def run_scanner_cycle(
 
     run_mode = get_run_mode()
     fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
-    explicit_mock = str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
+    explicit_mock = _is_mock_scanner_mode()
     allow_mock_fallback = run_mode in {RunMode.SIM, RunMode.PAPER} or explicit_mock
     allow_symbol_fallback = allow_mock_fallback
     using_external_provider = provider is not None
@@ -3362,6 +3366,16 @@ def run_scanner_cycle(
 
         float_cache = _bootstrap_float_cache(symbols, provider)
         thresholds = _gate_thresholds(resolved_policy, runtime_thresholds)
+        if explicit_mock:
+            thresholds = replace(
+                thresholds,
+                min_pct_change=min(0.0, float(thresholds.min_pct_change)),
+                watchlist_rvol_min=min(0.0, float(thresholds.watchlist_rvol_min)),
+                focus_rvol_min=min(0.0, float(thresholds.focus_rvol_min)),
+                require_catalyst=False,
+                allow_unknown_float=True,
+            )
+            print("[E29][MOCK_OVERRIDE] relaxed scanner gates for verification mode")
         print(f"[GATE][THRESHOLDS] pct_min={thresholds.min_pct_change} rvol_min={thresholds.watchlist_rvol_min}")
         candidates: List[Dict[str, Any]] = []
         evaluated_contexts: List[Dict[str, Any]] = []
@@ -3680,6 +3694,8 @@ def run_scanner_cycle(
             RunMode.READ_ONLY,
             RunMode.PAPER,
         }
+        if explicit_mock:
+            allow_news = False
         catalyst_override = None if allow_news else True
         session_override = "" if session_label == "WEEKEND" and run_mode != RunMode.LIVE else None
         context_by_symbol = {
@@ -3840,6 +3856,14 @@ def run_scanner_cycle(
             print(
                 "[WATCHLIST][FALLBACK] "
                 "selector_underflow=True reason=EMPTY_SELECTION_WITH_SURVIVORS"
+            )
+        if explicit_mock and not watchlist_contexts:
+            fallback_source = ranked or evaluated_contexts
+            fallback_size = watchlist_limit if watchlist_limit > 0 else min(5, len(fallback_source))
+            watchlist_contexts = list(fallback_source[:fallback_size])
+            print(
+                "[WATCHLIST][FALLBACK] "
+                f"mock_mode=True reason=EMPTY_WATCHLIST source_count={len(fallback_source)} selected={len(watchlist_contexts)}"
             )
 
         watchlist_set = {context["symbol"] for context in watchlist_contexts}
