@@ -32,7 +32,9 @@ def build_trade_intents(
     symbol: str,
     summary: PatternEvaluationSummary,
     config: IntentPolicyConfig | None = None,
+    system_health_degraded: bool = False,
 ) -> List[TradeIntent]:
+    _ = system_health_degraded
     config = config or IntentPolicyConfig()
     intents: List[TradeIntent] = []
     if summary.conflict_flag and not config.debug_force_execution:

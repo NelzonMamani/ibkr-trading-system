@@ -40,7 +40,21 @@ class PatternEvaluator:
             symbol = inputs.symbol
             print(f"[ROSS][EVAL] symbol={symbol} stage=START")
             print(f"[ROSS][PATTERN][START] symbol={symbol}")
-            symbol_results = self._registry.run(inputs)
+            try:
+                symbol_results = self._registry.run(
+                    inputs,
+                    trace_context={
+                        "strategy_key": "ross_momentum",
+                        "session_label": inputs.session_context.value,
+                        "input_summary": {
+                            "symbol": inputs.symbol,
+                            "timeframe": inputs.timeframe,
+                        },
+                    },
+                )
+            except TypeError:
+                # Backward compatibility for test mocks
+                symbol_results = self._registry.run(inputs)
             detected_pattern = next((result for result in symbol_results if result.detected), None)
             print(
                 f"[ROSS][PATTERN] symbol={symbol} detected={bool(detected_pattern)} "
