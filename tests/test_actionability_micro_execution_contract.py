@@ -106,7 +106,21 @@ def test_price_sanity_guard_rejects_placeholder_one_dollar(capsys) -> None:
     assert "[RISK][SIZE_BLOCK] symbol=PENNY reason=INVALID_PRICE_SANITY_CHECK" in out
 
 
-def test_execution_dispatch_uses_approved_quantity_and_is_truthful(capsys) -> None:
+def test_execution_dispatch_uses_approved_quantity_and_is_truthful(monkeypatch, capsys) -> None:
+    from src.execution import order_router
+
+    monkeypatch.setattr(
+        order_router,
+        "_submit_ibkr_order",
+        lambda mode, decision: ExecutionEvent(
+            symbol=decision.symbol,
+            intent_id=decision.intent_id,
+            action="SUBMITTED",
+            detail=f"submitted qty={int(decision.approved_quantity)}",
+            broker_order_id=2001,
+            broker_status="Submitted",
+        ),
+    )
     events = execute_intents(
         mode=RunMode.PAPER,
         decisions=[

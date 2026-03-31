@@ -799,7 +799,10 @@ def run_cycle(
                 print(
                     f"[INVARIANT][FAIL] submitted_order_without_broker_id symbol={event.symbol} intent_id={event.intent_id}"
                 )
-                execution_pass = False
+                raise RuntimeError(
+                    "INVARIANT VIOLATION: submitted=True requires broker_order_id "
+                    f"symbol={event.symbol} intent_id={event.intent_id}"
+                )
             if event.action == "SUBMITTED":
                 if execution_pass:
                     working_orders += 1

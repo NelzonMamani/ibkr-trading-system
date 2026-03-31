@@ -50,7 +50,7 @@ def test_live_forbids_capital_fallback():
         resolve_available_capital(FailingClient(), allow_fallback=False)
 
 
-def test_approved_quantity_propagates_to_submission_detail():
+def test_approved_quantity_propagates_to_submission_detail(monkeypatch):
     decision = RiskDecisionRecord(
         symbol="POLA",
         intent_id="POLA-1",
@@ -65,6 +65,20 @@ def test_approved_quantity_propagates_to_submission_detail():
         capital_source="IBKR_CANONICAL",
         approved_quantity=24,
         entry_price=2.5,
+    )
+    from src.execution import order_router
+
+    monkeypatch.setattr(
+        order_router,
+        "_submit_ibkr_order",
+        lambda mode, decision: order_router.ExecutionEvent(
+            symbol=decision.symbol,
+            intent_id=decision.intent_id,
+            action="SUBMITTED",
+            detail=f"submitted qty={int(decision.approved_quantity)}",
+            broker_order_id=3001,
+            broker_status="Submitted",
+        ),
     )
     events = execute_intents(mode=RunMode.LIVE, decisions=[decision])
     assert events[0].action == "SUBMITTED"

@@ -28,6 +28,19 @@ def test_test_environment_skips_ibkr_validation(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(order_router, "_validate_ibkr_connection", _fail_validate)
 
+    monkeypatch.setattr(
+        order_router,
+        "_submit_ibkr_order",
+        lambda mode, decision: order_router.ExecutionEvent(
+            symbol=decision.symbol,
+            intent_id=decision.intent_id,
+            action="SUBMITTED",
+            detail=f"submitted qty={int(decision.approved_quantity)}",
+            broker_order_id=101,
+            broker_status="Submitted",
+        ),
+    )
+
     events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])
     out = capsys.readouterr().out
 
@@ -51,6 +64,19 @@ def test_paper_and_live_dispatch_use_ibkr(monkeypatch, capsys) -> None:
     monkeypatch.setattr(order_router, "_is_test_environment", lambda: False)
     monkeypatch.setattr(order_router, "_validate_ibkr_connection", lambda mode: None)
 
+    monkeypatch.setattr(
+        order_router,
+        "_submit_ibkr_order",
+        lambda mode, decision: order_router.ExecutionEvent(
+            symbol=decision.symbol,
+            intent_id=decision.intent_id,
+            action="SUBMITTED",
+            detail=f"submitted qty={int(decision.approved_quantity)}",
+            broker_order_id=103,
+            broker_status="Submitted",
+        ),
+    )
+
     order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])
     paper_out = capsys.readouterr().out
     order_router.execute_intents(mode=RunMode.LIVE, decisions=[_allow_decision()])
@@ -63,6 +89,18 @@ def test_paper_and_live_dispatch_use_ibkr(monkeypatch, capsys) -> None:
 def test_mode_connection_state_logging(monkeypatch, capsys) -> None:
     monkeypatch.setattr(order_router, "_is_test_environment", lambda: False)
     monkeypatch.setattr(order_router, "_validate_ibkr_connection", lambda mode: None)
+    monkeypatch.setattr(
+        order_router,
+        "_submit_ibkr_order",
+        lambda mode, decision: order_router.ExecutionEvent(
+            symbol=decision.symbol,
+            intent_id=decision.intent_id,
+            action="SUBMITTED",
+            detail=f"submitted qty={int(decision.approved_quantity)}",
+            broker_order_id=104,
+            broker_status="Submitted",
+        ),
+    )
 
     order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])
     paper_out = capsys.readouterr().out

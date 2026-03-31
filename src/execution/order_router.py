@@ -6,6 +6,9 @@ import os
 from dataclasses import dataclass
 from typing import List
 
+from ibapi.contract import Contract
+from ibapi.order import Order
+
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
 from src.core_engine.state import RunMode
@@ -68,6 +71,81 @@ def _validate_ibkr_connection(mode: RunMode) -> None:
         )
 
 
+def _build_market_order(symbol: str, quantity: int) -> tuple[Contract, Order]:
+    contract = Contract()
+    contract.symbol = symbol
+    contract.secType = "STK"
+    contract.exchange = "SMART"
+    contract.currency = "USD"
+
+    order = Order()
+    order.action = "BUY"
+    order.orderType = "MKT"
+    order.totalQuantity = quantity
+    order.tif = "DAY"
+    return contract, order
+
+
+def _submission_invariant(event: ExecutionEvent) -> None:
+    if event.action == "SUBMITTED" and event.broker_order_id is None:
+        raise RuntimeError(
+            "INVARIANT VIOLATION: submitted=True requires broker_order_id; "
+            f"symbol={event.symbol} intent_id={event.intent_id}"
+        )
+
+
+def _submit_ibkr_order(mode: RunMode, decision: RiskDecisionRecord) -> ExecutionEvent:
+    manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
+    client = manager.get_client()
+    quantity = int(decision.approved_quantity)
+    contract, order = _build_market_order(decision.symbol, quantity)
+
+    print(
+        "[EXECUTION][PLACE_ORDER][CALL] "
+        f"symbol={decision.symbol} mode={mode.value} qty={quantity} order_type=MKT side=BUY"
+    )
+    try:
+        broker_order_id = client.submit_order(contract, order)
+    except Exception as exc:
+        print(
+            "[EXECUTION][BLOCK] "
+            f"symbol={decision.symbol} reason=IBKR_SUBMIT_FAILED error={exc}"
+        )
+        return ExecutionEvent(
+            symbol=decision.symbol,
+            intent_id=decision.intent_id,
+            action="BLOCKED",
+            detail=f"reason=IBKR_SUBMIT_FAILED error={exc}",
+            broker_status="REJECTED",
+        )
+
+    if broker_order_id is None:
+        print(
+            "[EXECUTION][BLOCK] "
+            f"symbol={decision.symbol} reason=IBKR_SUBMIT_FAILED error=broker_order_id_none"
+        )
+        return ExecutionEvent(
+            symbol=decision.symbol,
+            intent_id=decision.intent_id,
+            action="BLOCKED",
+            detail="reason=IBKR_SUBMIT_FAILED",
+            broker_status="REJECTED",
+        )
+
+    print(
+        "[EXECUTION][BROKER_ID][ALLOCATED] "
+        f"symbol={decision.symbol} broker_order_id={broker_order_id}"
+    )
+    return ExecutionEvent(
+        symbol=decision.symbol,
+        intent_id=decision.intent_id,
+        action="SUBMITTED",
+        detail=f"submitted qty={quantity}",
+        broker_order_id=int(broker_order_id),
+        broker_status="Submitted",
+    )
+
+
 def execute_intents(
     mode: RunMode,
     decisions: List[RiskDecisionRecord],
@@ -98,65 +176,84 @@ def execute_intents(
         if decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
             if entry_price is None or float(entry_price) <= 0:
                 print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=INVALID_ENTRY_PRICE")
-                events.append(
-                    ExecutionEvent(
-                        symbol=decision.symbol,
-                        intent_id=decision.intent_id,
-                        action="BLOCKED",
-                        detail="reason=INVALID_ENTRY_PRICE",
-                        broker_status="REJECTED",
-                    )
+                event = ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail="reason=INVALID_ENTRY_PRICE",
+                    broker_status="REJECTED",
                 )
+                _submission_invariant(event)
+                events.append(event)
                 continue
             if float(entry_price) <= 1.5:
                 print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=INVALID_PRICE_SANITY_CHECK")
-                events.append(
-                    ExecutionEvent(
-                        symbol=decision.symbol,
-                        intent_id=decision.intent_id,
-                        action="BLOCKED",
-                        detail="reason=INVALID_PRICE_SANITY_CHECK",
-                        broker_status="REJECTED",
-                    )
+                event = ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail="reason=INVALID_PRICE_SANITY_CHECK",
+                    broker_status="REJECTED",
                 )
+                _submission_invariant(event)
+                events.append(event)
                 continue
         dispatch = "SKIPPED"
         if mode in {RunMode.SIM, RunMode.READ_ONLY}:
             action = "WOULD_PLACE"
             detail = f"mode={mode.value}; decision={decision.decision}; qty={quantity}"
             dispatch = "SKIPPED"
-        elif decision.decision == "ALLOW":
-            if mode == RunMode.LIVE and decision.capital_source != "IBKR_CANONICAL":
-                action = "BLOCKED"
-                detail = "reason=CANONICAL_CAPITAL_UNAVAILABLE"
-                dispatch = "SKIPPED"
-            elif quantity != int(decision.max_position_size):
-                action = "BLOCKED"
-                detail = (
-                    "reason=EXECUTION_QUANTITY_MISMATCH "
-                    f"approved={decision.approved_quantity} max_size={decision.max_position_size}"
-                )
-                dispatch = "SKIPPED"
-            else:
-                action = "SUBMITTED"
-                detail = f"submitted qty={quantity}"
-                dispatch = "IBKR"
-        elif decision.decision == "ALLOW_WITH_CONSTRAINTS":
-            action = "BLOCKED" if mode == RunMode.LIVE else "WOULD_PLACE"
-            detail = f"constraints={decision.constraints}; qty={quantity}"
-            dispatch = "SKIPPED" if mode == RunMode.LIVE else "IBKR"
-        else:
-            action = "BLOCKED"
-            detail = f"decision={decision.decision}; reason={decision.block_reason or 'RISK_BLOCK'}"
-            dispatch = "SKIPPED"
-        print(f"[EXECUTION][DISPATCH] symbol={decision.symbol} dispatch={dispatch}")
-        events.append(
-            ExecutionEvent(
+            event = ExecutionEvent(
                 symbol=decision.symbol,
                 intent_id=decision.intent_id,
                 action=action,
                 detail=detail,
-                broker_status="Submitted" if action == "SUBMITTED" else ("REJECTED" if action == "BLOCKED" else "SIMULATED"),
+                broker_status="SIMULATED",
             )
-        )
+        elif decision.decision == "ALLOW":
+            if mode == RunMode.LIVE and decision.capital_source != "IBKR_CANONICAL":
+                dispatch = "SKIPPED"
+                event = ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail="reason=CANONICAL_CAPITAL_UNAVAILABLE",
+                    broker_status="REJECTED",
+                )
+            elif quantity != int(decision.max_position_size):
+                dispatch = "SKIPPED"
+                event = ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail=(
+                        "reason=EXECUTION_QUANTITY_MISMATCH "
+                        f"approved={decision.approved_quantity} max_size={decision.max_position_size}"
+                    ),
+                    broker_status="REJECTED",
+                )
+            else:
+                dispatch = "IBKR"
+                event = _submit_ibkr_order(mode=mode, decision=decision)
+        elif decision.decision == "ALLOW_WITH_CONSTRAINTS":
+            dispatch = "SKIPPED" if mode == RunMode.LIVE else "IBKR"
+            event = ExecutionEvent(
+                symbol=decision.symbol,
+                intent_id=decision.intent_id,
+                action="BLOCKED" if mode == RunMode.LIVE else "WOULD_PLACE",
+                detail=f"constraints={decision.constraints}; qty={quantity}",
+                broker_status="REJECTED" if mode == RunMode.LIVE else "SIMULATED",
+            )
+        else:
+            dispatch = "SKIPPED"
+            event = ExecutionEvent(
+                symbol=decision.symbol,
+                intent_id=decision.intent_id,
+                action="BLOCKED",
+                detail=f"decision={decision.decision}; reason={decision.block_reason or 'RISK_BLOCK'}",
+                broker_status="REJECTED",
+            )
+        print(f"[EXECUTION][DISPATCH] symbol={decision.symbol} dispatch={dispatch}")
+        _submission_invariant(event)
+        events.append(event)
     return events
