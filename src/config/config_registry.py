@@ -1029,6 +1029,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Temporary SIM-only validation hook to relax scanner thresholds and force at least one debug trade when setup+trigger gates pass.",
     },
+    "FORCE_PREMARKET_TRIGGER": {
+        "type": bool,
+        "default": False,
+        "env": ["FORCE_PREMARKET_TRIGGER"],
+        "affects": ["RossMomentum"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Debug-only premarket validation hook that allows a controlled trigger when premarket momentum criteria pass.",
+    },
     "MAX_SPREAD_PCT": {
         "type": float,
         "default": None,

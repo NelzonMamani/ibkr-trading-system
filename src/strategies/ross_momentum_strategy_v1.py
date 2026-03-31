@@ -118,6 +118,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             "ROSS_PRE_TRIGGER_REQUIRE_RECLAIM_OR_LEVEL_PRESSURE",
             True,
         )
+        self._force_premarket_trigger = self._cfg_bool("FORCE_PREMARKET_TRIGGER", False)
         self._max_trades_per_cycle = 1
         self._max_concurrent_positions = 3
         self._session_stats = {
@@ -747,6 +748,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                 setups=setups,
                 levels=levels,
                 structure=structure,
+            )
+            self._inject_forced_premarket_trigger(
+                symbol=symbol,
+                input_summary=input_summary,
+                trigger_candidates=trigger_candidates,
             )
             quality_engine = TriggerQualityEngine()
             for trigger in trigger_candidates:
@@ -2084,6 +2090,48 @@ class RossMomentumStrategyV1(BaseStrategy):
             f"symbol={symbol} trigger_valid=true rule={trigger_name} entry={entry_price}"
         )
         return True, "trigger_fired"
+
+    def _inject_forced_premarket_trigger(
+        self,
+        *,
+        symbol: str,
+        input_summary,
+        trigger_candidates: list[dict],
+    ) -> None:
+        if not self._force_premarket_trigger:
+            return
+        session = str(getattr(input_summary, "session_context", "") or "").upper()
+        if session != "PRE":
+            return
+        pct_change = self._safe_float(getattr(input_summary, "pct_change", None))
+        spread = self._safe_float(getattr(input_summary, "spread", None))
+        last_price = self._safe_float(getattr(input_summary, "last_price", None))
+        volume = self._safe_float(getattr(input_summary, "volume", None))
+        if pct_change is None or pct_change < 5.0:
+            return
+        if spread is not None and spread > 0.15:
+            return
+        if last_price is None or volume is None or volume <= 0:
+            return
+        if any(str(item.get("trigger_type") or "").upper() == "DEBUG_PREMARKET_BREAK" for item in trigger_candidates):
+            return
+        trigger_candidates.append(
+            {
+                "setup_family_id": "PREMARKET_HIGH_BREAK",
+                "trigger_type": "DEBUG_PREMARKET_BREAK",
+                "trigger_state": "FIRED",
+                "trigger_ready_now": True,
+                "trigger_event_emitted": True,
+                "trigger_reason": "forced_premarket_validation",
+                "trigger_price_reference": last_price,
+                "invalidation_price_reference": round(last_price * 0.97, 4),
+                "trigger_quality_flags": ["DEBUG_FORCED_TRIGGER"],
+            }
+        )
+        print(
+            "[DEBUG][FORCED_TRIGGER] "
+            f"symbol={symbol} reason=PREMARKET_VALIDATION pct_change={pct_change} spread={spread}"
+        )
 
     @staticmethod
     def _log_no_trade_root_cause(*, symbol: str, pattern: str | None, primary_reason: str, details: list[str]) -> None:
