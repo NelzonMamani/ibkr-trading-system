@@ -106,7 +106,22 @@ def test_price_sanity_guard_rejects_placeholder_one_dollar(capsys) -> None:
     assert "[RISK][SIZE_BLOCK] symbol=PENNY reason=INVALID_PRICE_SANITY_CHECK" in out
 
 
-def test_execution_dispatch_uses_approved_quantity_and_is_truthful(capsys) -> None:
+def test_execution_dispatch_uses_approved_quantity_and_is_truthful(capsys, monkeypatch) -> None:
+    class _FakeClient:
+        def submit_order(self, contract, order):
+            return 12345
+
+        def get_working_order(self, broker_order_id):
+            return {"broker_order_id": broker_order_id}
+
+        def wait_for_order_status(self, broker_order_id, timeout_seconds):
+            return {"status": "Submitted", "filled": 0, "remaining": 1}
+
+    class _FakeManager:
+        def get_client(self):
+            return _FakeClient()
+
+    monkeypatch.setattr("src.execution.order_router.get_shared_ibkr_connection_manager", lambda readonly_enabled=False: _FakeManager())
     events = execute_intents(
         mode=RunMode.PAPER,
         decisions=[
@@ -125,7 +140,8 @@ def test_execution_dispatch_uses_approved_quantity_and_is_truthful(capsys) -> No
     )
     out = capsys.readouterr().out
     assert events[0].action == "SUBMITTED"
-    assert "qty=1" in events[0].detail
+    assert events[0].detail == "submitted_to_ibkr"
+    assert events[0].broker_order_id == 12345
     assert "[EXECUTION][DISPATCH] symbol=MCRO dispatch=IBKR" in out
 
 

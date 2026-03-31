@@ -786,47 +786,52 @@ def run_cycle(
             filled_quantity = int(getattr(event, "filled_quantity", 0) or 0)
             remaining_quantity = int(getattr(event, "remaining_quantity", 0) or 0)
             broker_status = str(getattr(event, "broker_status", "UNKNOWN") or "UNKNOWN")
+            submitted = bool(getattr(event, "submitted", event.action == "SUBMITTED" and broker_order_id is not None))
+            lifecycle_tracking_ready = bool(getattr(event, "lifecycle_tracking_ready", False))
+            broker_acknowledged = bool(getattr(event, "broker_acknowledged", False))
+            reason_code = str(getattr(event, "reason_code", event.detail) or event.detail)
             print(
                 "[EXECUTION][SUBMIT_RESULT] "
-                f"symbol={event.symbol} submitted={event.action == 'SUBMITTED'} "
-                f"order_id={broker_order_id if broker_order_id is not None else 'MISSING'} reason={event.detail}"
+                f"symbol={event.symbol} submitted={str(submitted).lower()} "
+                f"broker_order_id={broker_order_id if broker_order_id is not None else 'MISSING'} "
+                f"lifecycle_tracking_ready={str(lifecycle_tracking_ready).lower()} "
+                f"broker_acknowledged={str(broker_acknowledged).lower()} reason={reason_code}"
             )
             if broker_order_id is not None:
                 print(f"[EXECUTION][ORDER_ID_CAPTURED] symbol={event.symbol} order_id={broker_order_id}")
             print(f"[EXECUTION] {event.symbol} {event.action} ({event.detail})")
-            execution_pass = event.action in {"SUBMITTED", "WOULD_PLACE"}
+            execution_pass = event.action in {"SUBMITTED", "WOULD_PLACE"} and submitted
             if event.action == "SUBMITTED" and broker_order_id is None:
                 print(
                     f"[INVARIANT][FAIL] submitted_order_without_broker_id symbol={event.symbol} intent_id={event.intent_id}"
                 )
                 execution_pass = False
-            if event.action == "SUBMITTED":
-                if execution_pass:
-                    working_orders += 1
-                    pending_entries += 1 if filled_quantity <= 0 else 0
-                    print(
-                        f"[ORDER_STATE] symbol={event.symbol} order_id={broker_order_id} "
-                        "state=PENDING_SUBMISSION_ACK"
-                    )
-                    print(
-                        f"[ORDER_STATE] symbol={event.symbol} order_id={broker_order_id} "
-                        f"state=WORKING broker_status={broker_status} filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
-                    )
-                    print(f"[LIFECYCLE] ORDER_SUBMITTED symbol={event.symbol} source=IBKR_EVENT")
-                    print(f"[LIFECYCLE] ORDER_ACKNOWLEDGED symbol={event.symbol} source=IBKR_EVENT")
-                if filled_quantity > 0:
-                    executed += 1
-                    lifecycle_event = "ENTRY_FILL"
-                    print(
-                        f"[EXECUTION][FILL] symbol={event.symbol} order_id={broker_order_id} "
-                        f"filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
-                    )
-                    print(
-                        f"[LIFECYCLE][UPDATE] symbol={event.symbol} event={lifecycle_event} "
-                        f"filled_qty={filled_quantity} source=IBKR_EVENT"
-                    )
-            elif execution_pass:
-                working_orders += 1 if event.action == "WOULD_PLACE" else 0
+            if event.action == "SUBMITTED" and submitted and lifecycle_tracking_ready:
+                working_orders += 1
+                pending_entries += 1 if filled_quantity <= 0 else 0
+                print(
+                    f"[ORDER_STATE] symbol={event.symbol} order_id={broker_order_id} "
+                    "state=PENDING_SUBMISSION_ACK"
+                )
+                print(
+                    f"[ORDER_STATE] symbol={event.symbol} order_id={broker_order_id} "
+                    f"state=WORKING broker_status={broker_status} filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
+                )
+                print(f"[LIFECYCLE] ORDER_SUBMITTED symbol={event.symbol} source=IBKR_EVENT")
+                print(f"[LIFECYCLE] ORDER_ACKNOWLEDGED symbol={event.symbol} source=IBKR_EVENT")
+            if event.action == "SUBMITTED" and filled_quantity > 0:
+                executed += 1
+                lifecycle_event = "ENTRY_FILL"
+                print(
+                    f"[EXECUTION][FILL] symbol={event.symbol} order_id={broker_order_id} "
+                    f"filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
+                )
+                print(
+                    f"[LIFECYCLE][UPDATE] symbol={event.symbol} event={lifecycle_event} "
+                    f"filled_qty={filled_quantity} source=IBKR_EVENT"
+                )
+            elif event.action == "WOULD_PLACE":
+                working_orders += 1
             print(
                 f"[PIPELINE][EXECUTION] symbol={event.symbol} "
                 f"executed={str(execution_pass).lower()} action={event.action}"
@@ -875,7 +880,24 @@ def run_cycle(
         elif selected_by_arbitrator == 0:
             no_trade_reason = "blocked_by_arbitrator"
         else:
-            no_trade_reason = "execution_engine_not_firing"
+            submission_reasons = {
+                str(getattr(event, "reason_code", "")).lower()
+                for event in execution_events
+            }
+            if "missing_broker_order_id" in submission_reasons:
+                no_trade_reason = "missing_broker_order_id"
+            elif "callback_not_received" in submission_reasons:
+                no_trade_reason = "callback_not_received"
+            elif "broker_rejected" in submission_reasons:
+                no_trade_reason = "broker_rejected"
+            elif "execution_disabled" in submission_reasons:
+                no_trade_reason = "execution_disabled"
+            elif "insufficient_capital" in submission_reasons:
+                no_trade_reason = "insufficient_capital"
+            elif "order_cancelled" in submission_reasons:
+                no_trade_reason = "order_cancelled"
+            else:
+                no_trade_reason = "execution_engine_not_firing"
         print(f"[PIPELINE][NO_TRADE_REASON] reason={no_trade_reason}")
 
     store = TradeStore()

@@ -96,6 +96,43 @@ class IbkrClient(EWrapper, EClient):
         if not hasattr(self, "_order_state_registry") or self._order_state_registry is None:
             self._order_state_registry = {}
 
+    def register_working_order(
+        self,
+        *,
+        broker_order_id: int,
+        client_order_id: str | None,
+        symbol: str,
+        side: str | None,
+        quantity: int | None,
+        status: str = "PENDING_SUBMIT",
+        intent_id: str | None = None,
+        strategy_name: str | None = None,
+        run_mode: str | None = None,
+    ) -> dict:
+        self._ensure_order_state_registry()
+        record = {
+            "broker_order_id": broker_order_id,
+            "client_order_id": client_order_id,
+            "intent_id": intent_id,
+            "symbol": symbol,
+            "side": side,
+            "quantity": int(quantity or 0),
+            "status": status,
+            "strategy_name": strategy_name,
+            "run_mode": run_mode,
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+            "filled_quantity": 0,
+            "remaining_quantity": int(quantity or 0),
+            "last_callback": "submit_order",
+        }
+        self._order_state_registry[broker_order_id] = record
+        return dict(record)
+
+    def get_working_order(self, broker_order_id: int) -> Optional[dict]:
+        self._ensure_order_state_registry()
+        record = self._order_state_registry.get(broker_order_id)
+        return dict(record) if record else None
+
     # --- Connection management ---
     def connect(self) -> None:  # type: ignore[override]
         if not self.host or self.port is None or int(self.port) <= 0:
@@ -230,16 +267,42 @@ class IbkrClient(EWrapper, EClient):
         if not self.is_connected():
             raise RuntimeError("IBKR client is not connected.")
         assert_read_only_allows("PLACE_ORDER")
+        print(
+            "[EXECUTION][BROKER_ID][REQUEST] "
+            f"symbol={getattr(contract, 'symbol', None)} qty={getattr(order, 'totalQuantity', None)} "
+            f"side={getattr(order, 'action', None)}"
+        )
         order_id = self.reserve_order_id()
+        print(
+            "[EXECUTION][BROKER_ID][ALLOCATED] "
+            f"symbol={getattr(contract, 'symbol', None)} broker_order_id={order_id}"
+        )
         self._order_status_events[order_id] = threading.Event()
         self._exec_details_by_order[order_id] = []
+        self.register_working_order(
+            broker_order_id=order_id,
+            client_order_id=getattr(order, "orderRef", None),
+            intent_id=getattr(order, "orderRef", None),
+            symbol=str(getattr(contract, "symbol", "")),
+            side=getattr(order, "action", None),
+            quantity=int(getattr(order, "totalQuantity", 0) or 0),
+            status="PENDING_SUBMIT",
+        )
         print(
-            "[ORDER][SUBMIT] "
-            f"symbol={getattr(contract, 'symbol', None)} order_id={order_id} "
-            f"qty={getattr(order, 'totalQuantity', None)} side={getattr(order, 'action', None)} "
-            f"order_type={getattr(order, 'orderType', None)}"
+            "[EXECUTION][WORKING_ORDER][REGISTERED] "
+            f"symbol={getattr(contract, 'symbol', None)} broker_order_id={order_id} "
+            f"qty={getattr(order, 'totalQuantity', None)} side={getattr(order, 'action', None)} status=PENDING_SUBMIT"
+        )
+        print(
+            "[EXECUTION][PLACE_ORDER][CALL] "
+            f"symbol={getattr(contract, 'symbol', None)} broker_order_id={order_id} "
+            f"qty={getattr(order, 'totalQuantity', None)} side={getattr(order, 'action', None)}"
         )
         self.placeOrder(order_id, contract, order)
+        print(
+            "[EXECUTION][PLACE_ORDER][ACCEPTED] "
+            f"symbol={getattr(contract, 'symbol', None)} broker_order_id={order_id}"
+        )
         return order_id
 
     def wait_for_order_status(
@@ -871,6 +934,18 @@ class IbkrClient(EWrapper, EClient):
             "avgFillPrice": avgFillPrice,
             "lastFillPrice": lastFillPrice,
         }
+        self._order_state_registry.setdefault(orderId, {}).update({
+            "broker_order_id": orderId,
+            "status": status,
+            "filled_quantity": int(filled),
+            "remaining_quantity": int(remaining),
+            "last_callback": "orderStatus",
+        })
+        print(
+            "[EXECUTION][CALLBACK][ORDER_STATUS] "
+            f"symbol={self._order_state_registry.get(orderId, {}).get('symbol')} broker_order_id={orderId} "
+            f"qty={int(filled)+int(remaining)} side={self._order_state_registry.get(orderId, {}).get('side')} status={status}"
+        )
         print(
             "[ORDER][STATUS] "
             f"order_id={orderId} status={status} filled={int(filled)} remaining={int(remaining)}"
@@ -898,6 +973,19 @@ class IbkrClient(EWrapper, EClient):
             "price": getattr(execution, "price", None),
             "shares": getattr(execution, "shares", None),
         }
+        self._order_state_registry.setdefault(order_id, {}).update({
+            "broker_order_id": order_id,
+            "symbol": getattr(contract, "symbol", None),
+            "status": "Filled",
+            "filled_quantity": int(getattr(execution, "shares", 0) or 0),
+            "remaining_quantity": 0,
+            "last_callback": "execDetails",
+        })
+        print(
+            "[EXECUTION][CALLBACK][EXEC_DETAILS] "
+            f"symbol={getattr(contract, 'symbol', None)} broker_order_id={order_id} "
+            f"qty={getattr(execution, 'shares', None)} side={self._order_state_registry.get(order_id, {}).get('side')} status=Filled"
+        )
         print(
             "[ORDER][FILL] "
             f"symbol={getattr(contract, 'symbol', None)} order_id={order_id} "
@@ -916,6 +1004,17 @@ class IbkrClient(EWrapper, EClient):
 
     def openOrder(self, orderId, contract, order, orderState):  # type: ignore[override]
         self._ensure_order_state_registry()
+        self._order_state_registry.setdefault(orderId, {}).update({
+            "broker_order_id": orderId,
+            "symbol": getattr(contract, "symbol", None),
+            "status": "OPEN",
+            "last_callback": "openOrder",
+        })
+        print(
+            "[EXECUTION][CALLBACK][OPEN_ORDER] "
+            f"symbol={getattr(contract, 'symbol', None)} broker_order_id={orderId} "
+            f"qty={self._order_state_registry.get(orderId, {}).get('quantity')} side={self._order_state_registry.get(orderId, {}).get('side')} status=OPEN"
+        )
         print(f"[ORDER][OPEN] order_id={orderId} symbol={getattr(contract, 'symbol', None)}")
 
     def commissionReport(self, commissionReport):  # type: ignore[override]

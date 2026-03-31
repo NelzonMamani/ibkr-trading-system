@@ -5,6 +5,23 @@ from src.core_engine.state import RunMode
 from src.execution import order_router
 
 
+class _FakeClient:
+    def submit_order(self, contract, order):
+        return 9001
+
+    def get_working_order(self, broker_order_id):
+        return {"broker_order_id": broker_order_id}
+
+    def wait_for_order_status(self, broker_order_id, timeout_seconds):
+        return {"status": "Submitted", "filled": 0, "remaining": 1}
+
+
+class _FakeManager:
+    def get_client(self):
+        return _FakeClient()
+
+
+
 def _allow_decision() -> RiskDecisionRecord:
     return RiskDecisionRecord(
         symbol="MCRO",
@@ -28,6 +45,7 @@ def test_test_environment_skips_ibkr_validation(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(order_router, "_validate_ibkr_connection", _fail_validate)
 
+    monkeypatch.setattr(order_router, "get_shared_ibkr_connection_manager", lambda readonly_enabled=False: _FakeManager())
     events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])
     out = capsys.readouterr().out
 
@@ -51,6 +69,7 @@ def test_paper_and_live_dispatch_use_ibkr(monkeypatch, capsys) -> None:
     monkeypatch.setattr(order_router, "_is_test_environment", lambda: False)
     monkeypatch.setattr(order_router, "_validate_ibkr_connection", lambda mode: None)
 
+    monkeypatch.setattr(order_router, "get_shared_ibkr_connection_manager", lambda readonly_enabled=False: _FakeManager())
     order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])
     paper_out = capsys.readouterr().out
     order_router.execute_intents(mode=RunMode.LIVE, decisions=[_allow_decision()])
@@ -63,6 +82,7 @@ def test_paper_and_live_dispatch_use_ibkr(monkeypatch, capsys) -> None:
 def test_mode_connection_state_logging(monkeypatch, capsys) -> None:
     monkeypatch.setattr(order_router, "_is_test_environment", lambda: False)
     monkeypatch.setattr(order_router, "_validate_ibkr_connection", lambda mode: None)
+    monkeypatch.setattr(order_router, "get_shared_ibkr_connection_manager", lambda readonly_enabled=False: _FakeManager())
 
     order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])
     paper_out = capsys.readouterr().out

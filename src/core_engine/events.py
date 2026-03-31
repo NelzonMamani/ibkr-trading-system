@@ -76,6 +76,11 @@ class ExecutionEvent:
     filled_quantity: int = 0
     remaining_quantity: int = 0
     broker_status: str = "UNKNOWN"
+    submitted: bool = False
+    broker_acknowledged: bool = False
+    lifecycle_tracking_ready: bool = False
+    dispatch_target: str = "SKIPPED"
+    reason_code: str = "unknown"
 
 
 @dataclass
