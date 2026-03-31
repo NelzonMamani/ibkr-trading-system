@@ -1808,6 +1808,10 @@ class CoreOrchestrator:
         return watchlist, focus
 
 
+    @staticmethod
+    def _mock_scanner_mode_enabled() -> bool:
+        return str(get_config("SCANNER_DATA_SOURCE") or "").strip().upper() == "MOCK"
+
     def _strategy_cadence(self, strategy_key: str) -> StrategyCadenceState:
         if strategy_key not in self._strategy_cadence_state:
             self._strategy_cadence_state[strategy_key] = StrategyCadenceState()
@@ -2049,6 +2053,17 @@ class CoreOrchestrator:
                 selected_observations = observations
                 selected_candidates = list(strategy_payload.get("candidates", [])) or selected_candidates
 
+        mock_scanner_mode = self._mock_scanner_mode_enabled()
+        if mock_scanner_mode and not selected_watchlist:
+            fallback_candidates = list(selected_observations) or list(selected_candidates)
+            fallback_limit = max(1, min(5, len(fallback_candidates))) if fallback_candidates else 0
+            selected_watchlist = list(fallback_candidates[:fallback_limit])
+            selected_focus = list(selected_watchlist[: max(1, min(3, len(selected_watchlist)))])
+            print(
+                "[WATCHLIST][FALLBACK] "
+                f"mock_mode=True reason=EMPTY_STRATEGY_WATCHLIST source_count={len(fallback_candidates)} selected={len(selected_watchlist)}"
+            )
+
         pipeline_trace("CONTEXT")
         manual_focus_symbols = self._refresh_manual_focus_if_due(cycle_started_at)
         manual_focus_rows, manual_focus_rejections = self._resolve_manual_focus_candidates(
@@ -2246,6 +2261,9 @@ class CoreOrchestrator:
             timestamp_utc=cycle_started_at.isoformat(),
         )
         session_execution_allowed = session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
+        if mock_scanner_mode and not session_execution_allowed:
+            session_execution_allowed = True
+            print("[SESSION][MOCK_OVERRIDE] execution_allowed=True")
         if not session_execution_allowed and watchlist_symbols:
             print("[VALIDATION_OVERRIDE] Forcing strategy execution despite session restrictions")
         for symbol in self._symbols_from_candidates(strategy_watchlist):
