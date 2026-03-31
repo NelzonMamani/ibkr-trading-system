@@ -262,7 +262,11 @@ def _scanner_request_for_policy(
 
 
 def _build_synthetic_inputs(
-    symbol: str, data_quality_flags: List[str], session: str
+    symbol: str,
+    data_quality_flags: List[str],
+    session: str,
+    *,
+    canonical_price: float | None = None,
 ) -> PatternInputs:
     base = sum(ord(ch) for ch in symbol) % 10
     prices = [10 + base + idx * 0.2 for idx in range(8)]
@@ -288,7 +292,7 @@ def _build_synthetic_inputs(
         prior_close=prices[0] - 0.1,
     )
     liquidity = LiquidityContext(spread=0.02, float_millions=15.0, rvol=2.5)
-    return PatternInputs(
+    inputs = PatternInputs(
         symbol=symbol,
         timeframe="1m",
         candles=candles,  # type: ignore[arg-type]
@@ -298,6 +302,17 @@ def _build_synthetic_inputs(
         liquidity_context=liquidity,
         data_quality_flags=data_quality_flags,
     )
+    if canonical_price is not None and inputs.candles:
+        last = inputs.candles[-1]
+        candle_close = float(canonical_price)
+        inputs.candles[-1] = Candle(
+            open=last.open,
+            high=max(last.high, candle_close),
+            low=min(last.low, candle_close),
+            close=candle_close,
+            volume=last.volume,
+        )
+    return inputs
 
 
 def run_cycle(
@@ -498,7 +513,34 @@ def run_cycle(
         evaluator = PatternEvaluator()
         for symbol in focus:
             data_quality = scanner_payload.get("data_quality_by_symbol", {}).get(symbol, [])
-            inputs = _build_synthetic_inputs(symbol, data_quality, session.value)
+            allow_scanner_fallback = mode == RunMode.SIM
+            try:
+                entry_price, entry_price_source = resolve_entry_price(
+                    symbol,
+                    {
+                        "scanner_payload": scanner_payload,
+                        "premarket_prep": premarket_prep,
+                    },
+                    allow_scanner_fallback=allow_scanner_fallback,
+                )
+            except PriceResolutionError as exc:
+                if mode == RunMode.SIM:
+                    entry_price = None
+                    entry_price_source = "SIM_SYNTHETIC_FALLBACK"
+                    print(
+                        f"[PIPELINE][PRICE_AUTHORITY_BYPASS] symbol={symbol} mode={mode.value} "
+                        f"reason=PRICE_UNAVAILABLE detail={exc.reason} fallback_source={entry_price_source}"
+                    )
+                else:
+                    print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_UNAVAILABLE detail={exc.reason}")
+                    print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=PRICE_UNAVAILABLE")
+                    continue
+            inputs = _build_synthetic_inputs(
+                symbol,
+                data_quality,
+                session.value,
+                canonical_price=entry_price,
+            )
             summary = evaluator.evaluate([inputs])
             best_setup = summary.best_long_setup or summary.best_short_setup
             best_name = best_setup.pattern_name if best_setup else "NONE"
@@ -531,27 +573,14 @@ def run_cycle(
             )
 
             strategy_id = "RossMomentumStrategy"
-            trade_intents = build_trade_intents(strategy_id, symbol, summary)
-            try:
-                entry_price, entry_price_source = resolve_entry_price(
-                    symbol,
-                    {
-                        "scanner_payload": scanner_payload,
-                        "premarket_prep": premarket_prep,
-                    },
-                )
-            except PriceResolutionError as exc:
-                if mode == RunMode.SIM:
-                    entry_price = float(inputs.candles[-1].close)
-                    entry_price_source = "SIM_SYNTHETIC_FALLBACK"
-                    print(
-                        f"[PIPELINE][PRICE_AUTHORITY_BYPASS] symbol={symbol} mode={mode.value} "
-                        f"reason=PRICE_UNAVAILABLE detail={exc.reason} fallback_source={entry_price_source}"
-                    )
-                else:
-                    print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_UNAVAILABLE detail={exc.reason}")
-                    print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=PRICE_UNAVAILABLE")
-                    continue
+            trade_intents = build_trade_intents(
+                strategy_id,
+                symbol,
+                summary,
+                system_health_degraded=bool(data_quality_flags.get(symbol)),
+            )
+            if entry_price is None:
+                entry_price = float(inputs.candles[-1].close)
             authority_ok, authority_reason = _enforce_canonical_price_authority(
                 symbol=symbol,
                 mode=mode,
@@ -632,6 +661,7 @@ def run_cycle(
     health_status = None
     if health_triggers:
         health_status = combine_health(health_triggers).status
+    health_degraded = health_status == HealthStatus.DEGRADED
     account = _resolve_live_available_funds(mode)
     risk_outputs = evaluate_trade_intents(
         intents=intents,
@@ -642,6 +672,13 @@ def run_cycle(
     for output in risk_outputs:
         risk_decisions.append(output)
         risk_pass = output.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"} and output.approved_quantity > 0
+        if health_degraded and risk_pass:
+            output.approved_quantity = max(1, output.approved_quantity // 2)
+            if "DATA_QUALITY" not in output.constraints:
+                output.constraints.append("DATA_QUALITY")
+            if "DATA_QUALITY_RISK_REDUCED" not in output.triggered_rules:
+                output.triggered_rules.append("DATA_QUALITY_RISK_REDUCED")
+            print(f"[DATA_QUALITY][IMPACT] symbol={output.symbol} action=REDUCE_RISK")
         if risk_pass:
             risk_allowed += 1
         print(

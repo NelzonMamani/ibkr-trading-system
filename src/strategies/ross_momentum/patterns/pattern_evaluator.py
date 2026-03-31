@@ -40,7 +40,23 @@ class PatternEvaluator:
             symbol = inputs.symbol
             print(f"[ROSS][EVAL] symbol={symbol} stage=START")
             print(f"[ROSS][PATTERN][START] symbol={symbol}")
-            symbol_results = self._registry.run(inputs)
+            symbol_results = self._registry.run(
+                inputs,
+                trace_context={
+                    "strategy_key": "ross_momentum",
+                    "session_label": getattr(inputs.session_context, "value", str(inputs.session_context)),
+                    "input_summary": {
+                        "last_price": inputs.candles[-1].close if inputs.candles else None,
+                        "spread": inputs.liquidity_context.spread,
+                        "rvol": inputs.liquidity_context.rvol,
+                        "float_millions": inputs.liquidity_context.float_millions,
+                        "session": getattr(inputs.session_context, "value", str(inputs.session_context)),
+                        "timeframe": inputs.timeframe,
+                        "candle_count": len(inputs.candles),
+                        "data_quality_flags": list(inputs.data_quality_flags),
+                    },
+                },
+            )
             detected_pattern = next((result for result in symbol_results if result.detected), None)
             print(
                 f"[ROSS][PATTERN] symbol={symbol} detected={bool(detected_pattern)} "

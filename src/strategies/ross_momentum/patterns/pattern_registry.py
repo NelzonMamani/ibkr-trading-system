@@ -77,7 +77,7 @@ class RossPatternRegistry:
         trace_context: dict[str, Any] | None = None,
         trace_collector: Callable[[RossPatternTrace], None] | None = None,
     ) -> List[PatternResult]:
-        input_summary = dict((trace_context or {}).get("input_summary") or {})
+        input_summary = self._build_input_summary(inputs, trace_context=trace_context)
         results: List[PatternResult] = []
         for pattern in self._patterns:
             pattern_id = getattr(pattern, "pattern_id", "") or pattern.name
@@ -223,6 +223,58 @@ class RossPatternRegistry:
                 if trace_collector is not None:
                     trace_collector(pattern_trace)
         return results
+
+    @staticmethod
+    def _build_input_summary(
+        inputs: PatternInputs,
+        *,
+        trace_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        context = trace_context or {}
+        summary = dict(context.get("input_summary") or {})
+        last_candle = inputs.candles[-1] if inputs.candles else None
+        bid = summary.get("bid")
+        ask = summary.get("ask")
+        spread = summary.get("spread")
+        if spread is None:
+            spread = inputs.liquidity_context.spread
+        if bid is None and ask is not None and spread is not None:
+            bid = float(ask) - float(spread)
+        if ask is None and bid is not None and spread is not None:
+            ask = float(bid) + float(spread)
+        summary.update(
+            {
+                "last_price": summary.get("last_price", getattr(last_candle, "close", None)),
+                "bid": bid,
+                "ask": ask,
+                "spread": spread,
+                "volume": summary.get("volume", getattr(last_candle, "volume", None)),
+                "pct_change": summary.get("pct_change"),
+                "rvol": summary.get("rvol", inputs.liquidity_context.rvol),
+                "float_millions": summary.get("float_millions", inputs.liquidity_context.float_millions),
+                "session": summary.get("session", getattr(inputs.session_context, "value", str(inputs.session_context))),
+                "timeframe": summary.get("timeframe", inputs.timeframe),
+                "candle_count": summary.get("candle_count", len(inputs.candles)),
+                "indicators_present": summary.get(
+                    "indicators_present",
+                    [
+                        name
+                        for name in ("ema9", "ema20", "ema50", "ema200", "vwap")
+                        if getattr(inputs.indicators, name, None) is not None
+                    ],
+                ),
+                "levels_present": summary.get(
+                    "levels_present",
+                    [
+                        name
+                        for name in ("premarket_high", "premarket_low", "hod", "lod", "prior_close")
+                        if getattr(inputs.levels, name, None) is not None
+                    ],
+                ),
+                "data_quality_flags": summary.get("data_quality_flags", list(inputs.data_quality_flags)),
+            }
+        )
+        return summary
 
     @property
     def pattern_ids(self) -> List[str]:

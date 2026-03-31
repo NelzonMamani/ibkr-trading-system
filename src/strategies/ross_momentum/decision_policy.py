@@ -32,6 +32,8 @@ def build_trade_intents(
     symbol: str,
     summary: PatternEvaluationSummary,
     config: IntentPolicyConfig | None = None,
+    *,
+    system_health_degraded: bool = False,
 ) -> List[TradeIntent]:
     config = config or IntentPolicyConfig()
     intents: List[TradeIntent] = []
@@ -57,7 +59,7 @@ def build_trade_intents(
         # `setup.risk_flags` can contain advisory warnings that do not block final
         # risk approval; only explicit veto flags should produce a risk-stage negative.
         risk_precheck_ok = not bool(summary.veto_flags)
-        dq_ok = not bool(setup.data_quality_flags)
+        dq_ok = (not bool(setup.data_quality_flags)) and (not system_health_degraded)
         if not dq_ok and config.debug_force_execution:
             print(f"[DQ_OVERRIDE] symbol={symbol} dq was bypassed")
             dq_ok = True
@@ -77,6 +79,8 @@ def build_trade_intents(
             f"dq_ok={dq_ok} "
             f"execution_candidate_ready={execution_ready}"
         )
+        if system_health_degraded:
+            print(f"[DATA_QUALITY][IMPACT] symbol={symbol} action=REDUCE_RISK")
         if not (trigger_fired and confirmation_passed):
             continue
         direction = (
@@ -86,6 +90,8 @@ def build_trade_intents(
         invalidations = []
         if summary.veto_flags:
             invalidations.append("veto_flags_present")
+        if system_health_degraded:
+            invalidations.append("system_health_degraded")
         intent = TradeIntent(
             intent_id=intent_id,
             symbol=symbol,
@@ -96,7 +102,7 @@ def build_trade_intents(
             time_in_force_policy=TimeInForcePolicy.DAY,
             invalidations=invalidations,
             rationale_text=setup.rationale_text or "Debug-forced Ross Momentum intent.",
-            risk_flags=setup.risk_flags,
+            risk_flags=list(setup.risk_flags) + (["DATA_QUALITY"] if system_health_degraded else []),
         )
         intents.append(intent)
         print(
