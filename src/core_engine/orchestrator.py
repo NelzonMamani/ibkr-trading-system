@@ -68,6 +68,16 @@ STAGE_ORDER = [
     "Health",
 ]
 
+_CANONICAL_PRICE_SOURCES = frozenset(
+    {
+        "IBKR_SNAPSHOT",
+        "IBKR_SNAPSHOT_MID",
+        "IBKR_STREAM",
+        "IBKR_STREAM_MID",
+    }
+)
+_MAX_CANONICAL_PRICE_MISMATCH_PCT = 0.10
+
 
 def _derive_last_block_reason(risk_decisions: List[RiskDecisionRecord]) -> str:
     for decision in reversed(risk_decisions):
@@ -76,6 +86,50 @@ def _derive_last_block_reason(risk_decisions: List[RiskDecisionRecord]) -> str:
         if decision.decision == "BLOCK" and decision.triggered_rules:
             return ",".join(decision.triggered_rules)
     return "NONE"
+
+
+def _scanner_last_price(symbol: str, scanner_payload: dict) -> float | None:
+    for key in ("focus_m", "watchlist_k", "candidates"):
+        rows = scanner_payload.get(key) or []
+        for row in rows:
+            row_symbol = str(getattr(row, "symbol", None) if not isinstance(row, dict) else row.get("symbol") or "").upper()
+            if row_symbol != symbol:
+                continue
+            value_raw = getattr(row, "last_price", None) if not isinstance(row, dict) else row.get("last_price")
+            try:
+                value = float(value_raw)
+            except (TypeError, ValueError):
+                return None
+            return value if value > 0 else None
+    return None
+
+
+def _enforce_canonical_price_authority(
+    *,
+    symbol: str,
+    mode: RunMode,
+    entry_price: float,
+    entry_price_source: str,
+    scanner_payload: dict,
+) -> tuple[bool, str]:
+    if mode == RunMode.SIM:
+        return True, "SIM_PRICE_AUTHORITY_BYPASS"
+
+    if entry_price_source not in _CANONICAL_PRICE_SOURCES:
+        return False, f"NON_CANONICAL_PRICE_SOURCE:{entry_price_source}"
+
+    scanner_price = _scanner_last_price(symbol, scanner_payload)
+    if scanner_price is None:
+        return True, "CANONICAL_SOURCE_NO_SCANNER_COMPARISON"
+
+    mismatch_ratio = abs(entry_price - scanner_price) / scanner_price if scanner_price > 0 else 0.0
+    if mismatch_ratio > _MAX_CANONICAL_PRICE_MISMATCH_PCT:
+        return False, (
+            "PRICE_MISMATCH:"
+            f"resolved={entry_price:.4f},scanner={scanner_price:.4f},"
+            f"mismatch_pct={mismatch_ratio:.4f}"
+        )
+    return True, "CANONICAL_PRICE_OK"
 
 
 def _resolve_live_available_funds(mode) -> AccountSnapshot:
@@ -487,9 +541,33 @@ def run_cycle(
                     },
                 )
             except PriceResolutionError as exc:
-                print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_UNAVAILABLE detail={exc.reason}")
-                print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=PRICE_UNAVAILABLE")
+                if mode == RunMode.SIM:
+                    entry_price = float(inputs.candles[-1].close)
+                    entry_price_source = "SIM_SYNTHETIC_FALLBACK"
+                    print(
+                        f"[PIPELINE][PRICE_AUTHORITY_BYPASS] symbol={symbol} mode={mode.value} "
+                        f"reason=PRICE_UNAVAILABLE detail={exc.reason} fallback_source={entry_price_source}"
+                    )
+                else:
+                    print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_UNAVAILABLE detail={exc.reason}")
+                    print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=PRICE_UNAVAILABLE")
+                    continue
+            authority_ok, authority_reason = _enforce_canonical_price_authority(
+                symbol=symbol,
+                mode=mode,
+                entry_price=entry_price,
+                entry_price_source=entry_price_source,
+                scanner_payload=scanner_payload,
+            )
+            if not authority_ok:
+                print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_AUTHORITY detail={authority_reason}")
+                print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=PRICE_AUTHORITY")
                 continue
+            if mode == RunMode.SIM:
+                print(
+                    f"[PIPELINE][PRICE_AUTHORITY_BYPASS] symbol={symbol} mode={mode.value} "
+                    f"reason={authority_reason} source={entry_price_source}"
+                )
             if force_debug_trades and not trade_intents and setup_detected and trigger_ready_now:
                 trade_intents = [
                     TradeIntentRecord(
@@ -615,6 +693,8 @@ def run_cycle(
     else:
         execution_candidates: List[RiskDecisionRecord] = []
         blocked_candidates: List[ExecutionEvent] = []
+        if not arbitrated_decisions:
+            print("[PIPELINE][EXECUTION_GATE] symbol=NONE eligible=false reason=NO_INTENTS")
         for decision in arbitrated_decisions:
             execution_candidate_ready = decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}
             eligible = (
