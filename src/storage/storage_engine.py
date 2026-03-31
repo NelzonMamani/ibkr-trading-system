@@ -405,6 +405,47 @@ class StorageEngine:
             return []
         return self._store.fetch_trade_lifecycle_reconciliation_events(run_id or self.run_id)
 
+    def store_portfolio_allocation_decisions(self, *, cycle_id: str, decisions: list[dict[str, Any]]) -> None:
+        if not self.enabled or self.backend != "sqlite" or not self._store or not decisions:
+            return
+        timestamp = now_iso()
+        rows: list[dict[str, Any]] = []
+        for decision in decisions:
+            rows.append(
+                {
+                    "allocation_decision_id": str(uuid4()),
+                    "run_id": self.run_id,
+                    "cycle_id": cycle_id,
+                    "timestamp": decision.get("timestamp", timestamp),
+                    "candidate_id": decision.get("candidate_id"),
+                    "symbol": decision.get("symbol"),
+                    "strategy_name": decision.get("strategy_name"),
+                    "classification": decision.get("classification"),
+                    "requested_trade_value": float(decision.get("requested_trade_value", 0.0) or 0.0),
+                    "approved_trade_value": float(decision.get("approved_trade_value", 0.0) or 0.0),
+                    "approved": 1 if bool(decision.get("approved", False)) else 0,
+                    "approval_type": decision.get("approval_type"),
+                    "reason_code": decision.get("reason_code"),
+                    "rationale": decision.get("rationale"),
+                    "priority_rank": int(decision.get("priority_rank", 999) or 999),
+                    "portfolio_capacity_before": float(decision.get("portfolio_capacity_before", 0.0) or 0.0),
+                    "portfolio_capacity_after": float(decision.get("portfolio_capacity_after", 0.0) or 0.0),
+                    "payload_json": canonical_json(decision, allow_fallback=True),
+                    "created_at": timestamp,
+                }
+            )
+        self._store.insert_portfolio_allocation_decisions(rows)
+
+    def fetch_portfolio_allocation_decisions(
+        self,
+        *,
+        run_id: str | None = None,
+        cycle_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return []
+        return self._store.fetch_portfolio_allocation_decisions(run_id or self.run_id, cycle_id=cycle_id)
+
     def store_watchlist(
         self,
         *,

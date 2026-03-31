@@ -36,6 +36,9 @@ from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.engines.position_management_engine import ManagedPosition, PositionManagementEngine
 from src.core.engines.trade_lifecycle_engine import LifecycleEvent, TradeLifecycleEngine
 from src.core.portfolio import BrokerPositionSnapshotAdapter
+from src.core.portfolio.allocation_engine import PortfolioAllocationEngine, candidate_from_decision
+from src.core.portfolio.allocation_policy import ArbitrationDecision, PortfolioAllocationSnapshot
+from src.core.portfolio.budget_registry import load_strategy_budget_registry
 from src.core.event_collector import EventCollector
 from src.data.fundamentals.float_provider import FloatProvider
 from src.data.manual_focus_loader import ManualFocusConfig
@@ -456,6 +459,18 @@ class CoreOrchestrator:
         self.position_management_engine = PositionManagementEngine()
         self.trade_lifecycle_engine = TradeLifecycleEngine()
         self.risk_engine.set_trade_lifecycle_engine(self.trade_lifecycle_engine)
+        self._strategy_budget_registry = load_strategy_budget_registry()
+        self._portfolio_allocation_engine = PortfolioAllocationEngine(self._strategy_budget_registry)
+        self._last_allocation_snapshot = PortfolioAllocationSnapshot(
+            total_portfolio_exposure=0.0,
+            remaining_portfolio_capacity=0.0,
+            total_open_positions=0,
+            per_strategy_exposure={},
+            per_strategy_open_positions={},
+            kill_switch_active=False,
+            drift_detected=False,
+        )
+        self._last_allocation_decisions: list[ArbitrationDecision] = []
         self._broker_position_adapter = BrokerPositionSnapshotAdapter()
         self.trade_exit_engine = TradeExitEngine(
             trade_registry=self.trade_registry,
@@ -526,6 +541,111 @@ class CoreOrchestrator:
             execution_mode=execution_mode,
             timeframe=timeframe,
         )
+
+    def get_portfolio_allocation_snapshot(self) -> PortfolioAllocationSnapshot:
+        return self._last_allocation_snapshot
+
+    def get_strategy_exposure(self, strategy_name: str) -> float:
+        return float(self._last_allocation_snapshot.per_strategy_exposure.get(str(strategy_name).lower(), 0.0))
+
+    def get_strategy_open_positions(self, strategy_name: str) -> int:
+        return int(self._last_allocation_snapshot.per_strategy_open_positions.get(str(strategy_name).lower(), 0))
+
+    def get_remaining_portfolio_capacity(self) -> float:
+        return float(self._last_allocation_snapshot.remaining_portfolio_capacity)
+
+    def get_allocation_decisions_for_cycle(self, cycle_id: str | None = None) -> list[dict]:
+        if cycle_id:
+            return self.storage_engine.fetch_portfolio_allocation_decisions(cycle_id=cycle_id)
+        return [decision.to_dict() for decision in self._last_allocation_decisions]
+
+    def _build_strategy_portfolio_view(self) -> tuple[dict[str, tuple[str, str]], dict[str, float], dict[str, int]]:
+        open_positions: dict[str, tuple[str, str]] = {}
+        strategy_exposure: dict[str, float] = {}
+        strategy_positions: dict[str, int] = {}
+        for trade in self.trade_lifecycle_engine.get_open_lifecycle_trades():
+            symbol = str(getattr(trade, "symbol", "")).upper()
+            strategy = str(getattr(trade, "strategy_name", "unknown") or "unknown").lower()
+            side = str(getattr(trade, "side", "LONG") or "LONG").upper()
+            open_positions[symbol] = (strategy, side)
+            exposure = float(getattr(trade, "quantity_open", 0) or 0) * float(getattr(trade, "entry_avg_price", 0.0) or 0.0)
+            strategy_exposure[strategy] = strategy_exposure.get(strategy, 0.0) + exposure
+            strategy_positions[strategy] = strategy_positions.get(strategy, 0) + 1
+        return open_positions, strategy_exposure, strategy_positions
+
+    def _arbitrate_portfolio_candidates(
+        self,
+        *,
+        strategy_output: list[TradeIntent],
+        risk_output: list[RiskDecision],
+        cycle_id: str,
+    ) -> list[RiskDecision]:
+        if not risk_output:
+            return risk_output
+        open_positions, strategy_exposure, strategy_positions = self._build_strategy_portfolio_view()
+        portfolio_state = self.trade_lifecycle_engine.build_portfolio_state()
+        drift_detected = any(str((f or {}).get("severity", "")).upper() == "CRITICAL" for f in self.trade_lifecycle_engine.get_drift_report())
+        self._last_allocation_snapshot = self._portfolio_allocation_engine.build_snapshot(
+            total_exposure=float(getattr(portfolio_state, "total_exposure", 0.0) or 0.0),
+            kill_switch_active=bool(self.risk_engine.kill_switch.active),
+            drift_detected=drift_detected,
+            strategy_exposure=strategy_exposure,
+            strategy_open_positions=strategy_positions,
+        )
+
+        intent_by_symbol: dict[tuple[str, str], TradeIntent] = {}
+        for intent in strategy_output:
+            intent_by_symbol[(str(intent.symbol).upper(), str(intent.strategy_name).lower())] = intent
+
+        candidates = []
+        for decision in risk_output:
+            if not bool(getattr(decision, "allowed", False)):
+                continue
+            key = (str(decision.symbol).upper(), str(getattr(decision, "strategy_name", "unknown")).lower())
+            intent = intent_by_symbol.get(key)
+            if intent is None:
+                continue
+            classification, is_exit_reduction = self._portfolio_allocation_engine.classify_candidate(intent, open_positions)
+            candidates.append(candidate_from_decision(decision, intent, classification, is_exit_reduction))
+
+        print(f"[PORTFOLIO][ARBITRATION][START] candidates_seen={len(candidates)}")
+        decisions = self._portfolio_allocation_engine.arbitrate(candidates=candidates, snapshot=self._last_allocation_snapshot)
+        self._last_allocation_decisions = decisions
+        approved_keys = {(d.symbol, d.strategy_name) for d in decisions if d.approved}
+        for dec in decisions:
+            print(
+                "[PORTFOLIO][ARBITRATION][DECISION] "
+                f"candidate_id={dec.candidate_id} symbol={dec.symbol} strategy={dec.strategy_name} "
+                f"classification={dec.classification} approved={dec.approved} type={dec.approval_type} "
+                f"reason={dec.reason_code} before={dec.portfolio_capacity_before:.2f} after={dec.portfolio_capacity_after:.2f}"
+            )
+        try:
+            self.storage_engine.store_portfolio_allocation_decisions(
+                cycle_id=cycle_id,
+                decisions=[{**d.to_dict(), "timestamp": datetime.now(timezone.utc).isoformat()} for d in decisions],
+            )
+        except Exception as exc:
+            print(f"[PORTFOLIO][ARBITRATION][WARN] stage=persist_non_blocking error={exc}")
+
+        approved: list[RiskDecision] = []
+        for decision in risk_output:
+            candidate_key = (str(getattr(decision, "symbol", "")).upper(), str(getattr(decision, "strategy_name", "")).lower())
+            if not decision.allowed or candidate_key in approved_keys:
+                approved.append(decision)
+                continue
+            decision.allowed = False
+            decision.risk_level = "BLOCKED"
+            decision.rationale = "Blocked by portfolio arbitration."
+            decision.reason_code = "ARBITRATION_BLOCKED"
+            approved.append(decision)
+        print(
+            "[PORTFOLIO][ARBITRATION][SUMMARY] "
+            f"total_candidates_seen={len(candidates)} approved_full={len([d for d in decisions if d.approved and d.approval_type == 'FULL'])} "
+            f"approved_partial={len([d for d in decisions if d.approved and d.approval_type == 'PARTIAL'])} "
+            f"denied={len([d for d in decisions if d.approval_type == 'DENIED'])} deferred={len([d for d in decisions if d.approval_type == 'DEFERRED'])} "
+            f"remaining_capacity={self._last_allocation_snapshot.remaining_portfolio_capacity:.2f}"
+        )
+        return approved
 
     def _build_position_management_market_state(
         self,
@@ -3404,6 +3524,14 @@ class CoreOrchestrator:
                     ],
                     {"count": len(risk_output), "authority": "risk"},
                 )
+                try:
+                    risk_output = self._arbitrate_portfolio_candidates(
+                        strategy_output=strategy_output,
+                        risk_output=risk_output,
+                        cycle_id=self._ensure_cycle_id(),
+                    )
+                except Exception as exc:
+                    print(f"[PORTFOLIO][ARBITRATION][WARN] stage=engine_failure_non_blocking error={exc}")
         self._evaluate_runtime_safety(
             cycle_stage="RISK",
             stage_exception=None,

@@ -128,6 +128,9 @@ class TradeIntent:
     setup_family_id: Optional[str] = None
     trigger_id: Optional[str] = None
     execution_refinement_mode: Optional[str] = None
+    quantity: Optional[int] = None
+    entry_price: Optional[float] = None
+    intent_action: str = "ENTRY"
 
     def __post_init__(self) -> None:
         if not self.symbol:

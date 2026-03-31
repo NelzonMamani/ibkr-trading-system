@@ -190,6 +190,29 @@ class SQLiteStore:
                 created_at TEXT,
                 FOREIGN KEY(run_id) REFERENCES runs(run_id)
             );
+            CREATE TABLE IF NOT EXISTS portfolio_allocation_decisions (
+                allocation_decision_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                cycle_id TEXT,
+                timestamp TEXT,
+                candidate_id TEXT,
+                symbol TEXT,
+                strategy_name TEXT,
+                classification TEXT,
+                requested_trade_value REAL,
+                approved_trade_value REAL,
+                approved INTEGER,
+                approval_type TEXT,
+                reason_code TEXT,
+                rationale TEXT,
+                priority_rank INTEGER,
+                portfolio_capacity_before REAL,
+                portfolio_capacity_after REAL,
+                payload_json TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id),
+                FOREIGN KEY(cycle_id) REFERENCES cycles(cycle_id)
+            );
             CREATE TABLE IF NOT EXISTS trade_records (
                 trade_record_id TEXT PRIMARY KEY,
                 run_id TEXT,
@@ -408,6 +431,8 @@ class SQLiteStore:
                 ON trade_lifecycle_events(symbol, timestamp);
             CREATE INDEX IF NOT EXISTS idx_tle_reconcile_symbol_time
                 ON trade_lifecycle_reconciliation_events(symbol, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_portfolio_alloc_cycle
+                ON portfolio_allocation_decisions(run_id, cycle_id, timestamp);
             CREATE INDEX IF NOT EXISTS idx_trade_records_run_id ON trade_records(run_id);
             CREATE INDEX IF NOT EXISTS idx_trades_run_id ON trades(run_id);
             CREATE INDEX IF NOT EXISTS idx_execution_results_run_id ON execution_results(run_id);
@@ -724,6 +749,44 @@ class SQLiteStore:
                 summary.get("timestamp"),
                 summary.get("created_at"),
             ),
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_portfolio_allocation_decisions(self, decisions: Iterable[dict[str, Any]]) -> None:
+        self.connection.executemany(
+            """
+            INSERT OR IGNORE INTO portfolio_allocation_decisions (
+                allocation_decision_id, run_id, cycle_id, timestamp, candidate_id, symbol,
+                strategy_name, classification, requested_trade_value, approved_trade_value,
+                approved, approval_type, reason_code, rationale, priority_rank,
+                portfolio_capacity_before, portfolio_capacity_after, payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    decision["allocation_decision_id"],
+                    decision["run_id"],
+                    decision.get("cycle_id"),
+                    decision.get("timestamp"),
+                    decision.get("candidate_id"),
+                    decision.get("symbol"),
+                    decision.get("strategy_name"),
+                    decision.get("classification"),
+                    decision.get("requested_trade_value"),
+                    decision.get("approved_trade_value"),
+                    decision.get("approved"),
+                    decision.get("approval_type"),
+                    decision.get("reason_code"),
+                    decision.get("rationale"),
+                    decision.get("priority_rank"),
+                    decision.get("portfolio_capacity_before"),
+                    decision.get("portfolio_capacity_after"),
+                    decision.get("payload_json"),
+                    decision.get("created_at"),
+                )
+                for decision in decisions
+            ],
         )
         if self.commit_each_write:
             self.connection.commit()
@@ -1046,6 +1109,16 @@ class SQLiteStore:
             """,
             (run_id,),
         )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def fetch_portfolio_allocation_decisions(self, run_id: str, *, cycle_id: str | None = None) -> list[dict[str, Any]]:
+        query = "SELECT * FROM portfolio_allocation_decisions WHERE run_id = ?"
+        params: list[Any] = [run_id]
+        if cycle_id:
+            query += " AND cycle_id = ?"
+            params.append(cycle_id)
+        query += " ORDER BY timestamp ASC, candidate_id ASC"
+        cursor = self.connection.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
 
     def fetch_trade_outcomes(self, run_id: str) -> list[dict[str, Any]]:
