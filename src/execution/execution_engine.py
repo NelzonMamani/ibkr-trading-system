@@ -220,7 +220,7 @@ class ExecutionEngine:
                 except Exception:
                     broker_state = "DEGRADED"
             elif self._provider is not None:
-                broker_state = "SIMULATED_PROVIDER"
+                broker_state = "CONNECTED"
             print(f"[EXECUTION][MODE] mode={self.run_mode.value} broker_connection_state={broker_state}")
         if risk_decision is None:
             print("[EXECUTION] No execution performed — placeholder path")
@@ -667,6 +667,11 @@ class ExecutionEngine:
             f"[IBKR][ORDER_ACK] order_id={ibkr_order_id} status={broker_status} "
             f"symbol={request.symbol}"
         )
+        if broker_status == "Rejected":
+            print(
+                f"[IBKR][ORDER_REJECT] order_id={ibkr_order_id} status={status_raw} "
+                f"symbol={request.symbol} reason={getattr(result, 'rejection_reason', None) or getattr(result, 'rationale', None) or 'UNSPECIFIED'}"
+            )
         print(f"[ORDER][ACK] order_id={ibkr_order_id} status={broker_status}")
         self._execution_log(
             "ORDER_STATUS",

@@ -126,11 +126,38 @@ class IbkrLiveBroker(BaseBroker):
         assert self.connection_manager is not None
         client = self.connection_manager.ensure_connected()
         metadata = self.connection_manager.connection_metadata()
+        expected_port = get_ibkr_paper_port() if self.run_mode == RunMode.PAPER else get_ibkr_live_port()
+        resolved_port = int(metadata.get("port") or 0)
+        connected_client_id = metadata.get("connected_client_id")
+        expected_client_id = int(self.connection_manager.config.base_client_id)
+        if not bool(metadata.get("connected")):
+            raise RuntimeError("IBKR connection is not active.")
+        if resolved_port != int(expected_port):
+            raise RuntimeError(
+                f"IBKR port mismatch for {self.run_mode.value}: expected {expected_port}, got {resolved_port}."
+            )
+        if connected_client_id is None:
+            raise RuntimeError("IBKR client id unavailable after connect.")
+        if int(connected_client_id) != expected_client_id:
+            raise RuntimeError(
+                f"IBKR client id mismatch: expected {expected_client_id}, got {connected_client_id}."
+            )
         print(
             "[TRACE][stage=broker_connection] "
             f"owner={self.__class__.__name__} host={metadata.get('host')} port={metadata.get('port')} "
             f"client_id={metadata.get('connected_client_id')} connected={client.is_connected()}"
         )
+
+    def health(self) -> dict:
+        if self.connection_manager is None:
+            return {"connected": False, "reason": "MISSING_CONNECTION_MANAGER"}
+        metadata = self.connection_manager.connection_metadata()
+        return {
+            "connected": bool(metadata.get("connected", False)),
+            "host": metadata.get("host"),
+            "port": metadata.get("port"),
+            "connected_client_id": metadata.get("connected_client_id"),
+        }
 
     def disconnect(self, reason: str = "manual") -> None:
         if self.connection_manager is None:

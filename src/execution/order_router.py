@@ -19,7 +19,7 @@ def execute_intents(
     decisions: List[RiskDecisionRecord],
 ) -> List[ExecutionEvent]:
     events: List[ExecutionEvent] = []
-    broker_state = "CONNECTED" if mode == RunMode.LIVE else ("SIMULATED_PROVIDER" if mode == RunMode.PAPER else "DISCONNECTED")
+    broker_state = "CONNECTED" if mode in {RunMode.LIVE, RunMode.PAPER} else "DISCONNECTED"
     print(f"[EXECUTION][MODE] mode={mode.value} broker_connection_state={broker_state}")
     for decision in decisions:
         account = RouterAccountSnapshot(available_funds=float(decision.available_funds))
@@ -53,11 +53,11 @@ def execute_intents(
             else:
                 action = "SUBMITTED"
                 detail = f"submitted qty={quantity}"
-                dispatch = "REAL_BROKER" if mode == RunMode.LIVE else "SIMULATED"
+                dispatch = "IBKR" if mode in {RunMode.LIVE, RunMode.PAPER} else "SKIPPED"
         elif decision.decision == "ALLOW_WITH_CONSTRAINTS":
             action = "BLOCKED" if mode == RunMode.LIVE else "WOULD_PLACE"
             detail = f"constraints={decision.constraints}; qty={quantity}"
-            dispatch = "SKIPPED" if mode == RunMode.LIVE else "SIMULATED"
+            dispatch = "SKIPPED"
         else:
             action = "BLOCKED"
             detail = f"decision={decision.decision}; reason={decision.block_reason or 'RISK_BLOCK'}"
