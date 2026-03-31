@@ -7,7 +7,7 @@ from src.core.portfolio.portfolio_state import PortfolioState
 from src.models.data_models import TradeIntent
 
 
-class PortfolioArbitrator:
+class TradeIntentArbitrationAdapter:
     """Deterministic portfolio-level ranking and capital allocation gate."""
 
     def select_trades(
@@ -19,12 +19,7 @@ class PortfolioArbitrator:
         Deterministically select best trades given capital + risk constraints.
         """
 
-        candidates = [
-            intent
-            for intent in (trade_intents or [])
-            if bool(getattr(intent, "allowed", True))
-            and not bool(getattr(intent, "execution_blocked", False))
-        ]
+        candidates = self._validate(trade_intents or [])
 
         scored = [
             (
@@ -78,7 +73,36 @@ class PortfolioArbitrator:
             f"top_symbol={top_symbol} score={top_score:.2f}"
         )
 
-        return selected
+        max_intents = self._resolve_max_intents(default=max_positions)
+        return self._apply_global_limit(selected, max_intents=max_intents, max_positions=max_positions)
+
+    def _validate(self, intents: list[TradeIntent]) -> list[TradeIntent]:
+        validated: list[TradeIntent] = []
+        for intent in intents:
+            if not getattr(intent, "allowed", True):
+                continue
+            if getattr(intent, "execution_blocked", False):
+                continue
+            validated.append(intent)
+        return validated
+
+    def _resolve_max_intents(self, default: int) -> int:
+        for key in ("LIFECYCLE_MAX_INTENTS", "MAX_INTENTS", "E22_MAX_INTENTS_PER_CYCLE"):
+            try:
+                value = int(get_config(key))
+            except Exception:
+                continue
+            return value
+        return default
+
+    def _apply_global_limit(self, intents: list[TradeIntent], *, max_intents: int, max_positions: int) -> list[TradeIntent]:
+        limit = min(
+            max_intents if max_intents > 0 else float("inf"),
+            max_positions if max_positions > 0 else float("inf"),
+        )
+        if limit == float("inf"):
+            return intents
+        return intents[:int(limit)]
 
     def _score_intent(self, intent: Any) -> float:
         confidence = self._clamp01(self._to_float(getattr(intent, "confidence", 0.0), 0.0))
@@ -187,3 +211,6 @@ class PortfolioArbitrator:
             return 0.5
         spread_pct = spread / price
         return self._clamp01(1.0 - (spread_pct / 0.02))
+
+
+PortfolioArbitrator = TradeIntentArbitrationAdapter
