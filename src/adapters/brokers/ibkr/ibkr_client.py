@@ -873,6 +873,10 @@ class IbkrClient(EWrapper, EClient):
             f"order_id={orderId} status={status} filled={int(filled)} remaining={int(remaining)} "
             f"avg_fill_price={avgFillPrice} last_fill_price={lastFillPrice}"
         )
+        print(
+            "[EXECUTION][ORDER_TRACK] "
+            f"order_id={orderId} status={status} filled={int(filled)} remaining={int(remaining)}"
+        )
         event = self._order_status_events.setdefault(orderId, threading.Event())
         event.set()
 
@@ -895,6 +899,10 @@ class IbkrClient(EWrapper, EClient):
             "[IBKR][ORDER_FILL] "
             f"symbol={getattr(contract, 'symbol', None)} order_id={order_id} "
             f"shares={getattr(execution, 'shares', None)} avg_price={getattr(execution, 'price', None)}"
+        )
+        print(
+            "[EXECUTION][ORDER_TRACK] "
+            f"order_id={order_id} status=Filled shares={getattr(execution, 'shares', None)}"
         )
         self._exec_details_by_order.setdefault(order_id, []).append(details)
 
