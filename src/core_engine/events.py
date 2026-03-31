@@ -44,6 +44,7 @@ class TradeIntentRecord:
     tags: List[str] = field(default_factory=list)
     entry_price: float | None = None
     entry_price_source: str = "UNSET"
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
