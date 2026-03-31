@@ -77,6 +77,8 @@ _CANONICAL_PRICE_SOURCES = frozenset(
     }
 )
 _MAX_CANONICAL_PRICE_MISMATCH_PCT = 0.10
+_PRICE_CONSISTENCY_WARN_PCT = 0.15
+_AUTHORITATIVE_FILL_SOURCES = frozenset({"IBKR_EXECUTION", "IBKR_ORDER_STATUS", "IBKR_RESYNC"})
 
 
 def _derive_last_block_reason(risk_decisions: List[RiskDecisionRecord]) -> str:
@@ -183,6 +185,33 @@ def _resolve_live_available_funds(mode) -> AccountSnapshot:
             broker_connection_state="DEGRADED",
         )
 
+
+
+def _emit_price_consistency_log(
+    *,
+    symbol: str,
+    scanner_price: float | None,
+    intent_price: float | None,
+    risk_entry_price: float | None,
+    submission_context_price: float | None,
+) -> None:
+    print(
+        "[PRICE][CONSISTENCY] "
+        f"symbol={symbol} scanner_reference={scanner_price} intent_reference={intent_price} "
+        f"risk_entry={risk_entry_price} execution_submission_context={submission_context_price}"
+    )
+    values = [value for value in (scanner_price, intent_price, risk_entry_price, submission_context_price) if value and value > 0]
+    if len(values) < 2:
+        return
+    min_value = min(values)
+    max_value = max(values)
+    mismatch_pct = (max_value - min_value) / min_value if min_value > 0 else 0.0
+    if mismatch_pct > _PRICE_CONSISTENCY_WARN_PCT:
+        print(
+            "[PRICE][CONSISTENCY_WARN] "
+            f"symbol={symbol} mismatch_pct={mismatch_pct:.4f} scanner={scanner_price} "
+            f"intent={intent_price} risk_entry={risk_entry_price} execution={submission_context_price}"
+        )
 
 
 _prep_engine = PreMarketPrepEngine(event_collector=None)
@@ -764,11 +793,23 @@ def run_cycle(
         print("[EXECUTION] Execution stage skipped — intent scan_only.")
         execution_events = []
     else:
+        intent_by_id = {intent.intent_id: intent for intent in intents}
         execution_candidates: List[RiskDecisionRecord] = []
         blocked_candidates: List[ExecutionEvent] = []
         if not arbitrated_decisions:
             print("[PIPELINE][EXECUTION_GATE] symbol=NONE eligible=false reason=NO_INTENTS")
         for decision in arbitrated_decisions:
+            intent_row = intent_by_id.get(decision.intent_id)
+            scanner_price = _scanner_last_price(decision.symbol, scanner_payload)
+            intent_price = float(intent_row.entry_price) if intent_row and intent_row.entry_price is not None else None
+            risk_entry_price = float(decision.entry_price) if decision.entry_price is not None else None
+            _emit_price_consistency_log(
+                symbol=decision.symbol,
+                scanner_price=scanner_price,
+                intent_price=intent_price,
+                risk_entry_price=risk_entry_price,
+                submission_context_price=risk_entry_price,
+            )
             execution_candidate_ready = decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}
             eligible = (
                 mode == RunMode.PAPER
@@ -838,42 +879,52 @@ def run_cycle(
                         f"[ORDER_STATE] symbol={event.symbol} order_id={broker_order_id} "
                         f"state=WORKING broker_status={broker_status} filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
                     )
-                    print(f"[LIFECYCLE] ORDER_SUBMITTED symbol={event.symbol} source=IBKR_EVENT")
-                    print(f"[LIFECYCLE] ORDER_ACKNOWLEDGED symbol={event.symbol} source=IBKR_EVENT")
+                    print(f"[LIFECYCLE] ORDER_SUBMITTED symbol={event.symbol} source=IBKR_ORDER_STATUS")
+                lifecycle_state = str(getattr(event, "lifecycle_state", "WORKING") or "WORKING")
                 fill_event = str(getattr(event, "event_type", "") or "")
                 event_source = str(getattr(event, "source", "IBKR_EVENT") or "IBKR_EVENT")
-                if fill_event == "ORDER_FILLED" or filled_quantity > 0:
-                    lifecycle_event = "ORDER_FILLED"
+                fill_source = str(getattr(event, "fill_source", event_source) or event_source)
+                print(
+                    f"[LIFECYCLE][SOURCE] symbol={event.symbol} order_id={broker_order_id} "
+                    f"state={lifecycle_state} source={event_source} fill_source={fill_source}"
+                )
+                if lifecycle_state in {"ACKNOWLEDGED", "WORKING"}:
+                    print(f"[LIFECYCLE] ORDER_ACKNOWLEDGED symbol={event.symbol} source={event_source}")
+                if lifecycle_state in {"PARTIAL", "FILLED"} or fill_event in {"ORDER_FILLED", "ORDER_PARTIALLY_FILLED"}:
                     print(
-                        f"[EXECUTION][FILL] symbol={event.symbol} order_id={broker_order_id} "
-                        f"filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
+                        f"[EXECUTION][FILL_SOURCE] symbol={event.symbol} order_id={broker_order_id} "
+                        f"fill_source={fill_source} filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
                     )
-                    print(
-                        f"[LIFECYCLE][ORDER_FILLED] symbol={event.symbol} order_id={broker_order_id} "
-                        f"filled_qty={filled_quantity} source={event_source}"
-                    )
+                    lifecycle_event = "ORDER_PARTIALLY_FILLED" if lifecycle_state == "PARTIAL" else "ORDER_FILLED"
+                    print(f"[LIFECYCLE][{lifecycle_event}] symbol={event.symbol} order_id={broker_order_id} filled_qty={filled_quantity} source={fill_source}")
                     symbol_key = str(event.symbol or "").upper()
                     if symbol_key:
                         existing_position = position_book.get(symbol_key)
                         fill_price = event.avg_fill_price
                         fill_qty = max(0, filled_quantity)
-                        if existing_position is None:
-                            position_book[symbol_key] = {"qty": float(fill_qty), "avg_price": float(fill_price or 0.0)}
-                        else:
-                            prev_qty = float(existing_position["qty"])
-                            prev_avg = float(existing_position["avg_price"])
-                            total_qty = prev_qty + float(fill_qty)
-                            if total_qty > 0 and fill_price is not None:
-                                weighted_avg = ((prev_qty * prev_avg) + (float(fill_qty) * float(fill_price))) / total_qty
+                        authoritative = fill_source in _AUTHORITATIVE_FILL_SOURCES
+                        valid_price = fill_price is not None and float(fill_price) > 0.0
+                        if fill_qty > 0 and authoritative and valid_price:
+                            if existing_position is None:
+                                position_book[symbol_key] = {"qty": float(fill_qty), "avg_price": float(fill_price)}
                             else:
-                                weighted_avg = prev_avg
-                            existing_position["qty"] = total_qty
-                            existing_position["avg_price"] = weighted_avg
-                        print(
-                            f"[POSITION][OPEN] symbol={symbol_key} "
-                            f"qty={int(position_book[symbol_key]['qty'])} "
-                            f"price={position_book[symbol_key]['avg_price']:.4f}"
-                        )
+                                prev_qty = float(existing_position["qty"])
+                                prev_avg = float(existing_position["avg_price"])
+                                total_qty = prev_qty + float(fill_qty)
+                                weighted_avg = ((prev_qty * prev_avg) + (float(fill_qty) * float(fill_price))) / total_qty
+                                existing_position["qty"] = total_qty
+                                existing_position["avg_price"] = weighted_avg
+                            print(
+                                f"[POSITION][OPEN_AUTHORITY] symbol={symbol_key} "
+                                f"qty={int(position_book[symbol_key]['qty'])} "
+                                f"price={position_book[symbol_key]['avg_price']:.4f} source={fill_source}"
+                            )
+                        else:
+                            pending_reason = "NON_AUTHORITATIVE_SOURCE" if not authoritative else "MISSING_NONZERO_FILL_PRICE"
+                            print(
+                                f"[POSITION][OPEN_BLOCKED] symbol={symbol_key} "
+                                f"qty={fill_qty} price={fill_price} source={fill_source} reason={pending_reason}"
+                            )
             elif execution_pass:
                 working_orders += 1 if event.action == "WOULD_PLACE" else 0
             print(

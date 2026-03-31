@@ -80,6 +80,9 @@ class ExecutionEvent:
     broker_status: str = "UNKNOWN"
     avg_fill_price: float | None = None
     last_update_time: str | None = None
+    lifecycle_state: str = "NEW"
+    fill_source: str = "UNSET"
+    pending_fill_price_resolution: bool = False
 
 
 @dataclass

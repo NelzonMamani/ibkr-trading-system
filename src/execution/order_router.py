@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, List
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
+from src.config.config_resolver import get_config
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
 from src.core_engine.state import RunMode
 
@@ -114,6 +115,39 @@ def _extract_exec_price(exec_row: Any) -> float | None:
     return None
 
 
+def _extract_order_status(order_row: Any) -> str:
+    status = getattr(order_row, "status", None)
+    if status is None:
+        order_status = getattr(order_row, "orderStatus", None) or getattr(order_row, "order_status", None)
+        if order_status is not None:
+            status = getattr(order_status, "status", None)
+    return str(status or "UNKNOWN")
+
+
+def _extract_order_filled(order_row: Any) -> int:
+    value = getattr(order_row, "filled", None)
+    if value is None:
+        order_status = getattr(order_row, "orderStatus", None) or getattr(order_row, "order_status", None)
+        if order_status is not None:
+            value = getattr(order_status, "filled", None)
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _extract_order_remaining(order_row: Any) -> int:
+    value = getattr(order_row, "remaining", None)
+    if value is None:
+        order_status = getattr(order_row, "orderStatus", None) or getattr(order_row, "order_status", None)
+        if order_status is not None:
+            value = getattr(order_status, "remaining", None)
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _extract_callback_field(callback_payload: Any, *field_names: str) -> Any:
     for field in field_names:
         if isinstance(callback_payload, dict) and field in callback_payload:
@@ -208,13 +242,16 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         action="SUBMITTED",
         detail="callback_fill",
         event_type="ORDER_FILLED",
-        source="IBKR",
+        source="IBKR_EXECUTION",
         broker_order_id=order_id,
         filled_quantity=max(0, filled_qty),
         remaining_quantity=0,
         broker_status="Filled",
         avg_fill_price=fill_price,
         last_update_time=timestamp,
+        lifecycle_state="FILLED",
+        fill_source="IBKR_EXECUTION",
+        pending_fill_price_resolution=fill_price is None or float(fill_price or 0.0) <= 0.0,
     )
     _EXECUTION_EVENT_BUFFER[order_id] = event
     print(
@@ -232,24 +269,42 @@ def _apply_callback_fills(events: List[ExecutionEvent]) -> tuple[List[ExecutionE
         callback_fill = _EXECUTION_EVENT_BUFFER.pop(int(event.broker_order_id), None)
         if callback_fill is None:
             continue
-        event.event_type = "ORDER_FILLED"
-        event.source = callback_fill.source
-        event.broker_status = "Filled"
         event.filled_quantity = int(callback_fill.filled_quantity or 0)
         base_remaining = int(event.remaining_quantity or 0)
         event.remaining_quantity = max(0, base_remaining - event.filled_quantity)
         event.avg_fill_price = callback_fill.avg_fill_price
         event.last_update_time = callback_fill.last_update_time or _now_utc_iso()
+        event.fill_source = "IBKR_EXECUTION"
+        event.source = "IBKR_EXECUTION"
+        if event.filled_quantity > 0 and (event.avg_fill_price or 0.0) > 0.0:
+            event.event_type = "ORDER_FILLED"
+            event.broker_status = "Filled"
+            event.lifecycle_state = "FILLED"
+            event.pending_fill_price_resolution = False
+            print(
+                "[EXECUTION][FILL_RESOLVED] "
+                f"symbol={event.symbol} order_id={event.broker_order_id} source={event.fill_source} "
+                f"filled_qty={event.filled_quantity} fill_price={event.avg_fill_price}"
+            )
+        else:
+            event.event_type = "ORDER_PARTIALLY_FILLED" if event.filled_quantity > 0 else "ORDER_WORKING"
+            event.broker_status = "Submitted"
+            event.lifecycle_state = "PARTIAL" if event.filled_quantity > 0 else "WORKING"
+            event.pending_fill_price_resolution = event.filled_quantity > 0
+            print(
+                "[EXECUTION][FILL_PENDING] "
+                f"symbol={event.symbol} order_id={event.broker_order_id} source={event.fill_source} "
+                f"filled_qty={event.filled_quantity} fill_price={event.avg_fill_price}"
+            )
         fills_applied += 1
     return events, fills_applied
 
 
 def _emit_test_fill_fallback(mode: RunMode, events: List[ExecutionEvent], timeout_seconds: float) -> List[ExecutionEvent]:
-    if mode != RunMode.PAPER:
+    if mode != RunMode.PAPER or not _is_test_environment():
         return events
-    fallback_enabled = os.environ.get("IBKR_ENABLE_TEST_FILL_FALLBACK", "").lower()
-    should_fallback = fallback_enabled == "true" or (not fallback_enabled and _is_test_environment())
-    if not should_fallback:
+    fallback_enabled = os.environ.get("IBKR_ENABLE_TEST_ONLY_FILL", "").lower() == "true"
+    if not fallback_enabled:
         return events
     deadline = time.monotonic() + max(0.0, timeout_seconds)
     while time.monotonic() < deadline:
@@ -264,10 +319,13 @@ def _emit_test_fill_fallback(mode: RunMode, events: List[ExecutionEvent], timeou
         if synthetic_qty <= 0:
             synthetic_qty = 1
         event.event_type = "ORDER_FILLED"
-        event.source = "TEST_FILL"
+        event.source = "TEST_ONLY_FILL"
+        event.fill_source = "TEST_ONLY_FILL"
         event.broker_status = "Filled"
         event.filled_quantity = synthetic_qty
         event.remaining_quantity = 0
+        event.lifecycle_state = "FILLED"
+        event.pending_fill_price_resolution = event.avg_fill_price is None or float(event.avg_fill_price or 0.0) <= 0.0
         event.last_update_time = _now_utc_iso()
         print(
             "[EXECUTION][EVENT_CREATED] "
@@ -304,32 +362,78 @@ def _sync_submitted_events_from_ibkr(
         if order_id is not None and order_id not in execution_index:
             execution_index[order_id] = row
 
+    order_index: dict[int, Any] = {}
+    for row in open_orders:
+        row_order_id = _extract_exec_order_id(row)
+        if row_order_id is not None and row_order_id not in order_index:
+            order_index[row_order_id] = row
+
     for event in events:
         if event.action != "SUBMITTED":
             continue
         event.last_update_time = _now_utc_iso()
         if event.broker_order_id is None:
             continue
-        match = execution_index.get(int(event.broker_order_id))
-        if match is None:
-            continue
-        event.event_type = "ORDER_FILLED"
-        event.source = "IBKR"
-        event.broker_status = "Filled"
-        event.filled_quantity = _extract_exec_qty(match)
-        event.remaining_quantity = max(0, int(event.remaining_quantity or 0))
-        event.avg_fill_price = _extract_exec_price(match)
-        print(
-            f"[EXECUTION][FILL] symbol={event.symbol} qty={event.filled_quantity} "
-            f"price={event.avg_fill_price if event.avg_fill_price is not None else 'UNKNOWN'}"
-        )
+        order_id = int(event.broker_order_id)
+        status_row = order_index.get(order_id)
+        execution_row = execution_index.get(order_id)
+        status = _extract_order_status(status_row) if status_row is not None else "Submitted"
+        status_upper = status.upper()
+        event.broker_status = status
+        event.source = "IBKR_ORDER_STATUS"
+        event.fill_source = "IBKR_ORDER_STATUS"
+        if status_upper in {"SUBMITTED", "PENDINGSUBMIT", "PENDING_SUBMIT", "PRESUBMITTED", "API_PENDING"}:
+            event.event_type = "ORDER_ACKNOWLEDGED"
+            event.lifecycle_state = "ACKNOWLEDGED"
+        else:
+            event.event_type = "ORDER_WORKING"
+            event.lifecycle_state = "WORKING"
+
+        if status_row is not None:
+            status_filled = _extract_order_filled(status_row)
+            status_remaining = _extract_order_remaining(status_row)
+            if status_filled > 0:
+                event.filled_quantity = max(event.filled_quantity, status_filled)
+                event.remaining_quantity = status_remaining
+
+        if execution_row is not None:
+            event.source = "IBKR_EXECUTION"
+            event.fill_source = "IBKR_EXECUTION"
+            event.filled_quantity = max(event.filled_quantity, _extract_exec_qty(execution_row))
+            event.avg_fill_price = _extract_exec_price(execution_row)
+            event.remaining_quantity = max(0, int(event.remaining_quantity or 0) - int(event.filled_quantity or 0))
+
+        if event.filled_quantity > 0 and (event.avg_fill_price or 0.0) > 0.0:
+            event.event_type = "ORDER_FILLED" if event.remaining_quantity <= 0 else "ORDER_PARTIALLY_FILLED"
+            event.lifecycle_state = "FILLED" if event.remaining_quantity <= 0 else "PARTIAL"
+            event.pending_fill_price_resolution = False
+            print(
+                "[EXECUTION][FILL_RESOLVED] "
+                f"symbol={event.symbol} order_id={event.broker_order_id} source={event.fill_source} "
+                f"filled_qty={event.filled_quantity} remaining_qty={event.remaining_quantity} fill_price={event.avg_fill_price}"
+            )
+        elif event.filled_quantity > 0:
+            event.pending_fill_price_resolution = True
+            event.event_type = "ORDER_PARTIALLY_FILLED"
+            event.lifecycle_state = "PARTIAL"
+            print(
+                "[EXECUTION][FILL_PENDING] "
+                f"symbol={event.symbol} order_id={event.broker_order_id} source={event.fill_source} "
+                f"filled_qty={event.filled_quantity} remaining_qty={event.remaining_quantity} reason=missing_fill_price"
+            )
+        else:
+            print(
+                "[EXECUTION][FILL_PENDING] "
+                f"symbol={event.symbol} order_id={event.broker_order_id} source={event.fill_source} "
+                f"filled_qty=0 remaining_qty={event.remaining_quantity} broker_status={event.broker_status}"
+            )
         for position in positions:
             symbol = str(getattr(position, "symbol", "") or "").upper()
             if symbol != str(event.symbol or "").upper():
                 continue
             qty = int(getattr(position, "position", 0) or 0)
             avg = getattr(position, "avgCost", None)
-            print(f"[POSITION][OPEN] symbol={symbol} qty={qty} avg_price={avg}")
+            print(f"[POSITION][OPEN_AUTHORITY] symbol={symbol} qty={qty} avg_price={avg} source=IBKR_RESYNC")
             break
     return events
 
@@ -386,6 +490,35 @@ def _validate_ibkr_connection(mode: RunMode) -> None:
         )
 
 
+def _paper_sizing_settings() -> tuple[bool, int, float, bool]:
+    enabled = bool(get_config("PAPER_VALIDATION_SIZING_ENABLED", default=False))
+    max_shares = int(get_config("PAPER_VALIDATION_MAX_SHARES", default=0) or 0)
+    max_notional = float(get_config("PAPER_VALIDATION_MAX_NOTIONAL", default=0.0) or 0.0)
+    force_single_share = bool(get_config("PAPER_VALIDATION_FORCE_SINGLE_SHARE", default=False))
+    return enabled, max_shares, max_notional, force_single_share
+
+
+def _apply_paper_validation_sizing(quantity: int, entry_price: float | None) -> int:
+    enabled, max_shares, max_notional, force_single_share = _paper_sizing_settings()
+    if not enabled:
+        return quantity
+    sized_qty = max(0, int(quantity))
+    if force_single_share:
+        sized_qty = 1 if sized_qty > 0 else 0
+    if max_shares > 0:
+        sized_qty = min(sized_qty, max_shares)
+    if max_notional > 0 and (entry_price or 0.0) > 0.0:
+        notional_qty = max(1, int(max_notional // float(entry_price)))
+        sized_qty = min(sized_qty, notional_qty)
+    print(
+        "[EXECUTION][PAPER_SIZING] "
+        f"enabled=true requested_qty={quantity} resolved_qty={sized_qty} "
+        f"entry_price={entry_price} max_shares={max_shares} max_notional={max_notional} "
+        f"force_single_share={str(force_single_share).lower()}"
+    )
+    return sized_qty
+
+
 def execute_intents(
     mode: RunMode,
     decisions: List[RiskDecisionRecord],
@@ -431,6 +564,8 @@ def execute_intents(
             f"risk_allowed={risk_allowed}"
         )
         quantity = int(decision.approved_quantity)
+        if mode == RunMode.PAPER:
+            quantity = _apply_paper_validation_sizing(quantity, getattr(decision, "entry_price", None))
         if decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"} and quantity <= 0:
             raise RuntimeError("INVALID ORDER: quantity=0")
         duplicate_symbol = str(decision.symbol or "").upper()
@@ -497,12 +632,20 @@ def execute_intents(
                 detail = "reason=CANONICAL_CAPITAL_UNAVAILABLE"
                 dispatch = "SKIPPED"
             elif quantity != int(decision.max_position_size):
-                action = "BLOCKED"
-                detail = (
-                    "reason=EXECUTION_QUANTITY_MISMATCH "
-                    f"approved={decision.approved_quantity} max_size={decision.max_position_size}"
-                )
-                dispatch = "SKIPPED"
+                if mode == RunMode.PAPER and quantity < int(decision.max_position_size):
+                    action = "SUBMITTED"
+                    detail = (
+                        f"submitted qty={quantity} orderRef=TRADING_OS|ROSS_MOMENTUM|{decision.intent_id} "
+                        "sizing_override=PAPER_VALIDATION"
+                    )
+                    dispatch = "IBKR"
+                else:
+                    action = "BLOCKED"
+                    detail = (
+                        "reason=EXECUTION_QUANTITY_MISMATCH "
+                        f"approved={decision.approved_quantity} max_size={decision.max_position_size}"
+                    )
+                    dispatch = "SKIPPED"
             else:
                 action = "SUBMITTED"
                 detail = f"submitted qty={quantity} orderRef=TRADING_OS|ROSS_MOMENTUM|{decision.intent_id}"
@@ -529,10 +672,12 @@ def execute_intents(
                 broker_order_id=broker_order_id,
                 event_type="ORDER_SUBMITTED" if action == "SUBMITTED" else action,
                 broker_status="Submitted" if action == "SUBMITTED" else ("REJECTED" if action == "BLOCKED" else "SIMULATED"),
-                source="IBKR" if action == "SUBMITTED" else "ENGINE",
+                source="IBKR_ORDER_STATUS" if action == "SUBMITTED" else "ENGINE",
                 filled_quantity=0,
                 remaining_quantity=quantity if action == "SUBMITTED" else 0,
                 last_update_time=_now_utc_iso(),
+                lifecycle_state="SUBMITTED" if action == "SUBMITTED" else action,
+                fill_source="UNSET",
             )
         )
     events, _ = _apply_callback_fills(events)
