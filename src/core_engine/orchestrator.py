@@ -115,6 +115,13 @@ def _enforce_canonical_price_authority(
     if mode == RunMode.SIM:
         return True, "SIM_PRICE_AUTHORITY_BYPASS"
 
+    if mode == RunMode.PAPER and entry_price_source in {"SCANNER_LAST_PRICE", "PREMARKET_REFERENCE"}:
+        print(
+            f"[PRICE][AUTHORITY_OVERRIDE] symbol={symbol} "
+            f"mode=PAPER source={entry_price_source} action=ALLOW_NON_CANONICAL"
+        )
+        return True, "PAPER_FALLBACK_ALLOWED"
+
     if entry_price_source not in _CANONICAL_PRICE_SOURCES:
         return False, f"NON_CANONICAL_PRICE_SOURCE:{entry_price_source}"
 
@@ -330,6 +337,7 @@ def run_cycle(
         f"trade_enabled={mode_authority.trade_enabled} scan_only={mode_authority.scan_only}"
     )
     mode = resolve_mode(mode_authority.effective_mode)
+    print(f"[PRICE][MODE_POLICY] mode={mode.value} fallback_allowed={str(mode == RunMode.PAPER).lower()}")
     resolved_session = resolve_session_state()
     session = forced_session_state or resolved_session
     now = utc_now()
@@ -576,6 +584,7 @@ def run_cycle(
                 print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_AUTHORITY detail={authority_reason}")
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=PRICE_AUTHORITY")
                 continue
+            fallback_used = authority_reason == "PAPER_FALLBACK_ALLOWED"
             if mode == RunMode.SIM:
                 print(
                     f"[PIPELINE][PRICE_AUTHORITY_BYPASS] symbol={symbol} mode={mode.value} "
@@ -594,8 +603,18 @@ def run_cycle(
                         tags=["FORCE_DEBUG_TRADE", "SIM_ONLY_VALIDATION"],
                         entry_price=entry_price,
                         entry_price_source=entry_price_source,
+                        metadata={
+                            "price_source": entry_price_source,
+                            **(
+                                {"price_authority": "NON_CANONICAL_ALLOWED_PAPER"}
+                                if fallback_used
+                                else {}
+                            ),
+                        },
                     )
                 ]
+                if fallback_used and "NON_LIVE_PRICE" not in trade_intents[0].tags:
+                    trade_intents[0].tags.append("NON_LIVE_PRICE")
                 forced_intent_ids.add(trade_intents[0].intent_id)
                 print(f"[DEBUG][FORCED_PATH] intent_created symbol={symbol} intent_id={trade_intents[0].intent_id}")
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=true forced=true intent_id={trade_intents[0].intent_id}")
@@ -619,8 +638,21 @@ def run_cycle(
                             tags=combined_tags,
                             entry_price=entry_price,
                             entry_price_source=entry_price_source,
+                            metadata={
+                                "price_source": entry_price_source,
+                                **(
+                                    {"price_authority": "NON_CANONICAL_ALLOWED_PAPER"}
+                                    if fallback_used
+                                    else {}
+                                ),
+                            },
                         )
                     )
+                if fallback_used and isinstance(intents[-1], TradeIntentRecord):
+                    intents[-1].metadata.setdefault("price_source", entry_price_source)
+                    intents[-1].metadata["price_authority"] = "NON_CANONICAL_ALLOWED_PAPER"
+                    if "NON_LIVE_PRICE" not in intents[-1].tags:
+                        intents[-1].tags.append("NON_LIVE_PRICE")
                 generated_intents += 1
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=true forced=false intent_id={intent.intent_id}")
             if not trade_intents:
