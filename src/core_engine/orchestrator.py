@@ -20,6 +20,7 @@ from src.core_engine.events import (
 from src.core_engine.health import HealthStatus, combine_health
 from src.core_engine.state import CycleContext, RunMode, resolve_session_state
 from src.core.intent import build_execution_intent
+from src.core.mode_authority import resolve_mode_authority
 from src.execution.order_router import execute_intents
 from src.prep.premarket_prep_artifact import write_premarket_prep_artifact
 from src.prep.premarket_prep import PreMarketPrepEngine
@@ -250,7 +251,30 @@ def run_cycle(
     forced_session_state=None,
 ) -> CycleSummary:
     _ensure_deterministic_prep()
-    mode = resolve_mode(mode_value)
+    mode_input = mode_value or str(get_config("RUN_MODE_EFFECTIVE") or "READ_ONLY")
+    execution_enabled_input = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
+    print(
+        "[MODE][INPUT] "
+        f"run_mode_raw={mode_input} execution_enabled_raw={get_config('EXECUTION_ENABLED')}"
+    )
+    mode_authority = resolve_mode_authority(mode_input, execution_enabled_input)
+    print(
+        "[MODE][NORMALIZED] "
+        f"run_mode={mode_authority.requested_mode} execution_enabled={mode_authority.execution_enabled}"
+    )
+    print(
+        "[MODE][AUTHORITY] "
+        f"effective_mode={mode_authority.effective_mode} "
+        f"trade_enabled={mode_authority.trade_enabled} "
+        f"scan_only={mode_authority.scan_only} reason={mode_authority.reason}"
+    )
+    print(
+        "[MODE][CYCLE] "
+        f"requested={mode_authority.requested_mode} effective={mode_authority.effective_mode} "
+        f"execution_enabled={mode_authority.execution_enabled} "
+        f"trade_enabled={mode_authority.trade_enabled} scan_only={mode_authority.scan_only}"
+    )
+    mode = resolve_mode(mode_authority.effective_mode)
     resolved_session = resolve_session_state()
     session = forced_session_state or resolved_session
     now = utc_now()
@@ -298,7 +322,7 @@ def run_cycle(
         mode=mode.value,
         session_phase=session.value,
         policy=scanner_policy,
-        execution_enabled=True,
+        execution_enabled=mode_authority.trade_enabled,
     )
     print(
         "[ORCH][POLICY] loaded strategy=ross_momentum "
@@ -531,6 +555,11 @@ def run_cycle(
             f"rules={output.triggered_rules} reason={output.rationale}"
         )
         print(
+            "[MODE][RISK_CONTEXT] "
+            f"symbol={output.symbol} mode={mode.value} "
+            f"read_only_rule_applied={str('MODE_READONLY' in output.triggered_rules).lower()}"
+        )
+        print(
             f"[PIPELINE][RISK] symbol={output.symbol} allowed={str(risk_pass).lower()} "
             f"decision={output.decision} reason={output.block_reason or 'PASS'}"
         )
@@ -568,8 +597,53 @@ def run_cycle(
         print("[EXECUTION] Execution stage skipped — intent scan_only.")
         execution_events = []
     else:
-        execution_events = execute_intents(mode=mode, decisions=arbitrated_decisions)
+        execution_candidates: List[RiskDecisionRecord] = []
+        blocked_candidates: List[ExecutionEvent] = []
+        for decision in arbitrated_decisions:
+            execution_candidate_ready = decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}
+            eligible = (
+                mode == RunMode.PAPER
+                and mode_authority.trade_enabled
+                and not mode_authority.scan_only
+                and int(decision.approved_quantity) >= 1
+                and execution_candidate_ready
+            )
+            print(
+                "[MODE][EXECUTION_CONTEXT] "
+                f"symbol={decision.symbol} mode={mode.value} trade_enabled={mode_authority.trade_enabled} "
+                f"scan_only={mode_authority.scan_only} execution_allowed={eligible}"
+            )
+            print(
+                "[PIPELINE][EXECUTION_GATE] "
+                f"symbol={decision.symbol} effective_mode={mode.value} trade_enabled={mode_authority.trade_enabled} "
+                f"scan_only={mode_authority.scan_only} eligible={eligible}"
+            )
+            if not eligible:
+                reason = "EXECUTION_GATES_NOT_SATISFIED"
+                print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason={reason}")
+                blocked_candidates.append(
+                    ExecutionEvent(
+                        symbol=decision.symbol,
+                        intent_id=decision.intent_id,
+                        action="BLOCKED",
+                        detail=f"reason={reason}",
+                    )
+                )
+                continue
+            print(
+                "[EXECUTION][SUBMIT_ATTEMPT] "
+                f"symbol={decision.symbol} qty={int(decision.approved_quantity)} order_type=MKT mode=PAPER"
+            )
+            execution_candidates.append(decision)
+
+        execution_events = execute_intents(mode=mode, decisions=execution_candidates)
+        execution_events.extend(blocked_candidates)
         for event in execution_events:
+            print(
+                "[EXECUTION][SUBMIT_RESULT] "
+                f"symbol={event.symbol} submitted={event.action == 'SUBMITTED'} "
+                f"order_id=N/A reason={event.detail}"
+            )
             print(f"[EXECUTION] {event.symbol} {event.action} ({event.detail})")
             execution_pass = event.action in {"SUBMITTED", "WOULD_PLACE"}
             if execution_pass:
@@ -717,12 +791,13 @@ def run_cycles(mode: str, cycles: int) -> List[CycleSummary]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Epoch 5 orchestrator.")
-    parser.add_argument("--mode", default="READ_ONLY", help="SIM/READ_ONLY/PAPER/LIVE")
+    parser.add_argument("--mode", default=None, help="SIM/READ_ONLY/PAPER/LIVE")
     parser.add_argument("--cycles", type=int, default=1)
     args = parser.parse_args()
     bootstrap_runtime()
 
-    summaries = run_cycles(mode=args.mode, cycles=args.cycles)
+    resolved_mode = args.mode or str(get_config("RUN_MODE_EFFECTIVE") or "READ_ONLY")
+    summaries = run_cycles(mode=resolved_mode, cycles=args.cycles)
     print_section("CYCLE SUMMARY")
     for summary in summaries:
         print(

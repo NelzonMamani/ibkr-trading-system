@@ -6,6 +6,7 @@ import json
 from typing import Any, Dict, Iterable, List, Mapping
 
 from src.models.data_models import DecisionArtifact, TradeIntent
+from src.core.mode_authority import resolve_mode_authority
 
 
 @dataclass(frozen=True)
@@ -35,9 +36,10 @@ def build_execution_intent(
     policy: Any,
     execution_enabled: bool,
 ) -> ExecutionIntent:
-    trade_allowed_by_mode = _mode_allows_trading(mode)
-    trade_enabled = trade_allowed_by_mode and execution_enabled
-    scan_only = not trade_allowed_by_mode
+    authority = resolve_mode_authority(mode, execution_enabled)
+    trade_allowed_by_mode = _mode_allows_trading(authority.effective_mode)
+    trade_enabled = authority.trade_enabled
+    scan_only = authority.scan_only
     ranking_intent = getattr(policy, "ranking_intent", "ROSS_MOMENTUM_STOCK_SELECTION")
     enforcement = {
         "watchlist_limit_k": int(getattr(policy, "watchlist_limit_k", 0)),
@@ -50,9 +52,14 @@ def build_execution_intent(
         notes.append("mode_blocks_trading")
     if not execution_enabled:
         notes.append("execution_disabled")
+    print(
+        "[MODE][INTENT_CONTEXT] "
+        f"strategy={strategy_name} mode={authority.effective_mode} "
+        f"trade_enabled={trade_enabled} scan_only={scan_only}"
+    )
     return ExecutionIntent(
         strategy_name=strategy_name,
-        mode=mode,
+        mode=authority.effective_mode,
         session_phase=session_phase,
         scan_only=scan_only,
         trade_enabled=trade_enabled,
