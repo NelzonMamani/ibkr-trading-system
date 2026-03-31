@@ -38,6 +38,16 @@ def test_mode_authority_live_execution_disabled_is_observational() -> None:
     assert authority.scan_only is True
 
 
+def test_mode_authority_env_paper_not_downgraded(monkeypatch) -> None:
+    monkeypatch.setenv("RUN_MODE", "PAPER")
+    monkeypatch.setenv("EXECUTION_ENABLED", "true")
+    authority = resolve_mode_authority("READ_ONLY", True)
+    assert authority.requested_mode == "PAPER"
+    assert authority.effective_mode == "PAPER"
+    assert authority.trade_enabled is True
+    assert authority.scan_only is False
+
+
 def test_execution_intent_uses_mode_authority_scan_only_semantics() -> None:
     policy = StockSelectionSpec()
     intent = build_execution_intent(
