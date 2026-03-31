@@ -71,6 +71,9 @@ class ExecutionEvent:
     intent_id: str
     action: str
     detail: str
+    order_id: int | None = None
+    lifecycle_state: str = "UNKNOWN"
+    fill_source: str | None = None
 
 
 @dataclass

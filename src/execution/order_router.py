@@ -65,6 +65,43 @@ def _validate_ibkr_connection(mode: RunMode) -> None:
         )
 
 
+def _reserve_ibkr_order_id(mode: RunMode) -> int | None:
+    if mode not in {RunMode.PAPER, RunMode.LIVE}:
+        return None
+    try:
+        manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
+        client = manager.get_client()
+        reserve = getattr(client, "reserve_order_id", None)
+        if callable(reserve):
+            return int(reserve())
+    except Exception:
+        return None
+    return None
+
+
+def _poll_ibkr_fill(order_id: int | None, mode: RunMode) -> tuple[str | None, str | None]:
+    if order_id is None or mode not in {RunMode.PAPER, RunMode.LIVE}:
+        return None, None
+    try:
+        manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
+        client = manager.get_client()
+        status = client.wait_for_order_status(order_id, timeout_seconds=1)
+        if not status:
+            return None, None
+        filled = int(status.get("filled", 0) or 0)
+        remaining = int(status.get("remaining", 0) or 0)
+        if filled > 0 and remaining > 0:
+            return "PARTIAL_FILL", "PARTIAL_FILL"
+        if filled > 0 and remaining == 0:
+            return "FILLED", "FILLED"
+        broker_status = str(status.get("status") or "").upper()
+        if broker_status in {"CANCELLED", "CANCELED", "REJECTED"}:
+            return broker_status, broker_status
+    except Exception:
+        return None, None
+    return None, None
+
+
 def execute_intents(
     mode: RunMode,
     decisions: List[RiskDecisionRecord],
@@ -116,15 +153,19 @@ def execute_intents(
                 )
                 continue
         dispatch = "SKIPPED"
+        order_id: int | None = None
+        lifecycle_state = "NOT_SENT"
         if mode in {RunMode.SIM, RunMode.READ_ONLY}:
             action = "WOULD_PLACE"
             detail = f"mode={mode.value}; decision={decision.decision}; qty={quantity}"
             dispatch = "SKIPPED"
+            lifecycle_state = "SIMULATED"
         elif decision.decision == "ALLOW":
             if mode == RunMode.LIVE and decision.capital_source != "IBKR_CANONICAL":
                 action = "BLOCKED"
                 detail = "reason=CANONICAL_CAPITAL_UNAVAILABLE"
                 dispatch = "SKIPPED"
+                lifecycle_state = "BLOCKED"
             elif quantity != int(decision.max_position_size):
                 action = "BLOCKED"
                 detail = (
@@ -132,18 +173,23 @@ def execute_intents(
                     f"approved={decision.approved_quantity} max_size={decision.max_position_size}"
                 )
                 dispatch = "SKIPPED"
+                lifecycle_state = "BLOCKED"
             else:
                 action = "SUBMITTED"
                 detail = f"submitted qty={quantity}"
                 dispatch = "IBKR"
+                order_id = _reserve_ibkr_order_id(mode)
+                lifecycle_state = "WAITING_FOR_FILL"
         elif decision.decision == "ALLOW_WITH_CONSTRAINTS":
             action = "BLOCKED" if mode == RunMode.LIVE else "WOULD_PLACE"
             detail = f"constraints={decision.constraints}; qty={quantity}"
             dispatch = "SKIPPED" if mode == RunMode.LIVE else "IBKR"
+            lifecycle_state = "BLOCKED" if mode == RunMode.LIVE else "SIMULATED"
         else:
             action = "BLOCKED"
             detail = f"decision={decision.decision}; reason={decision.block_reason or 'RISK_BLOCK'}"
             dispatch = "SKIPPED"
+            lifecycle_state = "BLOCKED"
         print(f"[EXECUTION][DISPATCH] symbol={decision.symbol} dispatch={dispatch}")
         events.append(
             ExecutionEvent(
@@ -151,6 +197,21 @@ def execute_intents(
                 intent_id=decision.intent_id,
                 action=action,
                 detail=detail,
+                order_id=order_id,
+                lifecycle_state=lifecycle_state,
             )
         )
+        fill_action, fill_state = _poll_ibkr_fill(order_id, mode)
+        if fill_action is not None:
+            events.append(
+                ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action=fill_action,
+                    detail=f"broker_update order_id={order_id}",
+                    order_id=order_id,
+                    lifecycle_state=fill_state or "UNKNOWN",
+                    fill_source="IBKR",
+                )
+            )
     return events

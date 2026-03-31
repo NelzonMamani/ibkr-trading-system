@@ -12,6 +12,7 @@ from src.risk.data_quality_contract import data_quality_blocking_causes
 
 
 DEFAULT_PAPER_CAPITAL = 10000.0
+INITIAL_POSITION_PCT = 0.25
 
 
 @dataclass(frozen=True)
@@ -61,12 +62,15 @@ def evaluate_trade_intents(
         print("[RISK][CAPITAL_OVERRIDE] using default capital=10000")
 
     capital_per_symbol = compute_capital_per_symbol(available_capital, focus_count)
+    initial_capital_per_symbol = capital_per_symbol * INITIAL_POSITION_PCT
     print(
         "[CAPITAL] "
         f"source={resolved_account.source} canonical={resolved_account.canonical} "
         f"raw_available_capital={raw_available_capital} available_capital={available_capital} "
         f"focus_count={focus_count} "
-        f"capital_per_symbol={capital_per_symbol} broker_connection_state={resolved_account.broker_connection_state}"
+        f"capital_per_symbol={capital_per_symbol} initial_position_pct={INITIAL_POSITION_PCT} "
+        f"initial_capital_per_symbol={initial_capital_per_symbol} "
+        f"broker_connection_state={resolved_account.broker_connection_state}"
     )
 
     for intent in intents:
@@ -132,6 +136,7 @@ def evaluate_trade_intents(
         print(
             "[RISK][SIZE_INPUT] "
             f"symbol={intent.symbol} capital_per_symbol={capital_per_symbol} "
+            f"initial_capital_per_symbol={initial_capital_per_symbol} "
             f"entry_price={entry_price} stop_price={stop_price} sizing_mode={sizing_mode}"
         )
         if entry_price is None or entry_price <= 0:
@@ -149,7 +154,7 @@ def evaluate_trade_intents(
             requested_shares = 0
             print(f"[RISK][SIZE_BLOCK] symbol={intent.symbol} reason=INVALID_PRICE_SANITY_CHECK")
         else:
-            requested_shares = int(capital_per_symbol // entry_price)
+            requested_shares = int(initial_capital_per_symbol // entry_price)
         if requested_shares <= 0:
             decision = "BLOCK"
             max_size = 0
@@ -161,7 +166,8 @@ def evaluate_trade_intents(
         else:
             print(
                 f"[ROSS][POSITION] symbol={intent.symbol} capital_mode=DYNAMIC_FOCUS "
-                f"shares={requested_shares} capital_per_symbol={capital_per_symbol}"
+                f"shares={requested_shares} capital_per_symbol={capital_per_symbol} "
+                f"initial_position_pct={INITIAL_POSITION_PCT}"
             )
         position_value = float(requested_shares) * float(entry_price or 0.0)
         risk_allowed = position_value <= capital_per_symbol + 1e-9

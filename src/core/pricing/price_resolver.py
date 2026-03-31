@@ -117,21 +117,25 @@ def _resolve_from_premarket(symbol: str, context: Mapping[str, Any], source: str
     return None
 
 
-def resolve_entry_price(symbol: str, context: Mapping[str, Any]) -> tuple[float, str]:
+def resolve_entry_price(
+    symbol: str,
+    context: Mapping[str, Any],
+    *,
+    require_ibkr: bool = False,
+) -> tuple[float, str]:
     normalized = str(symbol or "").strip().upper()
     if not normalized:
         raise PriceResolutionError(symbol, "INVALID_SYMBOL")
 
-    for resolver in (
-        _resolve_from_ibkr_snapshot,
-        _resolve_from_ibkr_stream,
-        _resolve_from_scanner,
-        _resolve_from_premarket,
-    ):
+    resolvers = [_resolve_from_ibkr_snapshot, _resolve_from_ibkr_stream]
+    if not require_ibkr:
+        resolvers.extend([_resolve_from_scanner, _resolve_from_premarket])
+    for resolver in resolvers:
         resolved = resolver(normalized, context)
         if resolved is not None:
             print(f"[PRICE][RESOLVE] symbol={normalized} source={resolved.source} price={resolved.price}")
             return resolved.price, resolved.source
 
-    print(f"[PRICE][FAIL] symbol={normalized} reason=NO_VALID_SOURCE")
-    raise PriceResolutionError(normalized, "NO_VALID_PRICE_SOURCE")
+    reason = "NO_VALID_IBKR_PRICE_SOURCE" if require_ibkr else "NO_VALID_PRICE_SOURCE"
+    print(f"[PRICE][FAIL] symbol={normalized} reason={reason}")
+    raise PriceResolutionError(normalized, reason)

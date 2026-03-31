@@ -75,7 +75,7 @@ def test_risk_sizing_uses_price_derived_quantity() -> None:
             broker_connection_state="SIMULATED",
         ),
     )
-    assert decisions[0].approved_quantity == 800
+    assert decisions[0].approved_quantity == 200
     assert decisions[0].approved_quantity != 20_000
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 from dataclasses import replace
 from typing import List
 from zoneinfo import ZoneInfo
@@ -79,14 +80,7 @@ def _derive_last_block_reason(risk_decisions: List[RiskDecisionRecord]) -> str:
 
 
 def _resolve_live_available_funds(mode) -> AccountSnapshot:
-    if str(getattr(mode, "value", mode)).upper() != "LIVE":
-        return AccountSnapshot(
-            available_funds=float(get_config("RISK_ACCOUNT_EQUITY")),
-            source="CONFIG",
-            canonical=False,
-            broker_connection_state="NON_LIVE",
-        )
-
+    resolved_mode = str(getattr(mode, "value", mode)).upper()
     try:
         from src.adapters.brokers.ibkr.ibkr_connection_manager import (
             get_shared_ibkr_connection_manager,
@@ -108,13 +102,41 @@ def _resolve_live_available_funds(mode) -> AccountSnapshot:
             broker_connection_state="CONNECTED",
         )
     except Exception as exc:
-        print(f"[CAPITAL][IBKR][BLOCK] source=UNAVAILABLE reason={exc}")
+        print(f"[CAPITAL][IBKR][WARN] source=UNAVAILABLE reason={exc}")
+        if resolved_mode == "LIVE":
+            return AccountSnapshot(
+                available_funds=0.0,
+                source="UNAVAILABLE",
+                canonical=False,
+                broker_connection_state="DEGRADED",
+            )
         return AccountSnapshot(
-            available_funds=0.0,
-            source="UNAVAILABLE",
+            available_funds=float(get_config("RISK_ACCOUNT_EQUITY")),
+            source="CONFIG_FALLBACK",
             canonical=False,
-            broker_connection_state="DEGRADED",
+            broker_connection_state="FALLBACK",
         )
+
+
+def _ibkr_price_context(symbol: str) -> dict:
+    try:
+        from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
+
+        manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
+        market_data_client = manager.get_market_data_client()
+        snapshot = market_data_client.snapshot_for_symbol(symbol)
+        timestamp_raw = getattr(snapshot, "timestamp_utc", None)
+        if not timestamp_raw:
+            raise PriceResolutionError(symbol, "IBKR_PRICE_TIMESTAMP_MISSING")
+        snapshot_ts = datetime.fromisoformat(str(timestamp_raw).replace("Z", "+00:00"))
+        age_seconds = (datetime.now(timezone.utc) - snapshot_ts).total_seconds()
+        if age_seconds > float(get_config("IBKR_MAX_PRICE_AGE_SECONDS")):
+            raise PriceResolutionError(symbol, "IBKR_PRICE_STALE")
+        return {"ibkr_snapshot_ticker": snapshot}
+    except PriceResolutionError:
+        raise
+    except Exception as exc:
+        raise PriceResolutionError(symbol, f"IBKR_PRICE_UNAVAILABLE:{exc}") from exc
 
 
 
@@ -479,12 +501,16 @@ def run_cycle(
             strategy_id = "RossMomentumStrategy"
             trade_intents = build_trade_intents(strategy_id, symbol, summary)
             try:
+                price_context = {
+                    "scanner_payload": scanner_payload,
+                    "premarket_prep": premarket_prep,
+                }
+                if mode == RunMode.LIVE:
+                    price_context.update(_ibkr_price_context(symbol))
                 entry_price, entry_price_source = resolve_entry_price(
                     symbol,
-                    {
-                        "scanner_payload": scanner_payload,
-                        "premarket_prep": premarket_prep,
-                    },
+                    price_context,
+                    require_ibkr=mode == RunMode.LIVE,
                 )
             except PriceResolutionError as exc:
                 print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_UNAVAILABLE detail={exc.reason}")
@@ -655,16 +681,22 @@ def run_cycle(
         execution_events = execute_intents(mode=mode, decisions=execution_candidates)
         execution_events.extend(blocked_candidates)
         for event in execution_events:
+            order_id_repr = event.order_id if event.order_id is not None else "N/A"
             print(
                 "[EXECUTION][SUBMIT_RESULT] "
                 f"symbol={event.symbol} submitted={event.action == 'SUBMITTED'} "
-                f"order_id=N/A reason={event.detail}"
+                f"order_id={order_id_repr} reason={event.detail}"
             )
+            if event.action == "SUBMITTED":
+                print(f"[EXECUTION] SUBMITTED symbol={event.symbol} order_id={order_id_repr}")
+                print(f"[IBKR] order_id={order_id_repr} symbol={event.symbol}")
+                print(f"[LIFECYCLE] WAITING_FOR_FILL symbol={event.symbol} order_id={order_id_repr}")
             print(f"[EXECUTION] {event.symbol} {event.action} ({event.detail})")
             execution_pass = event.action in {"SUBMITTED", "WOULD_PLACE"}
             if execution_pass:
                 executed += 1
-                print(f"[LIFECYCLE] ENTRY_FILL symbol={event.symbol} source={event.action}")
+            if event.action in {"PARTIAL_FILL", "FILLED"}:
+                print(f"[LIFECYCLE] ENTRY_FILL symbol={event.symbol} source=IBKR")
             print(
                 f"[PIPELINE][EXECUTION] symbol={event.symbol} "
                 f"executed={str(execution_pass).lower()} action={event.action}"
