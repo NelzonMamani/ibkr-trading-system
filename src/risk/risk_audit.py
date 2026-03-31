@@ -12,7 +12,6 @@ from src.risk.data_quality_contract import data_quality_blocking_causes
 
 
 DEFAULT_PAPER_CAPITAL = 10000.0
-MICRO_TEST_QTY = 1
 
 
 @dataclass(frozen=True)
@@ -122,23 +121,42 @@ def evaluate_trade_intents(
             triggered_rules.append("MODE_READONLY")
 
         available_funds = available_capital
-        entry_price = max(float(getattr(intent, "entry_price", 1.0) or 1.0), 0.01)
-        requested_shares = int(capital_per_symbol / entry_price)
+        raw_entry_price = getattr(intent, "entry_price", None)
+        stop_price = getattr(intent, "stop_price", None)
+        try:
+            entry_price = float(raw_entry_price) if raw_entry_price is not None else None
+        except (TypeError, ValueError):
+            entry_price = None
+        sizing_mode = "STOP_BASED" if stop_price is not None else "CAPITAL_BASED"
+        print(
+            "[RISK][SIZE_INPUT] "
+            f"symbol={intent.symbol} capital_per_symbol={capital_per_symbol} "
+            f"entry_price={entry_price} stop_price={stop_price} sizing_mode={sizing_mode}"
+        )
+        if entry_price is None or entry_price <= 0:
+            decision = "BLOCK"
+            max_size = 0
+            triggered_rules.append("INVALID_ENTRY_PRICE")
+            requested_shares = 0
+            print(
+                f"[RISK][SIZE_BLOCK] symbol={intent.symbol} reason=INVALID_ENTRY_PRICE"
+            )
+        else:
+            requested_shares = int(capital_per_symbol // entry_price)
         if requested_shares <= 0:
             decision = "BLOCK"
             max_size = 0
-            triggered_rules.append("INSUFFICIENT_CAPITAL_PER_SYMBOL")
-            requested_shares = 0
+            if "INSUFFICIENT_CAPITAL_PER_SYMBOL" not in triggered_rules:
+                triggered_rules.append("INSUFFICIENT_CAPITAL_PER_SYMBOL")
             print(
-                f"[ROSS][POSITION] symbol={intent.symbol} capital_per_symbol={capital_per_symbol} "
-                f"entry_price={entry_price} shares=0"
+                f"[RISK][SIZE_BLOCK] symbol={intent.symbol} reason=INSUFFICIENT_CAPITAL_PER_SYMBOL"
             )
         else:
             print(
                 f"[ROSS][POSITION] symbol={intent.symbol} capital_mode=DYNAMIC_FOCUS "
                 f"shares={requested_shares} capital_per_symbol={capital_per_symbol}"
             )
-        position_value = float(requested_shares) * entry_price
+        position_value = float(requested_shares) * float(entry_price or 0.0)
         risk_allowed = position_value <= capital_per_symbol + 1e-9
 
         if mode == RunMode.LIVE and decision != "BLOCK":
@@ -150,23 +168,19 @@ def evaluate_trade_intents(
             max_size = 0
             triggered_rules.append("INSUFFICIENT_AVAILABLE_FUNDS")
 
-        sizing_basis = "CAPITAL_PCT_MODE"
+        sizing_basis = sizing_mode
         approved_quantity = 0
         if decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
-            if mode == RunMode.PAPER:
-                approved_quantity = MICRO_TEST_QTY
-                sizing_basis = "MICRO_TEST_MODE"
-            else:
-                approved_quantity = max(1, requested_shares)
+            approved_quantity = max(1, requested_shares)
             max_size = approved_quantity
             assert approved_quantity > 0
 
         print(f"[RISK][FINAL] symbol={intent.symbol} approved_quantity={approved_quantity}")
-        if mode == RunMode.PAPER:
-            print(
-                f"[RISK][SIZING] symbol={intent.symbol} mode=PAPER "
-                f"sizing_basis={sizing_basis} approved_quantity={approved_quantity}"
-            )
+        print(
+            "[RISK][SIZE_RESULT] "
+            f"symbol={intent.symbol} approved_quantity={approved_quantity} "
+            f"notional_estimate={round(position_value, 2)} rationale={decision}"
+        )
 
         rationale = "Risk evaluation complete."
         if triggered_rules:

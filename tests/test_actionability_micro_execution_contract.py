@@ -27,7 +27,7 @@ def test_trigger_engine_breakout_reports_actionable_reason() -> None:
     assert triggers[0]["trigger_reason"] == "breakout_already_through_level"
 
 
-def test_paper_micro_mode_sizes_to_one_share(capsys) -> None:
+def test_paper_mode_sizes_from_capital_and_price(capsys) -> None:
     decisions = evaluate_trade_intents(
         intents=[
             TradeIntentRecord(
@@ -46,9 +46,9 @@ def test_paper_micro_mode_sizes_to_one_share(capsys) -> None:
         account=AccountSnapshot(available_funds=50_000, source="PAPER", canonical=True, broker_connection_state="SIMULATED"),
     )
     out = capsys.readouterr().out
-    assert decisions[0].approved_quantity == 1
-    assert decisions[0].sizing_basis == "MICRO_TEST_MODE"
-    assert "[RISK][SIZING] symbol=MCRO mode=PAPER sizing_basis=MICRO_TEST_MODE approved_quantity=1" in out
+    assert decisions[0].approved_quantity == 2000
+    assert decisions[0].sizing_basis == "CAPITAL_BASED"
+    assert "[RISK][SIZE_RESULT] symbol=MCRO approved_quantity=2000" in out
 
 
 def test_execution_dispatch_uses_approved_quantity_and_is_truthful(capsys) -> None:
