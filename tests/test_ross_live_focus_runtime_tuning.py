@@ -2,8 +2,10 @@ from dataclasses import replace
 
 from src.config.config_resolver import set_config_overrides
 from src.scanner.scanner_runner import (
+    _bounded_pass_focus_candidates,
     _evaluate_focus_gates,
     _evaluate_watchlist_gates,
+    _focus_volume_threshold_for_session,
     _gate_thresholds,
     _resolve_focus_rvol_min_for_session,
     _resolve_runtime_thresholds,
@@ -145,7 +147,7 @@ def test_live_like_cvgi_cyn_reach_focus_in_early_rth() -> None:
     assert all(_evaluate_focus_gates(ctx, thresholds) is None for ctx in live_like)
 
 
-def test_drop_volume_logs_threshold_context(capsys) -> None:
+def test_threshold_source_logged_correctly(capsys) -> None:
     policy = RossMomentumPolicy().stock_selection
     runtime = _resolve_runtime_thresholds(policy)
     thresholds = _gate_thresholds(policy, runtime)
@@ -170,14 +172,105 @@ def test_drop_volume_logs_threshold_context(capsys) -> None:
         "ssr": False,
     }
 
-    assert _evaluate_focus_gates(context, thresholds) == "DROP_VOLUME"
+    assert _evaluate_focus_gates(context, thresholds) == "SOFT_FAIL_VOLUME"
     output = capsys.readouterr().out
-    assert "[VOLUME_GATE]" in output
+    assert "[FOCUS][SOFT_FAIL][VOLUME]" in output
     assert "symbol=THIN" in output
-    assert "stage=focus" in output
     assert "threshold_source=policy.session_focus_volume_min[RTH_OPEN]" in output
     assert "session=RTH_OPEN" in output
-    assert "phase=OPENING" in output
+
+
+def test_policy_threshold_precedence_over_default() -> None:
+    policy = RossMomentumPolicy().stock_selection
+    runtime = _resolve_runtime_thresholds(policy)
+    thresholds = _gate_thresholds(policy, runtime)
+    threshold, source = _focus_volume_threshold_for_session("RTH_OPEN", thresholds)
+    assert source == "policy.session_focus_volume_min[RTH_OPEN]"
+    assert threshold == float(thresholds.session_focus_volume_min["RTH_OPEN"])
+
+
+def test_soft_volume_does_not_drop_symbol() -> None:
+    policy = RossMomentumPolicy().stock_selection
+    runtime = _resolve_runtime_thresholds(policy)
+    thresholds = _gate_thresholds(policy, runtime)
+    context = {
+        "symbol": "WEAKV",
+        "session": "RTH_MID",
+        "pct_change": 15.0,
+        "rvol_discovery": 3.0,
+        "rvol_phase": 3.0,
+        "volume": 150_000,
+        "dollar_volume": 1_000_000,
+        "last_price": 3.0,
+        "spread_pct": 0.01,
+        "bid": 2.99,
+        "ask": 3.01,
+        "catalyst_present": True,
+        "halted": False,
+        "ssr": False,
+    }
+    assert _evaluate_focus_gates(context, thresholds) == "SOFT_FAIL_VOLUME"
+    assert context["focus_volume_flag"] == "WEAK"
+    assert context["focus_volume_threshold_source"] == "policy.session_focus_volume_min[RTH_MID]"
+
+
+def test_bounded_pass_when_all_symbols_fail_volume() -> None:
+    policy = RossMomentumPolicy().stock_selection
+    runtime = _resolve_runtime_thresholds(policy)
+    thresholds = _gate_thresholds(policy, runtime)
+    weak = [
+        {"symbol": "A", "pct_change": 9.0, "last_price": 2.5, "spread_pct": 0.01},
+        {"symbol": "B", "pct_change": 18.0, "last_price": 3.5, "spread_pct": 0.01},
+        {"symbol": "C", "pct_change": 12.0, "last_price": 1.9, "spread_pct": 0.01},
+    ]
+    bounded = _bounded_pass_focus_candidates(weak, thresholds=thresholds, focus_limit=2)
+    assert [row["symbol"] for row in bounded] == ["B", "C"]
+
+
+def test_focus_pipeline_not_empty_after_soft_fail() -> None:
+    policy = RossMomentumPolicy().stock_selection
+    runtime = _resolve_runtime_thresholds(policy)
+    thresholds = _gate_thresholds(policy, runtime)
+    contexts = [
+        {
+            "symbol": "X1",
+            "session": "RTH_MID",
+            "pct_change": 16.0,
+            "rvol_discovery": 3.0,
+            "rvol_phase": 3.0,
+            "volume": 100_000,
+            "dollar_volume": 1_200_000,
+            "last_price": 3.0,
+            "spread_pct": 0.01,
+            "bid": 2.99,
+            "ask": 3.01,
+            "catalyst_present": True,
+            "halted": False,
+            "ssr": False,
+        },
+        {
+            "symbol": "X2",
+            "session": "RTH_MID",
+            "pct_change": 11.0,
+            "rvol_discovery": 2.1,
+            "rvol_phase": 2.1,
+            "volume": 120_000,
+            "dollar_volume": 1_100_000,
+            "last_price": 2.2,
+            "spread_pct": 0.01,
+            "bid": 2.19,
+            "ask": 2.21,
+            "catalyst_present": True,
+            "halted": False,
+            "ssr": False,
+        },
+    ]
+    focus_candidates = []
+    for context in contexts:
+        reason = _evaluate_focus_gates(context, thresholds)
+        if reason in {None, "SOFT_FAIL_VOLUME"}:
+            focus_candidates.append(context)
+    assert len(focus_candidates) == 2
 
 
 def test_focus_gate_prefers_scanner_rvol_in_rth_open(capsys) -> None:
@@ -309,7 +402,8 @@ def test_rth_mid_illiquid_candidate_still_fails_focus_volume_gate() -> None:
     }
 
     assert _evaluate_watchlist_gates(context, thresholds) is None
-    assert _evaluate_focus_gates(context, thresholds) == "DROP_VOLUME"
+    assert _evaluate_focus_gates(context, thresholds) == "SOFT_FAIL_VOLUME"
+    assert context["focus_volume_flag"] == "WEAK"
 
 
 def test_live_like_focus_list_can_be_non_zero_in_rth_mid() -> None:

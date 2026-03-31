@@ -232,6 +232,11 @@ DILUTION_KEYWORDS = {
     "atm",
     "registered direct",
 }
+SESSION_DEFAULT_FOCUS_THRESHOLDS: dict[str, int] = {
+    "RTH_OPEN": 250_000,
+    "RTH_MID": 300_000,
+    "RTH_CLOSE": 500_000,
+}
 
 
 @dataclass(frozen=True)
@@ -1356,7 +1361,7 @@ def _allow_pre_rvol_bypass(
     if price is None or price < thresholds.min_price or price > thresholds.max_price:
         return False
     volume = _safe_float(context.get("premarket_volume"), None)
-    if volume is None:
+    if volume is None or volume <= 0:
         volume = _safe_float(context.get("volume"), None)
     if volume is None or volume < thresholds.min_premarket_volume:
         return False
@@ -1521,14 +1526,16 @@ def _evaluate_focus_gates(
     else:
         focus_threshold, threshold_source = _focus_volume_threshold_for_session(session, thresholds)
         if volume < focus_threshold:
-            _log_focus_volume_drop(
-                context=context,
-                stage="focus",
-                compared_field="volume",
-                threshold=focus_threshold,
-                threshold_source=threshold_source,
+            context["focus_volume_flag"] = "WEAK"
+            context["focus_volume_value"] = volume
+            context["focus_volume_threshold"] = focus_threshold
+            context["focus_volume_threshold_source"] = threshold_source
+            print(
+                "[FOCUS][SOFT_FAIL][VOLUME] "
+                f"symbol={context.get('symbol')} value={volume:g} threshold={focus_threshold:g} "
+                f"threshold_source={threshold_source} session={session}"
             )
-            return "DROP_VOLUME"
+            return "SOFT_FAIL_VOLUME"
     if thresholds.min_dollar_volume is not None:
         if dollar_volume is None:
             return "DROP_MISSING_DOLLAR_VOLUME"
@@ -1548,10 +1555,9 @@ def _evaluate_focus_gates(
         )
         return "DROP_MISSING_BID_ASK"
     print(
-        "[FOCUS_GATE] "
+        "[FOCUS][PASS] "
         f"symbol={context.get('symbol')} focus_threshold_used={threshold_value} "
-        f"rvol_metric_used={rvol_metric_used} rvol_metric_value={focus_rvol_value} "
-        "reason=PASS_ALL_FOCUS_GATES decision=PASS"
+        f"rvol_metric_used={rvol_metric_used} rvol_metric_value={focus_rvol_value}"
     )
     return None
 
@@ -1568,16 +1574,33 @@ def _focus_volume_threshold_for_session(session: str, thresholds: GateThresholds
     session_key = normalize_session_label(session).upper()
     session_threshold = thresholds.session_focus_volume_min.get(session_key)
     if session_threshold is not None:
-        if session_key == "RTH_OPEN":
-            return (
-                float(session_threshold),
-                (
-                    "policy.session_focus_volume_min[RTH_OPEN]=max(policy.min_premarket_volume, "
-                    f"policy.min_volume*{thresholds.focus_volume_min_early_rth_ratio:.2f})"
-                ),
-            )
         return float(session_threshold), f"policy.session_focus_volume_min[{session_key}]"
+    mapped_default = SESSION_DEFAULT_FOCUS_THRESHOLDS.get(session_key)
+    if mapped_default is not None:
+        return float(mapped_default), f"session_default[{session_key}]"
     return float(thresholds.focus_volume_min), "policy.min_volume"
+
+
+def _bounded_pass_focus_candidates(
+    candidates: list[Dict[str, Any]],
+    *,
+    thresholds: GateThresholds,
+    focus_limit: int,
+) -> list[Dict[str, Any]]:
+    bounded_limit = max(1, min(5, focus_limit))
+    spread_limit = thresholds.spread_max_pct
+    bounded_pool = [
+        context
+        for context in candidates
+        if _safe_float(context.get("last_price"), None) is not None
+        and (
+            spread_limit is None
+            or _safe_float(context.get("spread_pct"), None) is None
+            or _safe_float(context.get("spread_pct"), None) <= spread_limit
+        )
+    ]
+    bounded_pool.sort(key=lambda item: _safe_float(item.get("pct_change"), 0.0), reverse=True)
+    return bounded_pool[:bounded_limit]
 
 
 def _log_focus_volume_drop(
@@ -4078,16 +4101,33 @@ def run_scanner_cycle(
         fast_rows = _build_fast_rows(watchlist_contexts, news_by_symbol)
         focus_limit = limits["focus_limit"]
         focus_candidates: list[Dict[str, Any]] = []
+        volume_soft_fail_candidates: list[Dict[str, Any]] = []
         for context in watchlist_contexts:
             focus_drop = _evaluate_focus_gates(context, thresholds)
             if focus_drop:
                 context["focus_drop_reason"] = focus_drop
+                if focus_drop == "SOFT_FAIL_VOLUME":
+                    volume_soft_fail_candidates.append(context)
+                    focus_candidates.append(context)
+                    continue
                 print(
                     "[SCANNER][FOCUS_DROP] symbol="
                     f"{context.get('symbol')} reason={focus_drop}"
                 )
                 continue
             focus_candidates.append(context)
+        if not focus_candidates and volume_soft_fail_candidates:
+            focus_candidates = _bounded_pass_focus_candidates(
+                volume_soft_fail_candidates,
+                thresholds=thresholds,
+                focus_limit=focus_limit,
+            )
+            for context in focus_candidates:
+                context["focus_admission_reason"] = "BOUNDED_PASS_VOLUME_WEAK"
+                print(
+                    "[FOCUS][ADMIT][BOUNDED_PASS] "
+                    f"symbol={context.get('symbol')} reason=volume_weak_but_top_candidate"
+                )
         focus_contexts = _rank_candidates(focus_candidates)
         focus_contexts = sorted(
             focus_contexts,
