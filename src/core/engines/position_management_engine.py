@@ -111,6 +111,7 @@ class PositionManagementEngine:
                 side == "SHORT" and position.stop_price > position.entry_price
             ):
                 position.stop_price = position.entry_price
+                print(f"[POSITION][BREAKEVEN] symbol={position.symbol} stop={position.stop_price}")
                 print(f"[POSITION][TRAIL] symbol={position.symbol} stop=break_even value={position.stop_price}")
 
         higher_low = self._to_float(market_state.get("higher_low"))
@@ -150,6 +151,8 @@ class PositionManagementEngine:
         position.closed = True
         position.exit_reason = reason
         position.quantity = 0
+        if reason in {"structure_break", "vwap_loss", "false_breakout"}:
+            print(f"[POSITION][FAILURE_EXIT] symbol={position.symbol}")
         print(f"[POSITION][EXIT] symbol={position.symbol} reason={reason}")
 
     @staticmethod

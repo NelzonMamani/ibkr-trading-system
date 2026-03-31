@@ -518,6 +518,10 @@ class CoreOrchestrator:
             or "NORMAL"
         )
         timeframe = str(getattr(risk_decision, "execution_primary_timeframe", None) or "1m")
+        print(
+            "[POSITION][STOP_SET] "
+            f"symbol={risk_decision.symbol} entry={entry_price:.4f} stop={stop_price:.4f}"
+        )
         return ManagedPosition(
             symbol=str(risk_decision.symbol),
             side=str(getattr(risk_decision, "direction", "LONG") or "LONG"),
@@ -559,6 +563,38 @@ class CoreOrchestrator:
             and float(getattr(position, "entry_price", 0.0) or 0.0) > 0.0
             and float(getattr(position, "stop_price", 0.0) or 0.0) > 0.0
         )
+
+    @staticmethod
+    def _float_or_none(value: object) -> float | None:
+        try:
+            return None if value is None else float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _entry_is_price_sane(self, *, symbol: str, entry_price: float | None, stop_price: float | None) -> bool:
+        if entry_price is None or entry_price <= 0 or stop_price is None or stop_price <= 0:
+            print(f"[ENTRY][PRICE_SANITY_BLOCK] symbol={symbol} reason=missing_or_non_positive_price")
+            return False
+        if stop_price >= entry_price:
+            print(f"[ENTRY][PRICE_SANITY_BLOCK] symbol={symbol} reason=stop_not_below_entry entry={entry_price} stop={stop_price}")
+            return False
+        if entry_price < 0.2:
+            print(f"[ENTRY][PRICE_SANITY_BLOCK] symbol={symbol} reason=sub_penny_like_price entry={entry_price}")
+            return False
+        return True
+
+    def _entry_spread_is_tradeable(self, *, symbol: str, entry_price: float, spread_pct: float | None) -> bool:
+        max_spread_pct = float(get_config("ROSS_MAX_SPREAD_PCT_FOR_ENTRY") or 0.006)
+        max_spread_pct_low = float(get_config("ROSS_MAX_SPREAD_PCT_FOR_LOW_PRICE") or 0.012)
+        low_price_cutoff = float(get_config("ROSS_LOW_PRICE_SPREAD_CUTOFF") or 5.0)
+        threshold = max_spread_pct_low if entry_price <= low_price_cutoff else max_spread_pct
+        if spread_pct is None:
+            print(f"[ENTRY][SPREAD_BLOCK] symbol={symbol} spread=unknown spread_pct=unknown")
+            return False
+        if spread_pct > threshold:
+            print(f"[ENTRY][SPREAD_BLOCK] symbol={symbol} spread=unknown spread_pct={spread_pct:.4f}")
+            return False
+        return True
 
     def _register_trade_lifecycle_on_execution(
         self,
@@ -3504,6 +3540,9 @@ class CoreOrchestrator:
                     decision.strategy_prefix = getattr(trade_intent, "strategy_prefix", None)
                     decision.setup_family_id = getattr(trade_intent, "setup_family_id", None)
                     decision.trigger_id = getattr(trade_intent, "trigger_id", None)
+                    decision.spread_pct = getattr(trade_intent, "spread_pct", None)
+                    decision.entry_extension_pct = getattr(trade_intent, "entry_extension_pct", None)
+                    decision.trigger_reference_price = getattr(trade_intent, "trigger_reference_price", None)
                     risk_output.append(decision)
             except Exception as exc:
                 self._evaluate_runtime_safety(
@@ -3575,6 +3614,21 @@ class CoreOrchestrator:
                 )
                 for risk_decision in risk_output:
                     execution_received_count += 1
+                    entry_price = self._float_or_none(getattr(risk_decision, "entry_price", None))
+                    stop_price = self._float_or_none(getattr(risk_decision, "stop_loss_price", None))
+                    spread_pct = self._float_or_none(getattr(risk_decision, "spread_pct", None))
+                    if not self._entry_is_price_sane(
+                        symbol=str(getattr(risk_decision, "symbol", "UNKNOWN")),
+                        entry_price=entry_price,
+                        stop_price=stop_price,
+                    ):
+                        continue
+                    if entry_price is None or not self._entry_spread_is_tradeable(
+                        symbol=str(getattr(risk_decision, "symbol", "UNKNOWN")),
+                        entry_price=entry_price,
+                        spread_pct=spread_pct,
+                    ):
+                        continue
                     if (
                         bool(get_config("FORCE_EXECUTION_ON_TRADE_READY"))
                         and risk_decision.symbol in trade_ready_terminal
@@ -3860,6 +3914,24 @@ class CoreOrchestrator:
             print(f"[EXIT] TradeExitEngine closed trades: {exit_results}")
         if trade_outcomes:
             print(f"[EXIT] Realised trade outcomes: {trade_outcomes}")
+            for outcome in trade_outcomes:
+                symbol = str(getattr(outcome, "symbol", "UNKNOWN"))
+                setup = str(getattr(outcome, "strategy_name", "UNKNOWN"))
+                entry_price = getattr(outcome, "entry_price", None)
+                exit_price = getattr(outcome, "exit_price", None)
+                realized_pnl = getattr(outcome, "net_realised_pnl", None)
+                print(
+                    "[TRADE_OUTCOME] "
+                    f"symbol={symbol} setup={setup} entry_ts={getattr(outcome, 'opened_at', None)} "
+                    f"entry_price={entry_price} stop_price={getattr(outcome, 'stop_price', None)} "
+                    f"first_target={getattr(outcome, 'take_profit_price', None)} exit_ts={getattr(outcome, 'closed_at', None)} "
+                    f"exit_price={exit_price} realized_pnl={realized_pnl} "
+                    f"mfe={getattr(outcome, 'max_favorable_excursion', None)} mae={getattr(outcome, 'max_adverse_excursion', None)} "
+                    f"exit_reason={getattr(outcome, 'exit_reason', None)} "
+                    f"price_source_authority={getattr(outcome, 'price_source_authority', 'IBKR')} "
+                    f"data_quality_flags={getattr(outcome, 'data_quality_flags', [])} "
+                    f"paper_fallback_price_authority={getattr(outcome, 'paper_fallback_price_authority', False)}"
+                )
         print("[TEACH] <<< Trade Exit stage complete — moving to storage stage.")
         if self._stop_requested_at_boundary("TRADE_EXIT"):
             return False
@@ -3897,6 +3969,22 @@ class CoreOrchestrator:
                 f"gross_pnl={bucket.get('gross_pnl', 0.0):.2f} "
                 f"total_trades={bucket.get('total_trades', 0)}"
             )
+        closed_outcomes = list(trade_outcomes or [])
+        wins = [t for t in closed_outcomes if float(getattr(t, "net_realised_pnl", 0.0) or 0.0) > 0]
+        losses = [t for t in closed_outcomes if float(getattr(t, "net_realised_pnl", 0.0) or 0.0) < 0]
+        realized = sum(float(getattr(t, "net_realised_pnl", 0.0) or 0.0) for t in closed_outcomes)
+        avg_win = (sum(float(getattr(t, "net_realised_pnl", 0.0) or 0.0) for t in wins) / len(wins)) if wins else 0.0
+        avg_loss = (sum(float(getattr(t, "net_realised_pnl", 0.0) or 0.0) for t in losses) / len(losses)) if losses else 0.0
+        by_setup: dict[str, float] = {}
+        for trade in closed_outcomes:
+            setup = str(getattr(trade, "strategy_name", "UNKNOWN"))
+            by_setup[setup] = by_setup.get(setup, 0.0) + float(getattr(trade, "net_realised_pnl", 0.0) or 0.0)
+        print(
+            "[PERF] "
+            f"trades_opened={len(opened_trade_events)} trades_closed={len(closed_outcomes)} "
+            f"win_rate={(len(wins) / len(closed_outcomes) if closed_outcomes else 0.0):.2f} "
+            f"avg_win={avg_win:.2f} avg_loss={avg_loss:.2f} realized_pnl={realized:.2f} by_setup={by_setup}"
+        )
         perf_snapshot_event = self.event_collector.emit(
             event_type="PERF_SNAPSHOT",
             source="PerformanceRegistry",
