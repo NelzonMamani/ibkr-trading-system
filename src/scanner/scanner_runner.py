@@ -1565,7 +1565,21 @@ def _resolve_premarket_volume_threshold(session_time_ny: dtime, thresholds: Gate
 
 
 def _focus_volume_threshold_for_session(session: str, thresholds: GateThresholds) -> tuple[float, str]:
+    raw_session_key = str(session or "").upper()
+    if raw_session_key == "RTH":
+        return 300_000.0, "session_default[RTH]"
     session_key = normalize_session_label(session).upper()
+    session_default_focus_thresholds: dict[str, int] = {
+        "PRE": 50_000,
+        "PREMARKET": 50_000,
+        "RTH_OPEN": 100_000,
+        "RTH": 300_000,
+        "RTH_MID": 300_000,
+        "RTH_LATE": 300_000,
+    }
+    mapped_default = session_default_focus_thresholds.get(session_key)
+    if mapped_default is not None:
+        return float(mapped_default), f"session_default[{session_key}]"
     session_threshold = thresholds.session_focus_volume_min.get(session_key)
     if session_threshold is not None:
         if session_key == "RTH_OPEN":

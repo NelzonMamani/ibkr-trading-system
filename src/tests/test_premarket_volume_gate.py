@@ -3,6 +3,7 @@ from datetime import time
 from src.scanner.scanner_runner import (
     GateThresholds,
     _evaluate_focus_gates,
+    _focus_volume_threshold_for_session,
     _resolve_premarket_volume_threshold,
     _ross_reason_from_drop,
 )
@@ -168,3 +169,32 @@ def test_resolve_premarket_volume_threshold() -> None:
     assert _resolve_premarket_volume_threshold(time(7, 30), thresholds) == 50_000
     assert _resolve_premarket_volume_threshold(time(9, 29), thresholds) == 50_000
     assert _resolve_premarket_volume_threshold(time(9, 30), thresholds) == thresholds.min_premarket_volume
+
+
+def test_focus_volume_threshold_is_session_aware() -> None:
+    thresholds = GateThresholds(
+        min_price=1.0,
+        max_price=20.0,
+        min_pct_change=10.0,
+        max_pct_change=None,
+        watchlist_rvol_min=0.5,
+        focus_rvol_min=2.0,
+        focus_volume_min=1_000_000,
+        focus_volume_min_early_rth=250_000,
+        focus_volume_min_early_rth_ratio=0.25,
+        min_volume=1_000_000,
+        min_premarket_volume=100_000,
+        max_float=20_000_000,
+        spread_max_pct=None,
+        min_dollar_volume=None,
+        require_price=True,
+        require_bid_ask=False,
+        require_catalyst=False,
+        allow_halts=False,
+        allow_ssr=True,
+        allow_unknown_float=True,
+    )
+
+    assert _focus_volume_threshold_for_session("PRE", thresholds) == (50_000.0, "session_default[PRE]")
+    assert _focus_volume_threshold_for_session("RTH_OPEN", thresholds) == (100_000.0, "session_default[RTH_OPEN]")
+    assert _focus_volume_threshold_for_session("RTH", thresholds) == (300_000.0, "session_default[RTH]")
