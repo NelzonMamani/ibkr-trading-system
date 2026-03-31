@@ -165,3 +165,71 @@ def test_selected_setup_family_maps_to_trigger_candidate() -> None:
     )
     assert selected is not None
     assert selected["trigger_type"] == "BREAKOUT_HIGH"
+
+
+def test_execute_intents_syncs_fill_from_ibkr_truth(monkeypatch, capsys) -> None:
+    class _Exec:
+        def __init__(self) -> None:
+            self.orderId = 1
+            self.shares = 10
+            self.price = 25.5
+
+    monkeypatch.setattr(
+        "src.execution.order_router._fetch_ibkr_truth",
+        lambda _mode: ([], [_Exec()], []),
+    )
+    events = execute_intents(
+        mode=RunMode.PAPER,
+        decisions=[
+            RiskDecisionRecord(
+                symbol="MCRO",
+                intent_id="MCRO-1",
+                decision="ALLOW",
+                max_position_size=10,
+                constraints=[],
+                triggered_rules=[],
+                rationale="ok",
+                approved_quantity=10,
+                entry_price=25.0,
+            )
+        ],
+    )
+    out = capsys.readouterr().out
+    assert events[0].broker_order_id == 1
+    assert events[0].filled_quantity == 10
+    assert events[0].avg_fill_price == 25.5
+    assert events[0].broker_status == "Filled"
+    assert events[0].last_update_time is not None
+    assert "[EXECUTION][FILL] symbol=MCRO qty=10 price=25.5" in out
+
+
+def test_execute_intents_blocks_duplicate_symbol_using_ibkr_truth(monkeypatch, capsys) -> None:
+    class _Pos:
+        symbol = "MCRO"
+        position = 100
+        avgCost = 24.0
+
+    monkeypatch.setattr(
+        "src.execution.order_router._fetch_ibkr_truth",
+        lambda _mode: ([], [], [_Pos()]),
+    )
+    events = execute_intents(
+        mode=RunMode.PAPER,
+        decisions=[
+            RiskDecisionRecord(
+                symbol="MCRO",
+                intent_id="MCRO-1",
+                decision="ALLOW",
+                max_position_size=10,
+                constraints=[],
+                triggered_rules=[],
+                rationale="ok",
+                approved_quantity=10,
+                entry_price=25.0,
+            )
+        ],
+    )
+    out = capsys.readouterr().out
+    assert events[0].action == "BLOCKED"
+    assert events[0].detail == "reason=DUPLICATE_PROTECTION"
+    assert "[EXECUTION][BLOCK] symbol=MCRO reason=DUPLICATE_PROTECTION" in out
