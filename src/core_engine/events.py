@@ -72,6 +72,10 @@ class ExecutionEvent:
     intent_id: str
     action: str
     detail: str
+    broker_order_id: int | None = None
+    filled_quantity: int = 0
+    remaining_quantity: int = 0
+    broker_status: str = "UNKNOWN"
 
 
 @dataclass

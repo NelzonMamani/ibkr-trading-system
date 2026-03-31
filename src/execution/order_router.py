@@ -101,6 +101,7 @@ def execute_intents(
                         intent_id=decision.intent_id,
                         action="BLOCKED",
                         detail="reason=INVALID_ENTRY_PRICE",
+                        broker_status="REJECTED",
                     )
                 )
                 continue
@@ -112,6 +113,7 @@ def execute_intents(
                         intent_id=decision.intent_id,
                         action="BLOCKED",
                         detail="reason=INVALID_PRICE_SANITY_CHECK",
+                        broker_status="REJECTED",
                     )
                 )
                 continue
@@ -151,6 +153,7 @@ def execute_intents(
                 intent_id=decision.intent_id,
                 action=action,
                 detail=detail,
+                broker_status="Submitted" if action == "SUBMITTED" else ("REJECTED" if action == "BLOCKED" else "SIMULATED"),
             )
         )
     return events
