@@ -67,6 +67,15 @@ STAGE_ORDER = [
 ]
 
 
+def _derive_last_block_reason(risk_decisions: List[RiskDecisionRecord]) -> str:
+    for decision in reversed(risk_decisions):
+        if decision.block_reason:
+            return decision.block_reason
+        if decision.decision == "BLOCK" and decision.triggered_rules:
+            return ",".join(decision.triggered_rules)
+    return "NONE"
+
+
 def _resolve_live_available_funds(mode) -> AccountSnapshot:
     if str(getattr(mode, "value", mode)).upper() != "LIVE":
         return AccountSnapshot(
@@ -391,6 +400,7 @@ def run_cycle(
     risk_allowed = 0
     selected_by_arbitrator = 0
     executed = 0
+    forced_intent_ids: set[str] = set()
     data_quality_flags = scanner_payload.get("data_quality_by_symbol", {})
     if any(data_quality_flags.values()):
         health_triggers.append((HealthStatus.DEGRADED, "data_quality"))
@@ -455,6 +465,8 @@ def run_cycle(
                         entry_price=1.0,
                     )
                 ]
+                forced_intent_ids.add(trade_intents[0].intent_id)
+                print(f"[DEBUG][FORCED_PATH] intent_created symbol={symbol} intent_id={trade_intents[0].intent_id}")
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=true forced=true intent_id={trade_intents[0].intent_id}")
             for intent in trade_intents:
                 print(f"[TRACE][cycle={cycle_id}][symbol={symbol}] stage=intent_creation intent_id={intent.intent_id}")
@@ -516,6 +528,8 @@ def run_cycle(
             f"[PIPELINE][RISK] symbol={output.symbol} allowed={str(risk_pass).lower()} "
             f"decision={output.decision} reason={output.block_reason or 'PASS'}"
         )
+        if output.intent_id in forced_intent_ids and risk_pass:
+            print(f"[DEBUG][FORCED_PATH] passed_risk symbol={output.symbol} intent_id={output.intent_id}")
         print(f"[TRACE][cycle={cycle_id}][symbol={output.symbol}] stage=risk approved_quantity={output.approved_quantity} capital_source={output.capital_source} available_capital={output.available_funds}")
         if output.decision == "BLOCK" and "HEALTH_CRITICAL" in output.triggered_rules:
             health_triggers.append((HealthStatus.CRITICAL, "risk_block"))
@@ -530,6 +544,8 @@ def run_cycle(
             f"[PIPELINE][ARBITRATOR] symbol={decision.symbol} "
             f"selected={str(selected).lower()} reason={'RISK_ALLOWED' if selected else 'RISK_BLOCKED'}"
         )
+        if decision.intent_id in forced_intent_ids and selected:
+            print(f"[DEBUG][FORCED_PATH] selected_by_arbitrator symbol={decision.symbol} intent_id={decision.intent_id}")
 
     print_section("EXECUTION")
     if execution_intent.scan_only:
@@ -547,6 +563,8 @@ def run_cycle(
                 f"[PIPELINE][EXECUTION] symbol={event.symbol} "
                 f"executed={str(execution_pass).lower()} action={event.action}"
             )
+            if event.intent_id in forced_intent_ids and execution_pass:
+                print(f"[DEBUG][FORCED_PATH] sent_to_execution symbol={event.symbol} intent_id={event.intent_id}")
     print(f"[LIFECYCLE][PORTFOLIO] open_positions={executed}")
     print(
         "[LIFECYCLE][RISK_SIGNALS] "
@@ -562,6 +580,30 @@ def run_cycle(
     print(f"risk_allowed={risk_allowed}")
     print(f"selected_by_arbitrator={selected_by_arbitrator}")
     print(f"executed={executed}")
+    if passed_setup > 0 and passed_trigger > 0 and generated_intents > 0 and executed == 0:
+        kill_switch_active = any(
+            "KILL_SWITCH" in rule
+            for decision in risk_decisions
+            for rule in decision.triggered_rules
+        )
+        portfolio_exposure = sum(float(decision.order_value) for decision in risk_decisions if decision.risk_allowed)
+        last_block_reason = _derive_last_block_reason(risk_decisions)
+        print(
+            "[PIPELINE][ERROR] no_execution_despite_valid_pipeline "
+            f"risk_allowed={risk_allowed} selected_by_arbitrator={selected_by_arbitrator} "
+            f"kill_switch_active={str(kill_switch_active).lower()} "
+            f"portfolio_exposure={portfolio_exposure:.2f} last_block_reason={last_block_reason}"
+        )
+    if executed == 0:
+        if risk_allowed == 0:
+            no_trade_reason = "blocked_by_risk"
+        elif selected_by_arbitrator == 0:
+            no_trade_reason = "blocked_by_arbitrator"
+        elif generated_intents == 0:
+            no_trade_reason = "no_intents_generated"
+        else:
+            no_trade_reason = "execution_engine_not_firing"
+        print(f"[PIPELINE][NO_TRADE_REASON] reason={no_trade_reason}")
 
     store = TradeStore()
     storage_ok = store.persist_cycle(
