@@ -78,6 +78,33 @@ class RossPatternRegistry:
         trace_collector: Callable[[RossPatternTrace], None] | None = None,
     ) -> List[PatternResult]:
         input_summary = dict((trace_context or {}).get("input_summary") or {})
+        if not input_summary:
+            candles = list(getattr(inputs, "candles", []) or [])
+            last_candle = candles[-1] if candles else None
+            bid = getattr(inputs.liquidity_context, "bid", None)
+            ask = getattr(inputs.liquidity_context, "ask", None)
+            spread = getattr(inputs.liquidity_context, "spread", None)
+            if spread is None and bid is not None and ask is not None:
+                try:
+                    spread = float(ask) - float(bid)
+                except (TypeError, ValueError):
+                    spread = None
+            input_summary = {
+                "last_price": getattr(last_candle, "close", None),
+                "bid": bid,
+                "ask": ask,
+                "spread": spread,
+                "volume": getattr(last_candle, "volume", None),
+                "pct_change": getattr(inputs, "pct_change", None),
+                "rvol": getattr(inputs.liquidity_context, "rvol", None),
+                "float_millions": getattr(inputs.liquidity_context, "float_millions", None),
+                "candle_count": len(candles),
+                "session": getattr(inputs.session_context, "value", str(inputs.session_context)),
+                "timeframe": getattr(inputs, "timeframe", None),
+                "indicators_present": bool(getattr(inputs, "indicators", None)),
+                "levels_present": bool(getattr(inputs, "levels", None)),
+                "quality_flags": list(getattr(inputs, "data_quality_flags", []) or []),
+            }
         results: List[PatternResult] = []
         for pattern in self._patterns:
             pattern_id = getattr(pattern, "pattern_id", "") or pattern.name

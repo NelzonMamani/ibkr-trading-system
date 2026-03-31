@@ -68,6 +68,9 @@ STAGE_ORDER = [
     "Health",
 ]
 
+CANONICAL_EXECUTION_PRICE_SOURCE_PREFIXES = ("IBKR_", "VALIDATED_")
+PRICE_MISMATCH_TOLERANCE = 0.5
+
 
 def _derive_last_block_reason(risk_decisions: List[RiskDecisionRecord]) -> str:
     for decision in reversed(risk_decisions):
@@ -478,6 +481,7 @@ def run_cycle(
 
             strategy_id = "RossMomentumStrategy"
             trade_intents = build_trade_intents(strategy_id, symbol, summary)
+            strategy_price = inputs.candles[-1].close if inputs.candles else None
             try:
                 entry_price, entry_price_source = resolve_entry_price(
                     symbol,
@@ -489,6 +493,31 @@ def run_cycle(
             except PriceResolutionError as exc:
                 print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_UNAVAILABLE detail={exc.reason}")
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=PRICE_UNAVAILABLE")
+                continue
+            canonical_price_source = str(entry_price_source or "UNSET").upper()
+            if not canonical_price_source.startswith(CANONICAL_EXECUTION_PRICE_SOURCE_PREFIXES):
+                print(
+                    "[PIPELINE][BLOCK] "
+                    f"symbol={symbol} reason=NON_CANONICAL_PRICE_SOURCE source={entry_price_source}"
+                )
+                print(
+                    "[PRICE][MISMATCH] "
+                    f"symbol={symbol} strategy_price={strategy_price} risk_price={entry_price} "
+                    f"tolerance={PRICE_MISMATCH_TOLERANCE} reason=NON_CANONICAL_SOURCE"
+                )
+                print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=NON_CANONICAL_PRICE_SOURCE")
+                continue
+            if (
+                strategy_price is not None
+                and abs(float(strategy_price) - float(entry_price)) > PRICE_MISMATCH_TOLERANCE
+            ):
+                print(
+                    "[PRICE][MISMATCH] "
+                    f"symbol={symbol} strategy_price={strategy_price} risk_price={entry_price} "
+                    f"tolerance={PRICE_MISMATCH_TOLERANCE}"
+                )
+                print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_MISMATCH_HARD_FAIL")
+                print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=PRICE_MISMATCH_HARD_FAIL")
                 continue
             if force_debug_trades and not trade_intents and setup_detected and trigger_ready_now:
                 trade_intents = [
@@ -555,6 +584,15 @@ def run_cycle(
     if health_triggers:
         health_status = combine_health(health_triggers).status
     account = _resolve_live_available_funds(mode)
+    data_quality_degraded = health_status == HealthStatus.DEGRADED
+    if data_quality_degraded:
+        for intent in intents:
+            if "DATA_QUALITY" not in intent.tags:
+                intent.tags.append("DATA_QUALITY")
+            print(
+                "[DATA_QUALITY][DEGRADED] "
+                f"symbol={intent.symbol} impact=RISK_BLOCK dq_flag=True"
+            )
     risk_outputs = evaluate_trade_intents(
         intents=intents,
         mode=mode,
@@ -655,16 +693,28 @@ def run_cycle(
         execution_events = execute_intents(mode=mode, decisions=execution_candidates)
         execution_events.extend(blocked_candidates)
         for event in execution_events:
+            order_id = event.order_id if event.order_id else "UNRESOLVED"
+            order_id_status = event.order_id_status or ("RESOLVED" if event.order_id else "UNRESOLVED")
+            certification_state = event.certification_state or ("BROKER_TRACKING_OK" if event.order_id else "FAILED_ORDER_TRACKING")
             print(
                 "[EXECUTION][SUBMIT_RESULT] "
                 f"symbol={event.symbol} submitted={event.action == 'SUBMITTED'} "
-                f"order_id=N/A reason={event.detail}"
+                f"order_id={order_id} order_id_status={order_id_status} "
+                f"certification_state={certification_state} reason={event.detail}"
             )
             print(f"[EXECUTION] {event.symbol} {event.action} ({event.detail})")
-            execution_pass = event.action in {"SUBMITTED", "WOULD_PLACE"}
+            execution_pass = event.action in {"FILLED", "PARTIAL_FILL"}
             if execution_pass:
                 executed += 1
                 print(f"[LIFECYCLE] ENTRY_FILL symbol={event.symbol} source={event.action}")
+            elif event.action == "SUBMITTED":
+                print(f"[IBKR][ORDER][STATUS] symbol={event.symbol} status=SUBMITTED order_id_status={order_id_status}")
+            elif event.action == "ACKNOWLEDGED":
+                print(f"[IBKR][ORDER][ACK] symbol={event.symbol} order_id={order_id}")
+            elif event.action == "REJECTED":
+                print(f"[IBKR][REJECTED] symbol={event.symbol} order_id={order_id} detail={event.detail}")
+            elif event.action == "CANCELLED":
+                print(f"[IBKR][CANCELLED] symbol={event.symbol} order_id={order_id} detail={event.detail}")
             print(
                 f"[PIPELINE][EXECUTION] symbol={event.symbol} "
                 f"executed={str(execution_pass).lower()} action={event.action}"

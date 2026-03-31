@@ -120,11 +120,17 @@ def execute_intents(
             action = "WOULD_PLACE"
             detail = f"mode={mode.value}; decision={decision.decision}; qty={quantity}"
             dispatch = "SKIPPED"
+            order_id = None
+            order_id_status = "NOT_APPLICABLE"
+            certification_state = "MODE_NO_BROKER_SUBMIT"
         elif decision.decision == "ALLOW":
             if mode == RunMode.LIVE and decision.capital_source != "IBKR_CANONICAL":
                 action = "BLOCKED"
                 detail = "reason=CANONICAL_CAPITAL_UNAVAILABLE"
                 dispatch = "SKIPPED"
+                order_id = None
+                order_id_status = "NOT_APPLICABLE"
+                certification_state = "BLOCKED_CAPITAL_AUTHORITY"
             elif quantity != int(decision.max_position_size):
                 action = "BLOCKED"
                 detail = (
@@ -132,18 +138,38 @@ def execute_intents(
                     f"approved={decision.approved_quantity} max_size={decision.max_position_size}"
                 )
                 dispatch = "SKIPPED"
+                order_id = None
+                order_id_status = "NOT_APPLICABLE"
+                certification_state = "BLOCKED_QUANTITY_MISMATCH"
             else:
                 action = "SUBMITTED"
                 detail = f"submitted qty={quantity}"
                 dispatch = "IBKR"
+                order_id = None
+                order_id_status = "UNRESOLVED"
+                certification_state = "FAILED_ORDER_TRACKING"
+                print(
+                    "[IBKR][ORDER][SUBMITTED] "
+                    f"symbol={decision.symbol} order_id=UNRESOLVED qty={quantity}"
+                )
+                print(
+                    "[IBKR][ORDER][STATUS] "
+                    f"symbol={decision.symbol} status=SUBMITTED order_id_status={order_id_status}"
+                )
         elif decision.decision == "ALLOW_WITH_CONSTRAINTS":
             action = "BLOCKED" if mode == RunMode.LIVE else "WOULD_PLACE"
             detail = f"constraints={decision.constraints}; qty={quantity}"
             dispatch = "SKIPPED" if mode == RunMode.LIVE else "IBKR"
+            order_id = None
+            order_id_status = "NOT_APPLICABLE"
+            certification_state = "CONSTRAINT_BLOCKED" if mode == RunMode.LIVE else "MODE_NO_BROKER_SUBMIT"
         else:
             action = "BLOCKED"
             detail = f"decision={decision.decision}; reason={decision.block_reason or 'RISK_BLOCK'}"
             dispatch = "SKIPPED"
+            order_id = None
+            order_id_status = "NOT_APPLICABLE"
+            certification_state = "RISK_BLOCKED"
         print(f"[EXECUTION][DISPATCH] symbol={decision.symbol} dispatch={dispatch}")
         events.append(
             ExecutionEvent(
@@ -151,6 +177,9 @@ def execute_intents(
                 intent_id=decision.intent_id,
                 action=action,
                 detail=detail,
+                order_id=order_id,
+                order_id_status=order_id_status,
+                certification_state=certification_state,
             )
         )
     return events

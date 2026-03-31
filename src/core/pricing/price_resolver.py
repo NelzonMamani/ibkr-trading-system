@@ -81,6 +81,9 @@ def _resolve_from_ibkr_stream(symbol: str, context: Mapping[str, Any]) -> Resolv
 
 
 def _resolve_from_scanner(symbol: str, context: Mapping[str, Any]) -> ResolvedPrice | None:
+    validated = bool(context.get("validated_scanner_price"))
+    if not validated:
+        return None
     scanner_payload = context.get("scanner_payload")
     if not isinstance(scanner_payload, Mapping):
         return None
@@ -93,7 +96,7 @@ def _resolve_from_scanner(symbol: str, context: Mapping[str, Any]) -> ResolvedPr
                 continue
             value = _as_float(getattr(row, "last_price", None) if not isinstance(row, Mapping) else row.get("last_price"))
             if value is not None:
-                return ResolvedPrice(value, "SCANNER_LAST_PRICE")
+                return ResolvedPrice(value, "VALIDATED_SCANNER_LAST_PRICE")
 
     return _resolve_from_premarket(symbol, context, source="PREMARKET_PREP")
 
@@ -125,8 +128,8 @@ def resolve_entry_price(symbol: str, context: Mapping[str, Any]) -> tuple[float,
     for resolver in (
         _resolve_from_ibkr_snapshot,
         _resolve_from_ibkr_stream,
-        _resolve_from_scanner,
         _resolve_from_premarket,
+        _resolve_from_scanner,
     ):
         resolved = resolver(normalized, context)
         if resolved is not None:
