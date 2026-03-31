@@ -20,8 +20,30 @@ def _allow_decision() -> RiskDecisionRecord:
     )
 
 
+class _DummyClient:
+    def register_execution_callback(self, _callback) -> None:
+        return None
+
+    def openOrders(self):
+        return []
+
+    def executions(self):
+        return []
+
+    def positions(self):
+        return []
+
+
+class _DummyManager:
+    def get_client(self) -> _DummyClient:
+        return _DummyClient()
+
+    def connection_metadata(self) -> dict:
+        return {"connected_client_id": 1}
+
+
 def test_test_environment_skips_ibkr_validation(monkeypatch, capsys) -> None:
-    monkeypatch.setenv("PYTEST_CURRENT_TEST", "tests::x")
+    monkeypatch.setenv("EXECUTION_ENV", "TEST")
 
     def _fail_validate(mode: RunMode) -> None:
         raise AssertionError(f"validation should be skipped in tests: {mode}")
@@ -36,7 +58,7 @@ def test_test_environment_skips_ibkr_validation(monkeypatch, capsys) -> None:
 
 
 def test_non_test_environment_enforces_ibkr_validation(monkeypatch) -> None:
-    monkeypatch.setattr(order_router, "_is_test_environment", lambda: False)
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
 
     def _raise_validate(mode: RunMode) -> None:
         raise RuntimeError(f"strict validation called for {mode.value}")
@@ -48,8 +70,9 @@ def test_non_test_environment_enforces_ibkr_validation(monkeypatch) -> None:
 
 
 def test_paper_and_live_dispatch_use_ibkr(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(order_router, "_is_test_environment", lambda: False)
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
     monkeypatch.setattr(order_router, "_validate_ibkr_connection", lambda mode: None)
+    monkeypatch.setattr(order_router, "get_shared_ibkr_connection_manager", lambda readonly_enabled=False: _DummyManager())
 
     order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])
     paper_out = capsys.readouterr().out
@@ -61,8 +84,9 @@ def test_paper_and_live_dispatch_use_ibkr(monkeypatch, capsys) -> None:
 
 
 def test_mode_connection_state_logging(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(order_router, "_is_test_environment", lambda: False)
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
     monkeypatch.setattr(order_router, "_validate_ibkr_connection", lambda mode: None)
+    monkeypatch.setattr(order_router, "get_shared_ibkr_connection_manager", lambda readonly_enabled=False: _DummyManager())
 
     order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])
     paper_out = capsys.readouterr().out

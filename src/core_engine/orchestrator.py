@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from dataclasses import replace
 from typing import List
 from zoneinfo import ZoneInfo
@@ -77,6 +78,10 @@ _CANONICAL_PRICE_SOURCES = frozenset(
     }
 )
 _MAX_CANONICAL_PRICE_MISMATCH_PCT = 0.10
+
+
+def _is_explicit_test_mode() -> bool:
+    return os.getenv("EXECUTION_ENV", "").upper() == "TEST"
 
 
 def _derive_last_block_reason(risk_decisions: List[RiskDecisionRecord]) -> str:
@@ -842,6 +847,9 @@ def run_cycle(
                     print(f"[LIFECYCLE] ORDER_ACKNOWLEDGED symbol={event.symbol} source=IBKR_EVENT")
                 fill_event = str(getattr(event, "event_type", "") or "")
                 event_source = str(getattr(event, "source", "IBKR_EVENT") or "IBKR_EVENT")
+                if event_source == "TEST_FILL" and not _is_explicit_test_mode():
+                    print("[FATAL] TEST_FILL DETECTED IN NON-TEST EXECUTION")
+                    raise RuntimeError("TEST_FILL_LEAK")
                 if fill_event == "ORDER_FILLED" or filled_quantity > 0:
                     lifecycle_event = "ORDER_FILLED"
                     print(
@@ -857,20 +865,24 @@ def run_cycle(
                         existing_position = position_book.get(symbol_key)
                         fill_price = event.avg_fill_price
                         fill_qty = max(0, filled_quantity)
+                        authoritative_source = event_source in {"IBKR", "IBKR_EVENT", "IBKR_EXECUTION", "IBKR_RESYNC"}
+                        valid_price = fill_price is not None and float(fill_price) > 0.0
+                        if not authoritative_source or not valid_price:
+                            raise RuntimeError("INVALID_POSITION_OPEN_NON_AUTHORITATIVE")
                         if existing_position is None:
-                            position_book[symbol_key] = {"qty": float(fill_qty), "avg_price": float(fill_price or 0.0)}
+                            position_book[symbol_key] = {"qty": float(fill_qty), "avg_price": float(fill_price)}
                         else:
                             prev_qty = float(existing_position["qty"])
                             prev_avg = float(existing_position["avg_price"])
                             total_qty = prev_qty + float(fill_qty)
-                            if total_qty > 0 and fill_price is not None:
+                            if total_qty > 0:
                                 weighted_avg = ((prev_qty * prev_avg) + (float(fill_qty) * float(fill_price))) / total_qty
                             else:
                                 weighted_avg = prev_avg
                             existing_position["qty"] = total_qty
                             existing_position["avg_price"] = weighted_avg
                         print(
-                            f"[POSITION][OPEN] symbol={symbol_key} "
+                            f"[POSITION][OPEN_AUTHORITY] symbol={symbol_key} "
                             f"qty={int(position_book[symbol_key]['qty'])} "
                             f"price={position_book[symbol_key]['avg_price']:.4f}"
                         )

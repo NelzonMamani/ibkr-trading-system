@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+import pytest
+
 from src.core.engines.trigger_engine import TriggerEngine
 from src.core_engine.events import ExecutionEvent, PatternSummary, RiskDecisionRecord, TradeIntentRecord
 from src.core_engine.orchestrator import _emit_final_decisions
 from src.core_engine.state import RunMode
+from src.execution import order_router
 from src.execution.order_router import execute_intents
 from src.risk.risk_audit import INITIAL_POSITION_PCT, AccountSnapshot, evaluate_trade_intents
 
 
+@pytest.fixture(autouse=True)
+def _test_execution_mode(monkeypatch) -> None:
+    monkeypatch.setenv("EXECUTION_ENV", "TEST")
+    order_router._EXECUTION_EVENT_BUFFER.clear()
+
+
 def _assert_broker_truth_lifecycle(event: ExecutionEvent) -> None:
     normalized_source = "IBKR_EXECUTION" if event.source == "IBKR" else event.source
-    assert normalized_source in {"IBKR_ORDER_STATUS", "IBKR_EXECUTION", "IBKR_RESYNC"}
+    assert normalized_source in {"IBKR_ORDER_STATUS", "IBKR_EXECUTION", "IBKR_RESYNC", "IBKR"}
     if event.filled_quantity > 0 and (event.avg_fill_price or 0) > 0:
         assert event.event_type == "ORDER_FILLED"
     elif event.filled_quantity > 0:
@@ -285,6 +294,7 @@ def test_ibkr_callback_creates_order_filled_event(monkeypatch, capsys) -> None:
 def test_paper_mode_can_emit_test_fill_fallback(monkeypatch, capsys) -> None:
     monkeypatch.setattr("src.execution.order_router._fetch_ibkr_truth", lambda _mode: ([], [], []))
     monkeypatch.setenv("IBKR_ENABLE_TEST_ONLY_FILL", "true")
+    monkeypatch.setenv("EXECUTION_ENV", "TEST")
     monkeypatch.setenv("IBKR_TEST_FILL_TIMEOUT_SECONDS", "0")
     events = execute_intents(
         mode=RunMode.PAPER,
@@ -303,7 +313,7 @@ def test_paper_mode_can_emit_test_fill_fallback(monkeypatch, capsys) -> None:
         ],
     )
     out = capsys.readouterr().out
-    assert events[0].source in {"TEST_FILL", "IBKR_ORDER_STATUS", "IBKR_EXECUTION", "IBKR_RESYNC"}
+    assert events[0].source in {"TEST_FILL", "IBKR_ORDER_STATUS", "IBKR_EXECUTION", "IBKR_RESYNC", "IBKR"}
     if events[0].source == "TEST_FILL":
         assert events[0].event_type == "ORDER_FILLED"
         assert events[0].filled_quantity == 10

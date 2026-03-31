@@ -244,12 +244,24 @@ def _apply_callback_fills(events: List[ExecutionEvent]) -> tuple[List[ExecutionE
     return events, fills_applied
 
 
+def _is_explicit_test_mode() -> bool:
+    return os.getenv("EXECUTION_ENV", "").upper() == "TEST"
+
+
+def _is_valid_fill_price(price: float | None) -> bool:
+    try:
+        return price is not None and float(price) > 0.0
+    except (TypeError, ValueError):
+        return False
+
+
 def _emit_test_fill_fallback(mode: RunMode, events: List[ExecutionEvent], timeout_seconds: float) -> List[ExecutionEvent]:
     if mode != RunMode.PAPER:
         return events
-    fallback_enabled = os.environ.get("IBKR_ENABLE_TEST_FILL_FALLBACK", "").lower()
-    should_fallback = fallback_enabled == "true" or (not fallback_enabled and _is_test_environment())
-    if not should_fallback:
+    if os.getenv("IBKR_ENABLE_TEST_ONLY_FILL", "").lower() != "true":
+        return events
+    explicit_test_mode_flag = _is_explicit_test_mode()
+    if not explicit_test_mode_flag:
         return events
     deadline = time.monotonic() + max(0.0, timeout_seconds)
     while time.monotonic() < deadline:
@@ -278,7 +290,7 @@ def _emit_test_fill_fallback(mode: RunMode, events: List[ExecutionEvent], timeou
 
 
 def _fetch_ibkr_truth(mode: RunMode) -> tuple[list[Any], list[Any], list[Any]]:
-    if _is_test_environment():
+    if _is_explicit_test_mode():
         return [], [], []
     if mode not in {RunMode.PAPER, RunMode.LIVE}:
         return [], [], []
@@ -319,6 +331,8 @@ def _sync_submitted_events_from_ibkr(
         event.filled_quantity = _extract_exec_qty(match)
         event.remaining_quantity = max(0, int(event.remaining_quantity or 0))
         event.avg_fill_price = _extract_exec_price(match)
+        if not _is_valid_fill_price(event.avg_fill_price):
+            raise RuntimeError("INVALID_POSITION_OPEN_NON_AUTHORITATIVE")
         print(
             f"[EXECUTION][FILL] symbol={event.symbol} qty={event.filled_quantity} "
             f"price={event.avg_fill_price if event.avg_fill_price is not None else 'UNKNOWN'}"
@@ -329,21 +343,15 @@ def _sync_submitted_events_from_ibkr(
                 continue
             qty = int(getattr(position, "position", 0) or 0)
             avg = getattr(position, "avgCost", None)
-            print(f"[POSITION][OPEN] symbol={symbol} qty={qty} avg_price={avg}")
+            if not _is_valid_fill_price(float(avg) if avg is not None else None):
+                raise RuntimeError("INVALID_POSITION_OPEN_NON_AUTHORITATIVE")
+            print(f"[POSITION][OPEN_AUTHORITY] symbol={symbol} qty={qty} avg_price={avg}")
             break
     return events
 
 
-def _is_test_environment() -> bool:
-    return (
-        "PYTEST_CURRENT_TEST" in os.environ
-        or os.environ.get("CI") == "true"
-        or os.environ.get("TEST_MODE") == "true"
-    )
-
-
 def _validate_ibkr_connection(mode: RunMode) -> None:
-    if _is_test_environment():
+    if _is_explicit_test_mode():
         return
 
     if mode not in {RunMode.PAPER, RunMode.LIVE}:
@@ -394,7 +402,7 @@ def execute_intents(
     manager: Any | None = None
 
     if mode in {RunMode.PAPER, RunMode.LIVE}:
-        if _is_test_environment():
+        if _is_explicit_test_mode():
             print("[EXECUTION][TEST_MODE] Skipping IBKR connection validation")
         else:
             _validate_ibkr_connection(mode)
@@ -415,7 +423,7 @@ def execute_intents(
     existing_open_order_symbols.discard("")
 
     order_id_seed = 0
-    if mode in {RunMode.PAPER, RunMode.LIVE} and not _is_test_environment():
+    if mode in {RunMode.PAPER, RunMode.LIVE} and not _is_explicit_test_mode():
         if manager is None:
             manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
         metadata = manager.connection_metadata()
@@ -537,5 +545,10 @@ def execute_intents(
         )
     events, _ = _apply_callback_fills(events)
     events = _sync_submitted_events_from_ibkr(mode, events)
+    if not _is_explicit_test_mode():
+        for event in events:
+            if str(getattr(event, "source", "")).upper() == "TEST_FILL":
+                print("[FATAL] TEST_FILL DETECTED IN NON-TEST EXECUTION")
+                raise RuntimeError("TEST_FILL_LEAK")
     fill_timeout_seconds = float(os.environ.get("IBKR_TEST_FILL_TIMEOUT_SECONDS", "0.5"))
     return _emit_test_fill_fallback(mode, events, timeout_seconds=fill_timeout_seconds)

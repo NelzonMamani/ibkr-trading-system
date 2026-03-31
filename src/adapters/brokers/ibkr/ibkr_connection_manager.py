@@ -257,8 +257,8 @@ _default_manager: Optional[IbkrConnectionManager] = None
 _default_manager_lock = Lock()
 
 
-def _is_test_environment() -> bool:
-    return "PYTEST_CURRENT_TEST" in os.environ or os.environ.get("TEST_MODE") == "1"
+def _is_explicit_test_mode() -> bool:
+    return os.environ.get("EXECUTION_ENV", "").upper() == "TEST"
 
 
 def get_shared_ibkr_connection_manager(
@@ -266,7 +266,7 @@ def get_shared_ibkr_connection_manager(
     readonly_enabled: Optional[bool] = None,
 ) -> IbkrConnectionManager:
     global _default_manager
-    if _is_test_environment():
+    if _is_explicit_test_mode():
         print("[IBKR][TEST_MODE] returning dummy manager")
 
         class DummyIBKRClient:
