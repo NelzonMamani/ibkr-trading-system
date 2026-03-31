@@ -64,6 +64,7 @@ def test_approved_quantity_propagates_to_submission_detail():
         risk_allowed=True,
         capital_source="IBKR_CANONICAL",
         approved_quantity=24,
+        entry_price=2.5,
     )
     events = execute_intents(mode=RunMode.LIVE, decisions=[decision])
     assert events[0].action == "SUBMITTED"
@@ -81,6 +82,7 @@ def test_quantity_mismatch_blocks():
         rationale="ok",
         capital_source="IBKR_CANONICAL",
         approved_quantity=24,
+        entry_price=2.5,
     )
     events = execute_intents(mode=RunMode.LIVE, decisions=[decision])
     assert events[0].action == "BLOCKED"

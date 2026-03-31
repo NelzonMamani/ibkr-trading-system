@@ -42,7 +42,8 @@ class TradeIntentRecord:
     stop: str
     rationale: str
     tags: List[str] = field(default_factory=list)
-    entry_price: float = 1.0
+    entry_price: float | None = None
+    entry_price_source: str = "UNSET"
 
 
 @dataclass
@@ -61,6 +62,7 @@ class RiskDecisionRecord:
     block_reason: str = ""
     approved_quantity: int = 0
     sizing_basis: str = "CAPITAL_PCT_MODE"
+    entry_price: float | None = None
 
 
 @dataclass

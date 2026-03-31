@@ -19,6 +19,7 @@ from src.core_engine.events import (
 )
 from src.core_engine.health import HealthStatus, combine_health
 from src.core_engine.state import CycleContext, RunMode, resolve_session_state
+from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core.intent import build_execution_intent
 from src.core.mode_authority import resolve_mode_authority
 from src.execution.order_router import execute_intents
@@ -359,6 +360,7 @@ def run_cycle(
         scanner_kwargs["forced_session_label"] = session.value
         scanner_kwargs["forced_session_source"] = "TEST_OVERRIDE"
     scanner_payload = run_scanner_cycle(**scanner_kwargs)
+    premarket_prep = load_canonical_premarket_prep_artifact() or {}
     watchlist = scanner_payload.get("watchlist_k_symbols", [])
     focus = scanner_payload.get("focus_m_symbols", [])
     if not watchlist:
@@ -476,6 +478,18 @@ def run_cycle(
 
             strategy_id = "RossMomentumStrategy"
             trade_intents = build_trade_intents(strategy_id, symbol, summary)
+            try:
+                entry_price, entry_price_source = resolve_entry_price(
+                    symbol,
+                    {
+                        "scanner_payload": scanner_payload,
+                        "premarket_prep": premarket_prep,
+                    },
+                )
+            except PriceResolutionError as exc:
+                print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_UNAVAILABLE detail={exc.reason}")
+                print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=PRICE_UNAVAILABLE")
+                continue
             if force_debug_trades and not trade_intents and setup_detected and trigger_ready_now:
                 trade_intents = [
                     TradeIntentRecord(
@@ -487,7 +501,8 @@ def run_cycle(
                         stop="DEBUG_FORCE_STOP",
                         rationale="FORCE_DEBUG_TRADES enabled (SIM-only validation).",
                         tags=["FORCE_DEBUG_TRADE", "SIM_ONLY_VALIDATION"],
-                        entry_price=1.0,
+                        entry_price=entry_price,
+                        entry_price_source=entry_price_source,
                     )
                 ]
                 forced_intent_ids.add(trade_intents[0].intent_id)
@@ -511,7 +526,8 @@ def run_cycle(
                             stop=intent.stop_model,
                             rationale=intent.rationale_text,
                             tags=combined_tags,
-                            entry_price=float(getattr(intent, "entry_price", 1.0) or 1.0),
+                            entry_price=entry_price,
+                            entry_price_source=entry_price_source,
                         )
                     )
                 generated_intents += 1
