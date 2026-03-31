@@ -5,7 +5,7 @@ from src.core_engine.events import ExecutionEvent, PatternSummary, RiskDecisionR
 from src.core_engine.orchestrator import _emit_final_decisions
 from src.core_engine.state import RunMode
 from src.execution.order_router import execute_intents
-from src.risk.risk_audit import AccountSnapshot, evaluate_trade_intents
+from src.risk.risk_audit import INITIAL_POSITION_PCT, AccountSnapshot, evaluate_trade_intents
 
 
 def test_trigger_engine_breakout_reports_actionable_reason() -> None:
@@ -28,6 +28,9 @@ def test_trigger_engine_breakout_reports_actionable_reason() -> None:
 
 
 def test_paper_mode_sizes_from_capital_and_price(capsys) -> None:
+    available_capital = 50_000
+    focus_count = 1
+    entry_price = 25.0
     decisions = evaluate_trade_intents(
         intents=[
             TradeIntentRecord(
@@ -43,12 +46,15 @@ def test_paper_mode_sizes_from_capital_and_price(capsys) -> None:
         ],
         mode=RunMode.PAPER,
         health_status=None,
-        account=AccountSnapshot(available_funds=50_000, source="PAPER", canonical=True, broker_connection_state="SIMULATED"),
+        account=AccountSnapshot(available_funds=available_capital, source="PAPER", canonical=True, broker_connection_state="SIMULATED"),
     )
+    capital_per_symbol = available_capital / focus_count
+    initial_capital = capital_per_symbol * INITIAL_POSITION_PCT
+    expected_quantity = int(initial_capital // entry_price)
     out = capsys.readouterr().out
-    assert decisions[0].approved_quantity == 2000
+    assert decisions[0].approved_quantity == expected_quantity
     assert decisions[0].sizing_basis == "CAPITAL_BASED"
-    assert "[RISK][SIZE_RESULT] symbol=MCRO approved_quantity=2000" in out
+    assert f"[RISK][SIZE_RESULT] symbol=MCRO approved_quantity={expected_quantity}" in out
     assert decisions[0].entry_price == 25.0
 
 

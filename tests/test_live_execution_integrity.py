@@ -6,7 +6,7 @@ from src.core_engine.events import TradeIntentRecord, RiskDecisionRecord
 from src.core_engine.health import HealthStatus
 from src.core_engine.state import RunMode
 from src.execution.order_router import execute_intents
-from src.risk.risk_audit import AccountSnapshot, evaluate_trade_intents
+from src.risk.risk_audit import INITIAL_POSITION_PCT, AccountSnapshot, evaluate_trade_intents
 from src.utils.capital_resolver import resolve_available_capital
 
 
@@ -97,7 +97,12 @@ def test_focus_split_position_size_deterministic():
         health_status=HealthStatus.DEGRADED,
         account=account,
     )
-    assert all(d.max_position_size == 22 for d in decisions)
+    focus_count = 3
+    entry_price = 2.5
+    capital_per_symbol = account.available_funds / focus_count
+    initial_capital = capital_per_symbol * INITIAL_POSITION_PCT
+    expected_quantity = int(initial_capital // entry_price)
+    assert all(d.approved_quantity == expected_quantity for d in decisions)
 
 
 def test_capital_resolver_uses_ibkr_when_available():

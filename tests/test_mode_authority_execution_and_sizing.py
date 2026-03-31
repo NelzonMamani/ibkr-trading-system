@@ -6,7 +6,7 @@ from src.core.mode_authority import resolve_mode_authority
 from src.core_engine.events import TradeIntentRecord
 from src.core_engine.orchestrator import run_cycle
 from src.core_engine.state import RunMode, SessionState
-from src.risk.risk_audit import AccountSnapshot, evaluate_trade_intents
+from src.risk.risk_audit import INITIAL_POSITION_PCT, AccountSnapshot, evaluate_trade_intents
 from src.strategies.ross_momentum.strategy_policy import StockSelectionSpec
 
 
@@ -53,6 +53,9 @@ def test_execution_intent_uses_mode_authority_scan_only_semantics() -> None:
 
 
 def test_risk_sizing_uses_price_derived_quantity() -> None:
+    available_capital = 20_000.0
+    focus_count = 1
+    entry_price = 25.0
     decisions = evaluate_trade_intents(
         intents=[
             TradeIntentRecord(
@@ -63,20 +66,23 @@ def test_risk_sizing_uses_price_derived_quantity() -> None:
                 entry="breakout",
                 stop="structure",
                 rationale="test",
-                entry_price=25.0,
+                entry_price=entry_price,
             )
         ],
         mode=RunMode.PAPER,
         health_status=None,
         account=AccountSnapshot(
-            available_funds=20_000.0,
+            available_funds=available_capital,
             source="PAPER",
             canonical=True,
             broker_connection_state="SIMULATED",
         ),
     )
-    assert decisions[0].approved_quantity == 800
-    assert decisions[0].approved_quantity != 20_000
+    capital_per_symbol = available_capital / focus_count
+    initial_capital = capital_per_symbol * INITIAL_POSITION_PCT
+    expected_quantity = int(initial_capital // entry_price)
+    assert decisions[0].approved_quantity == expected_quantity
+    assert decisions[0].approved_quantity != int(available_capital // entry_price)
 
 
 def test_executable_paper_cycle_does_not_skip_scan_only_and_no_readonly_rule(capsys) -> None:
