@@ -49,6 +49,55 @@ def test_paper_mode_sizes_from_capital_and_price(capsys) -> None:
     assert decisions[0].approved_quantity == 2000
     assert decisions[0].sizing_basis == "CAPITAL_BASED"
     assert "[RISK][SIZE_RESULT] symbol=MCRO approved_quantity=2000" in out
+    assert decisions[0].entry_price == 25.0
+
+
+def test_missing_price_blocks_pipeline(capsys) -> None:
+    decisions = evaluate_trade_intents(
+        intents=[
+            TradeIntentRecord(
+                symbol="NOPX",
+                intent_id="NOPX-1",
+                setup_id="GAP_GO",
+                side="LONG",
+                entry="breakout",
+                stop="structure",
+                rationale="test",
+                entry_price=None,
+            )
+        ],
+        mode=RunMode.PAPER,
+        health_status=None,
+        account=AccountSnapshot(available_funds=50_000, source="PAPER", canonical=True, broker_connection_state="SIMULATED"),
+    )
+    out = capsys.readouterr().out
+    assert decisions[0].decision == "BLOCK"
+    assert "INVALID_ENTRY_PRICE" in decisions[0].triggered_rules
+    assert "[RISK][SIZE_BLOCK] symbol=NOPX reason=INVALID_ENTRY_PRICE" in out
+
+
+def test_price_sanity_guard_rejects_placeholder_one_dollar(capsys) -> None:
+    decisions = evaluate_trade_intents(
+        intents=[
+            TradeIntentRecord(
+                symbol="PENNY",
+                intent_id="PENNY-1",
+                setup_id="GAP_GO",
+                side="LONG",
+                entry="breakout",
+                stop="structure",
+                rationale="test",
+                entry_price=1.0,
+            )
+        ],
+        mode=RunMode.PAPER,
+        health_status=None,
+        account=AccountSnapshot(available_funds=50_000, source="PAPER", canonical=True, broker_connection_state="SIMULATED"),
+    )
+    out = capsys.readouterr().out
+    assert decisions[0].decision == "BLOCK"
+    assert "INVALID_PRICE_SANITY_CHECK" in decisions[0].triggered_rules
+    assert "[RISK][SIZE_BLOCK] symbol=PENNY reason=INVALID_PRICE_SANITY_CHECK" in out
 
 
 def test_execution_dispatch_uses_approved_quantity_and_is_truthful(capsys) -> None:
@@ -64,6 +113,7 @@ def test_execution_dispatch_uses_approved_quantity_and_is_truthful(capsys) -> No
                 triggered_rules=[],
                 rationale="ok",
                 approved_quantity=1,
+                entry_price=25.0,
             )
         ],
     )

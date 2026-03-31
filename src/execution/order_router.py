@@ -33,6 +33,30 @@ def execute_intents(
         quantity = int(decision.approved_quantity)
         if decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"} and quantity <= 0:
             raise RuntimeError("INVALID ORDER: quantity=0")
+        entry_price = getattr(decision, "entry_price", None)
+        if decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
+            if entry_price is None or float(entry_price) <= 0:
+                print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=INVALID_ENTRY_PRICE")
+                events.append(
+                    ExecutionEvent(
+                        symbol=decision.symbol,
+                        intent_id=decision.intent_id,
+                        action="BLOCKED",
+                        detail="reason=INVALID_ENTRY_PRICE",
+                    )
+                )
+                continue
+            if float(entry_price) <= 1.5:
+                print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=INVALID_PRICE_SANITY_CHECK")
+                events.append(
+                    ExecutionEvent(
+                        symbol=decision.symbol,
+                        intent_id=decision.intent_id,
+                        action="BLOCKED",
+                        detail="reason=INVALID_PRICE_SANITY_CHECK",
+                    )
+                )
+                continue
         dispatch = "SKIPPED"
         if mode in {RunMode.SIM, RunMode.READ_ONLY}:
             action = "WOULD_PLACE"

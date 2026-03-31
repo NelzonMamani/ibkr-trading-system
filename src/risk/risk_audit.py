@@ -92,6 +92,7 @@ def evaluate_trade_intents(
                     capital_source=resolved_account.source,
                     block_reason="CANONICAL_CAPITAL_UNAVAILABLE",
                     approved_quantity=0,
+                    entry_price=getattr(intent, "entry_price", None),
                 )
             )
             continue
@@ -141,6 +142,12 @@ def evaluate_trade_intents(
             print(
                 f"[RISK][SIZE_BLOCK] symbol={intent.symbol} reason=INVALID_ENTRY_PRICE"
             )
+        elif entry_price <= 1.5:
+            decision = "BLOCK"
+            max_size = 0
+            triggered_rules.append("INVALID_PRICE_SANITY_CHECK")
+            requested_shares = 0
+            print(f"[RISK][SIZE_BLOCK] symbol={intent.symbol} reason=INVALID_PRICE_SANITY_CHECK")
         else:
             requested_shares = int(capital_per_symbol // entry_price)
         if requested_shares <= 0:
@@ -202,6 +209,7 @@ def evaluate_trade_intents(
                 block_reason=block_reason,
                 approved_quantity=approved_quantity,
                 sizing_basis=sizing_basis,
+                entry_price=entry_price,
             )
         )
     return decisions

@@ -23,6 +23,8 @@ def test_sim_debug_forced_trade_runs_full_pipeline(monkeypatch, capsys) -> None:
                 "survivors_count": 1,
                 "watchlist_k_symbols": ["AAPL"],
                 "focus_m_symbols": ["AAPL"],
+                "watchlist_k": [{"symbol": "AAPL", "last_price": 20.0}],
+                "focus_m": [{"symbol": "AAPL", "last_price": 20.0}],
                 "drop_reason_summary": {},
                 "data_quality_by_symbol": {"AAPL": []},
             },
