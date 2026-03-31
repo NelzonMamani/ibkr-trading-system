@@ -413,6 +413,7 @@ class IbkrLiveBroker(BaseBroker):
             note="LIVE_EXECUTION",
             attempt_number=request.attempt_number,
             client_order_id=request.client_order_id,
+            ibkr_order_id=result.ibkr_order_id,
             retry_scheduled=False,
             next_retry_tick=None,
             gateway_decision="BLOCK" if status == "BLOCKED" else "LIVE",

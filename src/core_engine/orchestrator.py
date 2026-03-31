@@ -655,10 +655,11 @@ def run_cycle(
         execution_events = execute_intents(mode=mode, decisions=execution_candidates)
         execution_events.extend(blocked_candidates)
         for event in execution_events:
+            resolved_order_id = event.order_id or "N/A"
             print(
                 "[EXECUTION][SUBMIT_RESULT] "
                 f"symbol={event.symbol} submitted={event.action == 'SUBMITTED'} "
-                f"order_id=N/A reason={event.detail}"
+                f"order_id={resolved_order_id} reason={event.detail}"
             )
             print(f"[EXECUTION] {event.symbol} {event.action} ({event.detail})")
             execution_pass = event.action in {"SUBMITTED", "WOULD_PLACE"}

@@ -7,8 +7,12 @@ from dataclasses import dataclass
 from typing import List
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
+from src.brokers.base_broker import BrokerOrderRequest
+from src.brokers.ibkr_live_broker import IbkrLiveBroker
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
 from src.core_engine.state import RunMode
+from src.core.active_trade_registry import ActiveTradeRegistry
+from src.core.event_collector import EventCollector
 
 
 @dataclass(frozen=True)
@@ -70,12 +74,18 @@ def execute_intents(
     decisions: List[RiskDecisionRecord],
 ) -> List[ExecutionEvent]:
     events: List[ExecutionEvent] = []
+    live_broker: IbkrLiveBroker | None = None
 
     if mode in {RunMode.PAPER, RunMode.LIVE}:
         if _is_test_environment():
             print("[EXECUTION][TEST_MODE] Skipping IBKR connection validation")
         else:
             _validate_ibkr_connection(mode)
+        live_broker = IbkrLiveBroker(
+            event_collector=EventCollector(),
+            trade_registry=ActiveTradeRegistry(),
+            run_mode=mode,
+        )
 
     broker_state = "CONNECTED" if mode in {RunMode.PAPER, RunMode.LIVE} else "DISCONNECTED"
     print(f"[EXECUTION][MODE] mode={mode.value} broker_connection_state={broker_state}")
@@ -133,9 +143,59 @@ def execute_intents(
                 )
                 dispatch = "SKIPPED"
             else:
-                action = "SUBMITTED"
-                detail = f"submitted qty={quantity}"
-                dispatch = "IBKR"
+                if live_broker is None:
+                    action = "BLOCKED"
+                    detail = "reason=IBKR_BROKER_UNAVAILABLE"
+                    dispatch = "SKIPPED"
+                else:
+                    broker_request = BrokerOrderRequest(
+                        client_order_id=decision.intent_id,
+                        symbol=decision.symbol,
+                        direction="LONG",
+                        quantity=quantity,
+                        order_type="MKT",
+                        trader_type="EPOCH5",
+                        strategy_name="ROSS_MOMENTUM",
+                        attempt_number=1,
+                    )
+                    print(
+                        "[EXECUTION][IBKR_CALL] "
+                        f"symbol={decision.symbol} order_id={broker_request.client_order_id}"
+                    )
+                    broker_result = live_broker.place_order(broker_request)
+                    resolved_order_id = (
+                        getattr(broker_result, "ibkr_order_id", None)
+                        or getattr(broker_result, "client_order_id", None)
+                        or broker_request.client_order_id
+                    )
+                    ack_status = str(getattr(broker_result, "status", "UNKNOWN") or "UNKNOWN")
+                    print(
+                        "[EXECUTION][IBKR_ACK] "
+                        f"symbol={decision.symbol} status={ack_status}"
+                    )
+                    if ack_status.upper() in {"ACKED", "FILLED", "PARTIAL"}:
+                        action = "SUBMITTED"
+                        detail = f"submitted qty={quantity} broker_status={ack_status}"
+                        dispatch = "IBKR"
+                    else:
+                        action = "BLOCKED"
+                        detail = (
+                            "reason=IBKR_SUBMISSION_FAILED "
+                            f"broker_status={ack_status} "
+                            f"broker_reason={getattr(broker_result, 'rejection_reason', None) or getattr(broker_result, 'rationale', None)}"
+                        ).strip()
+                        dispatch = "SKIPPED"
+                    events.append(
+                        ExecutionEvent(
+                            symbol=decision.symbol,
+                            intent_id=decision.intent_id,
+                            action=action,
+                            detail=detail,
+                            order_id=str(resolved_order_id),
+                        )
+                    )
+                    print(f"[EXECUTION][DISPATCH] symbol={decision.symbol} dispatch={dispatch}")
+                    continue
         elif decision.decision == "ALLOW_WITH_CONSTRAINTS":
             action = "BLOCKED" if mode == RunMode.LIVE else "WOULD_PLACE"
             detail = f"constraints={decision.constraints}; qty={quantity}"
@@ -151,6 +211,7 @@ def execute_intents(
                 intent_id=decision.intent_id,
                 action=action,
                 detail=detail,
+                order_id=None,
             )
         )
     return events

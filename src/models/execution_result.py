@@ -38,6 +38,7 @@ class ExecutionResult:
     gateway_decision: Optional[str] = None
     attempt_number: int = 0
     client_order_id: Optional[str] = None
+    ibkr_order_id: Optional[int] = None
     retry_scheduled: bool = False
     next_retry_tick: Optional[int] = None
     rejection_reason: Optional[str] = None

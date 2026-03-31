@@ -71,6 +71,7 @@ class ExecutionEvent:
     intent_id: str
     action: str
     detail: str
+    order_id: str | None = None
 
 
 @dataclass
