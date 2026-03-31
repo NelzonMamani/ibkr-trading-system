@@ -25,6 +25,9 @@ def _is_test_environment() -> bool:
 
 
 def _validate_ibkr_connection(mode: RunMode) -> None:
+    if _is_test_environment():
+        return
+
     if mode not in {RunMode.PAPER, RunMode.LIVE}:
         return
 
