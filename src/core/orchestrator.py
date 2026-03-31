@@ -35,7 +35,7 @@ from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.engines.position_management_engine import ManagedPosition, PositionManagementEngine
 from src.core.engines.trade_lifecycle_engine import LifecycleEvent, TradeLifecycleEngine
-from src.core.portfolio import BrokerPositionSnapshotAdapter
+from src.core.portfolio import BrokerPositionSnapshotAdapter, PortfolioArbitrator, PortfolioState
 from src.core.event_collector import EventCollector
 from src.data.fundamentals.float_provider import FloatProvider
 from src.data.manual_focus_loader import ManualFocusConfig
@@ -363,6 +363,7 @@ class CoreOrchestrator:
             event_collector=self.event_collector,
             stop_controller=self.stop_controller,
         )
+        self.portfolio_arbitrator = PortfolioArbitrator()
         if not self.execution_enabled:
             provider = None
         elif self.run_mode == RunMode.PAPER:
@@ -3231,6 +3232,22 @@ class CoreOrchestrator:
         )
         print("[TEACH] <<< Intent normalization stage complete — moving to risk stage.")
 
+        print("[TEACH] >>> Portfolio arbitration stage — rank intents and allocate capital.")
+        try:
+            portfolio_state = self.trade_lifecycle_engine.build_portfolio_state()
+        except Exception as exc:
+            print(f"[ARBITRATOR][WARN] portfolio_state_unavailable reason={exc}")
+            portfolio_state = PortfolioState()
+        try:
+            strategy_output = self.portfolio_arbitrator.select_trades(
+                strategy_output,
+                portfolio_state,
+            )
+        except Exception as exc:
+            print(f"[ARBITRATOR][ERROR] selection_failed reason={exc}")
+            strategy_output = []
+        print("[TEACH] <<< Portfolio arbitration stage complete — moving to risk stage.")
+
         decision_output = []
         trade_ready_terminal: dict[str, dict[str, bool]] = {}
         if strategy_output:
@@ -3432,6 +3449,7 @@ class CoreOrchestrator:
             if not risk_output:
                 print("[EXECUTION] No execution result — placeholder outcome.")
             else:
+                print(f"[EXECUTION] executing_selected_trades={len(risk_output)}")
                 print(
                     f"[TEACH] Execution engine will handle {len(risk_output)} risk decisions individually."
                 )
