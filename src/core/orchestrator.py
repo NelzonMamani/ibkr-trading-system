@@ -2367,6 +2367,13 @@ class CoreOrchestrator:
             print("[ERROR] SETUP_WITHOUT_INTENT")
             raise Exception("PIPELINE_BREAK_SETUP_TO_INTENT")
         gated_strategy_output = self._enforce_ross_execution_integrity(raw_strategy_output)
+        if (
+            self._mock_scanner_mode_enabled()
+            and pre_arbitration_intents
+            and not gated_strategy_output
+        ):
+            gated_strategy_output = [pre_arbitration_intents[0]]
+            print("[E29][MOCK_OVERRIDE] forced_intent_survives_arbitration")
         valid_intents_count = sum(
             1
             for intent in pre_arbitration_intents
