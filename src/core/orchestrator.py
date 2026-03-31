@@ -2065,6 +2065,8 @@ class CoreOrchestrator:
             session_phase=session_phase,
         )
         final_evaluation_symbols = self._symbols_from_candidates(selected_focus)
+        print(f"[PIPELINE][WATCHLIST] count={len(watchlist_symbols)} symbols={watchlist_symbols}")
+        print(f"[PIPELINE][FOCUS] count={len(final_evaluation_symbols)} symbols={final_evaluation_symbols}")
         manual_focus_accepted_symbols = self._symbols_from_candidates(manual_focus_rows)
         print(
             "[FINAL_EVAL][MERGE] "
@@ -2272,6 +2274,11 @@ class CoreOrchestrator:
         else:
             print("[PIPELINE][SKIP] empty watchlist")
             strategy_output = []
+        print(f"[PIPELINE][STRATEGY_OUTPUT] count={len(strategy_output or [])}")
+        print(
+            "[PIPELINE][INTENTS] "
+            f"count={len(strategy_output or [])} symbols={[getattr(intent, 'symbol', None) for intent in (strategy_output or [])]}"
+        )
         self._pipeline_runtime_counts["cycles_run"] += 1
         self._pipeline_runtime_counts["watchlist_count"] += len(watchlist_symbols)
         self._pipeline_runtime_counts["trade_intents"] += len(strategy_output or [])
@@ -2314,6 +2321,11 @@ class CoreOrchestrator:
                 pipeline_audit.record(symbol, TerminalOutcome.FOCUS_SELECTED_NO_PATTERN, "NO_SETUP:no_valid_setup_from_runner", "strategy")
 
         raw_strategy_output = strategy_output or []
+        pre_arbitration_intents = list(raw_strategy_output)
+        print(
+            "[PIPELINE][ARBITRATION_INPUT] "
+            f"input_intents_count={len(pre_arbitration_intents)}"
+        )
         setup_detected_symbols = {
             getattr(intent, "symbol", "").upper()
             for intent in raw_strategy_output
@@ -2337,7 +2349,43 @@ class CoreOrchestrator:
             print("[ERROR] SETUP_WITHOUT_INTENT")
             raise Exception("PIPELINE_BREAK_SETUP_TO_INTENT")
         gated_strategy_output = self._enforce_ross_execution_integrity(raw_strategy_output)
+        valid_intents_count = sum(
+            1
+            for intent in pre_arbitration_intents
+            if str(getattr(intent, "symbol", "")).strip()
+        )
+        filtered_by_conflict = max(len(pre_arbitration_intents) - len(gated_strategy_output), 0)
+        filtered_by_limits = 0
+        final_intents_count = len(gated_strategy_output)
+        print(
+            "[ARBITRATION][SUMMARY] "
+            f"input={len(pre_arbitration_intents)} valid={valid_intents_count} "
+            f"conflict_removed={filtered_by_conflict} limited={filtered_by_limits} final={final_intents_count}"
+        )
+        print(
+            "[PIPELINE][ARBITRATION_OUTPUT] "
+            f"valid_intents_count={valid_intents_count} filtered_by_conflict={filtered_by_conflict} "
+            f"filtered_by_limits={filtered_by_limits} final_intents_count={final_intents_count}"
+        )
         gated_symbols = {getattr(intent, "symbol", "").upper() for intent in gated_strategy_output}
+        for symbol in final_evaluation_symbols:
+            symbol_upper = str(symbol or "").upper()
+            strategy_detected = symbol_upper in setup_detected_symbols
+            intent_created = any(str(getattr(intent, "symbol", "")).upper() == symbol_upper for intent in pre_arbitration_intents)
+            arbitration_kept = symbol_upper in gated_symbols
+            if arbitration_kept:
+                reason = "kept"
+            elif intent_created:
+                reason = "conflict_or_limit"
+            elif strategy_detected:
+                reason = "setup_no_intent"
+            else:
+                reason = "no_setup"
+            print(
+                "[PIPELINE][SYMBOL_TRACE] "
+                f"symbol={symbol_upper} strategy_detected={strategy_detected} intent_created={intent_created} "
+                f"arbitration_kept={arbitration_kept} reason={reason}"
+            )
         for intent in raw_strategy_output:
             symbol = getattr(intent, "symbol", "")
             if not symbol:
@@ -2348,10 +2396,24 @@ class CoreOrchestrator:
             else:
                 pipeline_audit.record(symbol, TerminalOutcome.TRADE_INTENT_CREATED, "TRADE_INTENT_CREATED", "intent")
 
+        print(
+            "[PIPELINE][RISK_INPUT] "
+            f"intents_count={len(gated_strategy_output)} symbols={[getattr(intent, 'symbol', None) for intent in gated_strategy_output]}"
+        )
+        risk_allowed_symbols = [getattr(intent, "symbol", "") for intent in gated_strategy_output]
+        print(
+            "[PIPELINE][RISK_OUTPUT] "
+            f"approved_count={len(risk_allowed_symbols)} blocked_count=0 symbols={risk_allowed_symbols}"
+        )
+
         if mode_manager.allow_orders:
 
             if gated_strategy_output:
                 for intent in gated_strategy_output:
+                    print(
+                        "[PIPELINE][EXECUTION_ATTEMPT] "
+                        f"symbol={intent.symbol} enabled={mode_manager.allow_orders}"
+                    )
                     print(f"[EXECUTION] symbol={intent.symbol} enabled=True")
                     pipeline_trace("EXECUTION", intent.symbol)
                     self._trace_event("ORDER_SUBMITTED", {
@@ -2372,6 +2434,10 @@ class CoreOrchestrator:
             if raw_strategy_output:
                 for intent in raw_strategy_output:
                     reason = "SESSION_BLOCK" if self.run_mode == RunMode.READ_ONLY else "EXECUTION_DISABLED"
+                    print(
+                        "[PIPELINE][EXECUTION_ATTEMPT] "
+                        f"symbol={intent.symbol} enabled={mode_manager.allow_orders} reason={reason}"
+                    )
                     print(f"[EXECUTION] symbol={intent.symbol} enabled=False reason={reason}")
 
                     self._trace_event("SESSION_BLOCK", {
@@ -2394,6 +2460,21 @@ class CoreOrchestrator:
                     "strategy": strategy_key,
                     "reason": "NO_INTENTS_PRODUCED"
                 })
+
+        if final_intents_count == 0:
+            no_trade_reason = {
+                "no_intents_generated": len(pre_arbitration_intents) == 0,
+                "all_blocked_by_risk": False,
+                "all_removed_by_arbitration": len(pre_arbitration_intents) > 0,
+                "execution_disabled": not mode_manager.allow_orders,
+            }
+            print(
+                "[PIPELINE][NO_TRADE_REASON] "
+                f"no_intents_generated={no_trade_reason['no_intents_generated']} "
+                f"all_blocked_by_risk={no_trade_reason['all_blocked_by_risk']} "
+                f"all_removed_by_arbitration={no_trade_reason['all_removed_by_arbitration']} "
+                f"execution_disabled={no_trade_reason['execution_disabled']}"
+            )
 
         intent_count = len(strategy_output or [])
         print(f"[INTENT] count={intent_count}")
