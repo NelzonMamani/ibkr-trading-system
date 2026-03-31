@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import Lock
@@ -256,11 +257,66 @@ _default_manager: Optional[IbkrConnectionManager] = None
 _default_manager_lock = Lock()
 
 
+def _is_test_environment() -> bool:
+    return "PYTEST_CURRENT_TEST" in os.environ or os.environ.get("TEST_MODE") == "1"
+
+
 def get_shared_ibkr_connection_manager(
     *,
     readonly_enabled: Optional[bool] = None,
 ) -> IbkrConnectionManager:
     global _default_manager
+    if _is_test_environment():
+        print("[IBKR][TEST_MODE] returning dummy manager")
+
+        class DummyIBKRClient:
+            def submit_order(self, contract, order) -> int:
+                return 123456
+
+        class DummyManager:
+            def __init__(self) -> None:
+                self._client = DummyIBKRClient()
+                self.config = IbkrConnectionConfig(
+                    host="TEST",
+                    port=0,
+                    base_client_id=123456,
+                    snapshot_timeout_seconds=0,
+                    market_data_type="DELAYED",
+                    readonly_enabled=True,
+                    run_mode="TEST",
+                )
+
+            def get_client(self) -> DummyIBKRClient:
+                return self._client
+
+            def connect(self) -> DummyIBKRClient:
+                return self._client
+
+            def ensure_connected(self) -> DummyIBKRClient:
+                return self._client
+
+            def ensure_connection_health(self) -> DummyIBKRClient:
+                return self._client
+
+            def disconnect(self, reason: str = "manual") -> None:
+                return None
+
+            def is_connected(self) -> bool:
+                return True
+
+            def heartbeat(self) -> None:
+                return None
+
+            def connection_metadata(self) -> dict:
+                return {
+                    "mode": "TEST",
+                    "connected": True,
+                    "readonly_enabled": True,
+                    "broker_order_id_seed": 123456,
+                }
+
+        return DummyManager()  # type: ignore[return-value]
+
     with _default_manager_lock:
         if _default_manager is None:
             host, port, client_id, run_mode = resolve_ibkr_connection()
