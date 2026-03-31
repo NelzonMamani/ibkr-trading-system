@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import List
 
+from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
 from src.core_engine.state import RunMode
 
@@ -14,12 +16,68 @@ class RouterAccountSnapshot:
     available_funds: float
 
 
+def _is_test_environment() -> bool:
+    return (
+        "PYTEST_CURRENT_TEST" in os.environ
+        or os.environ.get("CI") == "true"
+        or os.environ.get("TEST_MODE") == "true"
+    )
+
+
+def _validate_ibkr_connection(mode: RunMode) -> None:
+    if mode not in {RunMode.PAPER, RunMode.LIVE}:
+        return
+
+    manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
+    metadata = manager.connection_metadata()
+
+    connected = bool(metadata.get("connected", False))
+    if not connected:
+        raise RuntimeError(
+            "IBKR connection is not active: connected=False "
+            f"mode={mode.value} host={metadata.get('host')} port={metadata.get('port')}"
+        )
+
+    expected_port = 7496 if mode == RunMode.LIVE else 7497
+    configured_port = metadata.get("port")
+    if configured_port != expected_port:
+        raise RuntimeError(
+            "IBKR connection port validation failed "
+            f"mode={mode.value} expected_port={expected_port} configured_port={configured_port}"
+        )
+
+    configured_client_id = metadata.get("base_client_id")
+    connected_client_id = metadata.get("connected_client_id")
+    if configured_client_id is None or connected_client_id is None:
+        raise RuntimeError(
+            "IBKR client id validation failed "
+            f"mode={mode.value} base_client_id={configured_client_id} connected_client_id={connected_client_id}"
+        )
+    if not isinstance(configured_client_id, int) or not isinstance(connected_client_id, int):
+        raise RuntimeError(
+            "IBKR client id validation failed "
+            f"mode={mode.value} base_client_id={configured_client_id} connected_client_id={connected_client_id}"
+        )
+    if connected_client_id < configured_client_id:
+        raise RuntimeError(
+            "IBKR connected client id is invalid "
+            f"mode={mode.value} base_client_id={configured_client_id} connected_client_id={connected_client_id}"
+        )
+
+
 def execute_intents(
     mode: RunMode,
     decisions: List[RiskDecisionRecord],
 ) -> List[ExecutionEvent]:
     events: List[ExecutionEvent] = []
-    broker_state = "CONNECTED" if mode == RunMode.LIVE else ("SIMULATED_PROVIDER" if mode == RunMode.PAPER else "DISCONNECTED")
+
+    if mode in {RunMode.PAPER, RunMode.LIVE}:
+        if _is_test_environment():
+            print("[EXECUTION][TEST_MODE] Skipping IBKR connection validation")
+        else:
+            _validate_ibkr_connection(mode)
+
+    broker_state = "CONNECTED" if mode in {RunMode.PAPER, RunMode.LIVE} else "DISCONNECTED"
     print(f"[EXECUTION][MODE] mode={mode.value} broker_connection_state={broker_state}")
     for decision in decisions:
         account = RouterAccountSnapshot(available_funds=float(decision.available_funds))
@@ -77,11 +135,11 @@ def execute_intents(
             else:
                 action = "SUBMITTED"
                 detail = f"submitted qty={quantity}"
-                dispatch = "REAL_BROKER" if mode == RunMode.LIVE else "SIMULATED"
+                dispatch = "IBKR"
         elif decision.decision == "ALLOW_WITH_CONSTRAINTS":
             action = "BLOCKED" if mode == RunMode.LIVE else "WOULD_PLACE"
             detail = f"constraints={decision.constraints}; qty={quantity}"
-            dispatch = "SKIPPED" if mode == RunMode.LIVE else "SIMULATED"
+            dispatch = "SKIPPED" if mode == RunMode.LIVE else "IBKR"
         else:
             action = "BLOCKED"
             detail = f"decision={decision.decision}; reason={decision.block_reason or 'RISK_BLOCK'}"
