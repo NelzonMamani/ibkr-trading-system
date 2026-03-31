@@ -734,6 +734,7 @@ def run_cycle(
     print_section("EXECUTION")
     working_orders = 0
     pending_entries = 0
+    position_book: dict[str, dict[str, float]] = {}
     if execution_intent.scan_only:
         print("[EXECUTION] Execution stage skipped — intent scan_only.")
         execution_events = []
@@ -814,17 +815,40 @@ def run_cycle(
                     )
                     print(f"[LIFECYCLE] ORDER_SUBMITTED symbol={event.symbol} source=IBKR_EVENT")
                     print(f"[LIFECYCLE] ORDER_ACKNOWLEDGED symbol={event.symbol} source=IBKR_EVENT")
-                if filled_quantity > 0:
-                    executed += 1
-                    lifecycle_event = "ENTRY_FILL"
+                fill_event = str(getattr(event, "event_type", "") or "")
+                event_source = str(getattr(event, "source", "IBKR_EVENT") or "IBKR_EVENT")
+                if fill_event == "ORDER_FILLED" or filled_quantity > 0:
+                    lifecycle_event = "ORDER_FILLED"
                     print(
                         f"[EXECUTION][FILL] symbol={event.symbol} order_id={broker_order_id} "
                         f"filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
                     )
                     print(
-                        f"[LIFECYCLE][UPDATE] symbol={event.symbol} event={lifecycle_event} "
-                        f"filled_qty={filled_quantity} source=IBKR_EVENT"
+                        f"[LIFECYCLE][ORDER_FILLED] symbol={event.symbol} order_id={broker_order_id} "
+                        f"filled_qty={filled_quantity} source={event_source}"
                     )
+                    symbol_key = str(event.symbol or "").upper()
+                    if symbol_key:
+                        existing_position = position_book.get(symbol_key)
+                        fill_price = event.avg_fill_price
+                        fill_qty = max(0, filled_quantity)
+                        if existing_position is None:
+                            position_book[symbol_key] = {"qty": float(fill_qty), "avg_price": float(fill_price or 0.0)}
+                        else:
+                            prev_qty = float(existing_position["qty"])
+                            prev_avg = float(existing_position["avg_price"])
+                            total_qty = prev_qty + float(fill_qty)
+                            if total_qty > 0 and fill_price is not None:
+                                weighted_avg = ((prev_qty * prev_avg) + (float(fill_qty) * float(fill_price))) / total_qty
+                            else:
+                                weighted_avg = prev_avg
+                            existing_position["qty"] = total_qty
+                            existing_position["avg_price"] = weighted_avg
+                        print(
+                            f"[POSITION][OPEN] symbol={symbol_key} "
+                            f"qty={int(position_book[symbol_key]['qty'])} "
+                            f"price={position_book[symbol_key]['avg_price']:.4f}"
+                        )
             elif execution_pass:
                 working_orders += 1 if event.action == "WOULD_PLACE" else 0
             print(
@@ -833,6 +857,7 @@ def run_cycle(
             )
             if event.intent_id in forced_intent_ids and execution_pass:
                 print(f"[DEBUG][FORCED_PATH] sent_to_execution symbol={event.symbol} intent_id={event.intent_id}")
+    executed = sum(1 for row in position_book.values() if float(row.get("qty", 0.0)) > 0.0)
     print(
         f"[LIFECYCLE][PORTFOLIO] open_positions={executed} "
         f"working_orders={working_orders} pending_entries={pending_entries}"
