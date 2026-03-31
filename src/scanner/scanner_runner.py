@@ -1571,7 +1571,15 @@ def _resolve_premarket_volume_threshold(session_time_ny: dtime, thresholds: Gate
 
 
 def _focus_volume_threshold_for_session(session: str, thresholds: GateThresholds) -> tuple[float, str]:
+    normalized_session_map = {
+        "MORNING": "RTH_OPEN",
+        "OPENING": "RTH_OPEN",
+        "MIDDAY": "RTH_MID",
+        "AFTERNOON": "RTH_LATE",
+        "EVENING": "AH",
+    }
     session_key = normalize_session_label(session).upper()
+    session_key = normalized_session_map.get(session_key, session_key)
     session_threshold = thresholds.session_focus_volume_min.get(session_key)
     if session_threshold is not None:
         return float(session_threshold), f"policy.session_focus_volume_min[{session_key}]"

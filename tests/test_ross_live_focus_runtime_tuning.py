@@ -180,6 +180,17 @@ def test_threshold_source_logged_correctly(capsys) -> None:
     assert "session=RTH_OPEN" in output
 
 
+
+
+def test_orchestrator_morning_session_maps_to_rth_open_threshold() -> None:
+    policy = RossMomentumPolicy().stock_selection
+    runtime = _resolve_runtime_thresholds(policy)
+    thresholds = _gate_thresholds(policy, runtime)
+    threshold, source = _focus_volume_threshold_for_session("MORNING", thresholds)
+    assert source == "policy.session_focus_volume_min[RTH_OPEN]"
+    assert threshold == float(thresholds.session_focus_volume_min["RTH_OPEN"])
+
+
 def test_policy_threshold_precedence_over_default() -> None:
     policy = RossMomentumPolicy().stock_selection
     runtime = _resolve_runtime_thresholds(policy)
