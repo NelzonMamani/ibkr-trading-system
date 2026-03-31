@@ -119,7 +119,13 @@ class RossMomentumStrategyV1(BaseStrategy):
             True,
         )
         self._force_premarket_trigger = self._cfg_bool("FORCE_PREMARKET_TRIGGER", False)
-        self._max_trades_per_cycle = 1
+        self._tradeable_min_confidence = self._cfg_float("ROSS_TRADEABLE_MIN_CONFIDENCE", 0.64)
+        self._max_extension_pct_for_entry = self._cfg_float("ROSS_MAX_EXTENSION_PCT_FOR_ENTRY", 0.015)
+        self._max_spread_pct_for_entry = self._cfg_float("ROSS_MAX_SPREAD_PCT_FOR_ENTRY", 0.006)
+        self._max_spread_pct_for_low_price = self._cfg_float("ROSS_MAX_SPREAD_PCT_FOR_LOW_PRICE", 0.012)
+        self._low_price_spread_cutoff = self._cfg_float("ROSS_LOW_PRICE_SPREAD_CUTOFF", 5.0)
+        self._max_breakout_distance_pct = self._cfg_float("ROSS_MAX_BREAKOUT_DISTANCE_PCT", 0.03)
+        self._max_trades_per_cycle = int(self._cfg_float("ROSS_MAX_SUBMISSIONS_PER_CYCLE", 1))
         self._max_concurrent_positions = 3
         self._session_stats = {
             "cycles": 0,
@@ -1274,6 +1280,34 @@ class RossMomentumStrategyV1(BaseStrategy):
                 continue
 
             entry, stop = trade
+            setup_family = self._normalize_setup_family_id(
+                selected_trigger.get("setup_family_id") if selected_trigger else self._setup_family_from_pattern_id(best_pattern.pattern_id)
+            )
+            tradeable_eval = self.evaluate_tradeable_entry(
+                symbol=symbol,
+                mode=mode,
+                setup_family=setup_family,
+                pattern_confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
+                entry_price=float(entry),
+                input_summary=input_summary,
+                selected_trigger=selected_trigger,
+                levels=levels,
+            )
+            if not bool(tradeable_eval.get("tradeable", False)):
+                reasons = ",".join(list(tradeable_eval.get("blocking_reasons") or []))
+                print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason={reasons or 'TRADEABLE_GATE_BLOCK'}")
+                symbol_trace.final_outcome = "SETUP_FOUND_DECISION_REJECTED"
+                symbol_trace.final_reason_code = "TRADEABLE_GATE_BLOCK"
+                classification_counts["TRIGGER_REJECTED"] += 1
+                self._log_decision_blocked(
+                    symbol=symbol,
+                    final_stage="tradeable_entry",
+                    reason=reasons or "tradeable_entry_block",
+                )
+                self._log_pipeline_no_decision(symbol)
+                symbol_traces.append(symbol_trace)
+                self._failure_trace_collector.record_symbol(symbol_trace)
+                continue
             print(f"[ROSS][ENTRY_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} entry={entry}")
             print(f"[ROSS][STOP_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} stop={stop}")
             print(f"[ROSS][TRIGGER][PASS] symbol={symbol} trigger=confirmation_gate")
@@ -1301,9 +1335,6 @@ class RossMomentumStrategyV1(BaseStrategy):
             quality_tier = self._resolve_trigger_quality_tier(
                 selected_trigger=selected_trigger,
                 pattern_confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
-            )
-            setup_family = self._normalize_setup_family_id(
-                selected_trigger.get("setup_family_id") if selected_trigger else self._setup_family_from_pattern_id(best_pattern.pattern_id)
             )
             allow_trade, permission_reason = self._trade_permission(
                 trigger_ready=trigger_ready,
@@ -1393,6 +1424,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "intent": intent,
                     "quality_score": quality_score,
                     "setup_family_id": setup_family,
+                    "tradeable": tradeable_eval,
                 }
             )
             print(f"[TRADE_SELECTION] symbol={symbol} selected=False reason=awaiting_ranked_cycle_selection")
@@ -1454,7 +1486,11 @@ class RossMomentumStrategyV1(BaseStrategy):
 
         ranked_candidates = sorted(
             trade_candidates,
-            key=lambda item: float(item.get("quality_score", 0.0)),
+            key=lambda item: (
+                float(item.get("quality_score", 0.0)),
+                -float((item.get("tradeable") or {}).get("spread_pct") or 9.0),
+                -float((item.get("tradeable") or {}).get("extension_pct") or 9.0),
+            ),
             reverse=True,
         )
         allowed_capacity = max(0, self._max_concurrent_positions - open_positions)
@@ -1466,18 +1502,30 @@ class RossMomentumStrategyV1(BaseStrategy):
             score = float(candidate.get("quality_score", 0.0))
             setup = str(candidate.get("setup_family_id") or "UNKNOWN")
             print(f"[TRADE_RANKING] symbol={symbol} rank={rank} score={score:.2f} setup={setup}")
+            print(
+                "[EXECUTION][RANK] "
+                f"symbol={symbol} rank={rank} score={score:.2f} "
+                f"extension_pct={(candidate.get('tradeable') or {}).get('extension_pct')} "
+                f"spread_pct={(candidate.get('tradeable') or {}).get('spread_pct')}"
+            )
             selected = candidate in selected_candidates
             reason = "top_rank" if selected else "max_trades_per_cycle"
             print(f"[TRADE_SELECTION] symbol={symbol} selected={str(selected)} reason={reason}")
             if not selected:
+                print(f"[EXECUTION][SKIPPED_LOWER_RANK] symbol={symbol} rank={rank}")
                 continue
             intent = candidate["intent"]
+            tradeable = candidate.get("tradeable") or {}
+            setattr(intent, "trigger_reference_price", tradeable.get("trigger_reference_price"))
+            setattr(intent, "entry_extension_pct", tradeable.get("extension_pct"))
+            setattr(intent, "spread_pct", tradeable.get("spread_pct"))
             base_size = float(getattr(intent, "position_size", None) or getattr(intent, "quantity", None) or getattr(intent, "requested_quantity", None) or 1.0)
             size_multiplier = self._size_multiplier_for_quality(score)
             position_size = base_size * size_multiplier
             setattr(intent, "position_size", position_size)
             setattr(intent, "quantity", max(1, int(round(position_size))))
             translated_intents.append(intent)
+            print(f"[EXECUTION][SELECTED] symbol={symbol} rank={rank} score={score:.2f}")
             print(f"[CAPITAL_ALLOCATION] symbol={symbol} size={size_multiplier:.2f} reason=quality_scaled")
             print(
                 f"[TRADE_INTENT][CREATE] symbol={symbol} trigger=confirmation_gate side=LONG qty={getattr(intent, 'quantity', None) or getattr(intent, 'requested_quantity', None) or 1}"
@@ -1775,6 +1823,91 @@ class RossMomentumStrategyV1(BaseStrategy):
             if str(getattr(pattern, "pattern_id", "")).upper() == normalized_pattern_id:
                 return pattern
         return None
+
+    def evaluate_tradeable_entry(
+        self,
+        *,
+        symbol: str,
+        mode: RunMode,
+        setup_family: str,
+        pattern_confidence: float,
+        entry_price: float,
+        input_summary,
+        selected_trigger: dict | None,
+        levels: dict | None,
+    ) -> dict[str, object]:
+        reference = None
+        trigger_payload = selected_trigger or {}
+        for key in ("trigger_price_reference", "trigger_level", "breakout_level", "reclaim_level"):
+            value = self._safe_float(trigger_payload.get(key))
+            if value is not None and value > 0:
+                reference = value
+                break
+        if reference is None:
+            for key in ("premarket_high", "hod"):
+                value = self._safe_float((levels or {}).get(key))
+                if value is not None and value > 0:
+                    reference = value
+                    break
+        spread = self._safe_float(getattr(input_summary, "spread", None))
+        last_price = self._safe_float(getattr(input_summary, "last_price", None)) or entry_price
+        spread_pct = (spread / last_price) if (spread is not None and last_price and last_price > 0) else None
+        extension_pct = ((entry_price - reference) / reference) if (reference and reference > 0) else None
+        blocking_reasons: list[str] = []
+        if mode not in {RunMode.PAPER, RunMode.LIVE}:
+            return {
+                "tradeable": True,
+                "blocking_reasons": blocking_reasons,
+                "chosen_setup": setup_family,
+                "trigger_reference_price": reference,
+                "extension_pct": extension_pct,
+                "spread_pct": spread_pct,
+            }
+        if pattern_confidence < self._tradeable_min_confidence:
+            blocking_reasons.append("CONFIDENCE_BELOW_ORDERABLE_THRESHOLD")
+        if reference is None:
+            blocking_reasons.append("MISSING_TRIGGER_REFERENCE")
+        if extension_pct is not None and extension_pct > self._max_extension_pct_for_entry:
+            print(
+                "[ENTRY][EXTENSION_BLOCK] "
+                f"symbol={symbol} setup={setup_family} entry_price={entry_price:.4f} "
+                f"reference={reference:.4f} extension_pct={extension_pct:.4f}"
+            )
+            blocking_reasons.append("ENTRY_TOO_EXTENDED")
+        if extension_pct is not None and extension_pct > self._max_breakout_distance_pct:
+            blocking_reasons.append("BREAKOUT_DISTANCE_TOO_LARGE")
+        spread_threshold = (
+            self._max_spread_pct_for_low_price
+            if entry_price <= self._low_price_spread_cutoff
+            else self._max_spread_pct_for_entry
+        )
+        if spread_pct is None:
+            blocking_reasons.append("SPREAD_UNAVAILABLE")
+        elif spread_pct > spread_threshold:
+            print(
+                "[ENTRY][SPREAD_BLOCK] "
+                f"symbol={symbol} spread={spread} spread_pct={spread_pct:.4f}"
+            )
+            blocking_reasons.append("SPREAD_TOO_WIDE")
+        rvol = self._safe_float(getattr(input_summary, "rvol", None))
+        pct_change = self._safe_float(getattr(input_summary, "pct_change", None))
+        if rvol is None or rvol < 1.0 or pct_change is None or pct_change <= 0:
+            blocking_reasons.append("MOMENTUM_CONTEXT_INVALID")
+        tradeable = len(blocking_reasons) == 0
+        log_type = "PASS" if tradeable else "BLOCK"
+        print(
+            f"[TRADEABLE][{log_type}] "
+            f"symbol={symbol} chosen_setup={setup_family} confidence={pattern_confidence:.4f} "
+            f"reference={reference} extension_pct={extension_pct} spread_pct={spread_pct} reasons={blocking_reasons}"
+        )
+        return {
+            "tradeable": tradeable,
+            "blocking_reasons": blocking_reasons,
+            "chosen_setup": setup_family,
+            "trigger_reference_price": reference,
+            "extension_pct": extension_pct,
+            "spread_pct": spread_pct,
+        }
 
     @staticmethod
     def _build_trade_from_pattern(pattern, inputs, *, selected_trigger: dict | None = None):

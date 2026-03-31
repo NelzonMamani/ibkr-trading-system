@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from src.config.runtime_config import RunMode
 from src.core.engines.trigger_quality_engine import TriggerQualityEngine
@@ -343,3 +344,40 @@ def test_quality_size_multiplier_and_open_position_helpers() -> None:
             {"symbol": "CCC", "position_qty": 0},
         ]
     ) == 2
+
+
+def test_tradeable_entry_gate_blocks_extension_and_spread(capsys) -> None:
+    strategy = RossMomentumStrategyV1()
+    summary = SimpleNamespace(last_price=10.0, spread=0.25, rvol=2.0, pct_change=8.0)
+    result = strategy.evaluate_tradeable_entry(
+        symbol="TEST",
+        mode=RunMode.PAPER,
+        setup_family="HOD_BREAK",
+        pattern_confidence=0.9,
+        entry_price=10.6,
+        input_summary=summary,
+        selected_trigger={"trigger_price_reference": 10.0},
+        levels={"hod": 10.0},
+    )
+    assert result["tradeable"] is False
+    assert "ENTRY_TOO_EXTENDED" in result["blocking_reasons"]
+    assert "SPREAD_TOO_WIDE" in result["blocking_reasons"]
+    assert "[ENTRY][EXTENSION_BLOCK] symbol=TEST" in capsys.readouterr().out
+
+
+def test_tradeable_entry_gate_passes_clean_candidate(capsys) -> None:
+    strategy = RossMomentumStrategyV1()
+    summary = SimpleNamespace(last_price=10.0, spread=0.02, rvol=2.0, pct_change=8.0)
+    result = strategy.evaluate_tradeable_entry(
+        symbol="TEST",
+        mode=RunMode.PAPER,
+        setup_family="HOD_BREAK",
+        pattern_confidence=0.9,
+        entry_price=10.03,
+        input_summary=summary,
+        selected_trigger={"trigger_price_reference": 10.0},
+        levels={"hod": 10.0},
+    )
+    assert result["tradeable"] is True
+    assert result["blocking_reasons"] == []
+    assert "[TRADEABLE][PASS] symbol=TEST" in capsys.readouterr().out
