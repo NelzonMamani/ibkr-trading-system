@@ -223,12 +223,21 @@ def execute_intents(
     decisions: List[RiskDecisionRecord],
 ) -> List[ExecutionEvent]:
     events: List[ExecutionEvent] = []
+    manager: Any | None = None
 
     if mode in {RunMode.PAPER, RunMode.LIVE}:
         if _is_test_environment():
             print("[EXECUTION][TEST_MODE] Skipping IBKR connection validation")
         else:
             _validate_ibkr_connection(mode)
+            manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
+            client = manager.get_client()
+            callback = globals().get("_on_ibkr_callback")
+            if callback is not None:
+                if hasattr(client, "register_execution_callback"):
+                    client.register_execution_callback(_on_ibkr_callback)
+                else:
+                    print("[EXECUTION][TEST_MODE] Client does not support execution callbacks")
 
     broker_state = "CONNECTED" if mode in {RunMode.PAPER, RunMode.LIVE} else "DISCONNECTED"
     print(f"[EXECUTION][MODE] mode={mode.value} broker_connection_state={broker_state}")
@@ -239,7 +248,8 @@ def execute_intents(
 
     order_id_seed = 0
     if mode in {RunMode.PAPER, RunMode.LIVE} and not _is_test_environment():
-        manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
+        if manager is None:
+            manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
         metadata = manager.connection_metadata()
         order_id_seed = int(metadata.get("connected_client_id") or 0) * 1_000_000
 
