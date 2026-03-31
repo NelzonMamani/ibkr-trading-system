@@ -274,6 +274,7 @@ def run_cycle(
     print_section(f"CYCLE {cycle_id} MODE={mode.value} SESSION={session.value}")
     print(f"[TRACE][cycle={cycle_id}] stage=cycle_start mode={mode.value} session={session.value}")
     force_debug_trades = bool(get_config("FORCE_DEBUG_TRADES")) and mode == RunMode.SIM
+    print(f"[DEBUG][STATE] force_debug_trades={str(force_debug_trades).lower()}")
     strategy_policy, scanner_policy = _scanner_policy_for_session(session.value)
     if force_debug_trades:
         scanner_policy = replace(
@@ -493,6 +494,11 @@ def run_cycle(
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=true forced=false intent_id={intent.intent_id}")
             if not trade_intents:
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=NO_STRATEGY_INTENT")
+            print("[PIPELINE][INTENT_TRACE]")
+            print(f"symbol={symbol}")
+            print(f"setup_detected={str(setup_detected).lower()}")
+            print(f"trigger_ready={str(trigger_ready_now).lower()}")
+            print(f"intent_created={str(bool(trade_intents)).lower()}")
 
     print_section("STRATEGY")
     if intents:
@@ -528,6 +534,16 @@ def run_cycle(
             f"[PIPELINE][RISK] symbol={output.symbol} allowed={str(risk_pass).lower()} "
             f"decision={output.decision} reason={output.block_reason or 'PASS'}"
         )
+        if output.decision == "BLOCK":
+            lifecycle_block_reason = output.block_reason or ",".join(output.triggered_rules) or "UNKNOWN"
+            capital_constraints = ",".join(output.constraints) if output.constraints else "none"
+            reason = output.block_reason or ",".join(output.triggered_rules) or "RISK_BLOCKED"
+            print("[RISK][DETAIL]")
+            print(f"symbol={output.symbol}")
+            print("allowed=false")
+            print(f"reason={reason}")
+            print(f"lifecycle_block_reason={lifecycle_block_reason}")
+            print(f"capital_constraints={capital_constraints}")
         if output.intent_id in forced_intent_ids and risk_pass:
             print(f"[DEBUG][FORCED_PATH] passed_risk symbol={output.symbol} intent_id={output.intent_id}")
         print(f"[TRACE][cycle={cycle_id}][symbol={output.symbol}] stage=risk approved_quantity={output.approved_quantity} capital_source={output.capital_source} available_capital={output.available_funds}")
@@ -580,6 +596,8 @@ def run_cycle(
     print(f"risk_allowed={risk_allowed}")
     print(f"selected_by_arbitrator={selected_by_arbitrator}")
     print(f"executed={executed}")
+    if passed_setup > 0 and passed_trigger > 0 and generated_intents == 0:
+        print("[PIPELINE][ERROR] trigger_passed_but_no_intent")
     if passed_setup > 0 and passed_trigger > 0 and generated_intents > 0 and executed == 0:
         kill_switch_active = any(
             "KILL_SWITCH" in rule
@@ -595,12 +613,12 @@ def run_cycle(
             f"portfolio_exposure={portfolio_exposure:.2f} last_block_reason={last_block_reason}"
         )
     if executed == 0:
-        if risk_allowed == 0:
+        if generated_intents == 0:
+            no_trade_reason = "no_intents_generated"
+        elif risk_allowed == 0:
             no_trade_reason = "blocked_by_risk"
         elif selected_by_arbitrator == 0:
             no_trade_reason = "blocked_by_arbitrator"
-        elif generated_intents == 0:
-            no_trade_reason = "no_intents_generated"
         else:
             no_trade_reason = "execution_engine_not_firing"
         print(f"[PIPELINE][NO_TRADE_REASON] reason={no_trade_reason}")
