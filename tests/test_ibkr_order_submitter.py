@@ -61,7 +61,7 @@ class FakeIbkrClient:
         return order_id
 
     def wait_for_order_status(self, order_id, timeout_seconds=5):
-        return {"status": "ACKED"}
+        return {"status": "Submitted"}
 
     def disconnect(self):
         self.connected = False
@@ -169,7 +169,7 @@ def test_submission_blocks_second_order_same_run():
     submitter = make_submitter(settings, guard=guard, event_bus=event_bus)
 
     first_result = submitter.submit_once(make_order("order-1"))
-    assert first_result.status == "ACKED"
+    assert first_result.status == "Submitted"
 
     second_result = submitter.submit_once(make_order("order-2"))
     assert second_result.status == "BLOCKED"
@@ -184,7 +184,7 @@ def test_idempotency_blocks_same_client_order_id_twice():
     submitter = make_submitter(settings, guard=guard, event_bus=event_bus)
 
     first_result = submitter.submit_once(make_order("dup-order"))
-    assert first_result.status == "ACKED"
+    assert first_result.status == "Submitted"
     second_result = submitter.submit_once(make_order("dup-order"))
 
     assert second_result.status == "BLOCKED"
@@ -200,7 +200,7 @@ def test_success_path_marks_submitted_and_emits_events():
 
     result = submitter.submit_once(make_order("success-order"))
 
-    assert result.status == "ACKED"
+    assert result.status == "Submitted"
     assert guard.submitted_count() == 1
     assert event_bus.count(ORDER_SUBMISSION_ATTEMPTED) == 1
     assert event_bus.count(ORDER_SUBMITTED_ACK) == 1
