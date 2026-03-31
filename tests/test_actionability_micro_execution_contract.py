@@ -120,7 +120,7 @@ def test_execution_dispatch_uses_approved_quantity_and_is_truthful(capsys) -> No
     out = capsys.readouterr().out
     assert events[0].action == "SUBMITTED"
     assert "qty=1" in events[0].detail
-    assert "[EXECUTION][DISPATCH] symbol=MCRO dispatch=SIMULATED" in out
+    assert "[EXECUTION][DISPATCH] symbol=MCRO dispatch=IBKR" in out
 
 
 def test_final_decision_emits_one_terminal_line_per_symbol(capsys) -> None:
