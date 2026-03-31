@@ -361,6 +361,7 @@ def run_cycle(
             reason="paper_after_hours_override",
         )
         print("[MODE][OVERRIDE] preserving PAPER mode during AFTER_HOURS for lifecycle validation")
+        print("[MODE][FORCE] PAPER mode enforced during AFTER_HOURS")
     mode = resolve_mode(mode_authority.effective_mode)
     print(f"[PRICE][MODE_POLICY] mode={mode.value} fallback_allowed={str(mode == RunMode.PAPER).lower()}")
     now = utc_now()
