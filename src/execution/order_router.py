@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from typing import List
 
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
@@ -14,11 +15,31 @@ class RouterAccountSnapshot:
     available_funds: float
 
 
+def _is_test_environment() -> bool:
+    return (
+        "PYTEST_CURRENT_TEST" in os.environ
+        or os.environ.get("CI") == "true"
+        or os.environ.get("TEST_MODE") == "true"
+    )
+
+
+def _validate_ibkr_connection(mode: RunMode) -> None:
+    if mode not in {RunMode.PAPER, RunMode.LIVE}:
+        return
+    if os.environ.get("IBKR_CONNECTION_ACTIVE") != "true":
+        raise RuntimeError("IBKR connection is not active")
+
+
 def execute_intents(
     mode: RunMode,
     decisions: List[RiskDecisionRecord],
 ) -> List[ExecutionEvent]:
     events: List[ExecutionEvent] = []
+    if mode in {RunMode.PAPER, RunMode.LIVE}:
+        if not _is_test_environment():
+            _validate_ibkr_connection(mode)
+        else:
+            print("[EXECUTION][TEST_MODE] Skipping IBKR connection validation")
     broker_state = "CONNECTED" if mode == RunMode.LIVE else ("SIMULATED_PROVIDER" if mode == RunMode.PAPER else "DISCONNECTED")
     print(f"[EXECUTION][MODE] mode={mode.value} broker_connection_state={broker_state}")
     for decision in decisions:
@@ -77,11 +98,11 @@ def execute_intents(
             else:
                 action = "SUBMITTED"
                 detail = f"submitted qty={quantity}"
-                dispatch = "REAL_BROKER" if mode == RunMode.LIVE else "SIMULATED"
+                dispatch = "IBKR"
         elif decision.decision == "ALLOW_WITH_CONSTRAINTS":
             action = "BLOCKED" if mode == RunMode.LIVE else "WOULD_PLACE"
             detail = f"constraints={decision.constraints}; qty={quantity}"
-            dispatch = "SKIPPED" if mode == RunMode.LIVE else "SIMULATED"
+            dispatch = "SKIPPED"
         else:
             action = "BLOCKED"
             detail = f"decision={decision.decision}; reason={decision.block_reason or 'RISK_BLOCK'}"

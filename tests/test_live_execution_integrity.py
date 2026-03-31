@@ -102,3 +102,50 @@ def test_focus_split_position_size_deterministic():
 
 def test_capital_resolver_uses_ibkr_when_available():
     assert resolve_available_capital(GoodClient(), allow_fallback=False) == 168.42
+
+
+def test_ibkr_validation_skipped_in_test_env(monkeypatch, capsys):
+    monkeypatch.delenv("IBKR_CONNECTION_ACTIVE", raising=False)
+    decision = RiskDecisionRecord(
+        symbol="POLA",
+        intent_id="POLA-1",
+        decision="ALLOW",
+        max_position_size=24,
+        constraints=[],
+        triggered_rules=[],
+        rationale="ok",
+        available_funds=168.0,
+        order_value=60.0,
+        risk_allowed=True,
+        capital_source="IBKR_CANONICAL",
+        approved_quantity=24,
+        entry_price=2.5,
+    )
+    events = execute_intents(mode=RunMode.LIVE, decisions=[decision])
+    out = capsys.readouterr().out
+    assert events[0].action == "SUBMITTED"
+    assert "[EXECUTION][TEST_MODE] Skipping IBKR connection validation" in out
+
+
+def test_ibkr_validation_enforced_outside_test_env(monkeypatch):
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("IBKR_CONNECTION_ACTIVE", raising=False)
+    decision = RiskDecisionRecord(
+        symbol="POLA",
+        intent_id="POLA-1",
+        decision="ALLOW",
+        max_position_size=24,
+        constraints=[],
+        triggered_rules=[],
+        rationale="ok",
+        available_funds=168.0,
+        order_value=60.0,
+        risk_allowed=True,
+        capital_source="IBKR_CANONICAL",
+        approved_quantity=24,
+        entry_price=2.5,
+    )
+    with pytest.raises(RuntimeError, match="IBKR connection is not active"):
+        execute_intents(mode=RunMode.LIVE, decisions=[decision])
