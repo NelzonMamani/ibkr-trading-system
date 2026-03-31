@@ -172,3 +172,39 @@ def test_req_historical_data_returns_bars_when_data_arrives_before_end_signal(mo
     bars = client.reqHistoricalData(contract)
 
     assert bars == [{"close": 123.45}]
+
+
+def test_order_state_registry_tracks_order_status_and_exec_details() -> None:
+    client = _build_client()
+    client.orderStatus(
+        orderId=101,
+        status="Submitted",
+        filled=0,
+        remaining=10,
+        avgFillPrice=0.0,
+        permId=1,
+        parentId=0,
+        lastFillPrice=0.0,
+        clientId=1,
+        whyHeld="",
+        mktCapPrice=0.0,
+    )
+    status_state = client.get_order_state(101)
+    assert status_state is not None
+    assert status_state["status"] == "SUBMITTED"
+    assert status_state["filled"] == 0
+    assert status_state["remaining"] == 10
+
+    contract = Contract()
+    contract.symbol = "AAPL"
+    execution = type(
+        "Execution",
+        (),
+        {"orderId": 101, "execId": "E1", "time": "20260331  13:00:00", "price": 11.2, "shares": 4},
+    )()
+    client.execDetails(reqId=0, contract=contract, execution=execution)
+    fill_state = client.get_order_state(101)
+    assert fill_state is not None
+    assert fill_state["status"] == "PARTIAL"
+    assert fill_state["filled"] == 4
+    assert fill_state["remaining"] == 10

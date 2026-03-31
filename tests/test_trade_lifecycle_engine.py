@@ -264,6 +264,107 @@ def test_no_lifecycle_registration_when_execution_artifact_invalid(capsys) -> No
         set_config_overrides(None)
 
 
+def test_shadow_mode_keeps_legacy_state_and_logs_compare(capsys) -> None:
+    set_config_overrides(
+        {
+            "RUN_MODE": "SIM",
+            "EXECUTION_ENABLED": False,
+            "EXECUTION_LIFECYCLE_MODE": "SHADOW",
+        }
+    )
+    orchestrator = CoreOrchestrator()
+    try:
+        managed = ManagedPosition(
+            symbol="AAPL",
+            side="LONG",
+            quantity=10,
+            entry_price=11.0,
+            stop_price=10.5,
+        )
+        result = ExecutionResult(
+            symbol="AAPL",
+            trader_type="SYSTEM",
+            attempted=True,
+            status="SUBMITTED",
+            rationale="submitted",
+            quantity=10,
+            filled_quantity=0,
+            entry_price=11.0,
+            client_order_id="TEST-SHADOW-1",
+        )
+        setattr(result, "ibkr_order_id", 123)
+        trade_id = orchestrator._register_trade_lifecycle_on_execution(
+            execution_result=result,
+            managed_position=managed,
+        )
+        captured = capsys.readouterr().out
+        assert trade_id == "TEST-SHADOW-1"
+        assert "[LIFECYCLE][LEGACY] ENTRY_FILL" in captured
+        assert "[LIFECYCLE][SHADOW]" not in captured
+        assert "mismatch=True" in captured
+    finally:
+        set_config_overrides(None)
+
+
+def test_ibkr_strict_mode_requires_confirmed_fill(capsys) -> None:
+    set_config_overrides(
+        {
+            "RUN_MODE": "SIM",
+            "EXECUTION_ENABLED": False,
+            "EXECUTION_LIFECYCLE_MODE": "IBKR_STRICT",
+        }
+    )
+    orchestrator = CoreOrchestrator()
+    try:
+        managed = ManagedPosition(
+            symbol="AAPL",
+            side="LONG",
+            quantity=10,
+            entry_price=11.0,
+            stop_price=10.5,
+        )
+        pending = ExecutionResult(
+            symbol="AAPL",
+            trader_type="SYSTEM",
+            attempted=True,
+            status="SUBMITTED",
+            rationale="submitted",
+            quantity=10,
+            filled_quantity=0,
+            entry_price=11.0,
+            client_order_id="TEST-STRICT-1",
+        )
+        setattr(pending, "ibkr_order_id", 123)
+        assert (
+            orchestrator._register_trade_lifecycle_on_execution(
+                execution_result=pending,
+                managed_position=managed,
+            )
+            is None
+        )
+        filled = ExecutionResult(
+            symbol="AAPL",
+            trader_type="SYSTEM",
+            attempted=True,
+            status="FILLED",
+            rationale="filled",
+            quantity=10,
+            filled_quantity=10,
+            entry_price=11.0,
+            client_order_id="TEST-STRICT-2",
+        )
+        setattr(filled, "ibkr_order_id", 123)
+        trade_id = orchestrator._register_trade_lifecycle_on_execution(
+            execution_result=filled,
+            managed_position=managed,
+        )
+        captured = capsys.readouterr().out
+        assert trade_id == "TEST-STRICT-2"
+        assert "[LIFECYCLE][SHADOW] ENTRY_FILL source=IBKR_EVENT" in captured
+    finally:
+        set_config_overrides(None)
+
+
 def test_run_once_success_semantics_do_not_depend_on_lifecycle(monkeypatch) -> None:
     orchestrator = _build_orchestrator(monkeypatch)
     monkeypatch.setattr(

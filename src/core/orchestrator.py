@@ -19,9 +19,11 @@ from src.brokers import IbkrLiveBroker, SimBroker
 from src.adapters.brokers.ibkr.ibkr_order_translator import IBAPI_AVAILABLE
 from src.config.config_resolver import emit_config_event, get_config
 from src.config.runtime_config import (
+    ExecutionLifecycleMode,
     EventReplayMode,
     RunMode,
     get_daily_loss_hard_limit,
+    get_execution_lifecycle_mode,
     get_daily_loss_warning_limit,
     get_ibkr_api_write_allowed,
     get_ibkr_order_submission_enabled,
@@ -487,6 +489,8 @@ class CoreOrchestrator:
         self._prep_next_due_at: datetime | None = None
         self._prep_update_thread: Thread | None = None
         self._prep_update_lock = Lock()
+        self.execution_lifecycle_mode = get_execution_lifecycle_mode()
+        print(f"[LIFECYCLE][MODE] execution_lifecycle_mode={self.execution_lifecycle_mode.value}")
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
         self._run_startup_validations()
         self._ensure_premarket_prep_artifact()
@@ -602,21 +606,110 @@ class CoreOrchestrator:
         execution_result: ExecutionResult,
         managed_position: ManagedPosition | None,
     ) -> str | None:
+        legacy_detected, legacy_qty, legacy_source = self._legacy_fill_detection(execution_result)
+        shadow_detected, shadow_qty = self._shadow_fill_detection(execution_result)
+        symbol = str(getattr(execution_result, "symbol", "UNKNOWN") or "UNKNOWN")
+        print(
+            "[EXECUTION][COMPARE] "
+            f"symbol={symbol} legacy_fill_detected={legacy_detected} "
+            f"shadow_fill_detected={shadow_detected} mismatch={legacy_detected != shadow_detected}"
+        )
+        if legacy_detected:
+            print(f"[LIFECYCLE][LEGACY] ENTRY_FILL source={legacy_source} symbol={symbol} qty={legacy_qty}")
+        if shadow_detected:
+            print(
+                "[LIFECYCLE][SHADOW] "
+                f"ENTRY_FILL source=IBKR_EVENT symbol={symbol} "
+                f"order_id={getattr(execution_result, 'ibkr_order_id', None)} qty={shadow_qty}"
+            )
+
+        mode = self.execution_lifecycle_mode
+        if mode == ExecutionLifecycleMode.LEGACY:
+            return self._apply_legacy_lifecycle_event(execution_result=execution_result, managed_position=managed_position)
+        if mode == ExecutionLifecycleMode.SHADOW:
+            self.process_ibkr_lifecycle_event(
+                execution_result=execution_result,
+                managed_position=managed_position,
+                apply_event=False,
+            )
+            return self._apply_legacy_lifecycle_event(execution_result=execution_result, managed_position=managed_position)
+        return self.process_ibkr_lifecycle_event(
+            execution_result=execution_result,
+            managed_position=managed_position,
+            apply_event=True,
+        )
+
+    def _legacy_fill_detection(self, execution_result: ExecutionResult) -> tuple[bool, int, str]:
+        status = str(getattr(execution_result, "status", "") or "").upper()
+        quantity = int(
+            getattr(execution_result, "filled_quantity", 0)
+            or getattr(execution_result, "quantity", 0)
+            or 0
+        )
+        detected = bool(status in {"FILLED", "PARTIAL", "ACKED", "SUBMITTED", "SIMULATED"} and quantity > 0)
+        return detected, quantity, status or "UNKNOWN"
+
+    def _shadow_fill_detection(self, execution_result: ExecutionResult) -> tuple[bool, int]:
         status = str(getattr(execution_result, "status", "") or "").upper()
         filled_quantity = int(getattr(execution_result, "filled_quantity", 0) or 0)
         ibkr_order_id = getattr(execution_result, "ibkr_order_id", None)
-        is_confirmed_fill = bool(
-            ibkr_order_id is not None
-            and (status in {"FILLED", "PARTIAL"} or filled_quantity > 0)
+        detected = bool(ibkr_order_id is not None and (status in {"FILLED", "PARTIAL"} or filled_quantity > 0))
+        return detected, filled_quantity
+
+    def _apply_legacy_lifecycle_event(
+        self,
+        *,
+        execution_result: ExecutionResult,
+        managed_position: ManagedPosition | None,
+    ) -> str | None:
+        detected, quantity, source = self._legacy_fill_detection(execution_result)
+        if not detected:
+            print("[LIFECYCLE][SKIP] stage=register path=legacy reason=not_legacy_fill")
+            return None
+        return self._apply_lifecycle_event(
+            execution_result=execution_result,
+            managed_position=managed_position,
+            quantity=quantity,
+            source=source,
+            order_id=getattr(execution_result, "ibkr_order_id", None),
         )
-        if not is_confirmed_fill:
+
+    def process_ibkr_lifecycle_event(
+        self,
+        *,
+        execution_result: ExecutionResult,
+        managed_position: ManagedPosition | None,
+        apply_event: bool,
+    ) -> str | None:
+        detected, quantity = self._shadow_fill_detection(execution_result)
+        if not detected:
+            status = str(getattr(execution_result, "status", "") or "").upper()
             print(
                 "[LIFECYCLE][SKIP] "
-                f"stage=register reason=waiting_for_ibkr_fill status={status} "
-                f"order_id={ibkr_order_id} filled_quantity={filled_quantity}"
+                f"stage=register path=shadow reason=waiting_for_ibkr_fill status={status} "
+                f"order_id={getattr(execution_result, 'ibkr_order_id', None)} "
+                f"filled_quantity={int(getattr(execution_result, 'filled_quantity', 0) or 0)}"
             )
             return None
-        quantity = filled_quantity
+        return self._apply_lifecycle_event(
+            execution_result=execution_result,
+            managed_position=managed_position,
+            quantity=quantity,
+            source="IBKR_EVENT",
+            order_id=getattr(execution_result, "ibkr_order_id", None),
+            apply_event=apply_event,
+        )
+
+    def _apply_lifecycle_event(
+        self,
+        *,
+        execution_result: ExecutionResult,
+        managed_position: ManagedPosition | None,
+        quantity: int,
+        source: str,
+        order_id: object,
+        apply_event: bool = True,
+    ) -> str | None:
         if quantity <= 0:
             print("[LIFECYCLE][SKIP] stage=register reason=invalid_quantity")
             return None
@@ -632,30 +725,33 @@ class CoreOrchestrator:
             print("[LIFECYCLE][SKIP] stage=register reason=invalid_stop_price")
             return None
         trade_id = str(getattr(execution_result, "client_order_id", None) or f"{execution_result.symbol}:{uuid4()}")
-        self.trade_lifecycle_engine.apply_event(
-            LifecycleEvent(
-                event_id=str(getattr(execution_result, "execution_id", None) or f"entry:{trade_id}:{quantity}:{entry_price}"),
-                lifecycle_trade_id=trade_id,
-                symbol=str(execution_result.symbol),
-                side=str(getattr(managed_position, "side", "LONG") or "LONG").upper(),
-                event_type="ENTRY_FILL",
-                quantity=quantity,
-                price=entry_price,
-                timestamp=datetime.now(timezone.utc).isoformat(),
-                order_id=str(ibkr_order_id),
-                execution_id=str(getattr(execution_result, "execution_id", "") or "") or None,
-                source="IBKR_EVENT",
-            ),
-            strategy_name=str(getattr(execution_result, "strategy_name", "") or "") or None,
-            stop_price=stop_price,
-        )
+        if apply_event:
+            self.trade_lifecycle_engine.apply_event(
+                LifecycleEvent(
+                    event_id=str(getattr(execution_result, "execution_id", None) or f"entry:{trade_id}:{quantity}:{entry_price}"),
+                    lifecycle_trade_id=trade_id,
+                    symbol=str(execution_result.symbol),
+                    side=str(getattr(managed_position, "side", "LONG") or "LONG").upper(),
+                    event_type="ENTRY_FILL",
+                    quantity=quantity,
+                    price=entry_price,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    order_id=str(order_id) if order_id is not None else None,
+                    execution_id=str(getattr(execution_result, "execution_id", "") or "") or None,
+                    source=source,
+                ),
+                strategy_name=str(getattr(execution_result, "strategy_name", "") or "") or None,
+                stop_price=stop_price,
+            )
         print(
             "[LIFECYCLE][UPDATE] "
-            f"symbol={execution_result.symbol} event=ENTRY_FILL source=IBKR_EVENT "
-            f"order_id={ibkr_order_id} status={status} qty={quantity}"
+            f"symbol={execution_result.symbol} event=ENTRY_FILL source={source} "
+            f"order_id={order_id} status={getattr(execution_result, 'status', None)} qty={quantity} "
+            f"apply_event={apply_event}"
         )
-        print(f"[LIFECYCLE][REGISTER] symbol={execution_result.symbol} trade_id={trade_id} qty={quantity}")
-        return trade_id
+        if apply_event:
+            print(f"[LIFECYCLE][REGISTER] symbol={execution_result.symbol} trade_id={trade_id} qty={quantity}")
+        return trade_id if apply_event else None
 
     def _reconcile_lifecycle_with_managed_position(
         self,

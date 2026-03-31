@@ -77,6 +77,7 @@ class IbkrClient(EWrapper, EClient):
         self._order_errors: Dict[int, Tuple[int, str]] = {}
         self._order_warnings: Dict[int, Tuple[int, str]] = {}
         self._exec_details_by_order: Dict[int, List[dict]] = {}
+        self._order_state_registry: Dict[int, Dict[str, object]] = {}
         self._commission_by_exec_id: Dict[str, float] = {}
         self._account_summary_events: Dict[int, threading.Event] = {}
         self._account_summary_rows: Dict[int, Dict[str, str]] = {}
@@ -265,6 +266,13 @@ class IbkrClient(EWrapper, EClient):
 
     def get_order_warning(self, order_id: int) -> Optional[Tuple[int, str]]:
         return self._order_warnings.get(order_id)
+
+    def get_order_state(self, order_id: int) -> Optional[Dict[str, object]]:
+        state = self._order_state_registry.get(order_id)
+        return dict(state) if state is not None else None
+
+    def get_order_state_snapshot(self) -> Dict[int, Dict[str, object]]:
+        return {order_id: dict(state) for order_id, state in self._order_state_registry.items()}
 
 
     def get_account_summary(self, timeout_seconds: Optional[int] = None) -> Dict[str, str]:
@@ -855,6 +863,7 @@ class IbkrClient(EWrapper, EClient):
         whyHeld: str,
         mktCapPrice: float,
     ):  # type: ignore[override]
+        timestamp = datetime.now(timezone.utc).isoformat()
         existing = self._order_status.get(orderId, {})
         self._order_status[orderId] = {
             **existing,
@@ -877,6 +886,18 @@ class IbkrClient(EWrapper, EClient):
             "[EXECUTION][ORDER_TRACK] "
             f"order_id={orderId} status={status} filled={int(filled)} remaining={int(remaining)}"
         )
+        self._order_state_registry[orderId] = {
+            "status": str(status).upper(),
+            "filled": int(filled),
+            "remaining": int(remaining),
+            "avg_price": float(avgFillPrice or 0.0),
+            "last_update_timestamp": timestamp,
+        }
+        print(
+            "[IBKR][ORDER_STATE] "
+            f"order_id={orderId} status={str(status).upper()} filled={int(filled)} "
+            f"remaining={int(remaining)} avg_price={float(avgFillPrice or 0.0)} ts={timestamp}"
+        )
         event = self._order_status_events.setdefault(orderId, threading.Event())
         event.set()
 
@@ -884,11 +905,14 @@ class IbkrClient(EWrapper, EClient):
         order_id = getattr(execution, "orderId", None)
         if order_id is None:
             return
+        timestamp = datetime.now(timezone.utc).isoformat()
+        shares = int(getattr(execution, "shares", 0) or 0)
+        execution_price = float(getattr(execution, "price", 0.0) or 0.0)
         details = {
             "execId": getattr(execution, "execId", None),
             "time": getattr(execution, "time", None),
-            "price": getattr(execution, "price", None),
-            "shares": getattr(execution, "shares", None),
+            "price": execution_price,
+            "shares": shares,
         }
         print(
             "[ORDER][FILL] "
@@ -905,6 +929,23 @@ class IbkrClient(EWrapper, EClient):
             f"order_id={order_id} status=Filled shares={getattr(execution, 'shares', None)}"
         )
         self._exec_details_by_order.setdefault(order_id, []).append(details)
+        previous_state = self._order_state_registry.get(order_id, {})
+        previously_filled = int(previous_state.get("filled", 0) or 0)
+        remaining = int(previous_state.get("remaining", 0) or 0)
+        cumulative_filled = max(previously_filled, 0) + max(shares, 0)
+        inferred_status = "FILLED" if remaining == 0 else "PARTIAL"
+        self._order_state_registry[order_id] = {
+            "status": inferred_status,
+            "filled": cumulative_filled,
+            "remaining": remaining,
+            "avg_price": execution_price,
+            "last_update_timestamp": timestamp,
+        }
+        print(
+            "[IBKR][ORDER_STATE] "
+            f"order_id={order_id} status={inferred_status} filled={cumulative_filled} "
+            f"remaining={remaining} avg_price={execution_price} ts={timestamp} source=execDetails"
+        )
 
     def openOrder(self, orderId, contract, order, orderState):  # type: ignore[override]
         print(f"[ORDER][OPEN] order_id={orderId} symbol={getattr(contract, 'symbol', None)}")

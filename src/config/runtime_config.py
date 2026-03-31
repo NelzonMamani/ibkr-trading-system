@@ -37,6 +37,15 @@ class EventReplayMode(str, Enum):
 DEFAULT_EVENT_REPLAY_MODE: EventReplayMode = EventReplayMode.CYCLE
 
 
+class ExecutionLifecycleMode(str, Enum):
+    LEGACY = "LEGACY"
+    SHADOW = "SHADOW"
+    IBKR_STRICT = "IBKR_STRICT"
+
+
+DEFAULT_EXECUTION_LIFECYCLE_MODE: ExecutionLifecycleMode = ExecutionLifecycleMode.LEGACY
+
+
 def _with_default(name: str, default):
     value = get_config(name)
     return default if value is None else value
@@ -60,6 +69,18 @@ def is_live_read_only_required() -> bool:
 
 def get_event_replay_mode(run_mode: RunMode | None = None) -> EventReplayMode:
     return EventReplayMode(get_config("EVENT_REPLAY_MODE_EFFECTIVE"))
+
+
+def get_execution_lifecycle_mode(default: str = DEFAULT_EXECUTION_LIFECYCLE_MODE.value) -> ExecutionLifecycleMode:
+    resolved = str(_with_default("EXECUTION_LIFECYCLE_MODE", default)).upper()
+    try:
+        return ExecutionLifecycleMode(resolved)
+    except ValueError:
+        print(
+            "[CONFIG][WARN] "
+            f"key=EXECUTION_LIFECYCLE_MODE invalid={resolved} fallback={DEFAULT_EXECUTION_LIFECYCLE_MODE.value}"
+        )
+        return DEFAULT_EXECUTION_LIFECYCLE_MODE
 
 
 def _resolve_runtime_authority() -> tuple[str, bool]:

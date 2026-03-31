@@ -1474,6 +1474,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Manual lifecycle kill switch; blocks all new trades when enabled.",
     },
+    "EXECUTION_LIFECYCLE_MODE": {
+        "type": str,
+        "default": "LEGACY",
+        "env": ["EXECUTION_LIFECYCLE_MODE"],
+        "affects": ["CoreOrchestrator", "TradeLifecycleEngine"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Execution lifecycle routing mode: LEGACY | SHADOW | IBKR_STRICT.",
+    },
     "RISK_CONFIDENCE_LOW_THRESHOLD": {
         "type": float,
         "default": 0.75,
