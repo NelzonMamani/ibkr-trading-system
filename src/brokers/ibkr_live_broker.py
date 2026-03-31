@@ -47,6 +47,14 @@ from src.domain.models.internal_order import InternalOrder
 from src.execution.exit_plan import compute_stop_price, compute_take_profit_price
 from src.models.execution_result import ExecutionResult
 
+VALID_IBKR_STATUSES = {
+    "Submitted",
+    "PreSubmitted",
+    "Filled",
+    "PendingSubmit",
+    "PendingCancel",
+}
+
 
 @dataclass
 class IbkrLiveBroker(BaseBroker):
@@ -385,8 +393,8 @@ class IbkrLiveBroker(BaseBroker):
                     fill_status_override=fill_status,
                 )
 
-        status = "ACKED" if result.status == "ACKED" else result.status
-        attempted = result.status in {"ACKED"}
+        status = result.status
+        attempted = status in VALID_IBKR_STATUSES and result.ibkr_order_id is not None
         print(
             "[TRACE] "
             f"cycle_id={cycle_id} trace_id={trace_id} symbol={request.symbol} stage=submission "
@@ -419,6 +427,7 @@ class IbkrLiveBroker(BaseBroker):
             rejection_reason=result.rejection_reason or result.error,
             broker_error_code=result.broker_error_code,
             broker_error_message=result.broker_error_message,
+            ibkr_order_id=result.ibkr_order_id,
         )
 
     def cancel_order(self, client_order_id: str) -> None:

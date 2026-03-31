@@ -137,7 +137,7 @@ def test_submitter_does_not_connect_or_disconnect_directly():
             return 1001
 
         def wait_for_order_status(self, order_id, timeout_seconds=5):
-            return {"status": "ACKED", "filled": 1, "remaining": 0}
+            return {"status": "Submitted", "filled": 1, "remaining": 0}
 
         def commission_for_order(self, order_id):
             return 0.0
@@ -190,7 +190,7 @@ def test_submitter_does_not_connect_or_disconnect_directly():
         )
     )
 
-    assert result.status == "ACKED"
+    assert result.status == "Submitted"
     assert client.connect_calls == 0
     assert client.disconnect_calls == 0
 

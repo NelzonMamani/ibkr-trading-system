@@ -29,6 +29,13 @@ from src.sim.price_feed import DeterministicPriceFeed, PriceFeed
 
 
 class ExecutionEngine:
+    VALID_IBKR_STATUSES = {
+        "Submitted",
+        "PreSubmitted",
+        "Filled",
+        "PendingSubmit",
+        "PendingCancel",
+    }
     """Deterministic execution engine with broker routing and retry semantics."""
 
     def __init__(
@@ -569,10 +576,10 @@ class ExecutionEngine:
             f"[ORDER_SUBMITTED] symbol={request.symbol} qty={request.quantity} type={request.order_type}"
         )
         result = self._provider.place_order(request)
-        if str(getattr(result, "status", "")).upper() in {"ACKED", "FILLED", "PARTIAL"}:
+        if str(getattr(result, "status", "") or "") in self.VALID_IBKR_STATUSES:
             print(
                 f"[EXECUTION] SUBMITTED symbol={request.symbol} qty={request.quantity} "
-                f"order_id={getattr(result, 'client_order_id', None) or request.client_order_id}"
+                f"order_id={getattr(result, 'ibkr_order_id', None)}"
             )
         self._execution_log(
             "SUBMIT_RESULT",
@@ -631,9 +638,62 @@ class ExecutionEngine:
     def _confirm_broker_ack(
         self, request: BrokerOrderRequest, result: ExecutionResult
     ) -> ExecutionResult:
-        ibkr_order_id = getattr(result, "client_order_id", None) or request.client_order_id
-        status_raw = str(getattr(result, "status", "") or "").upper()
-        if not status_raw or status_raw == "UNKNOWN":
+        if not self._provider.is_live():
+            return result
+        ibkr_order_id = getattr(result, "ibkr_order_id", None)
+        status_raw = str(getattr(result, "status", "") or "")
+        if ibkr_order_id is None:
+            reason = "reason=NO_IBKR_ORDER_ID"
+            print(f"[EXECUTION][ERROR] order_id=MISSING {reason}")
+            self.execution_integrity_flag = True
+            return ExecutionResult(
+                symbol=request.symbol,
+                trader_type=request.trader_type or "UNKNOWN",
+                attempted=False,
+                status="BLOCKED",
+                rationale=reason,
+                direction=request.direction,
+                quantity=request.quantity,
+                requested_quantity=request.quantity,
+                filled_quantity=0,
+                remaining_quantity=request.quantity,
+                fill_status="NONE",
+                note=reason,
+                rejection_reason=reason,
+                broker_error_code=str(getattr(result, "broker_error_code", "") or "") or None,
+                broker_error_message=getattr(result, "broker_error_message", None),
+                client_order_id=request.client_order_id,
+                ibkr_order_id=None,
+                attempt_number=request.attempt_number,
+            )
+
+        if status_raw not in self.VALID_IBKR_STATUSES:
+            reason = f"reason=INVALID_IBKR_STATUS:{status_raw or 'UNKNOWN'}"
+            print(f"[EXECUTION][ERROR] order_id={ibkr_order_id} {reason}")
+            self.execution_integrity_flag = True
+            return ExecutionResult(
+                symbol=request.symbol,
+                trader_type=request.trader_type or "UNKNOWN",
+                attempted=False,
+                status="BLOCKED",
+                rationale=reason,
+                direction=request.direction,
+                quantity=request.quantity,
+                requested_quantity=request.quantity,
+                filled_quantity=0,
+                remaining_quantity=request.quantity,
+                fill_status="NONE",
+                note=reason,
+                rejection_reason=reason,
+                broker_error_code=str(getattr(result, "broker_error_code", "") or "") or None,
+                broker_error_message=getattr(result, "broker_error_message", None),
+                client_order_id=request.client_order_id,
+                ibkr_order_id=ibkr_order_id,
+                attempt_number=request.attempt_number,
+            )
+
+        status_upper = status_raw.upper()
+        if not status_raw or status_upper == "UNKNOWN":
             print(
                 f"[EXECUTION][ERROR] order_id={ibkr_order_id} reason=no_broker_ack"
             )
@@ -641,7 +701,7 @@ class ExecutionEngine:
             return ExecutionResult(
                 symbol=request.symbol,
                 trader_type=request.trader_type or "UNKNOWN",
-                attempted=True,
+                attempted=False,
                 status="FAILED",
                 rationale="no_broker_ack",
                 direction=request.direction,
@@ -654,15 +714,14 @@ class ExecutionEngine:
                 rejection_reason="no_broker_ack",
                 broker_error_code=str(getattr(result, "broker_error_code", "") or "") or None,
                 broker_error_message=getattr(result, "broker_error_message", None),
-                client_order_id=ibkr_order_id,
+                client_order_id=request.client_order_id,
+                ibkr_order_id=ibkr_order_id,
                 attempt_number=request.attempt_number,
             )
 
         broker_status = "Submitted"
-        if status_raw in {"FILLED"} or getattr(result, "filled_quantity", 0) > 0:
+        if status_upper in {"FILLED"} or getattr(result, "filled_quantity", 0) > 0:
             broker_status = "Filled"
-        elif status_raw in {"REJECTED", "FAILED", "BLOCKED", "TIMED_OUT"}:
-            broker_status = "Rejected"
         print(
             f"[IBKR][ORDER_ACK] order_id={ibkr_order_id} status={broker_status} "
             f"symbol={request.symbol}"
@@ -774,22 +833,22 @@ class ExecutionEngine:
             )
 
     def _log_ibkr_status(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
-        normalized = str(getattr(result, "status", "UNKNOWN") or "UNKNOWN").upper()
-        print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status={normalized}")
+        normalized = str(getattr(result, "status", "UNKNOWN") or "UNKNOWN")
+        ibkr_order_id = getattr(result, "ibkr_order_id", None)
+        order_id_display = ibkr_order_id if ibkr_order_id is not None else "MISSING"
+        print(f"[EXECUTION][IBKR] order_id={order_id_display} status={normalized}")
         print(
-            f"[IBKR][ORDER_STATUS] order_id={request.client_order_id} "
+            f"[IBKR][ORDER_STATUS] order_id={order_id_display} "
             f"symbol={request.symbol} status={normalized}"
         )
-        if normalized in {"ACKED", "ACKNOWLEDGED"}:
-            print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=ACKNOWLEDGED")
-        if normalized in {"ACKED", "FILLED"} and getattr(result, "filled_quantity", 0) > 0:
-            print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=FILLED")
+        if normalized == "Filled" and getattr(result, "filled_quantity", 0) > 0:
+            print(f"[EXECUTION][IBKR] order_id={order_id_display} status=FILLED")
         if normalized in {"BLOCKED", "FAILED", "REJECTED", "TIMED_OUT"}:
             print(
-                f"[IBKR][ORDER_ERROR] order_id={request.client_order_id} "
+                f"[IBKR][ORDER_ERROR] order_id={order_id_display} "
                 f"symbol={request.symbol} status={normalized}"
             )
-            print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=REJECTED")
+            print(f"[EXECUTION][IBKR] order_id={order_id_display} status=REJECTED")
             reason = getattr(result, "rejection_reason", None) or getattr(result, "rationale", None) or "UNKNOWN"
             code = getattr(result, "broker_error_code", None) or "UNKNOWN"
             print(f"[EXECUTION][REJECT] symbol={request.symbol} reason={reason} code={code}")
@@ -800,12 +859,12 @@ class ExecutionEngine:
                 run_mode=self.run_mode.value,
                 side=request.direction,
                 qty=request.quantity,
-                broker_order_id=request.client_order_id,
+                broker_order_id=order_id_display,
                 status=normalized,
                 reason=reason,
             )
         if normalized in {"CANCELLED", "CANCELED"}:
-            print(f"[EXECUTION][IBKR] order_id={request.client_order_id} status=CANCELLED")
+            print(f"[EXECUTION][IBKR] order_id={order_id_display} status=CANCELLED")
 
     def _clamp_order_quantity(self, quantity: int, *, symbol: str) -> int:
         if self.max_shares_per_order is None:

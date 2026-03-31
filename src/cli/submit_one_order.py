@@ -35,6 +35,13 @@ if TYPE_CHECKING:
 
 
 SOURCE = "CLI.SUBMIT_ONE_ORDER"
+VALID_IBKR_STATUSES = {
+    "Submitted",
+    "PreSubmitted",
+    "Filled",
+    "PendingSubmit",
+    "PendingCancel",
+}
 
 
 def abort(message: str) -> None:
@@ -122,7 +129,7 @@ def emit_single_order_events(event_bus: EventCollector, internal_order: Internal
     }
     event_bus.emit(event_type="ORDER_SUBMITTED", source=SOURCE, payload=event_payload)
 
-    if status.upper() == "ACKED":
+    if status in VALID_IBKR_STATUSES:
         event_bus.emit(
             event_type="ORDER_ACCEPTED",
             source=SOURCE,

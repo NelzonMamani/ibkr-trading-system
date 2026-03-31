@@ -65,6 +65,13 @@ class IbkrOrderSubmitter:
     """
 
     SOURCE = "IBKR_ORDER_SUBMITTER"
+    VALID_STATUSES = {
+        "Submitted",
+        "PreSubmitted",
+        "Filled",
+        "PendingSubmit",
+        "PendingCancel",
+    }
 
     def __init__(self, ibkr_client, translator, event_bus, config, guard, logger=None, client_provider=None):
         self.ibkr_client = ibkr_client
@@ -135,6 +142,10 @@ class IbkrOrderSubmitter:
                     f"qty={internal_order.quantity} side={internal_order.direction} order_type={internal_order.order_type}"
                 )
                 ibkr_order_id = client.submit_order(contract, order)
+                print(
+                    "[EXECUTION][IBKR_ORDER_ID] "
+                    f"symbol={internal_order.symbol} order_id={ibkr_order_id}"
+                )
             except Exception as exc:
                 error = f"IBKR placeOrder failed: {exc}"
                 print(
@@ -153,6 +164,20 @@ class IbkrOrderSubmitter:
                     submitted_at=submitted_at,
                 )
 
+            if ibkr_order_id is None:
+                reason = "reason=NO_IBKR_ORDER_ID"
+                print(
+                    "[IBKR][ORDER_ERROR] "
+                    f"client_order_id={internal_order.client_order_id} reason={reason}"
+                )
+                self._emit_blocked(internal_order, reason)
+                return self._result(
+                    internal_order,
+                    status="BLOCKED",
+                    error=reason,
+                    submitted_at=submitted_at,
+                    rejection_reason=reason,
+                )
             self.guard.mark_submitted(internal_order.client_order_id)
             self._log(
                 f"[GUARD] Submission recorded client_order_id={internal_order.client_order_id} "
@@ -195,6 +220,26 @@ class IbkrOrderSubmitter:
                         broker_error_code=broker_error_code,
                         broker_error_message=broker_error_message,
                     )
+                if ack_status not in self.VALID_STATUSES:
+                    reason = f"UNSUPPORTED_IBKR_STATUS:{ack_status}"
+                    self._log(
+                        f"[IBKR][REJECT] order_id={ibkr_order_id} status={ack_status} reason={reason}"
+                    )
+                    self._emit_blocked(
+                        internal_order,
+                        reason=reason,
+                    )
+                    return self._result(
+                        internal_order,
+                        status="BLOCKED",
+                        error=reason,
+                        submitted_at=submitted_at,
+                        acked_at=acked_at,
+                        ibkr_order_id=ibkr_order_id,
+                        rejection_reason=reason,
+                        broker_error_code=broker_error_code,
+                        broker_error_message=broker_error_message,
+                    )
                 self._emit_ack(internal_order, ibkr_order_id, ack_status)
                 print(
                     "[IBKR][ORDER_ACK] "
@@ -211,7 +256,7 @@ class IbkrOrderSubmitter:
                 )
                 return self._result(
                     internal_order,
-                    status="ACKED",
+                    status=str(ack_status),
                     error=None,
                     submitted_at=submitted_at,
                     acked_at=acked_at,
