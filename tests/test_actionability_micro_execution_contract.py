@@ -135,11 +135,23 @@ def test_final_decision_emits_one_terminal_line_per_symbol(capsys) -> None:
         pattern_summaries=[PatternSummary(symbol="ABCD", best_setup="P_GAP_GO", confidence=0.8, rationale="r", all_patterns=[])],
         intents=[TradeIntentRecord(symbol="ABCD", intent_id="1", setup_id="P_GAP_GO", side="LONG", entry="x", stop="y", rationale="r")],
         risk_decisions=[RiskDecisionRecord(symbol="ABCD", intent_id="1", decision="ALLOW", max_position_size=1, constraints=[], triggered_rules=[], rationale="ok", approved_quantity=1)],
-        execution_events=[ExecutionEvent(symbol="ABCD", intent_id="1", action="SUBMITTED", detail="submitted qty=1")],
+        execution_events=[ExecutionEvent(symbol="ABCD", intent_id="1", action="SUBMITTED", detail="submitted qty=1", broker_order_id=12345, broker_status="Submitted")],
     )
     out = capsys.readouterr().out
     assert out.count("[ROSS][FINAL_DECISION] symbol=ABCD") == 1
-    assert "outcome=ORDER_SUBMITTED" in out
+    assert "outcome=ORDER_ACKNOWLEDGED" in out
+
+
+def test_final_decision_flags_submission_without_broker_order_id(capsys) -> None:
+    _emit_final_decisions(
+        focus=["ABCD"],
+        pattern_summaries=[PatternSummary(symbol="ABCD", best_setup="P_GAP_GO", confidence=0.8, rationale="r", all_patterns=[])],
+        intents=[TradeIntentRecord(symbol="ABCD", intent_id="1", setup_id="P_GAP_GO", side="LONG", entry="x", stop="y", rationale="r")],
+        risk_decisions=[RiskDecisionRecord(symbol="ABCD", intent_id="1", decision="ALLOW", max_position_size=1, constraints=[], triggered_rules=[], rationale="ok", approved_quantity=1)],
+        execution_events=[ExecutionEvent(symbol="ABCD", intent_id="1", action="SUBMITTED", detail="submitted qty=1")],
+    )
+    out = capsys.readouterr().out
+    assert "outcome=ORDER_SUBMISSION_TRACKING_ERROR" in out
 
 
 def test_selected_setup_family_maps_to_trigger_candidate() -> None:

@@ -732,6 +732,8 @@ def run_cycle(
             print(f"[DEBUG][FORCED_PATH] selected_by_arbitrator symbol={decision.symbol} intent_id={decision.intent_id}")
 
     print_section("EXECUTION")
+    working_orders = 0
+    pending_entries = 0
     if execution_intent.scan_only:
         print("[EXECUTION] Execution stage skipped — intent scan_only.")
         execution_events = []
@@ -780,24 +782,61 @@ def run_cycle(
         execution_events = execute_intents(mode=mode, decisions=execution_candidates)
         execution_events.extend(blocked_candidates)
         for event in execution_events:
+            broker_order_id = getattr(event, "broker_order_id", None)
+            filled_quantity = int(getattr(event, "filled_quantity", 0) or 0)
+            remaining_quantity = int(getattr(event, "remaining_quantity", 0) or 0)
+            broker_status = str(getattr(event, "broker_status", "UNKNOWN") or "UNKNOWN")
             print(
                 "[EXECUTION][SUBMIT_RESULT] "
                 f"symbol={event.symbol} submitted={event.action == 'SUBMITTED'} "
-                f"order_id=N/A reason={event.detail}"
+                f"order_id={broker_order_id if broker_order_id is not None else 'MISSING'} reason={event.detail}"
             )
+            if broker_order_id is not None:
+                print(f"[EXECUTION][ORDER_ID_CAPTURED] symbol={event.symbol} order_id={broker_order_id}")
             print(f"[EXECUTION] {event.symbol} {event.action} ({event.detail})")
             execution_pass = event.action in {"SUBMITTED", "WOULD_PLACE"}
-            if execution_pass:
-                executed += 1
-                if event.action == "SUBMITTED":
+            if event.action == "SUBMITTED" and broker_order_id is None:
+                print(
+                    f"[INVARIANT][FAIL] submitted_order_without_broker_id symbol={event.symbol} intent_id={event.intent_id}"
+                )
+                execution_pass = False
+            if event.action == "SUBMITTED":
+                if execution_pass:
+                    working_orders += 1
+                    pending_entries += 1 if filled_quantity <= 0 else 0
+                    print(
+                        f"[ORDER_STATE] symbol={event.symbol} order_id={broker_order_id} "
+                        "state=PENDING_SUBMISSION_ACK"
+                    )
+                    print(
+                        f"[ORDER_STATE] symbol={event.symbol} order_id={broker_order_id} "
+                        f"state=WORKING broker_status={broker_status} filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
+                    )
                     print(f"[LIFECYCLE] ORDER_SUBMITTED symbol={event.symbol} source=IBKR_EVENT")
+                    print(f"[LIFECYCLE] ORDER_ACKNOWLEDGED symbol={event.symbol} source=IBKR_EVENT")
+                if filled_quantity > 0:
+                    executed += 1
+                    lifecycle_event = "ENTRY_FILL"
+                    print(
+                        f"[EXECUTION][FILL] symbol={event.symbol} order_id={broker_order_id} "
+                        f"filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
+                    )
+                    print(
+                        f"[LIFECYCLE][UPDATE] symbol={event.symbol} event={lifecycle_event} "
+                        f"filled_qty={filled_quantity} source=IBKR_EVENT"
+                    )
+            elif execution_pass:
+                working_orders += 1 if event.action == "WOULD_PLACE" else 0
             print(
                 f"[PIPELINE][EXECUTION] symbol={event.symbol} "
                 f"executed={str(execution_pass).lower()} action={event.action}"
             )
             if event.intent_id in forced_intent_ids and execution_pass:
                 print(f"[DEBUG][FORCED_PATH] sent_to_execution symbol={event.symbol} intent_id={event.intent_id}")
-    print(f"[LIFECYCLE][PORTFOLIO] open_positions={executed}")
+    print(
+        f"[LIFECYCLE][PORTFOLIO] open_positions={executed} "
+        f"working_orders={working_orders} pending_entries={pending_entries}"
+    )
     print(
         "[LIFECYCLE][RISK_SIGNALS] "
         f"trade_flow_active={str(executed > 0).lower()} "
@@ -910,8 +949,15 @@ def _emit_final_decisions(
             reason = risk.block_reason or "RISK_BLOCK"
         if execution:
             if execution.action == "SUBMITTED":
-                outcome = "ORDER_SUBMITTED"
-                reason = execution.detail
+                if (execution.broker_order_id is not None) and int(execution.filled_quantity or 0) <= 0:
+                    outcome = "ORDER_ACKNOWLEDGED"
+                    reason = execution.detail
+                elif int(execution.filled_quantity or 0) > 0:
+                    outcome = "ENTRY_FILL"
+                    reason = execution.detail
+                else:
+                    outcome = "ORDER_SUBMISSION_TRACKING_ERROR"
+                    reason = "submitted_without_broker_order_id"
             elif execution.action == "BLOCKED":
                 outcome = "ORDER_REJECTED"
                 reason = execution.detail
