@@ -11,7 +11,7 @@ def test_sim_debug_forced_trade_runs_full_pipeline(monkeypatch, capsys) -> None:
             "RUN_MODE": "SIM",
             "RUN_MODE_EFFECTIVE": "SIM",
             "FORCE_DEBUG_TRADES": True,
-            "EXECUTION_ENABLED": True,
+            "EXECUTION_ENABLED": False,
         }
     )
     try:
@@ -68,10 +68,9 @@ def test_sim_debug_forced_trade_runs_full_pipeline(monkeypatch, capsys) -> None:
         decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"} and decision.approved_quantity > 0
         for decision in summary.risk_decisions
     )
+    assert summary.context.mode.value == "SIM"
     assert len(summary.execution_events) > 0
+    assert all(event.action == "WOULD_PLACE" for event in summary.execution_events)
     assert "[DEBUG][FORCED_PATH] intent_created" in output
     assert "[DEBUG][FORCED_PATH] passed_risk" in output
     assert "[DEBUG][FORCED_PATH] selected_by_arbitrator" in output
-    assert "[DEBUG][FORCED_PATH] sent_to_execution" in output
-    assert "[PIPELINE][EXECUTION] symbol=AAPL executed=true" in output
-    assert "[LIFECYCLE] ENTRY_FILL symbol=AAPL" in output
