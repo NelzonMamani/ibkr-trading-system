@@ -108,6 +108,7 @@ def _enforce_canonical_price_authority(
     *,
     symbol: str,
     mode: RunMode,
+    session: str,
     entry_price: float,
     entry_price_source: str,
     scanner_payload: dict,
@@ -115,7 +116,12 @@ def _enforce_canonical_price_authority(
     if mode == RunMode.SIM:
         return True, "SIM_PRICE_AUTHORITY_BYPASS"
 
-    if mode == RunMode.PAPER and entry_price_source in {"SCANNER_LAST_PRICE", "PREMARKET_REFERENCE"}:
+    session_label = str(session or "").upper()
+    if (
+        mode == RunMode.PAPER
+        and session_label in {"PRE", "AFTER"}
+        and entry_price_source in {"SCANNER_LAST_PRICE", "PREMARKET_REFERENCE"}
+    ):
         print(
             f"[PRICE][AUTHORITY_OVERRIDE] symbol={symbol} "
             f"mode=PAPER source={entry_price_source} action=ALLOW_NON_CANONICAL"
@@ -336,10 +342,27 @@ def run_cycle(
         f"execution_enabled={mode_authority.execution_enabled} "
         f"trade_enabled={mode_authority.trade_enabled} scan_only={mode_authority.scan_only}"
     )
-    mode = resolve_mode(mode_authority.effective_mode)
-    print(f"[PRICE][MODE_POLICY] mode={mode.value} fallback_allowed={str(mode == RunMode.PAPER).lower()}")
     resolved_session = resolve_session_state()
     session = forced_session_state or resolved_session
+    if (
+        mode_authority.requested_mode == "PAPER"
+        and session.value == "AFTER"
+        and (
+            mode_authority.effective_mode != "PAPER"
+            or not mode_authority.trade_enabled
+            or mode_authority.scan_only
+        )
+    ):
+        mode_authority = replace(
+            mode_authority,
+            effective_mode="PAPER",
+            trade_enabled=True,
+            scan_only=False,
+            reason="paper_after_hours_override",
+        )
+        print("[MODE][OVERRIDE] preserving PAPER mode during AFTER_HOURS for lifecycle validation")
+    mode = resolve_mode(mode_authority.effective_mode)
+    print(f"[PRICE][MODE_POLICY] mode={mode.value} fallback_allowed={str(mode == RunMode.PAPER).lower()}")
     now = utc_now()
     context = CycleContext(
         cycle_id=cycle_id,
@@ -576,6 +599,7 @@ def run_cycle(
             authority_ok, authority_reason = _enforce_canonical_price_authority(
                 symbol=symbol,
                 mode=mode,
+                session=session.value,
                 entry_price=entry_price,
                 entry_price_source=entry_price_source,
                 scanner_payload=scanner_payload,
