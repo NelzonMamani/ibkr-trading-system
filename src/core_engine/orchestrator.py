@@ -116,15 +116,14 @@ def _enforce_canonical_price_authority(
     if mode == RunMode.SIM:
         return True, "SIM_PRICE_AUTHORITY_BYPASS"
 
-    session_label = str(session or "").upper()
     if (
         mode == RunMode.PAPER
-        and session_label in {"PRE", "AFTER"}
+        and str(session).upper() in {"PRE", "AFTER"}
         and entry_price_source in {"SCANNER_LAST_PRICE", "PREMARKET_REFERENCE"}
     ):
         print(
-            f"[PRICE][AUTHORITY_OVERRIDE] symbol={symbol} "
-            f"mode=PAPER source={entry_price_source} action=ALLOW_NON_CANONICAL"
+            f"[PRICE][AUTHORITY_OVERRIDE_ACTIVE] symbol={symbol} "
+            f"mode={mode.value} session={session} source={entry_price_source}"
         )
         return True, "PAPER_FALLBACK_ALLOWED"
 
@@ -345,22 +344,17 @@ def run_cycle(
     resolved_session = resolve_session_state()
     session = forced_session_state or resolved_session
     if (
-        mode_authority.requested_mode == "PAPER"
-        and session.value == "AFTER"
-        and (
-            mode_authority.effective_mode != "PAPER"
-            or not mode_authority.trade_enabled
-            or mode_authority.scan_only
-        )
+        str(mode_authority.requested_mode).upper() == "PAPER"
+        and str(session.value).upper() == "AFTER"
     ):
         mode_authority = replace(
             mode_authority,
             effective_mode="PAPER",
             trade_enabled=True,
             scan_only=False,
-            reason="paper_after_hours_override",
+            reason="FORCED_PAPER_AFTER_HOURS_RUNTIME_OVERRIDE",
         )
-        print("[MODE][OVERRIDE] preserving PAPER mode during AFTER_HOURS for lifecycle validation")
+        print("[MODE][FORCE] PAPER mode enforced during AFTER_HOURS")
     mode = resolve_mode(mode_authority.effective_mode)
     print(f"[PRICE][MODE_POLICY] mode={mode.value} fallback_allowed={str(mode == RunMode.PAPER).lower()}")
     now = utc_now()
