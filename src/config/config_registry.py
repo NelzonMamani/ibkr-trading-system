@@ -1020,6 +1020,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Optional runtime override for minimum RVOL required to promote a symbol from WATCHLIST_K to FOCUS_M.",
     },
+    "FORCE_DEBUG_TRADES": {
+        "type": bool,
+        "default": False,
+        "env": ["FORCE_DEBUG_TRADES"],
+        "affects": ["CoreOrchestrator", "ScannerFilters", "RossMomentum"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Temporary SIM-only validation hook to relax scanner thresholds and force at least one debug trade when setup+trigger gates pass.",
+    },
     "MAX_SPREAD_PCT": {
         "type": float,
         "default": None,

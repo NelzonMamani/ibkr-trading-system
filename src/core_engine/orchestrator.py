@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from typing import List
 from zoneinfo import ZoneInfo
 
@@ -263,7 +264,20 @@ def run_cycle(
     )
     print_section(f"CYCLE {cycle_id} MODE={mode.value} SESSION={session.value}")
     print(f"[TRACE][cycle={cycle_id}] stage=cycle_start mode={mode.value} session={session.value}")
+    force_debug_trades = bool(get_config("FORCE_DEBUG_TRADES")) and mode == RunMode.SIM
     strategy_policy, scanner_policy = _scanner_policy_for_session(session.value)
+    if force_debug_trades:
+        scanner_policy = replace(
+            scanner_policy,
+            rvol_min=min(float(scanner_policy.rvol_min), 0.2),
+            watchlist_rvol_min=min(float(scanner_policy.watchlist_rvol_min), 0.2),
+            spread_max_pct=2.5 if scanner_policy.spread_max_pct is None else max(float(scanner_policy.spread_max_pct), 2.5),
+        )
+        print(
+            "[PIPELINE][DEBUG_MODE] force_debug_trades=true mode=SIM "
+            f"rvol_min={scanner_policy.rvol_min} watchlist_rvol_min={scanner_policy.watchlist_rvol_min} "
+            f"spread_max_pct={scanner_policy.spread_max_pct}"
+        )
     scanner_request = _scanner_request_for_policy(
         scanner_policy,
         strategy_name="ross_momentum",
@@ -337,6 +351,12 @@ def run_cycle(
     )
     print_watchlist_focus(watchlist, focus, drop_summary)
     print(f"[TRACE][cycle={cycle_id}] stage=focus_list_finalisation focus_count={len(focus)}")
+    focus_set = set(focus)
+    for symbol in watchlist:
+        print(
+            f"[PIPELINE][WATCHLIST] symbol={symbol} "
+            f"status={'IN_FOCUS' if symbol in focus_set else 'NOT_IN_FOCUS'}"
+        )
 
     if session.value in {"PRE", "AFTER"}:
         write_premarket_prep_artifact(
@@ -364,6 +384,13 @@ def run_cycle(
     risk_decisions: List[RiskDecisionRecord] = []
     execution_events: List[ExecutionEvent] = []
     health_triggers = []
+    watchlist_set = set(watchlist)
+    passed_setup = 0
+    passed_trigger = 0
+    generated_intents = 0
+    risk_allowed = 0
+    selected_by_arbitrator = 0
+    executed = 0
     data_quality_flags = scanner_payload.get("data_quality_by_symbol", {})
     if any(data_quality_flags.values()):
         health_triggers.append((HealthStatus.DEGRADED, "data_quality"))
@@ -385,6 +412,12 @@ def run_cycle(
             best_setup = summary.best_long_setup or summary.best_short_setup
             best_name = best_setup.pattern_name if best_setup else "NONE"
             best_conf = best_setup.confidence if best_setup else 0.0
+            setup_detected = best_name not in {"NONE", ""}
+            trigger_ready_now = setup_detected and best_conf >= 0.20
+            if setup_detected:
+                passed_setup += 1
+            if trigger_ready_now:
+                passed_trigger += 1
             rationale = summary.combined_rationale_text
             pattern_summaries.append(
                 PatternSummary(
@@ -396,27 +429,58 @@ def run_cycle(
                 )
             )
             print(f"[PATTERN] {symbol} best={best_name} conf={best_conf:.2f}")
+            print(
+                f"[PIPELINE][SETUP] symbol={symbol} "
+                f"passed={str(setup_detected).lower()} setup={best_name}"
+            )
+            print(
+                f"[PIPELINE][TRIGGER] symbol={symbol} "
+                f"ready={str(trigger_ready_now).lower()} "
+                f"reason={'CONFIDENCE_OK' if trigger_ready_now else 'TRIGGER_NOT_READY'}"
+            )
 
             strategy_id = "RossMomentumStrategy"
             trade_intents = build_trade_intents(strategy_id, symbol, summary)
-            for intent in trade_intents:
-                print(f"[TRACE][cycle={cycle_id}][symbol={symbol}] stage=intent_creation intent_id={intent.intent_id}")
-                combined_tags = list(intent.risk_flags)
-                if data_quality:
-                    combined_tags.append("DATA_QUALITY")
-                intents.append(
+            if force_debug_trades and not trade_intents and setup_detected and trigger_ready_now:
+                trade_intents = [
                     TradeIntentRecord(
                         symbol=symbol,
-                        intent_id=intent.intent_id,
+                        intent_id=f"debug-{cycle_id}-{symbol.lower()}",
                         setup_id=best_name,
-                        side=intent.direction.value,
-                        entry=intent.entry_model,
-                        stop=intent.stop_model,
-                        rationale=intent.rationale_text,
-                        tags=combined_tags,
-                        entry_price=float(getattr(intent, "entry_price", 1.0) or 1.0),
+                        side="LONG",
+                        entry="DEBUG_FORCE_ENTRY",
+                        stop="DEBUG_FORCE_STOP",
+                        rationale="FORCE_DEBUG_TRADES enabled (SIM-only validation).",
+                        tags=["FORCE_DEBUG_TRADE", "SIM_ONLY_VALIDATION"],
+                        entry_price=1.0,
                     )
-                )
+                ]
+                print(f"[PIPELINE][INTENT] symbol={symbol} created=true forced=true intent_id={trade_intents[0].intent_id}")
+            for intent in trade_intents:
+                print(f"[TRACE][cycle={cycle_id}][symbol={symbol}] stage=intent_creation intent_id={intent.intent_id}")
+                if isinstance(intent, TradeIntentRecord):
+                    intents.append(intent)
+                else:
+                    combined_tags = list(intent.risk_flags)
+                    if data_quality:
+                        combined_tags.append("DATA_QUALITY")
+                    intents.append(
+                        TradeIntentRecord(
+                            symbol=symbol,
+                            intent_id=intent.intent_id,
+                            setup_id=best_name,
+                            side=intent.direction.value,
+                            entry=intent.entry_model,
+                            stop=intent.stop_model,
+                            rationale=intent.rationale_text,
+                            tags=combined_tags,
+                            entry_price=float(getattr(intent, "entry_price", 1.0) or 1.0),
+                        )
+                    )
+                generated_intents += 1
+                print(f"[PIPELINE][INTENT] symbol={symbol} created=true forced=false intent_id={intent.intent_id}")
+            if not trade_intents:
+                print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=NO_STRATEGY_INTENT")
 
     print_section("STRATEGY")
     if intents:
@@ -441,22 +505,63 @@ def run_cycle(
     )
     for output in risk_outputs:
         risk_decisions.append(output)
+        risk_pass = output.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"} and output.approved_quantity > 0
+        if risk_pass:
+            risk_allowed += 1
         print(
             f"[RISK] {output.symbol} decision={output.decision} size={output.max_position_size} "
             f"rules={output.triggered_rules} reason={output.rationale}"
         )
+        print(
+            f"[PIPELINE][RISK] symbol={output.symbol} allowed={str(risk_pass).lower()} "
+            f"decision={output.decision} reason={output.block_reason or 'PASS'}"
+        )
         print(f"[TRACE][cycle={cycle_id}][symbol={output.symbol}] stage=risk approved_quantity={output.approved_quantity} capital_source={output.capital_source} available_capital={output.available_funds}")
         if output.decision == "BLOCK" and "HEALTH_CRITICAL" in output.triggered_rules:
             health_triggers.append((HealthStatus.CRITICAL, "risk_block"))
+
+    arbitrated_decisions: List[RiskDecisionRecord] = []
+    for decision in risk_decisions:
+        selected = decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"} and decision.approved_quantity > 0
+        if selected:
+            arbitrated_decisions.append(decision)
+            selected_by_arbitrator += 1
+        print(
+            f"[PIPELINE][ARBITRATOR] symbol={decision.symbol} "
+            f"selected={str(selected).lower()} reason={'RISK_ALLOWED' if selected else 'RISK_BLOCKED'}"
+        )
 
     print_section("EXECUTION")
     if execution_intent.scan_only:
         print("[EXECUTION] Execution stage skipped — intent scan_only.")
         execution_events = []
     else:
-        execution_events = execute_intents(mode=mode, decisions=risk_decisions)
+        execution_events = execute_intents(mode=mode, decisions=arbitrated_decisions)
         for event in execution_events:
             print(f"[EXECUTION] {event.symbol} {event.action} ({event.detail})")
+            execution_pass = event.action in {"SUBMITTED", "WOULD_PLACE"}
+            if execution_pass:
+                executed += 1
+                print(f"[LIFECYCLE] ENTRY_FILL symbol={event.symbol} source={event.action}")
+            print(
+                f"[PIPELINE][EXECUTION] symbol={event.symbol} "
+                f"executed={str(execution_pass).lower()} action={event.action}"
+            )
+    print(f"[LIFECYCLE][PORTFOLIO] open_positions={executed}")
+    print(
+        "[LIFECYCLE][RISK_SIGNALS] "
+        f"trade_flow_active={str(executed > 0).lower()} "
+        f"risk_blocks={max(0, len(risk_decisions) - risk_allowed)}"
+    )
+
+    print("[NO_TRADE_SUMMARY]")
+    print(f"total_watchlist={len(watchlist_set)}")
+    print(f"passed_setup={passed_setup}")
+    print(f"passed_trigger={passed_trigger}")
+    print(f"generated_intents={generated_intents}")
+    print(f"risk_allowed={risk_allowed}")
+    print(f"selected_by_arbitrator={selected_by_arbitrator}")
+    print(f"executed={executed}")
 
     store = TradeStore()
     storage_ok = store.persist_cycle(
