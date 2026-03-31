@@ -100,7 +100,8 @@ def test_price_sanity_guard_rejects_placeholder_one_dollar(capsys) -> None:
     assert "[RISK][SIZE_BLOCK] symbol=PENNY reason=INVALID_PRICE_SANITY_CHECK" in out
 
 
-def test_execution_dispatch_uses_approved_quantity_and_is_truthful(capsys) -> None:
+def test_execution_dispatch_uses_approved_quantity_and_is_truthful(capsys, monkeypatch) -> None:
+    monkeypatch.setattr("src.execution.order_router._validate_ibkr_connection", lambda mode: None)
     events = execute_intents(
         mode=RunMode.PAPER,
         decisions=[
@@ -120,7 +121,26 @@ def test_execution_dispatch_uses_approved_quantity_and_is_truthful(capsys) -> No
     out = capsys.readouterr().out
     assert events[0].action == "SUBMITTED"
     assert "qty=1" in events[0].detail
-    assert "[EXECUTION][DISPATCH] symbol=MCRO dispatch=SIMULATED" in out
+    assert "[EXECUTION][DISPATCH] symbol=MCRO dispatch=IBKR" in out
+    assert "[IBKR][ORDER_ACK]" in out
+
+
+def test_execution_blocks_when_ibkr_connection_invalid(capsys, monkeypatch) -> None:
+    def _raise(_: RunMode) -> None:
+        print("[EXECUTION][BLOCK] reason=IBKR_NOT_CONNECTED")
+        raise RuntimeError("IBKR connection is not active or misconfigured")
+
+    monkeypatch.setattr("src.execution.order_router._validate_ibkr_connection", _raise)
+
+    try:
+        execute_intents(mode=RunMode.PAPER, decisions=[])
+    except RuntimeError as exc:
+        assert str(exc) == "IBKR connection is not active or misconfigured"
+    else:
+        raise AssertionError("Expected RuntimeError")
+
+    out = capsys.readouterr().out
+    assert "[EXECUTION][BLOCK] reason=IBKR_NOT_CONNECTED" in out
 
 
 def test_final_decision_emits_one_terminal_line_per_symbol(capsys) -> None:
