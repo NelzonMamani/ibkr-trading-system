@@ -3232,21 +3232,16 @@ class CoreOrchestrator:
         )
         print("[TEACH] <<< Intent normalization stage complete — moving to risk stage.")
 
-        print("[TEACH] >>> Portfolio arbitration stage — rank intents and allocate capital.")
-        try:
-            portfolio_state = self.trade_lifecycle_engine.build_portfolio_state()
-        except Exception as exc:
-            print(f"[ARBITRATOR][WARN] portfolio_state_unavailable reason={exc}")
-            portfolio_state = PortfolioState()
+        print("[TEACH] >>> Trade intent arbitration stage — rank and filter intents.")
         try:
             strategy_output = self.portfolio_arbitrator.select_trades(
                 strategy_output,
-                portfolio_state,
+                PortfolioState(),
             )
         except Exception as exc:
             print(f"[ARBITRATOR][ERROR] selection_failed reason={exc}")
             strategy_output = []
-        print("[TEACH] <<< Portfolio arbitration stage complete — moving to risk stage.")
+        print("[TEACH] <<< Trade intent arbitration stage complete — moving to risk stage.")
 
         decision_output = []
         trade_ready_terminal: dict[str, dict[str, bool]] = {}
