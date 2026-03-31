@@ -77,7 +77,47 @@ class RossPatternRegistry:
         trace_context: dict[str, Any] | None = None,
         trace_collector: Callable[[RossPatternTrace], None] | None = None,
     ) -> List[PatternResult]:
-        input_summary = dict((trace_context or {}).get("input_summary") or {})
+        candles = list(inputs.candles or [])
+        last_candle = candles[-1] if candles else None
+        inferred_session = (
+            getattr(inputs.session_context, "value", None)
+            or (trace_context or {}).get("session_label")
+            or (trace_context or {}).get("session_phase")
+        )
+        input_summary = dict(
+            (trace_context or {}).get("input_summary")
+            or {
+                "candle_count": len(candles),
+                "last_price": getattr(last_candle, "close", None),
+                "volume": getattr(last_candle, "volume", None),
+                "rvol": getattr(inputs.liquidity_context, "rvol", None),
+                "levels": {
+                    "pmh": getattr(inputs.levels, "premarket_high", None),
+                    "hod": getattr(inputs.levels, "hod", None),
+                    "vwap": getattr(inputs.indicators, "vwap", None),
+                },
+                "session": inferred_session,
+                "timeframe": inputs.timeframe,
+                "has_indicators": bool(
+                    inputs.indicators.ema9 is not None
+                    and inputs.indicators.ema20 is not None
+                    and inputs.indicators.vwap is not None
+                ),
+            }
+        )
+        input_summary.setdefault("missing_fields", [])
+        min_required_candles = 5
+        level_values = input_summary.get("levels") or {}
+        missing_inputs = list(input_summary.get("missing_fields") or [])
+        if inputs.is_empty(min_required_candles=min_required_candles):
+            missing_inputs.append("insufficient_candles")
+        if level_values.get("pmh") is None:
+            missing_inputs.append("missing_pmh")
+        if level_values.get("hod") is None:
+            missing_inputs.append("missing_hod")
+        if level_values.get("vwap") is None:
+            missing_inputs.append("missing_vwap")
+        input_summary["missing_fields"] = sorted(set(missing_inputs))
         results: List[PatternResult] = []
         for pattern in self._patterns:
             pattern_id = getattr(pattern, "pattern_id", "") or pattern.name
@@ -109,12 +149,33 @@ class RossPatternRegistry:
                 "[PATTERN_TRACE][INPUT] "
                 f"symbol={inputs.symbol} pattern_id={pattern_id} input_summary={input_summary}"
             )
-            missing_inputs = list(input_summary.get("missing_fields") or [])
             if missing_inputs:
                 print(
                     "[PATTERN_TRACE][INPUT_MISSING] "
                     f"symbol={inputs.symbol} pattern_id={pattern_id} missing={missing_inputs}"
                 )
+                print(
+                    f"[PATTERN_INPUT_ERROR] symbol={inputs.symbol} pattern_id={pattern_id} missing_inputs"
+                )
+                pattern_trace.skipped = True
+                pattern_trace.skip_reason = "missing_inputs"
+                pattern_trace.final_outcome = "SKIPPED"
+                results.append(
+                    PatternResult(
+                        setup_id=pattern_id,
+                        pattern_name=pattern.name,
+                        pattern_family=pattern.family,
+                        detected=False,
+                        direction=getattr(pattern, "direction_bias", Direction.NEUTRAL),
+                        confidence=0.0,
+                        setup_quality_tags=[],
+                        rationale_text="Skipped: missing_inputs",
+                        rejection_reason="missing_inputs",
+                    )
+                )
+                if trace_collector is not None:
+                    trace_collector(pattern_trace)
+                continue
             session_allowlist = self._session_allowlist_by_pattern.get(pattern_id)
             if session_allowlist and inputs.session_context not in session_allowlist:
                 pattern_trace.skipped = True

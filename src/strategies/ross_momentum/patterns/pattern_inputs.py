@@ -46,3 +46,7 @@ class PatternInputs:
     liquidity_context: LiquidityContext
     news_context: Optional[Dict[str, str]] = None
     data_quality_flags: List[str] = field(default_factory=list)
+
+    def is_empty(self, min_required_candles: int = 3) -> bool:
+        candles = list(self.candles or [])
+        return len(candles) < int(min_required_candles)

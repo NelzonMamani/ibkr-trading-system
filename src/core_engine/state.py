@@ -18,7 +18,7 @@ class RunMode(str, Enum):
     @classmethod
     def from_value(cls, value: str | None) -> "RunMode":
         if not value:
-            return cls.READ_ONLY
+            raise ValueError("RUN_MODE is required and cannot be empty")
         normalized = value.strip().upper()
         if normalized in {"LIVE_1SHARE", "LIVE-1SHARE", "LIVE_MICRO", "LIVE_ONE_SHARE"}:
             return cls.LIVE

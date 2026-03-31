@@ -7,5 +7,9 @@ from src.core_engine.state import RunMode
 
 
 def resolve_mode(value: str | None = None) -> RunMode:
-    mode_value = value or str(get_config("RUN_MODE_EFFECTIVE") or "READ_ONLY")
+    mode_value = value or str(
+        get_config("RUN_MODE")
+        or get_config("RUN_MODE_EFFECTIVE")
+        or ""
+    )
     return RunMode.from_value(mode_value)

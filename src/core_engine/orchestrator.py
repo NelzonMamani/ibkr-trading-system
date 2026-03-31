@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from dataclasses import replace
 from typing import List
 from zoneinfo import ZoneInfo
@@ -250,7 +251,16 @@ def run_cycle(
     forced_session_state=None,
 ) -> CycleSummary:
     _ensure_deterministic_prep()
-    mode = resolve_mode(mode_value)
+    configured_mode_raw = str(mode_value or get_config("RUN_MODE") or get_config("RUN_MODE_EFFECTIVE") or "").strip().upper()
+    mode = resolve_mode(configured_mode_raw)
+    if mode.value not in {"SIM", "PAPER", "READ_ONLY", "LIVE"}:
+        raise RuntimeError(f"Unsupported RUN_MODE={mode.value}")
+    execution_allowed = mode in {RunMode.PAPER, RunMode.LIVE}
+    execution_enabled = os.getenv("EXECUTION_ENABLED", "false").strip().lower() == "true"
+    print(
+        f"[MODE] RUN_MODE={configured_mode_raw} EXECUTION_ENABLED={execution_enabled} "
+        f"RESOLVED_MODE={mode.value}"
+    )
     resolved_session = resolve_session_state()
     session = forced_session_state or resolved_session
     now = utc_now()
@@ -298,7 +308,7 @@ def run_cycle(
         mode=mode.value,
         session_phase=session.value,
         policy=scanner_policy,
-        execution_enabled=True,
+        execution_enabled=execution_enabled,
     )
     print(
         "[ORCH][POLICY] loaded strategy=ross_momentum "
@@ -564,12 +574,29 @@ def run_cycle(
             print(f"[DEBUG][FORCED_PATH] selected_by_arbitrator symbol={decision.symbol} intent_id={decision.intent_id}")
 
     print_section("EXECUTION")
-    if execution_intent.scan_only:
-        print("[EXECUTION] Execution stage skipped — intent scan_only.")
+    execution_candidate_ready = bool(arbitrated_decisions)
+    can_execute = execution_allowed and execution_enabled and execution_candidate_ready
+    if not can_execute:
+        if execution_intent.scan_only:
+            reason = "intent_scan_only"
+            print("[EXECUTION] Execution stage skipped — intent scan_only.")
+        elif not execution_allowed:
+            reason = f"mode_blocked:{mode.value}"
+        elif not execution_enabled:
+            reason = "execution_enabled_false"
+        else:
+            reason = "no_execution_candidates"
+        print(f"[EXECUTION][SKIP] reason={reason}")
+        print(f"[EXECUTION_BLOCKED] reason={reason}")
         execution_events = []
     else:
+        print(f"[EXECUTION][START] candidates={len(arbitrated_decisions)} mode={mode.value}")
         execution_events = execute_intents(mode=mode, decisions=arbitrated_decisions)
         for event in execution_events:
+            print(
+                "[EXECUTION][ORDER_SUBMIT] "
+                f"symbol={event.symbol} action={event.action} detail={event.detail}"
+            )
             print(f"[EXECUTION] {event.symbol} {event.action} ({event.detail})")
             execution_pass = event.action in {"SUBMITTED", "WOULD_PLACE"}
             if execution_pass:
@@ -717,7 +744,7 @@ def run_cycles(mode: str, cycles: int) -> List[CycleSummary]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Epoch 5 orchestrator.")
-    parser.add_argument("--mode", default="READ_ONLY", help="SIM/READ_ONLY/PAPER/LIVE")
+    parser.add_argument("--mode", default=None, help="SIM/READ_ONLY/PAPER/LIVE")
     parser.add_argument("--cycles", type=int, default=1)
     args = parser.parse_args()
     bootstrap_runtime()
