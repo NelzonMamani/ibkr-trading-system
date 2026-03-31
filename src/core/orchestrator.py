@@ -566,12 +566,21 @@ class CoreOrchestrator:
         execution_result: ExecutionResult,
         managed_position: ManagedPosition | None,
     ) -> str | None:
-        eligible_status = {"FILLED", "PARTIAL", "ACKED", "SUBMITTED", "SIMULATED"}
         status = str(getattr(execution_result, "status", "") or "").upper()
-        if status not in eligible_status:
-            print(f"[LIFECYCLE][SKIP] stage=register reason=status_not_eligible status={status}")
+        filled_quantity = int(getattr(execution_result, "filled_quantity", 0) or 0)
+        ibkr_order_id = getattr(execution_result, "ibkr_order_id", None)
+        is_confirmed_fill = bool(
+            ibkr_order_id is not None
+            and (status in {"FILLED", "PARTIAL"} or filled_quantity > 0)
+        )
+        if not is_confirmed_fill:
+            print(
+                "[LIFECYCLE][SKIP] "
+                f"stage=register reason=waiting_for_ibkr_fill status={status} "
+                f"order_id={ibkr_order_id} filled_quantity={filled_quantity}"
+            )
             return None
-        quantity = int(getattr(execution_result, "filled_quantity", 0) or getattr(execution_result, "quantity", 0) or 0)
+        quantity = filled_quantity
         if quantity <= 0:
             print("[LIFECYCLE][SKIP] stage=register reason=invalid_quantity")
             return None
@@ -597,12 +606,17 @@ class CoreOrchestrator:
                 quantity=quantity,
                 price=entry_price,
                 timestamp=datetime.now(timezone.utc).isoformat(),
-                order_id=str(getattr(execution_result, "client_order_id", "") or "") or None,
+                order_id=str(ibkr_order_id),
                 execution_id=str(getattr(execution_result, "execution_id", "") or "") or None,
-                source="execution_engine",
+                source="IBKR_EVENT",
             ),
             strategy_name=str(getattr(execution_result, "strategy_name", "") or "") or None,
             stop_price=stop_price,
+        )
+        print(
+            "[LIFECYCLE][UPDATE] "
+            f"symbol={execution_result.symbol} event=ENTRY_FILL source=IBKR_EVENT "
+            f"order_id={ibkr_order_id} status={status} qty={quantity}"
         )
         print(f"[LIFECYCLE][REGISTER] symbol={execution_result.symbol} trade_id={trade_id} qty={quantity}")
         return trade_id

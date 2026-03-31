@@ -789,7 +789,8 @@ def run_cycle(
             execution_pass = event.action in {"SUBMITTED", "WOULD_PLACE"}
             if execution_pass:
                 executed += 1
-                print(f"[LIFECYCLE] ENTRY_FILL symbol={event.symbol} source={event.action}")
+                if event.action == "SUBMITTED":
+                    print(f"[LIFECYCLE] ORDER_SUBMITTED symbol={event.symbol} source=IBKR_EVENT")
             print(
                 f"[PIPELINE][EXECUTION] symbol={event.symbol} "
                 f"executed={str(execution_pass).lower()} action={event.action}"

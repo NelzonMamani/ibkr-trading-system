@@ -592,6 +592,11 @@ class ExecutionEngine:
             status=getattr(result, "status", None),
             reason=getattr(result, "rejection_reason", None) or getattr(result, "rationale", None),
         )
+        print(
+            "[EXECUTION][SUBMIT_RESULT] "
+            f"symbol={request.symbol} order_id={getattr(result, 'ibkr_order_id', None)} "
+            f"status={getattr(result, 'status', None)}"
+        )
         result = self._confirm_broker_ack(request, result)
         self._log_ibkr_status(request, result)
         self._record_fill_and_position(request, result)
@@ -727,6 +732,7 @@ class ExecutionEngine:
             f"symbol={request.symbol}"
         )
         print(f"[ORDER][ACK] order_id={ibkr_order_id} status={broker_status}")
+        print(f"[EXECUTION][ORDER_TRACK] order_id={ibkr_order_id} status={broker_status}")
         self._execution_log(
             "ORDER_STATUS",
             symbol=request.symbol,
@@ -744,6 +750,15 @@ class ExecutionEngine:
         filled_quantity = int(getattr(result, "filled_quantity", 0) or 0)
         if filled_quantity <= 0:
             return
+        remaining_quantity = int(getattr(result, "remaining_quantity", 0) or 0)
+        fill_track_status = "PARTIAL_FILL" if remaining_quantity > 0 else "Filled"
+        ibkr_order_id = getattr(result, "ibkr_order_id", None)
+        if ibkr_order_id is not None:
+            print(
+                "[EXECUTION][ORDER_TRACK] "
+                f"order_id={ibkr_order_id} status={fill_track_status} "
+                f"filled={filled_quantity} remaining={remaining_quantity}"
+            )
         entry_price = getattr(result, "entry_price", None) or getattr(result, "average_fill_price", None)
         print(
             f"[ORDER][FILL] order_id={request.client_order_id} "
