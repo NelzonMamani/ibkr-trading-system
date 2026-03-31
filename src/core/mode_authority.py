@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 
@@ -28,33 +29,51 @@ def normalize_mode(mode_value: str | None) -> str:
 
 def resolve_mode_authority(mode_value: str | None, execution_enabled: bool) -> ModeAuthority:
     requested_mode = normalize_mode(mode_value)
+    env_run_mode = normalize_mode(os.getenv("RUN_MODE"))
     execution_enabled_bool = bool(execution_enabled)
+    reason = ""
+
+    if env_run_mode == "PAPER" and requested_mode != "PAPER":
+        requested_mode = "PAPER"
+        reason = "env_run_mode_paper_priority"
 
     if requested_mode in {"SIM", "READ_ONLY"}:
-        return ModeAuthority(
+        authority = ModeAuthority(
             requested_mode=requested_mode,
             effective_mode=requested_mode,
             execution_enabled=execution_enabled_bool,
             trade_enabled=False,
             scan_only=True,
-            reason="mode_non_executable",
+            reason=reason or "mode_non_executable",
         )
-
-    if requested_mode in {"PAPER", "LIVE"} and execution_enabled_bool:
-        return ModeAuthority(
+    elif requested_mode in {"PAPER", "LIVE"} and execution_enabled_bool:
+        authority = ModeAuthority(
             requested_mode=requested_mode,
             effective_mode=requested_mode,
             execution_enabled=execution_enabled_bool,
             trade_enabled=True,
             scan_only=False,
-            reason="executable_mode_enabled",
+            reason=reason or "executable_mode_enabled",
+        )
+    else:
+        authority = ModeAuthority(
+            requested_mode=requested_mode,
+            effective_mode=requested_mode,
+            execution_enabled=execution_enabled_bool,
+            trade_enabled=False,
+            scan_only=True,
+            reason=reason or "execution_disabled_observational",
         )
 
-    return ModeAuthority(
-        requested_mode=requested_mode,
-        effective_mode=requested_mode,
-        execution_enabled=execution_enabled_bool,
-        trade_enabled=False,
-        scan_only=True,
-        reason="execution_disabled_observational",
+    if authority.requested_mode == "PAPER":
+        assert authority.effective_mode == "PAPER", "MODE_DOWNGRADE_NOT_ALLOWED"
+
+    print(
+        "[MODE][TRACE]",
+        f"requested={authority.requested_mode}",
+        f"env_RUN_MODE={os.getenv('RUN_MODE')}",
+        f"env_EXECUTION_ENABLED={os.getenv('EXECUTION_ENABLED')}",
+        f"effective={authority.effective_mode}",
+        f"reason={authority.reason}",
     )
+    return authority
