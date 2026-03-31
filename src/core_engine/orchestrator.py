@@ -531,7 +531,20 @@ def run_cycle(
             )
 
             strategy_id = "RossMomentumStrategy"
-            trade_intents = build_trade_intents(strategy_id, symbol, summary)
+            try:
+                trade_intents = build_trade_intents(
+                    strategy_id,
+                    symbol,
+                    summary,
+                    system_health_degraded=bool(data_quality_flags.get(symbol)),
+                )
+            except TypeError:
+                # Backward compatibility for test mocks
+                trade_intents = build_trade_intents(
+                    strategy_id,
+                    symbol,
+                    summary,
+                )
             try:
                 entry_price, entry_price_source = resolve_entry_price(
                     symbol,
