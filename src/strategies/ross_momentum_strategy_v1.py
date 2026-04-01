@@ -79,6 +79,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         "VWAP_RECLAIM_CONTINUATION",
         "FIRST_PULLBACK",
         "MICRO_PULLBACK",
+        "CUP_HANDLE",
         "FLAT_TOP_BREAKOUT",
     )
 

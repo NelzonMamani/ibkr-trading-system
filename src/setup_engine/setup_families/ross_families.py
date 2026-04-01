@@ -9,6 +9,7 @@ from src.setup_engine.setup_families.key_level_helpers import (
     level_candidates_for_inputs,
     nearest_relevant_key_level,
 )
+from src.strategies.common.patterns.pattern_cup_handle import detect_cup_handle
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
@@ -515,38 +516,7 @@ class CupHandlePattern(PatternBase):
     direction_bias = Direction.LONG
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
-        candles = inputs.candles
-        if len(candles) < 12:
-            return self._rejected("insufficient candles", inputs)
-        window = candles[-12:]
-        left_high = max(c.high for c in window[:4])
-        cup_low = min(c.low for c in window[4:8])
-        right_high = max(c.high for c in window[8:10])
-        handle = window[10:]
-        handle_low = min(c.low for c in handle)
-        last = window[-1]
-        if right_high < left_high * 0.985:
-            return self._rejected("right side failed to recover cup rim", inputs)
-        cup_depth = (left_high - cup_low) / max(left_high, 1e-9)
-        handle_depth = (right_high - handle_low) / max(right_high, 1e-9)
-        if cup_depth > 0.2 or handle_depth > 0.07:
-            return self._rejected("cup/handle depth too large", inputs)
-        rim = max(left_high, right_high)
-        if last.close <= rim:
-            return self._rejected("no breakout above cup rim", inputs)
-        return self._detected(
-            inputs,
-            direction=Direction.LONG,
-            confidence=0.7,
-            rationale=(
-                "Rounded cup recovery plus shallow handle resolved with rim breakout.\n"
-                f"Cup depth={cup_depth:.2%}, handle depth={handle_depth:.2%}."
-            ),
-            entry_zone="Break and hold above cup rim",
-            stop_suggestion="Below handle low",
-            target_suggestion="Cup depth measured move",
-            setup_quality_tags=["cup_handle", "base_breakout"],
-        )
+        return detect_cup_handle(inputs)
 
 
 class HaltResumePattern(PatternBase):
