@@ -59,9 +59,11 @@ class RossMomentumStrategyV1(BaseStrategy):
         "MOMENTUM_RECLAIM": "VWAP_RECLAIM_CONTINUATION",
         "ASCENDING_TRIANGLE_BREAKOUT": "ASCENDING_TRIANGLE",
         "PENNANT_BREAK": "PENNANT",
+        "P_PARABOLIC_EXHAUSTION": "PARABOLIC_EXHAUSTION",
     }
 
     _priority_order: Tuple[str, ...] = (
+        "PARABOLIC_EXHAUSTION",
         "HOD_BREAK",
         "ORB_BREAK",
         "MOMO_BREAKOUT",
@@ -81,6 +83,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         "MICRO_PULLBACK",
         "CUP_HANDLE",
         "FLAT_TOP_BREAKOUT",
+        "PARABOLIC_EXHAUSTION",
     )
 
     def __init__(self) -> None:

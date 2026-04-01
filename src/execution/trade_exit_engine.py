@@ -74,6 +74,8 @@ class TradeExitEngine:
         config,
         breaker_tripped: bool = False,
         risk_exit_signal: bool = False,
+        exhaustion_signal: bool = False,
+        exhaustion_confidence: float = 0.0,
     ) -> Optional[ExitDecision]:
         """
         Pure decision function to determine the highest-priority exit outcome.
@@ -146,6 +148,23 @@ class TradeExitEngine:
             return ExitDecision(
                 category=category,
                 reason=reason,
+                exit_tick=current_tick,
+                exit_price=current_price,
+            )
+
+        if exhaustion_signal:
+            action = "tighten_stop_partial_exit" if exhaustion_confidence < 0.85 else "full_exit"
+            print(
+                "[EXIT][PARABOLIC_EXHAUSTION] "
+                f"symbol={getattr(trade, 'symbol', 'UNKNOWN')} action={action} confidence={exhaustion_confidence:.2f}"
+            )
+            return ExitDecision(
+                category="EXIT_RISK",
+                reason=(
+                    "Parabolic exhaustion active — tighten stop and partial exit"
+                    if exhaustion_confidence < 0.85
+                    else "Parabolic exhaustion high confidence — full exit"
+                ),
                 exit_tick=current_tick,
                 exit_price=current_price,
             )

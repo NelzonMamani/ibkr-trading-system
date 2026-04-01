@@ -77,6 +77,13 @@ class DecisionEngine:
             if candidate["pattern_id"] in set(inactive_pattern_ids or set()):
                 rejected_candidates.append(self._reject(candidate, "inactive_pattern"))
                 continue
+            if candidate["setup_family"] == "PARABOLIC_EXHAUSTION":
+                print(
+                    "[DECISION][EXHAUSTION_BLOCK] "
+                    f"symbol={symbol} reason=PARABOLIC_EXHAUSTION"
+                )
+                rejected_candidates.append(self._reject(candidate, "parabolic_exhaustion_non_entry"))
+                continue
             if candidate["non_entry"]:
                 rejected_candidates.append(self._reject(candidate, "non_entry_signal"))
                 continue
@@ -401,6 +408,7 @@ class DecisionEngine:
             "P_VWAP_PULLBACK": "VWAP_PULLBACK",
             "P_THREE_BAR_PULLBACK": "THREE_BAR_PULLBACK",
             "P_SECOND_PULLBACK": "SECOND_PULLBACK",
+            "P_PARABOLIC_EXHAUSTION": "PARABOLIC_EXHAUSTION",
         }
         return mapping.get(str(pattern_id or "").upper(), "UNKNOWN")
 

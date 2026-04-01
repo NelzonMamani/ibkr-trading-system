@@ -15,6 +15,7 @@ class PatternFamily(str, Enum):
     RANGE = "RANGE"
     VOL_EVENT = "VOL_EVENT"
     CANDLE = "CANDLE"
+    EXHAUSTION = "EXHAUSTION"
 
 
 class Direction(str, Enum):

@@ -73,7 +73,12 @@ CANONICAL_SETUP_REGISTRY: Dict[str, SetupFamilyImplementation] = {
         SetupImplementationStatus.PROBATIONARY,
         reason="Halt detection relies on inferred gaps; requires IBKR halt feed or exchange metadata for full reliability.",
     ),
-    "PARABOLIC_EXHAUSTION": SetupFamilyImplementation("PARABOLIC_EXHAUSTION", ParabolicExhaustionPattern, SetupImplementationStatus.TRADE_READY),
+    "PARABOLIC_EXHAUSTION": SetupFamilyImplementation(
+        "PARABOLIC_EXHAUSTION",
+        ParabolicExhaustionPattern,
+        SetupImplementationStatus.PROBATIONARY,
+        reason="Exit/risk signal — not an entry setup",
+    ),
     "GAP_FILL": SetupFamilyImplementation("GAP_FILL", GapFillReversalPattern, SetupImplementationStatus.TRADE_READY),
     "GAP_CONTINUATION": SetupFamilyImplementation("GAP_CONTINUATION", GapGoPattern, SetupImplementationStatus.TRADE_READY),
     "OPENING_DRIVE": SetupFamilyImplementation("OPENING_DRIVE", OpeningDrivePattern, SetupImplementationStatus.TRADE_READY),
@@ -96,6 +101,6 @@ CANONICAL_SETUP_REGISTRY: Dict[str, SetupFamilyImplementation] = {
 def build_tradeable_patterns() -> list[PatternBase]:
     patterns: list[PatternBase] = []
     for spec in CANONICAL_SETUP_REGISTRY.values():
-        if spec.status == SetupImplementationStatus.TRADE_READY:
+        if spec.status in {SetupImplementationStatus.TRADE_READY, SetupImplementationStatus.PROBATIONARY}:
             patterns.append(spec.pattern_cls())
     return patterns
