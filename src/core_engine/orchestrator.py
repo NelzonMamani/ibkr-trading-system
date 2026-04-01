@@ -942,11 +942,40 @@ def run_cycle(
     else:
         execution_events = []
     execution_events.extend(blocked_candidates)
+    execution_state_counts = {"submitted": 0, "acknowledged": 0, "working": 0, "filled": 0}
+    execution_attempts = 0
     for event in execution_events:
         broker_order_id = getattr(event, "broker_order_id", None)
         filled_quantity = int(getattr(event, "filled_quantity", 0) or 0)
         remaining_quantity = int(getattr(event, "remaining_quantity", 0) or 0)
         broker_status = str(getattr(event, "broker_status", "UNKNOWN") or "UNKNOWN")
+        normalized_action = str(event.action or "").upper()
+        normalized_broker_status = broker_status.upper()
+        is_submitted = normalized_action == "SUBMITTED"
+        is_acknowledged = normalized_action == "ACKNOWLEDGED" or (
+            is_submitted and broker_order_id is not None
+        )
+        is_working = (
+            normalized_action == "WORKING"
+            or (is_submitted and remaining_quantity > 0)
+            or normalized_broker_status in {"SUBMITTED", "PRESUBMITTED", "ACKNOWLEDGED"}
+        )
+        is_filled = (
+            normalized_action == "FILLED"
+            or str(getattr(event, "event_type", "") or "").upper() == "ORDER_FILLED"
+            or filled_quantity > 0
+            or normalized_broker_status == "FILLED"
+        )
+        if is_submitted:
+            execution_state_counts["submitted"] += 1
+        if is_acknowledged:
+            execution_state_counts["acknowledged"] += 1
+        if is_working:
+            execution_state_counts["working"] += 1
+        if is_filled:
+            execution_state_counts["filled"] += 1
+        if is_submitted or is_acknowledged or is_working or is_filled:
+            execution_attempts += 1
         print(
             "[EXECUTION][SUBMIT_RESULT] "
             f"symbol={event.symbol} submitted={event.action == 'SUBMITTED'} "
@@ -1042,11 +1071,17 @@ def run_cycle(
     blocked_count = sum(1 for value in pipeline_outcomes.values() if value in {"BLOCKED_BY_RISK", "BLOCKED_BY_EXECUTION_PRECHECK"})
     print(f"blocked_count={blocked_count}")
     print(f"no_setup_count={sum(1 for value in pipeline_outcomes.values() if value == 'NO_SETUP')}")
-    executed = sum(1 for row in position_book.values() if float(row.get("qty", 0.0)) > 0.0)
+    open_positions = sum(1 for row in position_book.values() if float(row.get("qty", 0.0)) > 0.0)
+    executed = execution_attempts
     print(
-        f"[LIFECYCLE][PORTFOLIO] open_positions={executed} "
+        f"[LIFECYCLE][PORTFOLIO] open_positions={open_positions} "
         f"working_orders={working_orders} pending_entries={pending_entries}"
     )
+    print("[EXECUTION][SUMMARY]")
+    print(f"submitted={execution_state_counts['submitted']}")
+    print(f"acknowledged={execution_state_counts['acknowledged']}")
+    print(f"working={execution_state_counts['working']}")
+    print(f"filled={execution_state_counts['filled']}")
     for symbol in watchlist:
         wf = decision_waterfall[symbol]
         print(
@@ -1072,7 +1107,7 @@ def run_cycle(
     )
     print(
         "[LIFECYCLE][RISK_SIGNALS] "
-        f"trade_flow_active={str(executed > 0).lower()} "
+        f"trade_flow_active={str(execution_attempts > 0).lower()} "
         f"risk_blocks={max(0, len(risk_decisions) - risk_allowed)}"
     )
 
@@ -1086,20 +1121,23 @@ def run_cycle(
     print(f"executed={executed}")
     if passed_setup > 0 and passed_trigger > 0 and generated_intents == 0:
         print("[PIPELINE][ERROR] trigger_passed_but_no_intent")
-    if passed_setup > 0 and passed_trigger > 0 and generated_intents > 0 and executed == 0:
-        kill_switch_active = any(
-            "KILL_SWITCH" in rule
-            for decision in risk_decisions
-            for rule in decision.triggered_rules
-        )
-        portfolio_exposure = sum(float(decision.order_value) for decision in risk_decisions if decision.risk_allowed)
-        last_block_reason = _derive_last_block_reason(risk_decisions)
-        print(
-            "[PIPELINE][ERROR] no_execution_despite_valid_pipeline "
-            f"risk_allowed={risk_allowed} selected_by_arbitrator={selected_by_arbitrator} "
-            f"kill_switch_active={str(kill_switch_active).lower()} "
-            f"portfolio_exposure={portfolio_exposure:.2f} last_block_reason={last_block_reason}"
-        )
+    if execution_attempts == 0:
+        if passed_setup > 0 and passed_trigger > 0 and generated_intents > 0:
+            kill_switch_active = any(
+                "KILL_SWITCH" in rule
+                for decision in risk_decisions
+                for rule in decision.triggered_rules
+            )
+            portfolio_exposure = sum(float(decision.order_value) for decision in risk_decisions if decision.risk_allowed)
+            last_block_reason = _derive_last_block_reason(risk_decisions)
+            print(
+                "[PIPELINE][ERROR] no_execution_attempts_despite_valid_pipeline "
+                f"risk_allowed={risk_allowed} selected_by_arbitrator={selected_by_arbitrator} "
+                f"kill_switch_active={str(kill_switch_active).lower()} "
+                f"portfolio_exposure={portfolio_exposure:.2f} last_block_reason={last_block_reason}"
+            )
+    else:
+        print(f"[PIPELINE][EXECUTION_OK] submissions_detected={execution_attempts}")
     if executed == 0:
         if generated_intents == 0:
             no_trade_reason = "no_intents_generated"
