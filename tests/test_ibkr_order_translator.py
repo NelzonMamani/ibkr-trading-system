@@ -51,6 +51,31 @@ def test_long_market_translation(capsys):
     assert "outsideRth=True" in captured
 
 
+def test_long_translation_defaults_missing_fields_to_valid_values():
+    translator = IbkrOrderTranslator(order_translation_enabled=True)
+    internal_order = InternalOrder(
+        client_order_id="defaults-1",
+        symbol="AAPL",
+        direction="BUY",
+        quantity=3,
+        order_type="",
+        time_in_force="",
+        strategy_name="UNIT_TEST",
+        trader_type="MANUAL",
+    )
+
+    contract, order = translator.translate(internal_order)
+
+    assert contract.symbol == "AAPL"
+    assert contract.exchange == "SMART"
+    assert contract.currency == "USD"
+    assert contract.secType == "STK"
+    assert order.action == "BUY"
+    assert order.orderType == "MKT"
+    assert order.tif == "DAY"
+    assert order.totalQuantity == 3
+
+
 def test_short_limit_translation():
     translator = IbkrOrderTranslator(order_translation_enabled=True)
     internal_order = InternalOrder(
@@ -77,6 +102,23 @@ def test_short_limit_translation():
     assert order.outsideRth is True
 
 
+def test_sell_translation_maps_to_sell_action():
+    translator = IbkrOrderTranslator(order_translation_enabled=True)
+    internal_order = InternalOrder(
+        client_order_id="test-sell",
+        symbol="MSFT",
+        direction="SELL",
+        quantity=2,
+        order_type="MKT",
+        time_in_force="DAY",
+        strategy_name="UNIT_TEST",
+        trader_type="MANUAL",
+    )
+
+    _, order = translator.translate(internal_order)
+    assert order.action == "SELL"
+
+
 def test_invalid_direction_raises():
     translator = IbkrOrderTranslator(order_translation_enabled=True)
     internal_order = InternalOrder(
@@ -90,11 +132,11 @@ def test_invalid_direction_raises():
         trader_type="MANUAL",
     )
 
-    with pytest.raises(RuntimeError, match="Unsupported direction"):
+    with pytest.raises(ValueError, match="INVALID_DIRECTION"):
         translator.translate(internal_order)
 
 
-def test_missing_limit_price_raises():
+def test_missing_limit_price_falls_back_to_market_order():
     translator = IbkrOrderTranslator(order_translation_enabled=True)
     internal_order = InternalOrder(
         client_order_id="missing-limit",
@@ -107,8 +149,44 @@ def test_missing_limit_price_raises():
         trader_type="MANUAL",
     )
 
-    with pytest.raises(RuntimeError, match="Limit price required"):
-        translator.translate(internal_order)
+    _, order = translator.translate(internal_order)
+    assert order.orderType == "MKT"
+    assert getattr(order, "lmtPrice", None) is None
+
+
+def test_limit_order_with_invalid_limit_price_falls_back_to_market_order():
+    translator = IbkrOrderTranslator(order_translation_enabled=True)
+    internal_order = InternalOrder(
+        client_order_id="bad-limit",
+        symbol="AAPL",
+        direction="LONG",
+        quantity=1,
+        order_type="LIMIT",
+        limit_price=-1,
+        time_in_force="DAY",
+        strategy_name="UNIT_TEST",
+        trader_type="MANUAL",
+    )
+
+    _, order = translator.translate(internal_order)
+    assert order.orderType == "MKT"
+
+
+def test_non_positive_quantity_is_still_mapped_deterministically():
+    translator = IbkrOrderTranslator(order_translation_enabled=True)
+    internal_order = InternalOrder(
+        client_order_id="qty-zero",
+        symbol="AAPL",
+        direction="LONG",
+        quantity=0,
+        order_type="MKT",
+        time_in_force="DAY",
+        strategy_name="UNIT_TEST",
+        trader_type="MANUAL",
+    )
+
+    _, order = translator.translate(internal_order)
+    assert order.totalQuantity == 0
 
 
 def test_translation_disabled_by_config():

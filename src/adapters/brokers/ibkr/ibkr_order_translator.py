@@ -31,21 +31,33 @@ class IbkrOrderTranslator:
         self.validate(internal_order)
 
         contract = Contract()
-        contract.symbol = internal_order.symbol
-        contract.exchange = self.default_exchange
-        contract.currency = self.default_currency
-        contract.secType = "STK"
+        contract.symbol = str(getattr(internal_order, "symbol", "") or "").upper()
+        contract.exchange = str(getattr(internal_order, "exchange", None) or self.default_exchange).upper()
+        contract.currency = str(getattr(internal_order, "currency", None) or self.default_currency).upper()
+        contract.secType = str(getattr(internal_order, "sec_type", None) or "STK").upper()
 
         order = Order()
         order.action = self._map_direction(internal_order.direction)
-        order.totalQuantity = internal_order.quantity
+        order.totalQuantity = int(getattr(internal_order, "quantity", 0) or 0)
         order.orderType = self._map_order_type(internal_order.order_type)
         order.tif = self._map_time_in_force(internal_order.time_in_force)
         order.eTradeOnly = False
         order.firmQuoteOnly = False
 
-        if order.orderType == "LMT":
-            order.lmtPrice = internal_order.limit_price
+        if order.orderType in {"LMT", "LIMIT"}:
+            limit_price = getattr(internal_order, "limit_price", None)
+            try:
+                normalized_limit_price = float(limit_price)
+            except (TypeError, ValueError):
+                normalized_limit_price = 0.0
+            if normalized_limit_price <= 0:
+                order.orderType = "MKT"
+                try:
+                    order.lmtPrice = None
+                except Exception:
+                    pass
+            else:
+                order.lmtPrice = normalized_limit_price
 
         # Keep outside regular trading hours enabled in translated orders.
         # IBKR may still emit warning 2109 for certain destinations/order
@@ -59,24 +71,13 @@ class IbkrOrderTranslator:
     def validate(self, internal_order: InternalOrder) -> None:
         self._ensure_enabled()
 
-        if internal_order.direction not in {"LONG", "SHORT", "SELL"}:
-            raise RuntimeError(f"Unsupported direction: {internal_order.direction}")
+        symbol = str(getattr(internal_order, "symbol", "") or "").strip()
+        if not symbol:
+            raise RuntimeError("Symbol is required")
 
-        quantity = int(internal_order.quantity)
-        if quantity != internal_order.quantity:
-            raise RuntimeError(f"Quantity must be an integer. Received: {internal_order.quantity}")
-
-        if quantity <= 0:
-            raise RuntimeError(f"Quantity must be positive. Received: {internal_order.quantity}")
-
-        if internal_order.order_type not in {"MKT", "LMT"}:
-            raise RuntimeError(f"Unsupported order type: {internal_order.order_type}")
-
-        if internal_order.order_type == "LMT" and internal_order.limit_price is None:
-            raise RuntimeError("Limit price required for LMT orders.")
-
-        if internal_order.time_in_force not in {"DAY", "IOC"}:
-            raise RuntimeError(f"Unsupported time in force: {internal_order.time_in_force}")
+        direction = str(getattr(internal_order, "direction", "") or "").upper().strip()
+        if direction not in {"LONG", "BUY", "SHORT", "SELL"}:
+            raise ValueError("INVALID_DIRECTION")
 
     def log_translation(self, contract: Contract, order: Order) -> None:
         print(
@@ -110,26 +111,35 @@ class IbkrOrderTranslator:
 
     @staticmethod
     def _map_direction(direction: str) -> str:
-        if direction == "LONG":
+        normalized_direction = str(direction or "").upper().strip()
+        if normalized_direction in {"LONG", "BUY"}:
             return "BUY"
-        if direction == "SHORT":
+        if normalized_direction in {"SHORT", "SELL"}:
             return "SELL"
-        if direction == "SELL":
-            return "SELL"
-        raise RuntimeError(f"Unsupported direction: {direction}")
+        raise ValueError("INVALID_DIRECTION")
 
     @staticmethod
     def _map_order_type(order_type: str) -> str:
-        if order_type == "MKT":
+        normalized_order_type = str(order_type or "MKT").upper().strip()
+        if normalized_order_type == "LIMIT":
+            normalized_order_type = "LMT"
+        if normalized_order_type == "":
+            normalized_order_type = "MKT"
+        if normalized_order_type == "MKT":
             return "MKT"
-        if order_type == "LMT":
+        if normalized_order_type == "LMT":
             return "LMT"
         raise RuntimeError(f"Unsupported order type: {order_type}")
 
     @staticmethod
     def _map_time_in_force(time_in_force: str) -> str:
-        if time_in_force == "DAY":
+        normalized_tif = str(time_in_force or "DAY").upper().strip()
+        if normalized_tif == "":
+            normalized_tif = "DAY"
+        if normalized_tif == "DAY":
             return "DAY"
-        if time_in_force == "IOC":
+        if normalized_tif == "GTC":
+            return "GTC"
+        if normalized_tif == "IOC":
             return "IOC"
         raise RuntimeError(f"Unsupported time in force: {time_in_force}")
