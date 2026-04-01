@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.common.patterns.pattern_opening_drive import detect_opening_drive
 from src.strategies.common.triggers.trigger_opening_drive import evaluate_opening_drive_trigger
@@ -41,6 +43,14 @@ def test_opening_drive_pattern_rejects_invalid_session() -> None:
     assert result.rejection_reason == "invalid_session"
 
 
+def test_opening_drive_rejects_non_rth_open_if_phase_available() -> None:
+    base = _inputs()
+    payload = {**base.__dict__, "session_phase": "RTH_MID"}
+    result = detect_opening_drive(SimpleNamespace(**payload))
+    assert result.detected is False
+    assert result.rejection_reason == "invalid_phase"
+
+
 def test_opening_drive_trigger_arms_and_fires() -> None:
     armed = evaluate_opening_drive_trigger(
         {"trigger_level": 10.62, "invalidation_level": 10.45},
@@ -60,4 +70,3 @@ def test_opening_drive_trigger_arms_and_fires() -> None:
 def test_trigger_registry_contains_opening_drive() -> None:
     evaluator = resolve_trigger_evaluator("OPENING_DRIVE")
     assert evaluator is not None
-

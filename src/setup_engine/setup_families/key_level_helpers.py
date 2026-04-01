@@ -104,8 +104,17 @@ def level_candidates_for_inputs(inputs: Any) -> list[KeyLevelCandidate]:
 
 
 
-def nearest_relevant_key_level(*, inputs: Any, reference_price: float) -> KeyLevelCandidate | None:
+def nearest_relevant_key_level(*, inputs: Any, reference_price: float, direction: str | None = None) -> KeyLevelCandidate | None:
     candidates = level_candidates_for_inputs(inputs)
     if not candidates:
         return None
+    normalized_direction = str(direction or "").strip().upper()
+    if normalized_direction == "LONG":
+        candidates_above = [candidate for candidate in candidates if candidate.level_price >= reference_price]
+        if candidates_above:
+            return min(candidates_above, key=lambda c: c.level_price)
+    elif normalized_direction == "SHORT":
+        candidates_below = [candidate for candidate in candidates if candidate.level_price <= reference_price]
+        if candidates_below:
+            return max(candidates_below, key=lambda c: c.level_price)
     return min(candidates, key=lambda c: abs(c.level_price - reference_price))

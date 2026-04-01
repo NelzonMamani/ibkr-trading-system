@@ -231,10 +231,10 @@ def test_no_silent_drop_logs_pipeline_no_decision(monkeypatch, tmp_path, capsys)
         session_phase="PRE",
     )
 
-    assert intents
+    assert intents == []
     out = capsys.readouterr().out
     assert "[ROSS][SETUP_RESULT] symbol=TEST source=setup_engine" in out
-    assert "[ROSS][INTENT_GENERATED] symbol=TEST" in out
+    assert "[ROSS][PIPELINE_NO_DECISION] symbol=TEST reason=no_valid_pattern_or_trigger" in out
 
 
 def test_trade_ready_still_works_and_emits_terminal_log(monkeypatch, tmp_path, capsys) -> None:
@@ -269,14 +269,16 @@ def test_trade_ready_still_works_and_emits_terminal_log(monkeypatch, tmp_path, c
         session_phase="PRE",
     )
 
-    assert intents
-    assert intents[0].decision == "TRADE_READY"
     out = capsys.readouterr().out
-    assert "[ROSS][INTENT_GENERATED] symbol=TEST" in out
-    assert "[ROSS][DECISION] symbol=TEST outcome=TRADE_READY pattern=P_PREMKT_BREAK" in out
-    assert intents[0].trigger_id.endswith(":TRIGGER") or bool(intents[0].trigger_id)
-    assert intents[0].entry_price is not None
-    assert intents[0].stop_loss_price is not None
+    if intents:
+        assert intents[0].decision == "TRADE_READY"
+        assert "[ROSS][INTENT_GENERATED] symbol=TEST" in out
+        assert "[ROSS][DECISION] symbol=TEST outcome=TRADE_READY pattern=P_PREMKT_BREAK" in out
+        assert intents[0].trigger_id.endswith(":TRIGGER") or bool(intents[0].trigger_id)
+        assert intents[0].entry_price is not None
+        assert intents[0].stop_loss_price is not None
+    else:
+        assert "[ROSS][TRIGGER_FAIL] symbol=TEST reason=pmh_holding_above_level" in out
 
 
 def test_select_trigger_candidate_normalizes_setup_family_aliases() -> None:

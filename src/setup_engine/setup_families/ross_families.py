@@ -628,7 +628,7 @@ class KeyLevelBreakPattern(PatternBase):
         candidates = level_candidates_for_inputs(inputs)
         if not candidates:
             return self._rejected("no_relevant_key_level", inputs)
-        selected = nearest_relevant_key_level(inputs=inputs, reference_price=last_close)
+        selected = nearest_relevant_key_level(inputs=inputs, reference_price=prev_close, direction="LONG")
         if selected is None:
             return self._rejected("no_relevant_key_level", inputs)
 
