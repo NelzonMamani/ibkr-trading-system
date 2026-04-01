@@ -775,9 +775,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                     session_context=input_summary.session_context,
                     rvol=input_summary.rvol,
                 )
-            valid_triggers = [t for t in trigger_candidates if t.get("trigger_ready_now") is True]
+            valid_triggers = [t for t in trigger_candidates if t.get("trigger_fired") is True]
             for trigger in valid_triggers:
-                print(f"[TRIGGER][FIRED] symbol={symbol} type={trigger.get('trigger_type')}")
+                print(
+                    f"[TRIGGER][FIRED] symbol={symbol} trigger_type={trigger.get('trigger_type')} "
+                    f"price={input_summary.last_price}"
+                )
             ranked_triggers = sorted(
                 valid_triggers,
                 key=lambda t: float((t.get("quality") or {}).get("quality_score", 0.0)),
@@ -793,7 +796,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "[ROSS][ENGINE_STACK] "
                 f"symbol={symbol} levels={len(levels)} structure_direction={structure.get('dominant_direction')} "
                 f"setups={len(setups)} triggers={len(trigger_candidates)} "
-                f"ready_triggers={sum(1 for t in trigger_candidates if t.get('trigger_ready_now'))}"
+                f"ready_triggers={sum(1 for t in trigger_candidates if t.get('trigger_ready_now'))} "
+                f"fired_triggers={sum(1 for t in trigger_candidates if t.get('trigger_fired'))}"
             )
             symbol_trace.input_summary = input_summary.to_dict()
             symbol_trace.input_summary["levels"] = levels
@@ -805,7 +809,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 (
                     selected.get("trigger_reason")
                     for selected in trigger_candidates
-                    if selected.get("trigger_ready_now") is True
+                    if selected.get("trigger_fired") is True
                 ),
                 trigger_candidates[0].get("trigger_reason") if trigger_candidates else None,
             )
@@ -1224,7 +1228,14 @@ class RossMomentumStrategyV1(BaseStrategy):
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
-            if selected_trigger.get("trigger_ready_now") is not True:
+            if selected_trigger.get("trigger_fired") is not True:
+                breakout_level = selected_trigger.get("trigger_price_reference")
+                current_price = input_summary.last_price
+                if selected_trigger.get("trigger_ready_now") is True:
+                    print(
+                        "[TRIGGER][WAIT] "
+                        f"symbol={symbol} current_price={current_price} breakout_level={breakout_level}"
+                    )
                 print(
                     "[ROSS][TRIGGER] "
                     f"symbol={symbol} trigger_id={selected_trigger.get('trigger_type') or 'UNKNOWN'} fired=False "
@@ -1319,9 +1330,6 @@ class RossMomentumStrategyV1(BaseStrategy):
                 continue
             print(f"[ROSS][ENTRY_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} entry={entry}")
             print(f"[ROSS][STOP_MODEL] symbol={symbol} pattern={best_pattern.pattern_id} stop={stop}")
-            print(f"[ROSS][TRIGGER][PASS] symbol={symbol} trigger=confirmation_gate")
-            print(f"[ROSS][TRIGGER_PASS] symbol={symbol} trigger=confirmation_gate")
-            print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=confirmation_gate")
             trigger_ready, _trigger_reason = self._evaluate_trigger(
                 symbol=symbol,
                 selected_pattern=best_pattern,
@@ -1329,7 +1337,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 trigger_name="first_valid_breakout",
                 entry_price=entry,
             )
-            trigger_ready = bool(trigger_ready and selected_trigger.get("trigger_ready_now"))
+            trigger_ready = bool(trigger_ready and selected_trigger.get("trigger_fired"))
             print(
                 "[ROSS][TRIGGER] "
                 f"symbol={symbol} trigger_id={selected_trigger.get('trigger_type') or 'UNKNOWN'} "
@@ -1407,15 +1415,16 @@ class RossMomentumStrategyV1(BaseStrategy):
                 best_pattern=best_pattern,
                 setup_family=setup_family,
                 trigger_ready=trigger_ready,
+                trigger_id=str(selected_trigger.get("trigger_type") or "UNKNOWN"),
                 entry=entry,
                 stop=stop,
                 execution_refinement_mode=execution_refinement_mode,
             )
             print(f"[ROSS][INTENT_GUARD] symbol={symbol} trigger_ready={trigger_ready}")
             if trigger_ready and intent is None:
-                raise RuntimeError("CRITICAL: Trigger fired but no TradeIntent created")
+                raise RuntimeError("CRITICAL: TRIGGER_FIRED_BUT_NO_INTENT")
             if gap_go_trigger_fired and not intent:
-                raise RuntimeError("CRITICAL: Trigger fired but no TradeIntent created")
+                raise RuntimeError("CRITICAL: TRIGGER_FIRED_BUT_NO_INTENT")
             intent.entry_price = entry
             intent.has_valid_pattern = bool(getattr(best_pattern, "detected", False))
             intent.confirmation_passed = confirmation_passed
@@ -1537,7 +1546,8 @@ class RossMomentumStrategyV1(BaseStrategy):
             print(f"[EXECUTION][SELECTED] symbol={symbol} rank={rank} score={score:.2f}")
             print(f"[CAPITAL_ALLOCATION] symbol={symbol} size={size_multiplier:.2f} reason=quality_scaled")
             print(
-                f"[TRADE_INTENT][CREATE] symbol={symbol} trigger=confirmation_gate side=LONG qty={getattr(intent, 'quantity', None) or getattr(intent, 'requested_quantity', None) or 1}"
+                f"[TRADE_INTENT][CREATE] symbol={symbol} trigger={getattr(intent, 'trigger_id', None) or 'UNKNOWN'} "
+                f"side=LONG qty={getattr(intent, 'quantity', None) or getattr(intent, 'requested_quantity', None) or 1}"
             )
             print(
                 f"[TRADE][INTENT] symbol={symbol} size={getattr(intent, 'quantity', None) or getattr(intent, 'requested_quantity', None) or 1} reason=quality_scaled"
@@ -2059,6 +2069,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         best_pattern,
         setup_family: str,
         trigger_ready: bool,
+        trigger_id: str,
         entry: float,
         stop: float,
         execution_refinement_mode: str = "NONE",
@@ -2075,7 +2086,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 invalidation_level=stop,
                 pattern_name=best_pattern.pattern_id,
                 setup_family_id="GAP_GO",
-                trigger_id="confirmation_gate",
+                trigger_id=trigger_id,
                 execution_refinement_mode=execution_refinement_mode,
             )
             intent.entry_type = "BREAKOUT"
@@ -2097,7 +2108,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             invalidation_level=stop,
             pattern_name=best_pattern.pattern_id,
             setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
-            trigger_id="confirmation_gate",
+            trigger_id=trigger_id,
             execution_refinement_mode=execution_refinement_mode,
         )
 
