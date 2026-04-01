@@ -260,6 +260,8 @@ def _setup_family_name(pattern_name: str) -> str:
         return "BULL_FLAG"
     if "HOD" in upper:
         return "HOD_BREAK"
+    if "ABCD" in upper:
+        return "ABCD"
     return "TIGHT_CONSOLIDATION_CONTINUATION"
 
 

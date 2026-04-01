@@ -322,38 +322,147 @@ class ABCDPattern(PatternBase):
     name = "ABCD Continuation"
     family = PatternFamily.PULLBACK
     direction_bias = Direction.LONG
+    SWING_WINDOW = 1
+    MIN_RETRACE = 0.30
+    MAX_RETRACE = 0.70
+    MAX_LOOKBACK_BARS = 60
+    TRIGGER_ID = "XL_ABCD_CONTINUATION"
+
+    @staticmethod
+    def _swing_high(candles, idx: int, window: int) -> bool:
+        if idx - window < 0 or idx + window >= len(candles):
+            return False
+        current_high = float(candles[idx].high)
+        for j in range(idx - window, idx + window + 1):
+            if j == idx:
+                continue
+            if current_high <= float(candles[j].high):
+                return False
+        return True
+
+    @staticmethod
+    def _swing_low(candles, idx: int, window: int) -> bool:
+        if idx - window < 0 or idx + window >= len(candles):
+            return False
+        current_low = float(candles[idx].low)
+        for j in range(idx - window, idx + window + 1):
+            if j == idx:
+                continue
+            if current_low >= float(candles[j].low):
+                return False
+        return True
+
+    @classmethod
+    def _find_latest_swing_triplet(cls, candles):
+        highs = [idx for idx in range(len(candles)) if cls._swing_high(candles, idx, cls.SWING_WINDOW)]
+        lows = [idx for idx in range(len(candles)) if cls._swing_low(candles, idx, cls.SWING_WINDOW)]
+        for c_idx in reversed(lows):
+            b_candidates = [idx for idx in highs if idx < c_idx]
+            if not b_candidates:
+                continue
+            b_idx = b_candidates[-1]
+            a_candidates = [idx for idx in lows if idx < b_idx]
+            if not a_candidates:
+                continue
+            a_idx = a_candidates[-1]
+            return a_idx, b_idx, c_idx
+        return None
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
-        candles = inputs.candles
-        if len(candles) < 8:
-            return self._rejected("insufficient candles", inputs)
-        a = candles[-8]
-        b = candles[-5]
-        c = candles[-3]
-        d = candles[-1]
-        ab = b.high - a.low
-        bc = b.high - c.low
-        cd = d.close - c.low
-        if ab <= 0 or bc <= 0 or cd <= 0:
-            return self._rejected("invalid AB/BC/CD leg geometry", inputs)
-        retrace = bc / ab
-        extension = cd / ab
-        if not 0.25 <= retrace <= 0.7:
-            return self._rejected("BC retracement out of range", inputs)
-        if extension < 0.8:
-            return self._rejected("CD extension too weak", inputs)
-        return self._detected(
-            inputs,
+        symbol = str(inputs.symbol or "UNKNOWN").upper()
+        candles = inputs.candles[-self.MAX_LOOKBACK_BARS :] if len(inputs.candles) > self.MAX_LOOKBACK_BARS else inputs.candles
+        print(f"[SETUP][ABCD][START] symbol={symbol} candles={len(candles)}")
+        if len(candles) < 7:
+            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=INSUFFICIENT_CANDLE_HISTORY")
+            return self._rejected("INSUFFICIENT_CANDLE_HISTORY", inputs)
+
+        swing_triplet = self._find_latest_swing_triplet(candles)
+        if swing_triplet is None:
+            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=NO_SWING_SEQUENCE")
+            return self._rejected("NO_SWING_SEQUENCE", inputs)
+        a_idx, b_idx, c_idx = swing_triplet
+        if not (a_idx < b_idx < c_idx):
+            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=INVALID_ORDERING")
+            return self._rejected("INVALID_ORDERING", inputs)
+
+        a_price = float(candles[a_idx].low)
+        b_price = float(candles[b_idx].high)
+        c_price = float(candles[c_idx].low)
+        ab_length = b_price - a_price
+        if ab_length <= 0 or b_price <= a_price:
+            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=NO_VALID_IMPULSE")
+            return self._rejected("NO_VALID_IMPULSE", inputs)
+        if c_price <= a_price:
+            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=STRUCTURE_BROKEN_BELOW_A")
+            return self._rejected("STRUCTURE_BROKEN_BELOW_A", inputs)
+
+        retrace = (b_price - c_price) / ab_length
+        if retrace < self.MIN_RETRACE:
+            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=RETRACEMENT_TOO_SHALLOW")
+            return self._rejected("RETRACEMENT_TOO_SHALLOW", inputs)
+        if retrace > self.MAX_RETRACE:
+            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=RETRACEMENT_TOO_DEEP")
+            return self._rejected("RETRACEMENT_TOO_DEEP", inputs)
+
+        pullback_window = candles[b_idx : c_idx + 1]
+        trigger_level = max((float(c.high) for c in pullback_window), default=None)
+        if trigger_level is None:
+            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=NO_TRIGGER_LEVEL")
+            return self._rejected("NO_TRIGGER_LEVEL", inputs)
+        d_projection = c_price + ab_length
+
+        quality_tags = ["valid_retracement", "measured_move_ready"]
+        if retrace <= 0.45:
+            quality_tags.append("shallow_pullback")
+        else:
+            quality_tags.append("deep_pullback")
+        if ab_length / max(a_price, 1e-9) >= 0.03:
+            quality_tags.append("clean_impulse")
+
+        print(
+            "[SETUP][ABCD][DETECTED] "
+            f"symbol={symbol} A={a_price:.4f} B={b_price:.4f} C={c_price:.4f} "
+            f"retracement={retrace:.4f} trigger={trigger_level:.4f} target={d_projection:.4f}"
+        )
+        return PatternResult(
+            setup_id=self.pattern_id or self.name,
+            setup_family_id="ABCD",
+            pattern_name=self.name,
+            pattern_family=self.family,
+            detected=True,
             direction=Direction.LONG,
             confidence=0.72,
-            rationale=(
-                "ABCD continuation measured move confirmed by BC retrace and CD extension.\n"
-                f"BC/AB={retrace:.2f}, CD/AB={extension:.2f}."
-            ),
-            entry_zone="D-break continuation above C-to-D thrust",
+            setup_quality_tags=quality_tags,
+            tags=quality_tags,
+            entry_zone="Break above pullback high",
             stop_suggestion="Below C swing low",
-            target_suggestion="1.0-1.27 AB projection",
-            setup_quality_tags=["ab_cd", "measured_move"],
+            target_suggestion="AB measured move projection from C",
+            rationale_text=(
+                "ABCD continuation structure detected with valid retracement and measured-move projection.\n"
+                f"A={a_price:.4f}, B={b_price:.4f}, C={c_price:.4f}, retracement={retrace:.2%}, "
+                f"trigger={trigger_level:.4f}, D={d_projection:.4f}."
+            ),
+            risk_flags=[],
+            data_quality_flags=inputs.data_quality_flags,
+            session_valid=inputs.session_context.value in {"PRE", "REGULAR", "AFTER"},
+            trigger_type=self.TRIGGER_ID,
+            trigger_level=trigger_level,
+            stop_level=c_price,
+            invalidation_level=c_price,
+            anchor_a_price=a_price,
+            anchor_b_price=b_price,
+            anchor_c_price=c_price,
+            anchor_a_index=a_idx,
+            anchor_b_index=b_idx,
+            anchor_c_index=c_idx,
+            ab_length=ab_length,
+            retracement_pct=retrace,
+            d_projection=d_projection,
+            risk_reference_level=c_price,
+            setup_metadata={
+                "swing_window": self.SWING_WINDOW,
+                "max_lookback_bars": self.MAX_LOOKBACK_BARS,
+            },
         )
 
 
