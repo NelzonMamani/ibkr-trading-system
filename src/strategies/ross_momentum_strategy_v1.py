@@ -1407,15 +1407,16 @@ class RossMomentumStrategyV1(BaseStrategy):
                 best_pattern=best_pattern,
                 setup_family=setup_family,
                 trigger_ready=trigger_ready,
+                trigger_id=str((selected_trigger or {}).get("trigger_type") or "UNKNOWN"),
                 entry=entry,
                 stop=stop,
                 execution_refinement_mode=execution_refinement_mode,
             )
             print(f"[ROSS][INTENT_GUARD] symbol={symbol} trigger_ready={trigger_ready}")
             if trigger_ready and intent is None:
-                raise RuntimeError("CRITICAL: Trigger fired but no TradeIntent created")
+                raise RuntimeError("CRITICAL: TRIGGER_FIRED_NO_INTENT")
             if gap_go_trigger_fired and not intent:
-                raise RuntimeError("CRITICAL: Trigger fired but no TradeIntent created")
+                raise RuntimeError("CRITICAL: TRIGGER_FIRED_NO_INTENT")
             intent.entry_price = entry
             intent.has_valid_pattern = bool(getattr(best_pattern, "detected", False))
             intent.confirmation_passed = confirmation_passed
@@ -2059,6 +2060,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         best_pattern,
         setup_family: str,
         trigger_ready: bool,
+        trigger_id: str = "UNKNOWN",
         entry: float,
         stop: float,
         execution_refinement_mode: str = "NONE",
@@ -2075,7 +2077,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 invalidation_level=stop,
                 pattern_name=best_pattern.pattern_id,
                 setup_family_id="GAP_GO",
-                trigger_id="confirmation_gate",
+                trigger_id=str(trigger_id or "UNKNOWN"),
                 execution_refinement_mode=execution_refinement_mode,
             )
             intent.entry_type = "BREAKOUT"
@@ -2097,7 +2099,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             invalidation_level=stop,
             pattern_name=best_pattern.pattern_id,
             setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
-            trigger_id="confirmation_gate",
+            trigger_id=str(trigger_id or "UNKNOWN"),
             execution_refinement_mode=execution_refinement_mode,
         )
 
