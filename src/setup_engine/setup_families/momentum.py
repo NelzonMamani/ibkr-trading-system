@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from statistics import mean
 from typing import List
 
@@ -107,33 +108,69 @@ class BullFlagPattern(PatternBase):
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
         candles = inputs.candles
-        if len(candles) < 8:
+        if len(candles) < 9:
             return self._rejected("insufficient candles", inputs)
+        ema9 = inputs.indicators.ema9
         ema20 = inputs.indicators.ema20
-        if ema20 is None:
-            return self._rejected("missing EMA20", inputs)
-        recent = candles[-8:]
+        vwap = inputs.indicators.vwap
+        if ema9 is None or ema20 is None or vwap is None:
+            return self._rejected("missing trend indicators", inputs)
+
+        recent = candles[-9:]
         impulse = recent[:3]
-        flag = recent[3:]
+        flag = recent[3:-1]
+        breakout = recent[-1]
         impulse_gain = impulse[-1].close - impulse[0].open
-        if impulse_gain <= 0:
+        impulse_low = min(c.low for c in impulse)
+        impulse_range = max(c.high for c in impulse) - impulse_low
+        min_impulse = max(abs(impulse[0].open) * 0.004, 0.08)
+        if impulse_gain <= min_impulse or impulse_range <= min_impulse:
             return self._rejected("no impulse move", inputs)
+        if any(b.close < b.open for b in impulse):
+            return self._rejected("impulse candles not strong", inputs)
+
+        if len(flag) > 5:
+            return self._rejected("flag too long", inputs)
+        if not flag:
+            return self._rejected("missing flag consolidation", inputs)
         flag_range = max(c.high for c in flag) - min(c.low for c in flag)
-        if flag_range > impulse_gain * 0.7:
+        if flag_range > impulse_range * 0.45:
             return self._rejected("flag too wide", inputs)
-        if recent[-1].close < ema20:
+        if min(c.low for c in flag) < impulse_low + (impulse_range * 0.25):
+            return self._rejected("flag breakdown invalidation", inputs)
+        lower_highs = sum(1 for idx in range(1, len(flag)) if flag[idx].high <= flag[idx - 1].high)
+        tight_flag = flag_range <= max(abs(flag[0].close) * 0.003, 0.06)
+        if lower_highs < max(len(flag) - 2, 1) and not tight_flag:
+            return self._rejected("flag structure invalid", inputs)
+
+        if breakout.close <= max(c.high for c in flag):
+            return self._rejected("no breakout close", inputs)
+        if breakout.close < ema20 or breakout.close < vwap or ema9 <= ema20:
             return self._rejected("price below EMA20", inputs)
 
-        volume_avg = _avg_volume(candles)
-        volume_ok = recent[-1].volume >= volume_avg
-        confidence = 0.66 if volume_ok else 0.55
-        tags = ["flag_structure", "volume_confirmed" if volume_ok else "volume_soft"]
+        flag_vol_start = mean(c.volume for c in flag[: max(1, len(flag) // 2)])
+        flag_vol_end = mean(c.volume for c in flag[max(1, len(flag) // 2) :])
+        if flag_vol_end > flag_vol_start * 1.05:
+            return self._rejected("volume increasing during flag", inputs)
+
+        volume_avg = _avg_volume(candles[:-1] or candles)
+        breakout_volume_ok = breakout.volume >= volume_avg
+        confidence = 0.70 if breakout_volume_ok else 0.6
+        tags = [
+            "flag_structure",
+            "volume_declining_in_flag",
+            "breakout_volume_confirmed" if breakout_volume_ok else "breakout_volume_soft",
+        ]
+
+        flag_high = max(c.high for c in flag)
+        flag_low = min(c.low for c in flag)
 
         rationale = (
-            "Impulse move followed by tight consolidation above EMA20.\n"
-            f"Impulse gain={impulse_gain:.2f}, flag range={flag_range:.2f}."
+            "Impulse move followed by controlled bull-flag consolidation and breakout above flag highs.\n"
+            f"Impulse gain={impulse_gain:.2f}, impulse range={impulse_range:.2f}, flag range={flag_range:.2f}, "
+            f"flag_high={flag_high:.2f}, flag_low={flag_low:.2f}."
         )
-        return self._detected(
+        result = self._detected(
             inputs,
             direction=Direction.LONG,
             confidence=confidence,
@@ -142,4 +179,15 @@ class BullFlagPattern(PatternBase):
             stop_suggestion="Below flag low",
             target_suggestion="Measured move",
             setup_quality_tags=tags,
+        )
+        print(f"[PATTERN][BULL_FLAG] detected=True symbol={inputs.symbol}")
+        return replace(
+            result,
+            setup_family_id="BULL_FLAG",
+            trigger_type="BULL_FLAG_BREAKOUT",
+            trigger_mode="BREAKOUT_CONTINUATION",
+            trigger_level=float(flag_high),
+            stop_level=float(flag_low),
+            invalidation_level=float(flag_low),
+            signal_class="ENTRY",
         )

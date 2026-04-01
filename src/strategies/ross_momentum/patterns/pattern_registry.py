@@ -59,6 +59,7 @@ class RossPatternRegistry:
             "P_PREMARKET_HIGH_BREAK": "PREMARKET_HIGH_BREAK",
             "P_KEY_LEVEL_BREAK": "KEY_LEVEL_BREAK",
             "P_HOD_BREAK": "HOD_BREAK",
+            "P_BULL_FLAG": "BULL_FLAG",
             "P_ABCD": "ABCD",
             "P_CUP_HANDLE": "CUP_HANDLE",
             "P_EMA_PULLBACK": "EMA_PULLBACK",

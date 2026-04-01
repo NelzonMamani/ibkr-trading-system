@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from src.strategies.common.triggers.trigger_abcd_continuation import evaluate_abcd_continuation_trigger
+from src.strategies.common.triggers.trigger_bull_flag import evaluate_bull_flag_trigger
 from src.strategies.common.triggers.trigger_cup_handle import evaluate_cup_handle_trigger
 from src.strategies.common.triggers.trigger_ema_pullback import evaluate_ema_pullback_trigger
 from src.strategies.common.triggers.trigger_first_pullback import evaluate_first_pullback_trigger
@@ -33,6 +34,7 @@ TRIGGER_EVALUATOR_REGISTRY: dict[str, TriggerEvaluator] = {
     "KEY_LEVEL_BREAK": evaluate_key_level_break_trigger,
     "HOD_BREAK": evaluate_hod_break_trigger,
     "ABCD": evaluate_abcd_continuation_trigger,
+    "BULL_FLAG": evaluate_bull_flag_trigger,
     "CUP_HANDLE": evaluate_cup_handle_trigger,
     "EMA_PULLBACK": evaluate_ema_pullback_trigger,
     "MOMENTUM_RECLAIM": evaluate_momentum_reclaim_trigger,

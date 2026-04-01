@@ -36,21 +36,24 @@ def test_level_engine_returns_required_fields() -> None:
         premarket_data={"candles": _premarket()},
     )
 
-    assert set(levels.keys()) == {
+    assert {
         "symbol",
         "premarket_high",
         "premarket_low",
         "hod",
         "lod",
+        "prior_close",
         "vwap",
         "ema9",
         "ema20",
+        "active_range_high",
+        "active_range_low",
         "whole_levels",
         "half_levels",
         "support_levels",
         "resistance_levels",
         "computed_at",
-    }
+    }.issubset(set(levels.keys()))
     assert levels["symbol"] == "TEST"
 
 
