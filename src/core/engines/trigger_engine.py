@@ -122,6 +122,7 @@ class TriggerEngine:
             "FLAT_TOP_BREAKOUT": "hod",
             "HOD_BREAK": "hod",
             "VWAP_RECLAIM_CONTINUATION": "vwap",
+            "VWAP_PULLBACK": "vwap",
             "CONSOLIDATION_BREAKOUT": "active_breakout_range.upper",
             "ASCENDING_TRIANGLE_BREAKOUT": "active_breakout_range.upper",
             "PENNANT_BREAK": "active_breakout_range.upper",
