@@ -3,6 +3,7 @@ Execution engine that routes through a broker adapter with deterministic retry s
 """
 
 import hashlib
+import math
 import os
 import time
 import uuid
@@ -492,12 +493,17 @@ class ExecutionEngine:
         if getattr(risk_decision, "force_execute", False):
             print(f"[ORDER][FORCED_CREATE] symbol={risk_decision.symbol}")
         self._assert_execution_enabled_for_order_construction("risk decision")
-        raw_quantity = int(getattr(risk_decision, "max_position_size", 0) or 0)
+        raw_qty = float(getattr(risk_decision, "max_position_size", 0) or 0)
         if str(getattr(risk_decision, "strategy_name", "")).upper() == "LIVE_EXECUTION_PROBE":
-            raw_quantity = 1
-        if raw_quantity <= 0:
+            raw_qty = 1.0
+        normalized_quantity = max(1, int(math.floor(raw_qty)))
+        print(
+            f"[EXECUTION][SIZE_NORMALIZED] symbol={risk_decision.symbol} "
+            f"raw_qty={raw_qty} final_qty={normalized_quantity}"
+        )
+        if normalized_quantity <= 0:
             raise RuntimeError("INVALID_INTERNAL_ORDER_QUANTITY")
-        requested_quantity = self._clamp_order_quantity(raw_quantity, symbol=risk_decision.symbol)
+        requested_quantity = self._clamp_order_quantity(normalized_quantity, symbol=risk_decision.symbol)
         print(f"[EXECUTION][SIZE_ACCEPT] symbol={risk_decision.symbol} approved_quantity={requested_quantity}")
         client_order_id = f"{risk_decision.decision_id}-{uuid.uuid4().hex[:8]}"
         print(
@@ -896,10 +902,14 @@ class ExecutionEngine:
     def _effective_quantity_from_risk_decision(self, risk_decision: Optional[RiskDecision]) -> int:
         if risk_decision is None:
             return 0
-        raw_quantity = int(getattr(risk_decision, "max_position_size", 0) or 0)
+        raw_qty = float(getattr(risk_decision, "max_position_size", 0) or 0)
         if str(getattr(risk_decision, "strategy_name", "")).upper() == "LIVE_EXECUTION_PROBE":
-            raw_quantity = 1
-        normalized_quantity = max(1, raw_quantity)
+            raw_qty = 1.0
+        normalized_quantity = max(1, int(math.floor(raw_qty)))
+        print(
+            f"[EXECUTION][SIZE_NORMALIZED] symbol={risk_decision.symbol} "
+            f"raw_qty={raw_qty} final_qty={normalized_quantity}"
+        )
         return self._clamp_order_quantity(normalized_quantity, symbol=risk_decision.symbol)
 
     def _blocked_execution_from_risk_decision(

@@ -1194,14 +1194,10 @@ def _missingness_map(drop_reason: str, context: Dict[str, Any]) -> Dict[str, boo
 
 def _resolve_rvol_for_focus_gate(context: Dict[str, Any]) -> tuple[str, Optional[float]]:
     """Return canonical RVOL input for FOCUS promotion with provenance."""
-    scanner_rvol = _safe_float(context.get("scanner_rvol"), None)
-    if scanner_rvol is not None:
-        return "scanner_rvol", scanner_rvol
-
-    session = normalize_session_label(str(context.get("session") or ""))
-    if session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"}:
-        return "rvol_phase", _safe_float(context.get("rvol_phase"), None)
-    return "rvol_discovery", _safe_float(context.get("rvol_discovery"), None)
+    authoritative = _safe_float(context.get("session_normalized_rvol"), None)
+    if authoritative is not None:
+        return "session_normalized_rvol", authoritative
+    return "session_normalized_rvol", _safe_float(context.get("rvol"), None)
 
 
 def _load_premarket_prep_candidates() -> Dict[str, Dict[str, Any]]:
@@ -2357,6 +2353,9 @@ def _build_symbol_context(
     rvol_discovery = metrics_context.rvol
     rvol_phase = metrics_context.rvol
     scanner_rvol = metrics_context.rvol
+    session_normalized_rvol = _safe_float(metrics_context.time_normalized_rvol, None)
+    rvol_authoritative = session_normalized_rvol
+    print(f"[RVOL][AUTHORITY] value={rvol_authoritative} source=SESSION_NORMALIZED")
     pct_change_qualification_usable = bool(reference_snapshot.get("qualification_usable_reference")) and pct_change is not None
     pct_change_source_quality = str(reference_snapshot.get("reference_quality_tier") or "NONE")
     pct_change_degraded = pct_change is not None and pct_change_source_quality in {"SECONDARY", "WEAK"}
@@ -2506,16 +2505,17 @@ def _build_symbol_context(
         "high": _safe_float(getattr(quote, "high", None), None),
         "low": _safe_float(getattr(quote, "low", None), None),
         "vwap": _safe_float(getattr(quote, "vwap", None), None),
-        "scanner_rvol": scanner_rvol,
-        "rvol_discovery": rvol_discovery,
-        "rvol_phase": rvol_phase,
-        "rvol_status": "RESOLVED" if scanner_rvol is not None else "UNKNOWN",
+        "scanner_rvol": rvol_authoritative,
+        "rvol_discovery": rvol_authoritative,
+        "rvol_phase": rvol_authoritative,
+        "session_normalized_rvol": session_normalized_rvol,
+        "rvol_status": "RESOLVED" if rvol_authoritative is not None else "UNKNOWN",
         "degraded_rvol_gate_bypass": False,
         "phase_volume_ratio": None,
         "expected_phase_volume": metrics_context.expected_volume,
         "time_normalized_rvol": metrics_context.time_normalized_rvol,
-        "rvol": scanner_rvol,
-        "relative_volume": metrics_context.time_normalized_rvol,
+        "rvol": rvol_authoritative,
+        "relative_volume": rvol_authoritative,
         "rvol_baseline": metrics_context.rvol_baseline,
         "rvol_method": metrics_context.rvol_method,
         "float_shares": float_shares,

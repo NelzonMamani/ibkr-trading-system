@@ -150,6 +150,17 @@ class CanonicalReferenceResolver:
             return identity, False
 
         contract = self._contract_from_identity(identity)
+        cache_keys = []
+        if identity.con_id not in {None, 0}:
+            cache_keys.append(f"conid:{int(identity.con_id)}")
+        cache_keys.append(f"identity:{identity.key}")
+        for cache_key in cache_keys:
+            cached_identity = self._qualified_contracts.get(cache_key)
+            if cached_identity is not None:
+                print(
+                    f"[EXECUTION][QUALIFY_CACHE_HIT] symbol={identity.symbol} identity_key={identity.key} cache_key={cache_key}"
+                )
+                return cached_identity, True
         try:
             qualified = qualify_contracts(contract)
         except Exception as exc:
@@ -177,16 +188,23 @@ class CanonicalReferenceResolver:
                 f"primaryExchange={primary_exchange} action=USE_QUALIFIED_CONTRACT_ANYWAY"
             )
 
-        return CandidateIdentity.from_contract(contract, fallback_symbol=identity.symbol), True
+        resolved_identity = CandidateIdentity.from_contract(contract, fallback_symbol=identity.symbol)
+        for cache_key in cache_keys:
+            self._qualified_contracts[cache_key] = resolved_identity
+        if resolved_identity.con_id not in {None, 0}:
+            self._qualified_contracts[f"conid:{int(resolved_identity.con_id)}"] = resolved_identity
+        return resolved_identity, True
 
     def __init__(self, cache: PersistentReferenceCache | None = None) -> None:
         self.cache = cache or PersistentReferenceCache()
         self._cycle_cache: dict[str, CanonicalReferenceResult] = {}
         self._last_resolution_trace: dict[str, dict[str, Any]] = {}
+        self._qualified_contracts: dict[str, CandidateIdentity] = {}
 
     def reset_cycle(self) -> None:
         self._cycle_cache.clear()
         self._last_resolution_trace.clear()
+        self._qualified_contracts.clear()
 
     def get_last_resolution_trace(self, identity_key: str) -> dict[str, Any]:
         return dict(self._last_resolution_trace.get(identity_key, {}))
@@ -451,17 +469,17 @@ class CanonicalReferenceResolver:
                 f"[REFERENCE][HISTORICAL_REQUEST] identity_key={identity.key} source=provider_daily_bars "
                 f"{self._history_contract_fields(identity)}"
             )
-            primary_kwargs = {"lookback_days": 25}
+            primary_kwargs = {"lookback_days": 20}
             print(
                 f"[REFERENCE][HISTORICAL_REQUEST_PARAMS] identity_key={identity.key} attempt=primary "
-                f"useRTH=True endDateTime='' durationStr=25 D"
+                f"useRTH=True endDateTime='' durationStr=20 D"
             )
             bars = self._normalize_bars(get_bars(identity, **primary_kwargs))
             if trace is not None:
                 trace.setdefault("history_attempts", []).append(
                     {
                         "attempt": "primary",
-                        "params": {"useRTH": True, "endDateTime": "", "durationStr": "25 D"},
+                        "params": {"useRTH": True, "endDateTime": "", "durationStr": "20 D"},
                         "raw_bar_count": len(bars),
                     }
                 )
@@ -471,12 +489,11 @@ class CanonicalReferenceResolver:
             )
             if not bars:
                 explicit_end = f"{date.today().strftime('%Y%m%d')} 09:29:59 US/Eastern"
-                print(
-                    f"[REFERENCE][HISTORICAL_RETRY] identity_key={identity.key} reason=ZERO_BARS_RTH_PRIMARY "
-                    f"retry_useRTH=False endDateTime='{explicit_end}'"
+                print("[IBKR][HIST_FALLBACK_ONCE] "
+                    f"identity_key={identity.key} reason=HIST_EMPTY retry_useRTH=False endDateTime='{explicit_end}'"
                 )
                 try:
-                    bars = self._normalize_bars(get_bars(identity, lookback_days=25, use_rth=False, end_datetime=explicit_end))
+                    bars = self._normalize_bars(get_bars(identity, lookback_days=20, use_rth=False, end_datetime=explicit_end))
                 except TypeError:
                     print(
                         f"[REFERENCE][HISTORICAL_RETRY_UNSUPPORTED] identity_key={identity.key} "
@@ -487,7 +504,7 @@ class CanonicalReferenceResolver:
                     trace.setdefault("history_attempts", []).append(
                         {
                             "attempt": "retry_useRTH_false",
-                            "params": {"useRTH": False, "endDateTime": explicit_end, "durationStr": "25 D"},
+                            "params": {"useRTH": False, "endDateTime": explicit_end, "durationStr": "20 D"},
                             "raw_bar_count": len(bars),
                         }
                     )
