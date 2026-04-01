@@ -69,6 +69,16 @@ class ExecutionEngine:
         self._order_trace_stages: dict[str, set[str]] = {}
         self._require_exit_stage: set[str] = set()
         self.position_records: dict[str, dict] = {}
+        self._cycle_execution_metrics: dict[str, int] = {
+            "intents_received": 0,
+            "submit_attempts": 0,
+            "submit_success": 0,
+            "acks_received": 0,
+            "fills_received": 0,
+            "partial_fills": 0,
+            "rejects": 0,
+        }
+        self._root_cause_counts: dict[str, int] = {}
         self._provider = self._resolve_provider(provider)
         self.provider: Optional[ExecutionProvider] = self._provider
         self.broker = getattr(self._provider, "broker", None)
@@ -82,6 +92,27 @@ class ExecutionEngine:
             fields.append(f"{key}={value}")
         suffix = f" {' '.join(fields)}" if fields else ""
         print(f"[EXECUTION][{stage}]{suffix}")
+
+    def _increment_metric(self, key: str) -> None:
+        self._cycle_execution_metrics[key] = self._cycle_execution_metrics.get(key, 0) + 1
+
+    def _record_root_cause(self, reason: Optional[str]) -> None:
+        normalized = str(reason or "unknown").strip().lower()
+        if not normalized:
+            normalized = "unknown"
+        self._root_cause_counts[normalized] = self._root_cause_counts.get(normalized, 0) + 1
+
+    def _log_precheck_block(self, risk_decision: RiskDecision, reason: str) -> None:
+        self._record_root_cause(reason)
+        self._execution_log(
+            "PRECHECK_BLOCK",
+            symbol=risk_decision.symbol,
+            order_id=getattr(risk_decision, "intent_id", None) or getattr(risk_decision, "decision_id", None),
+            qty=getattr(risk_decision, "max_position_size", None),
+            price=getattr(risk_decision, "entry_price", None),
+            mode=self.run_mode.value,
+            reason=reason,
+        )
 
     def _resolve_provider(
         self, provider: Optional[ExecutionProvider]
@@ -215,6 +246,7 @@ class ExecutionEngine:
             entry_price=getattr(risk_decision, "entry_price", None) if risk_decision else None,
             order_type="MKT",
         )
+        self._increment_metric("intents_received")
         if risk_decision is not None:
             action = "SUBMIT" if getattr(risk_decision, 'allowed', False) else "SKIP"
             reason = getattr(risk_decision, 'rationale', None) or getattr(risk_decision, 'reason_code', None) or 'NO_REASON'
@@ -338,6 +370,7 @@ class ExecutionEngine:
             broker_connected=broker_connected,
         )
         if self.stop_controller.is_breaker_tripped():
+            self._log_precheck_block(risk_decision, "CIRCUIT_BREAKER")
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="CIRCUIT_BREAKER_TRIPPED",
@@ -390,17 +423,20 @@ class ExecutionEngine:
                 remaining_quantity=effective_quantity,
             )
         if not provider_ready:
+            self._log_precheck_block(risk_decision, "BROKER_NOT_CONNECTED")
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="BROKER_PROVIDER_NOT_READY",
             )
         if not broker_connected:
+            self._log_precheck_block(risk_decision, "BROKER_NOT_CONNECTED")
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="BROKER_NOT_CONNECTED",
             )
         requested_quantity = int(getattr(risk_decision, "max_position_size", 0) or 0)
         if requested_quantity <= 0:
+            self._log_precheck_block(risk_decision, "INVALID_QTY")
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="INVALID_ORDER_QUANTITY",
@@ -410,6 +446,7 @@ class ExecutionEngine:
             getattr(risk_decision, "trader_type", "MANUAL"),
         )
         if duplicate is not None and str(getattr(risk_decision, "direction", "")).upper() in {"LONG", "BUY"}:
+            self._log_precheck_block(risk_decision, "DUPLICATE_POSITION")
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="DUPLICATE_POSITION_CONFLICT",
@@ -541,6 +578,7 @@ class ExecutionEngine:
         if str(request.direction).upper() == "SELL" and request.symbol in self.position_records:
             print(f"[EXECUTION][CLOSE] symbol={request.symbol} qty={request.quantity}")
         print("[ORDER_SUBMIT]", f"symbol={request.symbol}", f"side={request.direction}", f"qty={request.quantity}")
+        self._increment_metric("submit_attempts")
         print(
             f"[IBKR][ORDER_SUBMIT] order_id={request.client_order_id} symbol={request.symbol} "
             f"side={request.direction} qty={request.quantity} mode={self.run_mode.value}"
@@ -553,8 +591,10 @@ class ExecutionEngine:
             run_mode=self.run_mode.value,
             side=request.direction,
             qty=request.quantity,
+            price=getattr(request, "limit_price", None),
+            mode=self.run_mode.value,
             order_type=request.order_type,
-            broker_order_id=request.client_order_id,
+            order_id=request.client_order_id,
         )
         print(
             f"[ORDER][SUBMIT] order_id={request.client_order_id} symbol={request.symbol} "
@@ -577,6 +617,8 @@ class ExecutionEngine:
         )
         result = self._provider.place_order(request)
         if str(getattr(result, "status", "") or "") in self.VALID_IBKR_STATUSES:
+            self._increment_metric("submit_success")
+        if str(getattr(result, "status", "") or "") in self.VALID_IBKR_STATUSES:
             print(
                 f"[EXECUTION] SUBMITTED symbol={request.symbol} qty={request.quantity} "
                 f"order_id={getattr(result, 'ibkr_order_id', None)}"
@@ -588,7 +630,9 @@ class ExecutionEngine:
             run_mode=self.run_mode.value,
             side=request.direction,
             qty=request.quantity,
-            broker_order_id=getattr(result, "client_order_id", None) or request.client_order_id,
+            price=getattr(result, "average_fill_price", None),
+            mode=self.run_mode.value,
+            order_id=getattr(result, "client_order_id", None) or request.client_order_id,
             status=getattr(result, "status", None),
             reason=getattr(result, "rejection_reason", None) or getattr(result, "rationale", None),
         )
@@ -627,6 +671,19 @@ class ExecutionEngine:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="invalid_order_fields",
+            )
+        valid_order_types = {"MKT", "LMT", "LIMIT"}
+        normalized_order_type = str(getattr(request, "order_type", "MKT") or "MKT").upper()
+        if normalized_order_type not in valid_order_types:
+            print(
+                "[EXECUTION][INVALID_ORDER_CONFIG] "
+                f"symbol={request.symbol} order_id={request.client_order_id} qty={quantity} "
+                f"price={entry_price} mode={self.run_mode.value} reason=INVALID_ORDER_TYPE"
+            )
+            self._record_root_cause("invalid_order_config")
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="INVALID_ORDER_CONFIG",
             )
         stop_loss_price = getattr(request, "stop_loss_price", None)
         if self.run_mode in {RunMode.PAPER, RunMode.LIVE} and stop_loss_price is None:
@@ -731,8 +788,12 @@ class ExecutionEngine:
             f"[IBKR][ORDER_ACK] order_id={ibkr_order_id} status={broker_status} "
             f"symbol={request.symbol}"
         )
-        print(f"[ORDER][ACK] order_id={ibkr_order_id} status={broker_status}")
+        print(
+            f"[ORDER][ACK] symbol={request.symbol} order_id={ibkr_order_id} qty={request.quantity} "
+            f"price={getattr(result, 'average_fill_price', None)} mode={self.run_mode.value}"
+        )
         print(f"[EXECUTION][ORDER_TRACK] order_id={ibkr_order_id} status={broker_status}")
+        self._increment_metric("acks_received")
         self._execution_log(
             "ORDER_STATUS",
             symbol=request.symbol,
@@ -740,7 +801,7 @@ class ExecutionEngine:
             run_mode=self.run_mode.value,
             side=request.direction,
             qty=request.quantity,
-            broker_order_id=ibkr_order_id,
+            order_id=ibkr_order_id,
             status=broker_status,
         )
         self._record_order_stage(request.client_order_id, "ACK")
@@ -760,10 +821,17 @@ class ExecutionEngine:
                 f"filled={filled_quantity} remaining={remaining_quantity}"
             )
         entry_price = getattr(result, "entry_price", None) or getattr(result, "average_fill_price", None)
+        if remaining_quantity > 0:
+            print(
+                f"[ORDER][PARTIAL_FILL] symbol={request.symbol} order_id={request.client_order_id} "
+                f"qty={filled_quantity} price={entry_price} mode={self.run_mode.value}"
+            )
+            self._increment_metric("partial_fills")
         print(
-            f"[ORDER][FILL] order_id={request.client_order_id} "
-            f"symbol={request.symbol} qty={filled_quantity} entry_price={entry_price}"
+            f"[ORDER][FILL] symbol={request.symbol} order_id={request.client_order_id} "
+            f"fill_price={entry_price} fill_qty={filled_quantity} qty={filled_quantity} mode={self.run_mode.value}"
         )
+        self._increment_metric("fills_received")
         self._execution_log(
             "FILL",
             symbol=request.symbol,
@@ -772,7 +840,7 @@ class ExecutionEngine:
             side=request.direction,
             qty=filled_quantity,
             entry_price=entry_price,
-            broker_order_id=request.client_order_id,
+            order_id=request.client_order_id,
             status=getattr(result, "status", None),
         )
         self._record_order_stage(request.client_order_id, "FILL")
@@ -866,7 +934,12 @@ class ExecutionEngine:
             print(f"[EXECUTION][IBKR] order_id={order_id_display} status=REJECTED")
             reason = getattr(result, "rejection_reason", None) or getattr(result, "rationale", None) or "UNKNOWN"
             code = getattr(result, "broker_error_code", None) or "UNKNOWN"
-            print(f"[EXECUTION][REJECT] symbol={request.symbol} reason={reason} code={code}")
+            print(
+                f"[ORDER][REJECT] symbol={request.symbol} order_id={order_id_display} qty={request.quantity} "
+                f"price={getattr(result, 'average_fill_price', None)} mode={self.run_mode.value} reason={reason} code={code}"
+            )
+            self._increment_metric("rejects")
+            self._record_root_cause("rejected_orders")
             self._execution_log(
                 "REJECT",
                 symbol=request.symbol,
@@ -874,12 +947,16 @@ class ExecutionEngine:
                 run_mode=self.run_mode.value,
                 side=request.direction,
                 qty=request.quantity,
-                broker_order_id=order_id_display,
+                order_id=order_id_display,
                 status=normalized,
                 reason=reason,
             )
         if normalized in {"CANCELLED", "CANCELED"}:
             print(f"[EXECUTION][IBKR] order_id={order_id_display} status=CANCELLED")
+            print(
+                f"[ORDER][CANCEL] symbol={request.symbol} order_id={order_id_display} qty={request.quantity} "
+                f"price={getattr(result, 'average_fill_price', None)} mode={self.run_mode.value}"
+            )
 
     def _clamp_order_quantity(self, quantity: int, *, symbol: str) -> int:
         if self.max_shares_per_order is None:
@@ -1064,6 +1141,30 @@ class ExecutionEngine:
         orders_rejected = (
             self.event_collector.cycle_count("ORDER_SUBMISSION_FAILED")
             + self.event_collector.cycle_count("ORDER_SUBMISSION_BLOCKED")
+        )
+        if self._cycle_execution_metrics["intents_received"] > 0 and self._cycle_execution_metrics["submit_attempts"] == 0:
+            print(
+                "[EXECUTION][NO_SUBMISSION_ROOT_CAUSE] "
+                f"reasons={self._root_cause_counts or {'unknown': 1}}"
+            )
+        if self._cycle_execution_metrics["submit_attempts"] > 0 and self._cycle_execution_metrics["fills_received"] == 0:
+            print(
+                "[EXECUTION][NO_FILL_ROOT_CAUSE] "
+                f"reasons={self._root_cause_counts or {'routing_issues': 1}}"
+            )
+        dominant_block_reason = "NONE"
+        if self._root_cause_counts:
+            dominant_block_reason = max(self._root_cause_counts, key=self._root_cause_counts.get)
+        print(
+            "[EXECUTION][SUMMARY] "
+            f"intents_received={self._cycle_execution_metrics['intents_received']} "
+            f"submit_attempts={self._cycle_execution_metrics['submit_attempts']} "
+            f"submit_success={self._cycle_execution_metrics['submit_success']} "
+            f"acks_received={self._cycle_execution_metrics['acks_received']} "
+            f"fills_received={self._cycle_execution_metrics['fills_received']} "
+            f"partial_fills={self._cycle_execution_metrics['partial_fills']} "
+            f"rejects={self._cycle_execution_metrics['rejects']} "
+            f"dominant_block_reason={dominant_block_reason}"
         )
         print(
             "[EXECUTION_SUMMARY]\n"

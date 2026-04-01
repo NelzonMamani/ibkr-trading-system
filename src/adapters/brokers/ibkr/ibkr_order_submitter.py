@@ -108,6 +108,31 @@ class IbkrOrderSubmitter:
                 error=reason,
             )
         self._log_translation(contract, order)
+        qualify_error = self._qualify_contract(
+            client=client,
+            contract=contract,
+            internal_order=internal_order,
+        )
+        if qualify_error is not None:
+            self._emit_failed(internal_order, reason=qualify_error, ibkr_order_id=None)
+            return self._result(
+                internal_order,
+                status="BLOCKED",
+                error=qualify_error,
+            )
+        config_error = self._validate_order_config(
+            client=client,
+            contract=contract,
+            order=order,
+            internal_order=internal_order,
+        )
+        if config_error is not None:
+            self._emit_failed(internal_order, reason=config_error, ibkr_order_id=None)
+            return self._result(
+                internal_order,
+                status="BLOCKED",
+                error=config_error,
+            )
 
         host, port = self._resolve_connection(client)
         self._log(
@@ -351,6 +376,93 @@ class IbkrOrderSubmitter:
             return None, None, {}
         ack_status = status.get("status")
         return ack_status, datetime.now(timezone.utc), status
+
+    def _qualify_contract(self, client, contract, internal_order: InternalOrder) -> Optional[str]:
+        print(
+            "[EXECUTION][QUALIFY][START] "
+            f"symbol={internal_order.symbol} order_id={internal_order.client_order_id} "
+            f"qty={internal_order.quantity} price={internal_order.limit_price} "
+            f"mode={getattr(self.config.run_mode, 'value', self.config.run_mode)}"
+        )
+        if not hasattr(client, "qualifyContracts"):
+            print(
+                "[EXECUTION][QUALIFY][OK] "
+                f"symbol={internal_order.symbol} order_id={internal_order.client_order_id} "
+                f"qty={internal_order.quantity} price={internal_order.limit_price} "
+                f"mode={getattr(self.config.run_mode, 'value', self.config.run_mode)} qualification=SKIPPED_NO_API"
+            )
+            return None
+        try:
+            qualified = client.qualifyContracts(contract)
+        except Exception as exc:
+            print(
+                "[EXECUTION][QUALIFY][FAIL] "
+                f"symbol={internal_order.symbol} order_id={internal_order.client_order_id} "
+                f"reason={exc}"
+            )
+            return "CONTRACT_NOT_QUALIFIED"
+        if not qualified:
+            print(
+                "[EXECUTION][QUALIFY][FAIL] "
+                f"symbol={internal_order.symbol} order_id={internal_order.client_order_id} "
+                "reason=CONTRACT_NOT_QUALIFIED"
+            )
+            return "CONTRACT_NOT_QUALIFIED"
+        print(
+            "[EXECUTION][QUALIFY][OK] "
+            f"symbol={internal_order.symbol} order_id={internal_order.client_order_id} "
+            f"qty={internal_order.quantity} price={internal_order.limit_price} "
+            f"mode={getattr(self.config.run_mode, 'value', self.config.run_mode)}"
+        )
+        return None
+
+    def _validate_order_config(self, client, contract, order, internal_order: InternalOrder) -> Optional[str]:
+        tif = str(getattr(order, "tif", "") or "").upper()
+        order_type = str(getattr(order, "orderType", "") or "").upper()
+        if order_type not in {"MKT", "LMT", "LIMIT"}:
+            print(
+                "[EXECUTION][INVALID_ORDER_CONFIG] "
+                f"symbol={internal_order.symbol} order_id={internal_order.client_order_id} "
+                f"qty={internal_order.quantity} price={internal_order.limit_price} "
+                f"mode={getattr(self.config.run_mode, 'value', self.config.run_mode)} reason=INVALID_ORDER_TYPE"
+            )
+            return "INVALID_ORDER_CONFIG"
+        if tif not in {"DAY", "GTC"}:
+            print(
+                "[EXECUTION][INVALID_ORDER_CONFIG] "
+                f"symbol={internal_order.symbol} order_id={internal_order.client_order_id} "
+                f"qty={internal_order.quantity} price={internal_order.limit_price} "
+                f"mode={getattr(self.config.run_mode, 'value', self.config.run_mode)} reason=INVALID_TIF"
+            )
+            return "INVALID_ORDER_CONFIG"
+        if order_type in {"LMT", "LIMIT"}:
+            lmt_price = getattr(order, "lmtPrice", None)
+            if lmt_price is None or float(lmt_price) <= 0:
+                print(
+                    "[EXECUTION][INVALID_ORDER_CONFIG] "
+                    f"symbol={internal_order.symbol} order_id={internal_order.client_order_id} "
+                    f"qty={internal_order.quantity} price={lmt_price} "
+                    f"mode={getattr(self.config.run_mode, 'value', self.config.run_mode)} reason=PRICE_OUT_OF_RANGE"
+                )
+                return "INVALID_ORDER_CONFIG"
+            if hasattr(client, "request_market_data_snapshot"):
+                try:
+                    snapshot = client.request_market_data_snapshot(contract)
+                    bid = getattr(snapshot, "bid", None)
+                    ask = getattr(snapshot, "ask", None)
+                    if bid is not None and ask is not None and float(bid) > 0 and float(ask) > 0:
+                        center = (float(bid) + float(ask)) / 2.0
+                        if center > 0 and abs(float(lmt_price) - center) / center > 0.2:
+                            print(
+                                "[EXECUTION][INVALID_ORDER_CONFIG] "
+                                f"symbol={internal_order.symbol} order_id={internal_order.client_order_id} "
+                                f"qty={internal_order.quantity} price={lmt_price} "
+                                f"mode={getattr(self.config.run_mode, 'value', self.config.run_mode)} reason=PRICE_OUT_OF_RANGE"
+                            )
+                            return "INVALID_ORDER_CONFIG"
+                except Exception:
+                    return None
+        return None
 
     @staticmethod
     def _extract_broker_error_code(client, ibkr_order_id: int, status_payload: dict[str, Any]) -> Optional[str]:
