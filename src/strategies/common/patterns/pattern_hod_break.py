@@ -62,14 +62,12 @@ def detect_hod_break(inputs: PatternInputs) -> PatternResult:
     last = candles[-1]
     prev = candles[-2]
 
-    level_source = "session_context"
     hod = _safe_float(getattr(inputs.levels, "hod", None))
+    hod_source = str(getattr(inputs.levels, "hod_source", None) or _read(getattr(inputs.levels, "key_levels", {}), "hod_source") or "").upper()
+    if hod_source != "RTH":
+        return reject("invalid_hod_source", "HOD source must be explicitly RTH.")
     if hod is None:
-        derived_hod = max(_safe_float(_read(c, "high")) or float("-inf") for c in candles)
-        if derived_hod == float("-inf"):
-            return reject("missing_hod")
-        hod = float(derived_hod)
-        level_source = "derived_session_high"
+        return reject("missing_hod")
 
     if hod <= 0:
         return reject("missing_hod")
@@ -133,7 +131,7 @@ def detect_hod_break(inputs: PatternInputs) -> PatternResult:
 
     print(
         "[PATTERN_TRACE][INPUT] "
-        f"symbol={inputs.symbol} hod={hod:.4f} level_source={level_source} "
+        f"symbol={inputs.symbol} hod={hod:.4f} level_source={hod_source} "
         f"distance_to_hod={distance_to_hod:.4%} range_compression={range_compression:.4%}"
     )
     print(
@@ -161,7 +159,7 @@ def detect_hod_break(inputs: PatternInputs) -> PatternResult:
         invalidation_level=stop_level,
         setup_metadata={
             "level_type": "HOD",
-            "level_source": level_source,
+            "level_source": hod_source,
             "distance_to_hod": distance_to_hod,
             "range_compression": range_compression,
             "rvol": rvol,

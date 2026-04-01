@@ -29,6 +29,8 @@ def detect_parabolic_exhaustion(inputs: PatternInputs) -> PatternResult:
             trigger_type="XL_PARABOLIC_EXHAUSTION",
             data_quality_flags=list(inputs.data_quality_flags),
             non_entry_signal=True,
+            signal_class="RISK_OFF",
+            trigger_mode="EXIT_SIGNAL",
         )
 
     candles = list(inputs.candles or [])
@@ -100,5 +102,7 @@ def detect_parabolic_exhaustion(inputs: PatternInputs) -> PatternResult:
         },
         rationale_text="Parabolic exhaustion detected: extreme extension with terminal momentum signatures.",
         non_entry_signal=True,
+        signal_class="RISK_OFF",
+        trigger_mode="EXIT_SIGNAL",
         risk_flags=["EXIT_SIGNAL", "RISK_OFF"],
     )

@@ -23,6 +23,7 @@ class LevelSet:
     premarket_high: Optional[float] = None
     premarket_low: Optional[float] = None
     hod: Optional[float] = None
+    hod_source: Optional[str] = None
     lod: Optional[float] = None
     prior_close: Optional[float] = None
     key_levels: Dict[str, float] = field(default_factory=dict)

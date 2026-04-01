@@ -44,6 +44,8 @@ def test_detect_valid_parabolic_exhaustion() -> None:
     assert result.setup_id == "P_PARABOLIC_EXHAUSTION"
     assert result.setup_family_id == "PARABOLIC_EXHAUSTION"
     assert result.non_entry_signal is True
+    assert result.signal_class == "RISK_OFF"
+    assert result.trigger_mode == "EXIT_SIGNAL"
 
 
 def test_rejects_normal_trend_without_extension() -> None:
@@ -107,3 +109,4 @@ def test_risk_engine_blocks_intent_when_exhaustion_active() -> None:
     decision = risk.evaluate_trade_intent(intent)
     assert decision.allowed is False
     assert decision.reason_code == "PARABOLIC_EXHAUSTION_SUPPRESSION"
+    assert decision.execution_blocked is True
