@@ -220,6 +220,7 @@ class TriggerEngine:
                     last_close=last_close,
                     last_high=last_high,
                     trigger_price_reference=trigger_price_reference,
+                    setup_family=setup.get("setup_family_id"),
                     structure=structure,
                     structure_is_actionable=structure_is_actionable,
                     invalidation_price_reference=invalidation_price_reference,
@@ -280,11 +281,17 @@ class TriggerEngine:
         trigger_type = str(trigger_type or "BREAKOUT_HIGH").upper()
         if trigger_type == "PMH_BREAK":
             level = premarket_high if premarket_high is not None else trigger_price_reference
-            ready = last_close >= level
+            price = last_close
+            if last_high is not None:
+                price = max(last_close, last_high)
+            ready = price >= level
             return ready, "gap_go_pmh_break" if ready else "gap_go_pmh_not_broken"
         if trigger_type == "HOD_BREAK":
             level = hod if hod is not None else trigger_price_reference
-            ready = last_close >= level
+            price = last_close
+            if last_high is not None:
+                price = max(last_close, last_high)
+            ready = price >= level
             return ready, "gap_go_hod_break" if ready else "gap_go_hod_not_broken"
         if trigger_type == "BREAK_AND_HOLD":
             hold_level = trigger_price_reference
@@ -299,16 +306,19 @@ class TriggerEngine:
         last_close: float,
         last_high: float | None,
         trigger_price_reference: float,
+        setup_family: str | None,
         structure: dict,
         structure_is_actionable: bool,
         invalidation_price_reference: float | None,
         flags: list[str],
     ) -> tuple[bool, str]:
-        ready = last_close >= trigger_price_reference
+        price = last_close
+        if last_high is not None:
+            price = max(last_close, last_high)
+        ready = price >= trigger_price_reference
         reason = "breakout_already_through_level" if ready else "BREAKOUT_NOT_CLEARED"
         previous_pullback_high = self._safe_float(structure.get("previous_pullback_high"))
-        session_label = str(structure.get("session_context") or "").upper()
-        session_is_pre = session_label in {"PRE", "PREMARKET"}
+        setup_family_name = str(setup_family or "").upper()
         pre_activation = bool(structure.get("pre_activation_ready"))
         invalidation_violated = invalidation_price_reference is not None and last_close <= invalidation_price_reference
         if (
@@ -321,11 +331,11 @@ class TriggerEngine:
             reason = "FIRST_NEW_HIGH"
             flags.append("FIRST_NEW_HIGH")
         elif (
-            session_is_pre
+            setup_family_name == "PREMARKET_HIGH_BREAK"
             and pre_activation
             and structure_is_actionable
             and invalidation_violated is False
-            and last_close >= trigger_price_reference
+            and price >= trigger_price_reference
         ):
             ready = True
             reason = "PRE_ACTIVATION_BREAKOUT"

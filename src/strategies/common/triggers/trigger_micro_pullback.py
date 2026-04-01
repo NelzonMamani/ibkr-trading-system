@@ -15,7 +15,7 @@ def evaluate_micro_pullback_trigger(pattern_result, inputs):
     candles = list(levels.get("candles") or [])
     if not candles:
         payload = {
-            "trigger_type": "XL_MICRO_PULLBACK",
+            "trigger_type": "PULLBACK_HIGH_BREAK",
             "trigger_state": "BLOCKED",
             "trigger_ready_now": False,
             "trigger_reason": "missing_candles",
@@ -32,7 +32,7 @@ def evaluate_micro_pullback_trigger(pattern_result, inputs):
 
     if trigger_level is None:
         payload = {
-            "trigger_type": "XL_MICRO_PULLBACK",
+            "trigger_type": "PULLBACK_HIGH_BREAK",
             "trigger_state": "BLOCKED",
             "trigger_ready_now": False,
             "trigger_reason": "missing_trigger_level",
@@ -45,7 +45,7 @@ def evaluate_micro_pullback_trigger(pattern_result, inputs):
 
     if invalidation_level is None:
         payload = {
-            "trigger_type": "XL_MICRO_PULLBACK",
+            "trigger_type": "PULLBACK_HIGH_BREAK",
             "trigger_state": "BLOCKED",
             "trigger_ready_now": False,
             "trigger_reason": "missing_invalidation_level",
@@ -60,15 +60,13 @@ def evaluate_micro_pullback_trigger(pattern_result, inputs):
     last_close = _safe_float(last.get("close") if isinstance(last, dict) else getattr(last, "close", None))
     last_high = _safe_float(last.get("high") if isinstance(last, dict) else getattr(last, "high", None))
 
-    fired = (
-        last_close is not None
-        and last_high is not None
-        and last_close > trigger_level
-        and last_high >= trigger_level
-    )
+    price = last_close
+    if last_high is not None and last_close is not None:
+        price = max(last_close, last_high)
+    fired = price is not None and price >= trigger_level
 
     payload = {
-        "trigger_type": "XL_MICRO_PULLBACK",
+        "trigger_type": "PULLBACK_HIGH_BREAK",
         "trigger_state": "FIRED" if fired else "ARMED",
         "trigger_ready_now": fired,
         "trigger_reason": "micro_pullback_break_fired" if fired else "micro_pullback_armed",
