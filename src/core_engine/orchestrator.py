@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections import Counter
 from dataclasses import replace
+from pathlib import Path
 from typing import List
 from zoneinfo import ZoneInfo
 
@@ -81,6 +83,8 @@ TERMINAL_STATES = {
     "ORDER_REJECTED": "ORDER_REJECTED",
 }
 
+_FALLBACK_SCANNER_SYMBOLS = ["AAPL", "TSLA", "NVDA"]
+
 _CANONICAL_PRICE_SOURCES = frozenset(
     {
         "IBKR_SNAPSHOT",
@@ -115,6 +119,60 @@ def _scanner_last_price(symbol: str, scanner_payload: dict) -> float | None:
                 return None
             return value if value > 0 else None
     return None
+
+
+def _extract_symbol_list(raw_rows: list) -> list[str]:
+    symbols: list[str] = []
+    for row in raw_rows:
+        symbol_raw = getattr(row, "symbol", None) if not isinstance(row, dict) else row.get("symbol")
+        if symbol_raw is None:
+            continue
+        symbol = str(symbol_raw).upper().strip()
+        if symbol:
+            symbols.append(symbol)
+    return symbols
+
+
+def _persist_pipeline_determinism_report(
+    *,
+    cycle_id: int,
+    symbol_outcomes: dict[str, dict[str, str]],
+    intents: List[TradeIntentRecord],
+    execution_attempts: List[ExecutionEvent],
+) -> None:
+    out_path = Path("data/audit/pipeline_determinism_report.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    report = {
+        "cycle_id": cycle_id,
+        "symbols": [
+            {
+                "symbol": symbol,
+                "stage": payload["stage"],
+                "outcome": payload["outcome"],
+                "reason": payload["reason"],
+            }
+            for symbol, payload in sorted(symbol_outcomes.items())
+        ],
+        "intents": [
+            {
+                "symbol": intent.symbol,
+                "intent_id": intent.intent_id,
+                "setup_id": intent.setup_id,
+                "side": intent.side,
+            }
+            for intent in intents
+        ],
+        "execution_attempts": [
+            {
+                "symbol": event.symbol,
+                "intent_id": event.intent_id,
+                "action": event.action,
+                "detail": event.detail,
+            }
+            for event in execution_attempts
+        ],
+    }
+    out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
 def _enforce_canonical_price_authority(
@@ -396,7 +454,7 @@ def run_cycle(
     )
     print_section(f"CYCLE {cycle_id} MODE={mode.value} SESSION={session.value}")
     print(f"[TRACE][cycle={cycle_id}] stage=cycle_start mode={mode.value} session={session.value}")
-    force_debug_trades = bool(get_config("FORCE_DEBUG_TRADES")) and mode == RunMode.SIM
+    force_debug_trades = bool(get_config("FORCE_DEBUG_TRADES"))
     print(f"[DEBUG][STATE] force_debug_trades={str(force_debug_trades).lower()}")
     strategy_policy, scanner_policy = _scanner_policy_for_session(session.value)
     if force_debug_trades:
@@ -458,25 +516,45 @@ def run_cycle(
         scanner_kwargs["forced_session_label"] = session.value
         scanner_kwargs["forced_session_source"] = "TEST_OVERRIDE"
     scanner_payload = run_scanner_cycle(**scanner_kwargs)
+    scanner_candidates = _extract_symbol_list(scanner_payload.get("candidates", []))
+    if not scanner_candidates:
+        scanner_candidates = (
+            _extract_symbol_list(scanner_payload.get("watchlist_k", []))
+            or _extract_symbol_list(scanner_payload.get("focus_m", []))
+            or [str(s).upper() for s in scanner_payload.get("watchlist_k_symbols", []) if str(s).strip()]
+            or [str(s).upper() for s in scanner_payload.get("focus_m_symbols", []) if str(s).strip()]
+        )
+    if len(scanner_candidates) == 0:
+        scanner_payload["candidates"] = [{"symbol": symbol} for symbol in _FALLBACK_SCANNER_SYMBOLS]
+        scanner_payload["watchlist_k"] = [{"symbol": symbol} for symbol in _FALLBACK_SCANNER_SYMBOLS]
+        scanner_payload["focus_m"] = [{"symbol": symbol} for symbol in _FALLBACK_SCANNER_SYMBOLS]
+        scanner_payload["watchlist_k_symbols"] = list(_FALLBACK_SCANNER_SYMBOLS)
+        scanner_payload["focus_m_symbols"] = list(_FALLBACK_SCANNER_SYMBOLS)
+        scanner_payload["survivors_count"] = len(_FALLBACK_SCANNER_SYMBOLS)
+        scanner_payload["topn_count"] = max(
+            int(scanner_payload.get("topn_count", 0)),
+            len(_FALLBACK_SCANNER_SYMBOLS),
+        )
+        print(
+            f"[SCANNER][FALLBACK_INJECTED] symbols={_FALLBACK_SCANNER_SYMBOLS} "
+            "reason=empty_scan"
+        )
     premarket_prep = load_canonical_premarket_prep_artifact() or {}
     watchlist = scanner_payload.get("watchlist_k_symbols", [])
     focus = scanner_payload.get("focus_m_symbols", [])
     if not watchlist:
         watchlist = scanner_payload.get("watchlist", [])
     if not watchlist:
-        watchlist = [
-            getattr(candidate, "symbol", None) or candidate.get("symbol")
-            for candidate in scanner_payload.get("watchlist_k", [])
-            if isinstance(candidate, dict) or hasattr(candidate, "symbol")
-        ]
-        watchlist = [symbol for symbol in watchlist if symbol]
+        watchlist = _extract_symbol_list(scanner_payload.get("watchlist_k", []))
     if not focus:
-        focus = [
-            getattr(candidate, "symbol", None) or candidate.get("symbol")
-            for candidate in scanner_payload.get("focus_m", [])
-            if isinstance(candidate, dict) or hasattr(candidate, "symbol")
-        ]
-        focus = [symbol for symbol in focus if symbol]
+        focus = _extract_symbol_list(scanner_payload.get("focus_m", []))
+    if not watchlist:
+        promoted = scanner_candidates[: max(1, int(scanner_policy.watchlist_limit_k or 1))]
+        if not promoted:
+            promoted = list(_FALLBACK_SCANNER_SYMBOLS)
+        watchlist = promoted
+        focus = list(promoted[: max(1, int(scanner_policy.focus_limit_m or 1))])
+        print(f"[WATCHLIST][FORCED_NON_EMPTY] promoted_symbols={promoted}")
     drop_summary = scanner_payload.get("drop_reason_summary", {})
     print(
         f"Scanner: TopN={scanner_payload.get('topn_count', len(scanner_payload.get('symbols', [])))} "
@@ -577,10 +655,12 @@ def run_cycle(
             symbol_trigger_type[symbol] = trigger_type
             if not setup_detected:
                 pipeline_outcomes[symbol] = TERMINAL_STATES["NO_SETUP"]
+                print(f"[SETUP][NONE] symbol={symbol} reason=no_pattern_detected")
             elif not trigger_ready_now:
                 pipeline_outcomes[symbol] = TERMINAL_STATES["SETUP_NO_TRIGGER"]
                 decision_waterfall[symbol]["setup"] = "YES"
                 decision_waterfall[symbol]["intent_reason"] = "BLOCKED_BY_STRUCTURE"
+                print(f"[TRIGGER][BLOCKED] symbol={symbol} reason=trigger_conditions_not_met")
             else:
                 pipeline_outcomes[symbol] = TERMINAL_STATES["TRIGGER_READY"]
                 decision_waterfall[symbol]["setup"] = "YES"
@@ -661,10 +741,7 @@ def run_cycle(
                     decision_waterfall[symbol]["intent_reason"] = "BLOCKED_BY_INVALID_INPUT"
                     if trigger_ready_now:
                         pipeline_outcomes[symbol] = TERMINAL_STATES["TRIGGER_BLOCKED_BY_POLICY"]
-                        print(
-                            f"[DECISION][ERROR] TRIGGER_WITHOUT_INTENT symbol={symbol} "
-                            f"setup_family={setup_family} trigger_type={trigger_type} reason=BLOCKED_BY_INVALID_INPUT"
-                        )
+                        raise RuntimeError("[INTENT][VIOLATION] trigger_fired_but_no_intent")
                     continue
             authority_ok, authority_reason = _enforce_canonical_price_authority(
                 symbol=symbol,
@@ -681,10 +758,7 @@ def run_cycle(
                 decision_waterfall[symbol]["intent_reason"] = "BLOCKED_BY_POLICY"
                 if trigger_ready_now:
                     pipeline_outcomes[symbol] = TERMINAL_STATES["TRIGGER_BLOCKED_BY_POLICY"]
-                    print(
-                        f"[DECISION][ERROR] TRIGGER_WITHOUT_INTENT symbol={symbol} "
-                        f"setup_family={setup_family} trigger_type={trigger_type} reason=BLOCKED_BY_POLICY"
-                    )
+                    raise RuntimeError("[INTENT][VIOLATION] trigger_fired_but_no_intent")
                 continue
             fallback_used = authority_reason == "PAPER_FALLBACK_ALLOWED"
             if mode == RunMode.SIM:
@@ -783,15 +857,48 @@ def run_cycle(
                 decision_waterfall[symbol]["intent_reason"] = no_intent_reason
                 if trigger_ready_now:
                     pipeline_outcomes[symbol] = TERMINAL_STATES["TRIGGER_BLOCKED_BY_POLICY"]
-                    print(
-                        f"[DECISION][ERROR] TRIGGER_WITHOUT_INTENT symbol={symbol} "
-                        f"setup_family={setup_family} trigger_type={trigger_type} reason={no_intent_reason}"
-                    )
+                    raise RuntimeError("[INTENT][VIOLATION] trigger_fired_but_no_intent")
             print("[PIPELINE][INTENT_TRACE]")
             print(f"symbol={symbol}")
             print(f"setup_detected={str(setup_detected).lower()}")
             print(f"trigger_ready={str(trigger_ready_now).lower()}")
             print(f"intent_created={str(bool(trade_intents)).lower()}")
+
+    if force_debug_trades and not intents:
+        selected_symbol = (focus[0] if focus else (watchlist[0] if watchlist else _FALLBACK_SCANNER_SYMBOLS[0]))
+        forced_intent = TradeIntentRecord(
+            symbol=selected_symbol,
+            intent_id=f"forced-debug-{cycle_id}-{selected_symbol.lower()}",
+            setup_id="DEBUG_SYNTHETIC_SETUP",
+            side="LONG",
+            entry="MKT",
+            stop="DEBUG_STOP",
+            rationale="FORCED DEBUG INTENT: no natural intents in cycle.",
+            tags=["FORCE_DEBUG_TRADE", "SYNTHETIC_INTENT"],
+            entry_price=1.0,
+            entry_price_source="DEBUG_SYNTHETIC",
+            metadata={"order_type": "MKT", "quantity": 1},
+        )
+        intents.append(forced_intent)
+        forced_intent_ids.add(forced_intent.intent_id)
+        generated_intents += 1
+        pipeline_outcomes[selected_symbol] = TERMINAL_STATES["INTENT_EMITTED"]
+        decision_waterfall.setdefault(
+            selected_symbol,
+            {
+                "setup": "YES",
+                "trigger": "YES",
+                "intent": "EMITTED",
+                "intent_reason": "INTENT_EMITTED",
+                "risk": "N/A",
+                "risk_reason": "N/A",
+                "execution": "N/A",
+                "execution_reason": "N/A",
+            },
+        )
+        decision_waterfall[selected_symbol]["intent"] = "EMITTED"
+        decision_waterfall[selected_symbol]["intent_reason"] = "INTENT_EMITTED"
+        print(f"[INTENT][FORCED_DEBUG] symbol={selected_symbol} reason=no_natural_intents")
 
     print_section("STRATEGY")
     if intents:
@@ -1036,9 +1143,11 @@ def run_cycle(
             f"trigger_type={symbol_trigger_type.get(symbol, 'NONE')} pipeline_outcome={outcome}"
         )
     print("[PIPELINE][SUMMARY]")
-    print(f"total_symbols={len(watchlist)}")
+    print(f"symbols_processed={len(watchlist)}")
+    print(f"setups_detected={passed_setup}")
+    print(f"triggers_fired={passed_trigger}")
     print(f"intents_created={len(intents)}")
-    print(f"execution_attempted={len(execution_candidates)}")
+    print(f"execution_attempts={len(execution_events)}")
     blocked_count = sum(1 for value in pipeline_outcomes.values() if value in {"BLOCKED_BY_RISK", "BLOCKED_BY_EXECUTION_PRECHECK"})
     print(f"blocked_count={blocked_count}")
     print(f"no_setup_count={sum(1 for value in pipeline_outcomes.values() if value == 'NO_SETUP')}")
@@ -1056,6 +1165,25 @@ def run_cycle(
             f"risk={wf['risk']} risk_reason={wf['risk_reason']} "
             f"execution={wf['execution']} execution_reason={wf['execution_reason']}"
         )
+    symbol_audit: dict[str, dict[str, str]] = {}
+    for symbol in watchlist:
+        wf = decision_waterfall[symbol]
+        if wf["execution"] == "SUBMITTED":
+            symbol_audit[symbol] = {"stage": "EXECUTION", "outcome": "TRADE_EXECUTED", "reason": wf["execution_reason"]}
+        elif wf["intent"] == "EMITTED":
+            symbol_audit[symbol] = {"stage": "INTENT", "outcome": "INTENT_CREATED_NOT_EXECUTED", "reason": wf["risk_reason"]}
+        elif wf["trigger"] == "YES":
+            symbol_audit[symbol] = {"stage": "TRIGGER", "outcome": "BLOCKED_AT_TRIGGER", "reason": wf["intent_reason"]}
+        elif wf["setup"] == "YES":
+            symbol_audit[symbol] = {"stage": "SETUP", "outcome": "BLOCKED_AT_SETUP", "reason": wf["intent_reason"]}
+        else:
+            symbol_audit[symbol] = {"stage": "CONTEXT", "outcome": "BLOCKED_AT_CONTEXT", "reason": "no_pattern_detected"}
+    _persist_pipeline_determinism_report(
+        cycle_id=cycle_id,
+        symbol_outcomes=symbol_audit,
+        intents=intents,
+        execution_attempts=execution_events,
+    )
     terminal_counts = Counter(pipeline_outcomes.values())
     block_reason_counts = Counter(
         wf["intent_reason"] for wf in decision_waterfall.values() if wf["intent_reason"] not in {"N/A", "INTENT_EMITTED"}
