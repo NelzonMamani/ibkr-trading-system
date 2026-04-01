@@ -14,6 +14,7 @@ _SUPPRESSION_RULES: dict[str, set[str]] = {
     "FIRST_PULLBACK": {"MICRO_PULLBACK", "BULL_FLAG"},
     "ABCD": {"BULL_FLAG", "RANGE"},
     "CUP_HANDLE": {"MICRO_PULLBACK", "THREE_BAR_PULLBACK"},
+    "MOMENTUM_RECLAIM": {"MICRO_PULLBACK"},
 }
 
 _TIER_RANK = {
@@ -27,6 +28,7 @@ _TIER_RANK = {
     "MICRO_PULLBACK": 3,
     "ABCD": 3,
     "CUP_HANDLE": 3,
+    "MOMENTUM_RECLAIM": 2,
     "BULL_FLAG": 3,
 }
 
@@ -42,6 +44,7 @@ _ALIASES = {
     "P_BULL_FLAG": "BULL_FLAG",
     "P_ABCD": "ABCD",
     "P_CUP_HANDLE": "CUP_HANDLE",
+    "P_MOMENTUM_RECLAIM": "MOMENTUM_RECLAIM",
 }
 
 

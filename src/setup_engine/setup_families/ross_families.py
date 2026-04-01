@@ -10,6 +10,7 @@ from src.setup_engine.setup_families.key_level_helpers import (
     nearest_relevant_key_level,
 )
 from src.strategies.common.patterns.pattern_cup_handle import detect_cup_handle
+from src.strategies.common.patterns.pattern_momentum_reclaim import detect_momentum_reclaim
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
@@ -220,34 +221,7 @@ class MomentumReclaimPattern(PatternBase):
     direction_bias = Direction.LONG
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
-        candles = inputs.candles
-        if len(candles) < 4:
-            return self._rejected("insufficient candles", inputs)
-        last = candles[-1]
-        ema9 = inputs.indicators.ema9
-        vwap = inputs.indicators.vwap
-        if ema9 is None and vwap is None:
-            return self._rejected("missing reclaim reference (ema9/vwap)", inputs)
-        refs = [v for v in [ema9, vwap] if v is not None]
-        reclaim_level = max(refs)
-        prior_lost = any(c.close < reclaim_level for c in candles[-4:-1])
-        if not prior_lost:
-            return self._rejected("no prior shakeout under reclaim level", inputs)
-        if last.close <= reclaim_level:
-            return self._rejected("reclaim not confirmed", inputs)
-        return self._detected(
-            inputs,
-            direction=Direction.LONG,
-            confidence=0.71,
-            rationale=(
-                "Price lost momentum reference and reclaimed it with close confirmation.\n"
-                f"Reclaim level={reclaim_level:.2f}, close={last.close:.2f}."
-            ),
-            entry_zone="Close/retest above VWAP-EMA reclaim level",
-            stop_suggestion="Back below reclaim level",
-            target_suggestion="Prior swing high",
-            setup_quality_tags=["reclaim", "shakeout_absorbed"],
-        )
+        return detect_momentum_reclaim(inputs)
 
 
 class FailedOrbFakeoutPattern(PatternBase):

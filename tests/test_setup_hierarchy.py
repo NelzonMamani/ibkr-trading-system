@@ -94,3 +94,15 @@ def test_setup_hierarchy_can_suppress_lower_precision_setups_under_cup_handle() 
     assert by_family["MICRO_PULLBACK"].detected is False
     assert by_family["MICRO_PULLBACK"].rejection_reason == SUPPRESSION_REASON
     assert by_family["THREE_BAR_PULLBACK"].detected is False
+
+
+def test_setup_hierarchy_can_suppress_micro_pullback_under_momentum_reclaim() -> None:
+    results = [
+        _detected("MOMENTUM_RECLAIM", "P_MOMENTUM_RECLAIM"),
+        _detected("MICRO_PULLBACK", "P_MICRO_PULLBACK"),
+    ]
+    out = apply_setup_hierarchy(results, symbol="TEST")
+    by_family = {item.setup_family_id: item for item in out}
+    assert by_family["MOMENTUM_RECLAIM"].detected is True
+    assert by_family["MICRO_PULLBACK"].detected is False
+    assert by_family["MICRO_PULLBACK"].rejection_reason == SUPPRESSION_REASON
