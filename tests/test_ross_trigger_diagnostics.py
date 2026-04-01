@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from src.config.runtime_config import RunMode
+from src.core.engines.trigger_engine import TriggerEngine
 from src.core.engines.trigger_quality_engine import TriggerQualityEngine
 from src.domain.market_snapshot import MarketSnapshot
 from src.strategies.common.candles.candle_types import Candle
@@ -278,7 +279,8 @@ def test_trade_ready_still_works_and_emits_terminal_log(monkeypatch, tmp_path, c
         assert intents[0].entry_price is not None
         assert intents[0].stop_loss_price is not None
     else:
-        assert "[ROSS][TRIGGER_FAIL] symbol=TEST reason=pmh_holding_above_level" in out
+        assert "[TRIGGER][WAIT] symbol=TEST" in out
+        assert "waiting_for_trigger_event" in out
 
 
 def test_select_trigger_candidate_normalizes_setup_family_aliases() -> None:
@@ -287,6 +289,7 @@ def test_select_trigger_candidate_normalizes_setup_family_aliases() -> None:
         trigger_candidates=[
             {
                 "setup_family_id": "PREMARKET_HIGH_BREAK",
+                "trigger_fired": True,
                 "trigger_ready_now": True,
                 "trigger_quality_flags": [],
                 "trigger_type": "PMH_BREAK",
@@ -383,3 +386,28 @@ def test_tradeable_entry_gate_passes_clean_candidate(capsys) -> None:
     assert result["tradeable"] is True
     assert result["blocking_reasons"] == []
     assert "[TRADEABLE][PASS] symbol=TEST" in capsys.readouterr().out
+
+
+def test_trigger_contract_distinguishes_ready_vs_fired() -> None:
+    engine = TriggerEngine()
+    triggers = engine.evaluate_triggers(
+        symbol="XYZ",
+        candles=[{"open": 11.2, "high": 11.39, "low": 11.1, "close": 11.37}],
+        setups=[
+            {
+                "setup_family_id": "TREND_CONTINUATION_STAIR_STEP",
+                "setup_detected": True,
+                "trigger_level": 11.42,
+                "required_trigger_types": ["BREAKOUT_HIGH"],
+                "invalidation_level": 10.9,
+            }
+        ],
+        levels={"hod": 11.42},
+        structure={"is_actionable": True},
+    )
+    assert len(triggers) == 1
+    payload = triggers[0]
+    assert payload["trigger_ready"] is True
+    assert payload["trigger_fired"] is False
+    assert payload["trigger_reason"] == "waiting_for_trigger_event"
+    assert payload["intent_eligible"] is False

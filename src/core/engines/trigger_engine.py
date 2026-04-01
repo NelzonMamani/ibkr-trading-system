@@ -55,7 +55,7 @@ class TriggerEngine:
                 structure=structure,
                 last_low=last_low,
             )
-            trigger_ready_now, trigger_reason, quality_flags = self._is_ready(
+            trigger_ready, trigger_fired, trigger_reason, quality_flags = self._is_ready(
                 trigger_type=trigger_type,
                 trigger_price_reference=trigger_price_reference,
                 invalidation_price_reference=invalidation_price_reference,
@@ -70,9 +70,9 @@ class TriggerEngine:
             if str(setup.get("setup_family_id") or "").upper() == "GAP_GO":
                 print(
                     "[TRIGGER][GAP_GO] "
-                    f"symbol={symbol} trigger={trigger_type} fired={bool(trigger_ready_now)}"
+                    f"symbol={symbol} trigger={trigger_type} fired={bool(trigger_fired)}"
                 )
-            trigger_state = "FIRED" if trigger_ready_now else "ARMED"
+            trigger_state = "FIRED" if trigger_fired else ("READY" if trigger_ready else "WAIT")
             if "BLOCKED" in set(str(flag).upper() for flag in quality_flags):
                 trigger_state = "BLOCKED"
             output = {
@@ -81,9 +81,16 @@ class TriggerEngine:
                 "setup_name": setup.get("setup_name"),
                 "trigger_type": trigger_type,
                 "trigger_state": trigger_state,
-                "trigger_ready_now": trigger_ready_now,
-                "trigger_event_emitted": bool(trigger_ready_now),
+                "trigger_ready": trigger_ready,
+                "trigger_fired": trigger_fired,
+                "trigger_ready_now": trigger_fired,
+                "trigger_event_emitted": bool(trigger_fired),
                 "trigger_reason": trigger_reason,
+                "trigger_price": trigger_price_reference,
+                "trigger_level_reference": "setup.trigger_level",
+                "breakout_level": trigger_price_reference,
+                "stop_reference": invalidation_price_reference,
+                "intent_eligible": bool(trigger_fired and trigger_price_reference is not None),
                 "trigger_price_reference": trigger_price_reference,
                 "invalidation_price_reference": invalidation_price_reference,
                 "execution_refinement_mode": str(setup.get("execution_refinement_mode") or "NONE"),
@@ -94,7 +101,7 @@ class TriggerEngine:
 
         print(
             "[TRIGGER_ENGINE] "
-            f"symbol={symbol} evaluated={len(outputs)} ready={sum(1 for t in outputs if t.get('trigger_ready_now'))}"
+            f"symbol={symbol} evaluated={len(outputs)} ready={sum(1 for t in outputs if t.get('trigger_ready'))} fired={sum(1 for t in outputs if t.get('trigger_fired'))}"
         )
         return outputs
 
@@ -163,14 +170,14 @@ class TriggerEngine:
         levels: dict,
         structure: dict,
         candles: list,
-    ) -> tuple[bool, str, list[str]]:
+    ) -> tuple[bool, bool, str, list[str]]:
         flags: list[str] = []
         if trigger_price_reference is None:
             flags.append("MISSING_TRIGGER_REFERENCE")
-            return False, "trigger_reference_missing", flags
+            return False, False, "trigger_reference_missing", flags
         if last_close is None:
             flags.append("MISSING_LAST_CLOSE")
-            return False, "last_close_missing", flags
+            return False, False, "last_close_missing", flags
 
         trigger_type = str(trigger_type or "BREAKOUT_HIGH").upper()
         reclaim_state = str(structure.get("reclaim_state") or "NONE").upper()
@@ -180,7 +187,7 @@ class TriggerEngine:
 
         setup_family = str(setup.get("setup_family_id") or "").upper()
         if setup_family == "GAP_GO":
-            ready, reason = self._evaluate_gap_go_trigger(
+            fired, reason = self._evaluate_gap_go_trigger(
                 trigger_type=trigger_type,
                 trigger_price_reference=trigger_price_reference,
                 last_close=last_close,
@@ -195,10 +202,14 @@ class TriggerEngine:
                 candles=candles,
             )
             if registry_trigger is not None:
-                ready = bool(registry_trigger.get("trigger_ready_now"))
-                reason = str(registry_trigger.get("trigger_reason") or "registered_trigger_not_ready")
+                fired = bool(
+                    registry_trigger.get("trigger_fired")
+                    if registry_trigger.get("trigger_fired") is not None
+                    else registry_trigger.get("trigger_ready_now")
+                )
+                reason = str(registry_trigger.get("trigger_reason") or ("trigger_event_fired" if fired else "waiting_for_trigger_event"))
                 trigger_type = str(registry_trigger.get("trigger_type") or trigger_type)
-                flags.append(str(registry_trigger.get("trigger_state") or ("FIRED" if ready else "ARMED")))
+                flags.append(str(registry_trigger.get("trigger_state") or ("FIRED" if fired else "ARMED")))
                 flags.extend([str(flag) for flag in (registry_trigger.get("trigger_quality_flags") or [])])
                 trigger_price_reference = self._safe_float(
                     registry_trigger.get("trigger_price_reference")
@@ -209,14 +220,14 @@ class TriggerEngine:
                 if registry_trigger.get("execution_refinement_mode"):
                     setup["execution_refinement_mode"] = registry_trigger.get("execution_refinement_mode")
                 if (
-                    ready
+                    fired
                     and str(setup.get("setup_family_id") or "").upper() == "PREMARKET_HIGH_BREAK"
                     and bool(structure.get("pre_activation_ready"))
                 ):
                     symbol = str(structure.get("symbol") or "UNKNOWN")
                     print(f"[ROSS][PRE_TRIGGER_PROMOTION] symbol={symbol} reason=PRE_ACTIVATION_BREAKOUT")
             elif trigger_type in {"BREAKOUT_HIGH", "HOD_BREAK", "PMH_BREAK", "RANGE_BREAK", "PULLBACK_HIGH_BREAK"}:
-                ready, reason = self._evaluate_breakout_trigger(
+                fired, reason = self._evaluate_breakout_trigger(
                     last_close=last_close,
                     last_high=last_high,
                     trigger_price_reference=trigger_price_reference,
@@ -226,26 +237,29 @@ class TriggerEngine:
                     flags=flags,
                 )
             elif trigger_type == "BREAK_AND_HOLD":
-                ready = last_close >= trigger_price_reference and impulse_active
-                reason = "break_and_hold_confirmed" if ready else "break_and_hold_not_confirmed"
+                fired = last_close >= trigger_price_reference and impulse_active
+                reason = "break_and_hold_confirmed" if fired else "waiting_for_trigger_event"
             elif trigger_type == "RECLAIM":
-                ready = last_close >= trigger_price_reference and "RECLAIM" in reclaim_state
-                reason = "reclaim_already_confirmed" if ready else "reclaim_not_confirmed"
+                fired = last_close >= trigger_price_reference and "RECLAIM" in reclaim_state
+                reason = "reclaim_already_confirmed" if fired else "waiting_for_trigger_event"
             else:
-                ready = last_high is not None and last_high >= trigger_price_reference
-                reason = "high_tagged_trigger" if ready else "trigger_not_tagged"
+                fired = last_high is not None and last_high >= trigger_price_reference
+                reason = "high_tagged_trigger" if fired else "waiting_for_trigger_event"
 
         if consolidation_active and trigger_type in {"RANGE_BREAK", "BREAK_AND_HOLD"}:
             flags.append("CONSOLIDATION_CONTEXT")
         if invalidation_price_reference is None:
             flags.append("MISSING_INVALIDATION_REFERENCE")
         invalidation_violated = invalidation_price_reference is not None and last_close <= invalidation_price_reference
+        trigger_ready = bool(structure_is_actionable and trigger_price_reference is not None and not invalidation_violated)
         if invalidation_violated:
             flags.append("NEAR_INVALIDATION")
-            ready = False
+            trigger_ready = False
+            fired = False
             reason = "at_or_below_invalidation"
-
-        return ready, reason, flags
+        if not fired and trigger_ready and reason not in {"at_or_below_invalidation"}:
+            reason = "waiting_for_trigger_event"
+        return trigger_ready, bool(fired), reason, flags
 
     def _evaluate_registered_trigger(self, *, setup: dict, levels: dict, candles: list) -> dict | None:
         family = str(setup.get("setup_family_id") or "").upper()
