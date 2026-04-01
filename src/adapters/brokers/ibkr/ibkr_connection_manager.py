@@ -258,7 +258,7 @@ _default_manager_lock = Lock()
 
 
 def _is_test_environment() -> bool:
-    return "PYTEST_CURRENT_TEST" in os.environ or os.environ.get("TEST_MODE") == "1"
+    return str(os.environ.get("EXECUTION_ENV", "")).strip().upper() == "TEST"
 
 
 def get_shared_ibkr_connection_manager(
@@ -276,6 +276,7 @@ def get_shared_ibkr_connection_manager(
         class DummyManager:
             def __init__(self) -> None:
                 self._client = DummyIBKRClient()
+                self._market_data_client = _DummyMarketDataClient(self)
                 self.config = IbkrConnectionConfig(
                     host="TEST",
                     port=0,
@@ -314,6 +315,22 @@ def get_shared_ibkr_connection_manager(
                     "readonly_enabled": True,
                     "broker_order_id_seed": 123456,
                 }
+
+            def get_market_data_client(self) -> "_DummyMarketDataClient":
+                return self._market_data_client
+
+        class _DummyMarketDataClient:
+            def __init__(self, manager: "DummyManager") -> None:
+                self.connection_manager = manager
+
+            def connect(self) -> None:
+                return None
+
+            def disconnect(self) -> None:
+                return None
+
+            def request_scanner_data(self, _subscription):
+                return []
 
         return DummyManager()  # type: ignore[return-value]
 

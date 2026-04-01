@@ -21,7 +21,7 @@ def _allow_decision() -> RiskDecisionRecord:
 
 
 def test_test_environment_skips_ibkr_validation(monkeypatch, capsys) -> None:
-    monkeypatch.setenv("PYTEST_CURRENT_TEST", "tests::x")
+    monkeypatch.setenv("EXECUTION_ENV", "TEST")
 
     def _fail_validate(mode: RunMode) -> None:
         raise AssertionError(f"validation should be skipped in tests: {mode}")
@@ -36,7 +36,7 @@ def test_test_environment_skips_ibkr_validation(monkeypatch, capsys) -> None:
 
 
 def test_non_test_environment_enforces_ibkr_validation(monkeypatch) -> None:
-    monkeypatch.setattr(order_router, "_is_test_environment", lambda: False)
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
 
     def _raise_validate(mode: RunMode) -> None:
         raise RuntimeError(f"strict validation called for {mode.value}")
@@ -48,7 +48,7 @@ def test_non_test_environment_enforces_ibkr_validation(monkeypatch) -> None:
 
 
 def test_paper_and_live_dispatch_use_ibkr(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(order_router, "_is_test_environment", lambda: False)
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
     monkeypatch.setattr(order_router, "_validate_ibkr_connection", lambda mode: None)
 
     order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])
@@ -61,7 +61,7 @@ def test_paper_and_live_dispatch_use_ibkr(monkeypatch, capsys) -> None:
 
 
 def test_mode_connection_state_logging(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(order_router, "_is_test_environment", lambda: False)
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
     monkeypatch.setattr(order_router, "_validate_ibkr_connection", lambda mode: None)
 
     order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])

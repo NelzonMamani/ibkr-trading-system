@@ -248,7 +248,7 @@ def _emit_test_fill_fallback(mode: RunMode, events: List[ExecutionEvent], timeou
     if mode != RunMode.PAPER:
         return events
     fallback_enabled = os.environ.get("IBKR_ENABLE_TEST_FILL_FALLBACK", "").lower()
-    should_fallback = fallback_enabled == "true" or (not fallback_enabled and _is_test_environment())
+    should_fallback = fallback_enabled == "true" or (not fallback_enabled and _is_explicit_test_mode())
     if not should_fallback:
         return events
     deadline = time.monotonic() + max(0.0, timeout_seconds)
@@ -278,7 +278,7 @@ def _emit_test_fill_fallback(mode: RunMode, events: List[ExecutionEvent], timeou
 
 
 def _fetch_ibkr_truth(mode: RunMode) -> tuple[list[Any], list[Any], list[Any]]:
-    if _is_test_environment():
+    if _is_explicit_test_mode():
         return [], [], []
     if mode not in {RunMode.PAPER, RunMode.LIVE}:
         return [], [], []
@@ -334,16 +334,12 @@ def _sync_submitted_events_from_ibkr(
     return events
 
 
-def _is_test_environment() -> bool:
-    return (
-        "PYTEST_CURRENT_TEST" in os.environ
-        or os.environ.get("CI") == "true"
-        or os.environ.get("TEST_MODE") == "true"
-    )
+def _is_explicit_test_mode() -> bool:
+    return str(os.environ.get("EXECUTION_ENV", "")).strip().upper() == "TEST"
 
 
 def _validate_ibkr_connection(mode: RunMode) -> None:
-    if _is_test_environment():
+    if _is_explicit_test_mode():
         return
 
     if mode not in {RunMode.PAPER, RunMode.LIVE}:
@@ -393,8 +389,13 @@ def execute_intents(
     events: List[ExecutionEvent] = []
     manager: Any | None = None
 
+    for decision in decisions:
+        quantity = int(decision.approved_quantity)
+        if decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"} and quantity <= 0:
+            raise RuntimeError("INVALID ORDER: quantity=0")
+
     if mode in {RunMode.PAPER, RunMode.LIVE}:
-        if _is_test_environment():
+        if _is_explicit_test_mode():
             print("[EXECUTION][TEST_MODE] Skipping IBKR connection validation")
         else:
             _validate_ibkr_connection(mode)
@@ -415,7 +416,7 @@ def execute_intents(
     existing_open_order_symbols.discard("")
 
     order_id_seed = 0
-    if mode in {RunMode.PAPER, RunMode.LIVE} and not _is_test_environment():
+    if mode in {RunMode.PAPER, RunMode.LIVE} and not _is_explicit_test_mode():
         if manager is None:
             manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
         metadata = manager.connection_metadata()
@@ -431,8 +432,6 @@ def execute_intents(
             f"risk_allowed={risk_allowed}"
         )
         quantity = int(decision.approved_quantity)
-        if decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"} and quantity <= 0:
-            raise RuntimeError("INVALID ORDER: quantity=0")
         duplicate_symbol = str(decision.symbol or "").upper()
         if duplicate_symbol in existing_position_symbols or duplicate_symbol in existing_open_order_symbols:
             print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_PROTECTION")
