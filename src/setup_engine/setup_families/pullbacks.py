@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from src.strategies.common.patterns.pattern_hod_break import detect_hod_break
 from src.strategies.common.patterns.pattern_opening_drive import detect_opening_drive
+from src.strategies.common.patterns.pattern_vwap_pullback import detect_vwap_pullback
 from src.strategies.common.patterns.pattern_trend_continuation_stair_step import (
     detect_trend_continuation_stair_step,
 )
@@ -70,6 +71,9 @@ class VwapPullbackPattern(_SimpleLongPattern):
     pattern_id = "P_VWAP_PULLBACK"
     name = "VWAP Pullback"
     family = PatternFamily.PULLBACK
+
+    def evaluate(self, inputs: PatternInputs) -> PatternResult:
+        return detect_vwap_pullback(inputs)
 
 
 class ThreeBarPullbackPattern(_SimpleLongPattern):

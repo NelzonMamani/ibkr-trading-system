@@ -62,6 +62,7 @@ class RossPatternRegistry:
             "P_ABCD": "ABCD",
             "P_CUP_HANDLE": "CUP_HANDLE",
             "P_TREND_CONTINUATION_STAIR_STEP": "TREND_CONTINUATION_STAIR_STEP",
+            "P_VWAP_PULLBACK": "VWAP_PULLBACK",
         }
 
     @property
