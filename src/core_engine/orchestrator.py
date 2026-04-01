@@ -479,6 +479,12 @@ def run_cycle(
             f"[PIPELINE][WATCHLIST] symbol={symbol} "
             f"status={'IN_FOCUS' if symbol in focus_set else 'NOT_IN_FOCUS'}"
         )
+        if symbol not in focus_set:
+            print(
+                "[PIPELINE] "
+                f"symbol={symbol} setup_family=NONE trigger_type=NONE "
+                "pipeline_outcome=NO_SETUP reason=NOT_IN_FOCUS"
+            )
 
     if session.value in {"PRE", "AFTER"}:
         write_premarket_prep_artifact(
@@ -507,6 +513,9 @@ def run_cycle(
     execution_events: List[ExecutionEvent] = []
     health_triggers = []
     watchlist_set = set(watchlist)
+    pipeline_outcomes: dict[str, str] = {symbol: "NO_SETUP" for symbol in watchlist}
+    symbol_setup_family: dict[str, str] = {symbol: "NONE" for symbol in watchlist}
+    symbol_trigger_type: dict[str, str] = {symbol: "NONE" for symbol in watchlist}
     passed_setup = 0
     passed_trigger = 0
     generated_intents = 0
@@ -537,6 +546,18 @@ def run_cycle(
             best_conf = best_setup.confidence if best_setup else 0.0
             setup_detected = best_name not in {"NONE", ""}
             trigger_ready_now = setup_detected and best_conf >= 0.20
+            setup_family = best_name if setup_detected else "NONE"
+            trigger_type = "CONFIDENCE_GATE" if setup_detected else "NONE"
+            symbol_setup_family[symbol] = setup_family
+            symbol_trigger_type[symbol] = trigger_type
+            if not setup_detected:
+                pipeline_outcomes[symbol] = "NO_SETUP"
+            elif not trigger_ready_now:
+                pipeline_outcomes[symbol] = "TRIGGER_NOT_FIRED"
+            print(
+                f"[TRIGGER] symbol={symbol} setup_family={setup_family} "
+                f"trigger_type={trigger_type} trigger_ready_now={str(trigger_ready_now).lower()}"
+            )
             if setup_detected:
                 passed_setup += 1
             if trigger_ready_now:
@@ -596,6 +617,12 @@ def run_cycle(
                 else:
                     print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_UNAVAILABLE detail={exc.reason}")
                     print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=PRICE_UNAVAILABLE")
+                    if trigger_ready_now:
+                        pipeline_outcomes[symbol] = "SETUP_REJECTED"
+                        print(
+                            f"[DECISION][ERROR] TRIGGER_WITHOUT_INTENT symbol={symbol} "
+                            f"setup_family={setup_family} trigger_type={trigger_type} reason=PRICE_UNAVAILABLE"
+                        )
                     continue
             authority_ok, authority_reason = _enforce_canonical_price_authority(
                 symbol=symbol,
@@ -608,6 +635,12 @@ def run_cycle(
             if not authority_ok:
                 print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_AUTHORITY detail={authority_reason}")
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=PRICE_AUTHORITY")
+                if trigger_ready_now:
+                    pipeline_outcomes[symbol] = "SETUP_REJECTED"
+                    print(
+                        f"[DECISION][ERROR] TRIGGER_WITHOUT_INTENT symbol={symbol} "
+                        f"setup_family={setup_family} trigger_type={trigger_type} reason=PRICE_AUTHORITY"
+                    )
                 continue
             fallback_used = authority_reason == "PAPER_FALLBACK_ALLOWED"
             if mode == RunMode.SIM:
@@ -680,8 +713,24 @@ def run_cycle(
                         intents[-1].tags.append("NON_LIVE_PRICE")
                 generated_intents += 1
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=true forced=false intent_id={intent.intent_id}")
+                print(
+                    f"[INTENT] symbol={symbol} setup_family={setup_family} "
+                    f"trigger_type={trigger_type} intent_id={intent.intent_id}"
+                )
+            if trigger_ready_now and trade_intents:
+                pipeline_outcomes[symbol] = "TRIGGER_FIRED_INTENT_CREATED"
+                print(
+                    f"[DECISION][INTENT_CREATED] symbol={symbol} setup_family={setup_family} "
+                    f"trigger_type={trigger_type}"
+                )
             if not trade_intents:
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=NO_STRATEGY_INTENT")
+                if trigger_ready_now:
+                    pipeline_outcomes[symbol] = "SETUP_REJECTED"
+                    print(
+                        f"[DECISION][ERROR] TRIGGER_WITHOUT_INTENT symbol={symbol} "
+                        f"setup_family={setup_family} trigger_type={trigger_type} reason=NO_STRATEGY_INTENT"
+                    )
             print("[PIPELINE][INTENT_TRACE]")
             print(f"symbol={symbol}")
             print(f"setup_detected={str(setup_detected).lower()}")
@@ -766,128 +815,165 @@ def run_cycle(
         f"scan_only={mode_authority.scan_only} execution_enabled={mode_authority.execution_enabled} "
         f"intents_present={bool(arbitrated_decisions)} intent_count={len(arbitrated_decisions)}"
     )
-    if execution_intent.scan_only:
-        print("[EXECUTION] Execution stage skipped — intent scan_only.")
-        execution_events = []
-    else:
-        execution_candidates: List[RiskDecisionRecord] = []
-        blocked_candidates: List[ExecutionEvent] = []
-        if not arbitrated_decisions:
-            print("[PIPELINE][EXECUTION_GATE] symbol=NONE eligible=false reason=NO_INTENTS")
-        for decision in arbitrated_decisions:
-            execution_candidate_ready = decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}
-            eligible = (
-                mode == RunMode.PAPER
-                and mode_authority.trade_enabled
-                and not mode_authority.scan_only
-                and int(decision.approved_quantity) >= 1
-                and execution_candidate_ready
-            )
-            print(
-                "[MODE][EXECUTION_CONTEXT] "
-                f"symbol={decision.symbol} mode={mode.value} trade_enabled={mode_authority.trade_enabled} "
-                f"scan_only={mode_authority.scan_only} execution_allowed={eligible}"
-            )
-            print(
-                "[PIPELINE][EXECUTION_GATE] "
-                f"symbol={decision.symbol} effective_mode={mode.value} trade_enabled={mode_authority.trade_enabled} "
-                f"scan_only={mode_authority.scan_only} eligible={eligible}"
-            )
-            if not eligible:
-                reason = "EXECUTION_GATES_NOT_SATISFIED"
-                print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason={reason}")
-                blocked_candidates.append(
-                    ExecutionEvent(
-                        symbol=decision.symbol,
-                        intent_id=decision.intent_id,
-                        action="BLOCKED",
-                        detail=f"reason={reason}",
-                    )
+    execution_candidates: List[RiskDecisionRecord] = []
+    blocked_candidates: List[ExecutionEvent] = []
+    execution_skipped = execution_intent.scan_only or (not mode_authority.trade_enabled)
+    if not arbitrated_decisions:
+        print("[PIPELINE][EXECUTION_GATE] symbol=NONE eligible=false reason=NO_INTENTS")
+    for decision in arbitrated_decisions:
+        print(
+            f"[EXECUTION] symbol={decision.symbol} "
+            f"setup_family={symbol_setup_family.get(decision.symbol, 'NONE')} "
+            f"trigger_type={symbol_trigger_type.get(decision.symbol, 'NONE')}"
+        )
+        if execution_skipped:
+            print(f"[EXECUTION][SKIPPED] symbol={decision.symbol} reason=SCAN_ONLY_OR_DISABLED")
+            blocked_candidates.append(
+                ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail="reason=SCAN_ONLY_OR_DISABLED",
                 )
-                continue
-            print(
-                "[EXECUTION][SUBMIT_ATTEMPT] "
-                f"symbol={decision.symbol} qty={int(decision.approved_quantity)} order_type=MKT mode=PAPER"
             )
-            execution_candidates.append(decision)
+            pipeline_outcomes[decision.symbol] = "BLOCKED_BY_EXECUTION_PRECHECK"
+            continue
+        execution_candidate_ready = decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}
+        eligible = (
+            mode == RunMode.PAPER
+            and mode_authority.trade_enabled
+            and not mode_authority.scan_only
+            and int(decision.approved_quantity) >= 1
+            and execution_candidate_ready
+        )
+        print(
+            "[MODE][EXECUTION_CONTEXT] "
+            f"symbol={decision.symbol} mode={mode.value} trade_enabled={mode_authority.trade_enabled} "
+            f"scan_only={mode_authority.scan_only} execution_allowed={eligible}"
+        )
+        print(
+            "[PIPELINE][EXECUTION_GATE] "
+            f"symbol={decision.symbol} effective_mode={mode.value} trade_enabled={mode_authority.trade_enabled} "
+            f"scan_only={mode_authority.scan_only} eligible={eligible}"
+        )
+        if not eligible:
+            reason = "EXECUTION_GATES_NOT_SATISFIED"
+            print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason={reason}")
+            blocked_candidates.append(
+                ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail=f"reason={reason}",
+                )
+            )
+            pipeline_outcomes[decision.symbol] = "BLOCKED_BY_EXECUTION_PRECHECK"
+            continue
+        print(
+            "[EXECUTION][SUBMIT_ATTEMPT] "
+            f"symbol={decision.symbol} qty={int(decision.approved_quantity)} order_type=MKT mode=PAPER"
+        )
+        execution_candidates.append(decision)
 
+    if intents:
         execution_events = execute_intents(mode=mode, decisions=execution_candidates)
-        execution_events.extend(blocked_candidates)
-        for event in execution_events:
-            broker_order_id = getattr(event, "broker_order_id", None)
-            filled_quantity = int(getattr(event, "filled_quantity", 0) or 0)
-            remaining_quantity = int(getattr(event, "remaining_quantity", 0) or 0)
-            broker_status = str(getattr(event, "broker_status", "UNKNOWN") or "UNKNOWN")
+    else:
+        execution_events = []
+    execution_events.extend(blocked_candidates)
+    for event in execution_events:
+        broker_order_id = getattr(event, "broker_order_id", None)
+        filled_quantity = int(getattr(event, "filled_quantity", 0) or 0)
+        remaining_quantity = int(getattr(event, "remaining_quantity", 0) or 0)
+        broker_status = str(getattr(event, "broker_status", "UNKNOWN") or "UNKNOWN")
+        print(
+            "[EXECUTION][SUBMIT_RESULT] "
+            f"symbol={event.symbol} submitted={event.action == 'SUBMITTED'} "
+            f"order_id={broker_order_id if broker_order_id is not None else 'MISSING'} reason={event.detail}"
+        )
+        if broker_order_id is not None:
+            print(f"[EXECUTION][ORDER_ID_CAPTURED] symbol={event.symbol} order_id={broker_order_id}")
+        print(f"[EXECUTION] {event.symbol} {event.action} ({event.detail})")
+        execution_pass = event.action in {"SUBMITTED", "WOULD_PLACE"}
+        if event.action == "SUBMITTED" and broker_order_id is None:
             print(
-                "[EXECUTION][SUBMIT_RESULT] "
-                f"symbol={event.symbol} submitted={event.action == 'SUBMITTED'} "
-                f"order_id={broker_order_id if broker_order_id is not None else 'MISSING'} reason={event.detail}"
+                f"[INVARIANT][FAIL] submitted_order_without_broker_id symbol={event.symbol} intent_id={event.intent_id}"
             )
-            if broker_order_id is not None:
-                print(f"[EXECUTION][ORDER_ID_CAPTURED] symbol={event.symbol} order_id={broker_order_id}")
-            print(f"[EXECUTION] {event.symbol} {event.action} ({event.detail})")
-            execution_pass = event.action in {"SUBMITTED", "WOULD_PLACE"}
-            if event.action == "SUBMITTED" and broker_order_id is None:
+            execution_pass = False
+        if event.action == "SUBMITTED":
+            if execution_pass:
+                working_orders += 1
+                pending_entries += 1 if filled_quantity <= 0 else 0
                 print(
-                    f"[INVARIANT][FAIL] submitted_order_without_broker_id symbol={event.symbol} intent_id={event.intent_id}"
+                    f"[ORDER_STATE] symbol={event.symbol} order_id={broker_order_id} "
+                    "state=PENDING_SUBMISSION_ACK"
                 )
-                execution_pass = False
-            if event.action == "SUBMITTED":
-                if execution_pass:
-                    working_orders += 1
-                    pending_entries += 1 if filled_quantity <= 0 else 0
-                    print(
-                        f"[ORDER_STATE] symbol={event.symbol} order_id={broker_order_id} "
-                        "state=PENDING_SUBMISSION_ACK"
-                    )
-                    print(
-                        f"[ORDER_STATE] symbol={event.symbol} order_id={broker_order_id} "
-                        f"state=WORKING broker_status={broker_status} filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
-                    )
-                    print(f"[LIFECYCLE] ORDER_SUBMITTED symbol={event.symbol} source=IBKR_EVENT")
-                    print(f"[LIFECYCLE] ORDER_ACKNOWLEDGED symbol={event.symbol} source=IBKR_EVENT")
-                fill_event = str(getattr(event, "event_type", "") or "")
-                event_source = str(getattr(event, "source", "IBKR_EVENT") or "IBKR_EVENT")
-                if fill_event == "ORDER_FILLED" or filled_quantity > 0:
-                    lifecycle_event = "ORDER_FILLED"
-                    print(
-                        f"[EXECUTION][FILL] symbol={event.symbol} order_id={broker_order_id} "
-                        f"filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
-                    )
-                    print(
-                        f"[LIFECYCLE][ORDER_FILLED] symbol={event.symbol} order_id={broker_order_id} "
-                        f"filled_qty={filled_quantity} source={event_source}"
-                    )
-                    symbol_key = str(event.symbol or "").upper()
-                    if symbol_key:
-                        existing_position = position_book.get(symbol_key)
-                        fill_price = event.avg_fill_price
-                        fill_qty = max(0, filled_quantity)
-                        if existing_position is None:
-                            position_book[symbol_key] = {"qty": float(fill_qty), "avg_price": float(fill_price or 0.0)}
+                print(
+                    f"[ORDER_STATE] symbol={event.symbol} order_id={broker_order_id} "
+                    f"state=WORKING broker_status={broker_status} filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
+                )
+                print(f"[LIFECYCLE] ORDER_SUBMITTED symbol={event.symbol} source=IBKR_EVENT")
+                print(f"[LIFECYCLE] ORDER_ACKNOWLEDGED symbol={event.symbol} source=IBKR_EVENT")
+            fill_event = str(getattr(event, "event_type", "") or "")
+            event_source = str(getattr(event, "source", "IBKR_EVENT") or "IBKR_EVENT")
+            if fill_event == "ORDER_FILLED" or filled_quantity > 0:
+                print(
+                    f"[EXECUTION][FILL] symbol={event.symbol} order_id={broker_order_id} "
+                    f"filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
+                )
+                print(
+                    f"[LIFECYCLE][ORDER_FILLED] symbol={event.symbol} order_id={broker_order_id} "
+                    f"filled_qty={filled_quantity} source={event_source}"
+                )
+                symbol_key = str(event.symbol or "").upper()
+                if symbol_key:
+                    existing_position = position_book.get(symbol_key)
+                    fill_price = event.avg_fill_price
+                    fill_qty = max(0, filled_quantity)
+                    if existing_position is None:
+                        position_book[symbol_key] = {"qty": float(fill_qty), "avg_price": float(fill_price or 0.0)}
+                    else:
+                        prev_qty = float(existing_position["qty"])
+                        prev_avg = float(existing_position["avg_price"])
+                        total_qty = prev_qty + float(fill_qty)
+                        if total_qty > 0 and fill_price is not None:
+                            weighted_avg = ((prev_qty * prev_avg) + (float(fill_qty) * float(fill_price))) / total_qty
                         else:
-                            prev_qty = float(existing_position["qty"])
-                            prev_avg = float(existing_position["avg_price"])
-                            total_qty = prev_qty + float(fill_qty)
-                            if total_qty > 0 and fill_price is not None:
-                                weighted_avg = ((prev_qty * prev_avg) + (float(fill_qty) * float(fill_price))) / total_qty
-                            else:
-                                weighted_avg = prev_avg
-                            existing_position["qty"] = total_qty
-                            existing_position["avg_price"] = weighted_avg
-                        print(
-                            f"[POSITION][OPEN] symbol={symbol_key} "
-                            f"qty={int(position_book[symbol_key]['qty'])} "
-                            f"price={position_book[symbol_key]['avg_price']:.4f}"
-                        )
-            elif execution_pass:
-                working_orders += 1 if event.action == "WOULD_PLACE" else 0
-            print(
-                f"[PIPELINE][EXECUTION] symbol={event.symbol} "
-                f"executed={str(execution_pass).lower()} action={event.action}"
-            )
-            if event.intent_id in forced_intent_ids and execution_pass:
-                print(f"[DEBUG][FORCED_PATH] sent_to_execution symbol={event.symbol} intent_id={event.intent_id}")
+                            weighted_avg = prev_avg
+                        existing_position["qty"] = total_qty
+                        existing_position["avg_price"] = weighted_avg
+                    print(
+                        f"[POSITION][OPEN] symbol={symbol_key} "
+                        f"qty={int(position_book[symbol_key]['qty'])} "
+                        f"price={position_book[symbol_key]['avg_price']:.4f}"
+                    )
+        elif execution_pass:
+            working_orders += 1 if event.action == "WOULD_PLACE" else 0
+        print(
+            f"[PIPELINE][EXECUTION] symbol={event.symbol} "
+            f"executed={str(execution_pass).lower()} action={event.action}"
+        )
+        if event.action in {"SUBMITTED", "WOULD_PLACE"}:
+            pipeline_outcomes[event.symbol] = "TRIGGER_FIRED_INTENT_CREATED"
+        if event.intent_id in forced_intent_ids and execution_pass:
+            print(f"[DEBUG][FORCED_PATH] sent_to_execution symbol={event.symbol} intent_id={event.intent_id}")
+    for decision in risk_decisions:
+        if decision.decision not in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
+            pipeline_outcomes[decision.symbol] = "BLOCKED_BY_RISK"
+    for symbol in watchlist:
+        outcome = pipeline_outcomes.get(symbol)
+        if outcome is None:
+            raise RuntimeError(f"[PIPELINE][ERROR] SYMBOL_WITHOUT_TERMINAL_OUTCOME symbol={symbol}")
+        print(
+            f"[PIPELINE] symbol={symbol} setup_family={symbol_setup_family.get(symbol, 'NONE')} "
+            f"trigger_type={symbol_trigger_type.get(symbol, 'NONE')} pipeline_outcome={outcome}"
+        )
+    print("[PIPELINE][SUMMARY]")
+    print(f"total_symbols={len(watchlist)}")
+    print(f"intents_created={len(intents)}")
+    print(f"execution_attempted={len(execution_candidates)}")
+    blocked_count = sum(1 for value in pipeline_outcomes.values() if value in {"BLOCKED_BY_RISK", "BLOCKED_BY_EXECUTION_PRECHECK"})
+    print(f"blocked_count={blocked_count}")
+    print(f"no_setup_count={sum(1 for value in pipeline_outcomes.values() if value == 'NO_SETUP')}")
     executed = sum(1 for row in position_book.values() if float(row.get("qty", 0.0)) > 0.0)
     print(
         f"[LIFECYCLE][PORTFOLIO] open_positions={executed} "

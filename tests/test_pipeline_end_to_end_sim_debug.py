@@ -70,7 +70,10 @@ def test_sim_debug_forced_trade_runs_full_pipeline(monkeypatch, capsys) -> None:
         decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"} and decision.approved_quantity > 0
         for decision in summary.risk_decisions
     )
-    assert len(summary.execution_events) == 0
+    assert len(summary.execution_events) == 1
+    assert summary.execution_events[0].action == "BLOCKED"
+    assert summary.execution_events[0].detail == "reason=SCAN_ONLY_OR_DISABLED"
     assert "[DEBUG][FORCED_PATH] intent_created" in output
     assert "[DEBUG][FORCED_PATH] passed_risk" in output
     assert "[DEBUG][FORCED_PATH] selected_by_arbitrator" in output
+    assert "[EXECUTION][SKIPPED] symbol=AAPL reason=SCAN_ONLY_OR_DISABLED" in output
