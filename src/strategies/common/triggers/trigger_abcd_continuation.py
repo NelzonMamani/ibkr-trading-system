@@ -20,7 +20,10 @@ def evaluate_abcd_continuation_trigger(pattern_result, inputs):
             "trigger_ready_now": False,
             "trigger_reason": "missing_candles",
         }
-        print(f"[TRIGGER] ABCD state={payload['trigger_state']} reason={payload['trigger_reason']}")
+        print(
+            "[TRIGGER][ABCD][STATE] "
+            f"state={payload['trigger_state']} reason={payload['trigger_reason']}"
+        )
         return payload
 
     result_payload = pattern_result if isinstance(pattern_result, dict) else {}
@@ -32,7 +35,10 @@ def evaluate_abcd_continuation_trigger(pattern_result, inputs):
             "trigger_ready_now": False,
             "trigger_reason": "missing_trigger_level",
         }
-        print(f"[TRIGGER] ABCD state={payload['trigger_state']} reason={payload['trigger_reason']}")
+        print(
+            "[TRIGGER][ABCD][STATE] "
+            f"state={payload['trigger_state']} reason={payload['trigger_reason']}"
+        )
         return payload
 
     last = candles[-1]
@@ -45,15 +51,28 @@ def evaluate_abcd_continuation_trigger(pattern_result, inputs):
             "trigger_ready_now": False,
             "trigger_reason": "missing_price_fields",
         }
-        print(f"[TRIGGER] ABCD state={payload['trigger_state']} reason={payload['trigger_reason']}")
+        print(
+            "[TRIGGER][ABCD][STATE] "
+            f"state={payload['trigger_state']} reason={payload['trigger_reason']}"
+        )
         return payload
 
     fired = bool(last_close is not None and last_high is not None and last_close > trigger_level and last_high >= trigger_level)
+    a_price = _safe_float(result_payload.get("anchor_a_price"))
+    b_price = _safe_float(result_payload.get("anchor_b_price"))
+    c_price = _safe_float(result_payload.get("anchor_c_price"))
+    retracement_pct = _safe_float(result_payload.get("retracement_pct"))
+    d_projection = _safe_float(result_payload.get("d_projection"))
     payload = {
         "trigger_type": "XL_ABCD_CONTINUATION",
         "trigger_state": "FIRED" if fired else "ARMED",
         "trigger_ready_now": fired,
         "trigger_reason": "abcd_continuation_break_fired" if fired else "awaiting_abcd_continuation_break",
     }
-    print(f"[TRIGGER] ABCD state={payload['trigger_state']} reason={payload['trigger_reason']}")
+    print(
+        "[TRIGGER][ABCD][STATE] "
+        f"state={payload['trigger_state']} reason={payload['trigger_reason']} "
+        f"A={a_price} B={b_price} C={c_price} retracement={retracement_pct} "
+        f"trigger={trigger_level} projection={d_projection}"
+    )
     return payload

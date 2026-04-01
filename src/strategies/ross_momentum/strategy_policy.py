@@ -192,7 +192,7 @@ POLICY_V2 = StrategyPolicyV2(
             TriggerEntrySpecV2("XL_PREMARKET_HIGH_BREAK_FAST", "PMH_BREAK_FAST", "First valid PMH break is tradeable with direct price-level logic and RVOL context; deep pattern stack is optional.", ("PRE", "RTH_OPEN", "MORNING_MOMENTUM")),
             TriggerEntrySpecV2("XL_FIRST_PULLBACK_BREAK_FAST", "PULLBACK_BREAK_FAST", "First pullback high break is tradeable on direct reclaim/break with lightweight confirmation.", ("RTH_OPEN", "MORNING_MOMENTUM", "MIDDAY")),
             TriggerEntrySpecV2("T_RANGE_BREAK", "RANGE_BREAK", "Enter on range boundary break with confirmation.", ("OPENING_DRIVE", "MORNING_MOMENTUM", "MIDDAY", "POWER_HOUR")),
-            TriggerEntrySpecV2("T_ABCD", "ABCD_TRIGGER", "Enter on ABCD continuation trigger.", ("MORNING_MOMENTUM", "MIDDAY", "POWER_HOUR")),
+            TriggerEntrySpecV2("T_ABCD", "XL_ABCD_CONTINUATION", "Enter on ABCD continuation trigger.", ("MORNING_MOMENTUM", "MIDDAY", "POWER_HOUR")),
             TriggerEntrySpecV2("T_MEASURED_MOVE", "MEASURED_MOVE", "Measured-move continuation trigger.", ("MORNING_MOMENTUM", "MIDDAY", "POWER_HOUR")),
             TriggerEntrySpecV2("T_LIQUIDITY_SWEEP_RECLAIM", "LIQUIDITY_SWEEP_RECLAIM", "Flush/stop-run then reclaim key level.", ("OPENING_DRIVE", "MORNING_MOMENTUM")),
         ),

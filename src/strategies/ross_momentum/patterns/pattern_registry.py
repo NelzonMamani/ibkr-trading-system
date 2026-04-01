@@ -189,6 +189,8 @@ class RossPatternRegistry:
                 print(
                     f"[PATTERN_TRACE][RESULT] symbol={inputs.symbol} pattern={pattern.name} detected={bool(result.detected)}"
                 )
+                if pattern_id == "P_ABCD":
+                    print(f"[PATTERN_TRACE][RESULT] pattern=ABCD detected={bool(result.detected)}")
                 if not result.detected and result.rejection_reason:
                     print(
                         f"[PATTERN_TRACE][REJECT] symbol={inputs.symbol} pattern={pattern.name} reason={result.rejection_reason}"
