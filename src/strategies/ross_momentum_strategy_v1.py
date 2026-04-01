@@ -13,6 +13,7 @@ from src.config.config_resolver import ConfigResolutionError, get_config
 from src.config.runtime_config import RunMode
 from src.core.engines.decision_engine import DecisionEngine
 from src.core.engines.level_engine import LevelEngine
+from src.core.engines.setup_hierarchy import apply_setup_hierarchy
 from src.core.engines.structure_engine import StructureEngine
 from src.core.engines.setup_engine import SetupEngine
 from src.core.engines.trigger_engine import TriggerEngine
@@ -71,6 +72,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         "ORB_BREAK",
         "ORB",
         "GAP_GO",
+        "OPENING_DRIVE",
         "PREMARKET_HIGH_BREAK",
         "HOD_BREAK",
         "VWAP_RECLAIM_CONTINUATION",
@@ -975,6 +977,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "details": {"source": setup_source, "detected": [trace.pattern_id for trace in pattern_traces if trace.detected]},
                 }
             pattern_traces = self._filter_trusted_pattern_traces(pattern_traces, symbol=symbol)
+            results = apply_setup_hierarchy(results, symbol=symbol)
+            pattern_traces = apply_setup_hierarchy(pattern_traces, symbol=symbol)
             symbol_trace.pattern_traces = pattern_traces
             symbol_trace.input_summary["setup_stage"] = {"details": {"source": setup_source}}
             symbol_trace.detected_pattern_ids = [

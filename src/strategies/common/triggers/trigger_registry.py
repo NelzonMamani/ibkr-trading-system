@@ -8,6 +8,7 @@ from src.strategies.common.triggers.trigger_abcd_continuation import evaluate_ab
 from src.strategies.common.triggers.trigger_first_pullback import evaluate_first_pullback_trigger
 from src.strategies.common.triggers.trigger_flat_top_breakout import evaluate_flat_top_breakout_trigger
 from src.strategies.common.triggers.trigger_micro_pullback import evaluate_micro_pullback_trigger
+from src.strategies.common.triggers.trigger_opening_drive import evaluate_opening_drive_trigger
 from src.strategies.common.triggers.trigger_orb import evaluate_orb_trigger
 
 TriggerEvaluator = Callable[[dict, dict], dict]
@@ -15,6 +16,7 @@ TriggerEvaluator = Callable[[dict, dict], dict]
 TRIGGER_EVALUATOR_REGISTRY: dict[str, TriggerEvaluator] = {
     "OPENING_RANGE_BREAKOUT": evaluate_orb_trigger,
     "ORB": evaluate_orb_trigger,
+    "OPENING_DRIVE": evaluate_opening_drive_trigger,
     "FIRST_PULLBACK": evaluate_first_pullback_trigger,
     "MICRO_PULLBACK": evaluate_micro_pullback_trigger,
     "FLAT_TOP_BREAKOUT": evaluate_flat_top_breakout_trigger,

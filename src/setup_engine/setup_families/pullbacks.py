@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.strategies.common.patterns.pattern_opening_drive import detect_opening_drive
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
@@ -97,3 +98,6 @@ class HODBreakPattern(_SimpleLongPattern):
 class OpeningDrivePattern(_SimpleLongPattern):
     pattern_id = "P_OPENING_DRIVE"
     name = "Opening Drive"
+
+    def evaluate(self, inputs: PatternInputs) -> PatternResult:
+        return detect_opening_drive(inputs)
