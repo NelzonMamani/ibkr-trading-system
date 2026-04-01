@@ -17,6 +17,7 @@ class TriggerEngine:
         "ASCENDING_TRIANGLE_BREAKOUT": "ASCENDING_TRIANGLE_BREAKOUT",
         "PENNANT_BREAK": "PENNANT_BREAK",
     }
+    _DEFAULT_TRIGGER_TYPE = "BREAKOUT_HIGH"
 
     def evaluate_triggers(
         self,
@@ -42,8 +43,26 @@ class TriggerEngine:
         for setup in setups:
             if not bool(setup.get("setup_detected", True)):
                 continue
-            required_types = [str(t).upper() for t in (setup.get("required_trigger_types") or [])]
-            trigger_type = required_types[0] if required_types else "BREAKOUT_HIGH"
+            setup_family = str(setup.get("setup_family_id") or "").upper()
+            required_types = [
+                str(t).upper()
+                for t in (setup.get("required_trigger_types") or [])
+                if str(t).upper() != "CONFIDENCE_GATE"
+            ]
+            if not required_types:
+                fallback_by_setup = {
+                    "GAP_GO": "PMH_BREAK",
+                    "MICRO_PULLBACK": "PULLBACK_HIGH_BREAK",
+                    "STAIR_STEP": "BREAKOUT_HIGH",
+                    "ORB": "ORB_BREAK",
+                }
+                normalized_setup = self._FAMILY_ALIASES.get(setup_family, setup_family)
+                trigger_type = fallback_by_setup.get(normalized_setup, self._DEFAULT_TRIGGER_TYPE)
+            else:
+                trigger_type = required_types[0]
+            print(f"[TRIGGER][TYPE_SELECTED] symbol={symbol} trigger_type={trigger_type}")
+            if trigger_type == "CONFIDENCE_GATE":
+                raise RuntimeError("CONFIDENCE_GATE MUST NOT REACH TRIGGER ENGINE")
 
             trigger_price_reference = self._safe_float(setup.get("trigger_level"))
             if trigger_price_reference is None:
@@ -67,7 +86,7 @@ class TriggerEngine:
                 structure=structure,
                 candles=candles,
             )
-            if str(setup.get("setup_family_id") or "").upper() == "GAP_GO":
+            if setup_family == "GAP_GO":
                 print(
                     "[TRIGGER][GAP_GO] "
                     f"symbol={symbol} trigger={trigger_type} fired={bool(trigger_ready_now)}"
