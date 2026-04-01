@@ -77,6 +77,7 @@ from src.scanner.session_pct_change import (
     resolve_session_diagnostics,
 )
 from src.scanner.session_contract import attach_session_contract, build_canonical_session_contract
+from src.core.tradeability.tradeability_gate import evaluate_tradeability
 
 
 _FLOAT_CACHE_STATE: Dict[str, Any] = {
@@ -557,6 +558,7 @@ def _bootstrap_float_cache(
             print(f"[FLOAT][SOURCE] symbol={symbol} source={source}")
             print(f"[FLOAT][CACHE_USED] symbol={symbol} used=True")
             print(f"[FLOAT][FALLBACK_USED] symbol={symbol} used=False")
+            print("[FLOAT][RESOLUTION_PATH] symbol={symbol} path=cache_persistent".format(symbol=symbol))
             print(
                 "[FLOAT][RESOLVE] "
                 f"symbol={symbol} source=CACHE value={round(value / 1_000_000.0, 2)}M"
@@ -574,6 +576,7 @@ def _bootstrap_float_cache(
         print(f"[FLOAT][SOURCE] symbol={symbol} source=UNKNOWN")
         print(f"[FLOAT][CACHE_USED] symbol={symbol} used=False")
         print(f"[FLOAT][FALLBACK_USED] symbol={symbol} used=True")
+        print("[FLOAT][RESOLUTION_PATH] symbol={symbol} path=premarket_prep->cache->external_providers->unknown".format(symbol=symbol))
         print(f"[FLOAT][RESOLVE] symbol={symbol} source=UNKNOWN tolerated=True")
         if worker.enqueue(symbol):
             discovery_queued += 1
@@ -889,7 +892,7 @@ def _resolve_runtime_thresholds(policy: StockSelectionPolicy, session_label: str
 
 def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdResolution) -> GateThresholds:
     execution_min_volume = int(policy.min_volume)
-    premarket_min_volume = int(getattr(policy, "premarket_volume_min", policy.min_premarket_volume))
+    premarket_min_volume = int(get_config("MIN_PREMARKET_VOLUME") or getattr(policy, "premarket_volume_min", policy.min_premarket_volume))
     configured_session_focus_volume = getattr(policy, "session_focus_volume_min", {}) or {}
     early_rth_focus_ratio = 0.25
     early_rth_focus_min = max(
@@ -1194,11 +1197,22 @@ def _missingness_map(drop_reason: str, context: Dict[str, Any]) -> Dict[str, boo
 
 def _resolve_rvol_for_focus_gate(context: Dict[str, Any]) -> tuple[str, Optional[float]]:
     """Return canonical RVOL input for FOCUS promotion with provenance."""
+    session = normalize_session_label(str(context.get("session") or ""))
+    if session in {"OVN", "CLOSED"} and not bool(get_config("ENABLE_RVOL_IN_OVN")):
+        context["rvol_status"] = "UNRELIABLE"
+        print(f"[RVOL][DISABLED_FOR_SESSION] session={session}")
+        return "rvol_disabled_session", None
+    if session == "PRE":
+        premarket_volume = _safe_float(context.get("premarket_volume"), None)
+        avg_volume = _safe_float(context.get("avg_volume_20d"), None)
+        if premarket_volume is not None and avg_volume not in {None, 0}:
+            context["premarket_volume_ratio"] = round(premarket_volume / avg_volume, 4)
+        return "premarket_volume_ratio", _safe_float(context.get("premarket_volume_ratio"), None)
+
     scanner_rvol = _safe_float(context.get("scanner_rvol"), None)
     if scanner_rvol is not None:
         return "scanner_rvol", scanner_rvol
 
-    session = normalize_session_label(str(context.get("session") or ""))
     if session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"}:
         return "rvol_phase", _safe_float(context.get("rvol_phase"), None)
     return "rvol_discovery", _safe_float(context.get("rvol_discovery"), None)
@@ -1424,6 +1438,8 @@ def _evaluate_focus_gates(
         return "DROP_SSR"
     if bool(context.get("live_confirmation_pending")):
         return "DROP_LIVE_CONFIRMATION_PENDING"
+    if session == "OVN" and not bool(get_config("ENABLE_OVN_TRADING")):
+        return "DROP_OVN_DISABLED"
     rvol_metric_used, focus_rvol_value = _resolve_rvol_for_focus_gate(context)
     rvol_phase = _safe_float(context.get("rvol_phase"), None)
     rvol_discovery = _safe_float(context.get("rvol_discovery"), None)
@@ -1433,7 +1449,10 @@ def _evaluate_focus_gates(
         f"session={session} rvol_min={threshold_value}"
     )
     if focus_rvol_value is None:
-        context["rvol_status"] = "UNKNOWN"
+        if session in {"OVN", "CLOSED"}:
+            context["rvol_status"] = "UNRELIABLE"
+        else:
+            context["rvol_status"] = "UNKNOWN"
         if _allow_pre_rvol_bypass(context, thresholds):
             context["degraded_rvol_gate_bypass"] = True
             context.setdefault("eligibility_reason_codes", []).append("PRE_RVOL_BYPASS_APPLIED")
@@ -3579,31 +3598,23 @@ def run_scanner_cycle(
                 "[RVOL][MERGE] "
                 f"symbol={symbol} merge_target_found=True rvol_discovery={context.get('rvol_discovery')} rvol_phase={context.get('rvol_phase')}"
             )
-            orchestrator_session = normalize_session_label(
-                str((request.session_phase if request is not None else None) or session_label)
-            )
-            scanner_session = normalize_session_label(str(context.get("session") or ""))
-            policy_session = normalize_session_label(session_label)
-            pattern_input_session = normalize_session_label(
-                str(context.get("pattern_input_session") or context.get("session") or "")
-            )
-            resolved_session = normalize_session_label(
-                orchestrator_session or policy_session or scanner_session or pattern_input_session
-            )
-            scanner_session = resolved_session
-            policy_session = resolved_session
-            pattern_input_session = resolved_session
-            context["session"] = resolved_session
-            context["orchestrator_session"] = orchestrator_session
+            canonical_session = normalize_session_label(str(context.get("session") or session_label))
+            scanner_session = canonical_session
+            strategy_session = canonical_session
+            pattern_input_session = canonical_session
+            context["session"] = canonical_session
             context["scanner_session"] = scanner_session
-            context["policy_session"] = policy_session
+            context["strategy_session"] = strategy_session
             context["pattern_input_session"] = pattern_input_session
-            print(f"[SESSION][FINAL] resolved_session={resolved_session}")
+            all_sessions_equal = scanner_session == strategy_session == pattern_input_session == canonical_session
+            print(f"[SESSION][CONSISTENCY_CHECK][{'OK' if all_sessions_equal else 'FAIL'}] canonical_session={canonical_session}")
+            if not all_sessions_equal:
+                raise AssertionError("session_consistency_violation")
+            print(f"[SESSION][FINAL] resolved_session={canonical_session}")
             print("[ROSS][SESSION_CONTRACT]")
             print(f"symbol={symbol}")
-            print(f"orchestrator_session={orchestrator_session}")
             print(f"scanner_session={scanner_session}")
-            print(f"policy_session={policy_session}")
+            print(f"strategy_session={strategy_session}")
             print(f"pattern_input_session={pattern_input_session}")
 
             price_gate_reason = _evaluate_price_gate(context, thresholds)
@@ -3684,6 +3695,15 @@ def run_scanner_cycle(
             if drop_reason:
                 drop_ledger.setdefault(symbol, drop_reason)
                 print(f"[SCANNER][DROP] symbol={symbol} reason={drop_reason}")
+                evaluated_contexts.append(context)
+                continue
+            tradeability_decision = evaluate_tradeability(context)
+            context["tradeability_liquidity_score"] = tradeability_decision.liquidity_score
+            context["tradeability_reason"] = tradeability_decision.reason
+            if not tradeability_decision.accepted:
+                tradeability_drop = f"DROP_{tradeability_decision.reason}"
+                drop_ledger.setdefault(symbol, tradeability_drop)
+                print(f"[SCANNER][DROP] symbol={symbol} reason={tradeability_drop}")
                 evaluated_contexts.append(context)
                 continue
             score, components = _score_context(context)
@@ -4163,6 +4183,25 @@ def run_scanner_cycle(
                 focus_contexts = eligible[: min(5, len(eligible))]
                 print(f"[FOCUS][FORCED_PROMOTION_PREMARKET] count={len(focus_contexts)}")
         deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
+
+        tradable_count = len(focus_contexts)
+        if watchlist_contexts and tradable_count == 0:
+            drop_counts = Counter(str(context.get("focus_drop_reason") or "") for context in watchlist_contexts)
+            print("[TRADEABILITY][SUMMARY]")
+            print(f"total_candidates={len(watchlist_contexts)}")
+            print(
+                "rejected_low_volume="
+                f"{drop_counts.get('DROP_PREMARKET_VOLUME', 0) + drop_counts.get('DROP_MISSING_VOLUME', 0) + drop_counts.get('SOFT_FAIL_VOLUME', 0)}"
+            )
+            print(
+                "rejected_spread="
+                f"{drop_counts.get('DROP_SPREAD', 0) + drop_counts.get('DROP_MISSING_SPREAD', 0)}"
+            )
+            print(
+                "rejected_rvol="
+                f"{drop_counts.get('DROP_RVOL_FOCUS', 0) + drop_counts.get('DROP_MISSING_RVOL', 0)}"
+            )
+            print(f"session={normalize_session_label(session_label)}")
 
         if not deep_rows and watchlist_contexts:
             focus_drop_reasons = Counter(

@@ -126,8 +126,8 @@ _CANONICAL_SESSION_MAP = {
     "RTH_MID": "RTH_MID",
     "RTH_LATE": "RTH_LATE",
     "AH": "AH",
-    "OVN": "CLOSED",
-    "WEEKEND": "CLOSED",
+    "OVN": "OVN",
+    "WEEKEND": "WEEKEND",
     "MIDDAY": "RTH_MID",
     "CLOSED": "CLOSED",
 }
@@ -392,43 +392,11 @@ def compute_session_relative_volume_with_provenance(
         )
 
     if normalized_session in {"OVN", "CLOSED"}:
-        if persisted_rvol_value is not None:
-            print(
-                "[RVOL] "
-                f"session={normalized_session} baseline=LAST_SESSION_REFERENCE method=PERSISTED_RVOL value={persisted_rvol_value}"
-            )
-            return SessionRelativeVolume(
-                session_label=normalized_session,
-                baseline="LAST_SESSION_REFERENCE",
-                method="PERSISTED_RVOL",
-                value=persisted_rvol_value,
-            )
-        if avg_volume_20d not in {None, 0} and session_volume is not None:
-            prep_payload = compute_phase_aware_rvol(
-                session_label="CLOSED",
-                session_volume=session_volume,
-                avg_volume_20d=avg_volume_20d,
-            )
-            if prep_payload.rvol_phase is not None:
-                print(
-                    "[RVOL] "
-                    f"session={normalized_session} baseline=PREP_PREMARKET_EXPECTED_VOLUME method=PREP_PHASE_FALLBACK value={prep_payload.rvol_phase} expected_volume={prep_payload.expected_phase_volume}"
-                )
-                return SessionRelativeVolume(
-                    session_label=normalized_session,
-                    baseline="PREP_PREMARKET_EXPECTED_VOLUME",
-                    method="PREP_PHASE_FALLBACK",
-                    value=prep_payload.rvol_phase,
-                    expected_volume=prep_payload.expected_phase_volume,
-                )
-        print(
-            "[RVOL] "
-            f"session={normalized_session} baseline=LAST_SESSION_REFERENCE method=PERSISTED_RVOL_UNAVAILABLE value=None"
-        )
+        print(f"[RVOL][DISABLED_FOR_SESSION] session={normalized_session}")
         return SessionRelativeVolume(
             session_label=normalized_session,
-            baseline="LAST_SESSION_REFERENCE",
-            method="PERSISTED_RVOL_UNAVAILABLE",
+            baseline="UNRELIABLE_FOR_SESSION",
+            method="DISABLED_FOR_SESSION",
             value=None,
         )
 
