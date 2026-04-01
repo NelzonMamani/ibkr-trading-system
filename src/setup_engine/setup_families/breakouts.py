@@ -6,8 +6,7 @@ from statistics import mean
 from typing import List
 
 from src.strategies.common.patterns.pattern_orb import detect_orb
-from src.strategies.common.candles.candle_evidence import evidence_tags
-from src.strategies.common.candles.single_candle import detect_marubozu
+from src.strategies.common.patterns.pattern_premarket_high_break import detect_premarket_high_break
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
@@ -22,40 +21,13 @@ def _avg_volume(candles: List, lookback: int = 5) -> float:
 
 
 class PremarketHighBreakPattern(PatternBase):
-    pattern_id = "P_PREMKT_BREAK"
+    pattern_id = "P_PREMARKET_HIGH_BREAK"
     name = "Premarket High Break"
     family = PatternFamily.BREAKOUT
     direction_bias = Direction.LONG
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
-        level = inputs.levels.premarket_high
-        if level is None:
-            return self._rejected("missing premarket high", inputs)
-        if not inputs.candles:
-            return self._rejected("no candles", inputs)
-        last = inputs.candles[-1]
-        if last.close <= level:
-            return self._rejected("price below premarket high", inputs)
-        rvol = inputs.liquidity_context.rvol or 0.0
-        volume_ok = rvol >= 1.5
-        confidence = 0.7 if volume_ok else 0.55
-        tags = ["premarket_break", "rvol_ok" if volume_ok else "rvol_soft"]
-        candle_evidence = [e for e in [detect_marubozu(last)] if e]
-        tags.extend(evidence_tags(candle_evidence))
-        rationale = (
-            "Break above premarket high with momentum.\n"
-            f"Premarket high={level:.2f}, last close={last.close:.2f}."
-        )
-        return self._detected(
-            inputs,
-            direction=Direction.LONG,
-            confidence=confidence,
-            rationale=rationale,
-            entry_zone="Retest of premarket high or continuation",
-            stop_suggestion="Below premarket high",
-            target_suggestion="HOD extension",
-            setup_quality_tags=tags,
-        )
+        return detect_premarket_high_break(inputs)
 
 
 class OpeningRangeBreakoutPattern(PatternBase):

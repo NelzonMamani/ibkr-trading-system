@@ -207,6 +207,13 @@ class TriggerEngine:
                 ) or invalidation_price_reference
                 if registry_trigger.get("execution_refinement_mode"):
                     setup["execution_refinement_mode"] = registry_trigger.get("execution_refinement_mode")
+                if (
+                    ready
+                    and str(setup.get("setup_family_id") or "").upper() == "PREMARKET_HIGH_BREAK"
+                    and bool(structure.get("pre_activation_ready"))
+                ):
+                    symbol = str(structure.get("symbol") or "UNKNOWN")
+                    print(f"[ROSS][PRE_TRIGGER_PROMOTION] symbol={symbol} reason=PRE_ACTIVATION_BREAKOUT")
             elif trigger_type in {"BREAKOUT_HIGH", "HOD_BREAK", "PMH_BREAK", "RANGE_BREAK", "PULLBACK_HIGH_BREAK"}:
                 ready, reason = self._evaluate_breakout_trigger(
                     last_close=last_close,
