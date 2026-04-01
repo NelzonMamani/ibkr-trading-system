@@ -60,6 +60,7 @@ class RossPatternRegistry:
             "P_KEY_LEVEL_BREAK": "KEY_LEVEL_BREAK",
             "P_ABCD": "ABCD",
             "P_CUP_HANDLE": "CUP_HANDLE",
+            "P_HALT_RESUME": "HALT_RESUME",
         }
 
     @property

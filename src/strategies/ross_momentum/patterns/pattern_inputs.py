@@ -44,5 +44,6 @@ class PatternInputs:
     levels: LevelSet
     indicators: IndicatorSet
     liquidity_context: LiquidityContext
+    halt_metadata: Optional[Dict[str, object]] = None
     news_context: Optional[Dict[str, str]] = None
     data_quality_flags: List[str] = field(default_factory=list)

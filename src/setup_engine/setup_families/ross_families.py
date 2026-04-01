@@ -9,6 +9,7 @@ from src.setup_engine.setup_families.key_level_helpers import (
     level_candidates_for_inputs,
     nearest_relevant_key_level,
 )
+from src.strategies.common.patterns.pattern_halt_resume import detect_halt_resume
 from src.strategies.common.patterns.pattern_cup_handle import detect_cup_handle
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
@@ -522,15 +523,11 @@ class CupHandlePattern(PatternBase):
 class HaltResumePattern(PatternBase):
     pattern_id = "P_HALT_RESUME"
     name = "Halt Resume"
-    family = PatternFamily.VOL_EVENT
-    direction_bias = Direction.NEUTRAL
+    family = PatternFamily.BREAKOUT
+    direction_bias = Direction.LONG
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
-        return self._rejected(
-            "disabled_no_halt_tape_in_pattern_inputs",
-            inputs,
-            direction=Direction.NEUTRAL,
-        )
+        return detect_halt_resume(inputs)
 
 
 class ParabolicExhaustionPattern(PatternBase):

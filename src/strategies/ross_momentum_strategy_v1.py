@@ -59,6 +59,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         "MOMENTUM_RECLAIM": "VWAP_RECLAIM_CONTINUATION",
         "ASCENDING_TRIANGLE_BREAKOUT": "ASCENDING_TRIANGLE",
         "PENNANT_BREAK": "PENNANT",
+        "P_HALT_RESUME": "HALT_RESUME",
     }
 
     _priority_order: Tuple[str, ...] = (
@@ -81,6 +82,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         "MICRO_PULLBACK",
         "CUP_HANDLE",
         "FLAT_TOP_BREAKOUT",
+        "HALT_RESUME",
     )
 
     def __init__(self) -> None:
@@ -1724,6 +1726,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             "P_MICRO_PULLBACK": "MICRO_PULLBACK",
             "P_BULL_FLAG": "BULL_FLAG",
             "P_CUP_HANDLE": "CUP_HANDLE",
+            "P_HALT_RESUME": "HALT_RESUME",
             "P_MOMENTUM_RECLAIM": "MOMENTUM_RECLAIM",
             "P_RANGE_BREAKOUT": "RANGE_BREAK",
             "P_ASCENDING_TRIANGLE_BREAKOUT": "ASCENDING_TRIANGLE",

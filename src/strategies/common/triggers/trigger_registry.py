@@ -8,6 +8,7 @@ from src.strategies.common.triggers.trigger_abcd_continuation import evaluate_ab
 from src.strategies.common.triggers.trigger_cup_handle import evaluate_cup_handle_trigger
 from src.strategies.common.triggers.trigger_first_pullback import evaluate_first_pullback_trigger
 from src.strategies.common.triggers.trigger_flat_top_breakout import evaluate_flat_top_breakout_trigger
+from src.strategies.common.triggers.trigger_halt_resume import evaluate_halt_resume_trigger
 from src.strategies.common.triggers.trigger_key_level_break import evaluate_key_level_break_trigger
 from src.strategies.common.triggers.trigger_micro_pullback import evaluate_micro_pullback_trigger
 from src.strategies.common.triggers.trigger_opening_drive import evaluate_opening_drive_trigger
@@ -27,6 +28,7 @@ TRIGGER_EVALUATOR_REGISTRY: dict[str, TriggerEvaluator] = {
     "KEY_LEVEL_BREAK": evaluate_key_level_break_trigger,
     "ABCD": evaluate_abcd_continuation_trigger,
     "CUP_HANDLE": evaluate_cup_handle_trigger,
+    "HALT_RESUME": evaluate_halt_resume_trigger,
 }
 
 
