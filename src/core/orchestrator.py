@@ -1313,12 +1313,15 @@ class CoreOrchestrator:
         halt_stage: Optional[str] = None,
         details: Optional[dict] = None,
     ) -> None:
+        resolved_details = details or {}
         payload = {
             "stage": "HALT",
             "reason_code": reason_code,
+            "reason": str(resolved_details.get("reason") or reason_code).lower(),
+            "source": str(resolved_details.get("source") or "core_orchestrator"),
             "message": message,
             "halt_stage": halt_stage,
-            "details": details or {},
+            "details": resolved_details,
         }
         self._last_halt_reason = payload
         self._halt_emitted = True
@@ -1715,9 +1718,10 @@ class CoreOrchestrator:
                     stop_reason="Connectivity failure in READ_ONLY mode",
                     stop_source="CoreOrchestrator",
                     details={
-                        "reason": "provider_connection_failure",
+                        "reason": "connectivity_failure",
                         "provider": "IBKR",
                         "mode": self.run_mode.value if hasattr(self.run_mode, "value") else str(self.run_mode),
+                        "source": "scanner_runner",
                     },
                     set_degraded=True,
                     shutdown=False,
@@ -2021,6 +2025,8 @@ class CoreOrchestrator:
                         print(f"[TOPN_REFRESH] strategy={active_strategy} unchanged")
                     cadence.top_n.timestamp_utc = cycle_started_at
                     self._trace_event("TOPN_REFRESH", {"strategy": active_strategy, "size": len(cadence.top_n.symbols), "changed": changed})
+                except ProviderConnectionError:
+                    raise
                 except Exception as exc:
                     message = str(exc)
                     if "162" in message or "cancel" in message.lower():
