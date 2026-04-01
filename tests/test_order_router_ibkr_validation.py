@@ -5,6 +5,16 @@ from src.core_engine.state import RunMode
 from src.execution import order_router
 
 
+def _reset_router() -> None:
+    order_router._RUNTIME_ORDERS.clear()
+    order_router._RUNTIME_POSITIONS.clear()
+    order_router._SEEN_EXEC_IDS.clear()
+    order_router._EXECUTION_EVENT_BUFFER.clear()
+    order_router._UNMATCHED_CALLBACK_COUNT = 0
+    order_router._RECONCILED_ORDERS_COUNT = 0
+    order_router._RECONCILED_POSITIONS_COUNT = 0
+
+
 def _allow_decision() -> RiskDecisionRecord:
     return RiskDecisionRecord(
         symbol="MCRO",
@@ -121,3 +131,30 @@ def test_callback_registration_supported_logs_registered(monkeypatch, capsys) ->
     _ = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])
     out = capsys.readouterr().out
     assert "[EXECUTION][CALLBACK_REGISTERED]" in out
+
+
+def test_paper_mode_applies_size_override_and_system_order_ref(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    decision = _allow_decision()
+    decision.approved_quantity = 250.9
+    decision.max_position_size = 100
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[decision])
+    out = capsys.readouterr().out
+    oid = events[0].broker_order_id
+    tracked = order_router._RUNTIME_ORDERS[oid]
+    assert tracked.total_qty == 100
+    assert tracked.order_ref.startswith("TRADING_OS|ROSS_TEST|")
+    assert "[EXECUTION][SIZE_NORMALIZED] symbol=MCRO raw_qty=250.9 final_qty=250" in out
+    assert "[EXECUTION][SIZE_OVERRIDE] symbol=MCRO original_qty=250 overridden_qty=100" in out
+
+
+def test_live_mode_not_overridden_by_paper_size_clamp(monkeypatch) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    decision = _allow_decision()
+    decision.approved_quantity = 250
+    decision.max_position_size = 250
+    events = order_router.execute_intents(mode=RunMode.LIVE, decisions=[decision])
+    oid = events[0].broker_order_id
+    assert order_router._RUNTIME_ORDERS[oid].total_qty == 250

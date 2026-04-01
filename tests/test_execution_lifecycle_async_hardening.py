@@ -137,3 +137,26 @@ def test_final_decision_summary_distinguishes_submitted_vs_filled(monkeypatch, c
     print(f"submitted_vs_filled=working:{snap['working_order_count']} filled:{snap['fully_filled_order_count']}")
     out = capsys.readouterr().out
     assert "submitted_vs_filled=working:0 filled:1" in out
+
+
+def test_external_callbacks_are_filtered_without_unmatched_pollution(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    _ = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
+    order_router._on_ibkr_callback({"event_type": "execDetails", "order_id": 0, "symbol": "TSLA", "shares": 10})
+    order_router._on_ibkr_callback({"event_type": "orderStatus", "order_id": None, "symbol": "TSLA", "filled": 0})
+    snap = order_router.runtime_lifecycle_snapshot()
+    out = capsys.readouterr().out
+    assert "[EXECUTION][CALLBACK_FILTERED_EXTERNAL]" in out
+    assert snap["unmatched_callbacks_count"] == 0
+
+
+def test_tracked_callback_logs_track_and_fill_confirmed(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
+    oid = events[0].broker_order_id
+    order_router._on_ibkr_callback({"event_type": "execDetails", "order_id": oid, "symbol": "ABCD", "shares": 5, "price": 20.5, "execId": "OK1"})
+    out = capsys.readouterr().out
+    assert f"[ORDER_EVENT][TRACKED] order_id={oid}" in out
+    assert "[EXECUTION][FILL_CONFIRMED] symbol=ABCD" in out

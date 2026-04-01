@@ -1194,14 +1194,21 @@ def _missingness_map(drop_reason: str, context: Dict[str, Any]) -> Dict[str, boo
 
 def _resolve_rvol_for_focus_gate(context: Dict[str, Any]) -> tuple[str, Optional[float]]:
     """Return canonical RVOL input for FOCUS promotion with provenance."""
-    scanner_rvol = _safe_float(context.get("scanner_rvol"), None)
-    if scanner_rvol is not None:
-        return "scanner_rvol", scanner_rvol
+    symbol = str(context.get("symbol") or "UNKNOWN")
+    session_normalized_rvol = _safe_float(context.get("session_normalized_rvol"), None)
+    rvol_status = str(context.get("rvol_status") or "").upper()
+    if session_normalized_rvol is not None and rvol_status != "UNKNOWN":
+        print(f"[RVOL][AUTHORITY] value={session_normalized_rvol} source=SESSION_NORMALIZED")
+        return "session_normalized_rvol", session_normalized_rvol
 
-    session = normalize_session_label(str(context.get("session") or ""))
-    if session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"}:
-        return "rvol_phase", _safe_float(context.get("rvol_phase"), None)
-    return "rvol_discovery", _safe_float(context.get("rvol_discovery"), None)
+    for metric in ("scanner_rvol", "rvol_phase", "rvol_discovery"):
+        value = _safe_float(context.get(metric), None)
+        if value is not None:
+            print(f"[RVOL][FALLBACK_USED] symbol={symbol} source={metric}")
+            return metric, value
+
+    print(f"[RVOL][MISSING] symbol={symbol} reason=all_sources_missing")
+    return "missing", None
 
 
 def _load_premarket_prep_candidates() -> Dict[str, Dict[str, Any]]:
@@ -2354,9 +2361,18 @@ def _build_symbol_context(
     reference_price = metrics_context.last_rth_close if include_pct_change else None
     reference_label = "LAST_RTH_CLOSE" if include_pct_change else None
     open_relative_pct_change = metrics_context.open_relative_pct_change if include_pct_change else None
-    rvol_discovery = metrics_context.rvol
-    rvol_phase = metrics_context.rvol
-    scanner_rvol = metrics_context.rvol
+    discovered_rvol = _safe_float(scan_detail.get("rvol_discovery"), None)
+    phase_rvol = _safe_float(scan_detail.get("rvol_phase"), None)
+    scanner_reported_rvol = _safe_float(scan_detail.get("scanner_rvol"), None)
+    rvol_discovery = discovered_rvol if discovered_rvol is not None else metrics_context.rvol
+    rvol_phase = phase_rvol if phase_rvol is not None else metrics_context.rvol
+    scanner_rvol = scanner_reported_rvol if scanner_reported_rvol is not None else metrics_context.rvol
+    session_normalized_rvol = _safe_float(metrics_context.time_normalized_rvol, None)
+    effective_rvol = (
+        session_normalized_rvol
+        if session_normalized_rvol is not None
+        else (scanner_rvol if scanner_rvol is not None else (rvol_phase if rvol_phase is not None else rvol_discovery))
+    )
     pct_change_qualification_usable = bool(reference_snapshot.get("qualification_usable_reference")) and pct_change is not None
     pct_change_source_quality = str(reference_snapshot.get("reference_quality_tier") or "NONE")
     pct_change_degraded = pct_change is not None and pct_change_source_quality in {"SECONDARY", "WEAK"}
@@ -2509,13 +2525,14 @@ def _build_symbol_context(
         "scanner_rvol": scanner_rvol,
         "rvol_discovery": rvol_discovery,
         "rvol_phase": rvol_phase,
-        "rvol_status": "RESOLVED" if scanner_rvol is not None else "UNKNOWN",
+        "rvol_status": "RESOLVED" if effective_rvol is not None else "UNKNOWN",
         "degraded_rvol_gate_bypass": False,
         "phase_volume_ratio": None,
         "expected_phase_volume": metrics_context.expected_volume,
         "time_normalized_rvol": metrics_context.time_normalized_rvol,
-        "rvol": scanner_rvol,
-        "relative_volume": metrics_context.time_normalized_rvol,
+        "session_normalized_rvol": session_normalized_rvol,
+        "rvol": effective_rvol,
+        "relative_volume": effective_rvol,
         "rvol_baseline": metrics_context.rvol_baseline,
         "rvol_method": metrics_context.rvol_method,
         "float_shares": float_shares,

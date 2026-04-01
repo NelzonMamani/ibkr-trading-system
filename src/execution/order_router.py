@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import math
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any, List
@@ -19,6 +20,7 @@ _SEEN_EXEC_IDS: set[str] = set()
 _UNMATCHED_CALLBACK_COUNT = 0
 _RECONCILED_ORDERS_COUNT = 0
 _RECONCILED_POSITIONS_COUNT = 0
+_SYSTEM_ORDER_REF_PREFIXES = ("TRADING_OS|", "ROSS_TEST|")
 
 ORDER_STATES = {
     "PENDING_SUBMISSION",
@@ -151,6 +153,11 @@ def _extract_order_ref(row: Any) -> str:
     if order is None:
         return ""
     return str(getattr(order, "orderRef", "") or "")
+
+
+def _is_system_order_ref(order_ref: str) -> bool:
+    normalized = str(order_ref or "").strip().upper()
+    return any(normalized.startswith(prefix) for prefix in _SYSTEM_ORDER_REF_PREFIXES)
 
 
 def _extract_exec_order_id(exec_row: Any) -> int | None:
@@ -286,6 +293,23 @@ def _extract_callback_timestamp(callback_payload: Any) -> str:
     return _now_utc_iso()
 
 
+def _extract_callback_order_ref(callback_payload: Any) -> str:
+    direct = _extract_callback_field(callback_payload, "orderRef", "order_ref")
+    if direct:
+        return str(direct)
+    order = _extract_callback_field(callback_payload, "order")
+    if order is not None:
+        value = getattr(order, "orderRef", None) or getattr(order, "order_ref", None)
+        if value:
+            return str(value)
+    execution = _extract_callback_field(callback_payload, "execution")
+    if execution is not None:
+        value = getattr(execution, "orderRef", None) or getattr(execution, "order_ref", None)
+        if value:
+            return str(value)
+    return ""
+
+
 def _state_from_broker_status(status: str, filled_qty: int, remaining_qty: int) -> str:
     status_norm = str(status or "").upper()
     if status_norm in {"CANCELLED", "CANCELED", "API_CANCELLED"}:
@@ -391,6 +415,10 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
     row.broker_status = "Filled" if row.canonical_state == "FILLED" else "Submitted"
     row.last_update_at = timestamp
     print(f"[ORDER_EVENT][EXECUTION] order_id={order_id} symbol={row.symbol} fill_inc={inc} filled={row.filled_qty} remaining={row.remaining_qty} exec_id={exec_id or 'NA'}")
+    print(
+        "[EXECUTION][FILL_CONFIRMED] "
+        f"symbol={row.symbol} order_id={order_id} qty={inc} price={fill_price}"
+    )
     if old_state != row.canonical_state:
         print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
     signed = inc if row.is_entry else -inc
@@ -407,14 +435,29 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     filled_qty = _extract_callback_filled_qty(callback_payload)
     fill_price = _extract_callback_fill_price(callback_payload)
     timestamp = _extract_callback_timestamp(callback_payload)
+    callback_order_ref = _extract_callback_order_ref(callback_payload)
     print(
         "[EXECUTION][CALLBACK_RECEIVED] "
         f"symbol={symbol or 'UNKNOWN'} order_id={order_id} filled_qty={filled_qty} fill_price={fill_price} timestamp={timestamp}"
     )
-    if order_id is None:
-        _UNMATCHED_CALLBACK_COUNT += 1
-        print("[ORDER_EVENT][UNMATCHED] event=CALLBACK reason=missing_order_id")
+    if order_id is None or int(order_id) == 0:
+        print(
+            "[EXECUTION][CALLBACK_FILTERED_EXTERNAL] "
+            f"order_id={order_id} symbol={symbol or 'UNKNOWN'} reason=NOT_SYSTEM_ORDER"
+        )
         return
+    tracked_row = _RUNTIME_ORDERS.get(order_id)
+    if tracked_row is None and not _is_system_order_ref(callback_order_ref):
+        print(
+            "[EXECUTION][CALLBACK_FILTERED_EXTERNAL] "
+            f"order_id={order_id} symbol={symbol or 'UNKNOWN'} reason=NOT_SYSTEM_ORDER"
+        )
+        return
+    print(
+        "[ORDER_EVENT][TRACKED] "
+        f"order_id={order_id} symbol={symbol or (tracked_row.symbol if tracked_row else 'UNKNOWN')} "
+        f"event_type={event_type or 'unknown'} state={(tracked_row.canonical_state if tracked_row else 'UNRESOLVED')}"
+    )
     event_status = str(_extract_callback_field(callback_payload, "status") or "").upper()
     remaining_qty = _extract_callback_field(callback_payload, "remaining")
     try:
@@ -640,7 +683,19 @@ def execute_intents(
     manager: Any | None = None
 
     for decision in decisions:
-        quantity = int(decision.approved_quantity)
+        raw_qty = float(getattr(decision, "approved_quantity", 0) or 0)
+        quantity = max(1, math.floor(raw_qty))
+        if quantity != raw_qty:
+            print(
+                "[EXECUTION][SIZE_NORMALIZED] "
+                f"symbol={decision.symbol} raw_qty={raw_qty} final_qty={quantity}"
+            )
+        if mode == RunMode.PAPER and quantity > 100:
+            print(
+                "[EXECUTION][SIZE_OVERRIDE] "
+                f"symbol={decision.symbol} original_qty={quantity} overridden_qty=100"
+            )
+            quantity = 100
         if decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"} and quantity <= 0:
             raise RuntimeError("INVALID ORDER: quantity=0")
 
@@ -697,7 +752,19 @@ def execute_intents(
             f"order_value={order_value} "
             f"risk_allowed={risk_allowed}"
         )
-        quantity = int(decision.approved_quantity)
+        raw_qty = float(getattr(decision, "approved_quantity", 0) or 0)
+        quantity = max(1, math.floor(raw_qty))
+        if quantity != raw_qty:
+            print(
+                "[EXECUTION][SIZE_NORMALIZED] "
+                f"symbol={decision.symbol} raw_qty={raw_qty} final_qty={quantity}"
+            )
+        if mode == RunMode.PAPER and quantity > 100:
+            print(
+                "[EXECUTION][SIZE_OVERRIDE] "
+                f"symbol={decision.symbol} original_qty={quantity} overridden_qty=100"
+            )
+            quantity = 100
         duplicate_symbol = str(decision.symbol or "").upper()
         order_side = "BUY" if str(getattr(decision, "side", "LONG") or "LONG").upper() == "LONG" else "SELL"
         order_family = str(decision.intent_id or "")
@@ -786,7 +853,8 @@ def execute_intents(
                 dispatch = "SKIPPED"
             else:
                 action = "SUBMITTED"
-                detail = f"submitted qty={quantity} orderRef=TRADING_OS|ROSS_MOMENTUM|{decision.intent_id}"
+                order_ref = f"TRADING_OS|ROSS_TEST|{decision.intent_id}"
+                detail = f"submitted qty={quantity} order_type=MKT tif=DAY outsideRth=true orderRef={order_ref}"
                 dispatch = "IBKR"
         elif decision.decision == "ALLOW_WITH_CONSTRAINTS":
             action = "BLOCKED" if mode == RunMode.LIVE else "WOULD_PLACE"
@@ -806,7 +874,11 @@ def execute_intents(
                 symbol=str(decision.symbol or "").upper(),
                 side=order_side,
                 total_qty=quantity,
-                order_ref=str(decision.intent_id or ""),
+                order_ref=f"TRADING_OS|ROSS_TEST|{decision.intent_id}",
+            )
+            print(
+                "[EXECUTION][ORDER_MARKETABLE] "
+                f"symbol={decision.symbol} order_id={broker_order_id} order_type=MKT tif=DAY outsideRth=true"
             )
         events.append(
             ExecutionEvent(
@@ -825,6 +897,20 @@ def execute_intents(
         )
     events, _ = _apply_callback_fills(events)
     events = _sync_submitted_events_from_ibkr(mode, events)
+    now = datetime.now(timezone.utc)
+    for row in _RUNTIME_ORDERS.values():
+        if row.canonical_state not in {"SUBMITTED", "ACKNOWLEDGED", "WORKING", "PARTIALLY_FILLED"} or row.filled_qty > 0:
+            continue
+        try:
+            first_seen = datetime.fromisoformat(row.first_seen_at)
+        except Exception:
+            first_seen = now
+        waiting = max(0, int((now - first_seen).total_seconds()))
+        if waiting >= 15:
+            print(
+                "[EXECUTION][NO_FILL_WARNING] "
+                f"symbol={row.symbol} order_id={row.broker_order_id} seconds_waiting={waiting}"
+            )
     if _FILL_AUTHORITY_STATE == "UNKNOWN":
         _FILL_AUTHORITY_STATE = "ACTIVE" if mode in {RunMode.PAPER, RunMode.LIVE} else "N/A"
     return events
