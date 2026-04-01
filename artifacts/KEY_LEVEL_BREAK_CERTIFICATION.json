@@ -1,0 +1,11 @@
+{
+  "setup_family_id": "KEY_LEVEL_BREAK",
+  "pattern_id": "P_KEY_LEVEL_BREAK",
+  "trigger_type": "XL_KEY_LEVEL_BREAK",
+  "status": "reachable",
+  "registry_paths": [
+    "src/setup_engine/registry.py",
+    "src/strategies/common/triggers/trigger_registry.py",
+    "src/strategies/ross_momentum/patterns/pattern_registry.py"
+  ]
+}
