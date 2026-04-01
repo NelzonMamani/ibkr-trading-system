@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import math
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any, List
@@ -640,7 +641,10 @@ def execute_intents(
     manager: Any | None = None
 
     for decision in decisions:
-        quantity = int(decision.approved_quantity)
+        raw_qty = float(getattr(decision, "approved_quantity", 0) or 0)
+        if raw_qty <= 0:
+            raise RuntimeError("INVALID ORDER: quantity=0")
+        quantity = max(1, math.floor(raw_qty))
         if decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"} and quantity <= 0:
             raise RuntimeError("INVALID ORDER: quantity=0")
 
@@ -697,7 +701,10 @@ def execute_intents(
             f"order_value={order_value} "
             f"risk_allowed={risk_allowed}"
         )
-        quantity = int(decision.approved_quantity)
+        raw_qty = float(getattr(decision, "approved_quantity", 0) or 0)
+        if raw_qty <= 0:
+            raise RuntimeError("INVALID ORDER: quantity=0")
+        quantity = max(1, math.floor(raw_qty))
         duplicate_symbol = str(decision.symbol or "").upper()
         order_side = "BUY" if str(getattr(decision, "side", "LONG") or "LONG").upper() == "LONG" else "SELL"
         order_family = str(decision.intent_id or "")

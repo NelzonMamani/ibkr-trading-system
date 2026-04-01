@@ -1456,22 +1456,33 @@ def _evaluate_focus_gates(
         return "DROP_MISSING_RVOL"
     context["rvol_status"] = "RESOLVED"
 
-    early_rth = session == "RTH_OPEN"
-    has_momentum_context = bool(
-        (_safe_float(context.get("pct_change"), 0.0) or 0.0) >= thresholds.min_pct_change
-        and (rvol_discovery is not None and rvol_discovery >= thresholds.watchlist_rvol_min)
+    print(
+        "[RVOL][AUTHORITY] "
+        f"symbol={context.get('symbol')} primary=session_normalized_rvol "
+        f"primary_value={focus_rvol_value} threshold={threshold_value} "
+        f"rvol_discovery={rvol_discovery} rvol_phase={rvol_phase}"
     )
-    has_catalyst_context = bool(context.get("catalyst_present") or context.get("news_present") or context.get("catalyst_summary"))
 
     if focus_rvol_value >= threshold_value:
         focus_decision = "KEEP"
         focus_reason = "PASS_RVOL_THRESHOLD"
-    elif early_rth and has_momentum_context and has_catalyst_context and rvol_phase is not None and rvol_phase >= thresholds.watchlist_rvol_min:
-        focus_decision = "KEEP_EARLY_RTH_CONTEXT"
-        focus_reason = "PASS_EARLY_RTH_CONTEXT"
     else:
-        focus_decision = "WAIT"
-        focus_reason = "WAIT_RVOL_BELOW_THRESHOLD"
+        fallback_values = [rvol_discovery, rvol_phase]
+        fallback_pass = any(v is not None and v >= threshold_value for v in fallback_values)
+        if fallback_pass:
+            print(
+                "[RVOL][FALLBACK_PASS] "
+                f"symbol={context.get('symbol')} using_discovery_or_phase"
+            )
+            focus_decision = "KEEP"
+            focus_reason = "PASS_RVOL_FALLBACK"
+        else:
+            print(
+                "[RVOL][FOCUS_FAIL] "
+                f"symbol={context.get('symbol')} reason=ALL_RVOL_BELOW_THRESHOLD"
+            )
+            focus_decision = "WAIT"
+            focus_reason = "WAIT_RVOL_BELOW_THRESHOLD"
 
     print(
         "[FOCUS_GATE] "
@@ -1483,14 +1494,6 @@ def _evaluate_focus_gates(
     _emit_scanner_reference_trace("focus_gate_eval", context)
     if focus_decision == "WAIT":
         return "DROP_RVOL_FOCUS"
-    if focus_decision == "KEEP_EARLY_RTH_CONTEXT":
-        print(
-            "[FOCUS_GATE] "
-            f"symbol={context.get('symbol')} focus_threshold_used={threshold_value} "
-            f"rvol_metric_used={rvol_metric_used} rvol_metric_value={focus_rvol_value} "
-            "reason=PASS_EARLY_RTH_CONTEXT_TERMINAL decision=PASS"
-        )
-        return None
     if volume is None:
         _log_focus_volume_drop(
             context=context,
