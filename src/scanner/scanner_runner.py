@@ -77,6 +77,7 @@ from src.scanner.session_pct_change import (
     resolve_session_diagnostics,
 )
 from src.scanner.session_contract import attach_session_contract, build_canonical_session_contract
+from src.scanner.tradeability_gate import evaluate_tradeability
 
 
 _FLOAT_CACHE_STATE: Dict[str, Any] = {
@@ -3579,32 +3580,25 @@ def run_scanner_cycle(
                 "[RVOL][MERGE] "
                 f"symbol={symbol} merge_target_found=True rvol_discovery={context.get('rvol_discovery')} rvol_phase={context.get('rvol_phase')}"
             )
-            orchestrator_session = normalize_session_label(
-                str((request.session_phase if request is not None else None) or session_label)
-            )
-            scanner_session = normalize_session_label(str(context.get("session") or ""))
-            policy_session = normalize_session_label(session_label)
-            pattern_input_session = normalize_session_label(
-                str(context.get("pattern_input_session") or context.get("session") or "")
-            )
-            resolved_session = normalize_session_label(
-                orchestrator_session or policy_session or scanner_session or pattern_input_session
-            )
-            scanner_session = resolved_session
-            policy_session = resolved_session
-            pattern_input_session = resolved_session
-            context["session"] = resolved_session
-            context["orchestrator_session"] = orchestrator_session
-            context["scanner_session"] = scanner_session
-            context["policy_session"] = policy_session
-            context["pattern_input_session"] = pattern_input_session
-            print(f"[SESSION][FINAL] resolved_session={resolved_session}")
+            original_session = normalize_session_label(str(context.get("session")))
+            context["session"] = original_session
+            context["scanner_session"] = original_session
+            context["strategy_session"] = original_session
+            context["pattern_input_session"] = original_session
+            print(f"[SESSION][PRESERVED] session={original_session}")
             print("[ROSS][SESSION_CONTRACT]")
             print(f"symbol={symbol}")
-            print(f"orchestrator_session={orchestrator_session}")
-            print(f"scanner_session={scanner_session}")
-            print(f"policy_session={policy_session}")
-            print(f"pattern_input_session={pattern_input_session}")
+            print(f"scanner_session={original_session}")
+            print(f"policy_session={original_session}")
+            print(f"pattern_input_session={original_session}")
+
+            tradeability_decision = evaluate_tradeability(context)
+            context["tradeability_liquidity_score"] = tradeability_decision.liquidity_score
+            context["tradeability_reason"] = tradeability_decision.reason
+            if not tradeability_decision.accepted:
+                print(f"[TRADEABILITY][REJECT] symbol={symbol} reason={tradeability_decision.reason}")
+                evaluated_contexts.append(context)
+                continue
 
             price_gate_reason = _evaluate_price_gate(context, thresholds)
             if price_gate_reason:
