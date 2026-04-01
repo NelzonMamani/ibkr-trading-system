@@ -116,17 +116,16 @@ def _enforce_canonical_price_authority(
     if mode == RunMode.SIM:
         return True, "SIM_PRICE_AUTHORITY_BYPASS"
 
-    session_label = str(session or "").upper()
-    if (
-        mode == RunMode.PAPER
-        and session_label in {"PRE", "AFTER"}
-        and entry_price_source in {"SCANNER_LAST_PRICE", "PREMARKET_REFERENCE"}
-    ):
+    if mode == RunMode.PAPER and entry_price_source in {
+        "SCANNER_LAST_PRICE",
+        "SNAPSHOT_LAST",
+        "DERIVED_LAST",
+    }:
         print(
             f"[PRICE][AUTHORITY_OVERRIDE] symbol={symbol} "
-            f"mode=PAPER source={entry_price_source} action=ALLOW_NON_CANONICAL"
+            f"mode=PAPER source={entry_price_source} action=ALLOW"
         )
-        return True, "PAPER_FALLBACK_ALLOWED"
+        return True, "PAPER_PRICE_AUTHORITY_OVERRIDE"
 
     if entry_price_source not in _CANONICAL_PRICE_SOURCES:
         return False, f"NON_CANONICAL_PRICE_SOURCE:{entry_price_source}"

@@ -115,23 +115,36 @@ def test_executable_paper_cycle_does_not_skip_scan_only_and_no_readonly_rule(cap
     assert "[PIPELINE][EXECUTION_GATE]" in out
 
 
-def test_price_authority_allows_scanner_price_for_paper_after_hours() -> None:
+def test_price_authority_allows_scanner_price_for_paper_rth() -> None:
     allowed, reason = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.PAPER,
-        session="AFTER",
+        session="REG",
         entry_price=100.0,
         entry_price_source="SCANNER_LAST_PRICE",
         scanner_payload={},
     )
     assert allowed is True
-    assert reason == "PAPER_FALLBACK_ALLOWED"
+    assert reason == "PAPER_PRICE_AUTHORITY_OVERRIDE"
 
 
-def test_price_authority_blocks_scanner_price_for_paper_rth() -> None:
+def test_price_authority_allows_snapshot_last_for_paper() -> None:
     allowed, reason = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.PAPER,
+        session="REG",
+        entry_price=100.0,
+        entry_price_source="SNAPSHOT_LAST",
+        scanner_payload={},
+    )
+    assert allowed is True
+    assert reason == "PAPER_PRICE_AUTHORITY_OVERRIDE"
+
+
+def test_price_authority_blocks_noncanonical_for_live() -> None:
+    allowed, reason = _enforce_canonical_price_authority(
+        symbol="AAPL",
+        mode=RunMode.LIVE,
         session="REG",
         entry_price=100.0,
         entry_price_source="SCANNER_LAST_PRICE",
