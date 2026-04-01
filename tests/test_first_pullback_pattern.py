@@ -54,6 +54,7 @@ def test_trigger_fires_correctly() -> None:
         {"candles": [{"high": 10.25, "close": 10.23}]},
     )
     assert trigger["trigger_state"] == "FIRED"
+    assert trigger["trigger_type"] == "XL_FIRST_PULLBACK_BREAK"
     assert trigger["trigger_ready_now"] is True
 
 
@@ -63,6 +64,7 @@ def test_trigger_armed_when_not_ready() -> None:
         {"candles": [{"high": 10.18, "close": 10.17}]},
     )
     assert trigger["trigger_state"] == "ARMED"
+    assert trigger["trigger_type"] == "XL_FIRST_PULLBACK_BREAK"
     assert trigger["trigger_ready_now"] is False
 
 
@@ -72,6 +74,7 @@ def test_trigger_blocked_when_missing_levels() -> None:
         {"candles": [{"high": 10.18, "close": 10.17}]},
     )
     assert trigger["trigger_state"] == "BLOCKED"
+    assert trigger["trigger_type"] == "XL_FIRST_PULLBACK_BREAK"
     assert trigger["trigger_reason"] == "missing_trigger_level"
 
 

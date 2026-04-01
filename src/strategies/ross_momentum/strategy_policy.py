@@ -190,6 +190,7 @@ POLICY_V2 = StrategyPolicyV2(
             TriggerEntrySpecV2("T_HOD_BREAK", "HOD_BREAK", "Enter on high-of-day break with momentum confirmation.", ("RTH_OPEN", "OPENING_DRIVE", "MORNING_MOMENTUM", "POWER_HOUR")),
             TriggerEntrySpecV2("XL_HOD_BREAK_FAST", "HOD_BREAK_FAST", "First valid HOD break is tradeable when price trades above level with lightweight volume confirmation.", ("PRE", "RTH_OPEN", "MORNING_MOMENTUM", "POWER_HOUR")),
             TriggerEntrySpecV2("XL_PREMARKET_HIGH_BREAK_FAST", "PMH_BREAK_FAST", "First valid PMH break is tradeable with direct price-level logic and RVOL context; deep pattern stack is optional.", ("PRE", "RTH_OPEN", "MORNING_MOMENTUM")),
+            TriggerEntrySpecV2("XL_FIRST_PULLBACK_BREAK", "PULLBACK_BREAK", "Canonical first pullback break: trigger when price breaks above the pullback high after structural hold.", ("RTH_OPEN", "MORNING_MOMENTUM", "MIDDAY")),
             TriggerEntrySpecV2("XL_FIRST_PULLBACK_BREAK_FAST", "PULLBACK_BREAK_FAST", "First pullback high break is tradeable on direct reclaim/break with lightweight confirmation.", ("RTH_OPEN", "MORNING_MOMENTUM", "MIDDAY")),
             TriggerEntrySpecV2("T_RANGE_BREAK", "RANGE_BREAK", "Enter on range boundary break with confirmation.", ("OPENING_DRIVE", "MORNING_MOMENTUM", "MIDDAY", "POWER_HOUR")),
             TriggerEntrySpecV2("T_ABCD", "ABCD_TRIGGER", "Enter on ABCD continuation trigger.", ("MORNING_MOMENTUM", "MIDDAY", "POWER_HOUR")),

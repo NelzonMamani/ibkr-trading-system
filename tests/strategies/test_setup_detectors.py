@@ -63,3 +63,31 @@ def test_range_structure_and_level_zone_helpers():
     zone_result = detect_zone_interaction(10.05, (9.9, 10.2))
     assert level_result.detected is True
     assert zone_result.detected is True
+
+
+def test_first_pullback_detected_on_impulse_pullback_break() -> None:
+    candles = [
+        Candle(9.90, 10.00, 9.88, 9.98, 1000),
+        Candle(9.98, 10.12, 9.96, 10.06, 1300),   # impulse breakout above PMH
+        Candle(10.06, 10.10, 10.02, 10.04, 900),  # pullback 1
+        Candle(10.04, 10.08, 10.03, 10.06, 850),  # pullback 2 with higher low
+        Candle(10.06, 10.15, 10.05, 10.13, 1500),  # trigger above pullback high
+    ]
+    context = SetupContext(candles, levels={"LVL_PREMARKET_HIGH": 10.0})
+    result = detect_setup_family("SF_FIRST_PULLBACK", context)
+    assert result.detected is True
+    assert result.evidence["breakout_level"] == 10.0
+    assert result.evidence["pullback_high"] == 10.1
+
+
+def test_first_pullback_not_detected_without_pullback_structure() -> None:
+    candles = [
+        Candle(9.90, 10.00, 9.88, 9.98, 1000),
+        Candle(9.98, 10.12, 9.96, 10.06, 1300),
+        Candle(10.06, 10.20, 10.05, 10.18, 1600),  # immediate continuation, no 2-5 pullback
+        Candle(10.18, 10.27, 10.17, 10.24, 1700),
+        Candle(10.24, 10.33, 10.20, 10.30, 1800),
+    ]
+    context = SetupContext(candles, levels={"LVL_PREMARKET_HIGH": 10.0})
+    result = detect_setup_family("SF_FIRST_PULLBACK", context)
+    assert result.detected is False

@@ -92,7 +92,7 @@ class SetupEngine:
                 direction="LONG",
                 rationale="Trend up with controlled pullback depth and reclaim posture.",
                 confidence=0.66,
-                trigger_types=["PULLBACK_HIGH_BREAK", "RECLAIM"],
+                trigger_types=["XL_FIRST_PULLBACK_BREAK", "PULLBACK_HIGH_BREAK", "RECLAIM"],
                 invalidation_anchor="pullback_low",
                 condition=(
                     trend_allows_long
@@ -101,7 +101,7 @@ class SetupEngine:
                     and pullback_depth <= 0.55
                 ),
                 levels=normalized_levels,
-                quality_flags=[*trend_quality_flags],
+                quality_flags=["K_LEVEL_HOLD_CONFIRM", "K_VOLUME_CONFIRM", *trend_quality_flags],
                 blocking_flags=[] if trend_allows_long else ["TREND_NOT_UP"],
             )
         )
@@ -338,7 +338,7 @@ class SetupEngine:
             "CONSOLIDATION_BREAKOUT": "active_breakout_range.upper",
             "FLAT_TOP_BREAKOUT": "hod",
             "BULL_FLAG": "active_breakout_range.upper",
-            "FIRST_PULLBACK": "ema_9",
+            "FIRST_PULLBACK": "pullback_high",
             "MICRO_PULLBACK": "ema_9",
         }
         key = mapping.get(family)

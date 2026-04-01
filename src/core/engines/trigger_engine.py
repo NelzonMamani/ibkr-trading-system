@@ -116,7 +116,7 @@ class TriggerEngine:
         family = self._FAMILY_ALIASES.get(raw_family, raw_family)
         mapping = {
             "PREMARKET_HIGH_BREAK": "premarket_high",
-            "FIRST_PULLBACK": "ema_9",
+            "FIRST_PULLBACK": "pullback_high",
             "MICRO_PULLBACK": "ema_9",
             "BULL_FLAG": "active_breakout_range.upper",
             "FLAT_TOP_BREAKOUT": "hod",

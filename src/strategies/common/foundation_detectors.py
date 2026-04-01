@@ -269,14 +269,67 @@ def _detect_premarket_low_break(context: SetupContext) -> DetectionResult:
 
 
 def _detect_first_pullback(context: SetupContext) -> DetectionResult:
-    if len(context.candles) < 4:
+    candles = list(context.candles)
+    if len(candles) < 5:
         return DetectionResult("SF_FIRST_PULLBACK", False, 0.0)
-    trend = _trend_up(context.candles[:-1])
-    last = context.candles[-1]
-    avg = _avg_range(context)
-    pullback = last.is_bearish and last.range <= avg * 1.1 if avg else last.is_bearish
-    detected = context.flags.get("first_pullback", False) or (trend and pullback)
-    return DetectionResult("SF_FIRST_PULLBACK", detected, 0.6 if detected else 0.0)
+
+    breakout_level_candidates = [
+        context.levels.get("LVL_PREMARKET_HIGH"),
+        context.levels.get("LVL_HIGH_OF_DAY"),
+    ]
+    breakout_level = next((float(level) for level in breakout_level_candidates if level is not None), None)
+    if breakout_level is None:
+        return DetectionResult("SF_FIRST_PULLBACK", False, 0.0)
+
+    impulse_idx = None
+    for idx in range(1, len(candles) - 2):
+        prior = candles[idx - 1]
+        current = candles[idx]
+        broke_level = prior.close <= breakout_level < current.close
+        strong_up = current.close > current.open and current.close >= prior.close
+        if broke_level and strong_up:
+            impulse_idx = idx
+
+    if impulse_idx is None:
+        return DetectionResult("SF_FIRST_PULLBACK", False, 0.0)
+
+    impulse_candle = candles[impulse_idx]
+    trigger_candle = candles[-1]
+    pullback_candles = candles[impulse_idx + 1 : -1]
+    if not (2 <= len(pullback_candles) <= 5):
+        return DetectionResult("SF_FIRST_PULLBACK", False, 0.0)
+
+    pullback_lows = [candle.low for candle in pullback_candles]
+    pullback_high = max(candle.high for candle in pullback_candles)
+    pullback_low = min(pullback_lows)
+    pullback_is_retracing = (
+        min(candle.close for candle in pullback_candles) < impulse_candle.close
+        and any(candle.is_bearish for candle in pullback_candles)
+        and all(candle.high <= impulse_candle.high for candle in pullback_candles)
+    )
+    holds_breakout = all(candle.low > breakout_level for candle in pullback_candles)
+    higher_low_formed = pullback_lows[-1] > pullback_lows[0]
+    trigger_fired = trigger_candle.high > pullback_high and trigger_candle.close > pullback_high
+
+    detected = bool(
+        context.flags.get("first_pullback", False)
+        or (pullback_is_retracing and holds_breakout and higher_low_formed and trigger_fired)
+    )
+    pullback_depth_pct = ((pullback_high - pullback_low) / pullback_high * 100.0) if pullback_high else 0.0
+    print(
+        "[PATTERN] FIRST_PULLBACK "
+        f"detected={detected} breakout_level={breakout_level:.4f} pullback_high={pullback_high:.4f}"
+    )
+    return DetectionResult(
+        "SF_FIRST_PULLBACK",
+        detected,
+        0.68 if detected else 0.0,
+        evidence={
+            "breakout_level": breakout_level,
+            "pullback_high": pullback_high,
+            "pullback_depth_pct": pullback_depth_pct,
+        },
+    )
 
 
 def _detect_second_pullback(context: SetupContext) -> DetectionResult:
