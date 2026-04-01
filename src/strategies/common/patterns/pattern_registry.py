@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from src.strategies.common.patterns.pattern_flat_top_breakout import detect_flat_top_breakout
 from src.strategies.common.patterns.pattern_cup_handle import detect_cup_handle
+from src.strategies.common.patterns.pattern_ema_pullback import detect_ema_pullback
 from src.strategies.common.patterns.pattern_first_pullback import detect_first_pullback
 from src.strategies.common.patterns.pattern_micro_pullback import detect_micro_pullback
 from src.strategies.common.patterns.pattern_opening_drive import detect_opening_drive
@@ -23,9 +24,10 @@ PATTERN_DETECTORS = {
     "P_MICRO_PULLBACK": detect_micro_pullback,
     "P_FLAT_TOP_BREAKOUT": detect_flat_top_breakout,
     "P_CUP_HANDLE": detect_cup_handle,
+    "P_EMA_PULLBACK": detect_ema_pullback,
     "P_PARABOLIC_EXHAUSTION": detect_parabolic_exhaustion,
     "P_VWAP_PULLBACK": detect_vwap_pullback,
     "P_TREND_CONTINUATION_STAIR_STEP": detect_trend_continuation_stair_step,
 }
 
-__all__ = ["PATTERN_DETECTORS", "detect_orb", "detect_opening_drive", "detect_premarket_high_break", "detect_first_pullback", "detect_micro_pullback", "detect_flat_top_breakout", "detect_cup_handle", "detect_parabolic_exhaustion", "detect_vwap_pullback", "detect_trend_continuation_stair_step"]
+__all__ = ["PATTERN_DETECTORS", "detect_orb", "detect_opening_drive", "detect_premarket_high_break", "detect_first_pullback", "detect_micro_pullback", "detect_flat_top_breakout", "detect_cup_handle", "detect_ema_pullback", "detect_parabolic_exhaustion", "detect_vwap_pullback", "detect_trend_continuation_stair_step"]

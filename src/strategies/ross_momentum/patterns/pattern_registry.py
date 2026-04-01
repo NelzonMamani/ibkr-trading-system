@@ -61,6 +61,7 @@ class RossPatternRegistry:
             "P_HOD_BREAK": "HOD_BREAK",
             "P_ABCD": "ABCD",
             "P_CUP_HANDLE": "CUP_HANDLE",
+            "P_EMA_PULLBACK": "EMA_PULLBACK",
             "P_TREND_CONTINUATION_STAIR_STEP": "TREND_CONTINUATION_STAIR_STEP",
             "P_VWAP_PULLBACK": "VWAP_PULLBACK",
         }

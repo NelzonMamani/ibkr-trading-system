@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from src.strategies.common.patterns.pattern_hod_break import detect_hod_break
+from src.strategies.common.patterns.pattern_ema_pullback import detect_ema_pullback
 from src.strategies.common.patterns.pattern_opening_drive import detect_opening_drive
 from src.strategies.common.patterns.pattern_vwap_pullback import detect_vwap_pullback
 from src.strategies.common.patterns.pattern_trend_continuation_stair_step import (
@@ -65,6 +66,9 @@ class EmaPullbackPattern(_SimpleLongPattern):
     pattern_id = "P_EMA_PULLBACK"
     name = "EMA Pullback"
     family = PatternFamily.PULLBACK
+
+    def evaluate(self, inputs: PatternInputs) -> PatternResult:
+        return detect_ema_pullback(inputs)
 
 
 class VwapPullbackPattern(_SimpleLongPattern):
