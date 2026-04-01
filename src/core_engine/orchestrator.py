@@ -126,19 +126,21 @@ def _enforce_canonical_price_authority(
     entry_price_source: str,
     scanner_payload: dict,
 ) -> tuple[bool, str]:
-    if mode == RunMode.SIM:
-        return True, "SIM_PRICE_AUTHORITY_BYPASS"
+    if mode != RunMode.LIVE:
+        allowed_non_live_sources = {
+            "SCANNER_LAST_PRICE",
+            "PREP_REFERENCE_PRICE",
+            "FALLBACK_PRICE",
+        }
 
-    if mode == RunMode.PAPER and entry_price_source in {
-        "SCANNER_LAST_PRICE",
-        "SNAPSHOT_LAST",
-        "DERIVED_LAST",
-    }:
-        print(
-            f"[PRICE][AUTHORITY_OVERRIDE] symbol={symbol} "
-            f"mode=PAPER source={entry_price_source} action=ALLOW"
-        )
-        return True, "PAPER_PRICE_AUTHORITY_OVERRIDE"
+        if entry_price_source in allowed_non_live_sources:
+            print(
+                f"[PRICE][NON_LIVE_OVERRIDE] symbol={symbol} "
+                f"source={entry_price_source} mode={mode} action=ALLOW"
+            )
+            return True, "NON_LIVE_PRICE_ALLOWED"
+
+        return False, f"UNKNOWN_PRICE_SOURCE:{entry_price_source}"
 
     if entry_price_source not in _CANONICAL_PRICE_SOURCES:
         return False, f"NON_CANONICAL_PRICE_SOURCE:{entry_price_source}"

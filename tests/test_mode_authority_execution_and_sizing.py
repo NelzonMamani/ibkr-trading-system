@@ -125,10 +125,10 @@ def test_price_authority_allows_scanner_price_for_paper_rth() -> None:
         scanner_payload={},
     )
     assert allowed is True
-    assert reason == "PAPER_PRICE_AUTHORITY_OVERRIDE"
+    assert reason == "NON_LIVE_PRICE_ALLOWED"
 
 
-def test_price_authority_allows_snapshot_last_for_paper() -> None:
+def test_price_authority_blocks_unknown_source_for_paper() -> None:
     allowed, reason = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.PAPER,
@@ -137,8 +137,21 @@ def test_price_authority_allows_snapshot_last_for_paper() -> None:
         entry_price_source="SNAPSHOT_LAST",
         scanner_payload={},
     )
+    assert allowed is False
+    assert reason == "UNKNOWN_PRICE_SOURCE:SNAPSHOT_LAST"
+
+
+def test_price_authority_allows_fallback_price_for_sim() -> None:
+    allowed, reason = _enforce_canonical_price_authority(
+        symbol="AAPL",
+        mode=RunMode.SIM,
+        session="REG",
+        entry_price=100.0,
+        entry_price_source="FALLBACK_PRICE",
+        scanner_payload={},
+    )
     assert allowed is True
-    assert reason == "PAPER_PRICE_AUTHORITY_OVERRIDE"
+    assert reason == "NON_LIVE_PRICE_ALLOWED"
 
 
 def test_price_authority_blocks_noncanonical_for_live() -> None:
