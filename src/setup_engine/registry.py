@@ -43,6 +43,7 @@ from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 
 class SetupImplementationStatus(str, Enum):
     TRADE_READY = "TRADE_READY"
+    PROBATIONARY = "PROBATIONARY"
     DISABLED = "DISABLED"
     SPEC_ONLY = "SPEC_ONLY"
 
@@ -69,8 +70,8 @@ CANONICAL_SETUP_REGISTRY: Dict[str, SetupFamilyImplementation] = {
     "HALT_RESUME": SetupFamilyImplementation(
         "HALT_RESUME",
         HaltResumePattern,
-        SetupImplementationStatus.DISABLED,
-        reason="Halt tape metadata is not available in PatternInputs; detection defaults disabled until reliable source is wired.",
+        SetupImplementationStatus.PROBATIONARY,
+        reason="Halt detection relies on inferred gaps; requires IBKR halt feed or exchange metadata for full reliability.",
     ),
     "PARABOLIC_EXHAUSTION": SetupFamilyImplementation("PARABOLIC_EXHAUSTION", ParabolicExhaustionPattern, SetupImplementationStatus.TRADE_READY),
     "GAP_FILL": SetupFamilyImplementation("GAP_FILL", GapFillReversalPattern, SetupImplementationStatus.TRADE_READY),
