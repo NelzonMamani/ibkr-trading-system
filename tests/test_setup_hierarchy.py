@@ -50,6 +50,22 @@ def test_ross_runtime_can_consume_opening_drive_result_without_bypass() -> None:
     assert filtered[0].get("untrusted") is not True
 
 
+def test_ross_runtime_can_consume_cup_handle_without_bypass() -> None:
+    strategy = RossMomentumStrategyV1()
+    filtered = strategy._filter_trusted_pattern_results(
+        [
+            {
+                "setup_family_id": "CUP_HANDLE",
+                "pattern_id": "P_CUP_HANDLE",
+                "detected": True,
+                "confidence": 0.8,
+            }
+        ],
+        symbol="TEST",
+    )
+    assert filtered[0].get("untrusted") is not True
+
+
 def test_setup_hierarchy_can_suppress_lower_tier_setups_under_key_level_break() -> None:
     results = [
         _detected("KEY_LEVEL_BREAK", "P_KEY_LEVEL_BREAK"),
@@ -64,3 +80,17 @@ def test_setup_hierarchy_can_suppress_lower_tier_setups_under_key_level_break() 
     assert by_family["MICRO_PULLBACK"].rejection_reason == SUPPRESSION_REASON
     assert by_family["BULL_FLAG"].detected is False
     assert by_family["VWAP_PULLBACK"].detected is False
+
+
+def test_setup_hierarchy_can_suppress_lower_precision_setups_under_cup_handle() -> None:
+    results = [
+        _detected("CUP_HANDLE", "P_CUP_HANDLE"),
+        _detected("MICRO_PULLBACK", "P_MICRO_PULLBACK"),
+        _detected("THREE_BAR_PULLBACK", "P_THREE_BAR_PULLBACK"),
+    ]
+    out = apply_setup_hierarchy(results, symbol="TEST")
+    by_family = {item.setup_family_id: item for item in out}
+    assert by_family["CUP_HANDLE"].detected is True
+    assert by_family["MICRO_PULLBACK"].detected is False
+    assert by_family["MICRO_PULLBACK"].rejection_reason == SUPPRESSION_REASON
+    assert by_family["THREE_BAR_PULLBACK"].detected is False
