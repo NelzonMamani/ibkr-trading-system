@@ -33,6 +33,7 @@ def build_trade_intents(
     summary: PatternEvaluationSummary,
     config: IntentPolicyConfig | None = None,
     system_health_degraded: bool = False,
+    trigger_ready_now: bool | None = None,
 ) -> List[TradeIntent]:
     _ = system_health_degraded
     config = config or IntentPolicyConfig()
@@ -53,8 +54,8 @@ def build_trade_intents(
             continue
         pattern_detected = bool(setup.detected)
         confirmation_passed = setup.confidence >= config.min_confidence
-        trigger_fired = bool(setup.entry_zone)
-        if trigger_fired and confirmation_passed:
+        trigger_fired = bool(trigger_ready_now) if trigger_ready_now is not None else bool(setup.entry_zone)
+        if trigger_fired:
             guaranteed_intent_required = True
         # `setup.risk_flags` can contain advisory warnings that do not block final
         # risk approval; only explicit veto flags should produce a risk-stage negative.
@@ -63,23 +64,33 @@ def build_trade_intents(
         if not dq_ok and config.debug_force_execution:
             print(f"[DQ_OVERRIDE] symbol={symbol} dq was bypassed")
             dq_ok = True
-        execution_ready = (
+        pre_intent_execution_ready = (
             pattern_detected
-            and confirmation_passed
             and trigger_fired
             and risk_precheck_ok
             and dq_ok
         )
-        print(
-            f"[STRATEGY_TRACE] symbol={symbol} "
-            f"pattern_detected={pattern_detected} "
-            f"confirmation_passed={confirmation_passed} "
-            f"trigger_fired={trigger_fired} "
-            f"risk_precheck_ok={risk_precheck_ok} "
-            f"dq_ok={dq_ok} "
-            f"execution_candidate_ready={execution_ready}"
-        )
-        if not (trigger_fired and confirmation_passed):
+        if not trigger_fired:
+            print(
+                f"[STRATEGY_TRACE] symbol={symbol} "
+                f"pattern_detected={pattern_detected} "
+                f"confirmation_passed={confirmation_passed} "
+                f"trigger_fired={trigger_fired} "
+                f"risk_precheck_ok={risk_precheck_ok} "
+                f"dq_ok={dq_ok} "
+                "execution_candidate_ready=false"
+            )
+            continue
+        if not pattern_detected:
+            print(
+                f"[STRATEGY_TRACE] symbol={symbol} "
+                "pattern_detected=false "
+                f"confirmation_passed={confirmation_passed} "
+                "trigger_fired=true "
+                f"risk_precheck_ok={risk_precheck_ok} "
+                f"dq_ok={dq_ok} "
+                "execution_candidate_ready=false"
+            )
             continue
         direction = (
             IntentDirection.LONG if setup.direction == Direction.LONG else IntentDirection.SHORT
@@ -101,6 +112,16 @@ def build_trade_intents(
             risk_flags=setup.risk_flags,
         )
         intents.append(intent)
+        execution_ready = pre_intent_execution_ready and bool(intents)
+        print(
+            f"[STRATEGY_TRACE] symbol={symbol} "
+            f"pattern_detected={pattern_detected} "
+            f"confirmation_passed={confirmation_passed} "
+            f"trigger_fired={trigger_fired} "
+            f"risk_precheck_ok={risk_precheck_ok} "
+            f"dq_ok={dq_ok} "
+            f"execution_candidate_ready={execution_ready}"
+        )
         print(
             "[INTENT][CREATE] "
             f"symbol={symbol} "
