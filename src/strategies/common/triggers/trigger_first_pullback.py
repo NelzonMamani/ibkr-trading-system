@@ -15,7 +15,7 @@ def evaluate_first_pullback_trigger(pattern_result, inputs):
     candles = list(levels.get("candles") or [])
     if not candles:
         payload = {
-            "trigger_type": "PULLBACK_HIGH_BREAK",
+            "trigger_type": "XL_FIRST_PULLBACK_BREAK",
             "trigger_state": "BLOCKED",
             "trigger_ready_now": False,
             "trigger_reason": "missing_candles",
@@ -27,7 +27,7 @@ def evaluate_first_pullback_trigger(pattern_result, inputs):
     trigger_level = _safe_float(result_payload.get("trigger_level"))
     if trigger_level is None:
         payload = {
-            "trigger_type": "PULLBACK_HIGH_BREAK",
+            "trigger_type": "XL_FIRST_PULLBACK_BREAK",
             "trigger_state": "BLOCKED",
             "trigger_ready_now": False,
             "trigger_reason": "missing_trigger_level",
@@ -40,7 +40,7 @@ def evaluate_first_pullback_trigger(pattern_result, inputs):
     last_high = _safe_float(last.get("high") if isinstance(last, dict) else getattr(last, "high", None))
     if last_close is None and last_high is None:
         payload = {
-            "trigger_type": "PULLBACK_HIGH_BREAK",
+            "trigger_type": "XL_FIRST_PULLBACK_BREAK",
             "trigger_state": "BLOCKED",
             "trigger_ready_now": False,
             "trigger_reason": "missing_price_fields",
@@ -56,7 +56,7 @@ def evaluate_first_pullback_trigger(pattern_result, inputs):
     )
 
     payload = {
-        "trigger_type": "PULLBACK_HIGH_BREAK",
+        "trigger_type": "XL_FIRST_PULLBACK_BREAK",
         "trigger_state": "FIRED" if fired else "ARMED",
         "trigger_ready_now": fired,
         "trigger_reason": "pullback_high_broken" if fired else "awaiting_pullback_break",

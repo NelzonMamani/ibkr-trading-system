@@ -30,7 +30,7 @@ def detect_first_pullback(inputs: PatternInputs) -> PatternResult:
             rationale_text=f"Rejected: {reason}",
             rejection_reason=reason,
             data_quality_flags=list(inputs.data_quality_flags),
-            trigger_type="PULLBACK_HIGH_BREAK",
+            trigger_type="XL_FIRST_PULLBACK_BREAK",
         )
 
     candles = list(inputs.candles or [])
@@ -81,7 +81,7 @@ def detect_first_pullback(inputs: PatternInputs) -> PatternResult:
         ),
         rejection_reason=None,
         data_quality_flags=list(inputs.data_quality_flags),
-        trigger_type="PULLBACK_HIGH_BREAK",
+        trigger_type="XL_FIRST_PULLBACK_BREAK",
         trigger_level=pullback_high,
         stop_level=pullback_low,
         invalidation_level=pullback_low,

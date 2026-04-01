@@ -1,0 +1,11 @@
+{
+  "GAP_GO": "CERTIFIED",
+  "ORB": "CERTIFIED",
+  "FIRST_PULLBACK": "CERTIFIED",
+  "MICRO_PULLBACK": "CERTIFIED",
+  "ABCD": "CERTIFIED",
+  "BULL_FLAG": "CERTIFIED",
+  "fake_fills_removed": true,
+  "trigger_consistency": true,
+  "registry_consistency": true
+}

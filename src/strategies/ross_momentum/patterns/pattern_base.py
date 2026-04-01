@@ -5,6 +5,24 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Optional
 
+
+CANONICAL_SETUP_FAMILY_BY_PATTERN_ID = {
+    "P_GAP_GO": "GAP_GO",
+    "P_ORB": "ORB",
+    "P_FIRST_PULLBACK": "FIRST_PULLBACK",
+    "P_MICRO_PULLBACK": "MICRO_PULLBACK",
+    "P_ABCD": "ABCD",
+    "P_BULL_FLAG": "BULL_FLAG",
+}
+
+CANONICAL_TRIGGER_BY_PATTERN_ID = {
+    "P_ORB": "XL_ORB_BREAK",
+    "P_FIRST_PULLBACK": "XL_FIRST_PULLBACK_BREAK",
+    "P_MICRO_PULLBACK": "XL_MICRO_PULLBACK",
+    "P_ABCD": "XL_ABCD_CONTINUATION",
+    "P_BULL_FLAG": "XL_FLAG_BREAK",
+}
+
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
 
@@ -147,7 +165,11 @@ class PatternBase(ABC):
             risk_flags=risk_flags,
             data_quality_flags=inputs.data_quality_flags,
             session_valid=inputs.session_context.value in {"PRE", "REGULAR", "AFTER"},
-            trigger_type=f"{(self.pattern_id or self.name).upper()}_TRIGGER",
+            setup_family_id=CANONICAL_SETUP_FAMILY_BY_PATTERN_ID.get(self.pattern_id or self.name),
+            trigger_type=CANONICAL_TRIGGER_BY_PATTERN_ID.get(
+                self.pattern_id or self.name,
+                f"{(self.pattern_id or self.name).upper()}_TRIGGER",
+            ),
             trigger_level=trigger_level,
             stop_level=stop_level,
             invalidation_level=stop_level,

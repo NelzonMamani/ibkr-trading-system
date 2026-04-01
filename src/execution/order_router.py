@@ -244,39 +244,6 @@ def _apply_callback_fills(events: List[ExecutionEvent]) -> tuple[List[ExecutionE
     return events, fills_applied
 
 
-def _emit_test_fill_fallback(mode: RunMode, events: List[ExecutionEvent], timeout_seconds: float) -> List[ExecutionEvent]:
-    if mode != RunMode.PAPER:
-        return events
-    fallback_enabled = os.environ.get("IBKR_ENABLE_TEST_FILL_FALLBACK", "").lower()
-    should_fallback = fallback_enabled == "true" or (not fallback_enabled and _is_explicit_test_mode())
-    if not should_fallback:
-        return events
-    deadline = time.monotonic() + max(0.0, timeout_seconds)
-    while time.monotonic() < deadline:
-        events, fills_applied = _apply_callback_fills(events)
-        if fills_applied > 0:
-            return events
-        time.sleep(0.05)
-    for event in events:
-        if event.action != "SUBMITTED" or int(event.filled_quantity or 0) > 0:
-            continue
-        synthetic_qty = int(event.remaining_quantity or 0)
-        if synthetic_qty <= 0:
-            synthetic_qty = 1
-        event.event_type = "ORDER_FILLED"
-        event.source = "TEST_FILL"
-        event.broker_status = "Filled"
-        event.filled_quantity = synthetic_qty
-        event.remaining_quantity = 0
-        event.last_update_time = _now_utc_iso()
-        print(
-            "[EXECUTION][EVENT_CREATED] "
-            f"event_type={event.event_type} source={event.source} symbol={event.symbol} "
-            f"order_id={event.broker_order_id} filled_qty={event.filled_quantity} fill_price={event.avg_fill_price}"
-        )
-    return events
-
-
 def _fetch_ibkr_truth(mode: RunMode) -> tuple[list[Any], list[Any], list[Any]]:
     if _is_explicit_test_mode():
         return [], [], []
@@ -536,5 +503,4 @@ def execute_intents(
         )
     events, _ = _apply_callback_fills(events)
     events = _sync_submitted_events_from_ibkr(mode, events)
-    fill_timeout_seconds = float(os.environ.get("IBKR_TEST_FILL_TIMEOUT_SECONDS", "0.5"))
-    return _emit_test_fill_fallback(mode, events, timeout_seconds=fill_timeout_seconds)
+    return events

@@ -35,7 +35,7 @@ def test_setup_detected_when_valid() -> None:
     assert result.detected is True
     assert result.setup_id == "P_FIRST_PULLBACK"
     assert result.setup_family_id == "FIRST_PULLBACK"
-    assert result.trigger_type == "PULLBACK_HIGH_BREAK"
+    assert result.trigger_type == "XL_FIRST_PULLBACK_BREAK"
     assert result.trigger_level is not None
     assert result.invalidation_level is not None
 

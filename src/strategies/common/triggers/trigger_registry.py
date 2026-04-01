@@ -15,8 +15,10 @@ TriggerEvaluator = Callable[[dict, dict], dict]
 TRIGGER_EVALUATOR_REGISTRY: dict[str, TriggerEvaluator] = {
     "OPENING_RANGE_BREAKOUT": evaluate_orb_trigger,
     "ORB": evaluate_orb_trigger,
+    "GAP_GO": evaluate_orb_trigger,
     "FIRST_PULLBACK": evaluate_first_pullback_trigger,
     "MICRO_PULLBACK": evaluate_micro_pullback_trigger,
+    "BULL_FLAG": evaluate_flat_top_breakout_trigger,
     "FLAT_TOP_BREAKOUT": evaluate_flat_top_breakout_trigger,
     "ABCD": evaluate_abcd_continuation_trigger,
 }

@@ -29,6 +29,52 @@ class PatternEvaluationSummary:
     veto_flags: List[str]
 
 
+
+
+def _apply_setup_exclusivity(results: List[PatternResult]) -> List[PatternResult]:
+    detected = {str(r.setup_family_id or r.setup_id).upper() for r in results if r.detected}
+    suppressed: set[str] = set()
+    if "GAP_GO" in detected:
+        suppressed.update({"MICRO_PULLBACK", "BULL_FLAG", "RANGE", "EMA_PULLBACK"})
+    if "FIRST_PULLBACK" in detected:
+        suppressed.update({"MICRO_PULLBACK", "BULL_FLAG"})
+    if "ABCD" in detected:
+        suppressed.update({"BULL_FLAG", "RANGE"})
+
+    normalized: list[PatternResult] = []
+    for result in results:
+        setup_key = str(result.setup_family_id or result.setup_id).upper()
+        if not result.detected or setup_key not in suppressed:
+            normalized.append(result)
+            continue
+        normalized.append(
+            PatternResult(
+                setup_id=result.setup_id,
+                pattern_name=result.pattern_name,
+                pattern_family=result.pattern_family,
+                detected=False,
+                direction=result.direction,
+                confidence=0.0,
+                setup_quality_tags=list(result.setup_quality_tags),
+                setup_family_id=result.setup_family_id,
+                tags=list(result.tags),
+                entry_zone=result.entry_zone,
+                stop_suggestion=result.stop_suggestion,
+                target_suggestion=result.target_suggestion,
+                rationale_text=f"Suppressed by setup exclusivity: {setup_key}",
+                risk_flags=list(result.risk_flags),
+                data_quality_flags=list(result.data_quality_flags),
+                rejection_reason="suppressed_by_setup_exclusivity",
+                session_valid=result.session_valid,
+                trigger_type=result.trigger_type,
+                trigger_level=result.trigger_level,
+                stop_level=result.stop_level,
+                invalidation_level=result.invalidation_level,
+            )
+        )
+    return normalized
+
+
 class PatternEvaluator:
     def __init__(self, registry: Optional[RossPatternRegistry] = None) -> None:
         self._registry = registry or RossPatternRegistry()
@@ -98,6 +144,8 @@ class PatternEvaluator:
             if inputs.liquidity_context.float_millions is not None:
                 if inputs.liquidity_context.float_millions < 5:
                     veto_flags.append("low_float")
+
+        all_results = _apply_setup_exclusivity(all_results)
 
         best_long = self._best_setup(all_results, Direction.LONG)
         best_short = self._best_setup(all_results, Direction.SHORT)
