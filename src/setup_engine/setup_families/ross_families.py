@@ -235,7 +235,7 @@ class MomentumReclaimPattern(PatternBase):
             return self._rejected("no prior shakeout under reclaim level", inputs)
         if last.close <= reclaim_level:
             return self._rejected("reclaim not confirmed", inputs)
-        return self._detected(
+        detected = self._detected(
             inputs,
             direction=Direction.LONG,
             confidence=0.71,
@@ -247,6 +247,12 @@ class MomentumReclaimPattern(PatternBase):
             stop_suggestion="Back below reclaim level",
             target_suggestion="Prior swing high",
             setup_quality_tags=["reclaim", "shakeout_absorbed"],
+        )
+        return replace(
+            detected,
+            setup_family_id="MOMENTUM_RECLAIM",
+            trigger_type="XL_MOMENTUM_RECLAIM",
+            trigger_level=reclaim_level,
         )
 
 
