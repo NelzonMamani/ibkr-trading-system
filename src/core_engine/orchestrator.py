@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from dataclasses import replace
 from typing import List
 from zoneinfo import ZoneInfo
@@ -67,6 +68,18 @@ STAGE_ORDER = [
     "Storage",
     "Health",
 ]
+
+TERMINAL_STATES = {
+    "NO_SETUP": "NO_SETUP",
+    "SETUP_NO_TRIGGER": "SETUP_NO_TRIGGER",
+    "TRIGGER_READY": "TRIGGER_READY",
+    "TRIGGER_BLOCKED_BY_POLICY": "TRIGGER_BLOCKED_BY_POLICY",
+    "INTENT_EMITTED": "INTENT_EMITTED",
+    "BLOCKED_BY_RISK": "BLOCKED_BY_RISK",
+    "BLOCKED_BY_EXECUTION_PRECHECK": "BLOCKED_BY_EXECUTION_PRECHECK",
+    "ORDER_SUBMITTED": "ORDER_SUBMITTED",
+    "ORDER_REJECTED": "ORDER_REJECTED",
+}
 
 _CANONICAL_PRICE_SOURCES = frozenset(
     {
@@ -512,7 +525,20 @@ def run_cycle(
     execution_events: List[ExecutionEvent] = []
     health_triggers = []
     watchlist_set = set(watchlist)
-    pipeline_outcomes: dict[str, str] = {symbol: "NO_SETUP" for symbol in watchlist}
+    pipeline_outcomes: dict[str, str] = {symbol: TERMINAL_STATES["NO_SETUP"] for symbol in watchlist}
+    decision_waterfall: dict[str, dict[str, str]] = {
+        symbol: {
+            "setup": "NO",
+            "trigger": "NO",
+            "intent": "NONE",
+            "intent_reason": "N/A",
+            "risk": "N/A",
+            "risk_reason": "N/A",
+            "execution": "N/A",
+            "execution_reason": "N/A",
+        }
+        for symbol in watchlist
+    }
     symbol_setup_family: dict[str, str] = {symbol: "NONE" for symbol in watchlist}
     symbol_trigger_type: dict[str, str] = {symbol: "NONE" for symbol in watchlist}
     passed_setup = 0
@@ -550,9 +576,15 @@ def run_cycle(
             symbol_setup_family[symbol] = setup_family
             symbol_trigger_type[symbol] = trigger_type
             if not setup_detected:
-                pipeline_outcomes[symbol] = "NO_SETUP"
+                pipeline_outcomes[symbol] = TERMINAL_STATES["NO_SETUP"]
             elif not trigger_ready_now:
-                pipeline_outcomes[symbol] = "TRIGGER_NOT_FIRED"
+                pipeline_outcomes[symbol] = TERMINAL_STATES["SETUP_NO_TRIGGER"]
+                decision_waterfall[symbol]["setup"] = "YES"
+                decision_waterfall[symbol]["intent_reason"] = "BLOCKED_BY_STRUCTURE"
+            else:
+                pipeline_outcomes[symbol] = TERMINAL_STATES["TRIGGER_READY"]
+                decision_waterfall[symbol]["setup"] = "YES"
+                decision_waterfall[symbol]["trigger"] = "YES"
             print(
                 f"[TRIGGER] symbol={symbol} setup_family={setup_family} "
                 f"trigger_type={trigger_type} trigger_ready_now={str(trigger_ready_now).lower()}"
@@ -579,7 +611,7 @@ def run_cycle(
             print(
                 f"[PIPELINE][TRIGGER] symbol={symbol} "
                 f"ready={str(trigger_ready_now).lower()} "
-                f"reason={'CONFIDENCE_OK' if trigger_ready_now else 'TRIGGER_NOT_READY'}"
+                f"reason={'PRICE_ACTION_TRIGGER' if trigger_ready_now else 'TRIGGER_NOT_READY'}"
             )
 
             strategy_id = "RossMomentumStrategy"
@@ -589,14 +621,23 @@ def run_cycle(
                     symbol,
                     summary,
                     system_health_degraded=bool(data_quality_flags.get(symbol)),
+                    trigger_ready_now=trigger_ready_now,
                 )
             except TypeError:
                 # Backward compatibility for test mocks
-                trade_intents = build_trade_intents(
-                    strategy_id,
-                    symbol,
-                    summary,
-                )
+                try:
+                    trade_intents = build_trade_intents(
+                        strategy_id,
+                        symbol,
+                        summary,
+                        trigger_ready_now=trigger_ready_now,
+                    )
+                except TypeError:
+                    trade_intents = build_trade_intents(
+                        strategy_id,
+                        symbol,
+                        summary,
+                    )
             try:
                 entry_price, entry_price_source = resolve_entry_price(
                     symbol,
@@ -615,12 +656,14 @@ def run_cycle(
                     )
                 else:
                     print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_UNAVAILABLE detail={exc.reason}")
-                    print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=PRICE_UNAVAILABLE")
+                    print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=BLOCKED_BY_INVALID_INPUT")
+                    decision_waterfall[symbol]["intent"] = "BLOCKED"
+                    decision_waterfall[symbol]["intent_reason"] = "BLOCKED_BY_INVALID_INPUT"
                     if trigger_ready_now:
-                        pipeline_outcomes[symbol] = "SETUP_REJECTED"
+                        pipeline_outcomes[symbol] = TERMINAL_STATES["TRIGGER_BLOCKED_BY_POLICY"]
                         print(
                             f"[DECISION][ERROR] TRIGGER_WITHOUT_INTENT symbol={symbol} "
-                            f"setup_family={setup_family} trigger_type={trigger_type} reason=PRICE_UNAVAILABLE"
+                            f"setup_family={setup_family} trigger_type={trigger_type} reason=BLOCKED_BY_INVALID_INPUT"
                         )
                     continue
             authority_ok, authority_reason = _enforce_canonical_price_authority(
@@ -633,12 +676,14 @@ def run_cycle(
             )
             if not authority_ok:
                 print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_AUTHORITY detail={authority_reason}")
-                print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=PRICE_AUTHORITY")
+                print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=BLOCKED_BY_POLICY")
+                decision_waterfall[symbol]["intent"] = "BLOCKED"
+                decision_waterfall[symbol]["intent_reason"] = "BLOCKED_BY_POLICY"
                 if trigger_ready_now:
-                    pipeline_outcomes[symbol] = "SETUP_REJECTED"
+                    pipeline_outcomes[symbol] = TERMINAL_STATES["TRIGGER_BLOCKED_BY_POLICY"]
                     print(
                         f"[DECISION][ERROR] TRIGGER_WITHOUT_INTENT symbol={symbol} "
-                        f"setup_family={setup_family} trigger_type={trigger_type} reason=PRICE_AUTHORITY"
+                        f"setup_family={setup_family} trigger_type={trigger_type} reason=BLOCKED_BY_POLICY"
                     )
                 continue
             fallback_used = authority_reason == "PAPER_FALLBACK_ALLOWED"
@@ -675,6 +720,13 @@ def run_cycle(
                 forced_intent_ids.add(trade_intents[0].intent_id)
                 print(f"[DEBUG][FORCED_PATH] intent_created symbol={symbol} intent_id={trade_intents[0].intent_id}")
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=true forced=true intent_id={trade_intents[0].intent_id}")
+            print(
+                "[ROSS][TRIGGER_AUTHORITY] "
+                f"symbol={symbol} setup_family={setup_family} trigger_ready_now={str(trigger_ready_now).lower()} "
+                f"strategy_trigger_fired={str(trigger_ready_now).lower()} "
+                f"decision={'EMIT_INTENT' if bool(trade_intents) else 'BLOCK'} "
+                f"block_reason={'NONE' if bool(trade_intents) else 'BLOCKED_BY_POLICY'}"
+            )
             for intent in trade_intents:
                 print(f"[TRACE][cycle={cycle_id}][symbol={symbol}] stage=intent_creation intent_id={intent.intent_id}")
                 if isinstance(intent, TradeIntentRecord):
@@ -711,24 +763,29 @@ def run_cycle(
                     if "NON_LIVE_PRICE" not in intents[-1].tags:
                         intents[-1].tags.append("NON_LIVE_PRICE")
                 generated_intents += 1
+                decision_waterfall[symbol]["intent"] = "EMITTED"
+                decision_waterfall[symbol]["intent_reason"] = "INTENT_EMITTED"
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=true forced=false intent_id={intent.intent_id}")
                 print(
                     f"[INTENT] symbol={symbol} setup_family={setup_family} "
                     f"trigger_type={trigger_type} intent_id={intent.intent_id}"
                 )
             if trigger_ready_now and trade_intents:
-                pipeline_outcomes[symbol] = "TRIGGER_FIRED_INTENT_CREATED"
+                pipeline_outcomes[symbol] = TERMINAL_STATES["INTENT_EMITTED"]
                 print(
                     f"[DECISION][INTENT_CREATED] symbol={symbol} setup_family={setup_family} "
                     f"trigger_type={trigger_type}"
                 )
             if not trade_intents:
-                print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=NO_STRATEGY_INTENT")
+                no_intent_reason = "BLOCKED_BY_POLICY" if trigger_ready_now else "BLOCKED_BY_STRUCTURE"
+                print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason={no_intent_reason}")
+                decision_waterfall[symbol]["intent"] = "BLOCKED"
+                decision_waterfall[symbol]["intent_reason"] = no_intent_reason
                 if trigger_ready_now:
-                    pipeline_outcomes[symbol] = "SETUP_REJECTED"
+                    pipeline_outcomes[symbol] = TERMINAL_STATES["TRIGGER_BLOCKED_BY_POLICY"]
                     print(
                         f"[DECISION][ERROR] TRIGGER_WITHOUT_INTENT symbol={symbol} "
-                        f"setup_family={setup_family} trigger_type={trigger_type} reason=NO_STRATEGY_INTENT"
+                        f"setup_family={setup_family} trigger_type={trigger_type} reason={no_intent_reason}"
                     )
             print("[PIPELINE][INTENT_TRACE]")
             print(f"symbol={symbol}")
@@ -775,6 +832,8 @@ def run_cycle(
             f"[PIPELINE][RISK] symbol={output.symbol} allowed={str(risk_pass).lower()} "
             f"decision={output.decision} reason={output.block_reason or 'PASS'}"
         )
+        decision_waterfall[output.symbol]["risk"] = "ALLOW" if risk_pass else "BLOCK"
+        decision_waterfall[output.symbol]["risk_reason"] = output.block_reason or "PASS"
         if output.decision == "BLOCK":
             lifecycle_block_reason = output.block_reason or ",".join(output.triggered_rules) or "UNKNOWN"
             capital_constraints = ",".join(output.constraints) if output.constraints else "none"
@@ -835,7 +894,9 @@ def run_cycle(
                     detail="reason=SCAN_ONLY_OR_DISABLED",
                 )
             )
-            pipeline_outcomes[decision.symbol] = "BLOCKED_BY_EXECUTION_PRECHECK"
+            pipeline_outcomes[decision.symbol] = TERMINAL_STATES["BLOCKED_BY_EXECUTION_PRECHECK"]
+            decision_waterfall[decision.symbol]["execution"] = "SKIPPED"
+            decision_waterfall[decision.symbol]["execution_reason"] = "SCAN_ONLY_OR_DISABLED"
             continue
         execution_candidate_ready = decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}
         eligible = (
@@ -866,7 +927,9 @@ def run_cycle(
                     detail=f"reason={reason}",
                 )
             )
-            pipeline_outcomes[decision.symbol] = "BLOCKED_BY_EXECUTION_PRECHECK"
+            pipeline_outcomes[decision.symbol] = TERMINAL_STATES["BLOCKED_BY_EXECUTION_PRECHECK"]
+            decision_waterfall[decision.symbol]["execution"] = "REJECTED"
+            decision_waterfall[decision.symbol]["execution_reason"] = reason
             continue
         print(
             "[EXECUTION][SUBMIT_ATTEMPT] "
@@ -952,12 +1015,18 @@ def run_cycle(
             f"executed={str(execution_pass).lower()} action={event.action}"
         )
         if event.action in {"SUBMITTED", "WOULD_PLACE"}:
-            pipeline_outcomes[event.symbol] = "TRIGGER_FIRED_INTENT_CREATED"
+            pipeline_outcomes[event.symbol] = TERMINAL_STATES["ORDER_SUBMITTED"]
+            decision_waterfall[event.symbol]["execution"] = "SUBMITTED"
+            decision_waterfall[event.symbol]["execution_reason"] = event.detail
+        elif event.action == "BLOCKED":
+            pipeline_outcomes[event.symbol] = TERMINAL_STATES["ORDER_REJECTED"]
+            decision_waterfall[event.symbol]["execution"] = "REJECTED"
+            decision_waterfall[event.symbol]["execution_reason"] = event.detail
         if event.intent_id in forced_intent_ids and execution_pass:
             print(f"[DEBUG][FORCED_PATH] sent_to_execution symbol={event.symbol} intent_id={event.intent_id}")
     for decision in risk_decisions:
         if decision.decision not in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
-            pipeline_outcomes[decision.symbol] = "BLOCKED_BY_RISK"
+            pipeline_outcomes[decision.symbol] = TERMINAL_STATES["BLOCKED_BY_RISK"]
     for symbol in watchlist:
         outcome = pipeline_outcomes.get(symbol)
         if outcome is None:
@@ -977,6 +1046,29 @@ def run_cycle(
     print(
         f"[LIFECYCLE][PORTFOLIO] open_positions={executed} "
         f"working_orders={working_orders} pending_entries={pending_entries}"
+    )
+    for symbol in watchlist:
+        wf = decision_waterfall[symbol]
+        print(
+            "[ROSS][DECISION_WATERFALL] "
+            f"symbol={symbol} setup={wf['setup']} trigger={wf['trigger']} "
+            f"intent={wf['intent']} intent_reason={wf['intent_reason']} "
+            f"risk={wf['risk']} risk_reason={wf['risk_reason']} "
+            f"execution={wf['execution']} execution_reason={wf['execution_reason']}"
+        )
+    terminal_counts = Counter(pipeline_outcomes.values())
+    block_reason_counts = Counter(
+        wf["intent_reason"] for wf in decision_waterfall.values() if wf["intent_reason"] not in {"N/A", "INTENT_EMITTED"}
+    )
+    print(
+        "[ROSS][CYCLE_ROOT_CAUSE] "
+        f"evaluated_symbols={len(watchlist)} setup_count={sum(1 for wf in decision_waterfall.values() if wf['setup'] == 'YES')} "
+        f"trigger_count={sum(1 for wf in decision_waterfall.values() if wf['trigger'] == 'YES')} "
+        f"intent_count={sum(1 for wf in decision_waterfall.values() if wf['intent'] == 'EMITTED')} "
+        f"risk_allowed_count={sum(1 for wf in decision_waterfall.values() if wf['risk'] == 'ALLOW')} "
+        f"execution_submit_count={sum(1 for wf in decision_waterfall.values() if wf['execution'] == 'SUBMITTED')} "
+        f"dominant_terminal_state={(terminal_counts.most_common(1)[0][0] if terminal_counts else 'NONE')} "
+        f"dominant_block_reason={(block_reason_counts.most_common(1)[0][0] if block_reason_counts else 'NONE')}"
     )
     print(
         "[LIFECYCLE][RISK_SIGNALS] "
