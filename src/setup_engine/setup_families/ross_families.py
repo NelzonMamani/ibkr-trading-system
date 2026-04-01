@@ -327,6 +327,14 @@ class ABCDPattern(PatternBase):
     MAX_RETRACE = 0.70
     MAX_LOOKBACK_BARS = 60
     TRIGGER_ID = "XL_ABCD_CONTINUATION"
+    MIN_AB_MOVE_PCT = 0.01
+    MIN_AVG_PULLBACK_VOLUME = 100.0
+
+    @staticmethod
+    def _reject(symbol: str, reason: str, **fields: float | int | str) -> None:
+        extras = " ".join(f"{k}={v}" for k, v in fields.items())
+        suffix = f" {extras}" if extras else ""
+        print(f"[SETUP][ABCD][REJECT_REASON] symbol={symbol} reason={reason}{suffix}")
 
     @staticmethod
     def _swing_high(candles, idx: int, window: int) -> bool:
@@ -373,41 +381,71 @@ class ABCDPattern(PatternBase):
         candles = inputs.candles[-self.MAX_LOOKBACK_BARS :] if len(inputs.candles) > self.MAX_LOOKBACK_BARS else inputs.candles
         print(f"[SETUP][ABCD][START] symbol={symbol} candles={len(candles)}")
         if len(candles) < 7:
-            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=INSUFFICIENT_CANDLE_HISTORY")
+            self._reject(symbol, "INSUFFICIENT_CANDLE_HISTORY")
             return self._rejected("INSUFFICIENT_CANDLE_HISTORY", inputs)
 
         swing_triplet = self._find_latest_swing_triplet(candles)
         if swing_triplet is None:
-            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=NO_SWING_SEQUENCE")
+            self._reject(symbol, "NO_SWING_SEQUENCE")
             return self._rejected("NO_SWING_SEQUENCE", inputs)
         a_idx, b_idx, c_idx = swing_triplet
         if not (a_idx < b_idx < c_idx):
-            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=INVALID_ORDERING")
+            self._reject(symbol, "INVALID_ORDERING", a_idx=a_idx, b_idx=b_idx, c_idx=c_idx)
             return self._rejected("INVALID_ORDERING", inputs)
+
+        sequence = candles[a_idx : c_idx + 1]
+        invalid_candle_found = any(
+            float(getattr(c, "high", 0.0)) < float(getattr(c, "low", 0.0))
+            or float(getattr(c, "low", 0.0)) <= 0.0
+            or float(getattr(c, "high", 0.0)) <= 0.0
+            for c in sequence
+        )
+        if invalid_candle_found:
+            self._reject(symbol, "INVALID_CANDLE_DATA")
+            return self._rejected("INVALID_CANDLE_DATA", inputs)
 
         a_price = float(candles[a_idx].low)
         b_price = float(candles[b_idx].high)
         c_price = float(candles[c_idx].low)
         ab_length = b_price - a_price
         if ab_length <= 0 or b_price <= a_price:
-            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=NO_VALID_IMPULSE")
+            self._reject(symbol, "NO_VALID_IMPULSE", a=a_price, b=b_price, c=c_price)
             return self._rejected("NO_VALID_IMPULSE", inputs)
+        if (ab_length / max(a_price, 1e-9)) < self.MIN_AB_MOVE_PCT:
+            self._reject(
+                symbol,
+                "AB_LENGTH_TOO_SMALL",
+                a=f"{a_price:.4f}",
+                b=f"{b_price:.4f}",
+                ab_pct=f"{(ab_length / max(a_price, 1e-9)):.4f}",
+            )
+            return self._rejected("AB_LENGTH_TOO_SMALL", inputs)
         if c_price <= a_price:
-            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=STRUCTURE_BROKEN_BELOW_A")
+            self._reject(symbol, "STRUCTURE_BROKEN_BELOW_A", a=f"{a_price:.4f}", c=f"{c_price:.4f}")
             return self._rejected("STRUCTURE_BROKEN_BELOW_A", inputs)
 
         retrace = (b_price - c_price) / ab_length
         if retrace < self.MIN_RETRACE:
-            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=RETRACEMENT_TOO_SHALLOW")
+            self._reject(symbol, "RETRACEMENT_TOO_SHALLOW", retracement=f"{retrace:.4f}")
             return self._rejected("RETRACEMENT_TOO_SHALLOW", inputs)
         if retrace > self.MAX_RETRACE:
-            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=RETRACEMENT_TOO_DEEP")
+            self._reject(symbol, "RETRACEMENT_TOO_DEEP", retracement=f"{retrace:.4f}")
             return self._rejected("RETRACEMENT_TOO_DEEP", inputs)
 
         pullback_window = candles[b_idx : c_idx + 1]
+        pullback_volumes = [float(getattr(c, "volume", 0.0) or 0.0) for c in pullback_window]
+        avg_pullback_volume = sum(pullback_volumes) / max(len(pullback_volumes), 1)
+        if avg_pullback_volume < self.MIN_AVG_PULLBACK_VOLUME:
+            self._reject(
+                symbol,
+                "LOW_VOLUME_ENVIRONMENT",
+                avg_volume=f"{avg_pullback_volume:.2f}",
+                min_volume=f"{self.MIN_AVG_PULLBACK_VOLUME:.2f}",
+            )
+            return self._rejected("LOW_VOLUME_ENVIRONMENT", inputs)
         trigger_level = max((float(c.high) for c in pullback_window), default=None)
         if trigger_level is None:
-            print(f"[SETUP][ABCD][REJECT] symbol={symbol} reason=NO_TRIGGER_LEVEL")
+            self._reject(symbol, "NO_TRIGGER_LEVEL")
             return self._rejected("NO_TRIGGER_LEVEL", inputs)
         d_projection = c_price + ab_length
 
