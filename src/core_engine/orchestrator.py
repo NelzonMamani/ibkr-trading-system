@@ -23,7 +23,7 @@ from src.core_engine.state import CycleContext, RunMode, resolve_session_state
 from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core.intent import build_execution_intent
 from src.core.mode_authority import resolve_mode_authority
-from src.execution.order_router import execute_intents
+from src.execution.order_router import execute_intents, fill_authority_state
 from src.prep.premarket_prep_artifact import write_premarket_prep_artifact
 from src.prep.premarket_prep import PreMarketPrepEngine
 from src.prep.premarket_prep_artifact import (
@@ -950,8 +950,9 @@ def run_cycle(
     else:
         execution_events = []
     execution_events.extend(blocked_candidates)
-    execution_state_counts = {"submitted": 0, "acknowledged": 0, "working": 0, "filled": 0}
+    execution_state_counts = {"submitted": 0, "acknowledged": 0, "working": 0, "partial_fills": 0, "filled": 0}
     execution_attempts = 0
+    duplicate_working_order_blocks = 0
     for event in execution_events:
         broker_order_id = getattr(event, "broker_order_id", None)
         filled_quantity = int(getattr(event, "filled_quantity", 0) or 0)
@@ -982,8 +983,12 @@ def run_cycle(
             execution_state_counts["working"] += 1
         if is_filled:
             execution_state_counts["filled"] += 1
+        if str(getattr(event, "event_type", "") or "").upper() == "ORDER_PARTIALLY_FILLED":
+            execution_state_counts["partial_fills"] += 1
         if is_submitted or is_acknowledged or is_working or is_filled:
             execution_attempts += 1
+        if "DUPLICATE_WORKING_ORDER" in str(event.detail or ""):
+            duplicate_working_order_blocks += 1
         print(
             "[EXECUTION][SUBMIT_RESULT] "
             f"symbol={event.symbol} submitted={event.action == 'SUBMITTED'} "
@@ -1015,12 +1020,17 @@ def run_cycle(
             fill_event = str(getattr(event, "event_type", "") or "")
             event_source = str(getattr(event, "source", "IBKR_EVENT") or "IBKR_EVENT")
             if fill_event == "ORDER_FILLED" or filled_quantity > 0:
+                if fill_event == "ORDER_PARTIALLY_FILLED":
+                    print(
+                        f"[LIFECYCLE] ORDER_PARTIALLY_FILLED symbol={event.symbol} order_id={broker_order_id} "
+                        f"filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
+                    )
                 print(
                     f"[EXECUTION][FILL] symbol={event.symbol} order_id={broker_order_id} "
                     f"filled_qty={filled_quantity} remaining_qty={remaining_quantity}"
                 )
                 print(
-                    f"[LIFECYCLE][ORDER_FILLED] symbol={event.symbol} order_id={broker_order_id} "
+                    f"[LIFECYCLE] ORDER_FILLED symbol={event.symbol} order_id={broker_order_id} "
                     f"filled_qty={filled_quantity} source={event_source}"
                 )
                 symbol_key = str(event.symbol or "").upper()
@@ -1041,10 +1051,11 @@ def run_cycle(
                         existing_position["qty"] = total_qty
                         existing_position["avg_price"] = weighted_avg
                     print(
-                        f"[POSITION][OPEN] symbol={symbol_key} "
+                        f"[LIFECYCLE] POSITION_OPENED symbol={symbol_key} "
                         f"qty={int(position_book[symbol_key]['qty'])} "
                         f"price={position_book[symbol_key]['avg_price']:.4f}"
                     )
+                    pending_entries = max(0, pending_entries - 1)
         elif execution_pass:
             working_orders += 1 if event.action == "WOULD_PLACE" else 0
         print(
@@ -1089,7 +1100,12 @@ def run_cycle(
     print(f"submitted={execution_state_counts['submitted']}")
     print(f"acknowledged={execution_state_counts['acknowledged']}")
     print(f"working={execution_state_counts['working']}")
+    print(f"partial_fills={execution_state_counts['partial_fills']}")
     print(f"filled={execution_state_counts['filled']}")
+    print(f"open_positions={open_positions}")
+    print(f"pending_entries={pending_entries}")
+    print(f"duplicate_working_order_blocks={duplicate_working_order_blocks}")
+    print(f"fill_authority_state={fill_authority_state()}")
     for symbol in watchlist:
         wf = decision_waterfall[symbol]
         print(

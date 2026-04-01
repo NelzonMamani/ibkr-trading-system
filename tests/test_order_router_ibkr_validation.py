@@ -77,3 +77,47 @@ def test_mode_connection_state_logging(monkeypatch, capsys) -> None:
     assert "[EXECUTION][MODE] mode=LIVE broker_connection_state=CONNECTED" in live_out
     assert "[EXECUTION][MODE] mode=SIM broker_connection_state=DISCONNECTED" in sim_out
     assert "[EXECUTION][MODE] mode=READ_ONLY broker_connection_state=DISCONNECTED" in read_only_out
+
+
+def test_callback_registration_unavailable_surfaces_degraded_fill_authority(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
+    monkeypatch.setattr(order_router, "_validate_ibkr_connection", lambda mode: None)
+    monkeypatch.setattr(order_router, "_fetch_ibkr_truth", lambda mode: ([], [], []))
+
+    class _NoCallbackClient:
+        pass
+
+    class _Manager:
+        def get_client(self):
+            return _NoCallbackClient()
+
+        def connection_metadata(self):
+            return {"connected_client_id": 1}
+
+    monkeypatch.setattr(order_router, "get_shared_ibkr_connection_manager", lambda readonly_enabled=False: _Manager())
+    _ = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])
+    out = capsys.readouterr().out
+    assert "[EXECUTION][CALLBACK_UNAVAILABLE]" in out
+    assert "[EXECUTION][FILL_AUTHORITY_DEGRADED] reason=execution_callback_unavailable" in out
+
+
+def test_callback_registration_supported_logs_registered(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
+    monkeypatch.setattr(order_router, "_validate_ibkr_connection", lambda mode: None)
+    monkeypatch.setattr(order_router, "_fetch_ibkr_truth", lambda mode: ([], [], []))
+
+    class _CallbackClient:
+        def register_execution_callback(self, cb):
+            self.cb = cb
+
+    class _Manager:
+        def get_client(self):
+            return _CallbackClient()
+
+        def connection_metadata(self):
+            return {"connected_client_id": 1}
+
+    monkeypatch.setattr(order_router, "get_shared_ibkr_connection_manager", lambda readonly_enabled=False: _Manager())
+    _ = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])
+    out = capsys.readouterr().out
+    assert "[EXECUTION][CALLBACK_REGISTERED]" in out

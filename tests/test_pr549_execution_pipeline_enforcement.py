@@ -150,6 +150,13 @@ def test_ibkr_callbacks_emit_order_observability_logs(capsys: pytest.CaptureFixt
     client._scanner_events = {}
     client._market_update_event = threading.Event()
     client._connection_event = threading.Event()
+    client._execution_callbacks = []
+    client._open_orders_snapshot = {}
+    client._executions_snapshot = []
+    client._positions_snapshot = {}
+    client._open_orders_event = threading.Event()
+    client._executions_event = threading.Event()
+    client._positions_event = threading.Event()
 
     contract = SimpleNamespace(symbol="AAPL")
     execution = SimpleNamespace(orderId=123, execId="e-1", time="now", price=101.5, shares=5)
