@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.strategies.common.patterns.pattern_hod_break import detect_hod_break
 from src.strategies.common.patterns.pattern_opening_drive import detect_opening_drive
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
@@ -93,6 +94,9 @@ class LiquiditySweepReclaimPattern(_SimpleLongPattern):
 class HODBreakPattern(_SimpleLongPattern):
     pattern_id = "P_HOD_BREAK"
     name = "High of Day Break"
+
+    def evaluate(self, inputs: PatternInputs) -> PatternResult:
+        return detect_hod_break(inputs)
 
 
 class OpeningDrivePattern(_SimpleLongPattern):
