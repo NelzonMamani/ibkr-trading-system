@@ -760,6 +760,12 @@ def run_cycle(
     working_orders = 0
     pending_entries = 0
     position_book: dict[str, dict[str, float]] = {}
+    print(
+        "[MODE][EXECUTION_CONTEXT] "
+        f"effective_mode={mode.value} trade_enabled={mode_authority.trade_enabled} "
+        f"scan_only={mode_authority.scan_only} execution_enabled={mode_authority.execution_enabled} "
+        f"intents_present={bool(arbitrated_decisions)} intent_count={len(arbitrated_decisions)}"
+    )
     if execution_intent.scan_only:
         print("[EXECUTION] Execution stage skipped — intent scan_only.")
         execution_events = []

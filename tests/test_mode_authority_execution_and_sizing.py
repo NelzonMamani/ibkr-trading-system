@@ -159,3 +159,22 @@ def test_after_hours_preserves_paper_mode_for_lifecycle_validation(capsys) -> No
     assert "[MODE][OVERRIDE] preserving PAPER mode during AFTER_HOURS for lifecycle validation" in out
     assert "[MODE][EXECUTION_CONTEXT]" in out
     assert "effective_mode=PAPER trade_enabled=True scan_only=False" in out
+
+
+def test_execution_context_always_emitted_when_scan_only(capsys) -> None:
+    set_config_overrides(
+        {
+            "RUN_MODE": "PAPER",
+            "RUN_MODE_EFFECTIVE": "PAPER",
+            "EXECUTION_ENABLED": False,
+            "EXECUTION_ENABLED_EFFECTIVE": False,
+            "SCANNER_DATA_SOURCE": "MOCK",
+        }
+    )
+    try:
+        run_cycle(cycle_id=2, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    finally:
+        set_config_overrides(None)
+    out = capsys.readouterr().out
+    assert "[MODE][EXECUTION_CONTEXT]" in out
+    assert "execution_enabled=False" in out
