@@ -23,7 +23,7 @@ from src.core_engine.state import CycleContext, RunMode, resolve_session_state
 from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core.intent import build_execution_intent
 from src.core.mode_authority import resolve_mode_authority
-from src.execution.order_router import execute_intents, fill_authority_state
+from src.execution.order_router import execute_intents, fill_authority_state, runtime_lifecycle_snapshot
 from src.prep.premarket_prep_artifact import write_premarket_prep_artifact
 from src.prep.premarket_prep import PreMarketPrepEngine
 from src.prep.premarket_prep_artifact import (
@@ -1058,13 +1058,22 @@ def run_cycle(
                     pending_entries = max(0, pending_entries - 1)
         elif execution_pass:
             working_orders += 1 if event.action == "WOULD_PLACE" else 0
+        execution_outcome = "WORKING_NO_FILL_YET"
+        if filled_quantity > 0 and remaining_quantity > 0:
+            execution_outcome = "PARTIALLY_FILLED"
+        elif filled_quantity > 0 and remaining_quantity == 0:
+            execution_outcome = "FILLED_POSITION_OPEN"
+        elif is_acknowledged:
+            execution_outcome = "ORDER_ACKNOWLEDGED"
+        elif is_submitted:
+            execution_outcome = "ORDER_SUBMITTED"
         print(
             f"[PIPELINE][EXECUTION] symbol={event.symbol} "
-            f"executed={str(execution_pass).lower()} action={event.action}"
+            f"executed={str(execution_pass).lower()} action={event.action} outcome={execution_outcome}"
         )
         if event.action in {"SUBMITTED", "WOULD_PLACE"}:
             pipeline_outcomes[event.symbol] = TERMINAL_STATES["ORDER_SUBMITTED"]
-            decision_waterfall[event.symbol]["execution"] = "SUBMITTED"
+            decision_waterfall[event.symbol]["execution"] = execution_outcome if event.action == "SUBMITTED" else "ORDER_SUBMITTED"
             decision_waterfall[event.symbol]["execution_reason"] = event.detail
         elif event.action == "BLOCKED":
             pipeline_outcomes[event.symbol] = TERMINAL_STATES["ORDER_REJECTED"]
@@ -1090,20 +1099,27 @@ def run_cycle(
     blocked_count = sum(1 for value in pipeline_outcomes.values() if value in {"BLOCKED_BY_RISK", "BLOCKED_BY_EXECUTION_PRECHECK"})
     print(f"blocked_count={blocked_count}")
     print(f"no_setup_count={sum(1 for value in pipeline_outcomes.values() if value == 'NO_SETUP')}")
-    open_positions = sum(1 for row in position_book.values() if float(row.get("qty", 0.0)) > 0.0)
+    lifecycle_snapshot = runtime_lifecycle_snapshot()
+    open_positions = int(lifecycle_snapshot["open_position_count"])
     executed = execution_attempts
     print(
         f"[LIFECYCLE][PORTFOLIO] open_positions={open_positions} "
-        f"working_orders={working_orders} pending_entries={pending_entries}"
+        f"working_orders={lifecycle_snapshot['working_order_count']} pending_entries={lifecycle_snapshot['pending_entry_count']}"
     )
     print("[EXECUTION][SUMMARY]")
     print(f"submitted={execution_state_counts['submitted']}")
     print(f"acknowledged={execution_state_counts['acknowledged']}")
-    print(f"working={execution_state_counts['working']}")
-    print(f"partial_fills={execution_state_counts['partial_fills']}")
-    print(f"filled={execution_state_counts['filled']}")
-    print(f"open_positions={open_positions}")
-    print(f"pending_entries={pending_entries}")
+    print(f"working={lifecycle_snapshot['working_order_count']}")
+    print(f"partial_fills={lifecycle_snapshot['partially_filled_order_count']}")
+    print(f"filled={lifecycle_snapshot['fully_filled_order_count']}")
+    print(f"open_positions={lifecycle_snapshot['open_position_count']}")
+    print(f"pending_entries={lifecycle_snapshot['pending_entry_count']}")
+    print(f"partial_positions={lifecycle_snapshot['partial_position_open_count']}")
+    print(f"reducing_positions={lifecycle_snapshot['reducing_position_count']}")
+    print(f"closed_positions={lifecycle_snapshot['closed_position_count']}")
+    print(f"unmatched_callbacks={lifecycle_snapshot['unmatched_callbacks_count']}")
+    print(f"reconciled_orders={lifecycle_snapshot['reconciled_orders_count']}")
+    print(f"reconciled_positions={lifecycle_snapshot['reconciled_positions_count']}")
     print(f"duplicate_working_order_blocks={duplicate_working_order_blocks}")
     print(f"fill_authority_state={fill_authority_state()}")
     for symbol in watchlist:
@@ -1125,7 +1141,7 @@ def run_cycle(
         f"trigger_count={sum(1 for wf in decision_waterfall.values() if wf['trigger'] == 'YES')} "
         f"intent_count={sum(1 for wf in decision_waterfall.values() if wf['intent'] == 'EMITTED')} "
         f"risk_allowed_count={sum(1 for wf in decision_waterfall.values() if wf['risk'] == 'ALLOW')} "
-        f"execution_submit_count={sum(1 for wf in decision_waterfall.values() if wf['execution'] == 'SUBMITTED')} "
+        f"execution_submit_count={sum(1 for wf in decision_waterfall.values() if wf['execution'] in {'ORDER_SUBMITTED', 'ORDER_ACKNOWLEDGED', 'WORKING_NO_FILL_YET', 'PARTIALLY_FILLED', 'FILLED_POSITION_OPEN'})} "
         f"dominant_terminal_state={(terminal_counts.most_common(1)[0][0] if terminal_counts else 'NONE')} "
         f"dominant_block_reason={(block_reason_counts.most_common(1)[0][0] if block_reason_counts else 'NONE')}"
     )
