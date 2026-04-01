@@ -4,13 +4,19 @@ from __future__ import annotations
 
 from statistics import mean
 
+from src.config.setup_thresholds import MIN_RVOL_CONTINUATION, VWAP_PULLBACK_MAX_DEPTH, VWAP_TOLERANCE_PCT
+from src.strategies.common.patterns.pullback_utils import (
+    compute_impulse_range,
+    compute_pullback_depth,
+    reclaim_confirmed,
+    validate_pullback_depth,
+    validate_volume_contraction,
+)
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
-from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
+from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult, SetupSemantic
 
 _MIN_HISTORY = 6
-_MIN_RVOL = 1.2
 _MAX_SPREAD = 0.08
-_VWAP_TOLERANCE_PCT = 0.0025
 _MIN_IMPULSE_RANGE_PCT = 0.008
 
 
@@ -41,6 +47,7 @@ def detect_vwap_pullback(inputs: PatternInputs) -> PatternResult:
             confidence=0.0,
             setup_quality_tags=[],
             setup_family_id="VWAP_PULLBACK",
+            setup_semantic=SetupSemantic.CONTINUATION.value,
             rationale_text=f"Rejected: {reason}",
             rejection_reason=reason,
             data_quality_flags=list(inputs.data_quality_flags),
@@ -61,7 +68,7 @@ def detect_vwap_pullback(inputs: PatternInputs) -> PatternResult:
 
     rvol = _safe_float(inputs.liquidity_context.rvol)
     spread = _safe_float(inputs.liquidity_context.spread)
-    if rvol is None or rvol < _MIN_RVOL:
+    if rvol is None or rvol < MIN_RVOL_CONTINUATION:
         return reject("invalid_inputs")
     if spread is None or spread > _MAX_SPREAD:
         return reject("invalid_inputs")
@@ -85,7 +92,7 @@ def detect_vwap_pullback(inputs: PatternInputs) -> PatternResult:
     if not trend_ok or not prior_above_vwap:
         return reject("no_trend_context")
 
-    impulse_range = recent_high - recent_low
+    impulse_range = compute_impulse_range([recent_high], [recent_low])
     impulse_range_pct = impulse_range / max(first_close, 1e-9)
     impulse_volume = mean(float(v) for v in volumes[-6:-2])
     pullback_volume = float(volumes[-2])
@@ -95,20 +102,20 @@ def detect_vwap_pullback(inputs: PatternInputs) -> PatternResult:
     pullback_test_close = float(closes[-2])
     pullback_test_low = min(float(v) for v in lows[-2:])
     vwap_test = (
-        abs(pullback_test_close - vwap) / max(vwap, 1e-9) <= _VWAP_TOLERANCE_PCT
-        or pullback_test_low <= vwap * (1 + _VWAP_TOLERANCE_PCT)
+        abs(pullback_test_close - vwap) / max(vwap, 1e-9) <= VWAP_TOLERANCE_PCT
+        or pullback_test_low <= vwap * (1 + VWAP_TOLERANCE_PCT)
     )
     if not vwap_test:
         return reject("no_vwap_test")
 
     pullback_low = min(float(v) for v in lows[-2:])
-    pullback_depth = (recent_high - pullback_low) / max(impulse_range, 1e-9)
-    if pullback_depth > 0.65:
+    pullback_depth = compute_pullback_depth(recent_high, pullback_low, impulse_range)
+    if not validate_pullback_depth(pullback_depth, VWAP_PULLBACK_MAX_DEPTH):
         return reject("pullback_too_deep")
-    if pullback_volume >= impulse_volume:
+    if not validate_volume_contraction(pullback_volume, impulse_volume):
         return reject("selling_pressure_too_high")
 
-    reclaim = prev_close <= vwap and last_close > vwap
+    reclaim = reclaim_confirmed(prev_close, last_close, vwap)
     if not reclaim:
         return reject("no_vwap_reclaim")
 
@@ -145,6 +152,7 @@ def detect_vwap_pullback(inputs: PatternInputs) -> PatternResult:
         confidence=confidence,
         setup_quality_tags=["vwap_test", "vwap_reclaim", "continuation"],
         setup_family_id="VWAP_PULLBACK",
+        setup_semantic=SetupSemantic.CONTINUATION.value,
         rationale_text="VWAP pullback reclaimed with continuation-ready micro-structure and breakout trigger.",
         rejection_reason=None,
         data_quality_flags=list(inputs.data_quality_flags),

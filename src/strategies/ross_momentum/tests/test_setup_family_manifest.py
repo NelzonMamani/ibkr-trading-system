@@ -89,3 +89,13 @@ def test_every_trade_ready_setup_has_rejection_proof() -> None:
         if result.detected or not result.rejection_reason:
             missing.append(f"{setup_id}:{result}")
     assert not missing, f"Missing rejection proof: {missing}"
+
+
+def test_continuation_setups_publish_continuation_semantic() -> None:
+    continuation_setups = ("EMA_PULLBACK", "VWAP_PULLBACK", "TREND_CONTINUATION_STAIR_STEP")
+    for setup_id in continuation_setups:
+        pattern = CANONICAL_SETUP_REGISTRY[setup_id].pattern_cls()
+        result = pattern.evaluate(_inputs(setup_id, True))
+        assert result.detected, f"Expected detected continuation setup for {setup_id}"
+        assert result.setup_semantic == "CONTINUATION"
+        assert "continuation" in result.setup_quality_tags
