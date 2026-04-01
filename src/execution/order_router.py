@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, List
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
@@ -13,11 +13,103 @@ from src.core_engine.state import RunMode
 
 _EXECUTION_EVENT_BUFFER: dict[int, ExecutionEvent] = {}
 _FILL_AUTHORITY_STATE = "UNKNOWN"
+_RUNTIME_ORDERS: dict[int, "TrackedOrder"] = {}
+_RUNTIME_POSITIONS: dict[str, "TrackedPosition"] = {}
+_SEEN_EXEC_IDS: set[str] = set()
+_UNMATCHED_CALLBACK_COUNT = 0
+_RECONCILED_ORDERS_COUNT = 0
+_RECONCILED_POSITIONS_COUNT = 0
+
+ORDER_STATES = {
+    "PENDING_SUBMISSION",
+    "SUBMITTED",
+    "ACKNOWLEDGED",
+    "WORKING",
+    "PARTIALLY_FILLED",
+    "FILLED",
+    "CANCELLED",
+    "REJECTED",
+    "EXPIRED",
+}
+
+POSITION_STATES = {
+    "NO_POSITION",
+    "PENDING_ENTRY",
+    "PARTIAL_POSITION_OPEN",
+    "POSITION_OPEN",
+    "POSITION_REDUCING",
+    "POSITION_CLOSED",
+}
 
 
 @dataclass(frozen=True)
 class RouterAccountSnapshot:
     available_funds: float
+
+
+@dataclass
+class TrackedOrder:
+    broker_order_id: int
+    order_ref: str
+    symbol: str
+    side: str
+    total_qty: int
+    filled_qty: int = 0
+    remaining_qty: int = 0
+    avg_fill_price: float | None = None
+    broker_status: str = "UNKNOWN"
+    canonical_state: str = "PENDING_SUBMISSION"
+    first_seen_at: str = field(default_factory=lambda: _now_utc_iso())
+    last_update_at: str = field(default_factory=lambda: _now_utc_iso())
+    is_entry: bool = True
+    is_exit: bool = False
+    strategy_id: str = ""
+    setup_family: str = ""
+    seen_exec_ids: set[str] = field(default_factory=set)
+
+
+@dataclass
+class TrackedPosition:
+    symbol: str
+    qty: int = 0
+    avg_price: float | None = None
+    pending_entry_qty: int = 0
+    pending_exit_qty: int = 0
+    state: str = "NO_POSITION"
+
+
+def runtime_lifecycle_snapshot() -> dict[str, int | str]:
+    working = 0
+    partial = 0
+    filled = 0
+    pending_entries = 0
+    for row in _RUNTIME_ORDERS.values():
+        if row.canonical_state in {"SUBMITTED", "ACKNOWLEDGED", "WORKING", "PARTIALLY_FILLED"} and row.remaining_qty > 0:
+            working += 1
+        if row.canonical_state == "PARTIALLY_FILLED":
+            partial += 1
+        if row.canonical_state == "FILLED":
+            filled += 1
+        if row.is_entry and row.remaining_qty > 0 and row.canonical_state in {"WORKING", "PARTIALLY_FILLED", "SUBMITTED", "ACKNOWLEDGED"}:
+            pending_entries += 1
+    open_positions = sum(1 for p in _RUNTIME_POSITIONS.values() if p.qty > 0)
+    partial_positions = sum(1 for p in _RUNTIME_POSITIONS.values() if p.state == "PARTIAL_POSITION_OPEN")
+    reducing_positions = sum(1 for p in _RUNTIME_POSITIONS.values() if p.state == "POSITION_REDUCING")
+    closed_positions = sum(1 for p in _RUNTIME_POSITIONS.values() if p.state == "POSITION_CLOSED")
+    return {
+        "working_order_count": working,
+        "partially_filled_order_count": partial,
+        "fully_filled_order_count": filled,
+        "pending_entry_count": pending_entries,
+        "partial_position_open_count": partial_positions,
+        "open_position_count": open_positions,
+        "reducing_position_count": reducing_positions,
+        "closed_position_count": closed_positions,
+        "unmatched_callbacks_count": _UNMATCHED_CALLBACK_COUNT,
+        "reconciled_orders_count": _RECONCILED_ORDERS_COUNT,
+        "reconciled_positions_count": _RECONCILED_POSITIONS_COUNT,
+        "fill_authority_state": fill_authority_state(),
+    }
 
 
 def _now_utc_iso() -> str:
@@ -194,7 +286,119 @@ def _extract_callback_timestamp(callback_payload: Any) -> str:
     return _now_utc_iso()
 
 
+def _state_from_broker_status(status: str, filled_qty: int, remaining_qty: int) -> str:
+    status_norm = str(status or "").upper()
+    if status_norm in {"CANCELLED", "CANCELED", "API_CANCELLED"}:
+        return "CANCELLED"
+    if status_norm in {"INACTIVE", "REJECTED"}:
+        return "REJECTED"
+    if status_norm == "EXPIRED":
+        return "EXPIRED"
+    if filled_qty > 0 and remaining_qty > 0:
+        return "PARTIALLY_FILLED"
+    if filled_qty > 0 and remaining_qty <= 0:
+        return "FILLED"
+    if status_norm in {"SUBMITTED", "PRESUBMITTED"}:
+        return "WORKING"
+    if status_norm in {"ACKNOWLEDGED"}:
+        return "ACKNOWLEDGED"
+    return "SUBMITTED"
+
+
+def _apply_position_fill(symbol: str, *, signed_delta_qty: int, fill_price: float | None, pending_entry_delta: int = 0, pending_exit_delta: int = 0) -> None:
+    if not symbol:
+        return
+    row = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
+    row.qty = int(row.qty) + int(signed_delta_qty)
+    row.pending_entry_qty = max(0, int(row.pending_entry_qty) + int(pending_entry_delta))
+    row.pending_exit_qty = max(0, int(row.pending_exit_qty) + int(pending_exit_delta))
+    if fill_price is not None and signed_delta_qty > 0:
+        prev_qty = max(0, int(row.qty) - int(signed_delta_qty))
+        prev_avg = float(row.avg_price or 0.0)
+        total_qty = prev_qty + int(signed_delta_qty)
+        row.avg_price = ((prev_qty * prev_avg) + (int(signed_delta_qty) * float(fill_price))) / total_qty if total_qty > 0 else row.avg_price
+    if row.qty <= 0:
+        row.qty = 0
+        row.state = "POSITION_CLOSED"
+    elif row.pending_exit_qty > 0:
+        row.state = "POSITION_REDUCING"
+    elif row.pending_entry_qty > 0:
+        row.state = "PARTIAL_POSITION_OPEN"
+    else:
+        row.state = "POSITION_OPEN"
+    print(f"[LIFECYCLE][POSITION] symbol={symbol} qty={row.qty} pending_entry={row.pending_entry_qty} pending_exit={row.pending_exit_qty} state={row.state}")
+
+
+def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, total_qty: int, order_ref: str) -> TrackedOrder:
+    row = _RUNTIME_ORDERS.get(order_id)
+    if row is None:
+        row = TrackedOrder(
+            broker_order_id=order_id,
+            order_ref=order_ref,
+            symbol=symbol,
+            side=side,
+            total_qty=max(0, int(total_qty)),
+            remaining_qty=max(0, int(total_qty)),
+            broker_status="Submitted",
+            canonical_state="SUBMITTED",
+            last_update_at=_now_utc_iso(),
+        )
+        _RUNTIME_ORDERS[order_id] = row
+    else:
+        row.last_update_at = _now_utc_iso()
+        row.broker_status = "Submitted"
+        row.canonical_state = "SUBMITTED"
+    pos = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
+    normalized_side = str(side or "").upper()
+    row.is_exit = normalized_side == "SELL" and pos.qty > 0
+    row.is_entry = not row.is_exit
+    if row.is_exit:
+        pos.pending_exit_qty = max(0, pos.pending_exit_qty + int(total_qty))
+    else:
+        pos.pending_entry_qty = max(0, pos.pending_entry_qty + int(total_qty))
+    if pos.qty <= 0:
+        pos.state = "PENDING_ENTRY"
+    print(f"[LIFECYCLE][ORDER] order_id={order_id} symbol={symbol} state={row.canonical_state} filled={row.filled_qty} remaining={row.remaining_qty}")
+    return row
+
+
+def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, fill_price: float | None, exec_id: str | None, timestamp: str, source: str) -> None:
+    global _UNMATCHED_CALLBACK_COUNT
+    row = _RUNTIME_ORDERS.get(order_id)
+    if row is None:
+        _UNMATCHED_CALLBACK_COUNT += 1
+        print(f"[ORDER_EVENT][UNMATCHED] event=EXECUTION order_id={order_id} symbol={symbol} source={source}")
+        return
+    if exec_id:
+        dedupe_key = f"{order_id}:{exec_id}"
+        if dedupe_key in _SEEN_EXEC_IDS or exec_id in row.seen_exec_ids:
+            print(f"[ORDER_EVENT][EXECUTION] order_id={order_id} exec_id={exec_id} deduped=true")
+            return
+        _SEEN_EXEC_IDS.add(dedupe_key)
+        row.seen_exec_ids.add(exec_id)
+    inc = max(0, int(fill_qty))
+    if inc <= 0:
+        return
+    prev_filled = row.filled_qty
+    row.filled_qty = min(row.total_qty, row.filled_qty + inc)
+    row.remaining_qty = max(0, row.total_qty - row.filled_qty)
+    if fill_price is not None:
+        prev_qty = prev_filled
+        prev_avg = float(row.avg_fill_price or 0.0)
+        row.avg_fill_price = ((prev_qty * prev_avg) + (inc * float(fill_price))) / max(1, prev_qty + inc)
+    old_state = row.canonical_state
+    row.canonical_state = "FILLED" if row.remaining_qty == 0 else "PARTIALLY_FILLED"
+    row.broker_status = "Filled" if row.canonical_state == "FILLED" else "Submitted"
+    row.last_update_at = timestamp
+    print(f"[ORDER_EVENT][EXECUTION] order_id={order_id} symbol={row.symbol} fill_inc={inc} filled={row.filled_qty} remaining={row.remaining_qty} exec_id={exec_id or 'NA'}")
+    if old_state != row.canonical_state:
+        print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
+    signed = inc if row.is_entry else -inc
+    _apply_position_fill(row.symbol, signed_delta_qty=signed, fill_price=fill_price, pending_entry_delta=(-inc if row.is_entry else 0), pending_exit_delta=(-inc if row.is_exit else 0))
+
+
 def _on_ibkr_callback(callback_payload: Any) -> None:
+    global _UNMATCHED_CALLBACK_COUNT
     event_type = str(_extract_callback_field(callback_payload, "event_type") or "").lower()
     if event_type and event_type not in {"execdetails", "orderstatus", "commissionreport"}:
         return
@@ -208,6 +412,8 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         f"symbol={symbol or 'UNKNOWN'} order_id={order_id} filled_qty={filled_qty} fill_price={fill_price} timestamp={timestamp}"
     )
     if order_id is None:
+        _UNMATCHED_CALLBACK_COUNT += 1
+        print("[ORDER_EVENT][UNMATCHED] event=CALLBACK reason=missing_order_id")
         return
     event_status = str(_extract_callback_field(callback_payload, "status") or "").upper()
     remaining_qty = _extract_callback_field(callback_payload, "remaining")
@@ -237,6 +443,32 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         last_update_time=timestamp,
     )
     _EXECUTION_EVENT_BUFFER[order_id] = event
+    if event_type == "execdetails":
+        exec_id = _extract_callback_field(callback_payload, "execId")
+        _apply_fill_to_tracked_order(
+            order_id=order_id,
+            symbol=symbol,
+            fill_qty=filled_qty,
+            fill_price=fill_price,
+            exec_id=str(exec_id) if exec_id else None,
+            timestamp=timestamp,
+            source="CALLBACK_EXECDETAILS",
+        )
+    elif event_type == "orderstatus":
+        row = _RUNTIME_ORDERS.get(order_id)
+        if row is None:
+            _UNMATCHED_CALLBACK_COUNT += 1
+            print(f"[ORDER_EVENT][UNMATCHED] event=STATUS order_id={order_id} symbol={symbol}")
+        else:
+            old_state = row.canonical_state
+            row.broker_status = event_status or row.broker_status
+            row.filled_qty = max(row.filled_qty, filled_qty)
+            row.remaining_qty = remaining_int if remaining_int >= 0 else row.remaining_qty
+            row.canonical_state = _state_from_broker_status(row.broker_status, row.filled_qty, row.remaining_qty)
+            row.last_update_at = timestamp
+            print(f"[ORDER_EVENT][STATUS] order_id={order_id} symbol={row.symbol} status={row.broker_status} filled={row.filled_qty} remaining={row.remaining_qty}")
+            if old_state != row.canonical_state:
+                print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
     print(
         "[EXECUTION][EVENT_CREATED] "
         f"event_type={event.event_type} source={event.source} symbol={event.symbol} "
@@ -286,6 +518,7 @@ def _sync_submitted_events_from_ibkr(
     mode: RunMode,
     events: List[ExecutionEvent],
 ) -> List[ExecutionEvent]:
+    global _RECONCILED_ORDERS_COUNT, _RECONCILED_POSITIONS_COUNT
     if not events:
         return events
     open_orders, executions, positions = _fetch_ibkr_truth(mode)
@@ -320,6 +553,16 @@ def _sync_submitted_events_from_ibkr(
             f"symbol={event.symbol} order_id={event.broker_order_id} qty={event.filled_quantity} "
             f"price={event.avg_fill_price if event.avg_fill_price is not None else 'UNKNOWN'}"
         )
+        _apply_fill_to_tracked_order(
+            order_id=int(event.broker_order_id),
+            symbol=str(event.symbol or "").upper(),
+            fill_qty=max(0, matched_qty),
+            fill_price=event.avg_fill_price,
+            exec_id=None,
+            timestamp=event.last_update_time or _now_utc_iso(),
+            source="BROKER_RECON_EXECUTIONS",
+        )
+        _RECONCILED_ORDERS_COUNT += 1
         for position in positions:
             symbol = str(getattr(position, "symbol", "") or "").upper()
             if symbol != str(event.symbol or "").upper():
@@ -327,7 +570,15 @@ def _sync_submitted_events_from_ibkr(
             qty = int(getattr(position, "position", 0) or 0)
             avg = getattr(position, "avgCost", None)
             print(f"[POSITION][OPEN] symbol={symbol} qty={qty} avg_price={avg}")
+            tracked = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
+            if tracked.qty != qty:
+                print(f"[POSITION][DRIFT] symbol={symbol} local_qty={tracked.qty} broker_qty={qty}")
+                tracked.qty = qty
+                tracked.state = "POSITION_CLOSED" if qty == 0 else "POSITION_OPEN"
+                print(f"[POSITION][REPAIRED] symbol={symbol} qty={tracked.qty} state={tracked.state}")
+            _RECONCILED_POSITIONS_COUNT += 1
             break
+    print(f"[EXECUTION][RECON_VERDICT] reconciled_orders={_RECONCILED_ORDERS_COUNT} reconciled_positions={_RECONCILED_POSITIONS_COUNT}")
     return events
 
 
@@ -550,6 +801,13 @@ def execute_intents(
         if action == "SUBMITTED":
             broker_order_id = order_id_seed + index if order_id_seed > 0 else index
             print(f"[EXECUTION][SUBMITTED] symbol={decision.symbol} broker_order_id={broker_order_id}")
+            _upsert_order_from_submission(
+                order_id=broker_order_id,
+                symbol=str(decision.symbol or "").upper(),
+                side=order_side,
+                total_qty=quantity,
+                order_ref=str(decision.intent_id or ""),
+            )
         events.append(
             ExecutionEvent(
                 symbol=decision.symbol,
