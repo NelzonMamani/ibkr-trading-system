@@ -546,7 +546,7 @@ def run_cycle(
             setup_detected = best_name not in {"NONE", ""}
             trigger_ready_now = setup_detected and best_conf >= 0.20
             setup_family = best_name if setup_detected else "NONE"
-            trigger_type = "CONFIDENCE_GATE" if setup_detected else "NONE"
+            trigger_type = "BREAKOUT_HIGH" if setup_detected else "NONE"
             symbol_setup_family[symbol] = setup_family
             symbol_trigger_type[symbol] = trigger_type
             if not setup_detected:

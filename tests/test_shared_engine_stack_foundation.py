@@ -140,3 +140,24 @@ def test_trigger_engine_ignores_setups_that_are_not_detected() -> None:
     )
 
     assert triggers == []
+
+
+def test_trigger_engine_never_emits_confidence_gate_trigger_type() -> None:
+    candles = _candles(count=6)
+    triggers = TriggerEngine().evaluate_triggers(
+        symbol="STACK",
+        candles=candles,
+        setups=[
+            {
+                "setup_family_id": "HOD_BREAK",
+                "setup_name": "High Of Day Break",
+                "required_trigger_types": ["CONFIDENCE_GATE"],
+                "trigger_level": candles[-1]["close"] - 0.01,
+                "setup_detected": True,
+            }
+        ],
+        levels={"hod": candles[-1]["close"] - 0.01},
+        structure={},
+    )
+    assert triggers
+    assert triggers[0]["trigger_type"] != "CONFIDENCE_GATE"

@@ -7,6 +7,7 @@ class SetupEngine:
     """Shared setup engine translating level + structure context into setup candidates."""
 
     _ROUNDING = 6
+    _DEFAULT_TRIGGER_TYPE = "BREAKOUT_HIGH"
 
     def compute_setups(
         self,
@@ -293,6 +294,14 @@ class SetupEngine:
     ) -> dict | None:
         if not condition:
             return None
+        required_trigger_types = [
+            str(t).upper()
+            for t in trigger_types
+            if str(t).upper() != "CONFIDENCE_GATE"
+        ]
+        if not required_trigger_types:
+            required_trigger_types = [self._DEFAULT_TRIGGER_TYPE]
+
         setup = {
             "setup_family_id": family,
             "setup_family": family,
@@ -305,7 +314,7 @@ class SetupEngine:
             "blocking_flags": sorted(set(str(flag) for flag in blocking_flags if flag)),
             "invalidation_anchor": invalidation_anchor,
             "invalidation_level": self._resolve_invalidation_level(invalidation_anchor=invalidation_anchor, levels=levels),
-            "required_trigger_types": [str(t).upper() for t in trigger_types],
+            "required_trigger_types": required_trigger_types,
             # backward compatibility fields expected by some existing consumers
             "context": "continuation" if "PULLBACK" in family or "RECLAIM" in family else "breakout",
             "trigger_level": self._primary_trigger_level(family=family, levels=levels),
