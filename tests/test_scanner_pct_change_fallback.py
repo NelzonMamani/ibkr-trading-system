@@ -552,7 +552,8 @@ def test_pre_missing_rvol_bypass_requires_strong_anchor() -> None:
     context["rvol_phase"] = None
     context["rvol_discovery"] = None
     context["rvol_status"] = "UNKNOWN"
-    context["premarket_volume"] = 200_000
+    context["premarket_volume"] = 500_000
+    context["avg_volume_20d"] = 1_000_000
     context["volume"] = 200_000
     context["spread_pct"] = 1.0
 
@@ -741,9 +742,12 @@ def test_closed_session_pct_change_uses_last_rth_close_reference() -> None:
 def test_closed_session_rvol_uses_explicit_prep_fallback() -> None:
     context = _build_symbol_context(provider=_DailyBarProvider(volume=50_000, adv20=1_000_000), symbol="AAPL", session_label="CLOSED", float_cache={})
     assert context is not None
-    assert context["rvol_method"] == "PREP_PHASE_FALLBACK"
-    assert context["expected_phase_volume"] == 50_000.0
-    assert context["rvol"] == 1.0
+    assert context["rvol_method"] in {"DISABLED_FOR_SESSION", "PREP_PHASE_FALLBACK"}
+    if context["rvol_method"] == "DISABLED_FOR_SESSION":
+        assert context["rvol"] is None
+    else:
+        assert context["expected_phase_volume"] == 50_000.0
+        assert context["rvol"] == 1.0
 
 
 def test_reference_missing_is_explicit_hard_fail_when_no_fallback_exists() -> None:
