@@ -69,6 +69,10 @@ class DecisionEngine:
 
         scored_candidates: list[dict] = []
         rejected_candidates: list[dict] = []
+        risk_off_present = any(
+            item.get("detected") and (item.get("signal_class") == "RISK_OFF" or item.get("setup_family") == "PARABOLIC_EXHAUSTION")
+            for item in normalized_candidates
+        )
 
         for candidate in normalized_candidates:
             if not candidate["detected"]:
@@ -83,6 +87,12 @@ class DecisionEngine:
                     f"symbol={symbol} reason=PARABOLIC_EXHAUSTION"
                 )
                 rejected_candidates.append(self._reject(candidate, "parabolic_exhaustion_non_entry"))
+                continue
+            if risk_off_present:
+                rejected_candidates.append(self._reject(candidate, "risk_off_suppression_active"))
+                continue
+            if candidate["signal_class"] == "RISK_OFF":
+                rejected_candidates.append(self._reject(candidate, "risk_off_signal_non_entry"))
                 continue
             if candidate["non_entry"]:
                 rejected_candidates.append(self._reject(candidate, "non_entry_signal"))
@@ -296,6 +306,8 @@ class DecisionEngine:
         risk_flags = self._normalize_list(self._get_first(item, "risk_flags", default=[]))
         tags = self._normalize_list(self._get_first(item, "tags", default=[]))
         non_entry_flag = bool(self._get_first(item, "non_entry_signal", default=False))
+        signal_class = self._to_text(self._get_first(item, "signal_class"))
+        trigger_mode = self._to_text(self._get_first(item, "trigger_mode"))
 
         candidate = {
             "pattern_id": pattern_id,
@@ -310,6 +322,8 @@ class DecisionEngine:
             "session_valid": self._get_first(item, "session_valid", default=True),
             "setup_family": setup_family,
             "non_entry": non_entry_flag or self._is_non_entry(tags=tags, risk_flags=risk_flags, reason=rejection_reason),
+            "signal_class": signal_class,
+            "trigger_mode": trigger_mode,
             "is_fallback": pattern_id.startswith("FALLBACK_"),
         }
         return candidate

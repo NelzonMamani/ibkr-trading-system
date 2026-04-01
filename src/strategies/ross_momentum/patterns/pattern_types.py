@@ -48,6 +48,8 @@ class PatternResult:
     stop_level: Optional[float] = None
     invalidation_level: Optional[float] = None
     non_entry_signal: bool = False
+    signal_class: Optional[str] = None
+    trigger_mode: Optional[str] = None
     anchor_a_price: Optional[float] = None
     anchor_b_price: Optional[float] = None
     anchor_c_price: Optional[float] = None
