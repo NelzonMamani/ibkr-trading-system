@@ -624,16 +624,15 @@ class IbkrOrderSubmitter:
         )
 
     def _log_translation(self, contract, order) -> None:
-        self._log(
-            f"[TRANSLATED] Contract symbol={getattr(contract, 'symbol', None)} "
-            f"exchange={getattr(contract, 'exchange', None)} currency={getattr(contract, 'currency', None)} "
-            f"secType={getattr(contract, 'secType', None)}"
-        )
         order_log = (
-            f"[TRANSLATED] Order action={getattr(order, 'action', None)} "
+            f"[TRANSLATED][VALIDATED] symbol={getattr(contract, 'symbol', None)} "
+            f"action={getattr(order, 'action', None)} "
             f"orderType={getattr(order, 'orderType', None)} "
-            f"totalQuantity={getattr(order, 'totalQuantity', None)} "
-            f"tif={getattr(order, 'tif', None)}"
+            f"tif={getattr(order, 'tif', None)} "
+            f"qty={getattr(order, 'totalQuantity', None)} "
+            f"exchange={getattr(contract, 'exchange', None)} "
+            f"currency={getattr(contract, 'currency', None)} "
+            f"secType={getattr(contract, 'secType', None)}"
         )
         lmt_price = getattr(order, "lmtPrice", None)
         if lmt_price is not None:
