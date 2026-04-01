@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from src.strategies.common.patterns.pattern_hod_break import detect_hod_break
 from src.strategies.common.patterns.pattern_opening_drive import detect_opening_drive
+from src.strategies.common.patterns.pattern_trend_continuation_stair_step import (
+    detect_trend_continuation_stair_step,
+)
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
@@ -78,6 +81,9 @@ class ThreeBarPullbackPattern(_SimpleLongPattern):
 class TrendContinuationStairStepPattern(_SimpleLongPattern):
     pattern_id = "P_TREND_CONTINUATION_STAIR_STEP"
     name = "Trend Continuation (Stair-Step)"
+
+    def evaluate(self, inputs: PatternInputs) -> PatternResult:
+        return detect_trend_continuation_stair_step(inputs)
 
 
 class SecondPullbackPattern(_SimpleLongPattern):
