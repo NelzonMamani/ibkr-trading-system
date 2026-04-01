@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from src.strategies.common.triggers.trigger_abcd_continuation import evaluate_abcd_continuation_trigger
 from src.strategies.common.triggers.trigger_first_pullback import evaluate_first_pullback_trigger
 from src.strategies.common.triggers.trigger_flat_top_breakout import evaluate_flat_top_breakout_trigger
 from src.strategies.common.triggers.trigger_micro_pullback import evaluate_micro_pullback_trigger
@@ -17,6 +18,7 @@ TRIGGER_EVALUATOR_REGISTRY: dict[str, TriggerEvaluator] = {
     "FIRST_PULLBACK": evaluate_first_pullback_trigger,
     "MICRO_PULLBACK": evaluate_micro_pullback_trigger,
     "FLAT_TOP_BREAKOUT": evaluate_flat_top_breakout_trigger,
+    "ABCD": evaluate_abcd_continuation_trigger,
 }
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 
 
 class PatternFamily(str, Enum):
@@ -47,6 +47,17 @@ class PatternResult:
     stop_level: Optional[float] = None
     invalidation_level: Optional[float] = None
     non_entry_signal: bool = False
+    anchor_a_price: Optional[float] = None
+    anchor_b_price: Optional[float] = None
+    anchor_c_price: Optional[float] = None
+    anchor_a_index: Optional[int] = None
+    anchor_b_index: Optional[int] = None
+    anchor_c_index: Optional[int] = None
+    ab_length: Optional[float] = None
+    retracement_pct: Optional[float] = None
+    d_projection: Optional[float] = None
+    risk_reference_level: Optional[float] = None
+    setup_metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.setup_family_id is None:
