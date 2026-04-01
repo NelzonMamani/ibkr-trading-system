@@ -10,6 +10,7 @@ from src.setup_engine.setup_families.key_level_helpers import (
     nearest_relevant_key_level,
 )
 from src.strategies.common.patterns.pattern_cup_handle import detect_cup_handle
+from src.strategies.common.patterns.pattern_parabolic_exhaustion import detect_parabolic_exhaustion
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
@@ -542,37 +543,11 @@ class HaltResumePattern(PatternBase):
 class ParabolicExhaustionPattern(PatternBase):
     pattern_id = "P_PARABOLIC_EXHAUSTION"
     name = "Parabolic Exhaustion"
-    family = PatternFamily.REVERSAL
-    direction_bias = Direction.SHORT
+    family = PatternFamily.EXHAUSTION
+    direction_bias = Direction.LONG
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
-        candles = inputs.candles
-        if len(candles) < 6:
-            return self._rejected("insufficient candles", inputs)
-        recent = candles[-6:]
-        gains = [c.close - c.open for c in recent[:-1]]
-        if not all(g > 0 for g in gains):
-            return self._rejected("not a sustained parabolic leg", inputs)
-        acceleration = gains[-1] / max(gains[0], 1e-9)
-        last = recent[-1]
-        wick_ratio = (last.high - max(last.open, last.close)) / max(last.high - last.low, 1e-9)
-        vol_spike = last.volume >= _avg_volume(candles, lookback=6) * 1.6
-        if acceleration < 1.8 or wick_ratio < 0.45 or not vol_spike:
-            return self._rejected("missing exhaustion signatures", inputs)
-        return self._detected(
-            inputs,
-            direction=Direction.SHORT,
-            confidence=0.73,
-            rationale=(
-                "Parabolic run shows climactic volume and upper-wick rejection at extension.\n"
-                f"Acceleration={acceleration:.2f}, wick_ratio={wick_ratio:.2f}."
-            ),
-            entry_zone="Break below exhaustion candle low",
-            stop_suggestion="Above exhaustion high",
-            target_suggestion="VWAP/EMA mean reversion",
-            setup_quality_tags=["parabolic", "volume_climax", "rejection_wick"],
-            risk_flags=["EXHAUSTION_REVERSAL"],
-        )
+        return detect_parabolic_exhaustion(inputs)
 
 
 class KeyLevelBreakPattern(PatternBase):

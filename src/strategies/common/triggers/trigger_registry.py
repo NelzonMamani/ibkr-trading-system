@@ -13,6 +13,7 @@ from src.strategies.common.triggers.trigger_micro_pullback import evaluate_micro
 from src.strategies.common.triggers.trigger_momentum_reclaim import evaluate_momentum_reclaim_trigger
 from src.strategies.common.triggers.trigger_opening_drive import evaluate_opening_drive_trigger
 from src.strategies.common.triggers.trigger_orb import evaluate_orb_trigger
+from src.strategies.common.triggers.trigger_parabolic_exhaustion import evaluate_parabolic_exhaustion_trigger
 from src.strategies.common.triggers.trigger_premarket_high_break import evaluate_premarket_high_break_trigger
 
 TriggerEvaluator = Callable[[dict, dict], dict]
@@ -29,6 +30,7 @@ TRIGGER_EVALUATOR_REGISTRY: dict[str, TriggerEvaluator] = {
     "ABCD": evaluate_abcd_continuation_trigger,
     "CUP_HANDLE": evaluate_cup_handle_trigger,
     "MOMENTUM_RECLAIM": evaluate_momentum_reclaim_trigger,
+    "PARABOLIC_EXHAUSTION": evaluate_parabolic_exhaustion_trigger,
 }
 
 

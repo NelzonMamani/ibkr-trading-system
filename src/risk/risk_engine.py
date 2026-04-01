@@ -639,6 +639,29 @@ class RiskEngine:
                     rationale="Maximum lifecycle position count reached.",
                 )
 
+        setup_family_id = str(getattr(trade_intent, "setup_family_id", "") or "").upper()
+        if setup_family_id == "PARABOLIC_EXHAUSTION":
+            print(f"[RISK][EXHAUSTION_SUPPRESSION] symbol={trade_intent.symbol} action=BLOCK_NEW_LONGS_PYRAMID")
+            decision = RiskDecision(
+                symbol=trade_intent.symbol,
+                allowed=False,
+                max_position_size=0,
+                risk_level="BLOCKED",
+                rationale="Parabolic exhaustion active: block new longs and pyramiding.",
+                trader_type=trade_intent.trader_type,
+                strategy_name=trade_intent.strategy_name,
+                direction=trade_intent.direction,
+                reason_code="PARABOLIC_EXHAUSTION_SUPPRESSION",
+                overall_action="BLOCK",
+                decision_code="REJECT",
+                risk_reasons=["PARABOLIC_EXHAUSTION_SUPPRESSION"],
+                execution_blocked=True,
+                run_mode=run_mode.value,
+                evaluated_limits=evaluated_limits,
+                timestamp=timestamp,
+            )
+            return self._finalize_decision(decision, decision_id)
+
         if getattr(trade_intent, "force_execute", False):
             print(f"[RISK][BYPASS] symbol={trade_intent.symbol}")
             decision = RiskDecision(
