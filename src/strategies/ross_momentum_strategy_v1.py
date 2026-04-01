@@ -50,6 +50,7 @@ class RossMomentumStrategyV1(BaseStrategy):
     _SETUP_FAMILY_ALIASES: dict[str, str] = {
         "P_GAP_GO": "GAP_GO",
         "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
+        "P_PREMARKET_HIGH_BREAK": "PREMARKET_HIGH_BREAK",
         "P_HOD_BREAK": "HOD_BREAK",
         "P_FIRST_PULLBACK": "FIRST_PULLBACK",
         "ORB": "OPENING_RANGE_BREAKOUT",
@@ -1715,6 +1716,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             "P_GAP_GO": "GAP_GO",
             "P_ORB": "OPENING_RANGE_BREAKOUT",
             "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
+            "P_PREMARKET_HIGH_BREAK": "PREMARKET_HIGH_BREAK",
             "P_OPENING_DRIVE": "OPENING_DRIVE",
             "P_HOD_BREAK": "HOD_BREAK",
             "P_FIRST_PULLBACK": "FIRST_PULLBACK",
@@ -1927,8 +1929,8 @@ class RossMomentumStrategyV1(BaseStrategy):
             stop = trigger_payload.get("stop_level")
 
         pattern_id = str(getattr(pattern, "pattern_id", "") or "").upper()
-        if (entry is None or stop is None) and pattern_id in {"P_HOD_BREAK", "P_PREMKT_BREAK", "S_HOD_BREAK", "S_PREMARKET_HIGH_BREAK"}:
-            if pattern_id in {"P_PREMKT_BREAK", "S_PREMARKET_HIGH_BREAK"}:
+        if (entry is None or stop is None) and pattern_id in {"P_HOD_BREAK", "P_PREMKT_BREAK", "P_PREMARKET_HIGH_BREAK", "S_HOD_BREAK", "S_PREMARKET_HIGH_BREAK"}:
+            if pattern_id in {"P_PREMKT_BREAK", "P_PREMARKET_HIGH_BREAK", "S_PREMARKET_HIGH_BREAK"}:
                 entry = entry if entry is not None else getattr(levels, "premarket_high", None)
                 stop = stop if stop is not None else getattr(levels, "premarket_low", None)
                 if stop is None:
