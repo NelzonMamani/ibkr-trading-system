@@ -211,7 +211,7 @@ def test_execute_intents_syncs_fill_from_ibkr_truth(monkeypatch, capsys) -> None
     assert events[0].avg_fill_price == 25.5
     assert events[0].broker_status == "Filled"
     assert events[0].last_update_time is not None
-    assert "[EXECUTION][FILL] symbol=MCRO qty=10 price=25.5" in out
+    assert "[ORDER][FILL] symbol=MCRO order_id=1 qty=10 price=25.5" in out
 
 
 def test_execute_intents_blocks_duplicate_symbol_using_ibkr_truth(monkeypatch, capsys) -> None:
@@ -242,8 +242,8 @@ def test_execute_intents_blocks_duplicate_symbol_using_ibkr_truth(monkeypatch, c
     )
     out = capsys.readouterr().out
     assert events[0].action == "BLOCKED"
-    assert events[0].detail == "reason=DUPLICATE_PROTECTION"
-    assert "[EXECUTION][BLOCK] symbol=MCRO reason=DUPLICATE_PROTECTION" in out
+    assert events[0].detail == "reason=DUPLICATE_POSITION"
+    assert "[EXECUTION][BLOCK] symbol=MCRO reason=DUPLICATE_POSITION" in out
 
 
 def test_ibkr_callback_creates_order_filled_event(monkeypatch, capsys) -> None:
@@ -281,11 +281,19 @@ def test_ibkr_callback_creates_order_filled_event(monkeypatch, capsys) -> None:
     assert events[0].filled_quantity == 10
     assert "[EXECUTION][CALLBACK_RECEIVED]" in out
 
+def test_execute_intents_blocks_duplicate_working_order_using_reconciliation(monkeypatch, capsys) -> None:
+    class _Order:
+        action = "BUY"
+        orderRef = "TRADING_OS|ROSS_MOMENTUM|MCRO-1"
 
-def test_paper_mode_can_emit_test_fill_fallback(monkeypatch, capsys) -> None:
-    monkeypatch.setattr("src.execution.order_router._fetch_ibkr_truth", lambda _mode: ([], [], []))
-    monkeypatch.setenv("IBKR_ENABLE_TEST_ONLY_FILL", "true")
-    monkeypatch.setenv("IBKR_TEST_FILL_TIMEOUT_SECONDS", "0")
+    class _OpenOrder:
+        symbol = "MCRO"
+        order = _Order()
+
+    monkeypatch.setattr(
+        "src.execution.order_router._fetch_ibkr_truth",
+        lambda _mode: ([_OpenOrder()], [], []),
+    )
     events = execute_intents(
         mode=RunMode.PAPER,
         decisions=[
@@ -303,10 +311,6 @@ def test_paper_mode_can_emit_test_fill_fallback(monkeypatch, capsys) -> None:
         ],
     )
     out = capsys.readouterr().out
-    assert events[0].source in {"TEST_FILL", "IBKR_ORDER_STATUS", "IBKR_EXECUTION", "IBKR_RESYNC"}
-    if events[0].source == "TEST_FILL":
-        assert events[0].event_type == "ORDER_FILLED"
-        assert events[0].filled_quantity == 10
-        assert "[EXECUTION][EVENT_CREATED] event_type=ORDER_FILLED source=TEST_FILL" in out
-    else:
-        _assert_broker_truth_lifecycle(events[0])
+    assert events[0].action == "BLOCKED"
+    assert events[0].detail == "reason=DUPLICATE_WORKING_ORDER"
+    assert "[EXECUTION][DUPLICATE_WORKING_ORDER_BLOCK] symbol=MCRO reason=DUPLICATE_WORKING_ORDER" in out

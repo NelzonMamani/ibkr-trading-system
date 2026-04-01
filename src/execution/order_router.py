@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any, List
@@ -13,6 +12,7 @@ from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
 from src.core_engine.state import RunMode
 
 _EXECUTION_EVENT_BUFFER: dict[int, ExecutionEvent] = {}
+_FILL_AUTHORITY_STATE = "UNKNOWN"
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,10 @@ class RouterAccountSnapshot:
 
 def _now_utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def fill_authority_state() -> str:
+    return _FILL_AUTHORITY_STATE
 
 
 def _safe_list_call(obj: Any, method_name: str) -> list[Any]:
@@ -191,6 +195,9 @@ def _extract_callback_timestamp(callback_payload: Any) -> str:
 
 
 def _on_ibkr_callback(callback_payload: Any) -> None:
+    event_type = str(_extract_callback_field(callback_payload, "event_type") or "").lower()
+    if event_type and event_type not in {"execdetails", "orderstatus", "commissionreport"}:
+        return
     order_id = _extract_callback_order_id(callback_payload)
     symbol = _extract_callback_symbol(callback_payload)
     filled_qty = _extract_callback_filled_qty(callback_payload)
@@ -202,17 +209,30 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     )
     if order_id is None:
         return
+    event_status = str(_extract_callback_field(callback_payload, "status") or "").upper()
+    remaining_qty = _extract_callback_field(callback_payload, "remaining")
+    try:
+        remaining_int = int(float(remaining_qty)) if remaining_qty is not None else 0
+    except (TypeError, ValueError):
+        remaining_int = 0
+    if event_type == "orderstatus" and filled_qty > 0 and remaining_int > 0:
+        fill_event_type = "ORDER_PARTIALLY_FILLED"
+    else:
+        fill_event_type = "ORDER_FILLED" if filled_qty > 0 else "ORDER_WORKING"
+    broker_status = "Filled" if fill_event_type == "ORDER_FILLED" else (
+        "Submitted" if event_status in {"SUBMITTED", "PRESUBMITTED"} else (event_status or "Submitted")
+    )
     event = ExecutionEvent(
         symbol=symbol or "UNKNOWN",
         intent_id="",
-        action="SUBMITTED",
+        action="WORKING" if fill_event_type == "ORDER_WORKING" else "SUBMITTED",
         detail="callback_fill",
-        event_type="ORDER_FILLED",
+        event_type=fill_event_type,
         source="IBKR",
         broker_order_id=order_id,
         filled_quantity=max(0, filled_qty),
-        remaining_quantity=0,
-        broker_status="Filled",
+        remaining_quantity=max(0, remaining_int),
+        broker_status=broker_status,
         avg_fill_price=fill_price,
         last_update_time=timestamp,
     )
@@ -232,49 +252,20 @@ def _apply_callback_fills(events: List[ExecutionEvent]) -> tuple[List[ExecutionE
         callback_fill = _EXECUTION_EVENT_BUFFER.pop(int(event.broker_order_id), None)
         if callback_fill is None:
             continue
-        event.event_type = "ORDER_FILLED"
+        event.event_type = callback_fill.event_type
         event.source = callback_fill.source
-        event.broker_status = "Filled"
+        event.broker_status = callback_fill.broker_status
         event.filled_quantity = int(callback_fill.filled_quantity or 0)
-        base_remaining = int(event.remaining_quantity or 0)
-        event.remaining_quantity = max(0, base_remaining - event.filled_quantity)
+        callback_remaining = int(callback_fill.remaining_quantity or 0)
+        if callback_remaining > 0:
+            event.remaining_quantity = callback_remaining
+        else:
+            base_remaining = int(event.remaining_quantity or 0)
+            event.remaining_quantity = max(0, base_remaining - event.filled_quantity)
         event.avg_fill_price = callback_fill.avg_fill_price
         event.last_update_time = callback_fill.last_update_time or _now_utc_iso()
         fills_applied += 1
     return events, fills_applied
-
-
-def _emit_test_fill_fallback(mode: RunMode, events: List[ExecutionEvent], timeout_seconds: float) -> List[ExecutionEvent]:
-    if mode != RunMode.PAPER:
-        return events
-    fallback_enabled = os.environ.get("IBKR_ENABLE_TEST_FILL_FALLBACK", "").lower()
-    should_fallback = fallback_enabled == "true" or (not fallback_enabled and _is_explicit_test_mode())
-    if not should_fallback:
-        return events
-    deadline = time.monotonic() + max(0.0, timeout_seconds)
-    while time.monotonic() < deadline:
-        events, fills_applied = _apply_callback_fills(events)
-        if fills_applied > 0:
-            return events
-        time.sleep(0.05)
-    for event in events:
-        if event.action != "SUBMITTED" or int(event.filled_quantity or 0) > 0:
-            continue
-        synthetic_qty = int(event.remaining_quantity or 0)
-        if synthetic_qty <= 0:
-            synthetic_qty = 1
-        event.event_type = "ORDER_FILLED"
-        event.source = "TEST_FILL"
-        event.broker_status = "Filled"
-        event.filled_quantity = synthetic_qty
-        event.remaining_quantity = 0
-        event.last_update_time = _now_utc_iso()
-        print(
-            "[EXECUTION][EVENT_CREATED] "
-            f"event_type={event.event_type} source={event.source} symbol={event.symbol} "
-            f"order_id={event.broker_order_id} filled_qty={event.filled_quantity} fill_price={event.avg_fill_price}"
-        )
-    return events
 
 
 def _fetch_ibkr_truth(mode: RunMode) -> tuple[list[Any], list[Any], list[Any]]:
@@ -298,6 +289,10 @@ def _sync_submitted_events_from_ibkr(
     if not events:
         return events
     open_orders, executions, positions = _fetch_ibkr_truth(mode)
+    print(
+        "[EXECUTION][WORKING_ORDER_RECON] "
+        f"open_orders={len(open_orders)} executions={len(executions)} positions={len(positions)}"
+    )
     execution_index: dict[int, Any] = {}
     for row in executions:
         order_id = _extract_exec_order_id(row)
@@ -313,14 +308,16 @@ def _sync_submitted_events_from_ibkr(
         match = execution_index.get(int(event.broker_order_id))
         if match is None:
             continue
-        event.event_type = "ORDER_FILLED"
+        matched_qty = _extract_exec_qty(match)
+        event.event_type = "ORDER_PARTIALLY_FILLED" if 0 < matched_qty < int(event.remaining_quantity or 0) else "ORDER_FILLED"
         event.source = "IBKR"
-        event.broker_status = "Filled"
-        event.filled_quantity = _extract_exec_qty(match)
-        event.remaining_quantity = max(0, int(event.remaining_quantity or 0))
+        event.broker_status = "Filled" if event.event_type == "ORDER_FILLED" else "Submitted"
+        event.filled_quantity = matched_qty
+        event.remaining_quantity = max(0, int(event.remaining_quantity or 0) - matched_qty)
         event.avg_fill_price = _extract_exec_price(match)
         print(
-            f"[EXECUTION][FILL] symbol={event.symbol} qty={event.filled_quantity} "
+            f"[ORDER][{'PARTIAL_FILL' if event.event_type == 'ORDER_PARTIALLY_FILLED' else 'FILL'}] "
+            f"symbol={event.symbol} order_id={event.broker_order_id} qty={event.filled_quantity} "
             f"price={event.avg_fill_price if event.avg_fill_price is not None else 'UNKNOWN'}"
         )
         for position in positions:
@@ -386,6 +383,8 @@ def execute_intents(
     mode: RunMode,
     decisions: List[RiskDecisionRecord],
 ) -> List[ExecutionEvent]:
+    global _FILL_AUTHORITY_STATE
+    _FILL_AUTHORITY_STATE = "UNKNOWN"
     events: List[ExecutionEvent] = []
     manager: Any | None = None
 
@@ -405,15 +404,31 @@ def execute_intents(
             if callback is not None:
                 if hasattr(client, "register_execution_callback"):
                     client.register_execution_callback(_on_ibkr_callback)
+                    print("[EXECUTION][CALLBACK_REGISTERED] source=ibkr_client event_types=orderStatus,execDetails,commissionReport")
                 else:
                     print("[EXECUTION][CALLBACK_UNAVAILABLE] register_execution_callback not supported by client")
+                    _FILL_AUTHORITY_STATE = "DEGRADED"
+                    print("[EXECUTION][FILL_AUTHORITY_DEGRADED] reason=execution_callback_unavailable")
 
     broker_state = "CONNECTED" if mode in {RunMode.PAPER, RunMode.LIVE} else "DISCONNECTED"
     print(f"[EXECUTION][MODE] mode={mode.value} broker_connection_state={broker_state}")
     open_orders, _executions, positions = _fetch_ibkr_truth(mode)
+    has_working_order_recon = hasattr(open_orders, "__iter__")
+    if mode in {RunMode.PAPER, RunMode.LIVE} and not has_working_order_recon:
+        _FILL_AUTHORITY_STATE = "DEGRADED"
+        print("[EXECUTION][FILL_AUTHORITY_DEGRADED] reason=broker_fill_reconciliation_unavailable")
     existing_position_symbols = {str(getattr(row, "symbol", "") or "").upper() for row in positions}
-    existing_open_order_symbols = {_extract_symbol_from_order(row) for row in open_orders}
-    existing_open_order_symbols.discard("")
+    working_order_families: set[tuple[str, str, str]] = set()
+    for row in open_orders:
+        symbol = _extract_symbol_from_order(row)
+        if not symbol:
+            continue
+        order = getattr(row, "order", None)
+        side = str(getattr(order, "action", "") or "").upper()
+        order_ref = _extract_order_ref(row)
+        family = order_ref.split("|")[-1] if "|" in order_ref else order_ref
+        working_order_families.add((symbol, side, family))
+    print(f"[EXECUTION][WORKING_ORDER_RECON] known_working_orders={len(working_order_families)}")
 
     order_id_seed = 0
     if mode in {RunMode.PAPER, RunMode.LIVE} and not _is_explicit_test_mode():
@@ -433,14 +448,30 @@ def execute_intents(
         )
         quantity = int(decision.approved_quantity)
         duplicate_symbol = str(decision.symbol or "").upper()
-        if duplicate_symbol in existing_position_symbols or duplicate_symbol in existing_open_order_symbols:
-            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_PROTECTION")
+        order_side = "BUY" if str(getattr(decision, "side", "LONG") or "LONG").upper() == "LONG" else "SELL"
+        order_family = str(decision.intent_id or "")
+        working_duplicate = (duplicate_symbol, order_side, order_family) in working_order_families
+        if duplicate_symbol in existing_position_symbols:
+            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
             events.append(
                 ExecutionEvent(
                     symbol=decision.symbol,
                     intent_id=decision.intent_id,
                     action="BLOCKED",
-                    detail="reason=DUPLICATE_PROTECTION",
+                    detail="reason=DUPLICATE_POSITION",
+                    broker_status="REJECTED",
+                    last_update_time=_now_utc_iso(),
+                )
+            )
+            continue
+        if working_duplicate:
+            print(f"[EXECUTION][DUPLICATE_WORKING_ORDER_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_WORKING_ORDER")
+            events.append(
+                ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail="reason=DUPLICATE_WORKING_ORDER",
                     broker_status="REJECTED",
                     last_update_time=_now_utc_iso(),
                 )
@@ -536,5 +567,6 @@ def execute_intents(
         )
     events, _ = _apply_callback_fills(events)
     events = _sync_submitted_events_from_ibkr(mode, events)
-    fill_timeout_seconds = float(os.environ.get("IBKR_TEST_FILL_TIMEOUT_SECONDS", "0.5"))
-    return _emit_test_fill_fallback(mode, events, timeout_seconds=fill_timeout_seconds)
+    if _FILL_AUTHORITY_STATE == "UNKNOWN":
+        _FILL_AUTHORITY_STATE = "ACTIVE" if mode in {RunMode.PAPER, RunMode.LIVE} else "N/A"
+    return events

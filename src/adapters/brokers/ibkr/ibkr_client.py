@@ -90,11 +90,32 @@ class IbkrClient(EWrapper, EClient):
         self._request_type_by_req_id: Dict[int, str] = {}
         self._active_market_req_ids: set[int] = set()
         self._order_state_registry: Dict[int, dict] = {}
+        self._execution_callbacks: list = []
+        self._open_orders_snapshot: Dict[int, object] = {}
+        self._open_orders_event = threading.Event()
+        self._executions_snapshot: list[object] = []
+        self._executions_event = threading.Event()
+        self._positions_snapshot: Dict[str, object] = {}
+        self._positions_event = threading.Event()
 
 
     def _ensure_order_state_registry(self) -> None:
         if not hasattr(self, "_order_state_registry") or self._order_state_registry is None:
             self._order_state_registry = {}
+
+    def register_execution_callback(self, callback) -> None:
+        if callback is None:
+            return
+        if callback in self._execution_callbacks:
+            return
+        self._execution_callbacks.append(callback)
+
+    def _emit_execution_callback(self, payload: dict) -> None:
+        for callback in list(self._execution_callbacks):
+            try:
+                callback(payload)
+            except Exception as exc:
+                print(f"[IBKR][CALLBACK_ERROR] reason={exc}")
 
     # --- Connection management ---
     def connect(self) -> None:  # type: ignore[override]
@@ -271,6 +292,37 @@ class IbkrClient(EWrapper, EClient):
 
     def get_order_warning(self, order_id: int) -> Optional[Tuple[int, str]]:
         return self._order_warnings.get(order_id)
+
+    def openOrders(self, timeout_seconds: Optional[int] = None) -> list[object]:
+        if not self.is_connected():
+            return list(self._open_orders_snapshot.values())
+        self._open_orders_event.clear()
+        self._open_orders_snapshot = {}
+        self.reqOpenOrders()
+        self._open_orders_event.wait(timeout=timeout_seconds or self.snapshot_timeout_seconds)
+        return list(self._open_orders_snapshot.values())
+
+    def executions(self, timeout_seconds: Optional[int] = None) -> list[object]:
+        if not self.is_connected():
+            return list(self._executions_snapshot)
+        from ibapi.execution import ExecutionFilter
+
+        req_id = self._next_req_id()
+        self._executions_event.clear()
+        self._executions_snapshot = []
+        self._register_request(req_id, "EXECUTIONS")
+        self.reqExecutions(req_id, ExecutionFilter())
+        self._executions_event.wait(timeout=timeout_seconds or self.snapshot_timeout_seconds)
+        return list(self._executions_snapshot)
+
+    def positions(self, timeout_seconds: Optional[int] = None) -> list[object]:
+        if not self.is_connected():
+            return list(self._positions_snapshot.values())
+        self._positions_event.clear()
+        self._positions_snapshot = {}
+        self.reqPositions()
+        self._positions_event.wait(timeout=timeout_seconds or self.snapshot_timeout_seconds)
+        return list(self._positions_snapshot.values())
 
 
     def get_account_summary(self, timeout_seconds: Optional[int] = None) -> Dict[str, str]:
@@ -884,6 +936,17 @@ class IbkrClient(EWrapper, EClient):
             "[EXECUTION][ORDER_TRACK] "
             f"order_id={orderId} status={status} filled={int(filled)} remaining={int(remaining)}"
         )
+        self._emit_execution_callback(
+            {
+                "event_type": "orderStatus",
+                "orderId": orderId,
+                "status": status,
+                "filled": int(filled),
+                "remaining": int(remaining),
+                "avgFillPrice": avgFillPrice,
+                "lastFillPrice": lastFillPrice,
+            }
+        )
         event = self._order_status_events.setdefault(orderId, threading.Event())
         event.set()
 
@@ -913,10 +976,26 @@ class IbkrClient(EWrapper, EClient):
             f"order_id={order_id} status=Filled shares={getattr(execution, 'shares', None)}"
         )
         self._exec_details_by_order.setdefault(order_id, []).append(details)
+        self._executions_snapshot.append(
+            SimpleNamespace(contract=contract, execution=execution, orderId=order_id)
+        )
+        self._emit_execution_callback(
+            {
+                "event_type": "execDetails",
+                "orderId": order_id,
+                "contract": contract,
+                "execution": execution,
+                "shares": getattr(execution, "shares", None),
+                "price": getattr(execution, "price", None),
+                "time": getattr(execution, "time", None),
+            }
+        )
 
     def openOrder(self, orderId, contract, order, orderState):  # type: ignore[override]
         self._ensure_order_state_registry()
         print(f"[ORDER][OPEN] order_id={orderId} symbol={getattr(contract, 'symbol', None)}")
+        row = SimpleNamespace(orderId=orderId, contract=contract, order=order, orderState=orderState)
+        self._open_orders_snapshot[orderId] = row
 
     def commissionReport(self, commissionReport):  # type: ignore[override]
         exec_id = getattr(commissionReport, "execId", None)
@@ -924,6 +1003,32 @@ class IbkrClient(EWrapper, EClient):
         if exec_id is None or commission is None:
             return
         self._commission_by_exec_id[exec_id] = float(commission)
+        self._emit_execution_callback(
+            {
+                "event_type": "commissionReport",
+                "execId": exec_id,
+                "commission": float(commission),
+                "commissionReport": commissionReport,
+            }
+        )
+
+    def openOrderEnd(self):  # type: ignore[override]
+        self._open_orders_event.set()
+
+    def execDetailsEnd(self, reqId):  # type: ignore[override]
+        self._executions_event.set()
+        getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
+
+    def position(self, account, contract, pos, avgCost):  # type: ignore[override]
+        symbol = str(getattr(contract, "symbol", "") or "").upper()
+        if not symbol:
+            return
+        self._positions_snapshot[symbol] = SimpleNamespace(
+            account=account, contract=contract, symbol=symbol, position=pos, avgCost=avgCost
+        )
+
+    def positionEnd(self):  # type: ignore[override]
+        self._positions_event.set()
 
     def connectionClosed(self):  # type: ignore[override]
         self._last_disconnect_reason = "connectionClosed"
