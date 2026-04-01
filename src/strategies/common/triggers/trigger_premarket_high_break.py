@@ -70,7 +70,8 @@ def evaluate_premarket_high_break_trigger(pattern_result, inputs):
     ) and last_close > trigger_level
     fire_break = last_close > trigger_level and prev_close <= trigger_level
     hold_above = last_close >= trigger_level and prev_close >= trigger_level
-    fired = fire_break or reclaim_detected or hold_above
+    fired = fire_break or reclaim_detected
+    armed = hold_above and not fired
     if fire_break:
         reason = "pmh_break_confirmed"
     elif reclaim_detected:
@@ -88,6 +89,7 @@ def evaluate_premarket_high_break_trigger(pattern_result, inputs):
         "trigger_price_reference": trigger_level,
         "invalidation_price_reference": invalidation_level or trigger_level,
         "trigger_level": trigger_level,
+        "trigger_armed": armed,
     }
     print(f"[TRIGGER][PMH_BREAK] fired={fired} reason={reason}")
     return out

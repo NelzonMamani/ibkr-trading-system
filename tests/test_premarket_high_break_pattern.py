@@ -72,6 +72,18 @@ def test_trigger_arms_and_fires() -> None:
     assert fired["trigger_ready_now"] is True
 
 
+def test_pmh_trigger_requires_event_not_passive_hold() -> None:
+    evaluator = resolve_trigger_evaluator("PREMARKET_HIGH_BREAK")
+    assert evaluator is not None
+    passive_hold = evaluator(
+        {"trigger_level": 10.0},
+        {"candles": _candles([(10.01, 10.05, 10.01, 10.02, 900), (10.02, 10.08, 10.01, 10.03, 1000)])},
+    )
+    assert passive_hold["trigger_state"] == "ARMED"
+    assert passive_hold["trigger_ready_now"] is False
+    assert passive_hold["trigger_reason"] == "pmh_holding_above_level"
+
+
 def test_registry_contains_pmh_break() -> None:
     assert "P_PREMARKET_HIGH_BREAK" in PATTERN_DETECTORS
     assert "PREMARKET_HIGH_BREAK" in TRIGGER_EVALUATOR_REGISTRY

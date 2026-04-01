@@ -35,8 +35,13 @@ def detect_opening_drive(inputs: PatternInputs) -> PatternResult:
         )
 
     print(f"[PATTERN_TRACE][CALL] symbol={inputs.symbol} pattern=Opening Drive")
-    if inputs.session_context != SessionContext.REGULAR:
+    session = inputs.session_context
+    phase = getattr(inputs, "session_phase", None)
+
+    if session != SessionContext.REGULAR:
         return reject("invalid_session", "Opening Drive is valid only during RTH_OPEN/regular open session.")
+    if phase is not None and str(phase).upper() != "RTH_OPEN":
+        return reject("invalid_phase", "Opening Drive requires the RTH_OPEN phase when phase context is available.")
 
     candles = list(inputs.candles or [])
     if len(candles) < 5:

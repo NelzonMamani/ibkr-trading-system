@@ -6,10 +6,14 @@ from typing import Any
 class DecisionEngine:
     """Deterministic candidate arbitration for setup/pattern decisions."""
 
+    _PREMARKET_HIGH_BREAK_ALIASES: dict[str, str] = {
+        "P_PREMARKET_HIGH_BREAK": "PREMARKET_HIGH_BREAK",
+        "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",  # legacy backward-compatible alias
+    }
+
     _SETUP_FAMILY_ALIASES: dict[str, str] = {
         "P_GAP_GO": "GAP_GO",
-        "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
-        "P_PREMARKET_HIGH_BREAK": "PREMARKET_HIGH_BREAK",
+        **_PREMARKET_HIGH_BREAK_ALIASES,
         "P_HOD_BREAK": "HOD_BREAK",
         "P_FIRST_PULLBACK": "FIRST_PULLBACK",
     }
@@ -382,8 +386,7 @@ class DecisionEngine:
     def _infer_setup_family(pattern_id: str) -> str:
         mapping = {
             "P_ORB": "ORB",
-            "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
-            "P_PREMARKET_HIGH_BREAK": "PREMARKET_HIGH_BREAK",
+            **DecisionEngine._PREMARKET_HIGH_BREAK_ALIASES,
             "P_OPENING_DRIVE": "OPENING_DRIVE",
             "P_HOD_BREAK": "HOD_BREAK",
             "P_FIRST_PULLBACK": "FIRST_PULLBACK",

@@ -46,6 +46,24 @@ def test_key_level_break_detects_premarket_high_break() -> None:
     assert result.trigger_level == 10.0
 
 
+def test_level_selection_prefers_levels_above_price() -> None:
+    base = _base_inputs()
+    inputs = replace(
+        base,
+        candles=_candles([(10.0, 10.08, 9.99, 10.06, 900), (10.06, 10.16, 10.02, 10.14, 1400)]),
+        levels=LevelSet(
+            premarket_high=None,
+            hod=None,
+            prior_close=10.0,
+            key_levels={"NEAR_SUPPORT": 10.05, "PRIOR_DAY_HIGH": 10.1},
+        ),
+    )
+    result = KeyLevelBreakPattern().evaluate(inputs)
+    assert result.detected is True
+    assert result.trigger_level == 10.1
+    assert result.setup_metadata.get("level_type") == "PRIOR_DAY_HIGH"
+
+
 def test_key_level_break_detects_round_number_break() -> None:
     base = _base_inputs()
     inputs = replace(

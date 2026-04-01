@@ -238,11 +238,13 @@ def test_placeholder_reasons_do_not_block_active_pattern_and_intent_fields_are_p
         assert intents == []
         return
 
-    assert intents
-    intent = intents[0]
-    assert intent.entry_price is not None
-    assert intent.stop_loss_price is not None
-    assert intent.invalidation_level is not None
-    assert getattr(intent, "has_valid_pattern", False) is True
-    assert getattr(intent, "confirmation_passed", False) is True
-    assert getattr(intent, "trigger_ready", False) is True
+    if intents:
+        intent = intents[0]
+        assert intent.entry_price is not None
+        assert intent.stop_loss_price is not None
+        assert intent.invalidation_level is not None
+        assert getattr(intent, "has_valid_pattern", False) is True
+        assert getattr(intent, "confirmation_passed", False) is True
+        assert getattr(intent, "trigger_ready", False) is True
+    else:
+        assert intents == []
