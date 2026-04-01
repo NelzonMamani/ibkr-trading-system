@@ -10,6 +10,7 @@ from src.strategies.common.triggers.trigger_first_pullback import evaluate_first
 from src.strategies.common.triggers.trigger_flat_top_breakout import evaluate_flat_top_breakout_trigger
 from src.strategies.common.triggers.trigger_key_level_break import evaluate_key_level_break_trigger
 from src.strategies.common.triggers.trigger_micro_pullback import evaluate_micro_pullback_trigger
+from src.strategies.common.triggers.trigger_momentum_reclaim import evaluate_momentum_reclaim_trigger
 from src.strategies.common.triggers.trigger_opening_drive import evaluate_opening_drive_trigger
 from src.strategies.common.triggers.trigger_orb import evaluate_orb_trigger
 from src.strategies.common.triggers.trigger_premarket_high_break import evaluate_premarket_high_break_trigger
@@ -27,6 +28,7 @@ TRIGGER_EVALUATOR_REGISTRY: dict[str, TriggerEvaluator] = {
     "KEY_LEVEL_BREAK": evaluate_key_level_break_trigger,
     "ABCD": evaluate_abcd_continuation_trigger,
     "CUP_HANDLE": evaluate_cup_handle_trigger,
+    "MOMENTUM_RECLAIM": evaluate_momentum_reclaim_trigger,
 }
 
 
