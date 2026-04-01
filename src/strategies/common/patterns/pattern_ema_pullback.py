@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from statistics import mean
 
+from src.config.setup_thresholds import EMA_PULLBACK_MAX_DEPTH, MIN_RVOL_CONTINUATION
+from src.strategies.common.patterns.pullback_utils import (
+    compute_impulse_range,
+    compute_pullback_depth,
+    reclaim_confirmed,
+    validate_pullback_depth,
+    validate_volume_contraction,
+)
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
-from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
+from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult, SetupSemantic
 
 _MIN_HISTORY = 6
-_MIN_RVOL = 1.2
 _MAX_SPREAD = 0.08
 _MIN_IMPULSE_RANGE_PCT = 0.008
 
@@ -40,6 +47,7 @@ def detect_ema_pullback(inputs: PatternInputs) -> PatternResult:
             confidence=0.0,
             setup_quality_tags=[],
             setup_family_id="EMA_PULLBACK",
+            setup_semantic=SetupSemantic.CONTINUATION.value,
             rationale_text=f"Rejected: {reason}",
             rejection_reason=reason,
             data_quality_flags=list(inputs.data_quality_flags),
@@ -59,7 +67,7 @@ def detect_ema_pullback(inputs: PatternInputs) -> PatternResult:
 
     rvol = _safe_float(inputs.liquidity_context.rvol)
     spread = _safe_float(inputs.liquidity_context.spread)
-    if rvol is None or rvol < _MIN_RVOL or spread is None or spread > _MAX_SPREAD:
+    if rvol is None or rvol < MIN_RVOL_CONTINUATION or spread is None or spread > _MAX_SPREAD:
         return reject("invalid_inputs")
 
     highs = [_safe_float(_read(c, "high")) for c in candles]
@@ -75,14 +83,17 @@ def detect_ema_pullback(inputs: PatternInputs) -> PatternResult:
     if not (ema9 > ema20 and last_close > ema9):
         return reject("no_trend_alignment")
 
-    impulse_high = max(float(v) for v in highs[:-2] or highs)
-    impulse_low = min(float(v) for v in lows[:-2] or lows)
-    impulse_range = impulse_high - impulse_low
+    impulse_window_highs = [float(v) for v in highs[:-2] or highs]
+    impulse_window_lows = [float(v) for v in lows[:-2] or lows]
+    impulse_high = max(impulse_window_highs)
+    impulse_range = compute_impulse_range(impulse_window_highs, impulse_window_lows)
     impulse_range_pct = impulse_range / max(float(closes[0]), 1e-9)
+    previous_ema9 = _safe_float(getattr(inputs.indicators, "ema9_prev", ema9)) or ema9
+    previous_ema20 = _safe_float(getattr(inputs.indicators, "ema20_prev", ema20)) or ema20
     ema_sep_now = max(ema9 - ema20, 0.0)
-    ema_sep_prev = max((_safe_float(closes[-3]) or last_close) - ema20, 0.0)
+    ema_sep_prev = max(previous_ema9 - previous_ema20, 0.0)
     if impulse_range_pct < _MIN_IMPULSE_RANGE_PCT or ema_sep_now < ema_sep_prev * 0.2:
-        return reject("weak_impulse")
+        return reject("weak_trend_structure")
 
     ema_zone_low = min(ema9, ema20)
     ema_zone_high = max(ema9, ema20)
@@ -92,17 +103,22 @@ def detect_ema_pullback(inputs: PatternInputs) -> PatternResult:
     if pullback_low > ema_zone_high:
         return reject("no_ema_test")
 
-    pullback_depth = (impulse_high - pullback_low) / max(impulse_range, 1e-9)
-    if pullback_depth > 0.68:
+    pullback_depth = compute_pullback_depth(impulse_high, pullback_low, impulse_range)
+    if not validate_pullback_depth(pullback_depth, EMA_PULLBACK_MAX_DEPTH):
         return reject("pullback_too_deep")
 
     impulse_volume = mean(float(v) for v in volumes[-6:-2])
     pullback_volume = float(volumes[-2])
-    if pullback_volume >= impulse_volume:
+    if not validate_volume_contraction(pullback_volume, impulse_volume):
         return reject("selling_pressure_too_high")
 
-    if not (prev_close <= ema_zone_high and last_close > ema9):
+    if not reclaim_confirmed(prev_close, last_close, ema_zone_high):
         return reject("no_ema_reclaim")
+
+    quality_tags = ["ema_zone_test", "ema_reclaim", "continuation"]
+    previous_pullback_low = min(float(v) for v in lows[-4:-2]) if len(lows) >= 4 else pullback_low
+    if pullback_low <= previous_pullback_low:
+        quality_tags.append("weak_structure")
 
     vwap = _safe_float(inputs.indicators.vwap)
     macd = _safe_float((inputs.news_context or {}).get("macd"))
@@ -133,8 +149,9 @@ def detect_ema_pullback(inputs: PatternInputs) -> PatternResult:
         detected=True,
         direction=Direction.LONG,
         confidence=confidence,
-        setup_quality_tags=["ema_zone_test", "ema_reclaim", "continuation"],
+        setup_quality_tags=quality_tags,
         setup_family_id="EMA_PULLBACK",
+        setup_semantic=SetupSemantic.CONTINUATION.value,
         rationale_text="EMA9/EMA20 pullback reclaimed with continuation-ready breakout trigger.",
         rejection_reason=None,
         data_quality_flags=list(inputs.data_quality_flags),

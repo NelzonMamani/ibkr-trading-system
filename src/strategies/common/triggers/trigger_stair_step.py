@@ -33,7 +33,7 @@ def evaluate_stair_step_trigger(payload, values):
             "trigger_reason": "missing_fields",
             "trigger_price_reference": trigger_level,
             "invalidation_price_reference": invalidation_level,
-            "execution_refinement_mode": "STAIR_STEP_BREAKOUT",
+            "execution_refinement_mode": "RECLAIM_BREAKOUT",
         }
         print(f"[TRIGGER][STAIR_STEP] fired=False reason={out['trigger_reason']}")
         return out
@@ -56,7 +56,7 @@ def evaluate_stair_step_trigger(payload, values):
             "trigger_reason": "missing_fields",
             "trigger_price_reference": trigger_level,
             "invalidation_price_reference": invalidation_level,
-            "execution_refinement_mode": "STAIR_STEP_BREAKOUT",
+            "execution_refinement_mode": "RECLAIM_BREAKOUT",
         }
         print(f"[TRIGGER][STAIR_STEP] fired=False reason={out['trigger_reason']}")
         return out
@@ -72,7 +72,7 @@ def evaluate_stair_step_trigger(payload, values):
             "trigger_reason": "awaiting_breakout",
             "trigger_price_reference": trigger_level,
             "invalidation_price_reference": invalidation_level,
-            "execution_refinement_mode": "STAIR_STEP_BREAKOUT",
+            "execution_refinement_mode": "RECLAIM_BREAKOUT",
         }
         print(f"[TRIGGER][STAIR_STEP] fired=False reason={out['trigger_reason']}")
         return out
@@ -91,7 +91,7 @@ def evaluate_stair_step_trigger(payload, values):
             "trigger_reason": "breakout_shape_invalid",
             "trigger_price_reference": trigger_level,
             "invalidation_price_reference": invalidation_level,
-            "execution_refinement_mode": "STAIR_STEP_BREAKOUT",
+            "execution_refinement_mode": "RECLAIM_BREAKOUT",
         }
         print(f"[TRIGGER][STAIR_STEP] fired=False reason={out['trigger_reason']}")
         return out
@@ -111,7 +111,7 @@ def evaluate_stair_step_trigger(payload, values):
             "trigger_reason": "liquidity_confirmation_failed",
             "trigger_price_reference": trigger_level,
             "invalidation_price_reference": invalidation_level,
-            "execution_refinement_mode": "STAIR_STEP_BREAKOUT",
+            "execution_refinement_mode": "RECLAIM_BREAKOUT",
         }
         print(f"[TRIGGER][STAIR_STEP] fired=False reason={out['trigger_reason']}")
         return out
@@ -123,7 +123,7 @@ def evaluate_stair_step_trigger(payload, values):
         "trigger_reason": "stair_step_breakout_confirmed",
         "trigger_price_reference": trigger_level,
         "invalidation_price_reference": invalidation_level,
-        "execution_refinement_mode": "STAIR_STEP_BREAKOUT",
+        "execution_refinement_mode": "RECLAIM_BREAKOUT",
     }
     print(f"[TRIGGER][STAIR_STEP] fired=True reason={out['trigger_reason']}")
     return out

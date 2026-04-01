@@ -18,6 +18,12 @@ class PatternFamily(str, Enum):
     EXHAUSTION = "EXHAUSTION"
 
 
+class SetupSemantic(str, Enum):
+    BREAKOUT = "BREAKOUT"
+    PULLBACK = "PULLBACK"
+    CONTINUATION = "CONTINUATION"
+
+
 class Direction(str, Enum):
     LONG = "LONG"
     SHORT = "SHORT"
@@ -34,6 +40,7 @@ class PatternResult:
     confidence: float
     setup_quality_tags: List[str]
     setup_family_id: Optional[str] = None
+    setup_semantic: Optional[str] = None
     tags: List[str] = field(default_factory=list)
     entry_zone: Optional[str] = None
     stop_suggestion: Optional[str] = None

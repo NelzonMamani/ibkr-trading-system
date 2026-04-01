@@ -1,0 +1,8 @@
+"""Shared setup thresholds for pattern detection."""
+
+VWAP_TOLERANCE_PCT = 0.0025
+EMA_PULLBACK_MAX_DEPTH = 0.68
+VWAP_PULLBACK_MAX_DEPTH = 0.65
+STAIR_STEP_MAX_DEPTH = 0.5
+
+MIN_RVOL_CONTINUATION = 1.2

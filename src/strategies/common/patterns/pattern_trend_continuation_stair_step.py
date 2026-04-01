@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from statistics import mean
 
+from src.config.setup_thresholds import MIN_RVOL_CONTINUATION, STAIR_STEP_MAX_DEPTH
+from src.strategies.common.patterns.pullback_utils import (
+    compute_impulse_range,
+    compute_pullback_depth,
+    is_shallow_pullback,
+    validate_volume_contraction,
+)
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
-from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
+from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult, SetupSemantic
 
 _MIN_LOOKBACK = 5
-_MIN_RVOL = 1.2
 _MAX_SPREAD_PCT = 0.08
 _MIN_IMPULSE_RANGE = 0.15
 
@@ -40,6 +46,7 @@ def detect_trend_continuation_stair_step(inputs: PatternInputs) -> PatternResult
             confidence=0.0,
             setup_quality_tags=[],
             setup_family_id="TREND_CONTINUATION_STAIR_STEP",
+            setup_semantic=SetupSemantic.CONTINUATION.value,
             rationale_text=f"Rejected: {reason}",
             rejection_reason=reason,
             data_quality_flags=list(inputs.data_quality_flags),
@@ -63,7 +70,7 @@ def detect_trend_continuation_stair_step(inputs: PatternInputs) -> PatternResult
     rvol = _safe_float(inputs.liquidity_context.rvol)
     spread = _safe_float(inputs.liquidity_context.spread)
     last_close = _safe_float(_read(candles[-1], "close"))
-    if rvol is None or rvol < _MIN_RVOL or spread is None or last_close is None:
+    if rvol is None or rvol < MIN_RVOL_CONTINUATION or spread is None or last_close is None:
         return reject("invalid_inputs")
 
     spread_pct = spread if spread < 1 else spread / max(last_close, 1e-9)
@@ -90,7 +97,7 @@ def detect_trend_continuation_stair_step(inputs: PatternInputs) -> PatternResult
     impulse_window_lows = lows[:-2] or lows
     impulse_low = min(v for v in impulse_window_lows if v is not None)
     impulse_high = max(v for v in impulse_window_highs if v is not None)
-    impulse_range = float(impulse_high - impulse_low)
+    impulse_range = float(compute_impulse_range([float(v) for v in impulse_window_highs if v is not None], [float(v) for v in impulse_window_lows if v is not None]))
     if impulse_range < _MIN_IMPULSE_RANGE:
         return reject("weak_impulse")
 
@@ -100,8 +107,8 @@ def detect_trend_continuation_stair_step(inputs: PatternInputs) -> PatternResult
     if pullback_low is None or pullback_high is None:
         return reject("invalid_inputs")
 
-    pullback_depth = float((impulse_high - pullback_low) / max(impulse_range, 1e-9))
-    if pullback_depth >= 0.5:
+    pullback_depth = float(compute_pullback_depth(float(impulse_high), pullback_low, impulse_range))
+    if pullback_depth >= STAIR_STEP_MAX_DEPTH:
         return reject("pullback_too_deep")
 
     impulse_volumes = [_safe_float(_read(c, "volume")) or 0.0 for c in candles[-8:-2]]
@@ -110,7 +117,7 @@ def detect_trend_continuation_stair_step(inputs: PatternInputs) -> PatternResult
     pullback_volume = pullback_volumes[0] if pullback_volumes else 0.0
     volume_ratio = pullback_volume / max(impulse_volume, 1e-9)
     pullback_is_active = _safe_float(_read(candles[-2], "close")) < _safe_float(_read(candles[-3], "close"))
-    if pullback_is_active and pullback_volume >= impulse_volume:
+    if pullback_is_active and not validate_volume_contraction(pullback_volume, impulse_volume):
         return reject("volume_not_confirming")
 
     previous_pullback_low = min(_safe_float(_read(c, "low")) for c in candles[-4:-2])
@@ -150,8 +157,9 @@ def detect_trend_continuation_stair_step(inputs: PatternInputs) -> PatternResult
         detected=True,
         direction=Direction.LONG,
         confidence=confidence,
-        setup_quality_tags=["uptrend", "shallow_pullback", "higher_low_sequence"],
+        setup_quality_tags=["higher_low_sequence", "continuation"] + (["shallow_pullback"] if is_shallow_pullback(pullback_depth) else []),
         setup_family_id="TREND_CONTINUATION_STAIR_STEP",
+        setup_semantic=SetupSemantic.CONTINUATION.value,
         rationale_text="Stair-step continuation detected with higher-low sequence and breakout trigger defined.",
         rejection_reason=None,
         data_quality_flags=list(inputs.data_quality_flags),
