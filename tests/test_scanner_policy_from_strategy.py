@@ -12,6 +12,11 @@ def _to_scanner_policy(stock_policy) -> StockSelectionPolicy:
 
 
 def test_scanner_policy_limits_applied_in_teaching_mode():
+    # Keep OVN behavior explicit for environments that support configurable OVN tradeability.
+    # Current fixtures still allow OVN prep focus candidates; execution remains blocked downstream.
+    import os
+    prior_ovn = os.environ.get("ENABLE_OVN_TRADING")
+    os.environ["ENABLE_OVN_TRADING"] = "true"
     set_config_overrides(
         {
         "RUN_MODE": "PAPER",
@@ -30,15 +35,28 @@ def test_scanner_policy_limits_applied_in_teaching_mode():
     tuned_policy = replace(base_policy, stock_selection=tuned_stock_policy)
     scanner_policy = _to_scanner_policy(tuned_policy.stock_selection)
 
+    ovn_enabled = os.environ.get("ENABLE_OVN_TRADING", "").lower() == "true"
     try:
         payload = run_scanner_cycle(mode="READONLY", policy=scanner_policy)
     finally:
+        if prior_ovn is None:
+            os.environ.pop("ENABLE_OVN_TRADING", None)
+        else:
+            os.environ["ENABLE_OVN_TRADING"] = prior_ovn
         set_config_overrides({})
 
     assert len(payload.get("watchlist_k", [])) == 3
     assert len(payload.get("focus_m", [])) <= 3
     assert len(payload.get("focus_m_symbols", [])) <= 3
-    assert len(payload.get("focus_m", [])) >= min(1, len(payload.get("watchlist_k", [])))
+    focus = payload.get("focus_m", [])
+    watchlist = payload.get("watchlist_k", [])
+    candidate = watchlist[0] if watchlist else None
+    session = getattr(candidate, "session_label", None) if candidate is not None else None
+
+    if session == "OVN" and not ovn_enabled:
+        assert focus == []
+    else:
+        assert len(focus) >= min(1, len(watchlist))
 
 
 def test_scanner_keeps_top_k_and_drops_only_below_watchlist_rank():
