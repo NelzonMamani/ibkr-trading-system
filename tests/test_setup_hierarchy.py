@@ -48,3 +48,19 @@ def test_ross_runtime_can_consume_opening_drive_result_without_bypass() -> None:
         symbol="TEST",
     )
     assert filtered[0].get("untrusted") is not True
+
+
+def test_setup_hierarchy_can_suppress_lower_tier_setups_under_key_level_break() -> None:
+    results = [
+        _detected("KEY_LEVEL_BREAK", "P_KEY_LEVEL_BREAK"),
+        _detected("MICRO_PULLBACK", "P_MICRO_PULLBACK"),
+        _detected("BULL_FLAG", "P_BULL_FLAG"),
+        _detected("VWAP_PULLBACK", "P_VWAP_PULLBACK"),
+    ]
+    out = apply_setup_hierarchy(results, symbol="TEST")
+    by_family = {item.setup_family_id: item for item in out}
+    assert by_family["KEY_LEVEL_BREAK"].detected is True
+    assert by_family["MICRO_PULLBACK"].detected is False
+    assert by_family["MICRO_PULLBACK"].rejection_reason == SUPPRESSION_REASON
+    assert by_family["BULL_FLAG"].detected is False
+    assert by_family["VWAP_PULLBACK"].detected is False

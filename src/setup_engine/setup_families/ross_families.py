@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import replace
 from statistics import mean
 
+from src.setup_engine.setup_families.key_level_helpers import (
+    level_candidates_for_inputs,
+    nearest_relevant_key_level,
+)
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
@@ -602,32 +606,91 @@ class KeyLevelBreakPattern(PatternBase):
     direction_bias = Direction.LONG
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
-        if not inputs.candles:
-            return self._rejected("no candles", inputs)
-        levels = {
-            "premarket_high": inputs.levels.premarket_high,
-            "hod": inputs.levels.hod,
-            **inputs.levels.key_levels,
-        }
-        levels = {k: v for k, v in levels.items() if v is not None}
-        if not levels:
-            return self._rejected("missing key levels", inputs)
-        last = inputs.candles[-1]
-        broken = [name for name, price in levels.items() if last.close > price and last.open <= price]
-        if not broken:
-            return self._rejected("no key level break", inputs)
-        return self._detected(
+        if inputs.session_context not in {SessionContext.PRE, SessionContext.REGULAR}:
+            return self._rejected("invalid_session", inputs)
+        candles = list(inputs.candles or [])
+        if len(candles) < 2:
+            return self._rejected("missing_candles", inputs)
+
+        spread = _safe_float(inputs.liquidity_context.spread)
+        if spread is None:
+            return self._rejected("missing_price_fields", inputs)
+        last = candles[-1]
+        prev = candles[-2]
+        if any(_safe_float(getattr(last, field, None)) is None for field in ("open", "high", "low", "close")):
+            return self._rejected("missing_price_fields", inputs)
+        last_open = float(last.open)
+        last_high = float(last.high)
+        last_low = float(last.low)
+        last_close = float(last.close)
+        prev_close = float(prev.close)
+
+        candidates = level_candidates_for_inputs(inputs)
+        if not candidates:
+            return self._rejected("no_relevant_key_level", inputs)
+        selected = nearest_relevant_key_level(inputs=inputs, reference_price=last_close)
+        if selected is None:
+            return self._rejected("no_relevant_key_level", inputs)
+
+        level_price = selected.level_price
+        if last_close <= level_price and last_high > level_price:
+            return self._rejected("wick_through_only", inputs)
+        broke_level = last_high >= level_price and last_open <= level_price and last_close > level_price
+        if not broke_level:
+            return self._rejected("no_relevant_key_level", inputs)
+
+        body_size = max(abs(last_close - last_open), 1e-9)
+        upper_wick = max(last_high - max(last_open, last_close), 0.0)
+        if upper_wick > body_size * 1.8:
+            return self._rejected("failed_acceptance", inputs)
+        if prev_close > level_price and last_close < prev_close:
+            return self._rejected("key_level_break_exhaustion", inputs)
+
+        rvol = _safe_float(inputs.liquidity_context.rvol)
+        avg_vol = _avg_volume(candles, lookback=8)
+        volume_confirmed = bool(last.volume >= avg_vol and (rvol is None or rvol >= 1.2))
+        if not volume_confirmed:
+            return self._rejected("insufficient_volume_confirmation", inputs)
+
+        spread_pct = spread if spread < 1 else spread / max(last_close, 1e-9)
+        if spread_pct > 0.08:
+            return self._rejected("excessive_spread", inputs)
+        float_millions = _safe_float(inputs.liquidity_context.float_millions)
+        if float_millions is not None and float_millions < 2.0:
+            return self._rejected("low_liquidity", inputs)
+
+        confidence = 0.66 + (0.07 if (rvol or 0.0) >= 2.0 else 0.0) + (0.05 if selected.level_type in {"PREMARKET_HIGH", "HOD", "PRIOR_DAY_HIGH", "MULTI_DAY_HIGH"} else 0.0)
+        detected = self._detected(
             inputs,
             direction=Direction.LONG,
-            confidence=0.68,
+            confidence=min(confidence, 0.89),
             rationale=(
-                "Price closed through tracked key level(s) with breakout body confirmation.\n"
-                f"Broken levels={', '.join(sorted(broken))}, close={last.close:.2f}."
+                "Decisive break and hold through key level with acceptance/participation confirmation.\n"
+                f"level_type={selected.level_type}, level={level_price:.2f}, close={last_close:.2f}, rvol={rvol}, spread={spread:.4f}."
             ),
-            entry_zone="Close above broken key level with continuation",
-            stop_suggestion="Back below broken level",
-            target_suggestion="Next overhead key level",
-            setup_quality_tags=["key_level_break", *sorted(broken)[:2]],
+            entry_zone=f"Continuation above {selected.level_type} {level_price:.2f}",
+            stop_suggestion=f"Back below {level_price:.2f}",
+            target_suggestion="Expansion to next overhead key level",
+            setup_quality_tags=["key_level_break", selected.level_type.lower(), "volume_confirmed"],
+        )
+        stop_level = min(last_low, level_price - 0.01)
+        invalidation_level = level_price
+        print(
+            "[PATTERN_TRACE][INPUT] "
+            f"symbol={inputs.symbol} pattern_id={self.pattern_id} selected_level={level_price:.4f} level_type={selected.level_type}"
+        )
+        return replace(
+            detected,
+            setup_family_id="KEY_LEVEL_BREAK",
+            trigger_type="XL_KEY_LEVEL_BREAK",
+            trigger_level=level_price,
+            stop_level=stop_level,
+            invalidation_level=invalidation_level,
+            setup_metadata={
+                **dict(detected.setup_metadata or {}),
+                "level_type": selected.level_type,
+                "selected_level_source": selected.source,
+            },
         )
 
 
