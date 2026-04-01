@@ -8,6 +8,7 @@ class LevelEngine:
     """Canonical shared level engine used by all strategies."""
 
     _ROUNDING = 6
+    _CRITICAL_LEVELS = ("hod", "vwap")
 
     def compute_levels(
         self,
@@ -25,11 +26,17 @@ class LevelEngine:
         current_price = self._resolve_current_price(candles=candles, intraday_data=intraday_data, closes=closes)
         prior_close = self._resolve_prior_close(candles=candles, intraday_data=intraday_data)
 
+        session = self._resolve_session(intraday_data=intraday_data, candles=intraday_candles)
+        hod, lod = self._resolve_session_hod_lod(
+            session=session,
+            intraday_candles=intraday_candles,
+            premarket_candles=premarket_candles,
+        )
         core_levels = {
             "premarket_high": self._series_max(premarket_candles, "high"),
             "premarket_low": self._series_min(premarket_candles, "low"),
-            "hod": self._series_max(intraday_candles, "high"),
-            "lod": self._series_min(intraday_candles, "low"),
+            "hod": hod,
+            "lod": lod,
             "prior_close": prior_close,
             "vwap": self._compute_vwap(intraday_candles),
             "ema_9": self._ema(closes, 9),
@@ -52,6 +59,8 @@ class LevelEngine:
         levels = {
             "symbol": str(symbol),
             **core_levels,
+            "active_range_high": self._safe_float(active_breakout_range.get("upper")),
+            "active_range_low": self._safe_float(active_breakout_range.get("lower")),
             "whole_dollar_levels": self._whole_levels(current_price),
             "half_dollar_levels": self._half_levels(current_price),
             "active_breakout_range": active_breakout_range,
@@ -69,6 +78,23 @@ class LevelEngine:
 
         if missing_level_flags:
             print(f"[LEVEL_ENGINE] symbol={symbol} missing={missing_level_flags}")
+        critical_missing = [name for name in self._CRITICAL_LEVELS if core_levels.get(name) is None]
+        print(
+            f"[LEVELS][VALIDATION] symbol={symbol} valid={not critical_missing} missing={critical_missing}"
+        )
+        self._log_consistency_checks(
+            symbol=symbol,
+            intraday_candles=intraday_candles,
+            hod=core_levels.get("hod"),
+            vwap=core_levels.get("vwap"),
+            current_price=current_price,
+        )
+        print(
+            "[LEVELS][SNAPSHOT] "
+            f"symbol={symbol} hod={levels.get('hod')} vwap={levels.get('vwap')} "
+            f"ema9={levels.get('ema9')} ema20={levels.get('ema20')} "
+            f"active_range_high={levels.get('active_range_high')} active_range_low={levels.get('active_range_low')}"
+        )
         print(
             "[LEVEL_ENGINE] "
             f"symbol={symbol} pmh={levels.get('premarket_high')} pml={levels.get('premarket_low')} "
@@ -76,6 +102,59 @@ class LevelEngine:
             f"vwap={levels.get('vwap')} ema_9={levels.get('ema_9')} ema_20={levels.get('ema_20')}"
         )
         return levels
+
+    def _resolve_session(self, *, intraday_data: dict, candles: list) -> str:
+        if isinstance(intraday_data, dict):
+            explicit = str(intraday_data.get("session") or intraday_data.get("session_context") or "").upper()
+            if explicit in {"PRE", "PREMARKET"}:
+                return "PRE"
+            if explicit in {"RTH", "REGULAR"}:
+                return "RTH"
+            if explicit in {"AFTER", "AFTER_HOURS", "POST"}:
+                return "AFTER"
+        if candles:
+            ts = self._read(candles[-1], "timestamp")
+            if isinstance(ts, datetime):
+                hour = ts.astimezone(timezone.utc).hour
+                if hour < 14:
+                    return "PRE"
+                if hour >= 21:
+                    return "AFTER"
+                return "RTH"
+        return "RTH"
+
+    def _resolve_session_hod_lod(self, *, session: str, intraday_candles: list, premarket_candles: list) -> tuple[float | None, float | None]:
+        intraday_hod = self._series_max(intraday_candles, "high")
+        intraday_lod = self._series_min(intraday_candles, "low")
+        premarket_hod = self._series_max(premarket_candles, "high")
+        premarket_lod = self._series_min(premarket_candles, "low")
+        if session == "PRE":
+            return (
+                intraday_hod if intraday_hod is not None else premarket_hod,
+                intraday_lod if intraday_lod is not None else premarket_lod,
+            )
+        # RTH remains dynamic from intraday candles; AFTER freezes naturally because intraday feed is no longer advancing.
+        return intraday_hod, intraday_lod
+
+    def _log_consistency_checks(
+        self,
+        *,
+        symbol: str,
+        intraday_candles: list,
+        hod: float | None,
+        vwap: float | None,
+        current_price: float | None,
+    ) -> None:
+        recent_high = self._series_max(intraday_candles[-5:], "high")
+        if hod is not None and recent_high is not None and hod < recent_high:
+            print(f"[LEVELS][INCONSISTENT_HOD] symbol={symbol} hod={hod} recent_high={recent_high}")
+        if vwap is not None and current_price is not None and current_price > 0:
+            drift = abs(vwap - current_price) / current_price
+            if drift > 0.10:
+                print(
+                    f"[LEVELS][VWAP_DRIFT_WARNING] symbol={symbol} vwap={vwap} "
+                    f"price={current_price} drift_pct={round(drift * 100.0, 2)}"
+                )
 
     def _extract_candles(self, payload: dict | None, fallback: list | None = None) -> list:
         if isinstance(payload, dict):

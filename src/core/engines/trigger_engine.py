@@ -248,8 +248,11 @@ class TriggerEngine:
         return ready, reason, flags
 
     def _evaluate_registered_trigger(self, *, setup: dict, levels: dict, candles: list) -> dict | None:
-        evaluator = resolve_trigger_evaluator(setup.get("setup_family_id"))
+        family = str(setup.get("setup_family_id") or "").upper()
+        evaluator = resolve_trigger_evaluator(family)
         if evaluator is None:
+            if family == "BULL_FLAG":
+                print("[PIPELINE][ERROR] BULL_FLAG_WITHOUT_TRIGGER")
             return None
         trigger_payload = evaluator(
             setup,
@@ -258,6 +261,8 @@ class TriggerEngine:
                 "candles": list(candles or []),
             },
         )
+        if family == "BULL_FLAG" and not isinstance(trigger_payload, dict):
+            print("[PIPELINE][ERROR] BULL_FLAG_WITHOUT_TRIGGER")
         return trigger_payload if isinstance(trigger_payload, dict) else None
 
     def _evaluate_gap_go_trigger(
