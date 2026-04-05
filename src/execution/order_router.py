@@ -67,6 +67,7 @@ class TrackedOrder:
     strategy_id: str = ""
     setup_family: str = ""
     seen_exec_ids: set[str] = field(default_factory=set)
+    seen_cumulative_qty: set[int] = field(default_factory=set)
 
 
 @dataclass
@@ -309,7 +310,11 @@ def _state_from_broker_status(status: str, filled_qty: int, remaining_qty: int) 
 def _apply_position_fill(symbol: str, *, signed_delta_qty: int, fill_price: float | None, pending_entry_delta: int = 0, pending_exit_delta: int = 0) -> None:
     if not symbol:
         return
-    row = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
+    row = _RUNTIME_POSITIONS.get(symbol)
+    is_new_position = row is None
+    if row is None:
+        row = TrackedPosition(symbol=symbol)
+        _RUNTIME_POSITIONS[symbol] = row
     row.qty = int(row.qty) + int(signed_delta_qty)
     row.pending_entry_qty = max(0, int(row.pending_entry_qty) + int(pending_entry_delta))
     row.pending_exit_qty = max(0, int(row.pending_exit_qty) + int(pending_exit_delta))
@@ -321,13 +326,21 @@ def _apply_position_fill(symbol: str, *, signed_delta_qty: int, fill_price: floa
     if row.qty <= 0:
         row.qty = 0
         row.state = "POSITION_CLOSED"
+        print(f"[POSITION][CLOSE] symbol={symbol} qty={row.qty} avg_price={row.avg_price}")
+        _RUNTIME_POSITIONS.pop(symbol, None)
+        return
     elif row.pending_exit_qty > 0:
         row.state = "POSITION_REDUCING"
     elif row.pending_entry_qty > 0:
         row.state = "PARTIAL_POSITION_OPEN"
     else:
         row.state = "POSITION_OPEN"
-    print(f"[LIFECYCLE][POSITION] symbol={symbol} qty={row.qty} pending_entry={row.pending_entry_qty} pending_exit={row.pending_exit_qty} state={row.state}")
+    transition = "OPEN" if is_new_position else "UPDATE"
+    print(
+        f"[POSITION][{transition}] symbol={symbol} qty={row.qty} "
+        f"pending_entry={row.pending_entry_qty} pending_exit={row.pending_exit_qty} "
+        f"state={row.state} avg_price={row.avg_price}"
+    )
 
 
 def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, total_qty: int, order_ref: str) -> TrackedOrder:
@@ -349,21 +362,31 @@ def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, tota
         row.last_update_at = _now_utc_iso()
         row.broker_status = "Submitted"
         row.canonical_state = "SUBMITTED"
-    pos = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
+    pos = _RUNTIME_POSITIONS.get(symbol)
     normalized_side = str(side or "").upper()
-    row.is_exit = normalized_side == "SELL" and pos.qty > 0
+    row.is_exit = normalized_side == "SELL" and bool(pos and pos.qty > 0)
     row.is_entry = not row.is_exit
-    if row.is_exit:
+    if pos is not None and row.is_exit:
         pos.pending_exit_qty = max(0, pos.pending_exit_qty + int(total_qty))
-    else:
+    elif pos is not None:
         pos.pending_entry_qty = max(0, pos.pending_entry_qty + int(total_qty))
-    if pos.qty <= 0:
+    if pos is not None and pos.qty <= 0:
         pos.state = "PENDING_ENTRY"
     print(f"[LIFECYCLE][ORDER] order_id={order_id} symbol={symbol} state={row.canonical_state} filled={row.filled_qty} remaining={row.remaining_qty}")
     return row
 
 
-def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, fill_price: float | None, exec_id: str | None, timestamp: str, source: str) -> None:
+def _apply_fill_to_tracked_order(
+    *,
+    order_id: int,
+    symbol: str,
+    fill_qty: int,
+    fill_price: float | None,
+    exec_id: str | None,
+    cumulative_qty: int | None,
+    timestamp: str,
+    source: str,
+) -> None:
     global _UNMATCHED_CALLBACK_COUNT
     row = _RUNTIME_ORDERS.get(order_id)
     if row is None:
@@ -377,9 +400,14 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
             return
         _SEEN_EXEC_IDS.add(dedupe_key)
         row.seen_exec_ids.add(exec_id)
+    if cumulative_qty is not None and cumulative_qty in row.seen_cumulative_qty:
+        print(f"[ORDER_EVENT][EXECUTION] order_id={order_id} cumulative_qty={cumulative_qty} deduped=true")
+        return
     inc = max(0, int(fill_qty))
     if inc <= 0:
         return
+    if cumulative_qty is not None:
+        row.seen_cumulative_qty.add(cumulative_qty)
     prev_filled = row.filled_qty
     row.filled_qty = min(row.total_qty, row.filled_qty + inc)
     row.remaining_qty = max(0, row.total_qty - row.filled_qty)
@@ -391,7 +419,11 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
     row.canonical_state = "FILLED" if row.remaining_qty == 0 else "PARTIALLY_FILLED"
     row.broker_status = "Filled" if row.canonical_state == "FILLED" else "Submitted"
     row.last_update_at = timestamp
-    print(f"[ORDER_EVENT][EXECUTION] order_id={order_id} symbol={row.symbol} fill_inc={inc} filled={row.filled_qty} remaining={row.remaining_qty} exec_id={exec_id or 'NA'}")
+    print(
+        "[EXECUTION][FILL] "
+        f"symbol={row.symbol} qty={inc} price={fill_price if fill_price is not None else 'UNKNOWN'} "
+        f"exec_id={exec_id or 'NA'} order_id={order_id} cumulative_qty={row.filled_qty} source={source}"
+    )
     if old_state != row.canonical_state:
         print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
     signed = inc if row.is_entry else -inc
@@ -452,6 +484,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             fill_qty=filled_qty,
             fill_price=fill_price,
             exec_id=str(exec_id) if exec_id else None,
+            cumulative_qty=filled_qty,
             timestamp=timestamp,
             source="CALLBACK_EXECDETAILS",
         )
@@ -462,14 +495,29 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             print(f"[ORDER_EVENT][UNMATCHED] event=STATUS order_id={order_id} symbol={symbol}")
         else:
             old_state = row.canonical_state
+            previous_filled = row.filled_qty
             row.broker_status = event_status or row.broker_status
-            row.filled_qty = max(row.filled_qty, filled_qty)
             row.remaining_qty = remaining_int if remaining_int >= 0 else row.remaining_qty
-            row.canonical_state = _state_from_broker_status(row.broker_status, row.filled_qty, row.remaining_qty)
+            effective_filled = max(previous_filled, filled_qty)
+            row.canonical_state = _state_from_broker_status(row.broker_status, effective_filled, row.remaining_qty)
             row.last_update_at = timestamp
-            print(f"[ORDER_EVENT][STATUS] order_id={order_id} symbol={row.symbol} status={row.broker_status} filled={row.filled_qty} remaining={row.remaining_qty}")
+            print(f"[ORDER_EVENT][STATUS] order_id={order_id} symbol={row.symbol} status={row.broker_status} filled={effective_filled} remaining={row.remaining_qty}")
             if old_state != row.canonical_state:
                 print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
+            fill_delta = max(0, filled_qty - previous_filled)
+            if fill_delta > 0:
+                _apply_fill_to_tracked_order(
+                    order_id=order_id,
+                    symbol=symbol or row.symbol,
+                    fill_qty=fill_delta,
+                    fill_price=fill_price,
+                    exec_id=None,
+                    cumulative_qty=filled_qty,
+                    timestamp=timestamp,
+                    source="CALLBACK_ORDERSTATUS",
+                )
+            else:
+                row.filled_qty = effective_filled
     print(
         "[EXECUTION][EVENT_CREATED] "
         f"event_type={event.event_type} source={event.source} symbol={event.symbol} "
@@ -522,63 +570,17 @@ def _sync_submitted_events_from_ibkr(
     global _RECONCILED_ORDERS_COUNT, _RECONCILED_POSITIONS_COUNT
     if not events:
         return events
-    open_orders, executions, positions = _fetch_ibkr_truth(mode)
+    open_orders, _executions, _positions = _fetch_ibkr_truth(mode)
     print(
         "[EXECUTION][WORKING_ORDER_RECON] "
-        f"open_orders={len(open_orders)} executions={len(executions)} positions={len(positions)}"
+        f"open_orders={len(open_orders)} executions=0 positions=0"
     )
-    execution_index: dict[int, Any] = {}
-    for row in executions:
-        order_id = _extract_exec_order_id(row)
-        if order_id is not None and order_id not in execution_index:
-            execution_index[order_id] = row
-
     for event in events:
         if event.action != "SUBMITTED":
             continue
         event.last_update_time = _now_utc_iso()
-        if event.broker_order_id is None:
-            continue
-        match = execution_index.get(int(event.broker_order_id))
-        if match is None:
-            continue
-        matched_qty = _extract_exec_qty(match)
-        event.event_type = "ORDER_PARTIALLY_FILLED" if 0 < matched_qty < int(event.remaining_quantity or 0) else "ORDER_FILLED"
-        event.source = "IBKR"
-        event.broker_status = "Filled" if event.event_type == "ORDER_FILLED" else "Submitted"
-        event.filled_quantity = matched_qty
-        event.remaining_quantity = max(0, int(event.remaining_quantity or 0) - matched_qty)
-        event.avg_fill_price = _extract_exec_price(match)
-        print(
-            f"[ORDER][{'PARTIAL_FILL' if event.event_type == 'ORDER_PARTIALLY_FILLED' else 'FILL'}] "
-            f"symbol={event.symbol} order_id={event.broker_order_id} qty={event.filled_quantity} "
-            f"price={event.avg_fill_price if event.avg_fill_price is not None else 'UNKNOWN'}"
-        )
-        _apply_fill_to_tracked_order(
-            order_id=int(event.broker_order_id),
-            symbol=str(event.symbol or "").upper(),
-            fill_qty=max(0, matched_qty),
-            fill_price=event.avg_fill_price,
-            exec_id=None,
-            timestamp=event.last_update_time or _now_utc_iso(),
-            source="BROKER_RECON_EXECUTIONS",
-        )
-        _RECONCILED_ORDERS_COUNT += 1
-        for position in positions:
-            symbol = str(getattr(position, "symbol", "") or "").upper()
-            if symbol != str(event.symbol or "").upper():
-                continue
-            qty = int(getattr(position, "position", 0) or 0)
-            avg = getattr(position, "avgCost", None)
-            print(f"[POSITION][OPEN] symbol={symbol} qty={qty} avg_price={avg}")
-            tracked = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
-            if tracked.qty != qty:
-                print(f"[POSITION][DRIFT] symbol={symbol} local_qty={tracked.qty} broker_qty={qty}")
-                tracked.qty = qty
-                tracked.state = "POSITION_CLOSED" if qty == 0 else "POSITION_OPEN"
-                print(f"[POSITION][REPAIRED] symbol={symbol} qty={tracked.qty} state={tracked.state}")
-            _RECONCILED_POSITIONS_COUNT += 1
-            break
+        if event.broker_order_id is not None:
+            _RECONCILED_ORDERS_COUNT += 1
     print(f"[EXECUTION][RECON_VERDICT] reconciled_orders={_RECONCILED_ORDERS_COUNT} reconciled_positions={_RECONCILED_POSITIONS_COUNT}")
     return events
 

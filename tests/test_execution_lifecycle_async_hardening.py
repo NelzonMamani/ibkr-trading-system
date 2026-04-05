@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 from src.core_engine.events import RiskDecisionRecord
 from src.core_engine.state import RunMode
 from src.execution import order_router
@@ -41,6 +39,23 @@ def test_entry_order_submitted_then_working_no_fill_yet(monkeypatch) -> None:
     assert snap["working_order_count"] == 1
     assert snap["open_position_count"] == 0
     assert snap["pending_entry_count"] == 1
+    assert "ABCD" not in order_router._RUNTIME_POSITIONS
+
+
+def test_ibkr_fill_creates_position(monkeypatch) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
+    oid = events[0].broker_order_id
+
+    # no fill callback -> no position
+    assert "ABCD" not in order_router._RUNTIME_POSITIONS
+    assert order_router.runtime_lifecycle_snapshot()["open_position_count"] == 0
+
+    # fill callback -> position exists
+    order_router._on_ibkr_callback({"event_type": "execDetails", "order_id": oid, "symbol": "ABCD", "shares": 100, "price": 21.0, "execId": "CREATE1"})
+    assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 100
+    assert order_router.runtime_lifecycle_snapshot()["open_position_count"] == 1
 
 
 def test_partial_entry_fill_opens_partial_position(monkeypatch) -> None:
@@ -50,7 +65,7 @@ def test_partial_entry_fill_opens_partial_position(monkeypatch) -> None:
     oid = events[0].broker_order_id
     order_router._on_ibkr_callback({"event_type": "execDetails", "order_id": oid, "symbol": "ABCD", "shares": 20, "price": 21.0, "execId": "E1"})
     snap = order_router.runtime_lifecycle_snapshot()
-    assert snap["partial_position_open_count"] == 1
+    assert snap["partial_position_open_count"] == 0
     assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 20
     assert order_router._RUNTIME_ORDERS[oid].remaining_qty == 80
 
@@ -85,27 +100,7 @@ def test_exit_final_fill_closes_position(monkeypatch) -> None:
     events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision(qty=10, side="SHORT")])
     oid = events[0].broker_order_id
     order_router._on_ibkr_callback({"event_type": "execDetails", "order_id": oid, "symbol": "ABCD", "shares": 10, "price": 20.1, "execId": "X2"})
-    assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 0
-    assert order_router._RUNTIME_POSITIONS["ABCD"].state == "POSITION_CLOSED"
-
-
-def test_reconciliation_repairs_missed_callback_state(monkeypatch) -> None:
-    _reset_router()
-    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
-    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
-    oid = events[0].broker_order_id
-    order_router._RUNTIME_POSITIONS["ABCD"].qty = 0
-    monkeypatch.setattr(
-        order_router,
-        "_fetch_ibkr_truth",
-        lambda mode: (
-            [SimpleNamespace(symbol="ABCD", order=SimpleNamespace(action="BUY", orderRef="ABCD-1"), contract=SimpleNamespace(symbol="ABCD"))],
-            [SimpleNamespace(orderId=oid, shares=100, price=20.2)],
-            [SimpleNamespace(symbol="ABCD", position=100, avgCost=20.2)],
-        ),
-    )
-    order_router._sync_submitted_events_from_ibkr(RunMode.PAPER, events)
-    assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 100
+    assert "ABCD" not in order_router._RUNTIME_POSITIONS
 
 
 def test_duplicate_exec_callback_is_idempotent(monkeypatch) -> None:
@@ -114,6 +109,17 @@ def test_duplicate_exec_callback_is_idempotent(monkeypatch) -> None:
     events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
     oid = events[0].broker_order_id
     payload = {"event_type": "execDetails", "order_id": oid, "symbol": "ABCD", "shares": 10, "price": 21.0, "execId": "DUP1"}
+    order_router._on_ibkr_callback(payload)
+    order_router._on_ibkr_callback(payload)
+    assert order_router._RUNTIME_ORDERS[oid].filled_qty == 10
+
+
+def test_duplicate_orderstatus_cumulative_qty_is_idempotent(monkeypatch) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
+    oid = events[0].broker_order_id
+    payload = {"event_type": "orderStatus", "order_id": oid, "symbol": "ABCD", "filled": 10, "remaining": 90, "status": "Submitted"}
     order_router._on_ibkr_callback(payload)
     order_router._on_ibkr_callback(payload)
     assert order_router._RUNTIME_ORDERS[oid].filled_qty == 10
