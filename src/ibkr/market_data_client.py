@@ -90,6 +90,18 @@ class MarketDataSnapshot:
     spread: Optional[float]
     timestamp_utc: str
     data_quality_flags: list[str] = field(default_factory=list)
+    req_id: Optional[int] = None
+    market_data_type_requested: str = "LIVE"
+    market_data_type_effective: str = "LIVE"
+    has_valid_bid: bool = False
+    has_valid_ask: bool = False
+    has_valid_last: bool = False
+    has_valid_close: bool = False
+    has_valid_volume: bool = False
+    quote_integrity_state: str = "INVALID_EMPTY_SNAPSHOT"
+    integrity_flags: list[str] = field(default_factory=list)
+    timeout_occurred: bool = False
+    source_label: str = "IBKR_SNAPSHOT"
 
 
 class MarketDataClient:
@@ -125,6 +137,7 @@ class MarketDataClient:
         self._scanner_results_received = False
         self._scanner_request_active = False
         self._recent_error_codes: dict[str, int] = {}
+        self._recent_md_categories: dict[str, int] = {}
         self.last_snapshot_debug: dict[str, Any] = {}
         try:
             if self.ib is not None:
@@ -171,10 +184,35 @@ class MarketDataClient:
     def _on_ib_error(self, req_id, error_code, error_string, contract=None) -> None:
         code = str(error_code)
         self._recent_error_codes[code] = self._recent_error_codes.get(code, 0) + 1
+        category = self._classify_market_data_error(error_code, error_string)
+        self._recent_md_categories[category] = self._recent_md_categories.get(category, 0) + 1
+        print(f"[IBKR][MD][CLASSIFIED_ERROR] code={error_code} category={category}")
         if int(error_code) == 162 and self._scanner_results_received and not self._scanner_request_active:
             print(f"[IBKR][INFO] code=162 msg={error_string} context=scanner_cancel_after_results")
         elif int(error_code) in {10197}:
             print(f"[IBKR][WARN] code={error_code} msg={error_string}")
+
+    @staticmethod
+    def _classify_market_data_error(error_code: int, error_string: str) -> str:
+        code = int(error_code)
+        message = str(error_string or "").lower()
+        if code == 2176:
+            return "FRACTIONAL_SHARE_WARNING"
+        if code in {10197}:
+            return "COMPETING_SESSION"
+        if code in {1101}:
+            return "CONNECTION_RESTORED_DATA_LOST"
+        if code in {1102}:
+            return "CONNECTION_RESTORED_DATA_MAINTAINED"
+        if code in {10167} or "delayed" in message:
+            return "DELAYED_ONLY"
+        if code in {354, 10090} or "permission" in message or "not subscribed" in message:
+            return "NO_PERMISSION"
+        if code in {162} and ("permission" in message or "subscription" in message):
+            return "NO_PERMISSION"
+        if code in {300}:
+            return "REQUEST_CANCEL_OR_UNKNOWN"
+        return "OTHER"
 
     def request_scanner_data(self, subscription):
         ib = self._resolve_ib_client()
@@ -351,6 +389,7 @@ class MarketDataClient:
         for attempt_index, (snapshot_mode, market_data_type, attempt_label) in enumerate(attempts, start=1):
             flags = _market_data_type_flags(market_data_type)
             data_type_code = _market_data_type_code(market_data_type)
+            print(f"[IBKR][MDTYPE][REQUEST] req_id=NA requested={data_type_code}")
             req_market_data_type = getattr(ib, "reqMarketDataType", None)
             if callable(req_market_data_type):
                 req_market_data_type(data_type_code)
@@ -373,6 +412,16 @@ class MarketDataClient:
                     break
             waited_seconds = round(time.time() - started_at, 3)
             raw_fields = self._snapshot_debug_fields(ticker)
+            effective_type_code = getattr(ticker, "marketDataType", None) or data_type_code
+            effective_mdt = self._market_data_type_name(effective_type_code)
+            requested_mdt = self._market_data_type_name(data_type_code)
+            print(
+                f"[IBKR][MDTYPE][EFFECTIVE] req_id=NA effective={effective_type_code} symbol={symbol}"
+            )
+            if effective_mdt != requested_mdt:
+                print(
+                    f"[IBKR][MDTYPE][STATE] symbol={symbol} requested={requested_mdt} effective={effective_mdt}"
+                )
             missing_fields = [field for field in ("last", "close", "volume") if raw_fields.get(field) is None]
             attempt_debug = {
                 "attempt": attempt_index,
@@ -382,6 +431,8 @@ class MarketDataClient:
                 "timeout_occurred": not snapshot_complete,
                 "raw_fields": raw_fields,
                 "missing_fields": missing_fields,
+                "market_data_type_requested": requested_mdt,
+                "market_data_type_effective": effective_mdt,
             }
             self.last_snapshot_debug = {**self.last_snapshot_debug, **attempt_debug}
             if not snapshot_complete:
@@ -437,6 +488,40 @@ class MarketDataClient:
                 f"volume={volume} vwap={vwap} high={high} low={low} open={open_price}"
             )
         spread = (ask - bid) if bid is not None and ask is not None else None
+        has_valid_last = last is not None and last > 0
+        has_valid_bid = bid is not None and bid > 0
+        has_valid_ask = ask is not None and ask > 0
+        has_valid_close = close is not None and close > 0
+        has_valid_volume = volume is not None and volume >= 0
+        requested_mdt = str(best_debug.get("market_data_type_requested") or str(self.market_data_type or "LIVE").upper())
+        effective_mdt = str(best_debug.get("market_data_type_effective") or requested_mdt)
+        integrity_flags: list[str] = []
+        if not has_valid_last:
+            integrity_flags.append("INVALID_LAST")
+        if not (has_valid_bid and has_valid_ask):
+            integrity_flags.append("INVALID_BID_ASK")
+        if not has_valid_volume:
+            integrity_flags.append("INVALID_VOLUME")
+        if best_debug.get("timeout_occurred"):
+            integrity_flags.append("SNAPSHOT_TIMEOUT")
+        if self._recent_md_categories.get("NO_PERMISSION"):
+            integrity_flags.append("NO_PERMISSION")
+            print(f"[IBKR][MD][DEGRADED_REASON] symbol={symbol} reason=NO_PERMISSION")
+        if self._recent_md_categories.get("COMPETING_SESSION"):
+            integrity_flags.append("COMPETING_SESSION")
+            print(f"[IBKR][MD][DEGRADED_REASON] symbol={symbol} reason=COMPETING_SESSION")
+        if self._recent_md_categories.get("DELAYED_ONLY"):
+            integrity_flags.append("DELAYED_ONLY")
+            print(f"[IBKR][MD][DEGRADED_REASON] symbol={symbol} reason=DELAYED_ONLY")
+        quote_integrity_state = self._resolve_quote_integrity_state(
+            effective_mdt=effective_mdt,
+            has_valid_last=has_valid_last,
+            has_valid_bid=has_valid_bid,
+            has_valid_ask=has_valid_ask,
+            has_any_field=any(v is not None for v in (bid, ask, last, close, volume, vwap, open_price, high, low)),
+            timeout_occurred=bool(best_debug.get("timeout_occurred")),
+            integrity_flags=integrity_flags,
+        )
         if self._recent_error_codes.get("10197"):
             final_flags.append("MD_CONFLICT_10197")
         if bid is None and ask is None and last is None:
@@ -450,6 +535,12 @@ class MarketDataClient:
         final_flags = list(dict.fromkeys(final_flags))
         if last is not None and volume is not None:
             print(f"[SNAPSHOT_OK] symbol={symbol} last={last} close={close} volume={volume}")
+        print(
+            "[SNAPSHOT][QUALITY] "
+            f"symbol={symbol} mdt={effective_mdt} last_ok={has_valid_last} bid_ok={has_valid_bid} ask_ok={has_valid_ask} "
+            f"volume_ok={has_valid_volume} timeout={bool(best_debug.get('timeout_occurred'))} integrity={quote_integrity_state} "
+            f"scanner_usable={has_valid_last} execution_usable={has_valid_last and has_valid_bid and has_valid_ask}"
+        )
 
         return MarketDataSnapshot(
             symbol=symbol,
@@ -469,7 +560,67 @@ class MarketDataClient:
             spread=spread,
             timestamp_utc=snapshot_timestamp.isoformat(),
             data_quality_flags=final_flags,
+            req_id=None,
+            market_data_type_requested=requested_mdt,
+            market_data_type_effective=effective_mdt,
+            has_valid_bid=has_valid_bid,
+            has_valid_ask=has_valid_ask,
+            has_valid_last=has_valid_last,
+            has_valid_close=has_valid_close,
+            has_valid_volume=has_valid_volume,
+            quote_integrity_state=quote_integrity_state,
+            integrity_flags=list(dict.fromkeys(integrity_flags)),
+            timeout_occurred=bool(best_debug.get("timeout_occurred")),
+            source_label="IBKR_SNAPSHOT",
         )
+
+    @staticmethod
+    def _market_data_type_name(code: int | str | None) -> str:
+        normalized = str(code or "").upper()
+        if normalized in {"1", "LIVE"}:
+            return "LIVE"
+        if normalized in {"2", "FROZEN"}:
+            return "FROZEN"
+        if normalized in {"3", "DELAYED"}:
+            return "DELAYED"
+        if normalized in {"4", "DELAYED_FROZEN"}:
+            return "DELAYED_FROZEN"
+        return "LIVE"
+
+    @staticmethod
+    def _resolve_quote_integrity_state(
+        *,
+        effective_mdt: str,
+        has_valid_last: bool,
+        has_valid_bid: bool,
+        has_valid_ask: bool,
+        has_any_field: bool,
+        timeout_occurred: bool,
+        integrity_flags: list[str],
+    ) -> str:
+        if "NO_PERMISSION" in integrity_flags:
+            return "INVALID_PERMISSION"
+        if "COMPETING_SESSION" in integrity_flags:
+            return "INVALID_COMPETING_SESSION"
+        if timeout_occurred:
+            return "INVALID_TIMEOUT"
+        if not has_any_field:
+            return "INVALID_EMPTY_SNAPSHOT"
+        if not has_valid_last and not (has_valid_bid or has_valid_ask):
+            if effective_mdt in {"FROZEN", "DELAYED_FROZEN"}:
+                return "INVALID_MARKET_CLOSED_NO_USABLE_FIELDS"
+            return "INVALID_EMPTY_SNAPSHOT"
+        if not has_valid_last:
+            return "INVALID_MISSING_LAST"
+        if not (has_valid_bid and has_valid_ask):
+            return "INVALID_NO_BID_ASK"
+        if effective_mdt == "DELAYED":
+            return "VALID_DELAYED"
+        if effective_mdt == "FROZEN":
+            return "VALID_FROZEN"
+        if effective_mdt == "DELAYED_FROZEN":
+            return "VALID_DELAYED_FROZEN"
+        return "VALID_REALTIME"
 
     @staticmethod
     def _ticker_has_data(ticker) -> bool:
@@ -634,6 +785,18 @@ class MarketDataClient:
             spread=None,
             timestamp_utc=datetime.now(timezone.utc).isoformat(),
             data_quality_flags=flags,
+            req_id=None,
+            market_data_type_requested=str(self.market_data_type or "LIVE").upper(),
+            market_data_type_effective=str(self.market_data_type or "LIVE").upper(),
+            has_valid_bid=False,
+            has_valid_ask=False,
+            has_valid_last=False,
+            has_valid_close=False,
+            has_valid_volume=False,
+            quote_integrity_state="INVALID_EMPTY_SNAPSHOT",
+            integrity_flags=["EMPTY_SNAPSHOT"],
+            timeout_occurred=False,
+            source_label="IBKR_SNAPSHOT",
         )
 
     def snapshot_for_symbol(self, symbol: str) -> MarketDataSnapshot:

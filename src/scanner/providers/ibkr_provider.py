@@ -301,6 +301,17 @@ class IbkrScannerProvider(ScannerDataProvider):
             volume=snapshot.volume,
             timestamp_utc=snapshot.timestamp_utc,
             data_quality_flags=tuple(flags),
+            market_data_type_requested=snapshot.market_data_type_requested,
+            market_data_type_effective=snapshot.market_data_type_effective,
+            has_valid_bid=snapshot.has_valid_bid,
+            has_valid_ask=snapshot.has_valid_ask,
+            has_valid_last=snapshot.has_valid_last,
+            has_valid_close=snapshot.has_valid_close,
+            has_valid_volume=snapshot.has_valid_volume,
+            quote_integrity_state=snapshot.quote_integrity_state,
+            integrity_flags=tuple(snapshot.integrity_flags),
+            timeout_occurred=snapshot.timeout_occurred,
+            source_label=snapshot.source_label,
         )
 
     def qualifyContracts(self, *contracts):

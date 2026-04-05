@@ -778,19 +778,14 @@ def _apply_degraded_contract(context: Dict[str, Any]) -> None:
 
 
 def _resolve_price(quote) -> Optional[float]:
-    if quote.last is not None:
+    if quote.last is not None and float(quote.last) > 0:
         return float(quote.last)
-    if quote.bid is not None and quote.ask is not None:
-        return float(round((quote.bid + quote.ask) / 2.0, 4))
-    if quote.bid is not None:
-        return float(quote.bid)
-    if quote.ask is not None:
-        return float(quote.ask)
     return None
 
 
 def _spread_values(quote) -> tuple[Optional[float], Optional[float]]:
-    if quote.bid is None or quote.ask is None:
+    if quote.bid is None or quote.ask is None or float(quote.bid) <= 0 or float(quote.ask) <= 0:
+        print(f"[SPREAD][SKIP] symbol={getattr(quote, 'symbol', 'NA')} reason=INVALID_BID_ASK")
         return None, None
     spread = float(round(quote.ask - quote.bid, 4))
     mid = float(round((quote.ask + quote.bid) / 2.0, 4))
@@ -1275,24 +1270,22 @@ def _evaluate_watchlist_gates(
     context: Dict[str, Any],
     thresholds: GateThresholds,
 ) -> Optional[str]:
+    if not bool(context.get("current_quote_available")):
+        print(
+            f"[SCANNER][DQ] symbol={context.get('symbol')} pct_change_available=false spread_available={bool(context.get('spread_available'))}"
+        )
+        return "DROP_INVALID_QUOTE"
     _evaluate_float_gate(context, thresholds)
     pct_change = _safe_float(context.get("pct_change"), None)
     session = normalize_session_label(str(context.get("session") or ""))
-    calendar_session = str(context.get("calendar_session") or "")
     pct_source = context.get("pct_source") or context.get("reference_source") or "UNKNOWN"
 
     if pct_change is None:
-        if session == "PRE":
-            context.setdefault("eligibility_reason_codes", []).append("PCT_CHANGE_CONTINUITY_ONLY")
-            _apply_degraded_contract(context)
-            print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=PASS reason=PRE_CONTINUITY_ALLOWED")
-            return None
-        if calendar_session in {"WEEKEND", "OVN"}:
-            context.setdefault("eligibility_reason_codes", []).append("PCT_CHANGE_FALLBACK_ALLOWED")
-            print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=PASS reason=CALENDAR_OVN_WEEKEND_FALLBACK_ALLOWED")
-            return None
+        print(
+            f"[SCANNER][DQ] symbol={context.get('symbol')} pct_change_available=false spread_available={bool(context.get('spread_available'))}"
+        )
         print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=FAIL reason=MISSING_PCT_CHANGE")
-        return "DROP_MISSING_PCT_CHANGE"
+        return "DROP_PCT_UNAVAILABLE"
     pct_change_min = _resolve_pct_change_min_for_session(str(context.get("session") or ""), thresholds)
     if pct_change < pct_change_min:
         print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=FAIL reason=BELOW_MIN threshold={pct_change_min}")
@@ -2259,6 +2252,21 @@ def _build_symbol_context(
         return None
 
     data_quality_flags = list(getattr(quote, "data_quality_flags", []) or [])
+    quote_integrity_state = str(getattr(quote, "quote_integrity_state", None) or "INVALID_EMPTY_SNAPSHOT")
+    integrity_flags = list(getattr(quote, "integrity_flags", []) or [])
+    raw_has_valid_last = getattr(quote, "has_valid_last", None)
+    raw_has_valid_bid = getattr(quote, "has_valid_bid", None)
+    raw_has_valid_ask = getattr(quote, "has_valid_ask", None)
+    raw_has_valid_volume = getattr(quote, "has_valid_volume", None)
+    has_valid_last = bool(raw_has_valid_last) if raw_has_valid_last is not None else (_safe_float(getattr(quote, "last", None), None) is not None and _safe_float(getattr(quote, "last", None), None) > 0)
+    has_valid_bid = bool(raw_has_valid_bid) if raw_has_valid_bid is not None else (_safe_float(getattr(quote, "bid", None), None) is not None and _safe_float(getattr(quote, "bid", None), None) > 0)
+    has_valid_ask = bool(raw_has_valid_ask) if raw_has_valid_ask is not None else (_safe_float(getattr(quote, "ask", None), None) is not None and _safe_float(getattr(quote, "ask", None), None) > 0)
+    has_valid_volume = bool(raw_has_valid_volume) if raw_has_valid_volume is not None else (_safe_float(getattr(quote, "volume", None), None) is not None and _safe_float(getattr(quote, "volume", None), None) >= 0)
+    if quote_integrity_state.startswith("INVALID"):
+        print(
+            "[MARKET_CONTEXT][DEGRADED] "
+            f"symbol={symbol} quote_integrity_state={quote_integrity_state} flags={integrity_flags}"
+        )
     if any("10197" in str(flag) for flag in data_quality_flags):
         if "MD_CONFLICT_10197" not in data_quality_flags:
             data_quality_flags.append("MD_CONFLICT_10197")
@@ -2320,7 +2328,7 @@ def _build_symbol_context(
         ibkr_change_pct=ibkr_change_pct,
         persisted_pct_change=_safe_float(getattr(quote, "persisted_pct_change", None), None),
     )
-    prev_close = session_close if session_close is not None else reference_snapshot.get("prev_close")
+    prev_close = reference_snapshot.get("prev_close")
     avg_volume_20d = avg_volume_20d if avg_volume_20d is not None else reference_snapshot.get("average_daily_volume_20d")
     avg_volume_window_days = avg_volume_window_days if avg_volume_window_days is not None else reference_snapshot.get("average_daily_volume_window_days")
 
@@ -2424,6 +2432,7 @@ def _build_symbol_context(
     if include_pct_change and prev_close is None:
         data_quality_flags.append("MISSING_REF_CLOSE_RTH")
     if include_pct_change and pct_change is None:
+        print(f"[PCT][SKIP] symbol={symbol} reason=INVALID_QUOTE_OR_REFERENCE")
         data_quality_flags.append("MISSING_PCT_CHANGE")
     if get_config("DEBUG_MARKET_DATA"):
         print(
@@ -2459,8 +2468,13 @@ def _build_symbol_context(
         "currency": getattr(qualified_identity, "currency", None) or scan_detail.get("currency") or "USD",
         "instrument_type": getattr(qualified_identity, "sec_type", None) or scan_detail.get("secType") or "STK",
         "last_price": last_price,
+        "canonical_last_price": last_price,
+        "canonical_current_last": last_price,
+        "current_quote_available": bool(has_valid_last and last_price is not None),
+        "tradeability_quote_ok": bool(has_valid_last and has_valid_bid and has_valid_ask),
         "close": quote.close,
         "prev_close": prev_close,
+        "reference_prev_close": prev_close,
         "ref_close_rth": prev_close,
         "rth_open_price": session_open,
         "rth_close_price": session_close,
@@ -2468,6 +2482,7 @@ def _build_symbol_context(
         "reference_label": reference_label,
         "reference_quality_tier": reference_snapshot.get("reference_quality_tier"),
         "pct_change": pct_change,
+        "pct_change_available": pct_change is not None,
         "pct_change_resolved": pct_change,
         "pct_change_qualification_usable": pct_change_qualification_usable,
         "pct_change_execution_usable": bool(reference_snapshot.get("execution_usable_reference")) and pct_change is not None,
@@ -2510,6 +2525,7 @@ def _build_symbol_context(
         "ask": quote.ask,
         "spread": spread,
         "spread_pct": spread_pct,
+        "spread_available": spread_pct is not None,
         "high": _safe_float(getattr(quote, "high", None), None),
         "low": _safe_float(getattr(quote, "low", None), None),
         "vwap": _safe_float(getattr(quote, "vwap", None), None),
@@ -2533,6 +2549,14 @@ def _build_symbol_context(
         "ssr": None,
         "eligibility_reason_codes": [],
         "data_quality_flags": list(dict.fromkeys(data_quality_flags)),
+        "data_integrity_flags": list(dict.fromkeys(integrity_flags)),
+        "quote_integrity_state": quote_integrity_state,
+        "market_data_type_requested": getattr(quote, "market_data_type_requested", None),
+        "market_data_type_effective": getattr(quote, "market_data_type_effective", None),
+        "has_valid_last": has_valid_last,
+        "has_valid_bid": has_valid_bid,
+        "has_valid_ask": has_valid_ask,
+        "has_valid_volume": has_valid_volume,
         "snapshot_timeout": snapshot_timeout,
         "universe_rank": universe_rank,
     }
@@ -2793,6 +2817,7 @@ def _ross_reason_from_drop(drop_reason: str) -> str:
         "DROP_PCT_CHANGE": "GAP_FAIL",
         "DROP_PCT_CHANGE_MAX": "GAP_FAIL",
         "DROP_MISSING_PCT_CHANGE": "GAP_FAIL",
+        "DROP_PCT_UNAVAILABLE": "DATA_QUALITY_FAIL",
         "DROP_FLOAT_MAX": "FLOAT_FAIL",
         "DROP_FLOAT_MISSING": "FLOAT_FAIL",
         "DROP_SPREAD": "SPREAD_FAIL",
@@ -2806,6 +2831,8 @@ def _ross_reason_from_drop(drop_reason: str) -> str:
         "DROP_MD_CONFLICT": "DATA_QUALITY_FAIL",
         "DROP_UNSUBSCRIBED_MARKET_DATA": "DATA_QUALITY_FAIL",
         "DROP_SNAPSHOT_TIMEOUT": "DATA_QUALITY_FAIL",
+        "DROP_INVALID_QUOTE": "DATA_QUALITY_FAIL",
+        "DROP_NO_USABLE_MARKET_DATA": "DATA_QUALITY_FAIL",
     }
     return mapping.get(drop_reason, "DATA_QUALITY_FAIL")
 
@@ -3061,6 +3088,9 @@ def run_scanner_cycle(
         f"session={normalize_session_label(session_label)} pct_reference=LAST_RTH_CLOSE "
         "gap_reference=SESSION_OPEN_VS_LAST_RTH_CLOSE closed_prep_reference=LAST_SESSION_REFERENCE"
     )
+    normalized_session_label = normalize_session_label(session_label)
+    quote_requirement = "STRICT_LIVE_LAST_REQUIRED" if normalized_session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH"} else "REFERENCE_ONLY_NO_MOMENTUM"
+    print(f"[SESSION][DATA_POLICY] session={normalized_session_label} quote_requirement={quote_requirement}")
     prep_mode_seed_enabled = normalize_session_label(session_label) == "PRE"
     print(
         "[PREP][MODE] "
@@ -3522,8 +3552,11 @@ def run_scanner_cycle(
             snapshot_failed = all(context.get(key) is None for key in ("last_price", "bid", "ask", "volume", "close"))
             context["snapshot_fetch_failed"] = snapshot_failed
             if snapshot_failed:
-                print(f"[SCANNER][DROP] symbol={symbol} reason=DATA_QUALITY_FAIL_SNAPSHOT")
+                drop_ledger.setdefault(symbol, "DROP_NO_USABLE_MARKET_DATA")
+                print(f"[SCANNER][DROP] symbol={symbol} reason=DROP_NO_USABLE_MARKET_DATA")
                 context.setdefault("data_quality_flags", []).append("DATA_QUALITY_FAIL_SNAPSHOT")
+                evaluated_contexts.append(context)
+                continue
 
             if context.get("snapshot_timeout"):
                 drop_ledger.setdefault(symbol, "DROP_SNAPSHOT_TIMEOUT")
@@ -3541,6 +3574,11 @@ def run_scanner_cycle(
                     )
                 evaluated_contexts.append(context)
                 continue
+            print(
+                "[SESSION][QUOTE_STATUS] "
+                f"symbol={symbol} usable_for_scanner={bool(context.get('current_quote_available'))} "
+                f"usable_for_reference={context.get('reference_prev_close') is not None}"
+            )
 
             float_class = _classify_float(context.get("float_shares"))
             context["float_class"] = float_class
@@ -3554,6 +3592,11 @@ def run_scanner_cycle(
                     )
 
             _populate_pct_change(context, provider)
+            print(
+                "[SCANNER][DEBUG] "
+                f"symbol={symbol} quote_integrity_state={context.get('quote_integrity_state')} "
+                f"flags={context.get('data_integrity_flags', [])}"
+            )
             print(
                 "[PCT] "
                 f"symbol={symbol} session={normalize_session_label(session_label)} "

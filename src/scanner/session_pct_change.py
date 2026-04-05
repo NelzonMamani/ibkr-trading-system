@@ -296,7 +296,9 @@ def _safe_float(value: Optional[float]) -> Optional[float]:
 
 
 def _pct_change(last_price: Optional[float], reference_price: Optional[float]) -> Optional[float]:
-    if last_price is None or reference_price in {None, 0}:
+    if last_price is None or reference_price is None:
+        return None
+    if last_price <= 0 or reference_price <= 0:
         return None
     return round(((last_price - reference_price) / reference_price) * 100.0, 2)
 
@@ -528,16 +530,9 @@ def compute_session_aligned_pct_change(
         pct_source = "CALC(SESSION_REF)"
         if normalized_session in {"WEEKEND", "OVN"}:
             print(f"[PCT][FALLBACK_USED] session={normalized_session} source=IBKR_PREV_CLOSE")
-    elif normalized_session == "WEEKEND" and persisted_pct is not None:
-        final_pct = persisted_pct
-        pct_source = "PERSISTED_LAST_SESSION"
-    elif ibkr_pct is not None:
-        # Fallback only when session-aligned reference values are unavailable.
-        final_pct = ibkr_pct
-        pct_source = "IBKR_FALLBACK"
     else:
         final_pct = None
-        pct_source = "N/A"
+        pct_source = "UNAVAILABLE_INVALID_QUOTE_OR_REFERENCE"
 
     return SessionAlignedPercentChange(
         session_label=normalized_session,

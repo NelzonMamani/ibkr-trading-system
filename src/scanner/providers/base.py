@@ -23,6 +23,17 @@ class QuoteData:
     volume: Optional[float]
     timestamp_utc: Optional[str]
     data_quality_flags: Sequence[str]
+    market_data_type_requested: Optional[str] = None
+    market_data_type_effective: Optional[str] = None
+    has_valid_bid: Optional[bool] = None
+    has_valid_ask: Optional[bool] = None
+    has_valid_last: Optional[bool] = None
+    has_valid_close: Optional[bool] = None
+    has_valid_volume: Optional[bool] = None
+    quote_integrity_state: Optional[str] = None
+    integrity_flags: Sequence[str] = ()
+    timeout_occurred: bool = False
+    source_label: Optional[str] = None
 
 
 @dataclass(frozen=True)
