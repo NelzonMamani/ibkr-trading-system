@@ -2229,8 +2229,17 @@ class CoreOrchestrator:
         )
         scanner_keep_symbols = self._symbols_from_candidates(selected_observations)
         scanner_kept_count = len(scanner_keep_symbols)
-        pipeline_audit = PipelineAudit(self._current_cycle_id or str(uuid4()))
+        pipeline_audit = PipelineAudit(
+            self._current_cycle_id or str(uuid4()),
+            runtime_mode=self.run_mode.value,
+            strategy_key=strategy_key,
+        )
         pipeline_audit.mark_kept(scanner_keep_symbols)
+        print(
+            "[TRADE_PATH][START] "
+            f"cycle_id={pipeline_audit.cycle_id} runtime_mode={self.run_mode.value} "
+            f"strategy_key={strategy_key} scanner_seen={len(scanner_keep_symbols)}"
+        )
         focus_rvol_threshold = float(get_config("FOCUS_RVOL_MIN") or 0.0)
         print(f"[FOCUS][RVOL_THRESHOLD] value={focus_rvol_threshold}")
         print(f"[WATCHLIST][FINAL] size={len(watchlist_symbols)} symbols={watchlist_symbols}")
@@ -2245,6 +2254,7 @@ class CoreOrchestrator:
         }
         for symbol in scanner_keep_symbols:
             symbol_upper = symbol.upper()
+            pipeline_audit.mark_stage(symbol_upper, "SCANNER", scanner_seen=True)
             symbol_rvol = rvol_by_symbol.get(symbol_upper)
             focus_result = "PASS" if symbol_upper in final_focus_set else "FAIL"
             print(
@@ -2253,10 +2263,18 @@ class CoreOrchestrator:
             )
             if symbol_upper not in watchlist_set:
                 print(f"[FOCUS][REJECT] symbol={symbol} reason=SCANNER_KEEP_NOT_IN_WATCHLIST")
-                pipeline_audit.record(symbol, TerminalOutcome.NOT_IN_FOCUS, "SCANNER_KEEP_NOT_IN_WATCHLIST", "watchlist")
+                print(f"[TRADE_PATH][WATCHLIST] symbol={symbol_upper} verdict=WATCHLIST_REJECTED reason=SCANNER_KEEP_NOT_IN_WATCHLIST")
+                pipeline_audit.mark_stage(symbol_upper, "WATCHLIST", watchlist_seen=False)
+                pipeline_audit.record(symbol, TerminalOutcome.WATCHLIST_REJECTED, "SCANNER_KEEP_NOT_IN_WATCHLIST", "watchlist")
             elif symbol_upper not in final_focus_set:
                 print(f"[FOCUS][REJECT] symbol={symbol} reason=NOT_SELECTED_FOR_FOCUS")
-                pipeline_audit.record(symbol, TerminalOutcome.NOT_IN_FOCUS, "NOT_SELECTED_FOR_FOCUS", "focus")
+                print(f"[TRADE_PATH][FOCUS] symbol={symbol_upper} verdict=FOCUS_REJECTED reason=NOT_SELECTED_FOR_FOCUS")
+                pipeline_audit.mark_stage(symbol_upper, "WATCHLIST", watchlist_seen=True)
+                pipeline_audit.mark_stage(symbol_upper, "FOCUS", focus_seen=False)
+                pipeline_audit.record(symbol, TerminalOutcome.FOCUS_REJECTED, "NOT_SELECTED_FOR_FOCUS", "focus")
+            else:
+                pipeline_audit.mark_stage(symbol_upper, "WATCHLIST", watchlist_seen=True)
+                pipeline_audit.mark_stage(symbol_upper, "FOCUS", focus_seen=True)
         self._trace_event("UNIVERSE", {"universe": [{"symbol": s} for s in self._symbols_from_candidates(selected_observations)]})
         if watchlist_symbols:
             print(f"[WATCHLIST] size={len(watchlist_symbols)} symbols={watchlist_symbols}")
@@ -2461,7 +2479,17 @@ class CoreOrchestrator:
         for symbol in final_evaluation_symbols:
             if symbol.upper() not in evaluated_symbols:
                 print(f"[ROSS][CONTRACT_VIOLATION] symbol={symbol} reason=FOCUS_SELECTED_BUT_NOT_EVALUATED")
-                pipeline_audit.record(symbol, TerminalOutcome.FOCUS_SELECTED_PATTERN_REJECTED, "FOCUS_SELECTED_BUT_NOT_EVALUATED", "strategy")
+                print(
+                    f"[TRADE_PATH][PATTERN] symbol={symbol.upper()} "
+                    "verdict=PATTERN_DETECTED_BUT_SUPPRESSED reason=FOCUS_SELECTED_BUT_NOT_EVALUATED"
+                )
+                pipeline_audit.mark_stage(symbol.upper(), "PATTERN", pattern_inputs_ready=True, pattern_detected=True)
+                pipeline_audit.record(
+                    symbol,
+                    TerminalOutcome.PATTERN_DETECTED_BUT_SUPPRESSED,
+                    "FOCUS_SELECTED_BUT_NOT_EVALUATED",
+                    "strategy",
+                )
 
         emitted_symbols = {
             getattr(intent, "symbol", None)
@@ -2481,6 +2509,9 @@ class CoreOrchestrator:
             print(self._pattern_reason_line(symbol, emitted))
             self._trace_event("PATTERN_EVAL", {"strategy": strategy_key, "symbol": symbol, "intent_emitted": emitted})
             if emitted:
+                pipeline_audit.mark_stage(symbol.upper(), "PATTERN", pattern_inputs_ready=True, pattern_detected=True)
+                pipeline_audit.mark_stage(symbol.upper(), "TRIGGER", trigger_fired=True)
+                pipeline_audit.mark_stage(symbol.upper(), "INTENT", intent_emitted=True)
                 self._trace_event("SETUP_DETECTED", {"strategy": strategy_key, "symbol": symbol})
                 self._trace_event("CONFIRMATION_PASS", {"strategy": strategy_key, "symbol": symbol})
                 self._trace_event("TRIGGER_READY", {"strategy": strategy_key, "symbol": symbol})
@@ -2489,7 +2520,9 @@ class CoreOrchestrator:
             else:
                 print(f"[STRATEGY][NO_SIGNAL] symbol={symbol} reason=no_valid_setup_from_runner")
                 self._trace_event("NO_SETUP", {"strategy": strategy_key, "symbol": symbol})
-                pipeline_audit.record(symbol, TerminalOutcome.FOCUS_SELECTED_NO_PATTERN, "NO_SETUP:no_valid_setup_from_runner", "strategy")
+                print(f"[TRADE_PATH][PATTERN] symbol={symbol.upper()} verdict=NO_PATTERN_DETECTED reason=NO_SETUP:no_valid_setup_from_runner")
+                pipeline_audit.mark_stage(symbol.upper(), "PATTERN", pattern_inputs_ready=True, pattern_detected=False)
+                pipeline_audit.record(symbol, TerminalOutcome.NO_PATTERN_DETECTED, "NO_SETUP:no_valid_setup_from_runner", "strategy")
 
         raw_strategy_output = strategy_output or []
         pre_arbitration_intents = list(raw_strategy_output)
@@ -2570,9 +2603,17 @@ class CoreOrchestrator:
                 continue
             symbol_upper = symbol.upper()
             if symbol_upper not in gated_symbols:
-                pipeline_audit.record(symbol, TerminalOutcome.TRIGGER_NOT_FIRED, "INTENT_REJECTED_BY_EXECUTION_INTEGRITY", "trigger")
+                print(
+                    f"[TRADE_PATH][INTENT] symbol={symbol_upper} "
+                    "verdict=INTENT_REJECTED_BY_POLICY reason=INTENT_REJECTED_BY_EXECUTION_INTEGRITY"
+                )
+                pipeline_audit.mark_stage(symbol_upper, "TRIGGER", trigger_fired=True)
+                pipeline_audit.mark_stage(symbol_upper, "INTENT", intent_emitted=False)
+                pipeline_audit.record(symbol, TerminalOutcome.INTENT_REJECTED_BY_POLICY, "INTENT_REJECTED_BY_EXECUTION_INTEGRITY", "trigger")
             else:
-                pipeline_audit.record(symbol, TerminalOutcome.TRADE_INTENT_CREATED, "TRADE_INTENT_CREATED", "intent")
+                pipeline_audit.mark_stage(symbol_upper, "TRIGGER", trigger_fired=True)
+                pipeline_audit.mark_stage(symbol_upper, "INTENT", intent_emitted=True)
+                pipeline_audit.record(symbol, TerminalOutcome.INTENT_NOT_EMITTED, "TRADE_INTENT_CREATED", "intent")
 
         print(
             "[PIPELINE][RISK_INPUT] "
@@ -2598,7 +2639,10 @@ class CoreOrchestrator:
                         "strategy": strategy_key,
                         "symbol": intent.symbol
                     })
+                    pipeline_audit.mark_stage(intent.symbol, "RISK", risk_approved=True)
+                    pipeline_audit.mark_stage(intent.symbol, "EXECUTION", execution_attempted=True, execution_submitted=True)
                     pipeline_audit.record(intent.symbol, TerminalOutcome.EXECUTION_SUBMITTED, "ORDER_SUBMITTED", "execution")
+                    pipeline_audit.record(intent.symbol, TerminalOutcome.CALLBACK_PENDING, "CALLBACK_PENDING", "execution")
 
             else:
                 # REQUIRED FOR E21 — even when all intents rejected
@@ -2629,7 +2673,9 @@ class CoreOrchestrator:
                         "symbol": intent.symbol,
                         "reason": reason
                     })
-                    pipeline_audit.record(intent.symbol, TerminalOutcome.EXECUTION_BLOCKED, reason, "execution")
+                    print(f"[TRADE_PATH][EXECUTION] symbol={intent.symbol.upper()} verdict=SKIPPED_MODE_OR_SESSION_POLICY reason={reason}")
+                    pipeline_audit.mark_stage(intent.symbol, "EXECUTION", execution_attempted=True, execution_submitted=False)
+                    pipeline_audit.record(intent.symbol, TerminalOutcome.SKIPPED_MODE_OR_SESSION_POLICY, reason, "execution")
 
             else:
                 # REQUIRED FOR E21 — even if no intents exist at all
@@ -2688,7 +2734,26 @@ class CoreOrchestrator:
             f"evaluated={len(final_evaluation_symbols)} intents={intent_count}"
         )
         summary = pipeline_audit.summary_payload()
-        print(f"[PIPELINE_AUDIT][SUMMARY] counts={summary['counts']} symbols={summary['symbols']}")
+        print(f"[TRADE_PATH][FINAL] cycle_id={self._current_cycle_id} counts={summary['counts']} symbols={summary['symbols']}")
+        print(
+            "[TRADE_PATH][CYCLE_SUMMARY] "
+            f"cycle_id={self._current_cycle_id} evaluated_symbols={len(final_evaluation_symbols)} "
+            f"scanner_seen={len(scanner_keep_symbols)} watchlist_seen={len(watchlist_symbols)} focus_seen={len(final_evaluation_symbols)} "
+            f"patterns_detected={summary['readiness']['symbols_pattern_ready']} triggers_fired={summary['readiness']['symbols_trigger_ready']} "
+            f"intents_emitted={summary['readiness']['symbols_intent_ready']} risk_approved={summary['readiness']['symbols_risk_ready']} "
+            f"execution_attempts={summary['readiness']['symbols_execution_ready']} submitted={summary['readiness']['symbols_submitted']} "
+            f"callback_pending={summary['counts'].get('CALLBACK_PENDING', 0)} filled={summary['counts'].get('FILLED', 0)} "
+            f"dominant_final_verdicts={summary['dominant_final_verdicts']} dominant_blocking_reasons={summary['dominant_blocking_reasons']}"
+        )
+        print(
+            "[TRADE_PATH][READINESS] "
+            f"symbols_pattern_ready={summary['readiness']['symbols_pattern_ready']} "
+            f"symbols_trigger_ready={summary['readiness']['symbols_trigger_ready']} "
+            f"symbols_intent_ready={summary['readiness']['symbols_intent_ready']} "
+            f"symbols_risk_ready={summary['readiness']['symbols_risk_ready']} "
+            f"symbols_execution_ready={summary['readiness']['symbols_execution_ready']} "
+            f"symbols_submitted={summary['readiness']['symbols_submitted']}"
+        )
         evidence_dir = Path("AUDIT_EVIDENCE/make_it_trade_guarantee")
         paths = pipeline_audit.persist(base_dir=evidence_dir)
         violations = pipeline_audit.contract_violations()
