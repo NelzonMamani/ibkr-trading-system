@@ -3882,7 +3882,7 @@ class CoreOrchestrator:
                         and bool(getattr(tha_decision, "in_window", True))
                         and not flow.get("execution_submitted")
                     ):
-                        raise RuntimeError("Execution not triggered despite valid intent")
+                        raise RuntimeError("Execution stall detected")
                 if not execution_output:
                     print("[EXECUTION] No execution results captured — placeholder outcome.")
                 else:

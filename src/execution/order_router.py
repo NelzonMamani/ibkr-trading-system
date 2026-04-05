@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
 from typing import Any, List
 
@@ -20,6 +20,8 @@ _SEEN_EXEC_IDS: set[str] = set()
 _UNMATCHED_CALLBACK_COUNT = 0
 _RECONCILED_ORDERS_COUNT = 0
 _RECONCILED_POSITIONS_COUNT = 0
+_CALLBACK_DELAY_WARNINGS_COUNT = 0
+_CALLBACK_DELAY_THRESHOLD_SECONDS = 5
 
 ORDER_STATES = {
     "PENDING_SUBMISSION",
@@ -67,6 +69,8 @@ class TrackedOrder:
     strategy_id: str = ""
     setup_family: str = ""
     seen_exec_ids: set[str] = field(default_factory=set)
+    callback_pending: bool = False
+    callback_pending_since: str | None = None
 
 
 @dataclass
@@ -110,11 +114,24 @@ def runtime_lifecycle_snapshot() -> dict[str, int | str]:
         "reconciled_orders_count": _RECONCILED_ORDERS_COUNT,
         "reconciled_positions_count": _RECONCILED_POSITIONS_COUNT,
         "fill_authority_state": fill_authority_state(),
+        "callback_delay_warnings_count": _CALLBACK_DELAY_WARNINGS_COUNT,
     }
 
 
 def _now_utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_iso_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def fill_authority_state() -> str:
@@ -209,6 +226,18 @@ def _extract_exec_price(exec_row: Any) -> float | None:
             except (TypeError, ValueError):
                 return None
     return None
+
+
+def _extract_position_qty(position_row: Any) -> int:
+    for field in ("position", "qty", "quantity", "shares"):
+        value = getattr(position_row, field, None)
+        if value is None:
+            continue
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            continue
+    return 0
 
 
 def _extract_callback_field(callback_payload: Any, *field_names: str) -> Any:
@@ -391,6 +420,8 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
     row.canonical_state = "FILLED" if row.remaining_qty == 0 else "PARTIALLY_FILLED"
     row.broker_status = "Filled" if row.canonical_state == "FILLED" else "Submitted"
     row.last_update_at = timestamp
+    row.callback_pending = False
+    row.callback_pending_since = None
     print(f"[ORDER_EVENT][EXECUTION] order_id={order_id} symbol={row.symbol} fill_inc={inc} filled={row.filled_qty} remaining={row.remaining_qty} exec_id={exec_id or 'NA'}")
     if old_state != row.canonical_state:
         print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
@@ -509,10 +540,93 @@ def _fetch_ibkr_truth(mode: RunMode) -> tuple[list[Any], list[Any], list[Any]]:
     manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
     client = manager.get_client()
     open_orders = _safe_list_call(client, "openOrders")
-    executions = _safe_list_call(client, "executions")
     positions = _safe_list_call(client, "positions")
     print(f"[POSITION][SYNC] source=IBKR positions={len(positions)}")
-    return open_orders, executions, positions
+    return open_orders, [], positions
+
+
+def _normalize_ibkr_truth(raw: Any) -> tuple[list[Any], list[Any], list[Any]]:
+    if isinstance(raw, tuple):
+        if len(raw) == 3:
+            return list(raw[0] or []), list(raw[1] or []), list(raw[2] or [])
+        if len(raw) == 2:
+            return list(raw[0] or []), [], list(raw[1] or [])
+    return [], [], []
+
+
+def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
+    global _RECONCILED_POSITIONS_COUNT
+    broker_position_by_symbol: dict[str, int] = {}
+    for row in positions:
+        symbol = _extract_symbol_from_order(row)
+        if not symbol:
+            continue
+        broker_position_by_symbol[symbol] = broker_position_by_symbol.get(symbol, 0) + _extract_position_qty(row)
+    symbols = set(_RUNTIME_POSITIONS.keys()) | set(broker_position_by_symbol.keys())
+    for symbol in sorted(symbols):
+        local = _RUNTIME_POSITIONS.get(symbol)
+        local_qty = int(local.qty) if local is not None else 0
+        broker_qty = int(broker_position_by_symbol.get(symbol, 0))
+        if local_qty == broker_qty:
+            continue
+        print(f"[POSITION][DRIFT_DETECTED] symbol={symbol} local_qty={local_qty} broker_qty={broker_qty}")
+        has_open_order = any(
+            row.symbol == symbol and row.remaining_qty > 0 and row.canonical_state in {"SUBMITTED", "ACKNOWLEDGED", "WORKING", "PARTIALLY_FILLED"}
+            for row in _RUNTIME_ORDERS.values()
+        )
+        if has_open_order:
+            continue
+        if local is None:
+            local = TrackedPosition(symbol=symbol)
+            _RUNTIME_POSITIONS[symbol] = local
+        local.qty = broker_qty
+        if broker_qty <= 0:
+            local.state = "POSITION_CLOSED"
+            local.pending_entry_qty = 0
+            local.pending_exit_qty = 0
+        else:
+            local.state = "POSITION_OPEN"
+        _RECONCILED_POSITIONS_COUNT += 1
+        print(f"[POSITION][REPAIRED] symbol={symbol} local_qty={local.qty}")
+
+
+def _check_callback_delay(*, now: datetime | None = None) -> None:
+    global _CALLBACK_DELAY_WARNINGS_COUNT
+    now_utc = now or datetime.now(timezone.utc)
+    threshold = timedelta(seconds=max(1, int(_CALLBACK_DELAY_THRESHOLD_SECONDS)))
+    for row in _RUNTIME_ORDERS.values():
+        if row.canonical_state not in {"SUBMITTED", "ACKNOWLEDGED", "WORKING"}:
+            continue
+        if row.filled_qty > 0:
+            row.callback_pending = False
+            row.callback_pending_since = None
+            continue
+        seen_at = _parse_iso_utc(row.first_seen_at)
+        if seen_at is None:
+            continue
+        if now_utc - seen_at < threshold:
+            continue
+        if not row.callback_pending:
+            row.callback_pending = True
+            row.callback_pending_since = _now_utc_iso()
+            _CALLBACK_DELAY_WARNINGS_COUNT += 1
+            print(
+                f"[EXECUTION][CALLBACK_DELAY_WARNING] order_id={row.broker_order_id} "
+                f"symbol={row.symbol} callback_pending=true wait_seconds={int((now_utc - seen_at).total_seconds())}"
+            )
+
+
+def _check_position_consistency() -> None:
+    filled_symbols = {
+        row.symbol
+        for row in _RUNTIME_ORDERS.values()
+        if row.filled_qty > 0 or row.canonical_state in {"PARTIALLY_FILLED", "FILLED"}
+    }
+    position_symbols = {symbol for symbol, row in _RUNTIME_POSITIONS.items() if row.qty > 0}
+    for symbol in sorted(filled_symbols - position_symbols):
+        print(f"[POSITION][INCONSISTENT_STATE] symbol={symbol} reason=filled_without_position")
+    for symbol in sorted(position_symbols - filled_symbols):
+        print(f"[POSITION][INCONSISTENT_STATE] symbol={symbol} reason=position_without_fill_history")
 
 
 def _sync_submitted_events_from_ibkr(
@@ -522,20 +636,21 @@ def _sync_submitted_events_from_ibkr(
     global _RECONCILED_ORDERS_COUNT, _RECONCILED_POSITIONS_COUNT
     if not events:
         return events
-    open_orders, executions, positions = _fetch_ibkr_truth(mode)
+    open_orders, _executions, positions = _normalize_ibkr_truth(_fetch_ibkr_truth(mode))
     print(
         "[EXECUTION][WORKING_ORDER_RECON] "
-        f"open_orders={len(open_orders)} executions={len(executions)} positions={len(positions)}"
+        f"open_orders={len(open_orders)} positions={len(positions)}"
     )
 
     for event in events:
         if event.action != "SUBMITTED":
             continue
         event.last_update_time = _now_utc_iso()
-    if executions:
-        print("[EXECUTION][WORKING_ORDER_RECON] executions_observed=true fill_source=CALLBACK_ONLY")
+    _run_passive_position_reconciliation(positions=positions)
     if positions:
-        print("[POSITION][SYNC] reconciliation_snapshot_observed=true position_updates=CALLBACK_ONLY")
+        print("[POSITION][SYNC] reconciliation_snapshot_observed=true fill_source=CALLBACK_ONLY repair_mode=PASSIVE")
+    _check_callback_delay()
+    _check_position_consistency()
     print(f"[EXECUTION][RECON_VERDICT] reconciled_orders={_RECONCILED_ORDERS_COUNT} reconciled_positions={_RECONCILED_POSITIONS_COUNT}")
     return events
 
@@ -624,7 +739,7 @@ def execute_intents(
 
     broker_state = "CONNECTED" if mode in {RunMode.PAPER, RunMode.LIVE} else "DISCONNECTED"
     print(f"[EXECUTION][MODE] mode={mode.value} broker_connection_state={broker_state}")
-    open_orders, _executions, positions = _fetch_ibkr_truth(mode)
+    open_orders, _executions, positions = _normalize_ibkr_truth(_fetch_ibkr_truth(mode))
     has_working_order_recon = hasattr(open_orders, "__iter__")
     if mode in {RunMode.PAPER, RunMode.LIVE} and not has_working_order_recon:
         _FILL_AUTHORITY_STATE = "DEGRADED"
