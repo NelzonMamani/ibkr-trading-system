@@ -5165,3 +5165,7 @@ class CoreOrchestrator:
             return
 
         raise RuntimeSafetyError("; ".join(violations))
+
+
+def _log_tha_source(symbol: str, source: str, segment_count: int) -> None:
+    print(f"[THA][SOURCE] symbol={symbol} source={source} segments={segment_count}")
