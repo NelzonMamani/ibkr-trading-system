@@ -731,16 +731,16 @@ def test_current_day_partial_bar_is_not_selected_as_last_rth_close() -> None:
     assert result.reference_trading_date != _ny_dates()[0]
 
 
-def test_closed_session_pct_change_uses_last_rth_close_reference() -> None:
-    context = _build_symbol_context(provider=_DailyBarProvider(), symbol="AAPL", session_label="CLOSED", float_cache={})
+def test_ovn_session_pct_change_uses_last_rth_close_reference() -> None:
+    context = _build_symbol_context(provider=_DailyBarProvider(), symbol="AAPL", session_label="OVN", float_cache={})
     assert context is not None
     assert context["reference_source"] == "HISTORICAL_LAST_RTH_CLOSE"
     assert context["reference_price"] == 100.0
     assert context["pct_change"] == 10.0
 
 
-def test_closed_session_rvol_uses_explicit_prep_fallback() -> None:
-    context = _build_symbol_context(provider=_DailyBarProvider(volume=50_000, adv20=1_000_000), symbol="AAPL", session_label="CLOSED", float_cache={})
+def test_ovn_session_rvol_uses_explicit_prep_fallback() -> None:
+    context = _build_symbol_context(provider=_DailyBarProvider(volume=50_000, adv20=1_000_000), symbol="AAPL", session_label="OVN", float_cache={})
     assert context is not None
     assert context["rvol_method"] in {"DISABLED_FOR_SESSION", "PREP_PHASE_FALLBACK"}
     if context["rvol_method"] == "DISABLED_FOR_SESSION":

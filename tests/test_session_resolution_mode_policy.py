@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from src.config.config_resolver import set_config_overrides
+from src.core.time.calendar_session import resolve_calendar_session
 from src.scanner.session_pct_change import resolve_market_session_context
 
 
@@ -20,6 +21,7 @@ def test_nonlive_sim_mode_uses_clock_session_logic() -> None:
     assert session.coarse == "WEEKEND"
     assert session.phase == "WEEKEND"
     assert session.source == "TIME"
+    assert resolve_calendar_session(datetime(2024, 1, 6, 17, 0, tzinfo=timezone.utc)) == "WEEKEND"
 
 
 def test_nonlive_paper_mode_uses_clock_session_logic() -> None:
@@ -30,6 +32,7 @@ def test_nonlive_paper_mode_uses_clock_session_logic() -> None:
     assert session.coarse == "OVN"
     assert session.phase == "OVN"
     assert session.source == "TIME"
+    assert resolve_calendar_session(datetime(2024, 1, 1, 7, 0, tzinfo=timezone.utc)) == "OVN"
 
 
 def test_nonlive_read_only_mode_uses_clock_session_logic() -> None:

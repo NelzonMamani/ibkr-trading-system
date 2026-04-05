@@ -76,6 +76,7 @@ from src.scanner.session_pct_change import (
     resolve_market_session_label,
     resolve_session_diagnostics,
 )
+from src.core.time.calendar_session import resolve_calendar_session
 from src.scanner.session_contract import attach_session_contract, build_canonical_session_contract
 
 
@@ -1277,6 +1278,7 @@ def _evaluate_watchlist_gates(
     _evaluate_float_gate(context, thresholds)
     pct_change = _safe_float(context.get("pct_change"), None)
     session = normalize_session_label(str(context.get("session") or ""))
+    calendar_session = str(context.get("calendar_session") or "")
     pct_source = context.get("pct_source") or context.get("reference_source") or "UNKNOWN"
 
     if pct_change is None:
@@ -1285,9 +1287,9 @@ def _evaluate_watchlist_gates(
             _apply_degraded_contract(context)
             print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=PASS reason=PRE_CONTINUITY_ALLOWED")
             return None
-        if session in {"WEEKEND", "CLOSED"}:
+        if calendar_session in {"WEEKEND", "OVN"}:
             context.setdefault("eligibility_reason_codes", []).append("PCT_CHANGE_FALLBACK_ALLOWED")
-            print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=PASS reason=CLOSED_WEEKEND_FALLBACK_ALLOWED")
+            print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=PASS reason=CALENDAR_OVN_WEEKEND_FALLBACK_ALLOWED")
             return None
         print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=FAIL reason=MISSING_PCT_CHANGE")
         return "DROP_MISSING_PCT_CHANGE"
@@ -2243,6 +2245,7 @@ def _build_symbol_context(
 
     if float_cache is None:
         float_cache = {}
+    calendar_session = resolve_calendar_session(datetime.now(timezone.utc))
     try:
         quote = provider.get_quote(symbol)
     except Exception as exc:
@@ -2447,6 +2450,7 @@ def _build_symbol_context(
     context = {
         "symbol": symbol,
         "session": session_label,
+        "calendar_session": calendar_session,
         "con_id": con_id,
         "exchange": exchange,
         "primary_exchange": primary_exchange,

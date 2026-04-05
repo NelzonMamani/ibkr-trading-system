@@ -11,7 +11,7 @@ def test_noncanonical_aliases_canonicalize_for_policy() -> None:
     assert canonical_session_label('MIDDAY') == 'RTH_MID'
     assert normalize_session_label('POWER_HOUR') == 'RTH_LATE'
     assert canonical_session_label('POWER_HOUR') == 'RTH_LATE'
-    assert canonical_session_label('WEEKEND') == 'CLOSED'
+    assert canonical_session_label('WEEKEND') == 'PRE'
 
 
 def test_manual_focus_merge_does_not_erase_auto_focus() -> None:
