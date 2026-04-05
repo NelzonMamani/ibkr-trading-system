@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from dataclasses import replace
+from datetime import datetime, timedelta
 from typing import List
 from zoneinfo import ZoneInfo
 
@@ -23,6 +24,13 @@ from src.core_engine.state import CycleContext, RunMode, resolve_session_state
 from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core.intent import build_execution_intent
 from src.core.mode_authority import resolve_mode_authority
+from src.core.time.market_regimes import resolve_market_regime_context, resolve_regime_policy
+from src.core.time.trading_windows import (
+    TradingWindowSegment,
+    build_trading_window_policy,
+    parse_ibkr_trading_hours,
+    resolve_trading_window_decision,
+)
 from src.execution.order_router import execute_intents, fill_authority_state, runtime_lifecycle_snapshot
 from src.prep.premarket_prep_artifact import write_premarket_prep_artifact
 from src.prep.premarket_prep import PreMarketPrepEngine
@@ -53,6 +61,7 @@ from src.strategies.ross_momentum.strategy_policy import (
     UniverseSource,
     stock_selection_policy_for_session_phase,
 )
+from src.strategies.ross_momentum.time_policy import resolve_ross_time_policy
 from src.utils.logging import print_section, print_watchlist_focus
 from src.utils.time_utils import utc_now
 from src.utils.validation import asdict_safe
@@ -333,6 +342,72 @@ def _build_synthetic_inputs(
     )
 
 
+def _default_session_segment(session: str, now: datetime) -> list[TradingWindowSegment]:
+    ny_now = now.astimezone(ZoneInfo("America/New_York"))
+    day = ny_now.date()
+    if session == "PRE":
+        start = datetime(day.year, day.month, day.day, 4, 0, tzinfo=ny_now.tzinfo)
+        end = datetime(day.year, day.month, day.day, 9, 30, tzinfo=ny_now.tzinfo)
+    elif session == "REG":
+        start = datetime(day.year, day.month, day.day, 9, 30, tzinfo=ny_now.tzinfo)
+        end = datetime(day.year, day.month, day.day, 16, 0, tzinfo=ny_now.tzinfo)
+    elif session == "AFTER":
+        start = datetime(day.year, day.month, day.day, 16, 0, tzinfo=ny_now.tzinfo)
+        end = datetime(day.year, day.month, day.day, 20, 0, tzinfo=ny_now.tzinfo)
+    else:
+        return []
+    return [
+        TradingWindowSegment(
+            label=f"SESSION_FALLBACK_{session}",
+            start_dt=start,
+            end_dt=end,
+            timezone="America/New_York",
+            source="SESSION_FALLBACK",
+            tradable=True,
+        )
+    ]
+
+
+def _resolve_symbol_window_segments(
+    symbol: str,
+    scanner_payload: dict,
+    session: str,
+    now: datetime,
+    *,
+    forced_session_override: bool = False,
+) -> list[TradingWindowSegment]:
+    contracts = scanner_payload.get("contract_details_by_symbol") or {}
+    contract = contracts.get(symbol) if isinstance(contracts, dict) else None
+    trading_hours = None
+    timezone_id = None
+    if isinstance(contract, dict):
+        trading_hours = contract.get("tradingHours") or contract.get("liquidHours")
+        timezone_id = contract.get("timeZoneId")
+    if trading_hours:
+        try:
+            parsed = parse_ibkr_trading_hours(
+                trading_hours=str(trading_hours),
+                timezone_id=str(timezone_id or "America/New_York"),
+                label=f"{symbol}_IBKR",
+            )
+            if parsed:
+                return parsed
+        except Exception as exc:
+            print(f"[TRADING_WINDOW][PARSE_ERROR] symbol={symbol} reason={exc}")
+    if forced_session_override:
+        return [
+            TradingWindowSegment(
+                label=f"FORCED_SESSION_{session}",
+                start_dt=now - timedelta(hours=6),
+                end_dt=now + timedelta(hours=6),
+                timezone="UTC",
+                source="FORCED_SESSION_OVERRIDE",
+                tradable=True,
+            )
+        ]
+    return _default_session_segment(session, now)
+
+
 def run_cycle(
     cycle_id: int,
     mode_value: str,
@@ -571,6 +646,56 @@ def run_cycle(
         print_section("PATTERNS")
         evaluator = PatternEvaluator()
         for symbol in focus:
+            window_segments = _resolve_symbol_window_segments(
+                symbol=symbol,
+                scanner_payload=scanner_payload,
+                session=session.value,
+                now=now,
+                forced_session_override=forced_session_state is not None,
+            )
+            window_policy = build_trading_window_policy(segments=window_segments, now=now)
+            window_decision = resolve_trading_window_decision(window_policy, now)
+            regime_context = resolve_market_regime_context(now)
+            regime_policy = resolve_regime_policy(regime_context.regime)
+            ross_time = resolve_ross_time_policy(
+                symbol=symbol,
+                window_decision=window_decision,
+                regime=regime_context.regime,
+            )
+            print(
+                "[TRADING_WINDOW][RESOLVE] "
+                f"symbol={symbol} broker=IBKR current_window_label={window_policy.current_window_label} "
+                f"window_start={(window_policy.window_start.isoformat() if window_policy.window_start else 'none')} "
+                f"window_end={(window_policy.window_end.isoformat() if window_policy.window_end else 'none')} "
+                f"entry_cutoff={(window_policy.entry_cutoff.isoformat() if window_policy.entry_cutoff else 'none')} "
+                f"manage_until={(window_policy.manage_until.isoformat() if window_policy.manage_until else 'none')} "
+                f"hard_flat_time={(window_policy.hard_flat_time.isoformat() if window_policy.hard_flat_time else 'none')} "
+                f"tradable_now={window_policy.tradable_now} reason={window_policy.reason}"
+            )
+            print(
+                "[TRADING_WINDOW][DECISION] "
+                f"symbol={symbol} allow_new_entries={window_decision.allow_new_entries} "
+                f"allow_management={window_decision.allow_management} "
+                f"force_exit_mode={window_decision.force_exit_mode} force_flat={window_decision.force_flat} "
+                f"reason={window_decision.reason}"
+            )
+            print(
+                "[MARKET_REGIME][RESOLVE] "
+                f"symbol={symbol} asof_et={regime_context.asof_et.isoformat()} "
+                f"regime={regime_context.regime} source={regime_context.source}"
+            )
+            print(
+                "[MARKET_REGIME][POLICY] "
+                f"symbol={symbol} regime={regime_policy.regime} execution_speed={regime_policy.execution_speed} "
+                f"rvol_strictness={regime_policy.rvol_strictness} pct_change_strictness={regime_policy.pct_change_strictness} "
+                f"spread_tolerance={regime_policy.spread_tolerance} liquidity_requirement={regime_policy.liquidity_requirement}"
+            )
+            print(
+                "[ROSS][TIME_POLICY] "
+                f"symbol={symbol} regime={ross_time.regime} entries_allowed={ross_time.entries_allowed} "
+                f"management_allowed={ross_time.management_allowed} force_exit={ross_time.force_exit} "
+                f"reason={ross_time.reason}"
+            )
             data_quality = scanner_payload.get("data_quality_by_symbol", {}).get(symbol, [])
             inputs = _build_synthetic_inputs(symbol, data_quality, session.value)
             summary = evaluator.evaluate([inputs])
@@ -621,6 +746,16 @@ def run_cycle(
                 f"ready={str(trigger_ready_now).lower()} "
                 f"reason={'PRICE_ACTION_TRIGGER' if trigger_ready_now else 'TRIGGER_NOT_READY'}"
             )
+            if not ross_time.entries_allowed:
+                trigger_ready_now = False
+                pipeline_outcomes[symbol] = TERMINAL_STATES["TRIGGER_BLOCKED_BY_POLICY"]
+                decision_waterfall[symbol]["intent"] = "BLOCKED"
+                decision_waterfall[symbol]["intent_reason"] = ross_time.reason
+                print(
+                    f"[PIPELINE][TIME_GATE] symbol={symbol} entries_allowed=false reason={ross_time.reason}"
+                )
+                if ross_time.force_exit:
+                    print(f"[LIFECYCLE][FORCE_FLAT] symbol={symbol} reason={ross_time.reason}")
 
             strategy_id = "RossMomentumStrategy"
             try:
