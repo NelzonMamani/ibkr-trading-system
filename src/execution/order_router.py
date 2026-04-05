@@ -527,58 +527,15 @@ def _sync_submitted_events_from_ibkr(
         "[EXECUTION][WORKING_ORDER_RECON] "
         f"open_orders={len(open_orders)} executions={len(executions)} positions={len(positions)}"
     )
-    execution_index: dict[int, Any] = {}
-    for row in executions:
-        order_id = _extract_exec_order_id(row)
-        if order_id is not None and order_id not in execution_index:
-            execution_index[order_id] = row
 
     for event in events:
         if event.action != "SUBMITTED":
             continue
         event.last_update_time = _now_utc_iso()
-        if event.broker_order_id is None:
-            continue
-        match = execution_index.get(int(event.broker_order_id))
-        if match is None:
-            continue
-        matched_qty = _extract_exec_qty(match)
-        event.event_type = "ORDER_PARTIALLY_FILLED" if 0 < matched_qty < int(event.remaining_quantity or 0) else "ORDER_FILLED"
-        event.source = "IBKR"
-        event.broker_status = "Filled" if event.event_type == "ORDER_FILLED" else "Submitted"
-        event.filled_quantity = matched_qty
-        event.remaining_quantity = max(0, int(event.remaining_quantity or 0) - matched_qty)
-        event.avg_fill_price = _extract_exec_price(match)
-        print(
-            f"[ORDER][{'PARTIAL_FILL' if event.event_type == 'ORDER_PARTIALLY_FILLED' else 'FILL'}] "
-            f"symbol={event.symbol} order_id={event.broker_order_id} qty={event.filled_quantity} "
-            f"price={event.avg_fill_price if event.avg_fill_price is not None else 'UNKNOWN'}"
-        )
-        _apply_fill_to_tracked_order(
-            order_id=int(event.broker_order_id),
-            symbol=str(event.symbol or "").upper(),
-            fill_qty=max(0, matched_qty),
-            fill_price=event.avg_fill_price,
-            exec_id=None,
-            timestamp=event.last_update_time or _now_utc_iso(),
-            source="BROKER_RECON_EXECUTIONS",
-        )
-        _RECONCILED_ORDERS_COUNT += 1
-        for position in positions:
-            symbol = str(getattr(position, "symbol", "") or "").upper()
-            if symbol != str(event.symbol or "").upper():
-                continue
-            qty = int(getattr(position, "position", 0) or 0)
-            avg = getattr(position, "avgCost", None)
-            print(f"[POSITION][OPEN] symbol={symbol} qty={qty} avg_price={avg}")
-            tracked = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
-            if tracked.qty != qty:
-                print(f"[POSITION][DRIFT] symbol={symbol} local_qty={tracked.qty} broker_qty={qty}")
-                tracked.qty = qty
-                tracked.state = "POSITION_CLOSED" if qty == 0 else "POSITION_OPEN"
-                print(f"[POSITION][REPAIRED] symbol={symbol} qty={tracked.qty} state={tracked.state}")
-            _RECONCILED_POSITIONS_COUNT += 1
-            break
+    if executions:
+        print("[EXECUTION][WORKING_ORDER_RECON] executions_observed=true fill_source=CALLBACK_ONLY")
+    if positions:
+        print("[POSITION][SYNC] reconciliation_snapshot_observed=true position_updates=CALLBACK_ONLY")
     print(f"[EXECUTION][RECON_VERDICT] reconciled_orders={_RECONCILED_ORDERS_COUNT} reconciled_positions={_RECONCILED_POSITIONS_COUNT}")
     return events
 
