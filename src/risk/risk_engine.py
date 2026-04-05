@@ -217,7 +217,8 @@ class RiskEngine:
     def _session_gate(self, run_mode: RunMode) -> Tuple[str, List[str], bool]:
         session = get_current_market_session()
         active_sessions = [str(value).upper() for value in get_config("ACTIVE_SESSIONS")]
-        should_gate = run_mode == RunMode.LIVE and session not in active_sessions
+        # THA is authoritative for time eligibility; risk no longer blocks by session.
+        should_gate = False
         return session, active_sessions, should_gate
 
     def _total_exposure(self) -> float:

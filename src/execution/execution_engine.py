@@ -280,26 +280,21 @@ class ExecutionEngine:
         if self.run_mode == RunMode.PAPER:
             return None
 
-        context = self._execution_context(risk_decision)
-        if not context["execution_allowed"]:
-            print("[EXECUTION][BLOCK] reason=session_not_permitted")
-            return self._blocked_execution_from_risk_decision(
-                risk_decision,
-                rationale="SESSION_NOT_PERMITTED",
-            )
-        if not context["execution_ready"]:
-            print("[EXECUTION][BLOCK] reason=execution_not_ready")
-            return self._blocked_execution_from_risk_decision(
-                risk_decision,
-                rationale="EXECUTION_NOT_READY",
-            )
-        if context["prep_only"]:
-            print("[EXECUTION][BLOCK] reason=prep_only_mode")
-            return self._blocked_execution_from_risk_decision(
-                risk_decision,
-                rationale="PREP_ONLY_MODE",
-            )
+        # THA controls time eligibility in orchestrator; execution no longer applies
+        # independent session/prep-only vetoes.
+        print("[EXECUTION][SESSION_GATE] bypassed authority=THA")
         return None
+
+    def force_flatten_symbol(self, symbol: str, *, reason: str) -> None:
+        normalized = str(symbol or "").upper()
+        if not normalized:
+            return
+        print(f"[EXECUTION][FORCE_FLAT] symbol={normalized} reason={reason}")
+        self.event_collector.emit(
+            event_type="FORCE_FLAT_REQUESTED",
+            source="ExecutionEngine",
+            payload={"symbol": normalized, "reason": reason},
+        )
 
     @staticmethod
     def _execution_context(risk_decision: RiskDecision) -> dict:
