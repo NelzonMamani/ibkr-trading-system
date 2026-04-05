@@ -28,7 +28,7 @@ def test_session_classification_still_correct() -> None:
     assert resolve_market_session_context(datetime(2024, 1, 6, 17, 0, tzinfo=timezone.utc)).phase == "WEEKEND"
 
 
-def test_closed_phase_uses_premarket_rvol_baseline() -> None:
-    payload = compute_phase_aware_rvol(session_label="CLOSED", session_volume=50_000, avg_volume_20d=1_000_000)
+def test_ovn_phase_uses_premarket_rvol_baseline() -> None:
+    payload = compute_phase_aware_rvol(session_label="OVN", session_volume=50_000, avg_volume_20d=1_000_000)
     assert payload.expected_phase_volume == 50_000.0
     assert payload.rvol_phase == 1.0

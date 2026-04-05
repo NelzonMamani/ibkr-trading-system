@@ -91,6 +91,7 @@ from src.scanner.scanner_runner import run_scanner_cycle
 from src.scanner.providers.base import ProviderConnectionError
 from src.scanner.providers.mock_provider import MockScannerProvider
 from src.scanner.session_pct_change import canonical_session_label, normalize_session_label, resolve_market_session_context
+from src.core.time.calendar_session import resolve_calendar_session
 from src.sim.clock import SimClock, WallClock
 from src.sim.price_feed import DeterministicPriceFeed
 from src.signals.signal_engine_v1 import SignalEngineV1
@@ -1807,8 +1808,13 @@ class CoreOrchestrator:
             if forced_session
             else normalize_session_label(market_session_phase(cycle_started_at))
         )
+        calendar_session = resolve_calendar_session(cycle_started_at)
         session_phase = resolved_session
         print(f"[SESSION][FINAL] resolved_session={resolved_session}")
+        print(
+            "[SESSION][CALENDAR] "
+            f"symbol=SYSTEM calendar_session={calendar_session}"
+        )
         print(
             "[SESSION] "
             f"phase={session_phase} ny_time={ny_time.isoformat()} "

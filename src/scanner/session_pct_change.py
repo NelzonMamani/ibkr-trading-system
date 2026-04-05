@@ -8,6 +8,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from src.config.config_resolver import get_config
+from src.core.time.calendar_session import resolve_calendar_session
 
 
 _NY_TZ = ZoneInfo("America/New_York")
@@ -17,7 +18,7 @@ PHASE_VOLUME_RATIOS: dict[str, float] = {
     "RTH_MID": 0.35,
     "RTH_LATE": 0.20,
     "AH": 0.03,
-    "OVN": 0.01,
+    "OVN": 0.05,
 }
 PHASE_VOLUME_FLOOR = 1.0
 
@@ -112,11 +113,11 @@ _SESSION_LABEL_MAP = {
     "PRE": "PRE",
     "OVN": "OVN",
     "OVERNIGHT": "OVN",
-    "CLOSED": "CLOSED",
+    "CLOSED": "OVN",
     "RTH_OPEN": "RTH_OPEN",
     "RTH_MID": "RTH_MID",
     "RTH_LATE": "RTH_LATE",
-    "WEEKEND": "CLOSED",
+    "WEEKEND": "WEEKEND",
     "MIDDAY": "RTH_MID",
 }
 
@@ -126,16 +127,16 @@ _CANONICAL_SESSION_MAP = {
     "RTH_MID": "RTH_MID",
     "RTH_LATE": "RTH_LATE",
     "AH": "AH",
-    "OVN": "CLOSED",
-    "WEEKEND": "CLOSED",
+    "OVN": "PRE",
+    "WEEKEND": "PRE",
     "MIDDAY": "RTH_MID",
-    "CLOSED": "CLOSED",
+    "CLOSED": "PRE",
 }
 
 
 def normalize_session_label(label: str) -> str:
     if not label:
-        return "CLOSED"
+        return "OVN"
     upper = label.upper()
     return _SESSION_LABEL_MAP.get(upper, upper)
 
@@ -159,8 +160,9 @@ def resolve_market_session_context(
     market_time = ny_time.isoformat()
     run_mode = str(get_config("RUN_MODE_EFFECTIVE") or get_config("RUN_MODE") or "LIVE").upper()
 
-    normalized_override = normalize_session_label(override_phase or "")
-    if normalized_override and normalized_override != "CLOSED":
+    raw_override = str(override_phase or "").strip()
+    normalized_override = normalize_session_label(raw_override) if raw_override else ""
+    if normalized_override:
         source = "CONTEXT_OVERRIDE"
         if normalized_override in {"RTH_OPEN", "RTH_MID", "RTH_LATE", "RTH"}:
             context = MarketSessionContext(
@@ -216,8 +218,12 @@ def resolve_market_session_context(
 
 
 def canonical_session_label(label: str) -> str:
+    return resolve_canonical_session(label)
+
+
+def resolve_canonical_session(label: str) -> str:
     normalized = normalize_session_label(label)
-    return _CANONICAL_SESSION_MAP.get(normalized, normalized or "CLOSED")
+    return _CANONICAL_SESSION_MAP.get(normalized, normalized or "PRE")
 
 
 def previous_valid_trading_day(now: Optional[datetime] = None) -> datetime.date:
@@ -244,6 +250,9 @@ def resolve_session_diagnostics(now: Optional[datetime] = None, forced_session_l
     session_ctx = resolve_market_session_context(now_utc)
     resolved = normalize_session_label(forced_session_label or session_ctx.phase)
     canonical = canonical_session_label(resolved)
+    calendar_session = resolve_calendar_session(now_utc)
+    if canonical not in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH"}:
+        canonical = "PRE" if calendar_session in {"WEEKEND", "OVN"} else canonical
     ref_day = reference_trading_day(now_utc)
     prev_day = previous_valid_trading_day(now_utc)
     if forced_session_label:
@@ -318,7 +327,7 @@ def compute_phase_aware_rvol(
     normalized_session = normalize_session_label(session_label)
     ratio = PHASE_VOLUME_RATIOS.get(normalized_session)
     ratio_source = normalized_session
-    if ratio is None and normalized_session == "CLOSED":
+    if ratio is None and normalized_session in {"OVN", "WEEKEND"}:
         ratio = PHASE_VOLUME_RATIOS.get("PRE")
         ratio_source = "PREP_PRE_BASELINE"
     volume = _safe_float(session_volume)
@@ -391,7 +400,7 @@ def compute_session_relative_volume_with_provenance(
             expected_volume=0.0,
         )
 
-    if normalized_session in {"OVN", "CLOSED"}:
+    if normalized_session in {"OVN", "WEEKEND"}:
         if persisted_rvol_value is not None:
             print(
                 "[RVOL] "
@@ -405,7 +414,7 @@ def compute_session_relative_volume_with_provenance(
             )
         if avg_volume_20d not in {None, 0} and session_volume is not None:
             prep_payload = compute_phase_aware_rvol(
-                session_label="CLOSED",
+                session_label=normalized_session,
                 session_volume=session_volume,
                 avg_volume_20d=avg_volume_20d,
             )
@@ -509,7 +518,7 @@ def compute_session_aligned_pct_change(
 
     open_relative_pct_change = _pct_change(current_last, rth_open)
 
-    if normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN", "CLOSED", "WEEKEND"}:
+    if normalized_session in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE", "AH", "OVN", "WEEKEND"}:
         reference_price = last_rth_close
         reference_label = "LAST_RTH_CLOSE"
 
@@ -517,7 +526,7 @@ def compute_session_aligned_pct_change(
     if calc_pct is not None:
         final_pct = calc_pct
         pct_source = "CALC(SESSION_REF)"
-        if normalized_session in {"WEEKEND", "CLOSED"}:
+        if normalized_session in {"WEEKEND", "OVN"}:
             print(f"[PCT][FALLBACK_USED] session={normalized_session} source=IBKR_PREV_CLOSE")
     elif normalized_session == "WEEKEND" and persisted_pct is not None:
         final_pct = persisted_pct
