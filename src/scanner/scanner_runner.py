@@ -803,7 +803,7 @@ def _resolve_pct_change_min_for_session(session: str, thresholds: GateThresholds
         print("[ROSS][SESSION_ERROR] missing_canonical_session")
         raise ValueError("missing_canonical_session")
     normalized = normalize_session_label(session)
-    if normalized in {"", "CLOSED"}:
+    if normalized == "":
         print("[ROSS][SESSION_ERROR] missing_canonical_session")
         raise ValueError("missing_canonical_session")
     if normalized in {"PRE", "OVN"}:
@@ -3071,7 +3071,7 @@ def run_scanner_cycle(
     print(
         "[SESSION][EXECUTION_WINDOW] "
         f"session={normalize_session_label(session_label)} execution_allowed={execution_allowed} "
-        f"execution_allowlist={execution_allowlist} prep_or_closed_mode={canonical_session_label(session_label) == 'CLOSED'}"
+        f"execution_allowlist={execution_allowlist} prep_or_closed_mode={not execution_allowed}"
     )
     refresh_cycle_seconds = int(get_config("FOCUS_REFRESH_SECONDS") or 0)
     last_refresh_utc = utc_now.isoformat()

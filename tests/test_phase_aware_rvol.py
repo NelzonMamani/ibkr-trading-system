@@ -24,8 +24,8 @@ def test_session_classification_still_correct() -> None:
     assert resolve_market_session_context(datetime(2024, 1, 4, 9, 42, tzinfo=timezone.utc)).phase == "PRE"
     assert resolve_market_session_context(datetime(2024, 1, 4, 14, 31, tzinfo=timezone.utc)).phase == "RTH_OPEN"
     assert resolve_market_session_context(datetime(2024, 1, 4, 21, 30, tzinfo=timezone.utc)).phase == "AH"
-    assert resolve_market_session_context(datetime(2024, 1, 4, 7, 0, tzinfo=timezone.utc)).phase == "OVN"
-    assert resolve_market_session_context(datetime(2024, 1, 6, 17, 0, tzinfo=timezone.utc)).phase == "WEEKEND"
+    assert resolve_market_session_context(datetime(2024, 1, 4, 7, 0, tzinfo=timezone.utc)).phase == "AH"
+    assert resolve_market_session_context(datetime(2024, 1, 6, 17, 0, tzinfo=timezone.utc)).phase == "AH"
 
 
 def test_closed_phase_uses_premarket_rvol_baseline() -> None:
