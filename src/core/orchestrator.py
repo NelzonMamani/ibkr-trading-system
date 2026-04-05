@@ -37,6 +37,7 @@ from src.core.engines.position_management_engine import ManagedPosition, Positio
 from src.core.engines.trade_lifecycle_engine import LifecycleEvent, TradeLifecycleEngine
 from src.core.portfolio import BrokerPositionSnapshotAdapter, PortfolioArbitrator, PortfolioState
 from src.core.event_collector import EventCollector
+from src.core.trading_window import build_trading_window_policy, resolve_trading_window_decision
 from src.data.fundamentals.float_provider import FloatProvider
 from src.data.manual_focus_loader import ManualFocusConfig
 from src.core.faults import (
@@ -1932,6 +1933,28 @@ class CoreOrchestrator:
         print(f"[BROKER] port={port}")
         print(f"[BROKER] client_id={client_id}")
 
+    def _enforce_trading_window_runtime_safety(self, now: datetime) -> None:
+        policy = build_trading_window_policy(now)
+        decision = resolve_trading_window_decision(policy, now)
+        print(
+            "[TRADING_WINDOW][DECISION] "
+            f"inside_window={decision.inside_window} "
+            f"allow_new_entries={decision.allow_new_entries} "
+            f"allow_management={decision.allow_management} "
+            f"force_flat={decision.force_flat} reason={decision.reason}"
+        )
+        if not decision.force_flat:
+            return
+
+        active_trades = self.trade_registry.snapshot()
+        if not active_trades:
+            return
+        for trade in active_trades:
+            symbol = str(getattr(trade, "symbol", "") or "").strip().upper()
+            if not symbol:
+                continue
+            self.execution_engine.force_flatten_symbol(symbol, reason=decision.reason)
+
     def _run_manager_pipeline(
         self,
         *,
@@ -1945,6 +1968,7 @@ class CoreOrchestrator:
         self.runtime_mode_manager = RuntimeModeManager.resolve()
         mode_manager = self.runtime_mode_manager
         print(f"[RUNTIME] {mode_manager.describe()}")
+        self._enforce_trading_window_runtime_safety(cycle_started_at)
         self._run_position_management_tick(cycle_started_at)
         active_strategy_keys = self._enabled_strategy_keys()
         strategy_key = self.primary_strategy_key

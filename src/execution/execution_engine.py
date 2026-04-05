@@ -1114,6 +1114,44 @@ class ExecutionEngine:
         )
         return closed_trades
 
+    def force_flatten_symbol(self, symbol: str, reason: str = "trading_window_force_flat") -> bool:
+        normalized_symbol = str(symbol or "").strip().upper()
+        if not normalized_symbol:
+            return False
+        active_trades = [
+            trade for trade in self.trade_registry.snapshot()
+            if str(getattr(trade, "symbol", "")).upper() == normalized_symbol
+        ]
+        if not active_trades:
+            print(f"[LIFECYCLE][FORCE_FLAT] symbol={normalized_symbol} status=NO_ACTIVE_POSITION reason={reason}")
+            return False
+
+        for trade in active_trades:
+            trader_type = getattr(trade, "trader_type", "UNKNOWN")
+            quantity = int(getattr(trade, "quantity", 0) or 0)
+            print(
+                "[LIFECYCLE][FORCE_FLAT] "
+                f"symbol={normalized_symbol} trader_type={trader_type} qty={quantity} reason={reason}"
+            )
+            print(
+                "[EXECUTION][SUBMITTED] "
+                f"symbol={normalized_symbol} action=CLOSE qty={quantity} reason={reason}"
+            )
+            self.trade_registry.unregister_trade(normalized_symbol, trader_type)
+            self.event_collector.emit(
+                event_type="FORCE_FLAT_ORDER_SUBMITTED",
+                source="ExecutionEngine",
+                payload={
+                    "symbol": normalized_symbol,
+                    "trader_type": trader_type,
+                    "quantity": quantity,
+                    "direction": "SELL",
+                    "reason": reason,
+                    "forced_flat": True,
+                },
+            )
+        return True
+
     def shutdown(self) -> None:
         """
         Idempotent shutdown placeholder.
