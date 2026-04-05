@@ -69,6 +69,7 @@ from src.patterns.pattern_engine import PatternEngine
 from src.risk.risk_engine import RiskEngine
 from src.core.pipeline_audit import PipelineAudit, TerminalOutcome
 from src.core.intent import build_decision_artifact, build_execution_intent
+from src.core.time.session_adapter import resolve_canonical_session
 from src.e22.strategy_scalability_and_arbitration import (
     E22PolicyConfig,
     apply_e22_arbitration_layer,
@@ -2306,9 +2307,11 @@ class CoreOrchestrator:
         focus_rejected = int(scanner_payload.get("focus_rejected", 0))
         focus_dominant_reasons = dict(scanner_payload.get("focus_dominant_reasons", {}) or {})
         snapshots_by_symbol, _ = self.market_data_snapshot_manager.batch_snapshots(final_evaluation_symbols)
-        session_label = canonical_session_label(
-            forced_session_label
-            or (selected_watchlist[0].session_label if selected_watchlist else session_phase)
+        canonical_session = resolve_canonical_session(cycle_started_at, regime="UNKNOWN")
+        session_label = (
+            canonical_session_label(forced_session_label)
+            if forced_session_label
+            else canonical_session
         )
         self.strategy_runner.receive_watchlist_snapshot(
             watchlist_symbols=final_evaluation_symbols,
@@ -3006,9 +3009,7 @@ class CoreOrchestrator:
             watchlist_symbols=watchlist_symbols,
             watchlist_rows=watchlist_rows,
         )
-        session_label = normalize_session_label(
-            (getattr(watchlist_rows[0], "session", "") if watchlist_rows else session_phase)
-        )
+        session_label = resolve_canonical_session(cycle_started_at, regime="UNKNOWN")
         timestamp_utc = scanner_watchlist_payload.get("timestamp_utc") or datetime.now(
             timezone.utc
         ).isoformat()
