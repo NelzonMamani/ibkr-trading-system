@@ -89,7 +89,7 @@ def test_exit_final_fill_closes_position(monkeypatch) -> None:
     assert order_router._RUNTIME_POSITIONS["ABCD"].state == "POSITION_CLOSED"
 
 
-def test_reconciliation_repairs_missed_callback_state(monkeypatch) -> None:
+def test_reconciliation_does_not_apply_fill_without_callback(monkeypatch) -> None:
     _reset_router()
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
     events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
@@ -105,7 +105,10 @@ def test_reconciliation_repairs_missed_callback_state(monkeypatch) -> None:
         ),
     )
     order_router._sync_submitted_events_from_ibkr(RunMode.PAPER, events)
-    assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 100
+    assert events[0].filled_quantity == 0
+    assert events[0].remaining_quantity == 100
+    assert order_router._RUNTIME_ORDERS[oid].filled_qty == 0
+    assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 0
 
 
 def test_duplicate_exec_callback_is_idempotent(monkeypatch) -> None:

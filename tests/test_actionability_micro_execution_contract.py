@@ -207,11 +207,59 @@ def test_execute_intents_syncs_fill_from_ibkr_truth(monkeypatch, capsys) -> None
     )
     out = capsys.readouterr().out
     assert events[0].broker_order_id == 1
-    assert events[0].filled_quantity == 10
-    assert events[0].avg_fill_price == 25.5
-    assert events[0].broker_status == "Filled"
+    assert events[0].filled_quantity == 0
+    assert events[0].remaining_quantity == 10
+    assert events[0].broker_status == "Submitted"
     assert events[0].last_update_time is not None
-    assert "[ORDER][FILL] symbol=MCRO order_id=1 qty=10 price=25.5" in out
+    assert "[ORDER][FILL] symbol=MCRO order_id=1 qty=10 price=25.5" not in out
+
+
+def test_fill_requires_callback(monkeypatch) -> None:
+    from src.execution import order_router
+
+    order_router._RUNTIME_ORDERS.clear()
+    order_router._RUNTIME_POSITIONS.clear()
+    order_router._SEEN_EXEC_IDS.clear()
+    order_router._EXECUTION_EVENT_BUFFER.clear()
+    order_router._UNMATCHED_CALLBACK_COUNT = 0
+    order_router._RECONCILED_ORDERS_COUNT = 0
+    order_router._RECONCILED_POSITIONS_COUNT = 0
+
+    monkeypatch.setattr("src.execution.order_router._fetch_ibkr_truth", lambda _mode: ([], [], []))
+    events = execute_intents(
+        mode=RunMode.PAPER,
+        decisions=[
+            RiskDecisionRecord(
+                symbol="MCRO",
+                intent_id="MCRO-1",
+                decision="ALLOW",
+                max_position_size=10,
+                constraints=[],
+                triggered_rules=[],
+                rationale="ok",
+                approved_quantity=10,
+                entry_price=25.0,
+            )
+        ],
+    )
+    assert events[0].filled_quantity == 0
+    assert events[0].remaining_quantity == 10
+    assert events[0].broker_status == "Submitted"
+    assert "MCRO" not in order_router._RUNTIME_POSITIONS or order_router._RUNTIME_POSITIONS["MCRO"].qty == 0
+
+    order_router._on_ibkr_callback(
+        {
+            "event_type": "execDetails",
+            "order_id": events[0].broker_order_id,
+            "symbol": "MCRO",
+            "shares": 10,
+            "price": 25.5,
+            "execId": "TEST1",
+        }
+    )
+
+    assert order_router._RUNTIME_ORDERS[events[0].broker_order_id].filled_qty == 10
+    assert order_router._RUNTIME_POSITIONS["MCRO"].qty == 10
 
 
 def test_execute_intents_blocks_duplicate_symbol_using_ibkr_truth(monkeypatch, capsys) -> None:
