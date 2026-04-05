@@ -92,6 +92,11 @@ from src.scanner.providers.base import ProviderConnectionError
 from src.scanner.providers.mock_provider import MockScannerProvider
 from src.scanner.session_pct_change import canonical_session_label, normalize_session_label, resolve_market_session_context
 from src.core.time.calendar_session import resolve_calendar_session
+from src.core.time.trading_windows import (
+    build_trading_window_policy,
+    format_tha_source_log,
+    resolve_trading_window_decision,
+)
 from src.sim.clock import SimClock, WallClock
 from src.sim.price_feed import DeterministicPriceFeed
 from src.signals.signal_engine_v1 import SignalEngineV1
@@ -1099,6 +1104,56 @@ class CoreOrchestrator:
             if symbol:
                 symbols.append(symbol)
         return symbols
+
+    def _resolve_tha_decisions(
+        self,
+        *,
+        strategy_inputs: List[object],
+        now_utc: datetime,
+    ) -> dict[str, object]:
+        decisions: dict[str, object] = {}
+        for candidate in strategy_inputs or []:
+            symbol = str(getattr(candidate, "symbol", "") or "").upper()
+            if not symbol:
+                continue
+            trading_hours = (
+                getattr(candidate, "trading_hours", None)
+                or getattr(candidate, "ibkr_trading_hours", None)
+            )
+            liquid_hours = (
+                getattr(candidate, "liquid_hours", None)
+                or getattr(candidate, "ibkr_liquid_hours", None)
+            )
+            timezone_id = (
+                getattr(candidate, "timeZoneId", None)
+                or getattr(candidate, "timezone", None)
+                or getattr(candidate, "timezone_id", None)
+            )
+            policy = build_trading_window_policy(
+                symbol=symbol,
+                now=now_utc,
+                run_mode=self.run_mode.value,
+                trading_hours=trading_hours,
+                liquid_hours=liquid_hours,
+                timezone=timezone_id,
+            )
+            print(
+                format_tha_source_log(
+                    symbol=symbol,
+                    source=policy.source,
+                    segments=policy.segments,
+                )
+            )
+            tha_decision = resolve_trading_window_decision(policy=policy, now=now_utc)
+            if tha_decision.in_window and not tha_decision.allow_entries:
+                raise RuntimeError("THA contradiction: inside window but entries blocked")
+            decisions[symbol] = tha_decision
+            print(
+                "[PIPELINE][THA_GATE] "
+                f"symbol={symbol} in_window={tha_decision.in_window} "
+                f"allow_entries={tha_decision.allow_entries} force_flat={tha_decision.force_flat}"
+            )
+        return decisions
 
     @staticmethod
     def _cap_list(items: List[str], limit: int) -> List[str]:
@@ -2322,6 +2377,25 @@ class CoreOrchestrator:
             session_label=session_label,
             timestamp_utc=cycle_started_at.isoformat(),
         )
+        tha_decisions = self._resolve_tha_decisions(
+            strategy_inputs=strategy_inputs,
+            now_utc=cycle_started_at,
+        )
+        if tha_decisions:
+            allowed_by_tha = {
+                symbol for symbol, decision in tha_decisions.items() if bool(getattr(decision, "allow_entries", False))
+            }
+            strategy_inputs = [
+                candidate
+                for candidate in strategy_inputs
+                if str(getattr(candidate, "symbol", "") or "").upper() in allowed_by_tha
+            ]
+            for symbol, tha_decision in tha_decisions.items():
+                if bool(getattr(tha_decision, "force_flat", False)):
+                    self.execution_engine.force_flatten_symbol(
+                        symbol,
+                        reason="THA_OUTSIDE_WINDOW",
+                    )
         session_execution_allowed = session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
         if mock_scanner_mode and not session_execution_allowed:
             session_execution_allowed = True
@@ -2359,6 +2433,23 @@ class CoreOrchestrator:
             "[PIPELINE][INTENTS] "
             f"count={len(strategy_output or [])} symbols={[getattr(intent, 'symbol', None) for intent in (strategy_output or [])]}"
         )
+        for symbol, tha_decision in tha_decisions.items():
+            symbol_upper = str(symbol).upper()
+            trigger_ready = any(
+                str(getattr(intent, "symbol", "")).upper() == symbol_upper
+                and bool(getattr(intent, "trigger_ready", False))
+                for intent in (strategy_output or [])
+            )
+            intent_created = any(
+                str(getattr(intent, "symbol", "")).upper() == symbol_upper
+                for intent in (strategy_output or [])
+            )
+            print(
+                "[PIPELINE][TRIGGER_TO_INTENT] "
+                f"symbol={symbol_upper} trigger_ready={trigger_ready} intent_created={intent_created}"
+            )
+            if trigger_ready and bool(getattr(tha_decision, "in_window", False)) and not intent_created:
+                raise RuntimeError("Trigger passed but no intent — pipeline broken")
         self._pipeline_runtime_counts["cycles_run"] += 1
         self._pipeline_runtime_counts["watchlist_count"] += len(watchlist_symbols)
         self._pipeline_runtime_counts["trade_intents"] += len(strategy_output or [])
@@ -3485,6 +3576,10 @@ class CoreOrchestrator:
             )
             try:
                 for trade_intent in strategy_output:
+                    symbol_upper = str(getattr(trade_intent, "symbol", "") or "").upper()
+                    tha_decision = tha_decisions.get(symbol_upper)
+                    setattr(trade_intent, "tha_in_window", bool(getattr(tha_decision, "in_window", True)))
+                    setattr(trade_intent, "tha_allow_entries", bool(getattr(tha_decision, "allow_entries", True)))
                     if os.getenv("FORCE_EXECUTION_WINDOW", "false").lower() in {"1", "true", "yes"}:
                         print(f"[EXECUTION][FORCED_DISPATCH] symbol={trade_intent.symbol}")
                         trade_intent.force_execute = True
@@ -3533,6 +3628,15 @@ class CoreOrchestrator:
                         decision.rationale = f"FORCED_APPROVAL_TRADE_READY|original={original_reason}"
                     decision.trader_type = getattr(trade_intent, "trader_type", "MANUAL")
                     verdict = "APPROVED" if getattr(decision, 'allowed', False) and getattr(decision, 'risk_level', '') != 'BLOCKED' else "REJECTED"
+                    reason = str(getattr(decision, "rationale", None) or "").strip()
+                    print(
+                        "[RISK][DECISION] "
+                        f"symbol={trade_intent.symbol} approved={verdict == 'APPROVED'} reason={reason or 'NONE'}"
+                    )
+                    if verdict != "APPROVED" and not reason:
+                        raise RuntimeError(
+                            f"Risk rejected without reason for symbol={trade_intent.symbol}"
+                        )
                     print(
                         "[RISK][RESULT] "
                         f"symbol={trade_intent.symbol} approved={verdict == 'APPROVED'} "
@@ -3603,6 +3707,24 @@ class CoreOrchestrator:
         print("[TEACH] <<< Risk stage complete — moving to execution stage.")
         if self._stop_requested_at_boundary("RISK"):
             return False
+
+        intent_execution_flow: dict[str, dict[str, bool]] = {}
+        for decision in risk_output:
+            symbol_upper = str(getattr(decision, "symbol", "") or "").upper()
+            if not symbol_upper:
+                continue
+            risk_approved = bool(getattr(decision, "allowed", False)) and str(
+                getattr(decision, "risk_level", "")
+            ).upper() != "BLOCKED"
+            intent_execution_flow[symbol_upper] = {
+                "intent_passed": True,
+                "risk_approved": risk_approved,
+                "execution_submitted": False,
+            }
+            print(
+                "[PIPELINE][INTENT_TO_EXECUTION] "
+                f"symbol={symbol_upper} intent_passed=True risk_approved={risk_approved} execution_submitted=False"
+            )
 
         execution_output: List[ExecutionResult] = []
         execution_received_count = 0
@@ -3719,6 +3841,18 @@ class CoreOrchestrator:
                                 )
                             elif bool(getattr(result, "attempted", False)):
                                 trade_ready_terminal[risk_decision.symbol]["submitted"] = True
+                        symbol_upper = str(getattr(risk_decision, "symbol", "") or "").upper()
+                        if symbol_upper in intent_execution_flow:
+                            intent_execution_flow[symbol_upper]["execution_submitted"] = bool(
+                                getattr(result, "attempted", False)
+                            )
+                            print(
+                                "[PIPELINE][INTENT_TO_EXECUTION] "
+                                f"symbol={symbol_upper} "
+                                f"intent_passed={intent_execution_flow[symbol_upper]['intent_passed']} "
+                                f"risk_approved={intent_execution_flow[symbol_upper]['risk_approved']} "
+                                f"execution_submitted={intent_execution_flow[symbol_upper]['execution_submitted']}"
+                            )
                         if str(getattr(risk_decision, "strategy_name", "")).lower() == "ross_momentum":
                             status = str(getattr(result, "status", "") or "").upper()
                             disposition = "SUBMITTED_TO_EXECUTION" if status not in {"REJECTED", "ERROR", "FAILED"} else "REJECTED_AT_EXECUTION"
@@ -3741,6 +3875,14 @@ class CoreOrchestrator:
                             stage="EXECUTION",
                         )
                         return False
+                for symbol_upper, flow in intent_execution_flow.items():
+                    tha_decision = tha_decisions.get(symbol_upper)
+                    if (
+                        flow.get("risk_approved")
+                        and bool(getattr(tha_decision, "in_window", True))
+                        and not flow.get("execution_submitted")
+                    ):
+                        raise RuntimeError("Execution not triggered despite valid intent")
                 if not execution_output:
                     print("[EXECUTION] No execution results captured — placeholder outcome.")
                 else:
