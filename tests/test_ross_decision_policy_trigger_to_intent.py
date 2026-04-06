@@ -84,8 +84,8 @@ def test_hierarchy_blocks_lower_tier_even_with_higher_confidence(capsys) -> None
     assert len(intents) == 1
     assert "GAP_GO" in intents[0].intent_id
     out = capsys.readouterr().out
-    assert "[ROSS][HIERARCHY]" in out
-    assert "selected=GAP_GO" in out
+    assert "[ROSS][HIERARCHY][SELECTED]" in out
+    assert "setup=GAP_GO" in out
 
 
 def test_invalid_session_is_blocked_before_intent_creation(capsys) -> None:

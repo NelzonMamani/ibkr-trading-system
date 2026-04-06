@@ -7,8 +7,15 @@ from dataclasses import replace
 from typing import Any, List
 
 from src.config.config_resolver import get_config
+from src.scanner.session_pct_change import normalize_session_label
 from src.strategies.ross_momentum.decision_policy import (
     IntentPolicyConfig,
+)
+from src.strategies.ross_momentum.hierarchy_policy import (
+    DEFAULT_SESSION,
+    SESSION_TIER_MAP,
+    select_dominant_setup_details,
+    setup_identity,
 )
 from src.strategies.ross_momentum.patterns.pattern_evaluator import PatternEvaluator
 from src.strategies.ross_momentum.patterns.pattern_types import (
@@ -433,8 +440,11 @@ class RossMomentumStrategy(StrategyBase):
             return decision
 
         session_phase = _resolve_session_phase(inputs)
-        session_label = str(getattr(inputs.market_context, "session_label", session_phase) or session_phase).upper()
-        print(f"[ROSS][SESSION] symbol={symbol} session={session_label}")
+        session_raw = str(getattr(inputs.market_context, "session_label", session_phase) or session_phase).upper()
+        session_label = normalize_session_label(session_raw) or "PRE"
+        tier_map_key = session_label if session_label in SESSION_TIER_MAP else DEFAULT_SESSION
+        print(f"[ROSS][SESSION] symbol={symbol} raw={session_raw} normalized={session_label}")
+        print(f"[ROSS][SESSION][TIERS] symbol={symbol} session={session_label} tier_map={tier_map_key}")
         structure_tf, trigger_tf, pattern_supported = _resolve_ross_pattern_cadence(session_label)
         print(
             "[ROSS][CADENCE] "
@@ -512,10 +522,29 @@ class RossMomentumStrategy(StrategyBase):
 
         intents: list[TradeIntent] = []
         terminal_disposition = "BLOCKED_AT_PATTERN"
-        selected_setup = summary.best_long_setup or next(
-            (result for result in summary.all_results if result.detected and result.direction == PatternDirection.LONG),
-            None,
+        detected_setups = [
+            result for result in summary.all_results
+            if result.detected and result.direction == PatternDirection.LONG
+        ]
+        detected_identities = sorted({setup_identity(setup) for setup in detected_setups if setup_identity(setup)})
+        print(
+            "[ROSS][HIERARCHY][INPUT] "
+            f"symbol={symbol} session={session_label} detected={detected_identities or ['NONE']}"
         )
+        selected_setup, selected_tier, selected_tier_candidates = select_dominant_setup_details(session_label, detected_setups)
+        if selected_setup is not None:
+            print(
+                "[ROSS][HIERARCHY][SELECTED] "
+                f"symbol={symbol} session={session_label} setup={setup_identity(selected_setup)} "
+                f"tier={selected_tier} tier_candidates={selected_tier_candidates}"
+            )
+            legacy_best = summary.best_long_setup
+            if legacy_best is not None and setup_identity(legacy_best) != setup_identity(selected_setup):
+                print(
+                    "[ROSS][HIERARCHY][BYPASS] "
+                    f"symbol={symbol} selected={setup_identity(selected_setup)} "
+                    f"legacy_best_long={setup_identity(legacy_best)}"
+                )
         if selected_setup is not None:
             confirm = _evaluate_confirmation_stage(
                 symbol=symbol,
@@ -555,6 +584,11 @@ class RossMomentumStrategy(StrategyBase):
                             risk_flags=list(selected_setup.risk_flags) + list(confirm["warnings"]),
                         )
                         intents = [intent]
+                        print(
+                            "[ROSS][INTENT_SETUP] "
+                            f"symbol={symbol} setup_family={setup_identity(selected_setup)} "
+                            f"trigger_type={trigger['trigger_name']} intent_id={intent.intent_id}"
+                        )
                         print(
                             "[ROSS][INTENT][CREATED] "
                             f"symbol={symbol} trigger={trigger['trigger_name']} tif={intent.time_in_force_policy.value}"

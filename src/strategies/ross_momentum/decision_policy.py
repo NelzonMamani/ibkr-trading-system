@@ -22,7 +22,12 @@ from src.strategies.strategy_contracts import Direction as IntentDirection
 from src.strategies.strategy_contracts import TimeInForcePolicy, TradeIntent
 from src.strategies.strategy_contracts import SessionContext
 
-from .hierarchy_policy import select_dominant_setup
+from .hierarchy_policy import (
+    SESSION_TIER_MAP,
+    DEFAULT_SESSION,
+    select_dominant_setup_details,
+    setup_identity,
+)
 
 ALLOWED_SESSIONS = {
     "PRE",
@@ -61,6 +66,9 @@ def build_trade_intents(
 
     session_raw = session if session is not None else "RTH_OPEN"
     session = normalize_session_label(session_raw) or "RTH_OPEN"
+    tier_map_key = session if session in SESSION_TIER_MAP else DEFAULT_SESSION
+    print(f"[ROSS][SESSION] symbol={symbol} raw={session_raw} normalized={session}")
+    print(f"[ROSS][SESSION][TIERS] symbol={symbol} session={session} tier_map={tier_map_key}")
     if session not in ALLOWED_SESSIONS:
         print(f"[ROSS][BLOCKER] symbol={symbol} blocker=SESSION_INVALID reason={session}")
         return intents
@@ -69,7 +77,12 @@ def build_trade_intents(
         setup for setup in summary.all_results
         if setup is not None and bool(getattr(setup, "detected", False))
     ]
-    best_setup = select_dominant_setup(session, detected_setups)
+    detected_names = sorted({setup_identity(setup) for setup in detected_setups if setup_identity(setup)})
+    print(
+        "[ROSS][HIERARCHY][INPUT] "
+        f"symbol={symbol} session={session} detected={detected_names or ['NONE']}"
+    )
+    best_setup, selected_tier, selected_tier_candidates = select_dominant_setup_details(session, detected_setups)
     if best_setup is None:
         print(
             "[ROSS][SETUP_RESULT] "
@@ -80,11 +93,18 @@ def build_trade_intents(
         return intents
 
     print(
-        "[ROSS][HIERARCHY] "
-        f"symbol={symbol} session={session} "
-        f"selected={best_setup.pattern_name} "
+        "[ROSS][HIERARCHY][SELECTED] "
+        f"symbol={symbol} session={session} setup={setup_identity(best_setup)} "
+        f"tier={selected_tier} tier_candidates={selected_tier_candidates} "
         f"confidence={getattr(best_setup, 'confidence', None)}"
     )
+    best_long_setup = getattr(summary, "best_long_setup", None)
+    if best_long_setup is not None and setup_identity(best_long_setup) != setup_identity(best_setup):
+        print(
+            "[ROSS][HIERARCHY][BYPASS] "
+            f"symbol={symbol} selected={setup_identity(best_setup)} "
+            f"legacy_best_long={setup_identity(best_long_setup)}"
+        )
 
     candidate_setups = [best_setup]
     guaranteed_intent_required = False
@@ -159,6 +179,11 @@ def build_trade_intents(
             risk_flags=setup.risk_flags,
         )
         intents.append(intent)
+        print(
+            "[ROSS][INTENT_SETUP] "
+            f"symbol={symbol} setup_family={setup_identity(setup)} "
+            f"trigger_type={getattr(setup, 'trigger_type', None) or 'UNSPECIFIED'} intent_id={intent_id}"
+        )
         execution_ready = pre_intent_execution_ready and bool(intents)
         print(
             f"[STRATEGY_TRACE] symbol={symbol} "
