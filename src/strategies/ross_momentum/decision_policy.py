@@ -102,6 +102,16 @@ def build_trade_intents(
         else session
     )
     best_setup = select_dominant_setup(selection_session, detected_setups)
+    if best_setup is None and detected_setups:
+        print(
+            "[ROSS][FALLBACK_SELECTION] "
+            f"symbol={symbol} reason=NO_DOMINANT_SETUP_USING_HIGHEST_CONFIDENCE"
+        )
+        best_setup = sorted(
+            detected_setups,
+            key=lambda s: getattr(s, "confidence", 0),
+            reverse=True,
+        )[0]
     print(
         "[ROSS][DEBUG][SETUP_SELECTION] "
         f"symbol={symbol} "
