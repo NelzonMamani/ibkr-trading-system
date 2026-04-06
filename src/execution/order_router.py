@@ -583,6 +583,8 @@ def _apply_position_fill(symbol: str, *, signed_delta_qty: int, fill_price: floa
     else:
         row.state = "POSITION_OPEN"
     print(f"[LIFECYCLE][POSITION] symbol={symbol} qty={row.qty} pending_entry={row.pending_entry_qty} pending_exit={row.pending_exit_qty} state={row.state}")
+    if row.qty > 0 and row.avg_price is not None:
+        print(f"[POSITION][OPEN] symbol={symbol} qty={row.qty} avg_price={row.avg_price}")
 
 
 def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, total_qty: int, order_ref: str) -> TrackedOrder:
@@ -755,6 +757,16 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             if pos is not None and pos.qty > 0:
                 trace.position_opened = True
                 _trace_log("POSITION_OPENED", trace, extra=f"position_qty={pos.qty}")
+        if filled_qty > 0 and remaining_int > 0:
+            print(
+                f"[ORDER][PARTIAL_FILL] symbol={symbol or 'UNKNOWN'} order_id={order_id} "
+                f"shares={filled_qty} avg_price={fill_price}"
+            )
+        elif filled_qty > 0:
+            print(
+                f"[ORDER][FILL] symbol={symbol or 'UNKNOWN'} order_id={order_id} "
+                f"shares={filled_qty} avg_price={fill_price}"
+            )
     elif event_type == "orderstatus":
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"orderStatus_seen": True})
         row = _RUNTIME_ORDERS.get(order_id)
@@ -779,8 +791,18 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 trace.order_status = row.canonical_state
                 trace.lifecycle_state = "ACK_RECEIVED"
                 _trace_log("ORDER_STATUS", trace, extra=f"status={row.canonical_state} broker_status={row.broker_status}")
+                print(f"[IBKR][ACK] order_id={order_id} outsideRth=True")
+                print(
+                    f"[EXECUTION][ACK_CONFIRMED] symbol={row.symbol} order_id={order_id} "
+                    f"status={row.broker_status}"
+                )
                 if row.canonical_state == "REJECTED":
                     _mark_execution_failure(trace, "ORDER_REJECTED", reason="broker_status_rejected")
+            if row.canonical_state in {"WORKING", "ACKNOWLEDGED", "SUBMITTED"}:
+                print(
+                    f"[ORDER][WORKING] symbol={row.symbol} order_id={order_id} "
+                    f"status={row.broker_status}"
+                )
     elif event_type == "openorder":
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"openOrder_seen": True})
         if callback_order_ref:
@@ -790,6 +812,11 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             trace.ack_time = timestamp
             trace.lifecycle_state = "ACK_RECEIVED"
             _trace_log("ACK", trace, extra="callback=openOrder")
+            print(f"[IBKR][ACK] order_id={order_id} outsideRth=True")
+            print(
+                f"[EXECUTION][ACK_CONFIRMED] symbol={trace.symbol or symbol or 'UNKNOWN'} "
+                f"order_id={order_id} status=openOrder"
+            )
     elif event_type == "position":
         if trace is not None:
             qty_raw = _extract_callback_field(callback_payload, "position", "qty", "shares")
@@ -1031,17 +1058,26 @@ def _post_submission_ibkr_diagnostics(
             f"filled={filled_qty} remaining={remaining_qty}"
         )
 
-    polling_deadline = time.time() + 3.0
-    print(f"[BROKER_TRUTH][ESCALATION_LEVEL=2] phase=POLLING submitted_order_ids={sorted(submitted_lookup)} timeout_seconds=3")
+    polling_timeout_seconds = 3
+    callback_timeout_seconds = 2
+    no_fill_timeout_seconds = polling_timeout_seconds + callback_timeout_seconds
+    polling_deadline = time.time() + float(polling_timeout_seconds)
+    print(
+        f"[BROKER_TRUTH][ESCALATION_LEVEL=2] phase=POLLING submitted_order_ids={sorted(submitted_lookup)} "
+        f"timeout_seconds={polling_timeout_seconds}"
+    )
     while time.time() < polling_deadline and not broker_truth_confirmed:
         open_orders, executions, broker_truth_confirmed = _snapshot_broker_visibility()
         if broker_truth_confirmed:
             break
         time.sleep(0.1)
 
-    callback_deadline = time.time() + 2.0
+    callback_deadline = time.time() + float(callback_timeout_seconds)
     if not broker_truth_confirmed:
-        print(f"[BROKER_TRUTH][ESCALATION_LEVEL=3] phase=CALLBACK_WAIT submitted_order_ids={sorted(submitted_lookup)} timeout_seconds=2")
+        print(
+            f"[BROKER_TRUTH][ESCALATION_LEVEL=3] phase=CALLBACK_WAIT submitted_order_ids={sorted(submitted_lookup)} "
+            f"timeout_seconds={callback_timeout_seconds}"
+        )
     while time.time() < callback_deadline and not broker_truth_confirmed:
         open_orders, executions, broker_truth_confirmed = _snapshot_broker_visibility()
         if broker_truth_confirmed:
@@ -1060,6 +1096,15 @@ def _post_submission_ibkr_diagnostics(
     observed_exec_details = exec_detail_rows > 0
     if not observed_exec_details:
         print("[CRITICAL] IBKR_NO_FILL_CONFIRMATION")
+    for order_id in submitted_order_ids:
+        tracked = _RUNTIME_ORDERS.get(int(order_id))
+        if tracked is None:
+            continue
+        if int(tracked.filled_qty) <= 0:
+            print(
+                f"[EXECUTION][NO_FILL_TIMEOUT] symbol={tracked.symbol} order_id={int(order_id)} "
+                f"seconds_waited={no_fill_timeout_seconds}"
+            )
     open_order_callback_count = sum(
         1
         for order_id in submitted_lookup

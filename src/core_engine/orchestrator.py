@@ -1159,6 +1159,7 @@ def run_cycle(
     execution_candidates: List[RiskDecisionRecord] = []
     blocked_candidates: List[ExecutionEvent] = []
     execution_skipped = execution_intent.scan_only or (not mode_authority.trade_enabled)
+    validation_override_active = "override" in str(getattr(mode_authority, "reason", "") or "").lower()
     if not arbitrated_decisions:
         print("[PIPELINE][EXECUTION_GATE] symbol=NONE eligible=false reason=NO_INTENTS")
     for decision in arbitrated_decisions:
@@ -1253,6 +1254,10 @@ def run_cycle(
             f"[EXECUTION][PRECHECK] symbol={decision.symbol} passed={str(eligible).lower()} "
             f"reason={'PRECHECK_PASS' if eligible else 'EXECUTION_GATES_NOT_SATISFIED'}"
         )
+        print(
+            f"[EXECUTION][PRECHECK] symbol={decision.symbol} allowed={str(eligible).lower()} "
+            f"reason={'PRECHECK_PASS' if eligible else 'EXECUTION_GATES_NOT_SATISFIED'}"
+        )
         if not eligible:
             reason = "EXECUTION_GATES_NOT_SATISFIED"
             print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason={reason}")
@@ -1279,6 +1284,11 @@ def run_cycle(
             decision_waterfall[decision.symbol]["execution"] = "REJECTED"
             decision_waterfall[decision.symbol]["execution_reason"] = reason
             continue
+        print(
+            "[PIPELINE][EXECUTION_DISPATCH] "
+            f"symbol={decision.symbol} intent_present=true "
+            f"validation_override={str(validation_override_active).lower()} mode={mode.value}"
+        )
         print(f"[EXECUTION][QUALIFY] symbol={decision.symbol} passed=true reason=EXECUTION_ELIGIBLE")
         print(f"[EXECUTION][ORDER_BUILD] symbol={decision.symbol} passed=true order_type=MKT tif=DAY")
         if mode == RunMode.PAPER:
