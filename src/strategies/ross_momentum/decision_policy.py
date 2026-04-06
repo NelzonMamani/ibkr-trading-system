@@ -96,7 +96,20 @@ def build_trade_intents(
         setup for setup in summary.all_results
         if setup is not None and bool(getattr(setup, "detected", False))
     ]
-    best_setup = select_dominant_setup(effective_session, detected_setups)
+    selection_session = (
+        effective_session
+        if session_is_invalid and validation_session_override_enabled
+        else session
+    )
+    best_setup = select_dominant_setup(selection_session, detected_setups)
+    print(
+        "[ROSS][DEBUG][SETUP_SELECTION] "
+        f"symbol={symbol} "
+        f"original_session={session} "
+        f"selection_session={selection_session} "
+        f"override_session={effective_session} "
+        f"selected={getattr(best_setup, 'pattern_name', None)}"
+    )
     if best_setup is None:
         print(
             "[ROSS][SETUP_RESULT] "
