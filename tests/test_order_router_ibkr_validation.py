@@ -126,6 +126,8 @@ def test_callback_registration_supported_logs_registered(monkeypatch, capsys) ->
 
 
 def test_submit_order_ack_enforced_in_strict_mode(monkeypatch) -> None:
+    submitted_orders = []
+
     class _Client:
         def qualifyContracts(self, contract):
             contract.conId = 123
@@ -136,6 +138,7 @@ def test_submit_order_ack_enforced_in_strict_mode(monkeypatch) -> None:
             return [contract]
 
         def submit_order(self, _contract, _order):
+            submitted_orders.append(_order)
             return 111
 
         def wait_for_order_status(self, _order_id, timeout_seconds=5):
@@ -151,6 +154,10 @@ def test_submit_order_ack_enforced_in_strict_mode(monkeypatch) -> None:
             quantity=1,
             order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
         )
+    assert len(submitted_orders) == 1
+    assert getattr(submitted_orders[0], "outsideRth", None) is True
+    assert submitted_orders[0].tif == "DAY"
+    assert submitted_orders[0].orderType in {"MKT", "LMT", "STP", "STP LMT", "STP-LMT"}
 
 
 @pytest.mark.parametrize("mode", [RunMode.PAPER, RunMode.LIVE])
