@@ -16,6 +16,9 @@ def _reset_router() -> None:
     order_router._RECONCILED_ORDERS_COUNT = 0
     order_router._RECONCILED_POSITIONS_COUNT = 0
     order_router._RECON_RESYNC_NEEDED = False
+    order_router._EXECUTION_TRACE_BY_INTENT.clear()
+    order_router._EXECUTION_TRACE_BY_ORDER_ID.clear()
+    order_router._EXECUTION_FAILURES_BY_TYPE.clear()
 
 
 def _decision(symbol: str = "ABCD", qty: int = 100, side: str = "LONG") -> RiskDecisionRecord:
@@ -202,3 +205,25 @@ def test_post_submission_broker_truth_fatal_when_no_broker_visibility(monkeypatc
             manager=manager,
             submitted_order_ids=[202],
         )
+
+
+def test_execution_cycle_emits_summary_and_failure_classification(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    _ = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
+    out = capsys.readouterr().out
+    assert "[EXECUTION][SUMMARY]" in out
+    assert "[EXECUTION][FAIL]" in out
+    assert "TYPE=NO_FILL" in out or "type=NO_FILL" in out
+
+
+def test_callback_openorder_and_position_update_trace(monkeypatch) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
+    oid = int(events[0].broker_order_id)
+    order_router._on_ibkr_callback({"event_type": "openOrder", "order_id": oid, "symbol": "ABCD"})
+    order_router._on_ibkr_callback({"event_type": "position", "order_id": oid, "symbol": "ABCD", "position": 100})
+    trace = order_router._EXECUTION_TRACE_BY_ORDER_ID[oid]
+    assert trace.ack_received is True
+    assert trace.position_opened is True

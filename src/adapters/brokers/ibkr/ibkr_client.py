@@ -1009,12 +1009,30 @@ class IbkrClient(EWrapper, EClient):
     def openOrder(self, orderId, contract, order, orderState):  # type: ignore[override]
         self._ensure_order_state_registry()
         print(f"[ORDER][OPEN] order_id={orderId} symbol={getattr(contract, 'symbol', None)}")
+        print(
+            "[IBKR][CALLBACK_RAW] "
+            f"event=openOrder order_id={orderId} symbol={getattr(contract, 'symbol', None)} "
+            f"status={getattr(orderState, 'status', None)}"
+        )
         row = SimpleNamespace(orderId=orderId, contract=contract, order=order, orderState=orderState)
         self._open_orders_snapshot[orderId] = row
+        self._emit_execution_callback(
+            {
+                "event_type": "openOrder",
+                "orderId": orderId,
+                "contract": contract,
+                "order": order,
+                "orderState": orderState,
+            }
+        )
 
     def commissionReport(self, commissionReport):  # type: ignore[override]
         exec_id = getattr(commissionReport, "execId", None)
         commission = getattr(commissionReport, "commission", None)
+        print(
+            "[IBKR][CALLBACK_RAW] "
+            f"event=commissionReport exec_id={exec_id} commission={commission}"
+        )
         if exec_id is None or commission is None:
             return
         self._commission_by_exec_id[exec_id] = float(commission)
@@ -1036,14 +1054,30 @@ class IbkrClient(EWrapper, EClient):
 
     def position(self, account, contract, pos, avgCost):  # type: ignore[override]
         symbol = str(getattr(contract, "symbol", "") or "").upper()
+        print(
+            "[IBKR][CALLBACK_RAW] "
+            f"event=position account={account} symbol={symbol} pos={pos} avg_cost={avgCost}"
+        )
         if not symbol:
             return
         self._positions_snapshot[symbol] = SimpleNamespace(
             account=account, contract=contract, symbol=symbol, position=pos, avgCost=avgCost
         )
+        self._emit_execution_callback(
+            {
+                "event_type": "position",
+                "account": account,
+                "contract": contract,
+                "symbol": symbol,
+                "position": pos,
+                "avgCost": avgCost,
+            }
+        )
 
     def positionEnd(self):  # type: ignore[override]
+        print("[IBKR][CALLBACK_RAW] event=positionEnd")
         self._positions_event.set()
+        self._emit_execution_callback({"event_type": "positionEnd"})
 
     def connectionClosed(self):  # type: ignore[override]
         self._last_disconnect_reason = "connectionClosed"
