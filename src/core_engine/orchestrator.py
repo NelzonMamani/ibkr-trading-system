@@ -143,19 +143,19 @@ def _diagnose_ibkr_snapshot_unavailability(*, symbol: str, scanner_payload: dict
     diagnostics = scanner_payload.get("diagnostics") if isinstance(scanner_payload, dict) else None
     market_diag = diagnostics.get("market_snapshot_enrichment") if isinstance(diagnostics, dict) else None
     if not isinstance(market_diag, dict):
-        print(f"[PRICE][IBKR_MISSING] symbol={symbol} reason=SESSION_OR_DATA_TIMING")
-        return "SESSION_OR_DATA_TIMING"
+        print(f"[PRICE][IBKR_MISSING] symbol={symbol} reason=IBKR_SNAPSHOT_UNAVAILABLE")
+        return "IBKR_SNAPSHOT_UNAVAILABLE"
     if not market_diag.get("requested", True):
         print(f"[PRICE][IBKR_MISSING] symbol={symbol} reason=IBKR_SNAPSHOT_UNAVAILABLE")
         return "IBKR_SNAPSHOT_UNAVAILABLE"
     if int(market_diag.get("snapshot_failure_count") or 0) > 0 and int(market_diag.get("snapshot_success_count") or 0) == 0:
         print(f"[PRICE][IBKR_MISSING] symbol={symbol} reason=IBKR_SNAPSHOT_UNAVAILABLE")
         return "IBKR_SNAPSHOT_UNAVAILABLE"
-    if int(market_diag.get("symbols_with_last_price") or 0) == 0:
-        print(f"[PRICE][IBKR_MISSING] symbol={symbol} reason=IBKR_SNAPSHOT_INCOMPLETE")
-        return "IBKR_SNAPSHOT_INCOMPLETE"
-    print(f"[PRICE][IBKR_MISSING] symbol={symbol} reason=IBKR_SNAPSHOT_STALE")
-    return "IBKR_SNAPSHOT_STALE"
+    if int(market_diag.get("symbols_with_last_price") or 0) == 0 and int(market_diag.get("symbols_with_bid_ask") or 0) == 0:
+        print(f"[PRICE][IBKR_MISSING] symbol={symbol} reason=IBKR_SNAPSHOT_UNAVAILABLE")
+        return "IBKR_SNAPSHOT_UNAVAILABLE"
+    print(f"[PRICE][IBKR_MISSING] symbol={symbol} reason=IBKR_SNAPSHOT_UNAVAILABLE")
+    return "IBKR_SNAPSHOT_UNAVAILABLE"
 
 
 def _derive_last_block_reason(risk_decisions: List[RiskDecisionRecord]) -> str:
@@ -882,8 +882,10 @@ def run_cycle(
                 entry_price, entry_price_source = resolve_entry_price(
                     symbol,
                     {
+                        "run_mode": mode.value,
                         "scanner_payload": scanner_payload,
                         "premarket_prep": premarket_prep,
+                        "ibkr_snapshot_by_symbol": scanner_payload.get("ibkr_snapshot_by_symbol"),
                     },
                 )
                 print(
@@ -937,6 +939,7 @@ def run_cycle(
             entry_price_source = authority_verdict.normalized_source
             if mode in {RunMode.PAPER, RunMode.LIVE} and authority_verdict.allowed:
                 symbols_with_ibkr_price.add(symbol)
+                print(f"[PRICE][IBKR_AUTHORITY_OK] symbol={symbol} price={entry_price} source={entry_price_source}")
             if not authority_verdict.allowed:
                 symbols_blocked_price_authority.add(symbol)
                 price_authority_reasons[authority_verdict.reason_code] += 1

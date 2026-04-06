@@ -140,7 +140,7 @@ class MarketSnapshotEnricher:
                 requested_contracts[symbol] = contract
                 requested_identities[symbol] = CandidateIdentity.from_contract(contract, fallback_symbol=symbol)
                 diagnostics[symbol]["contract_build_source"] = source
-                print(f"[SNAPSHOT][REQUEST] symbol={symbol} source={source} identity_key={requested_identities[symbol].key}")
+                print(f"[IBKR][SNAPSHOT_REQUEST] symbol={symbol} source={source} identity_key={requested_identities[symbol].key}")
             except Exception as exc:
                 diagnostics[symbol]["exception"] = str(exc)
                 print(f"[SNAPSHOT][FAIL] symbol={symbol} reason=build_contract:{exc}")
@@ -219,7 +219,7 @@ class MarketSnapshotEnricher:
                 if has_data and symbol not in result_logged:
                     result_logged.add(symbol)
                     print(
-                        "[SNAPSHOT][RESULT] "
+                        "[IBKR][SNAPSHOT_RECEIVED] "
                         f"symbol={symbol} identity_key={diagnostics[symbol].get('identity_key')} last={last_price} bid={bid} ask={ask} volume={volume}"
                     )
                 if last_price is None and bid is None and ask is None and volume is None and close is None:
@@ -229,7 +229,7 @@ class MarketSnapshotEnricher:
 
         for symbol in resolved_symbols:
             if diagnostics[symbol]["snapshot_requested"] and not diagnostics[symbol]["snapshot_received"]:
-                print("[SNAPSHOT][FAIL] symbol={} reason=snapshot_empty".format(symbol))
+                print("[IBKR][SNAPSHOT_MISSING] symbol={} reason=snapshot_empty".format(symbol))
 
         for symbol, contract in contracts_by_symbol.items():
             if symbol not in ticker_by_symbol:

@@ -3465,6 +3465,7 @@ def run_scanner_cycle(
         )
         snapshot_diag = getattr(snapshot_enricher, "last_fetch_diagnostics", {}) or {}
         diagnostics["market_snapshot_enrichment"] = {
+            "requested": True,
             "requested_symbols": len(symbols),
             "snapshots_returned": len(market_snapshots),
             "batch_timeout_seconds": 5.0,
@@ -4658,6 +4659,15 @@ def run_scanner_cycle(
         "scanner_operational": scanner_operational,
         "qualification_dead": qualification_dead,
         "diagnostics": diagnostics,
+        "ibkr_snapshot_by_symbol": {
+            symbol: {
+                "last_price": data.get("last_price"),
+                "bid": data.get("bid"),
+                "ask": data.get("ask"),
+                "volume": data.get("volume"),
+            }
+            for symbol, data in (market_snapshots.items() if isinstance(market_snapshots, dict) else [])
+        },
         "symbol_context_registry": {
             symbol: symbol_contexts[symbol]
             for symbol in sorted(symbol_contexts.keys())

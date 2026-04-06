@@ -29,13 +29,13 @@ def _as_float(value: Any) -> float | None:
     return parsed
 
 
-def _extract_symbol_price(mapping: Mapping[str, Any] | None, symbol: str) -> float | None:
+def _extract_snapshot_row(mapping: Mapping[str, Any] | None, symbol: str) -> Mapping[str, Any] | None:
     if not isinstance(mapping, Mapping):
         return None
     row = mapping.get(symbol)
-    if isinstance(row, Mapping):
-        return _as_float(row.get("price") or row.get("last") or row.get("last_price"))
-    return _as_float(row)
+    if not isinstance(row, Mapping):
+        return None
+    return row
 
 
 def _mid_from_bid_ask(container: Any) -> float | None:
@@ -47,9 +47,14 @@ def _mid_from_bid_ask(container: Any) -> float | None:
 
 
 def _resolve_from_ibkr_snapshot(symbol: str, context: Mapping[str, Any]) -> ResolvedPrice | None:
-    cached = _extract_symbol_price(context.get("ibkr_snapshot_by_symbol"), symbol)
-    if cached is not None:
-        return ResolvedPrice(cached, "IBKR_SNAPSHOT")
+    cached_row = _extract_snapshot_row(context.get("ibkr_snapshot_by_symbol"), symbol)
+    if cached_row is not None:
+        last = _as_float(cached_row.get("last") or cached_row.get("last_price") or cached_row.get("price"))
+        if last is not None:
+            return ResolvedPrice(last, "IBKR_SNAPSHOT")
+        mid = _mid_from_bid_ask(cached_row)
+        if mid is not None:
+            return ResolvedPrice(mid, "IBKR_SNAPSHOT_MID")
 
     ticker = context.get("ibkr_snapshot_ticker")
     ticker_symbol = str(getattr(ticker, "symbol", "") or "").upper()
@@ -121,6 +126,16 @@ def resolve_entry_price(symbol: str, context: Mapping[str, Any]) -> tuple[float,
     normalized = str(symbol or "").strip().upper()
     if not normalized:
         raise PriceResolutionError(symbol, "INVALID_SYMBOL")
+
+    mode = str(context.get("run_mode") or "").strip().upper()
+
+    if mode in {"PAPER", "LIVE"}:
+        resolved = _resolve_from_ibkr_snapshot(normalized, context)
+        if resolved is not None:
+            print(f"[PRICE][RESOLVE] symbol={normalized} source={resolved.source} price={resolved.price}")
+            return resolved.price, resolved.source
+        print(f"[PRICE][FAIL] symbol={normalized} reason=NO_VALID_SOURCE mode={mode}")
+        raise PriceResolutionError(normalized, "NO_VALID_PRICE_SOURCE")
 
     for resolver in (
         _resolve_from_ibkr_snapshot,
