@@ -394,6 +394,20 @@ def run_cycle(
         f"execution_enabled={mode_authority.execution_enabled} "
         f"trade_enabled={mode_authority.trade_enabled} scan_only={mode_authority.scan_only}"
     )
+    requested_mode = mode_authority.requested_mode
+    if requested_mode == "PAPER":
+        execution_enabled_cfg = bool(get_config("EXECUTION_ENABLED"))
+        submission_enabled_cfg = bool(get_config("IBKR_ORDER_SUBMISSION_ENABLED"))
+        readonly_enabled_cfg = bool(get_config("IBKR_READONLY_ENABLED"))
+
+        # Determine if execution is actually intended.
+        execution_requested = execution_enabled_cfg or submission_enabled_cfg
+
+        # Only enforce invariant if execution is requested.
+        if execution_requested:
+            if (not execution_enabled_cfg) or (not submission_enabled_cfg) or readonly_enabled_cfg:
+                print("[PIPELINE][FATAL] execution_disabled_misconfig")
+                raise RuntimeError("[PIPELINE][FATAL] execution_disabled_misconfig")
     resolved_session = resolve_session_state()
     session = forced_session_state or resolved_session
     if (
