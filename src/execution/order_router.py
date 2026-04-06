@@ -1270,6 +1270,11 @@ def _submit_ibkr_order(
     order_ref: str,
 ) -> int:
     global _CONTRACT_VALIDATION_FAILURES
+    assert isinstance(symbol, str)
+    assert isinstance(side, str)
+    assert isinstance(quantity, int)
+    if symbol.__class__.__name__ == "ScannerSubscription" or side.__class__.__name__ == "ScannerSubscription":
+        raise RuntimeError("SCANNER_SUBSCRIPTION_CONTAMINATION_DETECTED")
     _, Stock, _ = safe_import_ib_insync()
     print(f"[IBKR][CONTRACT_VALIDATION][START] symbol={symbol}")
     contract = Stock(symbol, "SMART", "USD")
@@ -1311,7 +1316,7 @@ def _submit_ibkr_order(
     if account:
         order.account = account
         print(f"[IBKR][ACCOUNT_BINDING] account={account}")
-    print("[EXECUTION][ORDER_OBJECT]")
+    print("[EXECUTION][FINAL_ORDER_CHECK]")
     print(f"type={type(order)}")
     print(f"action={getattr(order, 'action', None)}")
     print(f"qty={getattr(order, 'totalQuantity', None)}")
@@ -1584,13 +1589,22 @@ def execute_intents(
                 if mode in {RunMode.PAPER, RunMode.LIVE} and not _is_explicit_test_mode():
                     if manager is None:
                         manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
+                    payload = {
+                        "symbol": str(decision.symbol or "").upper(),
+                        "side": order_side,
+                        "quantity": quantity,
+                        "order_ref": order_ref,
+                    }
+                    print("[TRACE][CALLER_INPUT]")
+                    print(f"type_of_payload={type(payload)}")
+                    print(f"repr={repr(payload)}")
                     broker_order_id = _submit_ibkr_order(
                         mode=mode,
                         client=manager.get_client(),
-                        symbol=str(decision.symbol or "").upper(),
-                        side=order_side,
-                        quantity=quantity,
-                        order_ref=order_ref,
+                        symbol=payload["symbol"],
+                        side=payload["side"],
+                        quantity=payload["quantity"],
+                        order_ref=payload["order_ref"],
                     )
                 else:
                     broker_order_id = index
