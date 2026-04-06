@@ -129,12 +129,70 @@ def build_trade_intents(
         print(f"[ROSS][BLOCKER] symbol={symbol} blocker=NO_SETUP_DETECTED reason=NO_TRIGGER_OR_SETUP")
         return intents
 
+    valid_trade = (
+        best_setup is not None
+        and trigger_ready_now is True
+    )
+    print(
+        "[ROSS][INTENT_DECISION] "
+        f"symbol={symbol} "
+        f"setup={getattr(best_setup, 'pattern_name', None)} "
+        f"trigger_ready={trigger_ready_now} "
+        f"mode={run_mode} "
+        f"valid_trade={valid_trade}"
+    )
+
     print(
         "[ROSS][HIERARCHY] "
         f"symbol={symbol} session={session} "
         f"selected={best_setup.pattern_name} "
         f"confidence={getattr(best_setup, 'confidence', None)}"
     )
+
+    def create_intent_from_setup(setup) -> TradeIntent:
+        direction = (
+            IntentDirection.LONG if setup.direction == Direction.LONG else IntentDirection.SHORT
+        )
+        intent_id = f"{strategy_id}:{symbol}:{setup.pattern_name.replace(' ', '_')}"
+        invalidations = []
+        if summary.veto_flags:
+            invalidations.append("veto_flags_present")
+        return TradeIntent(
+            intent_id=intent_id,
+            symbol=symbol,
+            direction=direction,
+            entry_model=setup.entry_zone or "Breakout trigger",
+            stop_model=setup.stop_suggestion or "Structure-based stop",
+            target_model=setup.target_suggestion,
+            time_in_force_policy=TimeInForcePolicy.DAY,
+            invalidations=invalidations,
+            rationale_text=setup.rationale_text or "Debug-forced Ross Momentum intent.",
+            risk_flags=setup.risk_flags,
+            validation_override=bool(validation_session_override_enabled and session_is_invalid),
+        )
+
+    if run_mode == "PAPER" and valid_trade:
+        print(
+            "[ROSS][OVERRIDE][PAPER_MODE] "
+            f"symbol={symbol} forcing_intent_creation reason=VALID_SETUP_AND_TRIGGER"
+        )
+
+        intent = create_intent_from_setup(best_setup)
+        if intent.validation_override:
+            print(
+                "[INTENT][OVERRIDE] "
+                f"symbol={symbol} session={session} reason=SESSION_OVERRIDE"
+            )
+        print(
+            "[ROSS][INTENT_DECISION] "
+            f"symbol={symbol} "
+            f"setup={getattr(best_setup, 'pattern_name', None)} "
+            f"trigger_ready={trigger_ready_now} "
+            f"mode={run_mode} "
+            "intent_forced=True"
+        )
+        print(f"[ROSS][INTENT_RESULT] symbol={symbol} outcome=CREATED reason=PAPER_MODE_FORCED_INTENT")
+        return [intent]
 
     candidate_setups = [best_setup]
     guaranteed_intent_required = False
@@ -152,13 +210,25 @@ def build_trade_intents(
         trigger_fired = bool(trigger_ready_now) if trigger_ready_now is not None else bool(setup.entry_zone)
         if trigger_fired:
             guaranteed_intent_required = True
+        decision = "ALLOW" if valid_trade else "EVALUATE"
+        block_reason = None
         # `setup.risk_flags` can contain advisory warnings that do not block final
         # risk approval; only explicit veto flags should produce a risk-stage negative.
         risk_precheck_ok = not bool(summary.veto_flags)
         dq_ok = not bool(setup.data_quality_flags)
+        if run_mode == "LIVE":
+            # enforce all existing policy gates strictly
+            pass
         if not dq_ok and config.debug_force_execution:
             print(f"[DQ_OVERRIDE] symbol={symbol} dq was bypassed")
             dq_ok = True
+        if valid_trade:
+            decision = "ALLOW"
+            block_reason = None
+        print(
+            "[ROSS][TRIGGER_AUTHORITY] "
+            f"symbol={symbol} decision={decision} block_reason={block_reason}"
+        )
         pre_intent_execution_ready = (
             pattern_detected
             and trigger_fired
@@ -189,26 +259,7 @@ def build_trade_intents(
                 "execution_candidate_ready=false"
             )
             continue
-        direction = (
-            IntentDirection.LONG if setup.direction == Direction.LONG else IntentDirection.SHORT
-        )
-        intent_id = f"{strategy_id}:{symbol}:{setup.pattern_name.replace(' ', '_')}"
-        invalidations = []
-        if summary.veto_flags:
-            invalidations.append("veto_flags_present")
-        intent = TradeIntent(
-            intent_id=intent_id,
-            symbol=symbol,
-            direction=direction,
-            entry_model=setup.entry_zone or "Breakout trigger",
-            stop_model=setup.stop_suggestion or "Structure-based stop",
-            target_model=setup.target_suggestion,
-            time_in_force_policy=TimeInForcePolicy.DAY,
-            invalidations=invalidations,
-            rationale_text=setup.rationale_text or "Debug-forced Ross Momentum intent.",
-            risk_flags=setup.risk_flags,
-            validation_override=bool(validation_session_override_enabled and session_is_invalid),
-        )
+        intent = create_intent_from_setup(setup)
         if intent.validation_override:
             print(
                 "[INTENT][OVERRIDE] "
