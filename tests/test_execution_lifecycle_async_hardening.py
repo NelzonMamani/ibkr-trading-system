@@ -18,6 +18,8 @@ def _reset_router() -> None:
     order_router._RECON_RESYNC_NEEDED = False
     order_router._EXECUTION_TRACE_BY_INTENT.clear()
     order_router._EXECUTION_TRACE_BY_ORDER_ID.clear()
+    order_router._INTENT_ID_BY_ORDER_ID.clear()
+    order_router._ORDER_ID_BY_ORDER_REF.clear()
     order_router._EXECUTION_FAILURES_BY_TYPE.clear()
 
 
@@ -180,7 +182,7 @@ def test_post_submission_diagnostics_emit_required_markers(monkeypatch, capsys) 
     assert "[CRITICAL] IBKR_NO_FILL_CONFIRMATION" in out
 
 
-def test_post_submission_broker_truth_fatal_when_no_broker_visibility(monkeypatch) -> None:
+def test_post_submission_broker_truth_soft_fail_when_no_broker_visibility(monkeypatch, capsys) -> None:
     _reset_router()
     order_router._RUNTIME_ORDERS[202] = order_router.TrackedOrder(
         broker_order_id=202,
@@ -199,12 +201,14 @@ def test_post_submission_broker_truth_fatal_when_no_broker_visibility(monkeypatc
     monkeypatch.setenv("EXECUTION_ENABLED", "true")
     monkeypatch.setenv("IBKR_ORDER_SUBMISSION_ENABLED", "true")
     monkeypatch.setenv("IBKR_READONLY_ENABLED", "false")
-    with pytest.raises(RuntimeError, match=r"\[BROKER_TRUTH\]\[FATAL\] no_broker_visible_order_or_fill_after_submission"):
-        order_router._post_submission_ibkr_diagnostics(
-            mode=RunMode.PAPER,
-            manager=manager,
-            submitted_order_ids=[202],
-        )
+    order_router._post_submission_ibkr_diagnostics(
+        mode=RunMode.PAPER,
+        manager=manager,
+        submitted_order_ids=[202],
+    )
+    out = capsys.readouterr().out
+    assert "[BROKER_TRUTH][DELAYED]" in out
+    assert "[BROKER_TRUTH][SOFT_FAIL]" in out
 
 
 def test_execution_cycle_emits_summary_and_failure_classification(monkeypatch, capsys) -> None:
@@ -227,3 +231,21 @@ def test_callback_openorder_and_position_update_trace(monkeypatch) -> None:
     trace = order_router._EXECUTION_TRACE_BY_ORDER_ID[oid]
     assert trace.ack_received is True
     assert trace.position_opened is True
+
+
+def test_unmatched_callback_reconciles_via_order_ref(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
+    oid = int(events[0].broker_order_id)
+    order_ref = order_router._RUNTIME_ORDERS[oid].order_ref
+    order_router._on_ibkr_callback(
+        {
+            "event_type": "openOrder",
+            "order_id": None,
+            "order": SimpleNamespace(action="BUY", totalQuantity=100, orderRef=order_ref),
+            "symbol": "ABCD",
+        }
+    )
+    out = capsys.readouterr().out
+    assert "[ORDER_EVENT][RECONCILED] source=orderRef" in out
