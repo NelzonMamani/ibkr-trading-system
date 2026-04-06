@@ -1309,6 +1309,10 @@ def _submit_ibkr_order(
     order = Order()
     order.eTradeOnly = False
     order.firmQuoteOnly = False
+    try:
+        order.outsideRth = False
+    except Exception:
+        pass
     order.action = side.upper()
     order.orderType = "MKT"
     order.totalQuantity = int(quantity)

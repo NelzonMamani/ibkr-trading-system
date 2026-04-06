@@ -296,6 +296,10 @@ class IbkrClient(EWrapper, EClient):
             order.firmQuoteOnly = False
         except Exception:
             pass
+        try:
+            order.outsideRth = False
+        except Exception:
+            pass
         order_id = self.reserve_order_id()
         self._order_status_events[order_id] = threading.Event()
         self._exec_details_by_order[order_id] = []
