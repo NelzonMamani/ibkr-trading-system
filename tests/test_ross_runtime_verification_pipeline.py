@@ -225,6 +225,7 @@ def test_runtime_pipeline_routes_ross_through_watchlist_processor(monkeypatch):
     monkeypatch.setattr("src.core.orchestrator.run_scanner_cycle", _scanner_cycle)
     monkeypatch.setattr("src.core.orchestrator.resolve_watchlist_selector", lambda *_: (lambda observations, _policy: observations))
     monkeypatch.setattr("src.core.orchestrator.resolve_policy_v2", lambda *_: None)
+    monkeypatch.setattr(CoreOrchestrator, "_resolve_tha_decisions", lambda self, strategy_inputs, now_utc: {})
 
     try:
         orchestrator = CoreOrchestrator()
@@ -280,6 +281,7 @@ def test_runtime_pipeline_falls_back_to_watchlist_when_focus_empty(monkeypatch, 
     monkeypatch.setattr("src.core.orchestrator.run_scanner_cycle", _scanner_cycle)
     monkeypatch.setattr("src.core.orchestrator.resolve_watchlist_selector", lambda *_: (lambda observations, _policy: observations))
     monkeypatch.setattr("src.core.orchestrator.resolve_policy_v2", lambda *_: None)
+    monkeypatch.setattr(CoreOrchestrator, "_resolve_tha_decisions", lambda self, strategy_inputs, now_utc: {})
 
     try:
         orchestrator = CoreOrchestrator()

@@ -224,6 +224,7 @@ def test_focus_empty_but_viable_watchlist_still_reaches_ross_evaluation(monkeypa
 
     monkeypatch.setattr("src.core.orchestrator.run_scanner_cycle", _scanner_cycle)
     monkeypatch.setattr("src.core.orchestrator.resolve_policy_v2", lambda *_: None)
+    monkeypatch.setattr(CoreOrchestrator, "_resolve_tha_decisions", lambda self, strategy_inputs, now_utc: {})
     monkeypatch.setattr("src.core.orchestrator.resolve_watchlist_selector", lambda *_: (lambda observations, _policy: observations))
 
     try:

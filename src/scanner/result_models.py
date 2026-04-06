@@ -82,6 +82,9 @@ class CandidateMetrics:
     news_source_mode: Optional[str]
     news_asof: Optional[str]
     data_quality_ok: bool
+    quote_integrity_state: Optional[str] = None
+    quote_usability_state: Optional[str] = None
+    data_integrity_flags: list[str] = field(default_factory=list)
     degraded_data_profile: Optional[str] = None
     degraded_reference: Optional[bool] = None
     degraded_pct_change: Optional[bool] = None
