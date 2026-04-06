@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import os
 import math
+import json
+from pathlib import Path
+from collections import deque
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
 from typing import Any, List
@@ -17,11 +20,18 @@ _FILL_AUTHORITY_STATE = "UNKNOWN"
 _RUNTIME_ORDERS: dict[int, "TrackedOrder"] = {}
 _RUNTIME_POSITIONS: dict[str, "TrackedPosition"] = {}
 _SEEN_EXEC_IDS: set[str] = set()
+_RECENT_EXEC_IDS: deque[str] = deque(maxlen=5_000)
 _UNMATCHED_CALLBACK_COUNT = 0
 _RECONCILED_ORDERS_COUNT = 0
 _RECONCILED_POSITIONS_COUNT = 0
 _CALLBACK_DELAY_WARNINGS_COUNT = 0
 _CALLBACK_DELAY_THRESHOLD_SECONDS = 5
+_STARTUP_RECON_COMPLETED = False
+_RECOVERY_STATE_LOADED = False
+_RECON_CYCLE_INDEX = 0
+_RECON_RESYNC_NEEDED = False
+_RECON_EVERY_N_CYCLES = max(1, int(os.environ.get("EXECUTION_RECON_EVERY_N_CYCLES", "1")))
+_EXECUTION_RECOVERY_STATE_PATH = Path(os.environ.get("EXECUTION_RECOVERY_STATE_PATH", "runtime/execution_recovery_state.json"))
 
 ORDER_STATES = {
     "PENDING_SUBMISSION",
@@ -228,6 +238,18 @@ def _extract_exec_price(exec_row: Any) -> float | None:
     return None
 
 
+def _extract_exec_id(exec_row: Any) -> str | None:
+    value = getattr(exec_row, "execId", None) or getattr(exec_row, "exec_id", None)
+    if value:
+        return str(value)
+    execution = getattr(exec_row, "execution", None)
+    if execution is not None:
+        nested = getattr(execution, "execId", None)
+        if nested:
+            return str(nested)
+    return None
+
+
 def _extract_position_qty(position_row: Any) -> int:
     for field in ("position", "qty", "quantity", "shares"):
         value = getattr(position_row, field, None)
@@ -401,10 +423,10 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
         return
     if exec_id:
         dedupe_key = f"{order_id}:{exec_id}"
-        if dedupe_key in _SEEN_EXEC_IDS or exec_id in row.seen_exec_ids:
+        if dedupe_key in _SEEN_EXEC_IDS or exec_id in row.seen_exec_ids or exec_id in _RECENT_EXEC_IDS:
             print(f"[ORDER_EVENT][EXECUTION] order_id={order_id} exec_id={exec_id} deduped=true")
             return
-        _SEEN_EXEC_IDS.add(dedupe_key)
+        _remember_exec_id(exec_id=exec_id, dedupe_key=dedupe_key)
         row.seen_exec_ids.add(exec_id)
     inc = max(0, int(fill_qty))
     if inc <= 0:
@@ -427,6 +449,111 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
         print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
     signed = inc if row.is_entry else -inc
     _apply_position_fill(row.symbol, signed_delta_qty=signed, fill_price=fill_price, pending_entry_delta=(-inc if row.is_entry else 0), pending_exit_delta=(-inc if row.is_exit else 0))
+    _persist_runtime_recovery_state()
+
+
+def _remember_exec_id(*, exec_id: str, dedupe_key: str | None = None) -> None:
+    normalized = str(exec_id or "").strip()
+    if not normalized:
+        return
+    if normalized in _RECENT_EXEC_IDS:
+        return
+    _RECENT_EXEC_IDS.append(normalized)
+    if dedupe_key:
+        _SEEN_EXEC_IDS.add(dedupe_key)
+
+
+def _persist_runtime_recovery_state() -> None:
+    payload = {
+        "saved_at": _now_utc_iso(),
+        "recent_exec_ids": list(_RECENT_EXEC_IDS),
+        "orders": [
+            {
+                "broker_order_id": row.broker_order_id,
+                "order_ref": row.order_ref,
+                "symbol": row.symbol,
+                "side": row.side,
+                "total_qty": row.total_qty,
+                "filled_qty": row.filled_qty,
+                "remaining_qty": row.remaining_qty,
+                "avg_fill_price": row.avg_fill_price,
+                "broker_status": row.broker_status,
+                "canonical_state": row.canonical_state,
+                "is_entry": row.is_entry,
+                "is_exit": row.is_exit,
+                "seen_exec_ids": sorted(row.seen_exec_ids),
+            }
+            for row in _RUNTIME_ORDERS.values()
+        ],
+        "positions": [
+            {
+                "symbol": row.symbol,
+                "qty": row.qty,
+                "avg_price": row.avg_price,
+                "pending_entry_qty": row.pending_entry_qty,
+                "pending_exit_qty": row.pending_exit_qty,
+                "state": row.state,
+            }
+            for row in _RUNTIME_POSITIONS.values()
+        ],
+    }
+    try:
+        _EXECUTION_RECOVERY_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _EXECUTION_RECOVERY_STATE_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except Exception as exc:
+        print(f"[RECON][PERSIST_WARNING] reason={exc}")
+
+
+def _load_runtime_recovery_state() -> None:
+    global _RECOVERY_STATE_LOADED
+    if _RECOVERY_STATE_LOADED:
+        return
+    _RECOVERY_STATE_LOADED = True
+    if not _EXECUTION_RECOVERY_STATE_PATH.exists():
+        return
+    try:
+        payload = json.loads(_EXECUTION_RECOVERY_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"[RECON][RECOVERY_LOAD_WARNING] reason={exc}")
+        return
+    for exec_id in list(payload.get("recent_exec_ids", []) or []):
+        _remember_exec_id(exec_id=str(exec_id))
+    for order_payload in list(payload.get("orders", []) or []):
+        try:
+            order_id = int(order_payload.get("broker_order_id"))
+        except (TypeError, ValueError):
+            continue
+        _RUNTIME_ORDERS[order_id] = TrackedOrder(
+            broker_order_id=order_id,
+            order_ref=str(order_payload.get("order_ref", "")),
+            symbol=str(order_payload.get("symbol", "")),
+            side=str(order_payload.get("side", "")),
+            total_qty=max(0, int(order_payload.get("total_qty", 0))),
+            filled_qty=max(0, int(order_payload.get("filled_qty", 0))),
+            remaining_qty=max(0, int(order_payload.get("remaining_qty", 0))),
+            avg_fill_price=order_payload.get("avg_fill_price"),
+            broker_status=str(order_payload.get("broker_status", "UNKNOWN")),
+            canonical_state=str(order_payload.get("canonical_state", "SUBMITTED")),
+            is_entry=bool(order_payload.get("is_entry", True)),
+            is_exit=bool(order_payload.get("is_exit", False)),
+            seen_exec_ids={str(v) for v in list(order_payload.get("seen_exec_ids", []) or [])},
+        )
+    for pos_payload in list(payload.get("positions", []) or []):
+        symbol = str(pos_payload.get("symbol", "")).upper()
+        if not symbol:
+            continue
+        _RUNTIME_POSITIONS[symbol] = TrackedPosition(
+            symbol=symbol,
+            qty=int(pos_payload.get("qty", 0) or 0),
+            avg_price=pos_payload.get("avg_price"),
+            pending_entry_qty=max(0, int(pos_payload.get("pending_entry_qty", 0) or 0)),
+            pending_exit_qty=max(0, int(pos_payload.get("pending_exit_qty", 0) or 0)),
+            state=str(pos_payload.get("state", "NO_POSITION")),
+        )
+    print(
+        "[RECON][RECOVERY_LOADED] "
+        f"orders={len(_RUNTIME_ORDERS)} positions={len(_RUNTIME_POSITIONS)} recent_exec_ids={len(_RECENT_EXEC_IDS)}"
+    )
 
 
 def _on_ibkr_callback(callback_payload: Any) -> None:
@@ -534,7 +661,7 @@ def _apply_callback_fills(events: List[ExecutionEvent]) -> tuple[List[ExecutionE
     return events, fills_applied
 
 
-def _fetch_ibkr_truth(mode: RunMode) -> tuple[list[Any], list[Any], list[Any]]:
+def _fetch_ibkr_truth(mode: RunMode, *, include_executions: bool = False) -> tuple[list[Any], list[Any], list[Any]]:
     if _is_explicit_test_mode():
         return [], [], []
     if mode not in {RunMode.PAPER, RunMode.LIVE}:
@@ -542,9 +669,13 @@ def _fetch_ibkr_truth(mode: RunMode) -> tuple[list[Any], list[Any], list[Any]]:
     manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
     client = manager.get_client()
     open_orders = _safe_list_call(client, "openOrders")
+    executions = _safe_list_call(client, "executions") if include_executions else []
     positions = _safe_list_call(client, "positions")
-    print(f"[POSITION][SYNC] source=IBKR positions={len(positions)}")
-    return open_orders, [], positions
+    print(
+        "[POSITION][SYNC] "
+        f"source=IBKR positions={len(positions)} executions={len(executions)} include_executions={include_executions}"
+    )
+    return open_orders, executions, positions
 
 
 def _normalize_ibkr_truth(raw: Any) -> tuple[list[Any], list[Any], list[Any]]:
@@ -557,7 +688,7 @@ def _normalize_ibkr_truth(raw: Any) -> tuple[list[Any], list[Any], list[Any]]:
 
 
 def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
-    global _RECONCILED_POSITIONS_COUNT
+    global _RECONCILED_POSITIONS_COUNT, _RECON_RESYNC_NEEDED
     broker_position_by_symbol: dict[str, int] = {}
     for row in positions:
         symbol = _extract_symbol_from_order(row)
@@ -565,19 +696,20 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
             continue
         broker_position_by_symbol[symbol] = broker_position_by_symbol.get(symbol, 0) + _extract_position_qty(row)
     symbols = set(_RUNTIME_POSITIONS.keys()) | set(broker_position_by_symbol.keys())
+    mismatch_count = 0
     for symbol in sorted(symbols):
         local = _RUNTIME_POSITIONS.get(symbol)
         local_qty = int(local.qty) if local is not None else 0
         broker_qty = int(broker_position_by_symbol.get(symbol, 0))
         if local_qty == broker_qty:
+            print(f"[RECON][OK] symbol={symbol} match=true")
             continue
-        print(f"[POSITION][DRIFT_DETECTED] symbol={symbol} local_qty={local_qty} broker_qty={broker_qty}")
-        has_open_order = any(
-            row.symbol == symbol and row.remaining_qty > 0 and row.canonical_state in {"SUBMITTED", "ACKNOWLEDGED", "WORKING", "PARTIALLY_FILLED"}
-            for row in _RUNTIME_ORDERS.values()
-        )
-        if has_open_order:
-            continue
+        mismatch_count += 1
+        print(f"[POSITION][RECON_MISMATCH] symbol={symbol} local_qty={local_qty} ibkr_qty={broker_qty}")
+        if broker_qty > local_qty:
+            print(f"[FILL][GAP_DETECTED] symbol={symbol} expected_qty={broker_qty} actual_qty={local_qty}")
+            _RECON_RESYNC_NEEDED = True
+            print("[RECON][RESYNC_TRIGGERED] reason=fill_gap_detected")
         if local is None:
             local = TrackedPosition(symbol=symbol)
             _RUNTIME_POSITIONS[symbol] = local
@@ -589,7 +721,54 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
         else:
             local.state = "POSITION_OPEN"
         _RECONCILED_POSITIONS_COUNT += 1
-        print(f"[POSITION][REPAIRED] symbol={symbol} local_qty={local.qty}")
+        print(f"[POSITION][RECON_APPLIED] symbol={symbol} corrected_to={local.qty}")
+    print(f"[RECON][CYCLE] checked_symbols={len(symbols)} mismatches={mismatch_count}")
+    _persist_runtime_recovery_state()
+
+
+def _startup_reconciliation(mode: RunMode) -> None:
+    global _STARTUP_RECON_COMPLETED
+    if _STARTUP_RECON_COMPLETED:
+        return
+    _load_runtime_recovery_state()
+    open_orders, executions, positions = _normalize_ibkr_truth(_fetch_ibkr_truth(mode, include_executions=True))
+    _RUNTIME_POSITIONS.clear()
+    for row in positions:
+        symbol = _extract_symbol_from_order(row)
+        if not symbol:
+            continue
+        qty = _extract_position_qty(row)
+        _RUNTIME_POSITIONS[symbol] = TrackedPosition(
+            symbol=symbol,
+            qty=qty,
+            avg_price=getattr(row, "avgCost", None),
+            state="POSITION_OPEN" if qty > 0 else "POSITION_CLOSED",
+        )
+    for row in open_orders:
+        order_id = int(getattr(row, "orderId", 0) or 0)
+        if order_id <= 0:
+            continue
+        symbol = _extract_symbol_from_order(row)
+        order = getattr(row, "order", None)
+        side = str(getattr(order, "action", "BUY") or "BUY").upper()
+        total_qty = int(getattr(order, "totalQuantity", 0) or 0)
+        order_ref = _extract_order_ref(row)
+        tracked = _upsert_order_from_submission(
+            order_id=order_id,
+            symbol=symbol,
+            side=side,
+            total_qty=total_qty,
+            order_ref=order_ref,
+        )
+        tracked.canonical_state = "WORKING"
+        tracked.broker_status = "Submitted"
+    for exec_row in executions:
+        exec_id = _extract_exec_id(exec_row)
+        if exec_id:
+            _remember_exec_id(exec_id=exec_id)
+    _STARTUP_RECON_COMPLETED = True
+    _persist_runtime_recovery_state()
+    print(f"[RECON][STARTUP] positions_loaded={len(positions)} executions_loaded={len(executions)}")
 
 
 def _check_callback_delay(*, now: datetime | None = None) -> None:
@@ -635,8 +814,11 @@ def _sync_submitted_events_from_ibkr(
     mode: RunMode,
     events: List[ExecutionEvent],
 ) -> List[ExecutionEvent]:
-    global _RECONCILED_ORDERS_COUNT, _RECONCILED_POSITIONS_COUNT
+    global _RECONCILED_ORDERS_COUNT, _RECONCILED_POSITIONS_COUNT, _RECON_CYCLE_INDEX, _RECON_RESYNC_NEEDED
     if not events:
+        return events
+    _RECON_CYCLE_INDEX += 1
+    if _RECON_CYCLE_INDEX % _RECON_EVERY_N_CYCLES != 0:
         return events
     open_orders, _executions, positions = _normalize_ibkr_truth(_fetch_ibkr_truth(mode))
     print(
@@ -649,6 +831,14 @@ def _sync_submitted_events_from_ibkr(
             continue
         event.last_update_time = _now_utc_iso()
     _run_passive_position_reconciliation(positions=positions)
+    if _RECON_RESYNC_NEEDED:
+        _RECON_RESYNC_NEEDED = False
+        _open_orders_resync, executions_resync, _positions_resync = _normalize_ibkr_truth(_fetch_ibkr_truth(mode, include_executions=True))
+        for exec_row in executions_resync:
+            exec_id = _extract_exec_id(exec_row)
+            if exec_id:
+                _remember_exec_id(exec_id=exec_id)
+        print("[RECON][RESYNC_TRIGGERED] reason=cycle_fill_gap")
     if positions:
         print("[POSITION][SYNC] reconciliation_snapshot_observed=true fill_source=CALLBACK_ONLY repair_mode=PASSIVE")
     _check_callback_delay()
@@ -713,6 +903,7 @@ def execute_intents(
     _FILL_AUTHORITY_STATE = "UNKNOWN"
     events: List[ExecutionEvent] = []
     manager: Any | None = None
+    _startup_reconciliation(mode)
 
     for decision in decisions:
         raw_qty = float(getattr(decision, "approved_quantity", 0) or 0)
