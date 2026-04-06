@@ -91,7 +91,7 @@ def resolve_entry_price(symbol: str, context: Mapping[str, Any]) -> tuple[float,
     ):
         resolved = resolver(normalized, context)
         if resolved is not None:
-            print(f"[PRICE][RESOLVE] symbol={normalized} source={resolved.source} price={resolved.price}")
+            print(f"[PRICE][RESOLVED] symbol={normalized} source={resolved.source} price={resolved.price}")
             return resolved.price, resolved.source
 
     print(f"[PRICE][BLOCK] symbol={normalized} reason=NO_IBKR_PRICE_AVAILABLE")

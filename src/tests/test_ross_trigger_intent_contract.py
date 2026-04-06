@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord, TradeIntentRecord
+from src.core.pricing.price_resolver import PriceResolutionError
 from src.core_engine.orchestrator import run_cycle
 from src.core_engine.state import SessionState
 from src.strategies.ross_momentum.decision_policy import build_trade_intents
@@ -88,11 +89,26 @@ def test_intent_risk_execution_pipeline_end_to_end(monkeypatch) -> None:
     )
     monkeypatch.setattr("src.core_engine.orchestrator.resolve_entry_price", lambda *_args, **_kwargs: (5.0, "IBKR_SNAPSHOT"))
     monkeypatch.setattr(
+        "src.core_engine.orchestrator.build_trade_intents",
+        lambda *args, **_kwargs: [
+            TradeIntentRecord(
+                symbol=args[1],
+                intent_id="intent-ABCD",
+                setup_id="GAP_GO",
+                side="LONG",
+                entry="breakout",
+                stop="structure",
+                rationale="test",
+                entry_price_source="IBKR_SNAPSHOT",
+            )
+        ],
+    )
+    monkeypatch.setattr(
         "src.core_engine.orchestrator.evaluate_trade_intents",
         lambda **_: [
             RiskDecisionRecord(
                 symbol="ABCD",
-                intent_id="RossMomentumStrategy:ABCD:Gap_Go",
+                intent_id="intent-ABCD",
                 decision="ALLOW",
                 max_position_size=100,
                 constraints=[],
@@ -107,7 +123,7 @@ def test_intent_risk_execution_pipeline_end_to_end(monkeypatch) -> None:
         lambda **_: [
             ExecutionEvent(
                 symbol="ABCD",
-                intent_id="RossMomentumStrategy:ABCD:Gap_Go",
+                intent_id="intent-ABCD",
                 action="SUBMITTED",
                 detail="submitted",
                 broker_order_id=42,
@@ -166,6 +182,7 @@ def test_cycle_continues_after_price_authority_block_and_emits_price_summary(mon
                 entry="breakout",
                 stop="structure",
                 rationale="test",
+                entry_price_source="IBKR_SNAPSHOT",
             )
         ],
     )
@@ -203,3 +220,84 @@ def test_cycle_continues_after_price_authority_block_and_emits_price_summary(mon
     assert "[PIPELINE][INTENT] symbol=BAD created=false reason=BLOCKED_BY_PRICE_AUTHORITY" in out
     assert "[EXECUTION][SUBMIT_RESULT] symbol=GOOD submitted=True" in out
     assert "[CYCLE][PRICE_AUTHORITY_SUMMARY]" in out
+
+
+def test_ibkr_missing_price_is_wait_state_not_invalid_input_block(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.run_scanner_cycle",
+        lambda **_: {
+            "watchlist_k_symbols": ["ABCD"],
+            "focus_m_symbols": ["ABCD"],
+            "data_quality_by_symbol": {},
+            "watchlist_k": [{"symbol": "ABCD", "last_price": 5.0}],
+        },
+    )
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.resolve_entry_price",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(PriceResolutionError("ABCD", "NO_IBKR_PRICE_AVAILABLE")),
+    )
+    monkeypatch.setattr("src.core_engine.orchestrator._wait_for_ibkr_snapshot_for_symbol", lambda **_: False)
+    monkeypatch.setattr("src.core_engine.orchestrator.evaluate_trade_intents", lambda **_: [])
+    monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", lambda **_: [])
+
+    run_cycle(cycle_id=1, mode_value="LIVE", forced_session_state=SessionState.PRE)
+    out = capsys.readouterr().out
+    assert "[PRICE][WAIT] symbol=ABCD reason=WAITING_FOR_IBKR_SNAPSHOT" in out
+    assert "BLOCKED_BY_INVALID_INPUT" not in out
+    assert "TRIGGER_WITHOUT_INTENT" not in out
+
+
+def test_paper_mode_uses_scanner_fallback_after_ibkr_timeout(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.run_scanner_cycle",
+        lambda **_: {
+            "watchlist_k_symbols": ["ABCD"],
+            "focus_m_symbols": ["ABCD"],
+            "data_quality_by_symbol": {},
+            "watchlist_k": [{"symbol": "ABCD", "last_price": 12.34}],
+        },
+    )
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.resolve_entry_price",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(PriceResolutionError("ABCD", "NO_IBKR_PRICE_AVAILABLE")),
+    )
+    monkeypatch.setattr("src.core_engine.orchestrator._wait_for_ibkr_snapshot_for_symbol", lambda **_: False)
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.build_trade_intents",
+        lambda *args, **_kwargs: [
+            TradeIntentRecord(
+                symbol=args[1],
+                intent_id="intent-ABCD",
+                setup_id="GAP_GO",
+                side="LONG",
+                entry="breakout",
+                stop="structure",
+                rationale="test",
+                entry_price_source="SCANNER_LAST_PRICE",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.evaluate_trade_intents",
+        lambda **_: [
+            RiskDecisionRecord(
+                symbol="ABCD",
+                intent_id="intent-ABCD",
+                decision="ALLOW",
+                max_position_size=100,
+                constraints=[],
+                triggered_rules=[],
+                rationale="PASS",
+                approved_quantity=1,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.execute_intents",
+        lambda **_: [ExecutionEvent(symbol="ABCD", intent_id="intent-ABCD", action="SUBMITTED", detail="ok", broker_order_id=1)],
+    )
+
+    run_cycle(cycle_id=1, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    out = capsys.readouterr().out
+    assert "[PRICE][FALLBACK] symbol=ABCD source=SCANNER_LAST_PRICE reason=IBKR_TIMEOUT" in out
+    assert "[EXECUTION][SUBMIT_RESULT] symbol=ABCD submitted=True" in out
