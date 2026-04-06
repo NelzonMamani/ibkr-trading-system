@@ -1043,36 +1043,31 @@ def execute_intents(
                     )
                 )
                 continue
-            if float(entry_price) <= 1.5:
-                print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=INVALID_PRICE_SANITY_CHECK")
-                _mark_execution_failure(trace, "PRICE_UNAVAILABLE", reason="invalid_price_sanity_check")
-                events.append(
-                    ExecutionEvent(
-                        symbol=decision.symbol,
-                        intent_id=decision.intent_id,
-                        action="BLOCKED",
-                        detail="reason=INVALID_PRICE_SANITY_CHECK",
-                        broker_status="REJECTED",
-                    )
-                )
-                continue
         dispatch = "SKIPPED"
         if mode in {RunMode.SIM, RunMode.READ_ONLY}:
             action = "WOULD_PLACE"
             detail = f"mode={mode.value}; decision={decision.decision}; qty={quantity}"
             dispatch = "SKIPPED"
         elif decision.decision == "ALLOW":
-            if mode == RunMode.LIVE and decision.capital_source != "IBKR_CANONICAL":
-                action = "BLOCKED"
-                detail = "reason=CANONICAL_CAPITAL_UNAVAILABLE"
-                dispatch = "SKIPPED"
-            elif quantity != int(decision.max_position_size):
+            if quantity != int(decision.max_position_size):
                 action = "BLOCKED"
                 detail = (
                     "reason=EXECUTION_QUANTITY_MISMATCH "
                     f"approved={decision.approved_quantity} max_size={decision.max_position_size}"
                 )
                 dispatch = "SKIPPED"
+                print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=EXECUTION_QUANTITY_MISMATCH")
+                _mark_execution_failure(trace, "ORDER_REJECTED", reason="quantity_mismatch")
+                events.append(
+                    ExecutionEvent(
+                        symbol=decision.symbol,
+                        intent_id=decision.intent_id,
+                        action="BLOCKED",
+                        detail=detail,
+                        broker_status="REJECTED",
+                    )
+                )
+                continue
             else:
                 action = "SUBMITTED"
                 detail = f"submitted qty={quantity} orderRef=TRADING_OS|ROSS_MOMENTUM|{decision.intent_id}"
