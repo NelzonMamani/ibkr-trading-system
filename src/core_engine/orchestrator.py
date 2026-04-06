@@ -178,27 +178,19 @@ def _enforce_canonical_price_authority(
                 f"mismatch_pct={mismatch_ratio:.4f}"
             )
         return True, "CANONICAL_PRICE_OK"
-    else:
+
+    if mode == RunMode.SIM:
         allowed_non_live_sources = {
             "SCANNER_LAST_PRICE",
             "PREP_REFERENCE_PRICE",
-            "FALLBACK_PRICE",
-            "SNAPSHOT_LAST",
-            "DERIVED_LAST",
         }
 
         if entry_price_source in allowed_non_live_sources:
-            print(
-                f"[PRICE][NON_LIVE_OVERRIDE] symbol={symbol} "
-                f"source={entry_price_source} mode={mode} action=ALLOW"
-            )
-            return True, "NON_LIVE_PRICE_ALLOWED"
+            return True, "SIM_MODE_PRICE_ALLOWED"
 
-        print(
-            f"[PRICE][NON_LIVE_REJECT] symbol={symbol} "
-            f"source={entry_price_source} mode={mode} action=BLOCK"
-        )
         return False, f"UNKNOWN_PRICE_SOURCE:{entry_price_source}"
+
+    return False, f"NO_IBKR_PRICE_AUTHORITY:{entry_price_source}"
 
 
 def _resolve_live_available_funds(mode) -> AccountSnapshot:
@@ -852,6 +844,8 @@ def run_cycle(
                 entry_price_source=entry_price_source,
                 scanner_payload=scanner_payload,
             )
+            if mode in {RunMode.PAPER, RunMode.LIVE}:
+                assert entry_price_source not in {"SCANNER_LAST_PRICE", "PREP_REFERENCE_PRICE"}
             if not authority_ok:
                 print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_AUTHORITY detail={authority_reason}")
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=BLOCKED_BY_POLICY")
@@ -875,7 +869,7 @@ def run_cycle(
                         f"setup_family={setup_family} trigger_type={trigger_type} reason=BLOCKED_BY_POLICY"
                     )
                 continue
-            fallback_used = authority_reason == "PAPER_FALLBACK_ALLOWED"
+            fallback_used = authority_reason == "SIM_MODE_PRICE_ALLOWED"
             if mode == RunMode.SIM:
                 print(
                     f"[PIPELINE][PRICE_AUTHORITY_BYPASS] symbol={symbol} mode={mode.value} "
@@ -897,7 +891,7 @@ def run_cycle(
                         metadata={
                             "price_source": entry_price_source,
                             **(
-                                {"price_authority": "NON_CANONICAL_ALLOWED_PAPER"}
+                                {"price_authority": "NON_CANONICAL_ALLOWED_SIM"}
                                 if fallback_used
                                 else {}
                             ),
@@ -939,7 +933,7 @@ def run_cycle(
                             metadata={
                                 "price_source": entry_price_source,
                                 **(
-                                    {"price_authority": "NON_CANONICAL_ALLOWED_PAPER"}
+                                    {"price_authority": "NON_CANONICAL_ALLOWED_SIM"}
                                     if fallback_used
                                     else {}
                                 ),
@@ -948,7 +942,7 @@ def run_cycle(
                     )
                 if fallback_used and isinstance(intents[-1], TradeIntentRecord):
                     intents[-1].metadata.setdefault("price_source", entry_price_source)
-                    intents[-1].metadata["price_authority"] = "NON_CANONICAL_ALLOWED_PAPER"
+                    intents[-1].metadata["price_authority"] = "NON_CANONICAL_ALLOWED_SIM"
                     if "NON_LIVE_PRICE" not in intents[-1].tags:
                         intents[-1].tags.append("NON_LIVE_PRICE")
                 generated_intents += 1
