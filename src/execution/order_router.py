@@ -734,6 +734,10 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     if event_type == "execdetails":
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"execDetails_seen": True})
         exec_id = _extract_callback_field(callback_payload, "execId")
+        print("[EXECUTION][FILL_DETECTED]")
+        print(f"symbol={symbol or 'UNKNOWN'}")
+        print(f"price={fill_price}")
+        print(f"qty={filled_qty}")
         _apply_fill_to_tracked_order(
             order_id=order_id,
             symbol=symbol,
@@ -1283,7 +1287,11 @@ def _submit_ibkr_order(
     if account:
         order.account = account
         print(f"[IBKR][ACCOUNT_BINDING] account={account}")
+    order_object_logged = False
+    place_order_start_logged = False
+    place_order_sent_logged = False
     print("[EXECUTION][ORDER_OBJECT]")
+    order_object_logged = True
     print(f"type={type(order)}")
     print(f"action={getattr(order, 'action', None)}")
     print(f"qty={getattr(order, 'totalQuantity', None)}")
@@ -1300,6 +1308,7 @@ def _submit_ibkr_order(
         f"symbol={symbol} order_id=PENDING client_id={getattr(client, 'client_id', None)} account={account or 'UNKNOWN'} "
         f"order_type={getattr(order, 'orderType', 'MKT')} tif={getattr(order, 'tif', 'DAY')} qty={quantity} side={side}"
     )
+    place_order_start_logged = True
     try:
         order_id = int(client.submit_order(resolved_contract, order))
     except Exception as exc:
@@ -1307,6 +1316,26 @@ def _submit_ibkr_order(
         raise
     print("[IBKR][ORDER_DISPATCH_VERIFICATION]")
     print(f"order_id={order_id} awaiting_acknowledgement")
+    visibility = _VISIBILITY_BY_ORDER_ID.setdefault(
+        int(order_id),
+        {
+            "openOrder_seen": False,
+            "orderStatus_seen": False,
+            "execDetails_seen": False,
+            "openOrders_snapshot_seen": False,
+            "executions_snapshot_seen": False,
+            "position_seen": False,
+            "confirmed": False,
+        },
+    )
+    ack_deadline = time.time() + 5.0
+    while time.time() < ack_deadline:
+        if bool(visibility.get("openOrder_seen")) or bool(visibility.get("orderStatus_seen")):
+            break
+        time.sleep(0.05)
+    if not bool(visibility.get("openOrder_seen")) and not bool(visibility.get("orderStatus_seen")):
+        print("[CRITICAL][NO_IBKR_ACK]")
+        raise RuntimeError("IBKR_ACKNOWLEDGEMENT_FAILED")
     wait_for_order_status = getattr(client, "wait_for_order_status", None)
     if callable(wait_for_order_status):
         try:
@@ -1317,6 +1346,9 @@ def _submit_ibkr_order(
             print("[CRITICAL][IBKR_NO_ACK]")
             print(f"order_id={order_id} no orderStatus within 5 seconds")
     print(f"[IBKR][PLACE_ORDER][SENT] symbol={symbol} order_id={order_id}")
+    place_order_sent_logged = True
+    if not (order_object_logged and place_order_start_logged and place_order_sent_logged):
+        raise RuntimeError("ORDER_NOT_SUBMITTED")
     return order_id
 
 
@@ -1660,6 +1692,35 @@ def execute_intents(
         f"contract_validation_failures={_CONTRACT_VALIDATION_FAILURES} "
         f"next_valid_id_resets_or_rebases={_NEXT_VALID_ID_REBASES}"
     )
+    open_order_seen_total = sum(
+        1 for order_id in submitted_order_ids if bool(_VISIBILITY_BY_ORDER_ID.get(int(order_id), {}).get("openOrder_seen"))
+    )
+    order_status_seen_total = sum(
+        1 for order_id in submitted_order_ids if bool(_VISIBILITY_BY_ORDER_ID.get(int(order_id), {}).get("orderStatus_seen"))
+    )
+    exec_details_seen_total = sum(
+        1 for order_id in submitted_order_ids if bool(_VISIBILITY_BY_ORDER_ID.get(int(order_id), {}).get("execDetails_seen"))
+    )
+    acknowledged_total = sum(
+        1
+        for order_id in submitted_order_ids
+        if bool(_VISIBILITY_BY_ORDER_ID.get(int(order_id), {}).get("openOrder_seen"))
+        or bool(_VISIBILITY_BY_ORDER_ID.get(int(order_id), {}).get("orderStatus_seen"))
+    )
+    fills_received = exec_details_seen_total
+    for order_id in submitted_order_ids:
+        row = _VISIBILITY_BY_ORDER_ID.get(int(order_id), {})
+        print("[EXECUTION][CALLBACK_VERDICT]")
+        print(f"order_id={int(order_id)}")
+        print(f"openOrder={bool(row.get('openOrder_seen'))}")
+        print(f"orderStatus={bool(row.get('orderStatus_seen'))}")
+        print(f"execDetails={bool(row.get('execDetails_seen'))}")
+    if orders_submitted > 0 and open_order_seen_total == 0 and order_status_seen_total == 0:
+        raise RuntimeError("BROKER_TRUTH_NOT_CONFIRMED")
+    print("[EXECUTION][TRUTH_SUMMARY]")
+    print(f"submitted={orders_submitted}")
+    print(f"acknowledged={acknowledged_total}")
+    print(f"fills={fills_received}")
     print(
         "[EXECUTION][SUMMARY] "
         f"cycle_id={cycle_id} intents_received={intents_received} submit_attempts={submit_attempts} "
