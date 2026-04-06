@@ -1270,6 +1270,8 @@ def _submit_ibkr_order(
     order_ref: str,
 ) -> int:
     global _CONTRACT_VALIDATION_FAILURES
+    from ibapi.order import Order
+
     _, Stock, _ = safe_import_ib_insync()
     print(f"[IBKR][CONTRACT_VALIDATION][START] symbol={symbol}")
     contract = Stock(symbol, "SMART", "USD")
@@ -1317,17 +1319,27 @@ def _submit_ibkr_order(
     print(f"qty={getattr(order, 'totalQuantity', None)}")
     print(f"orderType={getattr(order, 'orderType', None)}")
     if not isinstance(order, Order):
-        raise RuntimeError("ORDER_OBJECT_CONTAMINATION_DETECTED")
-    if order.action not in ("BUY", "SELL"):
-        raise RuntimeError(f"INVALID_ORDER_OBJECT_TYPE: {type(order)}")
-    assert order.action in ("BUY", "SELL")
-    assert order.totalQuantity > 0
+        print("[CRITICAL][ORDER_OBJECT_CONTAMINATION]")
+        print(f"type={type(order)}")
+        raise RuntimeError("INVALID_ORDER_OBJECT_PASSED_TO_EXECUTION")
+    if not hasattr(order, "action") or order.action not in ("BUY", "SELL"):
+        raise RuntimeError("ORDER_ACTION_INVALID")
+    if not hasattr(order, "totalQuantity") or int(order.totalQuantity) <= 0:
+        raise RuntimeError("ORDER_QUANTITY_INVALID")
     assert order.orderType in ("MKT", "LMT")
     print(
         "[IBKR][PLACE_ORDER][START] "
         f"symbol={symbol} order_id=PENDING client_id={getattr(client, 'client_id', None)} account={account or 'UNKNOWN'} "
         f"order_type={getattr(order, 'orderType', 'MKT')} tif={getattr(order, 'tif', 'DAY')} qty={quantity} side={side}"
     )
+    print("[EXECUTION][ORDER_OBJECT_ORIGIN_TRACE]")
+    print(f"type={type(order)}")
+    print(f"repr={repr(order)}")
+    print("[EXECUTION][FINAL_ORDER_CHECK]")
+    print(f"symbol={symbol}")
+    print(f"action={order.action}")
+    print(f"qty={order.totalQuantity}")
+    print(f"type={type(order)}")
     try:
         order_id = int(client.submit_order(resolved_contract, order))
     except Exception as exc:

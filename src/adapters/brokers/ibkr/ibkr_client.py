@@ -285,6 +285,12 @@ class IbkrClient(EWrapper, EClient):
             return order_id
 
     def submit_order(self, contract: Contract, order) -> int:
+        from ibapi.order import Order
+
+        if not isinstance(order, Order):
+            print("[CRITICAL][ORDER_OBJECT_CONTAMINATION]")
+            print(f"type={type(order)}")
+            raise RuntimeError("INVALID_ORDER_OBJECT_PASSED_TO_EXECUTION")
         if not self.is_connected():
             raise RuntimeError("IBKR client is not connected.")
         assert_read_only_allows("PLACE_ORDER")
@@ -302,13 +308,19 @@ class IbkrClient(EWrapper, EClient):
         print(f"action={getattr(order, 'action', None)}")
         print(f"qty={getattr(order, 'totalQuantity', None)}")
         print(f"orderType={getattr(order, 'orderType', None)}")
-        if not isinstance(order, Order):
-            raise RuntimeError(f"INVALID_ORDER_OBJECT_TYPE: {type(order)}")
-        if getattr(order, "action", None) not in ("BUY", "SELL"):
-            raise RuntimeError("ORDER_OBJECT_CONTAMINATION_DETECTED")
-        assert order.action in ("BUY", "SELL")
-        assert int(order.totalQuantity) > 0
+        print("[EXECUTION][ORDER_OBJECT_ORIGIN_TRACE]")
+        print(f"type={type(order)}")
+        print(f"repr={repr(order)}")
+        if not hasattr(order, "action") or getattr(order, "action", None) not in ("BUY", "SELL"):
+            raise RuntimeError("ORDER_ACTION_INVALID")
+        if not hasattr(order, "totalQuantity") or int(getattr(order, "totalQuantity", 0)) <= 0:
+            raise RuntimeError("ORDER_QUANTITY_INVALID")
         assert order.orderType in ("MKT", "LMT")
+        print("[EXECUTION][FINAL_ORDER_CHECK]")
+        print(f"symbol={getattr(contract, 'symbol', None)}")
+        print(f"action={order.action}")
+        print(f"qty={order.totalQuantity}")
+        print(f"type={type(order)}")
         try:
             self.placeOrder(order_id, contract, order)
         except Exception as exc:
