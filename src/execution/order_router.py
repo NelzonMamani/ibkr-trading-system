@@ -734,6 +734,10 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     _EXECUTION_EVENT_BUFFER[order_id] = event
     if event_type == "execdetails":
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"execDetails_seen": True})
+        print("[EXECUTION][FILL_CONFIRMED]")
+        print(f"order_id={order_id}")
+        print(f"price={fill_price}")
+        print(f"qty={filled_qty}")
         exec_id = _extract_callback_field(callback_payload, "execId")
         _apply_fill_to_tracked_order(
             order_id=order_id,
@@ -757,6 +761,9 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 _trace_log("POSITION_OPENED", trace, extra=f"position_qty={pos.qty}")
     elif event_type == "orderstatus":
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"orderStatus_seen": True})
+        print("[EXECUTION][ACK_RECEIVED]")
+        print(f"order_id={order_id}")
+        print(f"status={event_status or 'UNKNOWN'}")
         row = _RUNTIME_ORDERS.get(order_id)
         if row is None:
             _UNMATCHED_CALLBACK_COUNT += 1
@@ -783,6 +790,9 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                     _mark_execution_failure(trace, "ORDER_REJECTED", reason="broker_status_rejected")
     elif event_type == "openorder":
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"openOrder_seen": True})
+        print("[EXECUTION][ACK_RECEIVED]")
+        print(f"order_id={order_id}")
+        print(f"status={event_status or 'OPEN'}")
         if callback_order_ref:
             _ORDER_ID_BY_ORDER_REF[callback_order_ref] = int(order_id)
         if trace is not None:
@@ -1129,6 +1139,9 @@ def _post_submission_ibkr_diagnostics(
     )
     if len(submitted_order_ids) > 0 and not broker_truth_confirmed and _strict_broker_truth_required(mode):
         _BROKER_TRUTH_FATALS += 1
+        print("[EXECUTION][FINAL_DIAGNOSTIC_DUMP]")
+        print(f"submitted_orders={submitted_order_ids}")
+        print(f"visibility={_VISIBILITY_BY_ORDER_ID}")
         print(f"[BROKER_TRUTH][FATAL] submitted_order_ids={sorted(submitted_lookup)}")
         raise RuntimeError("BROKER_TRUTH_NOT_CONFIRMED")
     if len(submitted_order_ids) > 0 and not broker_truth_confirmed:
@@ -1309,6 +1322,22 @@ def _submit_ibkr_order(
     order = Order()
     order.eTradeOnly = False
     order.firmQuoteOnly = False
+    try:
+        order.algoStrategy = ""
+    except Exception:
+        pass
+    try:
+        order.discretionaryAmt = 0
+    except Exception:
+        pass
+    try:
+        order.hidden = False
+    except Exception:
+        pass
+    try:
+        order.outsideRth = False
+    except Exception:
+        pass
     order.action = side.upper()
     order.orderType = "MKT"
     order.totalQuantity = int(quantity)
@@ -1344,14 +1373,16 @@ def _submit_ibkr_order(
     print(f"order_id={order_id} awaiting_acknowledgement")
     wait_for_order_status = getattr(client, "wait_for_order_status", None)
     if callable(wait_for_order_status):
+        ack_deadline = time.time() + 8.0
+        timeout_seconds = max(1, int(ack_deadline - time.time()))
         try:
-            status = wait_for_order_status(order_id, timeout_seconds=5)
+            status = wait_for_order_status(order_id, timeout_seconds=timeout_seconds)
         except TypeError:
-            status = wait_for_order_status(order_id, timeout=5)
+            status = wait_for_order_status(order_id, timeout=timeout_seconds)
         if status is None:
             print("[CRITICAL][NO_IBKR_ACK]")
             print("[CRITICAL][IBKR_NO_ACK]")
-            print(f"order_id={order_id} no orderStatus within 5 seconds")
+            print(f"order_id={order_id} no orderStatus within {timeout_seconds} seconds")
             if _strict_broker_truth_required(mode):
                 raise RuntimeError("IBKR_ACKNOWLEDGEMENT_FAILED")
             print("[EXECUTION][ACK_SKIPPED_NON_LIVE]")
@@ -1398,7 +1429,11 @@ def execute_intents(
             if callback is not None:
                 if hasattr(client, "register_execution_callback"):
                     client.register_execution_callback(_on_ibkr_callback)
-                    print("[EXECUTION][CALLBACK_REGISTERED] source=ibkr_client event_types=orderStatus,execDetails,commissionReport")
+                    print("[EXECUTION][CALLBACK_REGISTERED] source=ibkr_client event_types=openOrder,orderStatus,execDetails,commissionReport,position,positionEnd")
+                    print("[IBKR][CALLBACK_WIRING]")
+                    print("openOrder=True")
+                    print("orderStatus=True")
+                    print("execDetails=True")
                 else:
                     print("[EXECUTION][CALLBACK_UNAVAILABLE] register_execution_callback not supported by client")
                     _FILL_AUTHORITY_STATE = "DEGRADED"
@@ -1505,6 +1540,11 @@ def execute_intents(
                 trace.price_state = "WAITING_FOR_PRICE"
                 print(f"[EXECUTION][WAIT] symbol={decision.symbol} reason=WAITING_FOR_PRICE")
                 snapshot = _wait_for_ibkr_snapshot_for_symbol(str(decision.symbol or ""))
+                if not snapshot or (
+                    snapshot.get("last") is None and (snapshot.get("bid") is None or snapshot.get("ask") is None)
+                ):
+                    print(f"[PRICE][RETRY] symbol={decision.symbol} reason=IBKR_SNAPSHOT_UNAVAILABLE attempt=2/2")
+                    snapshot = _wait_for_ibkr_snapshot_for_symbol(str(decision.symbol or ""))
                 try:
                     entry_price, entry_price_source = resolve_entry_price(
                         str(decision.symbol or ""),

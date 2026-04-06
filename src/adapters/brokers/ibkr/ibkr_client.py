@@ -140,6 +140,13 @@ class IbkrClient(EWrapper, EClient):
         if callback in self._execution_callbacks:
             return
         self._execution_callbacks.append(callback)
+        print("[IBKR][CALLBACK_WIRING]")
+        print("openOrder=True")
+        print("orderStatus=True")
+        print("execDetails=True")
+        print("commissionReport=True")
+        print("position=True")
+        print("positionEnd=True")
 
     def _emit_execution_callback(self, payload: dict) -> None:
         for callback in list(self._execution_callbacks):
@@ -294,6 +301,22 @@ class IbkrClient(EWrapper, EClient):
             pass
         try:
             order.firmQuoteOnly = False
+        except Exception:
+            pass
+        try:
+            order.algoStrategy = ""
+        except Exception:
+            pass
+        try:
+            order.discretionaryAmt = 0
+        except Exception:
+            pass
+        try:
+            order.hidden = False
+        except Exception:
+            pass
+        try:
+            order.outsideRth = False
         except Exception:
             pass
         order_id = self.reserve_order_id()

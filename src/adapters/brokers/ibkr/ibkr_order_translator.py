@@ -43,6 +43,22 @@ class IbkrOrderTranslator:
         order.tif = self._map_time_in_force(internal_order.time_in_force)
         order.eTradeOnly = False
         order.firmQuoteOnly = False
+        try:
+            order.algoStrategy = ""
+        except Exception:
+            pass
+        try:
+            order.discretionaryAmt = 0
+        except Exception:
+            pass
+        try:
+            order.hidden = False
+        except Exception:
+            pass
+        try:
+            order.outsideRth = False
+        except Exception:
+            pass
 
         if order.orderType in {"LMT", "LIMIT"}:
             limit_price = getattr(internal_order, "limit_price", None)
@@ -58,12 +74,6 @@ class IbkrOrderTranslator:
                     pass
             else:
                 order.lmtPrice = normalized_limit_price
-
-        # Keep outside regular trading hours enabled in translated orders.
-        # IBKR may still emit warning 2109 for certain destinations/order
-        # combinations, but that warning is handled by execution verification
-        # logic and must not be treated as an order rejection.
-        order.outsideRth = True
 
         self.log_translation(contract, order)
         return contract, order
@@ -88,7 +98,7 @@ class IbkrOrderTranslator:
         order_log = (
             f"[IBKR][ORDER_TRANSLATION] Translated Order: action={order.action} "
             f"orderType={order.orderType} totalQuantity={order.totalQuantity} "
-            f"tif={order.tif} outsideRth={getattr(order, 'outsideRth', None)}"
+            f"tif={order.tif}"
         )
         if getattr(order, "lmtPrice", None) is not None:
             order_log += f" lmtPrice={order.lmtPrice}"
