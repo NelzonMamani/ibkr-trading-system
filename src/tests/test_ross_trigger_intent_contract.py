@@ -137,3 +137,5 @@ def test_cycle_summary_logs_root_cause(monkeypatch, capsys) -> None:
     run_cycle(cycle_id=1, mode_value="PAPER", forced_session_state=SessionState.PRE)
     out = capsys.readouterr().out
     assert "[ROSS][CYCLE_ROOT_CAUSE]" in out
+    assert "[PIPELINE][CYCLE_SUMMARY]" in out
+    assert "[PIPELINE][BLOCKER] symbol=ABCD" in out

@@ -81,6 +81,22 @@ TERMINAL_STATES = {
     "ORDER_REJECTED": "ORDER_REJECTED",
 }
 
+PIPELINE_BLOCKER_TAXONOMY = {
+    "SCANNER_DROP",
+    "WATCHLIST_EXCLUDED",
+    "FOCUS_EXCLUDED",
+    "NO_SETUP_DETECTED",
+    "SETUP_DETECTED_TRIGGER_NOT_FIRED",
+    "TRIGGER_FIRED_NO_INTENT",
+    "INTENT_BLOCKED_BY_RISK",
+    "INTENT_NOT_ROUTED_TO_EXECUTION",
+    "EXECUTION_PRECHECK_FAIL",
+    "IBKR_SUBMISSION_FAIL",
+    "ORDER_ACK_MISSING",
+    "FILL_PENDING",
+    "OTHER_UNCLASSIFIED",
+}
+
 _CANONICAL_PRICE_SOURCES = frozenset(
     {
         "IBKR_SNAPSHOT",
@@ -99,6 +115,22 @@ def _derive_last_block_reason(risk_decisions: List[RiskDecisionRecord]) -> str:
         if decision.decision == "BLOCK" and decision.triggered_rules:
             return ",".join(decision.triggered_rules)
     return "NONE"
+
+
+def _pipeline_stage_log(
+    *,
+    stage: str,
+    symbol: str,
+    strategy: str,
+    mode: str,
+    session: str,
+    outcome: str,
+    reason_code: str,
+) -> None:
+    print(
+        f"[PIPELINE][{stage}] symbol={symbol} strategy={strategy} mode={mode} "
+        f"session={session} outcome={outcome} reason_code={reason_code}"
+    )
 
 
 def _scanner_last_price(symbol: str, scanner_payload: dict) -> float | None:
@@ -407,6 +439,7 @@ def run_cycle(
     force_debug_trades = bool(get_config("FORCE_DEBUG_TRADES")) and mode == RunMode.SIM
     print(f"[DEBUG][STATE] force_debug_trades={str(force_debug_trades).lower()}")
     strategy_policy, scanner_policy = _scanner_policy_for_session(session.value)
+    strategy_name = str(strategy_policy.name or "ROSS_MOMENTUM")
     if force_debug_trades:
         scanner_policy = replace(
             scanner_policy,
@@ -486,6 +519,56 @@ def run_cycle(
         ]
         focus = [symbol for symbol in focus if symbol]
     drop_summary = scanner_payload.get("drop_reason_summary", {})
+    scanned_symbols = [
+        str(symbol).upper()
+        for symbol in (scanner_payload.get("symbols") or scanner_payload.get("top_n_symbols") or [])
+        if symbol
+    ]
+    dropped_symbols = scanner_payload.get("dropped_symbols") or []
+    dropped_by_symbol: dict[str, str] = {}
+    for dropped in dropped_symbols:
+        if isinstance(dropped, dict):
+            dropped_symbol = str(dropped.get("symbol") or "").upper()
+            dropped_reason = str(dropped.get("drop_reason") or dropped.get("reason") or "SCANNER_DROP")
+        else:
+            dropped_symbol = str(dropped or "").upper()
+            dropped_reason = "SCANNER_DROP"
+        if dropped_symbol:
+            dropped_by_symbol.setdefault(dropped_symbol, dropped_reason)
+    first_blocker_by_symbol: dict[str, str] = {}
+    first_blocker_reason_by_symbol: dict[str, str] = {}
+
+    for symbol, reason in dropped_by_symbol.items():
+        first_blocker_by_symbol[symbol] = "SCANNER_DROP"
+        first_blocker_reason_by_symbol[symbol] = reason
+        _pipeline_stage_log(
+            stage="SCAN_RESULT",
+            symbol=symbol,
+            strategy=strategy_name,
+            mode=mode.value,
+            session=session.value,
+            outcome="DROP",
+            reason_code=reason,
+        )
+
+    watchlist_set_for_scan = {str(symbol).upper() for symbol in watchlist}
+    for symbol in scanned_symbols:
+        normalized_symbol = str(symbol).upper()
+        if normalized_symbol in dropped_by_symbol:
+            continue
+        in_watchlist = normalized_symbol in watchlist_set_for_scan
+        _pipeline_stage_log(
+            stage="SCAN_RESULT",
+            symbol=normalized_symbol,
+            strategy=strategy_name,
+            mode=mode.value,
+            session=session.value,
+            outcome="PASS" if in_watchlist else "DROP",
+            reason_code="SCANNER_PASS" if in_watchlist else "SCANNER_NOT_SELECTED",
+        )
+        if not in_watchlist and normalized_symbol not in first_blocker_by_symbol:
+            first_blocker_by_symbol[normalized_symbol] = "WATCHLIST_EXCLUDED"
+            first_blocker_reason_by_symbol[normalized_symbol] = "SCANNER_NOT_SELECTED"
     print(
         f"Scanner: TopN={scanner_payload.get('topn_count', len(scanner_payload.get('symbols', [])))} "
         f"Survivors={scanner_payload.get('survivors_count', len(watchlist))} "
@@ -495,11 +578,31 @@ def run_cycle(
     print(f"[TRACE][cycle={cycle_id}] stage=focus_list_finalisation focus_count={len(focus)}")
     focus_set = set(focus)
     for symbol in watchlist:
+        _pipeline_stage_log(
+            stage="WATCHLIST",
+            symbol=symbol,
+            strategy=strategy_name,
+            mode=mode.value,
+            session=session.value,
+            outcome="INCLUDED",
+            reason_code="WATCHLIST_PASS",
+        )
         print(
             f"[PIPELINE][WATCHLIST] symbol={symbol} "
             f"status={'IN_FOCUS' if symbol in focus_set else 'NOT_IN_FOCUS'}"
         )
+        _pipeline_stage_log(
+            stage="FOCUS",
+            symbol=symbol,
+            strategy=strategy_name,
+            mode=mode.value,
+            session=session.value,
+            outcome="INCLUDED" if symbol in focus_set else "EXCLUDED",
+            reason_code="FOCUS_PASS" if symbol in focus_set else "FOCUS_EXCLUDED",
+        )
         if symbol not in focus_set:
+            first_blocker_by_symbol.setdefault(symbol, "FOCUS_EXCLUDED")
+            first_blocker_reason_by_symbol.setdefault(symbol, "FOCUS_EXCLUDED")
             print(
                 "[PIPELINE] "
                 f"symbol={symbol} setup_family=NONE trigger_type=NONE "
@@ -571,6 +674,11 @@ def run_cycle(
         print_section("PATTERNS")
         evaluator = PatternEvaluator()
         for symbol in focus:
+            print(
+                "[ROSS][INPUT] "
+                f"symbol={symbol} strategy={strategy_name} mode={mode.value} session={session.value} "
+                "inputs=pattern_evaluator"
+            )
             data_quality = scanner_payload.get("data_quality_by_symbol", {}).get(symbol, [])
             inputs = _build_synthetic_inputs(symbol, data_quality, session.value)
             summary = evaluator.evaluate([inputs])
@@ -585,14 +693,37 @@ def run_cycle(
             symbol_trigger_type[symbol] = trigger_type
             if not setup_detected:
                 pipeline_outcomes[symbol] = TERMINAL_STATES["NO_SETUP"]
+                first_blocker_by_symbol.setdefault(symbol, "NO_SETUP_DETECTED")
+                first_blocker_reason_by_symbol.setdefault(symbol, "NO_PATTERN_DETECTED")
             elif not trigger_ready_now:
                 pipeline_outcomes[symbol] = TERMINAL_STATES["SETUP_NO_TRIGGER"]
                 decision_waterfall[symbol]["setup"] = "YES"
                 decision_waterfall[symbol]["intent_reason"] = "BLOCKED_BY_STRUCTURE"
+                first_blocker_by_symbol.setdefault(symbol, "SETUP_DETECTED_TRIGGER_NOT_FIRED")
+                first_blocker_reason_by_symbol.setdefault(symbol, "TRIGGER_NOT_READY")
             else:
                 pipeline_outcomes[symbol] = TERMINAL_STATES["TRIGGER_READY"]
                 decision_waterfall[symbol]["setup"] = "YES"
                 decision_waterfall[symbol]["trigger"] = "YES"
+            print(
+                "[ROSS][SETUP_RESULT] "
+                f"symbol={symbol} strategy={strategy_name} mode={mode.value} session={session.value} "
+                f"outcome={'DETECTED' if setup_detected else 'NONE'} setup={setup_family}"
+            )
+            print(
+                "[ROSS][TRIGGER_RESULT] "
+                f"symbol={symbol} strategy={strategy_name} mode={mode.value} session={session.value} "
+                f"outcome={'FIRED' if trigger_ready_now else 'NOT_FIRED'} reason={'TRIGGER_READY' if trigger_ready_now else 'TRIGGER_NOT_READY'}"
+            )
+            _pipeline_stage_log(
+                stage="SETUP_EVAL",
+                symbol=symbol,
+                strategy=strategy_name,
+                mode=mode.value,
+                session=session.value,
+                outcome="DETECTED" if setup_detected else "NONE",
+                reason_code=best_name if setup_detected else "NO_PATTERN_DETECTED",
+            )
             print(
                 f"[TRIGGER] symbol={symbol} setup_family={setup_family} "
                 f"trigger_type={trigger_type} trigger_ready_now={str(trigger_ready_now).lower()}"
@@ -620,6 +751,15 @@ def run_cycle(
                 f"[PIPELINE][TRIGGER] symbol={symbol} "
                 f"ready={str(trigger_ready_now).lower()} "
                 f"reason={'PRICE_ACTION_TRIGGER' if trigger_ready_now else 'TRIGGER_NOT_READY'}"
+            )
+            _pipeline_stage_log(
+                stage="TRIGGER",
+                symbol=symbol,
+                strategy=strategy_name,
+                mode=mode.value,
+                session=session.value,
+                outcome="FIRED" if trigger_ready_now else "NOT_FIRED",
+                reason_code="PRICE_ACTION_TRIGGER" if trigger_ready_now else "TRIGGER_NOT_READY",
             )
 
             strategy_id = "RossMomentumStrategy"
@@ -665,6 +805,17 @@ def run_cycle(
                 else:
                     print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_UNAVAILABLE detail={exc.reason}")
                     print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=BLOCKED_BY_INVALID_INPUT")
+                    print(
+                        "[ROSS][INTENT_RESULT] "
+                        f"symbol={symbol} strategy={strategy_name} mode={mode.value} session={session.value} "
+                        "outcome=NOT_CREATED reason=BLOCKED_BY_INVALID_INPUT"
+                    )
+                    print(
+                        "[ROSS][BLOCKER] "
+                        f"symbol={symbol} blocker=TRIGGER_FIRED_NO_INTENT reason=BLOCKED_BY_INVALID_INPUT"
+                    )
+                    first_blocker_by_symbol.setdefault(symbol, "TRIGGER_FIRED_NO_INTENT")
+                    first_blocker_reason_by_symbol.setdefault(symbol, "BLOCKED_BY_INVALID_INPUT")
                     decision_waterfall[symbol]["intent"] = "BLOCKED"
                     decision_waterfall[symbol]["intent_reason"] = "BLOCKED_BY_INVALID_INPUT"
                     if trigger_ready_now:
@@ -685,6 +836,17 @@ def run_cycle(
             if not authority_ok:
                 print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_AUTHORITY detail={authority_reason}")
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=BLOCKED_BY_POLICY")
+                print(
+                    "[ROSS][INTENT_RESULT] "
+                    f"symbol={symbol} strategy={strategy_name} mode={mode.value} session={session.value} "
+                    "outcome=NOT_CREATED reason=BLOCKED_BY_POLICY"
+                )
+                print(
+                    "[ROSS][BLOCKER] "
+                    f"symbol={symbol} blocker=TRIGGER_FIRED_NO_INTENT reason=BLOCKED_BY_POLICY"
+                )
+                first_blocker_by_symbol.setdefault(symbol, "TRIGGER_FIRED_NO_INTENT")
+                first_blocker_reason_by_symbol.setdefault(symbol, "BLOCKED_BY_POLICY")
                 decision_waterfall[symbol]["intent"] = "BLOCKED"
                 decision_waterfall[symbol]["intent_reason"] = "BLOCKED_BY_POLICY"
                 if trigger_ready_now:
@@ -774,6 +936,15 @@ def run_cycle(
                 decision_waterfall[symbol]["intent"] = "EMITTED"
                 decision_waterfall[symbol]["intent_reason"] = "INTENT_EMITTED"
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=true forced=false intent_id={intent.intent_id}")
+                _pipeline_stage_log(
+                    stage="INTENT",
+                    symbol=symbol,
+                    strategy=strategy_name,
+                    mode=mode.value,
+                    session=session.value,
+                    outcome="CREATED",
+                    reason_code="INTENT_CREATED",
+                )
                 print(
                     f"[INTENT] symbol={symbol} setup_family={setup_family} "
                     f"trigger_type={trigger_type} intent_id={intent.intent_id}"
@@ -781,12 +952,41 @@ def run_cycle(
             if trigger_ready_now and trade_intents:
                 pipeline_outcomes[symbol] = TERMINAL_STATES["INTENT_EMITTED"]
                 print(
+                    "[ROSS][INTENT_RESULT] "
+                    f"symbol={symbol} strategy={strategy_name} mode={mode.value} session={session.value} "
+                    "outcome=CREATED reason=INTENT_CREATED"
+                )
+                print(
                     f"[DECISION][INTENT_CREATED] symbol={symbol} setup_family={setup_family} "
                     f"trigger_type={trigger_type}"
                 )
             if not trade_intents:
                 no_intent_reason = "BLOCKED_BY_POLICY" if trigger_ready_now else "BLOCKED_BY_STRUCTURE"
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason={no_intent_reason}")
+                _pipeline_stage_log(
+                    stage="INTENT",
+                    symbol=symbol,
+                    strategy=strategy_name,
+                    mode=mode.value,
+                    session=session.value,
+                    outcome="NOT_CREATED",
+                    reason_code=no_intent_reason,
+                )
+                print(
+                    "[ROSS][INTENT_RESULT] "
+                    f"symbol={symbol} strategy={strategy_name} mode={mode.value} session={session.value} "
+                    f"outcome=NOT_CREATED reason={no_intent_reason}"
+                )
+                print(
+                    "[ROSS][BLOCKER] "
+                    f"symbol={symbol} blocker={'TRIGGER_FIRED_NO_INTENT' if trigger_ready_now else 'SETUP_DETECTED_TRIGGER_NOT_FIRED'} "
+                    f"reason={no_intent_reason}"
+                )
+                first_blocker_by_symbol.setdefault(
+                    symbol,
+                    "TRIGGER_FIRED_NO_INTENT" if trigger_ready_now else "SETUP_DETECTED_TRIGGER_NOT_FIRED",
+                )
+                first_blocker_reason_by_symbol.setdefault(symbol, no_intent_reason)
                 decision_waterfall[symbol]["intent"] = "BLOCKED"
                 decision_waterfall[symbol]["intent_reason"] = no_intent_reason
                 if trigger_ready_now:
@@ -840,6 +1040,18 @@ def run_cycle(
             f"[PIPELINE][RISK] symbol={output.symbol} allowed={str(risk_pass).lower()} "
             f"decision={output.decision} reason={output.block_reason or 'PASS'}"
         )
+        _pipeline_stage_log(
+            stage="RISK",
+            symbol=output.symbol,
+            strategy=strategy_name,
+            mode=mode.value,
+            session=session.value,
+            outcome="ALLOW" if risk_pass else "BLOCK",
+            reason_code=output.block_reason or "PASS",
+        )
+        if not risk_pass:
+            first_blocker_by_symbol.setdefault(output.symbol, "INTENT_BLOCKED_BY_RISK")
+            first_blocker_reason_by_symbol.setdefault(output.symbol, output.block_reason or "RISK_BLOCKED")
         decision_waterfall[output.symbol]["risk"] = "ALLOW" if risk_pass else "BLOCK"
         decision_waterfall[output.symbol]["risk_reason"] = output.block_reason or "PASS"
         if output.decision == "BLOCK":
@@ -888,11 +1100,17 @@ def run_cycle(
         print("[PIPELINE][EXECUTION_GATE] symbol=NONE eligible=false reason=NO_INTENTS")
     for decision in arbitrated_decisions:
         print(
+            "[EXECUTION][INTENT_RECEIVED] "
+            f"symbol={decision.symbol} strategy={strategy_name} mode={mode.value} session={session.value} "
+            f"intent_id={decision.intent_id} approved_quantity={int(decision.approved_quantity)}"
+        )
+        print(
             f"[EXECUTION] symbol={decision.symbol} "
             f"setup_family={symbol_setup_family.get(decision.symbol, 'NONE')} "
             f"trigger_type={symbol_trigger_type.get(decision.symbol, 'NONE')}"
         )
         if execution_skipped:
+            print(f"[EXECUTION][PRECHECK] symbol={decision.symbol} passed=false reason=SCAN_ONLY_OR_DISABLED")
             print(f"[EXECUTION][SKIPPED] symbol={decision.symbol} reason=SCAN_ONLY_OR_DISABLED")
             blocked_candidates.append(
                 ExecutionEvent(
@@ -903,6 +1121,17 @@ def run_cycle(
                 )
             )
             pipeline_outcomes[decision.symbol] = TERMINAL_STATES["BLOCKED_BY_EXECUTION_PRECHECK"]
+            _pipeline_stage_log(
+                stage="EXECUTION",
+                symbol=decision.symbol,
+                strategy=strategy_name,
+                mode=mode.value,
+                session=session.value,
+                outcome="SKIPPED",
+                reason_code="SCAN_ONLY_OR_DISABLED",
+            )
+            first_blocker_by_symbol.setdefault(decision.symbol, "INTENT_NOT_ROUTED_TO_EXECUTION")
+            first_blocker_reason_by_symbol.setdefault(decision.symbol, "SCAN_ONLY_OR_DISABLED")
             decision_waterfall[decision.symbol]["execution"] = "SKIPPED"
             decision_waterfall[decision.symbol]["execution_reason"] = "SCAN_ONLY_OR_DISABLED"
             continue
@@ -924,6 +1153,10 @@ def run_cycle(
             f"symbol={decision.symbol} effective_mode={mode.value} trade_enabled={mode_authority.trade_enabled} "
             f"scan_only={mode_authority.scan_only} eligible={eligible}"
         )
+        print(
+            f"[EXECUTION][PRECHECK] symbol={decision.symbol} passed={str(eligible).lower()} "
+            f"reason={'PRECHECK_PASS' if eligible else 'EXECUTION_GATES_NOT_SATISFIED'}"
+        )
         if not eligible:
             reason = "EXECUTION_GATES_NOT_SATISFIED"
             print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason={reason}")
@@ -936,12 +1169,34 @@ def run_cycle(
                 )
             )
             pipeline_outcomes[decision.symbol] = TERMINAL_STATES["BLOCKED_BY_EXECUTION_PRECHECK"]
+            _pipeline_stage_log(
+                stage="EXECUTION",
+                symbol=decision.symbol,
+                strategy=strategy_name,
+                mode=mode.value,
+                session=session.value,
+                outcome="BLOCK",
+                reason_code=reason,
+            )
+            first_blocker_by_symbol.setdefault(decision.symbol, "EXECUTION_PRECHECK_FAIL")
+            first_blocker_reason_by_symbol.setdefault(decision.symbol, reason)
             decision_waterfall[decision.symbol]["execution"] = "REJECTED"
             decision_waterfall[decision.symbol]["execution_reason"] = reason
             continue
+        print(f"[EXECUTION][QUALIFY] symbol={decision.symbol} passed=true reason=EXECUTION_ELIGIBLE")
+        print(f"[EXECUTION][ORDER_BUILD] symbol={decision.symbol} passed=true order_type=MKT tif=DAY")
         print(
             "[EXECUTION][SUBMIT_ATTEMPT] "
             f"symbol={decision.symbol} qty={int(decision.approved_quantity)} order_type=MKT mode=PAPER"
+        )
+        _pipeline_stage_log(
+            stage="EXECUTION",
+            symbol=decision.symbol,
+            strategy=strategy_name,
+            mode=mode.value,
+            session=session.value,
+            outcome="ATTEMPT",
+            reason_code="SUBMIT_ATTEMPT",
         )
         execution_candidates.append(decision)
 
@@ -993,6 +1248,15 @@ def run_cycle(
             "[EXECUTION][SUBMIT_RESULT] "
             f"symbol={event.symbol} submitted={event.action == 'SUBMITTED'} "
             f"order_id={broker_order_id if broker_order_id is not None else 'MISSING'} reason={event.detail}"
+        )
+        _pipeline_stage_log(
+            stage="SUBMISSION_RESULT",
+            symbol=event.symbol,
+            strategy=strategy_name,
+            mode=mode.value,
+            session=session.value,
+            outcome=event.action,
+            reason_code=str(event.detail or "NONE"),
         )
         if broker_order_id is not None:
             print(f"[EXECUTION][ORDER_ID_CAPTURED] symbol={event.symbol} order_id={broker_order_id}")
@@ -1073,14 +1337,42 @@ def run_cycle(
         )
         if event.action in {"SUBMITTED", "WOULD_PLACE"}:
             pipeline_outcomes[event.symbol] = TERMINAL_STATES["ORDER_SUBMITTED"]
+            if broker_order_id is None and event.action == "SUBMITTED":
+                first_blocker_by_symbol.setdefault(event.symbol, "ORDER_ACK_MISSING")
+                first_blocker_reason_by_symbol.setdefault(event.symbol, "MISSING_BROKER_ORDER_ID")
+            elif int(getattr(event, "filled_quantity", 0) or 0) <= 0:
+                first_blocker_by_symbol.setdefault(event.symbol, "FILL_PENDING")
+                first_blocker_reason_by_symbol.setdefault(event.symbol, "FILL_PENDING")
             decision_waterfall[event.symbol]["execution"] = execution_outcome if event.action == "SUBMITTED" else "ORDER_SUBMITTED"
             decision_waterfall[event.symbol]["execution_reason"] = event.detail
         elif event.action == "BLOCKED":
             pipeline_outcomes[event.symbol] = TERMINAL_STATES["ORDER_REJECTED"]
+            first_blocker_by_symbol.setdefault(event.symbol, "IBKR_SUBMISSION_FAIL")
+            first_blocker_reason_by_symbol.setdefault(event.symbol, str(event.detail or "ORDER_REJECTED"))
             decision_waterfall[event.symbol]["execution"] = "REJECTED"
             decision_waterfall[event.symbol]["execution_reason"] = event.detail
         if event.intent_id in forced_intent_ids and execution_pass:
             print(f"[DEBUG][FORCED_PATH] sent_to_execution symbol={event.symbol} intent_id={event.intent_id}")
+    execution_event_symbols = {str(event.symbol or "").upper() for event in execution_events if getattr(event, "symbol", None)}
+    for decision in arbitrated_decisions:
+        symbol_key = str(decision.symbol or "").upper()
+        if symbol_key and symbol_key not in execution_event_symbols:
+            first_blocker_by_symbol.setdefault(symbol_key, "INTENT_NOT_ROUTED_TO_EXECUTION")
+            first_blocker_reason_by_symbol.setdefault(symbol_key, "NO_EXECUTION_EVENT")
+            _pipeline_stage_log(
+                stage="EXECUTION",
+                symbol=symbol_key,
+                strategy=strategy_name,
+                mode=mode.value,
+                session=session.value,
+                outcome="NOT_ROUTED",
+                reason_code="NO_EXECUTION_EVENT",
+            )
+            print(
+                "[PIPELINE][EXECUTION] "
+                f"symbol={symbol_key} strategy={strategy_name} mode={mode.value} session={session.value} "
+                "outcome=NOT_ROUTED reason_code=NO_EXECUTION_EVENT"
+            )
     for decision in risk_decisions:
         if decision.decision not in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
             pipeline_outcomes[decision.symbol] = TERMINAL_STATES["BLOCKED_BY_RISK"]
@@ -1092,6 +1384,8 @@ def run_cycle(
             f"[PIPELINE] symbol={symbol} setup_family={symbol_setup_family.get(symbol, 'NONE')} "
             f"trigger_type={symbol_trigger_type.get(symbol, 'NONE')} pipeline_outcome={outcome}"
         )
+        first_blocker_by_symbol.setdefault(symbol, "OTHER_UNCLASSIFIED")
+        first_blocker_reason_by_symbol.setdefault(symbol, "OTHER_UNCLASSIFIED")
     print("[PIPELINE][SUMMARY]")
     print(f"total_symbols={len(watchlist)}")
     print(f"intents_created={len(intents)}")
@@ -1145,6 +1439,22 @@ def run_cycle(
         f"dominant_terminal_state={(terminal_counts.most_common(1)[0][0] if terminal_counts else 'NONE')} "
         f"dominant_block_reason={(block_reason_counts.most_common(1)[0][0] if block_reason_counts else 'NONE')}"
     )
+    blocker_counts = Counter(
+        blocker for blocker in first_blocker_by_symbol.values() if blocker in PIPELINE_BLOCKER_TAXONOMY
+    )
+    dominant_blocker = blocker_counts.most_common(1)[0][0] if blocker_counts else "OTHER_UNCLASSIFIED"
+    print(
+        "[PIPELINE][CYCLE_SUMMARY] "
+        f"scanned_count={len(scanned_symbols)} watchlist_count={len(watchlist)} focus_count={len(focus)} "
+        f"setup_detected_count={passed_setup} trigger_fired_count={passed_trigger} intent_count={generated_intents} "
+        f"risk_allowed_count={risk_allowed} execution_attempt_count={len(execution_candidates)} "
+        f"submission_success_count={execution_state_counts['submitted']} dominant_blocker={dominant_blocker}"
+    )
+    for symbol, blocker in sorted(first_blocker_by_symbol.items()):
+        print(
+            "[PIPELINE][BLOCKER] "
+            f"symbol={symbol} blocker={blocker} reason={first_blocker_reason_by_symbol.get(symbol, 'NONE')}"
+        )
     print(
         "[LIFECYCLE][RISK_SIGNALS] "
         f"trade_flow_active={str(execution_attempts > 0).lower()} "
