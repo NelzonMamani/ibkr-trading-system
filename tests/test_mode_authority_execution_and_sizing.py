@@ -155,7 +155,7 @@ def test_price_authority_allows_scanner_price_for_sim() -> None:
         scanner_payload={},
     )
     assert verdict.allowed is True
-    assert verdict.reason == "SIM_MODE_PRICE_ALLOWED"
+    assert verdict.reason == "SIM_MODE_BYPASS"
 
 
 def test_price_authority_allows_prep_reference_price_for_sim() -> None:
@@ -168,7 +168,7 @@ def test_price_authority_allows_prep_reference_price_for_sim() -> None:
         scanner_payload={},
     )
     assert verdict.allowed is True
-    assert verdict.reason == "SIM_MODE_PRICE_ALLOWED"
+    assert verdict.reason == "SIM_MODE_BYPASS"
 
 
 def test_price_authority_blocks_unknown_source_for_paper() -> None:

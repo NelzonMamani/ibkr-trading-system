@@ -106,7 +106,6 @@ _CANONICAL_PRICE_SOURCES = frozenset(
     }
 )
 _MAX_CANONICAL_PRICE_MISMATCH_PCT = 0.10
-_SIM_ALLOWED_NON_CANONICAL_SOURCES = frozenset({"SCANNER_LAST_PRICE", "PREP_REFERENCE_PRICE"})
 
 
 @dataclass(frozen=True)
@@ -248,18 +247,11 @@ def _enforce_canonical_price_authority(
         )
 
     if mode == RunMode.SIM:
-        if normalized_source in _CANONICAL_PRICE_SOURCES or normalized_source in _SIM_ALLOWED_NON_CANONICAL_SOURCES:
-            return PriceAuthorityVerdict(
-                allowed=True,
-                reason="SIM_MODE_PRICE_ALLOWED",
-                normalized_source=normalized_source,
-                reason_code="SIM_MODE_PRICE_ALLOWED",
-            )
         return PriceAuthorityVerdict(
-            allowed=False,
-            reason=f"UNKNOWN_PRICE_SOURCE:{normalized_source}",
+            allowed=True,
+            reason="SIM_MODE_BYPASS",
             normalized_source=normalized_source,
-            reason_code=f"UNKNOWN_PRICE_SOURCE:{normalized_source}",
+            reason_code="SIM_MODE_BYPASS",
         )
 
     return PriceAuthorityVerdict(
@@ -900,11 +892,9 @@ def run_cycle(
                     )
                 else:
                     symbols_blocked_no_price.add(symbol)
-                    missing_reason = "NO_ENTRY_PRICE_RESOLVED"
-                    if str(exc.reason) == "NO_VALID_PRICE_SOURCE":
-                        missing_reason = _diagnose_ibkr_snapshot_unavailability(symbol=symbol, scanner_payload=scanner_payload)
+                    missing_reason = "IBKR_SNAPSHOT_UNAVAILABLE" if str(exc.reason) == "NO_VALID_PRICE_SOURCE" else "NO_ENTRY_PRICE_RESOLVED"
                     print(f"[PRICE][BLOCK] symbol={symbol} mode={mode.value} reason={missing_reason}")
-                    print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_AUTHORITY detail={missing_reason}")
+                    print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_AUTHORITY")
                     print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=BLOCKED_BY_INVALID_INPUT")
                     print(
                         "[ROSS][INTENT_RESULT] "
@@ -935,6 +925,8 @@ def run_cycle(
                 scanner_payload=scanner_payload,
             )
             entry_price_source = authority_verdict.normalized_source
+            if mode == RunMode.PAPER:
+                assert entry_price_source in _CANONICAL_PRICE_SOURCES, f"NO_IBKR_PRICE_AUTHORITY:{entry_price_source}"
             if mode in {RunMode.PAPER, RunMode.LIVE} and authority_verdict.allowed:
                 symbols_with_ibkr_price.add(symbol)
             if not authority_verdict.allowed:
@@ -963,7 +955,6 @@ def run_cycle(
                             f"setup_family={setup_family} trigger_type={trigger_type} reason=BLOCKED_BY_POLICY"
                         )
                 continue
-            fallback_used = authority_verdict.reason == "SIM_MODE_PRICE_ALLOWED"
             if mode == RunMode.SIM:
                 print(
                     f"[PIPELINE][PRICE_AUTHORITY_BYPASS] symbol={symbol} mode={mode.value} "
@@ -984,16 +975,10 @@ def run_cycle(
                         entry_price_source=entry_price_source,
                         metadata={
                             "price_source": entry_price_source,
-                            **(
-                                {"price_authority": "NON_CANONICAL_ALLOWED_SIM"}
-                                if fallback_used
-                                else {}
-                            ),
+                            **({"price_authority": "SIM_MODE_BYPASS"} if mode == RunMode.SIM else {}),
                         },
                     )
                 ]
-                if fallback_used and "NON_LIVE_PRICE" not in trade_intents[0].tags:
-                    trade_intents[0].tags.append("NON_LIVE_PRICE")
                 forced_intent_ids.add(trade_intents[0].intent_id)
                 print(f"[DEBUG][FORCED_PATH] intent_created symbol={symbol} intent_id={trade_intents[0].intent_id}")
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=true forced=true intent_id={trade_intents[0].intent_id}")
