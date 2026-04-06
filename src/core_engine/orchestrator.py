@@ -770,6 +770,7 @@ def run_cycle(
                     summary,
                     system_health_degraded=bool(data_quality_flags.get(symbol)),
                     trigger_ready_now=trigger_ready_now,
+                    session=session.value,
                 )
             except TypeError:
                 # Backward compatibility for test mocks

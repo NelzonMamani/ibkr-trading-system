@@ -6,6 +6,8 @@ import argparse
 from dataclasses import dataclass
 from typing import List
 
+from src.scanner.session_pct_change import normalize_session_label
+
 from src.strategies.ross_momentum.patterns.pattern_evaluator import PatternEvaluationSummary
 from src.strategies.ross_momentum.patterns.pattern_evaluator import PatternEvaluator
 from src.strategies.ross_momentum.patterns.pattern_inputs import (
@@ -19,6 +21,15 @@ from src.strategies.common.candles.candle_types import Candle
 from src.strategies.strategy_contracts import Direction as IntentDirection
 from src.strategies.strategy_contracts import TimeInForcePolicy, TradeIntent
 from src.strategies.strategy_contracts import SessionContext
+
+from .hierarchy_policy import select_dominant_setup
+
+ALLOWED_SESSIONS = {
+    "PRE",
+    "RTH_OPEN",
+    "RTH_MID",
+    "RTH_LATE",
+}
 
 
 @dataclass(frozen=True)
@@ -34,6 +45,7 @@ def build_trade_intents(
     config: IntentPolicyConfig | None = None,
     system_health_degraded: bool = False,
     trigger_ready_now: bool | None = None,
+    session: str | None = None,
 ) -> List[TradeIntent]:
     _ = system_health_degraded
     config = config or IntentPolicyConfig()
@@ -47,13 +59,34 @@ def build_trade_intents(
         print(f"[ROSS][BLOCKER] symbol={symbol} blocker=NO_SETUP_DETECTED reason=CONFLICT_FLAG")
         return intents
 
-    candidate_setups = [summary.best_long_setup, summary.best_short_setup]
-    fallback_setup = next((result for result in summary.all_results if result.detected), None)
-    if fallback_setup is None and summary.all_results:
-        fallback_setup = max(summary.all_results, key=lambda result: result.confidence)
-    if fallback_setup is not None and all(setup is None for setup in candidate_setups):
-        candidate_setups = [fallback_setup]
+    session_raw = session if session is not None else "RTH_OPEN"
+    session = normalize_session_label(session_raw) or "RTH_OPEN"
+    if session not in ALLOWED_SESSIONS:
+        print(f"[ROSS][BLOCKER] symbol={symbol} blocker=SESSION_INVALID reason={session}")
+        return intents
 
+    detected_setups = [
+        setup for setup in summary.all_results
+        if setup is not None and bool(getattr(setup, "detected", False))
+    ]
+    best_setup = select_dominant_setup(session, detected_setups)
+    if best_setup is None:
+        print(
+            "[ROSS][SETUP_RESULT] "
+            f"symbol={symbol} setup_families=[] detected=['NONE']"
+        )
+        print(f"[ROSS][INTENT_RESULT] symbol={symbol} outcome=NOT_CREATED reason=NO_TRIGGER_OR_SETUP")
+        print(f"[ROSS][BLOCKER] symbol={symbol} blocker=NO_SETUP_DETECTED reason=NO_TRIGGER_OR_SETUP")
+        return intents
+
+    print(
+        "[ROSS][HIERARCHY] "
+        f"symbol={symbol} session={session} "
+        f"selected={best_setup.pattern_name} "
+        f"confidence={getattr(best_setup, 'confidence', None)}"
+    )
+
+    candidate_setups = [best_setup]
     guaranteed_intent_required = False
     detected_names = [setup.pattern_name for setup in candidate_setups if setup is not None and bool(setup.detected)]
     print(
