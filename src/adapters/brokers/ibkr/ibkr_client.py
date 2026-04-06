@@ -1024,10 +1024,11 @@ class IbkrClient(EWrapper, EClient):
         open_order_row = self._open_orders_snapshot.get(orderId)
         ack_order = getattr(open_order_row, "order", None) if open_order_row is not None else None
         outside_rth = getattr(ack_order, "outsideRth", None)
+        outside_rth_label = outside_rth if outside_rth is not None else "<unknown>"
         print(
             "[EXECUTION][ACK_CONFIRMED] "
             f"order_id={orderId} symbol={getattr(getattr(open_order_row, 'contract', None), 'symbol', None)} "
-            f"outsideRth={outside_rth} status={status}"
+            f"outsideRth={outside_rth_label} status={status}"
         )
         self._emit_execution_callback(
             {
@@ -1117,17 +1118,12 @@ class IbkrClient(EWrapper, EClient):
             f"order_id={orderId} symbol={getattr(contract, 'symbol', None)} "
             f"orderType={getattr(order, 'orderType', None)} tif={getattr(order, 'tif', None)} outsideRth={outside_rth}"
         )
+        outside_rth_label = outside_rth if outside_rth is not None else "<unknown>"
         print(
             "[EXECUTION][ACK_CONFIRMED] "
             f"order_id={orderId} symbol={getattr(contract, 'symbol', None)} "
-            f"outsideRth={outside_rth} status={getattr(orderState, 'status', None)}"
+            f"outsideRth={outside_rth_label} status={getattr(orderState, 'status', None)}"
         )
-        if outside_rth is not True:
-            print(
-                "[EXECUTION][ACK_MISMATCH] "
-                f"order_id={orderId} symbol={getattr(contract, 'symbol', None)} "
-                f"expected_outsideRth=True actual_outsideRth={outside_rth}"
-            )
         row = SimpleNamespace(orderId=orderId, contract=contract, order=order, orderState=orderState)
         self._open_orders_snapshot[orderId] = row
         self._emit_execution_callback(
