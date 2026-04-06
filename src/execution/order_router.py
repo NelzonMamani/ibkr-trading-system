@@ -24,6 +24,21 @@ _RECONCILED_POSITIONS_COUNT = 0
 _RECON_RESYNC_NEEDED = False
 _CALLBACK_DELAY_WARNINGS_COUNT = 0
 _CALLBACK_DELAY_THRESHOLD_SECONDS = 5
+_EXECUTION_TRACE_BY_INTENT: dict[str, "ExecutionTrace"] = {}
+_EXECUTION_TRACE_BY_ORDER_ID: dict[int, "ExecutionTrace"] = {}
+_EXECUTION_CYCLE_COUNTER = 0
+_EXECUTION_FAILURES_BY_TYPE: dict[str, int] = {}
+
+FAILURE_TYPES = {
+    "PRICE_UNAVAILABLE",
+    "ORDER_REJECTED",
+    "NO_ACK",
+    "NO_FILL",
+    "PARTIAL_FILL_STALLED",
+    "CONTRACT_NOT_QUALIFIED",
+    "BROKER_DISCONNECTED",
+    "UNKNOWN",
+}
 
 ORDER_STATES = {
     "PENDING_SUBMISSION",
@@ -83,6 +98,51 @@ class TrackedPosition:
     pending_entry_qty: int = 0
     pending_exit_qty: int = 0
     state: str = "NO_POSITION"
+
+
+@dataclass
+class ExecutionTrace:
+    symbol: str
+    cycle_id: str
+    intent_id: str
+    strategy_name: str = ""
+    entry_price_requested: float | None = None
+    resolved_price: float | None = None
+    price_state: str = "WAITING_IBKR"
+    order_submitted: bool = False
+    order_id: int | None = None
+    order_status: str = "PENDING_SUBMISSION"
+    ack_received: bool = False
+    fill_received: bool = False
+    fill_price: float | None = None
+    fill_qty: int = 0
+    position_opened: bool = False
+    lifecycle_state: str = "INTENT_RECEIVED"
+    rejection_reason: str = ""
+    intent_time: str = field(default_factory=lambda: _now_utc_iso())
+    submit_time: str | None = None
+    ack_time: str | None = None
+    fill_time: str | None = None
+
+
+def _trace_log(stage: str, trace: ExecutionTrace, *, extra: str = "") -> None:
+    base = (
+        f"[EXECUTION][{stage}] "
+        f"symbol={trace.symbol or 'UNKNOWN'} intent_id={trace.intent_id or 'UNKNOWN'} "
+        f"order_id={trace.order_id} price_state={trace.price_state}"
+    )
+    print(f"{base} {extra}".rstrip())
+
+
+def _mark_execution_failure(trace: ExecutionTrace | None, failure_type: str, *, reason: str = "") -> None:
+    normalized = failure_type if failure_type in FAILURE_TYPES else "UNKNOWN"
+    _EXECUTION_FAILURES_BY_TYPE[normalized] = int(_EXECUTION_FAILURES_BY_TYPE.get(normalized, 0)) + 1
+    if trace is not None:
+        trace.lifecycle_state = "FAIL"
+        trace.rejection_reason = reason or normalized
+        _trace_log("FAIL", trace, extra=f"type={normalized} reason={trace.rejection_reason}")
+    else:
+        print(f"[EXECUTION][FAIL][TYPE={normalized}] reason={reason or 'unknown'}")
 
 
 def runtime_lifecycle_snapshot() -> dict[str, int | str]:
@@ -435,7 +495,7 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
 def _on_ibkr_callback(callback_payload: Any) -> None:
     global _UNMATCHED_CALLBACK_COUNT
     event_type = str(_extract_callback_field(callback_payload, "event_type") or "").lower()
-    if event_type and event_type not in {"execdetails", "orderstatus", "commissionreport"}:
+    if event_type and event_type not in {"execdetails", "orderstatus", "commissionreport", "openorder", "position", "positionend"}:
         return
     order_id = _extract_callback_order_id(callback_payload)
     symbol = _extract_callback_symbol(callback_payload)
@@ -449,7 +509,12 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     if order_id is None:
         _UNMATCHED_CALLBACK_COUNT += 1
         print("[ORDER_EVENT][UNMATCHED] event=CALLBACK reason=missing_order_id")
+        if event_type in {"execdetails", "orderstatus", "openorder"}:
+            _mark_execution_failure(None, "UNKNOWN", reason=f"missing_order_id callback={event_type or 'unknown'}")
         return
+    trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id)
+    if trace is not None:
+        _trace_log("ACK", trace, extra=f"callback={event_type or 'unknown'}")
     event_status = str(_extract_callback_field(callback_payload, "status") or "").upper()
     remaining_qty = _extract_callback_field(callback_payload, "remaining")
     try:
@@ -491,11 +556,24 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             timestamp=timestamp,
             source="CALLBACK_EXECDETAILS",
         )
+        if trace is not None:
+            trace.fill_received = True
+            trace.fill_qty = int(trace.fill_qty) + max(0, int(filled_qty))
+            trace.fill_price = fill_price
+            trace.fill_time = timestamp
+            trace.lifecycle_state = "FILL_RECEIVED"
+            _trace_log("FILL", trace, extra=f"exec_id={exec_id} fill_qty={filled_qty} fill_price={fill_price}")
+            pos = _RUNTIME_POSITIONS.get(trace.symbol)
+            if pos is not None and pos.qty > 0:
+                trace.position_opened = True
+                _trace_log("POSITION_OPENED", trace, extra=f"position_qty={pos.qty}")
     elif event_type == "orderstatus":
         row = _RUNTIME_ORDERS.get(order_id)
         if row is None:
             _UNMATCHED_CALLBACK_COUNT += 1
             print(f"[ORDER_EVENT][UNMATCHED] event=STATUS order_id={order_id} symbol={symbol}")
+            if trace is not None:
+                _mark_execution_failure(trace, "NO_ACK", reason="status_callback_for_unknown_order")
         else:
             old_state = row.canonical_state
             row.broker_status = event_status or row.broker_status
@@ -506,6 +584,31 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             print(f"[ORDER_EVENT][STATUS] order_id={order_id} symbol={row.symbol} status={row.broker_status} filled={row.filled_qty} remaining={row.remaining_qty}")
             if old_state != row.canonical_state:
                 print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
+            if trace is not None:
+                trace.ack_received = True
+                trace.ack_time = timestamp
+                trace.order_status = row.canonical_state
+                trace.lifecycle_state = "ACK_RECEIVED"
+                _trace_log("ORDER_STATUS", trace, extra=f"status={row.canonical_state} broker_status={row.broker_status}")
+                if row.canonical_state == "REJECTED":
+                    _mark_execution_failure(trace, "ORDER_REJECTED", reason="broker_status_rejected")
+    elif event_type == "openorder":
+        if trace is not None:
+            trace.ack_received = True
+            trace.ack_time = timestamp
+            trace.lifecycle_state = "ACK_RECEIVED"
+            _trace_log("ACK", trace, extra="callback=openOrder")
+    elif event_type == "position":
+        if trace is not None:
+            qty_raw = _extract_callback_field(callback_payload, "position", "qty", "shares")
+            try:
+                qty = int(float(qty_raw or 0))
+            except (TypeError, ValueError):
+                qty = 0
+            if qty > 0:
+                trace.position_opened = True
+                trace.lifecycle_state = "POSITION_OPENED"
+                _trace_log("POSITION_OPENED", trace, extra=f"position_qty={qty}")
     print(
         "[EXECUTION][EVENT_CREATED] "
         f"event_type={event.event_type} source={event.source} symbol={event.symbol} "
@@ -786,10 +889,18 @@ def execute_intents(
     mode: RunMode,
     decisions: List[RiskDecisionRecord],
 ) -> List[ExecutionEvent]:
-    global _FILL_AUTHORITY_STATE
+    global _FILL_AUTHORITY_STATE, _EXECUTION_CYCLE_COUNTER
     _FILL_AUTHORITY_STATE = "UNKNOWN"
     events: List[ExecutionEvent] = []
     manager: Any | None = None
+    _EXECUTION_CYCLE_COUNTER += 1
+    cycle_id = f"CYCLE-{_EXECUTION_CYCLE_COUNTER}"
+    intents_received = 0
+    submit_attempts = 0
+    orders_submitted = 0
+    acks_received = 0
+    fills_received = 0
+    positions_opened = 0
 
     for decision in decisions:
         raw_qty = float(getattr(decision, "approved_quantity", 0) or 0)
@@ -845,6 +956,7 @@ def execute_intents(
 
     submitted_order_ids: list[int] = []
     for index, decision in enumerate(decisions, start=1):
+        intents_received += 1
         account = RouterAccountSnapshot(available_funds=float(decision.available_funds))
         order_value = float(decision.order_value)
         risk_allowed = bool(decision.risk_allowed)
@@ -857,12 +969,25 @@ def execute_intents(
         if raw_qty <= 0:
             raise RuntimeError("INVALID ORDER: quantity=0")
         quantity = max(1, math.floor(raw_qty))
+        trace = ExecutionTrace(
+            symbol=str(decision.symbol or "").upper(),
+            cycle_id=cycle_id,
+            intent_id=str(decision.intent_id or ""),
+            strategy_name=str(getattr(decision, "strategy_name", "") or ""),
+            entry_price_requested=float(getattr(decision, "entry_price", 0.0) or 0.0),
+            resolved_price=float(getattr(decision, "entry_price", 0.0) or 0.0),
+            price_state="FULL" if getattr(decision, "entry_price", None) else "WAITING_IBKR",
+        )
+        if trace.intent_id:
+            _EXECUTION_TRACE_BY_INTENT[trace.intent_id] = trace
+        _trace_log("INTENT_RECEIVED", trace, extra=f"cycle_id={cycle_id}")
         duplicate_symbol = str(decision.symbol or "").upper()
         order_side = "BUY" if str(getattr(decision, "side", "LONG") or "LONG").upper() == "LONG" else "SELL"
         order_family = str(decision.intent_id or "")
         working_duplicate = (duplicate_symbol, order_side, order_family) in working_order_families
         if duplicate_symbol in existing_position_symbols:
             print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
+            _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_position")
             events.append(
                 ExecutionEvent(
                     symbol=decision.symbol,
@@ -876,6 +1001,7 @@ def execute_intents(
             continue
         if working_duplicate:
             print(f"[EXECUTION][DUPLICATE_WORKING_ORDER_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_WORKING_ORDER")
+            _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_working_order")
             events.append(
                 ExecutionEvent(
                     symbol=decision.symbol,
@@ -889,6 +1015,7 @@ def execute_intents(
             continue
         if not str(decision.intent_id or "").strip():
             print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=MISSING_ORDER_REF_COMPONENT")
+            _mark_execution_failure(trace, "ORDER_REJECTED", reason="missing_order_ref_component")
             events.append(
                 ExecutionEvent(
                     symbol=decision.symbol,
@@ -902,8 +1029,10 @@ def execute_intents(
             continue
         entry_price = getattr(decision, "entry_price", None)
         if decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
+            _trace_log("PRECHECK", trace, extra=f"decision={decision.decision} qty={quantity}")
             if entry_price is None or float(entry_price) <= 0:
                 print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=INVALID_ENTRY_PRICE")
+                _mark_execution_failure(trace, "PRICE_UNAVAILABLE", reason="invalid_entry_price")
                 events.append(
                     ExecutionEvent(
                         symbol=decision.symbol,
@@ -916,6 +1045,7 @@ def execute_intents(
                 continue
             if float(entry_price) <= 1.5:
                 print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=INVALID_PRICE_SANITY_CHECK")
+                _mark_execution_failure(trace, "PRICE_UNAVAILABLE", reason="invalid_price_sanity_check")
                 events.append(
                     ExecutionEvent(
                         symbol=decision.symbol,
@@ -958,9 +1088,21 @@ def execute_intents(
         print(f"[EXECUTION][DISPATCH] symbol={decision.symbol} dispatch={dispatch}")
         broker_order_id = None
         if action == "SUBMITTED":
+            submit_attempts += 1
+            _trace_log("SUBMIT_ATTEMPT", trace, extra=f"mode={mode.value} qty={quantity}")
             broker_order_id = order_id_seed + index if order_id_seed > 0 else index
+            if broker_order_id is None:
+                _mark_execution_failure(trace, "UNKNOWN", reason="missing_order_id_after_submission")
+                print("[CRITICAL] EXECUTION_ORDER_ID_MISSING_AFTER_SUBMISSION")
             submitted_order_ids.append(int(broker_order_id))
             print(f"[EXECUTION][SUBMITTED] symbol={decision.symbol} broker_order_id={broker_order_id}")
+            orders_submitted += 1
+            trace.order_submitted = True
+            trace.order_id = int(broker_order_id)
+            trace.submit_time = _now_utc_iso()
+            trace.lifecycle_state = "SUBMITTED"
+            _EXECUTION_TRACE_BY_ORDER_ID[int(broker_order_id)] = trace
+            _trace_log("SUBMITTED", trace, extra=f"qty={quantity}")
             _upsert_order_from_submission(
                 order_id=broker_order_id,
                 symbol=str(decision.symbol or "").upper(),
@@ -984,8 +1126,51 @@ def execute_intents(
             )
         )
     events, _ = _apply_callback_fills(events)
+    for event in events:
+        if event.broker_order_id is None:
+            continue
+        trace = _EXECUTION_TRACE_BY_ORDER_ID.get(int(event.broker_order_id))
+        if trace is None:
+            continue
+        if event.filled_quantity > 0:
+            trace.fill_received = True
+            trace.fill_qty = int(event.filled_quantity)
+            trace.fill_price = event.avg_fill_price
+            trace.lifecycle_state = "FILL_RECEIVED"
+            fills_received += 1
+            _trace_log("FILL", trace, extra=f"fill_qty={event.filled_quantity} fill_price={event.avg_fill_price}")
+        if str(event.broker_status or "").upper() in {"SUBMITTED", "PRESUBMITTED"}:
+            trace.ack_received = True
+            trace.order_status = str(event.broker_status)
+            trace.ack_time = event.last_update_time or _now_utc_iso()
+            trace.lifecycle_state = "ACK_RECEIVED"
+            acks_received += 1
+            _trace_log("ACK", trace, extra=f"broker_status={event.broker_status}")
     events = _sync_submitted_events_from_ibkr(mode, events)
     _post_submission_ibkr_diagnostics(mode=mode, manager=manager, submitted_order_ids=submitted_order_ids)
+    for trace in _EXECUTION_TRACE_BY_INTENT.values():
+        if trace.cycle_id != cycle_id:
+            continue
+        pos = _RUNTIME_POSITIONS.get(trace.symbol)
+        if pos is not None and int(pos.qty) > 0:
+            trace.position_opened = True
+            trace.lifecycle_state = "POSITION_OPENED"
+            positions_opened += 1
+        if trace.order_submitted and not trace.ack_received:
+            _mark_execution_failure(trace, "NO_ACK", reason="order_submitted_without_ack")
+        if trace.ack_received and not trace.fill_received:
+            _mark_execution_failure(trace, "NO_FILL", reason="ack_without_fill")
+        if trace.fill_received and not trace.position_opened:
+            _mark_execution_failure(trace, "PARTIAL_FILL_STALLED", reason="fill_without_position")
+        if trace.lifecycle_state not in {"FAIL", "POSITION_OPENED"}:
+            trace.lifecycle_state = "COMPLETE"
+            _trace_log("COMPLETE", trace, extra=f"state={trace.lifecycle_state}")
+    print(
+        "[EXECUTION][SUMMARY] "
+        f"cycle_id={cycle_id} intents_received={intents_received} submit_attempts={submit_attempts} "
+        f"orders_submitted={orders_submitted} acks_received={acks_received} fills_received={fills_received} "
+        f"positions_opened={positions_opened} failures_by_type={dict(sorted(_EXECUTION_FAILURES_BY_TYPE.items()))}"
+    )
     if _FILL_AUTHORITY_STATE == "UNKNOWN":
         _FILL_AUTHORITY_STATE = "ACTIVE" if mode in {RunMode.PAPER, RunMode.LIVE} else "N/A"
     return events
