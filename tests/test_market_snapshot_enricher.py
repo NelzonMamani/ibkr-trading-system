@@ -57,5 +57,6 @@ def test_snapshot_results_are_logged_once_per_symbol(capsys):
 
     assert snapshots["AAPL"]["last_price"] == 10.0
     output = capsys.readouterr().out
-    assert output.count("[SNAPSHOT][RESULT] symbol=AAPL") == 1
+    assert "[IBKR][SNAPSHOT_REQUEST]" in output
+    assert output.count("[IBKR][SNAPSHOT_RECEIVED] symbol=AAPL") == 1
     assert ib.cancel_calls == 1
