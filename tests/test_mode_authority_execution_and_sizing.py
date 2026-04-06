@@ -116,7 +116,7 @@ def test_executable_paper_cycle_does_not_skip_scan_only_and_no_readonly_rule(cap
     out = capsys.readouterr().out
     assert "[EXECUTION] Execution stage skipped — intent scan_only." not in out
     assert "MODE_READONLY" not in out
-    assert "[PIPELINE][EXECUTION_GATE]" in out
+    assert "[MODE][EXECUTION_CONTEXT]" in out
 
 
 def test_price_authority_blocks_scanner_price_for_paper_rth() -> None:
@@ -155,7 +155,7 @@ def test_price_authority_allows_scanner_price_for_sim() -> None:
         scanner_payload={},
     )
     assert verdict.allowed is True
-    assert verdict.reason == "SIM_MODE_PRICE_ALLOWED"
+    assert verdict.reason == "SIM_MODE"
 
 
 def test_price_authority_allows_prep_reference_price_for_sim() -> None:
@@ -168,7 +168,7 @@ def test_price_authority_allows_prep_reference_price_for_sim() -> None:
         scanner_payload={},
     )
     assert verdict.allowed is True
-    assert verdict.reason == "SIM_MODE_PRICE_ALLOWED"
+    assert verdict.reason == "SIM_MODE"
 
 
 def test_price_authority_blocks_unknown_source_for_paper() -> None:
@@ -201,7 +201,7 @@ def test_price_source_normalization_accepts_ibkr_aliases() -> None:
     assert _normalize_price_source_label("IBKR_MARKET_DATA_SNAPSHOT") == "IBKR_SNAPSHOT"
     assert _normalize_price_source_label("IBKR_SNAPSHOT_LAST") == "IBKR_SNAPSHOT"
     assert _normalize_price_source_label("IBKR_L1_LAST") == "IBKR_STREAM"
-    assert _normalize_price_source_label("IBKR_L1_MID") == "IBKR_STREAM_MID"
+    assert _normalize_price_source_label("IBKR_L1_MID") == "IBKR_STREAM"
 
 
 def test_price_source_normalization_does_not_promote_non_ibkr() -> None:

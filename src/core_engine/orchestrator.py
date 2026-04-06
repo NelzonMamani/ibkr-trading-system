@@ -102,11 +102,8 @@ _CANONICAL_PRICE_SOURCES = frozenset(
         "IBKR_SNAPSHOT",
         "IBKR_SNAPSHOT_MID",
         "IBKR_STREAM",
-        "IBKR_STREAM_MID",
     }
 )
-_MAX_CANONICAL_PRICE_MISMATCH_PCT = 0.10
-_SIM_ALLOWED_NON_CANONICAL_SOURCES = frozenset({"SCANNER_LAST_PRICE", "PREP_REFERENCE_PRICE"})
 
 
 @dataclass(frozen=True)
@@ -126,16 +123,12 @@ def _normalize_price_source_label(source: str) -> str:
     if normalized.startswith("IBKR_"):
         if "MID" in normalized:
             if "STREAM" in normalized or "L1" in normalized:
-                return "IBKR_STREAM_MID"
+                return "IBKR_STREAM"
             return "IBKR_SNAPSHOT_MID"
         if "STREAM" in normalized or "L1" in normalized:
             return "IBKR_STREAM"
         if "SNAPSHOT" in normalized or "MARKET_DATA" in normalized:
             return "IBKR_SNAPSHOT"
-    if normalized == "PREMARKET_PREP":
-        return "PREP_REFERENCE_PRICE"
-    if normalized == "PREMARKET_PREP_ARTIFACT":
-        return "PREP_REFERENCE_PRICE"
     return normalized
 
 
@@ -183,22 +176,6 @@ def _pipeline_stage_log(
     )
 
 
-def _scanner_last_price(symbol: str, scanner_payload: dict) -> float | None:
-    for key in ("focus_m", "watchlist_k", "candidates"):
-        rows = scanner_payload.get(key) or []
-        for row in rows:
-            row_symbol = str(getattr(row, "symbol", None) if not isinstance(row, dict) else row.get("symbol") or "").upper()
-            if row_symbol != symbol:
-                continue
-            value_raw = getattr(row, "last_price", None) if not isinstance(row, dict) else row.get("last_price")
-            try:
-                value = float(value_raw)
-            except (TypeError, ValueError):
-                return None
-            return value if value > 0 else None
-    return None
-
-
 def _enforce_canonical_price_authority(
     *,
     symbol: str,
@@ -218,28 +195,6 @@ def _enforce_canonical_price_authority(
                 normalized_source=normalized_source,
                 reason_code=f"NO_IBKR_PRICE_AUTHORITY:{normalized_source}",
             )
-
-        scanner_price = _scanner_last_price(symbol, scanner_payload)
-        if scanner_price is None:
-            return PriceAuthorityVerdict(
-                allowed=True,
-                reason="CANONICAL_SOURCE_NO_SCANNER_COMPARISON",
-                normalized_source=normalized_source,
-                reason_code="CANONICAL_SOURCE_NO_SCANNER_COMPARISON",
-            )
-
-        mismatch_ratio = abs(entry_price - scanner_price) / scanner_price if scanner_price > 0 else 0.0
-        if mismatch_ratio > _MAX_CANONICAL_PRICE_MISMATCH_PCT:
-            return PriceAuthorityVerdict(
-                allowed=False,
-                reason=(
-                    "PRICE_MISMATCH:"
-                    f"resolved={entry_price:.4f},scanner={scanner_price:.4f},"
-                    f"mismatch_pct={mismatch_ratio:.4f}"
-                ),
-                normalized_source=normalized_source,
-                reason_code="IBKR_SNAPSHOT_STALE",
-            )
         return PriceAuthorityVerdict(
             allowed=True,
             reason="CANONICAL_PRICE_OK",
@@ -248,18 +203,11 @@ def _enforce_canonical_price_authority(
         )
 
     if mode == RunMode.SIM:
-        if normalized_source in _CANONICAL_PRICE_SOURCES or normalized_source in _SIM_ALLOWED_NON_CANONICAL_SOURCES:
-            return PriceAuthorityVerdict(
-                allowed=True,
-                reason="SIM_MODE_PRICE_ALLOWED",
-                normalized_source=normalized_source,
-                reason_code="SIM_MODE_PRICE_ALLOWED",
-            )
         return PriceAuthorityVerdict(
-            allowed=False,
-            reason=f"UNKNOWN_PRICE_SOURCE:{normalized_source}",
+            allowed=True,
+            reason="SIM_MODE",
             normalized_source=normalized_source,
-            reason_code=f"UNKNOWN_PRICE_SOURCE:{normalized_source}",
+            reason_code="SIM_MODE",
         )
 
     return PriceAuthorityVerdict(
@@ -879,11 +827,38 @@ def run_cycle(
                         summary,
                     )
             try:
+                ibkr_snapshot_by_symbol = {}
+                ibkr_stream_by_symbol = {}
+                for key in ("focus_m", "watchlist_k", "candidates"):
+                    rows = scanner_payload.get(key) or []
+                    for row in rows:
+                        if isinstance(row, dict):
+                            row_symbol = str(row.get("symbol") or "").upper()
+                            last_price = row.get("snapshot_last_price")
+                            bid = row.get("snapshot_bid")
+                            ask = row.get("snapshot_ask")
+                        else:
+                            row_symbol = str(getattr(row, "symbol", "") or "").upper()
+                            last_price = getattr(row, "snapshot_last_price", None)
+                            bid = getattr(row, "snapshot_bid", None)
+                            ask = getattr(row, "snapshot_ask", None)
+                        if not row_symbol:
+                            continue
+                        ibkr_snapshot_by_symbol[row_symbol] = {
+                            "last": last_price,
+                            "bid": bid,
+                            "ask": ask,
+                        }
+                        ibkr_stream_by_symbol[row_symbol] = {
+                            "last": last_price,
+                            "bid": bid,
+                            "ask": ask,
+                        }
                 entry_price, entry_price_source = resolve_entry_price(
                     symbol,
                     {
-                        "scanner_payload": scanner_payload,
-                        "premarket_prep": premarket_prep,
+                        "ibkr_snapshot_by_symbol": ibkr_snapshot_by_symbol,
+                        "ibkr_stream_by_symbol": ibkr_stream_by_symbol,
                     },
                 )
                 print(
@@ -891,41 +866,33 @@ def run_cycle(
                     f"resolved_price={entry_price} source={entry_price_source}"
                 )
             except PriceResolutionError as exc:
-                if mode == RunMode.SIM:
-                    entry_price = float(inputs.candles[-1].close)
-                    entry_price_source = "SIM_SYNTHETIC_FALLBACK"
+                symbols_blocked_no_price.add(symbol)
+                missing_reason = str(exc.reason or "NO_IBKR_PRICE_AVAILABLE")
+                if str(exc.reason) == "NO_IBKR_PRICE_AVAILABLE":
+                    missing_reason = _diagnose_ibkr_snapshot_unavailability(symbol=symbol, scanner_payload=scanner_payload)
+                print(f"[PRICE][BLOCK] symbol={symbol} mode={mode.value} reason={missing_reason}")
+                print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_AUTHORITY detail={missing_reason}")
+                print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=BLOCKED_BY_INVALID_INPUT")
+                print(
+                    "[ROSS][INTENT_RESULT] "
+                    f"symbol={symbol} strategy={strategy_name} mode={mode.value} session={session.value} "
+                    "outcome=NOT_CREATED reason=BLOCKED_BY_INVALID_INPUT"
+                )
+                print(
+                    "[ROSS][BLOCKER] "
+                    f"symbol={symbol} blocker=TRIGGER_FIRED_NO_INTENT reason=BLOCKED_BY_INVALID_INPUT"
+                )
+                first_blocker_by_symbol.setdefault(symbol, "TRIGGER_FIRED_NO_INTENT")
+                first_blocker_reason_by_symbol.setdefault(symbol, "BLOCKED_BY_INVALID_INPUT")
+                decision_waterfall[symbol]["intent"] = "BLOCKED"
+                decision_waterfall[symbol]["intent_reason"] = "BLOCKED_BY_INVALID_INPUT"
+                if trigger_ready_now:
+                    pipeline_outcomes[symbol] = TERMINAL_STATES["TRIGGER_BLOCKED_BY_POLICY"]
                     print(
-                        f"[PIPELINE][PRICE_AUTHORITY_BYPASS] symbol={symbol} mode={mode.value} "
-                        f"reason=PRICE_UNAVAILABLE detail={exc.reason} fallback_source={entry_price_source}"
+                        f"[DECISION][ERROR] TRIGGER_WITHOUT_INTENT symbol={symbol} "
+                        f"setup_family={setup_family} trigger_type={trigger_type} reason=BLOCKED_BY_INVALID_INPUT"
                     )
-                else:
-                    symbols_blocked_no_price.add(symbol)
-                    missing_reason = "NO_ENTRY_PRICE_RESOLVED"
-                    if str(exc.reason) == "NO_VALID_PRICE_SOURCE":
-                        missing_reason = _diagnose_ibkr_snapshot_unavailability(symbol=symbol, scanner_payload=scanner_payload)
-                    print(f"[PRICE][BLOCK] symbol={symbol} mode={mode.value} reason={missing_reason}")
-                    print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_AUTHORITY detail={missing_reason}")
-                    print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=BLOCKED_BY_INVALID_INPUT")
-                    print(
-                        "[ROSS][INTENT_RESULT] "
-                        f"symbol={symbol} strategy={strategy_name} mode={mode.value} session={session.value} "
-                        "outcome=NOT_CREATED reason=BLOCKED_BY_INVALID_INPUT"
-                    )
-                    print(
-                        "[ROSS][BLOCKER] "
-                        f"symbol={symbol} blocker=TRIGGER_FIRED_NO_INTENT reason=BLOCKED_BY_INVALID_INPUT"
-                    )
-                    first_blocker_by_symbol.setdefault(symbol, "TRIGGER_FIRED_NO_INTENT")
-                    first_blocker_reason_by_symbol.setdefault(symbol, "BLOCKED_BY_INVALID_INPUT")
-                    decision_waterfall[symbol]["intent"] = "BLOCKED"
-                    decision_waterfall[symbol]["intent_reason"] = "BLOCKED_BY_INVALID_INPUT"
-                    if trigger_ready_now:
-                        pipeline_outcomes[symbol] = TERMINAL_STATES["TRIGGER_BLOCKED_BY_POLICY"]
-                        print(
-                            f"[DECISION][ERROR] TRIGGER_WITHOUT_INTENT symbol={symbol} "
-                            f"setup_family={setup_family} trigger_type={trigger_type} reason=BLOCKED_BY_INVALID_INPUT"
-                        )
-                    continue
+                continue
             authority_verdict = _enforce_canonical_price_authority(
                 symbol=symbol,
                 mode=mode,
@@ -937,6 +904,7 @@ def run_cycle(
             entry_price_source = authority_verdict.normalized_source
             if mode in {RunMode.PAPER, RunMode.LIVE} and authority_verdict.allowed:
                 symbols_with_ibkr_price.add(symbol)
+                print(f"[PRICE][IBKR_AUTHORITY_OK] symbol={symbol} source={entry_price_source}")
             if not authority_verdict.allowed:
                 symbols_blocked_price_authority.add(symbol)
                 price_authority_reasons[authority_verdict.reason_code] += 1
@@ -963,11 +931,6 @@ def run_cycle(
                             f"setup_family={setup_family} trigger_type={trigger_type} reason=BLOCKED_BY_POLICY"
                         )
                 continue
-            if mode == RunMode.SIM:
-                print(
-                    f"[PIPELINE][PRICE_AUTHORITY_BYPASS] symbol={symbol} mode={mode.value} "
-                    f"reason={authority_verdict.reason} source={entry_price_source}"
-                )
             if force_debug_trades and not trade_intents and setup_detected and trigger_ready_now:
                 trade_intents = [
                     TradeIntentRecord(
@@ -983,7 +946,7 @@ def run_cycle(
                         entry_price_source=entry_price_source,
                         metadata={
                             "price_source": entry_price_source,
-                            "price_authority": "SIM_MODE_BYPASS" if mode == RunMode.SIM else "IBKR_AUTHORITY",
+                            "price_authority": "IBKR_AUTHORITY",
                         },
                     )
                 ]
@@ -1019,7 +982,7 @@ def run_cycle(
                             entry_price_source=entry_price_source,
                             metadata={
                                 "price_source": entry_price_source,
-                                "price_authority": "SIM_MODE_BYPASS" if mode == RunMode.SIM else "IBKR_AUTHORITY",
+                                "price_authority": "IBKR_AUTHORITY",
                             },
                         )
                     )
@@ -1304,6 +1267,15 @@ def run_cycle(
             continue
         print(f"[EXECUTION][QUALIFY] symbol={decision.symbol} passed=true reason=EXECUTION_ELIGIBLE")
         print(f"[EXECUTION][ORDER_BUILD] symbol={decision.symbol} passed=true order_type=MKT tif=DAY")
+        if mode == RunMode.PAPER:
+            intent_source = "UNKNOWN"
+            for candidate_intent in intents:
+                if candidate_intent.intent_id == decision.intent_id:
+                    intent_source = _normalize_price_source_label(candidate_intent.entry_price_source)
+                    break
+            assert intent_source in _CANONICAL_PRICE_SOURCES, (
+                f"CRITICAL: NON-IBKR PRICE IN PAPER MODE: {intent_source}"
+            )
         print(
             "[EXECUTION][SUBMIT_ATTEMPT] "
             f"symbol={decision.symbol} qty={int(decision.approved_quantity)} order_type=MKT mode=PAPER"
