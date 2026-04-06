@@ -963,7 +963,6 @@ def run_cycle(
                             f"setup_family={setup_family} trigger_type={trigger_type} reason=BLOCKED_BY_POLICY"
                         )
                 continue
-            fallback_used = authority_verdict.reason == "SIM_MODE_PRICE_ALLOWED"
             if mode == RunMode.SIM:
                 print(
                     f"[PIPELINE][PRICE_AUTHORITY_BYPASS] symbol={symbol} mode={mode.value} "
@@ -984,16 +983,10 @@ def run_cycle(
                         entry_price_source=entry_price_source,
                         metadata={
                             "price_source": entry_price_source,
-                            **(
-                                {"price_authority": "NON_CANONICAL_ALLOWED_SIM"}
-                                if fallback_used
-                                else {}
-                            ),
+                            "price_authority": "SIM_MODE_BYPASS" if mode == RunMode.SIM else "IBKR_AUTHORITY",
                         },
                     )
                 ]
-                if fallback_used and "NON_LIVE_PRICE" not in trade_intents[0].tags:
-                    trade_intents[0].tags.append("NON_LIVE_PRICE")
                 forced_intent_ids.add(trade_intents[0].intent_id)
                 print(f"[DEBUG][FORCED_PATH] intent_created symbol={symbol} intent_id={trade_intents[0].intent_id}")
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=true forced=true intent_id={trade_intents[0].intent_id}")
@@ -1026,19 +1019,10 @@ def run_cycle(
                             entry_price_source=entry_price_source,
                             metadata={
                                 "price_source": entry_price_source,
-                                **(
-                                    {"price_authority": "NON_CANONICAL_ALLOWED_SIM"}
-                                    if fallback_used
-                                    else {}
-                                ),
+                                "price_authority": "SIM_MODE_BYPASS" if mode == RunMode.SIM else "IBKR_AUTHORITY",
                             },
                         )
                     )
-                if fallback_used and isinstance(intents[-1], TradeIntentRecord):
-                    intents[-1].metadata.setdefault("price_source", entry_price_source)
-                    intents[-1].metadata["price_authority"] = "NON_CANONICAL_ALLOWED_SIM"
-                    if "NON_LIVE_PRICE" not in intents[-1].tags:
-                        intents[-1].tags.append("NON_LIVE_PRICE")
                 generated_intents += 1
                 decision_waterfall[symbol]["intent"] = "EMITTED"
                 decision_waterfall[symbol]["intent_reason"] = "INTENT_EMITTED"
