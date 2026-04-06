@@ -158,7 +158,27 @@ def _enforce_canonical_price_authority(
     entry_price_source: str,
     scanner_payload: dict,
 ) -> tuple[bool, str]:
-    if mode != RunMode.LIVE:
+    if mode in {RunMode.PAPER, RunMode.LIVE}:
+        if entry_price_source not in _CANONICAL_PRICE_SOURCES:
+            print(
+                f"[EXECUTION_BLOCK][NO_IBKR_PRICE] symbol={symbol} "
+                f"source={entry_price_source} mode={mode.value}"
+            )
+            return False, f"NO_IBKR_PRICE_AUTHORITY:{entry_price_source}"
+
+        scanner_price = _scanner_last_price(symbol, scanner_payload)
+        if scanner_price is None:
+            return True, "CANONICAL_SOURCE_NO_SCANNER_COMPARISON"
+
+        mismatch_ratio = abs(entry_price - scanner_price) / scanner_price if scanner_price > 0 else 0.0
+        if mismatch_ratio > _MAX_CANONICAL_PRICE_MISMATCH_PCT:
+            return False, (
+                "PRICE_MISMATCH:"
+                f"resolved={entry_price:.4f},scanner={scanner_price:.4f},"
+                f"mismatch_pct={mismatch_ratio:.4f}"
+            )
+        return True, "CANONICAL_PRICE_OK"
+    else:
         allowed_non_live_sources = {
             "SCANNER_LAST_PRICE",
             "PREP_REFERENCE_PRICE",
@@ -179,22 +199,6 @@ def _enforce_canonical_price_authority(
             f"source={entry_price_source} mode={mode} action=BLOCK"
         )
         return False, f"UNKNOWN_PRICE_SOURCE:{entry_price_source}"
-
-    if entry_price_source not in _CANONICAL_PRICE_SOURCES:
-        return False, f"NON_CANONICAL_PRICE_SOURCE:{entry_price_source}"
-
-    scanner_price = _scanner_last_price(symbol, scanner_payload)
-    if scanner_price is None:
-        return True, "CANONICAL_SOURCE_NO_SCANNER_COMPARISON"
-
-    mismatch_ratio = abs(entry_price - scanner_price) / scanner_price if scanner_price > 0 else 0.0
-    if mismatch_ratio > _MAX_CANONICAL_PRICE_MISMATCH_PCT:
-        return False, (
-            "PRICE_MISMATCH:"
-            f"resolved={entry_price:.4f},scanner={scanner_price:.4f},"
-            f"mismatch_pct={mismatch_ratio:.4f}"
-        )
-    return True, "CANONICAL_PRICE_OK"
 
 
 def _resolve_live_available_funds(mode) -> AccountSnapshot:
@@ -1149,6 +1153,34 @@ def run_cycle(
             first_blocker_reason_by_symbol.setdefault(decision.symbol, "SCAN_ONLY_OR_DISABLED")
             decision_waterfall[decision.symbol]["execution"] = "SKIPPED"
             decision_waterfall[decision.symbol]["execution_reason"] = "SCAN_ONLY_OR_DISABLED"
+            continue
+        if mode in {RunMode.PAPER, RunMode.LIVE} and health_status == HealthStatus.DEGRADED:
+            reason = "DATA_QUALITY_DEGRADED"
+            print("[EXECUTION_BLOCK][DATA_QUALITY] status=DEGRADED")
+            print(f"[EXECUTION][PRECHECK] symbol={decision.symbol} passed=false reason={reason}")
+            print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason={reason}")
+            blocked_candidates.append(
+                ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail=f"reason={reason}",
+                )
+            )
+            pipeline_outcomes[decision.symbol] = TERMINAL_STATES["BLOCKED_BY_EXECUTION_PRECHECK"]
+            _pipeline_stage_log(
+                stage="EXECUTION",
+                symbol=decision.symbol,
+                strategy=strategy_name,
+                mode=mode.value,
+                session=session.value,
+                outcome="BLOCK",
+                reason_code=reason,
+            )
+            first_blocker_by_symbol.setdefault(decision.symbol, "EXECUTION_PRECHECK_FAIL")
+            first_blocker_reason_by_symbol.setdefault(decision.symbol, reason)
+            decision_waterfall[decision.symbol]["execution"] = "REJECTED"
+            decision_waterfall[decision.symbol]["execution_reason"] = reason
             continue
         execution_candidate_ready = decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}
         eligible = (
