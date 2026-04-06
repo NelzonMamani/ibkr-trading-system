@@ -178,27 +178,16 @@ def _enforce_canonical_price_authority(
                 f"mismatch_pct={mismatch_ratio:.4f}"
             )
         return True, "CANONICAL_PRICE_OK"
-    else:
-        allowed_non_live_sources = {
-            "SCANNER_LAST_PRICE",
-            "PREP_REFERENCE_PRICE",
-            "FALLBACK_PRICE",
-            "SNAPSHOT_LAST",
-            "DERIVED_LAST",
-        }
 
-        if entry_price_source in allowed_non_live_sources:
-            print(
-                f"[PRICE][NON_LIVE_OVERRIDE] symbol={symbol} "
-                f"source={entry_price_source} mode={mode} action=ALLOW"
-            )
-            return True, "NON_LIVE_PRICE_ALLOWED"
+    allowed_non_live_sources = {
+        "SCANNER_LAST_PRICE",
+        "PREP_REFERENCE_PRICE",
+    }
 
-        print(
-            f"[PRICE][NON_LIVE_REJECT] symbol={symbol} "
-            f"source={entry_price_source} mode={mode} action=BLOCK"
-        )
-        return False, f"UNKNOWN_PRICE_SOURCE:{entry_price_source}"
+    if entry_price_source in allowed_non_live_sources:
+        return True, "SIM_MODE_PRICE_ALLOWED"
+
+    return False, f"NO_IBKR_PRICE_AUTHORITY:{entry_price_source}"
 
 
 def _resolve_live_available_funds(mode) -> AccountSnapshot:

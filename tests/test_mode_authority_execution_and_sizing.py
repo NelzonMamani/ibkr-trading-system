@@ -141,30 +141,30 @@ def test_price_authority_blocks_snapshot_last_for_paper() -> None:
     assert reason == "NO_IBKR_PRICE_AUTHORITY:SNAPSHOT_LAST"
 
 
-def test_price_authority_allows_fallback_price_for_sim() -> None:
+def test_price_authority_allows_scanner_last_price_for_sim() -> None:
     allowed, reason = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.SIM,
         session="REG",
         entry_price=100.0,
-        entry_price_source="FALLBACK_PRICE",
+        entry_price_source="SCANNER_LAST_PRICE",
         scanner_payload={},
     )
     assert allowed is True
-    assert reason == "NON_LIVE_PRICE_ALLOWED"
+    assert reason == "SIM_MODE_PRICE_ALLOWED"
 
 
-def test_price_authority_allows_derived_last_for_sim() -> None:
+def test_price_authority_allows_prep_reference_price_for_sim() -> None:
     allowed, reason = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.SIM,
         session="REG",
         entry_price=100.0,
-        entry_price_source="DERIVED_LAST",
+        entry_price_source="PREP_REFERENCE_PRICE",
         scanner_payload={},
     )
     assert allowed is True
-    assert reason == "NON_LIVE_PRICE_ALLOWED"
+    assert reason == "SIM_MODE_PRICE_ALLOWED"
 
 
 def test_price_authority_blocks_unknown_source_for_paper() -> None:
