@@ -384,6 +384,15 @@ class ExecutionEngine:
                 filled_quantity=0,
                 remaining_quantity=effective_quantity,
             )
+        if self.run_mode == RunMode.LIVE and bool(getattr(risk_decision, "validation_override", False)):
+            print(
+                "[EXECUTION][BLOCK] "
+                f"symbol={risk_decision.symbol} reason=VALIDATION_OVERRIDE_LIVE_PROTECTION"
+            )
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="VALIDATION_OVERRIDE_LIVE_PROTECTION",
+            )
         if not provider_ready:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,

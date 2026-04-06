@@ -84,6 +84,7 @@ class TradeIntent:
     invalidations: List[str]
     rationale_text: str
     risk_flags: List[str] = field(default_factory=list)
+    validation_override: bool = False
 
 
 @dataclass(frozen=True)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from dataclasses import dataclass
 from typing import List
 
@@ -36,6 +37,14 @@ ALLOWED_SESSIONS = {
 class IntentPolicyConfig:
     min_confidence: float = 0.6
     debug_force_execution: bool = False
+    validation_session_override: bool | None = None
+
+
+def _env_flag_enabled(name: str, default: bool = False) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def build_trade_intents(
@@ -49,6 +58,16 @@ def build_trade_intents(
 ) -> List[TradeIntent]:
     _ = system_health_degraded
     config = config or IntentPolicyConfig()
+    validation_session_override_enabled = (
+        bool(config.validation_session_override)
+        if config.validation_session_override is not None
+        else _env_flag_enabled("VALIDATION_SESSION_OVERRIDE", default=False)
+    )
+    run_mode = str(
+        os.getenv("RUN_MODE_EFFECTIVE")
+        or os.getenv("RUN_MODE")
+        or "UNKNOWN"
+    ).upper()
     print(
         "[ROSS][INPUT] "
         f"symbol={symbol} strategy={strategy_id} setup_candidates={len(summary.all_results)} "
@@ -61,15 +80,23 @@ def build_trade_intents(
 
     session_raw = session if session is not None else "RTH_OPEN"
     session = normalize_session_label(session_raw) or "RTH_OPEN"
-    if session not in ALLOWED_SESSIONS:
-        print(f"[ROSS][BLOCKER] symbol={symbol} blocker=SESSION_INVALID reason={session}")
-        return intents
+    session_is_invalid = session not in ALLOWED_SESSIONS
+    if session_is_invalid:
+        if validation_session_override_enabled:
+            print(
+                "[ROSS][SESSION_OVERRIDE] "
+                f"symbol={symbol} session={session} mode={run_mode} reason=VALIDATION_MODE override=ENABLED"
+            )
+        else:
+            print(f"[ROSS][BLOCKER] symbol={symbol} blocker=SESSION_INVALID reason={session}")
+            return intents
+    effective_session = "PRE" if (session_is_invalid and validation_session_override_enabled) else session
 
     detected_setups = [
         setup for setup in summary.all_results
         if setup is not None and bool(getattr(setup, "detected", False))
     ]
-    best_setup = select_dominant_setup(session, detected_setups)
+    best_setup = select_dominant_setup(effective_session, detected_setups)
     if best_setup is None:
         print(
             "[ROSS][SETUP_RESULT] "
@@ -157,7 +184,13 @@ def build_trade_intents(
             invalidations=invalidations,
             rationale_text=setup.rationale_text or "Debug-forced Ross Momentum intent.",
             risk_flags=setup.risk_flags,
+            validation_override=bool(validation_session_override_enabled and session_is_invalid),
         )
+        if intent.validation_override:
+            print(
+                "[INTENT][OVERRIDE] "
+                f"symbol={symbol} session={session} reason=SESSION_OVERRIDE"
+            )
         intents.append(intent)
         execution_ready = pre_intent_execution_ready and bool(intents)
         print(

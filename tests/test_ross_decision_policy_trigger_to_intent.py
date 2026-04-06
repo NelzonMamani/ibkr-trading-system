@@ -119,3 +119,39 @@ def test_invalid_session_is_blocked_before_intent_creation(capsys) -> None:
     assert intents == []
     out = capsys.readouterr().out
     assert "blocker=SESSION_INVALID" in out
+
+
+def test_invalid_session_allows_intent_when_validation_override_enabled(capsys) -> None:
+    setup = SimpleNamespace(
+        detected=True,
+        confidence=0.9,
+        entry_zone="breakout",
+        risk_flags=[],
+        data_quality_flags=[],
+        direction=Direction.LONG,
+        pattern_name="GAP_GO",
+        stop_suggestion="pm_low",
+        target_suggestion="2R",
+        rationale_text="valid setup",
+    )
+    summary = SimpleNamespace(
+        conflict_flag=False,
+        best_long_setup=setup,
+        best_short_setup=None,
+        all_results=[setup],
+        veto_flags=[],
+    )
+
+    intents = build_trade_intents(
+        strategy_id="RossMomentumStrategyV1",
+        symbol="TEST",
+        summary=summary,
+        session="AH",
+        config=IntentPolicyConfig(validation_session_override=True),
+    )
+
+    assert len(intents) == 1
+    assert intents[0].validation_override is True
+    out = capsys.readouterr().out
+    assert "[ROSS][SESSION_OVERRIDE] symbol=TEST session=AH" in out
+    assert "[INTENT][OVERRIDE] symbol=TEST session=AH reason=SESSION_OVERRIDE" in out

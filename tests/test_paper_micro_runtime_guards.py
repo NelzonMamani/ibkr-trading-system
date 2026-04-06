@@ -15,6 +15,7 @@ from core.event_collector import EventCollector
 from core.orchestrator import CoreOrchestrator
 from core.stop_controller import StopController
 from execution.execution_engine import ExecutionEngine
+from config.runtime_config import RunMode
 from models.data_models import RiskDecision
 from sim.price_feed import DeterministicPriceFeed
 
@@ -76,3 +77,33 @@ def test_paper_run_once_skips_ibkr_connectivity(monkeypatch) -> None:
     orchestrator = CoreOrchestrator()
     should_continue = orchestrator.run_once()
     assert should_continue in {True, False}
+
+
+def test_execution_engine_blocks_live_validation_override() -> None:
+    set_config_overrides({"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True})
+    engine = ExecutionEngine(
+        provider=None,
+        trade_registry=ActiveTradeRegistry(),
+        event_collector=EventCollector(),
+        price_feed=DeterministicPriceFeed(),
+        stop_controller=StopController(),
+    )
+    engine.run_mode = RunMode.LIVE
+
+    decision = RiskDecision(
+        symbol="AAPL",
+        allowed=True,
+        max_position_size=1,
+        risk_level="LOW",
+        rationale="live override protection test",
+        trader_type="MANUAL",
+        strategy_name="TEST",
+        direction="LONG",
+        decision_id="decision-live-override-aapl",
+    )
+    decision.validation_override = True
+    result = engine.execute_trade(decision)
+
+    assert result.attempted is False
+    assert result.status == "BLOCKED"
+    assert result.rationale == "VALIDATION_OVERRIDE_LIVE_PROTECTION"
