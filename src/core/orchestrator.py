@@ -3729,6 +3729,7 @@ class CoreOrchestrator:
                     decision.spread_pct = getattr(trade_intent, "spread_pct", None)
                     decision.entry_extension_pct = getattr(trade_intent, "entry_extension_pct", None)
                     decision.trigger_reference_price = getattr(trade_intent, "trigger_reference_price", None)
+                    decision.validation_override = bool(getattr(trade_intent, "validation_override", False))
                     risk_output.append(decision)
             except Exception as exc:
                 self._evaluate_runtime_safety(
@@ -3818,6 +3819,25 @@ class CoreOrchestrator:
                 )
                 for risk_decision in risk_output:
                     execution_received_count += 1
+                    if self.run_mode == RunMode.LIVE and bool(getattr(risk_decision, "validation_override", False)):
+                        print(
+                            "[EXECUTION][BLOCK] "
+                            f"symbol={risk_decision.symbol} reason=VALIDATION_OVERRIDE_LIVE_PROTECTION"
+                        )
+                        execution_output.append(
+                            ExecutionResult(
+                                symbol=risk_decision.symbol,
+                                trader_type=getattr(risk_decision, "trader_type", "UNKNOWN"),
+                                attempted=False,
+                                status="BLOCKED",
+                                rationale="VALIDATION_OVERRIDE_LIVE_PROTECTION",
+                                rejection_reason="VALIDATION_OVERRIDE_LIVE_PROTECTION",
+                            )
+                        )
+                        dominant_block_reasons["VALIDATION_OVERRIDE_LIVE_PROTECTION"] = (
+                            dominant_block_reasons.get("VALIDATION_OVERRIDE_LIVE_PROTECTION", 0) + 1
+                        )
+                        continue
                     entry_price = self._float_or_none(getattr(risk_decision, "entry_price", None))
                     stop_price = self._float_or_none(getattr(risk_decision, "stop_loss_price", None))
                     spread_pct = self._float_or_none(getattr(risk_decision, "spread_pct", None))
