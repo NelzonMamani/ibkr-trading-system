@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Tuple
 from ibapi.client import EClient
 from ibapi.common import TickerId
 from ibapi.contract import Contract, ContractDetails
+from ibapi.order import Order
 from ibapi.wrapper import EWrapper
 
 from src.domain.market_snapshot import MarketSnapshot
@@ -296,6 +297,18 @@ class IbkrClient(EWrapper, EClient):
             f"qty={getattr(order, 'totalQuantity', None)} side={getattr(order, 'action', None)} "
             f"order_type={getattr(order, 'orderType', None)}"
         )
+        print("[EXECUTION][ORDER_OBJECT]")
+        print(f"type={type(order)}")
+        print(f"action={getattr(order, 'action', None)}")
+        print(f"qty={getattr(order, 'totalQuantity', None)}")
+        print(f"orderType={getattr(order, 'orderType', None)}")
+        if not isinstance(order, Order):
+            raise RuntimeError(f"INVALID_ORDER_OBJECT_TYPE: {type(order)}")
+        if getattr(order, "action", None) not in ("BUY", "SELL"):
+            raise RuntimeError("ORDER_OBJECT_CONTAMINATION_DETECTED")
+        assert order.action in ("BUY", "SELL")
+        assert int(order.totalQuantity) > 0
+        assert order.orderType in ("MKT", "LMT")
         try:
             self.placeOrder(order_id, contract, order)
         except Exception as exc:
