@@ -20,6 +20,7 @@ _SEEN_EXEC_IDS: set[str] = set()
 _UNMATCHED_CALLBACK_COUNT = 0
 _RECONCILED_ORDERS_COUNT = 0
 _RECONCILED_POSITIONS_COUNT = 0
+_RECON_RESYNC_NEEDED = False
 _CALLBACK_DELAY_WARNINGS_COUNT = 0
 _CALLBACK_DELAY_THRESHOLD_SECONDS = 5
 
@@ -113,6 +114,7 @@ def runtime_lifecycle_snapshot() -> dict[str, int | str]:
         "unmatched_callbacks_count": _UNMATCHED_CALLBACK_COUNT,
         "reconciled_orders_count": _RECONCILED_ORDERS_COUNT,
         "reconciled_positions_count": _RECONCILED_POSITIONS_COUNT,
+        "recon_resync_needed": "YES" if _RECON_RESYNC_NEEDED else "NO",
         "fill_authority_state": fill_authority_state(),
         "callback_delay_warnings_count": _CALLBACK_DELAY_WARNINGS_COUNT,
     }
@@ -410,7 +412,7 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
     if inc <= 0:
         return
     prev_filled = row.filled_qty
-    row.filled_qty = min(row.total_qty, row.filled_qty + inc)
+    row.filled_qty += inc
     row.remaining_qty = max(0, row.total_qty - row.filled_qty)
     if fill_price is not None:
         prev_qty = prev_filled
@@ -534,7 +536,7 @@ def _apply_callback_fills(events: List[ExecutionEvent]) -> tuple[List[ExecutionE
     return events, fills_applied
 
 
-def _fetch_ibkr_truth(mode: RunMode) -> tuple[list[Any], list[Any], list[Any]]:
+def _fetch_ibkr_truth(mode: RunMode, include_executions: bool = False) -> tuple[list[Any], list[Any], list[Any]]:
     if _is_explicit_test_mode():
         return [], [], []
     if mode not in {RunMode.PAPER, RunMode.LIVE}:
@@ -542,9 +544,10 @@ def _fetch_ibkr_truth(mode: RunMode) -> tuple[list[Any], list[Any], list[Any]]:
     manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
     client = manager.get_client()
     open_orders = _safe_list_call(client, "openOrders")
+    executions = _safe_list_call(client, "executions") if include_executions else []
     positions = _safe_list_call(client, "positions")
     print(f"[POSITION][SYNC] source=IBKR positions={len(positions)}")
-    return open_orders, [], positions
+    return open_orders, executions, positions
 
 
 def _normalize_ibkr_truth(raw: Any) -> tuple[list[Any], list[Any], list[Any]]:
@@ -557,7 +560,7 @@ def _normalize_ibkr_truth(raw: Any) -> tuple[list[Any], list[Any], list[Any]]:
 
 
 def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
-    global _RECONCILED_POSITIONS_COUNT
+    global _RECON_RESYNC_NEEDED
     broker_position_by_symbol: dict[str, int] = {}
     for row in positions:
         symbol = _extract_symbol_from_order(row)
@@ -571,25 +574,10 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
         broker_qty = int(broker_position_by_symbol.get(symbol, 0))
         if local_qty == broker_qty:
             continue
-        print(f"[POSITION][DRIFT_DETECTED] symbol={symbol} local_qty={local_qty} broker_qty={broker_qty}")
-        has_open_order = any(
-            row.symbol == symbol and row.remaining_qty > 0 and row.canonical_state in {"SUBMITTED", "ACKNOWLEDGED", "WORKING", "PARTIALLY_FILLED"}
-            for row in _RUNTIME_ORDERS.values()
-        )
-        if has_open_order:
-            continue
-        if local is None:
-            local = TrackedPosition(symbol=symbol)
-            _RUNTIME_POSITIONS[symbol] = local
-        local.qty = broker_qty
-        if broker_qty <= 0:
-            local.state = "POSITION_CLOSED"
-            local.pending_entry_qty = 0
-            local.pending_exit_qty = 0
-        else:
-            local.state = "POSITION_OPEN"
-        _RECONCILED_POSITIONS_COUNT += 1
-        print(f"[POSITION][REPAIRED] symbol={symbol} local_qty={local.qty}")
+        print(f"[POSITION][RECON_MISMATCH] symbol={symbol} local_qty={local_qty} ibkr_qty={broker_qty}")
+        if broker_qty > local_qty:
+            print(f"[FILL][GAP_DETECTED] symbol={symbol} expected_qty={broker_qty} actual_qty={local_qty}")
+            _RECON_RESYNC_NEEDED = True
 
 
 def _check_callback_delay(*, now: datetime | None = None) -> None:

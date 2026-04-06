@@ -13,6 +13,7 @@ def _reset_router() -> None:
     order_router._UNMATCHED_CALLBACK_COUNT = 0
     order_router._RECONCILED_ORDERS_COUNT = 0
     order_router._RECONCILED_POSITIONS_COUNT = 0
+    order_router._RECON_RESYNC_NEEDED = False
 
 
 def _decision(symbol: str = "ABCD", qty: int = 100, side: str = "LONG") -> RiskDecisionRecord:
