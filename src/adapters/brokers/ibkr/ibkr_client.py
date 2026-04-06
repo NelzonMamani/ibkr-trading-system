@@ -102,6 +102,9 @@ class IbkrClient(EWrapper, EClient):
         self._executions_event = threading.Event()
         self._positions_snapshot: Dict[str, object] = {}
         self._positions_event = threading.Event()
+        self._open_order_count = 0
+        self._order_status_count = 0
+        self._exec_details_count = 0
 
     def _order_id_state_path(self) -> Path:
         return Path(os.environ.get("IBKR_ORDER_ID_STATE_PATH", Path.home() / ".ibkr_order_id_state.json"))
@@ -959,6 +962,9 @@ class IbkrClient(EWrapper, EClient):
         whyHeld: str,
         mktCapPrice: float,
     ):  # type: ignore[override]
+        if not hasattr(self, "_order_status_count"):
+            self._order_status_count = 0
+        self._order_status_count += 1
         print(
             "[IBKR][CALLBACK_RAW] "
             f"event=orderStatus order_id={orderId} status={status} filled={filled} remaining={remaining}"
@@ -1008,6 +1014,9 @@ class IbkrClient(EWrapper, EClient):
         event.set()
 
     def execDetails(self, reqId, contract, execution):  # type: ignore[override]
+        if not hasattr(self, "_exec_details_count"):
+            self._exec_details_count = 0
+        self._exec_details_count += 1
         self._ensure_order_state_registry()
         print(
             "[IBKR][CALLBACK_RAW] "
@@ -1062,6 +1071,9 @@ class IbkrClient(EWrapper, EClient):
         )
 
     def openOrder(self, orderId, contract, order, orderState):  # type: ignore[override]
+        if not hasattr(self, "_open_order_count"):
+            self._open_order_count = 0
+        self._open_order_count += 1
         self._ensure_order_state_registry()
         print(f"[ORDER][OPEN] order_id={orderId} symbol={getattr(contract, 'symbol', None)}")
         print(
