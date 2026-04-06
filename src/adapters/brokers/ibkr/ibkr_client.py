@@ -288,6 +288,14 @@ class IbkrClient(EWrapper, EClient):
         if not self.is_connected():
             raise RuntimeError("IBKR client is not connected.")
         assert_read_only_allows("PLACE_ORDER")
+        try:
+            order.eTradeOnly = False
+        except Exception:
+            pass
+        try:
+            order.firmQuoteOnly = False
+        except Exception:
+            pass
         order_id = self.reserve_order_id()
         self._order_status_events[order_id] = threading.Event()
         self._exec_details_by_order[order_id] = []

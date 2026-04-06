@@ -1307,6 +1307,8 @@ def _submit_ibkr_order(
         raise RuntimeError("CONTRACT_NOT_QUALIFIED")
     print(f"[IBKR][CONTRACT_VALIDATION][OK] symbol={symbol} conId={con_id}")
     order = Order()
+    order.eTradeOnly = False
+    order.firmQuoteOnly = False
     order.action = side.upper()
     order.orderType = "MKT"
     order.totalQuantity = int(quantity)
