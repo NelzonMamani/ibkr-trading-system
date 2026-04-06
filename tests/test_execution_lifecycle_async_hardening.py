@@ -215,12 +215,36 @@ def test_post_submission_broker_truth_fatal_when_no_broker_visibility(monkeypatc
     monkeypatch.setenv("EXECUTION_ENABLED", "true")
     monkeypatch.setenv("IBKR_ORDER_SUBMISSION_ENABLED", "true")
     monkeypatch.setenv("IBKR_READONLY_ENABLED", "false")
-    with pytest.raises(RuntimeError, match=r"\[BROKER_TRUTH\]\[FATAL\] no_broker_visible_order_or_fill_after_submission"):
+    with pytest.raises(RuntimeError, match="BROKER_TRUTH_NOT_CONFIRMED"):
         order_router._post_submission_ibkr_diagnostics(
             mode=RunMode.PAPER,
             manager=manager,
             submitted_order_ids=[202],
         )
+
+
+def test_post_submission_test_mode_skips_ack_and_broker_truth_failures(monkeypatch, capsys) -> None:
+    _reset_router()
+    order_router._RUNTIME_ORDERS[303] = order_router.TrackedOrder(
+        broker_order_id=303,
+        order_ref="ABCD-1",
+        symbol="ABCD",
+        side="BUY",
+        total_qty=10,
+        remaining_qty=10,
+    )
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    tick = itertools.count(start=0, step=1)
+    monkeypatch.setattr(order_router.time, "time", lambda: float(next(tick)))
+    monkeypatch.setattr(order_router.time, "sleep", lambda _seconds: None)
+    order_router._post_submission_ibkr_diagnostics(
+        mode=RunMode.PAPER,
+        manager=None,
+        submitted_order_ids=[303],
+    )
+    out = capsys.readouterr().out
+    assert "[EXECUTION][ACK_SKIPPED_NON_LIVE]" in out
+    assert "[EXECUTION][BROKER_TRUTH_SKIPPED]" in out
 
 
 def test_execdetails_callback_reconciles_via_order_ref(monkeypatch, capsys) -> None:
