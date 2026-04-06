@@ -162,12 +162,20 @@ def test_ibkr_callbacks_emit_order_observability_logs(capsys: pytest.CaptureFixt
     execution = SimpleNamespace(orderId=123, execId="e-1", time="now", price=101.5, shares=5)
 
     client.orderStatus(123, "Submitted", 0, 5, 0.0, 0, 0, 0.0, 0, "", 0.0)
-    client.openOrder(123, contract, SimpleNamespace(), SimpleNamespace())
+    client.openOrder(
+        123,
+        contract,
+        SimpleNamespace(orderType="MKT", tif="DAY", outsideRth=True),
+        SimpleNamespace(status="Submitted"),
+    )
     client.execDetails(0, contract, execution)
     client.error(123, 201, "rejected")
 
     out = capsys.readouterr().out
     assert "[ORDER][STATUS] order_id=123 status=Submitted filled=0 remaining=5" in out
     assert "[ORDER][OPEN] order_id=123 symbol=AAPL" in out
+    assert "[IBKR][ACK] order_id=123 symbol=AAPL orderType=MKT tif=DAY outsideRth=True" in out
+    assert "[EXECUTION][ACK_CONFIRMED] order_id=123 symbol=AAPL outsideRth=True status=Submitted" in out
+    assert "[EXECUTION][ACK_MISMATCH]" not in out
     assert "[ORDER][FILL] symbol=AAPL order_id=123 shares=5 avg_price=101.5" in out
     assert "[ORDER][ERROR] order_id=123 code=201 message=rejected" in out

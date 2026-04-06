@@ -1313,6 +1313,7 @@ def _submit_ibkr_order(
     order.orderType = "MKT"
     order.totalQuantity = int(quantity)
     order.tif = "DAY"
+    order.outsideRth = True
     order.orderRef = order_ref
     account = getattr(client, "get_primary_account", lambda: None)() if hasattr(client, "get_primary_account") else None
     if account:
@@ -1330,6 +1331,27 @@ def _submit_ibkr_order(
     assert order.action in ("BUY", "SELL")
     assert order.totalQuantity > 0
     assert order.orderType in ("MKT", "LMT")
+    if str(getattr(resolved_contract, "secType", "STK") or "STK").upper() == "STK":
+        outside_rth = getattr(order, "outsideRth", None)
+        if outside_rth is not True:
+            message = (
+                f"EQUITY_ORDER_OUTSIDERTH_DISABLED symbol={symbol} "
+                f"order_ref={order_ref} outsideRth={outside_rth}"
+            )
+            if _is_explicit_test_mode():
+                raise RuntimeError(message)
+            print(f"[EXECUTION][WARN] {message}")
+    strategy_name = "UNKNOWN"
+    if "|" in order_ref:
+        parts = [p for p in str(order_ref).split("|") if p]
+        if len(parts) >= 2:
+            strategy_name = parts[1]
+    print(
+        "[EXECUTION][SUBMIT] "
+        f"symbol={symbol} side={order.action} qty={order.totalQuantity} "
+        f"orderType={order.orderType} tif={order.tif} outsideRth={getattr(order, 'outsideRth', None)} "
+        f"strategy={strategy_name}"
+    )
     print(
         "[IBKR][PLACE_ORDER][START] "
         f"symbol={symbol} order_id=PENDING client_id={getattr(client, 'client_id', None)} account={account or 'UNKNOWN'} "
