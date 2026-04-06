@@ -224,6 +224,7 @@ def test_fill_requires_callback(monkeypatch) -> None:
     order_router._UNMATCHED_CALLBACK_COUNT = 0
     order_router._RECONCILED_ORDERS_COUNT = 0
     order_router._RECONCILED_POSITIONS_COUNT = 0
+    order_router._RECON_RESYNC_NEEDED = False
 
     monkeypatch.setattr("src.execution.order_router._fetch_ibkr_truth", lambda _mode: ([], [], []))
     events = execute_intents(
