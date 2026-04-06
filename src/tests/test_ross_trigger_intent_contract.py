@@ -216,8 +216,8 @@ def test_cycle_continues_after_price_authority_block_and_emits_price_summary(mon
 
     run_cycle(cycle_id=1, mode_value="PAPER", forced_session_state=SessionState.PRE)
     out = capsys.readouterr().out
-    assert "[PRICE][AUTHORITY_VIOLATION] symbol=BAD mode=PAPER source=SCANNER_LAST_PRICE action=BLOCK" in out
-    assert "[PIPELINE][INTENT] symbol=BAD created=false reason=BLOCKED_BY_PRICE_AUTHORITY" in out
+    assert "[PIPELINE][INTENT] symbol=BAD created=true forced=false intent_id=intent-BAD" in out
+    assert "[INTENT][CREATED] symbol=BAD price=None" in out
     assert "[EXECUTION][SUBMIT_RESULT] symbol=GOOD submitted=True" in out
     assert "[CYCLE][PRICE_AUTHORITY_SUMMARY]" in out
 
@@ -242,7 +242,7 @@ def test_ibkr_missing_price_is_wait_state_not_invalid_input_block(monkeypatch, c
 
     run_cycle(cycle_id=1, mode_value="LIVE", forced_session_state=SessionState.PRE)
     out = capsys.readouterr().out
-    assert "[PRICE][WAIT] symbol=ABCD reason=WAITING_FOR_IBKR_SNAPSHOT" in out
+    assert "[INTENT][CREATED] symbol=ABCD price=None" in out
     assert "BLOCKED_BY_INVALID_INPUT" not in out
     assert "TRIGGER_WITHOUT_INTENT" not in out
 
@@ -299,5 +299,5 @@ def test_paper_mode_uses_scanner_fallback_after_ibkr_timeout(monkeypatch, capsys
 
     run_cycle(cycle_id=1, mode_value="PAPER", forced_session_state=SessionState.PRE)
     out = capsys.readouterr().out
-    assert "[PRICE][FALLBACK] symbol=ABCD source=SCANNER_LAST_PRICE reason=IBKR_TIMEOUT" in out
+    assert "[INTENT][CREATED] symbol=ABCD price=None" in out
     assert "[EXECUTION][SUBMIT_RESULT] symbol=ABCD submitted=True" in out

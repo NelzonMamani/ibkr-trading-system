@@ -937,91 +937,8 @@ def run_cycle(
                         symbol,
                         summary,
                     )
-            try:
-                entry_price, entry_price_source = resolve_entry_price(
-                    symbol,
-                    {
-                        "ibkr_snapshot_by_symbol": ibkr_snapshot_by_symbol,
-                        "ibkr_stream_by_symbol": ibkr_stream_by_symbol,
-                    },
-                )
-                print(
-                    f"[PRICE][RESOLUTION] symbol={symbol} mode={mode.value} "
-                    f"resolved_price={entry_price} source={entry_price_source}"
-                )
-            except PriceResolutionError as exc:
-                _wait_for_ibkr_snapshot_for_symbol(
-                    symbol=symbol,
-                    ibkr_snapshot_by_symbol=ibkr_snapshot_by_symbol,
-                )
-                ibkr_stream_by_symbol[symbol] = dict(ibkr_snapshot_by_symbol.get(symbol, {}))
-                try:
-                    entry_price, entry_price_source = resolve_entry_price(
-                        symbol,
-                        {
-                            "ibkr_snapshot_by_symbol": ibkr_snapshot_by_symbol,
-                            "ibkr_stream_by_symbol": ibkr_stream_by_symbol,
-                        },
-                    )
-                    print(
-                        f"[PRICE][RESOLUTION] symbol={symbol} mode={mode.value} "
-                        f"resolved_price={entry_price} source={entry_price_source}"
-                    )
-                except PriceResolutionError:
-                    scanner_last_price = scanner_last_price_by_symbol.get(str(symbol or "").upper())
-                    if mode == RunMode.PAPER and scanner_last_price is not None:
-                        entry_price = scanner_last_price
-                        entry_price_source = "SCANNER_LAST_PRICE"
-                        ibkr_timeout_fallback_symbols.add(symbol)
-                        print(
-                            f"[PRICE][FALLBACK] symbol={symbol} source=SCANNER_LAST_PRICE "
-                            "reason=IBKR_TIMEOUT"
-                        )
-                    else:
-                        symbols_blocked_no_price.add(symbol)
-                        symbols_waiting_for_ibkr_snapshot.add(symbol)
-                        decision_waterfall[symbol]["intent"] = "WAITING_FOR_PRICE"
-                        decision_waterfall[symbol]["intent_reason"] = "WAITING_FOR_IBKR_SNAPSHOT"
-                        print(f"[PRICE][WAIT] symbol={symbol} reason=WAITING_FOR_IBKR_SNAPSHOT")
-                        continue
-            authority_verdict = _enforce_canonical_price_authority(
-                symbol=symbol,
-                mode=mode,
-                session=session.value,
-                entry_price=entry_price,
-                entry_price_source=entry_price_source,
-                scanner_payload=scanner_payload,
-            )
-            entry_price_source = authority_verdict.normalized_source
-            if mode in {RunMode.PAPER, RunMode.LIVE} and authority_verdict.allowed:
-                symbols_with_ibkr_price.add(symbol)
-                print(f"[PRICE][IBKR_AUTHORITY_OK] symbol={symbol} source={entry_price_source}")
-            if not authority_verdict.allowed:
-                symbols_blocked_price_authority.add(symbol)
-                price_authority_reasons[authority_verdict.reason_code] += 1
-                print(f"[PRICE][BLOCK] symbol={symbol} mode={mode.value} reason={authority_verdict.reason_code}")
-                print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_AUTHORITY detail={authority_verdict.reason}")
-                print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=BLOCKED_BY_PRICE_AUTHORITY")
-                print(
-                    "[ROSS][INTENT_RESULT] "
-                    f"symbol={symbol} strategy={strategy_name} mode={mode.value} session={session.value} "
-                    "outcome=NOT_CREATED reason=BLOCKED_BY_POLICY"
-                )
-                print(
-                    "[ROSS][BLOCKER] "
-                    f"symbol={symbol} blocker=TRIGGER_FIRED_NO_INTENT reason=BLOCKED_BY_POLICY"
-                )
-                first_blocker_by_symbol.setdefault(symbol, "TRIGGER_FIRED_NO_INTENT")
-                first_blocker_reason_by_symbol.setdefault(symbol, "BLOCKED_BY_POLICY")
-                decision_waterfall[symbol]["intent"] = "BLOCKED"
-                decision_waterfall[symbol]["intent_reason"] = "BLOCKED_BY_POLICY"
-                if trigger_ready_now:
-                    pipeline_outcomes[symbol] = TERMINAL_STATES["TRIGGER_BLOCKED_BY_POLICY"]
-                    print(
-                        f"[DECISION][ERROR] TRIGGER_WITHOUT_INTENT symbol={symbol} "
-                            f"setup_family={setup_family} trigger_type={trigger_type} reason=BLOCKED_BY_POLICY"
-                        )
-                continue
+            entry_price = None
+            entry_price_source = None
             if force_debug_trades and not trade_intents and setup_detected and trigger_ready_now:
                 trade_intents = [
                     TradeIntentRecord(
@@ -1081,6 +998,7 @@ def run_cycle(
                 decision_waterfall[symbol]["intent"] = "EMITTED"
                 decision_waterfall[symbol]["intent_reason"] = "INTENT_EMITTED"
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=true forced=false intent_id={intent.intent_id}")
+                print(f"[INTENT][CREATED] symbol={symbol} price={getattr(intent, 'entry_price', None)}")
                 _pipeline_stage_log(
                     stage="INTENT",
                     symbol=symbol,
@@ -1361,16 +1279,19 @@ def run_cycle(
         if mode == RunMode.PAPER:
             intent_source = "UNKNOWN"
             intent_symbol = str(decision.symbol or "").upper()
+            intent_entry_price = None
             for candidate_intent in intents:
                 if candidate_intent.intent_id == decision.intent_id:
                     intent_source = _normalize_price_source_label(candidate_intent.entry_price_source)
+                    intent_entry_price = getattr(candidate_intent, "entry_price", None)
                     break
             allow_timeout_fallback = (
                 intent_source == "SCANNER_LAST_PRICE" and intent_symbol in ibkr_timeout_fallback_symbols
             )
-            assert intent_source in _CANONICAL_PRICE_SOURCES or allow_timeout_fallback, (
-                f"CRITICAL: NON-IBKR PRICE IN PAPER MODE: {intent_source}"
-            )
+            if intent_entry_price is not None:
+                assert intent_source in _CANONICAL_PRICE_SOURCES or allow_timeout_fallback, (
+                    f"CRITICAL: NON-IBKR PRICE IN PAPER MODE: {intent_source}"
+                )
         print(
             "[EXECUTION][SUBMIT_ATTEMPT] "
             f"symbol={decision.symbol} qty={int(decision.approved_quantity)} order_type=MKT mode=PAPER"

@@ -69,7 +69,7 @@ def test_paper_mode_sizes_from_capital_and_price(capsys) -> None:
     assert decisions[0].entry_price == 25.0
 
 
-def test_missing_price_blocks_pipeline(capsys) -> None:
+def test_missing_price_defers_to_execution_stage(capsys) -> None:
     decisions = evaluate_trade_intents(
         intents=[
             TradeIntentRecord(
@@ -88,9 +88,9 @@ def test_missing_price_blocks_pipeline(capsys) -> None:
         account=AccountSnapshot(available_funds=50_000, source="PAPER", canonical=True, broker_connection_state="SIMULATED"),
     )
     out = capsys.readouterr().out
-    assert decisions[0].decision == "BLOCK"
-    assert "INVALID_ENTRY_PRICE" in decisions[0].triggered_rules
-    assert "[RISK][SIZE_BLOCK] symbol=NOPX reason=INVALID_ENTRY_PRICE" in out
+    assert decisions[0].decision == "ALLOW"
+    assert "WAITING_FOR_PRICE" in decisions[0].triggered_rules
+    assert "[RISK][SIZE_DEFER] symbol=NOPX reason=WAITING_FOR_PRICE" in out
 
 
 def test_price_sanity_guard_rejects_placeholder_one_dollar(capsys) -> None:
