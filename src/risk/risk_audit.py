@@ -136,13 +136,12 @@ def evaluate_trade_intents(
             f"entry_price={entry_price} stop_price={stop_price} sizing_mode={sizing_mode}"
         )
         if entry_price is None or entry_price <= 0:
-            decision = "BLOCK"
-            max_size = 0
-            triggered_rules.append("INVALID_ENTRY_PRICE")
-            requested_shares = 0
-            print(
-                f"[RISK][SIZE_BLOCK] symbol={intent.symbol} reason=INVALID_ENTRY_PRICE"
-            )
+            decision = "ALLOW"
+            max_size = 1
+            triggered_rules.append("WAITING_FOR_PRICE")
+            constraints.append("WAITING_FOR_PRICE")
+            requested_shares = 1
+            print(f"[RISK][SIZE_DEFER] symbol={intent.symbol} reason=WAITING_FOR_PRICE")
         elif entry_price <= 1.5:
             decision = "BLOCK"
             max_size = 0

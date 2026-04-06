@@ -43,7 +43,7 @@ class TradeIntentRecord:
     rationale: str
     tags: List[str] = field(default_factory=list)
     entry_price: float | None = None
-    entry_price_source: str = "UNSET"
+    entry_price_source: str | None = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 

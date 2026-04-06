@@ -10,8 +10,10 @@ from dataclasses import dataclass, field
 from typing import Any, List
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
+from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
 from src.core_engine.state import RunMode
+from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 
 _EXECUTION_EVENT_BUFFER: dict[int, ExecutionEvent] = {}
 _FILL_AUTHORITY_STATE = "UNKNOWN"
@@ -885,6 +887,53 @@ def _validate_ibkr_connection(mode: RunMode) -> None:
         )
 
 
+def _safe_price_value(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
+
+
+def _wait_for_ibkr_snapshot_for_symbol(symbol: str, *, wait_up_to: float = 1.0, poll_interval: float = 0.1) -> dict[str, float | None]:
+    normalized_symbol = str(symbol or "").upper().strip()
+    if not normalized_symbol:
+        return {}
+    print(f"[IBKR][SNAPSHOT_REQUEST] symbol={normalized_symbol}")
+    try:
+        manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
+        ib = manager.get_client()
+        _, Stock, _ = safe_import_ib_insync()
+        contract = Stock(normalized_symbol, "SMART", "USD")
+        ticker = ib.reqMktData(contract, genericTickList="", snapshot=True, regulatorySnapshot=False)
+    except Exception as exc:
+        print(f"[EXECUTION][WAIT] symbol={normalized_symbol} reason=WAITING_FOR_PRICE request_error={exc}")
+        return {}
+
+    snapshot: dict[str, float | None] = {}
+    poll_count = max(1, int(wait_up_to / poll_interval))
+    try:
+        for _ in range(poll_count):
+            try:
+                ib.waitOnUpdate(timeout=poll_interval)
+            except Exception:
+                time.sleep(poll_interval)
+            last = _safe_price_value(getattr(ticker, "last", None))
+            bid = _safe_price_value(getattr(ticker, "bid", None))
+            ask = _safe_price_value(getattr(ticker, "ask", None))
+            snapshot = {"last": last, "bid": bid, "ask": ask}
+            if last is not None or (bid is not None and ask is not None):
+                break
+    finally:
+        try:
+            ib.cancelMktData(contract)
+        except Exception:
+            pass
+    return snapshot
+
+
 def execute_intents(
     mode: RunMode,
     decisions: List[RiskDecisionRecord],
@@ -969,14 +1018,15 @@ def execute_intents(
         if raw_qty <= 0:
             raise RuntimeError("INVALID ORDER: quantity=0")
         quantity = max(1, math.floor(raw_qty))
+        initial_entry_price = getattr(decision, "entry_price", None)
         trace = ExecutionTrace(
             symbol=str(decision.symbol or "").upper(),
             cycle_id=cycle_id,
             intent_id=str(decision.intent_id or ""),
             strategy_name=str(getattr(decision, "strategy_name", "") or ""),
-            entry_price_requested=float(getattr(decision, "entry_price", 0.0) or 0.0),
-            resolved_price=float(getattr(decision, "entry_price", 0.0) or 0.0),
-            price_state="FULL" if getattr(decision, "entry_price", None) else "WAITING_IBKR",
+            entry_price_requested=float(initial_entry_price or 0.0),
+            resolved_price=float(initial_entry_price or 0.0),
+            price_state="FULL" if initial_entry_price else "WAITING_FOR_PRICE",
         )
         if trace.intent_id:
             _EXECUTION_TRACE_BY_INTENT[trace.intent_id] = trace
@@ -1031,18 +1081,35 @@ def execute_intents(
         if decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
             _trace_log("PRECHECK", trace, extra=f"decision={decision.decision} qty={quantity}")
             if entry_price is None or float(entry_price) <= 0:
-                print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=INVALID_ENTRY_PRICE")
-                _mark_execution_failure(trace, "PRICE_UNAVAILABLE", reason="invalid_entry_price")
-                events.append(
-                    ExecutionEvent(
-                        symbol=decision.symbol,
-                        intent_id=decision.intent_id,
-                        action="BLOCKED",
-                        detail="reason=INVALID_ENTRY_PRICE",
-                        broker_status="REJECTED",
+                trace.price_state = "WAITING_FOR_PRICE"
+                print(f"[EXECUTION][WAIT] symbol={decision.symbol} reason=WAITING_FOR_PRICE")
+                snapshot = _wait_for_ibkr_snapshot_for_symbol(str(decision.symbol or ""))
+                try:
+                    entry_price, entry_price_source = resolve_entry_price(
+                        str(decision.symbol or ""),
+                        {
+                            "ibkr_snapshot_by_symbol": {str(decision.symbol or "").upper(): snapshot} if snapshot else {},
+                            "ibkr_stream_by_symbol": {str(decision.symbol or "").upper(): snapshot} if snapshot else {},
+                        },
                     )
-                )
-                continue
+                    decision.entry_price = entry_price
+                    trace.resolved_price = float(entry_price)
+                    trace.price_state = "PARTIAL_OK"
+                    print(f"[EXECUTION][RESOLVED] symbol={decision.symbol} price={entry_price} source={entry_price_source}")
+                except PriceResolutionError:
+                    _mark_execution_failure(trace, "PRICE_UNAVAILABLE", reason="waiting_for_price")
+                    events.append(
+                        ExecutionEvent(
+                            symbol=decision.symbol,
+                            intent_id=decision.intent_id,
+                            action="DEFERRED",
+                            detail="reason=WAITING_FOR_PRICE",
+                            broker_status="PENDING_PRICE",
+                            event_type="ORDER_PENDING",
+                            last_update_time=_now_utc_iso(),
+                        )
+                    )
+                    continue
         dispatch = "SKIPPED"
         if mode in {RunMode.SIM, RunMode.READ_ONLY}:
             action = "WOULD_PLACE"
