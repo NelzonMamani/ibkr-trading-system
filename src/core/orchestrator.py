@@ -2401,19 +2401,24 @@ class CoreOrchestrator:
         )
         if tha_decisions:
             allowed_by_tha = {
-                symbol for symbol, decision in tha_decisions.items() if bool(getattr(decision, "allow_entries", False))
+                symbol for symbol, decision in tha_decisions.items()
+                if bool(getattr(decision, "allow_entries", False))
             }
             strategy_inputs = [
                 candidate
                 for candidate in strategy_inputs
                 if str(getattr(candidate, "symbol", "") or "").upper() in allowed_by_tha
             ]
-            for symbol, tha_decision in tha_decisions.items():
-                if bool(getattr(tha_decision, "force_flat", False)):
-                    self.execution_engine.force_flatten_symbol(
-                        symbol,
-                        reason="THA_OUTSIDE_WINDOW",
-                    )
+
+            if self.execution_enabled:
+                for symbol, tha_decision in tha_decisions.items():
+                    if bool(getattr(tha_decision, "force_flat", False)):
+                        self.execution_engine.force_flatten_symbol(
+                            symbol,
+                            reason="THA_OUTSIDE_WINDOW",
+                        )
+            else:
+                print("[PIPELINE][THA_POLICY] execution_disabled=True flatten_skipped=True")
         session_execution_allowed = session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
         if mock_scanner_mode and not session_execution_allowed:
             session_execution_allowed = True

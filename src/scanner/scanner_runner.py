@@ -358,6 +358,70 @@ def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
         return default
 
 
+
+
+def _compute_quote_validity_contract(context: Dict[str, Any]) -> Dict[str, Any]:
+    session = normalize_session_label(str(context.get("session") or ""))
+
+    last_price = _safe_float(context.get("last_price"), None)
+    bid = _safe_float(context.get("bid"), None)
+    ask = _safe_float(context.get("ask"), None)
+    pct_change = _safe_float(context.get("pct_change"), None)
+
+    reference_price = context.get("reference_price") or context.get("prev_close") or context.get("ref_close_rth")
+    reference_price = _safe_float(reference_price, None)
+
+    has_valid_last = last_price is not None and last_price > 0
+    has_valid_bid = bid is not None and bid > 0
+    has_valid_ask = ask is not None and ask > 0
+    has_valid_reference = reference_price is not None and reference_price > 0
+    has_pct_change = pct_change is not None
+
+    scanner_valid = has_valid_last or has_pct_change
+    momentum_valid = has_valid_last and has_valid_reference
+    execution_valid = has_valid_last and has_valid_bid and has_valid_ask
+
+    if session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"}:
+        if not (has_valid_last or has_pct_change):
+            scanner_valid = False
+
+    existing_integrity_state = str(context.get("quote_integrity_state") or "").strip()
+    if existing_integrity_state:
+        integrity_state = existing_integrity_state
+    else:
+        integrity_state = "VALID" if has_valid_last else "INVALID"
+
+    integrity_flags = list(context.get("integrity_flags") or context.get("data_integrity_flags") or [])
+
+    quote_contract = {
+        "scanner_valid": scanner_valid,
+        "momentum_valid": momentum_valid,
+        "execution_valid": execution_valid,
+        "integrity_state": integrity_state,
+        "integrity_flags": integrity_flags,
+    }
+
+    context["quote_integrity_state"] = integrity_state
+    context["data_integrity_flags"] = integrity_flags
+    context["quote_usability_state"] = (
+        "EXECUTION_OK"
+        if execution_valid
+        else "MOMENTUM_OK"
+        if momentum_valid
+        else "SCANNER_ONLY"
+        if scanner_valid
+        else "INVALID"
+    )
+    context["quote_contract"] = quote_contract
+
+    print(
+        "[QUOTE_POLICY] "
+        f"symbol={context.get('symbol')} scanner_valid={scanner_valid} "
+        f"momentum_valid={momentum_valid} execution_valid={execution_valid} "
+        f"usability={context['quote_usability_state']}"
+    )
+    return quote_contract
+
 def _is_unsubscribed_market_data_error(exc: Exception) -> bool:
     message = str(exc).lower()
     if not message:
@@ -1970,6 +2034,8 @@ def _candidate_from_context(
         catalyst_present=catalyst_present,
     )
     data_quality_flags = list(context.get("data_quality_flags", []) or [])
+    quote_contract = context.get("quote_contract") or _compute_quote_validity_contract(context)
+    context["quote_contract"] = quote_contract
     _emit_scanner_reference_trace("watchlist_print_payload", context)
     return CandidateMetrics(
         symbol=context.get("symbol"),
@@ -2048,6 +2114,8 @@ def _candidate_from_context(
         news_source_mode=news_source_mode,
         news_asof=news_asof,
         data_quality_ok=not data_quality_flags,
+        quote_integrity_state=context.get("quote_integrity_state") or quote_contract.get("integrity_state"),
+        quote_usability_state=context.get("quote_usability_state"),
         degraded_data_profile=context.get("degraded_data_profile"),
         degraded_reference=context.get("degraded_reference"),
         degraded_pct_change=context.get("degraded_pct_change"),
@@ -2059,6 +2127,7 @@ def _candidate_from_context(
         focus_eligible=context.get("focus_eligible"),
         execution_eligible=context.get("execution_eligible"),
         eligibility_reason_codes=list(context.get("eligibility_reason_codes", []) or []),
+        data_integrity_flags=quote_contract.get("integrity_flags", []),
         data_quality_flags=data_quality_flags,
         drop_reasons=[drop_reason] if drop_reason else [],
         rank_score=context.get("scanner_score"),
@@ -2078,6 +2147,8 @@ def _scanner_candidate_from_context(
         round(float_shares / 1_000_000.0, 2) if float_shares is not None else None
     )
     data_quality_flags = list(context.get("data_quality_flags", []) or [])
+    quote_contract = context.get("quote_contract") or _compute_quote_validity_contract(context)
+    context["quote_contract"] = quote_contract
     if drop_reason:
         data_quality_flags.append(drop_reason)
     return ScannerCandidate(
@@ -2538,6 +2609,8 @@ def _build_symbol_context(
     }
     attach_session_contract(context, session_contract)
     _apply_degraded_contract(context)
+    quote_contract = context.get("quote_contract") or _compute_quote_validity_contract(context)
+    context["quote_contract"] = quote_contract
     _emit_scanner_reference_trace("final_context_build", context)
     return context
     
