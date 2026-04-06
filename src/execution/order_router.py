@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import math
 import time
+from types import SimpleNamespace
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
 from typing import Any, List
@@ -952,11 +953,21 @@ def _post_submission_ibkr_diagnostics(
         return
     if mode not in {RunMode.PAPER, RunMode.LIVE}:
         return
-    if _is_explicit_test_mode():
-        return
     if manager is None:
-        manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
-    client = manager.get_client()
+        if _is_explicit_test_mode():
+            client = SimpleNamespace(
+                client_id="TEST",
+                host="TEST",
+                port="TEST",
+                openOrders=lambda: [],
+                executions=lambda: [],
+                positions=lambda: [],
+            )
+        else:
+            manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
+            client = manager.get_client()
+    else:
+        client = manager.get_client()
     print("[IBKR][CLIENT_SESSION]")
     print(f"client_id={getattr(client, 'client_id', 'UNKNOWN')}")
     print(f"host={getattr(client, 'host', 'UNKNOWN')}")
@@ -1062,7 +1073,13 @@ def _post_submission_ibkr_diagnostics(
     print("[IBKR][CALLBACK_SUMMARY]")
     print(f"openOrder={open_order_callback_count}")
     print(f"orderStatus={order_status_callback_count}")
+    print(
+        "[EXECUTION][CALLBACK_VERDICT] "
+        f"mode={mode.value} open_order_seen={open_order_callback_count} "
+        f"order_status_seen={order_status_callback_count} strict_required={_strict_broker_truth_required(mode)}"
+    )
     if open_order_callback_count == 0 and order_status_callback_count == 0:
+        print("[CRITICAL][NO_IBKR_ACK]")
         print("[CRITICAL][IBKR_NO_ORDER_ACKNOWLEDGEMENT]")
         print("reason=POSSIBLE_PLACEORDER_FAILURE_OR_SESSION_ISSUE")
         print("possible_causes:")
@@ -1071,6 +1088,9 @@ def _post_submission_ibkr_diagnostics(
         print("- wrong account")
         print("- client_id conflict")
         print("- IB Gateway/TWS mismatch")
+        if not _strict_broker_truth_required(mode):
+            print("[EXECUTION][ACK_SKIPPED_NON_LIVE]")
+            print(f"mode={mode.value}")
     if not broker_truth_confirmed:
         print(f"[BROKER_TRUTH][ESCALATION_LEVEL=4] phase=FORCED_RESYNC submitted_order_ids={sorted(submitted_lookup)}")
         req_open_orders = getattr(client, "reqOpenOrders", None)
@@ -1102,21 +1122,28 @@ def _post_submission_ibkr_diagnostics(
     if broker_truth_confirmed:
         _BROKER_TRUTH_CONFIRMATIONS += 1
         print(f"[BROKER_TRUTH][CONFIRMED] submitted_order_ids={sorted(submitted_lookup)}")
-    if (
-        mode == RunMode.PAPER
-        and _env_truthy("EXECUTION_ENABLED")
-        and _env_truthy("IBKR_ORDER_SUBMISSION_ENABLED")
-        and not _env_truthy("IBKR_READONLY_ENABLED")
-        and len(submitted_order_ids) > 0
-        and not broker_truth_confirmed
-    ):
+    print(
+        "[EXECUTION][TRUTH_SUMMARY] "
+        f"mode={mode.value} submitted_orders={len(submitted_order_ids)} "
+        f"broker_truth_confirmed={broker_truth_confirmed}"
+    )
+    if len(submitted_order_ids) > 0 and not broker_truth_confirmed and _strict_broker_truth_required(mode):
         _BROKER_TRUTH_FATALS += 1
         print(f"[BROKER_TRUTH][FATAL] submitted_order_ids={sorted(submitted_lookup)}")
-        raise RuntimeError("[BROKER_TRUTH][FATAL] no_broker_visible_order_or_fill_after_submission")
+        raise RuntimeError("BROKER_TRUTH_NOT_CONFIRMED")
+    if len(submitted_order_ids) > 0 and not broker_truth_confirmed:
+        print("[EXECUTION][BROKER_TRUTH_SKIPPED]")
+        print(f"mode={mode.value}")
 
 
 def _is_explicit_test_mode() -> bool:
     return str(os.environ.get("EXECUTION_ENV", "")).strip().upper() == "TEST"
+
+
+def _strict_broker_truth_required(mode: RunMode) -> bool:
+    if _is_explicit_test_mode():
+        return False
+    return mode in {RunMode.PAPER, RunMode.LIVE}
 
 
 def _env_truthy(name: str, default: bool = False) -> bool:
@@ -1235,6 +1262,7 @@ def _wait_for_ibkr_snapshot_for_symbol(symbol: str, *, wait_up_to: float = 1.0, 
 
 def _submit_ibkr_order(
     *,
+    mode: RunMode,
     client: Any,
     symbol: str,
     side: str,
@@ -1314,8 +1342,13 @@ def _submit_ibkr_order(
         except TypeError:
             status = wait_for_order_status(order_id, timeout=5)
         if status is None:
+            print("[CRITICAL][NO_IBKR_ACK]")
             print("[CRITICAL][IBKR_NO_ACK]")
             print(f"order_id={order_id} no orderStatus within 5 seconds")
+            if _strict_broker_truth_required(mode):
+                raise RuntimeError("IBKR_ACKNOWLEDGEMENT_FAILED")
+            print("[EXECUTION][ACK_SKIPPED_NON_LIVE]")
+            print(f"mode={mode.value}")
     print(f"[IBKR][PLACE_ORDER][SENT] symbol={symbol} order_id={order_id}")
     return order_id
 
@@ -1552,6 +1585,7 @@ def execute_intents(
                     if manager is None:
                         manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
                     broker_order_id = _submit_ibkr_order(
+                        mode=mode,
                         client=manager.get_client(),
                         symbol=str(decision.symbol or "").upper(),
                         side=order_side,
@@ -1631,6 +1665,31 @@ def execute_intents(
             print(f"[EXECUTION][BROKER_ACK] symbol={trace.symbol} intent_id={trace.intent_id} order_id={trace.order_id}")
     events = _sync_submitted_events_from_ibkr(mode, events)
     _post_submission_ibkr_diagnostics(mode=mode, manager=manager, submitted_order_ids=submitted_order_ids)
+    open_order_seen_total = sum(
+        1
+        for order_id in submitted_order_ids
+        if bool(_VISIBILITY_BY_ORDER_ID.get(int(order_id), {}).get("openOrder_seen"))
+    )
+    order_status_seen_total = sum(
+        1
+        for order_id in submitted_order_ids
+        if bool(_VISIBILITY_BY_ORDER_ID.get(int(order_id), {}).get("orderStatus_seen"))
+    )
+    print(
+        "[EXECUTION][CALLBACK_VERDICT] "
+        f"mode={mode.value} open_order_seen_total={open_order_seen_total} "
+        f"order_status_seen_total={order_status_seen_total} orders_submitted={orders_submitted}"
+    )
+    print(
+        "[EXECUTION][TRUTH_SUMMARY] "
+        f"mode={mode.value} orders_submitted={orders_submitted} "
+        f"open_order_seen_total={open_order_seen_total} order_status_seen_total={order_status_seen_total}"
+    )
+    if orders_submitted > 0 and open_order_seen_total == 0 and order_status_seen_total == 0:
+        if _strict_broker_truth_required(mode):
+            raise RuntimeError("BROKER_TRUTH_NOT_CONFIRMED")
+        print("[EXECUTION][BROKER_TRUTH_SKIPPED]")
+        print(f"mode={mode.value}")
     for trace in _EXECUTION_TRACE_BY_INTENT.values():
         if trace.cycle_id != cycle_id:
             continue

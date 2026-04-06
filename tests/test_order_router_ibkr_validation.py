@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from src.core_engine.events import RiskDecisionRecord
@@ -121,3 +123,52 @@ def test_callback_registration_supported_logs_registered(monkeypatch, capsys) ->
     _ = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])
     out = capsys.readouterr().out
     assert "[EXECUTION][CALLBACK_REGISTERED]" in out
+
+
+def test_submit_order_ack_enforced_in_strict_mode(monkeypatch) -> None:
+    class _Client:
+        def qualifyContracts(self, contract):
+            contract.conId = 123
+            contract.exchange = "SMART"
+            contract.currency = "USD"
+            contract.primaryExchange = "NASDAQ"
+            contract.secType = "STK"
+            return [contract]
+
+        def submit_order(self, _contract, _order):
+            return 111
+
+        def wait_for_order_status(self, _order_id, timeout_seconds=5):
+            return None
+
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
+    with pytest.raises(RuntimeError, match="IBKR_ACKNOWLEDGEMENT_FAILED"):
+        order_router._submit_ibkr_order(
+            mode=RunMode.PAPER,
+            client=_Client(),
+            symbol="MCRO",
+            side="BUY",
+            quantity=1,
+            order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
+        )
+
+
+@pytest.mark.parametrize("mode", [RunMode.PAPER, RunMode.LIVE])
+def test_strict_mode_raises_broker_truth_not_confirmed_when_no_callbacks(monkeypatch, mode) -> None:
+    order_router._RUNTIME_ORDERS.clear()
+    order_router._VISIBILITY_BY_ORDER_ID.clear()
+    order_router._RUNTIME_ORDERS[404] = order_router.TrackedOrder(
+        broker_order_id=404,
+        order_ref="MCRO-1",
+        symbol="MCRO",
+        side="BUY",
+        total_qty=1,
+        remaining_qty=1,
+    )
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
+    with pytest.raises(RuntimeError, match="BROKER_TRUTH_NOT_CONFIRMED"):
+        order_router._post_submission_ibkr_diagnostics(
+            mode=mode,
+            manager=SimpleNamespace(get_client=lambda: SimpleNamespace(openOrders=lambda: [], executions=lambda: [])),
+            submitted_order_ids=[404],
+        )
