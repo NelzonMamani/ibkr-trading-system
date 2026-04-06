@@ -1429,7 +1429,11 @@ def run_cycle(
     print(f"unmatched_callbacks={lifecycle_snapshot['unmatched_callbacks_count']}")
     print(f"reconciled_orders={lifecycle_snapshot['reconciled_orders_count']}")
     print(f"reconciled_positions={lifecycle_snapshot['reconciled_positions_count']}")
+    print(f"duplicate_fills_ignored={lifecycle_snapshot['duplicate_fills_ignored_count']}")
+    print(f"fill_linkage_mismatches={lifecycle_snapshot['fill_linkage_mismatch_count']}")
     print(f"duplicate_working_order_blocks={duplicate_working_order_blocks}")
+    print(f"callback_delay_warnings={lifecycle_snapshot['callback_delay_warnings_count']}")
+    print(f"stuck_order_warnings={lifecycle_snapshot['stuck_order_warnings_count']}")
     print(f"fill_authority_state={fill_authority_state()}")
     for symbol in watchlist:
         wf = decision_waterfall[symbol]

@@ -23,6 +23,9 @@ def _reset_router_state() -> None:
     order_router._RECONCILED_ORDERS_COUNT = 0
     order_router._RECONCILED_POSITIONS_COUNT = 0
     order_router._CALLBACK_DELAY_WARNINGS_COUNT = 0
+    order_router._STUCK_ORDER_WARNINGS_COUNT = 0
+    order_router._DUPLICATE_FILLS_IGNORED_COUNT = 0
+    order_router._FILL_LINKAGE_MISMATCH_COUNT = 0
 
 
 def test_callback_delay_marks_order_pending() -> None:
@@ -90,3 +93,78 @@ def test_position_consistency_checks_detect_both_inconsistency_shapes(capsys) ->
 
     assert "[POSITION][INCONSISTENT_STATE] symbol=AAPL reason=filled_without_position" in output
     assert "[POSITION][INCONSISTENT_STATE] symbol=MSFT reason=position_without_fill_history" in output
+
+
+def test_execdetails_fill_dedupes_by_exec_id(capsys) -> None:
+    _reset_router_state()
+    order_router._upsert_order_from_submission(
+        order_id=7001,
+        symbol="AAPL",
+        side="BUY",
+        total_qty=10,
+        order_ref="TEST-INTENT-DEDUP",
+    )
+    payload = {"event_type": "execDetails", "order_id": 7001, "symbol": "AAPL", "shares": 2, "price": 101.0, "execId": "E1"}
+    order_router._on_ibkr_callback(payload)
+    order_router._on_ibkr_callback(payload)
+    out = capsys.readouterr().out
+
+    assert "[FILL][DUPLICATE_IGNORED] order_id=7001 exec_id=E1 symbol=AAPL" in out
+    assert order_router.runtime_lifecycle_snapshot()["duplicate_fills_ignored_count"] == 1
+
+
+def test_orderstatus_reported_fill_is_not_fill_authority(capsys) -> None:
+    _reset_router_state()
+    row = order_router._upsert_order_from_submission(
+        order_id=7101,
+        symbol="MSFT",
+        side="BUY",
+        total_qty=5,
+        order_ref="TEST-INTENT-FILL-AUTH",
+    )
+    order_router._on_ibkr_callback(
+        {"event_type": "orderStatus", "order_id": 7101, "symbol": "MSFT", "filled": 3, "remaining": 2, "status": "Submitted"}
+    )
+    out = capsys.readouterr().out
+
+    assert "[FILL_AUTHORITY][STATUS_REPORTED_FILL_IGNORED] order_id=7101 symbol=MSFT status_filled=3 tracked_filled=0" in out
+    assert row.filled_qty == 0
+
+
+def test_execdetails_symbol_linkage_mismatch_is_ignored(capsys) -> None:
+    _reset_router_state()
+    row = order_router._upsert_order_from_submission(
+        order_id=7201,
+        symbol="NVDA",
+        side="BUY",
+        total_qty=4,
+        order_ref="TEST-INTENT-LINK",
+    )
+    order_router._on_ibkr_callback(
+        {"event_type": "execDetails", "order_id": 7201, "symbol": "AMD", "shares": 2, "price": 94.0, "execId": "BAD-SYMBOL"}
+    )
+    out = capsys.readouterr().out
+
+    assert "[ORDER_FILL_LINKAGE][MISMATCH] order_id=7201 tracked_symbol=NVDA callback_symbol=AMD action=fill_ignored" in out
+    assert row.filled_qty == 0
+    assert order_router.runtime_lifecycle_snapshot()["fill_linkage_mismatch_count"] == 1
+
+
+def test_callback_delay_escalates_to_stuck_order_once(capsys) -> None:
+    _reset_router_state()
+    row = order_router._upsert_order_from_submission(
+        order_id=7301,
+        symbol="TSLA",
+        side="BUY",
+        total_qty=6,
+        order_ref="TEST-INTENT-STUCK",
+    )
+    stale_time = datetime.now(timezone.utc) - timedelta(seconds=90)
+    row.first_seen_at = stale_time.isoformat()
+    now = datetime.now(timezone.utc)
+    order_router._check_callback_delay(now=now)
+    order_router._check_callback_delay(now=now + timedelta(seconds=10))
+    out = capsys.readouterr().out
+
+    assert "[EXECUTION][STUCK_ORDER] order_id=7301 symbol=TSLA state=SUBMITTED" in out
+    assert order_router.runtime_lifecycle_snapshot()["stuck_order_warnings_count"] == 1

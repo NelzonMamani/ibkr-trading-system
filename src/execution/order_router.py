@@ -22,6 +22,10 @@ _RECONCILED_ORDERS_COUNT = 0
 _RECONCILED_POSITIONS_COUNT = 0
 _CALLBACK_DELAY_WARNINGS_COUNT = 0
 _CALLBACK_DELAY_THRESHOLD_SECONDS = 5
+_STUCK_ORDER_WARNINGS_COUNT = 0
+_STUCK_ORDER_THRESHOLD_SECONDS = 30
+_DUPLICATE_FILLS_IGNORED_COUNT = 0
+_FILL_LINKAGE_MISMATCH_COUNT = 0
 
 ORDER_STATES = {
     "PENDING_SUBMISSION",
@@ -71,6 +75,7 @@ class TrackedOrder:
     seen_exec_ids: set[str] = field(default_factory=set)
     callback_pending: bool = False
     callback_pending_since: str | None = None
+    stuck_warning_emitted: bool = False
 
 
 @dataclass
@@ -115,6 +120,9 @@ def runtime_lifecycle_snapshot() -> dict[str, int | str]:
         "reconciled_positions_count": _RECONCILED_POSITIONS_COUNT,
         "fill_authority_state": fill_authority_state(),
         "callback_delay_warnings_count": _CALLBACK_DELAY_WARNINGS_COUNT,
+        "stuck_order_warnings_count": _STUCK_ORDER_WARNINGS_COUNT,
+        "duplicate_fills_ignored_count": _DUPLICATE_FILLS_IGNORED_COUNT,
+        "fill_linkage_mismatch_count": _FILL_LINKAGE_MISMATCH_COUNT,
     }
 
 
@@ -393,7 +401,7 @@ def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, tota
 
 
 def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, fill_price: float | None, exec_id: str | None, timestamp: str, source: str) -> None:
-    global _UNMATCHED_CALLBACK_COUNT
+    global _UNMATCHED_CALLBACK_COUNT, _DUPLICATE_FILLS_IGNORED_COUNT
     row = _RUNTIME_ORDERS.get(order_id)
     if row is None:
         _UNMATCHED_CALLBACK_COUNT += 1
@@ -402,7 +410,8 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
     if exec_id:
         dedupe_key = f"{order_id}:{exec_id}"
         if dedupe_key in _SEEN_EXEC_IDS or exec_id in row.seen_exec_ids:
-            print(f"[ORDER_EVENT][EXECUTION] order_id={order_id} exec_id={exec_id} deduped=true")
+            _DUPLICATE_FILLS_IGNORED_COUNT += 1
+            print(f"[FILL][DUPLICATE_IGNORED] order_id={order_id} exec_id={exec_id} symbol={row.symbol}")
             return
         _SEEN_EXEC_IDS.add(dedupe_key)
         row.seen_exec_ids.add(exec_id)
@@ -422,6 +431,7 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
     row.last_update_at = timestamp
     row.callback_pending = False
     row.callback_pending_since = None
+    row.stuck_warning_emitted = False
     print(f"[ORDER_EVENT][EXECUTION] order_id={order_id} symbol={row.symbol} fill_inc={inc} filled={row.filled_qty} remaining={row.remaining_qty} exec_id={exec_id or 'NA'}")
     if old_state != row.canonical_state:
         print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
@@ -430,7 +440,7 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
 
 
 def _on_ibkr_callback(callback_payload: Any) -> None:
-    global _UNMATCHED_CALLBACK_COUNT
+    global _UNMATCHED_CALLBACK_COUNT, _FILL_LINKAGE_MISMATCH_COUNT
     event_type = str(_extract_callback_field(callback_payload, "event_type") or "").lower()
     if event_type and event_type not in {"execdetails", "orderstatus", "commissionreport"}:
         return
@@ -453,10 +463,14 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         remaining_int = int(float(remaining_qty)) if remaining_qty is not None else 0
     except (TypeError, ValueError):
         remaining_int = 0
-    if event_type == "orderstatus" and filled_qty > 0 and remaining_int > 0:
-        fill_event_type = "ORDER_PARTIALLY_FILLED"
-    else:
+    fill_event_type = "ORDER_WORKING"
+    if event_type == "execdetails":
         fill_event_type = "ORDER_FILLED" if filled_qty > 0 else "ORDER_WORKING"
+    elif event_type == "orderstatus" and filled_qty > 0:
+        print(
+            f"[FILL_AUTHORITY][STATUS_IGNORED] order_id={order_id} symbol={symbol or 'UNKNOWN'} "
+            f"reported_filled={filled_qty} reason=execDetails_required"
+        )
     broker_status = "Filled" if fill_event_type == "ORDER_FILLED" else (
         "Submitted" if event_status in {"SUBMITTED", "PRESUBMITTED"} else (event_status or "Submitted")
     )
@@ -476,6 +490,17 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     )
     _EXECUTION_EVENT_BUFFER[order_id] = event
     if event_type == "execdetails":
+        tracked = _RUNTIME_ORDERS.get(order_id)
+        tracked_symbol = str(getattr(tracked, "symbol", "") or "").upper()
+        callback_symbol = str(symbol or "").upper()
+        if tracked is not None and callback_symbol and tracked_symbol and callback_symbol != tracked_symbol:
+            _FILL_LINKAGE_MISMATCH_COUNT += 1
+            print(
+                "[ORDER_FILL_LINKAGE][MISMATCH] "
+                f"order_id={order_id} tracked_symbol={tracked_symbol} callback_symbol={callback_symbol} "
+                "action=fill_ignored"
+            )
+            return
         exec_id = _extract_callback_field(callback_payload, "execId")
         _apply_fill_to_tracked_order(
             order_id=order_id,
@@ -494,7 +519,11 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         else:
             old_state = row.canonical_state
             row.broker_status = event_status or row.broker_status
-            row.filled_qty = max(row.filled_qty, filled_qty)
+            if filled_qty > row.filled_qty:
+                print(
+                    "[FILL_AUTHORITY][STATUS_REPORTED_FILL_IGNORED] "
+                    f"order_id={order_id} symbol={row.symbol} status_filled={filled_qty} tracked_filled={row.filled_qty}"
+                )
             row.remaining_qty = remaining_int if remaining_int >= 0 else row.remaining_qty
             row.canonical_state = _state_from_broker_status(row.broker_status, row.filled_qty, row.remaining_qty)
             row.last_update_at = timestamp
@@ -591,9 +620,10 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
 
 
 def _check_callback_delay(*, now: datetime | None = None) -> None:
-    global _CALLBACK_DELAY_WARNINGS_COUNT
+    global _CALLBACK_DELAY_WARNINGS_COUNT, _STUCK_ORDER_WARNINGS_COUNT
     now_utc = now or datetime.now(timezone.utc)
     threshold = timedelta(seconds=max(1, int(_CALLBACK_DELAY_THRESHOLD_SECONDS)))
+    stuck_threshold = timedelta(seconds=max(1, int(_STUCK_ORDER_THRESHOLD_SECONDS)))
     for row in _RUNTIME_ORDERS.values():
         if row.canonical_state not in {"SUBMITTED", "ACKNOWLEDGED", "WORKING"}:
             continue
@@ -613,6 +643,14 @@ def _check_callback_delay(*, now: datetime | None = None) -> None:
             print(
                 f"[EXECUTION][CALLBACK_DELAY_WARNING] order_id={row.broker_order_id} "
                 f"symbol={row.symbol} callback_pending=true wait_seconds={int((now_utc - seen_at).total_seconds())}"
+            )
+        if now_utc - seen_at >= stuck_threshold and not row.stuck_warning_emitted:
+            _STUCK_ORDER_WARNINGS_COUNT += 1
+            row.stuck_warning_emitted = True
+            print(
+                f"[EXECUTION][STUCK_ORDER] order_id={row.broker_order_id} symbol={row.symbol} "
+                f"state={row.canonical_state} wait_seconds={int((now_utc - seen_at).total_seconds())} "
+                "reason=no_execdetails_fill"
             )
 
 
