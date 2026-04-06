@@ -311,6 +311,21 @@ def _log_visibility_matrix(order_id: int, symbol: str) -> None:
         f"confirmed={bool(row.get('confirmed'))}"
     )
 
+
+def _visibility_confirmation_source(order_id: int) -> str:
+    row = _VISIBILITY_BY_ORDER_ID.get(int(order_id), {})
+    if bool(row.get("openOrder_seen")):
+        return "openOrder_callback"
+    if bool(row.get("orderStatus_seen")):
+        return "orderStatus_callback"
+    if bool(row.get("openOrders_snapshot_seen")):
+        return "openOrders_snapshot"
+    if bool(row.get("executions_snapshot_seen")):
+        return "executions_snapshot"
+    if bool(row.get("execDetails_seen")):
+        return "execDetails"
+    return "none"
+
 def _safe_list_call(obj: Any, method_name: str) -> list[Any]:
     method = getattr(obj, method_name, None)
     if not callable(method):
@@ -940,6 +955,26 @@ def _post_submission_ibkr_diagnostics(
     if manager is None:
         manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
     client = manager.get_client()
+    print("[IBKR][CLIENT_SESSION]")
+    print(f"client_id={getattr(client, 'client_id', 'UNKNOWN')}")
+    print(f"host={getattr(client, 'host', 'UNKNOWN')}")
+    print(f"port={getattr(client, 'port', 'UNKNOWN')}")
+    if hasattr(manager, "connection_metadata"):
+        try:
+            metadata = manager.connection_metadata()
+        except Exception:
+            metadata = {}
+        configured_client_id = metadata.get("base_client_id")
+        connected_client_id = metadata.get("connected_client_id")
+        if (
+            isinstance(configured_client_id, int)
+            and isinstance(connected_client_id, int)
+            and connected_client_id != configured_client_id
+        ):
+            print("[WARNING][IBKR_CLIENT_ID_CONFLICT]")
+            print(
+                f"configured_client_id={configured_client_id} connected_client_id={connected_client_id}"
+            )
     submitted_lookup = {int(order_id) for order_id in submitted_order_ids}
 
     def _snapshot_broker_visibility() -> tuple[list[Any], list[Any], bool]:
@@ -1012,8 +1047,45 @@ def _post_submission_ibkr_diagnostics(
     observed_exec_details = exec_detail_rows > 0
     if not observed_exec_details:
         print("[CRITICAL] IBKR_NO_FILL_CONFIRMATION")
+    open_order_callback_count = sum(
+        1
+        for order_id in submitted_lookup
+        if bool(_VISIBILITY_BY_ORDER_ID.get(int(order_id), {}).get("openOrder_seen"))
+    )
+    order_status_callback_count = sum(
+        1
+        for order_id in submitted_lookup
+        if bool(_VISIBILITY_BY_ORDER_ID.get(int(order_id), {}).get("orderStatus_seen"))
+    )
+    print("[IBKR][CALLBACK_SUMMARY]")
+    print(f"openOrder={open_order_callback_count}")
+    print(f"orderStatus={order_status_callback_count}")
+    if open_order_callback_count == 0 and order_status_callback_count == 0:
+        print("[CRITICAL][IBKR_NO_ORDER_ACKNOWLEDGEMENT]")
+        print("reason=POSSIBLE_PLACEORDER_FAILURE_OR_SESSION_ISSUE")
+        print("possible_causes:")
+        print("- TWS not accepting orders")
+        print("- API permissions disabled")
+        print("- wrong account")
+        print("- client_id conflict")
+        print("- IB Gateway/TWS mismatch")
     if not broker_truth_confirmed:
         print(f"[BROKER_TRUTH][ESCALATION_LEVEL=4] phase=FORCED_RESYNC submitted_order_ids={sorted(submitted_lookup)}")
+        req_open_orders = getattr(client, "reqOpenOrders", None)
+        if callable(req_open_orders):
+            req_open_orders()
+        req_all_open_orders = getattr(client, "reqAllOpenOrders", None)
+        if callable(req_all_open_orders):
+            req_all_open_orders()
+        req_executions = getattr(client, "reqExecutions", None)
+        if callable(req_executions):
+            try:
+                from ibapi.execution import ExecutionFilter
+
+                req_id = int(time.time() * 1000) % 1_000_000_000
+                req_executions(req_id, ExecutionFilter())
+            except Exception:
+                print("[IBKR][SYNC_REQUEST][ERROR] executions_request_failed")
         _safe_list_call(client, "openOrders")
         _safe_list_call(client, "executions")
         _safe_list_call(client, "positions")
@@ -1021,6 +1093,10 @@ def _post_submission_ibkr_diagnostics(
     for order_id in submitted_order_ids:
         tracked = _RUNTIME_ORDERS.get(int(order_id))
         _log_visibility_matrix(int(order_id), tracked.symbol if tracked is not None else "UNKNOWN")
+        print(
+            "[BROKER_TRUTH][CONFIRMATION_SOURCE] "
+            f"order_id={int(order_id)} source={_visibility_confirmation_source(int(order_id))}"
+        )
     if broker_truth_confirmed:
         _BROKER_TRUTH_CONFIRMATIONS += 1
         print(f"[BROKER_TRUTH][CONFIRMED] submitted_order_ids={sorted(submitted_lookup)}")
@@ -1057,6 +1133,17 @@ def _validate_ibkr_connection(mode: RunMode) -> None:
 
     manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
     metadata = manager.connection_metadata()
+    client = manager.get_client()
+    print("[IBKR][SESSION_VALIDATION]")
+    print(f"client_id={getattr(client, 'client_id', 'UNKNOWN')}")
+    print(f"connected={bool(getattr(client, 'isConnected', lambda: False)())}")
+    account = None
+    if hasattr(client, "get_primary_account"):
+        try:
+            account = client.get_primary_account()
+        except Exception:
+            account = None
+    print(f"account={account or 'UNKNOWN'}")
 
     connected = bool(metadata.get("connected", False))
     if not connected:
@@ -1090,6 +1177,11 @@ def _validate_ibkr_connection(mode: RunMode) -> None:
             "IBKR connected client id is invalid "
             f"mode={mode.value} base_client_id={configured_client_id} connected_client_id={connected_client_id}"
         )
+    if not bool(getattr(client, "isConnected", lambda: False)()):
+        raise RuntimeError("IBKR_SESSION_INVALID")
+    next_valid_id = getattr(client, "_next_valid_order_id", None)
+    if next_valid_id is None:
+        raise RuntimeError("IBKR_SESSION_INVALID")
 
 
 def _safe_price_value(value: Any) -> float | None:
@@ -1164,16 +1256,27 @@ def _submit_ibkr_order(
         _CONTRACT_VALIDATION_FAILURES += 1
         print(f"[IBKR][CONTRACT_VALIDATION][FAIL] symbol={symbol} reason=missing_conid")
         raise RuntimeError(f"CONTRACT_NOT_QUALIFIED:{symbol}")
-    print(
-        "[IBKR][CONTRACT] "
-        f"symbol={symbol} conId={con_id} exchange={getattr(resolved_contract, 'exchange', None)} "
-        f"primaryExchange={getattr(resolved_contract, 'primaryExchange', None)} currency={getattr(resolved_contract, 'currency', None)} "
-        f"secType={getattr(resolved_contract, 'secType', None)}"
-    )
+    exchange = getattr(resolved_contract, "exchange", None)
+    currency = getattr(resolved_contract, "currency", None)
+    primary_exchange = getattr(resolved_contract, "primaryExchange", None)
+    sec_type = getattr(resolved_contract, "secType", None)
+    print("[IBKR][CONTRACT_VALIDATION]")
+    print(f"symbol={symbol}")
+    print(f"conId={con_id}")
+    print(f"exchange={exchange}")
+    print(f"primaryExchange={primary_exchange}")
+    print(f"currency={currency}")
+    print(f"secType={sec_type}")
+    if not exchange or not currency:
+        _CONTRACT_VALIDATION_FAILURES += 1
+        raise RuntimeError("CONTRACT_NOT_QUALIFIED")
     print(f"[IBKR][CONTRACT_VALIDATION][OK] symbol={symbol} conId={con_id}")
     order = MarketOrder(side, int(quantity))
     order.orderRef = order_ref
     account = getattr(client, "get_primary_account", lambda: None)() if hasattr(client, "get_primary_account") else None
+    if account:
+        order.account = account
+        print(f"[IBKR][ACCOUNT_BINDING] account={account}")
     print(
         "[IBKR][PLACE_ORDER][START] "
         f"symbol={symbol} order_id=PENDING client_id={getattr(client, 'client_id', None)} account={account or 'UNKNOWN'} "
@@ -1184,6 +1287,17 @@ def _submit_ibkr_order(
     except Exception as exc:
         print(f"[IBKR][PLACE_ORDER][ERROR] symbol={symbol} order_id=PENDING error={exc}")
         raise
+    print("[IBKR][ORDER_DISPATCH_VERIFICATION]")
+    print(f"order_id={order_id} awaiting_acknowledgement")
+    wait_for_order_status = getattr(client, "wait_for_order_status", None)
+    if callable(wait_for_order_status):
+        try:
+            status = wait_for_order_status(order_id, timeout_seconds=5)
+        except TypeError:
+            status = wait_for_order_status(order_id, timeout=5)
+        if status is None:
+            print("[CRITICAL][IBKR_NO_ACK]")
+            print(f"order_id={order_id} no orderStatus within 5 seconds")
     print(f"[IBKR][PLACE_ORDER][SENT] symbol={symbol} order_id={order_id}")
     return order_id
 
