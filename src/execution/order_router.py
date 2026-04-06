@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import math
+import time
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
 from typing import Any, List
@@ -645,6 +646,55 @@ def _sync_submitted_events_from_ibkr(
     return events
 
 
+def _post_submission_ibkr_diagnostics(
+    *,
+    mode: RunMode,
+    manager: Any | None,
+    submitted_order_ids: list[int],
+) -> None:
+    if not submitted_order_ids:
+        return
+    if mode not in {RunMode.PAPER, RunMode.LIVE}:
+        return
+    if _is_explicit_test_mode():
+        return
+    if manager is None:
+        manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
+    client = manager.get_client()
+
+    open_orders = _safe_list_call(client, "openOrders")
+    print(f"[IBKR][OPEN_ORDERS] count={len(open_orders)}")
+    if len(open_orders) == 0:
+        print("[IBKR][WARNING] no_open_orders_after_submission")
+
+    executions = _safe_list_call(client, "executions")
+    print(f"[IBKR][EXEC_HISTORY] count={len(executions)}")
+    for execution_row in executions:
+        symbol = _extract_symbol_from_order(execution_row)
+        order_id = _extract_exec_order_id(execution_row)
+        shares = _extract_exec_qty(execution_row)
+        price = _extract_exec_price(execution_row)
+        print(
+            "[IBKR][EXEC_HISTORY] "
+            f"symbol={symbol or 'UNKNOWN'} order_id={order_id} shares={shares} price={price}"
+        )
+
+    deadline = time.time() + 5.0
+    observed_exec_details = False
+    submitted_lookup = {int(order_id) for order_id in submitted_order_ids}
+    while time.time() < deadline:
+        for order_id in submitted_lookup:
+            tracked = _RUNTIME_ORDERS.get(order_id)
+            if tracked is not None and tracked.seen_exec_ids:
+                observed_exec_details = True
+                break
+        if observed_exec_details:
+            break
+        time.sleep(0.1)
+    if not observed_exec_details:
+        print("[CRITICAL] IBKR_NO_FILL_CONFIRMATION")
+
+
 def _is_explicit_test_mode() -> bool:
     return str(os.environ.get("EXECUTION_ENV", "")).strip().upper() == "TEST"
 
@@ -754,6 +804,7 @@ def execute_intents(
         metadata = manager.connection_metadata()
         order_id_seed = int(metadata.get("connected_client_id") or 0) * 1_000_000
 
+    submitted_order_ids: list[int] = []
     for index, decision in enumerate(decisions, start=1):
         account = RouterAccountSnapshot(available_funds=float(decision.available_funds))
         order_value = float(decision.order_value)
@@ -869,6 +920,7 @@ def execute_intents(
         broker_order_id = None
         if action == "SUBMITTED":
             broker_order_id = order_id_seed + index if order_id_seed > 0 else index
+            submitted_order_ids.append(int(broker_order_id))
             print(f"[EXECUTION][SUBMITTED] symbol={decision.symbol} broker_order_id={broker_order_id}")
             _upsert_order_from_submission(
                 order_id=broker_order_id,
@@ -894,6 +946,7 @@ def execute_intents(
         )
     events, _ = _apply_callback_fills(events)
     events = _sync_submitted_events_from_ibkr(mode, events)
+    _post_submission_ibkr_diagnostics(mode=mode, manager=manager, submitted_order_ids=submitted_order_ids)
     if _FILL_AUTHORITY_STATE == "UNKNOWN":
         _FILL_AUTHORITY_STATE = "ACTIVE" if mode in {RunMode.PAPER, RunMode.LIVE} else "N/A"
     return events
