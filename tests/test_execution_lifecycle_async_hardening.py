@@ -1,3 +1,4 @@
+import itertools
 from types import SimpleNamespace
 import pytest
 
@@ -156,7 +157,7 @@ def test_post_submission_diagnostics_emit_required_markers(monkeypatch, capsys) 
     )
     client = SimpleNamespace(openOrders=lambda: [], executions=lambda: [])
     manager = SimpleNamespace(get_client=lambda: client)
-    times = iter([0.0, 6.0])
+    times = itertools.chain([0.0], itertools.repeat(6.0))
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
     monkeypatch.setattr(order_router.time, "time", lambda: next(times))
     monkeypatch.setattr(order_router.time, "sleep", lambda _seconds: None)
@@ -188,7 +189,7 @@ def test_post_submission_broker_truth_fatal_when_no_broker_visibility(monkeypatc
     )
     client = SimpleNamespace(openOrders=lambda: [], executions=lambda: [])
     manager = SimpleNamespace(get_client=lambda: client)
-    times = iter([0.0, 6.0])
+    times = itertools.chain([0.0], itertools.repeat(6.0))
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
     monkeypatch.setattr(order_router.time, "time", lambda: next(times))
     monkeypatch.setattr(order_router.time, "sleep", lambda _seconds: None)

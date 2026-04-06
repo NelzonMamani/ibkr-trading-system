@@ -95,7 +95,11 @@ def test_risk_sizing_uses_price_derived_quantity() -> None:
     assert decisions[0].approved_quantity != int(available_capital // entry_price)
 
 
-def test_executable_paper_cycle_does_not_skip_scan_only_and_no_readonly_rule(capsys) -> None:
+def test_executable_paper_cycle_does_not_skip_scan_only_and_no_readonly_rule(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.resolve_entry_price",
+        lambda *_args, **_kwargs: (100.0, "IBKR_SNAPSHOT"),
+    )
     set_config_overrides(
         {
             "RUN_MODE": "PAPER",
@@ -141,30 +145,30 @@ def test_price_authority_blocks_snapshot_last_for_paper() -> None:
     assert reason == "NO_IBKR_PRICE_AUTHORITY:SNAPSHOT_LAST"
 
 
-def test_price_authority_allows_fallback_price_for_sim() -> None:
+def test_price_authority_allows_scanner_price_for_sim() -> None:
     allowed, reason = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.SIM,
         session="REG",
         entry_price=100.0,
-        entry_price_source="FALLBACK_PRICE",
+        entry_price_source="SCANNER_LAST_PRICE",
         scanner_payload={},
     )
     assert allowed is True
-    assert reason == "NON_LIVE_PRICE_ALLOWED"
+    assert reason == "SIM_MODE_PRICE_ALLOWED"
 
 
-def test_price_authority_allows_derived_last_for_sim() -> None:
+def test_price_authority_allows_prep_reference_price_for_sim() -> None:
     allowed, reason = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.SIM,
         session="REG",
         entry_price=100.0,
-        entry_price_source="DERIVED_LAST",
+        entry_price_source="PREP_REFERENCE_PRICE",
         scanner_payload={},
     )
     assert allowed is True
-    assert reason == "NON_LIVE_PRICE_ALLOWED"
+    assert reason == "SIM_MODE_PRICE_ALLOWED"
 
 
 def test_price_authority_blocks_unknown_source_for_paper() -> None:
@@ -193,7 +197,11 @@ def test_price_authority_blocks_noncanonical_for_live() -> None:
     assert reason == "NO_IBKR_PRICE_AUTHORITY:SCANNER_LAST_PRICE"
 
 
-def test_after_hours_preserves_paper_mode_for_lifecycle_validation(capsys) -> None:
+def test_after_hours_preserves_paper_mode_for_lifecycle_validation(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.resolve_entry_price",
+        lambda *_args, **_kwargs: (100.0, "IBKR_SNAPSHOT"),
+    )
     set_config_overrides(
         {
             "RUN_MODE": "PAPER",
@@ -213,7 +221,11 @@ def test_after_hours_preserves_paper_mode_for_lifecycle_validation(capsys) -> No
     assert "effective_mode=PAPER trade_enabled=True scan_only=False" in out
 
 
-def test_execution_context_always_emitted_when_scan_only(capsys) -> None:
+def test_execution_context_always_emitted_when_scan_only(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.resolve_entry_price",
+        lambda *_args, **_kwargs: (100.0, "IBKR_SNAPSHOT"),
+    )
     set_config_overrides(
         {
             "RUN_MODE": "PAPER",
