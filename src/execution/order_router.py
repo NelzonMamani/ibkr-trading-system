@@ -453,7 +453,9 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         remaining_int = int(float(remaining_qty)) if remaining_qty is not None else 0
     except (TypeError, ValueError):
         remaining_int = 0
-    if event_type == "orderstatus" and filled_qty > 0 and remaining_int > 0:
+    if event_type == "execdetails":
+        fill_event_type = "ORDER_FILLED"
+    elif event_type == "orderstatus" and filled_qty > 0 and remaining_int > 0:
         fill_event_type = "ORDER_PARTIALLY_FILLED"
     else:
         fill_event_type = "ORDER_FILLED" if filled_qty > 0 else "ORDER_WORKING"
