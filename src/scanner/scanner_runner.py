@@ -777,6 +777,67 @@ def _apply_degraded_contract(context: Dict[str, Any]) -> None:
     context["eligibility_reason_codes"] = list(dict.fromkeys(reason_codes))
 
 
+def _compute_quote_validity_contract(context: Dict[str, Any]) -> Dict[str, Any]:
+    session = normalize_session_label(str(context.get("session") or ""))
+    has_valid_last = _safe_float(context.get("last_price"), None) is not None
+    has_pct_change = _safe_float(context.get("pct_change"), None) is not None
+
+    scanner_valid = bool(context.get("watchlist_eligible", True))
+    if session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"}:
+        if not (has_valid_last or has_pct_change):
+            scanner_valid = False
+
+    momentum_valid = bool(context.get("focus_eligible", False)) and scanner_valid
+    execution_valid = bool(context.get("execution_eligible", False)) and momentum_valid
+    if execution_valid:
+        scanner_quote_policy = "EXECUTION_STRICT"
+    elif momentum_valid:
+        scanner_quote_policy = "MOMENTUM_ONLY"
+    elif scanner_valid:
+        scanner_quote_policy = "SCANNER_ONLY"
+    else:
+        scanner_quote_policy = "INVALID"
+
+    integrity_state = str(context.get("quote_integrity_state") or "").strip()
+    if not integrity_state:
+        integrity_state = "VALID" if has_valid_last else "INVALID"
+
+    return {
+        "quote_valid_for_scanner": bool(scanner_valid),
+        "quote_valid_for_momentum": bool(momentum_valid),
+        "quote_valid_for_execution": bool(execution_valid),
+        "quote_integrity_state": integrity_state,
+        "scanner_quote_policy": scanner_quote_policy,
+    }
+
+
+def _apply_quote_contract(context: Dict[str, Any], quote_contract: Dict[str, Any]) -> None:
+    existing_integrity_state = context.get("quote_integrity_state")
+    if existing_integrity_state:
+        context["quote_integrity_state"] = existing_integrity_state
+    else:
+        context["quote_integrity_state"] = quote_contract["quote_integrity_state"]
+
+    context["quote_usability_state"] = (
+        "EXECUTION_OK"
+        if quote_contract["quote_valid_for_execution"]
+        else "MOMENTUM_OK"
+        if quote_contract["quote_valid_for_momentum"]
+        else "SCANNER_ONLY"
+        if quote_contract["quote_valid_for_scanner"]
+        else "INVALID"
+    )
+    print(
+        "[QUOTE_POLICY] "
+        f"symbol={context.get('symbol')} "
+        f"scanner_valid={quote_contract['quote_valid_for_scanner']} "
+        f"momentum_valid={quote_contract['quote_valid_for_momentum']} "
+        f"execution_valid={quote_contract['quote_valid_for_execution']} "
+        f"usability={context.get('quote_usability_state')} "
+        f"policy={quote_contract['scanner_quote_policy']}"
+    )
+
+
 def _resolve_price(quote) -> Optional[float]:
     if quote.last is not None:
         return float(quote.last)
@@ -1146,6 +1207,9 @@ def _populate_pct_change(
     context["reference_degraded"] = reference_snapshot.get("reference_degraded")
     context["reference_synthetic"] = reference_snapshot.get("reference_synthetic")
     _apply_degraded_contract(context)
+    quote_contract = context.get("quote_contract") or _compute_quote_validity_contract(context)
+    context["quote_contract"] = quote_contract
+    _apply_quote_contract(context, quote_contract)
     _emit_scanner_reference_trace("pct_payload_created", context)
     print(
         "[REFERENCE][RESULT] "
@@ -2259,6 +2323,7 @@ def _build_symbol_context(
         return None
 
     data_quality_flags = list(getattr(quote, "data_quality_flags", []) or [])
+    integrity_flags = list(getattr(quote, "integrity_flags", []) or [])
     if any("10197" in str(flag) for flag in data_quality_flags):
         if "MD_CONFLICT_10197" not in data_quality_flags:
             data_quality_flags.append("MD_CONFLICT_10197")
@@ -2533,11 +2598,19 @@ def _build_symbol_context(
         "ssr": None,
         "eligibility_reason_codes": [],
         "data_quality_flags": list(dict.fromkeys(data_quality_flags)),
+        "data_integrity_flags": list(dict.fromkeys(integrity_flags)),
+        "quote_integrity_state": (
+            getattr(quote, "quote_integrity_state", None)
+            or getattr(quote, "integrity_state", None)
+        ),
         "snapshot_timeout": snapshot_timeout,
         "universe_rank": universe_rank,
     }
     attach_session_contract(context, session_contract)
     _apply_degraded_contract(context)
+    quote_contract = _compute_quote_validity_contract(context)
+    context["quote_contract"] = quote_contract
+    _apply_quote_contract(context, quote_contract)
     _emit_scanner_reference_trace("final_context_build", context)
     return context
     
