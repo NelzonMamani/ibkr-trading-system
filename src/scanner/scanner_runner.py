@@ -778,15 +778,102 @@ def _apply_degraded_contract(context: Dict[str, Any]) -> None:
 
 
 def _resolve_price(quote) -> Optional[float]:
-    if quote.last is not None:
-        return float(quote.last)
-    if quote.bid is not None and quote.ask is not None:
-        return float(round((quote.bid + quote.ask) / 2.0, 4))
-    if quote.bid is not None:
-        return float(quote.bid)
-    if quote.ask is not None:
-        return float(quote.ask)
-    return None
+    last = _safe_float(getattr(quote, "last", None), None)
+    if last is None or last <= 0:
+        return None
+    return float(last)
+
+
+def _is_valid_positive(value: Any) -> bool:
+    resolved = _safe_float(value, None)
+    return bool(resolved is not None and resolved > 0)
+
+
+def _resolve_scanner_quote_policy(context: Dict[str, Any]) -> Dict[str, Any]:
+    session = normalize_session_label(str(context.get("session") or ""))
+    calendar_session = normalize_session_label(str(context.get("calendar_session") or ""))
+
+    if session in {"PRE", "OVN", "WEEKEND", "CLOSED"}:
+        return {
+            "scanner_quote_policy": "REFERENCE_ONLY_CONTEXT_ALLOWED",
+            "degraded_scanner_allowed": True,
+        }
+    if calendar_session in {"OVN", "WEEKEND", "CLOSED"}:
+        return {
+            "scanner_quote_policy": "REFERENCE_ONLY_CONTEXT_ALLOWED",
+            "degraded_scanner_allowed": True,
+        }
+    if session == "AH":
+        return {
+            "scanner_quote_policy": "SCANNER_DEGRADED_ALLOWED",
+            "degraded_scanner_allowed": True,
+        }
+    return {
+        "scanner_quote_policy": "MOMENTUM_STRICT_LAST_REQUIRED",
+        "degraded_scanner_allowed": False,
+    }
+
+
+def _infer_scanner_quote_validity_from_context(context: Dict[str, Any], *, degraded_scanner_allowed: bool) -> bool:
+    if _is_valid_positive(context.get("last_price")):
+        return True
+    if _safe_float(context.get("pct_change"), None) is not None:
+        return True
+    if _is_valid_positive(context.get("bid")) and _is_valid_positive(context.get("ask")):
+        return True
+    if degraded_scanner_allowed:
+        return True
+    return False
+
+
+def _compute_quote_validity_contract(context: Dict[str, Any]) -> Dict[str, Any]:
+    policy = _resolve_scanner_quote_policy(context)
+    degraded_scanner_allowed = bool(policy["degraded_scanner_allowed"])
+
+    has_valid_last = _is_valid_positive(context.get("last_price"))
+    has_valid_bid = _is_valid_positive(context.get("bid"))
+    has_valid_ask = _is_valid_positive(context.get("ask"))
+    reference_price = context.get("reference_price")
+    if reference_price is None:
+        reference_price = context.get("prev_close")
+    if reference_price is None:
+        reference_price = context.get("ref_close_rth")
+    has_valid_reference = _is_valid_positive(reference_price)
+
+    explicit_scanner_valid = context.get("quote_valid_for_scanner")
+    if isinstance(explicit_scanner_valid, bool):
+        scanner_valid = explicit_scanner_valid
+    else:
+        scanner_valid = _infer_scanner_quote_validity_from_context(
+            context,
+            degraded_scanner_allowed=degraded_scanner_allowed,
+        )
+
+    momentum_valid = has_valid_last and has_valid_reference
+    execution_valid = has_valid_last and has_valid_bid and has_valid_ask
+
+    degraded_reason_codes: list[str] = []
+    if not has_valid_last:
+        degraded_reason_codes.append("INVALID_LAST")
+    if not has_valid_reference:
+        degraded_reason_codes.append("INVALID_REFERENCE_PRICE")
+    if not (has_valid_bid and has_valid_ask):
+        degraded_reason_codes.append("INVALID_TOP_OF_BOOK")
+    if not scanner_valid:
+        degraded_reason_codes.append("SCANNER_QUOTE_INSUFFICIENT")
+
+    return {
+        "quote_valid_for_scanner": bool(scanner_valid),
+        "quote_valid_for_momentum": bool(momentum_valid),
+        "quote_valid_for_execution": bool(execution_valid),
+        "current_quote_available": bool(has_valid_last),
+        "pct_change_available": bool(_safe_float(context.get("pct_change"), None) is not None),
+        "spread_available": bool(_safe_float(context.get("spread_pct"), None) is not None),
+        "scanner_quote_policy": policy["scanner_quote_policy"],
+        "degraded_scanner_allowed": degraded_scanner_allowed,
+        "degraded_reason_codes": degraded_reason_codes,
+        "quote_integrity_state": "VALID" if execution_valid else ("DEGRADED" if scanner_valid else "INVALID"),
+    }
 
 
 def _spread_values(quote) -> tuple[Optional[float], Optional[float]]:
@@ -1275,6 +1362,40 @@ def _evaluate_watchlist_gates(
     context: Dict[str, Any],
     thresholds: GateThresholds,
 ) -> Optional[str]:
+    quote_contract = _compute_quote_validity_contract(context)
+    for key, value in quote_contract.items():
+        if key == "degraded_reason_codes":
+            continue
+        context.setdefault(key, value)
+    if "quote_integrity_state" not in context:
+        context["quote_integrity_state"] = quote_contract["quote_integrity_state"]
+
+    print(
+        "[QUOTE_POLICY] "
+        f"symbol={context.get('symbol')} session={normalize_session_label(str(context.get('session') or ''))} "
+        f"scanner_valid={quote_contract['quote_valid_for_scanner']} "
+        f"momentum_valid={quote_contract['quote_valid_for_momentum']} "
+        f"execution_valid={quote_contract['quote_valid_for_execution']} "
+        f"policy={quote_contract['scanner_quote_policy']}"
+    )
+    if quote_contract["degraded_reason_codes"] and quote_contract["degraded_scanner_allowed"]:
+        for reason in quote_contract["degraded_reason_codes"]:
+            print(f"[QUOTE_POLICY][DEGRADED] symbol={context.get('symbol')} reason={reason}")
+
+    if not quote_contract["quote_valid_for_scanner"] and not quote_contract["degraded_scanner_allowed"]:
+        print(
+            "[SCANNER][DQ] "
+            f"symbol={context.get('symbol')} reason=DROP_INVALID_QUOTE policy={quote_contract['scanner_quote_policy']}"
+        )
+        return "DROP_INVALID_QUOTE"
+
+    if quote_contract["degraded_scanner_allowed"] and not quote_contract["quote_valid_for_momentum"]:
+        context.setdefault("eligibility_reason_codes", []).append("DEGRADED_QUOTE_ALLOWED")
+        print(
+            "[SCANNER][DQ] "
+            f"symbol={context.get('symbol')} reason=DEGRADED_QUOTE_ALLOWED policy={quote_contract['scanner_quote_policy']}"
+        )
+
     _evaluate_float_gate(context, thresholds)
     pct_change = _safe_float(context.get("pct_change"), None)
     session = normalize_session_label(str(context.get("session") or ""))
@@ -2533,9 +2654,23 @@ def _build_symbol_context(
         "ssr": None,
         "eligibility_reason_codes": [],
         "data_quality_flags": list(dict.fromkeys(data_quality_flags)),
+        "data_integrity_flags": list(dict.fromkeys(data_quality_flags)),
         "snapshot_timeout": snapshot_timeout,
         "universe_rank": universe_rank,
     }
+    quote_contract = _compute_quote_validity_contract(context)
+    context.update({
+        "quote_valid_for_scanner": quote_contract["quote_valid_for_scanner"],
+        "quote_valid_for_momentum": quote_contract["quote_valid_for_momentum"],
+        "quote_valid_for_execution": quote_contract["quote_valid_for_execution"],
+        "current_quote_available": quote_contract["current_quote_available"],
+        "pct_change_available": quote_contract["pct_change_available"],
+        "spread_available": quote_contract["spread_available"],
+        "scanner_quote_policy": quote_contract["scanner_quote_policy"],
+        "quote_integrity_state": quote_contract["quote_integrity_state"],
+    })
+    if quote_contract["degraded_reason_codes"]:
+        context["quote_degraded_reason_codes"] = quote_contract["degraded_reason_codes"]
     attach_session_contract(context, session_contract)
     _apply_degraded_contract(context)
     _emit_scanner_reference_trace("final_context_build", context)

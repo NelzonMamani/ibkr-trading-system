@@ -2399,7 +2399,7 @@ class CoreOrchestrator:
             strategy_inputs=strategy_inputs,
             now_utc=cycle_started_at,
         )
-        if tha_decisions:
+        if tha_decisions and self.execution_enabled:
             allowed_by_tha = {
                 symbol for symbol, decision in tha_decisions.items() if bool(getattr(decision, "allow_entries", False))
             }
