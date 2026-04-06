@@ -738,6 +738,11 @@ def execute_intents(
                     print("[EXECUTION][FILL_AUTHORITY_DEGRADED] reason=execution_callback_unavailable")
 
     broker_state = "CONNECTED" if mode in {RunMode.PAPER, RunMode.LIVE} else "DISCONNECTED"
+    execution_enabled = mode in {RunMode.PAPER, RunMode.LIVE}
+    print(
+        "[EXECUTION][MODE] "
+        f"mode={mode.value} execution_enabled={str(execution_enabled).lower()} ibkr_connected={str(broker_state == 'CONNECTED').lower()}"
+    )
     print(f"[EXECUTION][MODE] mode={mode.value} broker_connection_state={broker_state}")
     open_orders, _executions, positions = _normalize_ibkr_truth(_fetch_ibkr_truth(mode))
     has_working_order_recon = hasattr(open_orders, "__iter__")
@@ -878,6 +883,15 @@ def execute_intents(
         print(f"[EXECUTION][DISPATCH] symbol={decision.symbol} dispatch={dispatch}")
         broker_order_id = None
         if action == "SUBMITTED":
+            con_id = getattr(decision, "contract_id", None) or "MISSING"
+            print(
+                "[EXECUTION][IBKR_CALL] "
+                f"symbol={decision.symbol} conId={con_id} qty={quantity} order_type=MKT tif=DAY"
+            )
+            print(
+                "[EXECUTION][IBKR_RESPONSE] "
+                f"symbol={decision.symbol} order_id=MISSING status=ERROR reason=PLACEORDER_NOT_CALLED"
+            )
             broker_order_id = order_id_seed + index if order_id_seed > 0 else index
             print(f"[EXECUTION][SUBMITTED] symbol={decision.symbol} broker_order_id={broker_order_id}")
             _upsert_order_from_submission(

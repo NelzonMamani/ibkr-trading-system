@@ -1200,6 +1200,11 @@ def run_cycle(
         )
         execution_candidates.append(decision)
 
+    print(
+        "[EXECUTION][ROUTING] "
+        f"intents_in={len(intents)} arbitrated={len(arbitrated_decisions)} execution_candidates={len(execution_candidates)}"
+    )
+
     if intents:
         execution_events = execute_intents(mode=mode, decisions=execution_candidates)
     else:
