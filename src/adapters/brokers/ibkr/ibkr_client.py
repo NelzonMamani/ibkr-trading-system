@@ -102,6 +102,9 @@ class IbkrClient(EWrapper, EClient):
         self._executions_event = threading.Event()
         self._positions_snapshot: Dict[str, object] = {}
         self._positions_event = threading.Event()
+        self._open_order_count = 0
+        self._order_status_count = 0
+        self._exec_details_count = 0
 
     def _order_id_state_path(self) -> Path:
         return Path(os.environ.get("IBKR_ORDER_ID_STATE_PATH", Path.home() / ".ibkr_order_id_state.json"))
@@ -167,12 +170,33 @@ class IbkrClient(EWrapper, EClient):
         if not self._connection_event.wait(timeout=self.snapshot_timeout_seconds):
             self.disconnect()
             raise RuntimeError("IBKR connection timeout waiting for handshake")
+        print(f"[IBKR][CONNECTION_READY] client_id={self.client_id}")
+        self._verify_callback_wiring()
 
         data_type_code = _market_data_type_code(self.market_data_type)
         print(f"[IBKR] Setting market data type={self.market_data_type} code={data_type_code}")
         self.reqMarketDataType(data_type_code)
         print(f"[IBKR] connection_status={self.isConnected()}")
         print(f"[IBKR][CONNECTED] Connected client_id={self.client_id}")
+
+    def _verify_callback_wiring(self) -> None:
+        callback_names = ("openOrder", "orderStatus", "execDetails")
+        readiness: Dict[str, str] = {}
+        for callback_name in callback_names:
+            callback = getattr(self, callback_name, None)
+            class_impl = getattr(type(self), callback_name, None)
+            base_impl = getattr(EWrapper, callback_name, None)
+            is_override = callable(class_impl) and class_impl is not base_impl
+            if callable(callback) and is_override:
+                readiness[callback_name] = "READY"
+                continue
+            raise RuntimeError("IBKR_CALLBACKS_NOT_REGISTERED")
+        print(
+            "[IBKR][CALLBACK_WIRING] "
+            f"openOrder={readiness['openOrder']} "
+            f"orderStatus={readiness['orderStatus']} "
+            f"execDetails={readiness['execDetails']}"
+        )
 
     def disconnect(self) -> None:  # type: ignore[override]
         print(f"[IBKR] Disconnecting client_id={self.client_id}")
@@ -295,16 +319,23 @@ class IbkrClient(EWrapper, EClient):
         )
         try:
             self.placeOrder(order_id, contract, order)
+            print(f"[IBKR][PLACE_ORDER_CONFIRMED] order_id={order_id}")
         except Exception as exc:
             print(f"[IBKR][PLACE_ORDER][ERROR] symbol={getattr(contract, 'symbol', None)} order_id={order_id} error={exc}")
             raise
         return order_id
 
     def wait_for_order_status(
-        self, order_id: int, timeout_seconds: int
+        self,
+        order_id: int,
+        timeout_seconds: Optional[int] = None,
+        timeout: Optional[int] = None,
     ) -> Optional[Dict[str, Optional[float | int | str]]]:
         event = self._order_status_events.setdefault(order_id, threading.Event())
-        event.wait(timeout=timeout_seconds)
+        resolved_timeout = timeout if timeout is not None else timeout_seconds
+        if resolved_timeout is None:
+            resolved_timeout = self.snapshot_timeout_seconds
+        event.wait(timeout=resolved_timeout)
         return self._order_status.get(order_id)
 
     def commission_for_order(self, order_id: int) -> Optional[float]:
@@ -959,6 +990,7 @@ class IbkrClient(EWrapper, EClient):
         whyHeld: str,
         mktCapPrice: float,
     ):  # type: ignore[override]
+        self._order_status_count += 1
         print(
             "[IBKR][CALLBACK_RAW] "
             f"event=orderStatus order_id={orderId} status={status} filled={filled} remaining={remaining}"
@@ -1009,6 +1041,7 @@ class IbkrClient(EWrapper, EClient):
 
     def execDetails(self, reqId, contract, execution):  # type: ignore[override]
         self._ensure_order_state_registry()
+        self._exec_details_count += 1
         print(
             "[IBKR][CALLBACK_RAW] "
             f"event=execDetails order_id={getattr(execution, 'orderId', None)} "
@@ -1063,6 +1096,7 @@ class IbkrClient(EWrapper, EClient):
 
     def openOrder(self, orderId, contract, order, orderState):  # type: ignore[override]
         self._ensure_order_state_registry()
+        self._open_order_count += 1
         print(f"[ORDER][OPEN] order_id={orderId} symbol={getattr(contract, 'symbol', None)}")
         print(
             "[IBKR][CALLBACK_RAW] "

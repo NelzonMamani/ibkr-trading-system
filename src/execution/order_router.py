@@ -1021,6 +1021,21 @@ def _post_submission_ibkr_diagnostics(
     for order_id in submitted_order_ids:
         tracked = _RUNTIME_ORDERS.get(int(order_id))
         _log_visibility_matrix(int(order_id), tracked.symbol if tracked is not None else "UNKNOWN")
+    open_order_count = int(getattr(client, "_open_order_count", 0) or 0)
+    order_status_count = int(getattr(client, "_order_status_count", 0) or 0)
+    exec_details_count = int(getattr(client, "_exec_details_count", 0) or 0)
+    print("[IBKR][CALLBACK_SUMMARY]")
+    print(f"openOrder={open_order_count}")
+    print(f"orderStatus={order_status_count}")
+    print(f"execDetails={exec_details_count}")
+    if open_order_count == 0 and order_status_count == 0:
+        print("[CRITICAL][IBKR_NO_ORDER_ACKNOWLEDGEMENT]")
+        print("reason=POSSIBLE_PLACEORDER_FAILURE_OR_SESSION_ISSUE")
+    elif order_status_count > 0 and open_order_count == 0:
+        print("[WARNING][IBKR_PARTIAL_CALLBACK]")
+        print("reason=MISSING_OPEN_ORDER")
+    elif open_order_count > 0 and order_status_count > 0 and exec_details_count == 0:
+        print("[INFO][IBKR_ORDER_WORKING_NO_FILL]")
     if broker_truth_confirmed:
         _BROKER_TRUTH_CONFIRMATIONS += 1
         print(f"[BROKER_TRUTH][CONFIRMED] submitted_order_ids={sorted(submitted_lookup)}")
@@ -1174,6 +1189,11 @@ def _submit_ibkr_order(
     order = MarketOrder(side, int(quantity))
     order.orderRef = order_ref
     account = getattr(client, "get_primary_account", lambda: None)() if hasattr(client, "get_primary_account") else None
+    print("[IBKR][SESSION]")
+    print(f"client_id={getattr(client, 'client_id', None)}")
+    print(f"account={account or 'UNKNOWN'}")
+    print(f"host={getattr(client, 'host', None)}")
+    print(f"port={getattr(client, 'port', None)}")
     print(
         "[IBKR][PLACE_ORDER][START] "
         f"symbol={symbol} order_id=PENDING client_id={getattr(client, 'client_id', None)} account={account or 'UNKNOWN'} "
@@ -1185,6 +1205,24 @@ def _submit_ibkr_order(
         print(f"[IBKR][PLACE_ORDER][ERROR] symbol={symbol} order_id=PENDING error={exc}")
         raise
     print(f"[IBKR][PLACE_ORDER][SENT] symbol={symbol} order_id={order_id}")
+    status_received = None
+    if hasattr(client, "wait_for_order_status"):
+        status_received = client.wait_for_order_status(order_id, timeout=5)
+    if not status_received:
+        print(f"[IBKR][NO_ORDER_STATUS] order_id={order_id} timeout=5s")
+    print("[IBKR][SYNC_REQUEST] type=open_orders")
+    client.reqOpenOrders()
+    client.reqAllOpenOrders()
+    print("[IBKR][SYNC_REQUEST] type=executions")
+    try:
+        from ibapi.execution import ExecutionFilter
+
+        req_id = client._next_req_id() if hasattr(client, "_next_req_id") else int(time.time() * 1000) % 1000000
+        if hasattr(client, "_register_request"):
+            client._register_request(req_id, "EXECUTIONS")
+        client.reqExecutions(req_id, ExecutionFilter())
+    except Exception as exc:
+        print(f"[IBKR][SYNC_REQUEST][ERROR] type=executions reason={exc}")
     return order_id
 
 
