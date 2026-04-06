@@ -1173,7 +1173,7 @@ def run_cycle(
             f"trigger_type={symbol_trigger_type.get(decision.symbol, 'NONE')}"
         )
         if execution_skipped:
-            print(f"[EXECUTION][PRECHECK] symbol={decision.symbol} passed=false reason=SCAN_ONLY_OR_DISABLED")
+            print(f"[EXECUTION][PRECHECK] symbol={decision.symbol} allowed=false reason=SCAN_ONLY_OR_DISABLED")
             print(f"[EXECUTION][SKIPPED] symbol={decision.symbol} reason=SCAN_ONLY_OR_DISABLED")
             blocked_candidates.append(
                 ExecutionEvent(
@@ -1202,7 +1202,7 @@ def run_cycle(
             reason = "DATA_QUALITY_DEGRADED"
             print("[EXECUTION_BLOCK][DATA_QUALITY] status=DEGRADED")
             if mode == RunMode.LIVE:
-                print(f"[EXECUTION][PRECHECK] symbol={decision.symbol} passed=false reason={reason}")
+                print(f"[EXECUTION][PRECHECK] symbol={decision.symbol} allowed=false reason={reason}")
                 print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason={reason}")
                 blocked_candidates.append(
                     ExecutionEvent(
@@ -1250,7 +1250,7 @@ def run_cycle(
             f"scan_only={mode_authority.scan_only} eligible={eligible}"
         )
         print(
-            f"[EXECUTION][PRECHECK] symbol={decision.symbol} passed={str(eligible).lower()} "
+            f"[EXECUTION][PRECHECK] symbol={decision.symbol} allowed={str(eligible).lower()} "
             f"reason={'PRECHECK_PASS' if eligible else 'EXECUTION_GATES_NOT_SATISFIED'}"
         )
         if not eligible:
