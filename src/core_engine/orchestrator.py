@@ -1201,31 +1201,36 @@ def run_cycle(
         if mode in {RunMode.PAPER, RunMode.LIVE} and health_status == HealthStatus.DEGRADED:
             reason = "DATA_QUALITY_DEGRADED"
             print("[EXECUTION_BLOCK][DATA_QUALITY] status=DEGRADED")
-            print(f"[EXECUTION][PRECHECK] symbol={decision.symbol} passed=false reason={reason}")
-            print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason={reason}")
-            blocked_candidates.append(
-                ExecutionEvent(
-                    symbol=decision.symbol,
-                    intent_id=decision.intent_id,
-                    action="BLOCKED",
-                    detail=f"reason={reason}",
+            if mode == RunMode.LIVE:
+                print(f"[EXECUTION][PRECHECK] symbol={decision.symbol} passed=false reason={reason}")
+                print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason={reason}")
+                blocked_candidates.append(
+                    ExecutionEvent(
+                        symbol=decision.symbol,
+                        intent_id=decision.intent_id,
+                        action="BLOCKED",
+                        detail=f"reason={reason}",
+                    )
                 )
+                pipeline_outcomes[decision.symbol] = TERMINAL_STATES["BLOCKED_BY_EXECUTION_PRECHECK"]
+                _pipeline_stage_log(
+                    stage="EXECUTION",
+                    symbol=decision.symbol,
+                    strategy=strategy_name,
+                    mode=mode.value,
+                    session=session.value,
+                    outcome="BLOCK",
+                    reason_code=reason,
+                )
+                first_blocker_by_symbol.setdefault(decision.symbol, "EXECUTION_PRECHECK_FAIL")
+                first_blocker_reason_by_symbol.setdefault(decision.symbol, reason)
+                decision_waterfall[decision.symbol]["execution"] = "REJECTED"
+                decision_waterfall[decision.symbol]["execution_reason"] = reason
+                continue
+            print(
+                f"[EXECUTION][WARNING] symbol={decision.symbol} "
+                "data_quality=DEGRADED action=ALLOW_PAPER_EXECUTION"
             )
-            pipeline_outcomes[decision.symbol] = TERMINAL_STATES["BLOCKED_BY_EXECUTION_PRECHECK"]
-            _pipeline_stage_log(
-                stage="EXECUTION",
-                symbol=decision.symbol,
-                strategy=strategy_name,
-                mode=mode.value,
-                session=session.value,
-                outcome="BLOCK",
-                reason_code=reason,
-            )
-            first_blocker_by_symbol.setdefault(decision.symbol, "EXECUTION_PRECHECK_FAIL")
-            first_blocker_reason_by_symbol.setdefault(decision.symbol, reason)
-            decision_waterfall[decision.symbol]["execution"] = "REJECTED"
-            decision_waterfall[decision.symbol]["execution_reason"] = reason
-            continue
         execution_candidate_ready = decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}
         eligible = (
             mode == RunMode.PAPER
