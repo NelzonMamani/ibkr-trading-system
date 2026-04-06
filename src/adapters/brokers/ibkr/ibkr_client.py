@@ -913,6 +913,13 @@ class IbkrClient(EWrapper, EClient):
         whyHeld: str,
         mktCapPrice: float,
     ):  # type: ignore[override]
+        print(
+            "[IBKR][ORDER_STATUS] "
+            f"order_id={orderId} "
+            f"status={status} "
+            f"filled={filled} "
+            f"remaining={remaining}"
+        )
         self._ensure_order_state_registry()
         existing = self._order_status.get(orderId, {})
         self._order_status[orderId] = {
@@ -952,6 +959,14 @@ class IbkrClient(EWrapper, EClient):
 
     def execDetails(self, reqId, contract, execution):  # type: ignore[override]
         self._ensure_order_state_registry()
+        print(
+            "[IBKR][EXEC_DETAILS] "
+            f"symbol={getattr(contract, 'symbol', None)} "
+            f"exec_id={getattr(execution, 'execId', None)} "
+            f"order_id={getattr(execution, 'orderId', None)} "
+            f"shares={getattr(execution, 'shares', None)} "
+            f"price={getattr(execution, 'price', None)}"
+        )
         order_id = getattr(execution, "orderId", None)
         if order_id is None:
             return
