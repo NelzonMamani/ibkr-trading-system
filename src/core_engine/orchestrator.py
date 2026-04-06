@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from dataclasses import dataclass, replace
+import time
 from typing import List
 from zoneinfo import ZoneInfo
 
+from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
 from src.config.config_resolver import get_config
 from src.core_engine.bootstrap import resolve_mode
 from src.core_engine.events import (
@@ -34,6 +36,7 @@ from src.prep.premarket_prep_artifact import (
 from src.risk.risk_audit import AccountSnapshot, evaluate_trade_intents
 from src.utils.capital_resolver import resolve_available_capital
 from src.runtime.bootstrap import bootstrap_runtime
+from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 from src.scanner.contracts import StockSelectionPolicy
 from src.scanner.scanner_contract import scanner_request_from_policy
 from src.scanner.scanner_runner import run_scanner_cycle
@@ -187,6 +190,18 @@ def _enforce_canonical_price_authority(
 ) -> PriceAuthorityVerdict:
     normalized_source = _normalize_price_source_label(entry_price_source)
     if mode in {RunMode.PAPER, RunMode.LIVE}:
+        timeout_fallback_symbols = scanner_payload.get("ibkr_timeout_fallback_symbols", set())
+        if (
+            mode == RunMode.PAPER
+            and normalized_source == "SCANNER_LAST_PRICE"
+            and symbol in timeout_fallback_symbols
+        ):
+            return PriceAuthorityVerdict(
+                allowed=True,
+                reason="PAPER_IBKR_TIMEOUT_FALLBACK",
+                normalized_source=normalized_source,
+                reason_code="PAPER_IBKR_TIMEOUT_FALLBACK",
+            )
         if normalized_source not in _CANONICAL_PRICE_SOURCES:
             print(f"[PRICE][AUTHORITY_VIOLATION] symbol={symbol} mode={mode.value} source={normalized_source} action=BLOCK")
             return PriceAuthorityVerdict(
@@ -216,6 +231,97 @@ def _enforce_canonical_price_authority(
         normalized_source=normalized_source,
         reason_code=f"NO_IBKR_PRICE_AUTHORITY:{normalized_source}",
     )
+
+
+def _safe_price_value(value):
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
+
+
+def _build_ibkr_snapshot_cache(scanner_payload: dict) -> tuple[dict[str, dict[str, float | None]], dict[str, float]]:
+    ibkr_snapshot_by_symbol: dict[str, dict[str, float | None]] = {}
+    scanner_last_price_by_symbol: dict[str, float] = {}
+    for key in ("focus_m", "watchlist_k", "candidates"):
+        rows = scanner_payload.get(key) or []
+        for row in rows:
+            if isinstance(row, dict):
+                row_symbol = str(row.get("symbol") or "").upper()
+                last_price = row.get("snapshot_last_price")
+                bid = row.get("snapshot_bid")
+                ask = row.get("snapshot_ask")
+                scanner_last = row.get("last_price")
+            else:
+                row_symbol = str(getattr(row, "symbol", "") or "").upper()
+                last_price = getattr(row, "snapshot_last_price", None)
+                bid = getattr(row, "snapshot_bid", None)
+                ask = getattr(row, "snapshot_ask", None)
+                scanner_last = getattr(row, "last_price", None)
+            if not row_symbol:
+                continue
+            ibkr_snapshot_by_symbol[row_symbol] = {"last": last_price, "bid": bid, "ask": ask}
+            safe_scanner_last = _safe_price_value(scanner_last)
+            if safe_scanner_last is not None:
+                scanner_last_price_by_symbol[row_symbol] = safe_scanner_last
+    return ibkr_snapshot_by_symbol, scanner_last_price_by_symbol
+
+
+def _wait_for_ibkr_snapshot_for_symbol(
+    *,
+    symbol: str,
+    ibkr_snapshot_by_symbol: dict[str, dict[str, float | None]],
+    wait_up_to: float = 1.0,
+    poll_interval: float = 0.1,
+) -> bool:
+    normalized_symbol = str(symbol or "").upper().strip()
+    if not normalized_symbol:
+        return False
+    existing = ibkr_snapshot_by_symbol.get(normalized_symbol, {})
+    if _safe_price_value(existing.get("last")) is not None:
+        return True
+    if _safe_price_value(existing.get("bid")) is not None and _safe_price_value(existing.get("ask")) is not None:
+        return True
+
+    print(f"[IBKR][SNAPSHOT_REQUEST] symbol={normalized_symbol}")
+    try:
+        manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
+        ib = manager.get_client()
+        _, Stock, _ = safe_import_ib_insync()
+        contract = Stock(normalized_symbol, "SMART", "USD")
+        ticker = ib.reqMktData(contract, genericTickList="", snapshot=True, regulatorySnapshot=False)
+    except Exception as exc:
+        print(f"[PRICE][WAIT] symbol={normalized_symbol} reason=WAITING_FOR_IBKR request_error={exc}")
+        return False
+
+    resolved = False
+    poll_count = max(1, int(wait_up_to / poll_interval))
+    try:
+        for _ in range(poll_count):
+            try:
+                ib.waitOnUpdate(timeout=poll_interval)
+            except Exception:
+                time.sleep(poll_interval)
+            last = _safe_price_value(getattr(ticker, "last", None))
+            bid = _safe_price_value(getattr(ticker, "bid", None))
+            ask = _safe_price_value(getattr(ticker, "ask", None))
+            ibkr_snapshot_by_symbol[normalized_symbol] = {"last": last, "bid": bid, "ask": ask}
+            if last is not None or (bid is not None and ask is not None):
+                print(f"[IBKR][SNAPSHOT_RECEIVED] symbol={normalized_symbol} last={last} bid={bid} ask={ask}")
+                resolved = True
+                break
+    finally:
+        try:
+            ib.cancelMktData(contract)
+        except Exception:
+            pass
+
+    if not resolved:
+        print(f"[PRICE][WAIT] symbol={normalized_symbol} reason=WAITING_FOR_IBKR")
+    return resolved
 
 
 def _resolve_live_available_funds(mode) -> AccountSnapshot:
@@ -698,7 +804,12 @@ def run_cycle(
     symbols_with_ibkr_price: set[str] = set()
     symbols_blocked_price_authority: set[str] = set()
     symbols_blocked_no_price: set[str] = set()
+    symbols_waiting_for_ibkr_snapshot: set[str] = set()
+    ibkr_timeout_fallback_symbols: set[str] = set()
     data_quality_flags = scanner_payload.get("data_quality_by_symbol", {})
+    ibkr_snapshot_by_symbol, scanner_last_price_by_symbol = _build_ibkr_snapshot_cache(scanner_payload)
+    ibkr_stream_by_symbol = {symbol: dict(snapshot) for symbol, snapshot in ibkr_snapshot_by_symbol.items()}
+    scanner_payload["ibkr_timeout_fallback_symbols"] = ibkr_timeout_fallback_symbols
     if any(data_quality_flags.values()):
         health_triggers.append((HealthStatus.DEGRADED, "data_quality"))
 
@@ -827,33 +938,6 @@ def run_cycle(
                         summary,
                     )
             try:
-                ibkr_snapshot_by_symbol = {}
-                ibkr_stream_by_symbol = {}
-                for key in ("focus_m", "watchlist_k", "candidates"):
-                    rows = scanner_payload.get(key) or []
-                    for row in rows:
-                        if isinstance(row, dict):
-                            row_symbol = str(row.get("symbol") or "").upper()
-                            last_price = row.get("snapshot_last_price")
-                            bid = row.get("snapshot_bid")
-                            ask = row.get("snapshot_ask")
-                        else:
-                            row_symbol = str(getattr(row, "symbol", "") or "").upper()
-                            last_price = getattr(row, "snapshot_last_price", None)
-                            bid = getattr(row, "snapshot_bid", None)
-                            ask = getattr(row, "snapshot_ask", None)
-                        if not row_symbol:
-                            continue
-                        ibkr_snapshot_by_symbol[row_symbol] = {
-                            "last": last_price,
-                            "bid": bid,
-                            "ask": ask,
-                        }
-                        ibkr_stream_by_symbol[row_symbol] = {
-                            "last": last_price,
-                            "bid": bid,
-                            "ask": ask,
-                        }
                 entry_price, entry_price_source = resolve_entry_price(
                     symbol,
                     {
@@ -866,33 +950,40 @@ def run_cycle(
                     f"resolved_price={entry_price} source={entry_price_source}"
                 )
             except PriceResolutionError as exc:
-                symbols_blocked_no_price.add(symbol)
-                missing_reason = str(exc.reason or "NO_IBKR_PRICE_AVAILABLE")
-                if str(exc.reason) == "NO_IBKR_PRICE_AVAILABLE":
-                    missing_reason = _diagnose_ibkr_snapshot_unavailability(symbol=symbol, scanner_payload=scanner_payload)
-                print(f"[PRICE][BLOCK] symbol={symbol} mode={mode.value} reason={missing_reason}")
-                print(f"[PIPELINE][BLOCK] symbol={symbol} reason=PRICE_AUTHORITY detail={missing_reason}")
-                print(f"[PIPELINE][INTENT] symbol={symbol} created=false reason=BLOCKED_BY_INVALID_INPUT")
-                print(
-                    "[ROSS][INTENT_RESULT] "
-                    f"symbol={symbol} strategy={strategy_name} mode={mode.value} session={session.value} "
-                    "outcome=NOT_CREATED reason=BLOCKED_BY_INVALID_INPUT"
+                _wait_for_ibkr_snapshot_for_symbol(
+                    symbol=symbol,
+                    ibkr_snapshot_by_symbol=ibkr_snapshot_by_symbol,
                 )
-                print(
-                    "[ROSS][BLOCKER] "
-                    f"symbol={symbol} blocker=TRIGGER_FIRED_NO_INTENT reason=BLOCKED_BY_INVALID_INPUT"
-                )
-                first_blocker_by_symbol.setdefault(symbol, "TRIGGER_FIRED_NO_INTENT")
-                first_blocker_reason_by_symbol.setdefault(symbol, "BLOCKED_BY_INVALID_INPUT")
-                decision_waterfall[symbol]["intent"] = "BLOCKED"
-                decision_waterfall[symbol]["intent_reason"] = "BLOCKED_BY_INVALID_INPUT"
-                if trigger_ready_now:
-                    pipeline_outcomes[symbol] = TERMINAL_STATES["TRIGGER_BLOCKED_BY_POLICY"]
-                    print(
-                        f"[DECISION][ERROR] TRIGGER_WITHOUT_INTENT symbol={symbol} "
-                        f"setup_family={setup_family} trigger_type={trigger_type} reason=BLOCKED_BY_INVALID_INPUT"
+                ibkr_stream_by_symbol[symbol] = dict(ibkr_snapshot_by_symbol.get(symbol, {}))
+                try:
+                    entry_price, entry_price_source = resolve_entry_price(
+                        symbol,
+                        {
+                            "ibkr_snapshot_by_symbol": ibkr_snapshot_by_symbol,
+                            "ibkr_stream_by_symbol": ibkr_stream_by_symbol,
+                        },
                     )
-                continue
+                    print(
+                        f"[PRICE][RESOLUTION] symbol={symbol} mode={mode.value} "
+                        f"resolved_price={entry_price} source={entry_price_source}"
+                    )
+                except PriceResolutionError:
+                    scanner_last_price = scanner_last_price_by_symbol.get(str(symbol or "").upper())
+                    if mode == RunMode.PAPER and scanner_last_price is not None:
+                        entry_price = scanner_last_price
+                        entry_price_source = "SCANNER_LAST_PRICE"
+                        ibkr_timeout_fallback_symbols.add(symbol)
+                        print(
+                            f"[PRICE][FALLBACK] symbol={symbol} source=SCANNER_LAST_PRICE "
+                            "reason=IBKR_TIMEOUT"
+                        )
+                    else:
+                        symbols_blocked_no_price.add(symbol)
+                        symbols_waiting_for_ibkr_snapshot.add(symbol)
+                        decision_waterfall[symbol]["intent"] = "WAITING_FOR_PRICE"
+                        decision_waterfall[symbol]["intent_reason"] = "WAITING_FOR_IBKR_SNAPSHOT"
+                        print(f"[PRICE][WAIT] symbol={symbol} reason=WAITING_FOR_IBKR_SNAPSHOT")
+                        continue
             authority_verdict = _enforce_canonical_price_authority(
                 symbol=symbol,
                 mode=mode,
@@ -1269,11 +1360,15 @@ def run_cycle(
         print(f"[EXECUTION][ORDER_BUILD] symbol={decision.symbol} passed=true order_type=MKT tif=DAY")
         if mode == RunMode.PAPER:
             intent_source = "UNKNOWN"
+            intent_symbol = str(decision.symbol or "").upper()
             for candidate_intent in intents:
                 if candidate_intent.intent_id == decision.intent_id:
                     intent_source = _normalize_price_source_label(candidate_intent.entry_price_source)
                     break
-            assert intent_source in _CANONICAL_PRICE_SOURCES, (
+            allow_timeout_fallback = (
+                intent_source == "SCANNER_LAST_PRICE" and intent_symbol in ibkr_timeout_fallback_symbols
+            )
+            assert intent_source in _CANONICAL_PRICE_SOURCES or allow_timeout_fallback, (
                 f"CRITICAL: NON-IBKR PRICE IN PAPER MODE: {intent_source}"
             )
         print(
