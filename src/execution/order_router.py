@@ -9,6 +9,8 @@ from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
 from typing import Any, List
 
+from ibapi.order import Order
+
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
 from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
@@ -1240,7 +1242,7 @@ def _submit_ibkr_order(
     order_ref: str,
 ) -> int:
     global _CONTRACT_VALIDATION_FAILURES
-    _, Stock, MarketOrder = safe_import_ib_insync()
+    _, Stock, _ = safe_import_ib_insync()
     print(f"[IBKR][CONTRACT_VALIDATION][START] symbol={symbol}")
     contract = Stock(symbol, "SMART", "USD")
     qualified = []
@@ -1271,12 +1273,28 @@ def _submit_ibkr_order(
         _CONTRACT_VALIDATION_FAILURES += 1
         raise RuntimeError("CONTRACT_NOT_QUALIFIED")
     print(f"[IBKR][CONTRACT_VALIDATION][OK] symbol={symbol} conId={con_id}")
-    order = MarketOrder(side, int(quantity))
+    order = Order()
+    order.action = side.upper()
+    order.orderType = "MKT"
+    order.totalQuantity = int(quantity)
+    order.tif = "DAY"
     order.orderRef = order_ref
     account = getattr(client, "get_primary_account", lambda: None)() if hasattr(client, "get_primary_account") else None
     if account:
         order.account = account
         print(f"[IBKR][ACCOUNT_BINDING] account={account}")
+    print("[EXECUTION][ORDER_OBJECT]")
+    print(f"type={type(order)}")
+    print(f"action={getattr(order, 'action', None)}")
+    print(f"qty={getattr(order, 'totalQuantity', None)}")
+    print(f"orderType={getattr(order, 'orderType', None)}")
+    if not isinstance(order, Order):
+        raise RuntimeError("ORDER_OBJECT_CONTAMINATION_DETECTED")
+    if order.action not in ("BUY", "SELL"):
+        raise RuntimeError(f"INVALID_ORDER_OBJECT_TYPE: {type(order)}")
+    assert order.action in ("BUY", "SELL")
+    assert order.totalQuantity > 0
+    assert order.orderType in ("MKT", "LMT")
     print(
         "[IBKR][PLACE_ORDER][START] "
         f"symbol={symbol} order_id=PENDING client_id={getattr(client, 'client_id', None)} account={account or 'UNKNOWN'} "
