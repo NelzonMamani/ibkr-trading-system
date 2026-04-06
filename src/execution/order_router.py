@@ -28,8 +28,11 @@ _CALLBACK_DELAY_WARNINGS_COUNT = 0
 _CALLBACK_DELAY_THRESHOLD_SECONDS = 5
 _EXECUTION_TRACE_BY_INTENT: dict[str, "ExecutionTrace"] = {}
 _EXECUTION_TRACE_BY_ORDER_ID: dict[int, "ExecutionTrace"] = {}
+_INTENT_ID_BY_ORDER_ID: dict[int, str] = {}
+_ORDER_ID_BY_ORDER_REF: dict[str, int] = {}
 _EXECUTION_CYCLE_COUNTER = 0
 _EXECUTION_FAILURES_BY_TYPE: dict[str, int] = {}
+_UNRESOLVED_EXECUTION_RECONCILIATION_COUNT = 0
 
 FAILURE_TYPES = {
     "PRICE_UNAVAILABLE",
@@ -44,6 +47,7 @@ FAILURE_TYPES = {
 
 ORDER_STATES = {
     "PENDING_SUBMISSION",
+    "SUBMITTED_PENDING_CONFIRMATION",
     "SUBMITTED",
     "ACKNOWLEDGED",
     "WORKING",
@@ -153,13 +157,13 @@ def runtime_lifecycle_snapshot() -> dict[str, int | str]:
     filled = 0
     pending_entries = 0
     for row in _RUNTIME_ORDERS.values():
-        if row.canonical_state in {"SUBMITTED", "ACKNOWLEDGED", "WORKING", "PARTIALLY_FILLED"} and row.remaining_qty > 0:
+        if row.canonical_state in {"SUBMITTED_PENDING_CONFIRMATION", "SUBMITTED", "ACKNOWLEDGED", "WORKING", "PARTIALLY_FILLED"} and row.remaining_qty > 0:
             working += 1
         if row.canonical_state == "PARTIALLY_FILLED":
             partial += 1
         if row.canonical_state == "FILLED":
             filled += 1
-        if row.is_entry and row.remaining_qty > 0 and row.canonical_state in {"WORKING", "PARTIALLY_FILLED", "SUBMITTED", "ACKNOWLEDGED"}:
+        if row.is_entry and row.remaining_qty > 0 and row.canonical_state in {"WORKING", "PARTIALLY_FILLED", "SUBMITTED_PENDING_CONFIRMATION", "SUBMITTED", "ACKNOWLEDGED"}:
             pending_entries += 1
     open_positions = sum(1 for p in _RUNTIME_POSITIONS.values() if p.qty > 0)
     partial_positions = sum(1 for p in _RUNTIME_POSITIONS.values() if p.state == "PARTIAL_POSITION_OPEN")
@@ -234,6 +238,41 @@ def _extract_order_ref(row: Any) -> str:
     if order is None:
         return ""
     return str(getattr(order, "orderRef", "") or "")
+
+
+def _normalize_order_ref(order_ref: Any) -> str:
+    return str(order_ref or "").strip()
+
+
+def _register_order_intent_mapping(*, order_id: int, intent_id: str, order_ref: str) -> None:
+    normalized_intent = _normalize_order_ref(intent_id)
+    normalized_order_ref = _normalize_order_ref(order_ref)
+    _INTENT_ID_BY_ORDER_ID[int(order_id)] = normalized_intent
+    if normalized_order_ref:
+        _ORDER_ID_BY_ORDER_REF[normalized_order_ref] = int(order_id)
+
+
+def _extract_callback_order_ref(callback_payload: Any) -> str:
+    direct = _extract_callback_field(callback_payload, "order_ref", "orderRef", "intent_id", "intentId")
+    if direct:
+        return _normalize_order_ref(direct)
+    order = _extract_callback_field(callback_payload, "order")
+    if order is not None:
+        return _normalize_order_ref(getattr(order, "orderRef", None))
+    return ""
+
+
+def _resolve_callback_order_id(callback_payload: Any) -> int | None:
+    explicit_order_id = _extract_callback_order_id(callback_payload)
+    if explicit_order_id is not None:
+        return explicit_order_id
+    callback_order_ref = _extract_callback_order_ref(callback_payload)
+    if callback_order_ref:
+        mapped_id = _ORDER_ID_BY_ORDER_REF.get(callback_order_ref)
+        if mapped_id is not None:
+            print(f"[ORDER_EVENT][RECONCILED] source=orderRef order_ref={callback_order_ref} order_id={mapped_id}")
+            return int(mapped_id)
+    return None
 
 
 def _extract_exec_order_id(exec_row: Any) -> int | None:
@@ -435,14 +474,14 @@ def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, tota
             total_qty=max(0, int(total_qty)),
             remaining_qty=max(0, int(total_qty)),
             broker_status="Submitted",
-            canonical_state="SUBMITTED",
+            canonical_state="SUBMITTED_PENDING_CONFIRMATION",
             last_update_at=_now_utc_iso(),
         )
         _RUNTIME_ORDERS[order_id] = row
     else:
         row.last_update_at = _now_utc_iso()
         row.broker_status = "Submitted"
-        row.canonical_state = "SUBMITTED"
+        row.canonical_state = "SUBMITTED_PENDING_CONFIRMATION"
     pos = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
     normalized_side = str(side or "").upper()
     row.is_exit = normalized_side == "SELL" and pos.qty > 0
@@ -458,11 +497,14 @@ def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, tota
 
 
 def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, fill_price: float | None, exec_id: str | None, timestamp: str, source: str) -> None:
-    global _UNMATCHED_CALLBACK_COUNT
+    global _UNMATCHED_CALLBACK_COUNT, _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT, _FILL_AUTHORITY_STATE
     row = _RUNTIME_ORDERS.get(order_id)
     if row is None:
         _UNMATCHED_CALLBACK_COUNT += 1
         print(f"[ORDER_EVENT][UNMATCHED] event=EXECUTION order_id={order_id} symbol={symbol} source={source}")
+        print(f"[EXECUTION][RECONCILIATION_FAILED] event=EXECUTION order_id={order_id} order_ref=UNKNOWN source={source}")
+        _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
+        _FILL_AUTHORITY_STATE = "DEGRADED"
         return
     if exec_id:
         dedupe_key = f"{order_id}:{exec_id}"
@@ -495,11 +537,12 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
 
 
 def _on_ibkr_callback(callback_payload: Any) -> None:
-    global _UNMATCHED_CALLBACK_COUNT
+    global _UNMATCHED_CALLBACK_COUNT, _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT, _FILL_AUTHORITY_STATE
     event_type = str(_extract_callback_field(callback_payload, "event_type") or "").lower()
     if event_type and event_type not in {"execdetails", "orderstatus", "commissionreport", "openorder", "position", "positionend"}:
         return
-    order_id = _extract_callback_order_id(callback_payload)
+    order_id = _resolve_callback_order_id(callback_payload)
+    callback_order_ref = _extract_callback_order_ref(callback_payload)
     symbol = _extract_callback_symbol(callback_payload)
     filled_qty = _extract_callback_filled_qty(callback_payload)
     fill_price = _extract_callback_fill_price(callback_payload)
@@ -510,7 +553,16 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     )
     if order_id is None:
         _UNMATCHED_CALLBACK_COUNT += 1
-        print("[ORDER_EVENT][UNMATCHED] event=CALLBACK reason=missing_order_id")
+        print(
+            "[ORDER_EVENT][UNMATCHED] "
+            f"event=CALLBACK reason=missing_order_id_and_order_ref order_ref={callback_order_ref or 'UNKNOWN'}"
+        )
+        print(
+            "[EXECUTION][RECONCILIATION_FAILED] "
+            f"event=CALLBACK callback={event_type or 'unknown'} order_ref={callback_order_ref or 'UNKNOWN'}"
+        )
+        _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
+        _FILL_AUTHORITY_STATE = "DEGRADED"
         if event_type in {"execdetails", "orderstatus", "openorder"}:
             _mark_execution_failure(None, "UNKNOWN", reason=f"missing_order_id callback={event_type or 'unknown'}")
         return
@@ -595,6 +647,8 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 if row.canonical_state == "REJECTED":
                     _mark_execution_failure(trace, "ORDER_REJECTED", reason="broker_status_rejected")
     elif event_type == "openorder":
+        if callback_order_ref:
+            _ORDER_ID_BY_ORDER_REF[callback_order_ref] = int(order_id)
         if trace is not None:
             trace.ack_received = True
             trace.ack_time = timestamp
@@ -691,7 +745,7 @@ def _check_callback_delay(*, now: datetime | None = None) -> None:
     now_utc = now or datetime.now(timezone.utc)
     threshold = timedelta(seconds=max(1, int(_CALLBACK_DELAY_THRESHOLD_SECONDS)))
     for row in _RUNTIME_ORDERS.values():
-        if row.canonical_state not in {"SUBMITTED", "ACKNOWLEDGED", "WORKING"}:
+        if row.canonical_state not in {"SUBMITTED_PENDING_CONFIRMATION", "SUBMITTED", "ACKNOWLEDGED", "WORKING"}:
             continue
         if row.filled_qty > 0:
             row.callback_pending = False
@@ -766,13 +820,22 @@ def _post_submission_ibkr_diagnostics(
     if manager is None:
         manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
     client = manager.get_client()
+    submitted_lookup = {int(order_id) for order_id in submitted_order_ids}
 
-    open_orders = _safe_list_call(client, "openOrders")
+    def _snapshot_broker_visibility() -> tuple[list[Any], list[Any], bool]:
+        current_open_orders = _safe_list_call(client, "openOrders")
+        current_executions = _safe_list_call(client, "executions")
+        visible_open = len(current_open_orders) > 0
+        visible_exec = len(current_executions) > 0
+        visible_exec_details = any(
+            _RUNTIME_ORDERS.get(order_id) is not None and bool(_RUNTIME_ORDERS[order_id].seen_exec_ids)
+            for order_id in submitted_lookup
+        )
+        broker_truth_confirmed = visible_open or visible_exec or visible_exec_details
+        return current_open_orders, current_executions, broker_truth_confirmed
+
+    open_orders, executions, broker_truth_confirmed = _snapshot_broker_visibility()
     print(f"[IBKR][OPEN_ORDERS] count={len(open_orders)}")
-    if len(open_orders) == 0:
-        print("[IBKR][WARNING] no_open_orders_after_submission")
-
-    executions = _safe_list_call(client, "executions")
     print(f"[IBKR][EXEC_HISTORY] count={len(executions)}")
     for execution_row in executions:
         symbol = _extract_symbol_from_order(execution_row)
@@ -795,16 +858,20 @@ def _post_submission_ibkr_diagnostics(
             f"filled={filled_qty} remaining={remaining_qty}"
         )
 
-    deadline = time.time() + 5.0
-    observed_exec_details = False
-    submitted_lookup = {int(order_id) for order_id in submitted_order_ids}
-    while time.time() < deadline:
-        for order_id in submitted_lookup:
-            tracked = _RUNTIME_ORDERS.get(order_id)
-            if tracked is not None and tracked.seen_exec_ids:
-                observed_exec_details = True
-                break
-        if observed_exec_details:
+    polling_deadline = time.time() + 3.0
+    print(f"[BROKER_TRUTH][POLLING] submitted_order_ids={sorted(submitted_lookup)} timeout_seconds=3")
+    while time.time() < polling_deadline and not broker_truth_confirmed:
+        open_orders, executions, broker_truth_confirmed = _snapshot_broker_visibility()
+        if broker_truth_confirmed:
+            break
+        time.sleep(0.1)
+
+    callback_deadline = time.time() + 2.0
+    if not broker_truth_confirmed:
+        print(f"[BROKER_TRUTH][CALLBACK_WAIT] submitted_order_ids={sorted(submitted_lookup)} timeout_seconds=2")
+    while time.time() < callback_deadline and not broker_truth_confirmed:
+        open_orders, executions, broker_truth_confirmed = _snapshot_broker_visibility()
+        if broker_truth_confirmed:
             break
         time.sleep(0.1)
     exec_detail_rows = 0
@@ -817,18 +884,20 @@ def _post_submission_ibkr_diagnostics(
             f"order_id={int(order_id)} seen_exec_details={len(seen_exec_ids)} "
             f"exec_ids={','.join(seen_exec_ids) or 'NONE'}"
         )
+    observed_exec_details = exec_detail_rows > 0
     if not observed_exec_details:
         print("[CRITICAL] IBKR_NO_FILL_CONFIRMATION")
+    if broker_truth_confirmed:
+        print(f"[BROKER_TRUTH][CONFIRMED] submitted_order_ids={sorted(submitted_lookup)}")
     if (
         mode == RunMode.PAPER
         and _env_truthy("EXECUTION_ENABLED")
         and _env_truthy("IBKR_ORDER_SUBMISSION_ENABLED")
         and not _env_truthy("IBKR_READONLY_ENABLED")
         and len(submitted_order_ids) > 0
-        and len(open_orders) == 0
-        and len(executions) == 0
-        and exec_detail_rows == 0
+        and not broker_truth_confirmed
     ):
+        print(f"[BROKER_TRUTH][FATAL] submitted_order_ids={sorted(submitted_lookup)}")
         raise RuntimeError("[BROKER_TRUTH][FATAL] no_broker_visible_order_or_fill_after_submission")
 
 
@@ -1170,6 +1239,11 @@ def execute_intents(
                 symbol=str(decision.symbol or "").upper(),
                 side=order_side,
                 total_qty=quantity,
+                order_ref=str(decision.intent_id or ""),
+            )
+            _register_order_intent_mapping(
+                order_id=int(broker_order_id),
+                intent_id=str(decision.intent_id or ""),
                 order_ref=str(decision.intent_id or ""),
             )
         events.append(

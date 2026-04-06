@@ -18,7 +18,10 @@ def _reset_router() -> None:
     order_router._RECON_RESYNC_NEEDED = False
     order_router._EXECUTION_TRACE_BY_INTENT.clear()
     order_router._EXECUTION_TRACE_BY_ORDER_ID.clear()
+    order_router._INTENT_ID_BY_ORDER_ID.clear()
+    order_router._ORDER_ID_BY_ORDER_REF.clear()
     order_router._EXECUTION_FAILURES_BY_TYPE.clear()
+    order_router._UNRESOLVED_EXECUTION_RECONCILIATION_COUNT = 0
 
 
 def _decision(symbol: str = "ABCD", qty: int = 100, side: str = "LONG") -> RiskDecisionRecord:
@@ -148,7 +151,7 @@ def test_final_decision_summary_distinguishes_submitted_vs_filled(monkeypatch, c
     assert "submitted_vs_filled=working:0 filled:1" in out
 
 
-def test_post_submission_diagnostics_emit_required_markers(monkeypatch, capsys) -> None:
+def test_post_submission_diagnostics_delayed_then_confirmed(monkeypatch, capsys) -> None:
     _reset_router()
     order_router._RUNTIME_ORDERS[101] = order_router.TrackedOrder(
         broker_order_id=101,
@@ -158,15 +161,19 @@ def test_post_submission_diagnostics_emit_required_markers(monkeypatch, capsys) 
         total_qty=10,
         remaining_qty=10,
     )
-    client = SimpleNamespace(openOrders=lambda: [], executions=lambda: [])
+    open_orders_responses = iter([[], [SimpleNamespace(orderId=101)]])
+    client = SimpleNamespace(
+        openOrders=lambda: next(open_orders_responses, [SimpleNamespace(orderId=101)]),
+        executions=lambda: [],
+    )
     manager = SimpleNamespace(get_client=lambda: client)
-    times = itertools.chain([0.0], itertools.repeat(6.0))
+    tick = itertools.count(start=0, step=1)
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
-    monkeypatch.setattr(order_router.time, "time", lambda: next(times))
+    monkeypatch.setattr(order_router.time, "time", lambda: float(next(tick)))
     monkeypatch.setattr(order_router.time, "sleep", lambda _seconds: None)
-    monkeypatch.delenv("EXECUTION_ENABLED", raising=False)
-    monkeypatch.delenv("IBKR_ORDER_SUBMISSION_ENABLED", raising=False)
-    monkeypatch.delenv("IBKR_READONLY_ENABLED", raising=False)
+    monkeypatch.setenv("EXECUTION_ENABLED", "true")
+    monkeypatch.setenv("IBKR_ORDER_SUBMISSION_ENABLED", "true")
+    monkeypatch.setenv("IBKR_READONLY_ENABLED", "false")
     order_router._post_submission_ibkr_diagnostics(
         mode=RunMode.PAPER,
         manager=manager,
@@ -177,6 +184,8 @@ def test_post_submission_diagnostics_emit_required_markers(monkeypatch, capsys) 
     assert "[IBKR][EXEC_HISTORY]" in out
     assert "[IBKR][ORDER_STATUS]" in out
     assert "[IBKR][EXEC_DETAILS]" in out
+    assert "[BROKER_TRUTH][POLLING]" in out
+    assert "[BROKER_TRUTH][CONFIRMED]" in out
     assert "[CRITICAL] IBKR_NO_FILL_CONFIRMATION" in out
 
 
@@ -192,9 +201,9 @@ def test_post_submission_broker_truth_fatal_when_no_broker_visibility(monkeypatc
     )
     client = SimpleNamespace(openOrders=lambda: [], executions=lambda: [])
     manager = SimpleNamespace(get_client=lambda: client)
-    times = itertools.chain([0.0], itertools.repeat(6.0))
+    tick = itertools.count(start=0, step=1)
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
-    monkeypatch.setattr(order_router.time, "time", lambda: next(times))
+    monkeypatch.setattr(order_router.time, "time", lambda: float(next(tick)))
     monkeypatch.setattr(order_router.time, "sleep", lambda _seconds: None)
     monkeypatch.setenv("EXECUTION_ENABLED", "true")
     monkeypatch.setenv("IBKR_ORDER_SUBMISSION_ENABLED", "true")
@@ -205,6 +214,44 @@ def test_post_submission_broker_truth_fatal_when_no_broker_visibility(monkeypatc
             manager=manager,
             submitted_order_ids=[202],
         )
+
+
+def test_execdetails_callback_reconciles_via_order_ref(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
+    oid = events[0].broker_order_id
+    order_router._on_ibkr_callback(
+        {"event_type": "execDetails", "orderRef": "ABCD-1", "symbol": "ABCD", "shares": 10, "price": 21.0, "execId": "R1"}
+    )
+    out = capsys.readouterr().out
+    assert f"[ORDER_EVENT][RECONCILED] source=orderRef order_ref=ABCD-1 order_id={oid}" in out
+    assert order_router._RUNTIME_ORDERS[oid].filled_qty == 10
+
+
+def test_unmatched_callback_without_order_id_or_order_ref_does_not_fabricate_order(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
+    existing_order_ids = set(order_router._RUNTIME_ORDERS.keys())
+    order_router._on_ibkr_callback({"event_type": "execDetails", "symbol": "ABCD", "shares": 10, "price": 21.0, "execId": "MISS1"})
+    out = capsys.readouterr().out
+    assert "[ORDER_EVENT][UNMATCHED]" in out
+    assert "[EXECUTION][RECONCILIATION_FAILED]" in out
+    assert set(order_router._RUNTIME_ORDERS.keys()) == existing_order_ids
+    assert order_router._UNMATCHED_CALLBACK_COUNT >= 1
+    assert order_router._UNRESOLVED_EXECUTION_RECONCILIATION_COUNT >= 1
+    assert order_router._RUNTIME_ORDERS[events[0].broker_order_id].filled_qty == 0
+
+
+def test_no_symbol_based_order_ref_fallback(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
+    order_router._on_ibkr_callback({"event_type": "execDetails", "orderRef": "ABCD", "symbol": "ABCD", "shares": 10, "price": 20.0, "execId": "SYMB1"})
+    out = capsys.readouterr().out
+    assert "[ORDER_EVENT][RECONCILED] source=orderRef order_ref=ABCD" not in out
+    assert "[EXECUTION][RECONCILIATION_FAILED]" in out
 
 
 def test_execution_cycle_emits_summary_and_failure_classification(monkeypatch, capsys) -> None:
