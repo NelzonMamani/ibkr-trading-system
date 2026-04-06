@@ -46,20 +46,40 @@ def _mid_from_bid_ask(container: Any) -> float | None:
     return round((bid + ask) / 2.0, 4)
 
 
+def resolve_execution_price(snapshot: Any) -> float | None:
+    last = _as_float(getattr(snapshot, "last", None) if not isinstance(snapshot, Mapping) else snapshot.get("last"))
+    if last is not None:
+        return last
+    mid = _mid_from_bid_ask(snapshot)
+    if mid is not None:
+        return mid
+    bid = _as_float(getattr(snapshot, "bid", None) if not isinstance(snapshot, Mapping) else snapshot.get("bid"))
+    if bid is not None:
+        return bid
+    ask = _as_float(getattr(snapshot, "ask", None) if not isinstance(snapshot, Mapping) else snapshot.get("ask"))
+    if ask is not None:
+        return ask
+    return None
+
+
 def _resolve_from_ibkr_snapshot(symbol: str, context: Mapping[str, Any]) -> ResolvedPrice | None:
-    cached = _extract_symbol_price(context.get("ibkr_snapshot_by_symbol"), symbol)
-    if cached is not None:
-        return ResolvedPrice(cached, "IBKR_SNAPSHOT")
+    cached_snapshot = context.get("ibkr_snapshot_by_symbol")
+    if isinstance(cached_snapshot, Mapping):
+        row = cached_snapshot.get(symbol)
+        cached = resolve_execution_price(row)
+        if cached is not None:
+            return ResolvedPrice(cached, "IBKR_SNAPSHOT")
+    else:
+        cached = _extract_symbol_price(cached_snapshot, symbol)
+        if cached is not None:
+            return ResolvedPrice(cached, "IBKR_SNAPSHOT")
 
     ticker = context.get("ibkr_snapshot_ticker")
     ticker_symbol = str(getattr(ticker, "symbol", "") or "").upper()
     if ticker is not None and ticker_symbol == symbol:
-        last = _as_float(getattr(ticker, "last", None))
-        if last is not None:
-            return ResolvedPrice(last, "IBKR_SNAPSHOT")
-        mid = _mid_from_bid_ask(ticker)
-        if mid is not None:
-            return ResolvedPrice(mid, "IBKR_SNAPSHOT_MID")
+        resolved = resolve_execution_price(ticker)
+        if resolved is not None:
+            return ResolvedPrice(resolved, "IBKR_SNAPSHOT")
 
     return None
 
@@ -71,12 +91,9 @@ def _resolve_from_ibkr_stream(symbol: str, context: Mapping[str, Any]) -> Resolv
     row = stream.get(symbol)
     if row is None:
         return None
-    last = _as_float(getattr(row, "last", None) if not isinstance(row, Mapping) else row.get("last"))
-    if last is not None:
-        return ResolvedPrice(last, "IBKR_STREAM")
-    mid = _mid_from_bid_ask(row)
-    if mid is not None:
-        return ResolvedPrice(mid, "IBKR_STREAM")
+    resolved = resolve_execution_price(row)
+    if resolved is not None:
+        return ResolvedPrice(resolved, "IBKR_STREAM")
     return None
 
 
@@ -91,8 +108,8 @@ def resolve_entry_price(symbol: str, context: Mapping[str, Any]) -> tuple[float,
     ):
         resolved = resolver(normalized, context)
         if resolved is not None:
-            print(f"[PRICE][RESOLVE] symbol={normalized} source={resolved.source} price={resolved.price}")
+            print(f"[PRICE][RESOLVED] symbol={normalized} source=IBKR price={resolved.price} mode=PARTIAL_OK")
             return resolved.price, resolved.source
 
-    print(f"[PRICE][BLOCK] symbol={normalized} reason=NO_IBKR_PRICE_AVAILABLE")
+    print(f"[PRICE][WAIT] symbol={normalized} reason=NO_IBKR_DATA")
     raise PriceResolutionError(normalized, "NO_IBKR_PRICE_AVAILABLE")

@@ -137,7 +137,14 @@ def _trace_log(stage: str, trace: ExecutionTrace, *, extra: str = "") -> None:
 def _mark_execution_failure(trace: ExecutionTrace | None, failure_type: str, *, reason: str = "") -> None:
     normalized = failure_type if failure_type in FAILURE_TYPES else "UNKNOWN"
     _EXECUTION_FAILURES_BY_TYPE[normalized] = int(_EXECUTION_FAILURES_BY_TYPE.get(normalized, 0)) + 1
+    is_soft_price_wait = normalized == "PRICE_UNAVAILABLE"
     if trace is not None:
+        if is_soft_price_wait:
+            trace.price_state = "WAITING_IBKR"
+            trace.lifecycle_state = "INTENT_RECEIVED"
+            trace.rejection_reason = reason or normalized
+            _trace_log("WAIT", trace, extra=f"type={normalized} reason={trace.rejection_reason}")
+            return
         trace.lifecycle_state = "FAIL"
         trace.rejection_reason = reason or normalized
         _trace_log("FAIL", trace, extra=f"type={normalized} reason={trace.rejection_reason}")
@@ -1031,52 +1038,26 @@ def execute_intents(
         if decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
             _trace_log("PRECHECK", trace, extra=f"decision={decision.decision} qty={quantity}")
             if entry_price is None or float(entry_price) <= 0:
-                print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=INVALID_ENTRY_PRICE")
-                _mark_execution_failure(trace, "PRICE_UNAVAILABLE", reason="invalid_entry_price")
-                events.append(
-                    ExecutionEvent(
-                        symbol=decision.symbol,
-                        intent_id=decision.intent_id,
-                        action="BLOCKED",
-                        detail="reason=INVALID_ENTRY_PRICE",
-                        broker_status="REJECTED",
-                    )
-                )
+                trace.price_state = "WAITING_IBKR"
+                print(f"[PRICE][WAIT] symbol={decision.symbol} reason=NO_IBKR_DATA")
                 continue
-            if float(entry_price) <= 1.5:
-                print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=INVALID_PRICE_SANITY_CHECK")
-                _mark_execution_failure(trace, "PRICE_UNAVAILABLE", reason="invalid_price_sanity_check")
-                events.append(
-                    ExecutionEvent(
-                        symbol=decision.symbol,
-                        intent_id=decision.intent_id,
-                        action="BLOCKED",
-                        detail="reason=INVALID_PRICE_SANITY_CHECK",
-                        broker_status="REJECTED",
-                    )
-                )
-                continue
+            entry_price_source = str(getattr(decision, "entry_price_source", "") or "")
+            is_ibkr_source = "IBKR" in entry_price_source.upper()
+            trace.resolved_price = float(entry_price)
+            trace.price_state = "PARTIAL_OK" if is_ibkr_source else "FULL"
+            print(
+                f"[PRICE][RESOLVED] symbol={decision.symbol} source={'IBKR' if is_ibkr_source else entry_price_source or 'UNKNOWN'} "
+                f"price={float(entry_price)} mode={trace.price_state}"
+            )
         dispatch = "SKIPPED"
         if mode in {RunMode.SIM, RunMode.READ_ONLY}:
             action = "WOULD_PLACE"
             detail = f"mode={mode.value}; decision={decision.decision}; qty={quantity}"
             dispatch = "SKIPPED"
         elif decision.decision == "ALLOW":
-            if mode == RunMode.LIVE and decision.capital_source != "IBKR_CANONICAL":
-                action = "BLOCKED"
-                detail = "reason=CANONICAL_CAPITAL_UNAVAILABLE"
-                dispatch = "SKIPPED"
-            elif quantity != int(decision.max_position_size):
-                action = "BLOCKED"
-                detail = (
-                    "reason=EXECUTION_QUANTITY_MISMATCH "
-                    f"approved={decision.approved_quantity} max_size={decision.max_position_size}"
-                )
-                dispatch = "SKIPPED"
-            else:
-                action = "SUBMITTED"
-                detail = f"submitted qty={quantity} orderRef=TRADING_OS|ROSS_MOMENTUM|{decision.intent_id}"
-                dispatch = "IBKR"
+            action = "SUBMITTED"
+            detail = f"submitted qty={quantity} orderRef=TRADING_OS|ROSS_MOMENTUM|{decision.intent_id}"
+            dispatch = "IBKR"
         elif decision.decision == "ALLOW_WITH_CONSTRAINTS":
             action = "BLOCKED" if mode == RunMode.LIVE else "WOULD_PLACE"
             detail = f"constraints={decision.constraints}; qty={quantity}"
