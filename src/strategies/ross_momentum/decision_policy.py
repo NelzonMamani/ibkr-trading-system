@@ -37,8 +37,14 @@ def build_trade_intents(
 ) -> List[TradeIntent]:
     _ = system_health_degraded
     config = config or IntentPolicyConfig()
+    print(
+        "[ROSS][INPUT] "
+        f"symbol={symbol} strategy={strategy_id} setup_candidates={len(summary.all_results)} "
+        f"conflict_flag={str(bool(summary.conflict_flag)).lower()} trigger_ready_override={trigger_ready_now}"
+    )
     intents: List[TradeIntent] = []
     if summary.conflict_flag and not config.debug_force_execution:
+        print(f"[ROSS][BLOCKER] symbol={symbol} blocker=NO_SETUP_DETECTED reason=CONFLICT_FLAG")
         return intents
 
     candidate_setups = [summary.best_long_setup, summary.best_short_setup]
@@ -49,6 +55,12 @@ def build_trade_intents(
         candidate_setups = [fallback_setup]
 
     guaranteed_intent_required = False
+    detected_names = [setup.pattern_name for setup in candidate_setups if setup is not None and bool(setup.detected)]
+    print(
+        "[ROSS][SETUP_RESULT] "
+        f"symbol={symbol} setup_families={[setup.pattern_name for setup in candidate_setups if setup is not None]} "
+        f"detected={detected_names or ['NONE']}"
+    )
     for setup in candidate_setups:
         if setup is None:
             continue
@@ -71,6 +83,7 @@ def build_trade_intents(
             and dq_ok
         )
         if not trigger_fired:
+            print(f"[ROSS][TRIGGER_RESULT] symbol={symbol} outcome=NOT_FIRED reason=TRIGGER_NOT_READY")
             print(
                 f"[STRATEGY_TRACE] symbol={symbol} "
                 f"pattern_detected={pattern_detected} "
@@ -82,6 +95,7 @@ def build_trade_intents(
             )
             continue
         if not pattern_detected:
+            print(f"[ROSS][TRIGGER_RESULT] symbol={symbol} outcome=FIRED reason=PATTERN_NOT_DETECTED")
             print(
                 f"[STRATEGY_TRACE] symbol={symbol} "
                 "pattern_detected=false "
@@ -122,6 +136,7 @@ def build_trade_intents(
             f"dq_ok={dq_ok} "
             f"execution_candidate_ready={execution_ready}"
         )
+        print(f"[ROSS][TRIGGER_RESULT] symbol={symbol} outcome=FIRED reason=TRIGGER_READY")
         print(
             "[INTENT][CREATE] "
             f"symbol={symbol} "
@@ -131,9 +146,15 @@ def build_trade_intents(
         print(
             f"[INTENT_CREATED] symbol={symbol} risk_precheck_ok={risk_precheck_ok} execution_candidate_ready={execution_ready}"
         )
+        print(f"[ROSS][INTENT_RESULT] symbol={symbol} outcome=CREATED reason=INTENT_CREATED")
 
     if guaranteed_intent_required and not intents:
+        print(f"[ROSS][INTENT_RESULT] symbol={symbol} outcome=NOT_CREATED reason=TRIGGER_WITHOUT_INTENT")
+        print(f"[ROSS][BLOCKER] symbol={symbol} blocker=TRIGGER_FIRED_NO_INTENT reason=TRIGGER_WITHOUT_INTENT")
         print("[CRITICAL] TRIGGER WITHOUT INTENT — PIPELINE FAILURE")
+    elif not intents:
+        print(f"[ROSS][INTENT_RESULT] symbol={symbol} outcome=NOT_CREATED reason=NO_TRIGGER_OR_SETUP")
+        print(f"[ROSS][BLOCKER] symbol={symbol} blocker=NO_SETUP_DETECTED reason=NO_TRIGGER_OR_SETUP")
 
     return intents
 
