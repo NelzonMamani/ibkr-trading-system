@@ -4,7 +4,7 @@ from src.config.config_resolver import set_config_overrides
 from src.core.intent import build_execution_intent
 from src.core.mode_authority import resolve_mode_authority
 from src.core_engine.events import TradeIntentRecord
-from src.core_engine.orchestrator import _enforce_canonical_price_authority, run_cycle
+from src.core_engine.orchestrator import _enforce_canonical_price_authority, _normalize_price_source_label, run_cycle
 from src.core_engine.state import RunMode, SessionState
 from src.risk.risk_audit import INITIAL_POSITION_PCT, AccountSnapshot, evaluate_trade_intents
 from src.strategies.ross_momentum.strategy_policy import StockSelectionSpec
@@ -120,7 +120,7 @@ def test_executable_paper_cycle_does_not_skip_scan_only_and_no_readonly_rule(cap
 
 
 def test_price_authority_blocks_scanner_price_for_paper_rth() -> None:
-    allowed, reason = _enforce_canonical_price_authority(
+    verdict = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.PAPER,
         session="REG",
@@ -128,12 +128,12 @@ def test_price_authority_blocks_scanner_price_for_paper_rth() -> None:
         entry_price_source="SCANNER_LAST_PRICE",
         scanner_payload={},
     )
-    assert allowed is False
-    assert reason == "NO_IBKR_PRICE_AUTHORITY:SCANNER_LAST_PRICE"
+    assert verdict.allowed is False
+    assert verdict.reason == "NO_IBKR_PRICE_AUTHORITY:SCANNER_LAST_PRICE"
 
 
 def test_price_authority_blocks_snapshot_last_for_paper() -> None:
-    allowed, reason = _enforce_canonical_price_authority(
+    verdict = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.PAPER,
         session="REG",
@@ -141,12 +141,12 @@ def test_price_authority_blocks_snapshot_last_for_paper() -> None:
         entry_price_source="SNAPSHOT_LAST",
         scanner_payload={},
     )
-    assert allowed is False
-    assert reason == "NO_IBKR_PRICE_AUTHORITY:SNAPSHOT_LAST"
+    assert verdict.allowed is False
+    assert verdict.reason == "NO_IBKR_PRICE_AUTHORITY:SNAPSHOT_LAST"
 
 
 def test_price_authority_allows_scanner_price_for_sim() -> None:
-    allowed, reason = _enforce_canonical_price_authority(
+    verdict = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.SIM,
         session="REG",
@@ -154,12 +154,12 @@ def test_price_authority_allows_scanner_price_for_sim() -> None:
         entry_price_source="SCANNER_LAST_PRICE",
         scanner_payload={},
     )
-    assert allowed is True
-    assert reason == "SIM_MODE_PRICE_ALLOWED"
+    assert verdict.allowed is True
+    assert verdict.reason == "SIM_MODE_PRICE_ALLOWED"
 
 
 def test_price_authority_allows_prep_reference_price_for_sim() -> None:
-    allowed, reason = _enforce_canonical_price_authority(
+    verdict = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.SIM,
         session="REG",
@@ -167,12 +167,12 @@ def test_price_authority_allows_prep_reference_price_for_sim() -> None:
         entry_price_source="PREP_REFERENCE_PRICE",
         scanner_payload={},
     )
-    assert allowed is True
-    assert reason == "SIM_MODE_PRICE_ALLOWED"
+    assert verdict.allowed is True
+    assert verdict.reason == "SIM_MODE_PRICE_ALLOWED"
 
 
 def test_price_authority_blocks_unknown_source_for_paper() -> None:
-    allowed, reason = _enforce_canonical_price_authority(
+    verdict = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.PAPER,
         session="REG",
@@ -180,12 +180,12 @@ def test_price_authority_blocks_unknown_source_for_paper() -> None:
         entry_price_source="XYZ",
         scanner_payload={},
     )
-    assert allowed is False
-    assert reason == "NO_IBKR_PRICE_AUTHORITY:XYZ"
+    assert verdict.allowed is False
+    assert verdict.reason == "NO_IBKR_PRICE_AUTHORITY:XYZ"
 
 
 def test_price_authority_blocks_noncanonical_for_live() -> None:
-    allowed, reason = _enforce_canonical_price_authority(
+    verdict = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.LIVE,
         session="REG",
@@ -193,8 +193,19 @@ def test_price_authority_blocks_noncanonical_for_live() -> None:
         entry_price_source="SCANNER_LAST_PRICE",
         scanner_payload={},
     )
-    assert allowed is False
-    assert reason == "NO_IBKR_PRICE_AUTHORITY:SCANNER_LAST_PRICE"
+    assert verdict.allowed is False
+    assert verdict.reason == "NO_IBKR_PRICE_AUTHORITY:SCANNER_LAST_PRICE"
+
+
+def test_price_source_normalization_accepts_ibkr_aliases() -> None:
+    assert _normalize_price_source_label("IBKR_MARKET_DATA_SNAPSHOT") == "IBKR_SNAPSHOT"
+    assert _normalize_price_source_label("IBKR_SNAPSHOT_LAST") == "IBKR_SNAPSHOT"
+    assert _normalize_price_source_label("IBKR_L1_LAST") == "IBKR_STREAM"
+    assert _normalize_price_source_label("IBKR_L1_MID") == "IBKR_STREAM_MID"
+
+
+def test_price_source_normalization_does_not_promote_non_ibkr() -> None:
+    assert _normalize_price_source_label("SNAPSHOT_LAST") == "SNAPSHOT_LAST"
 
 
 def test_after_hours_preserves_paper_mode_for_lifecycle_validation(capsys, monkeypatch) -> None:
