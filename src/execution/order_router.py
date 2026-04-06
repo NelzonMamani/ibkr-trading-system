@@ -33,6 +33,13 @@ _ORDER_ID_BY_ORDER_REF: dict[str, int] = {}
 _EXECUTION_CYCLE_COUNTER = 0
 _EXECUTION_FAILURES_BY_TYPE: dict[str, int] = {}
 _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT = 0
+_BROKER_TRUTH_FATALS = 0
+_BROKER_TRUTH_CONFIRMATIONS = 0
+_CONTRACT_VALIDATION_FAILURES = 0
+_NEXT_VALID_ID_REBASES = 0
+_NON_ORDER_UNMATCHED_CALLBACK_COUNT = 0
+_CIRCUIT_BREAKER_ACTIVE = False
+_VISIBILITY_BY_ORDER_ID: dict[int, dict[str, bool]] = {}
 
 FAILURE_TYPES = {
     "PRICE_UNAVAILABLE",
@@ -206,6 +213,103 @@ def _parse_iso_utc(value: str | None) -> datetime | None:
 def fill_authority_state() -> str:
     return _FILL_AUTHORITY_STATE
 
+
+def _execution_truth_threshold() -> int:
+    raw = os.environ.get("EXECUTION_TRUTH_DEGRADED_THRESHOLD", "1")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 1
+
+
+def _is_diagnostics_mode() -> bool:
+    return _env_truthy("EXECUTION_TRUTH_DIAGNOSTICS_MODE", default=False)
+
+
+def _maybe_trip_circuit_breaker(mode: RunMode, *, reason: str) -> None:
+    global _CIRCUIT_BREAKER_ACTIVE
+    if mode == RunMode.PAPER and _is_diagnostics_mode():
+        return
+    _CIRCUIT_BREAKER_ACTIVE = True
+    print(f"[SAFETY][CIRCUIT_BREAKER] reason=EXECUTION_TRUTH_DEGRADED mode={mode.value} detail={reason}")
+
+
+def _ensure_submission_allowed(mode: RunMode, *, symbol: str) -> bool:
+    degraded = _FILL_AUTHORITY_STATE == "DEGRADED"
+    threshold = _execution_truth_threshold()
+    if _CIRCUIT_BREAKER_ACTIVE:
+        print(f"[SAFETY][SUBMISSION_BLOCKED] symbol={symbol} reason=CIRCUIT_BREAKER_ACTIVE")
+        return False
+    if degraded and (
+        _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT >= threshold
+        or _BROKER_TRUTH_FATALS >= threshold
+        or _CONTRACT_VALIDATION_FAILURES >= threshold
+    ):
+        _maybe_trip_circuit_breaker(
+            mode,
+            reason=(
+                f"unresolved={_UNRESOLVED_EXECUTION_RECONCILIATION_COUNT} "
+                f"fatals={_BROKER_TRUTH_FATALS} contract_failures={_CONTRACT_VALIDATION_FAILURES}"
+            ),
+        )
+    if _CIRCUIT_BREAKER_ACTIVE:
+        print(f"[SAFETY][SUBMISSION_BLOCKED] symbol={symbol} reason=EXECUTION_TRUTH_DEGRADED")
+        return False
+    return True
+
+
+def _build_order_ref(intent_id: str) -> str:
+    normalized = str(intent_id or "").strip()
+    if not normalized:
+        return ""
+    return f"TRADING_OS|ROSS_MOMENTUM|{normalized}"
+
+
+def _build_trace_id(*, intent_id: str, broker_order_id: int | None, cycle_id: str) -> str:
+    return f"{intent_id or 'UNKNOWN'}::{broker_order_id if broker_order_id is not None else 'PENDING'}::{cycle_id}"
+
+
+def _initialize_visibility(order_id: int) -> None:
+    _VISIBILITY_BY_ORDER_ID[int(order_id)] = {
+        "openOrder_seen": False,
+        "orderStatus_seen": False,
+        "execDetails_seen": False,
+        "openOrders_snapshot_seen": False,
+        "executions_snapshot_seen": False,
+        "position_seen": False,
+        "confirmed": False,
+    }
+
+
+def _visibility_confirmed(order_id: int) -> bool:
+    row = _VISIBILITY_BY_ORDER_ID.get(int(order_id), {})
+    return any(
+        bool(row.get(key))
+        for key in (
+            "openOrder_seen",
+            "orderStatus_seen",
+            "execDetails_seen",
+            "openOrders_snapshot_seen",
+            "executions_snapshot_seen",
+            "position_seen",
+        )
+    )
+
+
+def _log_visibility_matrix(order_id: int, symbol: str) -> None:
+    row = _VISIBILITY_BY_ORDER_ID.setdefault(int(order_id), {})
+    row["confirmed"] = _visibility_confirmed(order_id)
+    print(
+        "[BROKER_TRUTH][VISIBILITY_MATRIX] "
+        f"order_id={order_id} symbol={symbol} "
+        f"openOrder_seen={bool(row.get('openOrder_seen'))} "
+        f"orderStatus_seen={bool(row.get('orderStatus_seen'))} "
+        f"execDetails_seen={bool(row.get('execDetails_seen'))} "
+        f"openOrders_snapshot_seen={bool(row.get('openOrders_snapshot_seen'))} "
+        f"executions_snapshot_seen={bool(row.get('executions_snapshot_seen'))} "
+        f"position_seen={bool(row.get('position_seen'))} "
+        f"confirmed={bool(row.get('confirmed'))}"
+    )
 
 def _safe_list_call(obj: Any, method_name: str) -> list[Any]:
     method = getattr(obj, method_name, None)
@@ -509,7 +613,7 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
     if exec_id:
         dedupe_key = f"{order_id}:{exec_id}"
         if dedupe_key in _SEEN_EXEC_IDS or exec_id in row.seen_exec_ids:
-            print(f"[ORDER_EVENT][EXECUTION] order_id={order_id} exec_id={exec_id} deduped=true")
+            print(f"[EXECUTION][FILL_DEDUP] order_id={order_id} exec_id={exec_id} deduped=true")
             return
         _SEEN_EXEC_IDS.add(dedupe_key)
         row.seen_exec_ids.add(exec_id)
@@ -529,7 +633,12 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
     row.last_update_at = timestamp
     row.callback_pending = False
     row.callback_pending_since = None
-    print(f"[ORDER_EVENT][EXECUTION] order_id={order_id} symbol={row.symbol} fill_inc={inc} filled={row.filled_qty} remaining={row.remaining_qty} exec_id={exec_id or 'NA'}")
+    print(f"[EXECUTION][ORDER_MATCH] order_id={order_id} symbol={row.symbol} source={source}")
+    print(f"[PRICE_AUTHORITY][SOURCE=IBKR_EXECUTION] order_id={order_id} symbol={row.symbol} price={fill_price}")
+    if row.remaining_qty == 0:
+        print(f"[EXECUTION][FILL] order_id={order_id} symbol={row.symbol} fill_qty={inc} total_filled={row.filled_qty} exec_id={exec_id or 'NA'}")
+    else:
+        print(f"[EXECUTION][PARTIAL_FILL] order_id={order_id} symbol={row.symbol} fill_qty={inc} total_filled={row.filled_qty} remaining={row.remaining_qty} exec_id={exec_id or 'NA'}")
     if old_state != row.canonical_state:
         print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
     signed = inc if row.is_entry else -inc
@@ -537,7 +646,7 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
 
 
 def _on_ibkr_callback(callback_payload: Any) -> None:
-    global _UNMATCHED_CALLBACK_COUNT, _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT, _FILL_AUTHORITY_STATE
+    global _UNMATCHED_CALLBACK_COUNT, _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT, _FILL_AUTHORITY_STATE, _NON_ORDER_UNMATCHED_CALLBACK_COUNT
     event_type = str(_extract_callback_field(callback_payload, "event_type") or "").lower()
     if event_type and event_type not in {"execdetails", "orderstatus", "commissionreport", "openorder", "position", "positionend"}:
         return
@@ -551,7 +660,13 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         "[EXECUTION][CALLBACK_RECEIVED] "
         f"symbol={symbol or 'UNKNOWN'} order_id={order_id} filled_qty={filled_qty} fill_price={fill_price} timestamp={timestamp}"
     )
+    if event_type == "positionend":
+        print("[IBKR][CALLBACK_RAW] event=positionEnd")
+        return
     if order_id is None:
+        if event_type in {"position", "commissionreport"}:
+            _NON_ORDER_UNMATCHED_CALLBACK_COUNT += 1
+            return
         _UNMATCHED_CALLBACK_COUNT += 1
         print(
             "[ORDER_EVENT][UNMATCHED] "
@@ -600,6 +715,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     )
     _EXECUTION_EVENT_BUFFER[order_id] = event
     if event_type == "execdetails":
+        _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"execDetails_seen": True})
         exec_id = _extract_callback_field(callback_payload, "execId")
         _apply_fill_to_tracked_order(
             order_id=order_id,
@@ -622,6 +738,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 trace.position_opened = True
                 _trace_log("POSITION_OPENED", trace, extra=f"position_qty={pos.qty}")
     elif event_type == "orderstatus":
+        _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"orderStatus_seen": True})
         row = _RUNTIME_ORDERS.get(order_id)
         if row is None:
             _UNMATCHED_CALLBACK_COUNT += 1
@@ -647,6 +764,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 if row.canonical_state == "REJECTED":
                     _mark_execution_failure(trace, "ORDER_REJECTED", reason="broker_status_rejected")
     elif event_type == "openorder":
+        _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"openOrder_seen": True})
         if callback_order_ref:
             _ORDER_ID_BY_ORDER_REF[callback_order_ref] = int(order_id)
         if trace is not None:
@@ -662,6 +780,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             except (TypeError, ValueError):
                 qty = 0
             if qty > 0:
+                _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"position_seen": True})
                 trace.position_opened = True
                 trace.lifecycle_state = "POSITION_OPENED"
                 _trace_log("POSITION_OPENED", trace, extra=f"position_qty={qty}")
@@ -811,6 +930,7 @@ def _post_submission_ibkr_diagnostics(
     manager: Any | None,
     submitted_order_ids: list[int],
 ) -> None:
+    global _BROKER_TRUTH_FATALS, _BROKER_TRUTH_CONFIRMATIONS
     if not submitted_order_ids:
         return
     if mode not in {RunMode.PAPER, RunMode.LIVE}:
@@ -825,13 +945,18 @@ def _post_submission_ibkr_diagnostics(
     def _snapshot_broker_visibility() -> tuple[list[Any], list[Any], bool]:
         current_open_orders = _safe_list_call(client, "openOrders")
         current_executions = _safe_list_call(client, "executions")
-        visible_open = len(current_open_orders) > 0
-        visible_exec = len(current_executions) > 0
-        visible_exec_details = any(
-            _RUNTIME_ORDERS.get(order_id) is not None and bool(_RUNTIME_ORDERS[order_id].seen_exec_ids)
-            for order_id in submitted_lookup
-        )
-        broker_truth_confirmed = visible_open or visible_exec or visible_exec_details
+        visible_open_ids = {int(getattr(row, "orderId", -1)) for row in current_open_orders}
+        visible_exec_ids = {int(_extract_exec_order_id(row)) for row in current_executions if _extract_exec_order_id(row) is not None}
+        for order_id in submitted_lookup:
+            visibility = _VISIBILITY_BY_ORDER_ID.setdefault(int(order_id), {})
+            if int(order_id) in visible_open_ids:
+                visibility["openOrders_snapshot_seen"] = True
+            if int(order_id) in visible_exec_ids:
+                visibility["executions_snapshot_seen"] = True
+            tracked = _RUNTIME_ORDERS.get(int(order_id))
+            if tracked is not None and tracked.filled_qty > 0:
+                visibility["position_seen"] = bool(_RUNTIME_POSITIONS.get(tracked.symbol) and _RUNTIME_POSITIONS[tracked.symbol].qty > 0)
+        broker_truth_confirmed = any(_visibility_confirmed(order_id) for order_id in submitted_lookup)
         return current_open_orders, current_executions, broker_truth_confirmed
 
     open_orders, executions, broker_truth_confirmed = _snapshot_broker_visibility()
@@ -859,7 +984,7 @@ def _post_submission_ibkr_diagnostics(
         )
 
     polling_deadline = time.time() + 3.0
-    print(f"[BROKER_TRUTH][POLLING] submitted_order_ids={sorted(submitted_lookup)} timeout_seconds=3")
+    print(f"[BROKER_TRUTH][ESCALATION_LEVEL=2] phase=POLLING submitted_order_ids={sorted(submitted_lookup)} timeout_seconds=3")
     while time.time() < polling_deadline and not broker_truth_confirmed:
         open_orders, executions, broker_truth_confirmed = _snapshot_broker_visibility()
         if broker_truth_confirmed:
@@ -868,7 +993,7 @@ def _post_submission_ibkr_diagnostics(
 
     callback_deadline = time.time() + 2.0
     if not broker_truth_confirmed:
-        print(f"[BROKER_TRUTH][CALLBACK_WAIT] submitted_order_ids={sorted(submitted_lookup)} timeout_seconds=2")
+        print(f"[BROKER_TRUTH][ESCALATION_LEVEL=3] phase=CALLBACK_WAIT submitted_order_ids={sorted(submitted_lookup)} timeout_seconds=2")
     while time.time() < callback_deadline and not broker_truth_confirmed:
         open_orders, executions, broker_truth_confirmed = _snapshot_broker_visibility()
         if broker_truth_confirmed:
@@ -887,7 +1012,17 @@ def _post_submission_ibkr_diagnostics(
     observed_exec_details = exec_detail_rows > 0
     if not observed_exec_details:
         print("[CRITICAL] IBKR_NO_FILL_CONFIRMATION")
+    if not broker_truth_confirmed:
+        print(f"[BROKER_TRUTH][ESCALATION_LEVEL=4] phase=FORCED_RESYNC submitted_order_ids={sorted(submitted_lookup)}")
+        _safe_list_call(client, "openOrders")
+        _safe_list_call(client, "executions")
+        _safe_list_call(client, "positions")
+        open_orders, executions, broker_truth_confirmed = _snapshot_broker_visibility()
+    for order_id in submitted_order_ids:
+        tracked = _RUNTIME_ORDERS.get(int(order_id))
+        _log_visibility_matrix(int(order_id), tracked.symbol if tracked is not None else "UNKNOWN")
     if broker_truth_confirmed:
+        _BROKER_TRUTH_CONFIRMATIONS += 1
         print(f"[BROKER_TRUTH][CONFIRMED] submitted_order_ids={sorted(submitted_lookup)}")
     if (
         mode == RunMode.PAPER
@@ -897,6 +1032,7 @@ def _post_submission_ibkr_diagnostics(
         and len(submitted_order_ids) > 0
         and not broker_truth_confirmed
     ):
+        _BROKER_TRUTH_FATALS += 1
         print(f"[BROKER_TRUTH][FATAL] submitted_order_ids={sorted(submitted_lookup)}")
         raise RuntimeError("[BROKER_TRUTH][FATAL] no_broker_visible_order_or_fill_after_submission")
 
@@ -1003,12 +1139,63 @@ def _wait_for_ibkr_snapshot_for_symbol(symbol: str, *, wait_up_to: float = 1.0, 
     return snapshot
 
 
+def _submit_ibkr_order(
+    *,
+    client: Any,
+    symbol: str,
+    side: str,
+    quantity: int,
+    order_ref: str,
+) -> int:
+    global _CONTRACT_VALIDATION_FAILURES
+    _, Stock, MarketOrder = safe_import_ib_insync()
+    print(f"[IBKR][CONTRACT_VALIDATION][START] symbol={symbol}")
+    contract = Stock(symbol, "SMART", "USD")
+    qualified = []
+    if hasattr(client, "qualifyContracts"):
+        qualified = list(client.qualifyContracts(contract) or [])
+    if not qualified:
+        _CONTRACT_VALIDATION_FAILURES += 1
+        print(f"[IBKR][CONTRACT_VALIDATION][FAIL] symbol={symbol} reason=qualification_failed")
+        raise RuntimeError(f"CONTRACT_NOT_QUALIFIED:{symbol}")
+    resolved_contract = qualified[0]
+    con_id = int(getattr(resolved_contract, "conId", 0) or 0)
+    if con_id <= 0:
+        _CONTRACT_VALIDATION_FAILURES += 1
+        print(f"[IBKR][CONTRACT_VALIDATION][FAIL] symbol={symbol} reason=missing_conid")
+        raise RuntimeError(f"CONTRACT_NOT_QUALIFIED:{symbol}")
+    print(
+        "[IBKR][CONTRACT] "
+        f"symbol={symbol} conId={con_id} exchange={getattr(resolved_contract, 'exchange', None)} "
+        f"primaryExchange={getattr(resolved_contract, 'primaryExchange', None)} currency={getattr(resolved_contract, 'currency', None)} "
+        f"secType={getattr(resolved_contract, 'secType', None)}"
+    )
+    print(f"[IBKR][CONTRACT_VALIDATION][OK] symbol={symbol} conId={con_id}")
+    order = MarketOrder(side, int(quantity))
+    order.orderRef = order_ref
+    account = getattr(client, "get_primary_account", lambda: None)() if hasattr(client, "get_primary_account") else None
+    print(
+        "[IBKR][PLACE_ORDER][START] "
+        f"symbol={symbol} order_id=PENDING client_id={getattr(client, 'client_id', None)} account={account or 'UNKNOWN'} "
+        f"order_type={getattr(order, 'orderType', 'MKT')} tif={getattr(order, 'tif', 'DAY')} qty={quantity} side={side}"
+    )
+    try:
+        order_id = int(client.submit_order(resolved_contract, order))
+    except Exception as exc:
+        print(f"[IBKR][PLACE_ORDER][ERROR] symbol={symbol} order_id=PENDING error={exc}")
+        raise
+    print(f"[IBKR][PLACE_ORDER][SENT] symbol={symbol} order_id={order_id}")
+    return order_id
+
+
 def execute_intents(
     mode: RunMode,
     decisions: List[RiskDecisionRecord],
 ) -> List[ExecutionEvent]:
-    global _FILL_AUTHORITY_STATE, _EXECUTION_CYCLE_COUNTER
+    global _FILL_AUTHORITY_STATE, _EXECUTION_CYCLE_COUNTER, _CIRCUIT_BREAKER_ACTIVE
     _FILL_AUTHORITY_STATE = "UNKNOWN"
+    if _is_explicit_test_mode():
+        _CIRCUIT_BREAKER_ACTIVE = False
     events: List[ExecutionEvent] = []
     manager: Any | None = None
     _EXECUTION_CYCLE_COUNTER += 1
@@ -1064,13 +1251,6 @@ def execute_intents(
         family = order_ref.split("|")[-1] if "|" in order_ref else order_ref
         working_order_families.add((symbol, side, family))
     print(f"[EXECUTION][WORKING_ORDER_RECON] known_working_orders={len(working_order_families)}")
-
-    order_id_seed = 0
-    if mode in {RunMode.PAPER, RunMode.LIVE} and not _is_explicit_test_mode():
-        if manager is None:
-            manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
-        metadata = manager.connection_metadata()
-        order_id_seed = int(metadata.get("connected_client_id") or 0) * 1_000_000
 
     submitted_order_ids: list[int] = []
     for index, decision in enumerate(decisions, start=1):
@@ -1164,8 +1344,9 @@ def execute_intents(
                     decision.entry_price = entry_price
                     trace.resolved_price = float(entry_price)
                     trace.price_state = "PARTIAL_OK"
-                    print(f"[EXECUTION][RESOLVED] symbol={decision.symbol} price={entry_price} source={entry_price_source}")
+                    print(f"[PRICE][RESOLVED] symbol={decision.symbol} source=IBKR_SNAPSHOT price={entry_price}")
                 except PriceResolutionError:
+                    print(f"[PRICE][BLOCK] symbol={decision.symbol} reason=NO_IBKR_PRICE_AVAILABLE")
                     _mark_execution_failure(trace, "PRICE_UNAVAILABLE", reason="waiting_for_price")
                     events.append(
                         ExecutionEvent(
@@ -1219,32 +1400,70 @@ def execute_intents(
         print(f"[EXECUTION][DISPATCH] symbol={decision.symbol} dispatch={dispatch}")
         broker_order_id = None
         if action == "SUBMITTED":
+            if not _ensure_submission_allowed(mode, symbol=str(decision.symbol or "").upper()):
+                events.append(
+                    ExecutionEvent(
+                        symbol=decision.symbol,
+                        intent_id=decision.intent_id,
+                        action="BLOCKED",
+                        detail="reason=EXECUTION_TRUTH_DEGRADED",
+                        broker_status="REJECTED",
+                        last_update_time=_now_utc_iso(),
+                    )
+                )
+                continue
             submit_attempts += 1
-            _trace_log("SUBMIT_ATTEMPT", trace, extra=f"mode={mode.value} qty={quantity}")
-            broker_order_id = order_id_seed + index if order_id_seed > 0 else index
-            if broker_order_id is None:
-                _mark_execution_failure(trace, "UNKNOWN", reason="missing_order_id_after_submission")
-                print("[CRITICAL] EXECUTION_ORDER_ID_MISSING_AFTER_SUBMISSION")
+            print(f"[EXECUTION][SUBMIT_ATTEMPT] symbol={decision.symbol} intent_id={decision.intent_id} mode={mode.value} qty={quantity}")
+            try:
+                order_ref = _build_order_ref(str(decision.intent_id or ""))
+                if mode in {RunMode.PAPER, RunMode.LIVE} and not _is_explicit_test_mode():
+                    if manager is None:
+                        manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
+                    broker_order_id = _submit_ibkr_order(
+                        client=manager.get_client(),
+                        symbol=str(decision.symbol or "").upper(),
+                        side=order_side,
+                        quantity=quantity,
+                        order_ref=order_ref,
+                    )
+                else:
+                    broker_order_id = index
+            except Exception as exc:
+                _mark_execution_failure(trace, "UNKNOWN", reason=str(exc))
+                events.append(
+                    ExecutionEvent(
+                        symbol=decision.symbol,
+                        intent_id=decision.intent_id,
+                        action="BLOCKED",
+                        detail=f"reason=SUBMISSION_FAILED:{exc}",
+                        broker_status="REJECTED",
+                        last_update_time=_now_utc_iso(),
+                    )
+                )
+                continue
             submitted_order_ids.append(int(broker_order_id))
-            print(f"[EXECUTION][SUBMITTED] symbol={decision.symbol} broker_order_id={broker_order_id}")
+            print(f"[EXECUTION][SUBMITTED] symbol={decision.symbol} broker_order_id={broker_order_id} local_dispatch_attempted=true place_order_issued=true")
             orders_submitted += 1
             trace.order_submitted = True
             trace.order_id = int(broker_order_id)
             trace.submit_time = _now_utc_iso()
             trace.lifecycle_state = "SUBMITTED"
             _EXECUTION_TRACE_BY_ORDER_ID[int(broker_order_id)] = trace
+            trace_id = _build_trace_id(intent_id=str(decision.intent_id or ""), broker_order_id=int(broker_order_id), cycle_id=cycle_id)
+            print(f"[EXECUTION][TRACE_ID] symbol={decision.symbol} trace_id={trace_id} intent_id={decision.intent_id} broker_order_id={broker_order_id}")
             _trace_log("SUBMITTED", trace, extra=f"qty={quantity}")
+            _initialize_visibility(int(broker_order_id))
             _upsert_order_from_submission(
                 order_id=broker_order_id,
                 symbol=str(decision.symbol or "").upper(),
                 side=order_side,
                 total_qty=quantity,
-                order_ref=str(decision.intent_id or ""),
+                order_ref=order_ref,
             )
             _register_order_intent_mapping(
                 order_id=int(broker_order_id),
                 intent_id=str(decision.intent_id or ""),
-                order_ref=str(decision.intent_id or ""),
+                order_ref=order_ref,
             )
         events.append(
             ExecutionEvent(
@@ -1253,7 +1472,7 @@ def execute_intents(
                 action=action,
                 detail=detail,
                 broker_order_id=broker_order_id,
-                event_type="ORDER_SUBMITTED" if action == "SUBMITTED" else action,
+                event_type="ORDER_WORKING" if action == "SUBMITTED" else action,
                 broker_status="Submitted" if action == "SUBMITTED" else ("REJECTED" if action == "BLOCKED" else "SIMULATED"),
                 source="IBKR" if action == "SUBMITTED" else "ENGINE",
                 filled_quantity=0,
@@ -1275,13 +1494,9 @@ def execute_intents(
             trace.lifecycle_state = "FILL_RECEIVED"
             fills_received += 1
             _trace_log("FILL", trace, extra=f"fill_qty={event.filled_quantity} fill_price={event.avg_fill_price}")
-        if str(event.broker_status or "").upper() in {"SUBMITTED", "PRESUBMITTED"}:
-            trace.ack_received = True
-            trace.order_status = str(event.broker_status)
-            trace.ack_time = event.last_update_time or _now_utc_iso()
-            trace.lifecycle_state = "ACK_RECEIVED"
+        if trace.ack_received:
             acks_received += 1
-            _trace_log("ACK", trace, extra=f"broker_status={event.broker_status}")
+            print(f"[EXECUTION][BROKER_ACK] symbol={trace.symbol} intent_id={trace.intent_id} order_id={trace.order_id}")
     events = _sync_submitted_events_from_ibkr(mode, events)
     _post_submission_ibkr_diagnostics(mode=mode, manager=manager, submitted_order_ids=submitted_order_ids)
     for trace in _EXECUTION_TRACE_BY_INTENT.values():
@@ -1301,6 +1516,18 @@ def execute_intents(
         if trace.lifecycle_state not in {"FAIL", "POSITION_OPENED"}:
             trace.lifecycle_state = "COMPLETE"
             _trace_log("COMPLETE", trace, extra=f"state={trace.lifecycle_state}")
+    print(
+        "[EXECUTION][CALLBACK_HEALTH] "
+        f"open_order_callbacks_received={sum(1 for v in _VISIBILITY_BY_ORDER_ID.values() if v.get('openOrder_seen'))} "
+        f"order_status_callbacks_received={sum(1 for v in _VISIBILITY_BY_ORDER_ID.values() if v.get('orderStatus_seen'))} "
+        f"exec_details_callbacks_received={sum(1 for v in _VISIBILITY_BY_ORDER_ID.values() if v.get('execDetails_seen'))} "
+        f"unresolved_order_callbacks={_UNRESOLVED_EXECUTION_RECONCILIATION_COUNT} "
+        f"unresolved_non_order_callbacks={_NON_ORDER_UNMATCHED_CALLBACK_COUNT} "
+        f"broker_truth_confirmations={_BROKER_TRUTH_CONFIRMATIONS} "
+        f"broker_truth_fatals={_BROKER_TRUTH_FATALS} "
+        f"contract_validation_failures={_CONTRACT_VALIDATION_FAILURES} "
+        f"next_valid_id_resets_or_rebases={_NEXT_VALID_ID_REBASES}"
+    )
     print(
         "[EXECUTION][SUMMARY] "
         f"cycle_id={cycle_id} intents_received={intents_received} submit_attempts={submit_attempts} "

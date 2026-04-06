@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import threading
 import time
+import json
+import os
+from pathlib import Path
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Tuple
@@ -72,6 +75,8 @@ class IbkrClient(EWrapper, EClient):
         self._connection_event = threading.Event()
         self._last_disconnect_reason: Optional[str] = None
         self._next_order_id: Optional[int] = None
+        self._next_valid_order_id: Optional[int] = None
+        self._last_reserved_order_id: Optional[int] = self._load_last_reserved_order_id()
         self._order_status_events: Dict[int, threading.Event] = {}
         self._order_status: Dict[int, Dict[str, Optional[float | int | str]]] = {}
         self._order_errors: Dict[int, Tuple[int, str]] = {}
@@ -97,6 +102,28 @@ class IbkrClient(EWrapper, EClient):
         self._executions_event = threading.Event()
         self._positions_snapshot: Dict[str, object] = {}
         self._positions_event = threading.Event()
+
+    def _order_id_state_path(self) -> Path:
+        return Path(os.environ.get("IBKR_ORDER_ID_STATE_PATH", Path.home() / ".ibkr_order_id_state.json"))
+
+    def _load_last_reserved_order_id(self) -> Optional[int]:
+        try:
+            path = self._order_id_state_path()
+            if not path.exists():
+                return None
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            value = int(payload.get("last_reserved_order_id"))
+            return value if value > 0 else None
+        except Exception:
+            return None
+
+    def _persist_last_reserved_order_id(self, order_id: int) -> None:
+        try:
+            path = self._order_id_state_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"last_reserved_order_id": int(order_id)}), encoding="utf-8")
+        except Exception as exc:
+            print(f"[IBKR][ORDER_ID_PERSIST_WARN] reason={exc}")
 
 
     def _ensure_order_state_registry(self) -> None:
@@ -241,10 +268,16 @@ class IbkrClient(EWrapper, EClient):
 
     def reserve_order_id(self) -> int:
         with self._lock:
-            if self._next_order_id is None:
+            if self._next_valid_order_id is None:
+                print("[CRITICAL] IBKR_NEXT_VALID_ID_NOT_READY")
                 raise RuntimeError("IBKR order id not yet initialized.")
-            order_id = self._next_order_id
-            self._next_order_id += 1
+            order_id = int(self._next_valid_order_id)
+            self._next_valid_order_id = int(order_id) + 1
+            self._next_order_id = self._next_valid_order_id
+            self._last_reserved_order_id = int(order_id)
+            self._persist_last_reserved_order_id(int(order_id))
+            print(f"[IBKR][ORDER_ID_SOURCE] source=IBKR_NEXT_VALID_ID order_id={order_id}")
+            print(f"[IBKR][ORDER_ID_SEQUENCE] reserved={order_id} next={self._next_valid_order_id}")
             return order_id
 
     def submit_order(self, contract: Contract, order) -> int:
@@ -260,7 +293,11 @@ class IbkrClient(EWrapper, EClient):
             f"qty={getattr(order, 'totalQuantity', None)} side={getattr(order, 'action', None)} "
             f"order_type={getattr(order, 'orderType', None)}"
         )
-        self.placeOrder(order_id, contract, order)
+        try:
+            self.placeOrder(order_id, contract, order)
+        except Exception as exc:
+            print(f"[IBKR][PLACE_ORDER][ERROR] symbol={getattr(contract, 'symbol', None)} order_id={order_id} error={exc}")
+            raise
         return order_id
 
     def wait_for_order_status(
@@ -895,8 +932,17 @@ class IbkrClient(EWrapper, EClient):
             self._connection_event.clear()
 
     def nextValidId(self, orderId: int):  # type: ignore[override]
-        print(f"[IBKR] nextValidId received orderId={orderId}")
-        self._next_order_id = orderId
+        broker_next = int(orderId)
+        chosen = broker_next
+        if self._last_reserved_order_id is not None and broker_next <= int(self._last_reserved_order_id):
+            chosen = int(self._last_reserved_order_id) + 1
+            print(
+                "[IBKR][ORDER_ID_REBASE] "
+                f"broker_next={broker_next} local_last={self._last_reserved_order_id} chosen={chosen}"
+            )
+        self._next_valid_order_id = chosen
+        self._next_order_id = chosen
+        print(f"[IBKR][NEXT_VALID_ID] order_id={chosen}")
         self._connection_event.set()
 
     def orderStatus(
@@ -913,6 +959,10 @@ class IbkrClient(EWrapper, EClient):
         whyHeld: str,
         mktCapPrice: float,
     ):  # type: ignore[override]
+        print(
+            "[IBKR][CALLBACK_RAW] "
+            f"event=orderStatus order_id={orderId} status={status} filled={filled} remaining={remaining}"
+        )
         print(
             "[IBKR][ORDER_STATUS] "
             f"order_id={orderId} "
@@ -959,6 +1009,11 @@ class IbkrClient(EWrapper, EClient):
 
     def execDetails(self, reqId, contract, execution):  # type: ignore[override]
         self._ensure_order_state_registry()
+        print(
+            "[IBKR][CALLBACK_RAW] "
+            f"event=execDetails order_id={getattr(execution, 'orderId', None)} "
+            f"exec_id={getattr(execution, 'execId', None)} symbol={getattr(contract, 'symbol', None)}"
+        )
         print(
             "[IBKR][EXEC_DETAILS] "
             f"symbol={getattr(contract, 'symbol', None)} "
@@ -1046,9 +1101,11 @@ class IbkrClient(EWrapper, EClient):
         )
 
     def openOrderEnd(self):  # type: ignore[override]
+        print("[IBKR][CALLBACK_RAW] event=openOrderEnd")
         self._open_orders_event.set()
 
     def execDetailsEnd(self, reqId):  # type: ignore[override]
+        print(f"[IBKR][CALLBACK_RAW] event=execDetailsEnd req_id={reqId}")
         self._executions_event.set()
         getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
 

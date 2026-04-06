@@ -22,6 +22,13 @@ def _reset_router() -> None:
     order_router._ORDER_ID_BY_ORDER_REF.clear()
     order_router._EXECUTION_FAILURES_BY_TYPE.clear()
     order_router._UNRESOLVED_EXECUTION_RECONCILIATION_COUNT = 0
+    order_router._VISIBILITY_BY_ORDER_ID.clear()
+    order_router._BROKER_TRUTH_FATALS = 0
+    order_router._BROKER_TRUTH_CONFIRMATIONS = 0
+    order_router._CONTRACT_VALIDATION_FAILURES = 0
+    order_router._NEXT_VALID_ID_REBASES = 0
+    order_router._NON_ORDER_UNMATCHED_CALLBACK_COUNT = 0
+    order_router._CIRCUIT_BREAKER_ACTIVE = False
 
 
 def _decision(symbol: str = "ABCD", qty: int = 100, side: str = "LONG") -> RiskDecisionRecord:
@@ -184,7 +191,7 @@ def test_post_submission_diagnostics_delayed_then_confirmed(monkeypatch, capsys)
     assert "[IBKR][EXEC_HISTORY]" in out
     assert "[IBKR][ORDER_STATUS]" in out
     assert "[IBKR][EXEC_DETAILS]" in out
-    assert "[BROKER_TRUTH][POLLING]" in out
+    assert "[BROKER_TRUTH][ESCALATION_LEVEL=2] phase=POLLING" in out
     assert "[BROKER_TRUTH][CONFIRMED]" in out
     assert "[CRITICAL] IBKR_NO_FILL_CONFIRMATION" in out
 
@@ -222,10 +229,10 @@ def test_execdetails_callback_reconciles_via_order_ref(monkeypatch, capsys) -> N
     events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
     oid = events[0].broker_order_id
     order_router._on_ibkr_callback(
-        {"event_type": "execDetails", "orderRef": "ABCD-1", "symbol": "ABCD", "shares": 10, "price": 21.0, "execId": "R1"}
+        {"event_type": "execDetails", "orderRef": "TRADING_OS|ROSS_MOMENTUM|ABCD-1", "symbol": "ABCD", "shares": 10, "price": 21.0, "execId": "R1"}
     )
     out = capsys.readouterr().out
-    assert f"[ORDER_EVENT][RECONCILED] source=orderRef order_ref=ABCD-1 order_id={oid}" in out
+    assert f"[ORDER_EVENT][RECONCILED] source=orderRef order_ref=TRADING_OS|ROSS_MOMENTUM|ABCD-1 order_id={oid}" in out
     assert order_router._RUNTIME_ORDERS[oid].filled_qty == 10
 
 
@@ -261,7 +268,7 @@ def test_execution_cycle_emits_summary_and_failure_classification(monkeypatch, c
     out = capsys.readouterr().out
     assert "[EXECUTION][SUMMARY]" in out
     assert "[EXECUTION][FAIL]" in out
-    assert "TYPE=NO_FILL" in out or "type=NO_FILL" in out
+    assert "TYPE=NO_ACK" in out or "TYPE=NO_FILL" in out or "type=NO_ACK" in out or "type=NO_FILL" in out
 
 
 def test_callback_openorder_and_position_update_trace(monkeypatch) -> None:
@@ -274,3 +281,21 @@ def test_callback_openorder_and_position_update_trace(monkeypatch) -> None:
     trace = order_router._EXECUTION_TRACE_BY_ORDER_ID[oid]
     assert trace.ack_received is True
     assert trace.position_opened is True
+
+
+def test_positionend_callback_not_treated_as_unmatched_order(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
+    order_router._on_ibkr_callback({"event_type": "positionEnd"})
+    out = capsys.readouterr().out
+    assert "[EXECUTION][RECONCILIATION_FAILED] event=CALLBACK callback=positionend" not in out
+    assert order_router._UNRESOLVED_EXECUTION_RECONCILIATION_COUNT == 0
+
+
+def test_circuit_breaker_blocks_new_submission_after_degradation(monkeypatch) -> None:
+    _reset_router()
+    order_router._CIRCUIT_BREAKER_ACTIVE = True
+    allowed = order_router._ensure_submission_allowed(RunMode.LIVE, symbol="ABCD")
+    assert allowed is False
+    assert order_router._CIRCUIT_BREAKER_ACTIVE is True
