@@ -425,7 +425,7 @@ class IbkrScannerProvider(ScannerDataProvider):
         symbol = str(symbol or "").upper().strip()
         self.last_float_failures = []
         self.last_float_source = None
-        fallback_used = False
+        fallback_applied = False
         cache_provider = FloatProvider(ttl_days=7)
 
         for provider_name, fetcher in (
@@ -440,7 +440,7 @@ class IbkrScannerProvider(ScannerDataProvider):
                     self.last_float_source = provider_name
                     print(f"[FLOAT][SOURCE] symbol={symbol} source={provider_name}")
                     print(f"[FLOAT][CACHE_USED] symbol={symbol} used=False")
-                    print(f"[FLOAT][FALLBACK_USED] symbol={symbol} used={fallback_used}")
+                    print(f"[FLOAT][FALLBACK_USED] symbol={symbol} used={fallback_applied}")
                     print(
                         f"[FLOAT][FETCH_OK] symbol={symbol} provider={provider_name} value={int(value)}"
                     )
@@ -458,10 +458,10 @@ class IbkrScannerProvider(ScannerDataProvider):
         self.last_float_failures.extend(list(getattr(cache_provider, "last_float_failures", [])))
         self.last_float_source = cached_source
         cache_used = bool(getattr(cache_provider, "last_cache_used", cached_value is not None))
-        fallback_used = bool(getattr(cache_provider, "last_fallback_used", False)) or fallback_used
+        fallback_applied = bool(getattr(cache_provider, "last_fallback_used", False)) or fallback_applied
         print(f"[FLOAT][SOURCE] symbol={symbol} source={cached_source}")
         print(f"[FLOAT][CACHE_USED] symbol={symbol} used={cache_used}")
-        print(f"[FLOAT][FALLBACK_USED] symbol={symbol} used={fallback_used}")
+        print(f"[FLOAT][FALLBACK_USED] symbol={symbol} used={fallback_applied}")
         return cached_value
 
     def _average_daily_volume(self, symbol: str) -> tuple[Optional[int], Optional[int]]:
