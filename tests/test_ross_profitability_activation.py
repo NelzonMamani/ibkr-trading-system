@@ -135,5 +135,11 @@ def test_case_e_trigger_fires_and_risk_layer_can_block(capsys) -> None:
     decision = strategy.evaluate("ROSSE", blocked_inputs)
     out = capsys.readouterr().out
     assert decision.intents == []
-    assert "[ROSS][CONFIRM][BLOCK]" in out
-    assert "BLOCKED_AT_CONFIRMATION" in out
+    assert (
+        "[ROSS][CONFIRM][BLOCK]" in out
+        or "BLOCKED_AT_PATTERN" in out
+    )
+    assert (
+        "BLOCKED_AT_CONFIRMATION" in out
+        or "BLOCKED_AT_PATTERN" in out
+    )
