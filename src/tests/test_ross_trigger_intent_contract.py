@@ -70,10 +70,12 @@ def test_trigger_without_intent_is_explicitly_blocked(monkeypatch, capsys) -> No
     monkeypatch.setattr("src.core_engine.orchestrator.evaluate_trade_intents", lambda **_: [])
     monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", lambda **_: [])
 
-    run_cycle(cycle_id=1, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    try:
+        run_cycle(cycle_id=1, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    except RuntimeError as exc:
+        assert "[PIPELINE][FATAL] trigger_without_intent symbol=ABCD" in str(exc)
     out = capsys.readouterr().out
-    assert "NO_STRATEGY_INTENT" not in out
-    assert "reason=BLOCKED_BY_POLICY" in out
+    assert "[PIPELINE][FATAL] trigger_without_intent symbol=ABCD" in out
 
 
 def test_intent_risk_execution_pipeline_end_to_end(monkeypatch) -> None:

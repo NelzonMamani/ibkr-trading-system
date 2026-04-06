@@ -372,6 +372,14 @@ def run_cycle(
 ) -> CycleSummary:
     _ensure_deterministic_prep()
     mode_input = mode_value or str(get_config("RUN_MODE_EFFECTIVE") or "READ_ONLY")
+    requested_mode = str(mode_input or "").upper()
+    if requested_mode == "PAPER":
+        execution_enabled_cfg = bool(get_config("EXECUTION_ENABLED"))
+        submission_enabled_cfg = bool(get_config("IBKR_ORDER_SUBMISSION_ENABLED"))
+        readonly_enabled_cfg = bool(get_config("IBKR_READONLY_ENABLED"))
+        if (not execution_enabled_cfg) or (not submission_enabled_cfg) or readonly_enabled_cfg:
+            print("[PIPELINE][FATAL] execution_disabled_misconfig")
+            raise RuntimeError("[PIPELINE][FATAL] execution_disabled_misconfig")
     execution_enabled_input = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
     print(
         "[MODE][INPUT] "
@@ -440,6 +448,19 @@ def run_cycle(
     print(f"[DEBUG][STATE] force_debug_trades={str(force_debug_trades).lower()}")
     strategy_policy, scanner_policy = _scanner_policy_for_session(session.value)
     strategy_name = str(strategy_policy.name or "ROSS_MOMENTUM")
+    if mode == RunMode.PAPER:
+        scanner_policy = replace(
+            scanner_policy,
+            rvol_min=min(float(scanner_policy.rvol_min), 1.0),
+            watchlist_rvol_min=min(float(scanner_policy.watchlist_rvol_min), 1.0),
+            focus_rvol_min=min(float(scanner_policy.focus_rvol_min), 1.0),
+            spread_max_pct=5.0 if scanner_policy.spread_max_pct is None else max(float(scanner_policy.spread_max_pct), 5.0),
+        )
+        print(
+            "[PIPELINE][PAPER_RELAXATION] "
+            f"rvol_min={scanner_policy.rvol_min} watchlist_rvol_min={scanner_policy.watchlist_rvol_min} "
+            f"focus_rvol_min={scanner_policy.focus_rvol_min} spread_max_pct={scanner_policy.spread_max_pct}"
+        )
     if force_debug_trades:
         scanner_policy = replace(
             scanner_policy,
@@ -680,6 +701,8 @@ def run_cycle(
                 "inputs=pattern_evaluator"
             )
             data_quality = scanner_payload.get("data_quality_by_symbol", {}).get(symbol, [])
+            if mode == RunMode.PAPER and any("FLOAT" in str(flag).upper() for flag in data_quality):
+                print(f"[PIPELINE][WARN] symbol={symbol} float_missing_allowed_paper_only=true")
             inputs = _build_synthetic_inputs(symbol, data_quality, session.value)
             summary = evaluator.evaluate([inputs])
             best_setup = summary.best_long_setup or summary.best_short_setup
@@ -745,12 +768,11 @@ def run_cycle(
             print(f"[PATTERN] {symbol} best={best_name} conf={best_conf:.2f}")
             print(
                 f"[PIPELINE][SETUP] symbol={symbol} "
-                f"passed={str(setup_detected).lower()} setup={best_name}"
+                f"setup={best_name} detected={str(setup_detected).lower()}"
             )
             print(
                 f"[PIPELINE][TRIGGER] symbol={symbol} "
-                f"ready={str(trigger_ready_now).lower()} "
-                f"reason={'PRICE_ACTION_TRIGGER' if trigger_ready_now else 'TRIGGER_NOT_READY'}"
+                f"trigger={trigger_type} fired={str(trigger_ready_now).lower()}"
             )
             _pipeline_stage_log(
                 stage="TRIGGER",
@@ -937,6 +959,7 @@ def run_cycle(
                 decision_waterfall[symbol]["intent"] = "EMITTED"
                 decision_waterfall[symbol]["intent_reason"] = "INTENT_EMITTED"
                 print(f"[PIPELINE][INTENT] symbol={symbol} created=true forced=false intent_id={intent.intent_id}")
+                print(f"[PIPELINE][INTENT] symbol={symbol} intent_id={intent.intent_id} created=True")
                 _pipeline_stage_log(
                     stage="INTENT",
                     symbol=symbol,
@@ -996,6 +1019,8 @@ def run_cycle(
                         f"[DECISION][ERROR] TRIGGER_WITHOUT_INTENT symbol={symbol} "
                         f"setup_family={setup_family} trigger_type={trigger_type} reason={no_intent_reason}"
                     )
+                    print(f"[PIPELINE][FATAL] trigger_without_intent symbol={symbol}")
+                    raise RuntimeError(f"[PIPELINE][FATAL] trigger_without_intent symbol={symbol}")
             print("[PIPELINE][INTENT_TRACE]")
             print(f"symbol={symbol}")
             print(f"setup_detected={str(setup_detected).lower()}")
@@ -1190,6 +1215,7 @@ def run_cycle(
             "[EXECUTION][SUBMIT_ATTEMPT] "
             f"symbol={decision.symbol} qty={int(decision.approved_quantity)} order_type=MKT mode=PAPER"
         )
+        print(f"[PIPELINE][EXECUTION][ATTEMPT] symbol={decision.symbol} intent_id={decision.intent_id}")
         _pipeline_stage_log(
             stage="EXECUTION",
             symbol=decision.symbol,
@@ -1250,6 +1276,13 @@ def run_cycle(
             f"symbol={event.symbol} submitted={event.action == 'SUBMITTED'} "
             f"order_id={broker_order_id if broker_order_id is not None else 'MISSING'} reason={event.detail}"
         )
+        if event.action == "BLOCKED":
+            print(f"[EXECUTION][BLOCKED] reason={event.detail}")
+        if event.action == "SUBMITTED":
+            print(
+                f"[PIPELINE][EXECUTION][SUBMITTED] "
+                f"symbol={event.symbol} order_id={broker_order_id if broker_order_id is not None else 'MISSING'}"
+            )
         _pipeline_stage_log(
             stage="SUBMISSION_RESULT",
             symbol=event.symbol,
@@ -1450,6 +1483,12 @@ def run_cycle(
         f"setup_detected_count={passed_setup} trigger_fired_count={passed_trigger} intent_count={generated_intents} "
         f"risk_allowed_count={risk_allowed} execution_attempt_count={len(execution_candidates)} "
         f"submission_success_count={execution_state_counts['submitted']} dominant_blocker={dominant_blocker}"
+    )
+    print(
+        "[PIPELINE][CYCLE_SUMMARY] "
+        f"symbols_scanned={len(scanned_symbols)} setups_detected={passed_setup} "
+        f"triggers_fired={passed_trigger} intents_created={generated_intents} "
+        f"orders_submitted={execution_state_counts['submitted']}"
     )
     for symbol, blocker in sorted(first_blocker_by_symbol.items()):
         print(

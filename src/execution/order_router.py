@@ -9,8 +9,16 @@ from dataclasses import dataclass, field
 from typing import Any, List
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
+from src.config.config_resolver import get_config
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
 from src.core_engine.state import RunMode
+
+try:
+    from ibapi.contract import Contract
+    from ibapi.order import Order
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    Contract = None  # type: ignore[assignment]
+    Order = None  # type: ignore[assignment]
 
 _EXECUTION_EVENT_BUFFER: dict[int, ExecutionEvent] = {}
 _FILL_AUTHORITY_STATE = "UNKNOWN"
@@ -703,6 +711,32 @@ def _validate_ibkr_connection(mode: RunMode) -> None:
         )
 
 
+def _submit_market_order_via_ibkr(
+    *,
+    decision: RiskDecisionRecord,
+    quantity: int,
+    side: str,
+    manager: Any,
+) -> int:
+    if Contract is None or Order is None:
+        raise RuntimeError("IBAPI_UNAVAILABLE")
+    client = manager.get_client()
+    contract = Contract()
+    contract.symbol = str(decision.symbol or "").upper()
+    contract.secType = "STK"
+    contract.exchange = "SMART"
+    contract.currency = "USD"
+    order = Order()
+    order.action = side
+    order.orderType = "MKT"
+    order.totalQuantity = int(quantity)
+    order.tif = "DAY"
+    order.orderRef = f"TRADING_OS|ROSS_MOMENTUM|{decision.intent_id}"
+    order.eTradeOnly = False
+    order.firmQuoteOnly = False
+    return int(client.submit_order(contract, order))
+
+
 def execute_intents(
     mode: RunMode,
     decisions: List[RiskDecisionRecord],
@@ -878,15 +912,43 @@ def execute_intents(
         print(f"[EXECUTION][DISPATCH] symbol={decision.symbol} dispatch={dispatch}")
         broker_order_id = None
         if action == "SUBMITTED":
-            broker_order_id = order_id_seed + index if order_id_seed > 0 else index
-            print(f"[EXECUTION][SUBMITTED] symbol={decision.symbol} broker_order_id={broker_order_id}")
-            _upsert_order_from_submission(
-                order_id=broker_order_id,
-                symbol=str(decision.symbol or "").upper(),
-                side=order_side,
-                total_qty=quantity,
-                order_ref=str(decision.intent_id or ""),
-            )
+            submission_enabled = bool(get_config("IBKR_ORDER_SUBMISSION_ENABLED"))
+            if not submission_enabled:
+                action = "BLOCKED"
+                detail = "reason=IBKR_ORDER_SUBMISSION_DISABLED"
+                dispatch = "SKIPPED"
+                print(f"[EXECUTION][BLOCKED] symbol={decision.symbol} reason=IBKR_ORDER_SUBMISSION_DISABLED")
+            elif manager is None or _is_explicit_test_mode():
+                broker_order_id = order_id_seed + index if order_id_seed > 0 else index
+                print(f"[EXECUTION][SUBMITTED] symbol={decision.symbol} broker_order_id={broker_order_id}")
+                _upsert_order_from_submission(
+                    order_id=broker_order_id,
+                    symbol=str(decision.symbol or "").upper(),
+                    side=order_side,
+                    total_qty=quantity,
+                    order_ref=str(decision.intent_id or ""),
+                )
+            else:
+                try:
+                    broker_order_id = _submit_market_order_via_ibkr(
+                        decision=decision,
+                        quantity=quantity,
+                        side=order_side,
+                        manager=manager,
+                    )
+                    print(f"[EXECUTION][SUBMITTED] symbol={decision.symbol} broker_order_id={broker_order_id}")
+                    _upsert_order_from_submission(
+                        order_id=broker_order_id,
+                        symbol=str(decision.symbol or "").upper(),
+                        side=order_side,
+                        total_qty=quantity,
+                        order_ref=str(decision.intent_id or ""),
+                    )
+                except Exception as exc:
+                    action = "BLOCKED"
+                    detail = f"reason=IBKR_PLACE_ORDER_FAILED error={exc}"
+                    dispatch = "SKIPPED"
+                    print(f"[EXECUTION][BLOCKED] symbol={decision.symbol} reason=IBKR_PLACE_ORDER_FAILED error={exc}")
         events.append(
             ExecutionEvent(
                 symbol=decision.symbol,
