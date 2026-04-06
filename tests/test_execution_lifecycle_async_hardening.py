@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import pytest
 
 from src.core_engine.events import RiskDecisionRecord
 from src.core_engine.state import RunMode
@@ -141,3 +142,62 @@ def test_final_decision_summary_distinguishes_submitted_vs_filled(monkeypatch, c
     print(f"submitted_vs_filled=working:{snap['working_order_count']} filled:{snap['fully_filled_order_count']}")
     out = capsys.readouterr().out
     assert "submitted_vs_filled=working:0 filled:1" in out
+
+
+def test_post_submission_diagnostics_emit_required_markers(monkeypatch, capsys) -> None:
+    _reset_router()
+    order_router._RUNTIME_ORDERS[101] = order_router.TrackedOrder(
+        broker_order_id=101,
+        order_ref="ABCD-1",
+        symbol="ABCD",
+        side="BUY",
+        total_qty=10,
+        remaining_qty=10,
+    )
+    client = SimpleNamespace(openOrders=lambda: [], executions=lambda: [])
+    manager = SimpleNamespace(get_client=lambda: client)
+    times = iter([0.0, 6.0])
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
+    monkeypatch.setattr(order_router.time, "time", lambda: next(times))
+    monkeypatch.setattr(order_router.time, "sleep", lambda _seconds: None)
+    monkeypatch.delenv("EXECUTION_ENABLED", raising=False)
+    monkeypatch.delenv("IBKR_ORDER_SUBMISSION_ENABLED", raising=False)
+    monkeypatch.delenv("IBKR_READONLY_ENABLED", raising=False)
+    order_router._post_submission_ibkr_diagnostics(
+        mode=RunMode.PAPER,
+        manager=manager,
+        submitted_order_ids=[101],
+    )
+    out = capsys.readouterr().out
+    assert "[IBKR][OPEN_ORDERS]" in out
+    assert "[IBKR][EXEC_HISTORY]" in out
+    assert "[IBKR][ORDER_STATUS]" in out
+    assert "[IBKR][EXEC_DETAILS]" in out
+    assert "[CRITICAL] IBKR_NO_FILL_CONFIRMATION" in out
+
+
+def test_post_submission_broker_truth_fatal_when_no_broker_visibility(monkeypatch) -> None:
+    _reset_router()
+    order_router._RUNTIME_ORDERS[202] = order_router.TrackedOrder(
+        broker_order_id=202,
+        order_ref="ABCD-1",
+        symbol="ABCD",
+        side="BUY",
+        total_qty=10,
+        remaining_qty=10,
+    )
+    client = SimpleNamespace(openOrders=lambda: [], executions=lambda: [])
+    manager = SimpleNamespace(get_client=lambda: client)
+    times = iter([0.0, 6.0])
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
+    monkeypatch.setattr(order_router.time, "time", lambda: next(times))
+    monkeypatch.setattr(order_router.time, "sleep", lambda _seconds: None)
+    monkeypatch.setenv("EXECUTION_ENABLED", "true")
+    monkeypatch.setenv("IBKR_ORDER_SUBMISSION_ENABLED", "true")
+    monkeypatch.setenv("IBKR_READONLY_ENABLED", "false")
+    with pytest.raises(RuntimeError, match=r"\[BROKER_TRUTH\]\[FATAL\] no_broker_visible_order_or_fill_after_submission"):
+        order_router._post_submission_ibkr_diagnostics(
+            mode=RunMode.PAPER,
+            manager=manager,
+            submitted_order_ids=[202],
+        )

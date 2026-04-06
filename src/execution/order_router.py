@@ -678,6 +678,17 @@ def _post_submission_ibkr_diagnostics(
             "[IBKR][EXEC_HISTORY] "
             f"symbol={symbol or 'UNKNOWN'} order_id={order_id} shares={shares} price={price}"
         )
+    for order_id in submitted_order_ids:
+        tracked = _RUNTIME_ORDERS.get(int(order_id))
+        status = tracked.broker_status if tracked is not None else "UNKNOWN"
+        filled_qty = int(tracked.filled_qty) if tracked is not None else 0
+        remaining_qty = int(tracked.remaining_qty) if tracked is not None else 0
+        symbol = tracked.symbol if tracked is not None else "UNKNOWN"
+        print(
+            "[IBKR][ORDER_STATUS] "
+            f"symbol={symbol} order_id={int(order_id)} status={status} "
+            f"filled={filled_qty} remaining={remaining_qty}"
+        )
 
     deadline = time.time() + 5.0
     observed_exec_details = False
@@ -691,12 +702,40 @@ def _post_submission_ibkr_diagnostics(
         if observed_exec_details:
             break
         time.sleep(0.1)
+    exec_detail_rows = 0
+    for order_id in submitted_order_ids:
+        tracked = _RUNTIME_ORDERS.get(int(order_id))
+        seen_exec_ids = sorted(tracked.seen_exec_ids) if tracked is not None else []
+        exec_detail_rows += len(seen_exec_ids)
+        print(
+            "[IBKR][EXEC_DETAILS] "
+            f"order_id={int(order_id)} seen_exec_details={len(seen_exec_ids)} "
+            f"exec_ids={','.join(seen_exec_ids) or 'NONE'}"
+        )
     if not observed_exec_details:
         print("[CRITICAL] IBKR_NO_FILL_CONFIRMATION")
+    if (
+        mode == RunMode.PAPER
+        and _env_truthy("EXECUTION_ENABLED")
+        and _env_truthy("IBKR_ORDER_SUBMISSION_ENABLED")
+        and not _env_truthy("IBKR_READONLY_ENABLED")
+        and len(submitted_order_ids) > 0
+        and len(open_orders) == 0
+        and len(executions) == 0
+        and exec_detail_rows == 0
+    ):
+        raise RuntimeError("[BROKER_TRUTH][FATAL] no_broker_visible_order_or_fill_after_submission")
 
 
 def _is_explicit_test_mode() -> bool:
     return str(os.environ.get("EXECUTION_ENV", "")).strip().upper() == "TEST"
+
+
+def _env_truthy(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _validate_ibkr_connection(mode: RunMode) -> None:

@@ -115,7 +115,7 @@ def test_executable_paper_cycle_does_not_skip_scan_only_and_no_readonly_rule(cap
     assert "[PIPELINE][EXECUTION_GATE]" in out
 
 
-def test_price_authority_allows_scanner_price_for_paper_rth() -> None:
+def test_price_authority_blocks_scanner_price_for_paper_rth() -> None:
     allowed, reason = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.PAPER,
@@ -124,11 +124,11 @@ def test_price_authority_allows_scanner_price_for_paper_rth() -> None:
         entry_price_source="SCANNER_LAST_PRICE",
         scanner_payload={},
     )
-    assert allowed is True
-    assert reason == "NON_LIVE_PRICE_ALLOWED"
+    assert allowed is False
+    assert reason == "NO_IBKR_PRICE_AUTHORITY:SCANNER_LAST_PRICE"
 
 
-def test_price_authority_allows_snapshot_last_for_paper() -> None:
+def test_price_authority_blocks_snapshot_last_for_paper() -> None:
     allowed, reason = _enforce_canonical_price_authority(
         symbol="AAPL",
         mode=RunMode.PAPER,
@@ -137,8 +137,8 @@ def test_price_authority_allows_snapshot_last_for_paper() -> None:
         entry_price_source="SNAPSHOT_LAST",
         scanner_payload={},
     )
-    assert allowed is True
-    assert reason == "NON_LIVE_PRICE_ALLOWED"
+    assert allowed is False
+    assert reason == "NO_IBKR_PRICE_AUTHORITY:SNAPSHOT_LAST"
 
 
 def test_price_authority_allows_fallback_price_for_sim() -> None:
@@ -177,7 +177,7 @@ def test_price_authority_blocks_unknown_source_for_paper() -> None:
         scanner_payload={},
     )
     assert allowed is False
-    assert reason == "UNKNOWN_PRICE_SOURCE:XYZ"
+    assert reason == "NO_IBKR_PRICE_AUTHORITY:XYZ"
 
 
 def test_price_authority_blocks_noncanonical_for_live() -> None:
@@ -190,7 +190,7 @@ def test_price_authority_blocks_noncanonical_for_live() -> None:
         scanner_payload={},
     )
     assert allowed is False
-    assert reason == "NON_CANONICAL_PRICE_SOURCE:SCANNER_LAST_PRICE"
+    assert reason == "NO_IBKR_PRICE_AUTHORITY:SCANNER_LAST_PRICE"
 
 
 def test_after_hours_preserves_paper_mode_for_lifecycle_validation(capsys) -> None:
