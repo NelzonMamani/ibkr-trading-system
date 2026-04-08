@@ -1,98 +1,62 @@
 # =========================
-
 # IDE / ENVIRONMENT
-
 # =========================
-
 .idea/
+.vscode/
 .venv/
-.env
+.env*
 
 # =========================
-
 # PYTHON
+# =========================
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # =========================
-
-**pycache**/
-*.pyc
-
-# =========================
-
 # RUNTIME / GENERATED DATA (CRITICAL)
-
 # =========================
-
 output/
 logs/
 *.log
 
 # =========================
-
 # DATABASES (NON-DETERMINISTIC)
-
 # =========================
-
 *.db
 *.sqlite
 
 # =========================
-
 # AUDIT / EVIDENCE (GENERATED — DO NOT VERSION)
-
 # =========================
-
 AUDIT_EVIDENCE/
-
-# Also ignore audit inside catalogue (you have both)
-
 TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/
 
 # =========================
-
 # DATA LAYER (CACHE / NON-DETERMINISTIC)
-
 # =========================
-
 data/
 
-# (covers backups, tmp, cache, db, etc.)
-
 # =========================
-
 # LARGE / STREAM DATA
-
 # =========================
-
 *.jsonl
 
 # =========================
-
-# REFERENCE CACHES (NON-SOURCE-OF-TRUTH)
+# CONTROLLED DATA POLICY
+# Allow small datasets, block generated ones
+# =========================
+data/**/*.csv
+data/**/*.parquet
 
 # =========================
-
-# (redundant now that data/ is ignored, but kept for clarity)
-
-data/reference/*.json
-data/fundamentals/*.json
+# TEMP / BACKUP FILES
+# =========================
+*.tmp
+*.bak
 
 # =========================
-
-# SAFETY (TRADING SYSTEM)
-
-# =========================
-
-# Prevent accidental large files
-
-*.csv
-*.parquet
-
-# =========================
-
 # OS JUNK
-
 # =========================
-
 .DS_Store
 Thumbs.db
