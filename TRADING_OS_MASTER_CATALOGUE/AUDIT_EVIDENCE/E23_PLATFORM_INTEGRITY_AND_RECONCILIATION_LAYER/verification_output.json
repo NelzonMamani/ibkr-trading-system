@@ -1,0 +1,67 @@
+{
+  "epoch": "E23_PLATFORM_INTEGRITY_AND_RECONCILIATION_LAYER",
+  "generated_at_utc": "2026-04-08T23:12:40.196926+00:00",
+  "reconciliation_posture": "STRUCTURAL_ONLY",
+  "unresolved_gaps": [
+    {
+      "domain": "final_gate",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    },
+    {
+      "domain": "m10_data_provenance_ledger",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    },
+    {
+      "domain": "m1_architecture_map",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    },
+    {
+      "domain": "m2_contract_registry",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    },
+    {
+      "domain": "m3_mode_semantics_certification",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    },
+    {
+      "domain": "m4_traceability_semantics",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    },
+    {
+      "domain": "m5_verification_authority",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    },
+    {
+      "domain": "m6_data_lifecycle_governance",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    },
+    {
+      "domain": "m7_epoch_audit_certification",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    },
+    {
+      "domain": "m8_change_control",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    },
+    {
+      "domain": "m9_signal_semantics_registry",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    },
+    {
+      "domain": "p01_make_it_trade_layer",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    },
+    {
+      "domain": "paper_open_smoke_trade",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    },
+    {
+      "domain": "policy_v2_schema_coverage",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    },
+    {
+      "domain": "system_integrity_and_capability_report",
+      "issue": "catalogue evidence exists but runtime evidence is missing"
+    }
+  ]
+}

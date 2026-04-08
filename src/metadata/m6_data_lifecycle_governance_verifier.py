@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from src.integrity.evidence_sources import is_placeholder_evidence
 from src.metadata.m0_canon_helpers import get_repo_root, sha256_for_file, write_json
 
 EPOCH = "M6_DATA_LIFECYCLE_GOVERNANCE"
@@ -432,16 +433,41 @@ def verify_m6_data_lifecycle_governance(repo_root: Path | None = None) -> dict:
                 ),
             )
 
+    placeholder_catalogue_files = [
+        file_name
+        for file_name in available_files
+        if (evidence_dir / file_name).is_file()
+        and (evidence_dir / file_name).suffix.lower() in {".json", ".md", ".txt"}
+        and is_placeholder_evidence(evidence_dir / file_name)
+    ]
+    runtime_evidence_root = repo_root / "AUDIT_EVIDENCE" / "M6"
+    if placeholder_catalogue_files and not runtime_evidence_root.exists():
+        _record_violation(
+            violations,
+            EvidenceCheck(
+                check="M6_REALITY_STATUS",
+                expected="REAL_EVIDENCE_PRESENT",
+                actual="STRUCTURAL_ONLY_PLACEHOLDER",
+            ),
+        )
+
     evidence_paths = [
         str((evidence_dir / name).relative_to(repo_root))
         for name in REQUIRED_EVIDENCE_FILES
         if (evidence_dir / name).exists()
     ]
+    if not runtime_evidence_root.exists():
+        reality_status = "STRUCTURAL_ONLY" if placeholder_catalogue_files else "MISSING"
+    elif placeholder_catalogue_files:
+        reality_status = "REAL_EVIDENCE_PRESENT"
+    else:
+        reality_status = "CERTIFIED" if not violations else "REAL_EVIDENCE_PRESENT"
 
     return {
         "epoch": EPOCH,
         "generated_at_utc": _utc_now_iso(),
         "valid": not violations,
+        "reality_status": reality_status,
         "violations": violations,
         "notes": "M6 data lifecycle governance evidence and programme consistency checks.",
         "evidence_paths": evidence_paths,

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+from src.integrity.evidence_sources import is_placeholder_evidence
 from src.metadata.m0_canon_helpers import get_repo_root, sha256_for_file, write_json
 
 EPOCH = "M5_VERIFICATION_AUTHORITY"
@@ -453,6 +454,26 @@ def verify_m5_verification_authority(repo_root: Path | None = None) -> dict:
                 ),
             )
 
+    placeholder_files = [
+        rel_path
+        for rel_path in M5_STRATEGY_EVIDENCE_REQUIRED
+        if (repo_root / rel_path).exists() and is_placeholder_evidence(repo_root / rel_path)
+    ]
+    runtime_real_strategy_files = [
+        rel_path
+        for rel_path in M5_STRATEGY_EVIDENCE_REQUIRED
+        if (repo_root / rel_path).exists() and not is_placeholder_evidence(repo_root / rel_path)
+    ]
+    if placeholder_files and not runtime_real_strategy_files:
+        _record_violation(
+            violations,
+            EvidenceCheck(
+                check="M5_REALITY_STATUS",
+                expected="REAL_EVIDENCE_PRESENT",
+                actual="STRUCTURAL_ONLY_PLACEHOLDER",
+            ),
+        )
+
     pre_valid = not violations
     if verdict_payload is not None:
         verdict_value = verdict_payload.get("verdict")
@@ -487,10 +508,20 @@ def verify_m5_verification_authority(repo_root: Path | None = None) -> dict:
     if (repo_root / boot_logs_dir_rel).exists():
         evidence_paths.append(boot_logs_dir_rel)
 
+    if placeholder_files and not runtime_real_strategy_files:
+        reality_status = "STRUCTURAL_ONLY"
+    elif runtime_real_strategy_files and placeholder_files:
+        reality_status = "REAL_EVIDENCE_PRESENT"
+    elif runtime_real_strategy_files:
+        reality_status = "CERTIFIED" if not violations else "REAL_EVIDENCE_PRESENT"
+    else:
+        reality_status = "MISSING"
+
     return {
         "epoch": EPOCH,
         "generated_at_utc": _utc_now_iso(),
         "valid": not violations,
+        "reality_status": reality_status,
         "violations": violations,
         "notes": "M5 verification authority evidence and programme consistency checks.",
         "evidence_paths": evidence_paths,

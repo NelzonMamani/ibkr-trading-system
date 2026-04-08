@@ -12,6 +12,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from src.integrity.evidence_sources import (
+    summarize_evidence_binding,
+    write_catalogue_binding_outputs,
+)
+
 try:
     import yaml  # type: ignore
 except Exception:  # pragma: no cover
@@ -21,6 +26,9 @@ except Exception:  # pragma: no cover
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REGISTRY_PATH = REPO_ROOT / "src" / "integrity" / "epoch_verification_registry.yaml"
 AUDIT_ROOT = REPO_ROOT / "output" / "audit" / "e23"
+RUNTIME_EVIDENCE_ROOT = REPO_ROOT / "AUDIT_EVIDENCE"
+CATALOGUE_EVIDENCE_ROOT = REPO_ROOT / "TRADING_OS_MASTER_CATALOGUE" / "AUDIT_EVIDENCE"
+E23_CATALOGUE_DIR = CATALOGUE_EVIDENCE_ROOT / "E23_PLATFORM_INTEGRITY_AND_RECONCILIATION_LAYER"
 CANONICAL_RUN_MODES = ["SIM", "PAPER", "READ_ONLY", "LIVE"]
 
 
@@ -74,6 +82,7 @@ class E23Runner:
                 break
 
         state = self._build_integrity_state(inventory, final_results, coherent)
+        state = self._attach_evidence_reconciliation(state)
         self._write_truth_artifacts(state, inventory, final_results)
         return 0 if state["platform_state"] not in {"DRIFT_DETECTED", "INVARIANT_VIOLATION"} else 1
 
@@ -309,6 +318,22 @@ class E23Runner:
             "platform_state": platform_state,
         }
 
+    def _attach_evidence_reconciliation(self, state: dict[str, Any]) -> dict[str, Any]:
+        reconciliation = summarize_evidence_binding(
+            runtime_root=RUNTIME_EVIDENCE_ROOT,
+            catalogue_root=CATALOGUE_EVIDENCE_ROOT,
+        )
+        state["e23_evidence_reconciliation"] = {
+            "final_posture": reconciliation["final_posture"],
+            "unresolved_gaps": reconciliation["unresolved_gaps"],
+            "runtime_artifacts": len(reconciliation["runtime_records"]),
+            "catalogue_artifacts": len(reconciliation["catalogue_records"]),
+            "placeholder_artifacts": len(reconciliation["placeholder_artifacts_detected"]),
+        }
+        if reconciliation["final_posture"] in {"NOT_CERTIFIED", "STRUCTURAL_ONLY"}:
+            state["platform_state"] = "NOT_READY"
+        return state
+
     def _write_truth_artifacts(self, state: dict[str, Any], inventory: dict[str, Any], results: list[CommandResult]) -> None:
         (REPO_ROOT / "platform_integrity_state.json").write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
 
@@ -379,6 +404,36 @@ class E23Runner:
         }
         (self.audit_dir / "e23_evidence_manifest.json").write_text(
             json.dumps(evidence_manifest, indent=2) + "\n", encoding="utf-8"
+        )
+        reconciliation = summarize_evidence_binding(
+            runtime_root=RUNTIME_EVIDENCE_ROOT,
+            catalogue_root=CATALOGUE_EVIDENCE_ROOT,
+        )
+        write_catalogue_binding_outputs(E23_CATALOGUE_DIR, reconciliation)
+
+        verification_output = {
+            "epoch": "E23_PLATFORM_INTEGRITY_AND_RECONCILIATION_LAYER",
+            "generated_at_utc": state["timestamp_utc"],
+            "reconciliation_posture": reconciliation["final_posture"],
+            "platform_state": state["platform_state"],
+            "unresolved_gaps": reconciliation["unresolved_gaps"],
+        }
+        (E23_CATALOGUE_DIR / "verification_output.json").write_text(
+            json.dumps(verification_output, indent=2) + "\n", encoding="utf-8"
+        )
+        verdict = "CERTIFIED" if reconciliation["final_posture"] == "CERTIFIED" else "NOT_CERTIFIED"
+        (E23_CATALOGUE_DIR / "certification_verdict.json").write_text(
+            json.dumps(
+                {
+                    "epoch": "E23_PLATFORM_INTEGRITY_AND_RECONCILIATION_LAYER",
+                    "date_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    "verdict": verdict,
+                    "reality_status": reconciliation["final_posture"],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
         )
 
 
