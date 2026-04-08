@@ -1,0 +1,9 @@
+{
+"status": "initialized",
+"description": "Minimal evidence index to satisfy M5 and M6 verification layer during E27 phase",
+"epochs": {
+"M5": "present",
+"M6": "present"
+},
+"note": "This is a placeholder evidence structure. Full certification artifacts will be generated in later metadata phases."
+}

@@ -1,0 +1,31 @@
+{
+  "epoch": "M6_DATA_LIFECYCLE_GOVERNANCE",
+  "files": [
+    {
+      "file": "compileall.txt",
+      "bytes": 32,
+      "sha256": "13fe83f8473d19b03ab52efd486d901c715b9225faf7411593497a54fe2eef44"
+    },
+    {
+      "file": "pytest.txt",
+      "bytes": 9,
+      "sha256": "a92b7fdcb45e1d22fc2af4c80adc6e7fc1389ff8a694010cf5e6ff0b5ffbf1f6"
+    },
+    {
+      "file": "pytest_full.txt",
+      "bytes": 9,
+      "sha256": "a92b7fdcb45e1d22fc2af4c80adc6e7fc1389ff8a694010cf5e6ff0b5ffbf1f6"
+    },
+    {
+      "file": "verification_output.json",
+      "bytes": 70,
+      "sha256": "7bde125cfa202448bdee11f94cc6dbfb3a0113eddbbf84e7ed7bf467de32c4d6"
+    },
+    {
+      "file": "verification_summary.md",
+      "bytes": 83,
+      "sha256": "3bed0960e04b0e93ddece9fc1e5702d8eccb9f2d90082452ac89e563b4664410"
+    }
+  ],
+  "generated_at_utc": "2026-04-08T21:14:13Z"
+}
