@@ -16,6 +16,7 @@ from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_co
 from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
 from src.core_engine.state import RunMode
+from src.execution.e27_lifecycle import ExecutionPlanBuilder, LifecycleCoordinator, RecoveryEngine, RossExecutionPolicy
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 
 _EXECUTION_EVENT_BUFFER: dict[int, ExecutionEvent] = {}
@@ -43,6 +44,10 @@ _NEXT_VALID_ID_REBASES = 0
 _NON_ORDER_UNMATCHED_CALLBACK_COUNT = 0
 _CIRCUIT_BREAKER_ACTIVE = False
 _VISIBILITY_BY_ORDER_ID: dict[int, dict[str, bool]] = {}
+_E27_PLAN_BUILDER = ExecutionPlanBuilder()
+_E27_POLICY = RossExecutionPolicy()
+_E27_LIFECYCLE_COORDINATOR = LifecycleCoordinator()
+_E27_RECOVERY_ENGINE = RecoveryEngine()
 
 FAILURE_TYPES = {
     "PRICE_UNAVAILABLE",
@@ -104,6 +109,7 @@ class TrackedOrder:
     seen_exec_ids: set[str] = field(default_factory=set)
     callback_pending: bool = False
     callback_pending_since: str | None = None
+    outside_rth: bool | None = None
 
 
 @dataclass
@@ -554,7 +560,9 @@ def _state_from_broker_status(status: str, filled_qty: int, remaining_qty: int) 
         return "PARTIALLY_FILLED"
     if filled_qty > 0 and remaining_qty <= 0:
         return "FILLED"
-    if status_norm in {"SUBMITTED", "PRESUBMITTED"}:
+    if status_norm == "PRESUBMITTED":
+        return "ACKNOWLEDGED"
+    if status_norm == "SUBMITTED":
         return "WORKING"
     if status_norm in {"ACKNOWLEDGED"}:
         return "ACKNOWLEDGED"
@@ -600,12 +608,14 @@ def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, tota
             broker_status="Submitted",
             canonical_state="SUBMITTED_PENDING_CONFIRMATION",
             last_update_at=_now_utc_iso(),
+            outside_rth=True,
         )
         _RUNTIME_ORDERS[order_id] = row
     else:
         row.last_update_at = _now_utc_iso()
         row.broker_status = "Submitted"
         row.canonical_state = "SUBMITTED_PENDING_CONFIRMATION"
+        row.outside_rth = True
     pos = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
     normalized_side = str(side or "").upper()
     row.is_exit = normalized_side == "SELL" and pos.qty > 0
@@ -782,16 +792,25 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             row.remaining_qty = remaining_int if remaining_int >= 0 else row.remaining_qty
             row.canonical_state = _state_from_broker_status(row.broker_status, row.filled_qty, row.remaining_qty)
             row.last_update_at = timestamp
+            e27_state = _E27_LIFECYCLE_COORDINATOR.map_status_to_e27_state(
+                status=row.broker_status,
+                filled_qty=row.filled_qty,
+                remaining_qty=row.remaining_qty,
+            )
             print(f"[ORDER_EVENT][STATUS] order_id={order_id} symbol={row.symbol} status={row.broker_status} filled={row.filled_qty} remaining={row.remaining_qty}")
             if old_state != row.canonical_state:
                 print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
+            if str(row.broker_status).upper() == "PRESUBMITTED":
+                print(f"[EXECUTION][QUEUED_FOR_OPEN] symbol={row.symbol} order_id={order_id} broker_status={row.broker_status}")
+            print(f"[EXECUTION][LIFECYCLE_STATE] symbol={row.symbol} order_id={order_id} e27_state={e27_state}")
             if trace is not None:
                 trace.ack_received = True
                 trace.ack_time = timestamp
                 trace.order_status = row.canonical_state
                 trace.lifecycle_state = "ACK_RECEIVED"
                 _trace_log("ORDER_STATUS", trace, extra=f"status={row.canonical_state} broker_status={row.broker_status}")
-                print(f"[IBKR][ACK] order_id={order_id} outsideRth=True")
+                outside_rth_label = "UNKNOWN" if row.outside_rth is None else str(bool(row.outside_rth))
+                print(f"[IBKR][ACK] order_id={order_id} outsideRth={outside_rth_label}")
                 print(
                     f"[EXECUTION][ACK_CONFIRMED] symbol={row.symbol} order_id={order_id} "
                     f"status={row.broker_status}"
@@ -807,12 +826,18 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"openOrder_seen": True})
         if callback_order_ref:
             _ORDER_ID_BY_ORDER_REF[callback_order_ref] = int(order_id)
+        row = _RUNTIME_ORDERS.get(order_id)
+        raw_order = _extract_callback_field(callback_payload, "order")
+        if row is not None and raw_order is not None:
+            row.outside_rth = getattr(raw_order, "outsideRth", row.outside_rth)
         if trace is not None:
             trace.ack_received = True
             trace.ack_time = timestamp
             trace.lifecycle_state = "ACK_RECEIVED"
             _trace_log("ACK", trace, extra="callback=openOrder")
-            print(f"[IBKR][ACK] order_id={order_id} outsideRth=True")
+            outside_rth_value = getattr(raw_order, "outsideRth", None) if raw_order is not None else (row.outside_rth if row is not None else None)
+            outside_rth_label = "UNKNOWN" if outside_rth_value is None else str(bool(outside_rth_value))
+            print(f"[IBKR][ACK] order_id={order_id} outsideRth={outside_rth_label}")
             print(
                 f"[EXECUTION][ACK_CONFIRMED] symbol={trace.symbol or symbol or 'UNKNOWN'} "
                 f"order_id={order_id} status=openOrder"
@@ -1474,6 +1499,19 @@ def execute_intents(
     broker_state = "CONNECTED" if mode in {RunMode.PAPER, RunMode.LIVE} else "DISCONNECTED"
     print(f"[EXECUTION][MODE] mode={mode.value} broker_connection_state={broker_state}")
     open_orders, _executions, positions = _normalize_ibkr_truth(_fetch_ibkr_truth(mode))
+    print(f"[RECOVERY][REBUILD] open_orders={len(open_orders)} positions={len(positions)}")
+    recovery_verdicts = _E27_RECOVERY_ENGINE.evaluate_broker_truth(
+        open_orders=open_orders,
+        positions=positions,
+        tracked_order_symbols={row.symbol for row in _RUNTIME_ORDERS.values()},
+        tracked_position_symbols={row.symbol for row in _RUNTIME_POSITIONS.values()},
+    )
+    for verdict in recovery_verdicts:
+        if verdict.verdict == "orphan_position":
+            print(f"[RECOVERY][ORPHAN_POSITION] symbol={verdict.symbol} action={verdict.repair_action}")
+        if verdict.verdict == "orphan_order":
+            print(f"[RECOVERY][ORPHAN_ORDER] symbol={verdict.symbol} action={verdict.repair_action}")
+        print(f"[RECONCILIATION][VERDICT] symbol={verdict.symbol} verdict={verdict.verdict} reason={verdict.reason}")
     has_working_order_recon = hasattr(open_orders, "__iter__")
     if mode in {RunMode.PAPER, RunMode.LIVE} and not has_working_order_recon:
         _FILL_AUTHORITY_STATE = "DEGRADED"
@@ -1567,6 +1605,33 @@ def execute_intents(
             continue
         entry_price = getattr(decision, "entry_price", None)
         if decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
+            try:
+                execution_plan = _E27_PLAN_BUILDER.build_from_risk_decision(decision=decision, policy=_E27_POLICY)
+                print(
+                    f"[EXECUTION][PLAN_BUILT] symbol={execution_plan.symbol} plan_id={execution_plan.plan_id} "
+                    f"entry_type={execution_plan.entry_order_spec.get('order_type')} qty={execution_plan.planned_quantity}"
+                )
+                print(
+                    f"[EXECUTION][STOP_ATTACHED] symbol={execution_plan.symbol} plan_id={execution_plan.plan_id} "
+                    f"price={execution_plan.initial_stop_spec.get('price')}"
+                )
+                print(
+                    f"[EXECUTION][TARGET_ATTACHED] symbol={execution_plan.symbol} plan_id={execution_plan.plan_id} "
+                    f"price={execution_plan.first_target_spec.get('price')}"
+                )
+            except ValueError as exc:
+                _mark_execution_failure(trace, "ORDER_REJECTED", reason=str(exc))
+                events.append(
+                    ExecutionEvent(
+                        symbol=decision.symbol,
+                        intent_id=decision.intent_id,
+                        action="BLOCKED",
+                        detail=f"reason={exc}",
+                        broker_status="REJECTED",
+                        last_update_time=_now_utc_iso(),
+                    )
+                )
+                continue
             _trace_log("PRECHECK", trace, extra=f"decision={decision.decision} qty={quantity}")
             if entry_price is None or float(entry_price) <= 0:
                 trace.price_state = "WAITING_FOR_PRICE"
