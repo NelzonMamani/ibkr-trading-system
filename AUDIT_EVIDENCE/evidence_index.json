@@ -1,0 +1,9 @@
+{
+  "status": "initialized",
+  "description": "Minimal runtime evidence index reconstructed for current verifier compliance during E27 phase",
+  "epochs": {
+    "M5": "present",
+    "M6": "present"
+  },
+  "note": "Placeholder evidence only. Structural compliance layer."
+}

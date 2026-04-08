@@ -1,0 +1,37 @@
+{
+  "epoch": "M5_VERIFICATION_AUTHORITY",
+  "files": [
+    {
+      "file": "certification_verdict.json",
+      "bytes": 325,
+      "sha256": "e41a88aadd0c396c00772156aacd8334e441b87af86f8f7343b088212f6ff774"
+    },
+    {
+      "file": "compileall.txt",
+      "bytes": 32,
+      "sha256": "13fe83f8473d19b03ab52efd486d901c715b9225faf7411593497a54fe2eef44"
+    },
+    {
+      "file": "pytest.txt",
+      "bytes": 9,
+      "sha256": "a92b7fdcb45e1d22fc2af4c80adc6e7fc1389ff8a694010cf5e6ff0b5ffbf1f6"
+    },
+    {
+      "file": "pytest_full.txt",
+      "bytes": 9,
+      "sha256": "a92b7fdcb45e1d22fc2af4c80adc6e7fc1389ff8a694010cf5e6ff0b5ffbf1f6"
+    },
+    {
+      "file": "verification_output.json",
+      "bytes": 80,
+      "sha256": "030c73b15baa42290c2bc39cd81503938769d9517fa13596d95124fa2f1919e6"
+    },
+    {
+      "file": "verification_summary.md",
+      "bytes": 80,
+      "sha256": "11ba4014209ecf8f0c7b5aa85cc9ff2a67478783f1250e9fd2197328f3427b23"
+    }
+  ],
+  "generated_at_utc": "2026-04-08T22:16:37Z",
+  "status": "placeholder"
+}
