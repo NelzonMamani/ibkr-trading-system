@@ -1,4 +1,8 @@
 ibkr-trading-system/
+├── .github
+│   ├── workflows
+│   │   └── pytest.yml
+│   └── branch-protection.md
 ├── .pytest_cache
 │   ├── v
 │   │   └── cache
@@ -8,6 +12,8 @@ ibkr-trading-system/
 │   ├── .gitignore
 │   ├── CACHEDIR.TAG
 │   └── README.md
+├── artifacts
+│   └── KEY_LEVEL_BREAK_CERTIFICATION.json
 ├── AUDIT_EVIDENCE
 │   ├── 2026_03_16_live_readiness_hardening
 │   │   ├── final_closure_summary.md
@@ -17,6 +23,11 @@ ibkr-trading-system/
 │   │   └── trade_pipeline_dry_run.log
 │   ├── 2026_03_16_scanner_universe_fix
 │   │   └── scanner_after_mock.log
+│   ├── 2026_03_19_closed_prep_reference_fix
+│   │   ├── pytest_failure_analysis.md
+│   │   ├── pytest_final_output.txt
+│   │   ├── pytest_initial_output.txt
+│   │   └── summary.md
 │   ├── E13_FACTORY_SWEEP
 │   │   ├── cross_sectional_relative_strength_rotation_paper.log
 │   │   ├── cross_sectional_relative_strength_rotation_sim.log
@@ -163,10 +174,25 @@ ibkr-trading-system/
 │   │   ├── strategy_capability_inventory.json
 │   │   ├── strategy_certification_matrix.json
 │   │   └── strategy_certification_summary.json
+│   ├── make_it_trade_guarantee
+│   │   ├── kept_symbol_terminal_outcomes.json
+│   │   ├── pipeline_summary.json
+│   │   ├── verification_make_it_trade.txt
+│   │   └── verify_ross_make_it_trade_runtime.txt
+│   ├── make_it_trade_post_pr790
+│   │   ├── MAKE_IT_TRADE_POST_PR790_AUDIT_REPORT.md
+│   │   ├── MAKE_IT_TRADE_POST_PR790_VERIFICATION_RUNBOOK.md
+│   │   ├── pytest_pipeline_regression.txt
+│   │   ├── pytest_trade_path_authority.txt
+│   │   └── verification_bundle.json
 │   ├── p01_capital_deployment
 │   │   └── capital_deployment_check.json
+│   ├── p01_live_pattern_failure_trace
+│   │   └── latest_pattern_failure_trace.json
 │   ├── p01_premarket_prep
 │   │   └── premarket_prep_watchlist.json
+│   ├── p01_runtime_detection_audit
+│   │   └── setup_detection_runtime_audit.json
 │   ├── p01_setup_family_sprint
 │   │   ├── all_families_trigger_harness.json
 │   │   └── setup_families_completeness.json
@@ -180,6 +206,8 @@ ibkr-trading-system/
 │   │   ├── 02_pytest.log
 │   │   ├── 03_generate_audit_artifacts.log
 │   │   └── 04_targeted_audit_summary.log
+│   ├── PHASE1_DECISION_ENGINE
+│   │   └── decision_engine_verification.json
 │   ├── post_266_mode_smoke
 │   │   ├── compileall.log
 │   │   ├── e23.log
@@ -199,6 +227,13 @@ ibkr-trading-system/
 │   │   ├── fix_summary.md
 │   │   ├── pytest_results.txt
 │   │   └── regression_diagnosis.md
+│   ├── ROSS_MAKE_IT_TRADE_LAYER
+│   │   ├── final_make_it_trade_report.md
+│   │   ├── no_trade_root_causes.json
+│   │   ├── paper_order_smoke.json
+│   │   ├── runtime_path_audit.json
+│   │   ├── runtime_stage_verification.json
+│   │   └── setup_family_trade_capability_matrix.json
 │   ├── runtime_mode_authority_repair
 │   │   ├── config_authority_matrix.md
 │   │   ├── diagnosis_summary.md
@@ -364,6 +399,8 @@ ibkr-trading-system/
 │   │   ├── smoke_ross_momentum_sim.json
 │   │   ├── smoke_statistical_intraday_momentum_paper.json
 │   │   └── smoke_statistical_intraday_momentum_sim.json
+│   ├── 2026-04-06_make_it_trade_post_data_integrity_audit.md
+│   ├── 2026-04-06_test_alignment_after_hierarchy_enforcement.md
 │   ├── E24_runtime_restoration_report.json
 │   ├── E25_architecture_realignment_report.json
 │   ├── E25_gap_analysis.json
@@ -392,6 +429,10 @@ ibkr-trading-system/
 │   ├── PR265_fix_mode_boot_READ_ONLY.txt
 │   ├── PR265_fix_mode_boot_SIM.txt
 │   ├── PR265_fix_pytest_pass.txt
+│   ├── PR549_EXECUTION_PIPELINE_ENFORCEMENT.md
+│   ├── ross_end_to_end_evidence_summary.md
+│   ├── ross_micro_lifecycle_trade.json
+│   ├── ross_setup_family_coverage_report.json
 │   ├── runner_alignment_report.md
 │   ├── runtime_alignment_stress_report.json
 │   ├── runtime_alignment_trace_map.json
@@ -408,7 +449,6 @@ ibkr-trading-system/
 │   │       ├── baseline_universe_2026-01-26.json
 │   │       ├── intraday_distributions_2026-01-26.json
 │   │       └── session_readiness_2026-01-26.json
-│   ├── fundamentals
 │   ├── news
 │   │   └── news_cache.json
 │   ├── prep
@@ -429,6 +469,8 @@ ibkr-trading-system/
 │   ├── ibkr_system.db
 │   └── regime_baselines.json
 ├── docs
+│   ├── architecture
+│   │   └── MARKET_SESSION_CONTEXT_TASK.md
 │   ├── phases
 │   │   └── PHASE_22_COMPLETE_LIVE_READ_ONLY_MARKET_DATA.md
 │   ├── ross
@@ -446,100 +488,12 @@ ibkr-trading-system/
 │   ├── PHASE_24_SCANNER_MECHANICAL_CHECKLIST.md
 │   └── PR_VERIFICATION_REPORT.md
 ├── logs
-│   ├── trace_20260126.jsonl
-│   ├── trace_20260127.jsonl
-│   ├── trace_20260128.jsonl
-│   ├── trace_20260129.jsonl
-│   ├── trace_20260130.jsonl
-│   ├── trace_20260131.jsonl
-│   ├── trace_20260212.jsonl
-│   ├── trace_20260213.jsonl
-│   ├── trace_20260215.jsonl
-│   ├── trace_20260219.jsonl
-│   ├── trace_20260220.jsonl
-│   ├── trace_20260304.jsonl
-│   ├── trace_20260305.jsonl
-│   ├── trace_20260311.jsonl
-│   ├── trace_20260312.jsonl
-│   ├── trace_20260313.jsonl
-│   └── trace_20260318.jsonl
+│   ├── trace_20260331.jsonl
+│   └── trace_20260401.jsonl
 ├── output
-│   ├── audit
-│   │   └── e23
-│   │       ├── 20260213T212058Z
-│   │       │   ├── e23_evidence_manifest.json
-│   │       │   ├── loop01_01.stderr.log
-│   │       │   ├── loop01_01.stdout.log
-│   │       │   ├── loop01_02.stderr.log
-│   │       │   ├── loop01_02.stdout.log
-│   │       │   ├── loop01_03.stderr.log
-│   │       │   ├── loop01_03.stdout.log
-│   │       │   ├── loop01_04.stderr.log
-│   │       │   ├── loop01_04.stdout.log
-│   │       │   ├── loop01_05.stderr.log
-│   │       │   └── loop01_05.stdout.log
-│   │       ├── 20260214T142337Z
-│   │       │   ├── e23_evidence_manifest.json
-│   │       │   ├── loop01_01.stderr.log
-│   │       │   ├── loop01_01.stdout.log
-│   │       │   ├── loop01_02.stderr.log
-│   │       │   ├── loop01_02.stdout.log
-│   │       │   ├── loop01_03.stderr.log
-│   │       │   ├── loop01_03.stdout.log
-│   │       │   ├── loop01_04.stderr.log
-│   │       │   ├── loop01_04.stdout.log
-│   │       │   ├── loop01_05.stderr.log
-│   │       │   ├── loop01_05.stdout.log
-│   │       │   ├── loop01_06.stderr.log
-│   │       │   └── loop01_06.stdout.log
-│   │       ├── 20260214T154312Z
-│   │       │   ├── e23_evidence_manifest.json
-│   │       │   ├── loop01_01.stderr.log
-│   │       │   ├── loop01_01.stdout.log
-│   │       │   ├── loop01_02.stderr.log
-│   │       │   ├── loop01_02.stdout.log
-│   │       │   ├── loop01_03.stderr.log
-│   │       │   ├── loop01_03.stdout.log
-│   │       │   ├── loop01_04.stderr.log
-│   │       │   ├── loop01_04.stdout.log
-│   │       │   ├── loop01_05.stderr.log
-│   │       │   ├── loop01_05.stdout.log
-│   │       │   ├── loop01_06.stderr.log
-│   │       │   └── loop01_06.stdout.log
-│   │       └── 20260214T162547Z
-│   │           ├── e23_evidence_manifest.json
-│   │           ├── loop01_01.stderr.log
-│   │           ├── loop01_01.stdout.log
-│   │           ├── loop01_02.stderr.log
-│   │           ├── loop01_02.stdout.log
-│   │           ├── loop01_03.stderr.log
-│   │           ├── loop01_03.stdout.log
-│   │           ├── loop01_04.stderr.log
-│   │           ├── loop01_04.stdout.log
-│   │           ├── loop01_05.stderr.log
-│   │           ├── loop01_05.stdout.log
-│   │           ├── loop01_06.stderr.log
-│   │           └── loop01_06.stdout.log
-│   ├── verification
-│   │   ├── compileall.log
-│   │   ├── compileall_mean_reversion.log
-│   │   ├── mean_reversion_LIVE_smoke.log
-│   │   ├── mean_reversion_PAPER.log
-│   │   ├── mean_reversion_READ_ONLY.log
-│   │   ├── pytest.log
-│   │   ├── pytest_mean_reversion.log
-│   │   ├── pytest_mean_reversion_strategy_local.log
-│   │   ├── readiness_SIM.log
-│   │   ├── RUN_LIVE_MICRO_1SHARE.log
-│   │   ├── RUN_LIVE_READ_ONLY.log
-│   │   ├── RUN_PAPER_TRADING.log
-│   │   ├── RUN_SIMULATION.log
-│   │   └── VERIFY_STATISTICAL_ALL_MODES.log
 │   ├── watchlists
-│   │   ├── watchlist_RossMomentum_20260313_235958_UTC.txt
-│   │   ├── watchlist_RossMomentum_20260314_093107_UTC.txt
-│   │   ├── watchlist_RossMomentum_20260316_192113_UTC.txt
-│   │   └── watchlist_RossMomentum_20260318_223344_UTC.txt
+│   │   ├── watchlist_RossMomentum_20260401_203152_UTC.txt
+│   │   └── watchlist_RossMomentum_20260406_222817_UTC.txt
 │   └── trade_store.jsonl
 ├── planning
 │   ├── create_catalogue_strategies.py
@@ -559,6 +513,8 @@ ibkr-trading-system/
 │   ├── smoke_scanner.ps1
 │   ├── smoke_scanner.sh
 │   ├── verify_after_hours_prep_watchlist_survival.py
+│   ├── verify_e29_pipeline.py
+│   ├── verify_execution_lifecycle_snapshot.py
 │   ├── verify_float_discovery.py
 │   ├── verify_float_pipeline.py
 │   ├── verify_mode_execution_matrix.py
@@ -588,6 +544,8 @@ ibkr-trading-system/
 │   │   │   │   ├── ibkr_order_translator.py
 │   │   │   │   └── submission_guard.py
 │   │   │   └── __init__.py
+│   │   ├── data
+│   │   │   └── historical_data_provider.py
 │   │   └── __init__.py
 │   ├── broker
 │   │   ├── __init__.py
@@ -615,23 +573,52 @@ ibkr-trading-system/
 │   │   ├── config_resolver.py
 │   │   ├── risk_profiles.py
 │   │   ├── runtime_config.py
+│   │   ├── setup_thresholds.py
 │   │   ├── system_config.py
 │   │   └── trading_config.py
 │   ├── core
+│   │   ├── engines
+│   │   │   ├── __init__.py
+│   │   │   ├── decision_engine.py
+│   │   │   ├── execution_mode_engine.py
+│   │   │   ├── level_engine.py
+│   │   │   ├── position_management_engine.py
+│   │   │   ├── setup_engine.py
+│   │   │   ├── setup_hierarchy.py
+│   │   │   ├── structure_engine.py
+│   │   │   ├── trade_lifecycle_engine.py
+│   │   │   ├── trigger_engine.py
+│   │   │   └── trigger_quality_engine.py
 │   │   ├── managers
 │   │   │   ├── __init__.py
 │   │   │   ├── connection_manager.py
 │   │   │   ├── market_data_snapshot_manager.py
 │   │   │   ├── runtime_mode_manager.py
 │   │   │   └── scanner_diagnostics_manager.py
+│   │   ├── portfolio
+│   │   │   ├── __init__.py
+│   │   │   ├── broker_position_adapter.py
+│   │   │   ├── portfolio_arbitrator.py
+│   │   │   ├── portfolio_state.py
+│   │   │   └── risk_signals.py
+│   │   ├── pricing
+│   │   │   ├── __init__.py
+│   │   │   └── price_resolver.py
+│   │   ├── time
+│   │   │   ├── __init__.py
+│   │   │   ├── calendar_session.py
+│   │   │   └── trading_windows.py
 │   │   ├── __init__.py
 │   │   ├── active_trade_registry.py
+│   │   ├── decision_trace.py
 │   │   ├── event_collector.py
 │   │   ├── events.py
 │   │   ├── faults.py
 │   │   ├── intent.py
+│   │   ├── mode_authority.py
 │   │   ├── orchestrator.py
 │   │   ├── performance_registry.py
+│   │   ├── pipeline_audit.py
 │   │   ├── position_lifecycle_engine.py
 │   │   ├── readiness.py
 │   │   ├── replay_engine.py
@@ -735,6 +722,7 @@ ibkr-trading-system/
 │   │   ├── m2_contract_verifier.py
 │   │   ├── m3_mode_semantics_verifier.py
 │   │   ├── m5_strategy_certification_authority.py
+│   │   ├── m5_strategy_verification_protocol_v2.py
 │   │   ├── m5_verification_authority_verifier.py
 │   │   ├── m6_data_lifecycle_governance_verifier.py
 │   │   ├── m7_epoch_audit_certifier.py
@@ -784,6 +772,7 @@ ibkr-trading-system/
 │   ├── risk
 │   │   ├── __init__.py
 │   │   ├── data_quality_contract.py
+│   │   ├── global_kill_switch.py
 │   │   ├── no_trade_contexts.py
 │   │   ├── risk_audit.py
 │   │   └── risk_engine.py
@@ -816,6 +805,7 @@ ibkr-trading-system/
 │   │   ├── field_mapper.py
 │   │   ├── filters.py
 │   │   ├── float_cache.json
+│   │   ├── market_metrics_context.py
 │   │   ├── mock_universe.txt
 │   │   ├── news_engine.py
 │   │   ├── phase24_views.py
@@ -831,11 +821,13 @@ ibkr-trading-system/
 │   │   ├── scanner_main.py
 │   │   ├── scanner_master_v2026_01_06_07.py
 │   │   ├── scanner_runner.py
+│   │   ├── session_contract.py
 │   │   └── session_pct_change.py
 │   ├── setup_engine
 │   │   ├── setup_families
 │   │   │   ├── __init__.py
 │   │   │   ├── breakouts.py
+│   │   │   ├── key_level_helpers.py
 │   │   │   ├── momentum.py
 │   │   │   ├── placeholders.py
 │   │   │   ├── pullbacks.py
@@ -883,6 +875,41 @@ ibkr-trading-system/
 │   │   │   │   ├── functional.py
 │   │   │   │   ├── multi_candle.py
 │   │   │   │   └── single_candle.py
+│   │   │   ├── patterns
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── pattern_cup_handle.py
+│   │   │   │   ├── pattern_ema_pullback.py
+│   │   │   │   ├── pattern_first_pullback.py
+│   │   │   │   ├── pattern_flat_top_breakout.py
+│   │   │   │   ├── pattern_hod_break.py
+│   │   │   │   ├── pattern_micro_pullback.py
+│   │   │   │   ├── pattern_opening_drive.py
+│   │   │   │   ├── pattern_orb.py
+│   │   │   │   ├── pattern_parabolic_exhaustion.py
+│   │   │   │   ├── pattern_premarket_high_break.py
+│   │   │   │   ├── pattern_registry.py
+│   │   │   │   ├── pattern_trend_continuation_stair_step.py
+│   │   │   │   ├── pattern_vwap_pullback.py
+│   │   │   │   └── pullback_utils.py
+│   │   │   ├── triggers
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── trigger_abcd_continuation.py
+│   │   │   │   ├── trigger_bull_flag.py
+│   │   │   │   ├── trigger_cup_handle.py
+│   │   │   │   ├── trigger_ema_pullback.py
+│   │   │   │   ├── trigger_first_pullback.py
+│   │   │   │   ├── trigger_flat_top_breakout.py
+│   │   │   │   ├── trigger_hod_break.py
+│   │   │   │   ├── trigger_key_level_break.py
+│   │   │   │   ├── trigger_micro_pullback.py
+│   │   │   │   ├── trigger_momentum_reclaim.py
+│   │   │   │   ├── trigger_opening_drive.py
+│   │   │   │   ├── trigger_orb.py
+│   │   │   │   ├── trigger_parabolic_exhaustion.py
+│   │   │   │   ├── trigger_premarket_high_break.py
+│   │   │   │   ├── trigger_registry.py
+│   │   │   │   ├── trigger_stair_step.py
+│   │   │   │   └── trigger_vwap_pullback.py
 │   │   │   ├── __init__.py
 │   │   │   ├── foundation.py
 │   │   │   └── foundation_detectors.py
@@ -1043,17 +1070,25 @@ ibkr-trading-system/
 │   │   │   │   ├── pattern_evaluator.py
 │   │   │   │   ├── pattern_inputs.py
 │   │   │   │   ├── pattern_registry.py
+│   │   │   │   ├── pattern_trace.py
 │   │   │   │   ├── pattern_types.py
 │   │   │   │   └── reversal_patterns.py
 │   │   │   ├── reports
 │   │   │   │   └── REPORT__READING_CANDLESTICKS_3_STEP_TRICK.md
 │   │   │   ├── tests
+│   │   │   │   ├── test_abcd_ross_integration.py
+│   │   │   │   ├── test_abcd_setup_family.py
 │   │   │   │   ├── test_cadence_phase_mapping.py
+│   │   │   │   ├── test_core_setup_invocation_and_detection.py
+│   │   │   │   ├── test_gap_go_setup_family.py
 │   │   │   │   ├── test_policy_v2_selection_pipeline.py
+│   │   │   │   ├── test_setup_family_manifest.py
+│   │   │   │   ├── test_strategy_runtime_setup_binding.py
 │   │   │   │   └── test_verify_patch_contract.py
 │   │   │   ├── __init__.py
 │   │   │   ├── CONSTITUTION.md
 │   │   │   ├── decision_policy.py
+│   │   │   ├── hierarchy_policy.py
 │   │   │   ├── policy_models.py
 │   │   │   ├── ROSS_MOMENTUM_EXECUTION_SPEC.md
 │   │   │   ├── ross_momentum_risk_overlay.py
@@ -1197,18 +1232,27 @@ ibkr-trading-system/
 │   │   └── registry.py
 │   ├── tests
 │   │   ├── __init__.py
+│   │   ├── test_decision_engine.py
+│   │   ├── test_execution_safety_invariants.py
 │   │   ├── test_exit_precedence.py
+│   │   ├── test_level_engine.py
 │   │   ├── test_live_readiness_closure.py
 │   │   ├── test_manual_focus_direct_integration.py
 │   │   ├── test_orchestrator_policy_v2_resolver_wiring.py
 │   │   ├── test_premarket_volume_gate.py
+│   │   ├── test_ross_data_integrity_gate.py
+│   │   ├── test_ross_forced_premarket_trigger.py
+│   │   ├── test_ross_trigger_intent_contract.py
 │   │   ├── test_rvol_threshold_alignment.py
 │   │   ├── test_scanner_hod_metric.py
 │   │   ├── test_scanner_rvol.py
 │   │   ├── test_session_label_boundaries.py
 │   │   ├── test_session_pct_change_provenance.py
 │   │   ├── test_session_phase_resolver.py
-│   │   └── test_small_account_position_sizing.py
+│   │   ├── test_setup_engine.py
+│   │   ├── test_small_account_position_sizing.py
+│   │   ├── test_structure_engine.py
+│   │   └── test_trading_windows.py
 │   ├── tools
 │   │   ├── verification
 │   │   │   ├── __init__.py
@@ -1223,6 +1267,7 @@ ibkr-trading-system/
 │   │   ├── __init__.py
 │   │   ├── capital_resolver.py
 │   │   ├── logging.py
+│   │   ├── pipeline_trace.py
 │   │   ├── price_math.py
 │   │   ├── teacher_logs.py
 │   │   ├── time_utils.py
@@ -1292,23 +1337,43 @@ ibkr-trading-system/
 │   │   ├── test_registry.py
 │   │   └── test_ross_adapter.py
 │   ├── conftest.py
+│   ├── test_actionability_micro_execution_contract.py
+│   ├── test_build_symbol_context_backward_compat.py
+│   ├── test_bull_flag_pipeline_end_to_end.py
+│   ├── test_bull_flag_trigger.py
 │   ├── test_cli_diagnostics_tools.py
 │   ├── test_config_sanity.py
+│   ├── test_core_orchestrator_live_execution_guards.py
+│   ├── test_cup_handle_pattern.py
 │   ├── test_decision_artifacts_epoch14.py
 │   ├── test_dynamic_capital_allocation.py
 │   ├── test_e26_cleanroom_rebuild.py
 │   ├── test_e26_purge_levels.py
+│   ├── test_e29_phase4_risk_enforcement.py
+│   ├── test_ema_pullback_pattern.py
+│   ├── test_ema_pullback_pipeline_certification.py
+│   ├── test_ema_pullback_trigger.py
+│   ├── test_env_resolution_runtime_authority.py
 │   ├── test_epoch12_recovery_housekeeping.py
 │   ├── test_epoch15_17_safety_cluster.py
 │   ├── test_epoch3_risk_execution.py
 │   ├── test_event_collector_snapshot_policy.py
 │   ├── test_execution_authority_epoch5.py
+│   ├── test_execution_enablement.py
 │   ├── test_execution_intent_modes.py
+│   ├── test_execution_lifecycle_async_hardening.py
+│   ├── test_execution_mode_engine.py
+│   ├── test_execution_pipeline_handoff_observability.py
 │   ├── test_exit_precedence.py
 │   ├── test_faults.py
+│   ├── test_first_pullback_pattern.py
+│   ├── test_flat_top_breakout_pattern.py
 │   ├── test_float_cache_reconciliation.py
 │   ├── test_float_provider.py
+│   ├── test_gap_go_pipeline_activation.py
+│   ├── test_hod_break_pattern.py
 │   ├── test_ibkr_client_compat.py
+│   ├── test_ibkr_client_order_id_authority.py
 │   ├── test_ibkr_connection_manager_unification.py
 │   ├── test_ibkr_connection_resilience.py
 │   ├── test_ibkr_order_submitter.py
@@ -1318,30 +1383,49 @@ ibkr-trading-system/
 │   ├── test_ibkr_provider_scanner_location_fallback.py
 │   ├── test_ibkr_readonly.py
 │   ├── test_ibkr_scanner_diagnostic.py
+│   ├── test_key_level_break_pattern.py
 │   ├── test_learning_controls.py
 │   ├── test_learning_policy_proposal.py
 │   ├── test_learning_reporting.py
 │   ├── test_liquidity_execution.py
 │   ├── test_live_execution_integrity.py
 │   ├── test_live_mode_provider_safety.py
+│   ├── test_live_pattern_failure_trace.py
+│   ├── test_make_it_trade_pipeline_audit.py
 │   ├── test_manual_focus_config_resolution.py
 │   ├── test_market_data_client_disconnect.py
 │   ├── test_market_data_client_snapshot.py
 │   ├── test_market_data_validation.py
 │   ├── test_market_session_phase.py
 │   ├── test_market_snapshot_enricher.py
+│   ├── test_micro_pullback_execution_refinement.py
+│   ├── test_mode_authority_execution_and_sizing.py
 │   ├── test_mode_drift_guard.py
+│   ├── test_momentum_reclaim_pattern.py
+│   ├── test_no_zero_quantity_orders.py
+│   ├── test_opening_drive_pattern.py
+│   ├── test_orb_pattern.py
 │   ├── test_orchestrator_scanner_request.py
 │   ├── test_orchestrator_shutdown.py
 │   ├── test_order_gateway_retry.py
+│   ├── test_order_router_ibkr_validation.py
+│   ├── test_p01_make_it_trade_layer.py
 │   ├── test_paper_micro_runtime_guards.py
+│   ├── test_parabolic_exhaustion.py
 │   ├── test_performance_registry_epoch9.py
 │   ├── test_performance_reports_epoch4.py
 │   ├── test_phase_aware_rvol.py
+│   ├── test_pipeline_end_to_end_sim_debug.py
 │   ├── test_policy_v2_schema_coverage.py
+│   ├── test_portfolio_arbitration.py
 │   ├── test_position_lifecycle_engine.py
 │   ├── test_position_lifecycle_persistence.py
+│   ├── test_position_management_engine.py
+│   ├── test_pr174_final_bridge_fix_block.py
 │   ├── test_pr371_premarket_watchlist_continuity.py
+│   ├── test_pr549_execution_pipeline_enforcement.py
+│   ├── test_pre_session_preservation.py
+│   ├── test_premarket_high_break_pattern.py
 │   ├── test_read_only_guard.py
 │   ├── test_regime_baselines.py
 │   ├── test_regime_classifier.py
@@ -1355,12 +1439,23 @@ ibkr-trading-system/
 │   ├── test_replay_from_storage_epoch4.py
 │   ├── test_replay_locked_in_live_modes_epoch4.py
 │   ├── test_risk_data_quality_alignment.py
+│   ├── test_ross_bridge_logging_contract.py
 │   ├── test_ross_contract_identity_pipeline.py
+│   ├── test_ross_cycle_shutdown_summary.py
+│   ├── test_ross_decision_policy_trigger_to_intent.py
 │   ├── test_ross_end_to_end_pipeline.py
+│   ├── test_ross_fallback_setups.py
+│   ├── test_ross_fast_trigger_activation.py
 │   ├── test_ross_live_focus_runtime_tuning.py
+│   ├── test_ross_pre_activation_runtime.py
 │   ├── test_ross_premarket_discovery_policy.py
+│   ├── test_ross_profitability_activation.py
 │   ├── test_ross_runtime_verification_pipeline.py
+│   ├── test_ross_session_and_watchlist_invariants.py
+│   ├── test_ross_session_contract_drift.py
+│   ├── test_ross_strategy_integrity_alignment.py
 │   ├── test_ross_strategy_registry.py
+│   ├── test_ross_trigger_diagnostics.py
 │   ├── test_run_trading_loop_heartbeat.py
 │   ├── test_scanner_after_hours_prep_gating.py
 │   ├── test_scanner_contract_54.py
@@ -1379,8 +1474,16 @@ ibkr-trading-system/
 │   ├── test_scanner_watchlist_artifact_empty.py
 │   ├── test_scanner_watchlist_prints.py
 │   ├── test_scanner_watchlist_restore_prep.py
+│   ├── test_session_resolution_mode_policy.py
+│   ├── test_setup_family_pipeline_certification.py
+│   ├── test_setup_hierarchy.py
+│   ├── test_shared_engine_stack_foundation.py
 │   ├── test_signal_adapter.py
 │   ├── test_sqlite_persistence.py
+│   ├── test_stair_step_pattern.py
+│   ├── test_stair_step_pipeline_certification.py
+│   ├── test_stair_step_trigger.py
+│   ├── test_startup_recovery_and_stop_protection.py
 │   ├── test_stop_controller.py
 │   ├── test_storage_cli_epoch4.py
 │   ├── test_storage_recovery.py
@@ -1389,12 +1492,21 @@ ibkr-trading-system/
 │   ├── test_strategy_registry_epoch13.py
 │   ├── test_strategy_runner_batch_c.py
 │   ├── test_strategy_runner_hardening.py
+│   ├── test_strategy_runtime_setup_binding.py
+│   ├── test_tha_execution_flow.py
 │   ├── test_traceability.py
-│   └── test_trade_exit_engine.py
+│   ├── test_trade_exit_engine.py
+│   ├── test_trade_lifecycle_engine.py
+│   ├── test_trade_path_authority_model.py
+│   ├── test_tradeability_gate_integration.py
+│   ├── test_vwap_pullback_pattern.py
+│   ├── test_vwap_pullback_pipeline_certification.py
+│   └── test_vwap_pullback_trigger.py
 ├── tools
 │   ├── RUN_E21_HARNESS.ps1
 │   ├── RUN_E21_HARNESS.sh
-│   └── strategy_smoke_harness.py
+│   ├── strategy_smoke_harness.py
+│   └── verify_make_it_trade_post_pr790.sh
 ├── TRADING_OS_MASTER_CATALOGUE
 │   ├── 00_READ_FIRST
 │   │   ├── 00_READ_ORDER.md
@@ -1402,6 +1514,8 @@ ibkr-trading-system/
 │   │   ├── 02_EPOCH_PROCESS_TEMPLATE.md
 │   │   ├── 03_GLOBAL_VERIFICATION_COMMANDS.md
 │   │   ├── 04_IMPLEMENTATION_ENFORCEMENT.md
+│   │   ├── 04_INSTITUTIONAL_TRADING_OS_COMPLETION_PLAN.docx
+│   │   ├── 04_INSTITUTIONAL_TRADING_OS_COMPLETION_PLAN.md
 │   │   ├── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
 │   │   └── CODEX_GLOBAL_EXECUTION_INSTRUCTIONS.md
 │   ├── 01_CORE_EPOCHS
@@ -2075,24 +2189,41 @@ ibkr-trading-system/
 │   │   │   │   ├── 04_ACCEPTANCE_CRITERIA.md
 │   │   │   │   └── 05_NON_REGRESSION_POLICY.md
 │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
-│   │   └── 26_E26_SYSTEM_DETERMINISM_AND_REGENERABILITY_PROTOCOL
+│   │   ├── 26_E26_SYSTEM_DETERMINISM_AND_REGENERABILITY_PROTOCOL
+│   │   │   ├── CODEX_INSTRUCTIONS
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 01_REALITY_VERIFICATION_AND_GAP_ANALYSIS.md
+│   │   │   │   ├── 02_IMPLEMENTATION_TASKS.md
+│   │   │   │   ├── 03_MIGRATION_SEQUENCE.md
+│   │   │   │   ├── 04_MANDATORY_VERIFICATION_COMMANDS.md
+│   │   │   │   ├── 05_EVIDENCE_AND_CERTIFICATION_UPDATES.md
+│   │   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   │   ├── GOVERNANCE
+│   │   │   │   ├── 00_READ_FIRST.md
+│   │   │   │   ├── 01_INTENT_AND_SCOPE.md
+│   │   │   │   ├── 02_DETERMINISM_MODEL.md
+│   │   │   │   ├── 03_RUNTIME_ARTIFACT_CLASSIFICATION.md
+│   │   │   │   ├── 04_RESET_BACKUP_RESTORE_PROTOCOL.md
+│   │   │   │   ├── 05_VERIFICATION_AND_EVIDENCE.md
+│   │   │   │   └── 06_ACCEPTANCE_CRITERIA.md
+│   │   │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │   └── E27_EXECUTION_LIFECYCLE_AND_ORDER_CONTROL
 │   │       ├── CODEX_INSTRUCTIONS
-│   │       │   ├── 00_READ_FIRST.md
-│   │       │   ├── 01_REALITY_VERIFICATION_AND_GAP_ANALYSIS.md
-│   │       │   ├── 02_IMPLEMENTATION_TASKS.md
-│   │       │   ├── 03_MIGRATION_SEQUENCE.md
-│   │       │   ├── 04_MANDATORY_VERIFICATION_COMMANDS.md
-│   │       │   ├── 05_EVIDENCE_AND_CERTIFICATION_UPDATES.md
-│   │       │   └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
-│   │       ├── GOVERNANCE
-│   │       │   ├── 00_READ_FIRST.md
-│   │       │   ├── 01_INTENT_AND_SCOPE.md
-│   │       │   ├── 02_DETERMINISM_MODEL.md
-│   │       │   ├── 03_RUNTIME_ARTIFACT_CLASSIFICATION.md
-│   │       │   ├── 04_RESET_BACKUP_RESTORE_PROTOCOL.md
-│   │       │   ├── 05_VERIFICATION_AND_EVIDENCE.md
-│   │       │   └── 06_ACCEPTANCE_CRITERIA.md
-│   │       └── 99_CODEX_MASTER_INSTRUCTION_BLOCK.md
+│   │       │   ├── 00_READ_FIRST_CODEX_BUNDLE.md
+│   │       │   ├── CODEX_E27_ACCEPTANCE_CHECKLIST.md
+│   │       │   ├── CODEX_E27_ARCHITECTURE_TARGET.md
+│   │       │   ├── CODEX_E27_CONTRACTS_AND_INTERFACES.md
+│   │       │   ├── CODEX_E27_MASTER_IMPLEMENTATION.md
+│   │       │   ├── CODEX_E27_ROSS_POLICY_CONSUMER.md
+│   │       │   └── CODEX_E27_VERIFICATION_AND_RECOVERY.md
+│   │       └── GOVERNANCE
+│   │           ├── 00_READ_FIRST_E27_BUNDLE.md
+│   │           ├── E27_GOVERNANCE_MASTER.md
+│   │           ├── E27_ROSS_EXECUTION_POLICY_PROFILE.md
+│   │           ├── E27_STATE_MACHINE_AND_RECOVERY.md
+│   │           ├── E27_TABLES_AND_PARAMETERS.md
+│   │           ├── E27_VERIFICATION_AUTHORITY.md
+│   │           └── OPTIONAL_CONSTITUTION_AND_SYSTEM_STATE_UPDATES.md
 │   ├── 02_METADATA_EPOCHS
 │   │   ├── 00_M0_CANON_AND_SOURCES_OF_TRUTH
 │   │   │   ├── codex_instructions
@@ -2838,6 +2969,17 @@ ibkr-trading-system/
 │   │   │   ├── M4_EVIDENCE_INDEX.json
 │   │   │   ├── verification_output.json
 │   │   │   └── verification_summary.md
+│   │   ├── M5_STRATEGY_V2
+│   │   │   └── ross_momentum
+│   │   │       ├── determinism.json
+│   │   │       ├── e2e.json
+│   │   │       ├── FINAL_CERTIFICATION.json
+│   │   │       ├── mode_matrix.json
+│   │   │       ├── policy.json
+│   │   │       ├── risk_execution.json
+│   │   │       ├── scanner_contract.json
+│   │   │       ├── signal_pipeline.json
+│   │   │       └── structural.json
 │   │   ├── M5_VERIFICATION_AUTHORITY
 │   │   │   ├── certification_verdict.json
 │   │   │   ├── compileall.txt
@@ -2875,6 +3017,14 @@ ibkr-trading-system/
 │   │   │   ├── pytest_full.txt
 │   │   │   ├── verification_output.json
 │   │   │   └── verification_summary.md
+│   │   ├── p01_make_it_trade_layer
+│   │   │   ├── compileall.txt
+│   │   │   ├── files_changed.txt
+│   │   │   ├── pr554_reconciliation_notes.md
+│   │   │   ├── pytest_make_it_trade.txt
+│   │   │   ├── runtime_validation.txt
+│   │   │   ├── sample_stage_traces.json
+│   │   │   └── summary.md
 │   │   ├── P01_ROSS_POLICY_V2_CONSUMPTION
 │   │   │   └── 20260302T142132Z
 │   │   │       ├── console_log.txt
@@ -2890,6 +3040,9 @@ ibkr-trading-system/
 │   │   │       ├── BASELINE_POLICY_POINTERS.json
 │   │   │       ├── BASELINE_RIPGREP_LOG.txt
 │   │   │       └── BASELINE_RUNTIME_CONSUMPTION.md
+│   │   ├── P01_TRIGGER_ACTIVATION
+│   │   │   ├── before_vs_after_comparison.md
+│   │   │   └── sample_trigger_logs.txt
 │   │   ├── p04_final_policy_lock
 │   │   │   ├── compileall.log
 │   │   │   ├── identity_integrity.log
@@ -2989,7 +3142,47 @@ ibkr-trading-system/
 │   │   │   │   ├── console_log.txt
 │   │   │   │   ├── failures.json
 │   │   │   │   └── summary.json
-│   │   │   └── 20260313T232810Z
+│   │   │   ├── 20260313T232810Z
+│   │   │   │   ├── console_log.txt
+│   │   │   │   ├── failures.json
+│   │   │   │   └── summary.json
+│   │   │   ├── 20260324T210748Z
+│   │   │   │   ├── console_log.txt
+│   │   │   │   ├── failures.json
+│   │   │   │   └── summary.json
+│   │   │   ├── 20260324T231924Z
+│   │   │   │   ├── console_log.txt
+│   │   │   │   ├── failures.json
+│   │   │   │   └── summary.json
+│   │   │   ├── 20260324T235702Z
+│   │   │   │   ├── console_log.txt
+│   │   │   │   ├── failures.json
+│   │   │   │   └── summary.json
+│   │   │   ├── 20260325T073736Z
+│   │   │   │   ├── console_log.txt
+│   │   │   │   ├── failures.json
+│   │   │   │   └── summary.json
+│   │   │   ├── 20260331T014210Z
+│   │   │   │   ├── console_log.txt
+│   │   │   │   ├── failures.json
+│   │   │   │   └── summary.json
+│   │   │   ├── 20260401T103037Z
+│   │   │   │   ├── console_log.txt
+│   │   │   │   ├── failures.json
+│   │   │   │   └── summary.json
+│   │   │   ├── 20260401T105356Z
+│   │   │   │   ├── console_log.txt
+│   │   │   │   ├── failures.json
+│   │   │   │   └── summary.json
+│   │   │   ├── 20260401T114712Z
+│   │   │   │   ├── console_log.txt
+│   │   │   │   ├── failures.json
+│   │   │   │   └── summary.json
+│   │   │   ├── 20260401T124552Z
+│   │   │   │   ├── console_log.txt
+│   │   │   │   ├── failures.json
+│   │   │   │   └── summary.json
+│   │   │   └── 20260401T131528Z
 │   │   │       ├── console_log.txt
 │   │   │       ├── failures.json
 │   │   │       └── summary.json
@@ -3077,6 +3270,7 @@ ibkr-trading-system/
 │   ├── final_gate_strategy_matrix.py
 │   ├── focus_loop_intent_smoke.py
 │   ├── generate_m5_strategy_certification.py
+│   ├── generate_ross_setup_family_verification.py
 │   ├── list_diagnostics_inventory.py
 │   ├── live_open_smoke_trade.py
 │   ├── multi_strategy_orch_smoke.py
@@ -3102,11 +3296,13 @@ ibkr-trading-system/
 │   ├── verify_db.py
 │   ├── verify_db_readiness.py
 │   ├── verify_e22_strategy_scalability_and_arbitration.py
+│   ├── verify_execution_pipeline_live.py
 │   ├── verify_float_wiring.py
 │   ├── verify_focus_injection.py
 │   ├── verify_focus_volume_thresholds.py
 │   ├── verify_ibkr_spot_check.py
 │   ├── verify_live_contracts.py
+│   ├── verify_live_pattern_failure_trace.py
 │   ├── verify_live_scanner_reference_pipeline.py
 │   ├── verify_m10_data_provenance_ledger.py
 │   ├── verify_m1_architecture_map.py
@@ -3117,6 +3313,7 @@ ibkr-trading-system/
 │   ├── verify_m7_epoch_audit_and_certification.py
 │   ├── verify_m8_change_control.py
 │   ├── verify_m9_signal_semantics_registry.py
+│   ├── verify_make_it_trade_pipeline.py
 │   ├── verify_manual_focus.py
 │   ├── verify_p01_ross_policy_v2_consumption.py
 │   ├── verify_p01_ross_v2_runtime_baseline.py
@@ -3125,8 +3322,13 @@ ibkr-trading-system/
 │   ├── verify_policy_schema_coverage.py
 │   ├── verify_policy_v2_resolver_runtime.py
 │   ├── verify_ross_closed_prep_mode.py
+│   ├── verify_ross_make_it_trade_paper_smoke.py
+│   ├── verify_ross_make_it_trade_runtime.py
+│   ├── verify_ross_micro_lifecycle_trade.py
+│   ├── verify_ross_setup_family_coverage.py
 │   ├── verify_runtime_wiring.py
 │   ├── verify_session_detection.py
+│   ├── verify_setup_detection_runtime.py
 │   ├── verify_strategy_identity_integrity.py
 │   ├── verify_strategy_wiring.py
 │   ├── verify_system_reality.py
@@ -3139,6 +3341,7 @@ ibkr-trading-system/
 ├── CODEX_STATISTICAL_INTRADAY_MOMENTUM_ALIGNMENT_AND_FIX.md
 ├── DEPRECATION_LEDGER.md
 ├── HOUSEKEEPING.md
+├── paper_run.log
 ├── PHASE_RM_FINAL_INSTRUCTIONS_v1_0.md
 ├── PHASE_STATISTICAL_INTRADAY_MOMENTUM_WIRING_AND_READINESS_CODEX_FINAL.md
 ├── platform_integrity_state.json
@@ -3153,6 +3356,9 @@ ibkr-trading-system/
 ├── requirements.txt
 ├── ROSS_MOMENTUM_PATTERN_DETECTION_BLUEPRINT.md
 ├── ROSS_MOMENTUM_PATTERN_REFERENCE.md
+├── ross_run.log
+├── RUN_FINAL_EXECUTION_VALIDATION.txt
+├── RUN_LIVE_DEPLOYMENT.txt
 ├── RUN_LIVE_MICRO_1SHARE.ps1
 ├── RUN_LIVE_READ_ONLY.ps1
 ├── RUN_MODES_REFERENCE.md

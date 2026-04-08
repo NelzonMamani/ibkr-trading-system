@@ -1,52 +1,98 @@
 # =========================
+
 # IDE / ENVIRONMENT
+
 # =========================
+
 .idea/
 .venv/
 .env
 
 # =========================
+
 # PYTHON
+
 # =========================
-__pycache__/
+
+**pycache**/
 *.pyc
 
 # =========================
+
 # RUNTIME / GENERATED DATA (CRITICAL)
+
 # =========================
+
 output/
 logs/
-
-# Databases
-*.db
-*.sqlite
-
-# Large structured data
-*.jsonl
-
-# Logs anywhere
 *.log
 
 # =========================
-# DATA LAYER (CACHE / NON-DETERMINISTIC)
-# =========================
-data/backups/
-data/tmp/
-data/cache/
 
-# Reference & fundamentals caches (NON-SOURCE-OF-TRUTH)
+# DATABASES (NON-DETERMINISTIC)
+
+# =========================
+
+*.db
+*.sqlite
+
+# =========================
+
+# AUDIT / EVIDENCE (GENERATED — DO NOT VERSION)
+
+# =========================
+
+AUDIT_EVIDENCE/
+
+# Also ignore audit inside catalogue (you have both)
+
+TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/
+
+# =========================
+
+# DATA LAYER (CACHE / NON-DETERMINISTIC)
+
+# =========================
+
+data/
+
+# (covers backups, tmp, cache, db, etc.)
+
+# =========================
+
+# LARGE / STREAM DATA
+
+# =========================
+
+*.jsonl
+
+# =========================
+
+# REFERENCE CACHES (NON-SOURCE-OF-TRUTH)
+
+# =========================
+
+# (redundant now that data/ is ignored, but kept for clarity)
+
 data/reference/*.json
 data/fundamentals/*.json
 
 # =========================
+
 # SAFETY (TRADING SYSTEM)
+
 # =========================
+
 # Prevent accidental large files
+
 *.csv
 *.parquet
 
 # =========================
+
 # OS JUNK
+
 # =========================
+
 .DS_Store
 Thumbs.db

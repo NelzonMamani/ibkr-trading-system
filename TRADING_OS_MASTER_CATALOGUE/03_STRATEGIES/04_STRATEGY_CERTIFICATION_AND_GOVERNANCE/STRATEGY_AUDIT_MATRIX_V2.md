@@ -1,7 +1,7 @@
 # STRATEGY_AUDIT_MATRIX_V2
 
 STATUS: GOVERNANCE_LOCKED_BASELINE_V2
-Generated (UTC): 2026-03-13T23:30:18Z
+Generated (UTC): 2026-04-01T13:16:51Z
 
 | Strategy | Verdict | Strategy Identity | Stock Selection / Universe Definition | Setup Taxonomy | Conditions | Confirmations | Trigger Model | Intrabar Execution Doctrine | Risk Governance | Exit Governance | Position Management | Data Requirements | Safety & Failure Modes | Execution Constraints | Timeframe Authority | Scaling Doctrine |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
