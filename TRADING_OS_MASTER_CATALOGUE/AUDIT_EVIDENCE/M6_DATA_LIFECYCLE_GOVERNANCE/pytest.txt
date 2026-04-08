@@ -1,4 +1,0 @@
-$ /root/.pyenv/versions/3.10.19/bin/python -m pytest tests/test_epoch3_risk_execution.py::test_idempotency_prevents_duplicate_submissions -q
-
-.                                                                        [100%]
-1 passed in 0.18s

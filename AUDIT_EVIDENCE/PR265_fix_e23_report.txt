@@ -1,8 +1,0 @@
-command: python -m src.integrity.e23 --max-loops 1
-exit_code: 0
-stdout_bytes: 0
-stderr_bytes: 0
-artifacts:
-  - SYSTEM_STATE_CERTIFIED.md
-  - platform_integrity_state.json
-  - RECONCILIATION_REPORT.md

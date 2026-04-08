@@ -1,5 +1,0 @@
-{
-  "ibkr_disconnected_reason": "IBKR connection failed after clientId retries. host=127.0.0.1 port=7497 base_client_id=7",
-  "ibkr_disconnected_safe_halt": true,
-  "session_closed_safe_halt": true
-}

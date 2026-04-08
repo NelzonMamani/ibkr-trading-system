@@ -1,5 +1,0 @@
-{
-  "pipeline_validation_log": "AUDIT_EVIDENCE/make_it_trade_post_pr790/pipeline_validation_dry_run.log",
-  "pytest_trade_path_authority": "AUDIT_EVIDENCE/make_it_trade_post_pr790/pytest_trade_path_authority.txt",
-  "pytest_pipeline_regression": "AUDIT_EVIDENCE/make_it_trade_post_pr790/pytest_pipeline_regression.txt"
-}

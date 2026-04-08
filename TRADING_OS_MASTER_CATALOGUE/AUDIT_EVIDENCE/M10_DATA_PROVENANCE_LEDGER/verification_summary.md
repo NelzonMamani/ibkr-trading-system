@@ -1,5 +1,0 @@
-# M10 Data Provenance Ledger Summary
-
-- Valid: True
-- M10 root: TRADING_OS_MASTER_CATALOGUE\02_METADATA_EPOCHS\10_M10_DATA_PROVENANCE_LEDGER
-- Violations: 0

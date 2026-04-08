@@ -1,7 +1,0 @@
-Targeted audit summary for P04 Buffett/Graham Brain policy completion
-- strategies_instantiate=20
-- p04_verdict=CERTIFIED
-- no_new_fail_introduced=0
-- baseline_drift_hash_mismatches=0
-- governance_lock_violations=0
-- schema_coverage_failures=0

@@ -1,9 +1,0 @@
-$ C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Scripts\python.exe verification_scripts/verify_m9_signal_semantics_registry.py --allow-overwrite
-
-{
-  "epoch": "M9_SIGNAL_SEMANTICS_REGISTRY",
-  "valid": true,
-  "violations": [],
-  "registry_file": "TRADING_OS_MASTER_CATALOGUE\\02_METADATA_EPOCHS\\09_M9_SIGNAL_SEMANTICS_REGISTRY\\governance\\SIGNAL_SEMANTICS_REGISTRY.json",
-  "generated_at_utc": "2026-02-15T23:55:38.570796+00:00"
-}

@@ -1,4 +1,0 @@
-{
-  "command": "python -m src.main --mode READ_ONLY --cycles 1",
-  "returncode": 0
-}

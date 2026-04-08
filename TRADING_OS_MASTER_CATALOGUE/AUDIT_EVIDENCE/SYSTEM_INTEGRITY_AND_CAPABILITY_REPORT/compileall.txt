@@ -1,1 +1,0 @@
-$ C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Scripts\python.exe -m compileall -q src tests verification_scripts
