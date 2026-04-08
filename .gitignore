@@ -14,7 +14,7 @@ __pycache__/
 .pytest_cache/
 
 # =========================
-# RUNTIME / GENERATED DATA (CRITICAL)
+# RUNTIME / GENERATED DATA
 # =========================
 output/
 logs/
@@ -27,10 +27,37 @@ logs/
 *.sqlite
 
 # =========================
-# AUDIT / EVIDENCE (GENERATED — DO NOT VERSION)
+# ROOT AUDIT EVIDENCE (RAW / NON-GOVERNED → IGNORE)
 # =========================
 AUDIT_EVIDENCE/
-TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/
+
+# =========================
+# CATALOGUE AUDIT EVIDENCE (GOVERNED → CONTROLLED)
+# =========================
+
+# Allow catalogue path
+!TRADING_OS_MASTER_CATALOGUE/
+!TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/
+
+# Ignore everything inside by default
+TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/**
+
+# Re-allow directories (required for Git traversal)
+!TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/**/
+
+# Allow ONLY certification artifacts
+!TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/**/SUMMARY.md
+!TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/**/summary.md
+!TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/**/final_*.md
+!TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/**/FINAL_*.md
+
+!TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/**/platform_state.json
+!TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/**/platform_integrity_state.json
+!TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/**/pipeline_summary.json
+!TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/**/verification*.json
+!TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/**/reconciliation*.json
+
+!TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/**/SYSTEM_STATE_CERTIFIED.md
 
 # =========================
 # DATA LAYER (CACHE / NON-DETERMINISTIC)
@@ -44,7 +71,6 @@ data/
 
 # =========================
 # CONTROLLED DATA POLICY
-# Allow small datasets, block generated ones
 # =========================
 data/**/*.csv
 data/**/*.parquet

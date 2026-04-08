@@ -443,31 +443,16 @@ ibkr-trading-system/
 │   └── manual_focus.json
 ├── data
 │   ├── audit
-│   │   └── db_admin_audit.log
 │   ├── cache
 │   │   └── statistical_intraday_momentum
-│   │       ├── baseline_universe_2026-01-26.json
-│   │       ├── intraday_distributions_2026-01-26.json
-│   │       └── session_readiness_2026-01-26.json
 │   ├── news
-│   │   └── news_cache.json
 │   ├── prep
-│   │   └── premarket_prep.json
 │   ├── reference
 │   │   ├── float_cache.json
 │   │   └── reference_cache.json
 │   ├── reports
 │   │   └── ops
-│   │       ├── 2026-01-21_ops_summary.json
-│   │       ├── 2026-01-22_ops_summary.json
-│   │       ├── 2026-01-25_ops_summary.json
-│   │       ├── 2026-01-26_ops_summary.json
-│   │       ├── 2026-01-27_ops_summary.json
-│   │       └── 2026-01-29_ops_summary.json
-│   ├── verification
-│   │   └── ross_open_readiness_report.json
-│   ├── ibkr_system.db
-│   └── regime_baselines.json
+│   └── verification
 ├── docs
 │   ├── architecture
 │   │   └── MARKET_SESSION_CONTEXT_TASK.md
