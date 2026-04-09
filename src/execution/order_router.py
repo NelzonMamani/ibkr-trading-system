@@ -781,6 +781,13 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             _mark_execution_failure(None, "UNKNOWN", reason=f"missing_order_id callback={event_type or 'unknown'}")
         return
     tracked = _RUNTIME_ORDERS.get(int(order_id))
+    trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id)
+    if tracked is None and trace is None and event_type in {"openorder", "orderstatus"}:
+        print(
+            "[EXECUTION][CALLBACK_IGNORED] "
+            f"event_type={event_type} order_id={order_id} reason=untracked_external_order"
+        )
+        return
     if (not symbol) and tracked is not None and tracked.symbol:
         symbol = tracked.symbol
         print(f"[EXECUTION][CALLBACK_ENRICHED] order_id={order_id} symbol={symbol} source=order_id_mapping")
@@ -798,7 +805,6 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     if tracked is not None:
         tracked.last_callback_fingerprint = fingerprint
     _LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID[int(order_id)] = fingerprint
-    trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id)
     if trace is not None:
         _trace_log("ACK", trace, extra=f"callback={event_type or 'unknown'}")
     event_status = str(_extract_callback_field(callback_payload, "status") or "").upper()
