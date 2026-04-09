@@ -111,7 +111,7 @@ def test_duplicate_execdetails_is_deduped() -> None:
     assert len(row.seen_exec_ids) == 1
 
 
-def test_fill_opens_position_and_management_path_can_emit_exit() -> None:
+def test_execdetails_backfill_does_not_open_runtime_position() -> None:
     _reset_router_state()
     _seed_tracked_order(order_id=501, symbol="AAPL", qty=8)
 
@@ -127,15 +127,8 @@ def test_fill_opens_position_and_management_path_can_emit_exit() -> None:
     )
 
     runtime_position = order_router._RUNTIME_POSITIONS["AAPL"]
-    assert runtime_position.qty == 8
-    assert runtime_position.state == "POSITION_OPEN"
-
-    manager = PositionManagementEngine()
-    managed = ManagedPosition(symbol="AAPL", side="LONG", quantity=8, entry_price=100.0, stop_price=99.0)
-    result = manager.manage_position(managed, {"current_price": 98.5, "structure_broken": True})
-
-    assert result.closed is True
-    assert result.exit_reason == "structure_break"
+    assert runtime_position.qty == 0
+    assert runtime_position.state == "PENDING_ENTRY"
 
 
 def test_exit_fill_reaches_terminal_closed_lifecycle_state() -> None:

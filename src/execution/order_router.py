@@ -665,7 +665,17 @@ def _resolve_authoritative_execution_state(row: TrackedOrder | None) -> str:
     return "DISPATCH_SENT"
 
 
-def _apply_position_fill(symbol: str, *, signed_delta_qty: int, fill_price: float | None, pending_entry_delta: int = 0, pending_exit_delta: int = 0) -> None:
+def _apply_position_fill(
+    symbol: str,
+    *,
+    signed_delta_qty: int,
+    fill_price: float | None,
+    pending_entry_delta: int = 0,
+    pending_exit_delta: int = 0,
+    source: str = "",
+) -> None:
+    if source == "IBKR_EXECUTION_BACKFILL":
+        return
     if not symbol:
         return
     row = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
@@ -891,8 +901,21 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
         print(f"[EXECUTION][PARTIAL_FILL] order_id={order_id} symbol={row.symbol} fill_qty={inc} total_filled={row.filled_qty} remaining={row.remaining_qty} exec_id={exec_id or 'NA'}")
     if old_state != row.canonical_state:
         print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
+    if source == "IBKR_EXECUTION_BACKFILL":
+        print(
+            "[POSITION][SKIPPED_BACKFILL] "
+            f"order_id={order_id} symbol={row.symbol} reason=exec_history_not_position_truth"
+        )
+        return
     signed = inc if row.is_entry else -inc
-    _apply_position_fill(row.symbol, signed_delta_qty=signed, fill_price=fill_price, pending_entry_delta=(-inc if row.is_entry else 0), pending_exit_delta=(-inc if row.is_exit else 0))
+    _apply_position_fill(
+        row.symbol,
+        signed_delta_qty=signed,
+        fill_price=fill_price,
+        pending_entry_delta=(-inc if row.is_entry else 0),
+        pending_exit_delta=(-inc if row.is_exit else 0),
+        source=source,
+    )
 
 
 def _on_ibkr_callback(callback_payload: Any) -> None:
@@ -1344,6 +1367,12 @@ def _sync_submitted_events_from_ibkr(
             continue
         event.last_update_time = _now_utc_iso()
     _run_passive_position_reconciliation(positions=positions)
+    for symbol, pos in list(_RUNTIME_POSITIONS.items()):
+        if int(pos.qty) == 0:
+            _RUNTIME_POSITIONS.pop(symbol, None)
+    assert all(
+        pos.qty != 0 for pos in _RUNTIME_POSITIONS.values()
+    ), "ZERO_QTY_POSITION_SHOULD_NOT_EXIST"
     if positions:
         print("[POSITION][SYNC] reconciliation_snapshot_observed=true fill_source=CALLBACK_ONLY repair_mode=PASSIVE")
     _check_callback_delay()
@@ -1886,6 +1915,8 @@ def execute_intents(
 
     broker_state = "CONNECTED" if mode in {RunMode.PAPER, RunMode.LIVE} else "DISCONNECTED"
     print(f"[EXECUTION][MODE] mode={mode.value} broker_connection_state={broker_state}")
+    _RUNTIME_POSITIONS.clear()
+    print("[POSITION][RESET] cleared runtime positions before reconciliation")
     open_orders, _executions, positions = _normalize_ibkr_truth(_fetch_ibkr_truth(mode))
     has_working_order_recon = hasattr(open_orders, "__iter__")
     if mode in {RunMode.PAPER, RunMode.LIVE} and not has_working_order_recon:
