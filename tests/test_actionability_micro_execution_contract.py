@@ -298,6 +298,38 @@ def test_execute_intents_blocks_duplicate_symbol_using_ibkr_truth(monkeypatch, c
     assert "[EXECUTION][BLOCK] symbol=MCRO reason=DUPLICATE_POSITION" in out
 
 
+def test_position_zero_not_blocked(monkeypatch, capsys) -> None:
+    class _FlatPos:
+        symbol = "MCRO"
+        position = 0.0
+        avgCost = 24.0
+
+    monkeypatch.setattr(
+        "src.execution.order_router._fetch_ibkr_truth",
+        lambda _mode: ([], [], [_FlatPos()]),
+    )
+    events = execute_intents(
+        mode=RunMode.PAPER,
+        decisions=[
+            RiskDecisionRecord(
+                symbol="MCRO",
+                intent_id="MCRO-1",
+                decision="ALLOW",
+                max_position_size=10,
+                constraints=[],
+                triggered_rules=[],
+                rationale="ok",
+                approved_quantity=10,
+                entry_price=25.0,
+            )
+        ],
+    )
+    out = capsys.readouterr().out
+    assert events[0].action == "SUBMITTED"
+    assert "[EXECUTION][POSITION_CHECK] symbol=MCRO position_qty=0.0 treated_as_flat=true" in out
+    assert "reason=DUPLICATE_POSITION" not in out
+
+
 def test_ibkr_callback_creates_order_filled_event(monkeypatch, capsys) -> None:
     from src.execution import order_router
 

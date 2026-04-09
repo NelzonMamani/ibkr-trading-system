@@ -532,16 +532,16 @@ def _extract_exec_price(exec_row: Any) -> float | None:
     return None
 
 
-def _extract_position_qty(position_row: Any) -> int:
+def _extract_position_qty(position_row: Any) -> float:
     for field in ("position", "qty", "quantity", "shares"):
         value = getattr(position_row, field, None)
         if value is None:
             continue
         try:
-            return int(float(value))
+            return float(value)
         except (TypeError, ValueError):
             continue
-    return 0
+    return 0.0
 
 
 def _extract_callback_field(callback_payload: Any, *field_names: str) -> Any:
@@ -1951,7 +1951,7 @@ def _evaluate_submission_restriction(
     return False, "ok"
 
 
-def _wait_for_ibkr_snapshot_for_symbol(symbol: str, *, wait_up_to: float = 1.0, poll_interval: float = 0.1) -> dict[str, float | None]:
+def _wait_for_ibkr_snapshot_for_symbol(symbol: str, *, wait_up_to: float = 2.0, poll_interval: float = 0.2) -> dict[str, float | None]:
     normalized_symbol = str(symbol or "").upper().strip()
     if not normalized_symbol:
         return {}
@@ -1968,8 +1968,11 @@ def _wait_for_ibkr_snapshot_for_symbol(symbol: str, *, wait_up_to: float = 1.0, 
 
     snapshot: dict[str, float | None] = {}
     poll_count = max(1, int(wait_up_to / poll_interval))
+    wait_started = time.monotonic()
     try:
-        for _ in range(poll_count):
+        for attempt in range(1, poll_count + 1):
+            elapsed = time.monotonic() - wait_started
+            print(f"[PRICE][WAIT_LOOP] symbol={normalized_symbol} attempt={attempt} elapsed={elapsed:.3f}")
             try:
                 ib.waitOnUpdate(timeout=poll_interval)
             except Exception:
@@ -1980,6 +1983,8 @@ def _wait_for_ibkr_snapshot_for_symbol(symbol: str, *, wait_up_to: float = 1.0, 
             volume = _safe_price_value(getattr(ticker, "volume", None))
             snapshot = {"last": last, "bid": bid, "ask": ask, "volume": volume}
             if last is not None or (bid is not None and ask is not None):
+                wait_time = time.monotonic() - wait_started
+                print(f"[PRICE][RESOLVED_AFTER_WAIT] symbol={normalized_symbol} wait_time={wait_time:.3f}")
                 break
     finally:
         try:
@@ -2284,7 +2289,14 @@ def execute_intents(
     if mode in {RunMode.PAPER, RunMode.LIVE} and not has_working_order_recon:
         _FILL_AUTHORITY_STATE = "DEGRADED"
         print("[EXECUTION][FILL_AUTHORITY_DEGRADED] reason=broker_fill_reconciliation_unavailable")
-    existing_position_symbols = {str(getattr(row, "symbol", "") or "").upper() for row in positions}
+    existing_position_qty_by_symbol: dict[str, float] = {}
+    for row in positions:
+        symbol = str(getattr(row, "symbol", "") or "").upper()
+        if not symbol:
+            continue
+        existing_position_qty_by_symbol[symbol] = existing_position_qty_by_symbol.get(symbol, 0.0) + float(
+            _extract_position_qty(row) or 0.0
+        )
     working_order_candidates: list[dict[str, Any]] = []
     for row in open_orders:
         symbol = _extract_symbol_from_order(row)
@@ -2371,7 +2383,12 @@ def execute_intents(
                 f"existing_status={duplicate_status} reason={duplicate_reason}"
             )
             break
-        if order_side == "BUY" and duplicate_symbol in existing_position_symbols:
+        position_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
+        treated_as_flat = abs(position_qty) <= 1e-6
+        print(
+            f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} position_qty={position_qty} treated_as_flat={str(treated_as_flat).lower()}"
+        )
+        if order_side == "BUY" and not treated_as_flat:
             print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
             _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_position")
             events.append(
@@ -2424,18 +2441,17 @@ def execute_intents(
                 print(f"[EXECUTION][WAIT] symbol={decision.symbol} reason=WAITING_FOR_PRICE")
                 snapshot = _wait_for_ibkr_snapshot_for_symbol(str(decision.symbol or ""))
                 try:
-                    entry_price, entry_price_source = resolve_entry_price(
+                    entry_price, _entry_price_source = resolve_entry_price(
                         str(decision.symbol or ""),
                         {
-                            "ibkr_snapshot_by_symbol": {str(decision.symbol or "").upper(): snapshot} if snapshot else {},
                             "ibkr_stream_by_symbol": {str(decision.symbol or "").upper(): snapshot} if snapshot else {},
                         },
                     )
                     decision.entry_price = entry_price
-                    setattr(decision, "entry_price_source", entry_price_source)
+                    setattr(decision, "entry_price_source", "IBKR_STREAM")
                     trace.resolved_price = float(entry_price)
                     trace.price_state = "PARTIAL_OK"
-                    print(f"[PRICE][RESOLVED] symbol={decision.symbol} source=IBKR_SNAPSHOT price={entry_price}")
+                    print(f"[PRICE][RESOLVED] symbol={decision.symbol} source=IBKR_STREAM price={entry_price}")
                 except PriceResolutionError:
                     blocked_price_unavailable += 1
                     print(f"[PRICE][BLOCK] symbol={decision.symbol} reason=NO_IBKR_PRICE_AVAILABLE")

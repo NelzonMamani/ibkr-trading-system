@@ -215,6 +215,63 @@ def test_executability_summary_counts_blocked_price_unavailable(monkeypatch, cap
     assert "blocked_price_unavailable=1" in out
 
 
+def test_price_wait_loop_resolves_before_timeout(monkeypatch, capsys) -> None:
+    waits: list[float] = []
+
+    def _fake_sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    class _Ticker:
+        def __init__(self) -> None:
+            self.last = None
+            self.bid = None
+            self.ask = None
+            self.volume = None
+
+    class _Client:
+        def __init__(self, ticker: _Ticker) -> None:
+            self._ticker = ticker
+            self._updates = 0
+
+        def reqMktData(self, *_args, **_kwargs):
+            return self._ticker
+
+        def waitOnUpdate(self, timeout=0.0):
+            _fake_sleep(timeout)
+            self._updates += 1
+            if self._updates >= 3:
+                self._ticker.last = 25.5
+
+        def cancelMktData(self, _contract) -> None:
+            return None
+
+    class _Manager:
+        def __init__(self) -> None:
+            self._ticker = _Ticker()
+            self._client = _Client(self._ticker)
+
+        def get_client(self):
+            return self._client
+
+    class _Stock:
+        def __init__(self, symbol: str, exchange: str, currency: str) -> None:
+            self.symbol = symbol
+            self.exchange = exchange
+            self.currency = currency
+
+    monkeypatch.setattr(order_router, "get_shared_ibkr_connection_manager", lambda readonly_enabled=True: _Manager())
+    monkeypatch.setattr(order_router, "safe_import_ib_insync", lambda: (None, _Stock, None))
+    monkeypatch.setattr(order_router.time, "sleep", _fake_sleep)
+
+    snapshot = order_router._wait_for_ibkr_snapshot_for_symbol("MCRO")
+    out = capsys.readouterr().out
+
+    assert snapshot["last"] == 25.5
+    assert len(waits) >= 3
+    assert "[PRICE][WAIT_LOOP] symbol=MCRO attempt=1" in out
+    assert "[PRICE][RESOLVED_AFTER_WAIT] symbol=MCRO" in out
+
+
 @pytest.mark.parametrize("mode", [RunMode.PAPER, RunMode.LIVE])
 def test_strict_mode_raises_broker_truth_not_confirmed_when_no_callbacks(monkeypatch, mode) -> None:
     order_router._RUNTIME_ORDERS.clear()
