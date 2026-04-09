@@ -319,6 +319,16 @@ def test_positionend_callback_not_treated_as_unmatched_order(monkeypatch, capsys
     assert order_router._UNRESOLVED_EXECUTION_RECONCILIATION_COUNT == 0
 
 
+def test_untracked_orderstatus_callback_is_ignored(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
+    order_router._on_ibkr_callback({"event_type": "orderStatus", "order_id": 9999, "status": "PreSubmitted", "filled": 0, "remaining": 1})
+    out = capsys.readouterr().out
+    assert "[EXECUTION][CALLBACK_IGNORED] event_type=orderstatus order_id=9999 reason=untracked_external_order" in out
+    assert "[ORDER_EVENT][UNMATCHED] event=STATUS order_id=9999" not in out
+
+
 def test_circuit_breaker_blocks_new_submission_after_degradation(monkeypatch) -> None:
     _reset_router()
     order_router._CIRCUIT_BREAKER_ACTIVE = True
