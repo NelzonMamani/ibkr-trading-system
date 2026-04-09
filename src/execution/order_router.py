@@ -2233,6 +2233,18 @@ def execute_intents(
         if tracked is None:
             continue
         final_state = _resolve_authoritative_execution_state(tracked)
+        preserve_initial_submission = event.event_type == "ORDER_SUBMITTED"
+        # Normalize ORDER_SUBMITTED → broker truth compliant state
+        if event.event_type == "ORDER_SUBMITTED":
+            if tracked is not None:
+                broker_status = str(tracked.broker_status or "").lower()
+
+                if broker_status in {"submitted", "presubmitted"}:
+                    event.event_type = "ORDER_ACKNOWLEDGED"
+                else:
+                    event.event_type = "ORDER_WORKING"
+            else:
+                event.event_type = "ORDER_WORKING"
         tracked.final_execution_state = final_state
         if final_state == "BROKER_REJECTED":
             event.event_type = "ORDER_REJECTED"
@@ -2245,10 +2257,18 @@ def execute_intents(
             event.event_type = "ORDER_PARTIALLY_FILLED"
             event.broker_status = "Submitted"
         elif final_state == "BROKER_QUEUED_FOR_RTH":
-            event.event_type = "ORDER_QUEUED_FOR_RTH"
-            event.broker_status = "PreSubmitted"
-        elif final_state == "BROKER_WORKING":
             event.event_type = "ORDER_WORKING"
+            event.broker_status = "PreSubmitted"
+        elif final_state == "BROKER_WORKING" and not preserve_initial_submission:
+            event.event_type = "ORDER_WORKING"
+        total_quantity = int(event.filled_quantity or 0) + int(event.remaining_quantity or 0)
+        if int(event.filled_quantity or 0) >= total_quantity and total_quantity > 0:
+            event.event_type = "ORDER_FILLED"
+            event.broker_status = "Filled"
+        elif int(event.filled_quantity or 0) > 0:
+            event.event_type = "ORDER_PARTIALLY_FILLED"
+            if str(event.broker_status or "").strip() == "":
+                event.broker_status = "Submitted"
         event.detail = (
             f"{event.detail}; final_execution_state={final_state}; "
             f"normalized_reject_reason={(tracked.normalized_reject_reason or 'NONE')}; "
@@ -2274,4 +2294,16 @@ def execute_intents(
     )
     if _FILL_AUTHORITY_STATE == "UNKNOWN":
         _FILL_AUTHORITY_STATE = "ACTIVE" if mode in {RunMode.PAPER, RunMode.LIVE} else "N/A"
+    for e in events:
+        if e.event_type == "ORDER_SUBMITTED":
+            if str(e.action or "").upper() == "BLOCKED":
+                e.event_type = "ORDER_REJECTED"
+            elif int(e.filled_quantity or 0) > 0:
+                total_quantity = int(e.filled_quantity or 0) + int(e.remaining_quantity or 0)
+                e.event_type = "ORDER_FILLED" if total_quantity > 0 and int(e.filled_quantity or 0) >= total_quantity else "ORDER_PARTIALLY_FILLED"
+            elif str(e.action or "").upper() == "SUBMITTED":
+                e.event_type = "ORDER_ACKNOWLEDGED"
+            else:
+                e.event_type = "ORDER_WORKING"
+        assert e.event_type != "ORDER_SUBMITTED", "INVALID_FINAL_EVENT_TYPE"
     return events
