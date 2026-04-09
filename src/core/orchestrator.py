@@ -1971,7 +1971,31 @@ class CoreOrchestrator:
             print(f"[POSITION_MANAGE] symbol={trade.symbol} state={getattr(trade.state, 'value', trade.state)}")
         self._last_position_management_tick_utc = now
 
-    def _run_trade_management_engine(self, execution_output: list[ExecutionResult]) -> list[object]:
+    @staticmethod
+    def _is_near_whole_or_half_dollar(price: float) -> bool:
+        cents = float(price) % 1
+        return abs(cents - 0.0) < 0.02 or abs(cents - 0.5) < 0.02
+
+    def _build_trade_management_market_state(self) -> dict[str, dict]:
+        market_state: dict[str, dict] = {}
+        for symbol in sorted(self.trade_management_engine.snapshot_positions().keys()):
+            try:
+                price = float(self.price_feed.get_price(symbol))
+            except Exception:
+                continue
+            near_key_level = self._is_near_whole_or_half_dollar(price)
+            market_state[symbol] = {
+                "current_price": float(price),
+                "green_volume_ratio": 1.0,
+                "red_volume_ratio": 1.0,
+                "structure_intact": True,
+                "near_resistance": near_key_level,
+                "key_level_hit": near_key_level,
+                "last_higher_low": float(price) * 0.995,
+            }
+        return market_state
+
+    def _apply_execution_results_to_trade_management(self, execution_output: list[ExecutionResult]) -> None:
         for result in execution_output:
             filled_qty = int(getattr(result, "filled_quantity", 0) or 0)
             if filled_qty <= 0:
@@ -1991,14 +2015,19 @@ class CoreOrchestrator:
                 getattr(result, "execution_id", None)
                 or f"{symbol}:{getattr(result, 'ibkr_order_id', 'na')}:{filled_qty}:{entry_price}"
             )
+            direction = str(getattr(result, "direction", "") or "").upper()
+            signed_shares = -filled_qty if direction in {"SELL", "SHORT"} else filled_qty
             self.trade_management_engine.on_exec_details(
                 symbol=symbol,
-                shares=filled_qty,
+                shares=signed_shares,
                 price=entry_price,
                 exec_id=exec_id,
             )
 
-        intents = self.trade_management_engine.evaluate_cycle({})
+    def _run_trade_management_engine(self, execution_output: list[ExecutionResult]) -> list[object]:
+        self._apply_execution_results_to_trade_management(execution_output)
+        market_state = self._build_trade_management_market_state()
+        intents = self.trade_management_engine.evaluate_cycle(market_state)
         for intent in intents:
             print(
                 "[TRADE_MANAGEMENT][INTENT] "
@@ -4103,7 +4132,16 @@ class CoreOrchestrator:
             summary=f"action={action_label} orders={len(orders_payload)}",
         )
         print("[TEACH] <<< Execution stage complete — moving to strategy exit stage.")
-        self._run_trade_management_engine(execution_output)
+        management_intents = self._run_trade_management_engine(execution_output)
+        entry_intents: list[object] = []
+        combined_intents: list[object] = []
+        combined_intents.extend(entry_intents)
+        combined_intents.extend(management_intents)
+        management_execution_results: list[ExecutionResult] = []
+        if combined_intents and self.execution_enabled and not execution_intent.scan_only:
+            management_execution_results = self.execution_engine.execute(combined_intents)
+            execution_output.extend(management_execution_results)
+            self._apply_execution_results_to_trade_management(management_execution_results)
         if self._stop_requested_at_boundary("EXECUTION"):
             return False
 
