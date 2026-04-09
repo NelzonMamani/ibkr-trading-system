@@ -666,35 +666,7 @@ def _resolve_authoritative_execution_state(row: TrackedOrder | None) -> str:
 
 
 def _apply_position_fill(symbol: str, *, signed_delta_qty: int, fill_price: float | None, pending_entry_delta: int = 0, pending_exit_delta: int = 0) -> None:
-    if not symbol:
-        return
-    row = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
-    row.qty = int(row.qty) + int(signed_delta_qty)
-    row.pending_entry_qty = max(0, int(row.pending_entry_qty) + int(pending_entry_delta))
-    row.pending_exit_qty = max(0, int(row.pending_exit_qty) + int(pending_exit_delta))
-    if fill_price is not None and signed_delta_qty > 0:
-        prev_qty = max(0, int(row.qty) - int(signed_delta_qty))
-        prev_avg = float(row.avg_price or 0.0)
-        total_qty = prev_qty + int(signed_delta_qty)
-        row.avg_price = ((prev_qty * prev_avg) + (int(signed_delta_qty) * float(fill_price))) / total_qty if total_qty > 0 else row.avg_price
-    if row.qty <= 0:
-        row.qty = 0
-        row.state = "POSITION_CLOSED"
-    elif row.pending_exit_qty > 0:
-        row.state = "POSITION_REDUCING"
-    elif row.pending_entry_qty > 0:
-        row.state = "PARTIAL_POSITION_OPEN"
-    else:
-        row.state = "POSITION_OPEN"
-    print(f"[LIFECYCLE][POSITION] symbol={symbol} qty={row.qty} pending_entry={row.pending_entry_qty} pending_exit={row.pending_exit_qty} state={row.state}")
-    print(
-        "[EXECUTION][POSITION] "
-        f"symbol={symbol} qty={row.qty} pending_entry={row.pending_entry_qty} "
-        f"pending_exit={row.pending_exit_qty} state={row.state}"
-    )
-    if row.qty > 0 and row.avg_price is not None:
-        print(f"[POSITION][OPEN] symbol={symbol} qty={row.qty} avg_price={row.avg_price}")
-    print(f"[POSITION][OPENED_OR_UPDATED] symbol={symbol} qty={row.qty} avg_price={row.avg_price} state={row.state}")
+    raise AssertionError("POSITION_MUTATION_FROM_EXECUTION_FORBIDDEN")
 
 
 def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, total_qty: int, order_ref: str, intent_id: str = "") -> TrackedOrder:
@@ -726,17 +698,11 @@ def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, tota
         row.final_execution_state = "DISPATCH_SENT"
     if intent_id:
         row.intent_id = str(intent_id or "")
-    pos = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
+    pos = _RUNTIME_POSITIONS.get(symbol)
     normalized_side = str(side or "").upper()
-    row.is_exit = normalized_side == "SELL" and pos.qty > 0
+    pos_qty = int(pos.qty) if pos is not None else 0
+    row.is_exit = normalized_side == "SELL" and pos_qty > 0
     row.is_entry = not row.is_exit
-    if created:
-        if row.is_exit:
-            pos.pending_exit_qty = max(0, pos.pending_exit_qty + int(total_qty))
-        else:
-            pos.pending_entry_qty = max(0, pos.pending_entry_qty + int(total_qty))
-    if pos.qty <= 0:
-        pos.state = "PENDING_ENTRY"
     print(f"[LIFECYCLE][ORDER] order_id={order_id} symbol={symbol} state={row.canonical_state} filled={row.filled_qty} remaining={row.remaining_qty}")
     return row
 
@@ -891,8 +857,10 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
         print(f"[EXECUTION][PARTIAL_FILL] order_id={order_id} symbol={row.symbol} fill_qty={inc} total_filled={row.filled_qty} remaining={row.remaining_qty} exec_id={exec_id or 'NA'}")
     if old_state != row.canonical_state:
         print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
-    signed = inc if row.is_entry else -inc
-    _apply_position_fill(row.symbol, signed_delta_qty=signed, fill_price=fill_price, pending_entry_delta=(-inc if row.is_entry else 0), pending_exit_delta=(-inc if row.is_exit else 0))
+    assert (
+        len(_RUNTIME_POSITIONS) == 0
+        or all(int(pos.qty) == 0 for pos in _RUNTIME_POSITIONS.values())
+    ), "EXECUTION_LAYER_CREATED_POSITION"
 
 
 def _on_ibkr_callback(callback_payload: Any) -> None:
@@ -1066,10 +1034,6 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             trace.fill_time = timestamp
             trace.lifecycle_state = "FILL_RECEIVED"
             _trace_log("FILL", trace, extra=f"exec_id={exec_id} fill_qty={filled_qty} fill_price={fill_price}")
-            pos = _RUNTIME_POSITIONS.get(trace.symbol)
-            if pos is not None and pos.qty > 0:
-                trace.position_opened = True
-                _trace_log("POSITION_OPENED", trace, extra=f"position_qty={pos.qty}")
         if filled_qty > 0 and remaining_int > 0:
             print(
                 f"[ORDER][PARTIAL_FILL] symbol={symbol or 'UNKNOWN'} order_id={order_id} "
