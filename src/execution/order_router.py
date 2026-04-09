@@ -45,6 +45,7 @@ _CIRCUIT_BREAKER_ACTIVE = False
 _VISIBILITY_BY_ORDER_ID: dict[int, dict[str, bool]] = {}
 _LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID: dict[int, str] = {}
 _BROKER_ERRORS_BY_ORDER_ID: dict[int, list[dict[str, Any]]] = {}
+_PENDING_SUBMISSIONS_BY_ORDER_ID: dict[int, "PendingSubmission"] = {}
 
 AUTHORITATIVE_EXECUTION_STATES = {
     "DISPATCH_INTENDED",
@@ -172,6 +173,15 @@ class ExecutionTrace:
     submit_time: str | None = None
     ack_time: str | None = None
     fill_time: str | None = None
+
+
+@dataclass
+class PendingSubmission:
+    order_id: int
+    symbol: str
+    intent_id: str
+    order_ref: str = ""
+    created_at: str = field(default_factory=lambda: _now_utc_iso())
 
 
 def _trace_log(stage: str, trace: ExecutionTrace, *, extra: str = "") -> None:
@@ -704,6 +714,54 @@ def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, tota
     return row
 
 
+def _register_pending_submission(*, order_id: int, symbol: str, intent_id: str, order_ref: str = "") -> None:
+    _PENDING_SUBMISSIONS_BY_ORDER_ID[int(order_id)] = PendingSubmission(
+        order_id=int(order_id),
+        symbol=str(symbol or "").upper(),
+        intent_id=str(intent_id or ""),
+        order_ref=str(order_ref or ""),
+    )
+
+
+def _recover_order_tracking_from_pending_submission(*, order_id: int, callback_symbol: str, timestamp: str) -> tuple[TrackedOrder | None, ExecutionTrace | None]:
+    pending = _PENDING_SUBMISSIONS_BY_ORDER_ID.get(int(order_id))
+    if pending is None:
+        return None, None
+    symbol = (callback_symbol or pending.symbol or "UNKNOWN").upper()
+    trace = _EXECUTION_TRACE_BY_ORDER_ID.get(int(order_id))
+    if trace is None:
+        cycle_id = "RECOVERY"
+        existing = _EXECUTION_TRACE_BY_INTENT.get(pending.intent_id)
+        if existing is not None:
+            cycle_id = existing.cycle_id
+        trace = ExecutionTrace(symbol=symbol, cycle_id=cycle_id, intent_id=pending.intent_id or f"RECOVERED-{order_id}")
+        trace.order_submitted = True
+        trace.order_id = int(order_id)
+        trace.submit_time = pending.created_at
+        trace.lifecycle_state = "SUBMITTED"
+        _EXECUTION_TRACE_BY_ORDER_ID[int(order_id)] = trace
+        if pending.intent_id:
+            _EXECUTION_TRACE_BY_INTENT.setdefault(pending.intent_id, trace)
+    row = _upsert_order_from_submission(
+        order_id=int(order_id),
+        symbol=symbol,
+        side="BUY",
+        total_qty=0,
+        order_ref=pending.order_ref or f"PENDING_RECOVERY|{pending.intent_id or order_id}",
+    )
+    row.intent_id = pending.intent_id
+    row.last_update_at = timestamp
+    _register_order_intent_mapping(
+        order_id=int(order_id),
+        intent_id=pending.intent_id,
+        order_ref=pending.order_ref or f"PENDING_RECOVERY|{pending.intent_id or order_id}",
+    )
+    _initialize_visibility(int(order_id))
+    _PENDING_SUBMISSIONS_BY_ORDER_ID.pop(int(order_id), None)
+    print(f"[EXECUTION][CALLBACK_RECOVERED] order_id={order_id} source=pending_registry")
+    return row, trace
+
+
 def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, fill_price: float | None, exec_id: str | None, timestamp: str, source: str) -> None:
     global _UNMATCHED_CALLBACK_COUNT, _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT, _FILL_AUTHORITY_STATE
     row = _RUNTIME_ORDERS.get(order_id)
@@ -801,15 +859,21 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     tracked = _RUNTIME_ORDERS.get(int(order_id))
     trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id)
     if tracked is None and trace is None and event_type in {"openorder", "orderstatus"}:
-        print(
-            "[EXECUTION][CALLBACK_IGNORED] "
-            f"event_type={event_type} order_id={order_id} reason=untracked_external_order"
+        tracked, trace = _recover_order_tracking_from_pending_submission(
+            order_id=int(order_id),
+            callback_symbol=str(symbol or ""),
+            timestamp=timestamp,
         )
-        print(
-            "[EXECUTION][TRACE] "
-            f"stage=ACK event_type={event_type} order_id={order_id} tracked=false action=ignored"
-        )
-        return
+        if tracked is None and trace is None:
+            print(
+                "[EXECUTION][CALLBACK_IGNORED] "
+                f"event_type={event_type} order_id={order_id} reason=untracked_external_order"
+            )
+            print(
+                "[EXECUTION][TRACE] "
+                f"stage=ACK event_type={event_type} order_id={order_id} tracked=false action=ignored"
+            )
+            return
     if (not symbol) and tracked is not None and tracked.symbol:
         symbol = tracked.symbol
         print(f"[EXECUTION][CALLBACK_ENRICHED] order_id={order_id} symbol={symbol} source=order_id_mapping")
@@ -1516,6 +1580,7 @@ def _submit_ibkr_order(
     side: str,
     quantity: int,
     order_ref: str,
+    intent_id: str = "",
 ) -> int:
     global _CONTRACT_VALIDATION_FAILURES
     assert isinstance(symbol, str)
@@ -1610,6 +1675,12 @@ def _submit_ibkr_order(
     except Exception as exc:
         print(f"[IBKR][PLACE_ORDER][ERROR] symbol={symbol} order_id=PENDING error={exc}")
         raise
+    _register_pending_submission(
+        order_id=int(order_id),
+        symbol=str(symbol or "").upper(),
+        intent_id=str(intent_id or ""),
+        order_ref=str(order_ref or ""),
+    )
     print("[IBKR][ORDER_DISPATCH_VERIFICATION]")
     print(f"order_id={order_id} awaiting_acknowledgement")
     wait_for_order_status = getattr(client, "wait_for_order_status", None)
@@ -1922,9 +1993,16 @@ def execute_intents(
                         side=payload["side"],
                         quantity=payload["quantity"],
                         order_ref=payload["order_ref"],
+                        intent_id=str(decision.intent_id or ""),
                     )
                 else:
                     broker_order_id = index
+                    _register_pending_submission(
+                        order_id=int(broker_order_id),
+                        symbol=str(decision.symbol or "").upper(),
+                        intent_id=str(decision.intent_id or ""),
+                        order_ref=str(order_ref or ""),
+                    )
             except Exception as exc:
                 _mark_execution_failure(trace, "UNKNOWN", reason=str(exc))
                 events.append(
@@ -1967,6 +2045,7 @@ def execute_intents(
                 intent_id=str(decision.intent_id or ""),
                 order_ref=order_ref,
             )
+            _PENDING_SUBMISSIONS_BY_ORDER_ID.pop(int(broker_order_id), None)
         events.append(
             ExecutionEvent(
                 symbol=decision.symbol,
