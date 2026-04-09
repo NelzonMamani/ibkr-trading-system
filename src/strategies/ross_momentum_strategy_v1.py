@@ -88,6 +88,8 @@ class RossMomentumStrategyV1(BaseStrategy):
 
     def __init__(self) -> None:
         self._pattern_registry = RossPatternRegistry()
+        self._registry_check_emitted = False
+        self._expected_registry_patterns: tuple[str, ...] = tuple(sorted(self._pattern_registry.pattern_ids))
         self._decision_engine = DecisionEngine()
         self._failure_trace_collector = RossPatternFailureTraceCollector()
         self._session_allowlist_by_pattern: Dict[str, set[str]] = {
@@ -146,6 +148,24 @@ class RossMomentumStrategyV1(BaseStrategy):
         }
         self._last_cycle_summary: dict[str, int | str] | None = None
         self._shutdown_summary_emitted = False
+
+    def _emit_registry_consistency_check(self) -> None:
+        if self._registry_check_emitted:
+            return
+        self._registry_check_emitted = True
+        expected = sorted(set(self._expected_registry_patterns))
+        found = sorted(set(self._pattern_registry.pattern_ids))
+        missing = sorted(set(expected) - set(found))
+        extra = sorted(set(found) - set(expected))
+        print(
+            "[ROSS][REGISTRY_CHECK] "
+            f"expected={expected} found={found} missing={missing} extra={extra}"
+        )
+        if missing or extra:
+            print(
+                "[ROSS][WARN][REGISTRY_MISMATCH] "
+                f"missing={missing} extra={extra}"
+            )
 
     @staticmethod
     def _ross_failure_layers() -> tuple[str, ...]:
@@ -491,6 +511,7 @@ class RossMomentumStrategyV1(BaseStrategy):
     ) -> List[TradeIntent]:
         print(f"[ROSS][PROCESS_START] symbols={len(watchlist)}")
         symbols = list(watchlist)
+        self._emit_registry_consistency_check()
         print(f"[ROSS][EVALUATE_START] symbols_received={len(symbols)}")
         if not symbols:
             print("[ROSS][ERROR] EMPTY_SYMBOL_LIST")
@@ -989,8 +1010,17 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol_trace.detected_pattern_ids = [
                 trace.pattern_id for trace in pattern_traces if trace.detected and not self._is_inactive_pattern(trace.pattern_id)
             ]
+            rejected_pattern_ids = [
+                trace.pattern_id
+                for trace in pattern_traces
+                if not bool(getattr(trace, "detected", False))
+            ]
             print(
                 f"[ROSS][PATTERN_RESULTS] symbol={symbol} attempted={attempted_count} detected={len(symbol_trace.detected_pattern_ids)}"
+            )
+            print(
+                "[ROSS][PATTERN_RESULTS] "
+                f"symbol={symbol} detected={symbol_trace.detected_pattern_ids} rejected={rejected_pattern_ids}"
             )
             detected_competing = [
                 {
@@ -1093,6 +1123,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                 detected_patterns = bool(symbol_trace.detected_pattern_ids)
                 if detected_patterns:
                     decision_reason = decision.get("decision_reason") or "decision_not_candidate_selected"
+                    self._log_detected_but_dropped(
+                        symbol=symbol,
+                        symbol_trace=symbol_trace,
+                        reason=f"decision_rejected:{decision_reason}",
+                    )
                     print(f"[ROSS][DECISION] symbol={symbol} verdict=REJECT reason={decision_reason}")
                     symbol_trace.final_outcome = "SETUP_FOUND_DECISION_REJECTED"
                     symbol_trace.setup_stage = {"status": "PASS", "reason_code": "SETUP_DETECTED"}
@@ -1139,7 +1174,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 print(
                     "[ROSS][NO_SETUP_SUMMARY] "
                     f"symbol={symbol} detected_patterns={len(symbol_trace.detected_pattern_ids)} "
-                    f"rejections={[trace.rejection_reason for trace in pattern_traces if trace.rejection_reason]}"
+                    f"reasons={self._top_rejection_reasons(pattern_traces)}"
                 )
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
@@ -1187,6 +1222,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                     primary_reason="confirmation_blocked",
                     details=blocking_reasons or ["unspecified_blocker"],
                 )
+                self._log_detected_but_dropped(
+                    symbol=symbol,
+                    symbol_trace=symbol_trace,
+                    reason=f"confirmation_blocked:{','.join(blocking_reasons or ['unspecified_blocker'])}",
+                )
                 self._log_decision_blocked(
                     symbol=symbol,
                     final_stage="confirmation",
@@ -1220,6 +1260,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                 _actionability(symbol, "BLOCKED_STRUCTURE", "TRIGGER_NOT_READY")
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_decision_blocked(symbol=symbol, final_stage="trigger", reason="no_trigger_candidate")
+                self._log_detected_but_dropped(
+                    symbol=symbol,
+                    symbol_trace=symbol_trace,
+                    reason="no_trigger_candidate",
+                )
                 self._log_pipeline_no_decision(symbol)
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
@@ -1249,6 +1294,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._log_decision_blocked(
                     symbol=symbol,
                     final_stage="trigger",
+                    reason=str(selected_trigger.get("trigger_reason") or "trigger_not_ready"),
+                )
+                self._log_detected_but_dropped(
+                    symbol=symbol,
+                    symbol_trace=symbol_trace,
                     reason=str(selected_trigger.get("trigger_reason") or "trigger_not_ready"),
                 )
                 self._log_pipeline_no_decision(symbol)
@@ -1283,6 +1333,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                     final_stage="trigger",
                     reason="invalid_trade_structure",
                 )
+                self._log_detected_but_dropped(
+                    symbol=symbol,
+                    symbol_trace=symbol_trace,
+                    reason="invalid_trade_structure",
+                )
                 self._log_pipeline_no_decision(symbol)
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
@@ -1311,6 +1366,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._log_decision_blocked(
                     symbol=symbol,
                     final_stage="tradeable_entry",
+                    reason=reasons or "tradeable_entry_block",
+                )
+                self._log_detected_but_dropped(
+                    symbol=symbol,
+                    symbol_trace=symbol_trace,
                     reason=reasons or "tradeable_entry_block",
                 )
                 self._log_pipeline_no_decision(symbol)
@@ -1397,6 +1457,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                     final_stage="trade_permission",
                     reason=permission_reason,
                 )
+                self._log_detected_but_dropped(
+                    symbol=symbol,
+                    symbol_trace=symbol_trace,
+                    reason=permission_reason,
+                )
                 self._log_pipeline_no_decision(symbol)
                 symbol_traces.append(symbol_trace)
                 self._failure_trace_collector.record_symbol(symbol_trace)
@@ -1435,6 +1500,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "quality_score": quality_score,
                     "setup_family_id": setup_family,
                     "tradeable": tradeable_eval,
+                    "symbol_trace": symbol_trace,
                 }
             )
             print(f"[TRADE_SELECTION] symbol={symbol} selected=False reason=awaiting_ranked_cycle_selection")
@@ -1523,6 +1589,13 @@ class RossMomentumStrategyV1(BaseStrategy):
             print(f"[TRADE_SELECTION] symbol={symbol} selected={str(selected)} reason={reason}")
             if not selected:
                 print(f"[EXECUTION][SKIPPED_LOWER_RANK] symbol={symbol} rank={rank}")
+                candidate_trace = candidate.get("symbol_trace")
+                if isinstance(candidate_trace, RossSymbolTrace):
+                    self._log_detected_but_dropped(
+                        symbol=symbol,
+                        symbol_trace=candidate_trace,
+                        reason=f"cycle_capacity_rank_drop:rank={rank}",
+                    )
                 continue
             intent = candidate["intent"]
             tradeable = candidate.get("tradeable") or {}
@@ -1553,9 +1626,22 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol_traces=symbol_traces,
             real_setup_trigger_count=len(translated_intents),
             synthetic_forced_intents=synthetic_forced_intents,
+            expected_pattern_ids=self._pattern_registry.pattern_ids,
         )
         if cycle_summary.evaluated_count > 0 and cycle_summary.real_setup_trigger_count == 0:
             print(f"[PATTERN_FAILURE_TRACE][SUMMARY] {cycle_summary.to_dict()}")
+            print(
+                "[ROSS][ROOT_CAUSE_SUMMARY] "
+                f"total_symbols_evaluated={cycle_summary.evaluated_count} "
+                f"total_pattern_calls={cycle_summary.pattern_invocations_total} "
+                f"total_detected={cycle_summary.patterns_detected_total} "
+                f"total_skipped={sum(cycle_summary.dominant_skip_reasons.values())} "
+                f"dominant_skip_reasons={cycle_summary.dominant_skip_reasons} "
+                f"dominant_rejection_reasons={cycle_summary.dominant_rejection_reasons} "
+                f"symbols_missing_inputs={cycle_summary.symbols_with_missing_inputs} "
+                f"symbols_with_detected_but_dropped={cycle_summary.symbols_with_detected_but_discarded} "
+                f"patterns_never_invoked={cycle_summary.patterns_never_invoked}"
+            )
         evidence_path = self._failure_trace_collector.persist_latest(
             run_mode=mode.value,
             session_label=session_label,
@@ -2139,6 +2225,32 @@ class RossMomentumStrategyV1(BaseStrategy):
             f"symbol={symbol} reason=no_valid_pattern_or_trigger"
         )
 
+    @staticmethod
+    def _top_rejection_reasons(pattern_traces: list | None, limit: int = 3) -> list[str]:
+        counts: dict[str, int] = {}
+        for trace in list(pattern_traces or []):
+            reason = str(getattr(trace, "rejection_reason", "") or "").strip()
+            if not reason:
+                continue
+            counts[reason] = counts.get(reason, 0) + 1
+        ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        return [reason for reason, _count in ranked[:limit]]
+
+    def _log_detected_but_dropped(self, *, symbol: str, symbol_trace: RossSymbolTrace, reason: str) -> None:
+        detected_patterns = list(symbol_trace.detected_pattern_ids or [])
+        if not detected_patterns:
+            return
+        for pattern_id in detected_patterns:
+            print(f"[ROSS][PATTERN_DROP] symbol={symbol} pattern={pattern_id} reason={reason}")
+            print(f"[ROSS][CRITICAL_DROP] symbol={symbol} pattern={pattern_id} reason={reason}")
+            for trace in list(symbol_trace.pattern_traces or []):
+                if str(getattr(trace, "pattern_id", "")) == str(pattern_id):
+                    trace.post_detect_disposition = f"dropped:{reason}"
+                    trace.final_outcome = "DETECTED_BUT_DROPPED"
+        symbol_trace.dropped_detected_pattern_ids = sorted(
+            set(list(symbol_trace.dropped_detected_pattern_ids or []) + detected_patterns)
+        )
+
     def _filter_trusted_setups(self, setups: list[dict] | None, *, symbol: str) -> list[dict]:
         trusted = {self._normalize_setup_family_id(item) for item in self._trusted_setup_families}
         filtered: list[dict] = []
@@ -2411,7 +2523,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol_source=symbol_source,
             pattern_id=f"S_{str(setup.get('setup_family_id') or 'UNKNOWN').upper()}",
             pattern_name=str(setup.get("setup_name") or setup.get("pattern_name") or setup.get("setup_family_id") or "UNKNOWN"),
-            setup_family_id=str(setup.get("setup_family_id") or "UNKNOWN"),
+            setup_family=str(setup.get("setup_family_id") or "UNKNOWN"),
             invoked=True,
             detected=True,
             input_summary=input_summary,

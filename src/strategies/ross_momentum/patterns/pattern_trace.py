@@ -185,7 +185,7 @@ class RossPatternTrace:
     symbol_source: str | None
     pattern_id: str
     pattern_name: str
-    setup_family_id: str | None
+    setup_family: str | None
     invoked: bool = False
     skipped: bool = False
     skip_reason: str | None = None
@@ -199,6 +199,18 @@ class RossPatternTrace:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    def to_json(self) -> str:
+        return json.dumps(_serialize(self.to_dict()), sort_keys=True)
+
+    @property
+    def setup_family_id(self) -> str | None:
+        """Backward-compatible alias for older call sites."""
+        return self.setup_family
+
+    @setup_family_id.setter
+    def setup_family_id(self, value: str | None) -> None:
+        self.setup_family = value
 
 
 @dataclass
@@ -251,6 +263,7 @@ class RossCycleTrace:
     symbols_with_missing_inputs: list[str]
     symbols_with_detected_but_discarded: list[str]
     symbols_with_zero_pattern_invocations: list[str]
+    patterns_never_invoked: list[str]
     symbols_failing_before_registry: list[str]
     symbols_failing_after_registry: list[str]
 
@@ -281,6 +294,7 @@ class RossPatternFailureTraceCollector:
         symbol_traces: Iterable[RossSymbolTrace],
         real_setup_trigger_count: int,
         synthetic_forced_intents: int,
+        expected_pattern_ids: Iterable[str] | None = None,
     ) -> RossCycleTrace:
         traces = list(symbol_traces)
         skip_counter = Counter()
@@ -294,6 +308,7 @@ class RossPatternFailureTraceCollector:
         after_registry = []
         invocations = 0
         detected_total = 0
+        invoked_pattern_ids: set[str] = set()
         for trace in traces:
             if trace.pre_registry_failure_reason:
                 before_registry.append(trace.symbol)
@@ -307,6 +322,8 @@ class RossPatternFailureTraceCollector:
             for pattern_trace in trace.pattern_traces:
                 invocations += int(pattern_trace.invoked)
                 detected_total += int(pattern_trace.detected)
+                if pattern_trace.invoked:
+                    invoked_pattern_ids.add(str(pattern_trace.pattern_id))
                 if pattern_trace.skip_reason:
                     skip_counter[pattern_trace.skip_reason] += 1
                     if pattern_trace.skip_reason == "inactive_placeholder":
@@ -333,6 +350,9 @@ class RossPatternFailureTraceCollector:
             symbols_with_missing_inputs=sorted(set(missing_inputs)),
             symbols_with_detected_but_discarded=sorted(set(detected_but_discarded)),
             symbols_with_zero_pattern_invocations=sorted(set(zero_invocations)),
+            patterns_never_invoked=sorted(
+                set(str(item) for item in (expected_pattern_ids or [])) - invoked_pattern_ids
+            ),
             symbols_failing_before_registry=sorted(set(before_registry)),
             symbols_failing_after_registry=sorted(set(after_registry)),
         )

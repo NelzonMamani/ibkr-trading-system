@@ -104,10 +104,14 @@ class RossPatternRegistry:
                 symbol_source=(trace_context or {}).get("symbol_source"),
                 pattern_id=pattern_id,
                 pattern_name=pattern.name,
-                setup_family_id=pattern_id,
+                setup_family=pattern_id,
                 invoked=True,
                 input_summary=input_summary,
                 input_quality_flags=list(inputs.data_quality_flags),
+            )
+            print(
+                "[PATTERN_TRACE][START] "
+                f"symbol={inputs.symbol} pattern_id={pattern_id} pattern={pattern.name}"
             )
             print(
                 "[PATTERN_TRACE][CALL] "
