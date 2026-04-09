@@ -114,7 +114,66 @@ def test_runtime_pre_session_triggers_preparation(monkeypatch):
         set_config_overrides(None)
 
 
-def test_runtime_pipeline_emits_required_trace_stages(monkeypatch):
+def test_runtime_pipeline_emits_required_trace_stages(monkeypatch, capsys):
+    set_config_overrides(
+        {
+            "RUN_MODE": "SIM",
+            "EXECUTION_ENABLED": False,
+            "ROSS_MOMENTUM_STRATEGY_ENABLED": True,
+            "SELECTED_STRATEGY": "ross_momentum",
+            "SESSION_PHASE_OVERRIDE": "PREMARKET",
+            "WATCHLIST_MAX_SYMBOLS_PER_STRATEGY": 15,
+            "FOCUS_MAX_SYMBOLS_PER_STRATEGY": 5,
+        }
+    )
+    stages: list[str] = []
+
+    def _scanner_cycle(**kwargs):
+        c1 = _candidate("AAPL", 10.0)
+        c2 = _candidate("MSFT", 9.0)
+        return {
+            "candidate_metrics": [c1, c2],
+            "universe_top_n": [{"symbol": "AAPL"}, {"symbol": "MSFT"}],
+            "candidates": [],
+        }
+
+    def _trace_event(stage, payload, **kwargs):
+        stages.append(stage)
+        return {"stage": stage, "payload": payload}
+
+    monkeypatch.setattr("src.core.orchestrator.run_scanner_cycle", _scanner_cycle)
+    monkeypatch.setattr("src.core.orchestrator.resolve_watchlist_selector", lambda *_: (lambda observations, _policy: observations))
+    monkeypatch.setattr("src.core.orchestrator.resolve_policy_v2", lambda *_: None)
+
+    try:
+        orchestrator = CoreOrchestrator()
+        orchestrator.trace_bus.trace_event = _trace_event  # type: ignore[assignment]
+        orchestrator.market_data_snapshot_manager = SimpleNamespace(
+            batch_snapshots=lambda symbols: ({}, [])
+        )
+        orchestrator.strategy_runner.receive_watchlist_snapshot = lambda **kwargs: None
+        orchestrator.strategy_runner.process = lambda **kwargs: []
+
+        assert orchestrator.run_once() is True
+        output = capsys.readouterr().out
+        for required in [
+            "WATCHLIST_CREATED",
+            "FOCUS_LIST_CREATED",
+            "NO_SETUP",
+            "ORDER_SIMULATED",
+            "PATTERN_EVAL",
+        ]:
+            assert required in stages
+
+        assert "[PIPELINE][STRATEGY_OUTPUT]" in output
+        assert "[TRADE_PATH][FINAL]" in output
+        assert "[ROSS][EVALUATE][START] symbol=AAPL" in output
+        assert "[TRADE_PATH][PATTERN] symbol=AAPL verdict=NO_PATTERN_DETECTED" in output
+    finally:
+        set_config_overrides(None)
+
+
+def test_runtime_pipeline_accepts_setup_detected_as_valid_outcome(monkeypatch, capsys):
     set_config_overrides(
         {
             "RUN_MODE": "SIM",
@@ -163,6 +222,7 @@ def test_runtime_pipeline_emits_required_trace_stages(monkeypatch):
         ]
 
         assert orchestrator.run_once() is True
+        output = capsys.readouterr().out
         for required in [
             "WATCHLIST_CREATED",
             "FOCUS_LIST_CREATED",
@@ -175,6 +235,10 @@ def test_runtime_pipeline_emits_required_trace_stages(monkeypatch):
             "SESSION_BLOCK",
         ]:
             assert required in stages
+
+        assert "[PIPELINE][STRATEGY_OUTPUT]" in output
+        assert "[TRADE_PATH][FINAL]" in output
+        assert "[ROSS][EVALUATE][START] symbol=AAPL" in output
     finally:
         set_config_overrides(None)
 
