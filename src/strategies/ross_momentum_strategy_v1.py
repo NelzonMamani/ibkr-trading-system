@@ -508,8 +508,16 @@ class RossMomentumStrategyV1(BaseStrategy):
         session_phase: str,
     ) -> List[TradeIntent]:
         print(f"[ROSS][PROCESS_START] symbols={len(watchlist)}")
+        print(
+            "[ROSS][INPUT_AUTHORITY] "
+            f"cycle_id={timestamp_utc} source=strategy_runner watchlist_symbols={len(watchlist)}"
+        )
         if not watchlist:
             print("[ROSS][CRITICAL] EMPTY_WATCHLIST_NO_TRADING_POSSIBLE")
+            print(
+                "[ROSS][NO_SYMBOLS_REASON] "
+                f"cycle_id={timestamp_utc} reason=authoritative_watchlist_empty"
+            )
         symbols = list(watchlist)
         print(f"[ROSS][EVALUATE_START] symbols_received={len(symbols)}")
         if not symbols:

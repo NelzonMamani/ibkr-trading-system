@@ -1107,6 +1107,24 @@ class CoreOrchestrator:
                 symbols.append(symbol)
         return symbols
 
+    @staticmethod
+    def _normalize_symbols(symbols: List[str]) -> List[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for symbol in symbols or []:
+            symbol_upper = str(symbol or "").strip().upper()
+            if not symbol_upper or symbol_upper in seen:
+                continue
+            normalized.append(symbol_upper)
+            seen.add(symbol_upper)
+        return normalized
+
+    @staticmethod
+    def _emit_symbol_authority(stage: str, **payload: object) -> None:
+        parts = [f"{key}={value}" for key, value in payload.items()]
+        suffix = " ".join(parts)
+        print(f"[SYMBOL_AUTHORITY][{stage}] {suffix}".rstrip())
+
     def _resolve_tha_decisions(
         self,
         *,
@@ -2402,6 +2420,13 @@ class CoreOrchestrator:
                 f"requested={len(final_evaluation_symbols)} recovered={len(strategy_watchlist)}"
             )
         strategy_evaluation_symbols = self._symbols_from_candidates(strategy_watchlist)
+        authority_cycle_symbols = self._normalize_symbols(strategy_evaluation_symbols)
+        self._emit_symbol_authority(
+            "SOURCE",
+            cycle_id=cycle_started_at.isoformat(),
+            source="strategy_watchlist_pre_tha",
+            count=len(authority_cycle_symbols),
+        )
         print(
             "[PIPELINE][HANDOFF] "
             f"watchlist={len(watchlist_symbols)} "
@@ -2476,36 +2501,62 @@ class CoreOrchestrator:
             strategy_inputs=strategy_inputs,
             now_utc=cycle_started_at,
         )
+        entry_blocked_symbols: set[str] = set()
         if tha_decisions:
-            allowed_by_tha = {
-                symbol for symbol, decision in tha_decisions.items()
-                if bool(getattr(decision, "allow_entries", False))
+            blocked_by_tha = {
+                symbol
+                for symbol, decision in tha_decisions.items()
+                if not bool(getattr(decision, "allow_entries", False))
             }
-            strategy_inputs = [
-                candidate
-                for candidate in strategy_inputs
-                if str(getattr(candidate, "symbol", "") or "").upper() in allowed_by_tha
-            ]
+            entry_blocked_symbols = {str(symbol).upper() for symbol in blocked_by_tha}
+            self._emit_symbol_authority(
+                "MERGE",
+                cycle_id=cycle_started_at.isoformat(),
+                source="tha_gate",
+                authoritative_count=len(authority_cycle_symbols),
+                blocked_entries=len(entry_blocked_symbols),
+                preserved_authority=True,
+            )
+            print(
+                "[THA][ENTRY_POLICY] "
+                f"cycle_id={cycle_started_at.isoformat()} blocked_entries={len(entry_blocked_symbols)} "
+                f"authoritative_symbols={len(authority_cycle_symbols)}"
+            )
+            if entry_blocked_symbols:
+                print(
+                    "[THA][SYMBOL_EFFECT] "
+                    f"cycle_id={cycle_started_at.isoformat()} action=block_entries_only symbols={sorted(entry_blocked_symbols)}"
+                )
 
             if self.execution_enabled:
                 for symbol, tha_decision in tha_decisions.items():
                     if bool(getattr(tha_decision, "force_flat", False)):
+                        print(
+                            "[THA][FLAT_POLICY] "
+                            f"cycle_id={cycle_started_at.isoformat()} symbol={symbol} force_flat=True"
+                        )
                         self.execution_engine.force_flatten_symbol(
                             symbol,
                             reason="THA_OUTSIDE_WINDOW",
                         )
             else:
                 print("[PIPELINE][THA_POLICY] execution_disabled=True flatten_skipped=True")
+        self._emit_symbol_authority(
+            "FINAL",
+            cycle_id=cycle_started_at.isoformat(),
+            authoritative_count=len(authority_cycle_symbols),
+            process_count=len(self._normalize_symbols(self._symbols_from_candidates(strategy_inputs))),
+        )
         session_execution_allowed = session_label in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
         if mock_scanner_mode and not session_execution_allowed:
             session_execution_allowed = True
             print("[SESSION][MOCK_OVERRIDE] execution_allowed=True")
         if not session_execution_allowed and watchlist_symbols:
             print("[VALIDATION_OVERRIDE] Forcing strategy execution despite session restrictions")
-        for symbol in self._symbols_from_candidates(strategy_watchlist):
+        for symbol in authority_cycle_symbols:
             print(f"[STRATEGY] runner=ross_momentum symbol={symbol} stage=evaluate")
             print(f"[ROSS][SYMBOL_EVAL][START] symbol={symbol} source=orchestrator_handoff")
-        if strategy_watchlist:
+        if strategy_inputs:
             print("[STRATEGY][EXECUTION] invoking StrategyRunner")
             print("[STRATEGY][FORCED_EXECUTION] invoking StrategyRunner regardless of session")
             print("[ROSS][PROCESS_START]")
@@ -2513,6 +2564,12 @@ class CoreOrchestrator:
             print("[ROSS][TRIGGER_PIPELINE] ACTIVE")
             pipeline_trace("STRUCTURE")
             print("[STRATEGY_RUNNER] invoking RossMomentumStrategyV1")
+            print(
+                "[ROSS][INPUT_AUTHORITY] "
+                f"cycle_id={cycle_started_at.isoformat()} authoritative_symbols={len(authority_cycle_symbols)} "
+                f"process_symbols={len(self._normalize_symbols(self._symbols_from_candidates(strategy_inputs)))} "
+                f"tha_entry_blocked={len(entry_blocked_symbols)}"
+            )
             strategy_output = self.strategy_runner.process(
                 strategy_key=strategy_key,
                 watchlist=strategy_inputs,
@@ -2521,11 +2578,15 @@ class CoreOrchestrator:
                 timestamp_utc=cycle_started_at.isoformat(),
                 mode=self.run_mode,
                 session_phase=session_phase,
-                execution_allowed=True if strategy_watchlist else session_execution_allowed,
-                execution_ready=True if strategy_watchlist else session_execution_allowed,
-                prep_only=False if strategy_watchlist else session_label in {"AH", "CLOSED"},
+                execution_allowed=True if strategy_inputs else session_execution_allowed,
+                execution_ready=True if strategy_inputs else session_execution_allowed,
+                prep_only=False if strategy_inputs else session_label in {"AH", "CLOSED"},
             )
         else:
+            print(
+                "[ROSS][NO_SYMBOLS_REASON] "
+                f"cycle_id={cycle_started_at.isoformat()} reason=dropped_by_authority_replacement"
+            )
             print("[PIPELINE][SKIP] empty watchlist")
             strategy_output = []
         print(f"[PIPELINE][STRATEGY_OUTPUT] count={len(strategy_output or [])}")
@@ -2533,6 +2594,23 @@ class CoreOrchestrator:
             "[PIPELINE][INTENTS] "
             f"count={len(strategy_output or [])} symbols={[getattr(intent, 'symbol', None) for intent in (strategy_output or [])]}"
         )
+        if entry_blocked_symbols and strategy_output:
+            before_count = len(strategy_output)
+            allowed_intents: list[TradeIntent] = []
+            for intent in strategy_output:
+                intent_symbol = str(getattr(intent, "symbol", "") or "").upper()
+                if intent_symbol in entry_blocked_symbols:
+                    print(
+                        "[SYMBOL_AUTHORITY][DROP] "
+                        f"cycle_id={cycle_started_at.isoformat()} symbol={intent_symbol} reason=dropped_by_tha_policy"
+                    )
+                    continue
+                allowed_intents.append(intent)
+            strategy_output = allowed_intents
+            print(
+                "[THA][ENTRY_POLICY] "
+                f"cycle_id={cycle_started_at.isoformat()} intent_filter_before={before_count} intent_filter_after={len(strategy_output)}"
+            )
         for symbol, tha_decision in tha_decisions.items():
             symbol_upper = str(symbol).upper()
             trigger_ready = any(
