@@ -22,6 +22,21 @@ def _allow_decision() -> RiskDecisionRecord:
     )
 
 
+def _allow_decision_without_price() -> RiskDecisionRecord:
+    return RiskDecisionRecord(
+        symbol="MCRO",
+        intent_id="MCRO-2",
+        decision="ALLOW",
+        max_position_size=1,
+        constraints=[],
+        triggered_rules=[],
+        rationale="ok",
+        approved_quantity=1,
+        entry_price=None,
+        capital_source="IBKR_CANONICAL",
+    )
+
+
 def test_test_environment_skips_ibkr_validation(monkeypatch, capsys) -> None:
     monkeypatch.setenv("EXECUTION_ENV", "TEST")
 
@@ -159,6 +174,45 @@ def test_submit_order_ack_enforced_in_strict_mode(monkeypatch) -> None:
             entry_price_source="IBKR_SNAPSHOT",
         )
     assert len(submitted_orders) == 0
+
+
+def test_executability_summary_counts_blocked_no_ibkr_price_authority(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
+    monkeypatch.setattr(order_router, "_validate_ibkr_connection", lambda mode: None)
+    monkeypatch.setattr(order_router, "_fetch_ibkr_truth", lambda mode: ([], [], []))
+    monkeypatch.setattr(order_router, "_ensure_submission_allowed", lambda _mode, symbol: True)
+
+    class _Client:
+        def register_execution_callback(self, _cb):
+            return None
+
+    class _Manager:
+        def get_client(self):
+            return _Client()
+
+    monkeypatch.setattr(order_router, "get_shared_ibkr_connection_manager", lambda readonly_enabled=False: _Manager())
+    monkeypatch.setattr(order_router, "_submit_ibkr_order", lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("NO_IBKR_PRICE_AUTHORITY")))
+
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_allow_decision()])
+    out = capsys.readouterr().out
+
+    assert events[0].action == "BLOCKED"
+    assert "blocked_no_ibkr_price_authority=1" in out
+
+
+def test_executability_summary_counts_blocked_price_unavailable(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        order_router,
+        "resolve_entry_price",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(order_router.PriceResolutionError("MCRO", "NO_IBKR_PRICE_AVAILABLE")),
+    )
+
+    events = order_router.execute_intents(mode=RunMode.READ_ONLY, decisions=[_allow_decision_without_price()])
+    out = capsys.readouterr().out
+
+    assert events[0].action == "DEFERRED"
+    assert "blocked_price_unavailable=1" in out
 
 
 @pytest.mark.parametrize("mode", [RunMode.PAPER, RunMode.LIVE])
