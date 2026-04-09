@@ -6,6 +6,7 @@ import hashlib
 import os
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from src.brokers.base_broker import BrokerOrderRequest
@@ -198,6 +199,45 @@ class ExecutionEngine:
             self.pending_book.remove(order.client_order_id)
             results.append(self._route_order(order))
         return results
+
+    def execute(self, intents: list[object]) -> list[ExecutionResult]:
+        results: list[ExecutionResult] = []
+        for intent in intents or []:
+            normalized = self._risk_decision_from_intent(intent)
+            if normalized is None:
+                continue
+            results.append(self.execute_trade(normalized))
+        return results
+
+    def _risk_decision_from_intent(self, intent: object) -> Optional[RiskDecision]:
+        action = str(getattr(intent, "action", "") or "").upper()
+        if action not in {"EXIT", "ADD"}:
+            return None
+        symbol = str(getattr(intent, "symbol", "") or "").upper()
+        quantity = int(getattr(intent, "quantity", 0) or 0)
+        if not symbol or quantity <= 0:
+            return None
+        side = "SELL" if action == "EXIT" else "BUY"
+        reason = str(getattr(intent, "reason", "") or "TRADE_MANAGEMENT")
+        decision_id = f"mgmt-{action.lower()}-{symbol}-{uuid.uuid4().hex[:8]}"
+        tick = self.current_tick if self.current_tick is not None else 0
+        price = float(self.price_feed.price_for(symbol, tick))
+        stop_loss_price = price - 0.01 if side == "BUY" else price + 0.01
+        return RiskDecision(
+            symbol=symbol,
+            allowed=True,
+            max_position_size=quantity,
+            risk_level="LOW",
+            rationale=f"TRADE_MANAGEMENT:{reason}",
+            trader_type="MANUAL",
+            strategy_name="TRADE_MANAGEMENT",
+            direction=side,
+            stop_loss_price=stop_loss_price,
+            take_profit_price=None,
+            reason_code=f"TRADE_MANAGEMENT_{action}",
+            decision_id=decision_id,
+            intent_id=f"{decision_id}:{datetime.now(timezone.utc).isoformat()}",
+        )
 
     def execute_trade(self, risk_decision: Optional[RiskDecision]) -> ExecutionResult:
         """
@@ -413,7 +453,13 @@ class ExecutionEngine:
             risk_decision.symbol,
             getattr(risk_decision, "trader_type", "MANUAL"),
         )
-        if duplicate is not None and str(getattr(risk_decision, "direction", "")).upper() in {"LONG", "BUY"}:
+        direction = str(getattr(risk_decision, "direction", "")).upper()
+        reason_code = str(getattr(risk_decision, "reason_code", "") or "").upper()
+        if (
+            duplicate is not None
+            and direction in {"LONG", "BUY"}
+            and reason_code != "TRADE_MANAGEMENT_ADD"
+        ):
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="DUPLICATE_POSITION_CONFLICT",
@@ -633,7 +679,8 @@ class ExecutionEngine:
                 rationale="invalid_order_fields",
             )
         stop_loss_price = getattr(request, "stop_loss_price", None)
-        if self.run_mode in {RunMode.PAPER, RunMode.LIVE} and stop_loss_price is None:
+        side_upper = str(side).upper()
+        if self.run_mode in {RunMode.PAPER, RunMode.LIVE} and side_upper in {"LONG", "BUY"} and stop_loss_price is None:
             print(
                 "[EXECUTION][BLOCK] "
                 f"symbol={request.symbol} trader_type={request.trader_type} reason=missing_stop_loss_price"
