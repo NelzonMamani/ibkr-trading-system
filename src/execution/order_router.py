@@ -660,6 +660,11 @@ def _apply_position_fill(symbol: str, *, signed_delta_qty: int, fill_price: floa
     else:
         row.state = "POSITION_OPEN"
     print(f"[LIFECYCLE][POSITION] symbol={symbol} qty={row.qty} pending_entry={row.pending_entry_qty} pending_exit={row.pending_exit_qty} state={row.state}")
+    print(
+        "[EXECUTION][POSITION] "
+        f"symbol={symbol} qty={row.qty} pending_entry={row.pending_entry_qty} "
+        f"pending_exit={row.pending_exit_qty} state={row.state}"
+    )
     if row.qty > 0 and row.avg_price is not None:
         print(f"[POSITION][OPEN] symbol={symbol} qty={row.qty} avg_price={row.avg_price}")
 
@@ -706,6 +711,10 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
         _UNMATCHED_CALLBACK_COUNT += 1
         print(f"[ORDER_EVENT][UNMATCHED] event=EXECUTION order_id={order_id} symbol={symbol} source={source}")
         print(f"[EXECUTION][RECONCILIATION_FAILED] event=EXECUTION order_id={order_id} order_ref=UNKNOWN source={source}")
+        print(
+            "[EXECUTION][TRUTH_GAP] "
+            f"stage=FILL event=EXECUTION order_id={order_id} symbol={symbol or 'UNKNOWN'} source={source}"
+        )
         _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
         _FILL_AUTHORITY_STATE = "DEGRADED"
         return
@@ -733,6 +742,11 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
     row.callback_pending = False
     row.callback_pending_since = None
     print(f"[EXECUTION][ORDER_MATCH] order_id={order_id} symbol={row.symbol} source={source}")
+    print(
+        "[EXECUTION][FILL] "
+        f"order_id={order_id} symbol={row.symbol} authority=execDetails fill_qty={inc} "
+        f"remaining_qty={row.remaining_qty} exec_id={exec_id or 'NA'}"
+    )
     print(f"[PRICE_AUTHORITY][SOURCE=IBKR_EXECUTION] order_id={order_id} symbol={row.symbol} price={fill_price}")
     if row.remaining_qty == 0:
         print(f"[EXECUTION][FILL] order_id={order_id} symbol={row.symbol} fill_qty={inc} total_filled={row.filled_qty} exec_id={exec_id or 'NA'}")
@@ -775,6 +789,10 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             "[EXECUTION][RECONCILIATION_FAILED] "
             f"event=CALLBACK callback={event_type or 'unknown'} order_ref={callback_order_ref or 'UNKNOWN'}"
         )
+        print(
+            "[EXECUTION][TRUTH_GAP] "
+            f"stage=ACK callback={event_type or 'unknown'} reason=missing_order_id order_ref={callback_order_ref or 'UNKNOWN'}"
+        )
         _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
         _FILL_AUTHORITY_STATE = "DEGRADED"
         if event_type in {"execdetails", "orderstatus", "openorder"}:
@@ -786,6 +804,10 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         print(
             "[EXECUTION][CALLBACK_IGNORED] "
             f"event_type={event_type} order_id={order_id} reason=untracked_external_order"
+        )
+        print(
+            "[EXECUTION][TRACE] "
+            f"stage=ACK event_type={event_type} order_id={order_id} tracked=false action=ignored"
         )
         return
     if (not symbol) and tracked is not None and tracked.symbol:
@@ -815,10 +837,8 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         remaining_int = 0
     if event_type == "execdetails":
         fill_event_type = "ORDER_FILLED"
-    elif event_type == "orderstatus" and filled_qty > 0 and remaining_int > 0:
-        fill_event_type = "ORDER_PARTIALLY_FILLED"
     else:
-        fill_event_type = "ORDER_FILLED" if filled_qty > 0 else "ORDER_WORKING"
+        fill_event_type = "ORDER_WORKING"
     broker_status = "Filled" if fill_event_type == "ORDER_FILLED" else (
         "Submitted" if event_status in {"SUBMITTED", "PRESUBMITTED"} else (event_status or "Submitted")
     )
@@ -840,6 +860,10 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     if event_type == "execdetails":
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"execDetails_seen": True})
         exec_id = _extract_callback_field(callback_payload, "execId")
+        print(
+            "[EXECUTION][TRACE] "
+            f"stage=FILL event_type=execDetails order_id={order_id} authority=execDetails exec_id={exec_id or 'NA'}"
+        )
         _apply_fill_to_tracked_order(
             order_id=order_id,
             symbol=symbol,
@@ -885,8 +909,14 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         else:
             old_state = row.canonical_state
             row.broker_status = event_status or row.broker_status
-            row.filled_qty = max(row.filled_qty, filled_qty)
-            row.remaining_qty = remaining_int if remaining_int >= 0 else row.remaining_qty
+            if filled_qty > row.filled_qty:
+                print(
+                    "[EXECUTION][TRUTH_GAP] "
+                    f"stage=FILL callback=orderStatus order_id={order_id} observed_filled={filled_qty} "
+                    "action=ignored_non_authoritative_fill_signal"
+                )
+            if remaining_int > 0:
+                row.remaining_qty = remaining_int
             row.canonical_state = _state_from_broker_status(row.broker_status, row.filled_qty, row.remaining_qty)
             row.last_update_at = timestamp
             row.ack_seen = True
@@ -895,8 +925,11 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             if str(row.broker_status or "").upper() == "PRESUBMITTED":
                 row.queued_for_rth_seen = bool(row.queued_for_rth_seen)
             if str(row.broker_status or "").upper() in {"INACTIVE", "REJECTED"}:
-                row.inactive_seen = True
-                row.reject_seen = bool(row.reject_seen or row.normalized_reject_reason)
+                if row.normalized_reject_reason in {"OUTSIDE_RTH_IGNORED_WARNING", "QUEUED_UNTIL_RTH_WARNING"}:
+                    row.queued_for_rth_seen = True
+                else:
+                    row.inactive_seen = True
+                    row.reject_seen = bool(row.reject_seen or row.normalized_reject_reason)
             if str(row.broker_status or "").upper() in {"CANCELLED", "CANCELED", "API_CANCELLED"}:
                 row.cancelled_seen = True
             if str(row.broker_status or "").upper() == "EXPIRED":
@@ -916,6 +949,10 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 print(
                     f"[EXECUTION][ACK_CONFIRMED] symbol={row.symbol} order_id={order_id} "
                     f"status={row.broker_status}"
+                )
+                print(
+                    "[EXECUTION][ACK] "
+                    f"symbol={row.symbol} order_id={order_id} status={row.broker_status} tracked=true"
                 )
                 if row.canonical_state == "REJECTED":
                     _mark_execution_failure(trace, "ORDER_REJECTED", reason="broker_status_rejected")
@@ -937,6 +974,10 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             print(
                 f"[EXECUTION][ACK_CONFIRMED] symbol={trace.symbol or symbol or 'UNKNOWN'} "
                 f"order_id={order_id} status=openOrder"
+            )
+            print(
+                "[EXECUTION][ACK] "
+                f"symbol={trace.symbol or symbol or 'UNKNOWN'} order_id={order_id} status=openOrder tracked=true"
             )
         if tracked is not None:
             tracked.ack_seen = True
@@ -960,6 +1001,9 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
         _BROKER_ERRORS_BY_ORDER_ID.setdefault(int(order_id), []).append({"code": code, "message": message, "normalized": normalized_reason})
         if normalized_reason == "OUTSIDE_RTH_IGNORED_WARNING":
+            if tracked is not None:
+                tracked.queued_for_rth_seen = True
+                tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
             print(f"[EXECUTION][SESSION_CLASSIFICATION] order_id={order_id} verdict=OUTSIDE_RTH_IGNORED_WARNING")
             print(f"[EXECUTION][PREMARKET_ROUTE_VERDICT] order_id={order_id} normalized_reject_reason={normalized_reason}")
         if normalized_reason == "QUEUED_UNTIL_RTH_WARNING":
@@ -1048,6 +1092,10 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
         if local_qty == broker_qty:
             continue
         print(f"[POSITION][RECON_MISMATCH] symbol={symbol} local_qty={local_qty} ibkr_qty={broker_qty}")
+        print(
+            "[EXECUTION][RECONCILE] "
+            f"symbol={symbol} local_qty={local_qty} broker_qty={broker_qty} action=passive_detect_only"
+        )
         if broker_qty > local_qty:
             print(f"[FILL][GAP_DETECTED] symbol={symbol} expected_qty={broker_qty} actual_qty={local_qty}")
             _RECON_RESYNC_NEEDED = True
@@ -1892,6 +1940,11 @@ def execute_intents(
                 continue
             submitted_order_ids.append(int(broker_order_id))
             print(f"[EXECUTION][SUBMITTED] symbol={decision.symbol} broker_order_id={broker_order_id} local_dispatch_attempted=true place_order_issued=true")
+            print(
+                "[EXECUTION][SUBMIT] "
+                f"symbol={decision.symbol} intent_id={decision.intent_id} order_id={broker_order_id} "
+                f"order_ref={order_ref} qty={quantity}"
+            )
             orders_submitted += 1
             trace.order_submitted = True
             trace.order_id = int(broker_order_id)
