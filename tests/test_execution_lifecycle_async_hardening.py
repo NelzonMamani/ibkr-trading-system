@@ -25,6 +25,7 @@ def _reset_router() -> None:
     order_router._VISIBILITY_BY_ORDER_ID.clear()
     order_router._LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID.clear()
     order_router._BROKER_ERRORS_BY_ORDER_ID.clear()
+    order_router._PENDING_SUBMISSIONS_BY_ORDER_ID.clear()
     order_router._BROKER_TRUTH_FATALS = 0
     order_router._BROKER_TRUTH_CONFIRMATIONS = 0
     order_router._CONTRACT_VALIDATION_FAILURES = 0
@@ -327,6 +328,21 @@ def test_untracked_orderstatus_callback_is_ignored(monkeypatch, capsys) -> None:
     out = capsys.readouterr().out
     assert "[EXECUTION][CALLBACK_IGNORED] event_type=orderstatus order_id=9999 reason=untracked_external_order" in out
     assert "[ORDER_EVENT][UNMATCHED] event=STATUS order_id=9999" not in out
+
+
+def test_pending_submission_registry_recovers_early_orderstatus_callback(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    order_router._register_pending_submission(order_id=4242, symbol="ABCD", intent_id="ABCD-1", order_ref="TRADING_OS|ROSS_MOMENTUM|ABCD-1")
+    order_router._on_ibkr_callback(
+        {"event_type": "orderStatus", "order_id": 4242, "symbol": "ABCD", "status": "PreSubmitted", "filled": 0, "remaining": 10}
+    )
+    out = capsys.readouterr().out
+    assert "[EXECUTION][CALLBACK_IGNORED] event_type=orderstatus order_id=4242 reason=untracked_external_order" not in out
+    assert "[EXECUTION][CALLBACK_RECOVERED] order_id=4242 source=pending_registry" in out
+    assert 4242 in order_router._RUNTIME_ORDERS
+    assert 4242 in order_router._EXECUTION_TRACE_BY_ORDER_ID
+    assert order_router._RUNTIME_ORDERS[4242].symbol == "ABCD"
 
 
 def test_circuit_breaker_blocks_new_submission_after_degradation(monkeypatch) -> None:
