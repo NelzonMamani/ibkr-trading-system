@@ -46,6 +46,8 @@ _VISIBILITY_BY_ORDER_ID: dict[int, dict[str, bool]] = {}
 _LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID: dict[int, str] = {}
 _BROKER_ERRORS_BY_ORDER_ID: dict[int, list[dict[str, Any]]] = {}
 _PENDING_SUBMISSIONS_BY_ORDER_ID: dict[int, "PendingSubmission"] = {}
+_RECONCILIATION_ATTEMPTS = 0
+_RECONCILIATION_SUCCESSES = 0
 
 AUTHORITATIVE_EXECUTION_STATES = {
     "DISPATCH_INTENDED",
@@ -138,6 +140,7 @@ class TrackedOrder:
     terminal: bool = False
     last_callback_fingerprint: str = ""
     intent_id: str = ""
+    source: str = "RUNTIME"
 
 
 @dataclass
@@ -148,6 +151,7 @@ class TrackedPosition:
     pending_entry_qty: int = 0
     pending_exit_qty: int = 0
     state: str = "NO_POSITION"
+    source: str = "RUNTIME"
 
 
 @dataclass
@@ -512,6 +516,18 @@ def _extract_position_qty(position_row: Any) -> int:
     return 0
 
 
+def _extract_position_avg_cost(position_row: Any) -> float | None:
+    for field in ("avgCost", "averageCost", "avg_price", "avgPrice"):
+        value = getattr(position_row, field, None)
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _extract_callback_field(callback_payload: Any, *field_names: str) -> Any:
     for field in field_names:
         if isinstance(callback_payload, dict) and field in callback_payload:
@@ -520,6 +536,130 @@ def _extract_callback_field(callback_payload: Any, *field_names: str) -> Any:
         if value is not None:
             return value
     return None
+
+
+def _record_reconciliation_result(success: bool) -> None:
+    global _RECONCILIATION_ATTEMPTS, _RECONCILIATION_SUCCESSES
+    _RECONCILIATION_ATTEMPTS += 1
+    if success:
+        _RECONCILIATION_SUCCESSES += 1
+
+
+def _reconciliation_success_rate() -> float:
+    if _RECONCILIATION_ATTEMPTS <= 0:
+        return 100.0
+    return (_RECONCILIATION_SUCCESSES / _RECONCILIATION_ATTEMPTS) * 100.0
+
+
+def _refresh_fill_authority_state() -> None:
+    global _FILL_AUTHORITY_STATE
+    success_rate = _reconciliation_success_rate()
+    if _UNMATCHED_CALLBACK_COUNT == 0 and success_rate > 95.0:
+        _FILL_AUTHORITY_STATE = "HEALTHY"
+    elif _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT > 0:
+        _FILL_AUTHORITY_STATE = "DEGRADED"
+
+
+def _synthetic_position_order_id(symbol: str) -> int:
+    normalized = str(symbol or "").upper()
+    checksum = sum((index + 1) * ord(ch) for index, ch in enumerate(normalized))
+    return -(1_000_000 + checksum)
+
+
+def _recover_order_from_execdetails(order_id: int, symbol: str, fill_qty: int, fill_price: float | None) -> TrackedOrder:
+    normalized_symbol = str(symbol or "UNKNOWN").upper()
+    order = _RUNTIME_ORDERS.get(int(order_id))
+    if order is None:
+        recovered_qty = max(1, int(fill_qty or 0))
+        side = "BUY" if recovered_qty > 0 else "SELL"
+        order = TrackedOrder(
+            broker_order_id=int(order_id),
+            order_ref=f"IBKR_BACKFILL|{int(order_id)}",
+            symbol=normalized_symbol,
+            side=side,
+            total_qty=recovered_qty,
+            filled_qty=0,
+            remaining_qty=recovered_qty,
+            avg_fill_price=fill_price,
+            broker_status="Filled",
+            canonical_state="FILLED",
+            final_execution_state="BACKFILLED",
+            source="IBKR_EXECUTION_BACKFILL",
+        )
+        _RUNTIME_ORDERS[int(order_id)] = order
+        _initialize_visibility(int(order_id))
+        trace = _EXECUTION_TRACE_BY_ORDER_ID.get(int(order_id))
+        if trace is None:
+            trace = ExecutionTrace(
+                symbol=normalized_symbol,
+                cycle_id="BACKFILL",
+                intent_id=f"IBKR_BACKFILL-{int(order_id)}",
+            )
+            trace.order_submitted = True
+            trace.order_id = int(order_id)
+            trace.lifecycle_state = "FILL_RECEIVED"
+            _EXECUTION_TRACE_BY_ORDER_ID[int(order_id)] = trace
+        print(
+            "[EXECUTION][BACKFILL_RECOVERY] "
+            f"order_id={int(order_id)} symbol={normalized_symbol} fill_qty={max(0, int(fill_qty or 0))} fill_price={fill_price}"
+        )
+    return order
+
+
+def _reconcile_position_gap(symbol: str, ibkr_qty: int, avg_cost: float | None) -> None:
+    global _RECONCILED_POSITIONS_COUNT
+    normalized_symbol = str(symbol or "").upper()
+    if not normalized_symbol or int(ibkr_qty) == 0:
+        return
+    synthetic_order_id = _synthetic_position_order_id(normalized_symbol)
+    abs_qty = abs(int(ibkr_qty))
+    side = "BUY" if int(ibkr_qty) > 0 else "SELL"
+    tracked = _RUNTIME_ORDERS.get(int(synthetic_order_id))
+    if tracked is None:
+        tracked = TrackedOrder(
+            broker_order_id=int(synthetic_order_id),
+            order_ref=f"IBKR_POSITION_SYNC|{normalized_symbol}",
+            symbol=normalized_symbol,
+            side=side,
+            total_qty=abs_qty,
+            filled_qty=0,
+            remaining_qty=abs_qty,
+            avg_fill_price=avg_cost,
+            broker_status="Filled",
+            canonical_state="FILLED",
+            final_execution_state="BACKFILLED",
+            source="IBKR_POSITION_SYNC",
+        )
+        tracked.is_entry = True
+        tracked.is_exit = False
+        _RUNTIME_ORDERS[int(synthetic_order_id)] = tracked
+        _EXECUTION_TRACE_BY_ORDER_ID.setdefault(
+            int(synthetic_order_id),
+            ExecutionTrace(
+                symbol=normalized_symbol,
+                cycle_id="POSITION_SYNC",
+                intent_id=f"IBKR_POSITION_SYNC-{normalized_symbol}",
+                order_submitted=True,
+                order_id=int(synthetic_order_id),
+                lifecycle_state="POSITION_OPENED",
+            ),
+        )
+    fill_delta = max(0, abs_qty - int(tracked.filled_qty))
+    if fill_delta > 0:
+        _apply_fill_to_tracked_order(
+            order_id=int(synthetic_order_id),
+            symbol=normalized_symbol,
+            fill_qty=fill_delta,
+            fill_price=avg_cost,
+            exec_id=f"IBKR_POSITION_SYNC:{normalized_symbol}:{abs_qty}",
+            timestamp=_now_utc_iso(),
+            source="IBKR_POSITION_SYNC",
+        )
+    pos = _RUNTIME_POSITIONS.setdefault(normalized_symbol, TrackedPosition(symbol=normalized_symbol))
+    pos.source = "IBKR_BACKFILL"
+    _RECONCILED_POSITIONS_COUNT += 1
+    print(f"[POSITION][RECONCILED_FROM_IBKR] symbol={normalized_symbol} ibkr_qty={ibkr_qty} avg_cost={avg_cost}")
+    print(f"[EXECUTION][RECONCILED] source=BACKFILL order_id={synthetic_order_id} symbol={normalized_symbol}")
 
 
 def _extract_callback_symbol(callback_payload: Any) -> str:
@@ -792,6 +932,7 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
     row = _RUNTIME_ORDERS.get(order_id)
     if row is None:
         _UNMATCHED_CALLBACK_COUNT += 1
+        _record_reconciliation_result(False)
         print(f"[ORDER_EVENT][UNMATCHED] event=EXECUTION order_id={order_id} symbol={symbol} source={source}")
         print(f"[EXECUTION][RECONCILIATION_FAILED] event=EXECUTION order_id={order_id} order_ref=UNKNOWN source={source}")
         print(
@@ -839,6 +980,8 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
         print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
     signed = inc if row.is_entry else -inc
     _apply_position_fill(row.symbol, signed_delta_qty=signed, fill_price=fill_price, pending_entry_delta=(-inc if row.is_entry else 0), pending_exit_delta=(-inc if row.is_exit else 0))
+    _record_reconciliation_result(True)
+    _refresh_fill_authority_state()
 
 
 def _on_ibkr_callback(callback_payload: Any) -> None:
@@ -864,6 +1007,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             _NON_ORDER_UNMATCHED_CALLBACK_COUNT += 1
             return
         _UNMATCHED_CALLBACK_COUNT += 1
+        _record_reconciliation_result(False)
         print(
             "[ORDER_EVENT][UNMATCHED] "
             f"event=CALLBACK reason=missing_order_id_and_order_ref order_ref={callback_order_ref or 'UNKNOWN'}"
@@ -878,6 +1022,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         )
         _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
         _FILL_AUTHORITY_STATE = "DEGRADED"
+        _refresh_fill_authority_state()
         if event_type in {"execdetails", "orderstatus", "openorder"}:
             _mark_execution_failure(None, "UNKNOWN", reason=f"missing_order_id callback={event_type or 'unknown'}")
         return
@@ -914,22 +1059,38 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                     timestamp=timestamp,
                 )
     if event_type == "execdetails" and tracked is None:
-        _UNMATCHED_CALLBACK_COUNT += 1
-        print(
-            "[ORDER_EVENT][UNMATCHED] "
-            f"event=EXECUTION order_id={order_id} order_ref={callback_order_ref or 'UNKNOWN'} symbol={symbol or 'UNKNOWN'}"
-        )
-        print(
-            "[EXECUTION][RECONCILIATION_FAILED] "
-            f"event=EXECUTION order_id={order_id} order_ref={callback_order_ref or 'UNKNOWN'} source=CALLBACK_EXECDETAILS"
-        )
-        print(
-            "[EXECUTION][TRUTH_GAP] "
-            f"stage=FILL event=EXECUTION order_id={order_id} symbol={symbol or 'UNKNOWN'} source=CALLBACK_EXECDETAILS"
-        )
-        _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
-        _FILL_AUTHORITY_STATE = "DEGRADED"
-        return
+        if order_id is not None:
+            tracked = _recover_order_from_execdetails(
+                int(order_id),
+                str(symbol or ""),
+                int(filled_qty or 0),
+                fill_price,
+            )
+            trace = _EXECUTION_TRACE_BY_ORDER_ID.get(int(order_id))
+            print(
+                "[ORDER_EVENT][BACKFILLED] "
+                f"event=EXECUTION order_id={order_id} order_ref={callback_order_ref or 'UNKNOWN'} symbol={symbol or 'UNKNOWN'}"
+            )
+            _record_reconciliation_result(True)
+        else:
+            _UNMATCHED_CALLBACK_COUNT += 1
+            _record_reconciliation_result(False)
+            print(
+                "[ORDER_EVENT][UNMATCHED] "
+                f"event=EXECUTION order_id={order_id} order_ref={callback_order_ref or 'UNKNOWN'} symbol={symbol or 'UNKNOWN'}"
+            )
+            print(
+                "[EXECUTION][RECONCILIATION_FAILED] "
+                f"event=EXECUTION order_id={order_id} order_ref={callback_order_ref or 'UNKNOWN'} source=CALLBACK_EXECDETAILS"
+            )
+            print(
+                "[EXECUTION][TRUTH_GAP] "
+                f"stage=FILL event=EXECUTION order_id={order_id} symbol={symbol or 'UNKNOWN'} source=CALLBACK_EXECDETAILS"
+            )
+            _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
+            _FILL_AUTHORITY_STATE = "DEGRADED"
+            _refresh_fill_authority_state()
+            return
     if (not symbol) and tracked is not None and tracked.symbol:
         symbol = tracked.symbol
         print(f"[EXECUTION][CALLBACK_ENRICHED] order_id={order_id} symbol={symbol} source=order_id_mapping")
@@ -1207,11 +1368,13 @@ def _normalize_ibkr_truth(raw: Any) -> tuple[list[Any], list[Any], list[Any]]:
 def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
     global _RECON_RESYNC_NEEDED
     broker_position_by_symbol: dict[str, int] = {}
+    broker_avg_cost_by_symbol: dict[str, float | None] = {}
     for row in positions:
         symbol = _extract_symbol_from_order(row)
         if not symbol:
             continue
         broker_position_by_symbol[symbol] = broker_position_by_symbol.get(symbol, 0) + _extract_position_qty(row)
+        broker_avg_cost_by_symbol[symbol] = _extract_position_avg_cost(row)
     symbols = set(_RUNTIME_POSITIONS.keys()) | set(broker_position_by_symbol.keys())
     for symbol in sorted(symbols):
         local = _RUNTIME_POSITIONS.get(symbol)
@@ -1227,6 +1390,8 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
         if broker_qty > local_qty:
             print(f"[FILL][GAP_DETECTED] symbol={symbol} expected_qty={broker_qty} actual_qty={local_qty}")
             _RECON_RESYNC_NEEDED = True
+        if broker_qty != 0 and local_qty == 0:
+            _reconcile_position_gap(symbol, broker_qty, broker_avg_cost_by_symbol.get(symbol))
 
 
 def _check_callback_delay(*, now: datetime | None = None) -> None:
@@ -1786,8 +1951,10 @@ def execute_intents(
     mode: RunMode,
     decisions: List[RiskDecisionRecord],
 ) -> List[ExecutionEvent]:
-    global _FILL_AUTHORITY_STATE, _EXECUTION_CYCLE_COUNTER, _CIRCUIT_BREAKER_ACTIVE
+    global _FILL_AUTHORITY_STATE, _EXECUTION_CYCLE_COUNTER, _CIRCUIT_BREAKER_ACTIVE, _RECONCILIATION_ATTEMPTS, _RECONCILIATION_SUCCESSES
     _FILL_AUTHORITY_STATE = "UNKNOWN"
+    _RECONCILIATION_ATTEMPTS = 0
+    _RECONCILIATION_SUCCESSES = 0
     if _is_explicit_test_mode():
         _CIRCUIT_BREAKER_ACTIVE = False
     events: List[ExecutionEvent] = []
@@ -1833,7 +2000,6 @@ def execute_intents(
     if mode in {RunMode.PAPER, RunMode.LIVE} and not has_working_order_recon:
         _FILL_AUTHORITY_STATE = "DEGRADED"
         print("[EXECUTION][FILL_AUTHORITY_DEGRADED] reason=broker_fill_reconciliation_unavailable")
-    existing_position_symbols = {str(getattr(row, "symbol", "") or "").upper() for row in positions}
     working_order_candidates: list[dict[str, Any]] = []
     for row in open_orders:
         symbol = _extract_symbol_from_order(row)
@@ -1920,8 +2086,14 @@ def execute_intents(
                 f"existing_status={duplicate_status} reason={duplicate_reason}"
             )
             break
-        if order_side == "BUY" and duplicate_symbol in existing_position_symbols:
-            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
+        local_position = _RUNTIME_POSITIONS.get(duplicate_symbol)
+        local_position_exists = bool(local_position is not None and int(local_position.qty) > 0)
+        local_position_source = str(getattr(local_position, "source", "") or "")
+        if order_side == "BUY" and local_position_exists and local_position_source != "IBKR_BACKFILL":
+            print(
+                f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION "
+                f"position_source={local_position_source or 'UNKNOWN'}"
+            )
             _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_position")
             events.append(
                 ExecutionEvent(
@@ -2272,6 +2444,14 @@ def execute_intents(
         f"orders_submitted={orders_submitted} acks_received={acks_received} fills_received={fills_received} "
         f"positions_opened={positions_opened} failures_by_type={dict(sorted(_EXECUTION_FAILURES_BY_TYPE.items()))}"
     )
+    _refresh_fill_authority_state()
+    print(
+        "[EXECUTION][RECONCILIATION_METRICS] "
+        f"attempts={_RECONCILIATION_ATTEMPTS} successes={_RECONCILIATION_SUCCESSES} "
+        f"success_rate={_reconciliation_success_rate():.2f}"
+    )
+    print(f"unmatched_callbacks={_UNMATCHED_CALLBACK_COUNT}")
+    print(f"fill_authority_state={_FILL_AUTHORITY_STATE}")
     if _FILL_AUTHORITY_STATE == "UNKNOWN":
         _FILL_AUTHORITY_STATE = "ACTIVE" if mode in {RunMode.PAPER, RunMode.LIVE} else "N/A"
     return events

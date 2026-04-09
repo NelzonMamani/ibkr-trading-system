@@ -32,6 +32,9 @@ def _reset_router() -> None:
     order_router._NEXT_VALID_ID_REBASES = 0
     order_router._NON_ORDER_UNMATCHED_CALLBACK_COUNT = 0
     order_router._CIRCUIT_BREAKER_ACTIVE = False
+    order_router._RECONCILIATION_ATTEMPTS = 0
+    order_router._RECONCILIATION_SUCCESSES = 0
+    order_router._FILL_AUTHORITY_STATE = "UNKNOWN"
 
 
 def _decision(symbol: str = "ABCD", qty: int = 100, side: str = "LONG") -> RiskDecisionRecord:
@@ -108,7 +111,7 @@ def test_exit_final_fill_closes_position(monkeypatch) -> None:
     assert order_router._RUNTIME_POSITIONS["ABCD"].state == "POSITION_CLOSED"
 
 
-def test_reconciliation_does_not_apply_fill_without_callback(monkeypatch) -> None:
+def test_reconciliation_applies_position_backfill_when_ibkr_position_exists(monkeypatch) -> None:
     _reset_router()
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
     events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
@@ -127,7 +130,8 @@ def test_reconciliation_does_not_apply_fill_without_callback(monkeypatch) -> Non
     assert events[0].filled_quantity == 0
     assert events[0].remaining_quantity == 100
     assert order_router._RUNTIME_ORDERS[oid].filled_qty == 0
-    assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 0
+    assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 100
+    assert order_router._RUNTIME_POSITIONS["ABCD"].source == "IBKR_BACKFILL"
 
 
 def test_duplicate_exec_callback_is_idempotent(monkeypatch) -> None:
@@ -418,6 +422,61 @@ def test_callback_dedup_avoids_duplicate_state_noise(monkeypatch, capsys) -> Non
     order_router._on_ibkr_callback(payload)
     out = capsys.readouterr().out
     assert "[EXECUTION][CALLBACK_DEDUP]" in out
+
+
+def test_execdetails_unknown_order_id_backfills_instead_of_unmatched(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    order_router._on_ibkr_callback(
+        {"event_type": "execDetails", "order_id": 9090, "symbol": "BACK", "shares": 5, "price": 10.5, "execId": "BF1"}
+    )
+    out = capsys.readouterr().out
+    assert "[ORDER_EVENT][BACKFILLED] event=EXECUTION order_id=9090" in out
+    assert "[ORDER_EVENT][UNMATCHED]" not in out
+    assert order_router._RUNTIME_ORDERS[9090].source == "IBKR_EXECUTION_BACKFILL"
+    assert order_router._RUNTIME_ORDERS[9090].filled_qty == 5
+    assert order_router._UNMATCHED_CALLBACK_COUNT == 0
+
+
+def test_passive_position_reconciliation_creates_ibkr_backfill_position(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    order_router._run_passive_position_reconciliation(
+        positions=[SimpleNamespace(symbol="SYNC", position=7, avgCost=33.25)]
+    )
+    out = capsys.readouterr().out
+    assert "[POSITION][RECONCILED_FROM_IBKR] symbol=SYNC ibkr_qty=7 avg_cost=33.25" in out
+    assert order_router._RUNTIME_POSITIONS["SYNC"].qty == 7
+    assert order_router._RUNTIME_POSITIONS["SYNC"].source == "IBKR_BACKFILL"
+    synthetic_order_id = order_router._synthetic_position_order_id("SYNC")
+    assert order_router._RUNTIME_ORDERS[synthetic_order_id].source == "IBKR_POSITION_SYNC"
+
+
+def test_duplicate_position_block_skips_ibkr_backfill_positions(monkeypatch) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    order_router._RUNTIME_POSITIONS["SAFE"] = order_router.TrackedPosition(
+        symbol="SAFE",
+        qty=10,
+        state="POSITION_OPEN",
+        source="IBKR_BACKFILL",
+    )
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision("SAFE", qty=1, side="LONG")])
+    assert events[0].action == "SUBMITTED"
+
+
+def test_duplicate_position_block_applies_for_non_backfill_local_position(monkeypatch) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    order_router._RUNTIME_POSITIONS["DUPL"] = order_router.TrackedPosition(
+        symbol="DUPL",
+        qty=10,
+        state="POSITION_OPEN",
+        source="RUNTIME",
+    )
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision("DUPL", qty=1, side="LONG")])
+    assert events[0].action == "BLOCKED"
+    assert "DUPLICATE_POSITION" in (events[0].detail or "")
 
 
 def test_cycle_emits_truth_rows_consistent_with_final_state(monkeypatch, capsys) -> None:
