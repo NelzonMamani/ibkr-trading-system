@@ -1,0 +1,17 @@
+{
+  "generated_by": "M5_VERIFICATION_AUTHORITY",
+  "version": "1.0",
+  "strategies": [
+    {
+      "strategy_id": "ross_momentum",
+      "capabilities": [
+        "pattern_detection",
+        "trigger_generation",
+        "intent_generation",
+        "risk_integration",
+        "execution_ready"
+      ],
+      "status": "active"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "generated_by": "M5_VERIFICATION_AUTHORITY",
+  "version": "1.0",
+  "summary": {
+    "total_strategies": 1,
+    "certified": 1,
+    "failed": 0,
+    "platform_state": "TRADING_READY_PAPER"
+  }
+}

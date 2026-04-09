@@ -1,0 +1,41 @@
+{
+  "epoch": "M0_CANON_AND_SOURCES_OF_TRUTH",
+  "files": [
+    {
+      "file": "M0_CERTIFICATION_REPORT.md",
+      "bytes": 54
+    },
+    {
+      "file": "M0_VERIFICATION_SUMMARY.md",
+      "bytes": 54
+    },
+    {
+      "file": "canonical_registry.json",
+      "bytes": 25
+    },
+    {
+      "file": "certification_verdict.json",
+      "bytes": 35
+    },
+    {
+      "file": "compileall.txt",
+      "bytes": 32
+    },
+    {
+      "file": "conflict_detection_report.json",
+      "bytes": 25
+    },
+    {
+      "file": "naming_validation_report.json",
+      "bytes": 25
+    },
+    {
+      "file": "pytest.txt",
+      "bytes": 28
+    },
+    {
+      "file": "pytest_full.txt",
+      "bytes": 33
+    }
+  ]
+}

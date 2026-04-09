@@ -1,0 +1,21 @@
+{
+  "epoch": "M5_VERIFICATION_AUTHORITY",
+  "files": [
+    {
+      "file": "compileall.txt",
+      "bytes": 32,
+      "sha256": "608bcc261dd53a0c09a48a5746cecfa9f648354dc3cbe77bbcf53a6dbed9ec96"
+    },
+    {
+      "file": "verification_output.json",
+      "bytes": 61,
+      "sha256": "d27a2ae5e2fff94487478ffbe83635edcd24d8c59188147153a73fcc220501ec"
+    },
+    {
+      "file": "verification_summary.md",
+      "bytes": 58,
+      "sha256": "9a61cf1bca972ef6c116e50957f585f53c6e41ce458fad34a016cacc4f7c56ab"
+    }
+  ],
+  "generated_at_utc": "2026-04-09T08:15:32Z"
+}

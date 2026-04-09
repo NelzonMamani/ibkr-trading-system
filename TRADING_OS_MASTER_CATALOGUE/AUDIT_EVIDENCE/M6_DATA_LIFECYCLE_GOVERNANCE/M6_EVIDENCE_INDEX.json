@@ -1,0 +1,21 @@
+{
+  "epoch": "M6_DATA_LIFECYCLE_GOVERNANCE",
+  "files": [
+    {
+      "file": "compileall.txt",
+      "bytes": 32,
+      "sha256": "608bcc261dd53a0c09a48a5746cecfa9f648354dc3cbe77bbcf53a6dbed9ec96"
+    },
+    {
+      "file": "verification_output.json",
+      "bytes": 64,
+      "sha256": "fb4e1262b22bbd0d63d0f634a0e516952f261ba8240a1325ad5ea3bcb0272c30"
+    },
+    {
+      "file": "verification_summary.md",
+      "bytes": 58,
+      "sha256": "87684d944d2722c73a31a4275997fc370d5d6e806ea8ccb684d6976e6dd31932"
+    }
+  ],
+  "generated_at_utc": "2026-04-09T08:15:32Z"
+}
