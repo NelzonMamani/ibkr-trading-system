@@ -227,6 +227,24 @@ class RossMomentumStrategyV1(BaseStrategy):
         self._session_stats["input_fail_count"] += int(cycle_summary["input_fail_count"])
         self._session_stats["intents_generated"] += int(cycle_summary["intents_generated"])
 
+    def _classify_failure_layer(self, cycle_summary) -> str:
+        if cycle_summary.symbols_with_missing_inputs:
+            return "INPUT"
+
+        if cycle_summary.pattern_invocations_total == 0:
+            return "STRUCTURE"
+
+        if cycle_summary.patterns_detected_total == 0:
+            return "SETUP"
+
+        if cycle_summary.symbols_with_detected_but_discarded:
+            return "TRIGGER_OR_FILTER"
+
+        if cycle_summary.real_setup_trigger_count == 0:
+            return "EXECUTION_OR_PERMISSION"
+
+        return "TRADING_ACTIVE"
+
     def emit_shutdown_summary(self) -> None:
         if self._shutdown_summary_emitted:
             return
@@ -490,6 +508,8 @@ class RossMomentumStrategyV1(BaseStrategy):
         session_phase: str,
     ) -> List[TradeIntent]:
         print(f"[ROSS][PROCESS_START] symbols={len(watchlist)}")
+        if not watchlist:
+            print("[ROSS][CRITICAL] EMPTY_WATCHLIST_NO_TRADING_POSSIBLE")
         symbols = list(watchlist)
         print(f"[ROSS][EVALUATE_START] symbols_received={len(symbols)}")
         if not symbols:
@@ -1554,8 +1574,27 @@ class RossMomentumStrategyV1(BaseStrategy):
             real_setup_trigger_count=len(translated_intents),
             synthetic_forced_intents=synthetic_forced_intents,
         )
-        if cycle_summary.evaluated_count > 0 and cycle_summary.real_setup_trigger_count == 0:
-            print(f"[PATTERN_FAILURE_TRACE][SUMMARY] {cycle_summary.to_dict()}")
+        print(f"[PATTERN_FAILURE_TRACE][SUMMARY] {cycle_summary.to_dict()}")
+        print(
+            "[ROSS][ROOT_CAUSE_SUMMARY] "
+            f"total_symbols_evaluated={cycle_summary.evaluated_count} "
+            f"total_pattern_calls={cycle_summary.pattern_invocations_total} "
+            f"total_detected={cycle_summary.patterns_detected_total} "
+            f"total_skipped={sum(cycle_summary.dominant_skip_reasons.values())} "
+            f"dominant_skip_reasons={cycle_summary.dominant_skip_reasons} "
+            f"dominant_rejection_reasons={cycle_summary.dominant_rejection_reasons} "
+            f"symbols_missing_inputs={cycle_summary.symbols_with_missing_inputs} "
+            f"symbols_with_detected_but_dropped={cycle_summary.symbols_with_detected_but_discarded} "
+            f"patterns_never_invoked={getattr(cycle_summary, 'patterns_never_invoked', [])}"
+        )
+        failure_layer = self._classify_failure_layer(cycle_summary)
+        print(
+            "[ROSS][FINAL_VERDICT] "
+            f"layer={failure_layer} "
+            f"evaluated={cycle_summary.evaluated_count} "
+            f"detected={cycle_summary.patterns_detected_total} "
+            f"triggered={cycle_summary.real_setup_trigger_count}"
+        )
         evidence_path = self._failure_trace_collector.persist_latest(
             run_mode=mode.value,
             session_label=session_label,
