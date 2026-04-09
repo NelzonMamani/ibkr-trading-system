@@ -24,6 +24,8 @@ _RUNTIME_ORDERS: dict[int, "TrackedOrder"] = {}
 _RUNTIME_POSITIONS: dict[str, "TrackedPosition"] = {}
 _SEEN_EXEC_IDS: set[str] = set()
 _UNMATCHED_CALLBACK_COUNT = 0
+_RECONCILIATION_SUCCESSES = 0
+_RECONCILIATION_FAILURES = 0
 _RECONCILED_ORDERS_COUNT = 0
 _RECONCILED_POSITIONS_COUNT = 0
 _RECON_RESYNC_NEEDED = False
@@ -258,6 +260,19 @@ def _parse_iso_utc(value: str | None) -> datetime | None:
 
 def fill_authority_state() -> str:
     return _FILL_AUTHORITY_STATE
+
+
+def _record_reconciliation_result(success: bool) -> None:
+    global _RECONCILIATION_SUCCESSES, _RECONCILIATION_FAILURES
+    if success:
+        _RECONCILIATION_SUCCESSES += 1
+        return
+    _RECONCILIATION_FAILURES += 1
+
+
+def _refresh_fill_authority_state() -> None:
+    global _FILL_AUTHORITY_STATE
+    _FILL_AUTHORITY_STATE = "HEALTHY" if _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT <= 0 else "DEGRADED"
 
 
 def _execution_truth_threshold() -> int:
@@ -525,12 +540,12 @@ def _extract_callback_field(callback_payload: Any, *field_names: str) -> Any:
 def _extract_callback_symbol(callback_payload: Any) -> str:
     symbol = _extract_callback_field(callback_payload, "symbol")
     if symbol:
-        return str(symbol).upper()
+        return str(symbol).upper().strip()
     contract = _extract_callback_field(callback_payload, "contract")
     if contract is not None:
         from_contract = getattr(contract, "symbol", None)
         if from_contract:
-            return str(from_contract).upper()
+            return str(from_contract).upper().strip()
     return ""
 
 
@@ -539,7 +554,9 @@ def _extract_callback_order_id(callback_payload: Any) -> int | None:
     if value is None:
         execution = _extract_callback_field(callback_payload, "execution")
         if execution is not None:
-            value = getattr(execution, "orderId", None) or getattr(execution, "permId", None)
+            value = getattr(execution, "orderId", None)
+            if value is None:
+                value = getattr(execution, "permId", None)
     if value is None:
         return None
     try:
@@ -787,20 +804,57 @@ def _recover_order_tracking_from_pending_submission(*, order_id: int, callback_s
     return row, trace
 
 
+def _recover_order_from_execdetails(order_id: int, symbol: str, filled_qty: int, fill_price: float | None) -> TrackedOrder:
+    normalized_symbol = str(symbol or "").upper().strip()
+    timestamp = _now_utc_iso()
+    tracked = _RUNTIME_ORDERS.get(int(order_id))
+    trace = _EXECUTION_TRACE_BY_ORDER_ID.get(int(order_id))
+    if tracked is None:
+        tracked, trace = _recover_order_tracking_from_pending_submission(
+            order_id=int(order_id),
+            callback_symbol=normalized_symbol,
+            timestamp=timestamp,
+        )
+    if tracked is None:
+        side = "BUY"
+        total_qty = max(0, int(filled_qty or 0))
+        tracked = _upsert_order_from_submission(
+            order_id=int(order_id),
+            symbol=normalized_symbol or "UNKNOWN",
+            side=side,
+            total_qty=total_qty,
+            order_ref=f"EXECDETAILS_BACKFILL|{order_id}",
+        )
+        _initialize_visibility(int(order_id))
+    else:
+        tracked.symbol = normalized_symbol or tracked.symbol
+        tracked.total_qty = max(int(tracked.total_qty), max(0, int(filled_qty or 0)))
+        tracked.remaining_qty = max(0, int(tracked.total_qty) - int(tracked.filled_qty))
+    if trace is None:
+        trace = ExecutionTrace(
+            symbol=normalized_symbol or tracked.symbol or "UNKNOWN",
+            cycle_id="EXECDETAILS_BACKFILL",
+            intent_id=tracked.intent_id or f"BACKFILL-{order_id}",
+        )
+        _EXECUTION_TRACE_BY_ORDER_ID[int(order_id)] = trace
+        if trace.intent_id:
+            _EXECUTION_TRACE_BY_INTENT.setdefault(trace.intent_id, trace)
+    trace.order_id = int(order_id)
+    trace.order_submitted = True
+    trace.lifecycle_state = "FILL_RECEIVED"
+    if trace.fill_time is None:
+        trace.fill_time = timestamp
+    if fill_price is not None:
+        trace.fill_price = fill_price
+    return tracked
+
+
 def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, fill_price: float | None, exec_id: str | None, timestamp: str, source: str) -> None:
-    global _UNMATCHED_CALLBACK_COUNT, _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT, _FILL_AUTHORITY_STATE
+    normalized_symbol = str(symbol or "").upper().strip()
     row = _RUNTIME_ORDERS.get(order_id)
     if row is None:
-        _UNMATCHED_CALLBACK_COUNT += 1
-        print(f"[ORDER_EVENT][UNMATCHED] event=EXECUTION order_id={order_id} symbol={symbol} source={source}")
-        print(f"[EXECUTION][RECONCILIATION_FAILED] event=EXECUTION order_id={order_id} order_ref=UNKNOWN source={source}")
-        print(
-            "[EXECUTION][TRUTH_GAP] "
-            f"stage=FILL event=EXECUTION order_id={order_id} symbol={symbol or 'UNKNOWN'} source={source}"
-        )
-        _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
-        _FILL_AUTHORITY_STATE = "DEGRADED"
-        return
+        raise AssertionError(f"EXECDETAILS_MISSING_TRACKED_ORDER:{order_id}")
+    row.symbol = normalized_symbol or row.symbol
     if exec_id:
         dedupe_key = f"{order_id}:{exec_id}"
         if dedupe_key in _SEEN_EXEC_IDS or exec_id in row.seen_exec_ids:
@@ -860,6 +914,10 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         print("[IBKR][CALLBACK_RAW] event=positionEnd")
         return
     if order_id is None:
+        if event_type == "execdetails":
+            _UNMATCHED_CALLBACK_COUNT += 1
+            _record_reconciliation_result(False)
+            return
         if event_type in {"position", "commissionreport"}:
             _NON_ORDER_UNMATCHED_CALLBACK_COUNT += 1
             return
@@ -913,23 +971,32 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                     callback_symbol=str(symbol or ""),
                     timestamp=timestamp,
                 )
-    if event_type == "execdetails" and tracked is None:
-        _UNMATCHED_CALLBACK_COUNT += 1
-        print(
-            "[ORDER_EVENT][UNMATCHED] "
-            f"event=EXECUTION order_id={order_id} order_ref={callback_order_ref or 'UNKNOWN'} symbol={symbol or 'UNKNOWN'}"
+    if event_type == "execdetails":
+        normalized_symbol = str(symbol or "").upper().strip()
+        tracked = _recover_order_from_execdetails(
+            int(order_id),
+            normalized_symbol,
+            int(filled_qty or 0),
+            fill_price,
         )
+        trace = _EXECUTION_TRACE_BY_ORDER_ID.get(int(order_id))
         print(
-            "[EXECUTION][RECONCILIATION_FAILED] "
-            f"event=EXECUTION order_id={order_id} order_ref={callback_order_ref or 'UNKNOWN'} source=CALLBACK_EXECDETAILS"
+            "[EXECUTION][FORCED_BACKFILL] "
+            f"order_id={order_id} symbol={normalized_symbol} "
+            f"fill_qty={int(filled_qty or 0)} fill_price={fill_price}"
         )
-        print(
-            "[EXECUTION][TRUTH_GAP] "
-            f"stage=FILL event=EXECUTION order_id={order_id} symbol={symbol or 'UNKNOWN'} source=CALLBACK_EXECDETAILS"
+        _apply_fill_to_tracked_order(
+            order_id=int(order_id),
+            symbol=normalized_symbol,
+            fill_qty=int(filled_qty or 0),
+            fill_price=fill_price,
+            exec_id=str(_extract_callback_field(callback_payload, "execId") or f"BACKFILL-{order_id}"),
+            timestamp=_now_utc_iso(),
+            source="IBKR_EXECUTION_BACKFILL",
         )
-        _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
-        _FILL_AUTHORITY_STATE = "DEGRADED"
-        return
+        assert int(order_id) in _RUNTIME_ORDERS, "EXECDETAILS_RECOVERY_FAILED"
+        _record_reconciliation_result(True)
+        _refresh_fill_authority_state()
     if (not symbol) and tracked is not None and tracked.symbol:
         symbol = tracked.symbol
         print(f"[EXECUTION][CALLBACK_ENRICHED] order_id={order_id} symbol={symbol} source=order_id_mapping")
@@ -983,15 +1050,6 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         print(
             "[EXECUTION][TRACE] "
             f"stage=FILL event_type=execDetails order_id={order_id} authority=execDetails exec_id={exec_id or 'NA'}"
-        )
-        _apply_fill_to_tracked_order(
-            order_id=order_id,
-            symbol=symbol,
-            fill_qty=filled_qty,
-            fill_price=fill_price,
-            exec_id=str(exec_id) if exec_id else None,
-            timestamp=timestamp,
-            source="CALLBACK_EXECDETAILS",
         )
         if tracked is not None:
             print(

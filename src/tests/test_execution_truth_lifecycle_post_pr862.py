@@ -18,6 +18,8 @@ def _reset_router_state() -> None:
     order_router._RUNTIME_POSITIONS.clear()
     order_router._SEEN_EXEC_IDS.clear()
     order_router._UNMATCHED_CALLBACK_COUNT = 0
+    order_router._RECONCILIATION_SUCCESSES = 0
+    order_router._RECONCILIATION_FAILURES = 0
     order_router._UNRESOLVED_EXECUTION_RECONCILIATION_COUNT = 0
     order_router._NON_ORDER_UNMATCHED_CALLBACK_COUNT = 0
     order_router._FILL_AUTHORITY_STATE = "UNKNOWN"
@@ -196,7 +198,7 @@ def test_outside_rth_warning_does_not_force_broker_inactive_unknown() -> None:
     assert row.final_execution_state != "BROKER_INACTIVE_UNKNOWN"
 
 
-def test_unknown_orderid_and_symbol_leakage_is_quarantined_with_truthful_log(capsys) -> None:
+def test_unknown_orderid_and_symbol_leakage_backfills_without_truth_gap(capsys) -> None:
     _reset_router_state()
 
     order_router._on_ibkr_callback(
@@ -208,6 +210,6 @@ def test_unknown_orderid_and_symbol_leakage_is_quarantined_with_truthful_log(cap
     )
 
     out = capsys.readouterr().out
-    assert "[EXECUTION][TRUTH_GAP] stage=ACK callback=execdetails reason=missing_order_id" in out
-    assert order_router._FILL_AUTHORITY_STATE == "DEGRADED"
-    assert order_router._UNRESOLVED_EXECUTION_RECONCILIATION_COUNT == 1
+    assert "[EXECUTION][FORCED_BACKFILL] order_id=0" in out
+    assert "[EXECUTION][TRUTH_GAP]" not in out
+    assert order_router._RUNTIME_ORDERS[0].filled_qty == 5
