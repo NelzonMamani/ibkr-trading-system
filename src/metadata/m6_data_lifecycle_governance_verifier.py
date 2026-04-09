@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from src.integrity.evidence_sources import is_placeholder_evidence
 from src.metadata.m0_canon_helpers import get_repo_root, sha256_for_file, write_json
 
 EPOCH = "M6_DATA_LIFECYCLE_GOVERNANCE"
@@ -295,6 +296,11 @@ def verify_m6_data_lifecycle_governance(repo_root: Path | None = None) -> dict:
 
     evidence_dir = repo_root / EVIDENCE_DIR_REL
     available_files = _required_evidence_present(evidence_dir, violations)
+    placeholder_catalogue_files = [
+        path.name
+        for path in evidence_dir.iterdir()
+        if path.is_file() and is_placeholder_evidence(path)
+    ] if evidence_dir.exists() else []
 
     index_path = evidence_dir / "M6_EVIDENCE_INDEX.json"
     index_payload = _load_json(index_path, violations, "EVIDENCE_INDEX")
@@ -407,6 +413,32 @@ def verify_m6_data_lifecycle_governance(repo_root: Path | None = None) -> dict:
                 ),
             )
 
+    runtime_evidence_root = repo_root / "AUDIT_EVIDENCE" / "M6"
+    if not runtime_evidence_root.exists():
+        _record_violation(
+            violations,
+            EvidenceCheck(
+                check="M6_RUNTIME_EVIDENCE_ROOT_EXISTS",
+                expected="present",
+                actual="missing",
+            ),
+        )
+    elif runtime_evidence_root.exists() and any(
+        not is_placeholder_evidence(p)
+        for p in runtime_evidence_root.rglob("*")
+        if p.is_file()
+    ):
+        pass
+    else:
+        _record_violation(
+            violations,
+            EvidenceCheck(
+                check="M6_RUNTIME_EVIDENCE_REAL_ARTIFACTS",
+                expected="non_placeholder_present",
+                actual="placeholder_only",
+            ),
+        )
+
     if not _is_pytest_context():
         _assert_programme_consistency(violations, repo_root, verdict_payload)
 
@@ -445,6 +477,7 @@ def verify_m6_data_lifecycle_governance(repo_root: Path | None = None) -> dict:
         "violations": violations,
         "notes": "M6 data lifecycle governance evidence and programme consistency checks.",
         "evidence_paths": evidence_paths,
+        "placeholder_artifacts_detected": sorted(placeholder_catalogue_files),
     }
 
 

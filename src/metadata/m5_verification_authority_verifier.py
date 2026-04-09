@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+from src.integrity.evidence_sources import is_placeholder_evidence
 from src.metadata.m0_canon_helpers import get_repo_root, sha256_for_file, write_json
 
 EPOCH = "M5_VERIFICATION_AUTHORITY"
@@ -328,6 +329,11 @@ def verify_m5_verification_authority(repo_root: Path | None = None) -> dict:
 
     evidence_dir = repo_root / EVIDENCE_DIR_REL
     available_files = _required_evidence_present(evidence_dir, violations)
+    placeholder_files = [
+        path.name
+        for path in evidence_dir.iterdir()
+        if path.is_file() and is_placeholder_evidence(path)
+    ] if evidence_dir.exists() else []
 
     index_path = evidence_dir / "M5_EVIDENCE_INDEX.json"
     index_payload = _load_json(index_path, violations, "EVIDENCE_INDEX")
@@ -442,6 +448,13 @@ def verify_m5_verification_authority(repo_root: Path | None = None) -> dict:
 
     _assert_programme_consistency(violations, repo_root, verdict_payload)
 
+    runtime_real_strategy_files = [
+        rel_path
+        for rel_path in M5_STRATEGY_EVIDENCE_REQUIRED
+        if (repo_root / rel_path).exists()
+        and not is_placeholder_evidence(repo_root / rel_path)
+    ]
+
     for rel_path in M5_STRATEGY_EVIDENCE_REQUIRED:
         if not (repo_root / rel_path).exists():
             _record_violation(
@@ -450,6 +463,15 @@ def verify_m5_verification_authority(repo_root: Path | None = None) -> dict:
                     check="M5_STRATEGY_EVIDENCE_EXISTS",
                     expected="present",
                     actual=f"missing:{rel_path}",
+                ),
+            )
+        elif rel_path not in runtime_real_strategy_files:
+            _record_violation(
+                violations,
+                EvidenceCheck(
+                    check="M5_STRATEGY_EVIDENCE_NOT_PLACEHOLDER",
+                    expected="real_evidence",
+                    actual=f"placeholder:{rel_path}",
                 ),
             )
 
@@ -480,9 +502,7 @@ def verify_m5_verification_authority(repo_root: Path | None = None) -> dict:
         for name in REQUIRED_EVIDENCE_FILES
         if (evidence_dir / name).exists()
     ]
-    evidence_paths.extend(
-        rel_path for rel_path in M5_STRATEGY_EVIDENCE_REQUIRED if (repo_root / rel_path).exists()
-    )
+    evidence_paths.extend(runtime_real_strategy_files)
     boot_logs_dir_rel = "AUDIT_EVIDENCE/M5/boot"
     if (repo_root / boot_logs_dir_rel).exists():
         evidence_paths.append(boot_logs_dir_rel)
@@ -494,6 +514,7 @@ def verify_m5_verification_authority(repo_root: Path | None = None) -> dict:
         "violations": violations,
         "notes": "M5 verification authority evidence and programme consistency checks.",
         "evidence_paths": evidence_paths,
+        "placeholder_artifacts_detected": sorted(placeholder_files),
     }
 
 
