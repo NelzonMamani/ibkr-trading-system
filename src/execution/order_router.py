@@ -1786,8 +1786,16 @@ def _safe_price_value(value: Any) -> float | None:
 
 def _normalize_price_source(value: Any) -> str:
     normalized = str(value or "").strip().upper()
-    if normalized in {"IBKR_MARKET_DATA_SNAPSHOT", "IBKR_SNAPSHOT_LAST"}:
-        return "IBKR_SNAPSHOT"
+    if normalized in {
+        "IBKR_MARKET_DATA_SNAPSHOT",
+        "IBKR_SNAPSHOT_LAST",
+        "IBKR_SNAPSHOT",
+        "IBKR_STREAM",
+        "IBKR_L1_LAST",
+        "IBKR_L1_MID",
+        "IBKR_SNAPSHOT_MID",
+    }:
+        return "IBKR_CANONICAL"
     return normalized
 
 
@@ -2031,8 +2039,15 @@ def _submit_ibkr_order(
         _CONTRACT_VALIDATION_FAILURES += 1
         raise RuntimeError("CONTRACT_NOT_QUALIFIED")
     print(f"[IBKR][CONTRACT_VALIDATION][OK] symbol={symbol} conId={con_id}")
+    raw_entry_source = _none_text(entry_price_source)
     normalized_entry_source = _normalize_price_source(entry_price_source)
-    if normalized_entry_source != "IBKR_SNAPSHOT":
+    authority_allowed = normalized_entry_source == "IBKR_CANONICAL"
+    print(
+        "[EXECUTION][PRICE_AUTHORITY_CHECK] "
+        f"symbol={symbol} raw_price_source={raw_entry_source} "
+        f"normalized_price_source={_none_text(normalized_entry_source)} authority_allowed={str(authority_allowed).lower()}"
+    )
+    if not authority_allowed:
         print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_IBKR_PRICE_AUTHORITY price_source={_none_text(entry_price_source)}")
         raise RuntimeError("NO_IBKR_PRICE_AUTHORITY")
     order = Order()
@@ -2234,6 +2249,8 @@ def execute_intents(
     blocked_no_quote = 0
     blocked_non_marketable = 0
     blocked_restricted = 0
+    blocked_no_ibkr_price_authority = 0
+    blocked_price_unavailable = 0
 
     for decision in decisions:
         raw_qty = float(getattr(decision, "approved_quantity", 0) or 0)
@@ -2420,6 +2437,7 @@ def execute_intents(
                     trace.price_state = "PARTIAL_OK"
                     print(f"[PRICE][RESOLVED] symbol={decision.symbol} source=IBKR_SNAPSHOT price={entry_price}")
                 except PriceResolutionError:
+                    blocked_price_unavailable += 1
                     print(f"[PRICE][BLOCK] symbol={decision.symbol} reason=NO_IBKR_PRICE_AVAILABLE")
                     _mark_execution_failure(trace, "PRICE_UNAVAILABLE", reason="waiting_for_price")
                     events.append(
@@ -2546,6 +2564,8 @@ def execute_intents(
                     blocked_non_marketable += 1
                 elif "LIKELY_IBKR_RESTRICTED" in error_text:
                     blocked_restricted += 1
+                elif "NO_IBKR_PRICE_AUTHORITY" in error_text:
+                    blocked_no_ibkr_price_authority += 1
                 _mark_execution_failure(trace, "UNKNOWN", reason=str(exc))
                 events.append(
                     ExecutionEvent(
@@ -2791,6 +2811,8 @@ def execute_intents(
         "[EXECUTION][EXECUTABILITY_SUMMARY] "
         f"total_intents={intents_received} blocked_no_quote={blocked_no_quote} "
         f"blocked_non_marketable={blocked_non_marketable} blocked_restricted={blocked_restricted} "
+        f"blocked_no_ibkr_price_authority={blocked_no_ibkr_price_authority} "
+        f"blocked_price_unavailable={blocked_price_unavailable} "
         f"submitted_marketable={submitted_marketable} submitted_total={orders_submitted}"
     )
     if _FILL_AUTHORITY_STATE == "UNKNOWN":

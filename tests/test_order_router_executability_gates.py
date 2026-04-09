@@ -71,6 +71,40 @@ def test_submit_allows_marketable_with_ibkr_authority(monkeypatch) -> None:
     assert client.submissions == 1
 
 
+def test_submit_allows_marketable_with_ibkr_stream_authority(monkeypatch) -> None:
+    client = _Client()
+    monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": 10.0, "ask": 10.05, "last": 10.02, "volume": 100_000})
+    order_id = order_router._submit_ibkr_order(
+        mode=RunMode.PAPER,
+        client=client,
+        symbol="MCRO",
+        side="BUY",
+        quantity=1,
+        order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-2",
+        entry_price=10.02,
+        entry_price_source="IBKR_STREAM",
+    )
+    assert order_id == 777
+    assert client.submissions == 1
+
+
+def test_submit_blocks_non_ibkr_price_authority(monkeypatch) -> None:
+    client = _Client()
+    monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": 10.0, "ask": 10.05, "last": 10.02, "volume": 100_000})
+    with pytest.raises(RuntimeError, match="NO_IBKR_PRICE_AUTHORITY"):
+        order_router._submit_ibkr_order(
+            mode=RunMode.PAPER,
+            client=client,
+            symbol="MCRO",
+            side="BUY",
+            quantity=1,
+            order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-3",
+            entry_price=10.02,
+            entry_price_source="SCANNER_LAST_PRICE",
+        )
+    assert client.submissions == 0
+
+
 def test_submit_blocks_likely_restricted_low_price(monkeypatch) -> None:
     client = _Client()
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": 1.8, "ask": 1.85, "last": 1.82, "volume": 200_000})
