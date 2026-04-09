@@ -15,7 +15,7 @@ from ibapi.order import Order
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
 from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
-from src.core_engine.state import RunMode
+from src.core_engine.state import RunMode, SessionState, resolve_session_state
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 
 _EXECUTION_EVENT_BUFFER: dict[int, ExecutionEvent] = {}
@@ -54,6 +54,7 @@ AUTHORITATIVE_EXECUTION_STATES = {
     "BROKER_WORKING",
     "BROKER_QUEUED_FOR_RTH",
     "BROKER_REJECTED",
+    "BROKER_ENVIRONMENT_BLOCKED",
     "BROKER_CANCELLED",
     "BROKER_FILLED_PARTIAL",
     "BROKER_FILLED_FULL",
@@ -61,6 +62,8 @@ AUTHORITATIVE_EXECUTION_STATES = {
     "BROKER_INACTIVE_UNKNOWN",
     "NO_FILL_TIMEOUT_NON_TERMINAL",
     "NO_FILL_TIMEOUT_TERMINAL",
+    "BROKER_WORKING_UNFILLED",
+    "PREMARKET_LIMIT_RESTING",
     "BROKER_VISIBILITY_FAILURE",
 }
 
@@ -609,6 +612,8 @@ def _state_from_broker_status(status: str, filled_qty: int, remaining_qty: int) 
 
 def _normalize_broker_reject_reason(*, code: int | None, message: str, status: str) -> str:
     text = f"{message} {status}".upper()
+    if code == 10197:
+        return "BROKER_ENV_COMPETING_SESSION_MD"
     if code == 201:
         if "CLOSING" in text:
             return "REGULATORY_CLOSING_ONLY"
@@ -617,7 +622,7 @@ def _normalize_broker_reject_reason(*, code: int | None, message: str, status: s
         return "OUTSIDE_RTH_IGNORED_WARNING"
     if code == 399 or "09:30" in text or "WILL NOT BE PLACED" in text:
         return "QUEUED_UNTIL_RTH_WARNING"
-    if "PERMISSION" in text or "RESTRICT" in text:
+    if "PERMISSION" in text or "RESTRICT" in text or "NOT ALLOWED" in text or "INELIGIBLE" in text:
         return "PERMISSION_SMALL_CAP_OPENING_RESTRICTED"
     if "REJECT" in text or "INACTIVE" in text:
         return "UNKNOWN_BROKER_REJECT"
@@ -633,6 +638,8 @@ def _resolve_authoritative_execution_state(row: TrackedOrder | None) -> str:
         return "BROKER_FILLED_PARTIAL"
     if row.reject_seen:
         return "BROKER_REJECTED"
+    if row.normalized_reject_reason == "BROKER_ENV_COMPETING_SESSION_MD":
+        return "BROKER_ENVIRONMENT_BLOCKED"
     if row.cancelled_seen:
         return "BROKER_CANCELLED"
     if row.expired_seen:
@@ -1062,8 +1069,17 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 tracked.reject_seen = True
             if normalized_reason == "QUEUED_UNTIL_RTH_WARNING":
                 tracked.queued_for_rth_seen = True
+            if normalized_reason == "BROKER_ENV_COMPETING_SESSION_MD":
+                tracked.working_seen = False
+                tracked.reject_seen = False
+                tracked.inactive_seen = False
+                tracked.final_execution_state = "BROKER_ENVIRONMENT_BLOCKED"
             tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
         _BROKER_ERRORS_BY_ORDER_ID.setdefault(int(order_id), []).append({"code": code, "message": message, "normalized": normalized_reason})
+        print(
+            "[EXECUTION][BROKER_REJECT_NORMALIZED] "
+            f"order_id={order_id} code={code} status={event_status or 'UNKNOWN'} normalized_reason={normalized_reason or 'NONE'}"
+        )
         if normalized_reason == "OUTSIDE_RTH_IGNORED_WARNING":
             if tracked is not None:
                 tracked.queued_for_rth_seen = True
@@ -1072,6 +1088,11 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             print(f"[EXECUTION][PREMARKET_ROUTE_VERDICT] order_id={order_id} normalized_reject_reason={normalized_reason}")
         if normalized_reason == "QUEUED_UNTIL_RTH_WARNING":
             print(f"[EXECUTION][QUEUED_FOR_RTH] order_id={order_id} message={message}")
+        if normalized_reason == "BROKER_ENV_COMPETING_SESSION_MD":
+            print(
+                "[EXECUTION][BROKER_ENV] "
+                f"order_id={order_id} classification=BROKER_ENVIRONMENT_BLOCKED reason={normalized_reason} code={code}"
+            )
         if normalized_reason in {"PERMISSION_SMALL_CAP_OPENING_RESTRICTED", "REGULATORY_CLOSING_ONLY", "UNKNOWN_BROKER_REJECT"}:
             print(f"[EXECUTION][PERMISSION_REJECT] order_id={order_id} code={code} normalized_reject_reason={normalized_reason}")
     elif event_type == "position":
@@ -1364,13 +1385,18 @@ def _post_submission_ibkr_diagnostics(
         tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
         if int(tracked.filled_qty) <= 0:
             timeout_state = "NO_FILL_TIMEOUT_TERMINAL"
-            if tracked.final_execution_state in {"BROKER_WORKING", "BROKER_QUEUED_FOR_RTH", "BROKER_ACK_SEEN", "DISPATCH_SENT"}:
+            if tracked.final_execution_state == "BROKER_ENVIRONMENT_BLOCKED":
+                timeout_state = "BROKER_ENVIRONMENT_BLOCKED"
+            elif tracked.final_execution_state == "BROKER_WORKING":
+                timeout_state = "PREMARKET_LIMIT_RESTING" if tracked.is_entry and str(tracked.broker_status or "").upper() == "PRESUBMITTED" else "BROKER_WORKING_UNFILLED"
+            elif tracked.final_execution_state in {"BROKER_QUEUED_FOR_RTH", "BROKER_ACK_SEEN", "DISPATCH_SENT"}:
                 timeout_state = "NO_FILL_TIMEOUT_NON_TERMINAL"
-            tracked.final_execution_state = timeout_state if tracked.final_execution_state not in {"BROKER_QUEUED_FOR_RTH", "BROKER_WORKING"} else tracked.final_execution_state
+            tracked.final_execution_state = timeout_state if tracked.final_execution_state not in {"BROKER_QUEUED_FOR_RTH"} else tracked.final_execution_state
             tracked.terminal = timeout_state == "NO_FILL_TIMEOUT_TERMINAL"
             print(
-                f"[EXECUTION][NO_FILL_TIMEOUT] symbol={tracked.symbol} order_id={int(order_id)} "
-                f"seconds_waited={no_fill_timeout_seconds} classification={tracked.final_execution_state}"
+                "[EXECUTION][NO_FILL_CLASSIFICATION] "
+                f"symbol={tracked.symbol} order_id={int(order_id)} seconds_waited={no_fill_timeout_seconds} "
+                f"classification={tracked.final_execution_state} broker_status={tracked.broker_status}"
             )
     open_order_callback_count = sum(
         1
@@ -1535,6 +1561,75 @@ def _safe_price_value(value: Any) -> float | None:
     return parsed
 
 
+def _read_env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return float(default)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        print(f"[EXECUTION][WARN] invalid_float_env name={name} raw={raw} default={default}")
+        return float(default)
+
+
+def _resolve_order_profile(*, side: str, symbol: str) -> dict[str, Any]:
+    session_state = resolve_session_state()
+    session_label = str(getattr(session_state, "value", session_state) or "UNKNOWN").upper()
+    outside_rth = session_state != SessionState.REG
+    position_qty = int((_RUNTIME_POSITIONS.get(str(symbol or "").upper()) or TrackedPosition(symbol=symbol)).qty)
+    is_exit = str(side or "").upper() == "SELL" and position_qty > 0
+    profile = {
+        "session": session_label,
+        "outside_rth": outside_rth,
+        "is_exit": is_exit,
+        "requires_limit": outside_rth,
+    }
+    print(
+        "[EXECUTION][ORDER_PROFILE] "
+        f"symbol={str(symbol or '').upper()} side={str(side or '').upper()} "
+        f"session={session_label} outside_rth={outside_rth} is_exit={is_exit} "
+        f"order_type_candidate={'LMT' if outside_rth else 'MKT'}"
+    )
+    return profile
+
+
+def _derive_limit_price(
+    *,
+    symbol: str,
+    side: str,
+    profile: dict[str, Any],
+    fallback_entry_price: float | None,
+) -> tuple[float | None, str]:
+    snapshot = _wait_for_ibkr_snapshot_for_symbol(symbol, wait_up_to=1.2, poll_interval=0.1)
+    ask = _safe_price_value(snapshot.get("ask")) if snapshot else None
+    bid = _safe_price_value(snapshot.get("bid")) if snapshot else None
+    last = _safe_price_value(snapshot.get("last")) if snapshot else None
+    print(
+        "[EXECUTION][PRICE_SOURCE] "
+        f"symbol={symbol} side={side} outside_rth={bool(profile.get('outside_rth'))} "
+        f"ask={ask} bid={bid} last={last} fallback_entry_price={fallback_entry_price}"
+    )
+
+    side_norm = str(side or "").upper()
+    is_exit = bool(profile.get("is_exit"))
+    if side_norm == "BUY":
+        anchor = ask or last or fallback_entry_price
+        source = "ASK" if ask is not None else ("LAST" if last is not None else "ENTRY_PRICE")
+        offset = max(0.0, _read_env_float("PREMARKET_ENTRY_LIMIT_OFFSET_ABS", 0.02))
+        if anchor is None:
+            return None, "UNAVAILABLE"
+        return max(0.01, float(anchor) + offset), f"{source}+ENTRY_OFFSET_ABS"
+    # SELL
+    anchor = bid or last or fallback_entry_price
+    source = "BID" if bid is not None else ("LAST" if last is not None else "ENTRY_PRICE")
+    offset = max(0.0, _read_env_float("PREMARKET_EXIT_LIMIT_OFFSET_ABS", 0.02))
+    if anchor is None:
+        return None, "UNAVAILABLE"
+    signed_offset = -offset if is_exit else offset
+    mode = "EXIT_OFFSET_ABS_NEG" if is_exit else "ENTRY_SELL_OFFSET_ABS_POS"
+    return max(0.01, float(anchor) + signed_offset), f"{source}+{mode}"
+
+
 def _wait_for_ibkr_snapshot_for_symbol(symbol: str, *, wait_up_to: float = 1.0, poll_interval: float = 0.1) -> dict[str, float | None]:
     normalized_symbol = str(symbol or "").upper().strip()
     if not normalized_symbol:
@@ -1581,6 +1676,7 @@ def _submit_ibkr_order(
     quantity: int,
     order_ref: str,
     intent_id: str = "",
+    fallback_entry_price: float | None = None,
 ) -> int:
     global _CONTRACT_VALIDATION_FAILURES
     assert isinstance(symbol, str)
@@ -1623,10 +1719,34 @@ def _submit_ibkr_order(
     order.eTradeOnly = False
     order.firmQuoteOnly = False
     order.action = side.upper()
-    order.orderType = "MKT"
+    order_profile = _resolve_order_profile(side=side, symbol=symbol)
+    order.orderType = "LMT" if bool(order_profile.get("requires_limit")) else "MKT"
     order.totalQuantity = int(quantity)
     order.tif = "DAY"
-    order.outsideRth = True
+    order.outsideRth = bool(order_profile.get("outside_rth"))
+    if order.orderType == "LMT":
+        limit_price, limit_source = _derive_limit_price(
+            symbol=str(symbol or "").upper(),
+            side=str(side or "").upper(),
+            profile=order_profile,
+            fallback_entry_price=fallback_entry_price,
+        )
+        if limit_price is None:
+            print(
+                "[EXECUTION][BROKER_ENV] "
+                f"symbol={symbol} stage=pre_submit reason=NO_LIMIT_PRICE_AVAILABLE "
+                f"session={order_profile.get('session')}"
+            )
+            raise RuntimeError("NO_LIMIT_PRICE_AVAILABLE_OUTSIDE_RTH")
+        order.lmtPrice = float(limit_price)
+        resting = "RESTING_LIMIT"
+        if str(order.action).upper() == "BUY" and fallback_entry_price is not None and order.lmtPrice >= float(fallback_entry_price):
+            resting = "MARKETABLE_LIMIT"
+        print(
+            "[EXECUTION][LIMIT_PRICE] "
+            f"symbol={symbol} side={order.action} session={order_profile.get('session')} "
+            f"lmtPrice={order.lmtPrice} source={limit_source} profile={resting}"
+        )
     order.orderRef = order_ref
     account = getattr(client, "get_primary_account", lambda: None)() if hasattr(client, "get_primary_account") else None
     if account:
@@ -1668,7 +1788,8 @@ def _submit_ibkr_order(
     print(
         "[IBKR][PLACE_ORDER][START] "
         f"symbol={symbol} order_id=PENDING client_id={getattr(client, 'client_id', None)} account={account or 'UNKNOWN'} "
-        f"order_type={getattr(order, 'orderType', 'MKT')} tif={getattr(order, 'tif', 'DAY')} qty={quantity} side={side}"
+        f"order_type={getattr(order, 'orderType', 'MKT')} tif={getattr(order, 'tif', 'DAY')} "
+        f"qty={quantity} side={side} lmtPrice={getattr(order, 'lmtPrice', None)}"
     )
     try:
         order_id = int(client.submit_order(resolved_contract, order))
@@ -1747,6 +1868,10 @@ def execute_intents(
 
     broker_state = "CONNECTED" if mode in {RunMode.PAPER, RunMode.LIVE} else "DISCONNECTED"
     print(f"[EXECUTION][MODE] mode={mode.value} broker_connection_state={broker_state}")
+    print(
+        "[EXECUTION][FILL_AUTHORITY] "
+        f"mode={mode.value} authority=execDetails state={_FILL_AUTHORITY_STATE or 'UNKNOWN'}"
+    )
     open_orders, _executions, positions = _normalize_ibkr_truth(_fetch_ibkr_truth(mode))
     has_working_order_recon = hasattr(open_orders, "__iter__")
     if mode in {RunMode.PAPER, RunMode.LIVE} and not has_working_order_recon:
@@ -1994,6 +2119,7 @@ def execute_intents(
                         quantity=payload["quantity"],
                         order_ref=payload["order_ref"],
                         intent_id=str(decision.intent_id or ""),
+                        fallback_entry_price=_safe_price_value(getattr(decision, "entry_price", None)),
                     )
                 else:
                     broker_order_id = index
@@ -2156,6 +2282,10 @@ def execute_intents(
             event.event_type = "ORDER_REJECTED"
             event.broker_status = "Rejected"
             event.action = "BLOCKED"
+        elif final_state == "BROKER_ENVIRONMENT_BLOCKED":
+            event.event_type = "ORDER_ENV_BLOCKED"
+            event.broker_status = "Inactive"
+            event.action = "BLOCKED"
         elif final_state == "BROKER_FILLED_FULL":
             event.event_type = "ORDER_FILLED"
             event.broker_status = "Filled"
@@ -2165,6 +2295,9 @@ def execute_intents(
         elif final_state == "BROKER_QUEUED_FOR_RTH":
             event.event_type = "ORDER_QUEUED_FOR_RTH"
             event.broker_status = "PreSubmitted"
+        elif final_state in {"PREMARKET_LIMIT_RESTING", "BROKER_WORKING_UNFILLED"}:
+            event.event_type = "ORDER_WORKING"
+            event.broker_status = "PreSubmitted" if final_state == "PREMARKET_LIMIT_RESTING" else "Submitted"
         elif final_state == "BROKER_WORKING":
             event.event_type = "ORDER_WORKING"
         event.detail = (
@@ -2192,4 +2325,8 @@ def execute_intents(
     )
     if _FILL_AUTHORITY_STATE == "UNKNOWN":
         _FILL_AUTHORITY_STATE = "ACTIVE" if mode in {RunMode.PAPER, RunMode.LIVE} else "N/A"
+    print(
+        "[EXECUTION][FILL_AUTHORITY] "
+        f"mode={mode.value} authority=execDetails state={_FILL_AUTHORITY_STATE}"
+    )
     return events
