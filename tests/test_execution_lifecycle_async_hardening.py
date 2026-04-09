@@ -13,6 +13,8 @@ def _reset_router() -> None:
     order_router._SEEN_EXEC_IDS.clear()
     order_router._EXECUTION_EVENT_BUFFER.clear()
     order_router._UNMATCHED_CALLBACK_COUNT = 0
+    order_router._RECONCILIATION_SUCCESSES = 0
+    order_router._RECONCILIATION_FAILURES = 0
     order_router._RECONCILED_ORDERS_COUNT = 0
     order_router._RECONCILED_POSITIONS_COUNT = 0
     order_router._RECON_RESYNC_NEEDED = False
@@ -263,6 +265,30 @@ def test_execdetails_callback_reconciles_via_order_ref(monkeypatch, capsys) -> N
     assert order_router._RUNTIME_ORDERS[oid].filled_qty == 10
 
 
+def test_execdetails_unknown_order_id_backfills_instead_of_unmatched(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    unknown_order_id = 987654
+
+    order_router._on_ibkr_callback(
+        {
+            "event_type": "execDetails",
+            "order_id": unknown_order_id,
+            "symbol": "abcd ",
+            "shares": 7,
+            "price": 21.5,
+            "execId": "BF1",
+        }
+    )
+    out = capsys.readouterr().out
+
+    assert "[EXECUTION][FORCED_BACKFILL]" in out
+    assert "[ORDER_EVENT][UNMATCHED] event=EXECUTION" not in out
+    assert unknown_order_id in order_router._RUNTIME_ORDERS
+    assert order_router._RUNTIME_ORDERS[unknown_order_id].filled_qty == 7
+    assert order_router._RUNTIME_ORDERS[unknown_order_id].symbol == "ABCD"
+
+
 def test_unmatched_callback_without_order_id_or_order_ref_does_not_fabricate_order(monkeypatch, capsys) -> None:
     _reset_router()
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
@@ -270,11 +296,11 @@ def test_unmatched_callback_without_order_id_or_order_ref_does_not_fabricate_ord
     existing_order_ids = set(order_router._RUNTIME_ORDERS.keys())
     order_router._on_ibkr_callback({"event_type": "execDetails", "symbol": "ABCD", "shares": 10, "price": 21.0, "execId": "MISS1"})
     out = capsys.readouterr().out
-    assert "[ORDER_EVENT][UNMATCHED]" in out
-    assert "[EXECUTION][RECONCILIATION_FAILED]" in out
+    assert "[ORDER_EVENT][UNMATCHED]" not in out
+    assert "[EXECUTION][RECONCILIATION_FAILED]" not in out
     assert set(order_router._RUNTIME_ORDERS.keys()) == existing_order_ids
     assert order_router._UNMATCHED_CALLBACK_COUNT >= 1
-    assert order_router._UNRESOLVED_EXECUTION_RECONCILIATION_COUNT >= 1
+    assert order_router._UNRESOLVED_EXECUTION_RECONCILIATION_COUNT == 0
     assert order_router._RUNTIME_ORDERS[events[0].broker_order_id].filled_qty == 0
 
 
@@ -285,7 +311,8 @@ def test_no_symbol_based_order_ref_fallback(monkeypatch, capsys) -> None:
     order_router._on_ibkr_callback({"event_type": "execDetails", "orderRef": "ABCD", "symbol": "ABCD", "shares": 10, "price": 20.0, "execId": "SYMB1"})
     out = capsys.readouterr().out
     assert "[ORDER_EVENT][RECONCILED] source=orderRef order_ref=ABCD" not in out
-    assert "[EXECUTION][RECONCILIATION_FAILED]" in out
+    assert "[EXECUTION][RECONCILIATION_FAILED]" not in out
+    assert order_router._UNMATCHED_CALLBACK_COUNT >= 1
 
 
 def test_execution_cycle_emits_summary_and_failure_classification(monkeypatch, capsys) -> None:
