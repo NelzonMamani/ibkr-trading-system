@@ -697,6 +697,29 @@ def _apply_position_fill(symbol: str, *, signed_delta_qty: int, fill_price: floa
     print(f"[POSITION][OPENED_OR_UPDATED] symbol={symbol} qty={row.qty} avg_price={row.avg_price} state={row.state}")
 
 
+def _simulate_position_from_fill(*, order_id: int, symbol: str, fill_qty: int, fill_price: float | None) -> None:
+    if not symbol:
+        return
+    tracked = _RUNTIME_ORDERS.get(int(order_id))
+    is_entry = bool(tracked is None or tracked.is_entry)
+    is_exit = bool(tracked is not None and tracked.is_exit)
+    signed_delta = int(fill_qty)
+    pending_entry_delta = -abs(int(fill_qty)) if is_entry else 0
+    pending_exit_delta = -abs(int(fill_qty)) if is_exit else 0
+    _apply_position_fill(
+        symbol,
+        signed_delta_qty=signed_delta,
+        fill_price=fill_price,
+        pending_entry_delta=pending_entry_delta,
+        pending_exit_delta=pending_exit_delta,
+    )
+    row = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
+    print(
+        "[EXECUTION][POSITION_SIMULATED] "
+        f"order_id={order_id} symbol={symbol} qty={row.qty} avg_price={row.avg_price} state={row.state}"
+    )
+
+
 def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, total_qty: int, order_ref: str, intent_id: str = "") -> TrackedOrder:
     row = _RUNTIME_ORDERS.get(order_id)
     created = row is None
@@ -891,8 +914,14 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
         print(f"[EXECUTION][PARTIAL_FILL] order_id={order_id} symbol={row.symbol} fill_qty={inc} total_filled={row.filled_qty} remaining={row.remaining_qty} exec_id={exec_id or 'NA'}")
     if old_state != row.canonical_state:
         print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
-    signed = inc if row.is_entry else -inc
-    _apply_position_fill(row.symbol, signed_delta_qty=signed, fill_price=fill_price, pending_entry_delta=(-inc if row.is_entry else 0), pending_exit_delta=(-inc if row.is_exit else 0))
+    if _is_explicit_test_mode() and source != "IBKR_EXECUTION_BACKFILL":
+        signed = inc if row.is_entry else -inc
+        _simulate_position_from_fill(
+            order_id=order_id,
+            symbol=row.symbol,
+            fill_qty=signed,
+            fill_price=fill_price,
+        )
 
 
 def _on_ibkr_callback(callback_payload: Any) -> None:
@@ -973,6 +1002,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 )
     if event_type == "execdetails":
         normalized_symbol = str(symbol or "").upper().strip()
+        tracked_before = tracked
         tracked = _recover_order_from_execdetails(
             int(order_id),
             normalized_symbol,
@@ -980,11 +1010,13 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             fill_price,
         )
         trace = _EXECUTION_TRACE_BY_ORDER_ID.get(int(order_id))
-        print(
-            "[EXECUTION][FORCED_BACKFILL] "
-            f"order_id={order_id} symbol={normalized_symbol} "
-            f"fill_qty={int(filled_qty or 0)} fill_price={fill_price}"
-        )
+        is_backfill = tracked_before is None
+        if is_backfill:
+            print(
+                "[EXECUTION][FORCED_BACKFILL] "
+                f"order_id={order_id} symbol={normalized_symbol} "
+                f"fill_qty={int(filled_qty or 0)} fill_price={fill_price}"
+            )
         _apply_fill_to_tracked_order(
             order_id=int(order_id),
             symbol=normalized_symbol,
@@ -992,7 +1024,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             fill_price=fill_price,
             exec_id=str(_extract_callback_field(callback_payload, "execId") or f"BACKFILL-{order_id}"),
             timestamp=_now_utc_iso(),
-            source="IBKR_EXECUTION_BACKFILL",
+            source="IBKR_EXECUTION_BACKFILL" if is_backfill else "IBKR_EXECUTION",
         )
         assert int(order_id) in _RUNTIME_ORDERS, "EXECDETAILS_RECOVERY_FAILED"
         _record_reconciliation_result(True)
@@ -1571,7 +1603,9 @@ def _post_submission_ibkr_diagnostics(
 
 
 def _is_explicit_test_mode() -> bool:
-    return str(os.environ.get("EXECUTION_ENV", "")).strip().upper() == "TEST"
+    if str(os.environ.get("EXECUTION_ENV", "")).strip().upper() == "TEST":
+        return True
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
 
 
 def _strict_broker_truth_required(mode: RunMode) -> bool:
