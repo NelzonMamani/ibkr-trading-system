@@ -146,8 +146,8 @@ def test_submit_order_ack_enforced_in_strict_mode(monkeypatch) -> None:
 
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
     # In premarket, submission requires valid bid/ask.
-    # If unavailable, execution fails before ACK phase.
-    with pytest.raises(RuntimeError, match="(IBKR_ACKNOWLEDGEMENT_FAILED|NO_LIMIT_PRICE_AVAILABLE_OUTSIDE_RTH)"):
+    # If unavailable, execution now hard-blocks before submission.
+    with pytest.raises(RuntimeError, match="NO_QUOTE_CONTEXT"):
         order_router._submit_ibkr_order(
             mode=RunMode.PAPER,
             client=_Client(),
@@ -155,11 +155,10 @@ def test_submit_order_ack_enforced_in_strict_mode(monkeypatch) -> None:
             side="BUY",
             quantity=1,
             order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
+            entry_price=25.0,
+            entry_price_source="IBKR_SNAPSHOT",
         )
-    assert len(submitted_orders) == 1
-    assert getattr(submitted_orders[0], "outsideRth", None) is True
-    assert submitted_orders[0].tif == "DAY"
-    assert submitted_orders[0].orderType in {"MKT", "LMT", "STP", "STP LMT", "STP-LMT"}
+    assert len(submitted_orders) == 0
 
 
 @pytest.mark.parametrize("mode", [RunMode.PAPER, RunMode.LIVE])
