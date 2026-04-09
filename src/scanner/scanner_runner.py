@@ -78,6 +78,7 @@ from src.scanner.session_pct_change import (
 )
 from src.core.time.calendar_session import resolve_calendar_session
 from src.scanner.session_contract import attach_session_contract, build_canonical_session_contract
+from src.strategies.strategy_registry import build_default_registry
 
 
 _FLOAT_CACHE_STATE: Dict[str, Any] = {
@@ -95,6 +96,7 @@ _SCAN_CYCLE_COUNT = 0
 _LAST_PRINT_CYCLE = 0
 _LAST_BROKER_SCAN_TS: float | None = None
 _LAST_SCANNER_PAYLOAD: Dict[str, Any] | None = None
+_STRATEGY_REGISTRY = build_default_registry()
 NEWS_AGE_MAX_MINUTES = 360
 ETF_EXCLUDED_SYMBOLS = {"SPY", "QQQ", "DIA", "IWM"}
 NY_TZ = ZoneInfo("America/New_York")
@@ -1890,14 +1892,12 @@ def _enrich_news_context(
 
 
 def _rank_candidates(contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    def sort_key(item: Dict[str, Any]) -> tuple:
-        pct = _safe_float(item.get("pct_change"), -10**9)
-        rvol = _safe_float(item.get("rvol"), -10**9)
-        dvol = _safe_float(item.get("dollar_volume"), -10**9)
-        symbol = item.get("symbol", "")
-        return (-pct, -rvol, -dvol, symbol)
-
-    return sorted(contexts, key=sort_key)
+    strategy = _STRATEGY_REGISTRY.get("ross_momentum")
+    if strategy is None or not hasattr(strategy, "rank_candidates"):
+        print("[SCANNER][RANKING_SOURCE] source=PASS_THROUGH strategy=UNAVAILABLE")
+        return list(contexts)
+    print("[SCANNER][RANKING_SOURCE] source=STRATEGY strategy=ross_momentum")
+    return list(strategy.rank_candidates(list(contexts)))
 
 
 def _build_fast_rows(
@@ -3886,7 +3886,7 @@ def run_scanner_cycle(
             ordered_symbols = [context["symbol"] for context in ranked]
             print(
                 "[WATCHLIST][ORDER] "
-                f"symbols={ordered_symbols} ranking_basis=pct_change,rvol,dollar_volume"
+                f"symbols={ordered_symbols} ranking_basis=strategy:ross_momentum"
             )
         if selector is None and watchlist_limit > 0 and len(ranked) <= watchlist_limit:
             print(
@@ -4122,7 +4122,8 @@ def run_scanner_cycle(
             context.setdefault("rvol_phase", context.get("scanner_rvol"))
             context.setdefault("phase_volume_ratio", None)
 
-        watchlist_contexts = _rank_candidates(watchlist_contexts)
+        if selector is None:
+            watchlist_contexts = _rank_candidates(watchlist_contexts)
 
         print("[SCANNER][STAGE] enrich")
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]

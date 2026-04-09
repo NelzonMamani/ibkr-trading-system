@@ -1,0 +1,17 @@
+{
+  "generated_by": "M5_VERIFICATION_AUTHORITY",
+  "version": "1.0",
+  "certification_matrix": [
+    {
+      "strategy_id": "ross_momentum",
+      "epochs_validated": [
+        "E1",
+        "E2",
+        "E3",
+        "E14",
+        "E23"
+      ],
+      "verdict": "PASS"
+    }
+  ]
+}
