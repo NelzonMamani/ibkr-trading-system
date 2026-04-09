@@ -52,6 +52,7 @@ from src.core.trace_bus import TraceBus
 from src.core.decision_trace import DecisionTraceStore, SymbolDecisionTrace
 from src.execution.execution_engine import ExecutionEngine
 from src.execution.execution_providers import IbkrExecutionProvider
+from src.execution.trade_management_engine import TradeManagementEngine
 from src.core.managers import (
     ConnectionManager,
     MarketDataSnapshotManager,
@@ -461,6 +462,7 @@ class CoreOrchestrator:
         )
         self.execution_enabled = self.execution_engine.execution_enabled
         self.position_management_engine = PositionManagementEngine()
+        self.trade_management_engine = TradeManagementEngine(price_lookup=lambda symbol: float(self.price_feed.get_price(symbol)))
         self.trade_lifecycle_engine = TradeLifecycleEngine()
         self.risk_engine.set_trade_lifecycle_engine(self.trade_lifecycle_engine)
         self._broker_position_adapter = BrokerPositionSnapshotAdapter()
@@ -1968,6 +1970,52 @@ class CoreOrchestrator:
             )
             print(f"[POSITION_MANAGE] symbol={trade.symbol} state={getattr(trade.state, 'value', trade.state)}")
         self._last_position_management_tick_utc = now
+
+    def _run_trade_management_engine(self, execution_output: list[ExecutionResult]) -> list[object]:
+        for result in execution_output:
+            filled_qty = int(getattr(result, "filled_quantity", 0) or 0)
+            if filled_qty <= 0:
+                continue
+            symbol = str(getattr(result, "symbol", "") or "").upper()
+            if not symbol:
+                continue
+            entry_price = float(
+                getattr(result, "average_fill_price", None)
+                or getattr(result, "entry_price", None)
+                or getattr(result, "raw_price", None)
+                or 0.0
+            )
+            if entry_price <= 0:
+                continue
+            exec_id = str(
+                getattr(result, "execution_id", None)
+                or f"{symbol}:{getattr(result, 'ibkr_order_id', 'na')}:{filled_qty}:{entry_price}"
+            )
+            self.trade_management_engine.on_exec_details(
+                symbol=symbol,
+                shares=filled_qty,
+                price=entry_price,
+                exec_id=exec_id,
+            )
+
+        intents = self.trade_management_engine.evaluate_cycle({})
+        for intent in intents:
+            print(
+                "[TRADE_MANAGEMENT][INTENT] "
+                f"action={getattr(intent, 'action', 'UNKNOWN')} symbol={getattr(intent, 'symbol', 'UNKNOWN')} "
+                f"qty={getattr(intent, 'quantity', 0)} reason={getattr(intent, 'reason', 'UNKNOWN')}"
+            )
+            self.event_collector.emit(
+                event_type="TRADE_MANAGEMENT_INTENT",
+                source="TradeManagementEngine",
+                payload={
+                    "action": getattr(intent, "action", "UNKNOWN"),
+                    "symbol": getattr(intent, "symbol", "UNKNOWN"),
+                    "quantity": int(getattr(intent, "quantity", 0) or 0),
+                    "reason": getattr(intent, "reason", "UNKNOWN"),
+                },
+            )
+        return intents
 
     def _detect_unprotected_positions(self, open_positions: list[ActiveTrade], *, stage: str) -> None:
         for trade in open_positions:
@@ -4055,6 +4103,7 @@ class CoreOrchestrator:
             summary=f"action={action_label} orders={len(orders_payload)}",
         )
         print("[TEACH] <<< Execution stage complete — moving to strategy exit stage.")
+        self._run_trade_management_engine(execution_output)
         if self._stop_requested_at_boundary("EXECUTION"):
             return False
 
