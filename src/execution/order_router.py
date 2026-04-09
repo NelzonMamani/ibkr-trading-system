@@ -1159,25 +1159,39 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
 
 def _apply_callback_fills(events: List[ExecutionEvent]) -> tuple[List[ExecutionEvent], int]:
     fills_applied = 0
+    callback_events: list[ExecutionEvent] = []
     for event in events:
         if event.action != "SUBMITTED" or event.broker_order_id is None:
             continue
         callback_fill = _EXECUTION_EVENT_BUFFER.pop(int(event.broker_order_id), None)
         if callback_fill is None:
             continue
-        event.event_type = callback_fill.event_type
-        event.source = callback_fill.source
-        event.broker_status = callback_fill.broker_status
-        event.filled_quantity = int(callback_fill.filled_quantity or 0)
+        filled_quantity = int(callback_fill.filled_quantity or 0)
         callback_remaining = int(callback_fill.remaining_quantity or 0)
         if callback_remaining > 0:
-            event.remaining_quantity = callback_remaining
+            remaining_quantity = callback_remaining
         else:
             base_remaining = int(event.remaining_quantity or 0)
-            event.remaining_quantity = max(0, base_remaining - event.filled_quantity)
-        event.avg_fill_price = callback_fill.avg_fill_price
-        event.last_update_time = callback_fill.last_update_time or _now_utc_iso()
+            remaining_quantity = max(0, base_remaining - filled_quantity)
+        callback_events.append(
+            ExecutionEvent(
+                symbol=event.symbol,
+                intent_id=event.intent_id,
+                action=callback_fill.action,
+                detail=callback_fill.detail,
+                event_type=callback_fill.event_type,
+                source=callback_fill.source,
+                broker_order_id=event.broker_order_id,
+                filled_quantity=filled_quantity,
+                remaining_quantity=remaining_quantity,
+                broker_status=callback_fill.broker_status,
+                avg_fill_price=callback_fill.avg_fill_price,
+                last_update_time=callback_fill.last_update_time or _now_utc_iso(),
+            )
+        )
         fills_applied += 1
+    if callback_events:
+        events.extend(callback_events)
     return events, fills_applied
 
 
@@ -1833,7 +1847,13 @@ def execute_intents(
     if mode in {RunMode.PAPER, RunMode.LIVE} and not has_working_order_recon:
         _FILL_AUTHORITY_STATE = "DEGRADED"
         print("[EXECUTION][FILL_AUTHORITY_DEGRADED] reason=broker_fill_reconciliation_unavailable")
-    existing_position_symbols = {str(getattr(row, "symbol", "") or "").upper() for row in positions}
+    existing_position_sources: dict[str, str] = {}
+    for row in positions:
+        symbol = str(getattr(row, "symbol", "") or "").upper()
+        if not symbol:
+            continue
+        existing_position_sources[symbol] = str(getattr(row, "source", "") or "IBKR").upper()
+    existing_position_symbols = set(existing_position_sources.keys())
     working_order_candidates: list[dict[str, Any]] = []
     for row in open_orders:
         symbol = _extract_symbol_from_order(row)
@@ -1920,23 +1940,12 @@ def execute_intents(
                 f"existing_status={duplicate_status} reason={duplicate_reason}"
             )
             break
-        if order_side == "BUY" and duplicate_symbol in existing_position_symbols:
-            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
-            _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_position")
-            events.append(
-                ExecutionEvent(
-                    symbol=decision.symbol,
-                    intent_id=decision.intent_id,
-                    action="BLOCKED",
-                    detail="reason=DUPLICATE_POSITION",
-                    broker_status="REJECTED",
-                    last_update_time=_now_utc_iso(),
-                )
-            )
-            continue
-        if working_duplicate:
+        duplicate_working_order_detected = working_duplicate
+        returned_reason = ""
+        if duplicate_working_order_detected:
+            returned_reason = "DUPLICATE_WORKING_ORDER"
             print(
-                f"[EXECUTION][DUPLICATE_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_WORKING_ORDER "
+                f"[EXECUTION][DUPLICATE_BLOCK] symbol={duplicate_symbol} reason={returned_reason} "
                 f"existing_order_id={duplicate_order_id} existing_broker_state={duplicate_status} conflict_reason={duplicate_reason}"
             )
             _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_working_order")
@@ -1945,11 +1954,36 @@ def execute_intents(
                     symbol=decision.symbol,
                     intent_id=decision.intent_id,
                     action="BLOCKED",
-                    detail="reason=DUPLICATE_WORKING_ORDER",
+                    detail=f"reason={returned_reason}",
+                    event_type="ORDER_REJECTED",
                     broker_status="REJECTED",
                     last_update_time=_now_utc_iso(),
                 )
             )
+            assert not (
+                duplicate_working_order_detected and returned_reason == "DUPLICATE_POSITION"
+            ), "INVALID_DUPLICATE_CLASSIFICATION_PRIORITY"
+            continue
+        local_position_exists = duplicate_symbol in existing_position_symbols
+        local_position_source = existing_position_sources.get(duplicate_symbol, "UNKNOWN")
+        if order_side == "BUY" and local_position_exists and local_position_source != "IBKR_BACKFILL":
+            returned_reason = "DUPLICATE_POSITION"
+            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={returned_reason}")
+            _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_position")
+            events.append(
+                ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail=f"reason={returned_reason}",
+                    event_type="ORDER_REJECTED",
+                    broker_status="REJECTED",
+                    last_update_time=_now_utc_iso(),
+                )
+            )
+            assert not (
+                duplicate_working_order_detected and returned_reason == "DUPLICATE_POSITION"
+            ), "INVALID_DUPLICATE_CLASSIFICATION_PRIORITY"
             continue
         if not str(decision.intent_id or "").strip():
             print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=MISSING_ORDER_REF_COMPONENT")
@@ -2135,7 +2169,7 @@ def execute_intents(
                 action=action,
                 detail=detail,
                 broker_order_id=broker_order_id,
-                event_type="ORDER_WORKING" if action == "SUBMITTED" else action,
+                event_type="ORDER_SUBMITTED" if action == "SUBMITTED" else action,
                 broker_status="Submitted" if action == "SUBMITTED" else ("REJECTED" if action == "BLOCKED" else "SIMULATED"),
                 source="IBKR" if action == "SUBMITTED" else "ENGINE",
                 filled_quantity=0,
@@ -2234,20 +2268,21 @@ def execute_intents(
             continue
         final_state = _resolve_authoritative_execution_state(tracked)
         tracked.final_execution_state = final_state
-        if final_state == "BROKER_REJECTED":
+        preserve_initial_submission = event.event_type == "ORDER_SUBMITTED"
+        if final_state == "BROKER_REJECTED" and not preserve_initial_submission:
             event.event_type = "ORDER_REJECTED"
             event.broker_status = "Rejected"
             event.action = "BLOCKED"
-        elif final_state == "BROKER_FILLED_FULL":
+        elif final_state == "BROKER_FILLED_FULL" and not preserve_initial_submission:
             event.event_type = "ORDER_FILLED"
             event.broker_status = "Filled"
-        elif final_state == "BROKER_FILLED_PARTIAL":
+        elif final_state == "BROKER_FILLED_PARTIAL" and not preserve_initial_submission:
             event.event_type = "ORDER_PARTIALLY_FILLED"
             event.broker_status = "Submitted"
-        elif final_state == "BROKER_QUEUED_FOR_RTH":
+        elif final_state == "BROKER_QUEUED_FOR_RTH" and not preserve_initial_submission:
             event.event_type = "ORDER_QUEUED_FOR_RTH"
             event.broker_status = "PreSubmitted"
-        elif final_state == "BROKER_WORKING":
+        elif final_state == "BROKER_WORKING" and not preserve_initial_submission:
             event.event_type = "ORDER_WORKING"
         event.detail = (
             f"{event.detail}; final_execution_state={final_state}; "
