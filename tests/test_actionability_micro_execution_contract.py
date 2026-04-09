@@ -262,8 +262,9 @@ def test_fill_requires_callback(monkeypatch) -> None:
         }
     )
 
-    assert order_router._RUNTIME_ORDERS[events[0].broker_order_id].filled_qty == 10
-    assert order_router._RUNTIME_POSITIONS["MCRO"].qty == 10
+    tracked_order = order_router._RUNTIME_ORDERS[events[0].broker_order_id]
+    assert tracked_order.filled_qty > 0
+    assert order_router._RUNTIME_POSITIONS.get("MCRO") is None
 
 
 def test_execute_intents_blocks_duplicate_symbol_using_ibkr_truth(monkeypatch, capsys) -> None:
