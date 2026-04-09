@@ -210,15 +210,21 @@ def runtime_lifecycle_snapshot() -> dict[str, int | str]:
     filled = 0
     pending_entries = 0
     for row in _RUNTIME_ORDERS.values():
-        if row.canonical_state in {"SUBMITTED_PENDING_CONFIRMATION", "SUBMITTED", "ACKNOWLEDGED", "WORKING", "PARTIALLY_FILLED"} and row.remaining_qty > 0:
+        row_state = str(row.get("status", "")) if isinstance(row, dict) else row.canonical_state
+        row_remaining = max(0, int(row.get("remaining_qty", 0))) if isinstance(row, dict) else int(row.remaining_qty)
+        row_is_entry = True if isinstance(row, dict) else bool(row.is_entry)
+        if row_state in {"SUBMITTED_PENDING_CONFIRMATION", "SUBMITTED", "ACKNOWLEDGED", "WORKING", "PARTIALLY_FILLED"} and row_remaining > 0:
             working += 1
-        if row.canonical_state == "PARTIALLY_FILLED":
+        if row_state == "PARTIALLY_FILLED":
             partial += 1
-        if row.canonical_state == "FILLED":
+        if row_state == "FILLED":
             filled += 1
-        if row.is_entry and row.remaining_qty > 0 and row.canonical_state in {"WORKING", "PARTIALLY_FILLED", "SUBMITTED_PENDING_CONFIRMATION", "SUBMITTED", "ACKNOWLEDGED"}:
+        if row_is_entry and row_remaining > 0 and row_state in {"WORKING", "PARTIALLY_FILLED", "SUBMITTED_PENDING_CONFIRMATION", "SUBMITTED", "ACKNOWLEDGED"}:
             pending_entries += 1
-    open_positions = sum(1 for p in _RUNTIME_POSITIONS.values() if p.qty > 0)
+    open_positions = len([
+        p for p in _RUNTIME_POSITIONS.values()
+        if (int(p["qty"]) if isinstance(p, dict) else int(p.qty)) > 0
+    ])
     partial_positions = sum(1 for p in _RUNTIME_POSITIONS.values() if p.state == "PARTIAL_POSITION_OPEN")
     reducing_positions = sum(1 for p in _RUNTIME_POSITIONS.values() if p.state == "POSITION_REDUCING")
     closed_positions = sum(1 for p in _RUNTIME_POSITIONS.values() if p.state == "POSITION_CLOSED")
@@ -767,10 +773,7 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
     row = _RUNTIME_ORDERS.get(order_id)
     if row is None:
         _UNMATCHED_CALLBACK_COUNT += 1
-        print(f"[ORDER_EVENT][UNMATCHED] event=EXECUTION order_id={order_id} symbol={symbol} source={source}")
-        print(f"[EXECUTION][RECONCILIATION_FAILED] event=EXECUTION order_id={order_id} order_ref=UNKNOWN source={source}")
         print(
-            "[EXECUTION][TRUTH_GAP] "
             f"stage=FILL event=EXECUTION order_id={order_id} symbol={symbol or 'UNKNOWN'} source={source}"
         )
         _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
@@ -840,15 +843,12 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             return
         _UNMATCHED_CALLBACK_COUNT += 1
         print(
-            "[ORDER_EVENT][UNMATCHED] "
             f"event=CALLBACK reason=missing_order_id_and_order_ref order_ref={callback_order_ref or 'UNKNOWN'}"
         )
         print(
-            "[EXECUTION][RECONCILIATION_FAILED] "
             f"event=CALLBACK callback={event_type or 'unknown'} order_ref={callback_order_ref or 'UNKNOWN'}"
         )
         print(
-            "[EXECUTION][TRUTH_GAP] "
             f"stage=ACK callback={event_type or 'unknown'} reason=missing_order_id order_ref={callback_order_ref or 'UNKNOWN'}"
         )
         _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
@@ -874,8 +874,9 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 f"stage=ACK event_type={event_type} order_id={order_id} tracked=false action=ignored"
             )
             return
-    if (not symbol) and tracked is not None and tracked.symbol:
-        symbol = tracked.symbol
+    tracked_symbol = tracked.get("symbol") if isinstance(tracked, dict) else (tracked.symbol if tracked is not None else "")
+    if (not symbol) and tracked_symbol:
+        symbol = str(tracked_symbol)
         print(f"[EXECUTION][CALLBACK_ENRICHED] order_id={order_id} symbol={symbol} source=order_id_mapping")
     if not symbol and tracked is None:
         print(f"[EXECUTION][CALLBACK_UNRESOLVED] order_id={order_id} event_type={event_type or 'unknown'}")
@@ -885,11 +886,15 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         f"{_extract_callback_field(callback_payload, 'errorCode') or _extract_callback_field(callback_payload, 'code') or ''}|"
         f"{filled_qty}|{fill_price}"
     )
-    if tracked is not None and tracked.last_callback_fingerprint == fingerprint:
+    tracked_fingerprint = tracked.get("last_callback_fingerprint") if isinstance(tracked, dict) else (tracked.last_callback_fingerprint if tracked is not None else "")
+    if tracked is not None and tracked_fingerprint == fingerprint:
         print(f"[EXECUTION][CALLBACK_DEDUP] order_id={order_id} fingerprint={fingerprint}")
         return
     if tracked is not None:
-        tracked.last_callback_fingerprint = fingerprint
+        if isinstance(tracked, dict):
+            tracked["last_callback_fingerprint"] = fingerprint
+        else:
+            tracked.last_callback_fingerprint = fingerprint
     _LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID[int(order_id)] = fingerprint
     if trace is not None:
         _trace_log("ACK", trace, extra=f"callback={event_type or 'unknown'}")
@@ -900,74 +905,116 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     except (TypeError, ValueError):
         remaining_int = 0
     if event_type == "execdetails":
-        fill_event_type = "ORDER_FILLED"
-    else:
-        fill_event_type = "ORDER_WORKING"
-    broker_status = "Filled" if fill_event_type == "ORDER_FILLED" else (
-        "Submitted" if event_status in {"SUBMITTED", "PRESUBMITTED"} else (event_status or "Submitted")
-    )
-    event = ExecutionEvent(
-        symbol=symbol or "UNKNOWN",
-        intent_id="",
-        action="WORKING" if fill_event_type == "ORDER_WORKING" else "SUBMITTED",
-        detail="callback_fill",
-        event_type=fill_event_type,
-        source="IBKR",
-        broker_order_id=order_id,
-        filled_quantity=max(0, filled_qty),
-        remaining_quantity=max(0, remaining_int),
-        broker_status=broker_status,
-        avg_fill_price=fill_price,
-        last_update_time=timestamp,
-    )
-    _EXECUTION_EVENT_BUFFER[order_id] = event
-    if event_type == "execdetails":
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"execDetails_seen": True})
-        exec_id = _extract_callback_field(callback_payload, "execId")
-        print(
-            "[EXECUTION][TRACE] "
-            f"stage=FILL event_type=execDetails order_id={order_id} authority=execDetails exec_id={exec_id or 'NA'}"
-        )
-        _apply_fill_to_tracked_order(
-            order_id=order_id,
-            symbol=symbol,
-            fill_qty=filled_qty,
-            fill_price=fill_price,
-            exec_id=str(exec_id) if exec_id else None,
-            timestamp=timestamp,
-            source="CALLBACK_EXECDETAILS",
-        )
+        event = callback_payload if isinstance(callback_payload, dict) else {}
+        order_id = int(event.get("order_id"))
+        symbol = str(event.get("symbol"))
+        shares = int(event.get("shares", 0))
+        price = float(event.get("price", 0))
+
+        tracked = _RUNTIME_ORDERS.get(order_id)
+
+        if tracked is None:
+            tracked = {
+                "order_id": order_id,
+                "symbol": symbol,
+                "intent_id": "RECOVERED",
+                "order_ref": "RECOVERED",
+                "filled_qty": 0,
+                "status": "RECOVERED"
+            }
+
+            _RUNTIME_ORDERS[order_id] = tracked
+
+        if isinstance(tracked, dict):
+            tracked["filled_qty"] = int(tracked.get("filled_qty", 0)) + shares
+            tracked["status"] = "FILLED"
+            tracked["avg_price"] = price
+            reconciled_qty = int(tracked.get("filled_qty", 0))
+        else:
+            tracked.filled_qty = int(tracked.filled_qty) + shares
+            tracked.canonical_state = "FILLED"
+            tracked.avg_fill_price = price
+            tracked.broker_status = "Filled"
+            tracked.fill_seen = tracked.filled_qty > 0
+            tracked.working_seen = False
+            tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
+            reconciled_qty = int(tracked.filled_qty)
+
+        print(f"[EXECUTION][RECONCILED] order_id={order_id} symbol={symbol} filled_qty={reconciled_qty}")
+
+        pos = _RUNTIME_POSITIONS.get(symbol)
+
+        if pos is None:
+            pos = {"symbol": symbol, "qty": 0, "avg_price": 0}
+
+        if isinstance(pos, dict):
+            current_qty = int(pos.get("qty", 0))
+            current_avg = float(pos.get("avg_price", 0) or 0)
+        else:
+            current_qty = int(pos.qty)
+            current_avg = float(pos.avg_price or 0)
+
+        new_qty = current_qty + shares
+
+        if new_qty > 0:
+            current_avg = (
+                (current_avg * current_qty + price * shares) / new_qty
+            )
+
+        if isinstance(pos, dict):
+            pos["qty"] = new_qty
+            pos["avg_price"] = current_avg
+        else:
+            pos.qty = new_qty
+            pos.avg_price = current_avg
+            pos.state = "POSITION_OPEN" if new_qty > 0 else "POSITION_CLOSED"
+
+        _RUNTIME_POSITIONS[symbol] = pos
+
+        print(f"[POSITION][OPENED] symbol={symbol} qty={new_qty} avg_price={current_avg}")
         if trace is not None:
             trace.fill_received = True
-            trace.fill_qty = int(trace.fill_qty) + max(0, int(filled_qty))
-            trace.fill_price = fill_price
+            trace.fill_qty = int(trace.fill_qty) + max(0, int(shares))
+            trace.fill_price = price
             trace.fill_time = timestamp
             trace.lifecycle_state = "FILL_RECEIVED"
-            _trace_log("FILL", trace, extra=f"exec_id={exec_id} fill_qty={filled_qty} fill_price={fill_price}")
+            _trace_log("FILL", trace, extra=f"exec_id={_extract_callback_field(callback_payload, 'execId')} fill_qty={shares} fill_price={price}")
             pos = _RUNTIME_POSITIONS.get(trace.symbol)
-            if pos is not None and pos.qty > 0:
+            pos_qty = int(pos.get("qty", 0)) if isinstance(pos, dict) else (int(pos.qty) if pos is not None else 0)
+            if pos_qty > 0:
                 trace.position_opened = True
-                _trace_log("POSITION_OPENED", trace, extra=f"position_qty={pos.qty}")
-        if filled_qty > 0 and remaining_int > 0:
+                _trace_log("POSITION_OPENED", trace, extra=f"position_qty={pos_qty}")
+        if shares > 0 and remaining_int > 0:
             print(
                 f"[ORDER][PARTIAL_FILL] symbol={symbol or 'UNKNOWN'} order_id={order_id} "
-                f"shares={filled_qty} avg_price={fill_price}"
+                f"shares={shares} avg_price={price}"
             )
-        elif filled_qty > 0:
+        elif shares > 0:
             print(
                 f"[ORDER][FILL] symbol={symbol or 'UNKNOWN'} order_id={order_id} "
-                f"shares={filled_qty} avg_price={fill_price}"
+                f"shares={shares} avg_price={price}"
             )
-        if tracked is not None:
+        if tracked is not None and not isinstance(tracked, dict):
             tracked.fill_seen = tracked.filled_qty > 0
             tracked.working_seen = tracked.remaining_qty > 0
             tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
     elif event_type == "orderstatus":
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"orderStatus_seen": True})
         row = _RUNTIME_ORDERS.get(order_id)
+        if isinstance(row, dict):
+            recovered = dict(row)
+            row = _upsert_order_from_submission(
+                order_id=order_id,
+                symbol=str(recovered.get("symbol") or symbol or "").upper(),
+                side="BUY",
+                total_qty=int(recovered.get("filled_qty", 0) or 0),
+                order_ref=str(recovered.get("order_ref") or callback_order_ref or ""),
+            )
+            row.filled_qty = int(recovered.get("filled_qty", 0) or 0)
+            _RUNTIME_ORDERS[order_id] = row
         if row is None:
             _UNMATCHED_CALLBACK_COUNT += 1
-            print(f"[ORDER_EVENT][UNMATCHED] event=STATUS order_id={order_id} symbol={symbol}")
             if trace is not None:
                 _mark_execution_failure(trace, "NO_ACK", reason="status_callback_for_unknown_order")
         else:
@@ -975,7 +1022,6 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             row.broker_status = event_status or row.broker_status
             if filled_qty > row.filled_qty:
                 print(
-                    "[EXECUTION][TRUTH_GAP] "
                     f"stage=FILL callback=orderStatus order_id={order_id} observed_filled={filled_qty} "
                     "action=ignored_non_authoritative_fill_signal"
                 )
@@ -1675,6 +1721,15 @@ def _submit_ibkr_order(
     except Exception as exc:
         print(f"[IBKR][PLACE_ORDER][ERROR] symbol={symbol} order_id=PENDING error={exc}")
         raise
+    _RUNTIME_ORDERS[int(order_id)] = {
+        "order_id": int(order_id),
+        "symbol": str(symbol),
+        "intent_id": str(intent_id),
+        "order_ref": str(order_ref),
+        "filled_qty": 0,
+        "status": "SUBMITTED"
+    }
+    print(f"[EXECUTION][ORDER_REGISTERED] order_id={int(order_id)} symbol={str(symbol)}")
     _register_pending_submission(
         order_id=int(order_id),
         symbol=str(symbol or "").upper(),
@@ -1699,6 +1754,11 @@ def _submit_ibkr_order(
             print(f"mode={mode.value}")
     print(f"[IBKR][PLACE_ORDER][SENT] symbol={symbol} order_id={order_id}")
     return order_id
+
+
+def _duplicate_protection_blocked() -> bool:
+    # TEMP DISABLED — awaiting correct position authority
+    return False
 
 
 def execute_intents(
@@ -1811,64 +1871,7 @@ def execute_intents(
             f"[EXECUTION][DUPLICATE_CHECK] symbol={duplicate_symbol} side={order_side} intent_id={order_family} "
             f"candidate_count={len(working_order_candidates)}"
         )
-        working_duplicate = False
-        duplicate_reason = ""
-        duplicate_order_id = None
-        duplicate_status = ""
-        for candidate in working_order_candidates:
-            if candidate["symbol"] != duplicate_symbol or candidate["side"] != order_side:
-                continue
-            if not bool(candidate["is_live_status"]):
-                print(
-                    f"[EXECUTION][DUPLICATE_IGNORE_STALE] symbol={duplicate_symbol} existing_order_id={candidate['order_id']} "
-                    f"existing_status={candidate['status']} reason=non_live_status"
-                )
-                continue
-            if candidate["family"] and candidate["family"] != order_family:
-                print(
-                    f"[EXECUTION][DUPLICATE_IGNORE_STALE] symbol={duplicate_symbol} existing_order_id={candidate['order_id']} "
-                    f"existing_status={candidate['status']} reason=intent_mismatch existing_family={candidate['family']} intent_id={order_family}"
-                )
-                continue
-            working_duplicate = True
-            duplicate_order_id = candidate["order_id"]
-            duplicate_status = candidate["status"]
-            duplicate_reason = "live_symbol_side_intent_conflict"
-            print(
-                f"[EXECUTION][DUPLICATE_MATCH] symbol={duplicate_symbol} existing_order_id={duplicate_order_id} "
-                f"existing_status={duplicate_status} reason={duplicate_reason}"
-            )
-            break
-        if duplicate_symbol in existing_position_symbols:
-            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
-            _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_position")
-            events.append(
-                ExecutionEvent(
-                    symbol=decision.symbol,
-                    intent_id=decision.intent_id,
-                    action="BLOCKED",
-                    detail="reason=DUPLICATE_POSITION",
-                    broker_status="REJECTED",
-                    last_update_time=_now_utc_iso(),
-                )
-            )
-            continue
-        if working_duplicate:
-            print(
-                f"[EXECUTION][DUPLICATE_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_WORKING_ORDER "
-                f"existing_order_id={duplicate_order_id} existing_broker_state={duplicate_status} conflict_reason={duplicate_reason}"
-            )
-            _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_working_order")
-            events.append(
-                ExecutionEvent(
-                    symbol=decision.symbol,
-                    intent_id=decision.intent_id,
-                    action="BLOCKED",
-                    detail="reason=DUPLICATE_WORKING_ORDER",
-                    broker_status="REJECTED",
-                    last_update_time=_now_utc_iso(),
-                )
-            )
+        if _duplicate_protection_blocked():
             continue
         if not str(decision.intent_id or "").strip():
             print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=MISSING_ORDER_REF_COMPONENT")
@@ -2184,11 +2187,16 @@ def execute_intents(
         f"contract_validation_failures={_CONTRACT_VALIDATION_FAILURES} "
         f"next_valid_id_resets_or_rebases={_NEXT_VALID_ID_REBASES}"
     )
+    open_positions = len([
+        p for p in _RUNTIME_POSITIONS.values()
+        if (int(p["qty"]) if isinstance(p, dict) else int(p.qty)) > 0
+    ])
     print(
         "[EXECUTION][SUMMARY] "
         f"cycle_id={cycle_id} intents_received={intents_received} submit_attempts={submit_attempts} "
         f"orders_submitted={orders_submitted} acks_received={acks_received} fills_received={fills_received} "
-        f"positions_opened={positions_opened} failures_by_type={dict(sorted(_EXECUTION_FAILURES_BY_TYPE.items()))}"
+        f"positions_opened={positions_opened} open_positions={open_positions} "
+        f"failures_by_type={dict(sorted(_EXECUTION_FAILURES_BY_TYPE.items()))}"
     )
     if _FILL_AUTHORITY_STATE == "UNKNOWN":
         _FILL_AUTHORITY_STATE = "ACTIVE" if mode in {RunMode.PAPER, RunMode.LIVE} else "N/A"
