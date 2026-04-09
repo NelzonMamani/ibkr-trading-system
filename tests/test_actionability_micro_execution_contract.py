@@ -150,7 +150,7 @@ def test_final_decision_emits_one_terminal_line_per_symbol(capsys) -> None:
     )
     out = capsys.readouterr().out
     assert out.count("[ROSS][FINAL_DECISION] symbol=ABCD") == 1
-    assert "outcome=ORDER_ACKNOWLEDGED" in out
+    assert "outcome=ORDER_DISPATCHED" in out
 
 
 def test_final_decision_flags_submission_without_broker_order_id(capsys) -> None:
@@ -225,6 +225,9 @@ def test_fill_requires_callback(monkeypatch) -> None:
     order_router._RECONCILED_ORDERS_COUNT = 0
     order_router._RECONCILED_POSITIONS_COUNT = 0
     order_router._RECON_RESYNC_NEEDED = False
+    order_router._VISIBILITY_BY_ORDER_ID.clear()
+    order_router._LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID.clear()
+    order_router._BROKER_ERRORS_BY_ORDER_ID.clear()
 
     monkeypatch.setattr("src.execution.order_router._fetch_ibkr_truth", lambda _mode: ([], [], []))
     events = execute_intents(
@@ -337,6 +340,8 @@ def test_execute_intents_blocks_duplicate_working_order_using_reconciliation(mon
 
     class _OpenOrder:
         symbol = "MCRO"
+        status = "Submitted"
+        orderId = 999
         order = _Order()
 
     monkeypatch.setattr(
@@ -362,4 +367,4 @@ def test_execute_intents_blocks_duplicate_working_order_using_reconciliation(mon
     out = capsys.readouterr().out
     assert events[0].action == "BLOCKED"
     assert events[0].detail == "reason=DUPLICATE_WORKING_ORDER"
-    assert "[EXECUTION][DUPLICATE_WORKING_ORDER_BLOCK] symbol=MCRO reason=DUPLICATE_WORKING_ORDER" in out
+    assert "[EXECUTION][DUPLICATE_BLOCK] symbol=MCRO reason=DUPLICATE_WORKING_ORDER" in out

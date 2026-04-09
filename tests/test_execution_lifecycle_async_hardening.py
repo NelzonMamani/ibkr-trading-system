@@ -23,6 +23,8 @@ def _reset_router() -> None:
     order_router._EXECUTION_FAILURES_BY_TYPE.clear()
     order_router._UNRESOLVED_EXECUTION_RECONCILIATION_COUNT = 0
     order_router._VISIBILITY_BY_ORDER_ID.clear()
+    order_router._LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID.clear()
+    order_router._BROKER_ERRORS_BY_ORDER_ID.clear()
     order_router._BROKER_TRUTH_FATALS = 0
     order_router._BROKER_TRUTH_CONFIRMATIONS = 0
     order_router._CONTRACT_VALIDATION_FAILURES = 0
@@ -323,3 +325,82 @@ def test_circuit_breaker_blocks_new_submission_after_degradation(monkeypatch) ->
     allowed = order_router._ensure_submission_allowed(RunMode.LIVE, symbol="ABCD")
     assert allowed is False
     assert order_router._CIRCUIT_BREAKER_ACTIVE is True
+
+
+def test_duplicate_working_order_logic_ignores_legacy_mismatched_intent(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    legacy_open_orders = [
+        SimpleNamespace(
+            symbol="ABCD",
+            orderId=77,
+            status="Submitted",
+            order=SimpleNamespace(action="BUY", orderRef="TRADING_OS|ROSS_MOMENTUM|ABCD-LEGACY"),
+        )
+    ]
+    monkeypatch.setattr(order_router, "_fetch_ibkr_truth", lambda _mode: (legacy_open_orders, [], []))
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision("ABCD", 100)])
+    out = capsys.readouterr().out
+    assert events[0].action == "SUBMITTED"
+    assert "[EXECUTION][DUPLICATE_IGNORE_STALE]" in out
+
+
+def test_broker_reject_code_201_dominates_terminal_state(monkeypatch) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision("CLIK", 10)])
+    oid = int(events[0].broker_order_id)
+    order_router._on_ibkr_callback(
+        {"event_type": "error", "order_id": oid, "symbol": "CLIK", "errorCode": 201, "errorString": "Order rejected due to permissions"}
+    )
+    tracked = order_router._RUNTIME_ORDERS[oid]
+    assert order_router._resolve_authoritative_execution_state(tracked) == "BROKER_REJECTED"
+    assert tracked.normalized_reject_reason == "PERMISSION_SMALL_CAP_OPENING_RESTRICTED"
+
+
+def test_queued_for_rth_status_not_terminal_no_fill(monkeypatch) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision("RTHQ", 10)])
+    oid = int(events[0].broker_order_id)
+    order_router._on_ibkr_callback({"event_type": "orderStatus", "order_id": oid, "symbol": "RTHQ", "status": "PreSubmitted", "filled": 0, "remaining": 10})
+    order_router._on_ibkr_callback(
+        {"event_type": "error", "order_id": oid, "symbol": "RTHQ", "errorCode": 399, "errorString": "order will not be placed until 09:30 US/Eastern"}
+    )
+    tracked = order_router._RUNTIME_ORDERS[oid]
+    assert tracked.queued_for_rth_seen is True
+    assert order_router._resolve_authoritative_execution_state(tracked) == "BROKER_QUEUED_FOR_RTH"
+
+
+def test_callback_enrichment_maps_missing_symbol_from_order_id(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision("ENRH", 10)])
+    oid = int(events[0].broker_order_id)
+    order_router._on_ibkr_callback({"event_type": "orderStatus", "order_id": oid, "status": "Submitted", "filled": 0, "remaining": 10})
+    out = capsys.readouterr().out
+    assert "[EXECUTION][CALLBACK_ENRICHED]" in out
+
+
+def test_callback_dedup_avoids_duplicate_state_noise(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision("DEDP", 10)])
+    oid = int(events[0].broker_order_id)
+    payload = {"event_type": "orderStatus", "order_id": oid, "symbol": "DEDP", "status": "Submitted", "filled": 0, "remaining": 10}
+    order_router._on_ibkr_callback(payload)
+    order_router._on_ibkr_callback(payload)
+    out = capsys.readouterr().out
+    assert "[EXECUTION][CALLBACK_DEDUP]" in out
+
+
+def test_cycle_emits_truth_rows_consistent_with_final_state(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision("TRTH", 10)])
+    oid = int(events[0].broker_order_id)
+    order_router._on_ibkr_callback({"event_type": "orderStatus", "order_id": oid, "symbol": "TRTH", "status": "Submitted", "filled": 0, "remaining": 10})
+    _ = order_router.execute_intents(mode=RunMode.PAPER, decisions=[])
+    out = capsys.readouterr().out
+    assert "[EXECUTION][TRUTH_ROW]" in out
+    assert "[EXECUTION][TRUTH_SUMMARY]" in out

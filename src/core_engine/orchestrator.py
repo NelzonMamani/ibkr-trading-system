@@ -1444,15 +1444,20 @@ def run_cycle(
                     pending_entries = max(0, pending_entries - 1)
         elif execution_pass:
             working_orders += 1 if event.action == "WOULD_PLACE" else 0
-        execution_outcome = "WORKING_NO_FILL_YET"
+        execution_outcome = "ORDER_STILL_WORKING_NO_FILL_YET"
+        event_type = str(getattr(event, "event_type", "") or "").upper()
         if filled_quantity > 0 and remaining_quantity > 0:
-            execution_outcome = "PARTIALLY_FILLED"
+            execution_outcome = "ORDER_FILLED_PARTIAL"
         elif filled_quantity > 0 and remaining_quantity == 0:
-            execution_outcome = "FILLED_POSITION_OPEN"
+            execution_outcome = "ORDER_FILLED"
+        elif event_type == "ORDER_QUEUED_FOR_RTH":
+            execution_outcome = "ORDER_QUEUED_FOR_RTH"
+        elif event.action == "BLOCKED" or event_type == "ORDER_REJECTED":
+            execution_outcome = "ORDER_REJECTED"
         elif is_acknowledged:
             execution_outcome = "ORDER_ACKNOWLEDGED"
         elif is_submitted:
-            execution_outcome = "ORDER_SUBMITTED"
+            execution_outcome = "ORDER_DISPATCHED"
         print(
             f"[PIPELINE][EXECUTION] symbol={event.symbol} "
             f"executed={str(execution_pass).lower()} action={event.action} outcome={execution_outcome}"
@@ -1465,7 +1470,7 @@ def run_cycle(
             elif int(getattr(event, "filled_quantity", 0) or 0) <= 0:
                 first_blocker_by_symbol.setdefault(event.symbol, "FILL_PENDING")
                 first_blocker_reason_by_symbol.setdefault(event.symbol, "FILL_PENDING")
-            decision_waterfall[event.symbol]["execution"] = execution_outcome if event.action == "SUBMITTED" else "ORDER_SUBMITTED"
+            decision_waterfall[event.symbol]["execution"] = execution_outcome if event.action == "SUBMITTED" else "ORDER_DISPATCHED"
             decision_waterfall[event.symbol]["execution_reason"] = event.detail
         elif event.action == "BLOCKED":
             pipeline_outcomes[event.symbol] = TERMINAL_STATES["ORDER_REJECTED"]
@@ -1557,7 +1562,7 @@ def run_cycle(
         f"trigger_count={sum(1 for wf in decision_waterfall.values() if wf['trigger'] == 'YES')} "
         f"intent_count={sum(1 for wf in decision_waterfall.values() if wf['intent'] == 'EMITTED')} "
         f"risk_allowed_count={sum(1 for wf in decision_waterfall.values() if wf['risk'] == 'ALLOW')} "
-        f"execution_submit_count={sum(1 for wf in decision_waterfall.values() if wf['execution'] in {'ORDER_SUBMITTED', 'ORDER_ACKNOWLEDGED', 'WORKING_NO_FILL_YET', 'PARTIALLY_FILLED', 'FILLED_POSITION_OPEN'})} "
+        f"execution_submit_count={sum(1 for wf in decision_waterfall.values() if wf['execution'] in {'ORDER_DISPATCHED', 'ORDER_ACKNOWLEDGED', 'ORDER_STILL_WORKING_NO_FILL_YET', 'ORDER_FILLED_PARTIAL', 'ORDER_FILLED', 'ORDER_QUEUED_FOR_RTH'})} "
         f"dominant_terminal_state={(terminal_counts.most_common(1)[0][0] if terminal_counts else 'NONE')} "
         f"dominant_block_reason={(block_reason_counts.most_common(1)[0][0] if block_reason_counts else 'NONE')}"
     )
@@ -1706,22 +1711,30 @@ def _emit_final_decisions(
             outcome = "RISK_BLOCKED"
             reason = risk.block_reason or "RISK_BLOCK"
         if execution:
+            execution_event_type = str(getattr(execution, "event_type", "") or "").upper()
+            execution_detail = str(getattr(execution, "detail", "") or "")
             if execution.action == "SUBMITTED":
-                if (execution.broker_order_id is not None) and int(execution.filled_quantity or 0) <= 0:
-                    outcome = "ORDER_ACKNOWLEDGED"
-                    reason = execution.detail
+                if execution_event_type == "ORDER_QUEUED_FOR_RTH":
+                    outcome = "QUEUED_FOR_RTH"
+                    reason = execution_detail
+                elif execution_event_type == "ORDER_WORKING":
+                    outcome = "WORKING"
+                    reason = execution_detail
+                elif (execution.broker_order_id is not None) and int(execution.filled_quantity or 0) <= 0:
+                    outcome = "ORDER_DISPATCHED"
+                    reason = execution_detail
                 elif int(execution.filled_quantity or 0) > 0:
-                    outcome = "ENTRY_FILL"
-                    reason = execution.detail
+                    outcome = "FILLED"
+                    reason = execution_detail
                 else:
                     outcome = "ORDER_SUBMISSION_TRACKING_ERROR"
                     reason = "submitted_without_broker_order_id"
-            elif execution.action == "BLOCKED":
-                outcome = "ORDER_REJECTED"
-                reason = execution.detail
+            elif execution.action == "BLOCKED" or execution_event_type == "ORDER_REJECTED":
+                outcome = "REJECTED"
+                reason = execution_detail
             else:
                 outcome = "EXECUTION_SKIPPED"
-                reason = execution.detail
+                reason = execution_detail
         print(
             f"[ROSS][FINAL_DECISION] symbol={symbol} pattern={pattern_name} "
             f"trigger={trigger} outcome={outcome} reason={reason}"
