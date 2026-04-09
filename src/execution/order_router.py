@@ -1619,14 +1619,39 @@ def _submit_ibkr_order(
         _CONTRACT_VALIDATION_FAILURES += 1
         raise RuntimeError("CONTRACT_NOT_QUALIFIED")
     print(f"[IBKR][CONTRACT_VALIDATION][OK] symbol={symbol} conId={con_id}")
+    snapshot = _wait_for_ibkr_snapshot_for_symbol(symbol)
+    bid = _safe_price_value(snapshot.get("bid")) if isinstance(snapshot, dict) else None
+    ask = _safe_price_value(snapshot.get("ask")) if isinstance(snapshot, dict) else None
+    if bid is None or ask is None:
+        print("[EXECUTION][BLOCK]")
+        print("reason=NO_VALID_MARKET_DATA")
+        print(f"symbol={symbol}")
+        raise RuntimeError(f"NO_VALID_MARKET_DATA:{symbol}")
+    spread = ask - bid
+    offset = max(0.02, spread * 0.5)
+    side_upper = str(side or "").upper().strip()
+    limit_price = (ask + offset) if side_upper == "BUY" else (bid - offset)
+    limit_price = round(limit_price, 4)
+    print("[EXECUTION][PRICE_BUILD]")
+    print(f"symbol={symbol}")
+    print(f"bid={bid}")
+    print(f"ask={ask}")
+    print(f"spread={spread}")
+    print(f"offset={offset}")
+    print(f"limit_price={limit_price}")
+    print("mode=MARKETABLE_LIMIT")
+
     order = Order()
     order.eTradeOnly = False
     order.firmQuoteOnly = False
     order.action = side.upper()
-    order.orderType = "MKT"
+    order.orderType = "LMT"
+    order.lmtPrice = float(limit_price)
     order.totalQuantity = int(quantity)
     order.tif = "DAY"
     order.outsideRth = True
+    print("[EXECUTION][RTH_FLAG]")
+    print(f"symbol={symbol} outsideRth=True enforced=True")
     order.orderRef = order_ref
     account = getattr(client, "get_primary_account", lambda: None)() if hasattr(client, "get_primary_account") else None
     if account:
@@ -1697,6 +1722,15 @@ def _submit_ibkr_order(
                 raise RuntimeError("IBKR_ACKNOWLEDGEMENT_FAILED")
             print("[EXECUTION][ACK_SKIPPED_NON_LIVE]")
             print(f"mode={mode.value}")
+        else:
+            status_label = str(status.get("status", "") or "")
+            filled_qty = int(status.get("filled", 0) or 0)
+            if status_label == "PreSubmitted" and filled_qty == 0:
+                print("[EXECUTION][NON_MARKETABLE_WARNING]")
+                print(f"symbol={symbol}")
+                print(f"limit_price={limit_price}")
+                print(f"bid={bid}")
+                print(f"ask={ask}")
     print(f"[IBKR][PLACE_ORDER][SENT] symbol={symbol} order_id={order_id}")
     return order_id
 

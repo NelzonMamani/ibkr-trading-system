@@ -402,10 +402,17 @@ class IbkrOrderSubmitter:
         )
         if status is None:
             return {}
+        status_label = str(status.get("status", "") or "")
         filled = int(status.get("filled", 0) or 0)
         remaining = int(status.get("remaining", 0) or 0)
         avg_fill_price = status.get("avgFillPrice")
         last_fill_price = status.get("lastFillPrice")
+        if status_label == "PreSubmitted" and filled == 0:
+            print("[EXECUTION][NON_MARKETABLE_WARNING]")
+            print(f"symbol={internal_order.symbol}")
+            print(f"limit_price={internal_order.limit_price}")
+            print("bid=NA")
+            print("ask=NA")
         fill_status = "NONE"
         if filled > 0 and remaining == 0:
             fill_status = "FULL"

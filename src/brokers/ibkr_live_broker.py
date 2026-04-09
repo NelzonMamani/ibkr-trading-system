@@ -56,6 +56,16 @@ VALID_IBKR_STATUSES = {
 }
 
 
+def _safe_float(value: object) -> Optional[float]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
+
+
 @dataclass
 class IbkrLiveBroker(BaseBroker):
     """
@@ -212,13 +222,65 @@ class IbkrLiveBroker(BaseBroker):
             },
         )
 
+        self.ensure_connection()
+        bid: Optional[float] = None
+        ask: Optional[float] = None
+        if self.connection_manager is not None:
+            try:
+                snapshot = self.connection_manager.get_client().get_market_snapshot(request.symbol)
+                bid = _safe_float(getattr(snapshot, "bid", None))
+                ask = _safe_float(getattr(snapshot, "ask", None))
+            except Exception as exc:
+                print(
+                    "[EXECUTION][BLOCK] "
+                    f"reason=NO_VALID_MARKET_DATA symbol={request.symbol} error={exc}"
+                )
+        if bid is None or ask is None:
+            print("[EXECUTION][BLOCK]")
+            print("reason=NO_VALID_MARKET_DATA")
+            print(f"symbol={request.symbol}")
+            return ExecutionResult(
+                symbol=request.symbol,
+                trader_type=request.trader_type or "UNKNOWN",
+                attempted=False,
+                status="BLOCKED",
+                rationale="NO_VALID_MARKET_DATA",
+                direction=request.direction,
+                quantity=request.quantity,
+                requested_quantity=request.quantity,
+                filled_quantity=0,
+                remaining_quantity=request.quantity,
+                fill_status="NONE",
+                note="NO_VALID_MARKET_DATA",
+                rejection_reason="NO_VALID_MARKET_DATA",
+                client_order_id=request.client_order_id,
+                attempt_number=request.attempt_number,
+            )
+
+        spread = ask - bid
+        offset = max(0.02, spread * 0.5)
+        side_upper = str(request.direction or "").upper().strip()
+        if side_upper in {"LONG", "BUY"}:
+            limit_price = ask + offset
+        else:
+            limit_price = bid - offset
+        limit_price = round(limit_price, 4)
+        print("[EXECUTION][PRICE_BUILD]")
+        print(f"symbol={request.symbol}")
+        print(f"bid={bid}")
+        print(f"ask={ask}")
+        print(f"spread={spread}")
+        print(f"offset={offset}")
+        print(f"limit_price={limit_price}")
+        print("mode=MARKETABLE_LIMIT")
+
         internal_order = InternalOrder(
             client_order_id=request.client_order_id,
             symbol=request.symbol,
             direction=request.direction,
             quantity=request.quantity,
-            order_type=request.order_type,
-            limit_price=None,
+            order_type="LMT",
+            limit_price=limit_price,
             time_in_force="DAY",
             strategy_name=request.strategy_name or "UNKNOWN",
             trader_type=request.trader_type or "UNKNOWN",
@@ -248,7 +310,6 @@ class IbkrLiveBroker(BaseBroker):
                 attempt_number=request.attempt_number,
             )
         try:
-            self.ensure_connection()
             assert self.submitter is not None
             result = self.submitter.submit_once(internal_order)
         except Exception as exc:

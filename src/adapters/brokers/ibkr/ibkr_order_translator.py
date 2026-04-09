@@ -64,6 +64,8 @@ class IbkrOrderTranslator:
         # combinations, but that warning is handled by execution verification
         # logic and must not be treated as an order rejection.
         order.outsideRth = True
+        print("[EXECUTION][RTH_FLAG]")
+        print(f"symbol={contract.symbol} outsideRth=True enforced=True")
 
         self.log_translation(contract, order)
         return contract, order
