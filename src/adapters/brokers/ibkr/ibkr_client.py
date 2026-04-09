@@ -989,7 +989,7 @@ class IbkrClient(EWrapper, EClient):
         self._order_status_count += 1
         print(
             "[IBKR][CALLBACK_RAW] "
-            f"event=orderStatus order_id={orderId} status={status} filled={filled} remaining={remaining}"
+            f"event=orderStatus order_id={orderId} status={status} filled={filled} remaining={remaining} whyHeld={whyHeld}"
         )
         print(
             "[IBKR][ORDER_STATUS] "
@@ -1039,6 +1039,7 @@ class IbkrClient(EWrapper, EClient):
                 "remaining": int(remaining),
                 "avgFillPrice": avgFillPrice,
                 "lastFillPrice": lastFillPrice,
+                "whyHeld": whyHeld,
             }
         )
         event = self._order_status_events.setdefault(orderId, threading.Event())

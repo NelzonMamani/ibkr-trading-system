@@ -15,7 +15,7 @@ from ibapi.order import Order
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
 from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
-from src.core_engine.state import RunMode
+from src.core_engine.state import RunMode, SessionState, resolve_session_state
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 
 _EXECUTION_EVENT_BUFFER: dict[int, ExecutionEvent] = {}
@@ -48,6 +48,7 @@ _VISIBILITY_BY_ORDER_ID: dict[int, dict[str, bool]] = {}
 _LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID: dict[int, str] = {}
 _BROKER_ERRORS_BY_ORDER_ID: dict[int, list[dict[str, Any]]] = {}
 _PENDING_SUBMISSIONS_BY_ORDER_ID: dict[int, "PendingSubmission"] = {}
+_SUBMIT_FILLABILITY_COUNTS: dict[str, int] = {}
 
 AUTHORITATIVE_EXECUTION_STATES = {
     "DISPATCH_INTENDED",
@@ -61,6 +62,12 @@ AUTHORITATIVE_EXECUTION_STATES = {
     "BROKER_FILLED_FULL",
     "BROKER_EXPIRED",
     "BROKER_INACTIVE_UNKNOWN",
+    "BROKER_INACTIVE_NON_MARKETABLE",
+    "BROKER_INACTIVE_SESSION_MISMATCH",
+    "BROKER_INACTIVE_OUTSIDE_RTH",
+    "BROKER_INACTIVE_ROUTING",
+    "BROKER_INACTIVE_HELD",
+    "BROKER_INACTIVE_NO_QUOTE",
     "NO_FILL_TIMEOUT_NON_TERMINAL",
     "NO_FILL_TIMEOUT_TERMINAL",
     "BROKER_VISIBILITY_FAILURE",
@@ -140,6 +147,12 @@ class TrackedOrder:
     terminal: bool = False
     last_callback_fingerprint: str = ""
     intent_id: str = ""
+    order_wire_payload: dict[str, Any] = field(default_factory=dict)
+    open_order_detail: dict[str, Any] = field(default_factory=dict)
+    fillability_classification: str = "NON_MARKETABLE_UNKNOWN"
+    fillability_rationale: str = ""
+    inactive_normalized_reason: str = ""
+    inactive_rationale: str = ""
 
 
 @dataclass
@@ -285,6 +298,10 @@ def _execution_truth_threshold() -> int:
 
 def _is_diagnostics_mode() -> bool:
     return _env_truthy("EXECUTION_TRUTH_DIAGNOSTICS_MODE", default=False)
+
+
+def _single_order_validation_mode() -> bool:
+    return _env_truthy("EXECUTION_SINGLE_ORDER_VALIDATION_MODE", default=False)
 
 
 def _maybe_trip_circuit_breaker(mode: RunMode, *, reason: str) -> None:
@@ -659,7 +676,7 @@ def _resolve_authoritative_execution_state(row: TrackedOrder | None) -> str:
     if row.working_seen:
         return "BROKER_WORKING"
     if row.inactive_seen:
-        return "BROKER_INACTIVE_UNKNOWN"
+        return _inactive_terminal_state_from_reason(row.inactive_normalized_reason)
     if row.ack_seen:
         return "BROKER_ACK_SEEN"
     return "DISPATCH_SENT"
@@ -1148,6 +1165,32 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 else:
                     row.inactive_seen = True
                     row.reject_seen = bool(row.reject_seen or row.normalized_reject_reason)
+                why_held = str(_extract_callback_field(callback_payload, "whyHeld", "why_held") or "")
+                submit_payload = dict(row.order_wire_payload or {})
+                open_order_echo = dict(row.open_order_detail or {})
+                fillability = str(row.fillability_classification or "NON_MARKETABLE_UNKNOWN")
+                quote_available = any(
+                    submit_payload.get(key) is not None for key in ("bid", "ask", "last")
+                )
+                normalized_inactive_reason, inactive_rationale = normalize_inactive_reason(
+                    submit_payload=submit_payload,
+                    open_order_echo=open_order_echo,
+                    broker_status=row.broker_status,
+                    why_held=why_held,
+                    session_label=str(submit_payload.get("session_label") or _session_label_now()),
+                    fillability=fillability,
+                    quote_available=quote_available,
+                )
+                row.inactive_normalized_reason = normalized_inactive_reason
+                row.inactive_rationale = inactive_rationale
+                print(
+                    "[EXECUTION][INACTIVE_CLASSIFICATION] "
+                    f"symbol={row.symbol} order_id={order_id} broker_status={_none_text(row.broker_status)} "
+                    f"fillability={fillability} outside_rth={_none_text(open_order_echo.get('outside_rth', submit_payload.get('outside_rth')))} "
+                    f"tif={_none_text(open_order_echo.get('tif', submit_payload.get('tif')))} "
+                    f"session_label={_none_text(submit_payload.get('session_label'))} why_held={_none_text(why_held)} "
+                    f"normalized_inactive_reason={normalized_inactive_reason} rationale={inactive_rationale}"
+                )
             if str(row.broker_status or "").upper() in {"CANCELLED", "CANCELED", "API_CANCELLED"}:
                 row.cancelled_seen = True
             if str(row.broker_status or "").upper() == "EXPIRED":
@@ -1183,6 +1226,30 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"openOrder_seen": True})
         if callback_order_ref:
             _ORDER_ID_BY_ORDER_REF[callback_order_ref] = int(order_id)
+        callback_order = _extract_callback_field(callback_payload, "order")
+        callback_state = _extract_callback_field(callback_payload, "orderState")
+        open_order_detail = {
+            "symbol": symbol or (tracked.symbol if tracked is not None else None),
+            "order_id": int(order_id),
+            "action": getattr(callback_order, "action", None),
+            "total_quantity": getattr(callback_order, "totalQuantity", None),
+            "order_type": getattr(callback_order, "orderType", None),
+            "lmt_price": _safe_price_value(getattr(callback_order, "lmtPrice", None)),
+            "aux_price": _safe_price_value(getattr(callback_order, "auxPrice", None)),
+            "tif": getattr(callback_order, "tif", None),
+            "outside_rth": getattr(callback_order, "outsideRth", None),
+            "good_after_time": getattr(callback_order, "goodAfterTime", None),
+            "good_till_date": getattr(callback_order, "goodTillDate", None),
+            "why_held": getattr(callback_state, "whyHeld", None),
+            "parent_id": getattr(callback_order, "parentId", None),
+            "transmit": getattr(callback_order, "transmit", None),
+            "exchange": getattr(callback_order, "exchange", None),
+            "broker_status": getattr(callback_state, "status", None),
+        }
+        print(
+            "[IBKR][OPEN_ORDER_DETAIL] "
+            + " ".join(f"{key}={_none_text(value)}" for key, value in open_order_detail.items())
+        )
         if trace is not None:
             trace.ack_received = True
             trace.ack_time = timestamp
@@ -1199,6 +1266,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             )
         if tracked is not None:
             tracked.ack_seen = True
+            tracked.open_order_detail = dict(open_order_detail)
             tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
     elif event_type == "error":
         code_raw = _extract_callback_field(callback_payload, "errorCode", "code")
@@ -1536,9 +1604,34 @@ def _post_submission_ibkr_diagnostics(
         for order_id in submitted_lookup
         if bool(_VISIBILITY_BY_ORDER_ID.get(int(order_id), {}).get("orderStatus_seen"))
     )
+    inactive_count = 0
+    inactive_normalized_reason_counts: dict[str, int] = {}
+    marketable_submit_count = 0
+    passive_submit_count = 0
+    no_quote_submit_count = 0
+    for order_id in submitted_lookup:
+        tracked = _RUNTIME_ORDERS.get(int(order_id))
+        if tracked is None:
+            continue
+        if str(tracked.broker_status or "").upper() == "INACTIVE":
+            inactive_count += 1
+            reason_key = str(tracked.inactive_normalized_reason or "INACTIVE_UNKNOWN")
+            inactive_normalized_reason_counts[reason_key] = int(inactive_normalized_reason_counts.get(reason_key, 0)) + 1
+        bucket = _fillability_bucket(tracked.fillability_classification)
+        if bucket == "marketable":
+            marketable_submit_count += 1
+        elif bucket == "no_quote":
+            no_quote_submit_count += 1
+        else:
+            passive_submit_count += 1
     print("[IBKR][CALLBACK_SUMMARY]")
     print(f"openOrder={open_order_callback_count}")
     print(f"orderStatus={order_status_callback_count}")
+    print(f"inactive_count={inactive_count}")
+    print(f"inactive_normalized_reason_counts={dict(sorted(inactive_normalized_reason_counts.items()))}")
+    print(f"marketable_submit_count={marketable_submit_count}")
+    print(f"passive_submit_count={passive_submit_count}")
+    print(f"no_quote_submit_count={no_quote_submit_count}")
     print(
         "[EXECUTION][CALLBACK_VERDICT] "
         f"mode={mode.value} open_order_seen={open_order_callback_count} "
@@ -1691,6 +1784,136 @@ def _safe_price_value(value: Any) -> float | None:
     return parsed
 
 
+def _none_text(value: Any) -> str:
+    if value is None:
+        return "NONE"
+    text = str(value).strip()
+    return text if text else "NONE"
+
+
+def _session_label_now() -> str:
+    session = resolve_session_state()
+    if session == SessionState.REG:
+        return "RTH"
+    if session == SessionState.PRE:
+        return "PRE"
+    if session == SessionState.AFTER:
+        return "AH"
+    return "OVN"
+
+
+def _compute_quote_spread(*, bid: float | None, ask: float | None) -> tuple[float | None, float | None]:
+    if bid is None or ask is None or ask <= 0:
+        return None, None
+    spread_abs = max(0.0, float(ask) - float(bid))
+    spread_pct = (spread_abs / float(ask)) * 100 if ask > 0 else None
+    return spread_abs, spread_pct
+
+
+def classify_submit_fillability(
+    *,
+    order_type: str,
+    action: str,
+    lmt_price: float | None,
+    bid: float | None,
+    ask: float | None,
+) -> tuple[str, str]:
+    order_type_norm = str(order_type or "").upper()
+    action_norm = str(action or "").upper()
+    if order_type_norm == "MKT":
+        if bid is None and ask is None:
+            return "NO_QUOTE_CONTEXT", "market order but bid/ask unavailable"
+        if action_norm == "BUY":
+            return "MARKETABLE_BUY_AT_OR_ABOVE_ASK", "market buy treated as marketable"
+        if action_norm == "SELL":
+            return "MARKETABLE_SELL_AT_OR_BELOW_BID", "market sell treated as marketable"
+        return "NON_MARKETABLE_UNKNOWN", "market order with unsupported action"
+    if bid is None and ask is None:
+        return "NO_QUOTE_CONTEXT", "missing bid/ask quote context"
+    if order_type_norm != "LMT" or lmt_price is None:
+        return "NON_MARKETABLE_UNKNOWN", "unsupported order type or missing lmt_price"
+    if action_norm == "BUY":
+        if ask is not None and float(lmt_price) >= float(ask):
+            return "MARKETABLE_BUY_AT_OR_ABOVE_ASK", "buy limit priced at or above ask"
+        if bid is not None and ask is not None and float(lmt_price) > float(bid) and float(lmt_price) < float(ask):
+            return "RESTING_INSIDE_SPREAD", "buy limit rests inside spread"
+        if bid is not None and float(lmt_price) <= float(bid):
+            return "PASSIVE_AWAY_FROM_MARKET", "buy limit at or below bid"
+    if action_norm == "SELL":
+        if bid is not None and float(lmt_price) <= float(bid):
+            return "MARKETABLE_SELL_AT_OR_BELOW_BID", "sell limit priced at or below bid"
+        if bid is not None and ask is not None and float(lmt_price) > float(bid) and float(lmt_price) < float(ask):
+            return "RESTING_INSIDE_SPREAD", "sell limit rests inside spread"
+        if ask is not None and float(lmt_price) >= float(ask):
+            return "PASSIVE_AWAY_FROM_MARKET", "sell limit at or above ask"
+    if bid is not None and ask is not None:
+        if action_norm == "BUY" and float(lmt_price) > float(ask):
+            return "CROSSING_SPREAD", "buy limit crosses through ask"
+        if action_norm == "SELL" and float(lmt_price) < float(bid):
+            return "CROSSING_SPREAD", "sell limit crosses through bid"
+    return "NON_MARKETABLE_UNKNOWN", "unable to prove marketability from payload"
+
+
+def normalize_inactive_reason(
+    *,
+    submit_payload: dict[str, Any],
+    open_order_echo: dict[str, Any],
+    broker_status: str,
+    why_held: str,
+    session_label: str,
+    fillability: str,
+    quote_available: bool,
+) -> tuple[str, str]:
+    if str(broker_status or "").upper() != "INACTIVE":
+        return "INACTIVE_UNKNOWN", "broker status is not INACTIVE"
+    why = str(why_held or "").strip()
+    why_upper = why.upper()
+    submit_outside_rth = submit_payload.get("outside_rth")
+    echo_outside_rth = open_order_echo.get("outside_rth")
+    tif = str(open_order_echo.get("tif") or submit_payload.get("tif") or "").upper()
+    exchange = str(open_order_echo.get("exchange") or submit_payload.get("exchange") or "").upper()
+    if why:
+        if any(token in why_upper for token in ("ROUTE", "EXCHANGE", "DESTINATION")):
+            return "INACTIVE_ROUTING_OR_EXCHANGE", f"why_held indicates routing issue: {why}"
+        if any(token in why_upper for token in ("RTH", "SESSION", "MARKET CLOSED", "CLOSED")):
+            return "INACTIVE_SESSION_MISMATCH", f"why_held indicates session mismatch: {why}"
+        return "INACTIVE_BROKER_HELD", f"why_held present: {why}"
+    if not quote_available or fillability == "NO_QUOTE_CONTEXT":
+        return "INACTIVE_NO_QUOTE_CONTEXT", "no quote context available at submit time"
+    if fillability in {"PASSIVE_AWAY_FROM_MARKET", "RESTING_INSIDE_SPREAD", "NON_MARKETABLE_UNKNOWN"}:
+        return "INACTIVE_NON_MARKETABLE_LIMIT", f"submit fillability={fillability}"
+    if (submit_outside_rth is False or echo_outside_rth is False) and session_label in {"PRE", "AH", "OVN"}:
+        return "INACTIVE_OUTSIDE_RTH_CONFIGURATION", "outside_rth disabled outside regular session"
+    if tif == "DAY" and session_label in {"AH", "OVN"}:
+        return "INACTIVE_SESSION_MISMATCH", "DAY tif observed outside regular session"
+    if exchange and exchange not in {"SMART", "NONE"} and fillability.startswith("MARKETABLE_"):
+        return "INACTIVE_ROUTING_OR_EXCHANGE", f"non-SMART exchange for marketable order: {exchange}"
+    return "INACTIVE_UNKNOWN", "insufficient evidence for deterministic classification"
+
+
+def _inactive_terminal_state_from_reason(reason: str) -> str:
+    mapping = {
+        "INACTIVE_NON_MARKETABLE_LIMIT": "BROKER_INACTIVE_NON_MARKETABLE",
+        "INACTIVE_SESSION_MISMATCH": "BROKER_INACTIVE_SESSION_MISMATCH",
+        "INACTIVE_OUTSIDE_RTH_CONFIGURATION": "BROKER_INACTIVE_OUTSIDE_RTH",
+        "INACTIVE_ROUTING_OR_EXCHANGE": "BROKER_INACTIVE_ROUTING",
+        "INACTIVE_BROKER_HELD": "BROKER_INACTIVE_HELD",
+        "INACTIVE_NO_QUOTE_CONTEXT": "BROKER_INACTIVE_NO_QUOTE",
+        "INACTIVE_UNKNOWN": "BROKER_INACTIVE_UNKNOWN",
+    }
+    return mapping.get(str(reason or "").upper(), "BROKER_INACTIVE_UNKNOWN")
+
+
+def _fillability_bucket(classification: str) -> str:
+    normalized = str(classification or "").upper()
+    if normalized in {"MARKETABLE_BUY_AT_OR_ABOVE_ASK", "MARKETABLE_SELL_AT_OR_BELOW_BID", "CROSSING_SPREAD"}:
+        return "marketable"
+    if normalized == "NO_QUOTE_CONTEXT":
+        return "no_quote"
+    if normalized in {"PASSIVE_AWAY_FROM_MARKET", "RESTING_INSIDE_SPREAD", "NON_MARKETABLE_UNKNOWN"}:
+        return "passive"
+    return "passive"
+
 def _wait_for_ibkr_snapshot_for_symbol(symbol: str, *, wait_up_to: float = 1.0, poll_interval: float = 0.1) -> dict[str, float | None]:
     normalized_symbol = str(symbol or "").upper().strip()
     if not normalized_symbol:
@@ -1826,11 +2049,62 @@ def _submit_ibkr_order(
         f"symbol={symbol} order_id=PENDING client_id={getattr(client, 'client_id', None)} account={account or 'UNKNOWN'} "
         f"order_type={getattr(order, 'orderType', 'MKT')} tif={getattr(order, 'tif', 'DAY')} qty={quantity} side={side}"
     )
+    quote_snapshot = _wait_for_ibkr_snapshot_for_symbol(str(symbol or ""), wait_up_to=0.4, poll_interval=0.1)
+    bid = _safe_price_value(quote_snapshot.get("bid"))
+    ask = _safe_price_value(quote_snapshot.get("ask"))
+    last = _safe_price_value(quote_snapshot.get("last"))
+    spread_abs, spread_pct = _compute_quote_spread(bid=bid, ask=ask)
+    fillability, fillability_rationale = classify_submit_fillability(
+        order_type=str(getattr(order, "orderType", "") or ""),
+        action=str(getattr(order, "action", "") or ""),
+        lmt_price=_safe_price_value(getattr(order, "lmtPrice", None)),
+        bid=bid,
+        ask=ask,
+    )
     try:
         order_id = int(client.submit_order(resolved_contract, order))
     except Exception as exc:
         print(f"[IBKR][PLACE_ORDER][ERROR] symbol={symbol} order_id=PENDING error={exc}")
         raise
+    wire_payload = {
+        "symbol": str(symbol or "").upper(),
+        "order_id": int(order_id),
+        "action": getattr(order, "action", None),
+        "quantity": getattr(order, "totalQuantity", None),
+        "order_type": getattr(order, "orderType", None),
+        "lmt_price": _safe_price_value(getattr(order, "lmtPrice", None)),
+        "aux_price": _safe_price_value(getattr(order, "auxPrice", None)),
+        "tif": getattr(order, "tif", None),
+        "outside_rth": getattr(order, "outsideRth", None),
+        "transmit": getattr(order, "transmit", None),
+        "account": account,
+        "exchange": getattr(resolved_contract, "exchange", None),
+        "primary_exchange": getattr(resolved_contract, "primaryExchange", None),
+        "routing_exchange": getattr(order, "exchange", None),
+        "session_label": _session_label_now(),
+        "runtime_mode": mode.value,
+        "bid": bid,
+        "ask": ask,
+        "last": last,
+        "spread_abs": spread_abs,
+        "spread_pct": spread_pct,
+        "timestamp": _now_utc_iso(),
+    }
+    print(
+        "[EXECUTION][ORDER_WIRE_PAYLOAD] "
+        + " ".join(
+            f"{key}={_none_text(value)}"
+            for key, value in wire_payload.items()
+        )
+    )
+    print(
+        "[EXECUTION][FILLABILITY] "
+        f"symbol={wire_payload['symbol']} order_id={wire_payload['order_id']} "
+        f"order_type={_none_text(wire_payload['order_type'])} action={_none_text(wire_payload['action'])} "
+        f"lmt_price={_none_text(wire_payload['lmt_price'])} bid={_none_text(bid)} ask={_none_text(ask)} "
+        f"classification={fillability} rationale={fillability_rationale}"
+    )
+    _SUBMIT_FILLABILITY_COUNTS[fillability] = int(_SUBMIT_FILLABILITY_COUNTS.get(fillability, 0)) + 1
     _upsert_order_from_submission(
         order_id=int(order_id),
         symbol=str(symbol or "").upper(),
@@ -1848,6 +2122,11 @@ def _submit_ibkr_order(
         f"[EXECUTION][ORDER_REGISTERED] order_id={int(order_id)} symbol={str(symbol or '').upper()} "
         f"intent_id={str(intent_id or '')} order_ref={str(order_ref or '')}"
     )
+    tracked = _RUNTIME_ORDERS.get(int(order_id))
+    if tracked is not None:
+        tracked.order_wire_payload = dict(wire_payload)
+        tracked.fillability_classification = str(fillability)
+        tracked.fillability_rationale = str(fillability_rationale)
     _register_pending_submission(
         order_id=int(order_id),
         symbol=str(symbol or "").upper(),
@@ -2091,6 +2370,22 @@ def execute_intents(
                         )
                     )
                     continue
+        if _single_order_validation_mode() and submit_attempts > 0 and decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
+            print(
+                "[EXECUTION][SINGLE_ORDER_VALIDATION] "
+                f"symbol={decision.symbol} intent_id={decision.intent_id} action=SKIP_AFTER_FIRST_SUBMIT_ATTEMPT"
+            )
+            events.append(
+                ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail="reason=SINGLE_ORDER_VALIDATION_MODE_ALREADY_ATTEMPTED",
+                    broker_status="REJECTED",
+                    last_update_time=_now_utc_iso(),
+                )
+            )
+            continue
         dispatch = "SKIPPED"
         if mode in {RunMode.SIM, RunMode.READ_ONLY}:
             action = "WOULD_PLACE"
@@ -2214,6 +2509,35 @@ def execute_intents(
                 order_ref=order_ref,
                 intent_id=str(decision.intent_id or ""),
             )
+            tracked = _RUNTIME_ORDERS.get(int(broker_order_id))
+            if tracked is not None and not tracked.order_wire_payload:
+                fallback_wire_payload = {
+                    "symbol": str(decision.symbol or "").upper(),
+                    "order_id": int(broker_order_id),
+                    "action": order_side,
+                    "quantity": quantity,
+                    "order_type": "MKT",
+                    "lmt_price": None,
+                    "aux_price": None,
+                    "tif": "DAY",
+                    "outside_rth": True,
+                    "transmit": None,
+                    "account": None,
+                    "exchange": None,
+                    "primary_exchange": None,
+                    "routing_exchange": None,
+                    "session_label": _session_label_now(),
+                    "runtime_mode": mode.value,
+                    "bid": None,
+                    "ask": None,
+                    "last": None,
+                    "spread_abs": None,
+                    "spread_pct": None,
+                    "timestamp": _now_utc_iso(),
+                }
+                tracked.order_wire_payload = fallback_wire_payload
+                tracked.fillability_classification = "NO_QUOTE_CONTEXT"
+                tracked.fillability_rationale = "submission path without quote snapshot context"
             _register_order_intent_mapping(
                 order_id=int(broker_order_id),
                 intent_id=str(decision.intent_id or ""),
@@ -2314,7 +2638,9 @@ def execute_intents(
             f"rejected={'yes' if tracked and tracked.reject_seen else 'no'} filled={'yes' if tracked and tracked.fill_seen else 'no'} "
             f"terminal_state={final_state} broker_status={(tracked.broker_status if tracked is not None else 'UNKNOWN')} "
             f"broker_error_code={','.join(str(v) for v in (tracked.broker_error_codes if tracked is not None else [])) or 'NONE'} "
-            f"normalized_reject_reason={(tracked.normalized_reject_reason if tracked is not None else '') or 'NONE'}"
+            f"normalized_reject_reason={(tracked.normalized_reject_reason if tracked is not None else '') or 'NONE'} "
+            f"fillability={(tracked.fillability_classification if tracked is not None else 'NONE')} "
+            f"inactive_normalized_reason={(tracked.inactive_normalized_reason if tracked is not None else '') or 'NONE'}"
         )
     print(f"[EXECUTION][TRUTH_SUMMARY] total={len(submitted_order_ids)} states={dict(sorted(truth_terminal_counts.items()))}")
 
