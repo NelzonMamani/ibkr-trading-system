@@ -185,7 +185,8 @@ class RossPatternTrace:
     symbol_source: str | None
     pattern_id: str
     pattern_name: str
-    setup_family_id: str | None
+    setup_family: str | None = None
+    setup_family_id: str | None = None  # legacy constructor compatibility only
     invoked: bool = False
     skipped: bool = False
     skip_reason: str | None = None
@@ -196,6 +197,14 @@ class RossPatternTrace:
     post_detect_disposition: str | None = None
     final_outcome: str | None = None
     exception: str | None = None
+
+    def __post_init__(self) -> None:
+        # Map legacy input → canonical field
+        if self.setup_family is None and self.setup_family_id is not None:
+            self.setup_family = self.setup_family_id
+
+        # Ensure alias always mirrors canonical field
+        self.setup_family_id = self.setup_family
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
