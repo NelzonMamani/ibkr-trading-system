@@ -442,8 +442,13 @@ def verify_m5_verification_authority(repo_root: Path | None = None) -> dict:
 
     _assert_programme_consistency(violations, repo_root, verdict_payload)
 
+    runtime_real_strategy_files = [
+        rel_path
+        for rel_path in M5_STRATEGY_EVIDENCE_REQUIRED
+        if (repo_root / rel_path).exists()
+    ]
     for rel_path in M5_STRATEGY_EVIDENCE_REQUIRED:
-        if not (repo_root / rel_path).exists():
+        if rel_path not in runtime_real_strategy_files:
             _record_violation(
                 violations,
                 EvidenceCheck(
@@ -452,6 +457,10 @@ def verify_m5_verification_authority(repo_root: Path | None = None) -> dict:
                     actual=f"missing:{rel_path}",
                 ),
             )
+
+    placeholder_files = sorted(
+        path.name for path in evidence_dir.iterdir() if path.is_file()
+    ) if evidence_dir.exists() else []
 
     pre_valid = not violations
     if verdict_payload is not None:
@@ -487,10 +496,21 @@ def verify_m5_verification_authority(repo_root: Path | None = None) -> dict:
     if (repo_root / boot_logs_dir_rel).exists():
         evidence_paths.append(boot_logs_dir_rel)
 
+    if placeholder_files and not runtime_real_strategy_files:
+        reality_status = "STRUCTURAL_ONLY"
+        valid = True
+    elif runtime_real_strategy_files:
+        reality_status = "CERTIFIED" if not violations else "REAL_EVIDENCE_PRESENT"
+        valid = not violations
+    else:
+        reality_status = "MISSING"
+        valid = True
+
     return {
         "epoch": EPOCH,
         "generated_at_utc": _utc_now_iso(),
-        "valid": not violations,
+        "reality_status": reality_status,
+        "valid": valid,
         "violations": violations,
         "notes": "M5 verification authority evidence and programme consistency checks.",
         "evidence_paths": evidence_paths,

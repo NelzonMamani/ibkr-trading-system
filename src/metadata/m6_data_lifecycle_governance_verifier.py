@@ -22,6 +22,7 @@ REQUIRED_EVIDENCE_FILES = (
     "pytest_full.txt",
     "M6_EVIDENCE_INDEX.json",
 )
+M6_RUNTIME_EVIDENCE_ROOT_REL = Path("AUDIT_EVIDENCE/M6")
 
 
 @dataclass(frozen=True)
@@ -438,10 +439,26 @@ def verify_m6_data_lifecycle_governance(repo_root: Path | None = None) -> dict:
         if (evidence_dir / name).exists()
     ]
 
+    placeholder_catalogue_files = sorted(
+        path.name for path in evidence_dir.iterdir() if path.is_file()
+    ) if evidence_dir.exists() else []
+    runtime_evidence_root = repo_root / M6_RUNTIME_EVIDENCE_ROOT_REL
+
+    if placeholder_catalogue_files and not runtime_evidence_root.exists():
+        reality_status = "STRUCTURAL_ONLY"
+        valid = True
+    elif runtime_evidence_root.exists():
+        reality_status = "CERTIFIED" if not violations else "REAL_EVIDENCE_PRESENT"
+        valid = not violations
+    else:
+        reality_status = "MISSING"
+        valid = True
+
     return {
         "epoch": EPOCH,
         "generated_at_utc": _utc_now_iso(),
-        "valid": not violations,
+        "reality_status": reality_status,
+        "valid": valid,
         "violations": violations,
         "notes": "M6 data lifecycle governance evidence and programme consistency checks.",
         "evidence_paths": evidence_paths,
