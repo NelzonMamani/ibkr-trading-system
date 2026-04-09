@@ -1784,6 +1784,13 @@ def _safe_price_value(value: Any) -> float | None:
     return parsed
 
 
+def _normalize_price_source(value: Any) -> str:
+    normalized = str(value or "").strip().upper()
+    if normalized in {"IBKR_MARKET_DATA_SNAPSHOT", "IBKR_SNAPSHOT_LAST"}:
+        return "IBKR_SNAPSHOT"
+    return normalized
+
+
 def _none_text(value: Any) -> str:
     if value is None:
         return "NONE"
@@ -1820,15 +1827,16 @@ def classify_submit_fillability(
 ) -> tuple[str, str]:
     order_type_norm = str(order_type or "").upper()
     action_norm = str(action or "").upper()
+    has_quote_context = bid is not None and ask is not None and float(bid) > 0 and float(ask) > 0
     if order_type_norm == "MKT":
-        if bid is None and ask is None:
+        if not has_quote_context:
             return "NO_QUOTE_CONTEXT", "market order but bid/ask unavailable"
         if action_norm == "BUY":
             return "MARKETABLE_BUY_AT_OR_ABOVE_ASK", "market buy treated as marketable"
         if action_norm == "SELL":
             return "MARKETABLE_SELL_AT_OR_BELOW_BID", "market sell treated as marketable"
         return "NON_MARKETABLE_UNKNOWN", "market order with unsupported action"
-    if bid is None and ask is None:
+    if not has_quote_context:
         return "NO_QUOTE_CONTEXT", "missing bid/ask quote context"
     if order_type_norm != "LMT" or lmt_price is None:
         return "NON_MARKETABLE_UNKNOWN", "unsupported order type or missing lmt_price"
@@ -1914,6 +1922,27 @@ def _fillability_bucket(classification: str) -> str:
         return "passive"
     return "passive"
 
+
+def _evaluate_submission_restriction(
+    *,
+    symbol: str,
+    entry_price: float | None,
+    primary_exchange: str | None,
+    float_millions: float | None,
+    volume: float | None,
+) -> tuple[bool, str]:
+    if entry_price is not None and float(entry_price) < 2.0:
+        return True, "price_below_2"
+    if float_millions is not None and float(float_millions) < 20.0:
+        return True, "float_below_20m"
+    normalized_exchange = str(primary_exchange or "").strip().upper()
+    if normalized_exchange in {"", "UNKNOWN", "NONE", "OTC", "PINK", "OTCBB"}:
+        return True, "unsupported_primary_exchange"
+    if volume is not None and float(volume) < 10_000:
+        return True, "extremely_low_volume"
+    return False, "ok"
+
+
 def _wait_for_ibkr_snapshot_for_symbol(symbol: str, *, wait_up_to: float = 1.0, poll_interval: float = 0.1) -> dict[str, float | None]:
     normalized_symbol = str(symbol or "").upper().strip()
     if not normalized_symbol:
@@ -1940,7 +1969,8 @@ def _wait_for_ibkr_snapshot_for_symbol(symbol: str, *, wait_up_to: float = 1.0, 
             last = _safe_price_value(getattr(ticker, "last", None))
             bid = _safe_price_value(getattr(ticker, "bid", None))
             ask = _safe_price_value(getattr(ticker, "ask", None))
-            snapshot = {"last": last, "bid": bid, "ask": ask}
+            volume = _safe_price_value(getattr(ticker, "volume", None))
+            snapshot = {"last": last, "bid": bid, "ask": ask, "volume": volume}
             if last is not None or (bid is not None and ask is not None):
                 break
     finally:
@@ -1960,6 +1990,9 @@ def _submit_ibkr_order(
     quantity: int,
     order_ref: str,
     intent_id: str = "",
+    entry_price: float | None = None,
+    entry_price_source: str = "",
+    float_millions: float | None = None,
 ) -> int:
     global _CONTRACT_VALIDATION_FAILURES
     assert isinstance(symbol, str)
@@ -1998,6 +2031,10 @@ def _submit_ibkr_order(
         _CONTRACT_VALIDATION_FAILURES += 1
         raise RuntimeError("CONTRACT_NOT_QUALIFIED")
     print(f"[IBKR][CONTRACT_VALIDATION][OK] symbol={symbol} conId={con_id}")
+    normalized_entry_source = _normalize_price_source(entry_price_source)
+    if normalized_entry_source != "IBKR_SNAPSHOT":
+        print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_IBKR_PRICE_AUTHORITY price_source={_none_text(entry_price_source)}")
+        raise RuntimeError("NO_IBKR_PRICE_AUTHORITY")
     order = Order()
     order.eTradeOnly = False
     order.firmQuoteOnly = False
@@ -2053,6 +2090,11 @@ def _submit_ibkr_order(
     bid = _safe_price_value(quote_snapshot.get("bid"))
     ask = _safe_price_value(quote_snapshot.get("ask"))
     last = _safe_price_value(quote_snapshot.get("last"))
+    volume = _safe_price_value(quote_snapshot.get("volume"))
+    quote_context_ok = bid is not None and ask is not None and bid > 0 and ask > 0
+    if not quote_context_ok:
+        print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_QUOTE_CONTEXT bid={_none_text(bid)} ask={_none_text(ask)}")
+        raise RuntimeError("NO_QUOTE_CONTEXT")
     spread_abs, spread_pct = _compute_quote_spread(bid=bid, ask=ask)
     fillability, fillability_rationale = classify_submit_fillability(
         order_type=str(getattr(order, "orderType", "") or ""),
@@ -2061,6 +2103,23 @@ def _submit_ibkr_order(
         bid=bid,
         ask=ask,
     )
+    if fillability in {"PASSIVE_AWAY_FROM_MARKET", "RESTING_INSIDE_SPREAD", "NON_MARKETABLE_UNKNOWN"}:
+        print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NON_MARKETABLE_ORDER classification={fillability}")
+        raise RuntimeError("NON_MARKETABLE_ORDER")
+    restricted, restriction_detail = _evaluate_submission_restriction(
+        symbol=str(symbol or "").upper(),
+        entry_price=entry_price if entry_price is not None else (last if last is not None else ask),
+        primary_exchange=str(primary_exchange or ""),
+        float_millions=float_millions,
+        volume=volume,
+    )
+    if restricted:
+        print(
+            "[EXECUTION][BLOCK] "
+            f"symbol={symbol} reason=LIKELY_IBKR_RESTRICTED price={_none_text(entry_price if entry_price is not None else last)} "
+            f"exchange={_none_text(primary_exchange)} detail={restriction_detail}"
+        )
+        raise RuntimeError("LIKELY_IBKR_RESTRICTED")
     try:
         order_id = int(client.submit_order(resolved_contract, order))
     except Exception as exc:
@@ -2086,6 +2145,7 @@ def _submit_ibkr_order(
         "bid": bid,
         "ask": ask,
         "last": last,
+        "volume": volume,
         "spread_abs": spread_abs,
         "spread_pct": spread_pct,
         "timestamp": _now_utc_iso(),
@@ -2171,6 +2231,9 @@ def execute_intents(
     acks_received = 0
     fills_received = 0
     positions_opened = 0
+    blocked_no_quote = 0
+    blocked_non_marketable = 0
+    blocked_restricted = 0
 
     for decision in decisions:
         raw_qty = float(getattr(decision, "approved_quantity", 0) or 0)
@@ -2352,6 +2415,7 @@ def execute_intents(
                         },
                     )
                     decision.entry_price = entry_price
+                    setattr(decision, "entry_price_source", entry_price_source)
                     trace.resolved_price = float(entry_price)
                     trace.price_state = "PARTIAL_OK"
                     print(f"[PRICE][RESOLVED] symbol={decision.symbol} source=IBKR_SNAPSHOT price={entry_price}")
@@ -2462,6 +2526,9 @@ def execute_intents(
                         quantity=payload["quantity"],
                         order_ref=payload["order_ref"],
                         intent_id=str(decision.intent_id or ""),
+                        entry_price=_safe_price_value(getattr(decision, "entry_price", None)),
+                        entry_price_source=str(getattr(decision, "entry_price_source", "") or ""),
+                        float_millions=_safe_price_value(getattr(decision, "float_millions", None)),
                     )
                 else:
                     broker_order_id = index
@@ -2472,6 +2539,13 @@ def execute_intents(
                         order_ref=str(order_ref or ""),
                     )
             except Exception as exc:
+                error_text = str(exc or "")
+                if "NO_QUOTE_CONTEXT" in error_text:
+                    blocked_no_quote += 1
+                elif "NON_MARKETABLE_ORDER" in error_text:
+                    blocked_non_marketable += 1
+                elif "LIKELY_IBKR_RESTRICTED" in error_text:
+                    blocked_restricted += 1
                 _mark_execution_failure(trace, "UNKNOWN", reason=str(exc))
                 events.append(
                     ExecutionEvent(
@@ -2709,6 +2783,15 @@ def execute_intents(
         f"cycle_id={cycle_id} intents_received={intents_received} submit_attempts={submit_attempts} "
         f"orders_submitted={orders_submitted} acks_received={acks_received} fills_received={fills_received} "
         f"positions_opened={positions_opened} failures_by_type={dict(sorted(_EXECUTION_FAILURES_BY_TYPE.items()))}"
+    )
+    submitted_marketable = int(_SUBMIT_FILLABILITY_COUNTS.get("MARKETABLE_BUY_AT_OR_ABOVE_ASK", 0)) + int(
+        _SUBMIT_FILLABILITY_COUNTS.get("MARKETABLE_SELL_AT_OR_BELOW_BID", 0)
+    ) + int(_SUBMIT_FILLABILITY_COUNTS.get("CROSSING_SPREAD", 0))
+    print(
+        "[EXECUTION][EXECUTABILITY_SUMMARY] "
+        f"total_intents={intents_received} blocked_no_quote={blocked_no_quote} "
+        f"blocked_non_marketable={blocked_non_marketable} blocked_restricted={blocked_restricted} "
+        f"submitted_marketable={submitted_marketable} submitted_total={orders_submitted}"
     )
     if _FILL_AUTHORITY_STATE == "UNKNOWN":
         _FILL_AUTHORITY_STATE = "ACTIVE" if mode in {RunMode.PAPER, RunMode.LIVE} else "N/A"
