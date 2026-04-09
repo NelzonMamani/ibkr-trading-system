@@ -436,7 +436,7 @@ def _resolve_callback_order_id(callback_payload: Any) -> int | None:
         return explicit_order_id
     callback_order_ref = _extract_callback_order_ref(callback_payload)
     if callback_order_ref:
-        mapped_id = _ORDER_ID_BY_ORDER_REF.get(callback_order_ref)
+        mapped_id = _resolve_order_id_from_order_ref(callback_order_ref)
         if mapped_id is not None:
             print(f"[ORDER_EVENT][RECONCILED] source=orderRef order_ref={callback_order_ref} order_id={mapped_id}")
             return int(mapped_id)
@@ -677,10 +677,12 @@ def _apply_position_fill(symbol: str, *, signed_delta_qty: int, fill_price: floa
     )
     if row.qty > 0 and row.avg_price is not None:
         print(f"[POSITION][OPEN] symbol={symbol} qty={row.qty} avg_price={row.avg_price}")
+    print(f"[POSITION][OPENED_OR_UPDATED] symbol={symbol} qty={row.qty} avg_price={row.avg_price} state={row.state}")
 
 
-def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, total_qty: int, order_ref: str) -> TrackedOrder:
+def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, total_qty: int, order_ref: str, intent_id: str = "") -> TrackedOrder:
     row = _RUNTIME_ORDERS.get(order_id)
+    created = row is None
     if row is None:
         row = TrackedOrder(
             broker_order_id=order_id,
@@ -696,18 +698,26 @@ def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, tota
         )
         _RUNTIME_ORDERS[order_id] = row
     else:
+        row.order_ref = order_ref or row.order_ref
+        row.symbol = symbol or row.symbol
+        row.side = side or row.side
+        row.total_qty = max(int(row.total_qty), max(0, int(total_qty)))
+        row.remaining_qty = max(0, int(row.total_qty) - int(row.filled_qty))
         row.last_update_at = _now_utc_iso()
         row.broker_status = "Submitted"
         row.canonical_state = "SUBMITTED_PENDING_CONFIRMATION"
         row.final_execution_state = "DISPATCH_SENT"
+    if intent_id:
+        row.intent_id = str(intent_id or "")
     pos = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
     normalized_side = str(side or "").upper()
     row.is_exit = normalized_side == "SELL" and pos.qty > 0
     row.is_entry = not row.is_exit
-    if row.is_exit:
-        pos.pending_exit_qty = max(0, pos.pending_exit_qty + int(total_qty))
-    else:
-        pos.pending_entry_qty = max(0, pos.pending_entry_qty + int(total_qty))
+    if created:
+        if row.is_exit:
+            pos.pending_exit_qty = max(0, pos.pending_exit_qty + int(total_qty))
+        else:
+            pos.pending_entry_qty = max(0, pos.pending_entry_qty + int(total_qty))
     if pos.qty <= 0:
         pos.state = "PENDING_ENTRY"
     print(f"[LIFECYCLE][ORDER] order_id={order_id} symbol={symbol} state={row.canonical_state} filled={row.filled_qty} remaining={row.remaining_qty}")
@@ -721,6 +731,21 @@ def _register_pending_submission(*, order_id: int, symbol: str, intent_id: str, 
         intent_id=str(intent_id or ""),
         order_ref=str(order_ref or ""),
     )
+
+
+def _resolve_order_id_from_order_ref(order_ref: str) -> int | None:
+    normalized_order_ref = _normalize_order_ref(order_ref)
+    if not normalized_order_ref:
+        return None
+    mapped = _ORDER_ID_BY_ORDER_REF.get(normalized_order_ref)
+    if mapped is not None:
+        return int(mapped)
+    for pending in _PENDING_SUBMISSIONS_BY_ORDER_ID.values():
+        if _normalize_order_ref(pending.order_ref) != normalized_order_ref:
+            continue
+        _ORDER_ID_BY_ORDER_REF[normalized_order_ref] = int(pending.order_id)
+        return int(pending.order_id)
+    return None
 
 
 def _recover_order_tracking_from_pending_submission(*, order_id: int, callback_symbol: str, timestamp: str) -> tuple[TrackedOrder | None, ExecutionTrace | None]:
@@ -874,6 +899,37 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 f"stage=ACK event_type={event_type} order_id={order_id} tracked=false action=ignored"
             )
             return
+    if event_type == "execdetails" and tracked is None and callback_order_ref:
+        mapped_id = _resolve_order_id_from_order_ref(callback_order_ref)
+        if mapped_id is not None:
+            if mapped_id != int(order_id):
+                print(f"[ORDER_EVENT][RECONCILED] source=orderRef order_ref={callback_order_ref} order_id={mapped_id}")
+            order_id = int(mapped_id)
+            tracked = _RUNTIME_ORDERS.get(int(order_id))
+            trace = _EXECUTION_TRACE_BY_ORDER_ID.get(int(order_id))
+            if tracked is None:
+                tracked, trace = _recover_order_tracking_from_pending_submission(
+                    order_id=int(order_id),
+                    callback_symbol=str(symbol or ""),
+                    timestamp=timestamp,
+                )
+    if event_type == "execdetails" and tracked is None:
+        _UNMATCHED_CALLBACK_COUNT += 1
+        print(
+            "[ORDER_EVENT][UNMATCHED] "
+            f"event=EXECUTION order_id={order_id} order_ref={callback_order_ref or 'UNKNOWN'} symbol={symbol or 'UNKNOWN'}"
+        )
+        print(
+            "[EXECUTION][RECONCILIATION_FAILED] "
+            f"event=EXECUTION order_id={order_id} order_ref={callback_order_ref or 'UNKNOWN'} source=CALLBACK_EXECDETAILS"
+        )
+        print(
+            "[EXECUTION][TRUTH_GAP] "
+            f"stage=FILL event=EXECUTION order_id={order_id} symbol={symbol or 'UNKNOWN'} source=CALLBACK_EXECDETAILS"
+        )
+        _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
+        _FILL_AUTHORITY_STATE = "DEGRADED"
+        return
     if (not symbol) and tracked is not None and tracked.symbol:
         symbol = tracked.symbol
         print(f"[EXECUTION][CALLBACK_ENRICHED] order_id={order_id} symbol={symbol} source=order_id_mapping")
@@ -937,6 +993,14 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             timestamp=timestamp,
             source="CALLBACK_EXECDETAILS",
         )
+        if tracked is not None:
+            print(
+                "[EXECUTION][RECONCILED] "
+                f"order_id={order_id} symbol={tracked.symbol or symbol or 'UNKNOWN'} "
+                f"intent_id={tracked.intent_id or _INTENT_ID_BY_ORDER_ID.get(int(order_id), '')} "
+                f"order_ref={tracked.order_ref or callback_order_ref or 'UNKNOWN'} "
+                f"fill_qty={max(0, int(filled_qty))} fill_price={fill_price}"
+            )
         if trace is not None:
             trace.fill_received = True
             trace.fill_qty = int(trace.fill_qty) + max(0, int(filled_qty))
@@ -1675,6 +1739,23 @@ def _submit_ibkr_order(
     except Exception as exc:
         print(f"[IBKR][PLACE_ORDER][ERROR] symbol={symbol} order_id=PENDING error={exc}")
         raise
+    _upsert_order_from_submission(
+        order_id=int(order_id),
+        symbol=str(symbol or "").upper(),
+        side=str(side or "").upper(),
+        total_qty=int(quantity),
+        order_ref=str(order_ref or ""),
+        intent_id=str(intent_id or ""),
+    )
+    _register_order_intent_mapping(
+        order_id=int(order_id),
+        intent_id=str(intent_id or ""),
+        order_ref=str(order_ref or ""),
+    )
+    print(
+        f"[EXECUTION][ORDER_REGISTERED] order_id={int(order_id)} symbol={str(symbol or '').upper()} "
+        f"intent_id={str(intent_id or '')} order_ref={str(order_ref or '')}"
+    )
     _register_pending_submission(
         order_id=int(order_id),
         symbol=str(symbol or "").upper(),
@@ -1839,7 +1920,7 @@ def execute_intents(
                 f"existing_status={duplicate_status} reason={duplicate_reason}"
             )
             break
-        if duplicate_symbol in existing_position_symbols:
+        if order_side == "BUY" and duplicate_symbol in existing_position_symbols:
             print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
             _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_position")
             events.append(
@@ -2039,6 +2120,7 @@ def execute_intents(
                 side=order_side,
                 total_qty=quantity,
                 order_ref=order_ref,
+                intent_id=str(decision.intent_id or ""),
             )
             _register_order_intent_mapping(
                 order_id=int(broker_order_id),
