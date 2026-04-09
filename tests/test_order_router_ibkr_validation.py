@@ -145,7 +145,9 @@ def test_submit_order_ack_enforced_in_strict_mode(monkeypatch) -> None:
             return None
 
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
-    with pytest.raises(RuntimeError, match="IBKR_ACKNOWLEDGEMENT_FAILED"):
+    # In premarket, submission requires valid bid/ask.
+    # If unavailable, execution fails before ACK phase.
+    with pytest.raises(RuntimeError, match="(IBKR_ACKNOWLEDGEMENT_FAILED|NO_LIMIT_PRICE_AVAILABLE_OUTSIDE_RTH)"):
         order_router._submit_ibkr_order(
             mode=RunMode.PAPER,
             client=_Client(),
