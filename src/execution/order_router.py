@@ -43,6 +43,25 @@ _NEXT_VALID_ID_REBASES = 0
 _NON_ORDER_UNMATCHED_CALLBACK_COUNT = 0
 _CIRCUIT_BREAKER_ACTIVE = False
 _VISIBILITY_BY_ORDER_ID: dict[int, dict[str, bool]] = {}
+_LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID: dict[int, str] = {}
+_BROKER_ERRORS_BY_ORDER_ID: dict[int, list[dict[str, Any]]] = {}
+
+AUTHORITATIVE_EXECUTION_STATES = {
+    "DISPATCH_INTENDED",
+    "DISPATCH_SENT",
+    "BROKER_ACK_SEEN",
+    "BROKER_WORKING",
+    "BROKER_QUEUED_FOR_RTH",
+    "BROKER_REJECTED",
+    "BROKER_CANCELLED",
+    "BROKER_FILLED_PARTIAL",
+    "BROKER_FILLED_FULL",
+    "BROKER_EXPIRED",
+    "BROKER_INACTIVE_UNKNOWN",
+    "NO_FILL_TIMEOUT_NON_TERMINAL",
+    "NO_FILL_TIMEOUT_TERMINAL",
+    "BROKER_VISIBILITY_FAILURE",
+}
 
 FAILURE_TYPES = {
     "PRICE_UNAVAILABLE",
@@ -104,6 +123,20 @@ class TrackedOrder:
     seen_exec_ids: set[str] = field(default_factory=set)
     callback_pending: bool = False
     callback_pending_since: str | None = None
+    ack_seen: bool = False
+    working_seen: bool = False
+    queued_for_rth_seen: bool = False
+    reject_seen: bool = False
+    fill_seen: bool = False
+    cancelled_seen: bool = False
+    expired_seen: bool = False
+    inactive_seen: bool = False
+    broker_error_codes: list[int] = field(default_factory=list)
+    normalized_reject_reason: str = ""
+    final_execution_state: str = "DISPATCH_INTENDED"
+    terminal: bool = False
+    last_callback_fingerprint: str = ""
+    intent_id: str = ""
 
 
 @dataclass
@@ -370,6 +403,9 @@ def _register_order_intent_mapping(*, order_id: int, intent_id: str, order_ref: 
     normalized_intent = _normalize_order_ref(intent_id)
     normalized_order_ref = _normalize_order_ref(order_ref)
     _INTENT_ID_BY_ORDER_ID[int(order_id)] = normalized_intent
+    tracked = _RUNTIME_ORDERS.get(int(order_id))
+    if tracked is not None:
+        tracked.intent_id = normalized_intent
     if normalized_order_ref:
         _ORDER_ID_BY_ORDER_REF[normalized_order_ref] = int(order_id)
 
@@ -561,6 +597,47 @@ def _state_from_broker_status(status: str, filled_qty: int, remaining_qty: int) 
     return "SUBMITTED"
 
 
+def _normalize_broker_reject_reason(*, code: int | None, message: str, status: str) -> str:
+    text = f"{message} {status}".upper()
+    if code == 201:
+        if "CLOSING" in text:
+            return "REGULATORY_CLOSING_ONLY"
+        return "PERMISSION_SMALL_CAP_OPENING_RESTRICTED"
+    if code == 2109:
+        return "OUTSIDE_RTH_IGNORED_WARNING"
+    if code == 399 or "09:30" in text or "WILL NOT BE PLACED" in text:
+        return "QUEUED_UNTIL_RTH_WARNING"
+    if "PERMISSION" in text or "RESTRICT" in text:
+        return "PERMISSION_SMALL_CAP_OPENING_RESTRICTED"
+    if "REJECT" in text or "INACTIVE" in text:
+        return "UNKNOWN_BROKER_REJECT"
+    return ""
+
+
+def _resolve_authoritative_execution_state(row: TrackedOrder | None) -> str:
+    if row is None:
+        return "BROKER_VISIBILITY_FAILURE"
+    if row.fill_seen and row.remaining_qty <= 0:
+        return "BROKER_FILLED_FULL"
+    if row.fill_seen and row.remaining_qty > 0:
+        return "BROKER_FILLED_PARTIAL"
+    if row.reject_seen:
+        return "BROKER_REJECTED"
+    if row.cancelled_seen:
+        return "BROKER_CANCELLED"
+    if row.expired_seen:
+        return "BROKER_EXPIRED"
+    if row.queued_for_rth_seen:
+        return "BROKER_QUEUED_FOR_RTH"
+    if row.working_seen:
+        return "BROKER_WORKING"
+    if row.inactive_seen:
+        return "BROKER_INACTIVE_UNKNOWN"
+    if row.ack_seen:
+        return "BROKER_ACK_SEEN"
+    return "DISPATCH_SENT"
+
+
 def _apply_position_fill(symbol: str, *, signed_delta_qty: int, fill_price: float | None, pending_entry_delta: int = 0, pending_exit_delta: int = 0) -> None:
     if not symbol:
         return
@@ -599,6 +676,7 @@ def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, tota
             remaining_qty=max(0, int(total_qty)),
             broker_status="Submitted",
             canonical_state="SUBMITTED_PENDING_CONFIRMATION",
+            final_execution_state="DISPATCH_SENT",
             last_update_at=_now_utc_iso(),
         )
         _RUNTIME_ORDERS[order_id] = row
@@ -606,6 +684,7 @@ def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, tota
         row.last_update_at = _now_utc_iso()
         row.broker_status = "Submitted"
         row.canonical_state = "SUBMITTED_PENDING_CONFIRMATION"
+        row.final_execution_state = "DISPATCH_SENT"
     pos = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
     normalized_side = str(side or "").upper()
     row.is_exit = normalized_side == "SELL" and pos.qty > 0
@@ -668,7 +747,7 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
 def _on_ibkr_callback(callback_payload: Any) -> None:
     global _UNMATCHED_CALLBACK_COUNT, _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT, _FILL_AUTHORITY_STATE, _NON_ORDER_UNMATCHED_CALLBACK_COUNT
     event_type = str(_extract_callback_field(callback_payload, "event_type") or "").lower()
-    if event_type and event_type not in {"execdetails", "orderstatus", "commissionreport", "openorder", "position", "positionend"}:
+    if event_type and event_type not in {"execdetails", "orderstatus", "commissionreport", "openorder", "position", "positionend", "error"}:
         return
     order_id = _resolve_callback_order_id(callback_payload)
     callback_order_ref = _extract_callback_order_ref(callback_payload)
@@ -701,6 +780,24 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         if event_type in {"execdetails", "orderstatus", "openorder"}:
             _mark_execution_failure(None, "UNKNOWN", reason=f"missing_order_id callback={event_type or 'unknown'}")
         return
+    tracked = _RUNTIME_ORDERS.get(int(order_id))
+    if (not symbol) and tracked is not None and tracked.symbol:
+        symbol = tracked.symbol
+        print(f"[EXECUTION][CALLBACK_ENRICHED] order_id={order_id} symbol={symbol} source=order_id_mapping")
+    if not symbol and tracked is None:
+        print(f"[EXECUTION][CALLBACK_UNRESOLVED] order_id={order_id} event_type={event_type or 'unknown'}")
+    fingerprint = (
+        f"{event_type}|{order_id}|{symbol}|"
+        f"{_extract_callback_field(callback_payload, 'status') or ''}|"
+        f"{_extract_callback_field(callback_payload, 'errorCode') or _extract_callback_field(callback_payload, 'code') or ''}|"
+        f"{filled_qty}|{fill_price}"
+    )
+    if tracked is not None and tracked.last_callback_fingerprint == fingerprint:
+        print(f"[EXECUTION][CALLBACK_DEDUP] order_id={order_id} fingerprint={fingerprint}")
+        return
+    if tracked is not None:
+        tracked.last_callback_fingerprint = fingerprint
+    _LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID[int(order_id)] = fingerprint
     trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id)
     if trace is not None:
         _trace_log("ACK", trace, extra=f"callback={event_type or 'unknown'}")
@@ -767,6 +864,10 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 f"[ORDER][FILL] symbol={symbol or 'UNKNOWN'} order_id={order_id} "
                 f"shares={filled_qty} avg_price={fill_price}"
             )
+        if tracked is not None:
+            tracked.fill_seen = tracked.filled_qty > 0
+            tracked.working_seen = tracked.remaining_qty > 0
+            tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
     elif event_type == "orderstatus":
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"orderStatus_seen": True})
         row = _RUNTIME_ORDERS.get(order_id)
@@ -782,6 +883,20 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             row.remaining_qty = remaining_int if remaining_int >= 0 else row.remaining_qty
             row.canonical_state = _state_from_broker_status(row.broker_status, row.filled_qty, row.remaining_qty)
             row.last_update_at = timestamp
+            row.ack_seen = True
+            if str(row.broker_status or "").upper() in {"SUBMITTED", "PRESUBMITTED"}:
+                row.working_seen = True
+            if str(row.broker_status or "").upper() == "PRESUBMITTED":
+                row.queued_for_rth_seen = bool(row.queued_for_rth_seen)
+            if str(row.broker_status or "").upper() in {"INACTIVE", "REJECTED"}:
+                row.inactive_seen = True
+                row.reject_seen = bool(row.reject_seen or row.normalized_reject_reason)
+            if str(row.broker_status or "").upper() in {"CANCELLED", "CANCELED", "API_CANCELLED"}:
+                row.cancelled_seen = True
+            if str(row.broker_status or "").upper() == "EXPIRED":
+                row.expired_seen = True
+            row.fill_seen = row.filled_qty > 0
+            row.final_execution_state = _resolve_authoritative_execution_state(row)
             print(f"[ORDER_EVENT][STATUS] order_id={order_id} symbol={row.symbol} status={row.broker_status} filled={row.filled_qty} remaining={row.remaining_qty}")
             if old_state != row.canonical_state:
                 print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
@@ -817,6 +932,34 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 f"[EXECUTION][ACK_CONFIRMED] symbol={trace.symbol or symbol or 'UNKNOWN'} "
                 f"order_id={order_id} status=openOrder"
             )
+        if tracked is not None:
+            tracked.ack_seen = True
+            tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
+    elif event_type == "error":
+        code_raw = _extract_callback_field(callback_payload, "errorCode", "code")
+        message = str(_extract_callback_field(callback_payload, "errorString", "message") or "")
+        try:
+            code = int(code_raw) if code_raw is not None else None
+        except (TypeError, ValueError):
+            code = None
+        normalized_reason = _normalize_broker_reject_reason(code=code, message=message, status=event_status)
+        if tracked is not None:
+            if code is not None and code not in tracked.broker_error_codes:
+                tracked.broker_error_codes.append(code)
+            tracked.normalized_reject_reason = normalized_reason or tracked.normalized_reject_reason
+            if normalized_reason in {"PERMISSION_SMALL_CAP_OPENING_RESTRICTED", "REGULATORY_CLOSING_ONLY", "UNKNOWN_BROKER_REJECT"}:
+                tracked.reject_seen = True
+            if normalized_reason == "QUEUED_UNTIL_RTH_WARNING":
+                tracked.queued_for_rth_seen = True
+            tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
+        _BROKER_ERRORS_BY_ORDER_ID.setdefault(int(order_id), []).append({"code": code, "message": message, "normalized": normalized_reason})
+        if normalized_reason == "OUTSIDE_RTH_IGNORED_WARNING":
+            print(f"[EXECUTION][SESSION_CLASSIFICATION] order_id={order_id} verdict=OUTSIDE_RTH_IGNORED_WARNING")
+            print(f"[EXECUTION][PREMARKET_ROUTE_VERDICT] order_id={order_id} normalized_reject_reason={normalized_reason}")
+        if normalized_reason == "QUEUED_UNTIL_RTH_WARNING":
+            print(f"[EXECUTION][QUEUED_FOR_RTH] order_id={order_id} message={message}")
+        if normalized_reason in {"PERMISSION_SMALL_CAP_OPENING_RESTRICTED", "REGULATORY_CLOSING_ONLY", "UNKNOWN_BROKER_REJECT"}:
+            print(f"[EXECUTION][PERMISSION_REJECT] order_id={order_id} code={code} normalized_reject_reason={normalized_reason}")
     elif event_type == "position":
         if trace is not None:
             qty_raw = _extract_callback_field(callback_payload, "position", "qty", "shares")
@@ -1100,10 +1243,16 @@ def _post_submission_ibkr_diagnostics(
         tracked = _RUNTIME_ORDERS.get(int(order_id))
         if tracked is None:
             continue
+        tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
         if int(tracked.filled_qty) <= 0:
+            timeout_state = "NO_FILL_TIMEOUT_TERMINAL"
+            if tracked.final_execution_state in {"BROKER_WORKING", "BROKER_QUEUED_FOR_RTH", "BROKER_ACK_SEEN", "DISPATCH_SENT"}:
+                timeout_state = "NO_FILL_TIMEOUT_NON_TERMINAL"
+            tracked.final_execution_state = timeout_state if tracked.final_execution_state not in {"BROKER_QUEUED_FOR_RTH", "BROKER_WORKING"} else tracked.final_execution_state
+            tracked.terminal = timeout_state == "NO_FILL_TIMEOUT_TERMINAL"
             print(
                 f"[EXECUTION][NO_FILL_TIMEOUT] symbol={tracked.symbol} order_id={int(order_id)} "
-                f"seconds_waited={no_fill_timeout_seconds}"
+                f"seconds_waited={no_fill_timeout_seconds} classification={tracked.final_execution_state}"
             )
     open_order_callback_count = sum(
         1
@@ -1479,17 +1628,28 @@ def execute_intents(
         _FILL_AUTHORITY_STATE = "DEGRADED"
         print("[EXECUTION][FILL_AUTHORITY_DEGRADED] reason=broker_fill_reconciliation_unavailable")
     existing_position_symbols = {str(getattr(row, "symbol", "") or "").upper() for row in positions}
-    working_order_families: set[tuple[str, str, str]] = set()
+    working_order_candidates: list[dict[str, Any]] = []
     for row in open_orders:
         symbol = _extract_symbol_from_order(row)
         if not symbol:
             continue
         order = getattr(row, "order", None)
         side = str(getattr(order, "action", "") or "").upper()
+        status = str(getattr(row, "status", "") or getattr(order, "status", "") or "").upper()
+        order_id = getattr(row, "orderId", None)
         order_ref = _extract_order_ref(row)
         family = order_ref.split("|")[-1] if "|" in order_ref else order_ref
-        working_order_families.add((symbol, side, family))
-    print(f"[EXECUTION][WORKING_ORDER_RECON] known_working_orders={len(working_order_families)}")
+        working_order_candidates.append(
+            {
+                "symbol": symbol,
+                "side": side,
+                "family": str(family or ""),
+                "order_id": int(order_id) if order_id is not None else None,
+                "status": status or "UNKNOWN",
+                "is_live_status": status in {"SUBMITTED", "PRESUBMITTED", "PENDING_SUBMIT", "PENDINGCANCEL", "UNKNOWN"},
+            }
+        )
+    print(f"[EXECUTION][WORKING_ORDER_RECON] known_working_orders={len(working_order_candidates)}")
 
     submitted_order_ids: list[int] = []
     for index, decision in enumerate(decisions, start=1):
@@ -1522,7 +1682,38 @@ def execute_intents(
         duplicate_symbol = str(decision.symbol or "").upper()
         order_side = "BUY" if str(getattr(decision, "side", "LONG") or "LONG").upper() == "LONG" else "SELL"
         order_family = str(decision.intent_id or "")
-        working_duplicate = (duplicate_symbol, order_side, order_family) in working_order_families
+        print(
+            f"[EXECUTION][DUPLICATE_CHECK] symbol={duplicate_symbol} side={order_side} intent_id={order_family} "
+            f"candidate_count={len(working_order_candidates)}"
+        )
+        working_duplicate = False
+        duplicate_reason = ""
+        duplicate_order_id = None
+        duplicate_status = ""
+        for candidate in working_order_candidates:
+            if candidate["symbol"] != duplicate_symbol or candidate["side"] != order_side:
+                continue
+            if not bool(candidate["is_live_status"]):
+                print(
+                    f"[EXECUTION][DUPLICATE_IGNORE_STALE] symbol={duplicate_symbol} existing_order_id={candidate['order_id']} "
+                    f"existing_status={candidate['status']} reason=non_live_status"
+                )
+                continue
+            if candidate["family"] and candidate["family"] != order_family:
+                print(
+                    f"[EXECUTION][DUPLICATE_IGNORE_STALE] symbol={duplicate_symbol} existing_order_id={candidate['order_id']} "
+                    f"existing_status={candidate['status']} reason=intent_mismatch existing_family={candidate['family']} intent_id={order_family}"
+                )
+                continue
+            working_duplicate = True
+            duplicate_order_id = candidate["order_id"]
+            duplicate_status = candidate["status"]
+            duplicate_reason = "live_symbol_side_intent_conflict"
+            print(
+                f"[EXECUTION][DUPLICATE_MATCH] symbol={duplicate_symbol} existing_order_id={duplicate_order_id} "
+                f"existing_status={duplicate_status} reason={duplicate_reason}"
+            )
+            break
         if duplicate_symbol in existing_position_symbols:
             print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
             _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_position")
@@ -1538,7 +1729,10 @@ def execute_intents(
             )
             continue
         if working_duplicate:
-            print(f"[EXECUTION][DUPLICATE_WORKING_ORDER_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_WORKING_ORDER")
+            print(
+                f"[EXECUTION][DUPLICATE_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_WORKING_ORDER "
+                f"existing_order_id={duplicate_order_id} existing_broker_state={duplicate_status} conflict_reason={duplicate_reason}"
+            )
             _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_working_order")
             events.append(
                 ExecutionEvent(
@@ -1784,12 +1978,62 @@ def execute_intents(
         if trace.order_submitted and not trace.ack_received:
             _mark_execution_failure(trace, "NO_ACK", reason="order_submitted_without_ack")
         if trace.ack_received and not trace.fill_received:
-            _mark_execution_failure(trace, "NO_FILL", reason="ack_without_fill")
+            tracked = _RUNTIME_ORDERS.get(int(trace.order_id)) if trace.order_id is not None else None
+            authoritative_state = _resolve_authoritative_execution_state(tracked)
+            if authoritative_state in {"BROKER_REJECTED", "BROKER_CANCELLED", "BROKER_EXPIRED", "BROKER_INACTIVE_UNKNOWN"}:
+                _mark_execution_failure(trace, "NO_FILL", reason=f"terminal_no_fill state={authoritative_state}")
         if trace.fill_received and not trace.position_opened:
             _mark_execution_failure(trace, "PARTIAL_FILL_STALLED", reason="fill_without_position")
         if trace.lifecycle_state not in {"FAIL", "POSITION_OPENED"}:
             trace.lifecycle_state = "COMPLETE"
             _trace_log("COMPLETE", trace, extra=f"state={trace.lifecycle_state}")
+    truth_terminal_counts: dict[str, int] = {}
+    for order_id in submitted_order_ids:
+        tracked = _RUNTIME_ORDERS.get(int(order_id))
+        final_state = _resolve_authoritative_execution_state(tracked)
+        if tracked is not None:
+            tracked.final_execution_state = final_state
+        truth_terminal_counts[final_state] = int(truth_terminal_counts.get(final_state, 0)) + 1
+        print(
+            "[EXECUTION][TRUTH_ROW] "
+            f"symbol={(tracked.symbol if tracked is not None else 'UNKNOWN')} order_id={int(order_id)} "
+            f"dispatch={'yes' if tracked is not None else 'no'} ack={'yes' if tracked and tracked.ack_seen else 'no'} "
+            f"working={'yes' if tracked and tracked.working_seen else 'no'} queued_for_rth={'yes' if tracked and tracked.queued_for_rth_seen else 'no'} "
+            f"rejected={'yes' if tracked and tracked.reject_seen else 'no'} filled={'yes' if tracked and tracked.fill_seen else 'no'} "
+            f"terminal_state={final_state} broker_status={(tracked.broker_status if tracked is not None else 'UNKNOWN')} "
+            f"broker_error_code={','.join(str(v) for v in (tracked.broker_error_codes if tracked is not None else [])) or 'NONE'} "
+            f"normalized_reject_reason={(tracked.normalized_reject_reason if tracked is not None else '') or 'NONE'}"
+        )
+    print(f"[EXECUTION][TRUTH_SUMMARY] total={len(submitted_order_ids)} states={dict(sorted(truth_terminal_counts.items()))}")
+
+    for event in events:
+        if event.broker_order_id is None:
+            continue
+        tracked = _RUNTIME_ORDERS.get(int(event.broker_order_id))
+        if tracked is None:
+            continue
+        final_state = _resolve_authoritative_execution_state(tracked)
+        tracked.final_execution_state = final_state
+        if final_state == "BROKER_REJECTED":
+            event.event_type = "ORDER_REJECTED"
+            event.broker_status = "Rejected"
+            event.action = "BLOCKED"
+        elif final_state == "BROKER_FILLED_FULL":
+            event.event_type = "ORDER_FILLED"
+            event.broker_status = "Filled"
+        elif final_state == "BROKER_FILLED_PARTIAL":
+            event.event_type = "ORDER_PARTIALLY_FILLED"
+            event.broker_status = "Submitted"
+        elif final_state == "BROKER_QUEUED_FOR_RTH":
+            event.event_type = "ORDER_QUEUED_FOR_RTH"
+            event.broker_status = "PreSubmitted"
+        elif final_state == "BROKER_WORKING":
+            event.event_type = "ORDER_WORKING"
+        event.detail = (
+            f"{event.detail}; final_execution_state={final_state}; "
+            f"normalized_reject_reason={(tracked.normalized_reject_reason or 'NONE')}; "
+            f"broker_error_codes={','.join(str(v) for v in tracked.broker_error_codes) or 'NONE'}"
+        )
     print(
         "[EXECUTION][CALLBACK_HEALTH] "
         f"open_order_callbacks_received={sum(1 for v in _VISIBILITY_BY_ORDER_ID.values() if v.get('openOrder_seen'))} "
