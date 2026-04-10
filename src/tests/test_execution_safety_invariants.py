@@ -17,6 +17,7 @@ def _reset_router_state() -> None:
     order_router._EXECUTION_EVENT_BUFFER.clear()
     order_router._RUNTIME_ORDERS.clear()
     order_router._RUNTIME_POSITIONS.clear()
+    order_router._IBKR_POSITIONS_BY_SYMBOL.clear()
     order_router._SEEN_EXEC_IDS.clear()
     order_router._FILL_AUTHORITY_STATE = "UNKNOWN"
     order_router._UNMATCHED_CALLBACK_COUNT = 0
@@ -86,9 +87,47 @@ def test_position_consistency_checks_detect_both_inconsistency_shapes(capsys) ->
         qty=5,
         state="POSITION_OPEN",
     )
+    order_router._IBKR_POSITIONS_BY_SYMBOL["MSFT"] = order_router.IbkrPositionTruth(
+        symbol="MSFT",
+        quantity=5,
+        avg_price=10.0,
+    )
 
     order_router._check_position_consistency()
     output = capsys.readouterr().out
 
     assert "[POSITION][INCONSISTENT_STATE] symbol=AAPL reason=filled_without_position" in output
     assert "[POSITION][INCONSISTENT_STATE] symbol=MSFT reason=position_without_fill_history" in output
+
+
+def test_ibkr_position_callback_populates_in_memory_truth_store(capsys) -> None:
+    _reset_router_state()
+    order_router._on_ibkr_callback(
+        {"event_type": "position", "symbol": "AAPL", "position": 1, "avgCost": 2.45}
+    )
+    output = capsys.readouterr().out
+
+    assert "[POSITION][SYNC] symbol=AAPL qty=1 avg_price=2.45 source=IBKR" in output
+    assert order_router._IBKR_POSITIONS_BY_SYMBOL["AAPL"].quantity == 1
+    assert order_router._IBKR_POSITIONS_BY_SYMBOL["AAPL"].avg_price == 2.45
+
+
+def test_passive_reconciliation_emits_position_summary_and_mismatch(capsys) -> None:
+    _reset_router_state()
+    order_router._RUNTIME_ORDERS[2001] = order_router.TrackedOrder(
+        broker_order_id=2001,
+        order_ref="TEST-INTENT-3",
+        symbol="AAPL",
+        side="BUY",
+        total_qty=1,
+        filled_qty=1,
+        remaining_qty=0,
+        canonical_state="FILLED",
+        broker_status="Filled",
+        avg_fill_price=2.45,
+    )
+    order_router._run_passive_position_reconciliation(positions=[_StubPosition(symbol="AAPL", position=2)])
+    output = capsys.readouterr().out
+
+    assert "[POSITION][MISMATCH] symbol=AAPL expected_position=1 ibkr_position=2" in output
+    assert "[POSITION][SUMMARY] total_positions=1 mismatches=1" in output
