@@ -265,7 +265,7 @@ def test_fill_requires_callback(monkeypatch) -> None:
     )
 
     assert order_router._RUNTIME_ORDERS[events[0].broker_order_id].filled_qty == 10
-    assert order_router._RUNTIME_POSITIONS["MCRO"].qty == 10
+    assert "MCRO" not in order_router._RUNTIME_POSITIONS
 
 
 def test_execute_intents_blocks_duplicate_symbol_using_ibkr_truth(monkeypatch, capsys) -> None:
@@ -304,6 +304,7 @@ def test_position_zero_not_blocked(monkeypatch, capsys) -> None:
     from src.execution import order_router
 
     order_router._RUNTIME_POSITIONS.clear()
+    order_router._IBKR_POSITIONS_BY_SYMBOL.clear()
 
     class _FlatPos:
         symbol = "MCRO"
@@ -332,26 +333,16 @@ def test_position_zero_not_blocked(monkeypatch, capsys) -> None:
     )
     out = capsys.readouterr().out
     assert events[0].action == "SUBMITTED"
-    assert "[EXECUTION][POSITION_CHECK] symbol=MCRO local_qty=0.0 broker_qty=0.0 effective_qty=0.0 source=MAX_LOCAL_BROKER treated_as_flat=true" in out
+    assert "[EXECUTION][POSITION_CHECK] symbol=MCRO local_qty=0.0 broker_qty=0.0 effective_qty=0.0 source=IBKR_EXTERNAL treated_as_flat=true" in out
     assert "reason=DUPLICATE_POSITION" not in out
 
 
-def test_recent_exec_local_flat_overrides_stale_broker_position(monkeypatch, capsys) -> None:
-    from src.execution import order_router
-    from types import SimpleNamespace
-
+def test_stale_broker_position_still_blocks_without_ibkr_flat_confirmation(monkeypatch, capsys) -> None:
     class _StaleBrokerPos:
         symbol = "MCRO"
         position = 100.0
         avgCost = 24.0
 
-    order_router._RUNTIME_POSITIONS.clear()
-    order_router._RUNTIME_POSITIONS["MCRO"] = SimpleNamespace(
-        qty=0.0,
-        state="POSITION_CLOSED",
-        last_update_source="EXEC_DETAILS",
-        last_fill_update_at=datetime.now(timezone.utc).isoformat(),
-    )
     monkeypatch.setattr("src.execution.order_router._fetch_ibkr_truth", lambda _mode: ([], [], [_StaleBrokerPos()]))
     events = execute_intents(
         mode=RunMode.PAPER,
@@ -370,15 +361,16 @@ def test_recent_exec_local_flat_overrides_stale_broker_position(monkeypatch, cap
         ],
     )
     out = capsys.readouterr().out
-    assert events[0].action == "SUBMITTED"
-    assert "source=LOCAL_EXEC treated_as_flat=true" in out
-    assert "reason=DUPLICATE_POSITION" not in out
+    assert events[0].action == "BLOCKED"
+    assert "source=IBKR_EXTERNAL treated_as_flat=false" in out
+    assert "reason=DUPLICATE_POSITION" in out
 
 
 def test_ibkr_callback_creates_order_filled_event(monkeypatch, capsys) -> None:
     from src.execution import order_router
 
     order_router._RUNTIME_POSITIONS.clear()
+    order_router._IBKR_POSITIONS_BY_SYMBOL.clear()
     monkeypatch.setattr("src.execution.order_router._fetch_ibkr_truth", lambda _mode: ([], [], []))
     monkeypatch.setenv("IBKR_ENABLE_TEST_ONLY_FILL", "false")
     order_router._on_ibkr_callback(

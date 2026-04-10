@@ -34,6 +34,9 @@ def _reset_router() -> None:
     order_router._NEXT_VALID_ID_REBASES = 0
     order_router._NON_ORDER_UNMATCHED_CALLBACK_COUNT = 0
     order_router._CIRCUIT_BREAKER_ACTIVE = False
+    order_router._IBKR_POSITIONS_BY_SYMBOL.clear()
+    order_router._BROKER_POSITION_LAST_QTY_BY_SYMBOL.clear()
+    order_router._IBKR_POSITION_EVENTS_COUNT = 0
 
 
 def _decision(symbol: str = "ABCD", qty: int = 100, side: str = "LONG") -> RiskDecisionRecord:
@@ -70,9 +73,10 @@ def test_partial_entry_fill_opens_partial_position(monkeypatch) -> None:
     events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
     oid = events[0].broker_order_id
     order_router._on_ibkr_callback({"event_type": "execDetails", "order_id": oid, "symbol": "ABCD", "shares": 20, "price": 21.0, "execId": "E1"})
+    order_router._on_ibkr_callback({"event_type": "position", "order_id": oid, "symbol": "ABCD", "position": 20, "avgCost": 21.0})
     snap = order_router.runtime_lifecycle_snapshot()
-    assert snap["partial_position_open_count"] == 1
-    assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 20
+    assert snap["open_position_count"] == 1
+    assert order_router._IBKR_POSITIONS_BY_SYMBOL["ABCD"].quantity == 20
     assert order_router._RUNTIME_ORDERS[oid].remaining_qty == 80
 
 
@@ -83,31 +87,32 @@ def test_multiple_partial_fills_aggregate_to_full_position(monkeypatch) -> None:
     oid = events[0].broker_order_id
     order_router._on_ibkr_callback({"event_type": "execDetails", "order_id": oid, "symbol": "ABCD", "shares": 25, "price": 21.0, "execId": "E1"})
     order_router._on_ibkr_callback({"event_type": "execDetails", "order_id": oid, "symbol": "ABCD", "shares": 75, "price": 22.0, "execId": "E2"})
+    order_router._on_ibkr_callback({"event_type": "position", "order_id": oid, "symbol": "ABCD", "position": 100, "avgCost": 21.75})
     assert order_router._RUNTIME_ORDERS[oid].filled_qty == 100
     assert order_router._RUNTIME_ORDERS[oid].canonical_state == "FILLED"
-    assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 100
+    assert order_router._IBKR_POSITIONS_BY_SYMBOL["ABCD"].quantity == 100
 
 
 def test_exit_partial_fill_reduces_position_but_not_close(monkeypatch) -> None:
     _reset_router()
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
-    order_router._RUNTIME_POSITIONS["ABCD"] = order_router.TrackedPosition(symbol="ABCD", qty=50, state="POSITION_OPEN")
+    order_router._IBKR_POSITIONS_BY_SYMBOL["ABCD"] = order_router.IbkrPositionTruth(symbol="ABCD", quantity=50, avg_price=20.0)
     events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision(qty=50, side="SHORT")])
     oid = events[0].broker_order_id
     order_router._on_ibkr_callback({"event_type": "execDetails", "order_id": oid, "symbol": "ABCD", "shares": 1, "price": 20.5, "execId": "X1"})
-    assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 49
-    assert order_router._RUNTIME_POSITIONS["ABCD"].state == "POSITION_REDUCING"
+    order_router._on_ibkr_callback({"event_type": "position", "order_id": oid, "symbol": "ABCD", "position": 49, "avgCost": 20.0})
+    assert order_router._IBKR_POSITIONS_BY_SYMBOL["ABCD"].quantity == 49
 
 
 def test_exit_final_fill_closes_position(monkeypatch) -> None:
     _reset_router()
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
-    order_router._RUNTIME_POSITIONS["ABCD"] = order_router.TrackedPosition(symbol="ABCD", qty=10, state="POSITION_OPEN")
+    order_router._IBKR_POSITIONS_BY_SYMBOL["ABCD"] = order_router.IbkrPositionTruth(symbol="ABCD", quantity=10, avg_price=20.0)
     events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision(qty=10, side="SHORT")])
     oid = events[0].broker_order_id
     order_router._on_ibkr_callback({"event_type": "execDetails", "order_id": oid, "symbol": "ABCD", "shares": 10, "price": 20.1, "execId": "X2"})
-    assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 0
-    assert order_router._RUNTIME_POSITIONS["ABCD"].state == "POSITION_CLOSED"
+    order_router._on_ibkr_callback({"event_type": "position", "order_id": oid, "symbol": "ABCD", "position": 0, "avgCost": 0.0})
+    assert order_router._IBKR_POSITIONS_BY_SYMBOL["ABCD"].quantity == 0
 
 
 def test_reconciliation_does_not_apply_fill_without_callback(monkeypatch) -> None:
@@ -115,7 +120,6 @@ def test_reconciliation_does_not_apply_fill_without_callback(monkeypatch) -> Non
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
     events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
     oid = events[0].broker_order_id
-    order_router._RUNTIME_POSITIONS["ABCD"].qty = 0
     monkeypatch.setattr(
         order_router,
         "_fetch_ibkr_truth",
@@ -129,7 +133,7 @@ def test_reconciliation_does_not_apply_fill_without_callback(monkeypatch) -> Non
     assert events[0].filled_quantity == 0
     assert events[0].remaining_quantity == 100
     assert order_router._RUNTIME_ORDERS[oid].filled_qty == 0
-    assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 0
+    assert order_router._IBKR_POSITIONS_BY_SYMBOL["ABCD"].quantity == 100
 
 
 def test_duplicate_exec_callback_is_idempotent(monkeypatch) -> None:
