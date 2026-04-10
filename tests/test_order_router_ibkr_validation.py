@@ -180,7 +180,15 @@ def test_submit_order_allows_paper_degraded_last_only_path(monkeypatch, capsys) 
     assert len(submitted_orders) == 1
     assert "[EXECUTION][PATH] symbol=MCRO path=DEGRADED_QUOTE_PATH" in out
     assert "[EXECUTION][DEGRADED_MODE] symbol=MCRO using last_price_only no_bid_ask" in out
+    assert "[EXECUTION][CONSISTENCY_CHECK] symbol=MCRO execution_path=DEGRADED_QUOTE_PATH quote_block_skipped=true" in out
 
+
+
+
+def test_price_source_normalization_maps_ibkr_stream_to_ibkr_last() -> None:
+    assert order_router._normalize_price_source("IBKR_STREAM") == "IBKR_LAST"
+    assert order_router._normalize_price_source("IBKR_SNAPSHOT_LAST") == "IBKR_LAST"
+    assert order_router._normalize_price_source("IBKR_L1_LAST") == "IBKR_LAST"
 
 def test_executability_summary_counts_blocked_no_ibkr_price_authority(monkeypatch, capsys) -> None:
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)

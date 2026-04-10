@@ -2290,11 +2290,11 @@ def _normalize_price_source(value: Any) -> str:
         "IBKR_SNAPSHOT_LAST",
         "IBKR_LAST_PRICE",
         "IBKR_L1_LAST",
+        "IBKR_STREAM",
     }:
         return "IBKR_LAST"
     if normalized in {
         "IBKR_SNAPSHOT",
-        "IBKR_STREAM",
         "IBKR_SNAPSHOT_MID",
         "IBKR_L1_MID",
         "IBKR_BID_ASK",
@@ -2620,21 +2620,26 @@ def _submit_ibkr_order(
     last = _safe_price_value(quote_snapshot.get("last"))
     volume = _safe_price_value(quote_snapshot.get("volume"))
     quote_context_ok = bid is not None and ask is not None and bid > 0 and ask > 0
+    has_last_price = last is not None and last > 0
     execution_path = FULL_QUOTE_PATH if quote_context_ok else DEGRADED_QUOTE_PATH
     quote_context = "FULL_BID_ASK" if quote_context_ok else "DEGRADED_LAST_ONLY"
-    price_source = "IBKR_BID_ASK" if quote_context_ok else ("IBKR_LAST" if last is not None and last > 0 else "SYNTHETIC")
+    price_source = "IBKR_BID_ASK" if quote_context_ok else ("IBKR_LAST" if has_last_price else "SYNTHETIC")
+    degraded_paper_path_allowed = execution_path == DEGRADED_QUOTE_PATH and mode == RunMode.PAPER and has_last_price
     print(f"[EXECUTION][PATH] symbol={symbol} path={execution_path}")
     print(f"[EXECUTION][QUOTE_CONTEXT] symbol={symbol} quote_context={quote_context} price_source={price_source}")
-    if not quote_context_ok:
-        has_last_price = last is not None and last > 0
-        if mode == RunMode.PAPER and has_last_price:
-            print(f"[EXECUTION][DEGRADED_MODE] symbol={symbol} using last_price_only no_bid_ask")
-        elif mode == RunMode.LIVE:
+    if execution_path == DEGRADED_QUOTE_PATH:
+        if mode == RunMode.LIVE:
             print(
                 "[EXECUTION][BLOCK] "
                 f"symbol={symbol} reason=NO_QUOTE_CONTEXT_LIVE_STRICT bid={_none_text(bid)} ask={_none_text(ask)}"
             )
             raise RuntimeError("NO_QUOTE_CONTEXT_LIVE_STRICT")
+        if degraded_paper_path_allowed:
+            print(f"[EXECUTION][DEGRADED_MODE] symbol={symbol} using last_price_only no_bid_ask")
+            print(
+                "[EXECUTION][CONSISTENCY_CHECK] "
+                f"symbol={symbol} execution_path={execution_path} quote_block_skipped=true"
+            )
         else:
             print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_QUOTE_CONTEXT bid={_none_text(bid)} ask={_none_text(ask)}")
             raise RuntimeError("NO_QUOTE_CONTEXT")
