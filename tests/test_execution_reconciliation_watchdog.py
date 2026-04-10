@@ -139,7 +139,7 @@ def test_watchdog_reprice_attempt_increments(monkeypatch) -> None:
             return [c]
 
         def placeOrder(self, oid, _contract, order):
-            calls.append((oid, order.lmtPrice))
+            calls.append((oid, order.lmtPrice, order.eTradeOnly, order.firmQuoteOnly, order.outsideRth))
 
     class _Manager:
         def get_client(self):
@@ -149,6 +149,7 @@ def test_watchdog_reprice_attempt_increments(monkeypatch) -> None:
     order_router._run_watchdog_checks(now=now)
     assert row.reprice_attempt_count == 1
     assert len(calls) == 1
+    assert calls[0][2:] == (False, False, True)
 
 
 def test_watchdog_reprice_aborts_without_quote_context(monkeypatch, capsys) -> None:
