@@ -21,6 +21,7 @@ from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 _EXECUTION_EVENT_BUFFER: dict[int, ExecutionEvent] = {}
 _FILL_AUTHORITY_STATE = "UNKNOWN"
 _RUNTIME_ORDERS: dict[int, "TrackedOrder"] = {}
+_EXECUTION_TRUTH_BY_ORDER_ID: dict[int, "ExecutionTruthRecord"] = {}
 _RUNTIME_POSITIONS: dict[str, "TrackedPosition"] = {}
 _SEEN_EXEC_IDS: set[str] = set()
 _UNMATCHED_CALLBACK_COUNT = 0
@@ -49,6 +50,14 @@ _LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID: dict[int, str] = {}
 _BROKER_ERRORS_BY_ORDER_ID: dict[int, list[dict[str, Any]]] = {}
 _PENDING_SUBMISSIONS_BY_ORDER_ID: dict[int, "PendingSubmission"] = {}
 _SUBMIT_FILLABILITY_COUNTS: dict[str, int] = {}
+_IBKR_HEALTH_STATE = {
+    "broker_connected": False,
+    "market_data_ok": True,
+    "historical_data_ok": True,
+    "order_channel_ok": True,
+    "degraded": False,
+    "last_error_codes": [],
+}
 
 AUTHORITATIVE_EXECUTION_STATES = {
     "DISPATCH_INTENDED",
@@ -95,6 +104,60 @@ ORDER_STATES = {
     "CANCELLED",
     "REJECTED",
     "EXPIRED",
+}
+
+CANONICAL_EXECUTION_STATES = {
+    "CREATED",
+    "BLOCKED",
+    "SUBMITTING",
+    "SUBMITTED",
+    "ACKNOWLEDGED",
+    "WORKING",
+    "PARTIALLY_FILLED",
+    "FILLED",
+    "CANCEL_PENDING",
+    "CANCELLED",
+    "REJECTED",
+    "INACTIVE",
+    "EXPIRED",
+    "ERROR",
+}
+
+BROKER_ONLY_MUTATION_FIELDS = {
+    "filled_qty",
+    "remaining_qty",
+    "avg_fill_price",
+    "last_fill_price",
+}
+
+BROKER_ONLY_STATES = {
+    "ACKNOWLEDGED",
+    "WORKING",
+    "PARTIALLY_FILLED",
+    "FILLED",
+    "CANCELLED",
+    "REJECTED",
+    "INACTIVE",
+    "EXPIRED",
+}
+
+LOCAL_ALLOWED_STATES = {"CREATED", "BLOCKED", "SUBMITTING", "SUBMITTED"}
+
+ALLOWED_EXECUTION_TRANSITIONS: dict[str, set[str]] = {
+    "CREATED": {"BLOCKED", "SUBMITTING", "SUBMITTED", "ERROR"},
+    "BLOCKED": set(),
+    "SUBMITTING": {"SUBMITTED", "BLOCKED", "ERROR"},
+    "SUBMITTED": {"ACKNOWLEDGED", "WORKING", "PARTIALLY_FILLED", "FILLED", "CANCEL_PENDING", "CANCELLED", "REJECTED", "INACTIVE", "EXPIRED", "ERROR"},
+    "ACKNOWLEDGED": {"WORKING", "PARTIALLY_FILLED", "FILLED", "CANCEL_PENDING", "CANCELLED", "REJECTED", "INACTIVE", "EXPIRED", "ERROR"},
+    "WORKING": {"PARTIALLY_FILLED", "FILLED", "CANCEL_PENDING", "CANCELLED", "REJECTED", "INACTIVE", "EXPIRED", "ERROR"},
+    "PARTIALLY_FILLED": {"FILLED", "CANCEL_PENDING", "CANCELLED", "REJECTED", "INACTIVE", "EXPIRED", "ERROR"},
+    "FILLED": set(),
+    "CANCEL_PENDING": {"CANCELLED", "FILLED", "REJECTED", "ERROR"},
+    "CANCELLED": set(),
+    "REJECTED": set(),
+    "INACTIVE": set(),
+    "EXPIRED": set(),
+    "ERROR": set(),
 }
 
 POSITION_STATES = {
@@ -163,6 +226,33 @@ class TrackedPosition:
     pending_entry_qty: int = 0
     pending_exit_qty: int = 0
     state: str = "NO_POSITION"
+
+
+@dataclass
+class ExecutionTruthRecord:
+    order_ref: str
+    broker_order_id: int | None
+    symbol: str
+    strategy_id: str = ""
+    intent_id: str = ""
+    side: str = ""
+    order_type: str = "MKT"
+    tif: str = "DAY"
+    submitted_qty: int = 0
+    filled_qty: int = 0
+    remaining_qty: int = 0
+    avg_fill_price: float | None = None
+    last_fill_price: float | None = None
+    execution_state: str = "CREATED"
+    last_broker_status: str = ""
+    last_broker_message: str = ""
+    created_at: str = field(default_factory=lambda: _now_utc_iso())
+    submitted_at: str | None = None
+    last_update_at: str = field(default_factory=lambda: _now_utc_iso())
+    terminal_at: str | None = None
+    rejection_reason: str = ""
+    cancellation_reason: str = ""
+    source_of_truth: str = "IBKR"
 
 
 @dataclass
@@ -275,6 +365,75 @@ def fill_authority_state() -> str:
     return _FILL_AUTHORITY_STATE
 
 
+def _is_terminal_execution_state(state: str) -> bool:
+    return state in {"BLOCKED", "FILLED", "CANCELLED", "REJECTED", "INACTIVE", "EXPIRED", "ERROR"}
+
+
+def _transition_execution_truth_state(*, truth: ExecutionTruthRecord, next_state: str, source: str, broker_message: str = "") -> bool:
+    next_norm = str(next_state or "").upper().strip()
+    current = str(truth.execution_state or "CREATED").upper().strip()
+    if next_norm not in CANONICAL_EXECUTION_STATES:
+        print(f"[EXECUTION][TRUTH_TRANSITION_INVALID] symbol={truth.symbol} broker_order_id={truth.broker_order_id} from={current} to={next_norm} reason=UNKNOWN_STATE")
+        return False
+    if _is_terminal_execution_state(current) and next_norm != current:
+        print(f"[EXECUTION][TRUTH_TRANSITION_INVALID] symbol={truth.symbol} broker_order_id={truth.broker_order_id} from={current} to={next_norm} reason=TERMINAL_IMMUTABLE")
+        return False
+    if next_norm in BROKER_ONLY_STATES and source != "IBKR_CALLBACK":
+        print(f"[EXECUTION][TRUTH_REJECTED] symbol={truth.symbol} attempted_field=execution_state reason=NON_BROKER_MUTATION_BLOCKED")
+        return False
+    if source != "IBKR_CALLBACK" and next_norm not in LOCAL_ALLOWED_STATES:
+        print(f"[EXECUTION][TRUTH_REJECTED] symbol={truth.symbol} attempted_field=execution_state reason=LOCAL_STATE_NOT_ALLOWED")
+        return False
+    allowed = ALLOWED_EXECUTION_TRANSITIONS.get(current, set())
+    if next_norm != current and next_norm not in allowed:
+        print(f"[EXECUTION][TRUTH_TRANSITION_INVALID] symbol={truth.symbol} broker_order_id={truth.broker_order_id} from={current} to={next_norm} reason=INVALID_TRANSITION")
+        return False
+    if next_norm != current:
+        print(f"[EXECUTION][TRUTH_TRANSITION] symbol={truth.symbol} broker_order_id={truth.broker_order_id} from={current} to={next_norm} source={source}")
+    truth.execution_state = next_norm
+    truth.last_update_at = _now_utc_iso()
+    if broker_message:
+        truth.last_broker_message = broker_message
+    if next_norm == "SUBMITTED" and truth.submitted_at is None:
+        truth.submitted_at = truth.last_update_at
+    if _is_terminal_execution_state(next_norm) and truth.terminal_at is None:
+        truth.terminal_at = truth.last_update_at
+    return True
+
+
+def _update_truth_field(*, truth: ExecutionTruthRecord, field_name: str, value: Any, source: str) -> bool:
+    if field_name in BROKER_ONLY_MUTATION_FIELDS and source != "IBKR_CALLBACK":
+        print(f"[EXECUTION][TRUTH_REJECTED] symbol={truth.symbol} attempted_field={field_name} reason=NON_BROKER_MUTATION_BLOCKED")
+        return False
+    old_value = getattr(truth, field_name)
+    if old_value == value:
+        return True
+    setattr(truth, field_name, value)
+    truth.last_update_at = _now_utc_iso()
+    print(
+        "[EXECUTION][TRUTH_UPDATE] "
+        f"symbol={truth.symbol} broker_order_id={truth.broker_order_id} field={field_name} "
+        f"old={old_value} new={value} source={source}"
+    )
+    return True
+
+
+def _create_execution_truth(*, order_ref: str, broker_order_id: int | None, symbol: str, intent_id: str, side: str, submitted_qty: int) -> ExecutionTruthRecord:
+    truth = ExecutionTruthRecord(
+        order_ref=order_ref,
+        broker_order_id=broker_order_id,
+        symbol=str(symbol or "").upper(),
+        intent_id=intent_id,
+        side=side,
+        submitted_qty=max(0, int(submitted_qty)),
+        remaining_qty=max(0, int(submitted_qty)),
+    )
+    _transition_execution_truth_state(truth=truth, next_state="CREATED", source="LOCAL")
+    if broker_order_id is not None:
+        _EXECUTION_TRUTH_BY_ORDER_ID[int(broker_order_id)] = truth
+    return truth
+
+
 def _record_reconciliation_result(success: bool) -> None:
     global _RECONCILIATION_SUCCESSES, _RECONCILIATION_FAILURES
     if success:
@@ -285,7 +444,33 @@ def _record_reconciliation_result(success: bool) -> None:
 
 def _refresh_fill_authority_state() -> None:
     global _FILL_AUTHORITY_STATE
-    _FILL_AUTHORITY_STATE = "HEALTHY" if _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT <= 0 else "DEGRADED"
+    _FILL_AUTHORITY_STATE = "RECONCILIATION_MISMATCH" if _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT > 0 else "ACKNOWLEDGED_NO_FILL"
+
+
+def _update_ibkr_health(*, event_type: str, code: int | None = None) -> None:
+    degraded_codes = {1100, 1101, 1102, 2103, 2105, 2110}
+    if event_type == "connect":
+        _IBKR_HEALTH_STATE["broker_connected"] = True
+    if event_type == "disconnect":
+        _IBKR_HEALTH_STATE["broker_connected"] = False
+    if code is not None:
+        history = list(_IBKR_HEALTH_STATE.get("last_error_codes", []))
+        history.append(int(code))
+        _IBKR_HEALTH_STATE["last_error_codes"] = history[-20:]
+        if int(code) in degraded_codes:
+            _IBKR_HEALTH_STATE["degraded"] = True
+            _IBKR_HEALTH_STATE["order_channel_ok"] = False
+    if _IBKR_HEALTH_STATE.get("broker_connected") and not _IBKR_HEALTH_STATE.get("degraded"):
+        _IBKR_HEALTH_STATE["order_channel_ok"] = True
+    status = "DEGRADED" if _IBKR_HEALTH_STATE.get("degraded") else "STABLE"
+    print(
+        "[IBKR][HEALTH] "
+        f"broker_connected={str(bool(_IBKR_HEALTH_STATE.get('broker_connected'))).lower()} "
+        f"market_data_ok={str(bool(_IBKR_HEALTH_STATE.get('market_data_ok'))).lower()} "
+        f"historical_data_ok={str(bool(_IBKR_HEALTH_STATE.get('historical_data_ok'))).lower()} "
+        f"order_channel_ok={str(bool(_IBKR_HEALTH_STATE.get('order_channel_ok'))).lower()} "
+        f"status={status}"
+    )
 
 
 def _execution_truth_threshold() -> int:
@@ -294,6 +479,25 @@ def _execution_truth_threshold() -> int:
         return max(1, int(raw))
     except ValueError:
         return 1
+
+
+def _classify_fill_authority_state(*, intents_received: int, submit_attempts: int, orders_submitted: int, acks_received: int, fills_received: int, blocked_pre_submit: int) -> str:
+    if intents_received <= 0:
+        return "NO_INTENTS"
+    if blocked_pre_submit >= intents_received:
+        return "EXECUTION_BLOCKED_PRE_SUBMIT"
+    if submit_attempts <= 0:
+        return "NO_SUBMISSIONS"
+    if orders_submitted > 0 and acks_received <= 0:
+        return "SUBMITTED_AWAITING_ACK"
+    if acks_received > 0 and fills_received <= 0:
+        return "ACKNOWLEDGED_NO_FILL"
+    if fills_received > 0:
+        has_partial = any(t.execution_state == "PARTIALLY_FILLED" for t in _EXECUTION_TRUTH_BY_ORDER_ID.values())
+        return "PARTIAL_FILL_CONFIRMED" if has_partial else "FILL_CONFIRMED"
+    if _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT > 0:
+        return "RECONCILIATION_MISMATCH"
+    return "BROKER_TRUTH_UNAVAILABLE"
 
 
 def _is_diagnostics_mode() -> bool:
@@ -953,6 +1157,10 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     fill_price = _extract_callback_fill_price(callback_payload)
     timestamp = _extract_callback_timestamp(callback_payload)
     print(
+        "[IBKR][CALLBACK_RAW] "
+        f"event={event_type or 'unknown'} order_id={order_id} symbol={symbol or 'UNKNOWN'} payload={callback_payload}"
+    )
+    print(
         "[EXECUTION][CALLBACK_RECEIVED] "
         f"symbol={symbol or 'UNKNOWN'} order_id={order_id} filled_qty={filled_qty} fill_price={fill_price} timestamp={timestamp}"
     )
@@ -968,6 +1176,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             _NON_ORDER_UNMATCHED_CALLBACK_COUNT += 1
             return
         _UNMATCHED_CALLBACK_COUNT += 1
+        print(f"[EXECUTION][UNMATCHED_CALLBACK] event={event_type or 'unknown'} broker_order_id=UNKNOWN symbol={symbol or 'UNKNOWN'}")
         print(
             "[ORDER_EVENT][UNMATCHED] "
             f"event=CALLBACK reason=missing_order_id_and_order_ref order_ref={callback_order_ref or 'UNKNOWN'}"
@@ -1043,6 +1252,17 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             timestamp=_now_utc_iso(),
             source="IBKR_EXECUTION_BACKFILL" if is_backfill else "IBKR_EXECUTION",
         )
+        truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(int(order_id))
+        if truth is not None:
+            _update_truth_field(truth=truth, field_name="filled_qty", value=int(tracked.filled_qty), source="IBKR_CALLBACK")
+            _update_truth_field(truth=truth, field_name="remaining_qty", value=int(tracked.remaining_qty), source="IBKR_CALLBACK")
+            _update_truth_field(truth=truth, field_name="avg_fill_price", value=tracked.avg_fill_price, source="IBKR_CALLBACK")
+            _update_truth_field(truth=truth, field_name="last_fill_price", value=fill_price, source="IBKR_CALLBACK")
+            _transition_execution_truth_state(
+                truth=truth,
+                next_state="FILLED" if int(tracked.remaining_qty) <= 0 else "PARTIALLY_FILLED",
+                source="IBKR_CALLBACK",
+            )
         assert int(order_id) in _RUNTIME_ORDERS, "EXECDETAILS_RECOVERY_FAILED"
         _record_reconciliation_result(True)
         _refresh_fill_authority_state()
@@ -1072,6 +1292,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     except (TypeError, ValueError):
         remaining_int = 0
     if event_type == "execdetails":
+        print(f"[EXECUTION][CALLBACK_NORMALIZED] event=execDetails symbol={symbol or 'UNKNOWN'} broker_order_id={order_id} state={_state_from_broker_status(event_status, filled_qty, remaining_int)}")
         fill_event_type = "ORDER_FILLED"
     else:
         fill_event_type = "ORDER_WORKING"
@@ -1134,6 +1355,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             tracked.working_seen = tracked.remaining_qty > 0
             tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
     elif event_type == "orderstatus":
+        print(f"[EXECUTION][CALLBACK_NORMALIZED] event=orderStatus symbol={symbol or 'UNKNOWN'} broker_order_id={order_id} state={_state_from_broker_status(event_status, filled_qty, remaining_int)}")
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"orderStatus_seen": True})
         row = _RUNTIME_ORDERS.get(order_id)
         if row is None:
@@ -1153,6 +1375,21 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             if remaining_int > 0:
                 row.remaining_qty = remaining_int
             row.canonical_state = _state_from_broker_status(row.broker_status, row.filled_qty, row.remaining_qty)
+            truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(int(order_id))
+            if truth is not None:
+                state_map = {
+                    "ACKNOWLEDGED": "ACKNOWLEDGED",
+                    "WORKING": "WORKING",
+                    "PARTIALLY_FILLED": "PARTIALLY_FILLED",
+                    "FILLED": "FILLED",
+                    "REJECTED": "REJECTED",
+                    "EXPIRED": "EXPIRED",
+                    "CANCELLED": "CANCELLED",
+                    "SUBMITTED": "WORKING",
+                }
+                mapped_state = state_map.get(row.canonical_state, "WORKING")
+                _update_truth_field(truth=truth, field_name="last_broker_status", value=str(row.broker_status or ""), source="IBKR_CALLBACK")
+                _transition_execution_truth_state(truth=truth, next_state=mapped_state, source="IBKR_CALLBACK")
             row.last_update_at = timestamp
             row.ack_seen = True
             if str(row.broker_status or "").upper() in {"SUBMITTED", "PRESUBMITTED"}:
@@ -1223,6 +1460,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                     f"status={row.broker_status}"
                 )
     elif event_type == "openorder":
+        print(f"[EXECUTION][CALLBACK_NORMALIZED] event=openOrder symbol={symbol or 'UNKNOWN'} broker_order_id={order_id} state=ACKNOWLEDGED")
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"openOrder_seen": True})
         if callback_order_ref:
             _ORDER_ID_BY_ORDER_REF[callback_order_ref] = int(order_id)
@@ -1268,6 +1506,9 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             tracked.ack_seen = True
             tracked.open_order_detail = dict(open_order_detail)
             tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
+        truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(int(order_id))
+        if truth is not None:
+            _transition_execution_truth_state(truth=truth, next_state="ACKNOWLEDGED", source="IBKR_CALLBACK")
     elif event_type == "error":
         code_raw = _extract_callback_field(callback_payload, "errorCode", "code")
         message = str(_extract_callback_field(callback_payload, "errorString", "message") or "")
@@ -1275,6 +1516,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             code = int(code_raw) if code_raw is not None else None
         except (TypeError, ValueError):
             code = None
+        _update_ibkr_health(event_type="error", code=code)
         normalized_reason = _normalize_broker_reject_reason(code=code, message=message, status=event_status)
         if tracked is not None:
             if code is not None and code not in tracked.broker_error_codes:
@@ -1297,6 +1539,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         if normalized_reason in {"PERMISSION_SMALL_CAP_OPENING_RESTRICTED", "REGULATORY_CLOSING_ONLY", "UNKNOWN_BROKER_REJECT"}:
             print(f"[EXECUTION][PERMISSION_REJECT] order_id={order_id} code={code} normalized_reject_reason={normalized_reason}")
     elif event_type == "position":
+        print(f"[EXECUTION][CALLBACK_NORMALIZED] event=position symbol={symbol or 'UNKNOWN'} broker_order_id={order_id} state=POSITION")
         if trace is not None:
             qty_raw = _extract_callback_field(callback_payload, "position", "qty", "shares")
             try:
@@ -2256,6 +2499,7 @@ def execute_intents(
     blocked_restricted = 0
     blocked_no_ibkr_price_authority = 0
     blocked_price_unavailable = 0
+    blocked_pre_submit = 0
 
     for decision in decisions:
         raw_qty = float(getattr(decision, "approved_quantity", 0) or 0)
@@ -2272,6 +2516,7 @@ def execute_intents(
             _validate_ibkr_connection(mode)
             manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
             client = manager.get_client()
+            _update_ibkr_health(event_type="connect")
             callback = globals().get("_on_ibkr_callback")
             if callback is not None:
                 if hasattr(client, "register_execution_callback"):
@@ -2323,6 +2568,8 @@ def execute_intents(
     submitted_order_ids: list[int] = []
     for index, decision in enumerate(decisions, start=1):
         intents_received += 1
+        execution_attempted = False
+        blocked_reason: str | None = None
         account = RouterAccountSnapshot(available_funds=float(decision.available_funds))
         order_value = float(decision.order_value)
         risk_allowed = bool(decision.risk_allowed)
@@ -2347,9 +2594,17 @@ def execute_intents(
         )
         if trace.intent_id:
             _EXECUTION_TRACE_BY_INTENT[trace.intent_id] = trace
+        order_side = "BUY" if str(getattr(decision, "side", "LONG") or "LONG").upper() == "LONG" else "SELL"
+        truth = _create_execution_truth(
+            order_ref=_build_order_ref(str(decision.intent_id or "")),
+            broker_order_id=None,
+            symbol=str(decision.symbol or "").upper(),
+            intent_id=str(decision.intent_id or ""),
+            side=order_side,
+            submitted_qty=quantity,
+        )
         _trace_log("INTENT_RECEIVED", trace, extra=f"cycle_id={cycle_id}")
         duplicate_symbol = str(decision.symbol or "").upper()
-        order_side = "BUY" if str(getattr(decision, "side", "LONG") or "LONG").upper() == "LONG" else "SELL"
         order_family = str(decision.intent_id or "")
         print(
             f"[EXECUTION][DUPLICATE_CHECK] symbol={duplicate_symbol} side={order_side} intent_id={order_family} "
@@ -2389,45 +2644,57 @@ def execute_intents(
             f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} position_qty={position_qty} treated_as_flat={str(treated_as_flat).lower()}"
         )
         if order_side == "BUY" and not treated_as_flat:
-            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
+            blocked_reason = "EXISTING_OPEN_POSITION"
+            blocked_pre_submit += 1
+            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
+            _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
+            truth.rejection_reason = blocked_reason
             _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_position")
             events.append(
                 ExecutionEvent(
                     symbol=decision.symbol,
                     intent_id=decision.intent_id,
                     action="BLOCKED",
-                    detail="reason=DUPLICATE_POSITION",
+                    detail=f"reason={blocked_reason}",
                     broker_status="REJECTED",
                     last_update_time=_now_utc_iso(),
                 )
             )
             continue
         if working_duplicate:
+            blocked_reason = "BROKER_RECONCILED_WORKING_ORDER"
+            blocked_pre_submit += 1
             print(
-                f"[EXECUTION][DUPLICATE_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_WORKING_ORDER "
+                f"[EXECUTION][DUPLICATE_BLOCK] symbol={duplicate_symbol} reason={blocked_reason} "
                 f"existing_order_id={duplicate_order_id} existing_broker_state={duplicate_status} conflict_reason={duplicate_reason}"
             )
+            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
+            _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
+            truth.rejection_reason = blocked_reason
             _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_working_order")
             events.append(
                 ExecutionEvent(
                     symbol=decision.symbol,
                     intent_id=decision.intent_id,
                     action="BLOCKED",
-                    detail="reason=DUPLICATE_WORKING_ORDER",
+                    detail=f"reason={blocked_reason}",
                     broker_status="REJECTED",
                     last_update_time=_now_utc_iso(),
                 )
             )
             continue
         if not str(decision.intent_id or "").strip():
-            print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=MISSING_ORDER_REF_COMPONENT")
+            blocked_reason = "INVALID_ORDER_CONFIG"
+            blocked_pre_submit += 1
+            print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason={blocked_reason}")
+            _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
             _mark_execution_failure(trace, "ORDER_REJECTED", reason="missing_order_ref_component")
             events.append(
                 ExecutionEvent(
                     symbol=decision.symbol,
                     intent_id=decision.intent_id,
                     action="BLOCKED",
-                    detail="reason=MISSING_ORDER_REF_COMPONENT",
+                    detail=f"reason={blocked_reason}",
                     broker_status="REJECTED",
                     last_update_time=_now_utc_iso(),
                 )
@@ -2454,7 +2721,11 @@ def execute_intents(
                     print(f"[PRICE][RESOLVED] symbol={decision.symbol} source=IBKR_STREAM price={entry_price}")
                 except PriceResolutionError:
                     blocked_price_unavailable += 1
-                    print(f"[PRICE][BLOCK] symbol={decision.symbol} reason=NO_IBKR_PRICE_AVAILABLE")
+                    blocked_reason = "NO_IBKR_PRICE"
+                    blocked_pre_submit += 1
+                    print(f"[PRICE][BLOCK] symbol={decision.symbol} reason={blocked_reason}")
+                    print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=PRICE_AUTHORITY_INVALID")
+                    _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
                     _mark_execution_failure(trace, "PRICE_UNAVAILABLE", reason="waiting_for_price")
                     events.append(
                         ExecutionEvent(
@@ -2524,19 +2795,42 @@ def execute_intents(
         print(f"[EXECUTION][DISPATCH] symbol={decision.symbol} dispatch={dispatch}")
         broker_order_id = None
         if action == "SUBMITTED":
-            if not _ensure_submission_allowed(mode, symbol=str(decision.symbol or "").upper()):
+            if (not _is_explicit_test_mode()) and mode in {RunMode.PAPER, RunMode.LIVE} and (
+                not bool(_IBKR_HEALTH_STATE.get("broker_connected")) or bool(_IBKR_HEALTH_STATE.get("degraded"))
+            ):
+                blocked_reason = "IBKR_HEALTH_UNSTABLE" if _IBKR_HEALTH_STATE.get("degraded") else "BROKER_NOT_CONNECTED"
+                blocked_pre_submit += 1
+                print(f"[EXECUTION][BLOCK] symbol={decision.symbol} reason={blocked_reason}")
+                _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
                 events.append(
                     ExecutionEvent(
                         symbol=decision.symbol,
                         intent_id=decision.intent_id,
                         action="BLOCKED",
-                        detail="reason=EXECUTION_TRUTH_DEGRADED",
+                        detail=f"reason={blocked_reason}",
+                        broker_status="REJECTED",
+                        last_update_time=_now_utc_iso(),
+                    )
+                )
+                continue
+            if not _ensure_submission_allowed(mode, symbol=str(decision.symbol or "").upper()):
+                blocked_reason = "EXECUTION_DISABLED"
+                blocked_pre_submit += 1
+                _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
+                events.append(
+                    ExecutionEvent(
+                        symbol=decision.symbol,
+                        intent_id=decision.intent_id,
+                        action="BLOCKED",
+                        detail=f"reason={blocked_reason}",
                         broker_status="REJECTED",
                         last_update_time=_now_utc_iso(),
                     )
                 )
                 continue
             submit_attempts += 1
+            execution_attempted = True
+            _transition_execution_truth_state(truth=truth, next_state="SUBMITTING", source="LOCAL")
             print(f"[EXECUTION][SUBMIT_ATTEMPT] symbol={decision.symbol} intent_id={decision.intent_id} mode={mode.value} qty={quantity}")
             try:
                 order_ref = _build_order_ref(str(decision.intent_id or ""))
@@ -2594,6 +2888,9 @@ def execute_intents(
                     )
                 )
                 continue
+            truth.broker_order_id = int(broker_order_id)
+            _EXECUTION_TRUTH_BY_ORDER_ID[int(broker_order_id)] = truth
+            _transition_execution_truth_state(truth=truth, next_state="SUBMITTED", source="LOCAL")
             submitted_order_ids.append(int(broker_order_id))
             print(f"[EXECUTION][SUBMITTED] symbol={decision.symbol} broker_order_id={broker_order_id} local_dispatch_attempted=true place_order_issued=true")
             print(
@@ -2654,6 +2951,11 @@ def execute_intents(
                 order_ref=order_ref,
             )
             _PENDING_SUBMISSIONS_BY_ORDER_ID.pop(int(broker_order_id), None)
+        if not execution_attempted and blocked_reason is None and action != "BLOCKED":
+            print(
+                "[EXECUTION][INVARIANT_BREACH] "
+                f"symbol={decision.symbol} intent_id={decision.intent_id} reason=INTENT_CREATED_BUT_NOT_ATTEMPTED"
+            )
         events.append(
             ExecutionEvent(
                 symbol=decision.symbol,
@@ -2831,8 +3133,14 @@ def execute_intents(
         f"blocked_price_unavailable={blocked_price_unavailable} "
         f"submitted_marketable={submitted_marketable} submitted_total={orders_submitted}"
     )
-    if _FILL_AUTHORITY_STATE == "UNKNOWN":
-        _FILL_AUTHORITY_STATE = "ACTIVE" if mode in {RunMode.PAPER, RunMode.LIVE} else "N/A"
+    _FILL_AUTHORITY_STATE = _classify_fill_authority_state(
+        intents_received=intents_received,
+        submit_attempts=submit_attempts,
+        orders_submitted=orders_submitted,
+        acks_received=acks_received,
+        fills_received=fills_received,
+        blocked_pre_submit=blocked_pre_submit,
+    )
     for e in events:
         if e.event_type == "ORDER_SUBMITTED":
             if str(e.action or "").upper() == "BLOCKED":
