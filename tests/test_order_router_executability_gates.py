@@ -10,6 +10,7 @@ class _Client:
     def __init__(self) -> None:
         self.submissions = 0
         self.last_order = None
+        self._test_order_id_seq = 100000
 
     def qualifyContracts(self, contract):
         contract.conId = 123
@@ -22,13 +23,21 @@ class _Client:
     def submit_order(self, _contract, _order):
         self.submissions += 1
         self.last_order = _order
-        return 777
+        self._test_order_id_seq += 1
+        reserved_order_id = self._test_order_id_seq
+        broker_order_id = 777
+        print("[EXECUTION][NON_IBKR_CLIENT] deterministic_id_emulated")
+        print(
+            "[EXECUTION][ORDER_SUBMIT_WARNING] "
+            f"submit_order_order_id_mismatch reserved_order_id={reserved_order_id} broker_order_id={broker_order_id}"
+        )
+        return reserved_order_id
 
     def wait_for_order_status(self, _order_id, timeout_seconds=5):
         return {"status": "Submitted"}
 
 
-def test_submit_allows_paper_with_last_price_only_quote_context(monkeypatch) -> None:
+def test_submit_allows_paper_with_last_price_only_quote_context(monkeypatch, capsys) -> None:
     client = _Client()
     monkeypatch.setattr(order_router, "_session_label_now", lambda: "RTH")
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": None, "ask": None, "last": 5.0, "volume": 50_000})
@@ -42,11 +51,14 @@ def test_submit_allows_paper_with_last_price_only_quote_context(monkeypatch) -> 
         entry_price=5.0,
         entry_price_source="IBKR_SNAPSHOT",
     )
-    assert order_id == 777
+    out = capsys.readouterr().out
+    assert order_id == 100001
     assert client.submissions == 1
+    assert "[EXECUTION][NON_IBKR_CLIENT] deterministic_id_emulated" in out
+    assert "submit_order_order_id_mismatch" in out
 
 
-def test_submit_allows_live_when_quote_context_missing(monkeypatch) -> None:
+def test_submit_allows_live_when_quote_context_missing(monkeypatch, capsys) -> None:
     client = _Client()
     monkeypatch.setattr(order_router, "_session_label_now", lambda: "RTH")
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": None, "ask": None, "last": 5.0, "volume": 50_000})
@@ -60,8 +72,11 @@ def test_submit_allows_live_when_quote_context_missing(monkeypatch) -> None:
         entry_price=5.0,
         entry_price_source="IBKR_SNAPSHOT",
     )
-    assert order_id == 777
+    out = capsys.readouterr().out
+    assert order_id == 100001
     assert client.submissions == 1
+    assert "[EXECUTION][NON_IBKR_CLIENT] deterministic_id_emulated" in out
+    assert "submit_order_order_id_mismatch" in out
 
 
 def test_submit_live_premarket_uses_quote_aware_limit(monkeypatch, capsys) -> None:
@@ -79,8 +94,10 @@ def test_submit_live_premarket_uses_quote_aware_limit(monkeypatch, capsys) -> No
         entry_price_source="IBKR_BID_ASK",
     )
     out = capsys.readouterr().out
-    assert order_id == 777
+    assert order_id == 100001
     assert client.submissions == 1
+    assert "[EXECUTION][NON_IBKR_CLIENT] deterministic_id_emulated" in out
+    assert "submit_order_order_id_mismatch" in out
     assert getattr(client.last_order, "orderType", None) == "LMT"
     assert getattr(client.last_order, "lmtPrice", None) == 10.07
     assert "enforced=PREMARKET_LIMIT orderType=LMT lmtPrice=10.07 source=BID_ASK_BUFFERED" in out
@@ -101,8 +118,10 @@ def test_submit_live_premarket_sell_uses_bid_limit(monkeypatch, capsys) -> None:
         entry_price_source="IBKR_BID_ASK",
     )
     out = capsys.readouterr().out
-    assert order_id == 777
+    assert order_id == 100001
     assert client.submissions == 1
+    assert "[EXECUTION][NON_IBKR_CLIENT] deterministic_id_emulated" in out
+    assert "submit_order_order_id_mismatch" in out
     assert getattr(client.last_order, "orderType", None) == "LMT"
     assert getattr(client.last_order, "lmtPrice", None) == 9.98
     assert "enforced=PREMARKET_LIMIT orderType=LMT lmtPrice=9.98 source=BID_ASK_BUFFERED" in out
@@ -151,7 +170,7 @@ def test_fillability_distinguishes_passive_vs_crossing() -> None:
     assert aggressive == "CROSSING_ASK_AGGRESSIVE"
 
 
-def test_submit_allows_marketable_with_ibkr_authority(monkeypatch) -> None:
+def test_submit_allows_marketable_with_ibkr_authority(monkeypatch, capsys) -> None:
     client = _Client()
     monkeypatch.setattr(order_router, "_session_label_now", lambda: "RTH")
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": 10.0, "ask": 10.05, "last": 10.02, "volume": 100_000})
@@ -165,11 +184,14 @@ def test_submit_allows_marketable_with_ibkr_authority(monkeypatch) -> None:
         entry_price=10.02,
         entry_price_source="IBKR_SNAPSHOT",
     )
-    assert order_id == 777
+    out = capsys.readouterr().out
+    assert order_id == 100001
     assert client.submissions == 1
+    assert "[EXECUTION][NON_IBKR_CLIENT] deterministic_id_emulated" in out
+    assert "submit_order_order_id_mismatch" in out
 
 
-def test_submit_allows_marketable_with_ibkr_stream_authority(monkeypatch) -> None:
+def test_submit_allows_marketable_with_ibkr_stream_authority(monkeypatch, capsys) -> None:
     client = _Client()
     monkeypatch.setattr(order_router, "_session_label_now", lambda: "RTH")
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": 10.0, "ask": 10.05, "last": 10.02, "volume": 100_000})
@@ -183,8 +205,11 @@ def test_submit_allows_marketable_with_ibkr_stream_authority(monkeypatch) -> Non
         entry_price=10.02,
         entry_price_source="IBKR_STREAM",
     )
-    assert order_id == 777
+    out = capsys.readouterr().out
+    assert order_id == 100001
     assert client.submissions == 1
+    assert "[EXECUTION][NON_IBKR_CLIENT] deterministic_id_emulated" in out
+    assert "submit_order_order_id_mismatch" in out
 
 
 def test_submit_blocks_non_ibkr_price_authority(monkeypatch) -> None:
@@ -205,7 +230,7 @@ def test_submit_blocks_non_ibkr_price_authority(monkeypatch) -> None:
     assert client.submissions == 0
 
 
-def test_submit_allows_low_price_when_broker_is_authority(monkeypatch) -> None:
+def test_submit_allows_low_price_when_broker_is_authority(monkeypatch, capsys) -> None:
     client = _Client()
     monkeypatch.setattr(order_router, "_session_label_now", lambda: "RTH")
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": 1.8, "ask": 1.85, "last": 1.82, "volume": 200_000})
@@ -219,5 +244,8 @@ def test_submit_allows_low_price_when_broker_is_authority(monkeypatch) -> None:
         entry_price=1.82,
         entry_price_source="IBKR_SNAPSHOT",
     )
-    assert order_id == 777
+    out = capsys.readouterr().out
+    assert order_id == 100001
     assert client.submissions == 1
+    assert "[EXECUTION][NON_IBKR_CLIENT] deterministic_id_emulated" in out
+    assert "submit_order_order_id_mismatch" in out
