@@ -56,8 +56,22 @@ _IBKR_HEALTH_STATE = {
     "historical_data_ok": True,
     "order_channel_ok": True,
     "degraded": False,
+    "recovered_at": None,
     "last_error_codes": [],
+    "last_recovery_codes": [],
 }
+_RECONCILED_POSITIONS_OK = 0
+_RECONCILED_POSITIONS_MISMATCH = 0
+_BROKER_POSITION_WITHOUT_FILL_COUNT = 0
+_LOCAL_FILL_WITHOUT_POSITION_COUNT = 0
+_WATCHDOG_STALLS_TOTAL = 0
+_WATCHDOG_SUBMITTED_NO_ACK_TIMEOUTS = 0
+_WATCHDOG_WORKING_NO_FILL_TIMEOUTS = 0
+_WATCHDOG_PARTIAL_FILL_STALLS = 0
+_OPEN_POSITIONS_CONFIRMED = 0
+_REDUCED_POSITIONS_CONFIRMED = 0
+_CLOSED_POSITIONS_CONFIRMED = 0
+_BROKER_POSITION_LAST_QTY_BY_SYMBOL: dict[str, int] = {}
 
 AUTHORITATIVE_EXECUTION_STATES = {
     "DISPATCH_INTENDED",
@@ -216,6 +230,11 @@ class TrackedOrder:
     fillability_rationale: str = ""
     inactive_normalized_reason: str = ""
     inactive_rationale: str = ""
+    ack_seen_at: str | None = None
+    working_seen_at: str | None = None
+    first_fill_seen_at: str | None = None
+    escalation_required: bool = False
+    escalation_reason: str = ""
 
 
 @dataclass
@@ -342,6 +361,14 @@ def runtime_lifecycle_snapshot() -> dict[str, int | str]:
         "recon_resync_needed": "YES" if _RECON_RESYNC_NEEDED else "NO",
         "fill_authority_state": fill_authority_state(),
         "callback_delay_warnings_count": _CALLBACK_DELAY_WARNINGS_COUNT,
+        "reconciled_positions_ok": _RECONCILED_POSITIONS_OK,
+        "reconciled_positions_mismatch": _RECONCILED_POSITIONS_MISMATCH,
+        "broker_position_without_fill_count": _BROKER_POSITION_WITHOUT_FILL_COUNT,
+        "local_fill_without_position_count": _LOCAL_FILL_WITHOUT_POSITION_COUNT,
+        "watchdog_stalls_total": _WATCHDOG_STALLS_TOTAL,
+        "submitted_no_ack_timeouts": _WATCHDOG_SUBMITTED_NO_ACK_TIMEOUTS,
+        "working_no_fill_timeouts": _WATCHDOG_WORKING_NO_FILL_TIMEOUTS,
+        "partial_fill_stalls": _WATCHDOG_PARTIAL_FILL_STALLS,
     }
 
 
@@ -447,21 +474,124 @@ def _refresh_fill_authority_state() -> None:
     _FILL_AUTHORITY_STATE = "RECONCILIATION_MISMATCH" if _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT > 0 else "ACKNOWLEDGED_NO_FILL"
 
 
+def _position_reconciliation_window_seconds() -> int:
+    raw = os.environ.get("EXECUTION_POSITION_RECONCILIATION_WINDOW_SECONDS", "5")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 5
+
+
+def _watchdog_threshold_seconds(name: str, default: int) -> int:
+    raw = os.environ.get(name, str(default))
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return max(1, int(default))
+
+
+def _extract_position_avg_cost(position_row: Any) -> float | None:
+    for field in ("avgCost", "averageCost", "avg_price", "cost"):
+        value = getattr(position_row, field, None)
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _signed_local_fill_qty(row: TrackedOrder) -> int:
+    side = str(row.side or "").upper()
+    qty = int(row.filled_qty or 0)
+    return -qty if side == "SELL" else qty
+
+
+def _classify_watchdog_state(row: TrackedOrder, now: datetime) -> tuple[str, int]:
+    if row.terminal or row.canonical_state in {"FILLED", "REJECTED", "CANCELLED", "EXPIRED"}:
+        return "NORMAL_IN_FLIGHT", 0
+    if bool(_IBKR_HEALTH_STATE.get("degraded")):
+        return "HEALTH_BLOCKED_PENDING", 0
+    submit_to_ack = _watchdog_threshold_seconds("EXECUTION_SUBMIT_TO_ACK_TIMEOUT_SECONDS", 8)
+    ack_to_working = _watchdog_threshold_seconds("EXECUTION_ACK_TO_WORKING_TIMEOUT_SECONDS", 10)
+    working_no_fill = _watchdog_threshold_seconds("EXECUTION_WORKING_NO_FILL_TIMEOUT_SECONDS", 20)
+    partial_stall = _watchdog_threshold_seconds("EXECUTION_PARTIAL_FILL_STALL_TIMEOUT_SECONDS", 30)
+    first_seen = _parse_iso_utc(row.first_seen_at) or now
+    elapsed_submit = int(max(0, (now - first_seen).total_seconds()))
+    if not row.ack_seen and elapsed_submit >= submit_to_ack:
+        return "SUBMITTED_NO_ACK_TIMEOUT", elapsed_submit
+    if row.ack_seen and not row.working_seen:
+        ack_seen_at = _parse_iso_utc(row.ack_seen_at) or _parse_iso_utc(row.last_update_at) or now
+        elapsed_ack = int(max(0, (now - ack_seen_at).total_seconds()))
+        if elapsed_ack >= ack_to_working:
+            return "ACKNOWLEDGED_NO_WORKING_TIMEOUT", elapsed_ack
+    if row.working_seen and int(row.filled_qty) <= 0:
+        working_seen_at = _parse_iso_utc(row.working_seen_at) or _parse_iso_utc(row.last_update_at) or now
+        elapsed_working = int(max(0, (now - working_seen_at).total_seconds()))
+        if elapsed_working >= working_no_fill:
+            return "WORKING_NO_FILL_TIMEOUT", elapsed_working
+    if row.working_seen and 0 < int(row.filled_qty) < int(row.total_qty):
+        fill_seen_at = _parse_iso_utc(row.first_fill_seen_at) or _parse_iso_utc(row.last_update_at) or now
+        elapsed_partial = int(max(0, (now - fill_seen_at).total_seconds()))
+        if elapsed_partial >= partial_stall:
+            return "PARTIAL_FILL_STALLED", elapsed_partial
+    return "NORMAL_IN_FLIGHT", elapsed_submit
+
+
 def _update_ibkr_health(*, event_type: str, code: int | None = None) -> None:
-    degraded_codes = {1100, 1101, 1102, 2103, 2105, 2110}
+    degraded_codes = {1100, 2103, 2105, 2110}
+    recovery_codes = {1101, 1102, 2104, 2106}
     if event_type == "connect":
         _IBKR_HEALTH_STATE["broker_connected"] = True
+        _IBKR_HEALTH_STATE["order_channel_ok"] = True
     if event_type == "disconnect":
         _IBKR_HEALTH_STATE["broker_connected"] = False
+        _IBKR_HEALTH_STATE["order_channel_ok"] = False
+        _IBKR_HEALTH_STATE["degraded"] = True
     if code is not None:
         history = list(_IBKR_HEALTH_STATE.get("last_error_codes", []))
         history.append(int(code))
         _IBKR_HEALTH_STATE["last_error_codes"] = history[-20:]
+        if int(code) == 1100:
+            _IBKR_HEALTH_STATE["broker_connected"] = False
+            _IBKR_HEALTH_STATE["order_channel_ok"] = False
+            _IBKR_HEALTH_STATE["degraded"] = True
+        if int(code) == 2110:
+            _IBKR_HEALTH_STATE["broker_connected"] = False
+            _IBKR_HEALTH_STATE["order_channel_ok"] = False
+            _IBKR_HEALTH_STATE["degraded"] = True
+        if int(code) == 2103:
+            _IBKR_HEALTH_STATE["market_data_ok"] = False
+            _IBKR_HEALTH_STATE["degraded"] = True
+        if int(code) == 2105:
+            _IBKR_HEALTH_STATE["historical_data_ok"] = False
+            _IBKR_HEALTH_STATE["degraded"] = True
         if int(code) in degraded_codes:
             _IBKR_HEALTH_STATE["degraded"] = True
             _IBKR_HEALTH_STATE["order_channel_ok"] = False
-    if _IBKR_HEALTH_STATE.get("broker_connected") and not _IBKR_HEALTH_STATE.get("degraded"):
-        _IBKR_HEALTH_STATE["order_channel_ok"] = True
+        if int(code) in recovery_codes:
+            _IBKR_HEALTH_STATE["broker_connected"] = True
+            _IBKR_HEALTH_STATE["order_channel_ok"] = True
+            if int(code) == 2104:
+                _IBKR_HEALTH_STATE["market_data_ok"] = True
+            if int(code) == 2106:
+                _IBKR_HEALTH_STATE["historical_data_ok"] = True
+            recovery_history = list(_IBKR_HEALTH_STATE.get("last_recovery_codes", []))
+            recovery_history.append(int(code))
+            _IBKR_HEALTH_STATE["last_recovery_codes"] = recovery_history[-20:]
+    all_healthy = bool(_IBKR_HEALTH_STATE.get("broker_connected")) and bool(_IBKR_HEALTH_STATE.get("market_data_ok")) and bool(_IBKR_HEALTH_STATE.get("historical_data_ok")) and bool(_IBKR_HEALTH_STATE.get("order_channel_ok"))
+    if all_healthy and bool(_IBKR_HEALTH_STATE.get("degraded")):
+        _IBKR_HEALTH_STATE["degraded"] = False
+        _IBKR_HEALTH_STATE["recovered_at"] = _now_utc_iso()
+        print(
+            "[IBKR][HEALTH_RECOVERY] "
+            f"broker_connected={str(bool(_IBKR_HEALTH_STATE.get('broker_connected'))).lower()} "
+            f"market_data_ok={str(bool(_IBKR_HEALTH_STATE.get('market_data_ok'))).lower()} "
+            f"historical_data_ok={str(bool(_IBKR_HEALTH_STATE.get('historical_data_ok'))).lower()} "
+            f"order_channel_ok={str(bool(_IBKR_HEALTH_STATE.get('order_channel_ok'))).lower()} "
+            "status=STABLE"
+        )
     status = "DEGRADED" if _IBKR_HEALTH_STATE.get("degraded") else "STABLE"
     print(
         "[IBKR][HEALTH] "
@@ -1120,6 +1250,8 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
     row.canonical_state = "FILLED" if row.remaining_qty == 0 else "PARTIALLY_FILLED"
     row.broker_status = "Filled" if row.canonical_state == "FILLED" else "Submitted"
     row.last_update_at = timestamp
+    if row.first_fill_seen_at is None:
+        row.first_fill_seen_at = timestamp
     row.callback_pending = False
     row.callback_pending_since = None
     print(f"[EXECUTION][ORDER_MATCH] order_id={order_id} symbol={row.symbol} source={source}")
@@ -1135,6 +1267,11 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
         print(f"[EXECUTION][PARTIAL_FILL] order_id={order_id} symbol={row.symbol} fill_qty={inc} total_filled={row.filled_qty} remaining={row.remaining_qty} exec_id={exec_id or 'NA'}")
     if old_state != row.canonical_state:
         print(f"[ORDER_EVENT][STATE_TRANSITION] order_id={order_id} from={old_state} to={row.canonical_state}")
+    print(
+        "[EXECUTION][FILL_CONFIRMED] "
+        f"symbol={row.symbol} broker_order_id={order_id} filled_qty={row.filled_qty} avg_fill_price={row.avg_fill_price}"
+    )
+    print(f"[EXECUTION][LIFECYCLE] symbol={row.symbol} marker=FILL_CONFIRMED_AWAITING_POSITION")
     if _is_explicit_test_mode() and source != "IBKR_EXECUTION_BACKFILL":
         signed = inc if row.is_entry else -inc
         _simulate_position_from_fill(
@@ -1392,8 +1529,10 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 _transition_execution_truth_state(truth=truth, next_state=mapped_state, source="IBKR_CALLBACK")
             row.last_update_at = timestamp
             row.ack_seen = True
+            row.ack_seen_at = row.ack_seen_at or timestamp
             if str(row.broker_status or "").upper() in {"SUBMITTED", "PRESUBMITTED"}:
                 row.working_seen = True
+                row.working_seen_at = row.working_seen_at or timestamp
             if str(row.broker_status or "").upper() == "PRESUBMITTED":
                 row.queued_for_rth_seen = bool(row.queued_for_rth_seen)
             if str(row.broker_status or "").upper() in {"INACTIVE", "REJECTED"}:
@@ -1504,6 +1643,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             )
         if tracked is not None:
             tracked.ack_seen = True
+            tracked.ack_seen_at = tracked.ack_seen_at or timestamp
             tracked.open_order_detail = dict(open_order_detail)
             tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
         truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(int(order_id))
@@ -1605,29 +1745,133 @@ def _normalize_ibkr_truth(raw: Any) -> tuple[list[Any], list[Any], list[Any]]:
     return [], [], []
 
 
+def _run_watchdog_checks(*, now: datetime | None = None) -> None:
+    global _WATCHDOG_STALLS_TOTAL, _WATCHDOG_SUBMITTED_NO_ACK_TIMEOUTS, _WATCHDOG_WORKING_NO_FILL_TIMEOUTS, _WATCHDOG_PARTIAL_FILL_STALLS
+    now_utc = now or datetime.now(timezone.utc)
+    for row in _RUNTIME_ORDERS.values():
+        if row.terminal:
+            continue
+        verdict, elapsed = _classify_watchdog_state(row, now_utc)
+        row.escalation_required = verdict in {
+            "SUBMITTED_NO_ACK_TIMEOUT",
+            "ACKNOWLEDGED_NO_WORKING_TIMEOUT",
+            "WORKING_NO_FILL_TIMEOUT",
+            "PARTIAL_FILL_STALLED",
+        }
+        row.escalation_reason = verdict if row.escalation_required else ""
+        print(
+            "[EXECUTION][WATCHDOG] "
+            f"symbol={row.symbol} broker_order_id={row.broker_order_id} state={row.canonical_state} verdict={verdict}"
+        )
+        if not row.escalation_required:
+            continue
+        _WATCHDOG_STALLS_TOTAL += 1
+        if verdict == "SUBMITTED_NO_ACK_TIMEOUT":
+            _WATCHDOG_SUBMITTED_NO_ACK_TIMEOUTS += 1
+        if verdict == "WORKING_NO_FILL_TIMEOUT":
+            _WATCHDOG_WORKING_NO_FILL_TIMEOUTS += 1
+        if verdict == "PARTIAL_FILL_STALLED":
+            _WATCHDOG_PARTIAL_FILL_STALLS += 1
+        print(
+            "[EXECUTION][WATCHDOG_STALL] "
+            f"symbol={row.symbol} broker_order_id={row.broker_order_id} verdict={verdict} elapsed={elapsed}"
+        )
+
+
 def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
-    global _RECON_RESYNC_NEEDED
+    global _RECON_RESYNC_NEEDED, _RECONCILED_POSITIONS_OK, _RECONCILED_POSITIONS_MISMATCH, _BROKER_POSITION_WITHOUT_FILL_COUNT, _LOCAL_FILL_WITHOUT_POSITION_COUNT, _OPEN_POSITIONS_CONFIRMED, _REDUCED_POSITIONS_CONFIRMED, _CLOSED_POSITIONS_CONFIRMED
     broker_position_by_symbol: dict[str, int] = {}
+    broker_avg_cost_by_symbol: dict[str, float | None] = {}
     for row in positions:
         symbol = _extract_symbol_from_order(row)
         if not symbol:
             continue
-        broker_position_by_symbol[symbol] = broker_position_by_symbol.get(symbol, 0) + _extract_position_qty(row)
-    symbols = set(_RUNTIME_POSITIONS.keys()) | set(broker_position_by_symbol.keys())
+        broker_position_by_symbol[symbol] = int(broker_position_by_symbol.get(symbol, 0)) + int(_extract_position_qty(row) or 0)
+        broker_avg_cost_by_symbol[symbol] = _extract_position_avg_cost(row)
+    local_fill_qty_by_symbol: dict[str, int] = {}
+    local_fill_avg_by_symbol: dict[str, float | None] = {}
+    local_fill_ts_by_symbol: dict[str, datetime | None] = {}
+    for order in _RUNTIME_ORDERS.values():
+        symbol = str(order.symbol or "").upper()
+        if not symbol:
+            continue
+        local_fill_qty_by_symbol[symbol] = int(local_fill_qty_by_symbol.get(symbol, 0)) + _signed_local_fill_qty(order)
+        if order.avg_fill_price is not None:
+            local_fill_avg_by_symbol[symbol] = float(order.avg_fill_price)
+        local_fill_ts_by_symbol[symbol] = _parse_iso_utc(order.first_fill_seen_at or order.last_update_at)
+    symbols = set(_RUNTIME_POSITIONS.keys()) | set(broker_position_by_symbol.keys()) | set(local_fill_qty_by_symbol.keys())
+    window_seconds = _position_reconciliation_window_seconds()
+    now_utc = datetime.now(timezone.utc)
     for symbol in sorted(symbols):
         local = _RUNTIME_POSITIONS.get(symbol)
         local_qty = int(local.qty) if local is not None else 0
         broker_qty = int(broker_position_by_symbol.get(symbol, 0))
-        if local_qty == broker_qty:
-            continue
-        print(f"[POSITION][RECON_MISMATCH] symbol={symbol} local_qty={local_qty} ibkr_qty={broker_qty}")
-        print(
-            "[EXECUTION][RECONCILE] "
-            f"symbol={symbol} local_qty={local_qty} broker_qty={broker_qty} action=passive_detect_only"
-        )
-        if broker_qty > local_qty:
-            print(f"[FILL][GAP_DETECTED] symbol={symbol} expected_qty={broker_qty} actual_qty={local_qty}")
+        local_fill_qty = int(local_fill_qty_by_symbol.get(symbol, 0))
+        broker_avg_cost = broker_avg_cost_by_symbol.get(symbol)
+        local_avg_cost = local_fill_avg_by_symbol.get(symbol)
+        verdict = "ALIGNED"
+        reason = ""
+        prev_broker_qty = int(_BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol, 0))
+        if broker_qty == 0 and local_fill_qty == 0 and prev_broker_qty > 0:
+            verdict = "POSITION_CLOSED_ALIGNED"
+        elif broker_qty == 0 and local_fill_qty == 0:
+            verdict = "ALIGNED"
+        elif broker_qty != 0 and local_fill_qty == 0:
+            verdict = "BROKER_POSITION_WITHOUT_FILL"
+            reason = "broker_has_open_position_without_execdetails_fill_trail"
+        elif broker_qty == 0 and local_fill_qty != 0:
+            fill_ts = local_fill_ts_by_symbol.get(symbol)
+            pending = fill_ts is not None and (now_utc - fill_ts).total_seconds() <= float(window_seconds)
+            if pending:
+                verdict = "UNKNOWN_PENDING_RECONCILIATION"
+                reason = "fill_seen_waiting_for_position_callback"
+            else:
+                verdict = "LOCAL_FILL_WITHOUT_BROKER_POSITION"
+                reason = "local_fill_recorded_without_broker_open_position"
+        elif broker_qty != local_fill_qty:
+            verdict = "QTY_MISMATCH"
+            reason = f"broker_qty={broker_qty} local_fill_qty={local_fill_qty}"
+        elif broker_avg_cost is not None and local_avg_cost is not None and abs(float(broker_avg_cost) - float(local_avg_cost)) > 0.01:
+            verdict = "AVG_COST_MISMATCH"
+            reason = f"broker_avg_cost={broker_avg_cost} local_avg_cost={local_avg_cost}"
+        elif broker_qty == 0 and local_fill_qty == 0 and int(_BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol, 0)) > 0:
+            verdict = "POSITION_CLOSED_ALIGNED"
+        if verdict == "ALIGNED":
+            _RECONCILED_POSITIONS_OK += 1
+            print(f"[EXECUTION][POSITION_RECONCILE_OK] symbol={symbol} verdict=ALIGNED")
+        elif verdict == "POSITION_CLOSED_ALIGNED":
+            _RECONCILED_POSITIONS_OK += 1
+            print(f"[EXECUTION][POSITION_RECONCILE_OK] symbol={symbol} verdict=ALIGNED")
+        elif verdict in {"UNKNOWN_PENDING_RECONCILIATION"}:
+            print(f"[EXECUTION][POSITION_RECONCILE] symbol={symbol} local_qty={local_qty} broker_qty={broker_qty} verdict={verdict}")
+        else:
+            _RECONCILED_POSITIONS_MISMATCH += 1
+            if verdict == "BROKER_POSITION_WITHOUT_FILL":
+                _BROKER_POSITION_WITHOUT_FILL_COUNT += 1
+            if verdict == "LOCAL_FILL_WITHOUT_BROKER_POSITION":
+                _LOCAL_FILL_WITHOUT_POSITION_COUNT += 1
+            print(
+                "[EXECUTION][POSITION_RECONCILE_MISMATCH] "
+                f"symbol={symbol} verdict={verdict} reason={reason or 'mismatch'}"
+            )
             _RECON_RESYNC_NEEDED = True
+        print(
+            "[EXECUTION][POSITION_RECONCILE] "
+            f"symbol={symbol} local_qty={local_qty} broker_qty={broker_qty} verdict={verdict}"
+        )
+        if broker_qty > 0 and prev_broker_qty <= 0:
+            print(f"[EXECUTION][POSITION_OPEN_CONFIRMED] symbol={symbol} broker_qty={broker_qty} avg_cost={broker_avg_cost}")
+            print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_OPEN_CONFIRMED")
+            _OPEN_POSITIONS_CONFIRMED += 1
+        elif broker_qty > 0 and prev_broker_qty > broker_qty:
+            print(f"[EXECUTION][POSITION_REDUCED_CONFIRMED] symbol={symbol} broker_qty={broker_qty}")
+            print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_REDUCED_CONFIRMED")
+            _REDUCED_POSITIONS_CONFIRMED += 1
+        elif broker_qty == 0 and prev_broker_qty > 0:
+            print(f"[EXECUTION][POSITION_CLOSED_CONFIRMED] symbol={symbol}")
+            print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_CLOSED_CONFIRMED")
+            _CLOSED_POSITIONS_CONFIRMED += 1
+        _BROKER_POSITION_LAST_QTY_BY_SYMBOL[symbol] = broker_qty
 
 
 def _check_callback_delay(*, now: datetime | None = None) -> None:
@@ -1690,6 +1934,7 @@ def _sync_submitted_events_from_ibkr(
     if positions:
         print("[POSITION][SYNC] reconciliation_snapshot_observed=true fill_source=CALLBACK_ONLY repair_mode=PASSIVE")
     _check_callback_delay()
+    _run_watchdog_checks()
     _check_position_consistency()
     print(f"[EXECUTION][RECON_VERDICT] reconciled_orders={_RECONCILED_ORDERS_COUNT} reconciled_positions={_RECONCILED_POSITIONS_COUNT}")
     return events
@@ -3121,6 +3366,20 @@ def execute_intents(
         f"cycle_id={cycle_id} intents_received={intents_received} submit_attempts={submit_attempts} "
         f"orders_submitted={orders_submitted} acks_received={acks_received} fills_received={fills_received} "
         f"positions_opened={positions_opened} failures_by_type={dict(sorted(_EXECUTION_FAILURES_BY_TYPE.items()))}"
+    )
+    working_count = sum(1 for row in _RUNTIME_ORDERS.values() if row.canonical_state == "WORKING")
+    partial_fill_count = sum(1 for row in _RUNTIME_ORDERS.values() if row.canonical_state == "PARTIALLY_FILLED")
+    fill_count = sum(1 for row in _RUNTIME_ORDERS.values() if row.canonical_state == "FILLED")
+    acknowledged_count = sum(1 for row in _RUNTIME_ORDERS.values() if row.ack_seen)
+    health_status = "DEGRADED" if bool(_IBKR_HEALTH_STATE.get("degraded")) else "STABLE"
+    print(
+        "[EXECUTION][RECONCILIATION_SUMMARY] "
+        f"intents_received={intents_received} execution_attempts={submit_attempts} submitted={orders_submitted} "
+        f"acknowledged={acknowledged_count} working={working_count} partial_fills={partial_fill_count} fills={fill_count} "
+        f"open_positions_confirmed={_OPEN_POSITIONS_CONFIRMED} reduced_positions_confirmed={_REDUCED_POSITIONS_CONFIRMED} "
+        f"closed_positions_confirmed={_CLOSED_POSITIONS_CONFIRMED} unmatched_callbacks={_UNMATCHED_CALLBACK_COUNT} "
+        f"order_reconciliation_mismatches={_RECONCILIATION_FAILURES} position_reconciliation_mismatches={_RECONCILED_POSITIONS_MISMATCH} "
+        f"watchdog_stalls_total={_WATCHDOG_STALLS_TOTAL} ibkr_health_status={health_status} fill_authority_state={fill_authority_state()}"
     )
     submitted_marketable = int(_SUBMIT_FILLABILITY_COUNTS.get("MARKETABLE_BUY_AT_OR_ABOVE_ASK", 0)) + int(
         _SUBMIT_FILLABILITY_COUNTS.get("MARKETABLE_SELL_AT_OR_BELOW_BID", 0)
