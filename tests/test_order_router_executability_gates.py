@@ -6,9 +6,15 @@ from src.core_engine.state import RunMode
 from src.execution import order_router
 
 
+@pytest.fixture(autouse=True)
+def _force_non_premarket(monkeypatch):
+    monkeypatch.setattr(order_router, "get_market_session", lambda *_args, **_kwargs: "RTH")
+
+
 class _Client:
     def __init__(self) -> None:
         self.submissions = 0
+        self.last_order = None
 
     def qualifyContracts(self, contract):
         contract.conId = 123
@@ -20,6 +26,7 @@ class _Client:
 
     def submit_order(self, _contract, _order):
         self.submissions += 1
+        self.last_order = _order
         return 777
 
     def wait_for_order_status(self, _order_id, timeout_seconds=5):
@@ -86,6 +93,44 @@ def test_submit_allows_marketable_with_ibkr_authority(monkeypatch) -> None:
     )
     assert order_id == 777
     assert client.submissions == 1
+
+
+def test_submit_forces_limit_orders_in_premarket(monkeypatch) -> None:
+    client = _Client()
+    monkeypatch.setattr(order_router, "get_market_session", lambda *_args, **_kwargs: "PREMARKET")
+    monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": 10.0, "ask": 10.05, "last": 10.02, "volume": 100_000})
+    order_id = order_router._submit_ibkr_order(
+        mode=RunMode.PAPER,
+        client=client,
+        symbol="MCRO",
+        side="BUY",
+        quantity=1,
+        order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
+        entry_price=10.02,
+        entry_price_source="IBKR_SNAPSHOT",
+    )
+    assert order_id == 777
+    assert client.submissions == 1
+    assert getattr(client.last_order, "orderType", None) == "LMT"
+    assert float(getattr(client.last_order, "lmtPrice", 0.0)) >= 10.06
+
+
+def test_submit_rejects_premarket_when_bid_ask_missing(monkeypatch) -> None:
+    client = _Client()
+    monkeypatch.setattr(order_router, "get_market_session", lambda *_args, **_kwargs: "PREMARKET")
+    monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": None, "ask": None, "last": 5.0, "volume": 50_000})
+    with pytest.raises(RuntimeError, match="NO_BID_ASK_AVAILABLE_FOR_LIMIT"):
+        order_router._submit_ibkr_order(
+            mode=RunMode.PAPER,
+            client=client,
+            symbol="MCRO",
+            side="BUY",
+            quantity=1,
+            order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
+            entry_price=5.0,
+            entry_price_source="IBKR_SNAPSHOT",
+        )
+    assert client.submissions == 0
 
 
 def test_submit_allows_marketable_with_ibkr_stream_authority(monkeypatch) -> None:

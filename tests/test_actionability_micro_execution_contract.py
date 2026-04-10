@@ -398,5 +398,6 @@ def test_execute_intents_blocks_duplicate_working_order_using_reconciliation(mon
     )
     out = capsys.readouterr().out
     assert events[0].action == "BLOCKED"
-    assert events[0].detail == "reason=DUPLICATE_POSITION"
-    assert "[EXECUTION][DUPLICATE_BLOCK] symbol=MCRO reason=DUPLICATE_POSITION" in out
+    assert events[0].detail == "reason=EXECUTION_SKIPPED_DUPLICATE"
+    assert "[EXECUTION][BLOCK] symbol=MCRO reason=DUPLICATE_WORKING_ORDER" in out
+    assert "[EXECUTION][DUPLICATE_BLOCK] symbol=MCRO reason=DUPLICATE_WORKING_ORDER" in out

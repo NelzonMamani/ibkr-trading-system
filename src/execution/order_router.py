@@ -1817,6 +1817,15 @@ def _run_watchdog_checks(*, now: datetime | None = None) -> None:
             "[EXECUTION][WATCHDOG] "
             f"symbol={row.symbol} broker_order_id={row.broker_order_id} state={row.canonical_state} verdict={verdict}"
         )
+        if (
+            verdict == "WORKING_NO_FILL_TIMEOUT"
+            and elapsed > 60
+            and get_market_session(now_utc) == "PREMARKET"
+        ):
+            print(
+                "[EXECUTION][WATCHDOG] "
+                f"symbol={row.symbol} state=STALE_NO_FILL action=REPRICE_CANDIDATE"
+            )
         if not row.escalation_required:
             continue
         _WATCHDOG_STALLS_TOTAL += 1
@@ -2380,6 +2389,24 @@ def _session_label_now() -> str:
     return "OVN"
 
 
+def get_market_session(current_time: datetime | None = None) -> str:
+    """Return canonical market session label for execution policy."""
+    session = resolve_session_state(current_time)
+    if session == SessionState.PRE:
+        return "PREMARKET"
+    if session == SessionState.REG:
+        return "RTH"
+    if session == SessionState.AFTER:
+        return "AFTER_HOURS"
+    return "CLOSED"
+
+
+def _round_to_tick(price: float, *, tick_size: float) -> float:
+    tick = float(tick_size) if tick_size and tick_size > 0 else 0.01
+    rounded = round(round(float(price) / tick) * tick, 8)
+    return max(tick, rounded)
+
+
 def _compute_quote_spread(*, bid: float | None, ask: float | None) -> tuple[float | None, float | None]:
     if bid is None or ask is None or ask <= 0:
         return None, None
@@ -2621,15 +2648,77 @@ def _submit_ibkr_order(
     if not authority_allowed:
         print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_IBKR_PRICE_AUTHORITY price_source={_none_text(entry_price_source)}")
         raise RuntimeError("NO_IBKR_PRICE_AUTHORITY")
+    quote_snapshot = _wait_for_ibkr_snapshot_for_symbol(str(symbol or ""), wait_up_to=0.4, poll_interval=0.1)
+    bid = _safe_price_value(quote_snapshot.get("bid"))
+    ask = _safe_price_value(quote_snapshot.get("ask"))
+    last = _safe_price_value(quote_snapshot.get("last"))
+    volume = _safe_price_value(quote_snapshot.get("volume"))
+    # Fallback to persisted resolved price if snapshot last is missing
+    if last is None:
+        persisted_last = (execution_context or {}).get("resolved_last_price")
+        if persisted_last is not None and persisted_last > 0:
+            last = persisted_last
+            print(
+                f"[EXECUTION][LAST_PRICE_FALLBACK] "
+                f"symbol={symbol} using persisted_last_price={persisted_last}"
+            )
+    quote_context_ok = bid is not None and ask is not None and bid > 0 and ask > 0
+    has_last_price = last is not None and last > 0
+    execution_path = FULL_QUOTE_PATH if quote_context_ok else DEGRADED_QUOTE_PATH
+    quote_context = "FULL_BID_ASK" if quote_context_ok else "DEGRADED_LAST_ONLY"
+    price_source = "IBKR_BID_ASK" if quote_context_ok else ("IBKR_LAST" if has_last_price else "SYNTHETIC")
+    degraded_paper_path_allowed = execution_path == DEGRADED_QUOTE_PATH and mode == RunMode.PAPER and has_last_price
+    print(f"[EXECUTION][PATH] symbol={symbol} path={execution_path}")
+    print(f"[EXECUTION][QUOTE_CONTEXT] symbol={symbol} quote_context={quote_context} price_source={price_source}")
+    if execution_path == DEGRADED_QUOTE_PATH:
+        if mode == RunMode.LIVE:
+            print(
+                "[EXECUTION][BLOCK] "
+                f"symbol={symbol} reason=NO_QUOTE_CONTEXT_LIVE_STRICT bid={_none_text(bid)} ask={_none_text(ask)}"
+            )
+            raise RuntimeError("NO_QUOTE_CONTEXT_LIVE_STRICT")
+        if degraded_paper_path_allowed:
+            print(f"[EXECUTION][DEGRADED_MODE] symbol={symbol} using last_price_only no_bid_ask")
+            print(
+                "[EXECUTION][CONSISTENCY_CHECK] "
+                f"symbol={symbol} execution_path={execution_path} quote_block_skipped=true"
+            )
+        else:
+            print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_QUOTE_CONTEXT bid={_none_text(bid)} ask={_none_text(ask)}")
+            raise RuntimeError("NO_QUOTE_CONTEXT")
+    market_session = get_market_session()
     order = Order()
     order.eTradeOnly = False
     order.firmQuoteOnly = False
     order.action = side.upper()
-    order.orderType = "MKT"
     order.totalQuantity = int(quantity)
     order.tif = "DAY"
     order.outsideRth = True
     order.orderRef = order_ref
+    order.orderType = "MKT"
+    if market_session == "PREMARKET":
+        if not quote_context_ok:
+            print(f"[EXECUTION][REJECT] symbol={symbol} reason=NO_BID_ASK_AVAILABLE_FOR_LIMIT")
+            raise RuntimeError("NO_BID_ASK_AVAILABLE_FOR_LIMIT")
+        price_offset_pct = 0.001
+        fallback_offset_abs = 0.01
+        action = str(order.action or "").upper()
+        if action == "BUY":
+            raw_limit = max(float(ask) * (1 + price_offset_pct), float(ask) + fallback_offset_abs)
+        else:
+            raw_limit = min(float(bid) * (1 - price_offset_pct), float(bid) - fallback_offset_abs)
+        tick_size = _safe_price_value(getattr(resolved_contract, "minTick", None)) or 0.01
+        limit_price = _round_to_tick(raw_limit, tick_size=tick_size)
+        order.orderType = "LMT"
+        order.lmtPrice = limit_price
+        print(
+            "[EXECUTION][ORDER_MODE] "
+            f"symbol={symbol} session=PREMARKET order_type=LMT reason=PREMARKET_ENFORCED"
+        )
+        print(
+            "[EXECUTION][LIMIT_PRICE] "
+            f"symbol={symbol} side={action} bid={_none_text(bid)} ask={_none_text(ask)} limit={limit_price}"
+        )
     account = getattr(client, "get_primary_account", lambda: None)() if hasattr(client, "get_primary_account") else None
     if account:
         order.account = account
@@ -2672,44 +2761,6 @@ def _submit_ibkr_order(
         f"symbol={symbol} order_id=PENDING client_id={getattr(client, 'client_id', None)} account={account or 'UNKNOWN'} "
         f"order_type={getattr(order, 'orderType', 'MKT')} tif={getattr(order, 'tif', 'DAY')} qty={quantity} side={side}"
     )
-    quote_snapshot = _wait_for_ibkr_snapshot_for_symbol(str(symbol or ""), wait_up_to=0.4, poll_interval=0.1)
-    bid = _safe_price_value(quote_snapshot.get("bid"))
-    ask = _safe_price_value(quote_snapshot.get("ask"))
-    last = _safe_price_value(quote_snapshot.get("last"))
-    volume = _safe_price_value(quote_snapshot.get("volume"))
-    # Fallback to persisted resolved price if snapshot last is missing
-    if last is None:
-        persisted_last = (execution_context or {}).get("resolved_last_price")
-        if persisted_last is not None and persisted_last > 0:
-            last = persisted_last
-            print(
-                f"[EXECUTION][LAST_PRICE_FALLBACK] "
-                f"symbol={symbol} using persisted_last_price={persisted_last}"
-            )
-    quote_context_ok = bid is not None and ask is not None and bid > 0 and ask > 0
-    has_last_price = last is not None and last > 0
-    execution_path = FULL_QUOTE_PATH if quote_context_ok else DEGRADED_QUOTE_PATH
-    quote_context = "FULL_BID_ASK" if quote_context_ok else "DEGRADED_LAST_ONLY"
-    price_source = "IBKR_BID_ASK" if quote_context_ok else ("IBKR_LAST" if has_last_price else "SYNTHETIC")
-    degraded_paper_path_allowed = execution_path == DEGRADED_QUOTE_PATH and mode == RunMode.PAPER and has_last_price
-    print(f"[EXECUTION][PATH] symbol={symbol} path={execution_path}")
-    print(f"[EXECUTION][QUOTE_CONTEXT] symbol={symbol} quote_context={quote_context} price_source={price_source}")
-    if execution_path == DEGRADED_QUOTE_PATH:
-        if mode == RunMode.LIVE:
-            print(
-                "[EXECUTION][BLOCK] "
-                f"symbol={symbol} reason=NO_QUOTE_CONTEXT_LIVE_STRICT bid={_none_text(bid)} ask={_none_text(ask)}"
-            )
-            raise RuntimeError("NO_QUOTE_CONTEXT_LIVE_STRICT")
-        if degraded_paper_path_allowed:
-            print(f"[EXECUTION][DEGRADED_MODE] symbol={symbol} using last_price_only no_bid_ask")
-            print(
-                "[EXECUTION][CONSISTENCY_CHECK] "
-                f"symbol={symbol} execution_path={execution_path} quote_block_skipped=true"
-            )
-        else:
-            print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_QUOTE_CONTEXT bid={_none_text(bid)} ask={_none_text(ask)}")
-            raise RuntimeError("NO_QUOTE_CONTEXT")
     spread_abs, spread_pct = _compute_quote_spread(bid=bid, ask=ask)
     fillability, fillability_rationale = classify_submit_fillability(
         order_type=str(getattr(order, "orderType", "") or ""),
@@ -2916,7 +2967,7 @@ def execute_intents(
                 "family": str(family or ""),
                 "order_id": int(order_id) if order_id is not None else None,
                 "status": status or "UNKNOWN",
-                "is_live_status": status in {"SUBMITTED", "PRESUBMITTED", "PENDING_SUBMIT", "PENDINGCANCEL", "UNKNOWN"},
+                "is_live_status": status in {"SUBMITTED", "PRESUBMITTED", "WORKING", "PENDING_SUBMIT", "PENDINGCANCEL", "UNKNOWN"},
             }
         )
     print(f"[EXECUTION][WORKING_ORDER_RECON] known_working_orders={len(working_order_candidates)}")
@@ -2980,16 +3031,10 @@ def execute_intents(
                     f"existing_status={candidate['status']} reason=non_live_status"
                 )
                 continue
-            if candidate["family"] and candidate["family"] != order_family:
-                print(
-                    f"[EXECUTION][DUPLICATE_IGNORE_STALE] symbol={duplicate_symbol} existing_order_id={candidate['order_id']} "
-                    f"existing_status={candidate['status']} reason=intent_mismatch existing_family={candidate['family']} intent_id={order_family}"
-                )
-                continue
             working_duplicate = True
             duplicate_order_id = candidate["order_id"]
             duplicate_status = candidate["status"]
-            duplicate_reason = "live_symbol_side_intent_conflict"
+            duplicate_reason = "live_symbol_working_order_conflict"
             print(
                 f"[EXECUTION][DUPLICATE_MATCH] symbol={duplicate_symbol} existing_order_id={duplicate_order_id} "
                 f"existing_status={duplicate_status} reason={duplicate_reason}"
@@ -3020,23 +3065,23 @@ def execute_intents(
             )
             continue
         if working_duplicate:
-            blocked_reason = "DUPLICATE_POSITION"
+            blocked_reason = "DUPLICATE_WORKING_ORDER"
             blocked_pre_submit += 1
+            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_WORKING_ORDER")
             print(
                 f"[EXECUTION][DUPLICATE_BLOCK] symbol={duplicate_symbol} reason={blocked_reason} "
                 f"existing_order_id={duplicate_order_id} existing_broker_state={duplicate_status} conflict_reason={duplicate_reason}"
             )
-            print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
-            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
+            print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_WORKING_ORDER")
             _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
-            truth.rejection_reason = blocked_reason
+            truth.rejection_reason = "EXECUTION_SKIPPED_DUPLICATE"
             _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_working_order")
             events.append(
                 ExecutionEvent(
                     symbol=decision.symbol,
                     intent_id=decision.intent_id,
                     action="BLOCKED",
-                    detail=f"reason={blocked_reason}",
+                    detail="reason=EXECUTION_SKIPPED_DUPLICATE",
                     broker_status="REJECTED",
                     last_update_time=_now_utc_iso(),
                 )
