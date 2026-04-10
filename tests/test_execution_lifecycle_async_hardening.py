@@ -398,6 +398,24 @@ def test_duplicate_working_order_logic_ignores_legacy_mismatched_intent(monkeypa
     assert "[EXECUTION][DUPLICATE_IGNORE_STALE]" in out
 
 
+def test_duplicate_working_order_logic_blocks_true_same_intent(monkeypatch) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    open_orders = [
+        SimpleNamespace(
+            symbol="ABCD",
+            orderId=88,
+            status="Submitted",
+            order=SimpleNamespace(action="BUY", orderRef="TRADING_OS|ROSS_MOMENTUM|ABCD-1"),
+        )
+    ]
+    monkeypatch.setattr(order_router, "_fetch_ibkr_truth", lambda _mode: (open_orders, [], []))
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision("ABCD", 100)])
+    assert events[0].action == "BLOCKED"
+    assert "DUPLICATE_WORKING_ORDER" in str(events[0].detail or "")
+    assert "EXECUTION_SKIPPED_DUPLICATE" in str(events[0].detail or "")
+
+
 def test_broker_reject_code_201_dominates_terminal_state(monkeypatch) -> None:
     _reset_router()
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)

@@ -160,6 +160,7 @@ def test_submit_order_allows_paper_degraded_last_only_path(monkeypatch, capsys) 
             return "Submitted"
 
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
+    monkeypatch.setattr(order_router, "_session_label_now", lambda: "PRE")
     monkeypatch.setattr(
         order_router,
         "_wait_for_ibkr_snapshot_for_symbol",
@@ -181,6 +182,39 @@ def test_submit_order_allows_paper_degraded_last_only_path(monkeypatch, capsys) 
     assert "[EXECUTION][PATH] symbol=MCRO path=DEGRADED_QUOTE_PATH" in out
     assert "[EXECUTION][DEGRADED_MODE] symbol=MCRO using last_price_only no_bid_ask" in out
     assert "[EXECUTION][CONSISTENCY_CHECK] symbol=MCRO execution_path=DEGRADED_QUOTE_PATH quote_block_skipped=true" in out
+    assert "[EXECUTION][ORDER_MODE] symbol=MCRO session=PREMARKET order_type=MKT reason=PAPER_DEGRADED_ALLOWED" in out
+
+
+def test_submit_order_blocks_live_premarket_without_bid_ask(monkeypatch) -> None:
+    class _Client:
+        def qualifyContracts(self, contract):
+            contract.conId = 123
+            contract.exchange = "SMART"
+            contract.currency = "USD"
+            contract.primaryExchange = "NASDAQ"
+            contract.secType = "STK"
+            return [contract]
+
+        def submit_order(self, _contract, _order):
+            raise AssertionError("submission should be blocked before dispatch")
+
+    monkeypatch.setattr(order_router, "_session_label_now", lambda: "PRE")
+    monkeypatch.setattr(
+        order_router,
+        "_wait_for_ibkr_snapshot_for_symbol",
+        lambda *_args, **_kwargs: {"last": 25.1, "bid": None, "ask": None, "volume": 120000},
+    )
+    with pytest.raises(RuntimeError, match="NO_BID_ASK_AVAILABLE_FOR_LIMIT"):
+        order_router._submit_ibkr_order(
+            mode=RunMode.LIVE,
+            client=_Client(),
+            symbol="MCRO",
+            side="BUY",
+            quantity=1,
+            order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
+            entry_price=25.0,
+            entry_price_source="IBKR_BID_ASK",
+        )
 
 
 
