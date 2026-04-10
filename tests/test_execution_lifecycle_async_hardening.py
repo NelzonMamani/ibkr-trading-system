@@ -265,28 +265,23 @@ def test_execdetails_callback_reconciles_via_order_ref(monkeypatch, capsys) -> N
     assert order_router._RUNTIME_ORDERS[oid].filled_qty == 10
 
 
-def test_execdetails_unknown_order_id_backfills_instead_of_unmatched(monkeypatch, capsys) -> None:
+def test_execdetails_unknown_order_id_hard_fails(monkeypatch) -> None:
     _reset_router()
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
     unknown_order_id = 987654
 
-    order_router._on_ibkr_callback(
-        {
-            "event_type": "execDetails",
-            "order_id": unknown_order_id,
-            "symbol": "abcd ",
-            "shares": 7,
-            "price": 21.5,
-            "execId": "BF1",
-        }
-    )
-    out = capsys.readouterr().out
-
-    assert "[EXECUTION][FORCED_BACKFILL]" in out
-    assert "[ORDER_EVENT][UNMATCHED] event=EXECUTION" not in out
-    assert unknown_order_id in order_router._RUNTIME_ORDERS
-    assert order_router._RUNTIME_ORDERS[unknown_order_id].filled_qty == 7
-    assert order_router._RUNTIME_ORDERS[unknown_order_id].symbol == "ABCD"
+    with pytest.raises(order_router.ExecutionIntegrityError, match="Unmatched execution callback"):
+        order_router._on_ibkr_callback(
+            {
+                "event_type": "execDetails",
+                "order_id": unknown_order_id,
+                "symbol": "abcd ",
+                "shares": 7,
+                "price": 21.5,
+                "execId": "BF1",
+            }
+        )
+    assert unknown_order_id not in order_router._RUNTIME_ORDERS
 
 
 def test_unmatched_callback_without_order_id_or_order_ref_does_not_fabricate_order(monkeypatch, capsys) -> None:
@@ -294,13 +289,11 @@ def test_unmatched_callback_without_order_id_or_order_ref_does_not_fabricate_ord
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
     events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
     existing_order_ids = set(order_router._RUNTIME_ORDERS.keys())
-    order_router._on_ibkr_callback({"event_type": "execDetails", "symbol": "ABCD", "shares": 10, "price": 21.0, "execId": "MISS1"})
+    with pytest.raises(order_router.ExecutionIntegrityError, match="Unmatched execution callback"):
+        order_router._on_ibkr_callback({"event_type": "execDetails", "symbol": "ABCD", "shares": 10, "price": 21.0, "execId": "MISS1"})
     out = capsys.readouterr().out
-    assert "[ORDER_EVENT][UNMATCHED]" not in out
-    assert "[EXECUTION][RECONCILIATION_FAILED]" not in out
     assert set(order_router._RUNTIME_ORDERS.keys()) == existing_order_ids
-    assert order_router._UNMATCHED_CALLBACK_COUNT >= 1
-    assert order_router._UNRESOLVED_EXECUTION_RECONCILIATION_COUNT == 0
+    assert order_router._UNMATCHED_CALLBACK_COUNT == 0
     assert order_router._RUNTIME_ORDERS[events[0].broker_order_id].filled_qty == 0
 
 
@@ -308,11 +301,11 @@ def test_no_symbol_based_order_ref_fallback(monkeypatch, capsys) -> None:
     _reset_router()
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
     order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
-    order_router._on_ibkr_callback({"event_type": "execDetails", "orderRef": "ABCD", "symbol": "ABCD", "shares": 10, "price": 20.0, "execId": "SYMB1"})
+    with pytest.raises(order_router.ExecutionIntegrityError, match="Unmatched execution callback"):
+        order_router._on_ibkr_callback({"event_type": "execDetails", "orderRef": "ABCD", "symbol": "ABCD", "shares": 10, "price": 20.0, "execId": "SYMB1"})
     out = capsys.readouterr().out
     assert "[ORDER_EVENT][RECONCILED] source=orderRef order_ref=ABCD" not in out
-    assert "[EXECUTION][RECONCILIATION_FAILED]" not in out
-    assert order_router._UNMATCHED_CALLBACK_COUNT >= 1
+    assert order_router._UNMATCHED_CALLBACK_COUNT == 0
 
 
 def test_execution_cycle_emits_summary_and_failure_classification(monkeypatch, capsys) -> None:
@@ -353,8 +346,7 @@ def test_untracked_orderstatus_callback_is_ignored(monkeypatch, capsys) -> None:
     order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision()])
     order_router._on_ibkr_callback({"event_type": "orderStatus", "order_id": 9999, "status": "PreSubmitted", "filled": 0, "remaining": 1})
     out = capsys.readouterr().out
-    assert "[EXECUTION][CALLBACK_IGNORED] event_type=orderstatus order_id=9999 reason=untracked_external_order" in out
-    assert "[ORDER_EVENT][UNMATCHED] event=STATUS order_id=9999" not in out
+    assert "[EXECUTION][FATAL] unmatched_callback order_id=9999 symbol=UNKNOWN" in out
 
 
 def test_pending_submission_registry_recovers_early_orderstatus_callback(monkeypatch, capsys) -> None:
@@ -366,7 +358,6 @@ def test_pending_submission_registry_recovers_early_orderstatus_callback(monkeyp
     )
     out = capsys.readouterr().out
     assert "[EXECUTION][CALLBACK_IGNORED] event_type=orderstatus order_id=4242 reason=untracked_external_order" not in out
-    assert "[EXECUTION][CALLBACK_RECOVERED] order_id=4242 source=pending_registry" in out
     assert 4242 in order_router._RUNTIME_ORDERS
     assert 4242 in order_router._EXECUTION_TRACE_BY_ORDER_ID
     assert order_router._RUNTIME_ORDERS[4242].symbol == "ABCD"

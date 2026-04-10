@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from src.core.engines.position_management_engine import ManagedPosition, PositionManagementEngine
 from src.core.engines.trade_lifecycle_engine import LifecycleEvent, TradeLifecycleEngine
 from src.execution import order_router
@@ -26,6 +28,11 @@ def _reset_router_state() -> None:
     order_router._VISIBILITY_BY_ORDER_ID.clear()
     order_router._LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID.clear()
     order_router._BROKER_ERRORS_BY_ORDER_ID.clear()
+    order_router._INTENT_ID_BY_ORDER_ID.clear()
+    order_router._ORDER_ID_BY_ORDER_REF.clear()
+    order_router._EXECUTION_TRACE_BY_ORDER_ID.clear()
+    order_router._EXECUTION_TRACE_BY_INTENT.clear()
+    order_router._PENDING_SUBMISSIONS_BY_ORDER_ID.clear()
 
 
 def _seed_tracked_order(*, order_id: int = 101, symbol: str = "AAPL", qty: int = 10) -> order_router.TrackedOrder:
@@ -36,6 +43,16 @@ def _seed_tracked_order(*, order_id: int = 101, symbol: str = "AAPL", qty: int =
         total_qty=qty,
         order_ref="TRADING_OS|ROSS_MOMENTUM|intent-1",
     )
+    order_router._register_order_intent_mapping(
+        order_id=order_id,
+        intent_id="intent-1",
+        order_ref="TRADING_OS|ROSS_MOMENTUM|intent-1",
+    )
+    trace = order_router.ExecutionTrace(symbol=symbol, cycle_id="TEST", intent_id="intent-1")
+    trace.order_submitted = True
+    trace.order_id = order_id
+    order_router._EXECUTION_TRACE_BY_ORDER_ID[order_id] = trace
+    order_router._EXECUTION_TRACE_BY_INTENT["intent-1"] = trace
     order_router._initialize_visibility(order_id)
     return row
 
@@ -53,15 +70,15 @@ def test_tracked_openorder_and_orderstatus_callbacks_are_processed() -> None:
     assert order_router._VISIBILITY_BY_ORDER_ID[201]["orderStatus_seen"] is True
 
 
-def test_untracked_openorder_and_orderstatus_callbacks_remain_ignored(capsys) -> None:
+def test_untracked_openorder_and_orderstatus_callbacks_hard_fail(capsys) -> None:
     _reset_router_state()
 
     order_router._on_ibkr_callback({"event_type": "openOrder", "order_id": 999, "symbol": "ZZZZ"})
     order_router._on_ibkr_callback({"event_type": "orderStatus", "order_id": 999, "status": "Submitted"})
 
     out = capsys.readouterr().out
-    assert "[EXECUTION][CALLBACK_IGNORED] event_type=openorder order_id=999" in out
-    assert "[EXECUTION][CALLBACK_IGNORED] event_type=orderstatus order_id=999" in out
+    assert "[EXECUTION][FATAL] unmatched_callback order_id=999 symbol=ZZZZ" in out
+    assert "[EXECUTION][FATAL] unmatched_callback order_id=999 symbol=UNKNOWN" in out
     assert not order_router._RUNTIME_ORDERS
 
 
@@ -198,18 +215,15 @@ def test_outside_rth_warning_does_not_force_broker_inactive_unknown() -> None:
     assert row.final_execution_state != "BROKER_INACTIVE_UNKNOWN"
 
 
-def test_unknown_orderid_and_symbol_leakage_backfills_without_truth_gap(capsys) -> None:
+def test_unknown_orderid_and_symbol_leakage_hard_fails() -> None:
     _reset_router_state()
 
-    order_router._on_ibkr_callback(
-        {
-            "event_type": "execDetails",
-            "execution": _Execution(order_id=0, shares=5, price=99.0),
-            "execId": "orphan-fill",
-        }
-    )
-
-    out = capsys.readouterr().out
-    assert "[EXECUTION][FORCED_BACKFILL] order_id=0" in out
-    assert "[EXECUTION][TRUTH_GAP]" not in out
-    assert order_router._RUNTIME_ORDERS[0].filled_qty == 5
+    with pytest.raises(order_router.ExecutionIntegrityError, match="Unmatched execution callback"):
+        order_router._on_ibkr_callback(
+            {
+                "event_type": "execDetails",
+                "execution": _Execution(order_id=0, shares=5, price=99.0),
+                "execId": "orphan-fill",
+            }
+        )
+    assert 0 not in order_router._RUNTIME_ORDERS

@@ -168,6 +168,10 @@ DEGRADED_QUOTE_PATH = "DEGRADED_QUOTE_PATH"
 class ExecutionInvariantViolation(RuntimeError):
     """Raised when execution intent invariants are violated."""
 
+
+class ExecutionIntegrityError(RuntimeError):
+    """Raised when broker callback correlation invariants are violated."""
+
 ALLOWED_EXECUTION_TRANSITIONS: dict[str, set[str]] = {
     "CREATED": {"BLOCKED", "SUBMITTING", "SUBMITTED", "ERROR"},
     "BLOCKED": set(),
@@ -1274,6 +1278,18 @@ def _register_pending_submission(*, order_id: int, symbol: str, intent_id: str, 
     )
 
 
+def _mark_order_as_corrupt(order_id: int | None) -> None:
+    if order_id is None:
+        return
+    tracked = _RUNTIME_ORDERS.get(int(order_id))
+    if tracked is not None:
+        tracked.final_execution_state = "BROKER_VISIBILITY_FAILURE"
+        tracked.last_update_at = _now_utc_iso()
+    truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(int(order_id))
+    if truth is not None:
+        _transition_execution_truth_state(truth=truth, next_state="ERROR", source="IBKR_CALLBACK")
+
+
 def _resolve_order_id_from_order_ref(order_ref: str) -> int | None:
     normalized_order_ref = _normalize_order_ref(order_ref)
     if not normalized_order_ref:
@@ -1287,6 +1303,16 @@ def _resolve_order_id_from_order_ref(order_ref: str) -> int | None:
         _ORDER_ID_BY_ORDER_REF[normalized_order_ref] = int(pending.order_id)
         return int(pending.order_id)
     return None
+
+
+def _resolve_order_mapping(order_id: int) -> tuple[TrackedOrder | None, ExecutionTrace | None]:
+    for _ in range(5):
+        tracked = _RUNTIME_ORDERS.get(int(order_id))
+        trace = _EXECUTION_TRACE_BY_ORDER_ID.get(int(order_id))
+        if tracked is not None or trace is not None:
+            return tracked, trace
+        time.sleep(0.02)
+    return None, None
 
 
 def _recover_order_tracking_from_pending_submission(*, order_id: int, callback_symbol: str, timestamp: str) -> tuple[TrackedOrder | None, ExecutionTrace | None]:
@@ -1324,11 +1350,10 @@ def _recover_order_tracking_from_pending_submission(*, order_id: int, callback_s
     )
     _initialize_visibility(int(order_id))
     _PENDING_SUBMISSIONS_BY_ORDER_ID.pop(int(order_id), None)
-    print(f"[EXECUTION][CALLBACK_RECOVERED] order_id={order_id} source=pending_registry")
     return row, trace
 
 
-def _recover_order_from_execdetails(order_id: int, symbol: str, filled_qty: int, fill_price: float | None) -> TrackedOrder:
+def _require_order_tracking_for_execdetails(order_id: int, symbol: str, fill_price: float | None) -> TrackedOrder:
     normalized_symbol = str(symbol or "").upper().strip()
     timestamp = _now_utc_iso()
     tracked = _RUNTIME_ORDERS.get(int(order_id))
@@ -1340,29 +1365,10 @@ def _recover_order_from_execdetails(order_id: int, symbol: str, filled_qty: int,
             timestamp=timestamp,
         )
     if tracked is None:
-        side = "BUY"
-        total_qty = max(0, int(filled_qty or 0))
-        tracked = _upsert_order_from_submission(
-            order_id=int(order_id),
-            symbol=normalized_symbol or "UNKNOWN",
-            side=side,
-            total_qty=total_qty,
-            order_ref=f"EXECDETAILS_BACKFILL|{order_id}",
-        )
-        _initialize_visibility(int(order_id))
-    else:
-        tracked.symbol = normalized_symbol or tracked.symbol
-        tracked.total_qty = max(int(tracked.total_qty), max(0, int(filled_qty or 0)))
-        tracked.remaining_qty = max(0, int(tracked.total_qty) - int(tracked.filled_qty))
+        raise ExecutionIntegrityError(f"Unmatched execution callback: order_id={order_id}")
+    tracked.symbol = normalized_symbol or tracked.symbol
     if trace is None:
-        trace = ExecutionTrace(
-            symbol=normalized_symbol or tracked.symbol or "UNKNOWN",
-            cycle_id="EXECDETAILS_BACKFILL",
-            intent_id=tracked.intent_id or f"BACKFILL-{order_id}",
-        )
-        _EXECUTION_TRACE_BY_ORDER_ID[int(order_id)] = trace
-        if trace.intent_id:
-            _EXECUTION_TRACE_BY_INTENT.setdefault(trace.intent_id, trace)
+        raise ExecutionIntegrityError(f"Mapping not found after retry: {order_id}")
     trace.order_id = int(order_id)
     trace.order_submitted = True
     trace.lifecycle_state = "FILL_RECEIVED"
@@ -1422,7 +1428,7 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
         f"symbol={row.symbol} broker_order_id={order_id} filled_qty={row.filled_qty} avg_fill_price={row.avg_fill_price}"
     )
     print(f"[EXECUTION][LIFECYCLE] symbol={row.symbol} marker=FILL_CONFIRMED_AWAITING_POSITION")
-    if _is_explicit_test_mode() and source != "IBKR_EXECUTION_BACKFILL":
+    if _is_explicit_test_mode():
         signed = inc if row.is_entry else -inc
         _simulate_position_from_fill(
             order_id=order_id,
@@ -1468,34 +1474,13 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         _upsert_ibkr_position_truth(symbol=symbol, quantity=qty, avg_price=avg_price, update_time=timestamp)
     if order_id is None:
         if event_type == "execdetails":
-            _UNMATCHED_CALLBACK_COUNT += 1
-            _record_reconciliation_result(False)
-            return
+            raise ExecutionIntegrityError("Unmatched execution callback: order_id=None")
         if event_type in {"position", "commissionreport"}:
             _NON_ORDER_UNMATCHED_CALLBACK_COUNT += 1
             return
-        _UNMATCHED_CALLBACK_COUNT += 1
-        print(f"[EXECUTION][UNMATCHED_CALLBACK] event={event_type or 'unknown'} broker_order_id=UNKNOWN symbol={symbol or 'UNKNOWN'}")
-        print(f"[RECON][UNMATCHED_CALLBACK] event={event_type or 'unknown'} broker_order_id=UNKNOWN symbol={symbol or 'UNKNOWN'}")
-        print(
-            "[ORDER_EVENT][UNMATCHED] "
-            f"event=CALLBACK reason=missing_order_id_and_order_ref order_ref={callback_order_ref or 'UNKNOWN'}"
-        )
-        print(
-            "[EXECUTION][RECONCILIATION_FAILED] "
-            f"event=CALLBACK callback={event_type or 'unknown'} order_ref={callback_order_ref or 'UNKNOWN'}"
-        )
-        print(
-            "[EXECUTION][TRUTH_GAP] "
-            f"stage=ACK callback={event_type or 'unknown'} reason=missing_order_id order_ref={callback_order_ref or 'UNKNOWN'}"
-        )
-        _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
-        _FILL_AUTHORITY_STATE = "DEGRADED"
-        if event_type in {"execdetails", "orderstatus", "openorder"}:
-            _mark_execution_failure(None, "CALLBACK_TIMEOUT", reason=f"missing_order_id callback={event_type or 'unknown'}")
+        print(f"[EXECUTION][FATAL] unmatched_callback order_id=UNKNOWN symbol={symbol or 'UNKNOWN'}")
         return
-    tracked = _RUNTIME_ORDERS.get(int(order_id))
-    trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id)
+    tracked, trace = _resolve_order_mapping(int(order_id))
     if tracked is None and trace is None and event_type in {"openorder", "orderstatus"}:
         tracked, trace = _recover_order_tracking_from_pending_submission(
             order_id=int(order_id),
@@ -1503,14 +1488,9 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             timestamp=timestamp,
         )
         if tracked is None and trace is None:
-            print(
-                "[EXECUTION][CALLBACK_IGNORED] "
-                f"event_type={event_type} order_id={order_id} reason=untracked_external_order"
-            )
-            print(
-                "[EXECUTION][TRACE] "
-                f"stage=ACK event_type={event_type} order_id={order_id} tracked=false action=ignored"
-            )
+            log_symbol = symbol or "UNKNOWN"
+            print(f"[EXECUTION][FATAL] unmatched_callback order_id={order_id} symbol={log_symbol}")
+            _mark_order_as_corrupt(int(order_id))
             return
     if event_type == "execdetails" and tracked is None and callback_order_ref:
         mapped_id = _resolve_order_id_from_order_ref(callback_order_ref)
@@ -1528,29 +1508,16 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 )
     if event_type == "execdetails":
         normalized_symbol = str(symbol or "").upper().strip()
-        tracked_before = tracked
-        tracked = _recover_order_from_execdetails(
-            int(order_id),
-            normalized_symbol,
-            int(filled_qty or 0),
-            fill_price,
-        )
+        tracked = _require_order_tracking_for_execdetails(int(order_id), normalized_symbol, fill_price)
         trace = _EXECUTION_TRACE_BY_ORDER_ID.get(int(order_id))
-        is_backfill = tracked_before is None
-        if is_backfill:
-            print(
-                "[EXECUTION][FORCED_BACKFILL] "
-                f"order_id={order_id} symbol={normalized_symbol} "
-                f"fill_qty={int(filled_qty or 0)} fill_price={fill_price}"
-            )
         _apply_fill_to_tracked_order(
             order_id=int(order_id),
             symbol=normalized_symbol,
             fill_qty=int(filled_qty or 0),
             fill_price=fill_price,
-            exec_id=str(_extract_callback_field(callback_payload, "execId") or f"BACKFILL-{order_id}"),
+            exec_id=str(_extract_callback_field(callback_payload, "execId") or f"EXEC-{order_id}"),
             timestamp=_now_utc_iso(),
-            source="IBKR_EXECUTION_BACKFILL" if is_backfill else "IBKR_EXECUTION",
+            source="IBKR_EXECUTION",
         )
         truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(int(order_id))
         if truth is not None:
@@ -1568,7 +1535,9 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     if not symbol and tracked is None:
         print(f"[EXECUTION][CALLBACK_UNRESOLVED] order_id={order_id} event_type={event_type or 'unknown'}")
     if tracked is None and order_id is not None:
-        print(f"[RECON][UNMATCHED_CALLBACK] event={event_type or 'unknown'} broker_order_id={order_id} symbol={symbol or 'UNKNOWN'}")
+        print(f"[EXECUTION][FATAL] unmatched_callback order_id={order_id} symbol={symbol or 'UNKNOWN'}")
+        _mark_order_as_corrupt(int(order_id))
+        return
     fingerprint = (
         f"{event_type}|{order_id}|{symbol}|"
         f"{_extract_callback_field(callback_payload, 'status') or ''}|"
@@ -1581,9 +1550,8 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     if tracked is not None:
         tracked.last_callback_fingerprint = fingerprint
         if not str(tracked.intent_id or _INTENT_ID_BY_ORDER_ID.get(int(order_id), "")).strip():
-            print(
-                f"[RECON][UNMATCHED_CALLBACK] event={event_type or 'unknown'} broker_order_id={order_id} "
-                f"symbol={tracked.symbol or symbol or 'UNKNOWN'} reason=missing_intent_correlation"
+            raise ExecutionIntegrityError(
+                f"missing intent correlation: order_id={order_id} symbol={tracked.symbol or symbol or 'UNKNOWN'}"
             )
     _LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID[int(order_id)] = fingerprint
     if trace is not None:
@@ -1662,10 +1630,9 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"orderStatus_seen": True})
         row = _RUNTIME_ORDERS.get(order_id)
         if row is None:
-            _UNMATCHED_CALLBACK_COUNT += 1
-            print(f"[ORDER_EVENT][UNMATCHED] event=STATUS order_id={order_id} symbol={symbol}")
-            if trace is not None:
-                _mark_execution_failure(trace, "NO_ACK", reason="status_callback_for_unknown_order")
+            print(f"[EXECUTION][FATAL] unmatched_callback order_id={order_id} symbol={symbol or 'UNKNOWN'}")
+            _mark_order_as_corrupt(int(order_id))
+            return
         else:
             old_state = row.canonical_state
             row.broker_status = event_status or row.broker_status
@@ -2792,7 +2759,7 @@ def _submit_ibkr_order(
     order.orderType = "MKT"
     order.totalQuantity = int(quantity)
     order.tif = "DAY"
-    order.orderRef = order_ref
+    order.orderRef = str(intent_id or order_ref or "")
     account = getattr(client, "get_primary_account", lambda: None)() if hasattr(client, "get_primary_account") else None
     if account:
         order.account = account
@@ -2944,10 +2911,37 @@ def _submit_ibkr_order(
         f"session={market_session};execution_path={execution_path};price_source={price_source};"
         f"fillability={fillability};restriction={restriction_detail};action=ALLOW_SUBMIT_TO_IBKR"
     )
+    reserve_order_id = getattr(client, "reserve_order_id", None)
+    if not callable(reserve_order_id):
+        raise ExecutionIntegrityError("Client does not support deterministic reserve_order_id()")
+    order_id = int(reserve_order_id())
+    _upsert_order_from_submission(
+        order_id=int(order_id),
+        symbol=str(symbol or "").upper(),
+        side=str(side or "").upper(),
+        total_qty=int(quantity),
+        order_ref=str(order_ref or ""),
+        intent_id=str(intent_id or ""),
+    )
+    _register_order_intent_mapping(
+        order_id=int(order_id),
+        intent_id=str(intent_id or ""),
+        order_ref=str(order_ref or ""),
+    )
+    _register_pending_submission(
+        order_id=int(order_id),
+        symbol=str(symbol or "").upper(),
+        intent_id=str(intent_id or ""),
+        order_ref=str(order_ref or ""),
+    )
+    print(
+        f"[EXECUTION][PRE_REGISTERED] order_id={int(order_id)} symbol={str(symbol or '').upper()} "
+        f"intent_id={str(intent_id or '')} order_ref={str(order_ref or '')} status=PENDING_SUBMIT"
+    )
     try:
-        order_id = int(client.submit_order(resolved_contract, order))
+        client.placeOrder(int(order_id), resolved_contract, order)
     except Exception as exc:
-        print(f"[IBKR][PLACE_ORDER][ERROR] symbol={symbol} order_id=PENDING error={exc}")
+        print(f"[IBKR][PLACE_ORDER][ERROR] symbol={symbol} order_id={order_id} error={exc}")
         raise
     wire_payload = {
         "symbol": str(symbol or "").upper(),
@@ -2994,19 +2988,6 @@ def _submit_ibkr_order(
         f"classification={fillability} rationale={fillability_rationale}"
     )
     _SUBMIT_FILLABILITY_COUNTS[fillability] = int(_SUBMIT_FILLABILITY_COUNTS.get(fillability, 0)) + 1
-    _upsert_order_from_submission(
-        order_id=int(order_id),
-        symbol=str(symbol or "").upper(),
-        side=str(side or "").upper(),
-        total_qty=int(quantity),
-        order_ref=str(order_ref or ""),
-        intent_id=str(intent_id or ""),
-    )
-    _register_order_intent_mapping(
-        order_id=int(order_id),
-        intent_id=str(intent_id or ""),
-        order_ref=str(order_ref or ""),
-    )
     print(
         f"[EXECUTION][ORDER_REGISTERED] order_id={int(order_id)} symbol={str(symbol or '').upper()} "
         f"intent_id={str(intent_id or '')} order_ref={str(order_ref or '')}"
@@ -3023,12 +3004,6 @@ def _submit_ibkr_order(
         tracked.initial_limit_price = _safe_price_value(getattr(order, "lmtPrice", None))
         tracked.last_limit_price = _safe_price_value(getattr(order, "lmtPrice", None))
         tracked.max_reprice_attempts = _watchdog_threshold_seconds("EXECUTION_MAX_REPRICE_ATTEMPTS", 3)
-    _register_pending_submission(
-        order_id=int(order_id),
-        symbol=str(symbol or "").upper(),
-        intent_id=str(intent_id or ""),
-        order_ref=str(order_ref or ""),
-    )
     print("[IBKR][ORDER_DISPATCH_VERIFICATION]")
     print(f"order_id={order_id} awaiting_acknowledgement")
     wait_for_order_status = getattr(client, "wait_for_order_status", None)
