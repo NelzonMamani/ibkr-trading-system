@@ -294,8 +294,8 @@ def test_execute_intents_blocks_duplicate_symbol_using_ibkr_truth(monkeypatch, c
     )
     out = capsys.readouterr().out
     assert events[0].action == "BLOCKED"
-    assert events[0].detail == "reason=DUPLICATE_POSITION"
-    assert "[EXECUTION][BLOCK] symbol=MCRO reason=DUPLICATE_POSITION" in out
+    assert events[0].detail == "reason=EXISTING_OPEN_POSITION"
+    assert "[EXECUTION][BLOCK] symbol=MCRO reason=EXISTING_OPEN_POSITION" in out
 
 
 def test_position_zero_not_blocked(monkeypatch, capsys) -> None:
@@ -398,5 +398,5 @@ def test_execute_intents_blocks_duplicate_working_order_using_reconciliation(mon
     )
     out = capsys.readouterr().out
     assert events[0].action == "BLOCKED"
-    assert events[0].detail == "reason=DUPLICATE_WORKING_ORDER"
-    assert "[EXECUTION][DUPLICATE_BLOCK] symbol=MCRO reason=DUPLICATE_WORKING_ORDER" in out
+    assert events[0].detail == "reason=BROKER_RECONCILED_WORKING_ORDER"
+    assert "[EXECUTION][DUPLICATE_BLOCK] symbol=MCRO reason=BROKER_RECONCILED_WORKING_ORDER" in out
