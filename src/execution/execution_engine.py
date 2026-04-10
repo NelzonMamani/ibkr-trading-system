@@ -590,6 +590,7 @@ class ExecutionEngine:
             self._require_exit_stage.add(request.client_order_id)
         if str(request.direction).upper() == "SELL" and request.symbol in self.position_records:
             print(f"[EXECUTION][CLOSE] symbol={request.symbol} qty={request.quantity}")
+            print(f"[EXIT][SUBMIT] symbol={request.symbol} qty={request.quantity} order_id={request.client_order_id}")
         print("[ORDER_SUBMIT]", f"symbol={request.symbol}", f"side={request.direction}", f"qty={request.quantity}")
         print(
             f"[IBKR][ORDER_SUBMIT] order_id={request.client_order_id} symbol={request.symbol} "
@@ -631,6 +632,11 @@ class ExecutionEngine:
                 f"[EXECUTION] SUBMITTED symbol={request.symbol} qty={request.quantity} "
                 f"order_id={getattr(result, 'ibkr_order_id', None)}"
             )
+            if str(request.direction).upper() == "SELL":
+                print(
+                    f"[EXIT][SUBMIT] symbol={request.symbol} qty={request.quantity} "
+                    f"broker_order_id={getattr(result, 'ibkr_order_id', None)}"
+                )
         self._execution_log(
             "SUBMIT_RESULT",
             symbol=request.symbol,
@@ -836,6 +842,15 @@ class ExecutionEngine:
             print(
                 f"[ORDER][EXIT] order_id={request.client_order_id} symbol={request.symbol} qty={filled_quantity}"
             )
+            print(
+                f"[EXIT][FILL] symbol={request.symbol} qty={filled_quantity} "
+                f"order_id={request.client_order_id}"
+            )
+            if remaining_quantity <= 0:
+                print(
+                    f"[EXIT][COMPLETE] symbol={request.symbol} qty={filled_quantity} "
+                    f"order_id={request.client_order_id}"
+                )
             self._record_order_stage(request.client_order_id, "EXIT")
 
     def _run_live_probe_exit_if_needed(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
