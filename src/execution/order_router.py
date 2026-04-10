@@ -896,6 +896,33 @@ def _normalize_order_ref(order_ref: Any) -> str:
     return str(order_ref or "").strip()
 
 
+def _parse_order_ref_components(order_ref: Any) -> tuple[str, str, str]:
+    normalized = _normalize_order_ref(order_ref)
+    if not normalized:
+        return "", "", ""
+    if "::" in normalized:
+        parts = [p for p in normalized.split("::") if p]
+        if len(parts) >= 4:
+            return parts[0], parts[1], parts[-1]
+        if len(parts) == 3:
+            return parts[0], parts[1], parts[2]
+        if len(parts) == 2:
+            return parts[0], parts[1], parts[-1]
+        return "", "", parts[-1]
+    if "|" in normalized:
+        parts = [p for p in normalized.split("|") if p]
+        if len(parts) >= 3:
+            return parts[0], parts[1], parts[-1]
+        if len(parts) == 2:
+            return parts[0], parts[1], parts[-1]
+        return "", "", parts[-1]
+    return "", "", normalized
+
+
+def _order_id_key(order_id: Any) -> int:
+    return int(order_id) if order_id is not None else -1
+
+
 def _register_order_intent_mapping(*, order_id: int, intent_id: str, order_ref: str) -> None:
     normalized_intent = _normalize_order_ref(intent_id)
     normalized_order_ref = _normalize_order_ref(order_ref)
@@ -1512,11 +1539,12 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         if event_type in {"execdetails", "orderstatus", "openorder"}:
             _mark_execution_failure(None, "CALLBACK_TIMEOUT", reason=f"missing_order_id callback={event_type or 'unknown'}")
         return
-    tracked = _RUNTIME_ORDERS.get(int(order_id))
-    trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id)
+    order_id_key = _order_id_key(order_id)
+    tracked = _RUNTIME_ORDERS.get(order_id_key)
+    trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id_key)
     if tracked is None and trace is None and event_type in {"openorder", "orderstatus"}:
         tracked, trace = _recover_order_tracking_from_pending_submission(
-            order_id=int(order_id),
+            order_id=order_id_key,
             callback_symbol=str(symbol or ""),
             timestamp=timestamp,
         )
@@ -1533,14 +1561,15 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     if event_type == "execdetails" and tracked is None and callback_order_ref:
         mapped_id = _resolve_order_id_from_order_ref(callback_order_ref)
         if mapped_id is not None:
-            if mapped_id != int(order_id):
+            if mapped_id != order_id_key:
                 print(f"[ORDER_EVENT][RECONCILED] source=orderRef order_ref={callback_order_ref} order_id={mapped_id}")
             order_id = int(mapped_id)
-            tracked = _RUNTIME_ORDERS.get(int(order_id))
-            trace = _EXECUTION_TRACE_BY_ORDER_ID.get(int(order_id))
+            order_id_key = _order_id_key(order_id)
+            tracked = _RUNTIME_ORDERS.get(order_id_key)
+            trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id_key)
             if tracked is None:
                 tracked, trace = _recover_order_tracking_from_pending_submission(
-                    order_id=int(order_id),
+                    order_id=order_id_key,
                     callback_symbol=str(symbol or ""),
                     timestamp=timestamp,
                 )
@@ -1548,12 +1577,12 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         normalized_symbol = str(symbol or "").upper().strip()
         tracked_before = tracked
         tracked = _recover_order_from_execdetails(
-            int(order_id),
+            order_id_key,
             normalized_symbol,
             int(filled_qty or 0),
             fill_price,
         )
-        trace = _EXECUTION_TRACE_BY_ORDER_ID.get(int(order_id))
+        trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id_key)
         is_backfill = tracked_before is None
         if is_backfill:
             print(
@@ -1562,7 +1591,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 f"fill_qty={int(filled_qty or 0)} fill_price={fill_price}"
             )
         _apply_fill_to_tracked_order(
-            order_id=int(order_id),
+            order_id=order_id_key,
             symbol=normalized_symbol,
             fill_qty=int(filled_qty or 0),
             fill_price=fill_price,
@@ -1574,14 +1603,15 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 is_backfill=is_backfill,
             ),
         )
-        truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(int(order_id))
+        truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(order_id_key)
         if truth is not None:
             _update_truth_field(truth=truth, field_name="filled_qty", value=int(tracked.filled_qty), source="IBKR_CALLBACK")
             _update_truth_field(truth=truth, field_name="remaining_qty", value=int(tracked.remaining_qty), source="IBKR_CALLBACK")
             _update_truth_field(truth=truth, field_name="avg_fill_price", value=tracked.avg_fill_price, source="IBKR_CALLBACK")
             _update_truth_field(truth=truth, field_name="last_fill_price", value=fill_price, source="IBKR_CALLBACK")
-            _transition_execution_truth_state(truth=truth, next_state="FILLED", source="IBKR_CALLBACK")
-        assert int(order_id) in _RUNTIME_ORDERS, "EXECDETAILS_RECOVERY_FAILED"
+            next_state = "PARTIALLY_FILLED" if int(tracked.remaining_qty) > 0 else "FILLED"
+            _transition_execution_truth_state(truth=truth, next_state=next_state, source="IBKR_CALLBACK")
+        assert order_id_key in _RUNTIME_ORDERS, "EXECDETAILS_RECOVERY_FAILED"
         _record_reconciliation_result(True)
         _refresh_fill_authority_state()
     if (not symbol) and tracked is not None and tracked.symbol:
@@ -1602,18 +1632,23 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         return
     if tracked is not None:
         tracked.last_callback_fingerprint = fingerprint
-        if not str(tracked.intent_id or _INTENT_ID_BY_ORDER_ID.get(int(order_id), "")).strip():
+        if not str(tracked.intent_id or _INTENT_ID_BY_ORDER_ID.get(order_id_key, "")).strip():
             print(
                 f"[RECON][UNMATCHED_CALLBACK] event={event_type or 'unknown'} broker_order_id={order_id} "
                 f"symbol={tracked.symbol or symbol or 'UNKNOWN'} reason=missing_intent_correlation"
             )
-    _LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID[int(order_id)] = fingerprint
+    _LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID[order_id_key] = fingerprint
     if trace is not None:
         _trace_log("ACK", trace, extra=f"callback={event_type or 'unknown'}")
     event_status = str(_extract_callback_field(callback_payload, "status") or "").upper()
     remaining_qty = _extract_callback_field(callback_payload, "remaining")
     try:
-        remaining_int = int(float(remaining_qty)) if remaining_qty is not None else 0
+        if remaining_qty is not None:
+            remaining_int = int(float(remaining_qty))
+        elif tracked is not None:
+            remaining_int = int(tracked.remaining_qty)
+        else:
+            remaining_int = 0
     except (TypeError, ValueError):
         remaining_int = 0
     if event_type == "execdetails":
@@ -1640,7 +1675,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     )
     _EXECUTION_EVENT_BUFFER[order_id] = event
     if event_type == "execdetails":
-        _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"execDetails_seen": True})
+        _VISIBILITY_BY_ORDER_ID.setdefault(order_id_key, {}).update({"execDetails_seen": True})
         exec_id = _extract_callback_field(callback_payload, "execId")
         print(
             "[EXECUTION][TRACE] "
@@ -1650,7 +1685,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             print(
                 "[EXECUTION][RECONCILED] "
                 f"order_id={order_id} symbol={tracked.symbol or symbol or 'UNKNOWN'} "
-                f"intent_id={tracked.intent_id or _INTENT_ID_BY_ORDER_ID.get(int(order_id), '')} "
+                f"intent_id={tracked.intent_id or _INTENT_ID_BY_ORDER_ID.get(order_id_key, '')} "
                 f"order_ref={tracked.order_ref or callback_order_ref or 'UNKNOWN'} "
                 f"fill_qty={max(0, int(filled_qty))} fill_price={fill_price}"
             )
@@ -1681,8 +1716,8 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
     elif event_type == "orderstatus":
         print(f"[EXECUTION][CALLBACK_NORMALIZED] event=orderStatus symbol={symbol or 'UNKNOWN'} broker_order_id={order_id} state={_state_from_broker_status(event_status, filled_qty, remaining_int)}")
-        _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"orderStatus_seen": True})
-        row = _RUNTIME_ORDERS.get(order_id)
+        _VISIBILITY_BY_ORDER_ID.setdefault(order_id_key, {}).update({"orderStatus_seen": True})
+        row = _RUNTIME_ORDERS.get(order_id_key)
         if row is None:
             _UNMATCHED_CALLBACK_COUNT += 1
             print(f"[ORDER_EVENT][UNMATCHED] event=STATUS order_id={order_id} symbol={symbol}")
@@ -1700,7 +1735,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             if remaining_int > 0:
                 row.remaining_qty = remaining_int
             row.canonical_state = _state_from_broker_status(row.broker_status, row.filled_qty, row.remaining_qty)
-            truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(int(order_id))
+            truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(order_id_key)
             if truth is not None:
                 state_map = {
                     "REJECTED": "REJECTED",
@@ -1783,14 +1818,14 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 )
     elif event_type == "openorder":
         print(f"[EXECUTION][CALLBACK_NORMALIZED] event=openOrder symbol={symbol or 'UNKNOWN'} broker_order_id={order_id} state=SUBMITTED")
-        _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"openOrder_seen": True})
+        _VISIBILITY_BY_ORDER_ID.setdefault(order_id_key, {}).update({"openOrder_seen": True})
         if callback_order_ref:
-            _ORDER_ID_BY_ORDER_REF[callback_order_ref] = int(order_id)
+            _ORDER_ID_BY_ORDER_REF[callback_order_ref] = order_id_key
         callback_order = _extract_callback_field(callback_payload, "order")
         callback_state = _extract_callback_field(callback_payload, "orderState")
         open_order_detail = {
             "symbol": symbol or (tracked.symbol if tracked is not None else None),
-            "order_id": int(order_id),
+            "order_id": order_id_key,
             "action": getattr(callback_order, "action", None),
             "total_quantity": getattr(callback_order, "totalQuantity", None),
             "order_type": getattr(callback_order, "orderType", None),
@@ -2842,10 +2877,9 @@ def _submit_ibkr_order(
                 raise RuntimeError(message)
             print(f"[EXECUTION][WARN] {message}")
     strategy_name = "UNKNOWN"
-    if "|" in order_ref:
-        parts = [p for p in str(order_ref).split("|") if p]
-        if len(parts) >= 2:
-            strategy_name = parts[1]
+    _namespace, parsed_strategy, _parsed_intent = _parse_order_ref_components(order_ref)
+    if parsed_strategy:
+        strategy_name = parsed_strategy
     print(
         "[EXECUTION][SUBMIT] "
         f"symbol={symbol} side={order.action} qty={order.totalQuantity} "
@@ -3148,7 +3182,7 @@ def execute_intents(
         status = str(getattr(row, "status", "") or getattr(order, "status", "") or "").upper()
         order_id = getattr(row, "orderId", None)
         order_ref = _extract_order_ref(row)
-        family = order_ref.split("|")[-1] if "|" in order_ref else order_ref
+        _namespace, _strategy, family = _parse_order_ref_components(order_ref)
         working_order_candidates.append(
             {
                 "symbol": symbol,
@@ -3264,22 +3298,30 @@ def execute_intents(
             )
             continue
         local_position = _RUNTIME_POSITIONS.get(duplicate_symbol)
-        local_position_qty = float(getattr(local_position, "qty", 0.0) or 0.0)
-        broker_position_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
+        system_qty = float(getattr(local_position, "qty", 0.0) or 0.0)
+        external_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
         recent_exec_local = False
         if local_position is not None and str(getattr(local_position, "last_update_source", "") or "").upper() == "EXEC_DETAILS":
             exec_seen_at = _parse_iso_utc(getattr(local_position, "last_fill_update_at", None))
             if exec_seen_at is not None:
                 recency_seconds = float(os.environ.get("EXECUTION_POSITION_EXEC_RECENCY_SECONDS", "15") or "15")
                 recent_exec_local = (datetime.now(timezone.utc) - exec_seen_at).total_seconds() <= recency_seconds
-        effective_position_qty = local_position_qty if recent_exec_local else max(local_position_qty, broker_position_qty)
-        treated_as_flat = abs(effective_position_qty) <= 1e-6
+        effective_position_qty = system_qty if recent_exec_local else max(system_qty, external_qty)
+        has_intent_mismatch_override = any(
+            str(existing.symbol or "").upper() == duplicate_symbol
+            and int(existing.filled_qty or 0) > 0
+            and str(existing.intent_id or "").strip()
+            and str(existing.intent_id or "").strip() != order_family
+            for existing in _RUNTIME_ORDERS.values()
+        )
+        treated_as_flat = system_qty <= 0
         position_source = "LOCAL_EXEC" if recent_exec_local else "MAX_LOCAL_BROKER"
         print(
-            f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} local_qty={local_position_qty} broker_qty={broker_position_qty} "
-            f"effective_qty={effective_position_qty} source={position_source} treated_as_flat={str(treated_as_flat).lower()}"
+            f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} local_qty={system_qty} broker_qty={external_qty} "
+            f"effective_qty={effective_position_qty} source={position_source} treated_as_flat={str(treated_as_flat).lower()} "
+            f"intent_mismatch_override={str(has_intent_mismatch_override).lower()}"
         )
-        if order_side == "BUY" and not treated_as_flat:
+        if order_side == "BUY" and not treated_as_flat and not has_intent_mismatch_override:
             blocked_reason = "DUPLICATE_POSITION"
             blocked_pre_submit += 1
             print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
