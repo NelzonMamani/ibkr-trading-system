@@ -4,7 +4,7 @@ from src.execution.trade_management_engine import TradeManagementEngine
 
 
 def _engine_with_position() -> TradeManagementEngine:
-    engine = TradeManagementEngine(quick_profit_threshold=0.1, max_hold_time_seconds=60)
+    engine = TradeManagementEngine(max_hold_time_seconds=60, fast_failure_seconds=20)
     engine.on_exec_details(symbol="ABCD", shares=100, price=10.0, exec_id="E1")
     return engine
 
@@ -21,14 +21,15 @@ def test_stop_loss_hit_triggers_full_sell() -> None:
     assert intents[0].exit_type == "STOP"
 
 
-def test_quick_profit_takes_partial_and_moves_stop_to_breakeven() -> None:
+def test_target_hit_takes_partial_and_moves_stop_to_breakeven() -> None:
     engine = _engine_with_position()
 
-    intents = engine.evaluate_cycle({"ABCD": {"current_price": 10.2}})
+    intents = engine.evaluate_cycle({"ABCD": {"current_price": 10.5}})
 
     assert len(intents) == 1
     assert intents[0].quantity == 50
-    assert intents[0].rationale == "QUICK_PROFIT_TAKEN"
+    assert intents[0].rationale == "TARGET_HIT"
+    assert intents[0].exit_type == "TARGET"
     position = engine.snapshot_positions()["ABCD"]
     assert position.partial_taken is True
     assert position.stop_loss_price >= position.break_even_price
@@ -58,11 +59,50 @@ def test_time_exit_when_max_hold_exceeded() -> None:
     position = engine.snapshot_positions()["ABCD"]
     position.entry_timestamp = datetime.now(timezone.utc) - timedelta(seconds=120)
 
-    intents = engine.evaluate_cycle({"ABCD": {"current_price": 10.01}})
+    intents = engine.evaluate_cycle({"ABCD": {"current_price": 10.1}})
 
     assert len(intents) == 1
     assert intents[0].rationale == "MAX_HOLD_TIME_EXCEEDED"
     assert intents[0].exit_type == "TIME"
+
+
+def test_fast_failure_exit_when_no_follow_through() -> None:
+    engine = _engine_with_position()
+    position = engine.snapshot_positions()["ABCD"]
+    position.entry_timestamp = datetime.now(timezone.utc) - timedelta(seconds=25)
+
+    intents = engine.evaluate_cycle({"ABCD": {"current_price": 10.0}})
+
+    assert len(intents) == 1
+    assert intents[0].rationale == "NO_IMMEDIATE_FOLLOW_THROUGH"
+    assert intents[0].exit_type == "FAST_FAILURE"
+
+
+def test_stall_exit_has_priority_over_trailing_and_time() -> None:
+    engine = _engine_with_position()
+    position = engine.snapshot_positions()["ABCD"]
+    position.partial_taken = True
+    position.stop_loss_price = 9.9
+    position.last_trail_price = 10.2
+    position.entry_timestamp = datetime.now(timezone.utc) - timedelta(seconds=120)
+
+    intents = engine.evaluate_cycle(
+        {"ABCD": {"current_price": 10.25, "candles_since_new_high": 4}}
+    )
+
+    assert len(intents) == 1
+    assert intents[0].rationale == "STALL_AT_LEVEL"
+    assert intents[0].exit_type == "WEAKNESS"
+
+
+def test_position_targets_initialized_on_open() -> None:
+    engine = TradeManagementEngine()
+    position = engine.on_exec_details(symbol="WXYZ", shares=100, price=2.3, exec_id="E2")
+
+    assert position is not None
+    assert position.first_target_price == 2.5
+    assert position.second_target_price == 3.0
+    assert position.target_type == "HALF_DOLLAR"
 
 
 def test_no_duplicate_exits_while_pending() -> None:
