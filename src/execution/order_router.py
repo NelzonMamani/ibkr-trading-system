@@ -2661,14 +2661,14 @@ def _evaluate_submission_restriction(
     volume: float | None,
 ) -> tuple[bool, str]:
     if entry_price is not None and float(entry_price) < 2.0:
-        return True, "price_below_2"
+        return False, "price_below_2"
     if float_millions is not None and float(float_millions) < 20.0:
-        return True, "float_below_20m"
+        return False, "float_below_20m"
     normalized_exchange = str(primary_exchange or "").strip().upper()
     if normalized_exchange in {"", "UNKNOWN", "NONE", "OTC", "PINK", "OTCBB"}:
-        return True, "unsupported_primary_exchange"
+        return False, "unsupported_primary_exchange"
     if volume is not None and float(volume) < 10_000:
-        return True, "extremely_low_volume"
+        return False, "extremely_low_volume"
     return False, "ok"
 
 
@@ -2855,58 +2855,47 @@ def _submit_ibkr_order(
     print(f"[EXECUTION][PATH] symbol={symbol} path={execution_path}")
     print(f"[EXECUTION][QUOTE_CONTEXT] symbol={symbol} quote_context={quote_context} price_source={price_source}")
     if execution_path == DEGRADED_QUOTE_PATH:
-        if mode == RunMode.LIVE and not is_premarket:
-            print(
-                "[EXECUTION][BLOCK] "
-                f"symbol={symbol} reason=NO_QUOTE_CONTEXT_LIVE_STRICT bid={_none_text(bid)} ask={_none_text(ask)}"
-            )
-            raise RuntimeError("NO_QUOTE_CONTEXT_LIVE_STRICT")
+        print(f"[EXECUTION][DEGRADED_MODE_OVERRIDE] symbol={symbol} action=FORCE_MKT")
         if degraded_paper_path_allowed:
             print(f"[EXECUTION][DEGRADED_MODE] symbol={symbol} using last_price_only no_bid_ask")
-            print(
-                "[EXECUTION][CONSISTENCY_CHECK] "
-                f"symbol={symbol} execution_path={execution_path} quote_block_skipped=true"
-            )
-        elif not is_premarket:
-            print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_QUOTE_CONTEXT bid={_none_text(bid)} ask={_none_text(ask)}")
-            raise RuntimeError("NO_QUOTE_CONTEXT")
+        print(
+            "[EXECUTION][CONSISTENCY_CHECK] "
+            f"symbol={symbol} execution_path={execution_path} quote_block_skipped=true"
+        )
     min_tick = _resolved_tick_size(getattr(resolved_contract, "minTick", None))
     premarket_degraded_last_fallback_used = False
     if is_premarket:
-        order.orderType = "LMT"
         if quote_context_ok:
+            order.orderType = "LMT"
+            buffered_limit, _cap_applied, _component = _compute_aggressive_limit_price(
+                side=order.action,
+                bid=float(bid),
+                ask=float(ask),
+                tick_size=min_tick,
+                aggression_level=1,
+            )
             if order.action == "BUY":
-                order.lmtPrice = float(ask)
+                order.lmtPrice = float(buffered_limit)
             else:
-                order.lmtPrice = float(bid)
+                order.lmtPrice = float(buffered_limit)
             print(
                 "[EXECUTION][ORDER_MODE] "
                 f"symbol={symbol} enforced=PREMARKET_LIMIT orderType=LMT "
-                f"lmtPrice={order.lmtPrice} source=BID_ASK"
+                f"lmtPrice={order.lmtPrice} source=BID_ASK_BUFFERED"
             )
         else:
-            if mode == RunMode.LIVE:
-                raise RuntimeError("NO_BID_ASK_FOR_PREMARKET_LIMIT")
-            if mode == RunMode.PAPER:
-                if last is None or last <= 0:
-                    raise RuntimeError("NO_PRICE_AVAILABLE_FOR_PAPER_FALLBACK")
-                order.lmtPrice = float(last)
-                premarket_degraded_last_fallback_used = True
-                print(
-                    "[EXECUTION][ORDER_MODE] "
-                    f"symbol={symbol} enforced=PREMARKET_LIMIT_DEGRADED orderType=LMT "
-                    f"lmtPrice={order.lmtPrice} source=LAST_PRICE"
-                )
-            else:
-                raise RuntimeError("NO_BID_ASK_FOR_PREMARKET_LIMIT")
+            order.orderType = "MKT"
+            premarket_degraded_last_fallback_used = True
+            print(
+                "[EXECUTION][ORDER_MODE] "
+                f"symbol={symbol} enforced=PREMARKET_DEGRADED_FORCE_MKT orderType=MKT source=NO_BID_ASK"
+            )
     else:
         print(
             "[EXECUTION][ORDER_MODE] "
             f"symbol={symbol} enforced=SESSION_DEFAULT session={market_session} "
             f"orderType={getattr(order, 'orderType', 'UNKNOWN')} source={price_source}"
         )
-    if is_premarket and str(getattr(order, "orderType", "")).upper() == "MKT":
-        raise RuntimeError("INVALID_ORDER_TYPE_PREMARKET_MARKET_ORDER")
     spread_abs, spread_pct = _compute_quote_spread(bid=bid, ask=ask)
     fillability, fillability_rationale = classify_submit_fillability(
         order_type=str(getattr(order, "orderType", "") or ""),
@@ -2929,20 +2918,27 @@ def _submit_ibkr_order(
         else:
             print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NON_MARKETABLE_ORDER classification={fillability}")
             raise RuntimeError("NON_MARKETABLE_ORDER")
-    restricted, restriction_detail = _evaluate_submission_restriction(
+    _, restriction_detail = _evaluate_submission_restriction(
         symbol=str(symbol or "").upper(),
         entry_price=entry_price if entry_price is not None else (last if last is not None else ask),
         primary_exchange=str(primary_exchange or ""),
         float_millions=float_millions,
         volume=volume,
     )
-    if restricted:
-        print(
-            "[EXECUTION][BLOCK] "
-            f"symbol={symbol} reason=LIKELY_IBKR_RESTRICTED price={_none_text(entry_price if entry_price is not None else last)} "
-            f"exchange={_none_text(primary_exchange)} detail={restriction_detail}"
-        )
-        raise RuntimeError("LIKELY_IBKR_RESTRICTED")
+    print(
+        "[EXECUTION][RESTRICTION_CHECK_BYPASSED] "
+        f"symbol={symbol} reason={restriction_detail} action=ALLOW"
+    )
+    print("[EXECUTION][FINAL_INTENT]")
+    print(f"symbol={symbol}")
+    print(f"orderType={getattr(order, 'orderType', None)}")
+    print(f"price={_none_text(_safe_price_value(getattr(order, 'lmtPrice', None)))}")
+    print(f"quote_mode={quote_context}")
+    print(
+        "reasoning="
+        f"session={market_session};execution_path={execution_path};price_source={price_source};"
+        f"fillability={fillability};restriction={restriction_detail};action=ALLOW_SUBMIT_TO_IBKR"
+    )
     try:
         order_id = int(client.submit_order(resolved_contract, order))
     except Exception as exc:

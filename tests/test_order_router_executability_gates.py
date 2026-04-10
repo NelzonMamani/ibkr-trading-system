@@ -46,22 +46,22 @@ def test_submit_allows_paper_with_last_price_only_quote_context(monkeypatch) -> 
     assert client.submissions == 1
 
 
-def test_submit_blocks_live_when_quote_context_missing(monkeypatch) -> None:
+def test_submit_allows_live_when_quote_context_missing(monkeypatch) -> None:
     client = _Client()
     monkeypatch.setattr(order_router, "_session_label_now", lambda: "RTH")
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": None, "ask": None, "last": 5.0, "volume": 50_000})
-    with pytest.raises(RuntimeError, match="NO_QUOTE_CONTEXT_LIVE_STRICT"):
-        order_router._submit_ibkr_order(
-            mode=RunMode.LIVE,
-            client=client,
-            symbol="MCRO",
-            side="BUY",
-            quantity=1,
-            order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
-            entry_price=5.0,
-            entry_price_source="IBKR_SNAPSHOT",
-        )
-    assert client.submissions == 0
+    order_id = order_router._submit_ibkr_order(
+        mode=RunMode.LIVE,
+        client=client,
+        symbol="MCRO",
+        side="BUY",
+        quantity=1,
+        order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
+        entry_price=5.0,
+        entry_price_source="IBKR_SNAPSHOT",
+    )
+    assert order_id == 777
+    assert client.submissions == 1
 
 
 def test_submit_live_premarket_uses_quote_aware_limit(monkeypatch, capsys) -> None:
@@ -82,8 +82,8 @@ def test_submit_live_premarket_uses_quote_aware_limit(monkeypatch, capsys) -> No
     assert order_id == 777
     assert client.submissions == 1
     assert getattr(client.last_order, "orderType", None) == "LMT"
-    assert getattr(client.last_order, "lmtPrice", None) == 10.05
-    assert "enforced=PREMARKET_LIMIT orderType=LMT lmtPrice=10.05 source=BID_ASK" in out
+    assert getattr(client.last_order, "lmtPrice", None) == 10.07
+    assert "enforced=PREMARKET_LIMIT orderType=LMT lmtPrice=10.07 source=BID_ASK_BUFFERED" in out
 
 
 def test_submit_live_premarket_sell_uses_bid_limit(monkeypatch, capsys) -> None:
@@ -104,8 +104,8 @@ def test_submit_live_premarket_sell_uses_bid_limit(monkeypatch, capsys) -> None:
     assert order_id == 777
     assert client.submissions == 1
     assert getattr(client.last_order, "orderType", None) == "LMT"
-    assert getattr(client.last_order, "lmtPrice", None) == 10.0
-    assert "enforced=PREMARKET_LIMIT orderType=LMT lmtPrice=10.0 source=BID_ASK" in out
+    assert getattr(client.last_order, "lmtPrice", None) == 9.98
+    assert "enforced=PREMARKET_LIMIT orderType=LMT lmtPrice=9.98 source=BID_ASK_BUFFERED" in out
 
 
 def test_fillability_classifies_passive_limit_as_non_marketable() -> None:
@@ -205,19 +205,19 @@ def test_submit_blocks_non_ibkr_price_authority(monkeypatch) -> None:
     assert client.submissions == 0
 
 
-def test_submit_blocks_likely_restricted_low_price(monkeypatch) -> None:
+def test_submit_allows_low_price_when_broker_is_authority(monkeypatch) -> None:
     client = _Client()
     monkeypatch.setattr(order_router, "_session_label_now", lambda: "RTH")
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": 1.8, "ask": 1.85, "last": 1.82, "volume": 200_000})
-    with pytest.raises(RuntimeError, match="LIKELY_IBKR_RESTRICTED"):
-        order_router._submit_ibkr_order(
-            mode=RunMode.PAPER,
-            client=client,
-            symbol="PENNY",
-            side="BUY",
-            quantity=1,
-            order_ref="TRADING_OS|ROSS_MOMENTUM|PENNY-1",
-            entry_price=1.82,
-            entry_price_source="IBKR_SNAPSHOT",
-        )
-    assert client.submissions == 0
+    order_id = order_router._submit_ibkr_order(
+        mode=RunMode.PAPER,
+        client=client,
+        symbol="PENNY",
+        side="BUY",
+        quantity=1,
+        order_ref="TRADING_OS|ROSS_MOMENTUM|PENNY-1",
+        entry_price=1.82,
+        entry_price_source="IBKR_SNAPSHOT",
+    )
+    assert order_id == 777
+    assert client.submissions == 1

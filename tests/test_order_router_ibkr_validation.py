@@ -179,15 +179,14 @@ def test_submit_order_allows_paper_degraded_last_only_path(monkeypatch, capsys) 
     out = capsys.readouterr().out
     assert order_id == 111
     assert len(submitted_orders) == 1
-    assert getattr(submitted_orders[0], "orderType", None) == "LMT"
-    assert getattr(submitted_orders[0], "lmtPrice", None) == 25.1
+    assert getattr(submitted_orders[0], "orderType", None) == "MKT"
     assert "[EXECUTION][PATH] symbol=MCRO path=DEGRADED_QUOTE_PATH" in out
-    assert "[EXECUTION][DEGRADED_MODE] symbol=MCRO using last_price_only no_bid_ask" in out
+    assert "[EXECUTION][DEGRADED_MODE_OVERRIDE] symbol=MCRO action=FORCE_MKT" in out
     assert "[EXECUTION][CONSISTENCY_CHECK] symbol=MCRO execution_path=DEGRADED_QUOTE_PATH quote_block_skipped=true" in out
-    assert "[EXECUTION][ORDER_MODE] symbol=MCRO enforced=PREMARKET_LIMIT_DEGRADED orderType=LMT lmtPrice=25.1 source=LAST_PRICE" in out
+    assert "[EXECUTION][ORDER_MODE] symbol=MCRO enforced=PREMARKET_DEGRADED_FORCE_MKT orderType=MKT source=NO_BID_ASK" in out
 
 
-def test_submit_order_blocks_live_premarket_without_bid_ask(monkeypatch) -> None:
+def test_submit_order_allows_live_premarket_without_bid_ask_as_market(monkeypatch) -> None:
     class _Client:
         def qualifyContracts(self, contract):
             contract.conId = 123
@@ -198,7 +197,7 @@ def test_submit_order_blocks_live_premarket_without_bid_ask(monkeypatch) -> None
             return [contract]
 
         def submit_order(self, _contract, _order):
-            raise AssertionError("submission should be blocked before dispatch")
+            return 333
 
     monkeypatch.setattr(order_router, "_session_label_now", lambda: "PRE")
     monkeypatch.setattr(
@@ -206,20 +205,20 @@ def test_submit_order_blocks_live_premarket_without_bid_ask(monkeypatch) -> None
         "_wait_for_ibkr_snapshot_for_symbol",
         lambda *_args, **_kwargs: {"last": 25.1, "bid": None, "ask": None, "volume": 120000},
     )
-    with pytest.raises(RuntimeError, match="NO_BID_ASK_FOR_PREMARKET_LIMIT"):
-        order_router._submit_ibkr_order(
-            mode=RunMode.LIVE,
-            client=_Client(),
-            symbol="MCRO",
-            side="BUY",
-            quantity=1,
-            order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
-            entry_price=25.0,
-            entry_price_source="IBKR_BID_ASK",
-        )
+    order_id = order_router._submit_ibkr_order(
+        mode=RunMode.LIVE,
+        client=_Client(),
+        symbol="MCRO",
+        side="BUY",
+        quantity=1,
+        order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
+        entry_price=25.0,
+        entry_price_source="IBKR_BID_ASK",
+    )
+    assert order_id == 333
 
 
-def test_submit_order_blocks_paper_premarket_when_last_missing(monkeypatch) -> None:
+def test_submit_order_allows_paper_premarket_when_last_missing(monkeypatch) -> None:
     class _Client:
         def qualifyContracts(self, contract):
             contract.conId = 123
@@ -229,23 +228,26 @@ def test_submit_order_blocks_paper_premarket_when_last_missing(monkeypatch) -> N
             contract.secType = "STK"
             return [contract]
 
+        def submit_order(self, _contract, _order):
+            return 444
+
     monkeypatch.setattr(order_router, "_session_label_now", lambda: "PRE")
     monkeypatch.setattr(
         order_router,
         "_wait_for_ibkr_snapshot_for_symbol",
         lambda *_args, **_kwargs: {"last": None, "bid": None, "ask": None, "volume": 120000},
     )
-    with pytest.raises(RuntimeError, match="NO_PRICE_AVAILABLE_FOR_PAPER_FALLBACK"):
-        order_router._submit_ibkr_order(
-            mode=RunMode.PAPER,
-            client=_Client(),
-            symbol="MCRO",
-            side="BUY",
-            quantity=1,
-            order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-2",
-            entry_price=25.0,
-            entry_price_source="IBKR_BID_ASK",
-        )
+    order_id = order_router._submit_ibkr_order(
+        mode=RunMode.PAPER,
+        client=_Client(),
+        symbol="MCRO",
+        side="BUY",
+        quantity=1,
+        order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-2",
+        entry_price=25.0,
+        entry_price_source="IBKR_BID_ASK",
+    )
+    assert order_id == 444
 
 
 
