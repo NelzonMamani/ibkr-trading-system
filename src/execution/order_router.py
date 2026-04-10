@@ -2512,6 +2512,7 @@ def _submit_ibkr_order(
     entry_price: float | None = None,
     entry_price_source: str = "",
     float_millions: float | None = None,
+    execution_context: dict[str, Any] | None = None,
 ) -> int:
     global _CONTRACT_VALIDATION_FAILURES
     assert isinstance(symbol, str)
@@ -2619,6 +2620,15 @@ def _submit_ibkr_order(
     ask = _safe_price_value(quote_snapshot.get("ask"))
     last = _safe_price_value(quote_snapshot.get("last"))
     volume = _safe_price_value(quote_snapshot.get("volume"))
+    # Fallback to persisted resolved price if snapshot last is missing
+    if last is None:
+        persisted_last = (execution_context or {}).get("resolved_last_price")
+        if persisted_last is not None and persisted_last > 0:
+            last = persisted_last
+            print(
+                f"[EXECUTION][LAST_PRICE_FALLBACK] "
+                f"symbol={symbol} using persisted_last_price={persisted_last}"
+            )
     quote_context_ok = bid is not None and ask is not None and bid > 0 and ask > 0
     has_last_price = last is not None and last > 0
     execution_path = FULL_QUOTE_PATH if quote_context_ok else DEGRADED_QUOTE_PATH
@@ -2858,6 +2868,7 @@ def execute_intents(
     for index, decision in enumerate(decisions, start=1):
         intents_received += 1
         execution_attempted = False
+        execution_context: dict[str, Any] = {}
         blocked_reason: str | None = None
         account = RouterAccountSnapshot(available_funds=float(decision.available_funds))
         order_value = float(decision.order_value)
@@ -3010,6 +3021,9 @@ def execute_intents(
                     trace.resolved_price = float(entry_price)
                     trace.price_state = "PARTIAL_OK"
                     print(f"[PRICE][RESOLVED] symbol={decision.symbol} source=IBKR_STREAM price={entry_price}")
+                    # Persist resolved price for execution fallback
+                    if entry_price is not None and entry_price > 0:
+                        execution_context["resolved_last_price"] = entry_price
                 except PriceResolutionError:
                     blocked_price_unavailable += 1
                     blocked_reason = "NO_IBKR_PRICE"
@@ -3133,6 +3147,7 @@ def execute_intents(
                         entry_price=_safe_price_value(getattr(decision, "entry_price", None)),
                         entry_price_source=str(getattr(decision, "entry_price_source", "") or ""),
                         float_millions=_safe_price_value(getattr(decision, "float_millions", None)),
+                        execution_context=execution_context,
                     )
                 else:
                     broker_order_id = index
