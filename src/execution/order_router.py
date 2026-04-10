@@ -2600,9 +2600,27 @@ def _submit_ibkr_order(
     last = _safe_price_value(quote_snapshot.get("last"))
     volume = _safe_price_value(quote_snapshot.get("volume"))
     quote_context_ok = bid is not None and ask is not None and bid > 0 and ask > 0
+    quote_mode = "FULL_QUOTE" if quote_context_ok else "LAST_PRICE_ONLY"
+    print(
+        "[EXECUTION][PATH_DECISION] "
+        f"symbol={symbol} mode={mode.value} quote_mode={quote_mode}"
+    )
     if not quote_context_ok:
-        print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_QUOTE_CONTEXT bid={_none_text(bid)} ask={_none_text(ask)}")
-        raise RuntimeError("NO_QUOTE_CONTEXT")
+        has_last_price = last is not None and last > 0
+        if mode == RunMode.PAPER and has_last_price:
+            print(
+                "[EXECUTION][QUOTE_RELAXATION] "
+                f"symbol={symbol} mode={mode.value} reason=ALLOW_WITH_LAST_PRICE_ONLY"
+            )
+        elif mode == RunMode.LIVE:
+            print(
+                "[EXECUTION][BLOCK] "
+                f"symbol={symbol} reason=NO_QUOTE_CONTEXT_LIVE_STRICT bid={_none_text(bid)} ask={_none_text(ask)}"
+            )
+            raise RuntimeError("NO_QUOTE_CONTEXT_LIVE_STRICT")
+        else:
+            print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_QUOTE_CONTEXT bid={_none_text(bid)} ask={_none_text(ask)}")
+            raise RuntimeError("NO_QUOTE_CONTEXT")
     spread_abs, spread_pct = _compute_quote_spread(bid=bid, ask=ask)
     fillability, fillability_rationale = classify_submit_fillability(
         order_type=str(getattr(order, "orderType", "") or ""),
@@ -2984,22 +3002,6 @@ def execute_intents(
                         )
                     )
                     continue
-        if _single_order_validation_mode() and submit_attempts > 0 and decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"}:
-            print(
-                "[EXECUTION][SINGLE_ORDER_VALIDATION] "
-                f"symbol={decision.symbol} intent_id={decision.intent_id} action=SKIP_AFTER_FIRST_SUBMIT_ATTEMPT"
-            )
-            events.append(
-                ExecutionEvent(
-                    symbol=decision.symbol,
-                    intent_id=decision.intent_id,
-                    action="BLOCKED",
-                    detail="reason=SINGLE_ORDER_VALIDATION_MODE_ALREADY_ATTEMPTED",
-                    broker_status="REJECTED",
-                    last_update_time=_now_utc_iso(),
-                )
-            )
-            continue
         dispatch = "SKIPPED"
         if mode in {RunMode.SIM, RunMode.READ_ONLY}:
             action = "WOULD_PLACE"
