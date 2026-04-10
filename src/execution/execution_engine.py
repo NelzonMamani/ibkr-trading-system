@@ -588,9 +588,11 @@ class ExecutionEngine:
         if self.run_mode == RunMode.LIVE and str(request.strategy_name or "").upper() == "LIVE_EXECUTION_PROBE" and str(request.direction).upper() == "LONG":
             print(f"[PROBE][BUY] symbol={request.symbol} qty={request.quantity}")
             self._require_exit_stage.add(request.client_order_id)
-        if str(request.direction).upper() == "SELL" and request.symbol in self.position_records:
-            print(f"[EXECUTION][CLOSE] symbol={request.symbol} qty={request.quantity}")
+        if str(request.direction).upper() == "SELL":
+            if request.symbol in self.position_records:
+                print(f"[EXECUTION][CLOSE] symbol={request.symbol} qty={request.quantity}")
             print(f"[EXIT][SUBMIT] symbol={request.symbol} qty={request.quantity} order_id={request.client_order_id}")
+            print(f"[EXIT][PIPELINE_TRACE] stage=SUBMIT_ATTEMPT symbol={request.symbol}")
         print("[ORDER_SUBMIT]", f"symbol={request.symbol}", f"side={request.direction}", f"qty={request.quantity}")
         print(
             f"[IBKR][ORDER_SUBMIT] order_id={request.client_order_id} symbol={request.symbol} "
@@ -636,6 +638,10 @@ class ExecutionEngine:
                 print(
                     f"[EXIT][SUBMIT] symbol={request.symbol} qty={request.quantity} "
                     f"broker_order_id={getattr(result, 'ibkr_order_id', None)}"
+                )
+                print(
+                    f"[EXIT][PIPELINE_TRACE] stage=SUBMITTED symbol={request.symbol} "
+                    f"order_id={getattr(result, 'ibkr_order_id', None) or request.client_order_id}"
                 )
         self._execution_log(
             "SUBMIT_RESULT",
@@ -846,6 +852,7 @@ class ExecutionEngine:
                 f"[EXIT][FILL] symbol={request.symbol} qty={filled_quantity} "
                 f"order_id={request.client_order_id}"
             )
+            print(f"[EXIT][PIPELINE_TRACE] stage=FILLED symbol={request.symbol} order_id={request.client_order_id}")
             if remaining_quantity <= 0:
                 print(
                     f"[EXIT][COMPLETE] symbol={request.symbol} qty={filled_quantity} "

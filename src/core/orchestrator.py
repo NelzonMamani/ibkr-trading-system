@@ -1986,8 +1986,13 @@ class CoreOrchestrator:
             near_key_level = self._is_near_whole_or_half_dollar(price)
             market_state[symbol] = {
                 "current_price": float(price),
+                "hod_price": float(price),
+                "candles_since_new_high": 0,
+                "rejection_count": 0,
                 "green_volume_ratio": 1.0,
                 "red_volume_ratio": 1.0,
+                "large_upper_wick": False,
+                "last_pullback_low": float(price) * 0.995,
                 "structure_intact": True,
                 "near_resistance": near_key_level,
                 "key_level_hit": near_key_level,
@@ -2026,9 +2031,13 @@ class CoreOrchestrator:
 
     def _run_trade_management_engine(self, execution_output: list[ExecutionResult]) -> list[object]:
         self._apply_execution_results_to_trade_management(execution_output)
+        positions_managed = len(self.trade_management_engine.snapshot_positions())
+        cycle_id = self._current_cycle_id or "UNKNOWN"
+        print(f"[EXIT][ENGINE_RUN] cycle_id={cycle_id} positions_managed={positions_managed}")
         market_state = self._build_trade_management_market_state()
         intents = self.trade_management_engine.evaluate_cycle(market_state)
         for intent in intents:
+            print(f"[EXIT][PIPELINE_TRACE] stage=PIPELINE_RECEIVED symbol={getattr(intent, 'symbol', 'UNKNOWN')}")
             print(
                 "[TRADE_MANAGEMENT][INTENT] "
                 f"action={getattr(intent, 'action', 'UNKNOWN')} symbol={getattr(intent, 'symbol', 'UNKNOWN')} "
@@ -4142,6 +4151,28 @@ class CoreOrchestrator:
             management_execution_results = self.execution_engine.execute(combined_intents)
             execution_output.extend(management_execution_results)
             self._apply_execution_results_to_trade_management(management_execution_results)
+        exit_intents_created = len([intent for intent in management_intents if getattr(intent, "action", "").upper() == "EXIT"])
+        exit_intents_submitted = len(
+            [
+                result
+                for result in management_execution_results
+                if str(getattr(result, "direction", "")).upper() in {"SELL", "SHORT"}
+            ]
+        )
+        if (
+            exit_intents_created > 0
+            and self.execution_enabled
+            and not execution_intent.scan_only
+            and exit_intents_submitted == 0
+        ):
+            print("[EXIT][CRITICAL] exit_intents_exist_but_not_submitted_to_execution=true")
+            raise RuntimeError("EXIT_INTENTS_NOT_PASSED_TO_EXECUTION")
+        if exit_intents_created > 0:
+            print(
+                "[EXIT][CYCLE_SUMMARY] "
+                f"created={exit_intents_created} submitted={exit_intents_submitted} "
+                "filled=0 closed=0"
+            )
         if self._stop_requested_at_boundary("EXECUTION"):
             return False
 

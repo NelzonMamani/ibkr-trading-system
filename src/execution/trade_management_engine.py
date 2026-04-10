@@ -4,6 +4,17 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
 
+REQUIRED_EXIT_STATE_FIELDS = (
+    "current_price",
+    "hod_price",
+    "candles_since_new_high",
+    "rejection_count",
+    "red_volume_ratio",
+    "green_volume_ratio",
+    "large_upper_wick",
+    "last_pullback_low",
+)
+
 
 @dataclass
 class PositionState:
@@ -28,6 +39,7 @@ class PositionState:
     exit_stage: str = "NONE"  # NONE / PARTIAL / FINAL
     reference_order_id: str | None = None
     partial_taken: bool = False
+    last_exit_attempt_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -63,6 +75,7 @@ class TradeManagementEngine:
         fast_failure_min_progress: float = 0.01,
         stall_candles_without_high: int = 3,
         stall_rejections_threshold: int = 2,
+        safety_force_exit_seconds: int = 300,
     ) -> None:
         self._positions: dict[str, PositionState] = {}
         self._seen_exec_ids: set[str] = set()
@@ -75,6 +88,7 @@ class TradeManagementEngine:
         self._fast_failure_min_progress = float(fast_failure_min_progress)
         self._stall_candles_without_high = int(stall_candles_without_high)
         self._stall_rejections_threshold = int(stall_rejections_threshold)
+        self._safety_force_exit_seconds = int(safety_force_exit_seconds)
 
     def on_exec_details(self, *, symbol: str, shares: int, price: float, exec_id: str | None) -> PositionState | None:
         normalized = str(symbol or "").upper()
@@ -129,11 +143,14 @@ class TradeManagementEngine:
             position.break_even_price = position.entry_price
         else:
             reduce_qty = min(position.quantity, abs(int(shares)))
+            before_qty = position.quantity
             position.quantity -= reduce_qty
             self._pending_exit.discard(normalized)
+            print(f"[EXIT][POSITION_REDUCTION] symbol={normalized} before_qty={before_qty} after_qty={position.quantity}")
             if position.quantity <= 0:
                 del self._positions[normalized]
                 self._pending_exit.discard(normalized)
+                print(f"[EXIT][PIPELINE_TRACE] stage=POSITION_CLOSED symbol={normalized}")
                 print(f"[POSITION][CLOSED] symbol={normalized}")
                 return None
             position.exit_stage = "PARTIAL"
@@ -151,9 +168,15 @@ class TradeManagementEngine:
 
     def evaluate_cycle(self, market_state: dict[str, dict]) -> list[TradeIntent]:
         intents: list[TradeIntent] = []
+        created_count = 0
         for symbol in sorted(self._positions.keys()):
             position = self._positions[symbol]
             state = market_state.get(symbol, {})
+            missing_fields = [field for field in REQUIRED_EXIT_STATE_FIELDS if state.get(field) is None]
+            degraded_state = bool(missing_fields)
+            if degraded_state:
+                print(f"[EXIT][STATE_CHECK] symbol={symbol} missing_fields={missing_fields}")
+                print(f"[EXIT][STATE_DEGRADED] symbol={symbol} fallback_mode=ENABLED")
 
             price = self._resolve_price(symbol, state)
             if price is None or price <= 0:
@@ -171,10 +194,12 @@ class TradeManagementEngine:
             if symbol in self._pending_exit:
                 continue
 
-            intent = self._evaluate_exit_rules(position, state)
+            intent = self._evaluate_exit_rules(position, state, degraded_state=degraded_state)
             if intent is not None:
+                created_count += 1
                 intents.append(intent)
 
+        print(f"[EXIT][CYCLE_SUMMARY] created={created_count} submitted=0 filled=0 closed=0")
         return intents
 
     def snapshot_positions(self) -> dict[str, PositionState]:
@@ -197,10 +222,47 @@ class TradeManagementEngine:
             else:
                 position.stop_loss_price = max(position.stop_loss_price, position.last_trail_price)
 
-    def _evaluate_exit_rules(self, position: PositionState, state: dict) -> TradeIntent | None:
+    def _evaluate_exit_rules(self, position: PositionState, state: dict, *, degraded_state: bool) -> TradeIntent | None:
+        if (
+            position.quantity > 0
+            and position.last_exit_attempt_at is None
+            and position.holding_time_seconds >= self._safety_force_exit_seconds
+        ):
+            print(f"[EXIT][FORCE_CLOSE] symbol={position.symbol} reason=SAFETY_TIMEOUT")
+            return self._emit_exit_intent(
+                position,
+                qty=position.quantity,
+                rationale="SAFETY_TIMEOUT",
+                exit_type="TIME",
+                stage="FINAL",
+            )
+
         # 1) STOP LOSS (highest priority)
         if position.current_price <= position.stop_loss_price:
             return self._emit_exit_intent(position, qty=position.quantity, rationale="STOP_LOSS_HIT", exit_type="STOP", stage="FINAL")
+
+        if degraded_state:
+            profit_per_share = position.current_price - position.entry_price
+            if (
+                position.holding_time_seconds >= self._fast_failure_seconds
+                and profit_per_share <= self._fast_failure_min_progress
+            ):
+                return self._emit_exit_intent(
+                    position,
+                    qty=position.quantity,
+                    rationale="NO_IMMEDIATE_FOLLOW_THROUGH",
+                    exit_type="FAST_FAILURE",
+                    stage="FINAL",
+                )
+            if position.holding_time_seconds > self._max_hold_time_seconds:
+                return self._emit_exit_intent(
+                    position,
+                    qty=position.quantity,
+                    rationale="MAX_HOLD_TIME_EXCEEDED",
+                    exit_type="TIME",
+                    stage="FINAL",
+                )
+            return None
 
         # 2) TARGET HIT — Ross primary sell-into-strength behaviour
         self._refresh_target_from_hod(position, state)
@@ -264,6 +326,8 @@ class TradeManagementEngine:
     def _emit_exit_intent(self, position: PositionState, *, qty: int, rationale: str, exit_type: str, stage: str) -> TradeIntent:
         self._pending_exit.add(position.symbol)
         position.exit_stage = stage
+        position.last_exit_attempt_at = datetime.now(timezone.utc)
+        print(f"[EXIT][PIPELINE_TRACE] stage=INTENT_CREATED symbol={position.symbol}")
         self._log_exit_reason(position.symbol, rationale, qty)
         print(f"[EXIT][INTENT] symbol={position.symbol} qty={qty} rationale={rationale} type={exit_type}")
         return TradeIntent(
