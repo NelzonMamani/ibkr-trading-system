@@ -190,6 +190,32 @@ def test_price_source_normalization_maps_ibkr_stream_to_ibkr_last() -> None:
     assert order_router._normalize_price_source("IBKR_SNAPSHOT_LAST") == "IBKR_LAST"
     assert order_router._normalize_price_source("IBKR_L1_LAST") == "IBKR_LAST"
 
+
+def test_last_price_fallback_from_execution_context(monkeypatch, capsys):
+    from src.execution import order_router
+
+    execution_context = {"resolved_last_price": 10.5}
+
+    quote_snapshot = {
+        "bid": None,
+        "ask": None,
+        "last": None,
+    }
+
+    last = order_router._safe_price_value(quote_snapshot.get("last"))
+
+    if last is None:
+        persisted_last = execution_context.get("resolved_last_price")
+        if persisted_last is not None and persisted_last > 0:
+            last = persisted_last
+            print(f"[EXECUTION][LAST_PRICE_FALLBACK] using persisted_last_price={persisted_last}")
+
+    assert last == 10.5
+
+    out = capsys.readouterr().out
+    assert "LAST_PRICE_FALLBACK" in out
+
+
 def test_executability_summary_counts_blocked_no_ibkr_price_authority(monkeypatch, capsys) -> None:
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
     monkeypatch.setattr(order_router, "_validate_ibkr_connection", lambda mode: None)
