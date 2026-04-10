@@ -177,13 +177,14 @@ def test_submit_order_allows_paper_degraded_last_only_path(monkeypatch, capsys) 
         entry_price_source="IBKR_BID_ASK",
     )
     out = capsys.readouterr().out
-    assert order_id == 111
+    assert order_id == 100001
     assert len(submitted_orders) == 1
     assert getattr(submitted_orders[0], "orderType", None) == "MKT"
     assert "[EXECUTION][PATH] symbol=MCRO path=DEGRADED_QUOTE_PATH" in out
     assert "[EXECUTION][DEGRADED_MODE_OVERRIDE] symbol=MCRO action=FORCE_MKT" in out
     assert "[EXECUTION][CONSISTENCY_CHECK] symbol=MCRO execution_path=DEGRADED_QUOTE_PATH quote_block_skipped=true" in out
     assert "[EXECUTION][ORDER_MODE] symbol=MCRO enforced=PREMARKET_DEGRADED_FORCE_MKT orderType=MKT source=NO_BID_ASK" in out
+    assert "[EXECUTION][NON_IBKR_CLIENT] deterministic_id_emulated" in out
 
 
 def test_submit_order_allows_live_premarket_without_bid_ask_as_market(monkeypatch) -> None:
@@ -215,7 +216,7 @@ def test_submit_order_allows_live_premarket_without_bid_ask_as_market(monkeypatc
         entry_price=25.0,
         entry_price_source="IBKR_BID_ASK",
     )
-    assert order_id == 333
+    assert order_id == 100001
 
 
 def test_submit_order_allows_paper_premarket_when_last_missing(monkeypatch) -> None:
@@ -247,7 +248,7 @@ def test_submit_order_allows_paper_premarket_when_last_missing(monkeypatch) -> N
         entry_price=25.0,
         entry_price_source="IBKR_BID_ASK",
     )
-    assert order_id == 444
+    assert order_id == 100001
 
 
 

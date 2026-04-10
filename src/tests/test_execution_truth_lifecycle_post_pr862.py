@@ -26,6 +26,9 @@ def _reset_router_state() -> None:
     order_router._VISIBILITY_BY_ORDER_ID.clear()
     order_router._LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID.clear()
     order_router._BROKER_ERRORS_BY_ORDER_ID.clear()
+    order_router._INTENT_ID_BY_ORDER_ID.clear()
+    order_router._ORDER_ID_BY_ORDER_REF.clear()
+    order_router._PENDING_SUBMISSIONS_BY_ORDER_ID.clear()
 
 
 def _seed_tracked_order(*, order_id: int = 101, symbol: str = "AAPL", qty: int = 10) -> order_router.TrackedOrder:
@@ -34,6 +37,17 @@ def _seed_tracked_order(*, order_id: int = 101, symbol: str = "AAPL", qty: int =
         symbol=symbol,
         side="BUY",
         total_qty=qty,
+        order_ref="TRADING_OS|ROSS_MOMENTUM|intent-1",
+    )
+    order_router._register_order_intent_mapping(
+        order_id=order_id,
+        intent_id="intent-1",
+        order_ref="TRADING_OS|ROSS_MOMENTUM|intent-1",
+    )
+    order_router._register_pending_submission(
+        order_id=order_id,
+        symbol=symbol,
+        intent_id="intent-1",
         order_ref="TRADING_OS|ROSS_MOMENTUM|intent-1",
     )
     order_router._initialize_visibility(order_id)

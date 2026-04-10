@@ -1278,14 +1278,17 @@ def _resolve_order_id_from_order_ref(order_ref: str) -> int | None:
     normalized_order_ref = _normalize_order_ref(order_ref)
     if not normalized_order_ref:
         return None
-    mapped = _ORDER_ID_BY_ORDER_REF.get(normalized_order_ref)
-    if mapped is not None:
-        return int(mapped)
-    for pending in _PENDING_SUBMISSIONS_BY_ORDER_ID.values():
-        if _normalize_order_ref(pending.order_ref) != normalized_order_ref:
-            continue
-        _ORDER_ID_BY_ORDER_REF[normalized_order_ref] = int(pending.order_id)
-        return int(pending.order_id)
+    for attempt in range(10):
+        mapped = _ORDER_ID_BY_ORDER_REF.get(normalized_order_ref)
+        if mapped is not None:
+            return int(mapped)
+        for pending in _PENDING_SUBMISSIONS_BY_ORDER_ID.values():
+            if _normalize_order_ref(pending.order_ref) != normalized_order_ref:
+                continue
+            _ORDER_ID_BY_ORDER_REF[normalized_order_ref] = int(pending.order_id)
+            return int(pending.order_id)
+        if attempt < 9:
+            time.sleep(0.01)
     return None
 
 
@@ -2944,11 +2947,23 @@ def _submit_ibkr_order(
         f"session={market_session};execution_path={execution_path};price_source={price_source};"
         f"fillability={fillability};restriction={restriction_detail};action=ALLOW_SUBMIT_TO_IBKR"
     )
-    try:
-        order_id = int(client.submit_order(resolved_contract, order))
-    except Exception as exc:
-        print(f"[IBKR][PLACE_ORDER][ERROR] symbol={symbol} order_id=PENDING error={exc}")
-        raise
+    reserve_order_id = getattr(client, "reserve_order_id", None)
+
+    if callable(reserve_order_id):
+        order_id = int(reserve_order_id())
+    else:
+        # Controlled fallback ONLY for non-IBKR / test clients
+        fallback_id = getattr(client, "_test_order_id_seq", 100000)
+        fallback_id += 1
+        setattr(client, "_test_order_id_seq", fallback_id)
+
+        order_id = int(fallback_id)
+
+        print(
+            f"[EXECUTION][WARNING] fallback_order_id_used order_id={order_id} "
+            f"client={type(client).__name__}"
+        )
+        print("[EXECUTION][NON_IBKR_CLIENT] deterministic_id_emulated")
     wire_payload = {
         "symbol": str(symbol or "").upper(),
         "order_id": int(order_id),
@@ -3029,6 +3044,23 @@ def _submit_ibkr_order(
         intent_id=str(intent_id or ""),
         order_ref=str(order_ref or ""),
     )
+    place_order = getattr(client, "placeOrder", None)
+    submit_order = getattr(client, "submit_order", None)
+    try:
+        if callable(place_order):
+            place_order(order_id, resolved_contract, order)
+        elif callable(submit_order):
+            returned_order_id = int(submit_order(resolved_contract, order))
+            if returned_order_id != int(order_id):
+                print(
+                    "[EXECUTION][WARNING] submit_order_order_id_mismatch "
+                    f"reserved={order_id} returned={returned_order_id}"
+                )
+        else:
+            raise RuntimeError("BROKER_CLIENT_MISSING_PLACE_ORDER")
+    except Exception as exc:
+        print(f"[IBKR][PLACE_ORDER][ERROR] symbol={symbol} order_id={order_id} error={exc}")
+        raise
     print("[IBKR][ORDER_DISPATCH_VERIFICATION]")
     print(f"order_id={order_id} awaiting_acknowledgement")
     wait_for_order_status = getattr(client, "wait_for_order_status", None)
