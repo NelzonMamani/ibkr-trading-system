@@ -80,7 +80,7 @@ def test_submit_live_premarket_uses_quote_aware_limit(monkeypatch) -> None:
     assert order_id == 777
     assert client.submissions == 1
     assert getattr(client.last_order, "orderType", None) == "LMT"
-    assert getattr(client.last_order, "lmtPrice", None) == pytest.approx(10.05)
+    assert getattr(client.last_order, "lmtPrice", None) > 10.05
 
 
 def test_fillability_classifies_passive_limit_as_non_marketable() -> None:
@@ -92,6 +92,38 @@ def test_fillability_classifies_passive_limit_as_non_marketable() -> None:
         ask=10.05,
     )
     assert classification == "PASSIVE_AWAY_FROM_MARKET"
+
+
+def test_aggressive_limit_helper_rounds_in_favor() -> None:
+    buy_limit, _cap_buy, _ = order_router._compute_aggressive_limit_price(
+        side="BUY", bid=10.0, ask=10.05, tick_size=0.01, aggression_level=1
+    )
+    sell_limit, _cap_sell, _ = order_router._compute_aggressive_limit_price(
+        side="SELL", bid=10.0, ask=10.05, tick_size=0.01, aggression_level=1
+    )
+    assert buy_limit > 10.05
+    assert round((buy_limit / 0.01) % 1, 8) == 0
+    assert sell_limit < 10.0
+    assert round((sell_limit / 0.01) % 1, 8) == 0
+
+
+def test_fillability_distinguishes_passive_vs_crossing() -> None:
+    passive, _ = order_router.classify_submit_fillability(
+        order_type="LMT",
+        action="BUY",
+        lmt_price=10.05,
+        bid=10.0,
+        ask=10.05,
+    )
+    aggressive, _ = order_router.classify_submit_fillability(
+        order_type="LMT",
+        action="BUY",
+        lmt_price=10.07,
+        bid=10.0,
+        ask=10.05,
+    )
+    assert passive == "PASSIVE_AT_ASK"
+    assert aggressive == "CROSSING_ASK_AGGRESSIVE"
 
 
 def test_submit_allows_marketable_with_ibkr_authority(monkeypatch) -> None:

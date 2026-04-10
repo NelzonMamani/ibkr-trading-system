@@ -246,6 +246,15 @@ class TrackedOrder:
     first_fill_seen_at: str | None = None
     escalation_required: bool = False
     escalation_reason: str = ""
+    market_session: str = "CLOSED"
+    min_tick: float = 0.01
+    initial_bid: float | None = None
+    initial_ask: float | None = None
+    initial_limit_price: float | None = None
+    last_limit_price: float | None = None
+    reprice_attempt_count: int = 0
+    last_reprice_at: str | None = None
+    max_reprice_attempts: int = 0
 
 
 @dataclass
@@ -556,6 +565,92 @@ def _classify_watchdog_state(row: TrackedOrder, now: datetime) -> tuple[str, int
         if elapsed_partial >= partial_stall:
             return "PARTIAL_FILL_STALLED", elapsed_partial
     return "NORMAL_IN_FLIGHT", elapsed_submit
+
+
+def _watchdog_reprice_schedule_seconds() -> list[int]:
+    raw = str(os.environ.get("EXECUTION_REPRICE_SCHEDULE_SECONDS", "3,6,10") or "")
+    values: list[int] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            values.append(max(1, int(token)))
+        except ValueError:
+            continue
+    return values or [3, 6, 10]
+
+
+def _attempt_watchdog_reprice(row: TrackedOrder, *, elapsed_seconds: int) -> None:
+    if row.market_session != "PREMARKET":
+        print(f"[EXECUTION][REPRICE_ABORT] symbol={row.symbol} order_id={row.broker_order_id} reason=SESSION_NOT_PREMARKET")
+        return
+    max_attempts = row.max_reprice_attempts or _watchdog_threshold_seconds("EXECUTION_MAX_REPRICE_ATTEMPTS", 3)
+    if row.reprice_attempt_count >= max_attempts:
+        print(f"[EXECUTION][REPRICE_ABORT] symbol={row.symbol} order_id={row.broker_order_id} reason=MAX_REPRICE_ATTEMPTS_REACHED")
+        return
+    schedule = _watchdog_reprice_schedule_seconds()
+    next_attempt = row.reprice_attempt_count + 1
+    gate_seconds = schedule[min(next_attempt - 1, len(schedule) - 1)]
+    if elapsed_seconds < gate_seconds:
+        return
+    quote = _wait_for_ibkr_snapshot_for_symbol(str(row.symbol or ""), wait_up_to=0.4, poll_interval=0.1)
+    bid = _safe_price_value(quote.get("bid"))
+    ask = _safe_price_value(quote.get("ask"))
+    if bid is None or ask is None or ask <= bid:
+        print(f"[EXECUTION][REPRICE_ABORT] symbol={row.symbol} order_id={row.broker_order_id} reason=NO_QUOTE_CONTEXT")
+        return
+    spread = float(ask) - float(bid)
+    max_spread_pct = float(os.environ.get("EXECUTION_MAX_REPRICE_SPREAD_PCT", "5.0") or "5.0")
+    if ask > 0 and (spread / ask) * 100.0 > max_spread_pct:
+        print(f"[EXECUTION][REPRICE_ABORT] symbol={row.symbol} order_id={row.broker_order_id} reason=PATHOLOGICAL_SPREAD")
+        return
+    _, Stock, _ = safe_import_ib_insync()
+    manager = get_shared_ibkr_connection_manager(readonly_enabled=False)
+    client = manager.get_client()
+    contract = Stock(row.symbol, "SMART", "USD")
+    qualified = list(client.qualifyContracts(contract) or []) if hasattr(client, "qualifyContracts") else []
+    if not qualified:
+        print(f"[EXECUTION][REPRICE_ABORT] symbol={row.symbol} order_id={row.broker_order_id} reason=CONTRACT_NOT_QUALIFIED")
+        return
+    level = next_attempt
+    new_limit, cap_applied, _component = _compute_aggressive_limit_price(
+        side=row.side,
+        bid=float(bid),
+        ask=float(ask),
+        tick_size=float(row.min_tick or 0.01),
+        aggression_level=level,
+    )
+    old_limit = row.last_limit_price if row.last_limit_price is not None else row.initial_limit_price
+    if old_limit is not None and abs(float(new_limit) - float(old_limit)) < 1e-9:
+        print(f"[EXECUTION][REPRICE_ABORT] symbol={row.symbol} order_id={row.broker_order_id} reason=UNCHANGED_LIMIT")
+        return
+    order = Order()
+    order.action = str(row.side or "").upper()
+    order.orderType = "LMT"
+    order.totalQuantity = int(row.total_qty)
+    order.tif = "DAY"
+    order.outsideRth = True
+    order.orderRef = row.order_ref
+    order.lmtPrice = float(new_limit)
+    print(
+        "[EXECUTION][REPRICE] "
+        f"symbol={row.symbol} order_id={row.broker_order_id} attempt={next_attempt} old_limit={_none_text(old_limit)} new_limit={new_limit} "
+        f"bid={bid} ask={ask} spread={spread:.6f} cap_applied={str(cap_applied).lower()}"
+    )
+    try:
+        client.placeOrder(int(row.broker_order_id), qualified[0], order)
+    except Exception as exc:
+        print(f"[EXECUTION][REPRICE_ABORT] symbol={row.symbol} order_id={row.broker_order_id} reason=MODIFY_FAILED error={exc}")
+        return
+    row.reprice_attempt_count = next_attempt
+    row.last_reprice_at = _now_utc_iso()
+    row.last_limit_price = float(new_limit)
+    if isinstance(row.order_wire_payload, dict):
+        row.order_wire_payload["lmt_price"] = float(new_limit)
+        row.order_wire_payload["bid"] = bid
+        row.order_wire_payload["ask"] = ask
+    print(f"[EXECUTION][REPRICE_RESULT] symbol={row.symbol} order_id={row.broker_order_id} status=MODIFY_SUBMITTED")
 
 
 def _update_ibkr_health(*, event_type: str, code: int | None = None) -> None:
@@ -1815,7 +1910,7 @@ def _run_watchdog_checks(*, now: datetime | None = None) -> None:
         row.escalation_reason = verdict if row.escalation_required else ""
         print(
             "[EXECUTION][WATCHDOG] "
-            f"symbol={row.symbol} broker_order_id={row.broker_order_id} state={row.canonical_state} verdict={verdict}"
+            f"symbol={row.symbol} broker_order_id={row.broker_order_id} state={row.canonical_state} verdict={verdict} elapsed={elapsed}"
         )
         if not row.escalation_required:
             continue
@@ -1830,6 +1925,12 @@ def _run_watchdog_checks(*, now: datetime | None = None) -> None:
             "[EXECUTION][WATCHDOG_STALL] "
             f"symbol={row.symbol} broker_order_id={row.broker_order_id} verdict={verdict} elapsed={elapsed}"
         )
+        if verdict in {"WORKING_NO_FILL_TIMEOUT", "ACKNOWLEDGED_NO_WORKING_TIMEOUT"} and int(row.filled_qty) <= 0:
+            print(
+                "[EXECUTION][WATCHDOG] "
+                f"symbol={row.symbol} state=STALE_NO_FILL action=REPRICE_TRIGGERED seconds_waited={elapsed}"
+            )
+            _attempt_watchdog_reprice(row, elapsed_seconds=elapsed)
 
 
 def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
@@ -2380,6 +2481,63 @@ def _session_label_now() -> str:
     return "OVN"
 
 
+def _canonical_execution_session(label: str) -> str:
+    normalized = str(label or "").strip().upper()
+    if normalized in {"PRE", "PREMARKET"}:
+        return "PREMARKET"
+    if normalized in {"REG", "RTH"}:
+        return "RTH"
+    if normalized in {"AFTER", "AH", "AFTER_HOURS"}:
+        return "AFTER_HOURS"
+    return "CLOSED"
+
+
+def _resolved_tick_size(value: Any) -> float:
+    tick = _safe_price_value(value)
+    if tick is None:
+        return 0.01
+    return max(0.01, float(tick))
+
+
+def _round_price_in_favor(*, side: str, price: float, tick_size: float) -> float:
+    tick = _resolved_tick_size(tick_size)
+    steps = float(price) / tick
+    if str(side or "").upper() == "BUY":
+        return round(math.ceil(steps) * tick, 6)
+    return round(math.floor(steps) * tick, 6)
+
+
+def _aggressive_cross_cap_ticks() -> int:
+    return _watchdog_threshold_seconds("EXECUTION_AGGRESSIVE_MAX_CROSS_TICKS", 50)
+
+
+def _compute_aggressive_limit_price(
+    *,
+    side: str,
+    bid: float,
+    ask: float,
+    tick_size: float,
+    aggression_level: int = 1,
+) -> tuple[float, bool, float]:
+    spread = max(0.0, float(ask) - float(bid))
+    tick = _resolved_tick_size(tick_size)
+    floor = max(tick, 0.01)
+    component = max(floor, spread * 0.25)
+    level = max(1, int(aggression_level))
+    raw = (float(ask) + component * level) if str(side or "").upper() == "BUY" else (float(bid) - component * level)
+    rounded = _round_price_in_favor(side=str(side or "").upper(), price=raw, tick_size=tick)
+    max_cross_ticks = _aggressive_cross_cap_ticks()
+    if str(side or "").upper() == "BUY":
+        max_allowed = float(ask) + float(max_cross_ticks) * tick
+        if rounded > max_allowed:
+            return _round_price_in_favor(side="BUY", price=max_allowed, tick_size=tick), True, component
+    else:
+        min_allowed = max(0.0, float(bid) - float(max_cross_ticks) * tick)
+        if rounded < min_allowed:
+            return _round_price_in_favor(side="SELL", price=min_allowed, tick_size=tick), True, component
+    return rounded, False, component
+
+
 def _compute_quote_spread(*, bid: float | None, ask: float | None) -> tuple[float | None, float | None]:
     if bid is None or ask is None or ask <= 0:
         return None, None
@@ -2403,34 +2561,33 @@ def classify_submit_fillability(
         if not has_quote_context:
             return "NO_QUOTE_CONTEXT", "market order but bid/ask unavailable"
         if action_norm == "BUY":
-            return "MARKETABLE_BUY_AT_OR_ABOVE_ASK", "market buy treated as marketable"
+            return "CROSSING_ASK_AGGRESSIVE", "market buy crosses ask liquidity"
         if action_norm == "SELL":
-            return "MARKETABLE_SELL_AT_OR_BELOW_BID", "market sell treated as marketable"
+            return "CROSSING_BID_AGGRESSIVE", "market sell crosses bid liquidity"
         return "NON_MARKETABLE_UNKNOWN", "market order with unsupported action"
     if not has_quote_context:
         return "NO_QUOTE_CONTEXT", "missing bid/ask quote context"
     if order_type_norm != "LMT" or lmt_price is None:
         return "NON_MARKETABLE_UNKNOWN", "unsupported order type or missing lmt_price"
     if action_norm == "BUY":
-        if ask is not None and float(lmt_price) >= float(ask):
-            return "MARKETABLE_BUY_AT_OR_ABOVE_ASK", "buy limit priced at or above ask"
+        if ask is not None and float(lmt_price) > float(ask):
+            return "CROSSING_ASK_AGGRESSIVE", "buy limit above ask"
+        if ask is not None and float(lmt_price) == float(ask):
+            return "PASSIVE_AT_ASK", "buy limit joins ask"
         if bid is not None and ask is not None and float(lmt_price) > float(bid) and float(lmt_price) < float(ask):
-            return "RESTING_INSIDE_SPREAD", "buy limit rests inside spread"
+            return "RESTING_INSIDE_SPREAD", "buy limit inside spread"
         if bid is not None and float(lmt_price) <= float(bid):
             return "PASSIVE_AWAY_FROM_MARKET", "buy limit at or below bid"
     if action_norm == "SELL":
-        if bid is not None and float(lmt_price) <= float(bid):
-            return "MARKETABLE_SELL_AT_OR_BELOW_BID", "sell limit priced at or below bid"
+        if bid is not None and float(lmt_price) < float(bid):
+            return "CROSSING_BID_AGGRESSIVE", "sell limit below bid"
+        if bid is not None and float(lmt_price) == float(bid):
+            return "PASSIVE_AT_BID", "sell limit joins bid"
         if bid is not None and ask is not None and float(lmt_price) > float(bid) and float(lmt_price) < float(ask):
-            return "RESTING_INSIDE_SPREAD", "sell limit rests inside spread"
+            return "RESTING_INSIDE_SPREAD", "sell limit inside spread"
         if ask is not None and float(lmt_price) >= float(ask):
             return "PASSIVE_AWAY_FROM_MARKET", "sell limit at or above ask"
-    if bid is not None and ask is not None:
-        if action_norm == "BUY" and float(lmt_price) > float(ask):
-            return "CROSSING_SPREAD", "buy limit crosses through ask"
-        if action_norm == "SELL" and float(lmt_price) < float(bid):
-            return "CROSSING_SPREAD", "sell limit crosses through bid"
-    return "NON_MARKETABLE_UNKNOWN", "unable to prove marketability from payload"
+    return "DEFERRED_OR_UNCLASSIFIABLE", "unable to classify from payload"
 
 
 def normalize_inactive_reason(
@@ -2459,13 +2616,14 @@ def normalize_inactive_reason(
         return "INACTIVE_BROKER_HELD", f"why_held present: {why}"
     if not quote_available or fillability == "NO_QUOTE_CONTEXT":
         return "INACTIVE_NO_QUOTE_CONTEXT", "no quote context available at submit time"
-    if fillability in {"PASSIVE_AWAY_FROM_MARKET", "RESTING_INSIDE_SPREAD", "NON_MARKETABLE_UNKNOWN"}:
+    if fillability in {"PASSIVE_AWAY_FROM_MARKET", "RESTING_INSIDE_SPREAD", "PASSIVE_AT_ASK", "PASSIVE_AT_BID", "DEFERRED_OR_UNCLASSIFIABLE", "NON_MARKETABLE_UNKNOWN"}:
         return "INACTIVE_NON_MARKETABLE_LIMIT", f"submit fillability={fillability}"
-    if (submit_outside_rth is False or echo_outside_rth is False) and session_label in {"PRE", "AH", "OVN"}:
+    canonical_session = _canonical_execution_session(session_label)
+    if (submit_outside_rth is False or echo_outside_rth is False) and canonical_session in {"PREMARKET", "AFTER_HOURS", "CLOSED"}:
         return "INACTIVE_OUTSIDE_RTH_CONFIGURATION", "outside_rth disabled outside regular session"
-    if tif == "DAY" and session_label in {"AH", "OVN"}:
+    if tif == "DAY" and canonical_session in {"AFTER_HOURS", "CLOSED"}:
         return "INACTIVE_SESSION_MISMATCH", "DAY tif observed outside regular session"
-    if exchange and exchange not in {"SMART", "NONE"} and fillability.startswith("MARKETABLE_"):
+    if exchange and exchange not in {"SMART", "NONE"} and fillability.startswith("CROSSING_"):
         return "INACTIVE_ROUTING_OR_EXCHANGE", f"non-SMART exchange for marketable order: {exchange}"
     return "INACTIVE_UNKNOWN", "insufficient evidence for deterministic classification"
 
@@ -2485,11 +2643,11 @@ def _inactive_terminal_state_from_reason(reason: str) -> str:
 
 def _fillability_bucket(classification: str) -> str:
     normalized = str(classification or "").upper()
-    if normalized in {"MARKETABLE_BUY_AT_OR_ABOVE_ASK", "MARKETABLE_SELL_AT_OR_BELOW_BID", "CROSSING_SPREAD"}:
+    if normalized in {"CROSSING_ASK_AGGRESSIVE", "CROSSING_BID_AGGRESSIVE"}:
         return "marketable"
     if normalized == "NO_QUOTE_CONTEXT":
         return "no_quote"
-    if normalized in {"PASSIVE_AWAY_FROM_MARKET", "RESTING_INSIDE_SPREAD", "NON_MARKETABLE_UNKNOWN"}:
+    if normalized in {"PASSIVE_AWAY_FROM_MARKET", "RESTING_INSIDE_SPREAD", "PASSIVE_AT_ASK", "PASSIVE_AT_BID", "DEFERRED_OR_UNCLASSIFIABLE", "NON_MARKETABLE_UNKNOWN"}:
         return "passive"
     return "passive"
 
@@ -2692,7 +2850,7 @@ def _submit_ibkr_order(
     quote_context = "FULL_BID_ASK" if quote_context_ok else "DEGRADED_LAST_ONLY"
     price_source = "IBKR_BID_ASK" if quote_context_ok else ("IBKR_LAST" if has_last_price else "SYNTHETIC")
     degraded_paper_path_allowed = execution_path == DEGRADED_QUOTE_PATH and mode == RunMode.PAPER and has_last_price
-    market_session = "PREMARKET" if _session_label_now() == "PRE" else "RTH"
+    market_session = _canonical_execution_session(_session_label_now())
     strict_premarket_limit_required = market_session == "PREMARKET" and mode == RunMode.LIVE
     degraded_premarket_paper_allowed = market_session == "PREMARKET" and degraded_paper_path_allowed
     print(f"[EXECUTION][PATH] symbol={symbol} path={execution_path}")
@@ -2713,6 +2871,7 @@ def _submit_ibkr_order(
         elif not strict_premarket_limit_required:
             print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_QUOTE_CONTEXT bid={_none_text(bid)} ask={_none_text(ask)}")
             raise RuntimeError("NO_QUOTE_CONTEXT")
+    min_tick = _resolved_tick_size(getattr(resolved_contract, "minTick", None))
     if strict_premarket_limit_required:
         if not quote_context_ok:
             print(
@@ -2721,13 +2880,23 @@ def _submit_ibkr_order(
             )
             raise RuntimeError("NO_BID_ASK_AVAILABLE_FOR_LIMIT")
         order.orderType = "LMT"
-        if order.action == "BUY":
-            order.lmtPrice = float(ask)
-        else:
-            order.lmtPrice = float(bid)
+        computed_limit, cap_applied, aggression_component = _compute_aggressive_limit_price(
+            side=order.action,
+            bid=float(bid),
+            ask=float(ask),
+            tick_size=min_tick,
+            aggression_level=1,
+        )
+        order.lmtPrice = float(computed_limit)
+        print(
+            "[EXECUTION][AGGRESSIVE_LIMIT_POLICY] "
+            f"symbol={symbol} side={order.action} bid={bid} ask={ask} spread={max(0.0, float(ask) - float(bid)):.6f} "
+            f"tick_size={min_tick:.6f} aggression_level=1 aggression_component={aggression_component:.6f} "
+            f"computed_limit={order.lmtPrice} cap_applied={str(cap_applied).lower()}"
+        )
         print(
             "[EXECUTION][ORDER_MODE] "
-            f"symbol={symbol} session={market_session} order_type=LMT reason=LIVE_PREMARKET_STRICT "
+            f"symbol={symbol} session={market_session} order_type=LMT reason=AGGRESSIVE_SPREAD_CROSS "
             f"limit_price={_none_text(getattr(order, 'lmtPrice', None))}"
         )
     elif degraded_premarket_paper_allowed:
@@ -2744,7 +2913,7 @@ def _submit_ibkr_order(
         bid=bid,
         ask=ask,
     )
-    if fillability in {"PASSIVE_AWAY_FROM_MARKET", "RESTING_INSIDE_SPREAD", "NON_MARKETABLE_UNKNOWN"}:
+    if fillability in {"PASSIVE_AWAY_FROM_MARKET", "RESTING_INSIDE_SPREAD", "PASSIVE_AT_ASK", "PASSIVE_AT_BID", "DEFERRED_OR_UNCLASSIFIABLE", "NON_MARKETABLE_UNKNOWN"}:
         print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NON_MARKETABLE_ORDER classification={fillability}")
         raise RuntimeError("NON_MARKETABLE_ORDER")
     restricted, restriction_detail = _evaluate_submission_restriction(
@@ -2781,7 +2950,7 @@ def _submit_ibkr_order(
         "exchange": getattr(resolved_contract, "exchange", None),
         "primary_exchange": getattr(resolved_contract, "primaryExchange", None),
         "routing_exchange": getattr(order, "exchange", None),
-        "session_label": _session_label_now(),
+        "session_label": market_session,
         "runtime_mode": mode.value,
         "execution_path": execution_path,
         "quote_context": quote_context,
@@ -2793,6 +2962,8 @@ def _submit_ibkr_order(
         "spread_abs": spread_abs,
         "spread_pct": spread_pct,
         "timestamp": _now_utc_iso(),
+        "market_session": market_session,
+        "min_tick": min_tick,
     }
     print(
         "[EXECUTION][ORDER_WIRE_PAYLOAD] "
@@ -2831,6 +3002,13 @@ def _submit_ibkr_order(
         tracked.order_wire_payload = dict(wire_payload)
         tracked.fillability_classification = str(fillability)
         tracked.fillability_rationale = str(fillability_rationale)
+        tracked.market_session = str(market_session)
+        tracked.min_tick = float(min_tick)
+        tracked.initial_bid = bid
+        tracked.initial_ask = ask
+        tracked.initial_limit_price = _safe_price_value(getattr(order, "lmtPrice", None))
+        tracked.last_limit_price = _safe_price_value(getattr(order, "lmtPrice", None))
+        tracked.max_reprice_attempts = _watchdog_threshold_seconds("EXECUTION_MAX_REPRICE_ATTEMPTS", 3)
     _register_pending_submission(
         order_id=int(order_id),
         symbol=str(symbol or "").upper(),
@@ -3317,7 +3495,7 @@ def execute_intents(
                     "exchange": None,
                     "primary_exchange": None,
                     "routing_exchange": None,
-                    "session_label": _session_label_now(),
+                    "session_label": _canonical_execution_session(_session_label_now()),
                     "runtime_mode": mode.value,
                     "bid": None,
                     "ask": None,
@@ -3523,9 +3701,9 @@ def execute_intents(
         f"order_reconciliation_mismatches={_RECONCILIATION_FAILURES} position_reconciliation_mismatches={_RECONCILED_POSITIONS_MISMATCH} "
         f"watchdog_stalls_total={_WATCHDOG_STALLS_TOTAL} ibkr_health_status={health_status} fill_authority_state={fill_authority_state()}"
     )
-    submitted_marketable = int(_SUBMIT_FILLABILITY_COUNTS.get("MARKETABLE_BUY_AT_OR_ABOVE_ASK", 0)) + int(
-        _SUBMIT_FILLABILITY_COUNTS.get("MARKETABLE_SELL_AT_OR_BELOW_BID", 0)
-    ) + int(_SUBMIT_FILLABILITY_COUNTS.get("CROSSING_SPREAD", 0))
+    submitted_marketable = int(_SUBMIT_FILLABILITY_COUNTS.get("CROSSING_ASK_AGGRESSIVE", 0)) + int(
+        _SUBMIT_FILLABILITY_COUNTS.get("CROSSING_BID_AGGRESSIVE", 0)
+    )
     print(
         "[EXECUTION][EXECUTABILITY_SUMMARY] "
         f"total_intents={intents_received} blocked_no_quote={blocked_no_quote} "

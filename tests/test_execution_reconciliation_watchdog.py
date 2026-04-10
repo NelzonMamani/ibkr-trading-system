@@ -110,6 +110,98 @@ def test_watchdog_classification() -> None:
     assert order_router._classify_watchdog_state(normal, now)[0] == "NORMAL_IN_FLIGHT"
 
 
+def test_watchdog_reprice_attempt_increments(monkeypatch) -> None:
+    _reset_state()
+    now = datetime.now(timezone.utc)
+    row = order_router.TrackedOrder(
+        broker_order_id=44,
+        order_ref="TRADING_OS|ROSS_MOMENTUM|WRK-1",
+        symbol="WRK",
+        side="BUY",
+        total_qty=10,
+        market_session="PREMARKET",
+        working_seen=True,
+        ack_seen=True,
+        working_seen_at=(now - timedelta(seconds=20)).isoformat(),
+        min_tick=0.01,
+    )
+    row.last_limit_price = 10.05
+    row.max_reprice_attempts = 3
+    order_router._RUNTIME_ORDERS[44] = row
+    monkeypatch.setattr(order_router, "_watchdog_reprice_schedule_seconds", lambda: [1, 2, 3])
+    monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_a, **_k: {"bid": 10.0, "ask": 10.05})
+
+    calls = []
+
+    class _Client:
+        def qualifyContracts(self, c):
+            c.conId = 1
+            return [c]
+
+        def placeOrder(self, oid, _contract, order):
+            calls.append((oid, order.lmtPrice))
+
+    class _Manager:
+        def get_client(self):
+            return _Client()
+
+    monkeypatch.setattr(order_router, "get_shared_ibkr_connection_manager", lambda readonly_enabled=False: _Manager())
+    order_router._run_watchdog_checks(now=now)
+    assert row.reprice_attempt_count == 1
+    assert len(calls) == 1
+
+
+def test_watchdog_reprice_aborts_without_quote_context(monkeypatch, capsys) -> None:
+    _reset_state()
+    now = datetime.now(timezone.utc)
+    row = order_router.TrackedOrder(
+        broker_order_id=45,
+        order_ref="TRADING_OS|ROSS_MOMENTUM|WRK-2",
+        symbol="WRK",
+        side="BUY",
+        total_qty=10,
+        market_session="PREMARKET",
+        working_seen=True,
+        ack_seen=True,
+        working_seen_at=(now - timedelta(seconds=20)).isoformat(),
+    )
+    row.max_reprice_attempts = 3
+    order_router._RUNTIME_ORDERS[45] = row
+    monkeypatch.setattr(order_router, "_watchdog_reprice_schedule_seconds", lambda: [1, 2, 3])
+    monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_a, **_k: {"bid": None, "ask": None})
+    order_router._run_watchdog_checks(now=now)
+    assert row.reprice_attempt_count == 0
+    assert "reason=NO_QUOTE_CONTEXT" in capsys.readouterr().out
+
+
+def test_watchdog_reprice_aborts_when_attempt_budget_exhausted(monkeypatch, capsys) -> None:
+    _reset_state()
+    now = datetime.now(timezone.utc)
+    row = order_router.TrackedOrder(
+        broker_order_id=46,
+        order_ref="TRADING_OS|ROSS_MOMENTUM|WRK-3",
+        symbol="WRK",
+        side="BUY",
+        total_qty=10,
+        market_session="PREMARKET",
+        working_seen=True,
+        ack_seen=True,
+        working_seen_at=(now - timedelta(seconds=20)).isoformat(),
+        reprice_attempt_count=3,
+        max_reprice_attempts=3,
+    )
+    order_router._RUNTIME_ORDERS[46] = row
+    order_router._run_watchdog_checks(now=now)
+    assert "reason=MAX_REPRICE_ATTEMPTS_REACHED" in capsys.readouterr().out
+
+
+def test_canonical_session_mapping() -> None:
+    assert order_router._canonical_execution_session("PRE") == "PREMARKET"
+    assert order_router._canonical_execution_session("REG") == "RTH"
+    assert order_router._canonical_execution_session("AFTER") == "AFTER_HOURS"
+    assert order_router._canonical_execution_session("X") == "CLOSED"
+
+
 def test_ibkr_health_recovers_when_substates_restore(capsys) -> None:
     _reset_state()
 
