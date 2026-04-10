@@ -2024,9 +2024,61 @@ class CoreOrchestrator:
                 exec_id=exec_id,
             )
 
+    def _seed_trade_management_from_broker_truth(self) -> int:
+        provider = getattr(self.execution_engine, "provider", None)
+        broker = getattr(provider, "broker", None)
+        connection_manager = getattr(broker, "connection_manager", None)
+        if connection_manager is not None and hasattr(connection_manager, "get_client"):
+            try:
+                self._broker_position_adapter._broker_client = connection_manager.get_client()
+            except Exception as exc:
+                print(f"[POSITION][REPAIR_SKIPPED] reason=client_resolution_failed error={exc}")
+        try:
+            snapshots = self._broker_position_adapter.fetch_broker_positions()
+        except Exception as exc:
+            print(f"[POSITION][REPAIR_SKIPPED] reason=broker_snapshot_fetch_failed error={exc}")
+            return 0
+        repaired = 0
+        for snapshot in snapshots:
+            symbol = str(getattr(snapshot, "symbol", "") or "").upper()
+            quantity = int(getattr(snapshot, "quantity", 0) or 0)
+            avg_price = float(getattr(snapshot, "avg_entry_price", 0.0) or 0.0)
+            if not symbol or quantity <= 0 or avg_price <= 0:
+                continue
+            local = self.trade_management_engine.snapshot_positions().get(symbol)
+            if local is None or int(local.quantity) <= 0:
+                print(
+                    "[POSITION][REPAIR_CREATE] "
+                    f"symbol={symbol} broker_qty={quantity} broker_avg_cost={avg_price:.4f}"
+                )
+            elif int(local.quantity) != quantity or abs(float(local.entry_price) - avg_price) > 0.01:
+                print(
+                    "[POSITION][REPAIR_UPDATE] "
+                    f"symbol={symbol} local_qty={int(local.quantity)} broker_qty={quantity} "
+                    f"local_avg_cost={float(local.entry_price):.4f} broker_avg_cost={avg_price:.4f}"
+                )
+            else:
+                continue
+            applied = self.trade_management_engine.upsert_broker_position(
+                symbol=symbol,
+                quantity=quantity,
+                avg_price=avg_price,
+                source="IBKR_POSITION_SYNC",
+            )
+            if applied is not None:
+                repaired += 1
+                print(f"[POSITION][REPAIR_APPLIED] symbol={symbol} source=IBKR")
+        return repaired
+
     def _run_trade_management_engine(self, execution_output: list[ExecutionResult]) -> list[object]:
         self._apply_execution_results_to_trade_management(execution_output)
+        repaired_count = self._seed_trade_management_from_broker_truth()
         market_state = self._build_trade_management_market_state()
+        managed_before = len(self.trade_management_engine.snapshot_positions())
+        print(f"[EXIT][ENGINE_RUN] positions_managed={managed_before}")
+        print(f"[EXIT][BROKER_REPAIRED_POSITIONS] count={repaired_count}")
+        if repaired_count > 0 and managed_before == 0:
+            raise RuntimeError("Broker position repair failed: positions remain unmanaged")
         intents = self.trade_management_engine.evaluate_cycle(market_state)
         for intent in intents:
             print(

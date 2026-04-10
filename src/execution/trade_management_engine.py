@@ -76,6 +76,76 @@ class TradeManagementEngine:
         self._stall_candles_without_high = int(stall_candles_without_high)
         self._stall_rejections_threshold = int(stall_rejections_threshold)
 
+    def upsert_broker_position(
+        self,
+        *,
+        symbol: str,
+        quantity: int,
+        avg_price: float,
+        source: str = "IBKR_POSITION_SYNC",
+    ) -> PositionState | None:
+        normalized = str(symbol or "").upper().strip()
+        qty = int(quantity or 0)
+        avg = float(avg_price or 0.0)
+        if not normalized or qty <= 0 or avg <= 0:
+            return None
+        now = datetime.now(timezone.utc)
+        first_target, second_target, target_type = self._calculate_profit_targets(avg)
+        position = self._positions.get(normalized)
+        if position is None:
+            position = PositionState(
+                symbol=normalized,
+                entry_price=avg,
+                quantity=qty,
+                entry_timestamp=now,
+                highest_price_seen=avg,
+                lowest_price_seen=avg,
+                current_price=avg,
+                unrealized_pnl=0.0,
+                holding_time_seconds=0,
+                strategy_name="ROSS_MOMENTUM",
+                setup_family="UNKNOWN",
+                entry_reason="BROKER_POSITION_SYNC",
+                stop_loss_price=avg - self._trail_buffer,
+                break_even_price=avg,
+                last_trail_price=avg - self._trail_buffer,
+                first_target_price=first_target,
+                second_target_price=second_target,
+                target_type=target_type,
+                exit_stage="NONE",
+                reference_order_id=source,
+                partial_taken=False,
+            )
+            self._positions[normalized] = position
+            self._pending_exit.discard(normalized)
+            return position
+
+        position.quantity = qty
+        position.entry_price = avg
+        position.break_even_price = avg
+        position.current_price = max(float(position.current_price or 0.0), avg)
+        position.highest_price_seen = max(float(position.highest_price_seen or avg), position.current_price, avg)
+        position.lowest_price_seen = min(float(position.lowest_price_seen or avg), avg)
+        position.stop_loss_price = max(float(position.stop_loss_price or (avg - self._trail_buffer)), avg - self._trail_buffer)
+        position.last_trail_price = max(float(position.last_trail_price or (avg - self._trail_buffer)), avg - self._trail_buffer)
+        position.first_target_price = first_target
+        position.second_target_price = second_target
+        position.target_type = target_type
+        if not position.strategy_name:
+            position.strategy_name = "ROSS_MOMENTUM"
+        if not position.entry_reason or position.entry_reason == "UNKNOWN":
+            position.entry_reason = "BROKER_POSITION_SYNC"
+        if position.entry_timestamp is None:
+            position.entry_timestamp = now
+        if not position.exit_stage:
+            position.exit_stage = "NONE"
+        position.partial_taken = bool(position.partial_taken)
+        position.reference_order_id = position.reference_order_id or source
+        position.unrealized_pnl = (position.current_price - position.entry_price) * position.quantity
+        position.holding_time_seconds = int((now - position.entry_timestamp).total_seconds())
+        self._pending_exit.discard(normalized)
+        return position
+
     def on_exec_details(self, *, symbol: str, shares: int, price: float, exec_id: str | None) -> PositionState | None:
         normalized = str(symbol or "").upper()
         if not normalized or shares == 0 or price <= 0:

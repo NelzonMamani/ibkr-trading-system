@@ -45,14 +45,13 @@ def test_callback_delay_marks_order_pending() -> None:
     assert order_router.runtime_lifecycle_snapshot()["callback_delay_warnings_count"] == 1
 
 
-def test_passive_reconciliation_detects_position_drift_without_fill_creation() -> None:
+def test_passive_reconciliation_repairs_position_drift_from_broker_truth() -> None:
     _reset_router_state()
     order_router._RUNTIME_POSITIONS["AAPL"] = order_router.TrackedPosition(symbol="AAPL", qty=1, state="POSITION_OPEN")
     order_router._run_passive_position_reconciliation(positions=[_StubPosition(symbol="AAPL", position=3)])
 
-    assert order_router._RUNTIME_POSITIONS["AAPL"].qty == 1
-    assert order_router._RECONCILED_POSITIONS_COUNT == 0
-    assert order_router._RECON_RESYNC_NEEDED is True
+    assert order_router._RUNTIME_POSITIONS["AAPL"].qty == 3
+    assert order_router._RUNTIME_POSITIONS["AAPL"].state == "POSITION_OPEN"
     assert not order_router._EXECUTION_EVENT_BUFFER
 
 
@@ -112,7 +111,7 @@ def test_ibkr_position_callback_populates_in_memory_truth_store(capsys) -> None:
     assert order_router._IBKR_POSITIONS_BY_SYMBOL["AAPL"].avg_price == 2.45
 
 
-def test_passive_reconciliation_emits_position_summary_and_mismatch(capsys) -> None:
+def test_passive_reconciliation_emits_position_summary_with_active_repair(capsys) -> None:
     _reset_router_state()
     order_router._RUNTIME_ORDERS[2001] = order_router.TrackedOrder(
         broker_order_id=2001,
@@ -129,5 +128,5 @@ def test_passive_reconciliation_emits_position_summary_and_mismatch(capsys) -> N
     order_router._run_passive_position_reconciliation(positions=[_StubPosition(symbol="AAPL", position=2)])
     output = capsys.readouterr().out
 
-    assert "[POSITION][MISMATCH] symbol=AAPL expected_position=1 ibkr_position=2" in output
-    assert "[POSITION][SUMMARY] total_positions=1 mismatches=1" in output
+    assert "[POSITION][REPAIR_UPDATE] symbol=AAPL local_qty=0 broker_qty=2" in output
+    assert "[POSITION][SUMMARY] total_positions=1 mismatches=0" in output

@@ -1380,12 +1380,15 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
         raise AssertionError(f"EXECDETAILS_MISSING_TRACKED_ORDER:{order_id}")
     row.symbol = normalized_symbol or row.symbol
     if exec_id:
-        dedupe_key = f"{order_id}:{exec_id}"
-        if dedupe_key in _SEEN_EXEC_IDS or exec_id in row.seen_exec_ids:
-            print(f"[EXECUTION][FILL_DEDUP] order_id={order_id} exec_id={exec_id} deduped=true")
-            return
-        _SEEN_EXEC_IDS.add(dedupe_key)
-        row.seen_exec_ids.add(exec_id)
+        normalized_exec_id = str(exec_id)
+        synthetic_backfill = normalized_exec_id.startswith("BACKFILL-") or source == "IBKR_EXECUTION_BACKFILL"
+        if not synthetic_backfill:
+            dedupe_key = f"{order_id}:{normalized_exec_id}"
+            if dedupe_key in _SEEN_EXEC_IDS or normalized_exec_id in row.seen_exec_ids:
+                print(f"[EXECUTION][FILL_DEDUP] order_id={order_id} exec_id={exec_id} deduped=true")
+                return
+            _SEEN_EXEC_IDS.add(dedupe_key)
+            row.seen_exec_ids.add(normalized_exec_id)
     inc = max(0, int(fill_qty))
     if inc <= 0:
         return
@@ -1994,10 +1997,50 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
             verdict = "QTY_MISMATCH"
             reason = f"expected_position={expected_position} ibkr_position={ibkr_qty}"
         elif broker_avg_cost is not None and local_avg_cost is not None and abs(float(broker_avg_cost) - float(local_avg_cost)) > 0.01:
-            verdict = "AVG_COST_MISMATCH"
+            verdict = "AVG_COST_REPAIRABLE"
             reason = f"broker_avg_cost={broker_avg_cost} local_avg_cost={local_avg_cost}"
         elif ibkr_qty == 0 and expected_position == 0 and int(_BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol, 0)) > 0:
             verdict = "POSITION_CLOSED_ALIGNED"
+        repaired = False
+        if ibkr_qty > 0:
+            if local is None or local_qty <= 0:
+                print(
+                    "[POSITION][REPAIR_CREATE] "
+                    f"symbol={symbol} broker_qty={ibkr_qty} broker_avg_cost={broker_avg_cost}"
+                )
+                local = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
+                repaired = True
+            avg_cost_delta = (
+                broker_avg_cost is not None
+                and local.avg_price is not None
+                and abs(float(local.avg_price) - float(broker_avg_cost)) > 0.01
+            )
+            if local.qty != ibkr_qty or avg_cost_delta:
+                print(
+                    "[POSITION][REPAIR_UPDATE] "
+                    f"symbol={symbol} local_qty={int(local.qty)} broker_qty={ibkr_qty} "
+                    f"local_avg_cost={local.avg_price} broker_avg_cost={broker_avg_cost}"
+                )
+                repaired = True
+            local.qty = int(ibkr_qty)
+            if broker_avg_cost is not None:
+                local.avg_price = float(broker_avg_cost)
+            local.state = "POSITION_OPEN" if local.qty > 0 else "NO_POSITION"
+            local.pending_entry_qty = max(0, int(local.pending_entry_qty))
+            local.pending_exit_qty = max(0, int(local.pending_exit_qty))
+            if repaired:
+                print(f"[POSITION][REPAIR_APPLIED] symbol={symbol} source=IBKR")
+            verdict = "ALIGNED"
+            reason = ""
+        elif ibkr_qty == 0 and local is not None and int(local.qty) != 0 and expected_position == 0:
+            print(
+                "[POSITION][REPAIR_UPDATE] "
+                f"symbol={symbol} local_qty={int(local.qty)} broker_qty=0 "
+                f"local_avg_cost={local.avg_price} broker_avg_cost={broker_avg_cost}"
+            )
+            local.qty = 0
+            local.state = "POSITION_CLOSED"
+            print(f"[POSITION][REPAIR_APPLIED] symbol={symbol} source=IBKR")
         if verdict == "ALIGNED":
             _RECONCILED_POSITIONS_OK += 1
             print(f"[EXECUTION][POSITION_RECONCILE_OK] symbol={symbol} verdict=ALIGNED")
@@ -2106,7 +2149,7 @@ def _sync_submitted_events_from_ibkr(
         event.last_update_time = _now_utc_iso()
     _run_passive_position_reconciliation(positions=positions)
     if positions:
-        print("[POSITION][SYNC] reconciliation_snapshot_observed=true fill_source=CALLBACK_ONLY repair_mode=PASSIVE")
+        print("[POSITION][SYNC] reconciliation_snapshot_observed=true fill_source=CALLBACK_ONLY repair_mode=ACTIVE")
     _check_callback_delay()
     _run_watchdog_checks()
     _check_position_consistency()

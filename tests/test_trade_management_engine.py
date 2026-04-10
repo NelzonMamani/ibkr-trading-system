@@ -113,3 +113,26 @@ def test_no_duplicate_exits_while_pending() -> None:
 
     assert len(first) == 1
     assert second == []
+
+
+def test_upsert_broker_position_creates_managed_position() -> None:
+    engine = TradeManagementEngine()
+    position = engine.upsert_broker_position(symbol="ibm", quantity=25, avg_price=101.25)
+
+    assert position is not None
+    assert position.symbol == "IBM"
+    assert position.quantity == 25
+    assert position.entry_reason == "BROKER_POSITION_SYNC"
+    assert position.strategy_name == "ROSS_MOMENTUM"
+    assert position.break_even_price == 101.25
+    assert position.exit_stage == "NONE"
+
+
+def test_upsert_broker_position_updates_existing_state() -> None:
+    engine = _engine_with_position()
+    updated = engine.upsert_broker_position(symbol="ABCD", quantity=120, avg_price=10.4, source="IBKR_POSITION_SYNC")
+
+    assert updated is not None
+    assert updated.quantity == 120
+    assert updated.entry_price == 10.4
+    assert updated.break_even_price == 10.4

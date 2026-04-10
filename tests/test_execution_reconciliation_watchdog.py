@@ -77,10 +77,14 @@ def test_position_reconciliation_verdicts(capsys, monkeypatch) -> None:
     out = capsys.readouterr().out
 
     assert "symbol=AAA" in out and "verdict=ALIGNED" in out
-    assert "symbol=BBB" in out and "verdict=BROKER_POSITION_WITHOUT_FILL" in out
+    assert "symbol=BBB" in out and "[POSITION][REPAIR_CREATE]" in out
+    assert "symbol=BBB" in out and "verdict=ALIGNED" in out
     assert "symbol=CCC" in out and "verdict=LOCAL_FILL_WITHOUT_BROKER_POSITION" in out
-    assert "symbol=DDD" in out and "verdict=AVG_COST_MISMATCH" in out
+    assert "symbol=DDD" in out and "[POSITION][REPAIR_UPDATE]" in out
+    assert "symbol=DDD" in out and "verdict=ALIGNED" in out
     assert "symbol=EEE" in out and "verdict=POSITION_CLOSED_ALIGNED" in out
+    assert order_router._RUNTIME_POSITIONS["BBB"].qty == 5
+    assert order_router._RUNTIME_POSITIONS["DDD"].avg_price == 11.0
 
 
 def test_watchdog_classification() -> None:
