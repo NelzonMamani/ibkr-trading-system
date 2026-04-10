@@ -416,6 +416,13 @@ def _parse_iso_utc(value: str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _sanitize_ibkr_order_attributes(order: Order) -> None:
+    order.eTradeOnly = False
+    order.firmQuoteOnly = False
+    order.outsideRth = True
+    print("[EXECUTION][ORDER_SANITIZED] eTradeOnly=False firmQuoteOnly=False outsideRth=True")
+
+
 def fill_authority_state() -> str:
     return _FILL_AUTHORITY_STATE
 
@@ -626,11 +633,11 @@ def _attempt_watchdog_reprice(row: TrackedOrder, *, elapsed_seconds: int) -> Non
         print(f"[EXECUTION][REPRICE_ABORT] symbol={row.symbol} order_id={row.broker_order_id} reason=UNCHANGED_LIMIT")
         return
     order = Order()
+    _sanitize_ibkr_order_attributes(order)
     order.action = str(row.side or "").upper()
     order.orderType = "LMT"
     order.totalQuantity = int(row.total_qty)
     order.tif = "DAY"
-    order.outsideRth = True
     order.orderRef = row.order_ref
     order.lmtPrice = float(new_limit)
     print(
@@ -2780,13 +2787,11 @@ def _submit_ibkr_order(
         print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_IBKR_PRICE_AUTHORITY price_source={_none_text(entry_price_source)}")
         raise RuntimeError("NO_IBKR_PRICE_AUTHORITY")
     order = Order()
-    order.eTradeOnly = False
-    order.firmQuoteOnly = False
+    _sanitize_ibkr_order_attributes(order)
     order.action = side.upper()
     order.orderType = "MKT"
     order.totalQuantity = int(quantity)
     order.tif = "DAY"
-    order.outsideRth = True
     order.orderRef = order_ref
     account = getattr(client, "get_primary_account", lambda: None)() if hasattr(client, "get_primary_account") else None
     if account:
@@ -3236,10 +3241,21 @@ def execute_intents(
                 )
             )
             continue
-        position_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
-        treated_as_flat = abs(position_qty) <= 1e-6
+        local_position = _RUNTIME_POSITIONS.get(duplicate_symbol)
+        local_position_qty = float(getattr(local_position, "qty", 0.0) or 0.0)
+        broker_position_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
+        recent_exec_local = False
+        if local_position is not None and str(getattr(local_position, "last_update_source", "") or "").upper() == "EXEC_DETAILS":
+            exec_seen_at = _parse_iso_utc(getattr(local_position, "last_fill_update_at", None))
+            if exec_seen_at is not None:
+                recency_seconds = float(os.environ.get("EXECUTION_POSITION_EXEC_RECENCY_SECONDS", "15") or "15")
+                recent_exec_local = (datetime.now(timezone.utc) - exec_seen_at).total_seconds() <= recency_seconds
+        effective_position_qty = local_position_qty if recent_exec_local else max(local_position_qty, broker_position_qty)
+        treated_as_flat = abs(effective_position_qty) <= 1e-6
+        position_source = "LOCAL_EXEC" if recent_exec_local else "MAX_LOCAL_BROKER"
         print(
-            f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} position_qty={position_qty} treated_as_flat={str(treated_as_flat).lower()}"
+            f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} local_qty={local_position_qty} broker_qty={broker_position_qty} "
+            f"effective_qty={effective_position_qty} source={position_source} treated_as_flat={str(treated_as_flat).lower()}"
         )
         if order_side == "BUY" and not treated_as_flat:
             blocked_reason = "DUPLICATE_POSITION"

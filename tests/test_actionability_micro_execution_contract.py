@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from src.core.engines.trigger_engine import TriggerEngine
 from src.core_engine.events import ExecutionEvent, PatternSummary, RiskDecisionRecord, TradeIntentRecord
 from src.core_engine.orchestrator import _emit_final_decisions
@@ -299,6 +301,10 @@ def test_execute_intents_blocks_duplicate_symbol_using_ibkr_truth(monkeypatch, c
 
 
 def test_position_zero_not_blocked(monkeypatch, capsys) -> None:
+    from src.execution import order_router
+
+    order_router._RUNTIME_POSITIONS.clear()
+
     class _FlatPos:
         symbol = "MCRO"
         position = 0.0
@@ -326,13 +332,53 @@ def test_position_zero_not_blocked(monkeypatch, capsys) -> None:
     )
     out = capsys.readouterr().out
     assert events[0].action == "SUBMITTED"
-    assert "[EXECUTION][POSITION_CHECK] symbol=MCRO position_qty=0.0 treated_as_flat=true" in out
+    assert "[EXECUTION][POSITION_CHECK] symbol=MCRO local_qty=0.0 broker_qty=0.0 effective_qty=0.0 source=MAX_LOCAL_BROKER treated_as_flat=true" in out
+    assert "reason=DUPLICATE_POSITION" not in out
+
+
+def test_recent_exec_local_flat_overrides_stale_broker_position(monkeypatch, capsys) -> None:
+    from src.execution import order_router
+    from types import SimpleNamespace
+
+    class _StaleBrokerPos:
+        symbol = "MCRO"
+        position = 100.0
+        avgCost = 24.0
+
+    order_router._RUNTIME_POSITIONS.clear()
+    order_router._RUNTIME_POSITIONS["MCRO"] = SimpleNamespace(
+        qty=0.0,
+        state="POSITION_CLOSED",
+        last_update_source="EXEC_DETAILS",
+        last_fill_update_at=datetime.now(timezone.utc).isoformat(),
+    )
+    monkeypatch.setattr("src.execution.order_router._fetch_ibkr_truth", lambda _mode: ([], [], [_StaleBrokerPos()]))
+    events = execute_intents(
+        mode=RunMode.PAPER,
+        decisions=[
+            RiskDecisionRecord(
+                symbol="MCRO",
+                intent_id="MCRO-1",
+                decision="ALLOW",
+                max_position_size=10,
+                constraints=[],
+                triggered_rules=[],
+                rationale="ok",
+                approved_quantity=10,
+                entry_price=25.0,
+            )
+        ],
+    )
+    out = capsys.readouterr().out
+    assert events[0].action == "SUBMITTED"
+    assert "source=LOCAL_EXEC treated_as_flat=true" in out
     assert "reason=DUPLICATE_POSITION" not in out
 
 
 def test_ibkr_callback_creates_order_filled_event(monkeypatch, capsys) -> None:
     from src.execution import order_router
 
+    order_router._RUNTIME_POSITIONS.clear()
     monkeypatch.setattr("src.execution.order_router._fetch_ibkr_truth", lambda _mode: ([], [], []))
     monkeypatch.setenv("IBKR_ENABLE_TEST_ONLY_FILL", "false")
     order_router._on_ibkr_callback(
