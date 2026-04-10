@@ -1598,7 +1598,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     event = ExecutionEvent(
         symbol=symbol or "UNKNOWN",
         intent_id="",
-        action="WORKING" if fill_event_type == "ORDER_WORKING" else "SUBMITTED",
+        action="WORKING" if fill_event_type == "ORDER_WORKING" else "FILLED",
         detail="callback_fill",
         event_type=fill_event_type,
         source="IBKR",
@@ -3129,7 +3129,7 @@ def execute_intents(
                 "family": str(family or ""),
                 "order_id": int(order_id) if order_id is not None else None,
                 "status": status or "UNKNOWN",
-                "is_live_status": status in {"SUBMITTED", "PRESUBMITTED", "PENDING_SUBMIT", "PENDINGCANCEL", "UNKNOWN"},
+                "is_live_status": status in {"SUBMITTED", "ACKNOWLEDGED", "WORKING", "PRESUBMITTED"},
             }
         )
     print(f"[EXECUTION][WORKING_ORDER_RECON] known_working_orders={len(working_order_candidates)}")
@@ -3208,12 +3208,40 @@ def execute_intents(
                 f"existing_status={duplicate_status} reason={duplicate_reason}"
             )
             break
+        if working_duplicate:
+            blocked_reason = "DUPLICATE_WORKING_ORDER"
+            blocked_pre_submit += 1
+            print(
+                f"[EXECUTION][DUPLICATE_WORKING_ORDER] symbol={duplicate_symbol} reason={blocked_reason} "
+                f"existing_order_id={duplicate_order_id} existing_broker_state={duplicate_status} conflict_reason={duplicate_reason}"
+            )
+            print(
+                f"[EXECUTION][DUPLICATE_BLOCK] symbol={duplicate_symbol} reason={blocked_reason} "
+                f"existing_order_id={duplicate_order_id} existing_broker_state={duplicate_status} conflict_reason={duplicate_reason}"
+            )
+            print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_WORKING_ORDER")
+            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
+            _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
+            truth.rejection_reason = blocked_reason
+            _mark_execution_failure(trace, "EXECUTION_SKIPPED_DUPLICATE", reason="duplicate_working_order")
+            events.append(
+                ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail=f"reason={blocked_reason}; event=EXECUTION_SKIPPED_DUPLICATE",
+                    event_type="EXECUTION_SKIPPED_DUPLICATE",
+                    broker_status="REJECTED",
+                    last_update_time=_now_utc_iso(),
+                )
+            )
+            continue
         position_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
         treated_as_flat = abs(position_qty) <= 1e-6
         print(
             f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} position_qty={position_qty} treated_as_flat={str(treated_as_flat).lower()}"
         )
-        if not treated_as_flat:
+        if order_side == "BUY" and not treated_as_flat:
             blocked_reason = "DUPLICATE_POSITION"
             blocked_pre_submit += 1
             print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
@@ -3227,29 +3255,7 @@ def execute_intents(
                     intent_id=decision.intent_id,
                     action="BLOCKED",
                     detail=f"reason={blocked_reason}",
-                    broker_status="REJECTED",
-                    last_update_time=_now_utc_iso(),
-                )
-            )
-            continue
-        if working_duplicate:
-            blocked_reason = "DUPLICATE_WORKING_ORDER"
-            blocked_pre_submit += 1
-            print(
-                f"[EXECUTION][DUPLICATE_BLOCK] symbol={duplicate_symbol} reason={blocked_reason} "
-                f"existing_order_id={duplicate_order_id} existing_broker_state={duplicate_status} conflict_reason={duplicate_reason}"
-            )
-            print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_WORKING_ORDER")
-            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
-            _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
-            truth.rejection_reason = blocked_reason
-            _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_working_order")
-            events.append(
-                ExecutionEvent(
-                    symbol=decision.symbol,
-                    intent_id=decision.intent_id,
-                    action="BLOCKED",
-                    detail=f"reason={blocked_reason}; event=EXECUTION_SKIPPED_DUPLICATE",
+                    event_type="ORDER_REJECTED",
                     broker_status="REJECTED",
                     last_update_time=_now_utc_iso(),
                 )
