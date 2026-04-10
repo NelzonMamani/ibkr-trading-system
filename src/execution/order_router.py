@@ -23,6 +23,7 @@ _FILL_AUTHORITY_STATE = "UNKNOWN"
 _RUNTIME_ORDERS: dict[int, "TrackedOrder"] = {}
 _EXECUTION_TRUTH_BY_ORDER_ID: dict[int, "ExecutionTruthRecord"] = {}
 _RUNTIME_POSITIONS: dict[str, "TrackedPosition"] = {}
+_IBKR_POSITIONS_BY_SYMBOL: dict[str, "IbkrPositionTruth"] = {}
 _SEEN_EXEC_IDS: set[str] = set()
 _UNMATCHED_CALLBACK_COUNT = 0
 _RECONCILIATION_SUCCESSES = 0
@@ -255,6 +256,14 @@ class TrackedPosition:
     pending_entry_qty: int = 0
     pending_exit_qty: int = 0
     state: str = "NO_POSITION"
+
+
+@dataclass
+class IbkrPositionTruth:
+    symbol: str
+    quantity: int = 0
+    avg_price: float | None = None
+    last_update_time: str = field(default_factory=lambda: _now_utc_iso())
 
 
 @dataclass
@@ -888,6 +897,35 @@ def _extract_position_qty(position_row: Any) -> float:
     return 0.0
 
 
+def _upsert_ibkr_position_truth(*, symbol: str, quantity: int, avg_price: float | None, update_time: str | None = None) -> None:
+    normalized_symbol = str(symbol or "").upper().strip()
+    if not normalized_symbol:
+        return
+    row = _IBKR_POSITIONS_BY_SYMBOL.setdefault(normalized_symbol, IbkrPositionTruth(symbol=normalized_symbol))
+    row.quantity = int(quantity)
+    row.avg_price = float(avg_price) if avg_price is not None else None
+    row.last_update_time = str(update_time or _now_utc_iso())
+    print(
+        "[POSITION][SYNC] "
+        f"symbol={normalized_symbol} qty={row.quantity} avg_price={row.avg_price} source=IBKR"
+    )
+
+
+def _sync_ibkr_positions_from_snapshot(positions: list[Any]) -> None:
+    for row in positions:
+        symbol = _extract_symbol_from_order(row)
+        if not symbol:
+            continue
+        quantity = int(_extract_position_qty(row) or 0)
+        avg_cost = _extract_position_avg_cost(row)
+        _upsert_ibkr_position_truth(
+            symbol=symbol,
+            quantity=quantity,
+            avg_price=avg_cost,
+            update_time=_now_utc_iso(),
+        )
+
+
 def _extract_callback_field(callback_payload: Any, *field_names: str) -> Any:
     for field in field_names:
         if isinstance(callback_payload, dict) and field in callback_payload:
@@ -1314,6 +1352,18 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     if event_type == "positionend":
         print("[IBKR][CALLBACK_RAW] event=positionEnd")
         return
+    if event_type == "position":
+        qty_raw = _extract_callback_field(callback_payload, "position", "qty", "shares", "quantity")
+        avg_raw = _extract_callback_field(callback_payload, "avgCost", "avg_cost", "averageCost", "avg_price")
+        try:
+            qty = int(float(qty_raw or 0))
+        except (TypeError, ValueError):
+            qty = 0
+        try:
+            avg_price = float(avg_raw) if avg_raw is not None else None
+        except (TypeError, ValueError):
+            avg_price = None
+        _upsert_ibkr_position_truth(symbol=symbol, quantity=qty, avg_price=avg_price, update_time=timestamp)
     if order_id is None:
         if event_type == "execdetails":
             _UNMATCHED_CALLBACK_COUNT += 1
@@ -1690,11 +1740,6 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     elif event_type == "position":
         print(f"[EXECUTION][CALLBACK_NORMALIZED] event=position symbol={symbol or 'UNKNOWN'} broker_order_id={order_id} state=POSITION")
         if trace is not None:
-            qty_raw = _extract_callback_field(callback_payload, "position", "qty", "shares")
-            try:
-                qty = int(float(qty_raw or 0))
-            except (TypeError, ValueError):
-                qty = 0
             if qty > 0:
                 _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"position_seen": True})
                 trace.position_opened = True
@@ -1789,14 +1834,13 @@ def _run_watchdog_checks(*, now: datetime | None = None) -> None:
 
 def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
     global _RECON_RESYNC_NEEDED, _RECONCILED_POSITIONS_OK, _RECONCILED_POSITIONS_MISMATCH, _BROKER_POSITION_WITHOUT_FILL_COUNT, _LOCAL_FILL_WITHOUT_POSITION_COUNT, _OPEN_POSITIONS_CONFIRMED, _REDUCED_POSITIONS_CONFIRMED, _CLOSED_POSITIONS_CONFIRMED
-    broker_position_by_symbol: dict[str, int] = {}
-    broker_avg_cost_by_symbol: dict[str, float | None] = {}
-    for row in positions:
-        symbol = _extract_symbol_from_order(row)
-        if not symbol:
-            continue
-        broker_position_by_symbol[symbol] = int(broker_position_by_symbol.get(symbol, 0)) + int(_extract_position_qty(row) or 0)
-        broker_avg_cost_by_symbol[symbol] = _extract_position_avg_cost(row)
+    _sync_ibkr_positions_from_snapshot(positions)
+    broker_position_by_symbol: dict[str, int] = {
+        symbol: int(row.quantity) for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items()
+    }
+    broker_avg_cost_by_symbol: dict[str, float | None] = {
+        symbol: row.avg_price for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items()
+    }
     local_fill_qty_by_symbol: dict[str, int] = {}
     local_fill_avg_by_symbol: dict[str, float | None] = {}
     local_fill_ts_by_symbol: dict[str, datetime | None] = {}
@@ -1811,24 +1855,25 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
     symbols = set(_RUNTIME_POSITIONS.keys()) | set(broker_position_by_symbol.keys()) | set(local_fill_qty_by_symbol.keys())
     window_seconds = _position_reconciliation_window_seconds()
     now_utc = datetime.now(timezone.utc)
+    mismatch_count = 0
     for symbol in sorted(symbols):
         local = _RUNTIME_POSITIONS.get(symbol)
         local_qty = int(local.qty) if local is not None else 0
-        broker_qty = int(broker_position_by_symbol.get(symbol, 0))
-        local_fill_qty = int(local_fill_qty_by_symbol.get(symbol, 0))
+        ibkr_qty = int(broker_position_by_symbol.get(symbol, 0))
+        expected_position = int(local_fill_qty_by_symbol.get(symbol, 0))
         broker_avg_cost = broker_avg_cost_by_symbol.get(symbol)
         local_avg_cost = local_fill_avg_by_symbol.get(symbol)
         verdict = "ALIGNED"
         reason = ""
         prev_broker_qty = int(_BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol, 0))
-        if broker_qty == 0 and local_fill_qty == 0 and prev_broker_qty > 0:
+        if ibkr_qty == 0 and expected_position == 0 and prev_broker_qty > 0:
             verdict = "POSITION_CLOSED_ALIGNED"
-        elif broker_qty == 0 and local_fill_qty == 0:
+        elif ibkr_qty == 0 and expected_position == 0:
             verdict = "ALIGNED"
-        elif broker_qty != 0 and local_fill_qty == 0:
+        elif ibkr_qty != 0 and expected_position == 0:
             verdict = "BROKER_POSITION_WITHOUT_FILL"
             reason = "broker_has_open_position_without_execdetails_fill_trail"
-        elif broker_qty == 0 and local_fill_qty != 0:
+        elif ibkr_qty == 0 and expected_position != 0:
             fill_ts = local_fill_ts_by_symbol.get(symbol)
             pending = fill_ts is not None and (now_utc - fill_ts).total_seconds() <= float(window_seconds)
             if pending:
@@ -1837,13 +1882,13 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
             else:
                 verdict = "LOCAL_FILL_WITHOUT_BROKER_POSITION"
                 reason = "local_fill_recorded_without_broker_open_position"
-        elif broker_qty != local_fill_qty:
+        elif ibkr_qty != expected_position:
             verdict = "QTY_MISMATCH"
-            reason = f"broker_qty={broker_qty} local_fill_qty={local_fill_qty}"
+            reason = f"expected_position={expected_position} ibkr_position={ibkr_qty}"
         elif broker_avg_cost is not None and local_avg_cost is not None and abs(float(broker_avg_cost) - float(local_avg_cost)) > 0.01:
             verdict = "AVG_COST_MISMATCH"
             reason = f"broker_avg_cost={broker_avg_cost} local_avg_cost={local_avg_cost}"
-        elif broker_qty == 0 and local_fill_qty == 0 and int(_BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol, 0)) > 0:
+        elif ibkr_qty == 0 and expected_position == 0 and int(_BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol, 0)) > 0:
             verdict = "POSITION_CLOSED_ALIGNED"
         if verdict == "ALIGNED":
             _RECONCILED_POSITIONS_OK += 1
@@ -1852,13 +1897,21 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
             _RECONCILED_POSITIONS_OK += 1
             print(f"[EXECUTION][POSITION_RECONCILE_OK] symbol={symbol} verdict=ALIGNED")
         elif verdict in {"UNKNOWN_PENDING_RECONCILIATION"}:
-            print(f"[EXECUTION][POSITION_RECONCILE] symbol={symbol} local_qty={local_qty} broker_qty={broker_qty} verdict={verdict}")
+            print(
+                "[EXECUTION][POSITION_RECONCILE] "
+                f"symbol={symbol} local_qty={local_qty} expected_position={expected_position} broker_qty={ibkr_qty} verdict={verdict}"
+            )
         else:
             _RECONCILED_POSITIONS_MISMATCH += 1
+            mismatch_count += 1
             if verdict == "BROKER_POSITION_WITHOUT_FILL":
                 _BROKER_POSITION_WITHOUT_FILL_COUNT += 1
             if verdict == "LOCAL_FILL_WITHOUT_BROKER_POSITION":
                 _LOCAL_FILL_WITHOUT_POSITION_COUNT += 1
+            print(
+                "[POSITION][MISMATCH] "
+                f"symbol={symbol} expected_position={expected_position} ibkr_position={ibkr_qty} reason={reason or verdict}"
+            )
             print(
                 "[EXECUTION][POSITION_RECONCILE_MISMATCH] "
                 f"symbol={symbol} verdict={verdict} reason={reason or 'mismatch'}"
@@ -1866,21 +1919,25 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
             _RECON_RESYNC_NEEDED = True
         print(
             "[EXECUTION][POSITION_RECONCILE] "
-            f"symbol={symbol} local_qty={local_qty} broker_qty={broker_qty} verdict={verdict}"
+            f"symbol={symbol} local_qty={local_qty} expected_position={expected_position} broker_qty={ibkr_qty} verdict={verdict}"
         )
-        if broker_qty > 0 and prev_broker_qty <= 0:
-            print(f"[EXECUTION][POSITION_OPEN_CONFIRMED] symbol={symbol} broker_qty={broker_qty} avg_cost={broker_avg_cost}")
+        if ibkr_qty > 0 and prev_broker_qty <= 0:
+            print(f"[EXECUTION][POSITION_OPEN_CONFIRMED] symbol={symbol} broker_qty={ibkr_qty} avg_cost={broker_avg_cost}")
             print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_OPEN_CONFIRMED")
             _OPEN_POSITIONS_CONFIRMED += 1
-        elif broker_qty > 0 and prev_broker_qty > broker_qty:
-            print(f"[EXECUTION][POSITION_REDUCED_CONFIRMED] symbol={symbol} broker_qty={broker_qty}")
+        elif ibkr_qty > 0 and prev_broker_qty > ibkr_qty:
+            print(f"[EXECUTION][POSITION_REDUCED_CONFIRMED] symbol={symbol} broker_qty={ibkr_qty}")
             print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_REDUCED_CONFIRMED")
             _REDUCED_POSITIONS_CONFIRMED += 1
-        elif broker_qty == 0 and prev_broker_qty > 0:
+        elif ibkr_qty == 0 and prev_broker_qty > 0:
             print(f"[EXECUTION][POSITION_CLOSED_CONFIRMED] symbol={symbol}")
             print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_CLOSED_CONFIRMED")
             _CLOSED_POSITIONS_CONFIRMED += 1
-        _BROKER_POSITION_LAST_QTY_BY_SYMBOL[symbol] = broker_qty
+        _BROKER_POSITION_LAST_QTY_BY_SYMBOL[symbol] = ibkr_qty
+    print(
+        "[POSITION][SUMMARY] "
+        f"total_positions={len(_IBKR_POSITIONS_BY_SYMBOL)} mismatches={mismatch_count}"
+    )
 
 
 def _check_callback_delay(*, now: datetime | None = None) -> None:
@@ -1915,7 +1972,7 @@ def _check_position_consistency() -> None:
         for row in _RUNTIME_ORDERS.values()
         if row.filled_qty > 0 or row.canonical_state in {"PARTIALLY_FILLED", "FILLED"}
     }
-    position_symbols = {symbol for symbol, row in _RUNTIME_POSITIONS.items() if row.qty > 0}
+    position_symbols = {symbol for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items() if int(row.quantity) > 0}
     for symbol in sorted(filled_symbols - position_symbols):
         print(f"[POSITION][INCONSISTENT_STATE] symbol={symbol} reason=filled_without_position")
     for symbol in sorted(position_symbols - filled_symbols):
