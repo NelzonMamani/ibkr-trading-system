@@ -1373,7 +1373,25 @@ def _recover_order_from_execdetails(order_id: int, symbol: str, filled_qty: int,
     return tracked
 
 
-def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, fill_price: float | None, exec_id: str | None, timestamp: str, source: str) -> None:
+def _classify_fill_origin(*, source: str, is_backfill: bool) -> str:
+    if is_backfill:
+        return "IBKR_EXECDETAILS_BACKFILL"
+    if source == "IBKR_EXECUTION":
+        return "IBKR_EXECDETAILS"
+    return "LIVE_EXECUTION"
+
+
+def _apply_fill_to_tracked_order(
+    *,
+    order_id: int,
+    symbol: str,
+    fill_qty: int,
+    fill_price: float | None,
+    exec_id: str | None,
+    timestamp: str,
+    source: str,
+    fill_origin: str = "LIVE_EXECUTION",
+) -> None:
     normalized_symbol = str(symbol or "").upper().strip()
     row = _RUNTIME_ORDERS.get(order_id)
     if row is None:
@@ -1408,7 +1426,7 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
     print(
         "[EXECUTION][FILL] "
         f"order_id={order_id} symbol={row.symbol} authority=execDetails fill_qty={inc} "
-        f"remaining_qty={row.remaining_qty} exec_id={exec_id or 'NA'}"
+        f"remaining_qty={row.remaining_qty} exec_id={exec_id or 'NA'} fill_origin={fill_origin}"
     )
     print(f"[PRICE_AUTHORITY][SOURCE=IBKR_EXECUTION] order_id={order_id} symbol={row.symbol} price={fill_price}")
     if row.remaining_qty == 0:
@@ -1551,6 +1569,10 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             exec_id=str(_extract_callback_field(callback_payload, "execId") or f"BACKFILL-{order_id}"),
             timestamp=_now_utc_iso(),
             source="IBKR_EXECUTION_BACKFILL" if is_backfill else "IBKR_EXECUTION",
+            fill_origin=_classify_fill_origin(
+                source="IBKR_EXECUTION_BACKFILL" if is_backfill else "IBKR_EXECUTION",
+                is_backfill=is_backfill,
+            ),
         )
         truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(int(order_id))
         if truth is not None:
