@@ -26,12 +26,29 @@ class _Client:
         return {"status": "Submitted"}
 
 
-def test_submit_blocks_when_quote_context_missing(monkeypatch) -> None:
+def test_submit_allows_paper_with_last_price_only_quote_context(monkeypatch) -> None:
     client = _Client()
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": None, "ask": None, "last": 5.0, "volume": 50_000})
-    with pytest.raises(RuntimeError, match="NO_QUOTE_CONTEXT"):
+    order_id = order_router._submit_ibkr_order(
+        mode=RunMode.PAPER,
+        client=client,
+        symbol="MCRO",
+        side="BUY",
+        quantity=1,
+        order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
+        entry_price=5.0,
+        entry_price_source="IBKR_SNAPSHOT",
+    )
+    assert order_id == 777
+    assert client.submissions == 1
+
+
+def test_submit_blocks_live_when_quote_context_missing(monkeypatch) -> None:
+    client = _Client()
+    monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": None, "ask": None, "last": 5.0, "volume": 50_000})
+    with pytest.raises(RuntimeError, match="NO_QUOTE_CONTEXT_LIVE_STRICT"):
         order_router._submit_ibkr_order(
-            mode=RunMode.PAPER,
+            mode=RunMode.LIVE,
             client=client,
             symbol="MCRO",
             side="BUY",
