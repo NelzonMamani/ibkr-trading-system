@@ -1149,7 +1149,6 @@ def run_cycle(
     print_section("EXECUTION")
     working_orders = 0
     pending_entries = 0
-    position_book: dict[str, dict[str, float]] = {}
     print(
         "[MODE][EXECUTION_CONTEXT] "
         f"effective_mode={mode.value} trade_enabled={mode_authority.trade_enabled} "
@@ -1421,26 +1420,6 @@ def run_cycle(
                 )
                 symbol_key = str(event.symbol or "").upper()
                 if symbol_key:
-                    existing_position = position_book.get(symbol_key)
-                    fill_price = event.avg_fill_price
-                    fill_qty = max(0, filled_quantity)
-                    if existing_position is None:
-                        position_book[symbol_key] = {"qty": float(fill_qty), "avg_price": float(fill_price or 0.0)}
-                    else:
-                        prev_qty = float(existing_position["qty"])
-                        prev_avg = float(existing_position["avg_price"])
-                        total_qty = prev_qty + float(fill_qty)
-                        if total_qty > 0 and fill_price is not None:
-                            weighted_avg = ((prev_qty * prev_avg) + (float(fill_qty) * float(fill_price))) / total_qty
-                        else:
-                            weighted_avg = prev_avg
-                        existing_position["qty"] = total_qty
-                        existing_position["avg_price"] = weighted_avg
-                    print(
-                        f"[LIFECYCLE] POSITION_OPENED symbol={symbol_key} "
-                        f"qty={int(position_book[symbol_key]['qty'])} "
-                        f"price={position_book[symbol_key]['avg_price']:.4f}"
-                    )
                     pending_entries = max(0, pending_entries - 1)
         elif execution_pass:
             working_orders += 1 if event.action == "WOULD_PLACE" else 0

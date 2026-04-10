@@ -1855,6 +1855,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 trace.lifecycle_state = "POSITION_CONFIRMED"
                 _trace_log("POSITION_CONFIRMED", trace, extra=f"position_qty={qty}")
                 print(f"[EXECUTION][LIFECYCLE] symbol={trace.symbol} marker=POSITION_CONFIRMED")
+                print(f"[EXECUTION][LIFECYCLE] symbol={trace.symbol} marker=POSITION_CONFIRMED_FROM_IBKR")
     print(
         "[EXECUTION][EVENT_CREATED] "
         f"event_type={event.event_type} source={event.source} symbol={event.symbol} "
@@ -2038,15 +2039,12 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
         )
         if ibkr_qty > 0 and prev_broker_qty <= 0:
             print(f"[EXECUTION][POSITION_OPEN_CONFIRMED] symbol={symbol} broker_qty={ibkr_qty} avg_cost={broker_avg_cost}")
-            print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_CONFIRMED_FROM_IBKR")
             _OPEN_POSITIONS_CONFIRMED += 1
         elif ibkr_qty > 0 and prev_broker_qty > ibkr_qty:
             print(f"[EXECUTION][POSITION_REDUCED_CONFIRMED] symbol={symbol} broker_qty={ibkr_qty}")
-            print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_REDUCED_CONFIRMED")
             _REDUCED_POSITIONS_CONFIRMED += 1
         elif ibkr_qty == 0 and prev_broker_qty > 0:
             print(f"[EXECUTION][POSITION_CLOSED_CONFIRMED] symbol={symbol}")
-            print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_CLOSED_CONFIRMED")
             _CLOSED_POSITIONS_CONFIRMED += 1
         _BROKER_POSITION_LAST_QTY_BY_SYMBOL[symbol] = ibkr_qty
     print(
