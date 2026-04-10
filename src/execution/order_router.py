@@ -2783,7 +2783,7 @@ def _submit_ibkr_order(
     order.eTradeOnly = False
     order.firmQuoteOnly = False
     order.action = side.upper()
-    order.orderType = "MKT"
+    order.orderType = "LMT"
     order.totalQuantity = int(quantity)
     order.tif = "DAY"
     order.outsideRth = True
@@ -2851,6 +2851,7 @@ def _submit_ibkr_order(
     price_source = "IBKR_BID_ASK" if quote_context_ok else ("IBKR_LAST" if has_last_price else "SYNTHETIC")
     degraded_paper_path_allowed = execution_path == DEGRADED_QUOTE_PATH and mode == RunMode.PAPER and has_last_price
     market_session = _canonical_execution_session(_session_label_now())
+    non_rth_session = market_session != "RTH"
     strict_premarket_limit_required = market_session == "PREMARKET" and mode == RunMode.LIVE
     degraded_premarket_paper_allowed = market_session == "PREMARKET" and degraded_paper_path_allowed
     print(f"[EXECUTION][PATH] symbol={symbol} path={execution_path}")
@@ -2872,7 +2873,7 @@ def _submit_ibkr_order(
             print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_QUOTE_CONTEXT bid={_none_text(bid)} ask={_none_text(ask)}")
             raise RuntimeError("NO_QUOTE_CONTEXT")
     min_tick = _resolved_tick_size(getattr(resolved_contract, "minTick", None))
-    if strict_premarket_limit_required:
+    if non_rth_session:
         if not quote_context_ok:
             print(
                 "[EXECUTION][BLOCK] "
@@ -2888,11 +2889,13 @@ def _submit_ibkr_order(
             aggression_level=1,
         )
         order.lmtPrice = float(computed_limit)
+        order.outsideRth = True
+        print(f"[EXECUTION][RTH_FLAG] symbol={symbol} outsideRth=True enforced")
         print(
             "[EXECUTION][AGGRESSIVE_LIMIT_POLICY] "
             f"symbol={symbol} side={order.action} bid={bid} ask={ask} spread={max(0.0, float(ask) - float(bid)):.6f} "
             f"tick_size={min_tick:.6f} aggression_level=1 aggression_component={aggression_component:.6f} "
-            f"computed_limit={order.lmtPrice} cap_applied={str(cap_applied).lower()}"
+            f"computed_limit={order.lmtPrice} chosen_price={order.lmtPrice} cap_applied={str(cap_applied).lower()}"
         )
         print(
             "[EXECUTION][ORDER_MODE] "
@@ -2930,11 +2933,43 @@ def _submit_ibkr_order(
             f"exchange={_none_text(primary_exchange)} detail={restriction_detail}"
         )
         raise RuntimeError("LIKELY_IBKR_RESTRICTED")
+    if market_session == "PREMARKET" and str(getattr(order, "orderType", "")).upper() == "MKT":
+        raise RuntimeError("CRITICAL_EXECUTION_CONFIGURATION_ERROR")
+    pre_submit_registered = False
+    pre_submit_hook = lambda reserved_order_id, _contract, _order: (
+            _upsert_order_from_submission(
+                order_id=int(reserved_order_id),
+                symbol=str(symbol or "").upper(),
+                side=str(side or "").upper(),
+                total_qty=int(quantity),
+                order_ref=str(order_ref or ""),
+                intent_id=str(intent_id or ""),
+            ),
+            _register_order_intent_mapping(
+                order_id=int(reserved_order_id),
+                intent_id=str(intent_id or ""),
+                order_ref=str(order_ref or ""),
+            ),
+            _register_pending_submission(
+                order_id=int(reserved_order_id),
+                symbol=str(symbol or "").upper(),
+                intent_id=str(intent_id or ""),
+                order_ref=str(order_ref or ""),
+            ),
+        )
+    try:
+        client._pre_submit_registration_hook = pre_submit_hook
+        pre_submit_registered = True
+    except Exception:
+        pre_submit_registered = False
     try:
         order_id = int(client.submit_order(resolved_contract, order))
     except Exception as exc:
         print(f"[IBKR][PLACE_ORDER][ERROR] symbol={symbol} order_id=PENDING error={exc}")
         raise
+    finally:
+        if pre_submit_registered:
+            client._pre_submit_registration_hook = None
     wire_payload = {
         "symbol": str(symbol or "").upper(),
         "order_id": int(order_id),
@@ -3009,6 +3044,10 @@ def _submit_ibkr_order(
         tracked.initial_limit_price = _safe_price_value(getattr(order, "lmtPrice", None))
         tracked.last_limit_price = _safe_price_value(getattr(order, "lmtPrice", None))
         tracked.max_reprice_attempts = _watchdog_threshold_seconds("EXECUTION_MAX_REPRICE_ATTEMPTS", 3)
+        print(
+            "[EXECUTION][WATCHDOG] "
+            f"order_id={int(order_id)} symbol={str(symbol or '').upper()} initial_price={_none_text(tracked.initial_limit_price)} registered=true"
+        )
     _register_pending_submission(
         order_id=int(order_id),
         symbol=str(symbol or "").upper(),
@@ -3226,6 +3265,7 @@ def execute_intents(
         if working_duplicate:
             blocked_reason = "DUPLICATE_WORKING_ORDER"
             blocked_pre_submit += 1
+            print(f"[EXECUTION][DUPLICATE_BLOCK] symbol={duplicate_symbol} reason=existing_working_order")
             print(
                 f"[EXECUTION][DUPLICATE_BLOCK] symbol={duplicate_symbol} reason={blocked_reason} "
                 f"existing_order_id={duplicate_order_id} existing_broker_state={duplicate_status} conflict_reason={duplicate_reason}"

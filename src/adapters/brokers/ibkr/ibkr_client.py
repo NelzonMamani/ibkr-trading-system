@@ -297,6 +297,12 @@ class IbkrClient(EWrapper, EClient):
         except Exception:
             pass
         order_id = self.reserve_order_id()
+        pre_submit_hook = getattr(self, "_pre_submit_registration_hook", None)
+        if callable(pre_submit_hook):
+            try:
+                pre_submit_hook(order_id, contract, order)
+            except Exception as exc:
+                print(f"[EXECUTION][PRE_SUBMIT_HOOK_ERROR] order_id={order_id} error={exc}")
         self._order_status_events[order_id] = threading.Event()
         self._exec_details_by_order[order_id] = []
         print(
