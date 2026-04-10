@@ -73,6 +73,7 @@ _OPEN_POSITIONS_CONFIRMED = 0
 _REDUCED_POSITIONS_CONFIRMED = 0
 _CLOSED_POSITIONS_CONFIRMED = 0
 _BROKER_POSITION_LAST_QTY_BY_SYMBOL: dict[str, int] = {}
+_IBKR_POSITION_EVENTS_COUNT = 0
 
 AUTHORITATIVE_EXECUTION_STATES = {
     "DISPATCH_INTENDED",
@@ -370,10 +371,10 @@ def runtime_lifecycle_snapshot() -> dict[str, int | str]:
             filled += 1
         if row.is_entry and row.remaining_qty > 0 and row.canonical_state in {"WORKING", "PARTIALLY_FILLED", "SUBMITTED_PENDING_CONFIRMATION", "SUBMITTED", "ACKNOWLEDGED"}:
             pending_entries += 1
-    open_positions = sum(1 for p in _RUNTIME_POSITIONS.values() if p.qty > 0)
-    partial_positions = sum(1 for p in _RUNTIME_POSITIONS.values() if p.state == "PARTIAL_POSITION_OPEN")
-    reducing_positions = sum(1 for p in _RUNTIME_POSITIONS.values() if p.state == "POSITION_REDUCING")
-    closed_positions = sum(1 for p in _RUNTIME_POSITIONS.values() if p.state == "POSITION_CLOSED")
+    open_positions = sum(1 for p in _IBKR_POSITIONS_BY_SYMBOL.values() if int(p.quantity) > 0)
+    partial_positions = 0
+    reducing_positions = 0
+    closed_positions = sum(1 for p in _IBKR_POSITIONS_BY_SYMBOL.values() if int(p.quantity) == 0)
     return {
         "working_order_count": working,
         "partially_filled_order_count": partial,
@@ -1027,9 +1028,11 @@ def _extract_position_qty(position_row: Any) -> float:
 
 
 def _upsert_ibkr_position_truth(*, symbol: str, quantity: int, avg_price: float | None, update_time: str | None = None) -> None:
+    global _IBKR_POSITION_EVENTS_COUNT
     normalized_symbol = str(symbol or "").upper().strip()
     if not normalized_symbol:
         return
+    _IBKR_POSITION_EVENTS_COUNT += 1
     row = _IBKR_POSITIONS_BY_SYMBOL.setdefault(normalized_symbol, IbkrPositionTruth(symbol=normalized_symbol))
     row.quantity = int(quantity)
     row.avg_price = float(avg_price) if avg_price is not None else None
@@ -1041,18 +1044,26 @@ def _upsert_ibkr_position_truth(*, symbol: str, quantity: int, avg_price: float 
 
 
 def _sync_ibkr_positions_from_snapshot(positions: list[Any]) -> None:
+    seen_symbols: set[str] = set()
     for row in positions:
         symbol = _extract_symbol_from_order(row)
         if not symbol:
             continue
+        normalized_symbol = str(symbol or "").upper().strip()
+        if not normalized_symbol:
+            continue
+        seen_symbols.add(normalized_symbol)
         quantity = int(_extract_position_qty(row) or 0)
         avg_cost = _extract_position_avg_cost(row)
         _upsert_ibkr_position_truth(
-            symbol=symbol,
+            symbol=normalized_symbol,
             quantity=quantity,
             avg_price=avg_cost,
             update_time=_now_utc_iso(),
         )
+    stale_symbols = [symbol for symbol in _IBKR_POSITIONS_BY_SYMBOL.keys() if symbol not in seen_symbols]
+    for symbol in stale_symbols:
+        _IBKR_POSITIONS_BY_SYMBOL.pop(symbol, None)
 
 
 def _extract_callback_field(callback_payload: Any, *field_names: str) -> Any:
@@ -1194,58 +1205,13 @@ def _resolve_authoritative_execution_state(row: TrackedOrder | None) -> str:
 
 
 def _apply_position_fill(symbol: str, *, signed_delta_qty: int, fill_price: float | None, pending_entry_delta: int = 0, pending_exit_delta: int = 0) -> None:
-    if not symbol:
-        return
-    row = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
-    row.qty = int(row.qty) + int(signed_delta_qty)
-    row.pending_entry_qty = max(0, int(row.pending_entry_qty) + int(pending_entry_delta))
-    row.pending_exit_qty = max(0, int(row.pending_exit_qty) + int(pending_exit_delta))
-    if fill_price is not None and signed_delta_qty > 0:
-        prev_qty = max(0, int(row.qty) - int(signed_delta_qty))
-        prev_avg = float(row.avg_price or 0.0)
-        total_qty = prev_qty + int(signed_delta_qty)
-        row.avg_price = ((prev_qty * prev_avg) + (int(signed_delta_qty) * float(fill_price))) / total_qty if total_qty > 0 else row.avg_price
-    if row.qty <= 0:
-        row.qty = 0
-        row.state = "POSITION_CLOSED"
-    elif row.pending_exit_qty > 0:
-        row.state = "POSITION_REDUCING"
-    elif row.pending_entry_qty > 0:
-        row.state = "PARTIAL_POSITION_OPEN"
-    else:
-        row.state = "POSITION_OPEN"
-    print(f"[LIFECYCLE][POSITION] symbol={symbol} qty={row.qty} pending_entry={row.pending_entry_qty} pending_exit={row.pending_exit_qty} state={row.state}")
-    print(
-        "[EXECUTION][POSITION] "
-        f"symbol={symbol} qty={row.qty} pending_entry={row.pending_entry_qty} "
-        f"pending_exit={row.pending_exit_qty} state={row.state}"
-    )
-    if row.qty > 0 and row.avg_price is not None:
-        print(f"[POSITION][OPEN] symbol={symbol} qty={row.qty} avg_price={row.avg_price}")
-    print(f"[POSITION][OPENED_OR_UPDATED] symbol={symbol} qty={row.qty} avg_price={row.avg_price} state={row.state}")
+    _ = (symbol, signed_delta_qty, fill_price, pending_entry_delta, pending_exit_delta)
+    print("[EXECUTION][POSITION_WRITE_SKIPPED] reason=IBKR_POSITION_AUTHORITY_ONLY")
 
 
 def _simulate_position_from_fill(*, order_id: int, symbol: str, fill_qty: int, fill_price: float | None) -> None:
-    if not symbol:
-        return
-    tracked = _RUNTIME_ORDERS.get(int(order_id))
-    is_entry = bool(tracked is None or tracked.is_entry)
-    is_exit = bool(tracked is not None and tracked.is_exit)
-    signed_delta = int(fill_qty)
-    pending_entry_delta = -abs(int(fill_qty)) if is_entry else 0
-    pending_exit_delta = -abs(int(fill_qty)) if is_exit else 0
-    _apply_position_fill(
-        symbol,
-        signed_delta_qty=signed_delta,
-        fill_price=fill_price,
-        pending_entry_delta=pending_entry_delta,
-        pending_exit_delta=pending_exit_delta,
-    )
-    row = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
-    print(
-        "[EXECUTION][POSITION_SIMULATED] "
-        f"order_id={order_id} symbol={symbol} qty={row.qty} avg_price={row.avg_price} state={row.state}"
-    )
+    _ = (order_id, symbol, fill_qty, fill_price)
+    print("[EXECUTION][POSITION_SIMULATION_DISABLED] reason=IBKR_POSITION_AUTHORITY_ONLY")
 
 
 def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, total_qty: int, order_ref: str, intent_id: str = "") -> TrackedOrder:
@@ -1277,17 +1243,10 @@ def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, tota
         row.final_execution_state = "DISPATCH_SENT"
     if intent_id:
         row.intent_id = str(intent_id or "")
-    pos = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
     normalized_side = str(side or "").upper()
-    row.is_exit = normalized_side == "SELL" and pos.qty > 0
+    ibkr_qty = int(_IBKR_POSITIONS_BY_SYMBOL.get(symbol, IbkrPositionTruth(symbol=symbol)).quantity or 0)
+    row.is_exit = normalized_side == "SELL" and ibkr_qty > 0
     row.is_entry = not row.is_exit
-    if created:
-        if row.is_exit:
-            pos.pending_exit_qty = max(0, pos.pending_exit_qty + int(total_qty))
-        else:
-            pos.pending_entry_qty = max(0, pos.pending_entry_qty + int(total_qty))
-    if pos.qty <= 0:
-        pos.state = "PENDING_ENTRY"
     print(f"[LIFECYCLE][ORDER] order_id={order_id} symbol={symbol} state={row.canonical_state} filled={row.filled_qty} remaining={row.remaining_qty}")
     return row
 
@@ -1468,13 +1427,7 @@ def _apply_fill_to_tracked_order(
     )
     print(f"[EXECUTION][LIFECYCLE] symbol={row.symbol} marker=FILL_CONFIRMED_AWAITING_POSITION")
     if _is_explicit_test_mode() and source != "IBKR_EXECUTION_BACKFILL":
-        signed = inc if row.is_entry else -inc
-        _simulate_position_from_fill(
-            order_id=order_id,
-            symbol=row.symbol,
-            fill_qty=signed,
-            fill_price=fill_price,
-        )
+        _simulate_position_from_fill(order_id=order_id, symbol=row.symbol, fill_qty=inc, fill_price=fill_price)
 
 
 def _on_ibkr_callback(callback_payload: Any) -> None:
@@ -1696,10 +1649,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             trace.fill_time = timestamp
             trace.lifecycle_state = "FILL_RECEIVED"
             _trace_log("FILL", trace, extra=f"exec_id={exec_id} fill_qty={filled_qty} fill_price={fill_price}")
-            pos = _RUNTIME_POSITIONS.get(trace.symbol)
-            if pos is not None and pos.qty > 0:
-                trace.position_opened = True
-                _trace_log("POSITION_OPENED", trace, extra=f"position_qty={pos.qty}")
+            _trace_log("FILL_CONFIRMED_AWAITING_POSITION", trace)
         if filled_qty > 0 and remaining_int > 0:
             print(
                 f"[ORDER][PARTIAL_FILL] symbol={symbol or 'UNKNOWN'} order_id={order_id} "
@@ -1902,8 +1852,9 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             if qty > 0:
                 _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"position_seen": True})
                 trace.position_opened = True
-                trace.lifecycle_state = "POSITION_OPENED"
-                _trace_log("POSITION_OPENED", trace, extra=f"position_qty={qty}")
+                trace.lifecycle_state = "POSITION_CONFIRMED"
+                _trace_log("POSITION_CONFIRMED", trace, extra=f"position_qty={qty}")
+                print(f"[EXECUTION][LIFECYCLE] symbol={trace.symbol} marker=POSITION_CONFIRMED")
     print(
         "[EXECUTION][EVENT_CREATED] "
         f"event_type={event.event_type} source={event.source} symbol={event.symbol} "
@@ -2017,13 +1968,12 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
         if order.avg_fill_price is not None:
             local_fill_avg_by_symbol[symbol] = float(order.avg_fill_price)
         local_fill_ts_by_symbol[symbol] = _parse_iso_utc(order.first_fill_seen_at or order.last_update_at)
-    symbols = set(_RUNTIME_POSITIONS.keys()) | set(broker_position_by_symbol.keys()) | set(local_fill_qty_by_symbol.keys())
+    symbols = set(broker_position_by_symbol.keys()) | set(local_fill_qty_by_symbol.keys())
     window_seconds = _position_reconciliation_window_seconds()
     now_utc = datetime.now(timezone.utc)
     mismatch_count = 0
     for symbol in sorted(symbols):
-        local = _RUNTIME_POSITIONS.get(symbol)
-        local_qty = int(local.qty) if local is not None else 0
+        local_qty = int(broker_position_by_symbol.get(symbol, 0))
         ibkr_qty = int(broker_position_by_symbol.get(symbol, 0))
         expected_position = int(local_fill_qty_by_symbol.get(symbol, 0))
         broker_avg_cost = broker_avg_cost_by_symbol.get(symbol)
@@ -2088,7 +2038,7 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
         )
         if ibkr_qty > 0 and prev_broker_qty <= 0:
             print(f"[EXECUTION][POSITION_OPEN_CONFIRMED] symbol={symbol} broker_qty={ibkr_qty} avg_cost={broker_avg_cost}")
-            print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_OPEN_CONFIRMED")
+            print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_CONFIRMED_FROM_IBKR")
             _OPEN_POSITIONS_CONFIRMED += 1
         elif ibkr_qty > 0 and prev_broker_qty > ibkr_qty:
             print(f"[EXECUTION][POSITION_REDUCED_CONFIRMED] symbol={symbol} broker_qty={ibkr_qty}")
@@ -2139,7 +2089,7 @@ def _check_position_consistency() -> None:
     }
     position_symbols = {symbol for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items() if int(row.quantity) > 0}
     for symbol in sorted(filled_symbols - position_symbols):
-        print(f"[POSITION][INCONSISTENT_STATE] symbol={symbol} reason=filled_without_position")
+        print(f"[POSITION][INCONSISTENT_STATE] symbol={symbol} reason=PENDING_POSITION_CONFIRMATION")
     for symbol in sorted(position_symbols - filled_symbols):
         print(f"[POSITION][INCONSISTENT_STATE] symbol={symbol} reason=position_without_fill_history")
 
@@ -2232,7 +2182,7 @@ def _post_submission_ibkr_diagnostics(
                 visibility["executions_snapshot_seen"] = True
             tracked = _RUNTIME_ORDERS.get(int(order_id))
             if tracked is not None and tracked.filled_qty > 0:
-                visibility["position_seen"] = bool(_RUNTIME_POSITIONS.get(tracked.symbol) and _RUNTIME_POSITIONS[tracked.symbol].qty > 0)
+                visibility["position_seen"] = bool(_IBKR_POSITIONS_BY_SYMBOL.get(tracked.symbol) and int(_IBKR_POSITIONS_BY_SYMBOL[tracked.symbol].quantity) > 0)
         broker_truth_confirmed = any(_visibility_confirmed(order_id) for order_id in submitted_lookup)
         return current_open_orders, current_executions, broker_truth_confirmed
 
@@ -3297,16 +3247,9 @@ def execute_intents(
                 )
             )
             continue
-        local_position = _RUNTIME_POSITIONS.get(duplicate_symbol)
-        system_qty = float(getattr(local_position, "qty", 0.0) or 0.0)
+        system_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
         external_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
-        recent_exec_local = False
-        if local_position is not None and str(getattr(local_position, "last_update_source", "") or "").upper() == "EXEC_DETAILS":
-            exec_seen_at = _parse_iso_utc(getattr(local_position, "last_fill_update_at", None))
-            if exec_seen_at is not None:
-                recency_seconds = float(os.environ.get("EXECUTION_POSITION_EXEC_RECENCY_SECONDS", "15") or "15")
-                recent_exec_local = (datetime.now(timezone.utc) - exec_seen_at).total_seconds() <= recency_seconds
-        effective_position_qty = system_qty if recent_exec_local else max(system_qty, external_qty)
+        effective_position_qty = max(system_qty, external_qty)
         has_intent_mismatch_override = any(
             str(existing.symbol or "").upper() == duplicate_symbol
             and int(existing.filled_qty or 0) > 0
@@ -3314,8 +3257,8 @@ def execute_intents(
             and str(existing.intent_id or "").strip() != order_family
             for existing in _RUNTIME_ORDERS.values()
         )
-        treated_as_flat = system_qty <= 0
-        position_source = "LOCAL_EXEC" if recent_exec_local else "MAX_LOCAL_BROKER"
+        treated_as_flat = effective_position_qty <= 0
+        position_source = "IBKR_EXTERNAL"
         print(
             f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} local_qty={system_qty} broker_qty={external_qty} "
             f"effective_qty={effective_position_qty} source={position_source} treated_as_flat={str(treated_as_flat).lower()} "
@@ -3674,10 +3617,10 @@ def execute_intents(
     for trace in _EXECUTION_TRACE_BY_INTENT.values():
         if trace.cycle_id != cycle_id:
             continue
-        pos = _RUNTIME_POSITIONS.get(trace.symbol)
-        if pos is not None and int(pos.qty) > 0:
+        ibkr_pos = _IBKR_POSITIONS_BY_SYMBOL.get(trace.symbol)
+        if ibkr_pos is not None and int(ibkr_pos.quantity) > 0:
             trace.position_opened = True
-            trace.lifecycle_state = "POSITION_OPENED"
+            trace.lifecycle_state = "POSITION_CONFIRMED"
             positions_opened += 1
         if trace.order_submitted and not trace.ack_received:
             _mark_execution_failure(trace, "NO_ACK", reason="order_submitted_without_ack")
@@ -3687,8 +3630,13 @@ def execute_intents(
             if authoritative_state in {"BROKER_REJECTED", "BROKER_CANCELLED", "BROKER_EXPIRED", "BROKER_INACTIVE_UNKNOWN"}:
                 _mark_execution_failure(trace, "NO_FILL", reason=f"terminal_no_fill state={authoritative_state}")
         if trace.fill_received and not trace.position_opened:
-            _mark_execution_failure(trace, "PARTIAL_FILL_STALLED", reason="fill_without_position")
-        if trace.lifecycle_state not in {"FAIL", "POSITION_OPENED"}:
+            timeout_seconds = int(os.environ.get("EXECUTION_POSITION_CONFIRMATION_TIMEOUT_SECONDS", "30") or "30")
+            fill_seen_at = _parse_iso_utc(trace.fill_time)
+            if fill_seen_at is not None and (datetime.now(timezone.utc) - fill_seen_at).total_seconds() > timeout_seconds:
+                _mark_execution_failure(trace, "PARTIAL_FILL_STALLED", reason="position_confirmation_timeout")
+            else:
+                _trace_log("PENDING_POSITION_CONFIRMATION", trace, extra="awaiting_ibkr_position_callback=true")
+        if trace.lifecycle_state not in {"FAIL", "POSITION_CONFIRMED"}:
             trace.lifecycle_state = "COMPLETE"
             _trace_log("COMPLETE", trace, extra=f"state={trace.lifecycle_state}")
     truth_terminal_counts: dict[str, int] = {}
@@ -3777,7 +3725,9 @@ def execute_intents(
         f"cycle_id={cycle_id} intents_received={intents_received} submit_attempts={submit_attempts} "
         f"submission_attempted={submission_attempted_total} "
         f"orders_submitted={orders_submitted} acks_received={acks_received} fills_received={fills_received} "
-        f"positions_opened={positions_opened} failures_by_type={dict(sorted(_EXECUTION_FAILURES_BY_TYPE.items()))}"
+        f"filled_orders={sum(1 for row in _RUNTIME_ORDERS.values() if int(row.filled_qty) > 0)} "
+        f"open_positions={sum(1 for row in _IBKR_POSITIONS_BY_SYMBOL.values() if int(row.quantity) > 0)} "
+        f"positions_opened={_IBKR_POSITION_EVENTS_COUNT} failures_by_type={dict(sorted(_EXECUTION_FAILURES_BY_TYPE.items()))}"
     )
     working_count = sum(1 for row in _RUNTIME_ORDERS.values() if row.canonical_state == "WORKING")
     partial_fill_count = sum(1 for row in _RUNTIME_ORDERS.values() if row.canonical_state == "PARTIALLY_FILLED")

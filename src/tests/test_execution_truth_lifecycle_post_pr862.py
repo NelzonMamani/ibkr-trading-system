@@ -111,7 +111,7 @@ def test_duplicate_execdetails_is_deduped() -> None:
     assert len(row.seen_exec_ids) == 1
 
 
-def test_fill_opens_position_and_management_path_can_emit_exit() -> None:
+def test_fill_awaits_ibkr_position_confirmation_and_management_path_can_emit_exit() -> None:
     _reset_router_state()
     _seed_tracked_order(order_id=501, symbol="AAPL", qty=8)
 
@@ -126,9 +126,9 @@ def test_fill_opens_position_and_management_path_can_emit_exit() -> None:
         }
     )
 
-    runtime_position = order_router._RUNTIME_POSITIONS["AAPL"]
-    assert runtime_position.qty == 8
-    assert runtime_position.state == "POSITION_OPEN"
+    assert "AAPL" not in order_router._RUNTIME_POSITIONS
+    order_router._on_ibkr_callback({"event_type": "position", "order_id": 501, "symbol": "AAPL", "position": 8, "avgCost": 100.0})
+    assert order_router._IBKR_POSITIONS_BY_SYMBOL["AAPL"].quantity == 8
 
     manager = PositionManagementEngine()
     managed = ManagedPosition(symbol="AAPL", side="LONG", quantity=8, entry_price=100.0, stop_price=99.0)

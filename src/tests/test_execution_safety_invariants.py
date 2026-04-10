@@ -96,7 +96,7 @@ def test_position_consistency_checks_detect_both_inconsistency_shapes(capsys) ->
     order_router._check_position_consistency()
     output = capsys.readouterr().out
 
-    assert "[POSITION][INCONSISTENT_STATE] symbol=AAPL reason=filled_without_position" in output
+    assert "[POSITION][INCONSISTENT_STATE] symbol=AAPL reason=PENDING_POSITION_CONFIRMATION" in output
     assert "[POSITION][INCONSISTENT_STATE] symbol=MSFT reason=position_without_fill_history" in output
 
 
