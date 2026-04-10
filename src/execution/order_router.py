@@ -265,6 +265,8 @@ class TrackedPosition:
     pending_entry_qty: int = 0
     pending_exit_qty: int = 0
     state: str = "NO_POSITION"
+    last_update_source: str = "UNKNOWN"
+    last_fill_update_at: str | None = None
 
 
 @dataclass
@@ -427,6 +429,12 @@ def _is_terminal_execution_state(state: str) -> bool:
 def _transition_execution_truth_state(*, truth: ExecutionTruthRecord, next_state: str, source: str, broker_message: str = "") -> bool:
     next_norm = str(next_state or "").upper().strip()
     current = str(truth.execution_state or "CREATED").upper().strip()
+    if current == "ACKNOWLEDGED" and next_norm == "SUBMITTED":
+        print(
+            "[EXECUTION][INVALID_TRANSITION_BLOCKED] "
+            f"symbol={truth.symbol} broker_order_id={truth.broker_order_id} from=ACKNOWLEDGED to=SUBMITTED"
+        )
+        return False
     if next_norm not in CANONICAL_EXECUTION_STATES:
         print(f"[EXECUTION][TRUTH_TRANSITION_INVALID] symbol={truth.symbol} broker_order_id={truth.broker_order_id} from={current} to={next_norm} reason=UNKNOWN_STATE")
         return False
@@ -996,10 +1004,32 @@ def _upsert_ibkr_position_truth(*, symbol: str, quantity: int, avg_price: float 
     normalized_symbol = str(symbol or "").upper().strip()
     if not normalized_symbol:
         return
+    tolerance = float(os.environ.get("EXECUTION_POSITION_RECON_TOLERANCE", "0.01") or "0.01")
+    reconcile_window = float(os.environ.get("EXECUTION_POSITION_EXEC_RECENCY_SECONDS", "15") or "15")
     row = _IBKR_POSITIONS_BY_SYMBOL.setdefault(normalized_symbol, IbkrPositionTruth(symbol=normalized_symbol))
     row.quantity = int(quantity)
     row.avg_price = float(avg_price) if avg_price is not None else None
     row.last_update_time = str(update_time or _now_utc_iso())
+    local = _RUNTIME_POSITIONS.setdefault(normalized_symbol, TrackedPosition(symbol=normalized_symbol))
+    local_qty = int(local.qty)
+    broker_qty = int(quantity)
+    recent_exec_update = False
+    exec_seen_at = _parse_iso_utc(local.last_fill_update_at)
+    if str(local.last_update_source or "").upper() == "EXEC_DETAILS" and exec_seen_at is not None:
+        recent_exec_update = (datetime.now(timezone.utc) - exec_seen_at).total_seconds() <= reconcile_window
+    if abs(float(local_qty) - float(broker_qty)) > tolerance:
+        print(
+            "[POSITION][RECON_MISMATCH] "
+            f"symbol={normalized_symbol} local_qty={local_qty} broker_qty={broker_qty} source=POSITION_CALLBACK"
+        )
+    else:
+        if avg_price is not None:
+            local.avg_price = float(avg_price)
+        local.last_update_source = "RECONCILED_EXEC_AND_SNAPSHOT" if recent_exec_update else "IBKR_POSITION"
+        print(
+            "[POSITION][RECON_ACCEPT_BROKER_AVG] "
+            f"symbol={normalized_symbol} local_qty={local_qty} broker_qty={broker_qty} avg_price={local.avg_price}"
+        )
     print(
         "[POSITION][SYNC] "
         f"symbol={normalized_symbol} qty={row.quantity} avg_price={row.avg_price} source=IBKR"
@@ -1085,6 +1115,20 @@ def _extract_callback_fill_price(callback_payload: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _extract_callback_side(callback_payload: Any) -> str:
+    side = _extract_callback_field(callback_payload, "side", "action")
+    if side is None:
+        execution = _extract_callback_field(callback_payload, "execution")
+        if execution is not None:
+            side = getattr(execution, "side", None) or getattr(execution, "action", None)
+    normalized = str(side or "").upper().strip()
+    if normalized in {"BOT", "BUY"}:
+        return "BUY"
+    if normalized in {"SLD", "SELL"}:
+        return "SELL"
+    return normalized
 
 
 def _extract_callback_timestamp(callback_payload: Any) -> str:
@@ -1189,6 +1233,42 @@ def _apply_position_fill(symbol: str, *, signed_delta_qty: int, fill_price: floa
     if row.qty > 0 and row.avg_price is not None:
         print(f"[POSITION][OPEN] symbol={symbol} qty={row.qty} avg_price={row.avg_price}")
     print(f"[POSITION][OPENED_OR_UPDATED] symbol={symbol} qty={row.qty} avg_price={row.avg_price} state={row.state}")
+
+
+def _update_local_position_from_exec_fill(*, symbol: str, side: str, filled_qty: int, fill_price: float | None, timestamp: str) -> None:
+    normalized_symbol = str(symbol or "").upper().strip()
+    if not normalized_symbol:
+        return
+    qty_delta = max(0, int(filled_qty))
+    if qty_delta <= 0:
+        return
+    normalized_side = str(side or "").upper().strip()
+    row = _RUNTIME_POSITIONS.setdefault(normalized_symbol, TrackedPosition(symbol=normalized_symbol))
+    prev_qty = int(row.qty)
+    if normalized_side == "SELL":
+        row.qty = max(0, int(row.qty) - qty_delta)
+        if row.qty == 0:
+            row.avg_price = 0.0
+    else:
+        prev_avg = float(row.avg_price or 0.0)
+        row.qty = int(row.qty) + qty_delta
+        if fill_price is not None and row.qty > 0:
+            row.avg_price = ((max(0, prev_qty) * prev_avg) + (qty_delta * float(fill_price))) / float(row.qty)
+    if row.qty <= 0:
+        row.qty = 0
+        row.state = "POSITION_CLOSED"
+    elif row.pending_exit_qty > 0:
+        row.state = "POSITION_REDUCING"
+    elif row.pending_entry_qty > 0:
+        row.state = "PARTIAL_POSITION_OPEN"
+    else:
+        row.state = "POSITION_OPEN"
+    row.last_update_source = "EXEC_DETAILS"
+    row.last_fill_update_at = str(timestamp or _now_utc_iso())
+    print(
+        "[POSITION][LOCAL_UPDATE_FROM_FILL] "
+        f"symbol={normalized_symbol} qty={row.qty} avg_price={row.avg_price} source=EXEC_DETAILS"
+    )
 
 
 def _simulate_position_from_fill(*, order_id: int, symbol: str, fill_qty: int, fill_price: float | None) -> None:
@@ -1366,18 +1446,17 @@ def _recover_order_from_execdetails(order_id: int, symbol: str, filled_qty: int,
     return tracked
 
 
-def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, fill_price: float | None, exec_id: str | None, timestamp: str, source: str) -> None:
+def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, side: str = "", fill_qty: int, fill_price: float | None, exec_id: str | None, timestamp: str, source: str) -> None:
     normalized_symbol = str(symbol or "").upper().strip()
     row = _RUNTIME_ORDERS.get(order_id)
     if row is None:
         raise AssertionError(f"EXECDETAILS_MISSING_TRACKED_ORDER:{order_id}")
     row.symbol = normalized_symbol or row.symbol
     if exec_id:
-        dedupe_key = f"{order_id}:{exec_id}"
-        if dedupe_key in _SEEN_EXEC_IDS or exec_id in row.seen_exec_ids:
+        if exec_id in _SEEN_EXEC_IDS or exec_id in row.seen_exec_ids:
             print(f"[EXECUTION][FILL_DEDUP] order_id={order_id} exec_id={exec_id} deduped=true")
             return
-        _SEEN_EXEC_IDS.add(dedupe_key)
+        _SEEN_EXEC_IDS.add(exec_id)
         row.seen_exec_ids.add(exec_id)
     inc = max(0, int(fill_qty))
     if inc <= 0:
@@ -1397,6 +1476,13 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
         row.first_fill_seen_at = timestamp
     row.callback_pending = False
     row.callback_pending_since = None
+    _update_local_position_from_exec_fill(
+        symbol=row.symbol,
+        side=side or row.side,
+        filled_qty=inc,
+        fill_price=fill_price,
+        timestamp=timestamp,
+    )
     print(f"[EXECUTION][ORDER_MATCH] order_id={order_id} symbol={row.symbol} source={source}")
     print(
         "[EXECUTION][FILL] "
@@ -1415,14 +1501,6 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
         f"symbol={row.symbol} broker_order_id={order_id} filled_qty={row.filled_qty} avg_fill_price={row.avg_fill_price}"
     )
     print(f"[EXECUTION][LIFECYCLE] symbol={row.symbol} marker=FILL_CONFIRMED_AWAITING_POSITION")
-    if _is_explicit_test_mode() and source != "IBKR_EXECUTION_BACKFILL":
-        signed = inc if row.is_entry else -inc
-        _simulate_position_from_fill(
-            order_id=order_id,
-            symbol=row.symbol,
-            fill_qty=signed,
-            fill_price=fill_price,
-        )
 
 
 def _on_ibkr_callback(callback_payload: Any) -> None:
@@ -1521,6 +1599,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 )
     if event_type == "execdetails":
         normalized_symbol = str(symbol or "").upper().strip()
+        callback_side = _extract_callback_side(callback_payload)
         tracked_before = tracked
         tracked = _recover_order_from_execdetails(
             int(order_id),
@@ -1539,6 +1618,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         _apply_fill_to_tracked_order(
             order_id=int(order_id),
             symbol=normalized_symbol,
+            side=callback_side or (tracked.side if tracked is not None else "BUY"),
             fill_qty=int(filled_qty or 0),
             fill_price=fill_price,
             exec_id=str(_extract_callback_field(callback_payload, "execId") or f"BACKFILL-{order_id}"),
@@ -1926,6 +2006,18 @@ def _run_watchdog_checks(*, now: datetime | None = None) -> None:
             f"symbol={row.symbol} broker_order_id={row.broker_order_id} verdict={verdict} elapsed={elapsed}"
         )
         if verdict in {"WORKING_NO_FILL_TIMEOUT", "ACKNOWLEDGED_NO_WORKING_TIMEOUT"} and int(row.filled_qty) <= 0:
+            if str(row.canonical_state or "").upper() == "WORKING":
+                print(
+                    "[EXECUTION][WATCHDOG] "
+                    f"symbol={row.symbol} broker_order_id={row.broker_order_id} classification=BROKER_WORKING"
+                )
+            order_type = str(row.order_wire_payload.get("order_type", "")).upper() if isinstance(row.order_wire_payload, dict) else ""
+            if order_type == "MKT":
+                print(
+                    "[EXECUTION][WATCHDOG] "
+                    f"symbol={row.symbol} state=STALE_NO_FILL action=NO_REPRICE reason=MARKET_ORDER"
+                )
+                continue
             print(
                 "[EXECUTION][WATCHDOG] "
                 f"symbol={row.symbol} state=STALE_NO_FILL action=REPRICE_TRIGGERED seconds_waited={elapsed}"
@@ -2103,6 +2195,12 @@ def _sync_submitted_events_from_ibkr(
     _check_callback_delay()
     _run_watchdog_checks()
     _check_position_consistency()
+    portfolio_symbols = sorted(set(_RUNTIME_POSITIONS.keys()) | set(_IBKR_POSITIONS_BY_SYMBOL.keys()))
+    for symbol in portfolio_symbols:
+        local_qty = int(getattr(_RUNTIME_POSITIONS.get(symbol), "qty", 0) or 0)
+        broker_qty = int(getattr(_IBKR_POSITIONS_BY_SYMBOL.get(symbol), "quantity", 0) or 0)
+        status = "ALIGNED" if local_qty == broker_qty else "MISMATCH"
+        print(f"[TRUTH][PORTFOLIO] symbol={symbol} local_qty={local_qty} broker_qty={broker_qty} status={status}")
     print(f"[EXECUTION][RECON_VERDICT] reconciled_orders={_RECONCILED_ORDERS_COUNT} reconciled_positions={_RECONCILED_POSITIONS_COUNT}")
     return events
 
@@ -2787,6 +2885,10 @@ def _submit_ibkr_order(
     order.totalQuantity = int(quantity)
     order.tif = "DAY"
     order.outsideRth = True
+    print(
+        "[EXECUTION][ORDER_SANITIZED] "
+        "eTradeOnly=False firmQuoteOnly=False outsideRth=True"
+    )
     order.orderRef = order_ref
     account = getattr(client, "get_primary_account", lambda: None)() if hasattr(client, "get_primary_account") else None
     if account:
@@ -3208,12 +3310,24 @@ def execute_intents(
                 f"existing_status={duplicate_status} reason={duplicate_reason}"
             )
             break
-        position_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
-        treated_as_flat = abs(position_qty) <= 1e-6
+        broker_position_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
+        local_position = _RUNTIME_POSITIONS.get(duplicate_symbol)
+        local_position_qty = float(getattr(local_position, "qty", 0.0) or 0.0)
+        recent_exec_local = False
+        if local_position is not None and str(local_position.last_update_source or "").upper() == "EXEC_DETAILS":
+            exec_seen_at = _parse_iso_utc(local_position.last_fill_update_at)
+            if exec_seen_at is not None:
+                recent_exec_local = (datetime.now(timezone.utc) - exec_seen_at).total_seconds() <= float(
+                    os.environ.get("EXECUTION_POSITION_EXEC_RECENCY_SECONDS", "15") or "15"
+                )
+        position_qty = local_position_qty if recent_exec_local else max(local_position_qty, broker_position_qty)
+        treated_as_flat = position_qty <= 1e-6
         print(
-            f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} position_qty={position_qty} treated_as_flat={str(treated_as_flat).lower()}"
+            f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} local_qty={local_position_qty} broker_qty={broker_position_qty} "
+            f"effective_qty={position_qty} source={'LOCAL_EXEC' if recent_exec_local else 'MAX_LOCAL_BROKER'} "
+            f"treated_as_flat={str(treated_as_flat).lower()}"
         )
-        if not treated_as_flat:
+        if order_side == "BUY" and not treated_as_flat:
             blocked_reason = "DUPLICATE_POSITION"
             blocked_pre_submit += 1
             print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
