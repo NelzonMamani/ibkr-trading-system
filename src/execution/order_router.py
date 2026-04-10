@@ -2692,10 +2692,13 @@ def _submit_ibkr_order(
     quote_context = "FULL_BID_ASK" if quote_context_ok else "DEGRADED_LAST_ONLY"
     price_source = "IBKR_BID_ASK" if quote_context_ok else ("IBKR_LAST" if has_last_price else "SYNTHETIC")
     degraded_paper_path_allowed = execution_path == DEGRADED_QUOTE_PATH and mode == RunMode.PAPER and has_last_price
+    market_session = "PREMARKET" if _session_label_now() == "PRE" else "RTH"
+    strict_premarket_limit_required = market_session == "PREMARKET" and mode == RunMode.LIVE
+    degraded_premarket_paper_allowed = market_session == "PREMARKET" and degraded_paper_path_allowed
     print(f"[EXECUTION][PATH] symbol={symbol} path={execution_path}")
     print(f"[EXECUTION][QUOTE_CONTEXT] symbol={symbol} quote_context={quote_context} price_source={price_source}")
     if execution_path == DEGRADED_QUOTE_PATH:
-        if mode == RunMode.LIVE:
+        if mode == RunMode.LIVE and not strict_premarket_limit_required:
             print(
                 "[EXECUTION][BLOCK] "
                 f"symbol={symbol} reason=NO_QUOTE_CONTEXT_LIVE_STRICT bid={_none_text(bid)} ask={_none_text(ask)}"
@@ -2707,9 +2710,32 @@ def _submit_ibkr_order(
                 "[EXECUTION][CONSISTENCY_CHECK] "
                 f"symbol={symbol} execution_path={execution_path} quote_block_skipped=true"
             )
-        else:
+        elif not strict_premarket_limit_required:
             print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_QUOTE_CONTEXT bid={_none_text(bid)} ask={_none_text(ask)}")
             raise RuntimeError("NO_QUOTE_CONTEXT")
+    if strict_premarket_limit_required:
+        if not quote_context_ok:
+            print(
+                "[EXECUTION][BLOCK] "
+                f"symbol={symbol} session={market_session} reason=NO_BID_ASK_AVAILABLE_FOR_LIMIT"
+            )
+            raise RuntimeError("NO_BID_ASK_AVAILABLE_FOR_LIMIT")
+        order.orderType = "LMT"
+        if order.action == "BUY":
+            order.lmtPrice = float(ask)
+        else:
+            order.lmtPrice = float(bid)
+        print(
+            "[EXECUTION][ORDER_MODE] "
+            f"symbol={symbol} session={market_session} order_type=LMT reason=LIVE_PREMARKET_STRICT "
+            f"limit_price={_none_text(getattr(order, 'lmtPrice', None))}"
+        )
+    elif degraded_premarket_paper_allowed:
+        print(
+            "[EXECUTION][ORDER_MODE] "
+            f"symbol={symbol} session={market_session} order_type={getattr(order, 'orderType', 'MKT')} "
+            "reason=PAPER_DEGRADED_ALLOWED"
+        )
     spread_abs, spread_pct = _compute_quote_spread(bid=bid, ask=ask)
     fillability, fillability_rationale = classify_submit_fillability(
         order_type=str(getattr(order, "orderType", "") or ""),
@@ -3020,13 +3046,13 @@ def execute_intents(
             )
             continue
         if working_duplicate:
-            blocked_reason = "DUPLICATE_POSITION"
+            blocked_reason = "DUPLICATE_WORKING_ORDER"
             blocked_pre_submit += 1
             print(
                 f"[EXECUTION][DUPLICATE_BLOCK] symbol={duplicate_symbol} reason={blocked_reason} "
                 f"existing_order_id={duplicate_order_id} existing_broker_state={duplicate_status} conflict_reason={duplicate_reason}"
             )
-            print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
+            print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_WORKING_ORDER")
             print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
             _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
             truth.rejection_reason = blocked_reason
@@ -3036,7 +3062,7 @@ def execute_intents(
                     symbol=decision.symbol,
                     intent_id=decision.intent_id,
                     action="BLOCKED",
-                    detail=f"reason={blocked_reason}",
+                    detail=f"reason={blocked_reason}; event=EXECUTION_SKIPPED_DUPLICATE",
                     broker_status="REJECTED",
                     last_update_time=_now_utc_iso(),
                 )
