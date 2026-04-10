@@ -30,6 +30,7 @@ class _Client:
 
 def test_submit_allows_paper_with_last_price_only_quote_context(monkeypatch) -> None:
     client = _Client()
+    monkeypatch.setattr(order_router, "_session_label_now", lambda: "RTH")
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": None, "ask": None, "last": 5.0, "volume": 50_000})
     order_id = order_router._submit_ibkr_order(
         mode=RunMode.PAPER,
@@ -80,7 +81,7 @@ def test_submit_live_premarket_uses_quote_aware_limit(monkeypatch) -> None:
     assert order_id == 777
     assert client.submissions == 1
     assert getattr(client.last_order, "orderType", None) == "LMT"
-    assert getattr(client.last_order, "lmtPrice", None) > 10.05
+    assert getattr(client.last_order, "lmtPrice", None) == 10.05
 
 
 def test_fillability_classifies_passive_limit_as_non_marketable() -> None:
@@ -128,6 +129,7 @@ def test_fillability_distinguishes_passive_vs_crossing() -> None:
 
 def test_submit_allows_marketable_with_ibkr_authority(monkeypatch) -> None:
     client = _Client()
+    monkeypatch.setattr(order_router, "_session_label_now", lambda: "RTH")
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": 10.0, "ask": 10.05, "last": 10.02, "volume": 100_000})
     order_id = order_router._submit_ibkr_order(
         mode=RunMode.PAPER,
@@ -145,6 +147,7 @@ def test_submit_allows_marketable_with_ibkr_authority(monkeypatch) -> None:
 
 def test_submit_allows_marketable_with_ibkr_stream_authority(monkeypatch) -> None:
     client = _Client()
+    monkeypatch.setattr(order_router, "_session_label_now", lambda: "RTH")
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": 10.0, "ask": 10.05, "last": 10.02, "volume": 100_000})
     order_id = order_router._submit_ibkr_order(
         mode=RunMode.PAPER,
@@ -179,6 +182,7 @@ def test_submit_blocks_non_ibkr_price_authority(monkeypatch) -> None:
 
 def test_submit_blocks_likely_restricted_low_price(monkeypatch) -> None:
     client = _Client()
+    monkeypatch.setattr(order_router, "_session_label_now", lambda: "RTH")
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": 1.8, "ask": 1.85, "last": 1.82, "volume": 200_000})
     with pytest.raises(RuntimeError, match="LIKELY_IBKR_RESTRICTED"):
         order_router._submit_ibkr_order(
