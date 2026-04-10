@@ -24,6 +24,7 @@ _RUNTIME_ORDERS: dict[int, "TrackedOrder"] = {}
 _EXECUTION_TRUTH_BY_ORDER_ID: dict[int, "ExecutionTruthRecord"] = {}
 _RUNTIME_POSITIONS: dict[str, "TrackedPosition"] = {}
 _IBKR_POSITIONS_BY_SYMBOL: dict[str, "IbkrPositionTruth"] = {}
+_IN_FLIGHT_ORDERS: dict[int, dict[str, Any]] = {}
 _SEEN_EXEC_IDS: set[str] = set()
 _UNMATCHED_CALLBACK_COUNT = 0
 _RECONCILIATION_SUCCESSES = 0
@@ -73,6 +74,7 @@ _OPEN_POSITIONS_CONFIRMED = 0
 _REDUCED_POSITIONS_CONFIRMED = 0
 _CLOSED_POSITIONS_CONFIRMED = 0
 _BROKER_POSITION_LAST_QTY_BY_SYMBOL: dict[str, int] = {}
+POSITION_SOURCE_OF_TRUTH = "BROKER"
 
 AUTHORITATIVE_EXECUTION_STATES = {
     "DISPATCH_INTENDED",
@@ -262,6 +264,8 @@ class TrackedPosition:
     symbol: str
     qty: int = 0
     avg_price: float | None = None
+    source: str = "broker"
+    last_update_ts: str = field(default_factory=lambda: _now_utc_iso())
     pending_entry_qty: int = 0
     pending_exit_qty: int = 0
     state: str = "NO_POSITION"
@@ -416,6 +420,32 @@ def _parse_iso_utc(value: str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _parse_ibkr_exec_timestamp(value: str | None) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parsed = _parse_iso_utc(text)
+    if parsed is not None:
+        return parsed
+    for fmt in ("%Y%m%d  %H:%M:%S", "%Y%m%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def _classify_fill_origin(*, tracked_exists_before: bool, exec_timestamp: str | None) -> str:
+    if not tracked_exists_before:
+        return "HISTORICAL_BACKFILL"
+    parsed = _parse_ibkr_exec_timestamp(exec_timestamp)
+    if parsed is None:
+        return "LIVE_EXECUTION"
+    backfill_threshold_seconds = float(os.environ.get("EXECUTION_BACKFILL_THRESHOLD_SECONDS", "90"))
+    age_seconds = (datetime.now(timezone.utc) - parsed).total_seconds()
+    return "HISTORICAL_BACKFILL" if age_seconds > backfill_threshold_seconds else "LIVE_EXECUTION"
+
+
 def _sanitize_ibkr_order_attributes(order: Order) -> None:
     order.eTradeOnly = False
     order.firmQuoteOnly = False
@@ -502,6 +532,24 @@ def _record_reconciliation_result(success: bool) -> None:
         _RECONCILIATION_SUCCESSES += 1
         return
     _RECONCILIATION_FAILURES += 1
+
+
+def _prune_in_flight_orders() -> None:
+    for order_id in list(_IN_FLIGHT_ORDERS.keys()):
+        tracked = _RUNTIME_ORDERS.get(int(order_id))
+        if tracked is None:
+            _IN_FLIGHT_ORDERS.pop(int(order_id), None)
+            continue
+        status = str(tracked.broker_status or "").upper()
+        if tracked.remaining_qty <= 0 or status in {"FILLED", "CANCELLED", "CANCELED", "API_CANCELLED", "INACTIVE", "REJECTED", "EXPIRED"}:
+            _IN_FLIGHT_ORDERS.pop(int(order_id), None)
+            continue
+        _IN_FLIGHT_ORDERS[int(order_id)] = {
+            "symbol": str(tracked.symbol or "").upper(),
+            "qty": int(tracked.remaining_qty),
+            "status": status or "SUBMITTED",
+            "submitted_ts": str(_IN_FLIGHT_ORDERS.get(int(order_id), {}).get("submitted_ts") or tracked.first_seen_at or _now_utc_iso()),
+        }
 
 
 def _refresh_fill_authority_state() -> None:
@@ -1007,10 +1055,14 @@ def _upsert_ibkr_position_truth(*, symbol: str, quantity: int, avg_price: float 
     row.quantity = int(quantity)
     row.avg_price = float(avg_price) if avg_price is not None else None
     row.last_update_time = str(update_time or _now_utc_iso())
-    print(
-        "[POSITION][SYNC] "
-        f"symbol={normalized_symbol} qty={row.quantity} avg_price={row.avg_price} source=IBKR"
-    )
+    runtime = _RUNTIME_POSITIONS.setdefault(normalized_symbol, TrackedPosition(symbol=normalized_symbol))
+    runtime.qty = int(row.quantity)
+    runtime.avg_price = row.avg_price
+    runtime.source = "broker"
+    runtime.last_update_ts = row.last_update_time
+    runtime.state = "POSITION_OPEN" if runtime.qty > 0 else "POSITION_CLOSED"
+    print(f"[POSITION][BROKER_SYNC] symbol={normalized_symbol} qty={row.quantity} avg_cost={row.avg_price}")
+    print("[POSITION][SYNC] " f"symbol={normalized_symbol} qty={row.quantity} avg_price={row.avg_price} source=IBKR")
 
 
 def _sync_ibkr_positions_from_snapshot(positions: list[Any]) -> None:
@@ -1173,6 +1225,8 @@ def _apply_position_fill(symbol: str, *, signed_delta_qty: int, fill_price: floa
     row.qty = int(row.qty) + int(signed_delta_qty)
     row.pending_entry_qty = max(0, int(row.pending_entry_qty) + int(pending_entry_delta))
     row.pending_exit_qty = max(0, int(row.pending_exit_qty) + int(pending_exit_delta))
+    row.source = "fill"
+    row.last_update_ts = _now_utc_iso()
     if fill_price is not None and signed_delta_qty > 0:
         prev_qty = max(0, int(row.qty) - int(signed_delta_qty))
         prev_avg = float(row.avg_price or 0.0)
@@ -1261,6 +1315,12 @@ def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, tota
             pos.pending_entry_qty = max(0, pos.pending_entry_qty + int(total_qty))
     if pos.qty <= 0:
         pos.state = "PENDING_ENTRY"
+    _IN_FLIGHT_ORDERS[int(order_id)] = {
+        "symbol": str(symbol or "").upper(),
+        "qty": int(total_qty),
+        "status": "SUBMITTED",
+        "submitted_ts": _now_utc_iso(),
+    }
     print(f"[LIFECYCLE][ORDER] order_id={order_id} symbol={symbol} state={row.canonical_state} filled={row.filled_qty} remaining={row.remaining_qty}")
     return row
 
@@ -1373,7 +1433,7 @@ def _recover_order_from_execdetails(order_id: int, symbol: str, filled_qty: int,
     return tracked
 
 
-def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, fill_price: float | None, exec_id: str | None, timestamp: str, source: str) -> None:
+def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, fill_price: float | None, exec_id: str | None, timestamp: str, source: str, fill_origin: str) -> None:
     normalized_symbol = str(symbol or "").upper().strip()
     row = _RUNTIME_ORDERS.get(order_id)
     if row is None:
@@ -1404,11 +1464,16 @@ def _apply_fill_to_tracked_order(*, order_id: int, symbol: str, fill_qty: int, f
         row.first_fill_seen_at = timestamp
     row.callback_pending = False
     row.callback_pending_since = None
+    inflight = _IN_FLIGHT_ORDERS.get(int(order_id))
+    if inflight is not None:
+        inflight["status"] = "PARTIALLY_FILLED" if row.remaining_qty > 0 else "FILLED"
+        if row.remaining_qty <= 0:
+            _IN_FLIGHT_ORDERS.pop(int(order_id), None)
     print(f"[EXECUTION][ORDER_MATCH] order_id={order_id} symbol={row.symbol} source={source}")
     print(
         "[EXECUTION][FILL] "
         f"order_id={order_id} symbol={row.symbol} authority=execDetails fill_qty={inc} "
-        f"remaining_qty={row.remaining_qty} exec_id={exec_id or 'NA'}"
+        f"remaining_qty={row.remaining_qty} exec_id={exec_id or 'NA'} fill_origin={fill_origin}"
     )
     print(f"[PRICE_AUTHORITY][SOURCE=IBKR_EXECUTION] order_id={order_id} symbol={row.symbol} price={fill_price}")
     if row.remaining_qty == 0:
@@ -1529,6 +1594,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     if event_type == "execdetails":
         normalized_symbol = str(symbol or "").upper().strip()
         tracked_before = tracked
+        fill_origin = "LIVE_EXECUTION"
         tracked = _recover_order_from_execdetails(
             int(order_id),
             normalized_symbol,
@@ -1536,13 +1602,17 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             fill_price,
         )
         trace = _EXECUTION_TRACE_BY_ORDER_ID.get(int(order_id))
-        is_backfill = tracked_before is None
-        if is_backfill:
+        fill_origin = _classify_fill_origin(
+            tracked_exists_before=tracked_before is not None,
+            exec_timestamp=timestamp,
+        )
+        if fill_origin == "HISTORICAL_BACKFILL":
             print(
                 "[EXECUTION][FORCED_BACKFILL] "
                 f"order_id={order_id} symbol={normalized_symbol} "
                 f"fill_qty={int(filled_qty or 0)} fill_price={fill_price}"
             )
+            print(f"[EXECUTION][FILL_BACKFILL] symbol={normalized_symbol or 'UNKNOWN'} ignored_for_runtime_metrics=True")
         _apply_fill_to_tracked_order(
             order_id=int(order_id),
             symbol=normalized_symbol,
@@ -1550,7 +1620,8 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             fill_price=fill_price,
             exec_id=str(_extract_callback_field(callback_payload, "execId") or f"BACKFILL-{order_id}"),
             timestamp=_now_utc_iso(),
-            source="IBKR_EXECUTION_BACKFILL" if is_backfill else "IBKR_EXECUTION",
+            source="IBKR_EXECUTION_BACKFILL" if fill_origin == "HISTORICAL_BACKFILL" else "IBKR_EXECUTION",
+            fill_origin=fill_origin,
         )
         truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(int(order_id))
         if truth is not None:
@@ -1599,6 +1670,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         fill_event_type = "ORDER_FILLED"
     else:
         fill_event_type = "ORDER_WORKING"
+    event_source = "IBKR_BACKFILL" if event_type == "execdetails" and fill_origin == "HISTORICAL_BACKFILL" else "IBKR"
     broker_status = "Filled" if fill_event_type == "ORDER_FILLED" else (
         "Submitted" if event_status in {"SUBMITTED", "PRESUBMITTED"} else (event_status or "Submitted")
     )
@@ -1608,7 +1680,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         action="WORKING" if fill_event_type == "ORDER_WORKING" else "FILLED",
         detail="callback_fill",
         event_type=fill_event_type,
-        source="IBKR",
+        source=event_source,
         broker_order_id=order_id,
         filled_quantity=max(0, filled_qty),
         remaining_quantity=max(0, remaining_int),
@@ -1657,6 +1729,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             tracked.fill_seen = tracked.filled_qty > 0
             tracked.working_seen = tracked.remaining_qty > 0
             tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
+            tracked.last_update_at = _now_utc_iso()
     elif event_type == "orderstatus":
         print(f"[EXECUTION][CALLBACK_NORMALIZED] event=orderStatus symbol={symbol or 'UNKNOWN'} broker_order_id={order_id} state={_state_from_broker_status(event_status, filled_qty, remaining_int)}")
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"orderStatus_seen": True})
@@ -1669,6 +1742,9 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         else:
             old_state = row.canonical_state
             row.broker_status = event_status or row.broker_status
+            inflight = _IN_FLIGHT_ORDERS.get(int(order_id))
+            if inflight is not None:
+                inflight["status"] = str(row.broker_status or "").upper() or inflight.get("status")
             if filled_qty > row.filled_qty:
                 print(
                     "[EXECUTION][TRUTH_GAP] "
@@ -1720,6 +1796,13 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 )
                 row.inactive_normalized_reason = normalized_inactive_reason
                 row.inactive_rationale = inactive_rationale
+                classified_reason = "UNKNOWN_INACTIVE"
+                if fillability == "NO_QUOTE_CONTEXT" or normalized_inactive_reason == "INACTIVE_NO_QUOTE_CONTEXT":
+                    classified_reason = "NO_MARKET_CONTEXT"
+                elif normalized_inactive_reason in {"INACTIVE_SESSION_MISMATCH", "INACTIVE_OUTSIDE_RTH_CONFIGURATION"}:
+                    classified_reason = "SESSION_BLOCK"
+                elif any(int(code) in {200, 321, 322} for code in row.broker_error_codes):
+                    classified_reason = "CONTRACT_REJECT"
                 print(
                     "[EXECUTION][INACTIVE_CLASSIFICATION] "
                     f"symbol={row.symbol} order_id={order_id} broker_status={_none_text(row.broker_status)} "
@@ -1728,10 +1811,18 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                     f"session_label={_none_text(submit_payload.get('session_label'))} why_held={_none_text(why_held)} "
                     f"normalized_inactive_reason={normalized_inactive_reason} rationale={inactive_rationale}"
                 )
+                print(
+                    "[EXECUTION][ORDER_FAILURE] "
+                    f"symbol={row.symbol} status=Inactive classified_reason={classified_reason}"
+                )
             if str(row.broker_status or "").upper() in {"CANCELLED", "CANCELED", "API_CANCELLED"}:
                 row.cancelled_seen = True
+                _IN_FLIGHT_ORDERS.pop(int(order_id), None)
             if str(row.broker_status or "").upper() == "EXPIRED":
                 row.expired_seen = True
+                _IN_FLIGHT_ORDERS.pop(int(order_id), None)
+            if str(row.broker_status or "").upper() in {"INACTIVE", "REJECTED", "FILLED"}:
+                _IN_FLIGHT_ORDERS.pop(int(order_id), None)
             row.fill_seen = row.filled_qty > 0
             row.final_execution_state = _resolve_authoritative_execution_state(row)
             print(f"[ORDER_EVENT][STATUS] order_id={order_id} symbol={row.symbol} status={row.broker_status} filled={row.filled_qty} remaining={row.remaining_qty}")
@@ -2075,16 +2166,22 @@ def _check_callback_delay(*, now: datetime | None = None) -> None:
 
 
 def _check_position_consistency() -> None:
-    filled_symbols = {
-        row.symbol
+    broker_position_symbols = {symbol for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items() if int(row.quantity) > 0}
+    runtime_symbols = {symbol for symbol, row in _RUNTIME_POSITIONS.items() if int(row.qty) != 0}
+    valid_fill_symbols = {
+        str(row.symbol or "").upper()
         for row in _RUNTIME_ORDERS.values()
-        if row.filled_qty > 0 or row.canonical_state in {"PARTIALLY_FILLED", "FILLED"}
+        if int(row.filled_qty) > 0
     }
-    position_symbols = {symbol for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items() if int(row.quantity) > 0}
-    for symbol in sorted(filled_symbols - position_symbols):
-        print(f"[POSITION][INCONSISTENT_STATE] symbol={symbol} reason=filled_without_position")
-    for symbol in sorted(position_symbols - filled_symbols):
-        print(f"[POSITION][INCONSISTENT_STATE] symbol={symbol} reason=position_without_fill_history")
+    for symbol in sorted(runtime_symbols | broker_position_symbols):
+        runtime_qty = int(getattr(_RUNTIME_POSITIONS.get(symbol), "qty", 0) or 0)
+        broker_qty = int(getattr(_IBKR_POSITIONS_BY_SYMBOL.get(symbol), "quantity", 0) or 0)
+        if runtime_qty != broker_qty:
+            print(f"[POSITION][MISMATCH_DETECTED] symbol={symbol} runtime_qty={runtime_qty} broker_qty={broker_qty}")
+        has_in_flight = any(str(v.get("symbol", "")).upper() == symbol for v in _IN_FLIGHT_ORDERS.values())
+        has_valid_fill = symbol in valid_fill_symbols
+        if runtime_qty != 0 and broker_qty == 0 and not has_in_flight and not has_valid_fill:
+            print(f"[POSITION][MISMATCH_DETECTED] symbol={symbol} runtime_qty={runtime_qty} broker_qty={broker_qty}")
 
 
 def _sync_submitted_events_from_ibkr(
@@ -3057,6 +3154,7 @@ def execute_intents(
     _FILL_AUTHORITY_STATE = "UNKNOWN"
     if _is_explicit_test_mode():
         _CIRCUIT_BREAKER_ACTIVE = False
+    _prune_in_flight_orders()
     events: List[ExecutionEvent] = []
     manager: Any | None = None
     _EXECUTION_CYCLE_COUNTER += 1
@@ -3117,6 +3215,7 @@ def execute_intents(
             _extract_position_qty(row) or 0.0
         )
     working_order_candidates: list[dict[str, Any]] = []
+    _IN_FLIGHT_ORDERS.clear()
     for row in open_orders:
         symbol = _extract_symbol_from_order(row)
         if not symbol:
@@ -3137,6 +3236,13 @@ def execute_intents(
                 "is_live_status": status in {"SUBMITTED", "ACKNOWLEDGED", "WORKING", "PRESUBMITTED"},
             }
         )
+        if order_id is not None and status in {"SUBMITTED", "PRESUBMITTED"}:
+            _IN_FLIGHT_ORDERS[int(order_id)] = {
+                "symbol": symbol,
+                "qty": 0,
+                "status": status,
+                "submitted_ts": _now_utc_iso(),
+            }
     print(f"[EXECUTION][WORKING_ORDER_RECON] known_working_orders={len(working_order_candidates)}")
 
     submitted_order_ids: list[int] = []
@@ -3241,23 +3347,18 @@ def execute_intents(
                 )
             )
             continue
-        local_position = _RUNTIME_POSITIONS.get(duplicate_symbol)
-        local_position_qty = float(getattr(local_position, "qty", 0.0) or 0.0)
         broker_position_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
-        recent_exec_local = False
-        if local_position is not None and str(getattr(local_position, "last_update_source", "") or "").upper() == "EXEC_DETAILS":
-            exec_seen_at = _parse_iso_utc(getattr(local_position, "last_fill_update_at", None))
-            if exec_seen_at is not None:
-                recency_seconds = float(os.environ.get("EXECUTION_POSITION_EXEC_RECENCY_SECONDS", "15") or "15")
-                recent_exec_local = (datetime.now(timezone.utc) - exec_seen_at).total_seconds() <= recency_seconds
-        effective_position_qty = local_position_qty if recent_exec_local else max(local_position_qty, broker_position_qty)
-        treated_as_flat = abs(effective_position_qty) <= 1e-6
-        position_source = "LOCAL_EXEC" if recent_exec_local else "MAX_LOCAL_BROKER"
-        print(
-            f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} local_qty={local_position_qty} broker_qty={broker_position_qty} "
-            f"effective_qty={effective_position_qty} source={position_source} treated_as_flat={str(treated_as_flat).lower()}"
+        in_flight_same_symbol = any(
+            str(v.get("symbol", "")).upper() == duplicate_symbol
+            for v in _IN_FLIGHT_ORDERS.values()
         )
-        if order_side == "BUY" and not treated_as_flat:
+        allow_trade = broker_position_qty <= 0 and not in_flight_same_symbol
+        reason = "NO_BROKER_POSITION_OR_IN_FLIGHT" if allow_trade else ("EXISTING_POSITION" if broker_position_qty > 0 else "IN_FLIGHT_ORDER")
+        print(
+            f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} broker_qty={broker_position_qty} "
+            f"in_flight={str(in_flight_same_symbol).lower()} decision={'ALLOW' if allow_trade else 'BLOCK'} reason={reason}"
+        )
+        if order_side == "BUY" and not allow_trade:
             blocked_reason = "DUPLICATE_POSITION"
             blocked_pre_submit += 1
             print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
@@ -3575,7 +3676,8 @@ def execute_intents(
             trace.fill_qty = int(event.filled_quantity)
             trace.fill_price = event.avg_fill_price
             trace.lifecycle_state = "FILL_RECEIVED"
-            fills_received += 1
+            if str(event.source or "").upper() != "IBKR_BACKFILL":
+                fills_received += 1
             _trace_log("FILL", trace, extra=f"fill_qty={event.filled_quantity} fill_price={event.avg_fill_price}")
         if trace.ack_received:
             acks_received += 1
@@ -3715,9 +3817,14 @@ def execute_intents(
         f"orders_submitted={orders_submitted} acks_received={acks_received} fills_received={fills_received} "
         f"positions_opened={positions_opened} failures_by_type={dict(sorted(_EXECUTION_FAILURES_BY_TYPE.items()))}"
     )
-    working_count = sum(1 for row in _RUNTIME_ORDERS.values() if row.canonical_state == "WORKING")
+    working_count = sum(
+        1
+        for row in _RUNTIME_ORDERS.values()
+        if str(row.broker_status or "").upper() in {"SUBMITTED", "PRESUBMITTED"}
+    )
     partial_fill_count = sum(1 for row in _RUNTIME_ORDERS.values() if row.canonical_state == "PARTIALLY_FILLED")
     fill_count = sum(1 for row in _RUNTIME_ORDERS.values() if row.canonical_state == "FILLED")
+    inactive_orders = sum(1 for row in _RUNTIME_ORDERS.values() if str(row.broker_status or "").upper() == "INACTIVE")
     acknowledged_count = sum(1 for row in _RUNTIME_ORDERS.values() if row.ack_seen)
     orphan_intents = max(0, intents_received - blocked_pre_submit - submission_attempted_total)
     health_status = "DEGRADED" if bool(_IBKR_HEALTH_STATE.get("degraded")) else "STABLE"
@@ -3730,6 +3837,7 @@ def execute_intents(
         f"open_positions_confirmed={_OPEN_POSITIONS_CONFIRMED} reduced_positions_confirmed={_REDUCED_POSITIONS_CONFIRMED} "
         f"closed_positions_confirmed={_CLOSED_POSITIONS_CONFIRMED} "
         f"order_reconciliation_mismatches={_RECONCILIATION_FAILURES} position_reconciliation_mismatches={_RECONCILED_POSITIONS_MISMATCH} "
+        f"inactive_orders={inactive_orders} "
         f"watchdog_stalls_total={_WATCHDOG_STALLS_TOTAL} ibkr_health_status={health_status} fill_authority_state={fill_authority_state()}"
     )
     submitted_marketable = int(_SUBMIT_FILLABILITY_COUNTS.get("CROSSING_ASK_AGGRESSIVE", 0)) + int(

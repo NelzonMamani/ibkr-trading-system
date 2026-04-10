@@ -332,7 +332,7 @@ def test_position_zero_not_blocked(monkeypatch, capsys) -> None:
     )
     out = capsys.readouterr().out
     assert events[0].action == "SUBMITTED"
-    assert "[EXECUTION][POSITION_CHECK] symbol=MCRO local_qty=0.0 broker_qty=0.0 effective_qty=0.0 source=MAX_LOCAL_BROKER treated_as_flat=true" in out
+    assert "[EXECUTION][POSITION_CHECK] symbol=MCRO broker_qty=0.0 in_flight=false decision=ALLOW reason=NO_BROKER_POSITION_OR_IN_FLIGHT" in out
     assert "reason=DUPLICATE_POSITION" not in out
 
 
@@ -370,9 +370,9 @@ def test_recent_exec_local_flat_overrides_stale_broker_position(monkeypatch, cap
         ],
     )
     out = capsys.readouterr().out
-    assert events[0].action == "SUBMITTED"
-    assert "source=LOCAL_EXEC treated_as_flat=true" in out
-    assert "reason=DUPLICATE_POSITION" not in out
+    assert events[0].action == "BLOCKED"
+    assert "decision=BLOCK reason=EXISTING_POSITION" in out
+    assert "reason=DUPLICATE_POSITION" in out
 
 
 def test_ibkr_callback_creates_order_filled_event(monkeypatch, capsys) -> None:

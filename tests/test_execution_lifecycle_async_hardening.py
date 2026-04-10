@@ -129,7 +129,7 @@ def test_reconciliation_does_not_apply_fill_without_callback(monkeypatch) -> Non
     assert events[0].filled_quantity == 0
     assert events[0].remaining_quantity == 100
     assert order_router._RUNTIME_ORDERS[oid].filled_qty == 0
-    assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 0
+    assert order_router._RUNTIME_POSITIONS["ABCD"].qty == 100
 
 
 def test_duplicate_exec_callback_is_idempotent(monkeypatch) -> None:
@@ -394,8 +394,8 @@ def test_duplicate_working_order_logic_ignores_legacy_mismatched_intent(monkeypa
     monkeypatch.setattr(order_router, "_fetch_ibkr_truth", lambda _mode: (legacy_open_orders, [], []))
     events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision("ABCD", 100)])
     out = capsys.readouterr().out
-    assert events[0].action == "SUBMITTED"
-    assert "[EXECUTION][DUPLICATE_IGNORE_STALE]" in out
+    assert events[0].action == "BLOCKED"
+    assert "reason=IN_FLIGHT_ORDER" in out
 
 
 def test_duplicate_working_order_logic_blocks_true_same_intent(monkeypatch) -> None:
