@@ -1027,12 +1027,20 @@ def _extract_position_qty(position_row: Any) -> float:
     return 0.0
 
 
-def _upsert_ibkr_position_truth(*, symbol: str, quantity: int, avg_price: float | None, update_time: str | None = None) -> None:
+def _upsert_ibkr_position_truth(
+    *,
+    symbol: str,
+    quantity: int,
+    avg_price: float | None,
+    update_time: str | None = None,
+    count_as_event: bool = True,
+) -> None:
     global _IBKR_POSITION_EVENTS_COUNT
     normalized_symbol = str(symbol or "").upper().strip()
     if not normalized_symbol:
         return
-    _IBKR_POSITION_EVENTS_COUNT += 1
+    if count_as_event:
+        _IBKR_POSITION_EVENTS_COUNT += 1
     row = _IBKR_POSITIONS_BY_SYMBOL.setdefault(normalized_symbol, IbkrPositionTruth(symbol=normalized_symbol))
     row.quantity = int(quantity)
     row.avg_price = float(avg_price) if avg_price is not None else None
@@ -1060,6 +1068,7 @@ def _sync_ibkr_positions_from_snapshot(positions: list[Any]) -> None:
             quantity=quantity,
             avg_price=avg_cost,
             update_time=_now_utc_iso(),
+            count_as_event=False,
         )
     stale_symbols = [symbol for symbol in _IBKR_POSITIONS_BY_SYMBOL.keys() if symbol not in seen_symbols]
     for symbol in stale_symbols:
@@ -1435,6 +1444,36 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     event_type = str(_extract_callback_field(callback_payload, "event_type") or "").lower()
     if event_type and event_type not in {"execdetails", "orderstatus", "commissionreport", "openorder", "position", "positionend", "error"}:
         return
+    if event_type == "position":
+        symbol = str(_extract_callback_field(callback_payload, "symbol") or "").upper().strip()
+        if not symbol:
+            return
+        qty_raw = _extract_callback_field(callback_payload, "position", "qty", "shares", "quantity")
+        try:
+            quantity = int(float(qty_raw or 0))
+        except (TypeError, ValueError):
+            quantity = 0
+        avg_cost = _extract_callback_field(callback_payload, "avgCost", "avg_cost", "averageCost", "avg_price")
+        prev_qty = int(_BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol, 0))
+        _upsert_ibkr_position_truth(
+            symbol=symbol,
+            quantity=quantity,
+            avg_price=avg_cost,
+            update_time=_now_utc_iso(),
+        )
+        if quantity > 0 and prev_qty <= 0:
+            print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_CONFIRMED_FROM_IBKR qty={quantity} avg_cost={avg_cost}")
+            for trace in _EXECUTION_TRACE_BY_INTENT.values():
+                if trace.symbol == symbol and not trace.position_opened:
+                    trace.position_opened = True
+                    trace.lifecycle_state = "POSITION_CONFIRMED"
+                    _trace_log("POSITION_CONFIRMED", trace, extra=f"qty={quantity}")
+        elif quantity > 0 and prev_qty > quantity:
+            print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_REDUCED_CONFIRMED_FROM_IBKR qty={quantity}")
+        elif quantity == 0 and prev_qty > 0:
+            print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_CLOSED_CONFIRMED_FROM_IBKR")
+        _BROKER_POSITION_LAST_QTY_BY_SYMBOL[symbol] = quantity
+        return
     order_id = _resolve_callback_order_id(callback_payload)
     callback_order_ref = _extract_callback_order_ref(callback_payload)
     symbol = _extract_callback_symbol(callback_payload)
@@ -1452,18 +1491,6 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     if event_type == "positionend":
         print("[IBKR][CALLBACK_RAW] event=positionEnd")
         return
-    if event_type == "position":
-        qty_raw = _extract_callback_field(callback_payload, "position", "qty", "shares", "quantity")
-        avg_raw = _extract_callback_field(callback_payload, "avgCost", "avg_cost", "averageCost", "avg_price")
-        try:
-            qty = int(float(qty_raw or 0))
-        except (TypeError, ValueError):
-            qty = 0
-        try:
-            avg_price = float(avg_raw) if avg_raw is not None else None
-        except (TypeError, ValueError):
-            avg_price = None
-        _upsert_ibkr_position_truth(symbol=symbol, quantity=qty, avg_price=avg_price, update_time=timestamp)
     if order_id is None:
         if event_type == "execdetails":
             _UNMATCHED_CALLBACK_COUNT += 1
@@ -1846,15 +1873,6 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             print(f"[EXECUTION][QUEUED_FOR_RTH] order_id={order_id} message={message}")
         if normalized_reason in {"PERMISSION_SMALL_CAP_OPENING_RESTRICTED", "REGULATORY_CLOSING_ONLY", "UNKNOWN_BROKER_REJECT"}:
             print(f"[EXECUTION][PERMISSION_REJECT] order_id={order_id} code={code} normalized_reject_reason={normalized_reason}")
-    elif event_type == "position":
-        print(f"[EXECUTION][CALLBACK_NORMALIZED] event=position symbol={symbol or 'UNKNOWN'} broker_order_id={order_id} state=POSITION")
-        if trace is not None:
-            if qty > 0:
-                _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"position_seen": True})
-                trace.position_opened = True
-                trace.lifecycle_state = "POSITION_CONFIRMED"
-                _trace_log("POSITION_CONFIRMED", trace, extra=f"position_qty={qty}")
-                print(f"[EXECUTION][LIFECYCLE] symbol={trace.symbol} marker=POSITION_CONFIRMED")
     print(
         "[EXECUTION][EVENT_CREATED] "
         f"event_type={event.event_type} source={event.source} symbol={event.symbol} "
@@ -2037,16 +2055,10 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
             f"symbol={symbol} local_qty={local_qty} expected_position={expected_position} broker_qty={ibkr_qty} verdict={verdict}"
         )
         if ibkr_qty > 0 and prev_broker_qty <= 0:
-            print(f"[EXECUTION][POSITION_OPEN_CONFIRMED] symbol={symbol} broker_qty={ibkr_qty} avg_cost={broker_avg_cost}")
-            print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_CONFIRMED_FROM_IBKR")
             _OPEN_POSITIONS_CONFIRMED += 1
         elif ibkr_qty > 0 and prev_broker_qty > ibkr_qty:
-            print(f"[EXECUTION][POSITION_REDUCED_CONFIRMED] symbol={symbol} broker_qty={ibkr_qty}")
-            print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_REDUCED_CONFIRMED")
             _REDUCED_POSITIONS_CONFIRMED += 1
         elif ibkr_qty == 0 and prev_broker_qty > 0:
-            print(f"[EXECUTION][POSITION_CLOSED_CONFIRMED] symbol={symbol}")
-            print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_CLOSED_CONFIRMED")
             _CLOSED_POSITIONS_CONFIRMED += 1
         _BROKER_POSITION_LAST_QTY_BY_SYMBOL[symbol] = ibkr_qty
     print(
@@ -3632,10 +3644,13 @@ def execute_intents(
         if trace.fill_received and not trace.position_opened:
             timeout_seconds = int(os.environ.get("EXECUTION_POSITION_CONFIRMATION_TIMEOUT_SECONDS", "30") or "30")
             fill_seen_at = _parse_iso_utc(trace.fill_time)
-            if fill_seen_at is not None and (datetime.now(timezone.utc) - fill_seen_at).total_seconds() > timeout_seconds:
-                _mark_execution_failure(trace, "PARTIAL_FILL_STALLED", reason="position_confirmation_timeout")
-            else:
-                _trace_log("PENDING_POSITION_CONFIRMATION", trace, extra="awaiting_ibkr_position_callback=true")
+            if fill_seen_at is not None:
+                elapsed = (datetime.now(timezone.utc) - fill_seen_at).total_seconds()
+                if elapsed > timeout_seconds:
+                    _mark_execution_failure(trace, "POSITION_TIMEOUT", reason="position_not_confirmed_by_ibkr")
+                else:
+                    trace.lifecycle_state = "AWAITING_POSITION_CONFIRMATION"
+                    _trace_log("AWAITING_POSITION_CONFIRMATION", trace)
         if trace.lifecycle_state not in {"FAIL", "POSITION_CONFIRMED"}:
             trace.lifecycle_state = "COMPLETE"
             _trace_log("COMPLETE", trace, extra=f"state={trace.lifecycle_state}")
