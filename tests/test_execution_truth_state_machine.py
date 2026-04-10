@@ -58,8 +58,8 @@ def test_duplicate_open_position_blocks_at_final_boundary(monkeypatch, capsys) -
     out = capsys.readouterr().out
 
     assert events[0].action == "BLOCKED"
-    assert events[0].detail == "reason=EXISTING_OPEN_POSITION"
-    assert "[EXECUTION][BLOCK] symbol=DUPX reason=EXISTING_OPEN_POSITION" in out
+    assert events[0].detail == "reason=DUPLICATE_POSITION"
+    assert "[EXECUTION][HARD_BLOCK] symbol=DUPX reason=DUPLICATE_POSITION" in out
 
 
 def test_fill_authority_state_is_deterministic_no_intents() -> None:

@@ -140,7 +140,7 @@ def test_callback_registration_supported_logs_registered(monkeypatch, capsys) ->
     assert "[EXECUTION][CALLBACK_REGISTERED]" in out
 
 
-def test_submit_order_ack_enforced_in_strict_mode(monkeypatch) -> None:
+def test_submit_order_allows_paper_degraded_last_only_path(monkeypatch, capsys) -> None:
     submitted_orders = []
 
     class _Client:
@@ -157,23 +157,29 @@ def test_submit_order_ack_enforced_in_strict_mode(monkeypatch) -> None:
             return 111
 
         def wait_for_order_status(self, _order_id, timeout_seconds=5):
-            return None
+            return "Submitted"
 
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
-    # In premarket, submission requires valid bid/ask.
-    # If unavailable, execution now hard-blocks before submission.
-    with pytest.raises(RuntimeError, match="NO_QUOTE_CONTEXT"):
-        order_router._submit_ibkr_order(
-            mode=RunMode.PAPER,
-            client=_Client(),
-            symbol="MCRO",
-            side="BUY",
-            quantity=1,
-            order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
-            entry_price=25.0,
-            entry_price_source="IBKR_SNAPSHOT",
-        )
-    assert len(submitted_orders) == 0
+    monkeypatch.setattr(
+        order_router,
+        "_wait_for_ibkr_snapshot_for_symbol",
+        lambda *_args, **_kwargs: {"last": 25.1, "bid": None, "ask": None, "volume": 120000},
+    )
+    order_id = order_router._submit_ibkr_order(
+        mode=RunMode.PAPER,
+        client=_Client(),
+        symbol="MCRO",
+        side="BUY",
+        quantity=1,
+        order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
+        entry_price=25.0,
+        entry_price_source="IBKR_BID_ASK",
+    )
+    out = capsys.readouterr().out
+    assert order_id == 111
+    assert len(submitted_orders) == 1
+    assert "[EXECUTION][PATH] symbol=MCRO path=DEGRADED_QUOTE_PATH" in out
+    assert "[EXECUTION][DEGRADED_MODE] symbol=MCRO using last_price_only no_bid_ask" in out
 
 
 def test_executability_summary_counts_blocked_no_ibkr_price_authority(monkeypatch, capsys) -> None:

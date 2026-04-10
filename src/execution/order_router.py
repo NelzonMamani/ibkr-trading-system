@@ -104,7 +104,10 @@ FAILURE_TYPES = {
     "PARTIAL_FILL_STALLED",
     "CONTRACT_NOT_QUALIFIED",
     "BROKER_DISCONNECTED",
-    "UNKNOWN",
+    "NO_QUOTE_CONTEXT",
+    "CONTRACT_RESOLUTION_FAIL",
+    "IBKR_REJECT",
+    "CALLBACK_TIMEOUT",
 }
 
 ORDER_STATES = {
@@ -156,6 +159,13 @@ BROKER_ONLY_STATES = {
 }
 
 LOCAL_ALLOWED_STATES = {"CREATED", "BLOCKED", "SUBMITTING", "SUBMITTED"}
+
+FULL_QUOTE_PATH = "FULL_QUOTE_PATH"
+DEGRADED_QUOTE_PATH = "DEGRADED_QUOTE_PATH"
+
+
+class ExecutionInvariantViolation(RuntimeError):
+    """Raised when execution intent invariants are violated."""
 
 ALLOWED_EXECUTION_TRANSITIONS: dict[str, set[str]] = {
     "CREATED": {"BLOCKED", "SUBMITTING", "SUBMITTED", "ERROR"},
@@ -318,7 +328,7 @@ def _trace_log(stage: str, trace: ExecutionTrace, *, extra: str = "") -> None:
 
 
 def _mark_execution_failure(trace: ExecutionTrace | None, failure_type: str, *, reason: str = "") -> None:
-    normalized = failure_type if failure_type in FAILURE_TYPES else "UNKNOWN"
+    normalized = failure_type if failure_type in FAILURE_TYPES else "IBKR_REJECT"
     _EXECUTION_FAILURES_BY_TYPE[normalized] = int(_EXECUTION_FAILURES_BY_TYPE.get(normalized, 0)) + 1
     if trace is not None:
         trace.lifecycle_state = "FAIL"
@@ -1314,6 +1324,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             return
         _UNMATCHED_CALLBACK_COUNT += 1
         print(f"[EXECUTION][UNMATCHED_CALLBACK] event={event_type or 'unknown'} broker_order_id=UNKNOWN symbol={symbol or 'UNKNOWN'}")
+        print(f"[RECON][UNMATCHED_CALLBACK] event={event_type or 'unknown'} broker_order_id=UNKNOWN symbol={symbol or 'UNKNOWN'}")
         print(
             "[ORDER_EVENT][UNMATCHED] "
             f"event=CALLBACK reason=missing_order_id_and_order_ref order_ref={callback_order_ref or 'UNKNOWN'}"
@@ -1329,7 +1340,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
         _FILL_AUTHORITY_STATE = "DEGRADED"
         if event_type in {"execdetails", "orderstatus", "openorder"}:
-            _mark_execution_failure(None, "UNKNOWN", reason=f"missing_order_id callback={event_type or 'unknown'}")
+            _mark_execution_failure(None, "CALLBACK_TIMEOUT", reason=f"missing_order_id callback={event_type or 'unknown'}")
         return
     tracked = _RUNTIME_ORDERS.get(int(order_id))
     trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id)
@@ -1395,11 +1406,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             _update_truth_field(truth=truth, field_name="remaining_qty", value=int(tracked.remaining_qty), source="IBKR_CALLBACK")
             _update_truth_field(truth=truth, field_name="avg_fill_price", value=tracked.avg_fill_price, source="IBKR_CALLBACK")
             _update_truth_field(truth=truth, field_name="last_fill_price", value=fill_price, source="IBKR_CALLBACK")
-            _transition_execution_truth_state(
-                truth=truth,
-                next_state="FILLED" if int(tracked.remaining_qty) <= 0 else "PARTIALLY_FILLED",
-                source="IBKR_CALLBACK",
-            )
+            _transition_execution_truth_state(truth=truth, next_state="FILLED", source="IBKR_CALLBACK")
         assert int(order_id) in _RUNTIME_ORDERS, "EXECDETAILS_RECOVERY_FAILED"
         _record_reconciliation_result(True)
         _refresh_fill_authority_state()
@@ -1408,6 +1415,8 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         print(f"[EXECUTION][CALLBACK_ENRICHED] order_id={order_id} symbol={symbol} source=order_id_mapping")
     if not symbol and tracked is None:
         print(f"[EXECUTION][CALLBACK_UNRESOLVED] order_id={order_id} event_type={event_type or 'unknown'}")
+    if tracked is None and order_id is not None:
+        print(f"[RECON][UNMATCHED_CALLBACK] event={event_type or 'unknown'} broker_order_id={order_id} symbol={symbol or 'UNKNOWN'}")
     fingerprint = (
         f"{event_type}|{order_id}|{symbol}|"
         f"{_extract_callback_field(callback_payload, 'status') or ''}|"
@@ -1419,6 +1428,11 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         return
     if tracked is not None:
         tracked.last_callback_fingerprint = fingerprint
+        if not str(tracked.intent_id or _INTENT_ID_BY_ORDER_ID.get(int(order_id), "")).strip():
+            print(
+                f"[RECON][UNMATCHED_CALLBACK] event={event_type or 'unknown'} broker_order_id={order_id} "
+                f"symbol={tracked.symbol or symbol or 'UNKNOWN'} reason=missing_intent_correlation"
+            )
     _LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID[int(order_id)] = fingerprint
     if trace is not None:
         _trace_log("ACK", trace, extra=f"callback={event_type or 'unknown'}")
@@ -1515,16 +1529,11 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(int(order_id))
             if truth is not None:
                 state_map = {
-                    "ACKNOWLEDGED": "ACKNOWLEDGED",
-                    "WORKING": "WORKING",
-                    "PARTIALLY_FILLED": "PARTIALLY_FILLED",
-                    "FILLED": "FILLED",
                     "REJECTED": "REJECTED",
                     "EXPIRED": "EXPIRED",
                     "CANCELLED": "CANCELLED",
-                    "SUBMITTED": "WORKING",
                 }
-                mapped_state = state_map.get(row.canonical_state, "WORKING")
+                mapped_state = state_map.get(row.canonical_state, "ACKNOWLEDGED")
                 _update_truth_field(truth=truth, field_name="last_broker_status", value=str(row.broker_status or ""), source="IBKR_CALLBACK")
                 _transition_execution_truth_state(truth=truth, next_state=mapped_state, source="IBKR_CALLBACK")
             row.last_update_at = timestamp
@@ -1599,7 +1608,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                     f"status={row.broker_status}"
                 )
     elif event_type == "openorder":
-        print(f"[EXECUTION][CALLBACK_NORMALIZED] event=openOrder symbol={symbol or 'UNKNOWN'} broker_order_id={order_id} state=ACKNOWLEDGED")
+        print(f"[EXECUTION][CALLBACK_NORMALIZED] event=openOrder symbol={symbol or 'UNKNOWN'} broker_order_id={order_id} state=SUBMITTED")
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id, {}).update({"openOrder_seen": True})
         if callback_order_ref:
             _ORDER_ID_BY_ORDER_REF[callback_order_ref] = int(order_id)
@@ -1648,7 +1657,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             tracked.final_execution_state = _resolve_authoritative_execution_state(tracked)
         truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(int(order_id))
         if truth is not None:
-            _transition_execution_truth_state(truth=truth, next_state="ACKNOWLEDGED", source="IBKR_CALLBACK")
+            _transition_execution_truth_state(truth=truth, next_state="SUBMITTED", source="IBKR_CALLBACK")
     elif event_type == "error":
         code_raw = _extract_callback_field(callback_payload, "errorCode", "code")
         message = str(_extract_callback_field(callback_payload, "errorString", "message") or "")
@@ -2274,16 +2283,25 @@ def _safe_price_value(value: Any) -> float | None:
 
 def _normalize_price_source(value: Any) -> str:
     normalized = str(value or "").strip().upper()
+    if normalized in {"IBKR_LAST", "IBKR_BID_ASK", "SYNTHETIC"}:
+        return normalized
     if normalized in {
         "IBKR_MARKET_DATA_SNAPSHOT",
         "IBKR_SNAPSHOT_LAST",
+        "IBKR_LAST_PRICE",
+        "IBKR_L1_LAST",
+    }:
+        return "IBKR_LAST"
+    if normalized in {
         "IBKR_SNAPSHOT",
         "IBKR_STREAM",
-        "IBKR_L1_LAST",
-        "IBKR_L1_MID",
         "IBKR_SNAPSHOT_MID",
+        "IBKR_L1_MID",
+        "IBKR_BID_ASK",
     }:
-        return "IBKR_CANONICAL"
+        return "IBKR_BID_ASK"
+    if normalized in {"SYNTH", "SYNTHETIC_FALLBACK", "MOCK", "SIMULATED"}:
+        return "SYNTHETIC"
     return normalized
 
 
@@ -2534,7 +2552,9 @@ def _submit_ibkr_order(
     print(f"[IBKR][CONTRACT_VALIDATION][OK] symbol={symbol} conId={con_id}")
     raw_entry_source = _none_text(entry_price_source)
     normalized_entry_source = _normalize_price_source(entry_price_source)
-    authority_allowed = normalized_entry_source == "IBKR_CANONICAL"
+    authority_allowed = normalized_entry_source in {"IBKR_LAST", "IBKR_BID_ASK"}
+    if mode == RunMode.LIVE:
+        authority_allowed = normalized_entry_source == "IBKR_BID_ASK"
     print(
         "[EXECUTION][PRICE_AUTHORITY_CHECK] "
         f"symbol={symbol} raw_price_source={raw_entry_source} "
@@ -2600,18 +2620,15 @@ def _submit_ibkr_order(
     last = _safe_price_value(quote_snapshot.get("last"))
     volume = _safe_price_value(quote_snapshot.get("volume"))
     quote_context_ok = bid is not None and ask is not None and bid > 0 and ask > 0
-    quote_mode = "FULL_QUOTE" if quote_context_ok else "LAST_PRICE_ONLY"
-    print(
-        "[EXECUTION][PATH_DECISION] "
-        f"symbol={symbol} mode={mode.value} quote_mode={quote_mode}"
-    )
+    execution_path = FULL_QUOTE_PATH if quote_context_ok else DEGRADED_QUOTE_PATH
+    quote_context = "FULL_BID_ASK" if quote_context_ok else "DEGRADED_LAST_ONLY"
+    price_source = "IBKR_BID_ASK" if quote_context_ok else ("IBKR_LAST" if last is not None and last > 0 else "SYNTHETIC")
+    print(f"[EXECUTION][PATH] symbol={symbol} path={execution_path}")
+    print(f"[EXECUTION][QUOTE_CONTEXT] symbol={symbol} quote_context={quote_context} price_source={price_source}")
     if not quote_context_ok:
         has_last_price = last is not None and last > 0
         if mode == RunMode.PAPER and has_last_price:
-            print(
-                "[EXECUTION][QUOTE_RELAXATION] "
-                f"symbol={symbol} mode={mode.value} reason=ALLOW_WITH_LAST_PRICE_ONLY"
-            )
+            print(f"[EXECUTION][DEGRADED_MODE] symbol={symbol} using last_price_only no_bid_ask")
         elif mode == RunMode.LIVE:
             print(
                 "[EXECUTION][BLOCK] "
@@ -2668,6 +2685,9 @@ def _submit_ibkr_order(
         "routing_exchange": getattr(order, "exchange", None),
         "session_label": _session_label_now(),
         "runtime_mode": mode.value,
+        "execution_path": execution_path,
+        "quote_context": quote_context,
+        "price_source": price_source,
         "bid": bid,
         "ask": ask,
         "last": last,
@@ -2753,6 +2773,7 @@ def execute_intents(
     cycle_id = f"CYCLE-{_EXECUTION_CYCLE_COUNTER}"
     intents_received = 0
     submit_attempts = 0
+    submission_attempted_total = 0
     orders_submitted = 0
     acks_received = 0
     fills_received = 0
@@ -2878,7 +2899,7 @@ def execute_intents(
         duplicate_order_id = None
         duplicate_status = ""
         for candidate in working_order_candidates:
-            if candidate["symbol"] != duplicate_symbol or candidate["side"] != order_side:
+            if candidate["symbol"] != duplicate_symbol:
                 continue
             if not bool(candidate["is_live_status"]):
                 print(
@@ -2906,9 +2927,10 @@ def execute_intents(
         print(
             f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} position_qty={position_qty} treated_as_flat={str(treated_as_flat).lower()}"
         )
-        if order_side == "BUY" and not treated_as_flat:
-            blocked_reason = "EXISTING_OPEN_POSITION"
+        if not treated_as_flat:
+            blocked_reason = "DUPLICATE_POSITION"
             blocked_pre_submit += 1
+            print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
             print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
             _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
             truth.rejection_reason = blocked_reason
@@ -2925,12 +2947,13 @@ def execute_intents(
             )
             continue
         if working_duplicate:
-            blocked_reason = "BROKER_RECONCILED_WORKING_ORDER"
+            blocked_reason = "DUPLICATE_POSITION"
             blocked_pre_submit += 1
             print(
                 f"[EXECUTION][DUPLICATE_BLOCK] symbol={duplicate_symbol} reason={blocked_reason} "
                 f"existing_order_id={duplicate_order_id} existing_broker_state={duplicate_status} conflict_reason={duplicate_reason}"
             )
+            print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
             print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
             _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
             truth.rejection_reason = blocked_reason
@@ -3077,6 +3100,7 @@ def execute_intents(
                 continue
             submit_attempts += 1
             execution_attempted = True
+            submission_attempted_total += 1
             _transition_execution_truth_state(truth=truth, next_state="SUBMITTING", source="LOCAL")
             print(f"[EXECUTION][SUBMIT_ATTEMPT] symbol={decision.symbol} intent_id={decision.intent_id} mode={mode.value} qty={quantity}")
             try:
@@ -3117,13 +3141,23 @@ def execute_intents(
                 error_text = str(exc or "")
                 if "NO_QUOTE_CONTEXT" in error_text:
                     blocked_no_quote += 1
+                    failure_type = "NO_QUOTE_CONTEXT"
                 elif "NON_MARKETABLE_ORDER" in error_text:
                     blocked_non_marketable += 1
+                    failure_type = "IBKR_REJECT"
                 elif "LIKELY_IBKR_RESTRICTED" in error_text:
                     blocked_restricted += 1
+                    failure_type = "IBKR_REJECT"
                 elif "NO_IBKR_PRICE_AUTHORITY" in error_text:
                     blocked_no_ibkr_price_authority += 1
-                _mark_execution_failure(trace, "UNKNOWN", reason=str(exc))
+                    failure_type = "IBKR_REJECT"
+                elif "CONTRACT_NOT_QUALIFIED" in error_text:
+                    failure_type = "CONTRACT_RESOLUTION_FAIL"
+                elif "ACKNOWLEDGEMENT_FAILED" in error_text:
+                    failure_type = "CALLBACK_TIMEOUT"
+                else:
+                    failure_type = "IBKR_REJECT"
+                _mark_execution_failure(trace, failure_type, reason=str(exc))
                 events.append(
                     ExecutionEvent(
                         symbol=decision.symbol,
@@ -3198,10 +3232,9 @@ def execute_intents(
                 order_ref=order_ref,
             )
             _PENDING_SUBMISSIONS_BY_ORDER_ID.pop(int(broker_order_id), None)
-        if not execution_attempted and blocked_reason is None and action != "BLOCKED":
-            print(
-                "[EXECUTION][INVARIANT_BREACH] "
-                f"symbol={decision.symbol} intent_id={decision.intent_id} reason=INTENT_CREATED_BUT_NOT_ATTEMPTED"
+        if mode in {RunMode.PAPER, RunMode.LIVE} and decision.decision in {"ALLOW", "ALLOW_WITH_CONSTRAINTS"} and not execution_attempted and action != "BLOCKED":
+            raise ExecutionInvariantViolation(
+                f"intent_received_without_submission_attempt symbol={decision.symbol} intent_id={decision.intent_id}"
             )
         events.append(
             ExecutionEvent(
@@ -3366,6 +3399,7 @@ def execute_intents(
     print(
         "[EXECUTION][SUMMARY] "
         f"cycle_id={cycle_id} intents_received={intents_received} submit_attempts={submit_attempts} "
+        f"submission_attempted={submission_attempted_total} "
         f"orders_submitted={orders_submitted} acks_received={acks_received} fills_received={fills_received} "
         f"positions_opened={positions_opened} failures_by_type={dict(sorted(_EXECUTION_FAILURES_BY_TYPE.items()))}"
     )
@@ -3373,13 +3407,16 @@ def execute_intents(
     partial_fill_count = sum(1 for row in _RUNTIME_ORDERS.values() if row.canonical_state == "PARTIALLY_FILLED")
     fill_count = sum(1 for row in _RUNTIME_ORDERS.values() if row.canonical_state == "FILLED")
     acknowledged_count = sum(1 for row in _RUNTIME_ORDERS.values() if row.ack_seen)
+    orphan_intents = max(0, intents_received - blocked_pre_submit - submission_attempted_total)
     health_status = "DEGRADED" if bool(_IBKR_HEALTH_STATE.get("degraded")) else "STABLE"
     print(
         "[EXECUTION][RECONCILIATION_SUMMARY] "
+        f"submitted_orders={orders_submitted} acknowledged_orders={acknowledged_count} "
+        f"filled_orders={fill_count} unmatched_callbacks={_UNMATCHED_CALLBACK_COUNT} orphan_intents={orphan_intents} "
         f"intents_received={intents_received} execution_attempts={submit_attempts} submitted={orders_submitted} "
         f"acknowledged={acknowledged_count} working={working_count} partial_fills={partial_fill_count} fills={fill_count} "
         f"open_positions_confirmed={_OPEN_POSITIONS_CONFIRMED} reduced_positions_confirmed={_REDUCED_POSITIONS_CONFIRMED} "
-        f"closed_positions_confirmed={_CLOSED_POSITIONS_CONFIRMED} unmatched_callbacks={_UNMATCHED_CALLBACK_COUNT} "
+        f"closed_positions_confirmed={_CLOSED_POSITIONS_CONFIRMED} "
         f"order_reconciliation_mismatches={_RECONCILIATION_FAILURES} position_reconciliation_mismatches={_RECONCILED_POSITIONS_MISMATCH} "
         f"watchdog_stalls_total={_WATCHDOG_STALLS_TOTAL} ibkr_health_status={health_status} fill_authority_state={fill_authority_state()}"
     )
