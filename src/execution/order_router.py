@@ -2851,12 +2851,11 @@ def _submit_ibkr_order(
     price_source = "IBKR_BID_ASK" if quote_context_ok else ("IBKR_LAST" if has_last_price else "SYNTHETIC")
     degraded_paper_path_allowed = execution_path == DEGRADED_QUOTE_PATH and mode == RunMode.PAPER and has_last_price
     market_session = _canonical_execution_session(_session_label_now())
-    strict_premarket_limit_required = market_session == "PREMARKET" and mode == RunMode.LIVE
-    degraded_premarket_paper_allowed = market_session == "PREMARKET" and degraded_paper_path_allowed
+    is_premarket = market_session == "PREMARKET"
     print(f"[EXECUTION][PATH] symbol={symbol} path={execution_path}")
     print(f"[EXECUTION][QUOTE_CONTEXT] symbol={symbol} quote_context={quote_context} price_source={price_source}")
     if execution_path == DEGRADED_QUOTE_PATH:
-        if mode == RunMode.LIVE and not strict_premarket_limit_required:
+        if mode == RunMode.LIVE and not is_premarket:
             print(
                 "[EXECUTION][BLOCK] "
                 f"symbol={symbol} reason=NO_QUOTE_CONTEXT_LIVE_STRICT bid={_none_text(bid)} ask={_none_text(ask)}"
@@ -2868,43 +2867,46 @@ def _submit_ibkr_order(
                 "[EXECUTION][CONSISTENCY_CHECK] "
                 f"symbol={symbol} execution_path={execution_path} quote_block_skipped=true"
             )
-        elif not strict_premarket_limit_required:
+        elif not is_premarket:
             print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NO_QUOTE_CONTEXT bid={_none_text(bid)} ask={_none_text(ask)}")
             raise RuntimeError("NO_QUOTE_CONTEXT")
     min_tick = _resolved_tick_size(getattr(resolved_contract, "minTick", None))
-    if strict_premarket_limit_required:
-        if not quote_context_ok:
-            print(
-                "[EXECUTION][BLOCK] "
-                f"symbol={symbol} session={market_session} reason=NO_BID_ASK_AVAILABLE_FOR_LIMIT"
-            )
-            raise RuntimeError("NO_BID_ASK_AVAILABLE_FOR_LIMIT")
+    premarket_degraded_last_fallback_used = False
+    if is_premarket:
         order.orderType = "LMT"
-        computed_limit, cap_applied, aggression_component = _compute_aggressive_limit_price(
-            side=order.action,
-            bid=float(bid),
-            ask=float(ask),
-            tick_size=min_tick,
-            aggression_level=1,
-        )
-        order.lmtPrice = float(computed_limit)
-        print(
-            "[EXECUTION][AGGRESSIVE_LIMIT_POLICY] "
-            f"symbol={symbol} side={order.action} bid={bid} ask={ask} spread={max(0.0, float(ask) - float(bid)):.6f} "
-            f"tick_size={min_tick:.6f} aggression_level=1 aggression_component={aggression_component:.6f} "
-            f"computed_limit={order.lmtPrice} cap_applied={str(cap_applied).lower()}"
-        )
+        if quote_context_ok:
+            if order.action == "BUY":
+                order.lmtPrice = float(ask)
+            else:
+                order.lmtPrice = float(bid)
+            print(
+                "[EXECUTION][ORDER_MODE] "
+                f"symbol={symbol} enforced=PREMARKET_LIMIT orderType=LMT "
+                f"lmtPrice={order.lmtPrice} source=BID_ASK"
+            )
+        else:
+            if mode == RunMode.LIVE:
+                raise RuntimeError("NO_BID_ASK_FOR_PREMARKET_LIMIT")
+            if mode == RunMode.PAPER:
+                if last is None or last <= 0:
+                    raise RuntimeError("NO_PRICE_AVAILABLE_FOR_PAPER_FALLBACK")
+                order.lmtPrice = float(last)
+                premarket_degraded_last_fallback_used = True
+                print(
+                    "[EXECUTION][ORDER_MODE] "
+                    f"symbol={symbol} enforced=PREMARKET_LIMIT_DEGRADED orderType=LMT "
+                    f"lmtPrice={order.lmtPrice} source=LAST_PRICE"
+                )
+            else:
+                raise RuntimeError("NO_BID_ASK_FOR_PREMARKET_LIMIT")
+    else:
         print(
             "[EXECUTION][ORDER_MODE] "
-            f"symbol={symbol} session={market_session} order_type=LMT reason=AGGRESSIVE_SPREAD_CROSS "
-            f"limit_price={_none_text(getattr(order, 'lmtPrice', None))}"
+            f"symbol={symbol} enforced=SESSION_DEFAULT session={market_session} "
+            f"orderType={getattr(order, 'orderType', 'UNKNOWN')} source={price_source}"
         )
-    elif degraded_premarket_paper_allowed:
-        print(
-            "[EXECUTION][ORDER_MODE] "
-            f"symbol={symbol} session={market_session} order_type={getattr(order, 'orderType', 'MKT')} "
-            "reason=PAPER_DEGRADED_ALLOWED"
-        )
+    if is_premarket and str(getattr(order, "orderType", "")).upper() == "MKT":
+        raise RuntimeError("INVALID_ORDER_TYPE_PREMARKET_MARKET_ORDER")
     spread_abs, spread_pct = _compute_quote_spread(bid=bid, ask=ask)
     fillability, fillability_rationale = classify_submit_fillability(
         order_type=str(getattr(order, "orderType", "") or ""),
@@ -2914,8 +2916,19 @@ def _submit_ibkr_order(
         ask=ask,
     )
     if fillability in {"PASSIVE_AWAY_FROM_MARKET", "RESTING_INSIDE_SPREAD", "PASSIVE_AT_ASK", "PASSIVE_AT_BID", "DEFERRED_OR_UNCLASSIFIABLE", "NON_MARKETABLE_UNKNOWN"}:
-        print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NON_MARKETABLE_ORDER classification={fillability}")
-        raise RuntimeError("NON_MARKETABLE_ORDER")
+        if is_premarket and quote_context_ok:
+            print(
+                "[EXECUTION][FILLABILITY_OVERRIDE] "
+                f"symbol={symbol} reason=PREMARKET_LIMIT_POLICY_BID_ASK classification={fillability}"
+            )
+        elif premarket_degraded_last_fallback_used:
+            print(
+                "[EXECUTION][FILLABILITY_OVERRIDE] "
+                f"symbol={symbol} reason=PREMARKET_PAPER_LAST_FALLBACK_NO_BID_ASK classification={fillability}"
+            )
+        else:
+            print(f"[EXECUTION][BLOCK] symbol={symbol} reason=NON_MARKETABLE_ORDER classification={fillability}")
+            raise RuntimeError("NON_MARKETABLE_ORDER")
     restricted, restriction_detail = _evaluate_submission_restriction(
         symbol=str(symbol or "").upper(),
         entry_price=entry_price if entry_price is not None else (last if last is not None else ask),
