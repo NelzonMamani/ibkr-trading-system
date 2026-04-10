@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import math
 import time
+import sqlite3
 from types import SimpleNamespace
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
@@ -16,6 +17,7 @@ from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_co
 from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
 from src.core_engine.state import RunMode, SessionState, resolve_session_state
+from src.execution.position_engine import compute_positions_from_executions
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 
 _EXECUTION_EVENT_BUFFER: dict[int, ExecutionEvent] = {}
@@ -73,6 +75,9 @@ _OPEN_POSITIONS_CONFIRMED = 0
 _REDUCED_POSITIONS_CONFIRMED = 0
 _CLOSED_POSITIONS_CONFIRMED = 0
 _BROKER_POSITION_LAST_QTY_BY_SYMBOL: dict[str, int] = {}
+_EXECUTION_LINEAGE_BY_EXEC_ID: dict[str, dict[str, Any]] = {}
+_OWNERSHIP_BY_SYMBOL: dict[str, dict[str, int]] = {}
+_EXECUTION_LINEAGE_LOADED = False
 
 AUTHORITATIVE_EXECUTION_STATES = {
     "DISPATCH_INTENDED",
@@ -791,11 +796,117 @@ def _ensure_submission_allowed(mode: RunMode, *, symbol: str) -> bool:
     return True
 
 
-def _build_order_ref(intent_id: str) -> str:
+def _build_order_ref(*, strategy_name: str, symbol: str, intent_id: str) -> str:
     normalized = str(intent_id or "").strip()
     if not normalized:
         return ""
-    return f"TRADING_OS|ROSS_MOMENTUM|{normalized}"
+    strategy = str(strategy_name or "ROSS_MOMENTUM").strip().replace("::", "_")
+    symbol_norm = str(symbol or "UNKNOWN").strip().upper().replace("::", "_")
+    return f"ROSS::{strategy}::{symbol_norm}::{normalized}"
+
+
+def _execution_lineage_db_path() -> str:
+    configured = str(os.environ.get("EXECUTION_LINEAGE_DB_PATH", "") or "").strip()
+    if configured:
+        return configured
+    return os.path.join(os.getcwd(), "data", "execution_lineage.sqlite3")
+
+
+def _persist_execution_lineage_row(row: dict[str, Any]) -> None:
+    db_path = _execution_lineage_db_path()
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS executions_table (
+                exec_id TEXT PRIMARY KEY,
+                order_id INTEGER,
+                order_ref TEXT,
+                symbol TEXT,
+                side TEXT,
+                quantity INTEGER,
+                price REAL,
+                timestamp TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO executions_table
+            (exec_id, order_id, order_ref, symbol, side, quantity, price, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(row.get("exec_id") or ""),
+                int(row.get("order_id") or 0),
+                str(row.get("order_ref") or ""),
+                str(row.get("symbol") or ""),
+                str(row.get("side") or ""),
+                int(row.get("quantity") or 0),
+                float(row["price"]) if row.get("price") is not None else None,
+                str(row.get("timestamp") or _now_utc_iso()),
+            ),
+        )
+        conn.commit()
+
+
+def _load_execution_lineage_from_db_once() -> None:
+    global _EXECUTION_LINEAGE_LOADED
+    if _EXECUTION_LINEAGE_LOADED:
+        return
+    _EXECUTION_LINEAGE_LOADED = True
+    db_path = _execution_lineage_db_path()
+    if not os.path.exists(db_path):
+        return
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS executions_table (
+                exec_id TEXT PRIMARY KEY,
+                order_id INTEGER,
+                order_ref TEXT,
+                symbol TEXT,
+                side TEXT,
+                quantity INTEGER,
+                price REAL,
+                timestamp TEXT
+            )
+            """
+        )
+        rows = conn.execute(
+            "SELECT exec_id, order_id, order_ref, symbol, side, quantity, price, timestamp FROM executions_table"
+        ).fetchall()
+    for exec_id, order_id, order_ref, symbol, side, quantity, price, timestamp in rows:
+        _EXECUTION_LINEAGE_BY_EXEC_ID[str(exec_id)] = {
+            "exec_id": str(exec_id),
+            "order_id": int(order_id or 0),
+            "order_ref": str(order_ref or ""),
+            "symbol": str(symbol or "").upper(),
+            "side": str(side or "").upper(),
+            "quantity": int(quantity or 0),
+            "price": float(price) if price is not None else None,
+            "timestamp": str(timestamp or _now_utc_iso()),
+        }
+
+
+def _refresh_runtime_positions_from_lineage() -> None:
+    broker_positions = {symbol: int(row.quantity) for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items()}
+    ownership = compute_positions_from_executions(
+        list(_EXECUTION_LINEAGE_BY_EXEC_ID.values()),
+        broker_positions_by_symbol=broker_positions,
+    )
+    _OWNERSHIP_BY_SYMBOL.clear()
+    _OWNERSHIP_BY_SYMBOL.update(ownership)
+    for symbol, row in ownership.items():
+        pos = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
+        system_qty = int(row.get("system_qty", 0))
+        pos.qty = max(0, system_qty)
+        pos.pending_entry_qty = 0
+        pos.pending_exit_qty = 0
+        if pos.qty <= 0:
+            pos.state = "POSITION_CLOSED"
+        else:
+            pos.state = "POSITION_OPEN"
 
 
 def _build_trace_id(*, intent_id: str, broker_order_id: int | None, cycle_id: str) -> str:
@@ -1198,29 +1309,6 @@ def _apply_position_fill(symbol: str, *, signed_delta_qty: int, fill_price: floa
     print(f"[POSITION][OPENED_OR_UPDATED] symbol={symbol} qty={row.qty} avg_price={row.avg_price} state={row.state}")
 
 
-def _simulate_position_from_fill(*, order_id: int, symbol: str, fill_qty: int, fill_price: float | None) -> None:
-    if not symbol:
-        return
-    tracked = _RUNTIME_ORDERS.get(int(order_id))
-    is_entry = bool(tracked is None or tracked.is_entry)
-    is_exit = bool(tracked is not None and tracked.is_exit)
-    signed_delta = int(fill_qty)
-    pending_entry_delta = -abs(int(fill_qty)) if is_entry else 0
-    pending_exit_delta = -abs(int(fill_qty)) if is_exit else 0
-    _apply_position_fill(
-        symbol,
-        signed_delta_qty=signed_delta,
-        fill_price=fill_price,
-        pending_entry_delta=pending_entry_delta,
-        pending_exit_delta=pending_exit_delta,
-    )
-    row = _RUNTIME_POSITIONS.setdefault(symbol, TrackedPosition(symbol=symbol))
-    print(
-        "[EXECUTION][POSITION_SIMULATED] "
-        f"order_id={order_id} symbol={symbol} qty={row.qty} avg_price={row.avg_price} state={row.state}"
-    )
-
-
 def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, total_qty: int, order_ref: str, intent_id: str = "") -> TrackedOrder:
     row = _RUNTIME_ORDERS.get(order_id)
     created = row is None
@@ -1439,15 +1527,26 @@ def _apply_fill_to_tracked_order(
         "[EXECUTION][FILL_CONFIRMED] "
         f"symbol={row.symbol} broker_order_id={order_id} filled_qty={row.filled_qty} avg_fill_price={row.avg_fill_price}"
     )
+    execution_row = {
+        "exec_id": str(exec_id or f"BACKFILL-{order_id}-{timestamp}"),
+        "order_id": int(order_id),
+        "order_ref": str(row.order_ref or ""),
+        "symbol": str(row.symbol or "").upper(),
+        "side": str(row.side or "").upper(),
+        "quantity": int(inc),
+        "price": fill_price,
+        "timestamp": str(timestamp or _now_utc_iso()),
+    }
+    _EXECUTION_LINEAGE_BY_EXEC_ID[execution_row["exec_id"]] = execution_row
+    _persist_execution_lineage_row(execution_row)
+    _refresh_runtime_positions_from_lineage()
+    print(
+        "[EXECUTION][EXEC_DETAILS] "
+        f"symbol={execution_row['symbol']} order_id={execution_row['order_id']} "
+        f"exec_id={execution_row['exec_id']} order_ref={execution_row['order_ref'] or 'MISSING'} "
+        f"qty={execution_row['quantity']} side={execution_row['side']}"
+    )
     print(f"[EXECUTION][LIFECYCLE] symbol={row.symbol} marker=FILL_CONFIRMED_AWAITING_POSITION")
-    if _is_explicit_test_mode() and source != "IBKR_EXECUTION_BACKFILL":
-        signed = inc if row.is_entry else -inc
-        _simulate_position_from_fill(
-            order_id=order_id,
-            symbol=row.symbol,
-            fill_qty=signed,
-            fill_price=fill_price,
-        )
 
 
 def _on_ibkr_callback(callback_payload: Any) -> None:
@@ -1964,6 +2063,7 @@ def _run_watchdog_checks(*, now: datetime | None = None) -> None:
 
 def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
     global _RECON_RESYNC_NEEDED, _RECONCILED_POSITIONS_OK, _RECONCILED_POSITIONS_MISMATCH, _BROKER_POSITION_WITHOUT_FILL_COUNT, _LOCAL_FILL_WITHOUT_POSITION_COUNT, _OPEN_POSITIONS_CONFIRMED, _REDUCED_POSITIONS_CONFIRMED, _CLOSED_POSITIONS_CONFIRMED
+    _load_execution_lineage_from_db_once()
     _sync_ibkr_positions_from_snapshot(positions)
     broker_position_by_symbol: dict[str, int] = {
         symbol: int(row.quantity) for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items()
@@ -1971,76 +2071,37 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
     broker_avg_cost_by_symbol: dict[str, float | None] = {
         symbol: row.avg_price for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items()
     }
-    local_fill_qty_by_symbol: dict[str, int] = {}
-    local_fill_avg_by_symbol: dict[str, float | None] = {}
-    local_fill_ts_by_symbol: dict[str, datetime | None] = {}
-    for order in _RUNTIME_ORDERS.values():
-        symbol = str(order.symbol or "").upper()
-        if not symbol:
-            continue
-        local_fill_qty_by_symbol[symbol] = int(local_fill_qty_by_symbol.get(symbol, 0)) + _signed_local_fill_qty(order)
-        if order.avg_fill_price is not None:
-            local_fill_avg_by_symbol[symbol] = float(order.avg_fill_price)
-        local_fill_ts_by_symbol[symbol] = _parse_iso_utc(order.first_fill_seen_at or order.last_update_at)
-    symbols = set(_RUNTIME_POSITIONS.keys()) | set(broker_position_by_symbol.keys()) | set(local_fill_qty_by_symbol.keys())
-    window_seconds = _position_reconciliation_window_seconds()
-    now_utc = datetime.now(timezone.utc)
+    _refresh_runtime_positions_from_lineage()
+    ownership = dict(_OWNERSHIP_BY_SYMBOL)
+    symbols = set(_RUNTIME_POSITIONS.keys()) | set(ownership.keys()) | set(broker_position_by_symbol.keys())
     mismatch_count = 0
     for symbol in sorted(symbols):
         local = _RUNTIME_POSITIONS.get(symbol)
         local_qty = int(local.qty) if local is not None else 0
-        ibkr_qty = int(broker_position_by_symbol.get(symbol, 0))
-        expected_position = int(local_fill_qty_by_symbol.get(symbol, 0))
+        ownership_row = ownership.get(symbol, {"system_qty": 0, "external_qty": 0, "broker_qty": int(broker_position_by_symbol.get(symbol, 0))})
+        system_qty = int(ownership_row.get("system_qty", 0))
+        external_qty = int(ownership_row.get("external_qty", 0))
+        ibkr_qty = int(ownership_row.get("broker_qty", 0))
         broker_avg_cost = broker_avg_cost_by_symbol.get(symbol)
-        local_avg_cost = local_fill_avg_by_symbol.get(symbol)
         verdict = "ALIGNED"
         reason = ""
         prev_broker_qty = int(_BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol, 0))
-        if ibkr_qty == 0 and expected_position == 0 and prev_broker_qty > 0:
-            verdict = "POSITION_CLOSED_ALIGNED"
-        elif ibkr_qty == 0 and expected_position == 0:
-            verdict = "ALIGNED"
-        elif ibkr_qty != 0 and expected_position == 0:
-            verdict = "BROKER_POSITION_WITHOUT_FILL"
-            reason = "broker_has_open_position_without_execdetails_fill_trail"
-        elif ibkr_qty == 0 and expected_position != 0:
-            fill_ts = local_fill_ts_by_symbol.get(symbol)
-            pending = fill_ts is not None and (now_utc - fill_ts).total_seconds() <= float(window_seconds)
-            if pending:
-                verdict = "UNKNOWN_PENDING_RECONCILIATION"
-                reason = "fill_seen_waiting_for_position_callback"
-            else:
-                verdict = "LOCAL_FILL_WITHOUT_BROKER_POSITION"
-                reason = "local_fill_recorded_without_broker_open_position"
-        elif ibkr_qty != expected_position:
+        if ibkr_qty != system_qty:
             verdict = "QTY_MISMATCH"
-            reason = f"expected_position={expected_position} ibkr_position={ibkr_qty}"
-        elif broker_avg_cost is not None and local_avg_cost is not None and abs(float(broker_avg_cost) - float(local_avg_cost)) > 0.01:
-            verdict = "AVG_COST_MISMATCH"
-            reason = f"broker_avg_cost={broker_avg_cost} local_avg_cost={local_avg_cost}"
-        elif ibkr_qty == 0 and expected_position == 0 and int(_BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol, 0)) > 0:
-            verdict = "POSITION_CLOSED_ALIGNED"
+            reason = f"system_qty={system_qty} broker_qty={ibkr_qty}"
+        print(
+            "[POSITION][OWNERSHIP_SPLIT] "
+            f"symbol={symbol} broker_qty={ibkr_qty} system_qty={system_qty} external_qty={external_qty}"
+        )
         if verdict == "ALIGNED":
             _RECONCILED_POSITIONS_OK += 1
             print(f"[EXECUTION][POSITION_RECONCILE_OK] symbol={symbol} verdict=ALIGNED")
-        elif verdict == "POSITION_CLOSED_ALIGNED":
-            _RECONCILED_POSITIONS_OK += 1
-            print(f"[EXECUTION][POSITION_RECONCILE_OK] symbol={symbol} verdict=ALIGNED")
-        elif verdict in {"UNKNOWN_PENDING_RECONCILIATION"}:
-            print(
-                "[EXECUTION][POSITION_RECONCILE] "
-                f"symbol={symbol} local_qty={local_qty} expected_position={expected_position} broker_qty={ibkr_qty} verdict={verdict}"
-            )
         else:
             _RECONCILED_POSITIONS_MISMATCH += 1
             mismatch_count += 1
-            if verdict == "BROKER_POSITION_WITHOUT_FILL":
-                _BROKER_POSITION_WITHOUT_FILL_COUNT += 1
-            if verdict == "LOCAL_FILL_WITHOUT_BROKER_POSITION":
-                _LOCAL_FILL_WITHOUT_POSITION_COUNT += 1
             print(
                 "[POSITION][MISMATCH] "
-                f"symbol={symbol} expected_position={expected_position} ibkr_position={ibkr_qty} reason={reason or verdict}"
+                f"symbol={symbol} system_qty={system_qty} ibkr_position={ibkr_qty} reason={reason or verdict}"
             )
             print(
                 "[EXECUTION][POSITION_RECONCILE_MISMATCH] "
@@ -2049,7 +2110,7 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
             _RECON_RESYNC_NEEDED = True
         print(
             "[EXECUTION][POSITION_RECONCILE] "
-            f"symbol={symbol} local_qty={local_qty} expected_position={expected_position} broker_qty={ibkr_qty} verdict={verdict}"
+            f"symbol={symbol} local_qty={local_qty} system_qty={system_qty} external_qty={external_qty} broker_qty={ibkr_qty} verdict={verdict}"
         )
         if ibkr_qty > 0 and prev_broker_qty <= 0:
             print(f"[EXECUTION][POSITION_OPEN_CONFIRMED] symbol={symbol} broker_qty={ibkr_qty} avg_cost={broker_avg_cost}")
@@ -2842,7 +2903,11 @@ def _submit_ibkr_order(
                 raise RuntimeError(message)
             print(f"[EXECUTION][WARN] {message}")
     strategy_name = "UNKNOWN"
-    if "|" in order_ref:
+    if "::" in order_ref:
+        parts = [p for p in str(order_ref).split("::") if p]
+        if len(parts) >= 2:
+            strategy_name = parts[1]
+    elif "|" in order_ref:
         parts = [p for p in str(order_ref).split("|") if p]
         if len(parts) >= 2:
             strategy_name = parts[1]
@@ -3148,7 +3213,12 @@ def execute_intents(
         status = str(getattr(row, "status", "") or getattr(order, "status", "") or "").upper()
         order_id = getattr(row, "orderId", None)
         order_ref = _extract_order_ref(row)
-        family = order_ref.split("|")[-1] if "|" in order_ref else order_ref
+        if "::" in order_ref:
+            family = order_ref.split("::")[-1]
+        elif "|" in order_ref:
+            family = order_ref.split("|")[-1]
+        else:
+            family = order_ref
         working_order_candidates.append(
             {
                 "symbol": symbol,
@@ -3193,7 +3263,11 @@ def execute_intents(
             _EXECUTION_TRACE_BY_INTENT[trace.intent_id] = trace
         order_side = "BUY" if str(getattr(decision, "side", "LONG") or "LONG").upper() == "LONG" else "SELL"
         truth = _create_execution_truth(
-            order_ref=_build_order_ref(str(decision.intent_id or "")),
+            order_ref=_build_order_ref(
+                strategy_name=str(getattr(decision, "strategy_name", "") or "ROSS_MOMENTUM"),
+                symbol=str(decision.symbol or ""),
+                intent_id=str(decision.intent_id or ""),
+            ),
             broker_order_id=None,
             symbol=str(decision.symbol or "").upper(),
             intent_id=str(decision.intent_id or ""),
@@ -3263,23 +3337,16 @@ def execute_intents(
                 )
             )
             continue
-        local_position = _RUNTIME_POSITIONS.get(duplicate_symbol)
-        local_position_qty = float(getattr(local_position, "qty", 0.0) or 0.0)
-        broker_position_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
-        recent_exec_local = False
-        if local_position is not None and str(getattr(local_position, "last_update_source", "") or "").upper() == "EXEC_DETAILS":
-            exec_seen_at = _parse_iso_utc(getattr(local_position, "last_fill_update_at", None))
-            if exec_seen_at is not None:
-                recency_seconds = float(os.environ.get("EXECUTION_POSITION_EXEC_RECENCY_SECONDS", "15") or "15")
-                recent_exec_local = (datetime.now(timezone.utc) - exec_seen_at).total_seconds() <= recency_seconds
-        effective_position_qty = local_position_qty if recent_exec_local else max(local_position_qty, broker_position_qty)
-        treated_as_flat = abs(effective_position_qty) <= 1e-6
-        position_source = "LOCAL_EXEC" if recent_exec_local else "MAX_LOCAL_BROKER"
+        ownership = _OWNERSHIP_BY_SYMBOL.get(duplicate_symbol, {})
+        system_position_qty = int(ownership.get("system_qty", 0))
+        external_position_qty = int(ownership.get("external_qty", 0))
+        decision_label = "BLOCK" if (order_side == "BUY" and system_position_qty > 0) else "ALLOW"
         print(
-            f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} local_qty={local_position_qty} broker_qty={broker_position_qty} "
-            f"effective_qty={effective_position_qty} source={position_source} treated_as_flat={str(treated_as_flat).lower()}"
+            "[EXECUTION][POSITION_CHECK] "
+            f"symbol={duplicate_symbol} system_qty={system_position_qty} "
+            f"external_qty={external_position_qty} decision={decision_label}"
         )
-        if order_side == "BUY" and not treated_as_flat:
+        if order_side == "BUY" and system_position_qty > 0:
             blocked_reason = "DUPLICATE_POSITION"
             blocked_pre_submit += 1
             print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
@@ -3385,7 +3452,7 @@ def execute_intents(
                 continue
             else:
                 action = "SUBMITTED"
-                detail = f"submitted qty={quantity} orderRef=TRADING_OS|ROSS_MOMENTUM|{decision.intent_id}"
+                detail = f"submitted qty={quantity} orderRef=ROSS::{getattr(decision, 'strategy_name', 'ROSS_MOMENTUM')}::{str(decision.symbol or '').upper()}::{decision.intent_id}"
                 dispatch = "IBKR"
         elif decision.decision == "ALLOW_WITH_CONSTRAINTS":
             action = "BLOCKED" if mode == RunMode.LIVE else "WOULD_PLACE"
@@ -3437,7 +3504,12 @@ def execute_intents(
             _transition_execution_truth_state(truth=truth, next_state="SUBMITTING", source="LOCAL")
             print(f"[EXECUTION][SUBMIT_ATTEMPT] symbol={decision.symbol} intent_id={decision.intent_id} mode={mode.value} qty={quantity}")
             try:
-                order_ref = _build_order_ref(str(decision.intent_id or ""))
+                order_ref = _build_order_ref(
+                    strategy_name=str(getattr(decision, "strategy_name", "") or "ROSS_MOMENTUM"),
+                    symbol=str(decision.symbol or ""),
+                    intent_id=str(decision.intent_id or ""),
+                )
+                print(f"[EXECUTION][ORDER_REF] symbol={str(decision.symbol or '').upper()} orderRef={order_ref}")
                 if mode in {RunMode.PAPER, RunMode.LIVE} and not _is_explicit_test_mode():
                     if manager is None:
                         manager = get_shared_ibkr_connection_manager(readonly_enabled=False)

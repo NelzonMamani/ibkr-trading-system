@@ -19,6 +19,8 @@ def _reset_router_state() -> None:
     order_router._RUNTIME_POSITIONS.clear()
     order_router._IBKR_POSITIONS_BY_SYMBOL.clear()
     order_router._SEEN_EXEC_IDS.clear()
+    order_router._EXECUTION_LINEAGE_BY_EXEC_ID.clear()
+    order_router._OWNERSHIP_BY_SYMBOL.clear()
     order_router._FILL_AUTHORITY_STATE = "UNKNOWN"
     order_router._UNMATCHED_CALLBACK_COUNT = 0
     order_router._RECONCILED_ORDERS_COUNT = 0
@@ -50,7 +52,7 @@ def test_passive_reconciliation_detects_position_drift_without_fill_creation() -
     order_router._RUNTIME_POSITIONS["AAPL"] = order_router.TrackedPosition(symbol="AAPL", qty=1, state="POSITION_OPEN")
     order_router._run_passive_position_reconciliation(positions=[_StubPosition(symbol="AAPL", position=3)])
 
-    assert order_router._RUNTIME_POSITIONS["AAPL"].qty == 1
+    assert order_router._RUNTIME_POSITIONS["AAPL"].qty == 0
     assert order_router._RECONCILED_POSITIONS_COUNT == 0
     assert order_router._RECON_RESYNC_NEEDED is True
     assert not order_router._EXECUTION_EVENT_BUFFER
@@ -114,20 +116,19 @@ def test_ibkr_position_callback_populates_in_memory_truth_store(capsys) -> None:
 
 def test_passive_reconciliation_emits_position_summary_and_mismatch(capsys) -> None:
     _reset_router_state()
-    order_router._RUNTIME_ORDERS[2001] = order_router.TrackedOrder(
-        broker_order_id=2001,
-        order_ref="TEST-INTENT-3",
-        symbol="AAPL",
-        side="BUY",
-        total_qty=1,
-        filled_qty=1,
-        remaining_qty=0,
-        canonical_state="FILLED",
-        broker_status="Filled",
-        avg_fill_price=2.45,
-    )
+    order_router._EXECUTION_LINEAGE_BY_EXEC_ID["E-1"] = {
+        "exec_id": "E-1",
+        "order_id": 2001,
+        "order_ref": "ROSS::ROSS_MOMENTUM::AAPL::intent-1",
+        "symbol": "AAPL",
+        "side": "BUY",
+        "quantity": 1,
+        "price": 2.45,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
     order_router._run_passive_position_reconciliation(positions=[_StubPosition(symbol="AAPL", position=2)])
     output = capsys.readouterr().out
 
-    assert "[POSITION][MISMATCH] symbol=AAPL expected_position=1 ibkr_position=2" in output
+    assert "[POSITION][OWNERSHIP_SPLIT] symbol=AAPL broker_qty=2 system_qty=1 external_qty=1" in output
+    assert "[POSITION][MISMATCH] symbol=AAPL system_qty=1 ibkr_position=2" in output
     assert "[POSITION][SUMMARY] total_positions=1 mismatches=1" in output
