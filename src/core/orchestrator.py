@@ -2128,13 +2128,17 @@ class CoreOrchestrator:
         active_strategy_keys = self._enabled_strategy_keys()
         strategy_key = self.primary_strategy_key
 
-        force_mock_provider = self.run_mode in {RunMode.PAPER, RunMode.SIM}
+        force_mock_provider = self.run_mode == RunMode.SIM
         if force_mock_provider:
             print(
                 "[CONNECTIVITY][SKIP] "
                 f"run_mode={self.run_mode.value} forcing MOCK scanner provider."
             )
         else:
+            if self.run_mode == RunMode.PAPER:
+                print("[CONNECTIVITY][PAPER] broker-connected validation path enabled")
+            elif self.run_mode == RunMode.LIVE:
+                print("[CONNECTIVITY][LIVE] broker-connected production path enabled")
             try:
                 self.connection_manager.ensure_connected()
             except Exception as exc:
