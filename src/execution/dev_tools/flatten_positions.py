@@ -8,6 +8,9 @@ from src.domain.models.internal_order import InternalOrder
 
 
 def _snapshot_positions(ibkr_client) -> list[dict[str, float | int | str]]:
+    if ibkr_client is None or not hasattr(ibkr_client, "positions"):
+        print("[DEV][FLATTEN][SKIP] client_missing_positions_method")
+        return []
     snapshot: list[dict[str, float | int | str]] = []
     for row in ibkr_client.positions():
         symbol = str(getattr(row, "symbol", "") or "").upper().strip()
