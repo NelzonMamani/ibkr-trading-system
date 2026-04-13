@@ -503,6 +503,15 @@ class CoreOrchestrator:
         self._latest_position_truth_snapshot: PositionTruthSnapshot | None = None
         self._latest_position_truth_verdict: PositionTruthVerdict = healthy_position_truth_verdict()
         self._latest_fill_authority_verdict: dict[str, object] = {"execution_stalled": False, "stalled_symbols": []}
+        self._latest_lifecycle_authority_verdict: dict[str, object] = {
+            "anomalies": [],
+            "block_new_entries": False,
+            "block_exit_progression": False,
+            "critical_exit_anomaly": False,
+            "open_position_count": 0,
+            "working_exit_orders": 0,
+            "rationale": "NO_ANOMALIES",
+        }
         self.trace_bus = TraceBus()
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
         self._daily_loss_warning_date: Optional[str] = None
@@ -2141,6 +2150,38 @@ class CoreOrchestrator:
                 )
         return []
 
+    @staticmethod
+    def _apply_fill_authority_entry_guard(
+        intents: list[TradeIntent],
+        verdict: dict[str, object],
+    ) -> list[TradeIntent]:
+        stalled = bool(verdict.get("execution_stalled", False))
+        if not stalled:
+            return intents
+        for intent in intents:
+            symbol = str(getattr(intent, "symbol", "UNKNOWN") or "UNKNOWN").upper()
+            print(
+                "[EXECUTION][BLOCK] "
+                f"reason=FILL_AUTHORITY_EXECUTION_STALLED source=FILL_AUTHORITY symbol={symbol}"
+            )
+        return []
+
+    @staticmethod
+    def _apply_lifecycle_entry_guard(
+        intents: list[TradeIntent],
+        verdict: dict[str, object],
+    ) -> list[TradeIntent]:
+        if not bool(verdict.get("block_new_entries", False)):
+            return intents
+        reason = str(verdict.get("rationale", "LIFECYCLE_POLICY_BLOCK") or "LIFECYCLE_POLICY_BLOCK")
+        for intent in intents:
+            symbol = str(getattr(intent, "symbol", "UNKNOWN") or "UNKNOWN").upper()
+            print(
+                "[LIFECYCLE][BLOCK] "
+                f"reason={reason} source=LIFECYCLE_AUTHORITY symbol={symbol}"
+            )
+        return []
+
     def _resolve_position_truth_cycle(
         self,
         *,
@@ -2213,6 +2254,118 @@ class CoreOrchestrator:
         print(f"[EXECUTION][FILL_AUTHORITY][VERDICT] execution_stalled={stalled}")
         return verdict
 
+    def _resolve_lifecycle_authority_cycle(self) -> dict[str, object]:
+        try:
+            import src.execution.order_router as order_router
+        except Exception as exc:
+            print(f"[LIFECYCLE][ERROR] reason=IMPORT_FAILED error={exc}")
+            verdict = {
+                "anomalies": [],
+                "block_new_entries": False,
+                "block_exit_progression": False,
+                "critical_exit_anomaly": False,
+                "open_position_count": 0,
+                "working_exit_orders": 0,
+                "rationale": "IMPORT_FAILED",
+            }
+            self._latest_lifecycle_authority_verdict = verdict
+            return verdict
+
+        snapshot = order_router.runtime_lifecycle_snapshot()
+        runtime_orders = list(getattr(order_router, "_RUNTIME_ORDERS", {}).values())
+        active_trades = list(self.trade_registry.snapshot())
+        if not snapshot and (runtime_orders or active_trades):
+            print("[LIFECYCLE][ERROR] reason=SNAPSHOT_INCONSISTENT")
+
+        canonical_states = {
+            "PENDING_SUBMISSION",
+            "SUBMITTED_PENDING_CONFIRMATION",
+            "SUBMITTED",
+            "ACKNOWLEDGED",
+            "WORKING",
+            "PARTIALLY_FILLED",
+            "FILLED",
+            "CANCELLED",
+            "REJECTED",
+            "INACTIVE",
+            "EXPIRED",
+            "ERROR",
+        }
+        records: list[dict[str, object]] = []
+        working_entry_orders = 0
+        working_exit_orders = 0
+        for row in runtime_orders:
+            symbol = str(getattr(row, "symbol", "UNKNOWN") or "UNKNOWN").upper()
+            state = str(getattr(row, "canonical_state", "UNKNOWN") or "UNKNOWN").upper()
+            if state not in canonical_states:
+                state = "UNKNOWN"
+            remaining = int(getattr(row, "remaining_qty", 0) or 0)
+            is_entry = bool(getattr(row, "is_entry", False))
+            is_exit = bool(getattr(row, "is_exit", False))
+            records.append(
+                {
+                    "symbol": symbol,
+                    "lifecycle_state": state,
+                    "remaining_qty": remaining,
+                    "is_entry": is_entry,
+                    "is_exit": is_exit,
+                }
+            )
+            if remaining > 0 and state in {"SUBMITTED", "ACKNOWLEDGED", "WORKING", "PARTIALLY_FILLED", "SUBMITTED_PENDING_CONFIRMATION"}:
+                if is_entry:
+                    working_entry_orders += 1
+                if is_exit:
+                    working_exit_orders += 1
+        print(f"[LIFECYCLE][SNAPSHOT][DETAIL] records={records}")
+
+        open_position_count = int(snapshot.get("open_position_count", 0) or 0)
+        anomalies: list[str] = []
+        if working_entry_orders > 0 and open_position_count == 0:
+            anomalies.append("ORPHAN_WORKING_ORDER")
+        exit_stalled = int(snapshot.get("working_no_fill_timeouts", 0) or 0) > 0 and working_exit_orders > 0
+        if exit_stalled:
+            anomalies.append("EXIT_STALLED")
+
+        block_new_entries = "ORPHAN_WORKING_ORDER" in anomalies
+        critical_exit_anomaly = "EXIT_STALLED" in anomalies and open_position_count == 0 and working_exit_orders == 0
+        block_exit_progression = critical_exit_anomaly
+        rationale = "NO_ANOMALIES" if not anomalies else "|".join(anomalies)
+        verdict = {
+            "anomalies": anomalies,
+            "block_new_entries": block_new_entries,
+            "block_exit_progression": block_exit_progression,
+            "critical_exit_anomaly": critical_exit_anomaly,
+            "open_position_count": open_position_count,
+            "working_exit_orders": working_exit_orders,
+            "records": records,
+            "rationale": rationale,
+        }
+        self._latest_lifecycle_authority_verdict = verdict
+        print(
+            "[LIFECYCLE][FINAL_SUMMARY] "
+            f"records={len(records)} anomalies={len(anomalies)} "
+            f"block_new_entries={block_new_entries} block_exit_progression={block_exit_progression} "
+            f"rationale={rationale}"
+        )
+        return verdict
+
+    def _resolve_lifecycle_exit_policy(self, verdict: dict[str, object]) -> bool:
+        requested_block = bool(verdict.get("block_exit_progression", False))
+        broker_position_exists = int(verdict.get("open_position_count", 0) or 0) > 0
+        exit_order_working = int(verdict.get("working_exit_orders", 0) or 0) > 0
+        critical_exit_anomaly = bool(verdict.get("critical_exit_anomaly", False))
+        block_exit = requested_block and critical_exit_anomaly and not broker_position_exists and not exit_order_working
+        override = False
+        if self.run_mode == RunMode.LIVE and block_exit:
+            override = True
+            block_exit = False
+            print("[LIFECYCLE][WARN] reason=LIVE_MODE_EXIT_OVERRIDE source=LIFECYCLE_AUTHORITY symbol=ALL")
+        print(
+            "[LIFECYCLE][EXIT_POLICY] "
+            f"mode={self.run_mode.value} block_exit={str(block_exit).lower()} override={str(override).lower()}"
+        )
+        return block_exit
+
     def attach_broker_position_from_recovery(self, *, symbol: str) -> None:
         snapshot = self._latest_position_truth_snapshot
         if snapshot is None:
@@ -2250,6 +2403,7 @@ class CoreOrchestrator:
         print(f"[RUNTIME] {mode_manager.describe()}")
         position_truth_verdict = self._resolve_position_truth_cycle(as_of=cycle_started_at)
         fill_verdict = self._resolve_fill_authority_cycle()
+        lifecycle_verdict = self._resolve_lifecycle_authority_cycle()
         recovery_plan = build_recovery_plan(
             self._latest_position_truth_snapshot or empty_position_truth_snapshot(as_of=cycle_started_at),
             position_truth_verdict,
@@ -2819,6 +2973,21 @@ class CoreOrchestrator:
             gated_strategy_output,
             position_truth_verdict,
         )
+        fill_guard_output = self._apply_fill_authority_entry_guard(gated_strategy_output, fill_verdict)
+        lifecycle_guard_output = self._apply_lifecycle_entry_guard(gated_strategy_output, lifecycle_verdict)
+        if gated_strategy_output and not fill_guard_output and not lifecycle_guard_output:
+            for intent in gated_strategy_output:
+                symbol = str(getattr(intent, "symbol", "UNKNOWN") or "UNKNOWN").upper()
+                print(
+                    "[EXECUTION][BLOCK] "
+                    f"reason=FILL_AUTHORITY_EXECUTION_STALLED source=FILL_AUTHORITY symbol={symbol}"
+                )
+                print(
+                    "[LIFECYCLE][BLOCK] "
+                    f"reason={lifecycle_verdict.get('rationale', 'LIFECYCLE_POLICY_BLOCK')} source=LIFECYCLE_AUTHORITY symbol={symbol}"
+                )
+        gated_strategy_output = fill_guard_output
+        gated_strategy_output = self._apply_lifecycle_entry_guard(gated_strategy_output, lifecycle_verdict)
         if (
             self._mock_scanner_mode_enabled()
             and pre_arbitration_intents
@@ -4377,40 +4546,56 @@ class CoreOrchestrator:
             return False
 
         print("[TEACH] >>> Trade Exit stage — manage open trades explicitly.")
-        try:
-            exit_results, trade_outcomes = self.trade_exit_engine.evaluate_and_close_trades(
-                run_mode=self.run_mode,
-                tick=tick,
-                exit_signals=exit_signals,
-                breaker_tripped=self.stop_controller.is_breaker_tripped(),
-            )
-        except Exception as exc:
+        exit_blocked_by_lifecycle = self._resolve_lifecycle_exit_policy(self._latest_lifecycle_authority_verdict)
+        if exit_blocked_by_lifecycle:
+            print("[LIFECYCLE][BLOCK] reason=EXIT_PROGRESSION_BLOCKED source=LIFECYCLE_AUTHORITY symbol=ALL")
+            exit_results, trade_outcomes = [], []
             self._evaluate_runtime_safety(
                 cycle_stage="TRADE_EXIT",
-                stage_exception=exc,
+                stage_exception=None,
                 scanner_results=scanner_results,
                 pattern_results=pattern_results,
                 strategy_output=strategy_output,
                 risk_output=risk_output,
                 execution_output=execution_output,
+                exit_results=exit_results,
+                trade_outcomes=trade_outcomes,
             )
-            self._trace_halt(
-                reason_code="TRADE_EXIT_EXCEPTION",
-                message=str(exc),
-                stage="TRADE_EXIT",
+        else:
+            try:
+                exit_results, trade_outcomes = self.trade_exit_engine.evaluate_and_close_trades(
+                    run_mode=self.run_mode,
+                    tick=tick,
+                    exit_signals=exit_signals,
+                    breaker_tripped=self.stop_controller.is_breaker_tripped(),
+                )
+            except Exception as exc:
+                self._evaluate_runtime_safety(
+                    cycle_stage="TRADE_EXIT",
+                    stage_exception=exc,
+                    scanner_results=scanner_results,
+                    pattern_results=pattern_results,
+                    strategy_output=strategy_output,
+                    risk_output=risk_output,
+                    execution_output=execution_output,
+                )
+                self._trace_halt(
+                    reason_code="TRADE_EXIT_EXCEPTION",
+                    message=str(exc),
+                    stage="TRADE_EXIT",
+                )
+                return False
+            self._evaluate_runtime_safety(
+                cycle_stage="TRADE_EXIT",
+                stage_exception=None,
+                scanner_results=scanner_results,
+                pattern_results=pattern_results,
+                strategy_output=strategy_output,
+                risk_output=risk_output,
+                execution_output=execution_output,
+                exit_results=exit_results,
+                trade_outcomes=trade_outcomes,
             )
-            return False
-        self._evaluate_runtime_safety(
-            cycle_stage="TRADE_EXIT",
-            stage_exception=None,
-            scanner_results=scanner_results,
-            pattern_results=pattern_results,
-            strategy_output=strategy_output,
-            risk_output=risk_output,
-            execution_output=execution_output,
-            exit_results=exit_results,
-            trade_outcomes=trade_outcomes,
-        )
         execution_complete_event = self.event_collector.emit(
             event_type="EXECUTION_COMPLETE",
             source="ExecutionEngine",
