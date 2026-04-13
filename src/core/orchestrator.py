@@ -63,6 +63,12 @@ from src.execution.position_truth import (
     healthy_position_truth_verdict,
     reconcile_position_truth,
 )
+from src.execution.lifecycle_authority import (
+    LifecycleAnomaly,
+    LifecycleAuthorityVerdict,
+    LifecycleStateRecord,
+    build_and_evaluate_lifecycle_authority,
+)
 from src.execution.recovery_engine import apply_recovery_actions, build_recovery_plan
 from src.execution.trade_management_engine import TradeManagementEngine
 from src.core.managers import (
@@ -503,6 +509,19 @@ class CoreOrchestrator:
         self._latest_position_truth_snapshot: PositionTruthSnapshot | None = None
         self._latest_position_truth_verdict: PositionTruthVerdict = healthy_position_truth_verdict()
         self._latest_fill_authority_verdict: dict[str, object] = {"execution_stalled": False, "stalled_symbols": []}
+        self._latest_lifecycle_snapshot: list[LifecycleStateRecord] = []
+        self._latest_lifecycle_anomalies: list[LifecycleAnomaly] = []
+        self._latest_lifecycle_authority_verdict: LifecycleAuthorityVerdict = LifecycleAuthorityVerdict(
+            healthy=True,
+            active_count=0,
+            terminal_count=0,
+            stalled_count=0,
+            orphan_count=0,
+            invalid_count=0,
+            block_new_entries=False,
+            block_exit_progression=False,
+            rationale="lifecycle_healthy",
+        )
         self.trace_bus = TraceBus()
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
         self._daily_loss_warning_date: Optional[str] = None
@@ -2213,6 +2232,37 @@ class CoreOrchestrator:
         print(f"[EXECUTION][FILL_AUTHORITY][VERDICT] execution_stalled={stalled}")
         return verdict
 
+    @staticmethod
+    def _apply_lifecycle_entry_guard(
+        intents: list[TradeIntent],
+        verdict: LifecycleAuthorityVerdict,
+    ) -> list[TradeIntent]:
+        if not verdict.block_new_entries:
+            return intents
+        if intents:
+            print("[LIFECYCLE][BLOCK] reason=block_new_entries")
+            for intent in intents:
+                print(
+                    f"[TRADE_PATH][EXECUTION] symbol={intent.symbol.upper()} "
+                    "verdict=SKIPPED_MODE_OR_SESSION_POLICY reason=LIFECYCLE_BLOCK_NEW_ENTRIES"
+                )
+        return []
+
+    def _resolve_lifecycle_authority_cycle(self, *, as_of: datetime) -> LifecycleAuthorityVerdict:
+        print("[LIFECYCLE][START]")
+        records, anomalies, verdict = build_and_evaluate_lifecycle_authority(self, as_of=as_of)
+        self._latest_lifecycle_snapshot = records
+        self._latest_lifecycle_anomalies = anomalies
+        self._latest_lifecycle_authority_verdict = verdict
+        print(
+            "[LIFECYCLE][CYCLE_SUMMARY] "
+            f"records={len(records)} anomalies={len(anomalies)} "
+            f"block_new_entries={verdict.block_new_entries} block_exit_progression={verdict.block_exit_progression}"
+        )
+        if not verdict.healthy:
+            self._degraded = True
+        return verdict
+
     def attach_broker_position_from_recovery(self, *, symbol: str) -> None:
         snapshot = self._latest_position_truth_snapshot
         if snapshot is None:
@@ -2256,6 +2306,7 @@ class CoreOrchestrator:
             fill_verdict,
         )
         apply_recovery_actions(recovery_plan, self)
+        lifecycle_verdict = self._resolve_lifecycle_authority_cycle(as_of=cycle_started_at)
         self._run_position_management_tick(cycle_started_at)
         active_strategy_keys = self._enabled_strategy_keys()
         strategy_key = self.primary_strategy_key
@@ -2818,6 +2869,10 @@ class CoreOrchestrator:
         gated_strategy_output = self._apply_position_truth_entry_guard(
             gated_strategy_output,
             position_truth_verdict,
+        )
+        gated_strategy_output = self._apply_lifecycle_entry_guard(
+            gated_strategy_output,
+            lifecycle_verdict,
         )
         if (
             self._mock_scanner_mode_enabled()
@@ -4377,29 +4432,34 @@ class CoreOrchestrator:
             return False
 
         print("[TEACH] >>> Trade Exit stage — manage open trades explicitly.")
-        try:
-            exit_results, trade_outcomes = self.trade_exit_engine.evaluate_and_close_trades(
-                run_mode=self.run_mode,
-                tick=tick,
-                exit_signals=exit_signals,
-                breaker_tripped=self.stop_controller.is_breaker_tripped(),
-            )
-        except Exception as exc:
-            self._evaluate_runtime_safety(
-                cycle_stage="TRADE_EXIT",
-                stage_exception=exc,
-                scanner_results=scanner_results,
-                pattern_results=pattern_results,
-                strategy_output=strategy_output,
-                risk_output=risk_output,
-                execution_output=execution_output,
-            )
-            self._trace_halt(
-                reason_code="TRADE_EXIT_EXCEPTION",
-                message=str(exc),
-                stage="TRADE_EXIT",
-            )
-            return False
+        if self._latest_lifecycle_authority_verdict.block_exit_progression:
+            print("[LIFECYCLE][BLOCK] reason=block_exit_progression")
+            exit_results, trade_outcomes = [], []
+            print("[EXIT] Trade exit progression blocked by lifecycle authority verdict.")
+        else:
+            try:
+                exit_results, trade_outcomes = self.trade_exit_engine.evaluate_and_close_trades(
+                    run_mode=self.run_mode,
+                    tick=tick,
+                    exit_signals=exit_signals,
+                    breaker_tripped=self.stop_controller.is_breaker_tripped(),
+                )
+            except Exception as exc:
+                self._evaluate_runtime_safety(
+                    cycle_stage="TRADE_EXIT",
+                    stage_exception=exc,
+                    scanner_results=scanner_results,
+                    pattern_results=pattern_results,
+                    strategy_output=strategy_output,
+                    risk_output=risk_output,
+                    execution_output=execution_output,
+                )
+                self._trace_halt(
+                    reason_code="TRADE_EXIT_EXCEPTION",
+                    message=str(exc),
+                    stage="TRADE_EXIT",
+                )
+                return False
         self._evaluate_runtime_safety(
             cycle_stage="TRADE_EXIT",
             stage_exception=None,
