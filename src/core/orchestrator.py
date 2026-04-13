@@ -503,6 +503,11 @@ class CoreOrchestrator:
         self._latest_position_truth_snapshot: PositionTruthSnapshot | None = None
         self._latest_position_truth_verdict: PositionTruthVerdict = healthy_position_truth_verdict()
         self._latest_fill_authority_verdict: dict[str, object] = {"execution_stalled": False, "stalled_symbols": []}
+        self._latest_lifecycle_authority_verdict: dict[str, object] = {
+            "critical_exit_anomaly": False,
+            "block_exit_progression": False,
+            "block_new_entries": False,
+        }
         self.trace_bus = TraceBus()
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
         self._daily_loss_warning_date: Optional[str] = None
@@ -2208,39 +2213,48 @@ class CoreOrchestrator:
             or int(snapshot.get("working_no_fill_timeouts", 0) or 0) > 0
             or int(snapshot.get("partial_fill_stalls", 0) or 0) > 0
         )
+        verdict = {
+            "execution_stalled": stalled,
+            "stalled_symbols": [],
+        }
+        self._latest_fill_authority_verdict = verdict
+        print(f"[EXECUTION][FILL_AUTHORITY][VERDICT] execution_stalled={stalled}")
+        return verdict
+
+    def _resolve_lifecycle_authority_cycle(self) -> dict[str, object]:
+        try:
+            from src.execution.order_router import runtime_lifecycle_snapshot
+        except Exception as exc:
+            print(f"[LIFECYCLE][AUTHORITY][ERROR] reason=import_failed error={exc}")
+            verdict = {
+                "critical_exit_anomaly": False,
+                "block_exit_progression": False,
+                "block_new_entries": False,
+            }
+            self._latest_lifecycle_authority_verdict = verdict
+            return verdict
+
+        snapshot = runtime_lifecycle_snapshot()
         anomalies = set(snapshot.get("anomalies", []) or [])
         open_position_count = int(snapshot.get("open_position_count", 0) or 0)
         working_exit_orders = int(snapshot.get("working_exit_orders", 0) or 0)
 
-        exit_stalled = "EXIT_STALLED" in anomalies
-        broker_position_exists = open_position_count > 0
-        exit_order_working = working_exit_orders > 0
-
         critical_exit_anomaly = (
-            exit_stalled
-            and not broker_position_exists
-            and not exit_order_working
+            "EXIT_STALLED" in anomalies
+            and open_position_count <= 0
+            and working_exit_orders <= 0
         )
-        block_exit_progression = critical_exit_anomaly
-
-        print(
-            "[LIFECYCLE][EXIT_DEBUG] "
-            f"exit_stalled={exit_stalled} "
-            f"broker_position_exists={broker_position_exists} "
-            f"exit_order_working={exit_order_working} "
-            f"critical_exit_anomaly={critical_exit_anomaly}"
-        )
-
         verdict = {
-            "execution_stalled": stalled,
-            "stalled_symbols": [],
             "critical_exit_anomaly": critical_exit_anomaly,
-            "block_exit_progression": block_exit_progression,
+            "block_exit_progression": critical_exit_anomaly,
+            "block_new_entries": critical_exit_anomaly,
         }
-        self._latest_fill_authority_verdict = verdict
+        self._latest_lifecycle_authority_verdict = verdict
         print(
-            "[EXECUTION][FILL_AUTHORITY][VERDICT] "
-            f"execution_stalled={stalled} block_exit_progression={block_exit_progression}"
+            "[LIFECYCLE][AUTHORITY][VERDICT] "
+            f"critical_exit_anomaly={verdict['critical_exit_anomaly']} "
+            f"block_exit_progression={verdict['block_exit_progression']} "
+            f"block_new_entries={verdict['block_new_entries']}"
         )
         return verdict
 
@@ -2281,6 +2295,7 @@ class CoreOrchestrator:
         print(f"[RUNTIME] {mode_manager.describe()}")
         position_truth_verdict = self._resolve_position_truth_cycle(as_of=cycle_started_at)
         fill_verdict = self._resolve_fill_authority_cycle()
+        self._resolve_lifecycle_authority_cycle()
         recovery_plan = build_recovery_plan(
             self._latest_position_truth_snapshot or empty_position_truth_snapshot(as_of=cycle_started_at),
             position_truth_verdict,

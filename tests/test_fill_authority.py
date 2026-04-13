@@ -15,6 +15,9 @@ def test_fill_authority_verdict_healthy(monkeypatch) -> None:
     orchestrator = CoreOrchestrator.__new__(CoreOrchestrator)
     verdict = CoreOrchestrator._resolve_fill_authority_cycle(orchestrator)
     assert verdict["execution_stalled"] is False
+    assert "critical_exit_anomaly" not in verdict
+    assert "block_exit_progression" not in verdict
+    assert "block_new_entries" not in verdict
 
 
 def test_fill_authority_verdict_stalled(monkeypatch) -> None:
