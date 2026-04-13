@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 import time
 from typing import List
 from zoneinfo import ZoneInfo
@@ -115,6 +116,15 @@ class PriceAuthorityVerdict:
     reason: str
     normalized_source: str
     reason_code: str
+
+
+
+
+def _resolve_cycle_timestamp(context) -> datetime:
+    value = getattr(context, "now_utc", None)
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc)
 
 
 def _normalize_price_source_label(source: str) -> str:
@@ -557,7 +567,7 @@ def run_cycle(
         print("[MODE][FORCE] PAPER mode enforced during AFTER_HOURS")
     mode = resolve_mode(mode_authority.effective_mode)
     print(f"[PRICE][MODE_POLICY] mode={mode.value} fallback_allowed={str(mode == RunMode.PAPER).lower()}")
-    now = utc_now()
+    now = _resolve_cycle_timestamp(None)
     context = CycleContext(
         cycle_id=cycle_id,
         mode=mode,
