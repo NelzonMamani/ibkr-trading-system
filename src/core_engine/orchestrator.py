@@ -26,6 +26,13 @@ from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_
 from src.core.intent import build_execution_intent
 from src.core.mode_authority import resolve_mode_authority
 from src.execution.order_router import execute_intents, fill_authority_state, runtime_lifecycle_snapshot
+from src.execution.order_router import runtime_orders_snapshot
+from src.execution.fill_authority import (
+    FillAuthorityVerdict,
+    build_execution_records,
+    classify_execution_delays,
+    evaluate_fill_authority,
+)
 from src.prep.premarket_prep_artifact import write_premarket_prep_artifact
 from src.prep.premarket_prep import PreMarketPrepEngine
 from src.prep.premarket_prep_artifact import (
@@ -108,6 +115,16 @@ _CANONICAL_PRICE_SOURCES = frozenset(
     }
 )
 
+_LATEST_FILL_AUTHORITY_VERDICT = FillAuthorityVerdict(
+    healthy=True,
+    missing_exec_count=0,
+    delayed_exec_count=0,
+    stalled_exec_count=0,
+    block_position_updates=False,
+    block_new_entries=False,
+    rationale="execution_truth_healthy",
+)
+
 
 @dataclass(frozen=True)
 class PriceAuthorityVerdict:
@@ -176,6 +193,25 @@ def _pipeline_stage_log(
     print(
         f"[PIPELINE][{stage}] symbol={symbol} strategy={strategy} mode={mode} "
         f"session={session} outcome={outcome} reason_code={reason_code}"
+    )
+
+
+def _apply_fill_authority_entry_guard(
+    decision: RiskDecisionRecord,
+    *,
+    mode: RunMode,
+    verdict: FillAuthorityVerdict,
+) -> ExecutionEvent | None:
+    if mode not in {RunMode.PAPER, RunMode.LIVE, RunMode.READ_ONLY}:
+        return None
+    if not verdict.block_new_entries:
+        return None
+    print("[EXECUTION][BLOCK] reason=execution_stalled")
+    return ExecutionEvent(
+        symbol=decision.symbol,
+        intent_id=decision.intent_id,
+        action="BLOCKED",
+        detail="reason=EXECUTION_STALLED",
     )
 
 
@@ -497,6 +533,7 @@ def run_cycle(
     mode_value: str,
     forced_session_state=None,
 ) -> CycleSummary:
+    global _LATEST_FILL_AUTHORITY_VERDICT
     _ensure_deterministic_prep()
     mode_input = mode_value or str(get_config("RUN_MODE_EFFECTIVE") or "READ_ONLY")
     execution_enabled_input = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
@@ -1199,6 +1236,19 @@ def run_cycle(
             decision_waterfall[decision.symbol]["execution"] = "SKIPPED"
             decision_waterfall[decision.symbol]["execution_reason"] = "SCAN_ONLY_OR_DISABLED"
             continue
+        fill_authority_block = _apply_fill_authority_entry_guard(
+            decision,
+            mode=mode,
+            verdict=_LATEST_FILL_AUTHORITY_VERDICT,
+        )
+        if fill_authority_block is not None:
+            blocked_candidates.append(fill_authority_block)
+            pipeline_outcomes[decision.symbol] = TERMINAL_STATES["BLOCKED_BY_EXECUTION_PRECHECK"]
+            first_blocker_by_symbol.setdefault(decision.symbol, "EXECUTION_PRECHECK_FAIL")
+            first_blocker_reason_by_symbol.setdefault(decision.symbol, "EXECUTION_STALLED")
+            decision_waterfall[decision.symbol]["execution"] = "REJECTED"
+            decision_waterfall[decision.symbol]["execution_reason"] = "EXECUTION_STALLED"
+            continue
         if mode in {RunMode.PAPER, RunMode.LIVE} and health_status == HealthStatus.DEGRADED:
             reason = "DATA_QUALITY_DEGRADED"
             print("[EXECUTION_BLOCK][DATA_QUALITY] status=DEGRADED")
@@ -1327,6 +1377,18 @@ def run_cycle(
     else:
         execution_events = []
     execution_events.extend(blocked_candidates)
+    print("[EXECUTION][TRUTH][START]")
+    execution_records = build_execution_records(runtime_orders_snapshot(), as_of=context.now_utc)
+    execution_delays = classify_execution_delays(execution_records, context.now_utc, run_mode=mode)
+    fill_truth_verdict = evaluate_fill_authority(execution_records, execution_delays, run_mode=mode)
+    _LATEST_FILL_AUTHORITY_VERDICT = fill_truth_verdict
+    print(
+        "[EXECUTION][TRUTH][VERDICT] "
+        f"healthy={fill_truth_verdict.healthy} missing={fill_truth_verdict.missing_exec_count} "
+        f"delayed={fill_truth_verdict.delayed_exec_count} stalled={fill_truth_verdict.stalled_exec_count}"
+    )
+    if fill_truth_verdict.block_new_entries:
+        print("[EXECUTION][BLOCK] reason=execution_stalled")
     execution_state_counts = {"submitted": 0, "acknowledged": 0, "working": 0, "partial_fills": 0, "filled": 0}
     execution_attempts = 0
     duplicate_working_order_blocks = 0
@@ -1420,7 +1482,7 @@ def run_cycle(
                     f"filled_qty={filled_quantity} source={event_source}"
                 )
                 symbol_key = str(event.symbol or "").upper()
-                if symbol_key:
+                if symbol_key and not fill_truth_verdict.block_position_updates:
                     existing_position = position_book.get(symbol_key)
                     fill_price = event.avg_fill_price
                     fill_qty = max(0, filled_quantity)
@@ -1442,6 +1504,11 @@ def run_cycle(
                         f"price={position_book[symbol_key]['avg_price']:.4f}"
                     )
                     pending_entries = max(0, pending_entries - 1)
+                elif symbol_key:
+                    print(
+                        "[EXECUTION][BLOCK] "
+                        f"reason=block_position_updates order_id={broker_order_id} symbol={symbol_key}"
+                    )
         elif execution_pass:
             working_orders += 1 if event.action == "WOULD_PLACE" else 0
         execution_outcome = "ORDER_STILL_WORKING_NO_FILL_YET"
@@ -1576,6 +1643,13 @@ def run_cycle(
         f"setup_detected_count={passed_setup} trigger_fired_count={passed_trigger} intent_count={generated_intents} "
         f"risk_allowed_count={risk_allowed} execution_attempt_count={len(execution_candidates)} "
         f"submission_success_count={execution_state_counts['submitted']} dominant_blocker={dominant_blocker}"
+    )
+    blocked = fill_truth_verdict.block_position_updates or fill_truth_verdict.block_new_entries
+    print(
+        "[EXECUTION][CYCLE_SUMMARY] "
+        f"records={len(execution_records)} missing={fill_truth_verdict.missing_exec_count} "
+        f"delayed={fill_truth_verdict.delayed_exec_count} stalled={fill_truth_verdict.stalled_exec_count} "
+        f"blocked={blocked}"
     )
     for symbol, blocker in sorted(first_blocker_by_symbol.items()):
         print(

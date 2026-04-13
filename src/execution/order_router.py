@@ -401,6 +401,24 @@ def runtime_lifecycle_snapshot() -> dict[str, int | str]:
     }
 
 
+def runtime_orders_snapshot() -> dict[int, dict[str, Any]]:
+    return {
+        int(order_id): {
+            "broker_order_id": int(row.broker_order_id),
+            "symbol": str(row.symbol or "").upper(),
+            "side": str(row.side or "").upper(),
+            "total_qty": int(row.total_qty or 0),
+            "filled_qty": int(row.filled_qty or 0),
+            "remaining_qty": int(row.remaining_qty or 0),
+            "avg_fill_price": row.avg_fill_price,
+            "canonical_state": str(row.canonical_state or "PRE_SUBMITTED"),
+            "first_seen_at": row.first_seen_at,
+            "last_update_at": row.last_update_at,
+        }
+        for order_id, row in _RUNTIME_ORDERS.items()
+    }
+
+
 def _now_utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
