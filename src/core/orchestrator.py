@@ -51,6 +51,7 @@ from src.core.replay_engine import ReplayEngine
 from src.core.trace_bus import TraceBus
 from src.core.decision_trace import DecisionTraceStore, SymbolDecisionTrace
 from src.execution.execution_engine import ExecutionEngine
+from src.execution.dev_tools.flatten_positions import force_flatten_all_positions
 from src.execution.execution_providers import IbkrExecutionProvider
 from src.execution.trade_management_engine import TradeManagementEngine
 from src.core.managers import (
@@ -498,10 +499,47 @@ class CoreOrchestrator:
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
         self._run_startup_validations()
         self._ensure_premarket_prep_artifact()
+        self._maybe_force_flatten_all_positions_on_startup()
         try:
             self.learning_scheduler.on_startup()
         except Exception as exc:
             print(f"[LEARNING][SCHEDULER] Startup check failed: {exc}")
+
+
+    def _maybe_force_flatten_all_positions_on_startup(self) -> None:
+        flatten_enabled = str(os.getenv("DEV_FORCE_FLATTEN_ON_START", "false")).strip().lower() == "true"
+        if not flatten_enabled:
+            return
+
+        if self.run_mode == RunMode.LIVE:
+            live_override = str(os.getenv("DEV_OVERRIDE_LIVE_FLATTEN", "false")).strip().lower() == "true"
+            if not live_override:
+                print("[DEV][FLATTEN][SKIP] RUN_MODE=LIVE requires DEV_OVERRIDE_LIVE_FLATTEN=true")
+                return
+        elif self.run_mode != RunMode.PAPER:
+            print(f"[DEV][FLATTEN][SKIP] RUN_MODE={self.run_mode.value} not eligible")
+            return
+
+        try:
+            client = self.connection_manager.optional_client
+            if client is None:
+                self.connection_manager.ensure_connected()
+                client = self.connection_manager.optional_client
+            if client is None:
+                print("[DEV][FLATTEN][SKIP] IBKR client unavailable")
+                return
+
+            timeout_seconds = int(os.getenv("DEV_FORCE_FLATTEN_TIMEOUT_SECONDS", "30") or "30")
+            result = force_flatten_all_positions(client, timeout_seconds=timeout_seconds)
+            print(
+                "[DEV][FLATTEN][SUMMARY] "
+                f"positions_detected={result['positions_detected']} "
+                f"close_orders_submitted={result['close_orders_submitted']} "
+                f"positions_remaining={result['positions_remaining']} "
+                f"status={result['status']}"
+            )
+        except Exception as exc:
+            print(f"[DEV][FLATTEN][ERROR] {exc}")
 
     def _open_position_from_execution(
         self,
