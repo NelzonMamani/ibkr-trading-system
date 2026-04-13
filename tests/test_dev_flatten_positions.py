@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from src.execution.dev_flatten import FlattenResult, flatten_all_positions
 from src.execution.dev_tools import flatten_positions
 
 
@@ -109,3 +110,22 @@ def test_force_flatten_partial_when_some_positions_remain(monkeypatch):
     assert result["close_orders_submitted"] == 2
     assert result["positions_remaining"] == 1
     assert result["status"] == "PARTIAL"
+
+
+def test_flatten_all_positions_wrapper_maps_payload(monkeypatch):
+    monkeypatch.setattr(
+        "src.execution.dev_flatten.force_flatten_all_positions",
+        lambda *_args, **_kwargs: {
+            "positions_detected": 2,
+            "close_orders_submitted": 1,
+            "positions_remaining": 0,
+            "status": "SUCCESS",
+        },
+    )
+    result = flatten_all_positions(object(), timeout_seconds=5)
+    assert result == FlattenResult(
+        remaining=0,
+        status="SUCCESS",
+        positions_detected=2,
+        close_orders_submitted=1,
+    )
