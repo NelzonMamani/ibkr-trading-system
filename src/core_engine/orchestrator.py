@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 import time
 from typing import List
 from zoneinfo import ZoneInfo
@@ -419,6 +420,35 @@ def _session_context(session: str) -> SessionContext:
     return SessionContext.AFTER
 
 
+def _resolve_cycle_timestamp(context: CycleContext) -> datetime:
+    timestamp = getattr(context, "timestamp", None)
+    moment: datetime | None = None
+    if isinstance(timestamp, datetime):
+        moment = timestamp
+    elif isinstance(timestamp, str) and timestamp.strip():
+        try:
+            moment = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            moment = None
+
+    if moment is None:
+        legacy_now_utc = getattr(context, "now_utc", None)
+        if isinstance(legacy_now_utc, datetime):
+            moment = legacy_now_utc
+        elif isinstance(legacy_now_utc, str) and legacy_now_utc.strip():
+            try:
+                moment = datetime.fromisoformat(legacy_now_utc.replace("Z", "+00:00"))
+            except ValueError:
+                moment = None
+
+    if moment is None:
+        moment = utc_now()
+
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc)
+
+
 def _policy_session_phase(session: str) -> str:
     if session == "PRE":
         return "PREMARKET"
@@ -565,8 +595,9 @@ def run_cycle(
         timestamp=now.isoformat(),
     )
 
-    ny_now = now.astimezone(ZoneInfo("America/New_York"))
-    utc_stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    cycle_timestamp = _resolve_cycle_timestamp(context)
+    ny_now = cycle_timestamp.astimezone(ZoneInfo("America/New_York"))
+    utc_stamp = cycle_timestamp.strftime("%Y-%m-%dT%H:%M:%SZ")
     print(
         "[SESSION] "
         f"utc={utc_stamp} "
