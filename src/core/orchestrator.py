@@ -496,25 +496,61 @@ class CoreOrchestrator:
         self._prep_next_due_at: datetime | None = None
         self._prep_update_thread: Thread | None = None
         self._prep_update_lock = Lock()
+        self._startup_completed = False
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
         self._run_startup_validations()
         self._ensure_premarket_prep_artifact()
-        self._maybe_force_flatten_all_positions_on_startup()
         try:
             self.learning_scheduler.on_startup()
         except Exception as exc:
             print(f"[LEARNING][SCHEDULER] Startup check failed: {exc}")
 
 
-    def _maybe_force_flatten_all_positions_on_startup(self) -> None:
-        flatten_enabled = str(os.getenv("DEV_FORCE_FLATTEN_ON_START", "false")).strip().lower() == "true"
-        if not flatten_enabled:
-            return
+    def _startup_sequence(self) -> None:
+        print("[ORCH][STARTUP][BEGIN]")
+        self.connection_manager.ensure_connected()
 
+        flatten_enabled = str(os.getenv("FLATTEN_ON_STARTUP", "false")).strip().lower() == "true"
+        if flatten_enabled:
+            print("[ORCH][STARTUP][FLATTEN][BEGIN]")
+            self._maybe_force_flatten_all_positions_on_startup()
+            print("[ORCH][STARTUP][FLATTEN][END]")
+        else:
+            print("[ORCH][STARTUP][FLATTEN][SKIP] disabled_by_env")
+
+        total_positions = self._current_ibkr_open_positions_count()
+        print(f"[ORCH][STARTUP][POSITION_CHECK] total_positions={total_positions}")
+        if total_positions > 0:
+            raise RuntimeError("STARTUP_ABORTED_POSITIONS_PRESENT")
+
+        print("[ORCH][STARTUP][COMPLETE] system_ready=True")
+
+    def _ensure_startup_completed(self) -> None:
+        if self._startup_completed:
+            return
+        self._startup_sequence()
+        self._startup_completed = True
+
+    def _current_ibkr_open_positions_count(self) -> int:
+        client = self.connection_manager.optional_client
+        if client is None:
+            self.connection_manager.ensure_connected()
+            client = self.connection_manager.optional_client
+        if client is None:
+            raise RuntimeError("IBKR client unavailable for startup position verification.")
+
+        total_positions = 0
+        for row in client.positions():
+            quantity = int(getattr(row, "position", 0) or 0)
+            if quantity != 0:
+                total_positions += 1
+        return total_positions
+
+    def _maybe_force_flatten_all_positions_on_startup(self) -> None:
         if self.run_mode == RunMode.LIVE:
-            live_override = str(os.getenv("DEV_OVERRIDE_LIVE_FLATTEN", "false")).strip().lower() == "true"
+            live_override = str(os.getenv("FLATTEN_ALLOW_LIVE", "false")).strip().lower() == "true"
             if not live_override:
-                print("[DEV][FLATTEN][SKIP] RUN_MODE=LIVE requires DEV_OVERRIDE_LIVE_FLATTEN=true")
+                print("[ORCH][STARTUP][FLATTEN][SKIP] live_not_allowed")
                 return
         elif self.run_mode != RunMode.PAPER:
             print(f"[DEV][FLATTEN][SKIP] RUN_MODE={self.run_mode.value} not eligible")
@@ -526,20 +562,14 @@ class CoreOrchestrator:
                 self.connection_manager.ensure_connected()
                 client = self.connection_manager.optional_client
             if client is None:
-                print("[DEV][FLATTEN][SKIP] IBKR client unavailable")
-                return
+                raise RuntimeError("IBKR client unavailable")
 
             timeout_seconds = int(os.getenv("DEV_FORCE_FLATTEN_TIMEOUT_SECONDS", "30") or "30")
             result = force_flatten_all_positions(client, timeout_seconds=timeout_seconds)
-            print(
-                "[DEV][FLATTEN][SUMMARY] "
-                f"positions_detected={result['positions_detected']} "
-                f"close_orders_submitted={result['close_orders_submitted']} "
-                f"positions_remaining={result['positions_remaining']} "
-                f"status={result['status']}"
-            )
+            print(f"[DEV][FLATTEN][COMPLETE] system_clean={result['positions_remaining'] == 0}")
         except Exception as exc:
             print(f"[DEV][FLATTEN][ERROR] {exc}")
+            raise
 
     def _open_position_from_execution(
         self,
@@ -1712,6 +1742,7 @@ class CoreOrchestrator:
                     self._emit_pending_connectivity_halt()
                     break
 
+                self._ensure_startup_completed()
                 print("[CYCLE] Starting orchestrator cycle.")
                 current_session = get_current_market_session()
                 detected_session = normalize_session_label(
@@ -1868,6 +1899,7 @@ class CoreOrchestrator:
 
     def run_once(self) -> bool:
         """Run a single conceptual system cycle in teaching order."""
+        self._ensure_startup_completed()
         if self._stop_requested_at_boundary("PRE_CYCLE"):
             return False
         try:
@@ -1880,9 +1912,14 @@ class CoreOrchestrator:
             return self._handle_fault(exc)
 
     def _run_once_inner(self) -> bool:
-        print("[INFO] Starting orchestrator cycle (teaching-only).")
+        print("[INFO] Starting orchestrator cycle")
         reset_pipeline_trace_cycle()
         self._current_cycle_id = str(uuid4())
+        print(f"[ORCH][CYCLE][START] cycle_id={self._current_cycle_id}")
+        if self.run_mode in {RunMode.PAPER, RunMode.LIVE, RunMode.READ_ONLY}:
+            portfolio_open_positions_count = self._current_ibkr_open_positions_count()
+            if portfolio_open_positions_count > 0:
+                raise RuntimeError("SYSTEM_STARTED_WITH_OPEN_POSITIONS — FORBIDDEN")
         self._last_halt_reason = None
         cycle_started_at = datetime.now(timezone.utc)
         ny_time = to_ny_time(cycle_started_at)

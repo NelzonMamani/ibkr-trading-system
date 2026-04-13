@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
+from src.config.runtime_config import RunMode
+from src.core.orchestrator import CoreOrchestrator
 from src.execution.dev_tools import flatten_positions
 
 
@@ -109,3 +113,53 @@ def test_force_flatten_partial_when_some_positions_remain(monkeypatch):
     assert result["close_orders_submitted"] == 2
     assert result["positions_remaining"] == 1
     assert result["status"] == "PARTIAL"
+
+
+def test_startup_sequence_passes_after_flatten_when_positions_clear(monkeypatch):
+    orchestrator = CoreOrchestrator.__new__(CoreOrchestrator)
+    orchestrator.run_mode = RunMode.PAPER
+    orchestrator._startup_completed = False
+
+    class _ConnectionManager:
+        def __init__(self) -> None:
+            self.ensure_connected_calls = 0
+            self.optional_client = object()
+
+        def ensure_connected(self) -> None:
+            self.ensure_connected_calls += 1
+
+    orchestrator.connection_manager = _ConnectionManager()
+    flatten_calls: list[str] = []
+    monkeypatch.setattr(
+        orchestrator,
+        "_maybe_force_flatten_all_positions_on_startup",
+        lambda: flatten_calls.append("called"),
+    )
+    monkeypatch.setattr(orchestrator, "_current_ibkr_open_positions_count", lambda: 0)
+    monkeypatch.setenv("FLATTEN_ON_STARTUP", "true")
+
+    orchestrator._startup_sequence()
+
+    assert flatten_calls == ["called"]
+    assert orchestrator.connection_manager.ensure_connected_calls == 1
+
+
+def test_startup_sequence_aborts_when_positions_remain(monkeypatch):
+    orchestrator = CoreOrchestrator.__new__(CoreOrchestrator)
+    orchestrator.run_mode = RunMode.PAPER
+    orchestrator._startup_completed = False
+
+    class _ConnectionManager:
+        def __init__(self) -> None:
+            self.optional_client = object()
+
+        def ensure_connected(self) -> None:
+            return None
+
+    orchestrator.connection_manager = _ConnectionManager()
+    monkeypatch.setattr(orchestrator, "_maybe_force_flatten_all_positions_on_startup", lambda: None)
+    monkeypatch.setattr(orchestrator, "_current_ibkr_open_positions_count", lambda: 2)
+    monkeypatch.setenv("FLATTEN_ON_STARTUP", "true")
+
+    with pytest.raises(RuntimeError, match="STARTUP_ABORTED_POSITIONS_PRESENT"):
+        orchestrator._startup_sequence()
