@@ -63,6 +63,7 @@ from src.execution.position_truth import (
     healthy_position_truth_verdict,
     reconcile_position_truth,
 )
+from src.execution.recovery_engine import apply_recovery_actions, build_recovery_plan
 from src.execution.trade_management_engine import TradeManagementEngine
 from src.core.managers import (
     ConnectionManager,
@@ -501,6 +502,7 @@ class CoreOrchestrator:
         self._pending_connectivity_halt: Optional[dict] = None
         self._latest_position_truth_snapshot: PositionTruthSnapshot | None = None
         self._latest_position_truth_verdict: PositionTruthVerdict = healthy_position_truth_verdict()
+        self._latest_fill_authority_verdict: dict[str, object] = {"execution_stalled": False, "stalled_symbols": []}
         self.trace_bus = TraceBus()
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
         self._daily_loss_warning_date: Optional[str] = None
@@ -2191,6 +2193,48 @@ class CoreOrchestrator:
         )
         return verdict
 
+    def _resolve_fill_authority_cycle(self) -> dict[str, object]:
+        try:
+            from src.execution.order_router import runtime_lifecycle_snapshot
+        except Exception as exc:
+            print(f"[EXECUTION][FILL_AUTHORITY][ERROR] reason=import_failed error={exc}")
+            verdict = {"execution_stalled": False, "stalled_symbols": []}
+            self._latest_fill_authority_verdict = verdict
+            return verdict
+
+        snapshot = runtime_lifecycle_snapshot()
+        stalled = bool(
+            int(snapshot.get("submitted_no_ack_timeouts", 0) or 0) > 0
+            or int(snapshot.get("working_no_fill_timeouts", 0) or 0) > 0
+            or int(snapshot.get("partial_fill_stalls", 0) or 0) > 0
+        )
+        verdict = {"execution_stalled": stalled, "stalled_symbols": []}
+        self._latest_fill_authority_verdict = verdict
+        print(f"[EXECUTION][FILL_AUTHORITY][VERDICT] execution_stalled={stalled}")
+        return verdict
+
+    def attach_broker_position_from_recovery(self, *, symbol: str) -> None:
+        snapshot = self._latest_position_truth_snapshot
+        if snapshot is None:
+            return
+        broker_row = snapshot.broker_positions.get(symbol.upper())
+        if broker_row is None:
+            return
+        if any(t.symbol.upper() == symbol.upper() for t in self.trade_registry.snapshot()):
+            return
+        recovered_trade = ActiveTrade(
+            symbol=symbol.upper(),
+            trader_type="BROKER_ATTACHED",
+            entry_tick=0,
+            entry_price=float(broker_row.avg_cost or 0.0),
+            direction="SHORT" if int(broker_row.quantity) < 0 else "LONG",
+            quantity=abs(int(broker_row.quantity)),
+            strategy_name="BROKER_RECOVERY",
+            stop_loss_price=0.0,
+        )
+        setattr(recovered_trade, "recovery_tag", "broker_attached")
+        self.trade_registry.register_trade(recovered_trade)
+
     def _run_manager_pipeline(
         self,
         *,
@@ -2205,6 +2249,13 @@ class CoreOrchestrator:
         mode_manager = self.runtime_mode_manager
         print(f"[RUNTIME] {mode_manager.describe()}")
         position_truth_verdict = self._resolve_position_truth_cycle(as_of=cycle_started_at)
+        fill_verdict = self._resolve_fill_authority_cycle()
+        recovery_plan = build_recovery_plan(
+            self._latest_position_truth_snapshot or empty_position_truth_snapshot(as_of=cycle_started_at),
+            position_truth_verdict,
+            fill_verdict,
+        )
+        apply_recovery_actions(recovery_plan, self)
         self._run_position_management_tick(cycle_started_at)
         active_strategy_keys = self._enabled_strategy_keys()
         strategy_key = self.primary_strategy_key
