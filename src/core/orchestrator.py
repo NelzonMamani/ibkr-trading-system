@@ -503,6 +503,7 @@ class CoreOrchestrator:
         self._latest_position_truth_snapshot: PositionTruthSnapshot | None = None
         self._latest_position_truth_verdict: PositionTruthVerdict = healthy_position_truth_verdict()
         self._latest_fill_authority_verdict: dict[str, object] = {"execution_stalled": False, "stalled_symbols": []}
+        self._latest_lifecycle_authority_verdict: dict[str, object] = {"execution_stalled": False, "stalled_symbols": []}
         self.trace_bus = TraceBus()
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
         self._daily_loss_warning_date: Optional[str] = None
@@ -2193,13 +2194,14 @@ class CoreOrchestrator:
         )
         return verdict
 
-    def _resolve_fill_authority_cycle(self) -> dict[str, object]:
+    def _resolve_lifecycle_authority_cycle(self) -> dict[str, object]:
         try:
             from src.execution.order_router import runtime_lifecycle_snapshot
         except Exception as exc:
             print(f"[EXECUTION][FILL_AUTHORITY][ERROR] reason=import_failed error={exc}")
             verdict = {"execution_stalled": False, "stalled_symbols": []}
             self._latest_fill_authority_verdict = verdict
+            self._latest_lifecycle_authority_verdict = verdict
             return verdict
 
         snapshot = runtime_lifecycle_snapshot()
@@ -2222,6 +2224,7 @@ class CoreOrchestrator:
             and not exit_order_working
         )
         block_exit_progression = critical_exit_anomaly
+        block_new_entries = False
 
         print(
             "[LIFECYCLE][EXIT_DEBUG] "
@@ -2235,14 +2238,20 @@ class CoreOrchestrator:
             "execution_stalled": stalled,
             "stalled_symbols": [],
             "critical_exit_anomaly": critical_exit_anomaly,
+            "block_new_entries": block_new_entries,
             "block_exit_progression": block_exit_progression,
         }
         self._latest_fill_authority_verdict = verdict
+        self._latest_lifecycle_authority_verdict = verdict
         print(
             "[EXECUTION][FILL_AUTHORITY][VERDICT] "
-            f"execution_stalled={stalled} block_exit_progression={block_exit_progression}"
+            f"execution_stalled={stalled} block_new_entries={block_new_entries} "
+            f"block_exit_progression={block_exit_progression}"
         )
         return verdict
+
+    def _resolve_fill_authority_cycle(self) -> dict[str, object]:
+        return self._resolve_lifecycle_authority_cycle()
 
     def attach_broker_position_from_recovery(self, *, symbol: str) -> None:
         snapshot = self._latest_position_truth_snapshot
