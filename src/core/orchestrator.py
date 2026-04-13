@@ -53,6 +53,16 @@ from src.core.decision_trace import DecisionTraceStore, SymbolDecisionTrace
 from src.execution.execution_engine import ExecutionEngine
 from src.execution.dev_tools.flatten_positions import force_flatten_all_positions
 from src.execution.execution_providers import IbkrExecutionProvider
+from src.execution.position_truth import (
+    PositionTruthSnapshot,
+    PositionTruthVerdict,
+    PositionTruthConfig,
+    collect_broker_position_snapshot,
+    collect_system_position_snapshot,
+    empty_position_truth_snapshot,
+    healthy_position_truth_verdict,
+    reconcile_position_truth,
+)
 from src.execution.trade_management_engine import TradeManagementEngine
 from src.core.managers import (
     ConnectionManager,
@@ -489,6 +499,8 @@ class CoreOrchestrator:
         self._last_halt_reason: Optional[dict] = None
         self._halt_emitted = False
         self._pending_connectivity_halt: Optional[dict] = None
+        self._latest_position_truth_snapshot: PositionTruthSnapshot | None = None
+        self._latest_position_truth_verdict: PositionTruthVerdict = healthy_position_truth_verdict()
         self.trace_bus = TraceBus()
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
         self._daily_loss_warning_date: Optional[str] = None
@@ -2111,6 +2123,74 @@ class CoreOrchestrator:
         print(f"[BROKER] port={port}")
         print(f"[BROKER] client_id={client_id}")
 
+    @staticmethod
+    def _apply_position_truth_entry_guard(
+        intents: list[TradeIntent],
+        verdict: PositionTruthVerdict,
+    ) -> list[TradeIntent]:
+        if not verdict.block_new_entries:
+            return intents
+        if intents:
+            print("[POSITION][TRUTH][BLOCK] reason=block_new_entries")
+            for intent in intents:
+                print(
+                    f"[TRADE_PATH][EXECUTION] symbol={intent.symbol.upper()} "
+                    "verdict=SKIPPED_MODE_OR_SESSION_POLICY reason=POSITION_TRUTH_BLOCK_NEW_ENTRIES"
+                )
+        return []
+
+    def _resolve_position_truth_cycle(
+        self,
+        *,
+        as_of: datetime,
+    ) -> PositionTruthVerdict:
+        print("[POSITION][TRUTH][START]")
+        if self.run_mode == RunMode.SIM:
+            print(f"[POSITION][TRUTH][SKIP] run_mode={self.run_mode.value}")
+            self._latest_position_truth_snapshot = empty_position_truth_snapshot(as_of=as_of)
+            self._latest_position_truth_verdict = healthy_position_truth_verdict()
+            return self._latest_position_truth_verdict
+
+        broker_required = self.run_mode in {RunMode.PAPER, RunMode.LIVE, RunMode.READ_ONLY}
+        broker_positions = collect_broker_position_snapshot(
+            self.connection_manager.optional_client,
+            as_of=as_of,
+            config=PositionTruthConfig(
+                broker_required=broker_required,
+                run_mode=self.run_mode,
+            ),
+        )
+        system_positions = collect_system_position_snapshot(
+            self.trade_registry.snapshot(),
+            as_of=as_of,
+        )
+        snapshot, verdict = reconcile_position_truth(
+            broker_positions=broker_positions,
+            system_positions=system_positions,
+            as_of=as_of,
+            live_broker_mode=broker_required,
+        )
+        self._latest_position_truth_snapshot = snapshot
+        self._latest_position_truth_verdict = verdict
+        print(
+            "[POSITION][TRUTH][VERDICT] "
+            f"healthy={verdict.healthy} block_new_entries={verdict.block_new_entries} "
+            f"block_exits={verdict.block_exits}"
+        )
+        if verdict.require_reconciliation:
+            self._degraded = True
+        if verdict.block_exits:
+            print("[POSITION][TRUTH][BLOCK] reason=block_exits")
+        blocked = verdict.block_new_entries or verdict.block_exits
+        print(
+            "[POSITION][TRUTH][CYCLE_SUMMARY] "
+            f"broker={len(snapshot.broker_positions)} system={len(snapshot.system_positions)} "
+            f"matched={len(snapshot.matched_symbols)} mismatches={len(snapshot.mismatches)} "
+            f"critical={verdict.critical_mismatch_count} warning={verdict.warning_mismatch_count} "
+            f"blocked={blocked}"
+        )
+        return verdict
+
     def _run_manager_pipeline(
         self,
         *,
@@ -2124,6 +2204,7 @@ class CoreOrchestrator:
         self.runtime_mode_manager = RuntimeModeManager.resolve()
         mode_manager = self.runtime_mode_manager
         print(f"[RUNTIME] {mode_manager.describe()}")
+        position_truth_verdict = self._resolve_position_truth_cycle(as_of=cycle_started_at)
         self._run_position_management_tick(cycle_started_at)
         active_strategy_keys = self._enabled_strategy_keys()
         strategy_key = self.primary_strategy_key
@@ -2683,6 +2764,10 @@ class CoreOrchestrator:
             print("[ERROR] SETUP_WITHOUT_INTENT")
             raise Exception("PIPELINE_BREAK_SETUP_TO_INTENT")
         gated_strategy_output = self._enforce_ross_execution_integrity(raw_strategy_output)
+        gated_strategy_output = self._apply_position_truth_entry_guard(
+            gated_strategy_output,
+            position_truth_verdict,
+        )
         if (
             self._mock_scanner_mode_enabled()
             and pre_arbitration_intents
