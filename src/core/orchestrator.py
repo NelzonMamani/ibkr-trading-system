@@ -502,7 +502,13 @@ class CoreOrchestrator:
         self._pending_connectivity_halt: Optional[dict] = None
         self._latest_position_truth_snapshot: PositionTruthSnapshot | None = None
         self._latest_position_truth_verdict: PositionTruthVerdict = healthy_position_truth_verdict()
-        self._latest_fill_authority_verdict: dict[str, object] = {"execution_stalled": False, "stalled_symbols": []}
+        self._latest_fill_authority_verdict: dict[str, object] = {
+            "execution_stalled": False,
+            "stalled_symbols": [],
+            "critical_exit_anomaly": False,
+            "block_exit_progression": False,
+            "block_new_entries": False,
+        }
         self.trace_bus = TraceBus()
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
         self._daily_loss_warning_date: Optional[str] = None
@@ -2198,7 +2204,13 @@ class CoreOrchestrator:
             from src.execution.order_router import runtime_lifecycle_snapshot
         except Exception as exc:
             print(f"[EXECUTION][FILL_AUTHORITY][ERROR] reason=import_failed error={exc}")
-            verdict = {"execution_stalled": False, "stalled_symbols": []}
+            verdict = {
+                "execution_stalled": False,
+                "stalled_symbols": [],
+                "critical_exit_anomaly": False,
+                "block_exit_progression": False,
+                "block_new_entries": False,
+            }
             self._latest_fill_authority_verdict = verdict
             return verdict
 
@@ -2222,6 +2234,7 @@ class CoreOrchestrator:
             and not exit_order_working
         )
         block_exit_progression = critical_exit_anomaly
+        block_new_entries = False  # temporary safe default
 
         print(
             "[LIFECYCLE][EXIT_DEBUG] "
@@ -2236,6 +2249,7 @@ class CoreOrchestrator:
             "stalled_symbols": [],
             "critical_exit_anomaly": critical_exit_anomaly,
             "block_exit_progression": block_exit_progression,
+            "block_new_entries": block_new_entries,
         }
         self._latest_fill_authority_verdict = verdict
         print(

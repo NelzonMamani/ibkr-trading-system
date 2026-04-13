@@ -21,3 +21,4 @@ def test_critical_exit_anomaly_blocks_exit_progression(monkeypatch) -> None:
 
     assert verdict["critical_exit_anomaly"] is True
     assert verdict["block_exit_progression"] is True
+    assert verdict["block_new_entries"] is False
