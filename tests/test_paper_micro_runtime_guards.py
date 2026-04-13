@@ -56,27 +56,44 @@ def test_execution_engine_clamps_micro_risk_profile_to_one_share(capsys) -> None
     assert "[RISK][MICRO_CLAMP]" in out
 
 
-def test_paper_run_once_skips_ibkr_connectivity(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("mode", "expected_connect_calls", "expected_log"),
+    [
+        ("SIM", 0, "[CONNECTIVITY][SKIP] run_mode=SIM forcing MOCK scanner provider."),
+        ("PAPER", 1, "[CONNECTIVITY][PAPER] broker-connected validation path enabled"),
+        ("LIVE", 1, "[CONNECTIVITY][LIVE] broker-connected production path enabled"),
+    ],
+)
+def test_run_mode_connectivity_path_enforcement(
+    monkeypatch,
+    capsys,
+    mode: str,
+    expected_connect_calls: int,
+    expected_log: str,
+) -> None:
     set_config_overrides(
         {
-            "RUN_MODE": "PAPER",
+            "RUN_MODE": mode,
             "RISK_PROFILE": "MICRO",
             "SELECTED_STRATEGY": "ross_momentum",
             "SESSION_PHASE_OVERRIDE": "PREMARKET",
         }
     )
 
-    def _unexpected_connect(self):
-        raise AssertionError("PAPER mode should not call ensure_connected")
-
-    monkeypatch.setattr(
-        "core.managers.connection_manager.ConnectionManager.ensure_connected",
-        _unexpected_connect,
-    )
-
     orchestrator = CoreOrchestrator()
+    connect_calls = {"count": 0}
+
+    def _record_connect():
+        connect_calls["count"] += 1
+        return None
+
+    monkeypatch.setattr(orchestrator.connection_manager, "ensure_connected", _record_connect)
     should_continue = orchestrator.run_once()
     assert should_continue in {True, False}
+
+    out = capsys.readouterr().out
+    assert expected_log in out
+    assert connect_calls["count"] == expected_connect_calls
 
 
 def test_execution_engine_blocks_live_validation_override() -> None:
