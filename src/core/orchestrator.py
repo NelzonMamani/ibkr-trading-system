@@ -2208,6 +2208,30 @@ class CoreOrchestrator:
             or int(snapshot.get("working_no_fill_timeouts", 0) or 0) > 0
             or int(snapshot.get("partial_fill_stalls", 0) or 0) > 0
         )
+
+        verdict = {
+            "execution_stalled": stalled,
+            "stalled_symbols": [],
+        }
+        self._latest_fill_authority_verdict = verdict
+        print(
+            "[EXECUTION][FILL_AUTHORITY][VERDICT] "
+            f"execution_stalled={stalled}"
+        )
+        return verdict
+
+    def _resolve_lifecycle_authority_cycle(self) -> dict[str, object]:
+        try:
+            from src.execution.order_router import runtime_lifecycle_snapshot
+        except Exception as exc:
+            print(f"[LIFECYCLE][AUTHORITY][ERROR] reason=import_failed error={exc}")
+            return {
+                "critical_exit_anomaly": False,
+                "block_exit_progression": False,
+                "block_new_entries": False,
+            }
+
+        snapshot = runtime_lifecycle_snapshot()
         anomalies = set(snapshot.get("anomalies", []) or [])
         open_position_count = int(snapshot.get("open_position_count", 0) or 0)
         working_exit_orders = int(snapshot.get("working_exit_orders", 0) or 0)
@@ -2222,6 +2246,7 @@ class CoreOrchestrator:
             and not exit_order_working
         )
         block_exit_progression = critical_exit_anomaly
+        block_new_entries = critical_exit_anomaly
 
         print(
             "[LIFECYCLE][EXIT_DEBUG] "
@@ -2232,15 +2257,15 @@ class CoreOrchestrator:
         )
 
         verdict = {
-            "execution_stalled": stalled,
-            "stalled_symbols": [],
             "critical_exit_anomaly": critical_exit_anomaly,
             "block_exit_progression": block_exit_progression,
+            "block_new_entries": block_new_entries,
         }
-        self._latest_fill_authority_verdict = verdict
         print(
-            "[EXECUTION][FILL_AUTHORITY][VERDICT] "
-            f"execution_stalled={stalled} block_exit_progression={block_exit_progression}"
+            "[LIFECYCLE][AUTHORITY][VERDICT] "
+            f"critical_exit_anomaly={critical_exit_anomaly} "
+            f"block_exit_progression={block_exit_progression} "
+            f"block_new_entries={block_new_entries}"
         )
         return verdict
 

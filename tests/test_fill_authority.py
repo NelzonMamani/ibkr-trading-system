@@ -15,6 +15,7 @@ def test_fill_authority_verdict_healthy(monkeypatch) -> None:
     orchestrator = CoreOrchestrator.__new__(CoreOrchestrator)
     verdict = CoreOrchestrator._resolve_fill_authority_cycle(orchestrator)
     assert verdict["execution_stalled"] is False
+    assert verdict["stalled_symbols"] == []
 
 
 def test_fill_authority_verdict_stalled(monkeypatch) -> None:
@@ -29,3 +30,4 @@ def test_fill_authority_verdict_stalled(monkeypatch) -> None:
     orchestrator = CoreOrchestrator.__new__(CoreOrchestrator)
     verdict = CoreOrchestrator._resolve_fill_authority_cycle(orchestrator)
     assert verdict["execution_stalled"] is True
+    assert verdict["stalled_symbols"] == []
