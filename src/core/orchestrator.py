@@ -2208,9 +2208,40 @@ class CoreOrchestrator:
             or int(snapshot.get("working_no_fill_timeouts", 0) or 0) > 0
             or int(snapshot.get("partial_fill_stalls", 0) or 0) > 0
         )
-        verdict = {"execution_stalled": stalled, "stalled_symbols": []}
+        anomalies = set(snapshot.get("anomalies", []) or [])
+        open_position_count = int(snapshot.get("open_position_count", 0) or 0)
+        working_exit_orders = int(snapshot.get("working_exit_orders", 0) or 0)
+
+        exit_stalled = "EXIT_STALLED" in anomalies
+        broker_position_exists = open_position_count > 0
+        exit_order_working = working_exit_orders > 0
+
+        critical_exit_anomaly = (
+            exit_stalled
+            and not broker_position_exists
+            and not exit_order_working
+        )
+        block_exit_progression = critical_exit_anomaly
+
+        print(
+            "[LIFECYCLE][EXIT_DEBUG] "
+            f"exit_stalled={exit_stalled} "
+            f"broker_position_exists={broker_position_exists} "
+            f"exit_order_working={exit_order_working} "
+            f"critical_exit_anomaly={critical_exit_anomaly}"
+        )
+
+        verdict = {
+            "execution_stalled": stalled,
+            "stalled_symbols": [],
+            "critical_exit_anomaly": critical_exit_anomaly,
+            "block_exit_progression": block_exit_progression,
+        }
         self._latest_fill_authority_verdict = verdict
-        print(f"[EXECUTION][FILL_AUTHORITY][VERDICT] execution_stalled={stalled}")
+        print(
+            "[EXECUTION][FILL_AUTHORITY][VERDICT] "
+            f"execution_stalled={stalled} block_exit_progression={block_exit_progression}"
+        )
         return verdict
 
     def attach_broker_position_from_recovery(self, *, symbol: str) -> None:
