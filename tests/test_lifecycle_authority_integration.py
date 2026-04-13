@@ -3,7 +3,7 @@ from __future__ import annotations
 from src.core.orchestrator import CoreOrchestrator
 
 
-def test_critical_exit_anomaly_blocks_exit_progression(monkeypatch) -> None:
+def test_lifecycle_authority_owns_exit_progression_block(monkeypatch) -> None:
     monkeypatch.setattr(
         "src.execution.order_router.runtime_lifecycle_snapshot",
         lambda: {
@@ -16,8 +16,16 @@ def test_critical_exit_anomaly_blocks_exit_progression(monkeypatch) -> None:
         },
     )
     orchestrator = CoreOrchestrator.__new__(CoreOrchestrator)
+    orchestrator._latest_fill_authority_verdict = {"execution_stalled": False, "stalled_symbols": []}
+    orchestrator._latest_lifecycle_authority_verdict = {
+        "block_exit_progression": False,
+        "critical_exit_anomaly": False,
+    }
 
-    verdict = CoreOrchestrator._resolve_fill_authority_cycle(orchestrator)
+    fill_verdict = CoreOrchestrator._resolve_fill_authority_cycle(orchestrator)
+    lifecycle_verdict = CoreOrchestrator._resolve_lifecycle_authority_cycle(orchestrator)
 
-    assert verdict["critical_exit_anomaly"] is True
-    assert verdict["block_exit_progression"] is True
+    assert "critical_exit_anomaly" not in fill_verdict
+    assert "block_exit_progression" not in fill_verdict
+    assert lifecycle_verdict["critical_exit_anomaly"] is False
+    assert lifecycle_verdict["block_exit_progression"] is False

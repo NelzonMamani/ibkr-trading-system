@@ -503,6 +503,10 @@ class CoreOrchestrator:
         self._latest_position_truth_snapshot: PositionTruthSnapshot | None = None
         self._latest_position_truth_verdict: PositionTruthVerdict = healthy_position_truth_verdict()
         self._latest_fill_authority_verdict: dict[str, object] = {"execution_stalled": False, "stalled_symbols": []}
+        self._latest_lifecycle_authority_verdict: dict[str, object] = {
+            "block_exit_progression": False,
+            "critical_exit_anomaly": False,
+        }
         self.trace_bus = TraceBus()
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
         self._daily_loss_warning_date: Optional[str] = None
@@ -2141,6 +2145,38 @@ class CoreOrchestrator:
                 )
         return []
 
+    @staticmethod
+    def _apply_fill_authority_entry_guard(
+        intents: list[TradeIntent],
+        verdict: dict[str, object],
+    ) -> list[TradeIntent]:
+        if not bool(verdict.get("execution_stalled", False)):
+            return intents
+        if intents:
+            print("[EXECUTION][FILL_AUTHORITY][BLOCK] reason=execution_stalled")
+            for intent in intents:
+                print(
+                    f"[TRADE_PATH][EXECUTION] symbol={intent.symbol.upper()} "
+                    "verdict=SKIPPED_MODE_OR_SESSION_POLICY reason=FILL_AUTHORITY_EXECUTION_STALLED"
+                )
+        return []
+
+    @staticmethod
+    def _apply_lifecycle_entry_guard(
+        intents: list[TradeIntent],
+        verdict: dict[str, object],
+    ) -> list[TradeIntent]:
+        if not bool(verdict.get("block_exit_progression", False)):
+            return intents
+        if intents:
+            print("[LIFECYCLE][ENTRY_BLOCK] reason=block_exit_progression")
+            for intent in intents:
+                print(
+                    f"[TRADE_PATH][EXECUTION] symbol={intent.symbol.upper()} "
+                    "verdict=SKIPPED_MODE_OR_SESSION_POLICY reason=LIFECYCLE_BLOCK_EXIT_PROGRESSION"
+                )
+        return []
+
     def _resolve_position_truth_cycle(
         self,
         *,
@@ -2208,40 +2244,56 @@ class CoreOrchestrator:
             or int(snapshot.get("working_no_fill_timeouts", 0) or 0) > 0
             or int(snapshot.get("partial_fill_stalls", 0) or 0) > 0
         )
-        anomalies = set(snapshot.get("anomalies", []) or [])
+
+        verdict = {
+            "execution_stalled": stalled,
+            "stalled_symbols": [],
+        }
+        self._latest_fill_authority_verdict = verdict
+        print(
+            "[EXECUTION][FILL_AUTHORITY][VERDICT] "
+            f"execution_stalled={stalled}"
+        )
+        return verdict
+
+    def _resolve_lifecycle_authority_cycle(self) -> dict[str, object]:
+        try:
+            from src.execution.order_router import runtime_lifecycle_snapshot
+        except Exception as exc:
+            print(f"[LIFECYCLE][AUTHORITY][ERROR] reason=import_failed error={exc}")
+            verdict = {
+                "block_exit_progression": False,
+                "critical_exit_anomaly": False,
+            }
+            self._latest_lifecycle_authority_verdict = verdict
+            return verdict
+
+        snapshot = runtime_lifecycle_snapshot()
         open_position_count = int(snapshot.get("open_position_count", 0) or 0)
         working_exit_orders = int(snapshot.get("working_exit_orders", 0) or 0)
-
-        exit_stalled = "EXIT_STALLED" in anomalies
-        broker_position_exists = open_position_count > 0
-        exit_order_working = working_exit_orders > 0
-
+        exit_stalled = (
+            int(snapshot.get("working_no_fill_timeouts", 0) or 0) > 0
+            and working_exit_orders > 0
+        )
         critical_exit_anomaly = (
             exit_stalled
-            and not broker_position_exists
-            and not exit_order_working
+            and open_position_count == 0
+            and working_exit_orders == 0
         )
         block_exit_progression = critical_exit_anomaly
 
         print(
             "[LIFECYCLE][EXIT_DEBUG] "
             f"exit_stalled={exit_stalled} "
-            f"broker_position_exists={broker_position_exists} "
-            f"exit_order_working={exit_order_working} "
+            f"open_position_count={open_position_count} "
+            f"working_exit_orders={working_exit_orders} "
             f"critical_exit_anomaly={critical_exit_anomaly}"
         )
-
         verdict = {
-            "execution_stalled": stalled,
-            "stalled_symbols": [],
-            "critical_exit_anomaly": critical_exit_anomaly,
             "block_exit_progression": block_exit_progression,
+            "critical_exit_anomaly": critical_exit_anomaly,
         }
-        self._latest_fill_authority_verdict = verdict
-        print(
-            "[EXECUTION][FILL_AUTHORITY][VERDICT] "
-            f"execution_stalled={stalled} block_exit_progression={block_exit_progression}"
-        )
+        self._latest_lifecycle_authority_verdict = verdict
         return verdict
 
     def attach_broker_position_from_recovery(self, *, symbol: str) -> None:
@@ -2281,6 +2333,7 @@ class CoreOrchestrator:
         print(f"[RUNTIME] {mode_manager.describe()}")
         position_truth_verdict = self._resolve_position_truth_cycle(as_of=cycle_started_at)
         fill_verdict = self._resolve_fill_authority_cycle()
+        lifecycle_verdict = self._resolve_lifecycle_authority_cycle()
         recovery_plan = build_recovery_plan(
             self._latest_position_truth_snapshot or empty_position_truth_snapshot(as_of=cycle_started_at),
             position_truth_verdict,
@@ -2850,6 +2903,10 @@ class CoreOrchestrator:
             gated_strategy_output,
             position_truth_verdict,
         )
+        gated = gated_strategy_output
+        gated = self._apply_fill_authority_entry_guard(gated, fill_verdict)
+        gated = self._apply_lifecycle_entry_guard(gated, lifecycle_verdict)
+        gated_strategy_output = gated
         if (
             self._mock_scanner_mode_enabled()
             and pre_arbitration_intents
