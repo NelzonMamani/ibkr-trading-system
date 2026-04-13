@@ -2222,6 +2222,7 @@ class CoreOrchestrator:
             and not exit_order_working
         )
         block_exit_progression = critical_exit_anomaly
+        block_new_entries = False  # default for now
 
         print(
             "[LIFECYCLE][EXIT_DEBUG] "
@@ -2236,6 +2237,7 @@ class CoreOrchestrator:
             "stalled_symbols": [],
             "critical_exit_anomaly": critical_exit_anomaly,
             "block_exit_progression": block_exit_progression,
+            "block_new_entries": block_new_entries,
         }
         self._latest_fill_authority_verdict = verdict
         print(
