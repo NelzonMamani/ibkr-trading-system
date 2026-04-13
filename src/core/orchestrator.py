@@ -507,7 +507,10 @@ class CoreOrchestrator:
 
 
     def _maybe_force_flatten_all_positions_on_startup(self) -> None:
-        flatten_enabled = str(os.getenv("DEV_FORCE_FLATTEN_ON_START", "false")).strip().lower() == "true"
+        flatten_enabled = (
+            self.run_mode in {RunMode.PAPER, RunMode.LIVE}
+            and str(os.getenv("FLATTEN_ON_STARTUP", "false")).strip().lower() == "true"
+        )
         if not flatten_enabled:
             return
 
@@ -2125,9 +2128,12 @@ class CoreOrchestrator:
         active_strategy_keys = self._enabled_strategy_keys()
         strategy_key = self.primary_strategy_key
 
-        force_mock_provider = self.run_mode == RunMode.PAPER
+        force_mock_provider = self.run_mode in {RunMode.PAPER, RunMode.SIM}
         if force_mock_provider:
-            print("[CONNECTIVITY][PAPER] Skipping IBKR connectivity check; forcing MOCK scanner provider.")
+            print(
+                "[CONNECTIVITY][SKIP] "
+                f"run_mode={self.run_mode.value} forcing MOCK scanner provider."
+            )
         else:
             try:
                 self.connection_manager.ensure_connected()
