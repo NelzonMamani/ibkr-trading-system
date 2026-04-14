@@ -127,6 +127,29 @@ def test_submit_live_premarket_sell_uses_bid_limit(monkeypatch, capsys) -> None:
     assert "enforced=PREMARKET_LIMIT orderType=LMT lmtPrice=9.98 source=BID_ASK_BUFFERED" in out
 
 
+def test_submit_exit_order_forces_market_and_outside_rth(monkeypatch, capsys) -> None:
+    client = _Client()
+    monkeypatch.setattr(order_router, "_session_label_now", lambda: "PRE")
+    monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": 10.0, "ask": 10.05, "last": 10.02, "volume": 100_000})
+    order_id = order_router._submit_ibkr_order(
+        mode=RunMode.LIVE,
+        client=client,
+        symbol="MCRO",
+        side="SELL",
+        quantity=1,
+        order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-EXIT",
+        entry_price=10.02,
+        entry_price_source="IBKR_BID_ASK",
+        is_exit_order=True,
+    )
+    out = capsys.readouterr().out
+    assert order_id == 100001
+    assert getattr(client.last_order, "orderType", None) == "MKT"
+    assert getattr(client.last_order, "outsideRth", None) is True
+    assert "[EXECUTION][EXIT_FORCE_ALLOW] symbol=MCRO action=FORCE_EXECUTABLE orderType=MKT outsideRth=True" in out
+    assert "enforced=EXIT_FORCE_MKT orderType=MKT outsideRth=True" in out
+
+
 def test_fillability_classifies_passive_limit_as_non_marketable() -> None:
     classification, _ = order_router.classify_submit_fillability(
         order_type="LMT",

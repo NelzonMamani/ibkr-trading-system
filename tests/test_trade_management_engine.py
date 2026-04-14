@@ -68,6 +68,18 @@ def test_time_exit_when_max_hold_exceeded() -> None:
     assert intents[0].exit_type == "TIME"
 
 
+def test_force_lifecycle_exit_after_five_minutes_overrides_other_conditions() -> None:
+    engine = _engine_with_position()
+    position = engine.snapshot_positions()["ABCD"]
+    position.entry_timestamp = datetime.now(timezone.utc) - timedelta(seconds=301)
+
+    intents = engine.evaluate_cycle({"ABCD": {"current_price": 10.2}})
+
+    assert len(intents) == 1
+    assert intents[0].rationale == "TIME_STOP"
+    assert intents[0].exit_type == "TIME"
+
+
 def test_fast_failure_exit_when_no_follow_through() -> None:
     engine = _engine_with_position()
     position = engine.snapshot_positions()["ABCD"]

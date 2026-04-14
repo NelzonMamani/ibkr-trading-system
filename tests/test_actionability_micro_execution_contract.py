@@ -440,3 +440,40 @@ def test_execute_intents_blocks_duplicate_working_order_using_reconciliation(mon
     assert events[0].action == "BLOCKED"
     assert events[0].detail == "reason=DUPLICATE_WORKING_ORDER; event=EXECUTION_SKIPPED_DUPLICATE"
     assert "[EXECUTION][DUPLICATE_BLOCK] symbol=MCRO reason=DUPLICATE_WORKING_ORDER" in out
+
+
+def test_execute_intents_exit_bypasses_duplicate_and_size_gates(monkeypatch, capsys) -> None:
+    class _Order:
+        action = "BUY"
+        orderRef = "TRADING_OS|ROSS_MOMENTUM|MCRO-ENTRY"
+
+    class _OpenOrder:
+        symbol = "MCRO"
+        status = "Submitted"
+        orderId = 999
+        order = _Order()
+
+    monkeypatch.setattr(
+        "src.execution.order_router._fetch_ibkr_truth",
+        lambda _mode: ([_OpenOrder()], [], []),
+    )
+    exit_decision = RiskDecisionRecord(
+        symbol="MCRO",
+        intent_id="MCRO-EXIT-1",
+        decision="ALLOW",
+        max_position_size=999,
+        constraints=[],
+        triggered_rules=[],
+        rationale="exit",
+        approved_quantity=1,
+        entry_price=25.0,
+    )
+    exit_decision.side = "SHORT"  # type: ignore[attr-defined]
+    exit_decision.action = "EXIT"  # type: ignore[attr-defined]
+    events = execute_intents(
+        mode=RunMode.PAPER,
+        decisions=[exit_decision],
+    )
+    out = capsys.readouterr().out
+    assert events[0].action == "SUBMITTED"
+    assert "[EXECUTION][EXIT_FORCE_ALLOW] symbol=MCRO reason=EXIT_BYPASS_ROUTER_GATES" in out
