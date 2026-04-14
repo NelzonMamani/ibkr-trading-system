@@ -18,6 +18,38 @@ def test_paper_provider_cancel_order_logs_and_returns_cancelled() -> None:
     assert result["status"] == "Cancelled"
 
 
+def test_paper_provider_open_orders_tracks_protective_truth() -> None:
+    provider = PaperExecutionProvider(
+        price_feed=DeterministicPriceFeed(),
+        trade_registry=ActiveTradeRegistry(),
+        event_collector=EventCollector(),
+        run_mode=RunMode.PAPER,
+    )
+    stop = provider.place_stop_order(
+        symbol="AAPL",
+        side="SELL",
+        quantity=10,
+        stop_price=99.5,
+        trade_id="T-1",
+        parent_order_id="ENTRY-1",
+    )
+    target = provider.place_target_order(
+        symbol="AAPL",
+        side="SELL",
+        quantity=10,
+        limit_price=101.5,
+        trade_id="T-1",
+        parent_order_id="ENTRY-1",
+    )
+    snapshots = provider.get_open_orders()
+    assert {order.order_id for order in snapshots} == {stop["broker_order_id"], target["broker_order_id"]}
+    assert {order.order_type for order in snapshots} == {"STP", "LMT"}
+
+    provider.cancel_order(broker_order_id=stop["broker_order_id"])
+    snapshots_after_cancel = provider.get_open_orders()
+    assert [order.order_id for order in snapshots_after_cancel] == [target["broker_order_id"]]
+
+
 class _DummyIbkrBroker:
     def __init__(self) -> None:
         self.cancelled: list[str] = []

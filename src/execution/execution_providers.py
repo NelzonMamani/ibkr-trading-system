@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, List, Optional, Protocol, runtime_checkable, TYPE_CHECKING
 
@@ -28,6 +28,9 @@ class OrderSnapshot:
     order_id: str
     symbol: str
     status: str
+    order_type: str = ""
+    parent_order_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -104,6 +107,7 @@ class PaperExecutionProvider(ExecutionProvider):
     run_mode: RunMode = RunMode.PAPER
     broker: Optional[SimBroker] = None
     _protective_seq: int = field(default=0, init=False, repr=False)
+    _protective_orders: dict[str, OrderSnapshot] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.broker is None:
@@ -136,7 +140,15 @@ class PaperExecutionProvider(ExecutionProvider):
         return PositionSnapshot(positions=self.trade_registry.snapshot(), as_of=timestamp)
 
     def get_open_orders(self) -> List[OrderSnapshot]:
-        return []
+        return [
+            OrderSnapshot(**asdict(order))
+            for order in self._protective_orders.values()
+            if not self._is_closed_order_status(order.status)
+        ]
+
+    @staticmethod
+    def _is_closed_order_status(status: str | None) -> bool:
+        return str(status or "").upper() in {"CANCELLED", "CANCELED", "FILLED"}
 
     def _next_protective_id(self, prefix: str) -> str:
         self._protective_seq += 1
@@ -153,6 +165,14 @@ class PaperExecutionProvider(ExecutionProvider):
         parent_order_id: str | None = None,
     ) -> dict[str, Any]:
         order_id = self._next_protective_id("PAPER-STP")
+        self._protective_orders[order_id] = OrderSnapshot(
+            order_id=order_id,
+            symbol=str(symbol).upper(),
+            status="Submitted",
+            order_type="STP",
+            parent_order_id=parent_order_id,
+            metadata={"side": side, "quantity": int(quantity), "stop_price": float(stop_price), "trade_id": str(trade_id)},
+        )
         print(
             "[IBKR][ORDER_SUBMITTED] "
             f"type=STP mode=PAPER order_id={order_id} trade_id={trade_id} symbol={symbol} qty={quantity} stop={stop_price:.4f}"
@@ -175,6 +195,14 @@ class PaperExecutionProvider(ExecutionProvider):
         parent_order_id: str | None = None,
     ) -> dict[str, Any]:
         order_id = self._next_protective_id("PAPER-LMT")
+        self._protective_orders[order_id] = OrderSnapshot(
+            order_id=order_id,
+            symbol=str(symbol).upper(),
+            status="Submitted",
+            order_type="LMT",
+            parent_order_id=parent_order_id,
+            metadata={"side": side, "quantity": int(quantity), "limit_price": float(limit_price), "trade_id": str(trade_id)},
+        )
         print(
             "[IBKR][ORDER_SUBMITTED] "
             f"type=LMT mode=PAPER order_id={order_id} trade_id={trade_id} symbol={symbol} qty={quantity} limit={limit_price:.4f}"
@@ -196,6 +224,18 @@ class PaperExecutionProvider(ExecutionProvider):
         new_stop_price: float,
         trade_id: str,
     ) -> dict[str, Any]:
+        existing = self._protective_orders.get(str(broker_order_id))
+        if existing is not None:
+            updated_metadata = dict(existing.metadata or {})
+            updated_metadata.update({"side": side, "quantity": int(quantity), "stop_price": float(new_stop_price), "trade_id": str(trade_id)})
+            self._protective_orders[str(broker_order_id)] = OrderSnapshot(
+                order_id=existing.order_id,
+                symbol=str(symbol).upper(),
+                status="Submitted",
+                order_type=existing.order_type or "STP",
+                parent_order_id=existing.parent_order_id,
+                metadata=updated_metadata,
+            )
         print(
             "[IBKR][ORDER_MODIFIED] "
             f"mode=PAPER order_id={broker_order_id} trade_id={trade_id} symbol={symbol} qty={quantity} stop={new_stop_price:.4f}"
@@ -203,6 +243,16 @@ class PaperExecutionProvider(ExecutionProvider):
         return {"broker_order_id": broker_order_id, "status": "Submitted", "order_type": "STP"}
 
     def cancel_order(self, *, broker_order_id: str) -> dict[str, Any]:
+        existing = self._protective_orders.get(str(broker_order_id))
+        if existing is not None:
+            self._protective_orders[str(broker_order_id)] = OrderSnapshot(
+                order_id=existing.order_id,
+                symbol=existing.symbol,
+                status="Cancelled",
+                order_type=existing.order_type,
+                parent_order_id=existing.parent_order_id,
+                metadata=dict(existing.metadata or {}),
+            )
         print(f"[IBKR][ORDER_CANCELLED] mode=PAPER order_id={broker_order_id}")
         return {"broker_order_id": broker_order_id, "status": "Cancelled"}
 

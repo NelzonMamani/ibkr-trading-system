@@ -20,6 +20,7 @@ class PositionLifecycleState(str, Enum):
     RECOVERY_PENDING = "RECOVERY_PENDING"
     RECOVERED = "RECOVERED"
     ORPHANED_POSITION = "ORPHANED_POSITION"
+    FAILSAFE_TRIGGERED = "FAILSAFE_TRIGGERED"
     LIFECYCLE_FAILURE = "LIFECYCLE_FAILURE"
 
 
@@ -92,13 +93,19 @@ _ALLOWED_TRANSITIONS: dict[PositionLifecycleState, set[PositionLifecycleState]] 
         PositionLifecycleState.PROTECTED,
         PositionLifecycleState.LIFECYCLE_FAILURE,
     },
-    PositionLifecycleState.PROTECTED: {PositionLifecycleState.TARGET_ACTIVE, PositionLifecycleState.TRAILING_ELIGIBLE, PositionLifecycleState.EXIT_PENDING},
-    PositionLifecycleState.TARGET_ACTIVE: {PositionLifecycleState.TRAILING_ELIGIBLE, PositionLifecycleState.EXIT_PENDING},
-    PositionLifecycleState.TRAILING_ELIGIBLE: {PositionLifecycleState.TRAILING_ACTIVE, PositionLifecycleState.EXIT_PENDING},
-    PositionLifecycleState.TRAILING_ACTIVE: {PositionLifecycleState.EXIT_PENDING},
-    PositionLifecycleState.EXIT_PENDING: {PositionLifecycleState.EXITED},
+    PositionLifecycleState.PROTECTED: {
+        PositionLifecycleState.TARGET_ACTIVE,
+        PositionLifecycleState.TRAILING_ELIGIBLE,
+        PositionLifecycleState.EXIT_PENDING,
+        PositionLifecycleState.FAILSAFE_TRIGGERED,
+    },
+    PositionLifecycleState.TARGET_ACTIVE: {PositionLifecycleState.TRAILING_ELIGIBLE, PositionLifecycleState.EXIT_PENDING, PositionLifecycleState.FAILSAFE_TRIGGERED},
+    PositionLifecycleState.TRAILING_ELIGIBLE: {PositionLifecycleState.TRAILING_ACTIVE, PositionLifecycleState.EXIT_PENDING, PositionLifecycleState.FAILSAFE_TRIGGERED},
+    PositionLifecycleState.TRAILING_ACTIVE: {PositionLifecycleState.EXIT_PENDING, PositionLifecycleState.FAILSAFE_TRIGGERED},
+    PositionLifecycleState.EXIT_PENDING: {PositionLifecycleState.EXITED, PositionLifecycleState.FAILSAFE_TRIGGERED},
     PositionLifecycleState.RECOVERY_PENDING: {PositionLifecycleState.RECOVERED, PositionLifecycleState.LIFECYCLE_FAILURE},
-    PositionLifecycleState.RECOVERED: {PositionLifecycleState.PROTECTED, PositionLifecycleState.TARGET_ACTIVE, PositionLifecycleState.TRAILING_ELIGIBLE},
+    PositionLifecycleState.RECOVERED: {PositionLifecycleState.PROTECTED, PositionLifecycleState.TARGET_ACTIVE, PositionLifecycleState.TRAILING_ELIGIBLE, PositionLifecycleState.FAILSAFE_TRIGGERED},
+    PositionLifecycleState.FAILSAFE_TRIGGERED: {PositionLifecycleState.LIFECYCLE_FAILURE},
 }
 
 
@@ -131,10 +138,34 @@ class PostFillLifecycleEngine:
             order_obj = getattr(order, "order", None)
             order_state = getattr(order, "orderState", None)
             contract = getattr(order, "contract", None)
-        order_id = str(getattr(order, "orderId", None) or (order_obj.get("orderId") if isinstance(order_obj, dict) else "") or "")
-        symbol = str(getattr(contract, "symbol", None) or (contract.get("symbol") if isinstance(contract, dict) else "") or "").upper()
-        order_type = str(getattr(order_obj, "orderType", None) or (order_obj.get("order_type") if isinstance(order_obj, dict) else "") or "").upper()
-        status = str(getattr(order_state, "status", None) or (order_state.get("status") if isinstance(order_state, dict) else "") or "").upper()
+        order_id = str(
+            getattr(order, "orderId", None)
+            or getattr(order, "order_id", None)
+            or (order_obj.get("orderId") if isinstance(order_obj, dict) else "")
+            or (order_obj.get("order_id") if isinstance(order_obj, dict) else "")
+            or ""
+        )
+        symbol = str(
+            getattr(contract, "symbol", None)
+            or getattr(order, "symbol", None)
+            or (contract.get("symbol") if isinstance(contract, dict) else "")
+            or ""
+        ).upper()
+        order_type = str(
+            getattr(order_obj, "orderType", None)
+            or getattr(order, "order_type", None)
+            or (order_obj.get("order_type") if isinstance(order_obj, dict) else "")
+            or (order.get("orderType") if isinstance(order, dict) else "")
+            or (order.get("order_type") if isinstance(order, dict) else "")
+            or ""
+        ).upper()
+        status = str(
+            getattr(order_state, "status", None)
+            or getattr(order, "status", None)
+            or (order_state.get("status") if isinstance(order_state, dict) else "")
+            or (order.get("status") if isinstance(order, dict) else "")
+            or ""
+        ).upper()
         order_ref = str(getattr(order_obj, "orderRef", None) or (order_obj.get("order_ref") if isinstance(order_obj, dict) else "") or "")
         return {
             "order_id": order_id,
@@ -444,6 +475,38 @@ class PostFillLifecycleEngine:
             )
             return False
 
+    def _repair_missing_target(self, trade: ManagedTradeLifecycle, reason: str) -> bool:
+        if self.execution_provider is None or self.run_mode not in {"PAPER", "LIVE"}:
+            return False
+        if trade.target is None:
+            return False
+        try:
+            result = self.execution_provider.place_target_order(
+                symbol=trade.symbol,
+                side=trade.target.side,
+                quantity=trade.filled_qty,
+                limit_price=trade.target.trigger_price,
+                trade_id=trade.trade_id,
+                parent_order_id=trade.trade_id,
+            )
+            trade.target.broker_order_id = str(result.get("broker_order_id"))
+            trade.target.status = str(result.get("status") or "Submitted")
+            print(
+                "[LIFECYCLE][DEGRADED][TARGET_REPAIRED] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} reason={reason} target_order_id={trade.target.broker_order_id}"
+            )
+            return True
+        except Exception as exc:
+            print(
+                "[LIFECYCLE][DEGRADED][TARGET_REPAIR_FAILED] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} reason={reason} error={exc}"
+            )
+            return False
+
+    def _escalate_failsafe(self, trade: ManagedTradeLifecycle, *, reason: str) -> None:
+        self._transition(trade, PositionLifecycleState.FAILSAFE_TRIGGERED, reason)
+        self._transition(trade, PositionLifecycleState.LIFECYCLE_FAILURE, f"{reason}_terminal")
+
     def reconcile_orders(self, broker_orders: list[Any], *, repair: bool = True) -> dict[str, Any]:
         normalized = [self._order_fields(order) for order in broker_orders]
         open_ids = {
@@ -453,6 +516,7 @@ class PostFillLifecycleEngine:
         }
         findings: list[dict[str, Any]] = []
         repaired = 0
+        block_new_entries = False
 
         known_ids: set[str] = set()
         for trade in self._trades.values():
@@ -470,17 +534,45 @@ class PostFillLifecycleEngine:
             if stop_missing:
                 findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "MISSING_STOP"})
                 print(f"[LIFECYCLE][RECONCILIATION][MISSING_STOP] trade_id={trade.trade_id} symbol={trade.symbol}")
-                if repair and self._repair_missing_stop(trade, "reconciliation_missing_stop"):
+                repaired_stop = repair and self._repair_missing_stop(trade, "reconciliation_missing_stop")
+                if repaired_stop:
                     repaired += 1
+                elif repair:
+                    findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "STOP_REPAIR_FAILED"})
+                    block_new_entries = True
+                    trade.failure_flags.append("STOP_REPAIR_FAILED")
+                    print(f"[LIFECYCLE][CRITICAL][STOP_REPAIR_FAILED] trade_id={trade.trade_id} symbol={trade.symbol}")
+                    self._escalate_failsafe(trade, reason="stop_repair_failed")
+                    action = self.policy.fail_safe_action_live if self.run_mode == "LIVE" else self.policy.fail_safe_action_paper
+                    print(f"[LIFECYCLE][FAILSAFE][{action}] trade_id={trade.trade_id} symbol={trade.symbol}")
             if target_missing:
                 findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "MISSING_TARGET"})
-                print(f"[LIFECYCLE][RECONCILIATION][MISSING_TARGET] trade_id={trade.trade_id} symbol={trade.symbol}")
+                print(f"[LIFECYCLE][DEGRADED][TARGET_MISSING] trade_id={trade.trade_id} symbol={trade.symbol}")
+                repaired_target = repair and self._repair_missing_target(trade, "reconciliation_missing_target")
+                if repaired_target:
+                    repaired += 1
+                elif repair:
+                    findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "TARGET_REPAIR_FAILED"})
+                    block_new_entries = True
+                    trade.failure_flags.append("TARGET_REPAIR_FAILED")
+                    print(
+                        f"[LIFECYCLE][DEGRADED][TARGET_REPAIR_FAILED] trade_id={trade.trade_id} symbol={trade.symbol} "
+                        "policy=stop_intact_no_forced_flatten"
+                    )
+                    self._escalate_failsafe(trade, reason="target_repair_failed")
+                    action = self.policy.fail_safe_action_live if self.run_mode == "LIVE" else self.policy.fail_safe_action_paper
+                    print(f"[LIFECYCLE][FAILSAFE][{action}] trade_id={trade.trade_id} symbol={trade.symbol}")
 
         orphan_orders = sorted(open_ids - known_ids)
         for order_id in orphan_orders:
             findings.append({"order_id": order_id, "issue": "ORPHAN_ORDER"})
             print(f"[LIFECYCLE][RECONCILIATION][ORPHAN_ORDER] order_id={order_id}")
-        return {"findings": findings, "repaired": repaired, "orphan_orders": orphan_orders}
+        return {
+            "findings": findings,
+            "repaired": repaired,
+            "orphan_orders": orphan_orders,
+            "block_new_entries": block_new_entries,
+        }
 
     def mark_exit_pending(self, trade_id: str, reason: str) -> None:
         trade = self._trades.get(str(trade_id))
