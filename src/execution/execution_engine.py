@@ -71,8 +71,11 @@ class ExecutionEngine:
         self._order_trace_stages: dict[str, set[str]] = {}
         self._require_exit_stage: set[str] = set()
         self.position_records: dict[str, dict] = {}
-        self.post_fill_lifecycle = PostFillLifecycleEngine(run_mode=self.run_mode.value)
         self._provider = self._resolve_provider(provider)
+        self.post_fill_lifecycle = PostFillLifecycleEngine(
+            run_mode=self.run_mode.value,
+            execution_provider=self._provider,
+        )
         self.provider: Optional[ExecutionProvider] = self._provider
         self.broker = getattr(self._provider, "broker", None)
         self._recover_startup_state()

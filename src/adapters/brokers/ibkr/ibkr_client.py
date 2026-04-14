@@ -317,7 +317,7 @@ class IbkrClient(EWrapper, EClient):
             raise RuntimeError("ORDER_OBJECT_CONTAMINATION_DETECTED")
         assert order.action in ("BUY", "SELL")
         assert int(order.totalQuantity) > 0
-        assert order.orderType in ("MKT", "LMT")
+        assert order.orderType in ("MKT", "LMT", "STP")
         try:
             self.placeOrder(order_id, contract, order)
         except Exception as exc:
