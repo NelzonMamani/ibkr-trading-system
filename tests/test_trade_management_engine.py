@@ -183,12 +183,30 @@ def test_exit_intelligence_can_be_disabled_via_env(monkeypatch) -> None:
     assert intents == []
 
 
-def test_evaluate_cycle_skips_symbol_when_market_state_missing() -> None:
+def test_evaluate_cycle_uses_fallback_when_market_state_missing() -> None:
     engine = _engine_with_position()
+    position = engine.snapshot_positions()["ABCD"]
+    position.entry_timestamp = datetime.now(timezone.utc) - timedelta(seconds=150)
+    position.highest_price_seen = position.entry_price
 
     intents = engine.evaluate_cycle({})
 
-    assert intents == []
+    assert len(intents) == 1
+    assert intents[0].direction == "SELL"
+    assert intents[0].rationale == "FORCED_LIFECYCLE_EXIT"
+
+
+def test_forced_lifecycle_exit_always_triggers_after_timeout_with_no_progress() -> None:
+    engine = _engine_with_position()
+    position = engine.snapshot_positions()["ABCD"]
+    position.entry_timestamp = datetime.now(timezone.utc) - timedelta(seconds=150)
+    position.highest_price_seen = position.entry_price
+
+    intents = engine.evaluate_cycle({"ABCD": {"current_price": 10.0, "no_progress": True}})
+
+    assert len(intents) == 1
+    assert intents[0].direction == "SELL"
+    assert intents[0].rationale == "FORCED_LIFECYCLE_EXIT"
 
 
 def test_generic_management_layer_does_not_embed_ross_threshold_rules() -> None:

@@ -72,6 +72,7 @@ class TradeManagementEngine:
         self._positions: dict[str, PositionState] = {}
         self._seen_exec_ids: set[str] = set()
         self._pending_exit: set[str] = set()
+        self._last_exit_signal_timestamp: dict[str, datetime] = {}
         self._price_lookup = price_lookup
         self._quick_profit_threshold = float(quick_profit_threshold)
         self._max_hold_time_seconds = int(max_hold_time_seconds)
@@ -127,6 +128,7 @@ class TradeManagementEngine:
             )
             self._positions[normalized] = position
             self._pending_exit.discard(normalized)
+            self._last_exit_signal_timestamp.pop(normalized, None)
             print(f"[POSITION][OPEN] symbol={normalized} qty={position.quantity} entry={position.entry_price:.4f}")
             return position
 
@@ -147,6 +149,7 @@ class TradeManagementEngine:
             if position.quantity <= 0:
                 del self._positions[normalized]
                 self._pending_exit.discard(normalized)
+                self._last_exit_signal_timestamp.pop(normalized, None)
                 print(f"[POSITION][CLOSED] symbol={normalized}")
                 return None
             position.exit_stage = "PARTIAL"
@@ -166,10 +169,9 @@ class TradeManagementEngine:
         intents: list[TradeIntent] = []
         for symbol in sorted(self._positions.keys()):
             position = self._positions[symbol]
-            state = market_state.get(symbol)
+            state = market_state.get(symbol) or {}
             if not state:
-                print(f"[ROSS][EXIT_INTELLIGENCE][SKIP] symbol={position.symbol} reason=MISSING_INTRADAY_CANDLES")
-                continue
+                print(f"[ROSS][EXIT_INTELLIGENCE][ERROR] symbol={position.symbol} reason=MISSING_MARKET_STATE fallback=POSITION_PRICE")
             print(
                 "[ROSS][EXIT_INTELLIGENCE][EVAL] "
                 f"symbol={position.symbol} qty={position.quantity} avg_price={position.entry_price:.4f}"
@@ -189,6 +191,7 @@ class TradeManagementEngine:
             )
 
             if symbol in self._pending_exit:
+                print(f"[ROSS][EXIT_DECISION] symbol={position.symbol} action=HOLD reason=PENDING_EXIT_IN_FLIGHT price={position.current_price:.4f} hold_s={position.holding_time_seconds}")
                 continue
 
             intent = self._evaluate_exit_rules(position, state)
@@ -218,8 +221,22 @@ class TradeManagementEngine:
                 position.stop_loss_price = max(position.stop_loss_price, position.last_trail_price)
 
     def _evaluate_exit_rules(self, position: PositionState, state: dict) -> TradeIntent | None:
+        if self._should_force_lifecycle_exit(position=position, state=state):
+            decision = ExitDecision(action="EXIT_MARKET", reason="FORCED_LIFECYCLE_EXIT")
+            print(
+                "[ROSS][EXIT_DECISION] "
+                f"symbol={position.symbol} action={decision.action} reason={decision.reason} "
+                f"price={position.current_price:.4f} hold_s={position.holding_time_seconds}"
+            )
+            print(f"[ROSS][EXIT_SIGNAL] symbol={position.symbol} reason={decision.reason}")
+            self._last_exit_signal_timestamp[position.symbol] = datetime.now(timezone.utc)
+            return self._apply_exit_decision(position, decision)
         if not self._exit_intelligence_enabled:
-            print(f"[EXIT][SKIP] symbol={position.symbol} action=DISABLED reason=EXIT_INTELLIGENCE_DISABLED")
+            print(
+                "[ROSS][EXIT_DECISION] "
+                f"symbol={position.symbol} action=HOLD reason=EXIT_INTELLIGENCE_DISABLED "
+                f"price={position.current_price:.4f} hold_s={position.holding_time_seconds}"
+            )
             return None
         decision = self._exit_intelligence.evaluate(
             trade=position,
@@ -235,7 +252,16 @@ class TradeManagementEngine:
         )
         if decision.should_exit:
             print(f"[ROSS][EXIT_SIGNAL] symbol={position.symbol} reason={decision.reason}")
+            self._last_exit_signal_timestamp[position.symbol] = datetime.now(timezone.utc)
         return self._apply_exit_decision(position, decision)
+
+    def _should_force_lifecycle_exit(self, *, position: PositionState, state: dict) -> bool:
+        if int(position.holding_time_seconds) <= 120:
+            return False
+        if "no_progress" in state:
+            return bool(state.get("no_progress"))
+        progressed = float(position.highest_price_seen) - float(position.entry_price)
+        return progressed <= float(self._fast_failure_min_progress)
 
     def _apply_exit_decision(self, position: PositionState, decision: ExitDecision) -> TradeIntent | None:
         action = str(decision.action or "HOLD").upper()

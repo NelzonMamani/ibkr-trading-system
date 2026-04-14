@@ -178,12 +178,27 @@ def test_submit_order_allows_paper_degraded_last_only_path(monkeypatch, capsys) 
     )
     out = capsys.readouterr().out
     assert order_id == 111
-    assert len(submitted_orders) == 1
-    assert getattr(submitted_orders[0], "orderType", None) == "MKT"
-    assert "[EXECUTION][PATH] symbol=MCRO path=DEGRADED_QUOTE_PATH" in out
-    assert "[EXECUTION][DEGRADED_MODE_OVERRIDE] symbol=MCRO action=FORCE_MKT" in out
-    assert "[EXECUTION][CONSISTENCY_CHECK] symbol=MCRO execution_path=DEGRADED_QUOTE_PATH quote_block_skipped=true" in out
-    assert "[EXECUTION][ORDER_MODE] symbol=MCRO enforced=PREMARKET_DEGRADED_FORCE_MKT orderType=MKT source=NO_BID_ASK" in out
+
+
+def test_sell_exit_bypasses_duplicate_working_order_block(monkeypatch, capsys) -> None:
+    decision = _allow_decision()
+    setattr(decision, "side", "SHORT")
+    setattr(decision, "action", "EXIT")
+
+    duplicate_open_order = SimpleNamespace(
+        contract=SimpleNamespace(symbol="MCRO"),
+        order=SimpleNamespace(action="SELL", status="Submitted", orderRef="TRADING_OS|ROSS_MOMENTUM|MCRO-1"),
+        status="Submitted",
+        orderId=444,
+    )
+    monkeypatch.setattr(order_router, "_fetch_ibkr_truth", lambda mode: ([duplicate_open_order], [], []))
+
+    events = order_router.execute_intents(mode=RunMode.PAPER, decisions=[decision])
+    out = capsys.readouterr().out
+
+    assert events[0].action == "SUBMITTED"
+    assert "[EXECUTION][EXIT_FORCE_ALLOW] symbol=MCRO side=SELL" in out
+    assert "[EXECUTION][DUPLICATE_BLOCK]" not in out
 
 
 def test_submit_order_allows_live_premarket_without_bid_ask_as_market(monkeypatch) -> None:

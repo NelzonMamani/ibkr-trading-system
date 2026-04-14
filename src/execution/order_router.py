@@ -3179,7 +3179,7 @@ def execute_intents(
     submitted_order_ids: list[int] = []
     allow_pyramiding = _config_bool("ALLOW_PYRAMIDING", True)
     max_position_size = max(1, _config_int("MAX_POSITION_SIZE", 3))
-    max_open_positions = max(1, _config_int("MAX_OPEN_POSITIONS", 5))
+    max_open_positions = max(1, _config_int("MAX_OPEN_POSITIONS", 20))
     for index, decision in enumerate(decisions, start=1):
         intents_received += 1
         execution_attempted = False
@@ -3210,6 +3210,7 @@ def execute_intents(
         if trace.intent_id:
             _EXECUTION_TRACE_BY_INTENT[trace.intent_id] = trace
         order_side = "BUY" if str(getattr(decision, "side", "LONG") or "LONG").upper() == "LONG" else "SELL"
+        is_exit_order = order_side == "SELL" or str(getattr(decision, "action", "") or "").upper() == "EXIT"
         truth = _create_execution_truth(
             order_ref=_build_order_ref(str(decision.intent_id or "")),
             broker_order_id=None,
@@ -3225,6 +3226,11 @@ def execute_intents(
             f"[EXECUTION][DUPLICATE_CHECK] symbol={duplicate_symbol} side={order_side} intent_id={order_family} "
             f"candidate_count={len(working_order_candidates)}"
         )
+        if is_exit_order:
+            print(
+                f"[EXECUTION][EXIT_FORCE_ALLOW] symbol={duplicate_symbol} side={order_side} "
+                "bypass=duplicate,max_open_positions,pyramiding"
+            )
         working_duplicate = False
         duplicate_reason = ""
         duplicate_order_id = None
@@ -3253,7 +3259,7 @@ def execute_intents(
                 f"existing_status={duplicate_status} reason={duplicate_reason}"
             )
             break
-        if working_duplicate:
+        if working_duplicate and not is_exit_order:
             blocked_reason = "DUPLICATE_WORKING_ORDER"
             blocked_pre_submit += 1
             print(
@@ -3319,7 +3325,7 @@ def execute_intents(
                 )
             )
             continue
-        if order_side == "BUY" and not treated_as_flat and not has_intent_mismatch_override:
+        if order_side == "BUY" and not treated_as_flat and not has_intent_mismatch_override and not is_exit_order:
             proposed_qty = effective_position_qty + float(quantity)
             if not allow_pyramiding:
                 blocked_reason = "DUPLICATE_POSITION"
