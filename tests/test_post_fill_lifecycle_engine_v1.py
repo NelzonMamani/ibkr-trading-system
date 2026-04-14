@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from src.execution.post_fill_lifecycle_engine import (
     ManagedTradeLifecycle,
     PostFillLifecycleEngine,
+    ProtectionOrderMeta,
     PositionLifecycleState,
 )
 
@@ -13,6 +14,7 @@ class _ProviderStub:
         self.target_calls: list[dict] = []
         self.modify_calls: list[dict] = []
         self.cancel_calls: list[dict] = []
+        self.flatten_calls: list[dict] = []
 
     def place_stop_order(self, **kwargs):
         self.stop_calls.append(dict(kwargs))
@@ -29,6 +31,10 @@ class _ProviderStub:
     def cancel_order(self, **kwargs):
         self.cancel_calls.append(dict(kwargs))
         return {"broker_order_id": kwargs["broker_order_id"], "status": "Cancelled"}
+
+    def flatten_position(self, **kwargs):
+        self.flatten_calls.append(dict(kwargs))
+        return {"broker_order_id": "FLAT-1", "status": "Submitted"}
 
 
 def test_fill_installs_stop_and_target_in_paper_mode() -> None:
@@ -151,6 +157,56 @@ def test_reconciliation_detects_missing_stop_and_repairs() -> None:
     assert any(f["issue"] == "MISSING_STOP" for f in summary["findings"])
     assert summary["repaired"] == 1
     assert len(provider.stop_calls) == 2
+    assert summary["block_new_entries"] is True
+
+
+def test_reconciliation_repairs_missing_target() -> None:
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-6",
+        symbol="AAPL",
+        side="LONG",
+        filled_qty=1,
+        avg_fill_price=100.0,
+        strategy_id="S6",
+    )
+    trade = engine.get_trade("T-6")
+    assert trade is not None
+    trade.target.broker_order_id = "TGT-MISSING"
+    trade.stop.broker_order_id = "STOP-OPEN"
+    summary = engine.reconcile_orders([{"orderId": "STOP-OPEN", "status": "Submitted"}], repair=True)
+    assert any(f["issue"] == "MISSING_TARGET" for f in summary["findings"])
+    assert summary["repaired"] == 1
+    assert len(provider.target_calls) == 2
+
+
+def test_live_missing_stop_repair_failure_triggers_failsafe_flatten() -> None:
+    class _FailingStopProvider(_ProviderStub):
+        def place_stop_order(self, **kwargs):
+            raise RuntimeError("stop submit failed")
+
+    provider = _FailingStopProvider()
+    engine = PostFillLifecycleEngine(run_mode="LIVE", execution_provider=provider)
+    trade = ManagedTradeLifecycle(
+        trade_id="T-7",
+        symbol="AAPL",
+        strategy_id="S7",
+        side="LONG",
+        run_mode="LIVE",
+        session_label="unit",
+        intended_qty=3,
+        filled_qty=3,
+        avg_fill_price=100.0,
+        stop=ProtectionOrderMeta(order_type="STOP", side="SELL", trigger_price=99.0, broker_order_id="STOP-MISSING"),
+        target=ProtectionOrderMeta(order_type="LIMIT", side="SELL", trigger_price=102.0, broker_order_id="TGT-OPEN"),
+        state=PositionLifecycleState.PROTECTED,
+    )
+    engine._trades[trade.trade_id] = trade
+    summary = engine.reconcile_orders([{"orderId": "TGT-OPEN", "status": "Submitted"}], repair=True)
+    assert any(f["issue"] == "STOP_REPAIR_FAILED" for f in summary["findings"])
+    assert provider.flatten_calls == [{"symbol": "AAPL", "quantity": 3}]
+    assert engine.block_new_entries is True
 
 
 def test_lifecycle_payload_is_serializable_for_audit() -> None:

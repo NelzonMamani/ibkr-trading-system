@@ -68,6 +68,7 @@ class ExecutionEngine:
         self.current_tick: Optional[int] = None
         self._seen_idempotency_keys: set[str] = set()
         self.execution_integrity_flag: bool = False
+        self._failsafe_block_new_entries: bool = False
         self._order_trace_stages: dict[str, set[str]] = {}
         self._require_exit_stage: set[str] = set()
         self.position_records: dict[str, dict] = {}
@@ -191,10 +192,12 @@ class ExecutionEngine:
             print(f"[LIFECYCLE][RECONCILIATION][ERROR] stage=fetch_open_orders reason={exc}")
             return
         summary = self.post_fill_lifecycle.reconcile_orders(broker_orders, repair=True)
+        if bool(summary.get("block_new_entries", False)):
+            self._failsafe_block_new_entries = True
         print(
             "[LIFECYCLE][RECONCILIATION][SUMMARY] "
             f"stage={reason} findings={len(summary.get('findings', []))} repaired={summary.get('repaired', 0)} "
-            f"orphans={len(summary.get('orphan_orders', []))}"
+            f"orphans={len(summary.get('orphan_orders', []))} block_new_entries={self._failsafe_block_new_entries}"
         )
 
     @staticmethod
@@ -398,6 +401,14 @@ class ExecutionEngine:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="CIRCUIT_BREAKER_TRIPPED",
+            )
+        direction = str(getattr(risk_decision, "direction", "") or "").upper()
+        reason_code = str(getattr(risk_decision, "reason_code", "") or "").upper()
+        is_entry_attempt = direction in {"LONG", "BUY"} and reason_code != "TRADE_MANAGEMENT_EXIT"
+        if self._failsafe_block_new_entries and is_entry_attempt:
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="FAILSAFE_BLOCK_NEW_ENTRIES",
             )
         if self.run_mode == RunMode.READ_ONLY:
             return self._blocked_execution_from_risk_decision(

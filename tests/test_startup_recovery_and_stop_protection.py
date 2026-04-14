@@ -136,3 +136,17 @@ def test_execution_resolves_stop_loss_when_missing_in_paper_mode() -> None:
         assert result.status in {"SIMULATED", "REJECTED", "EXPIRED", "BLOCKED", "PARTIAL", "FULL", "NOT_FILLED"}
     finally:
         set_config_overrides(None)
+
+
+def test_failsafe_blocks_new_entries() -> None:
+    set_config_overrides({"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True})
+    try:
+        engine = ExecutionEngine(event_collector=EventCollector(), stop_controller=StopController())
+        engine._failsafe_block_new_entries = True
+        decision = _decision_without_stop("NVDA")
+        decision.direction = "LONG"
+        result: ExecutionResult = engine.execute_trade(decision)
+        assert result.status == "BLOCKED"
+        assert "FAILSAFE_BLOCK_NEW_ENTRIES" in str(result.rationale)
+    finally:
+        set_config_overrides(None)

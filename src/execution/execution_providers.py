@@ -95,6 +95,9 @@ class ExecutionProvider(Protocol):
     def cancel_order(self, *, broker_order_id: str) -> dict[str, Any]:
         ...
 
+    def flatten_position(self, *, symbol: str, quantity: int) -> dict[str, Any]:
+        ...
+
 
 @dataclass
 class PaperExecutionProvider(ExecutionProvider):
@@ -205,6 +208,14 @@ class PaperExecutionProvider(ExecutionProvider):
     def cancel_order(self, *, broker_order_id: str) -> dict[str, Any]:
         print(f"[IBKR][ORDER_CANCELLED] mode=PAPER order_id={broker_order_id}")
         return {"broker_order_id": broker_order_id, "status": "Cancelled"}
+
+    def flatten_position(self, *, symbol: str, quantity: int) -> dict[str, Any]:
+        order_id = self._next_protective_id("PAPER-FLAT")
+        print(
+            "[IBKR][ORDER_SUBMITTED] "
+            f"type=MKT mode=PAPER order_id={order_id} symbol={symbol} qty={int(quantity)} action=SELL reason=FAILSAFE_FLATTEN"
+        )
+        return {"broker_order_id": order_id, "status": "Submitted", "order_type": "MKT"}
 
 
 @dataclass
@@ -339,3 +350,24 @@ class IbkrExecutionProvider(ExecutionProvider):
         if self.run_mode == RunMode.READ_ONLY:
             raise RuntimeError("READ_ONLY_NO_ORDER_MUTATION")
         return self.broker.cancel_order(broker_order_id=broker_order_id)
+
+    def flatten_position(self, *, symbol: str, quantity: int) -> dict[str, Any]:
+        if self.run_mode == RunMode.READ_ONLY:
+            raise RuntimeError("READ_ONLY_NO_ORDER_MUTATION")
+        request = BrokerOrderRequest(
+            client_order_id=f"failsafe-flat-{str(symbol).upper()}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
+            symbol=str(symbol).upper(),
+            direction="SELL",
+            quantity=int(quantity),
+            order_type="MKT",
+            trader_type="FAILSAFE",
+            strategy_name="FAILSAFE_FLATTEN",
+            attempt_number=1,
+            created_tick=0,
+        )
+        result = self.broker.place_order(request)
+        return {
+            "broker_order_id": str(getattr(result, "broker_order_id", "") or getattr(result, "order_id", "") or ""),
+            "status": str(getattr(result, "status", "Submitted")),
+            "order_type": "MKT",
+        }
