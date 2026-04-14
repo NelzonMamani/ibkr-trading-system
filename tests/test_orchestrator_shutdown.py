@@ -70,3 +70,13 @@ def test_shutdown_hooks_continue_after_failure():
     assert orchestrator.storage_engine.called is True
     assert "SHUTDOWN_HOOK_FAILED" in event_types
     assert "SHUTDOWN_COMPLETE" in event_types
+
+
+def test_run_loop_blocks_when_clean_start_not_ready(monkeypatch):
+    orchestrator = CoreOrchestrator()
+    orchestrator._clean_start_ready_for_trading = False
+    monkeypatch.setattr(orchestrator, "run_once", lambda: pytest.fail("run_once should be blocked"))
+
+    orchestrator.run_forever(max_cycles=1, cycle_sleep_seconds=0)
+    event_types = [event.event_type for event in orchestrator.event_collector.snapshot_all()]
+    assert "SHUTDOWN_COMPLETE" in event_types

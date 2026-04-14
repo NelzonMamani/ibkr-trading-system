@@ -86,3 +86,9 @@ class ConnectionManager:
         finally:
             self.disconnect()
 
+    def get_ibkr_client(self, ensure_connected: bool = False):
+        if ensure_connected:
+            self.ensure_connected()
+        if self._ibkr_connection_manager is None:
+            return None
+        return self._ibkr_connection_manager.get_client()

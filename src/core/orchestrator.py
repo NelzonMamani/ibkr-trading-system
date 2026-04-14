@@ -21,8 +21,10 @@ from src.config.config_resolver import emit_config_event, get_config
 from src.config.runtime_config import (
     EventReplayMode,
     RunMode,
+    get_clean_start_timeout_seconds,
     get_daily_loss_hard_limit,
     get_daily_loss_warning_limit,
+    get_force_clean_start,
     get_ibkr_api_write_allowed,
     get_ibkr_order_submission_enabled,
     get_ibkr_order_translation_enabled,
@@ -51,6 +53,7 @@ from src.core.replay_engine import ReplayEngine
 from src.core.trace_bus import TraceBus
 from src.core.decision_trace import DecisionTraceStore, SymbolDecisionTrace
 from src.execution.execution_engine import ExecutionEngine
+from src.execution.clean_start_session import enforce_clean_start_session
 from src.execution.dev_tools.flatten_positions import force_flatten_all_positions
 from src.execution.execution_providers import IbkrExecutionProvider
 from src.execution.position_truth import (
@@ -515,14 +518,36 @@ class CoreOrchestrator:
         self._prep_next_due_at: datetime | None = None
         self._prep_update_thread: Thread | None = None
         self._prep_update_lock = Lock()
+        self._clean_start_ready_for_trading = True
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
         self._run_startup_validations()
         self._ensure_premarket_prep_artifact()
+        self._run_force_clean_start_if_enabled()
         self._maybe_force_flatten_all_positions_on_startup()
         try:
             self.learning_scheduler.on_startup()
         except Exception as exc:
             print(f"[LEARNING][SCHEDULER] Startup check failed: {exc}")
+
+    def _run_force_clean_start_if_enabled(self) -> None:
+        if not get_force_clean_start():
+            return
+        timeout_seconds = max(1, int(get_clean_start_timeout_seconds()))
+        try:
+            client = self.connection_manager.get_ibkr_client(ensure_connected=True)
+            result = enforce_clean_start_session(
+                enabled=True,
+                ibkr_client=client,
+                timeout_seconds=timeout_seconds,
+            )
+            self._clean_start_ready_for_trading = bool(result.ready_for_trading)
+        except Exception as exc:
+            self._clean_start_ready_for_trading = False
+            print(
+                "[CLEAN_START][FAILED] "
+                f"remaining_positions=UNKNOWN remaining_open_orders=UNKNOWN reason=EXCEPTION:{exc}"
+            )
+            print("[CLEAN_START][BLOCK] reason=DIRTY_SESSION_AFTER_CLEAN_ATTEMPT")
 
 
     def _maybe_force_flatten_all_positions_on_startup(self) -> None:
@@ -1723,6 +1748,17 @@ class CoreOrchestrator:
 
         while True:
             try:
+                if not self._clean_start_ready_for_trading:
+                    print("[CLEAN_START][BLOCK] reason=DIRTY_SESSION_AFTER_CLEAN_ATTEMPT")
+                    self._request_stop(
+                        StopMode.GRACEFUL,
+                        reason="DIRTY_SESSION_AFTER_CLEAN_ATTEMPT",
+                        source="CoreOrchestrator",
+                    )
+                    self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
+                    performed_shutdown = True
+                    break
+
                 if self.stop_controller.is_stop_requested():
                     if self._pending_connectivity_halt and not self._halt_emitted:
                         self._emit_canonical_halt(**self._pending_connectivity_halt)
