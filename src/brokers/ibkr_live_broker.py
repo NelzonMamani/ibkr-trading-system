@@ -565,3 +565,17 @@ class IbkrLiveBroker(BaseBroker):
             f"order_id={broker_order_id} trade_id={trade_id} symbol={symbol} stop={new_stop_price:.4f}"
         )
         return {"broker_order_id": str(broker_order_id), "status": "Submitted"}
+
+    def cancel_order(self, *, broker_order_id: str) -> dict[str, str]:
+        self.ensure_connection()
+        assert self.connection_manager is not None
+        client = self.connection_manager.get_client()
+        client.cancelOrder(int(broker_order_id))
+        print(f"[IBKR][ORDER_CANCELLED] order_id={broker_order_id}")
+        return {"broker_order_id": str(broker_order_id), "status": "Cancelled"}
+
+    def open_orders(self) -> list[object]:
+        self.ensure_connection()
+        assert self.connection_manager is not None
+        client = self.connection_manager.get_client()
+        return list(client.openOrders())

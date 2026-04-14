@@ -126,6 +126,7 @@ class ExecutionEngine:
 
         positions = list(getattr(positions_snapshot, "positions", []) or [])
         self.post_fill_lifecycle.startup_safe_state(positions, list(open_orders))
+        self._run_protection_reconciliation(open_orders=list(open_orders), reason="startup")
         print(
             "[RECOVERY][STARTUP] "
             f"provider={self._provider.name()} "
@@ -180,6 +181,21 @@ class ExecutionEngine:
                 "[RECOVERY][RESTORED] "
                 f"symbol={symbol} trader_type={trader_type} quantity={quantity}"
             )
+
+    def _run_protection_reconciliation(self, *, open_orders: list[object] | None = None, reason: str = "runtime") -> None:
+        if self._provider is None:
+            return
+        try:
+            broker_orders = list(open_orders) if open_orders is not None else list(self._provider.get_open_orders())
+        except Exception as exc:
+            print(f"[LIFECYCLE][RECONCILIATION][ERROR] stage=fetch_open_orders reason={exc}")
+            return
+        summary = self.post_fill_lifecycle.reconcile_orders(broker_orders, repair=True)
+        print(
+            "[LIFECYCLE][RECONCILIATION][SUMMARY] "
+            f"stage={reason} findings={len(summary.get('findings', []))} repaired={summary.get('repaired', 0)} "
+            f"orphans={len(summary.get('orphan_orders', []))}"
+        )
 
     @staticmethod
     def _max_attempts(trader_type: str) -> int:
@@ -672,6 +688,7 @@ class ExecutionEngine:
         else:
             print("[EXECUTION] LIVE broker order routed.")
         self._schedule_retry(request, result)
+        self._run_protection_reconciliation(reason="post_order_route")
         return result
 
     def _validate_required_order_fields(

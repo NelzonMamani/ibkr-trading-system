@@ -113,6 +113,37 @@ class PostFillLifecycleEngine:
     def _ts() -> str:
         return datetime.now(timezone.utc).isoformat()
 
+    @staticmethod
+    def _is_filled_status(status: str | None) -> bool:
+        return str(status or "").upper() in {"FILLED"}
+
+    @staticmethod
+    def _is_cancelled_status(status: str | None) -> bool:
+        return str(status or "").upper() in {"CANCELLED", "CANCELED"}
+
+    @staticmethod
+    def _order_fields(order: Any) -> dict[str, str]:
+        if isinstance(order, dict):
+            order_obj = order
+            order_state = order
+            contract = order
+        else:
+            order_obj = getattr(order, "order", None)
+            order_state = getattr(order, "orderState", None)
+            contract = getattr(order, "contract", None)
+        order_id = str(getattr(order, "orderId", None) or (order_obj.get("orderId") if isinstance(order_obj, dict) else "") or "")
+        symbol = str(getattr(contract, "symbol", None) or (contract.get("symbol") if isinstance(contract, dict) else "") or "").upper()
+        order_type = str(getattr(order_obj, "orderType", None) or (order_obj.get("order_type") if isinstance(order_obj, dict) else "") or "").upper()
+        status = str(getattr(order_state, "status", None) or (order_state.get("status") if isinstance(order_state, dict) else "") or "").upper()
+        order_ref = str(getattr(order_obj, "orderRef", None) or (order_obj.get("order_ref") if isinstance(order_obj, dict) else "") or "")
+        return {
+            "order_id": order_id,
+            "symbol": symbol,
+            "order_type": order_type,
+            "status": status,
+            "order_ref": order_ref,
+        }
+
     def _transition(self, trade: ManagedTradeLifecycle, target: PositionLifecycleState, reason: str) -> bool:
         if trade.state == target:
             return True
@@ -339,6 +370,16 @@ class PostFillLifecycleEngine:
                     self.mark_exited(trade.trade_id, "stop_fill_broker")
                     if target:
                         target.status = "CANCEL_PENDING"
+                        if self.execution_provider is not None and target.broker_order_id:
+                            try:
+                                self.execution_provider.cancel_order(broker_order_id=str(target.broker_order_id))
+                                target.status = "CANCELLED"
+                            except Exception as exc:
+                                target.status = "CANCEL_FAILED"
+                                print(
+                                    "[LIFECYCLE][CANCEL_FAILED] "
+                                    f"trade_id={trade.trade_id} symbol={trade.symbol} order_id={target.broker_order_id} reason={exc}"
+                                )
                     return {
                         "handled": True,
                         "trade_id": trade.trade_id,
@@ -356,6 +397,16 @@ class PostFillLifecycleEngine:
                     self.mark_exited(trade.trade_id, "target_fill_broker")
                     if stop:
                         stop.status = "CANCEL_PENDING"
+                        if self.execution_provider is not None and stop.broker_order_id:
+                            try:
+                                self.execution_provider.cancel_order(broker_order_id=str(stop.broker_order_id))
+                                stop.status = "CANCELLED"
+                            except Exception as exc:
+                                stop.status = "CANCEL_FAILED"
+                                print(
+                                    "[LIFECYCLE][CANCEL_FAILED] "
+                                    f"trade_id={trade.trade_id} symbol={trade.symbol} order_id={stop.broker_order_id} reason={exc}"
+                                )
                     return {
                         "handled": True,
                         "trade_id": trade.trade_id,
@@ -364,6 +415,72 @@ class PostFillLifecycleEngine:
                     }
                 return {"handled": True, "trade_id": trade.trade_id, "leg": "TARGET", "status": target.status}
         return {"handled": False, "reason": "order_not_mapped"}
+
+    def _repair_missing_stop(self, trade: ManagedTradeLifecycle, reason: str) -> bool:
+        if self.execution_provider is None or self.run_mode not in {"PAPER", "LIVE"}:
+            return False
+        if trade.stop is None:
+            return False
+        try:
+            result = self.execution_provider.place_stop_order(
+                symbol=trade.symbol,
+                side=trade.stop.side,
+                quantity=trade.filled_qty,
+                stop_price=trade.stop.trigger_price,
+                trade_id=trade.trade_id,
+                parent_order_id=trade.trade_id,
+            )
+            trade.stop.broker_order_id = str(result.get("broker_order_id"))
+            trade.stop.status = str(result.get("status") or "Submitted")
+            print(
+                "[LIFECYCLE][CRITICAL][PROTECTION_REPAIRED] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} reason={reason} stop_order_id={trade.stop.broker_order_id}"
+            )
+            return True
+        except Exception as exc:
+            print(
+                "[LIFECYCLE][CRITICAL][PROTECTION_REPAIR_FAILED] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} reason={reason} error={exc}"
+            )
+            return False
+
+    def reconcile_orders(self, broker_orders: list[Any], *, repair: bool = True) -> dict[str, Any]:
+        normalized = [self._order_fields(order) for order in broker_orders]
+        open_ids = {
+            row["order_id"]
+            for row in normalized
+            if row["order_id"] and not self._is_filled_status(row["status"]) and not self._is_cancelled_status(row["status"])
+        }
+        findings: list[dict[str, Any]] = []
+        repaired = 0
+
+        known_ids: set[str] = set()
+        for trade in self._trades.values():
+            if trade.stop and trade.stop.broker_order_id:
+                known_ids.add(str(trade.stop.broker_order_id))
+            if trade.target and trade.target.broker_order_id:
+                known_ids.add(str(trade.target.broker_order_id))
+
+            if trade.state in {PositionLifecycleState.EXITED, PositionLifecycleState.LIFECYCLE_FAILURE}:
+                continue
+
+            stop_missing = trade.stop is not None and (not trade.stop.broker_order_id or str(trade.stop.broker_order_id) not in open_ids)
+            target_missing = trade.target is not None and (not trade.target.broker_order_id or str(trade.target.broker_order_id) not in open_ids)
+
+            if stop_missing:
+                findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "MISSING_STOP"})
+                print(f"[LIFECYCLE][RECONCILIATION][MISSING_STOP] trade_id={trade.trade_id} symbol={trade.symbol}")
+                if repair and self._repair_missing_stop(trade, "reconciliation_missing_stop"):
+                    repaired += 1
+            if target_missing:
+                findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "MISSING_TARGET"})
+                print(f"[LIFECYCLE][RECONCILIATION][MISSING_TARGET] trade_id={trade.trade_id} symbol={trade.symbol}")
+
+        orphan_orders = sorted(open_ids - known_ids)
+        for order_id in orphan_orders:
+            findings.append({"order_id": order_id, "issue": "ORPHAN_ORDER"})
+            print(f"[LIFECYCLE][RECONCILIATION][ORPHAN_ORDER] order_id={order_id}")
+        return {"findings": findings, "repaired": repaired, "orphan_orders": orphan_orders}
 
     def mark_exit_pending(self, trade_id: str, reason: str) -> None:
         trade = self._trades.get(str(trade_id))
@@ -423,11 +540,27 @@ class PostFillLifecycleEngine:
             recovered += 1
             print(f"[RECOVERY][MATCH] symbol={symbol} trade_id={trade_id}")
 
+        if broker_orders:
+            self.reconcile_orders(list(broker_orders), repair=False)
+
+        startup_repaired = 0
+        for trade in self._trades.values():
+            if trade.stop is None:
+                continue
+            if not trade.stop.broker_order_id:
+                if self._repair_missing_stop(trade, "startup_missing_stop"):
+                    startup_repaired += 1
+
         print(f"[RECOVERY][SUMMARY] recovered={recovered} pending={recovery_pending}")
         decision = "READY" if self.run_mode in {"SIM", "READ_ONLY"} or recovery_pending == 0 else "QUARANTINE"
         print(f"[STARTUP][SAFE_STATE][DECISION] action={decision}")
         print("[STARTUP][SAFE_STATE][READY]")
-        return {"recovered": recovered, "recovery_pending": recovery_pending, "decision": decision}
+        return {
+            "recovered": recovered,
+            "recovery_pending": recovery_pending,
+            "decision": decision,
+            "startup_repaired": startup_repaired,
+        }
 
     def get_trade(self, trade_id: str) -> ManagedTradeLifecycle | None:
         return self._trades.get(str(trade_id))

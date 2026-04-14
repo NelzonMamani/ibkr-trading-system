@@ -92,6 +92,9 @@ class ExecutionProvider(Protocol):
     ) -> dict[str, Any]:
         ...
 
+    def cancel_order(self, *, broker_order_id: str) -> dict[str, Any]:
+        ...
+
 
 @dataclass
 class PaperExecutionProvider(ExecutionProvider):
@@ -199,6 +202,10 @@ class PaperExecutionProvider(ExecutionProvider):
         )
         return {"broker_order_id": broker_order_id, "status": "Submitted", "order_type": "STP"}
 
+    def cancel_order(self, *, broker_order_id: str) -> dict[str, Any]:
+        print(f"[IBKR][ORDER_CANCELLED] mode=PAPER order_id={broker_order_id}")
+        return {"broker_order_id": broker_order_id, "status": "Cancelled"}
+
 
 @dataclass
 class IbkrExecutionProvider(ExecutionProvider):
@@ -247,7 +254,23 @@ class IbkrExecutionProvider(ExecutionProvider):
         return PositionSnapshot(positions=self.trade_registry.snapshot(), as_of=timestamp)
 
     def get_open_orders(self) -> List[OrderSnapshot]:
-        return []
+        try:
+            rows = self.broker.open_orders()
+        except Exception as exc:
+            print(f"[IBKR][OPEN_ORDERS][ERROR] reason={exc}")
+            return []
+        snapshots: list[OrderSnapshot] = []
+        for row in rows:
+            contract = getattr(row, "contract", None)
+            order_state = getattr(row, "orderState", None)
+            snapshots.append(
+                OrderSnapshot(
+                    order_id=str(getattr(row, "orderId", "")),
+                    symbol=str(getattr(contract, "symbol", "") or "").upper(),
+                    status=str(getattr(order_state, "status", "") or ""),
+                )
+            )
+        return snapshots
 
     def place_stop_order(
         self,
@@ -311,3 +334,8 @@ class IbkrExecutionProvider(ExecutionProvider):
             new_stop_price=new_stop_price,
             trade_id=trade_id,
         )
+
+    def cancel_order(self, *, broker_order_id: str) -> dict[str, Any]:
+        if self.run_mode == RunMode.READ_ONLY:
+            raise RuntimeError("READ_ONLY_NO_ORDER_MUTATION")
+        return self.broker.cancel_order(broker_order_id=broker_order_id)
