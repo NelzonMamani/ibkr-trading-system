@@ -2031,6 +2031,25 @@ class CoreOrchestrator:
             print(f"[POSITION_MANAGE] symbol={trade.symbol} state={getattr(trade.state, 'value', trade.state)}")
         self._last_position_management_tick_utc = now
 
+    def _run_exit_intelligence_tick(self) -> None:
+        try:
+            ticks: list[tuple[str, float]] = []
+            for trade in self.trade_registry.snapshot():
+                symbol = str(getattr(trade, "symbol", "") or "").upper()
+                if not symbol:
+                    continue
+                try:
+                    price = float(self.price_feed.get_price(symbol))
+                except Exception:
+                    continue
+                if price > 0:
+                    ticks.append((symbol, price))
+
+            if hasattr(self.execution_engine, "evaluate_post_fill_on_batch_price_ticks"):
+                self.execution_engine.evaluate_post_fill_on_batch_price_ticks(ticks)
+        except Exception as exc:
+            print(f"[EXIT][ERROR] batch_evaluation_failed reason={exc}")
+
     @staticmethod
     def _is_near_whole_or_half_dollar(price: float) -> bool:
         cents = float(price) % 1
@@ -2303,6 +2322,7 @@ class CoreOrchestrator:
         )
         apply_recovery_actions(recovery_plan, self)
         self._run_position_management_tick(cycle_started_at)
+        self._run_exit_intelligence_tick()
         active_strategy_keys = self._enabled_strategy_keys()
         strategy_key = self.primary_strategy_key
 

@@ -6,6 +6,7 @@ import hashlib
 import os
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -28,6 +29,12 @@ from src.models.execution_result import ExecutionResult
 from src.models.data_models import RiskDecision
 from src.models.risk_decision import DECISION_ARTIFACT_MISSING
 from src.sim.price_feed import DeterministicPriceFeed, PriceFeed
+
+
+@dataclass
+class ExitIntelligenceDecision:
+    action: str
+    reason: str
 
 
 class ExecutionEngine:
@@ -71,6 +78,8 @@ class ExecutionEngine:
         self._order_trace_stages: dict[str, set[str]] = {}
         self._require_exit_stage: set[str] = set()
         self.position_records: dict[str, dict] = {}
+        self._last_exit_eval_ts: dict[str, float] = {}
+        self._exit_eval_interval_sec: float = float(os.getenv("EXIT_EVAL_INTERVAL_SEC", "5"))
         self._failsafe_block_new_entries: bool = False
         self._provider = self._resolve_provider(provider)
         self.post_fill_lifecycle = PostFillLifecycleEngine(
@@ -992,6 +1001,94 @@ class ExecutionEngine:
             )
         if normalized in {"CANCELLED", "CANCELED"}:
             print(f"[EXECUTION][IBKR] order_id={order_id_display} status=CANCELLED")
+
+    def evaluate_post_fill_on_batch_price_ticks(self, ticks: list[tuple[str, float]]) -> None:
+        if os.getenv("EXIT_INTELLIGENCE_ENABLED", "1") != "1":
+            return
+        managed_trades = list(getattr(self.post_fill_lifecycle, "_trades", {}).values())
+        if not managed_trades:
+            return
+        price_by_symbol = {str(symbol).upper(): float(price) for symbol, price in ticks if symbol}
+        for trade in managed_trades:
+            symbol = str(getattr(trade, "symbol", "") or "").upper()
+            current_price = price_by_symbol.get(symbol)
+            if current_price is None:
+                continue
+            self._evaluate_exit_intelligence(trade, current_price)
+
+    def _evaluate_exit_intelligence(self, trade: object, current_price: float) -> None:
+        if os.getenv("EXIT_INTELLIGENCE_ENABLED", "1") != "1":
+            return
+        if current_price is None or current_price <= 0:
+            return
+        symbol = str(getattr(trade, "symbol", "") or "").upper()
+        if not symbol:
+            return
+
+        now = time.time()
+        last_ts = self._last_exit_eval_ts.get(symbol)
+        if last_ts is not None and (now - last_ts) < self._exit_eval_interval_sec:
+            return
+        self._last_exit_eval_ts[symbol] = now
+
+        if getattr(trade, "exit_triggered", False):
+            print(f"[EXIT][SKIP] trade_id={trade.trade_id} reason=already_executed")
+            return
+
+        avg_fill_price = float(getattr(trade, "avg_fill_price", 0.0) or 0.0)
+        high_water_mark = max(float(getattr(trade, "high_water_mark", avg_fill_price) or avg_fill_price), float(current_price))
+        trade.high_water_mark = high_water_mark
+
+        last_update_ts = str(getattr(trade, "last_update_ts", "") or "")
+        try:
+            opened_at = (
+                datetime.fromisoformat(last_update_ts.replace("Z", "+00:00"))
+                if last_update_ts
+                else datetime.now(timezone.utc)
+            )
+        except Exception:
+            opened_at = datetime.now(timezone.utc)
+        time_in_trade_sec = max(0.0, (datetime.now(timezone.utc) - opened_at).total_seconds())
+
+        decision = ExitIntelligenceDecision(action="HOLD", reason="no_exit_signal")
+        filled_qty = int(getattr(trade, "filled_qty", 0) or 0)
+        if current_price <= avg_fill_price * 0.995 and time_in_trade_sec >= 30:
+            decision = ExitIntelligenceDecision(action="EXIT_MARKET", reason="momentum_failure")
+        elif current_price >= avg_fill_price * 1.02 and filled_qty > 1:
+            decision = ExitIntelligenceDecision(action="SCALE_OUT", reason="take_profit_scale")
+
+        print(
+            "[EXIT][DECISION] "
+            f"trade_id={trade.trade_id} "
+            f"symbol={trade.symbol} "
+            f"price={current_price:.4f} "
+            f"entry={trade.avg_fill_price:.4f} "
+            f"hwm={trade.high_water_mark:.4f} "
+            f"time_in_trade={time_in_trade_sec:.1f}s "
+            f"action={decision.action} "
+            f"reason={decision.reason}"
+        )
+
+        if decision.action == "HOLD":
+            return
+
+        print(
+            "[EXIT][EXECUTE] "
+            f"trade_id={trade.trade_id} "
+            f"symbol={trade.symbol} "
+            f"action={decision.action} "
+            f"reason={decision.reason}"
+        )
+
+        if decision.action == "EXIT_MARKET":
+            trade.exit_triggered = True
+            self.post_fill_lifecycle.mark_exit_pending(trade.trade_id, decision.reason)
+            self.post_fill_lifecycle.mark_exited(trade.trade_id, decision.reason)
+            return
+
+        if decision.action == "SCALE_OUT":
+            scale_qty = max(1, filled_qty // 2)
+            trade.filled_qty = max(1, int(trade.filled_qty) - scale_qty)
 
     def _clamp_order_quantity(self, quantity: int, *, symbol: str) -> int:
         if self.max_shares_per_order is None:
