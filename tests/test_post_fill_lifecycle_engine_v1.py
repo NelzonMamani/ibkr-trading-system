@@ -150,7 +150,64 @@ def test_reconciliation_detects_missing_stop_and_repairs() -> None:
     summary = engine.reconcile_orders([{"orderId": "TGT-OPEN", "status": "Submitted"}], repair=True)
     assert any(f["issue"] == "MISSING_STOP" for f in summary["findings"])
     assert summary["repaired"] == 1
+    assert summary["block_new_entries"] is False
     assert len(provider.stop_calls) == 2
+
+
+def test_reconciliation_failed_stop_repair_blocks_new_entries_and_triggers_live_hard_failsafe() -> None:
+    provider = _ProviderStub()
+    hard_failsafe_calls: list[dict[str, str]] = []
+    engine = PostFillLifecycleEngine(
+        run_mode="LIVE",
+        execution_provider=provider,
+        hard_failsafe_handler=lambda **kwargs: hard_failsafe_calls.append(kwargs),
+    )
+    engine.activate_trade_management_after_fill(
+        trade_id="T-6",
+        symbol="META",
+        side="LONG",
+        filled_qty=1,
+        avg_fill_price=100.0,
+        strategy_id="S6",
+    )
+    trade = engine.get_trade("T-6")
+    assert trade is not None
+    trade.stop.broker_order_id = "STOP-MISSING"
+    trade.target.broker_order_id = "TGT-OPEN"
+    provider.place_stop_order = lambda **kwargs: (_ for _ in ()).throw(RuntimeError("stop repair down"))
+    summary = engine.reconcile_orders([{"orderId": "TGT-OPEN", "status": "Submitted"}], repair=True)
+    assert any(f["issue"] == "STOP_REPAIR_FAILED" for f in summary["findings"])
+    assert summary["block_new_entries"] is True
+    assert summary["hard_failsafe_actions"][0]["action"] == "LIVE_FLATTEN_REQUESTED"
+    assert hard_failsafe_calls == [{"symbol": "META", "reason": "STOP_REPAIR_FAILED"}]
+
+
+def test_reconciliation_failed_stop_repair_in_paper_halts_new_entries_without_flatten() -> None:
+    provider = _ProviderStub()
+    hard_failsafe_calls: list[dict[str, str]] = []
+    engine = PostFillLifecycleEngine(
+        run_mode="PAPER",
+        execution_provider=provider,
+        hard_failsafe_handler=lambda **kwargs: hard_failsafe_calls.append(kwargs),
+    )
+    engine.activate_trade_management_after_fill(
+        trade_id="T-7",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=1,
+        avg_fill_price=100.0,
+        strategy_id="S7",
+    )
+    trade = engine.get_trade("T-7")
+    assert trade is not None
+    trade.stop.broker_order_id = "STOP-MISSING"
+    trade.target.broker_order_id = "TGT-OPEN"
+    provider.place_stop_order = lambda **kwargs: (_ for _ in ()).throw(RuntimeError("stop repair down"))
+    summary = engine.reconcile_orders([{"orderId": "TGT-OPEN", "status": "Submitted"}], repair=True)
+    assert any(f["issue"] == "STOP_REPAIR_FAILED" for f in summary["findings"])
+    assert summary["block_new_entries"] is True
+    assert summary["hard_failsafe_actions"][0]["action"] == "PAPER_HALT_NEW_ENTRIES"
+    assert hard_failsafe_calls == []
 
 
 def test_lifecycle_payload_is_serializable_for_audit() -> None:

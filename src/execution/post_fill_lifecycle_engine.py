@@ -103,11 +103,42 @@ _ALLOWED_TRANSITIONS: dict[PositionLifecycleState, set[PositionLifecycleState]] 
 
 
 class PostFillLifecycleEngine:
-    def __init__(self, run_mode: str, policy: LifecyclePolicy | None = None, execution_provider: Any | None = None) -> None:
+    def __init__(
+        self,
+        run_mode: str,
+        policy: LifecyclePolicy | None = None,
+        execution_provider: Any | None = None,
+        hard_failsafe_handler: Any | None = None,
+    ) -> None:
         self.run_mode = str(run_mode or "SIM").upper()
         self.policy = policy or LifecyclePolicy()
         self.execution_provider = execution_provider
+        self.hard_failsafe_handler = hard_failsafe_handler
         self._trades: dict[str, ManagedTradeLifecycle] = {}
+
+    def _trigger_hard_failsafe(self, *, trade: ManagedTradeLifecycle, reason: str) -> str:
+        trade.failure_flags.append(reason)
+        self._transition(trade, PositionLifecycleState.LIFECYCLE_FAILURE, reason)
+        if self.run_mode == "LIVE":
+            print(
+                "[LIFECYCLE][FAILSAFE][HARD][LIVE] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} reason={reason}"
+            )
+            if callable(self.hard_failsafe_handler):
+                try:
+                    self.hard_failsafe_handler(symbol=trade.symbol, reason=reason)
+                except Exception as exc:
+                    print(
+                        "[LIFECYCLE][FAILSAFE][HARD][ERROR] "
+                        f"trade_id={trade.trade_id} symbol={trade.symbol} reason={reason} error={exc}"
+                    )
+            return "LIVE_FLATTEN_REQUESTED"
+
+        print(
+            "[LIFECYCLE][FAILSAFE][HARD][PAPER] "
+            f"trade_id={trade.trade_id} symbol={trade.symbol} reason={reason}"
+        )
+        return "PAPER_HALT_NEW_ENTRIES"
 
     @staticmethod
     def _ts() -> str:
@@ -453,6 +484,8 @@ class PostFillLifecycleEngine:
         }
         findings: list[dict[str, Any]] = []
         repaired = 0
+        block_new_entries = False
+        hard_failsafe_actions: list[dict[str, str]] = []
 
         known_ids: set[str] = set()
         for trade in self._trades.values():
@@ -470,17 +503,33 @@ class PostFillLifecycleEngine:
             if stop_missing:
                 findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "MISSING_STOP"})
                 print(f"[LIFECYCLE][RECONCILIATION][MISSING_STOP] trade_id={trade.trade_id} symbol={trade.symbol}")
-                if repair and self._repair_missing_stop(trade, "reconciliation_missing_stop"):
+                stop_repaired = repair and self._repair_missing_stop(trade, "reconciliation_missing_stop")
+                if stop_repaired:
                     repaired += 1
+                else:
+                    findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "STOP_REPAIR_FAILED"})
+                    block_new_entries = True
+                    action = self._trigger_hard_failsafe(trade=trade, reason="STOP_REPAIR_FAILED")
+                    hard_failsafe_actions.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "action": action})
             if target_missing:
                 findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "MISSING_TARGET"})
                 print(f"[LIFECYCLE][RECONCILIATION][MISSING_TARGET] trade_id={trade.trade_id} symbol={trade.symbol}")
+                findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "TARGET_REPAIR_FAILED"})
+                block_new_entries = True
+                trade.failure_flags.append("TARGET_REPAIR_FAILED")
+                self._transition(trade, PositionLifecycleState.LIFECYCLE_FAILURE, "TARGET_REPAIR_FAILED")
 
         orphan_orders = sorted(open_ids - known_ids)
         for order_id in orphan_orders:
             findings.append({"order_id": order_id, "issue": "ORPHAN_ORDER"})
             print(f"[LIFECYCLE][RECONCILIATION][ORPHAN_ORDER] order_id={order_id}")
-        return {"findings": findings, "repaired": repaired, "orphan_orders": orphan_orders}
+        return {
+            "findings": findings,
+            "repaired": repaired,
+            "orphan_orders": orphan_orders,
+            "block_new_entries": block_new_entries,
+            "hard_failsafe_actions": hard_failsafe_actions,
+        }
 
     def mark_exit_pending(self, trade_id: str, reason: str) -> None:
         trade = self._trades.get(str(trade_id))

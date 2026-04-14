@@ -71,10 +71,12 @@ class ExecutionEngine:
         self._order_trace_stages: dict[str, set[str]] = {}
         self._require_exit_stage: set[str] = set()
         self.position_records: dict[str, dict] = {}
+        self._failsafe_block_new_entries: bool = False
         self._provider = self._resolve_provider(provider)
         self.post_fill_lifecycle = PostFillLifecycleEngine(
             run_mode=self.run_mode.value,
             execution_provider=self._provider,
+            hard_failsafe_handler=self.force_flatten_symbol,
         )
         self.provider: Optional[ExecutionProvider] = self._provider
         self.broker = getattr(self._provider, "broker", None)
@@ -191,6 +193,7 @@ class ExecutionEngine:
             print(f"[LIFECYCLE][RECONCILIATION][ERROR] stage=fetch_open_orders reason={exc}")
             return
         summary = self.post_fill_lifecycle.reconcile_orders(broker_orders, repair=True)
+        self._failsafe_block_new_entries = bool(summary.get("block_new_entries", False))
         print(
             "[LIFECYCLE][RECONCILIATION][SUMMARY] "
             f"stage={reason} findings={len(summary.get('findings', []))} repaired={summary.get('repaired', 0)} "
@@ -373,6 +376,11 @@ class ExecutionEngine:
         }
 
     def _preflight_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
+        if self._failsafe_block_new_entries and self._is_new_entry_attempt(risk_decision):
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="FAILSAFE_BLOCK_NEW_ENTRIES",
+            )
         broker = getattr(self._provider, "broker", None)
         provider_ready = self._provider is not None
         broker_connected = True
@@ -487,6 +495,20 @@ class ExecutionEngine:
                 rationale="DUPLICATE_POSITION_CONFLICT",
             )
         return None
+
+    @staticmethod
+    def _is_new_entry_attempt(risk_decision: RiskDecision) -> bool:
+        direction = str(getattr(risk_decision, "direction", "") or "").upper()
+        reason_code = str(getattr(risk_decision, "reason_code", "") or "").upper()
+        rationale = str(getattr(risk_decision, "rationale", "") or "").upper()
+        if direction not in {"LONG", "BUY"}:
+            return False
+        exit_markers = {"EXIT", "FLATTEN", "PROTECTIVE"}
+        if any(marker in reason_code for marker in exit_markers):
+            return False
+        if any(marker in rationale for marker in exit_markers):
+            return False
+        return True
 
     def _resolve_idempotency_key(self, risk_decision: RiskDecision, tick: int) -> str:
         payload = {

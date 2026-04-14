@@ -10,6 +10,7 @@ from core.event_collector import EventCollector  # noqa: E402
 from core.stop_controller import StopController  # noqa: E402
 from execution.execution_engine import ExecutionEngine  # noqa: E402
 from execution.execution_providers import PositionSnapshot  # noqa: E402
+from models.data_models import RiskDecision  # noqa: E402
 from models.execution_result import ExecutionResult  # noqa: E402
 from risk.risk_engine import RiskEngine  # noqa: E402
 from strategies.strategy_contracts import (  # noqa: E402
@@ -134,5 +135,54 @@ def test_execution_resolves_stop_loss_when_missing_in_paper_mode() -> None:
         result: ExecutionResult = engine.execute_trade(_decision_without_stop())
         assert result.stop_loss_price is not None
         assert result.status in {"SIMULATED", "REJECTED", "EXPIRED", "BLOCKED", "PARTIAL", "FULL", "NOT_FILLED"}
+    finally:
+        set_config_overrides(None)
+
+
+def test_failsafe_blocks_new_entries_only() -> None:
+    set_config_overrides({"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True})
+    try:
+        engine = ExecutionEngine(event_collector=EventCollector(), stop_controller=StopController())
+        engine._failsafe_block_new_entries = True
+        entry_decision = RiskDecision(
+            symbol="AAPL",
+            allowed=True,
+            max_position_size=5,
+            risk_level="LOW",
+            rationale="entry attempt",
+            trader_type="MANUAL",
+            strategy_name="UnitTestStrategy",
+            direction="BUY",
+            stop_loss_price=99.0,
+            reason_code="ENTRY_SIGNAL",
+            decision_id="entry-1",
+        )
+        result = engine.execute_trade(entry_decision)
+        assert result.status == "BLOCKED"
+        assert result.rationale == "FAILSAFE_BLOCK_NEW_ENTRIES"
+    finally:
+        set_config_overrides(None)
+
+
+def test_failsafe_does_not_block_exit_trade_management_execution() -> None:
+    set_config_overrides({"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True})
+    try:
+        engine = ExecutionEngine(event_collector=EventCollector(), stop_controller=StopController())
+        engine._failsafe_block_new_entries = True
+        exit_decision = RiskDecision(
+            symbol="AAPL",
+            allowed=True,
+            max_position_size=5,
+            risk_level="LOW",
+            rationale="trade_management_exit",
+            trader_type="MANUAL",
+            strategy_name="TRADE_MANAGEMENT",
+            direction="SELL",
+            stop_loss_price=101.0,
+            reason_code="TRADE_MANAGEMENT_EXIT",
+            decision_id="exit-1",
+        )
+        result = engine.execute_trade(exit_decision)
+        assert result.rationale != "FAILSAFE_BLOCK_NEW_ENTRIES"
     finally:
         set_config_overrides(None)
