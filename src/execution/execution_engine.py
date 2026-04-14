@@ -23,6 +23,7 @@ from src.core.managers.runtime_mode_manager import RuntimeModeManager
 from src.execution.execution_providers import ExecutionProvider, IbkrExecutionProvider, PaperExecutionProvider
 from src.execution.exit_plan import compute_stop_price
 from src.execution.order_models import PendingOrderBook
+from src.execution.post_fill_lifecycle_engine import PostFillLifecycleEngine
 from src.models.execution_result import ExecutionResult
 from src.models.data_models import RiskDecision
 from src.models.risk_decision import DECISION_ARTIFACT_MISSING
@@ -70,6 +71,7 @@ class ExecutionEngine:
         self._order_trace_stages: dict[str, set[str]] = {}
         self._require_exit_stage: set[str] = set()
         self.position_records: dict[str, dict] = {}
+        self.post_fill_lifecycle = PostFillLifecycleEngine(run_mode=self.run_mode.value)
         self._provider = self._resolve_provider(provider)
         self.provider: Optional[ExecutionProvider] = self._provider
         self.broker = getattr(self._provider, "broker", None)
@@ -120,6 +122,7 @@ class ExecutionEngine:
             return
 
         positions = list(getattr(positions_snapshot, "positions", []) or [])
+        self.post_fill_lifecycle.startup_safe_state(positions, list(open_orders))
         print(
             "[RECOVERY][STARTUP] "
             f"provider={self._provider.name()} "
@@ -838,7 +841,23 @@ class ExecutionEngine:
             "quantity": filled_quantity,
             "timestamp": time.time(),
         }
-        if str(request.direction).upper() in {"SHORT", "SELL"}:
+        direction_upper = str(request.direction).upper()
+        if direction_upper in {"LONG", "BUY"}:
+            protection_result = self.post_fill_lifecycle.activate_trade_management_after_fill(
+                trade_id=request.client_order_id,
+                symbol=request.symbol,
+                side=request.direction,
+                filled_qty=filled_quantity,
+                avg_fill_price=float(entry_price or 0.0),
+                strategy_id=request.strategy_name or "UNKNOWN",
+                intended_qty=request.quantity,
+                session_label=self.run_mode.value,
+            )
+            self.position_records[request.symbol]["lifecycle"] = protection_result
+        if direction_upper in {"SHORT", "SELL"}:
+            self.post_fill_lifecycle.mark_exit_pending(request.client_order_id, "exit_fill_received")
+            self.post_fill_lifecycle.mark_exited(request.client_order_id, "exit_fill_complete")
+        if direction_upper in {"SHORT", "SELL"}:
             print(
                 f"[ORDER][EXIT] order_id={request.client_order_id} symbol={request.symbol} qty={filled_quantity}"
             )
