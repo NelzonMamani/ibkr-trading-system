@@ -2773,6 +2773,7 @@ def _submit_ibkr_order(
     entry_price_source: str = "",
     float_millions: float | None = None,
     execution_context: dict[str, Any] | None = None,
+    is_exit_order: bool = False,
 ) -> int:
     global _CONTRACT_VALIDATION_FAILURES
     assert isinstance(symbol, str)
@@ -2840,6 +2841,10 @@ def _submit_ibkr_order(
     print(f"action={getattr(order, 'action', None)}")
     print(f"qty={getattr(order, 'totalQuantity', None)}")
     print(f"orderType={getattr(order, 'orderType', None)}")
+    if is_exit_order:
+        order.orderType = "MKT"
+        order.outsideRth = True
+        print(f"[EXECUTION][EXIT_FORCE_ALLOW] symbol={symbol} action=FORCE_EXECUTABLE orderType={order.orderType} outsideRth={order.outsideRth}")
     if not isinstance(order, Order):
         raise RuntimeError("ORDER_OBJECT_CONTAMINATION_DETECTED")
     if order.action not in ("BUY", "SELL"):
@@ -2906,7 +2911,14 @@ def _submit_ibkr_order(
         )
     min_tick = _resolved_tick_size(getattr(resolved_contract, "minTick", None))
     premarket_degraded_last_fallback_used = False
-    if is_premarket:
+    if is_exit_order:
+        order.orderType = "MKT"
+        order.outsideRth = True
+        print(
+            "[EXECUTION][ORDER_MODE] "
+            f"symbol={symbol} enforced=EXIT_FORCE_MKT orderType=MKT outsideRth=True"
+        )
+    elif is_premarket:
         if quote_context_ok:
             order.orderType = "LMT"
             buffered_limit, _cap_applied, _component = _compute_aggressive_limit_price(
@@ -2947,7 +2959,12 @@ def _submit_ibkr_order(
         ask=ask,
     )
     if fillability in {"PASSIVE_AWAY_FROM_MARKET", "RESTING_INSIDE_SPREAD", "PASSIVE_AT_ASK", "PASSIVE_AT_BID", "DEFERRED_OR_UNCLASSIFIABLE", "NON_MARKETABLE_UNKNOWN"}:
-        if is_premarket and quote_context_ok:
+        if is_exit_order:
+            print(
+                "[EXECUTION][FILLABILITY_OVERRIDE] "
+                f"symbol={symbol} reason=EXIT_FORCE_ALLOW classification={fillability}"
+            )
+        elif is_premarket and quote_context_ok:
             print(
                 "[EXECUTION][FILLABILITY_OVERRIDE] "
                 f"symbol={symbol} reason=PREMARKET_LIMIT_POLICY_BID_ASK classification={fillability}"
@@ -3210,6 +3227,7 @@ def execute_intents(
         if trace.intent_id:
             _EXECUTION_TRACE_BY_INTENT[trace.intent_id] = trace
         order_side = "BUY" if str(getattr(decision, "side", "LONG") or "LONG").upper() == "LONG" else "SELL"
+        is_exit_order = str(getattr(decision, "action", "") or "").upper() == "EXIT" or order_side == "SELL"
         truth = _create_execution_truth(
             order_ref=_build_order_ref(str(decision.intent_id or "")),
             broker_order_id=None,
@@ -3225,6 +3243,8 @@ def execute_intents(
             f"[EXECUTION][DUPLICATE_CHECK] symbol={duplicate_symbol} side={order_side} intent_id={order_family} "
             f"candidate_count={len(working_order_candidates)}"
         )
+        if is_exit_order:
+            print(f"[EXECUTION][EXIT_FORCE_ALLOW] symbol={duplicate_symbol} reason=EXIT_BYPASS_ROUTER_GATES")
         working_duplicate = False
         duplicate_reason = ""
         duplicate_order_id = None
@@ -3253,7 +3273,7 @@ def execute_intents(
                 f"existing_status={duplicate_status} reason={duplicate_reason}"
             )
             break
-        if working_duplicate:
+        if working_duplicate and not is_exit_order:
             blocked_reason = "DUPLICATE_WORKING_ORDER"
             blocked_pre_submit += 1
             print(
@@ -3299,7 +3319,7 @@ def execute_intents(
             f"intent_mismatch_override={str(has_intent_mismatch_override).lower()}"
         )
         current_open_positions = sum(1 for qty in existing_position_qty_by_symbol.values() if float(qty or 0.0) > 0.0)
-        if order_side == "BUY" and treated_as_flat and current_open_positions >= max_open_positions:
+        if (not is_exit_order) and order_side == "BUY" and treated_as_flat and current_open_positions >= max_open_positions:
             blocked_reason = "MAX_OPEN_POSITIONS"
             blocked_pre_submit += 1
             print(f"[RISK][POSITION_LIMIT] symbol={duplicate_symbol} open_positions={current_open_positions} max_open_positions={max_open_positions}")
@@ -3319,7 +3339,7 @@ def execute_intents(
                 )
             )
             continue
-        if order_side == "BUY" and not treated_as_flat and not has_intent_mismatch_override:
+        if (not is_exit_order) and order_side == "BUY" and not treated_as_flat and not has_intent_mismatch_override:
             proposed_qty = effective_position_qty + float(quantity)
             if not allow_pyramiding:
                 blocked_reason = "DUPLICATE_POSITION"
@@ -3434,7 +3454,7 @@ def execute_intents(
             detail = f"mode={mode.value}; decision={decision.decision}; qty={quantity}"
             dispatch = "SKIPPED"
         elif decision.decision == "ALLOW":
-            if quantity != int(decision.max_position_size):
+            if (not is_exit_order) and quantity != int(decision.max_position_size):
                 action = "BLOCKED"
                 detail = (
                     "reason=EXECUTION_QUANTITY_MISMATCH "
@@ -3532,6 +3552,7 @@ def execute_intents(
                         entry_price_source=str(getattr(decision, "entry_price_source", "") or ""),
                         float_millions=_safe_price_value(getattr(decision, "float_millions", None)),
                         execution_context=execution_context,
+                        is_exit_order=is_exit_order,
                     )
                 else:
                     broker_order_id = index

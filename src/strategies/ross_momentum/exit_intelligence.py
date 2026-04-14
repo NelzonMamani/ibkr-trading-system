@@ -47,6 +47,8 @@ class RossExitIntelligence:
         state = market_state or {}
         current_price = float(current_price)
         pullback_low = float(state.get("pullback_low", state.get("last_pullback_low", trade.stop_loss_price)) or trade.stop_loss_price)
+        if self._should_force_lifecycle_exit(holding_time_seconds=time_in_trade_sec):
+            return ExitDecision(action="EXIT_MARKET", reason="TIME_STOP")
 
         if current_price < pullback_low:
             return ExitDecision(action="EXIT_MARKET", reason="STOP_LOSS_BREAK")
@@ -129,3 +131,9 @@ class RossExitIntelligence:
             return ExitDecision(action="ACTIVATE_TRAILING", reason="TRAILING_ARMED_AT_KEY_LEVEL")
 
         return ExitDecision(action="HOLD", reason="NO_EXIT_CONDITION")
+
+    @staticmethod
+    def _should_force_lifecycle_exit(*, holding_time_seconds: float) -> bool:
+        if float(holding_time_seconds) > 300:
+            return True
+        return False
