@@ -31,6 +31,18 @@ class _ProviderStub:
         return {"broker_order_id": kwargs["broker_order_id"], "status": "Cancelled"}
 
 
+class _StopRepairFailureProvider(_ProviderStub):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_repairs = False
+
+    def place_stop_order(self, **kwargs):
+        self.stop_calls.append(dict(kwargs))
+        if self.fail_repairs:
+            raise RuntimeError("stop repair unavailable")
+        return {"broker_order_id": "STOP-1", "status": "Submitted"}
+
+
 def test_fill_installs_stop_and_target_in_paper_mode() -> None:
     provider = _ProviderStub()
     engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
@@ -149,8 +161,34 @@ def test_reconciliation_detects_missing_stop_and_repairs() -> None:
     trade.target.broker_order_id = "TGT-OPEN"
     summary = engine.reconcile_orders([{"orderId": "TGT-OPEN", "status": "Submitted"}], repair=True)
     assert any(f["issue"] == "MISSING_STOP" for f in summary["findings"])
+    assert all(f["issue"] != "STOP_REPAIR_FAILED" for f in summary["findings"])
     assert summary["repaired"] == 1
+    assert summary["block_new_entries"] is False
     assert len(provider.stop_calls) == 2
+
+
+def test_reconciliation_blocks_entries_when_stop_repair_fails() -> None:
+    provider = _StopRepairFailureProvider()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-6",
+        symbol="AAPL",
+        side="LONG",
+        filled_qty=1,
+        avg_fill_price=100.0,
+        strategy_id="S6",
+    )
+    trade = engine.get_trade("T-6")
+    assert trade is not None
+    provider.fail_repairs = True
+    trade.stop.broker_order_id = "STOP-MISSING"
+    trade.target.broker_order_id = "TGT-OPEN"
+
+    summary = engine.reconcile_orders([{"orderId": "TGT-OPEN", "status": "Submitted"}], repair=True)
+
+    assert any(f["issue"] == "MISSING_STOP" for f in summary["findings"])
+    assert any(f["issue"] == "STOP_REPAIR_FAILED" for f in summary["findings"])
+    assert summary["block_new_entries"] is True
 
 
 def test_lifecycle_payload_is_serializable_for_audit() -> None:

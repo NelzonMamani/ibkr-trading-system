@@ -108,6 +108,7 @@ class PostFillLifecycleEngine:
         self.policy = policy or LifecyclePolicy()
         self.execution_provider = execution_provider
         self._trades: dict[str, ManagedTradeLifecycle] = {}
+        self._block_new_entries: bool = False
 
     @staticmethod
     def _ts() -> str:
@@ -444,7 +445,36 @@ class PostFillLifecycleEngine:
             )
             return False
 
+    def _repair_missing_target(self, trade: ManagedTradeLifecycle, reason: str) -> bool:
+        if self.execution_provider is None or self.run_mode not in {"PAPER", "LIVE"}:
+            return False
+        if trade.target is None:
+            return False
+        try:
+            result = self.execution_provider.place_target_order(
+                symbol=trade.symbol,
+                side=trade.target.side,
+                quantity=trade.filled_qty,
+                limit_price=trade.target.trigger_price,
+                trade_id=trade.trade_id,
+                parent_order_id=trade.trade_id,
+            )
+            trade.target.broker_order_id = str(result.get("broker_order_id"))
+            trade.target.status = str(result.get("status") or "Submitted")
+            print(
+                "[LIFECYCLE][CRITICAL][TARGET_REPAIRED] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} reason={reason} target_order_id={trade.target.broker_order_id}"
+            )
+            return True
+        except Exception as exc:
+            print(
+                "[LIFECYCLE][CRITICAL][TARGET_REPAIR_FAILED] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} reason={reason} error={exc}"
+            )
+            return False
+
     def reconcile_orders(self, broker_orders: list[Any], *, repair: bool = True) -> dict[str, Any]:
+        self._block_new_entries = False
         normalized = [self._order_fields(order) for order in broker_orders]
         open_ids = {
             row["order_id"]
@@ -470,17 +500,34 @@ class PostFillLifecycleEngine:
             if stop_missing:
                 findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "MISSING_STOP"})
                 print(f"[LIFECYCLE][RECONCILIATION][MISSING_STOP] trade_id={trade.trade_id} symbol={trade.symbol}")
-                if repair and self._repair_missing_stop(trade, "reconciliation_missing_stop"):
+                repaired_stop = repair and self._repair_missing_stop(trade, "reconciliation_missing_stop")
+                if repaired_stop:
                     repaired += 1
+                else:
+                    self._block_new_entries = True
+                    findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "STOP_REPAIR_FAILED"})
+                    print(f"[LIFECYCLE][FAILSAFE][STOP_REPAIR_FAILED] trade_id={trade.trade_id} symbol={trade.symbol}")
             if target_missing:
                 findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "MISSING_TARGET"})
                 print(f"[LIFECYCLE][RECONCILIATION][MISSING_TARGET] trade_id={trade.trade_id} symbol={trade.symbol}")
+                repaired_target = repair and self._repair_missing_target(trade, "reconciliation_missing_target")
+                if repaired_target:
+                    repaired += 1
+                else:
+                    self._block_new_entries = True
+                    findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "TARGET_REPAIR_FAILED"})
+                    print(f"[LIFECYCLE][FAILSAFE][TARGET_REPAIR_FAILED] trade_id={trade.trade_id} symbol={trade.symbol}")
 
         orphan_orders = sorted(open_ids - known_ids)
         for order_id in orphan_orders:
             findings.append({"order_id": order_id, "issue": "ORPHAN_ORDER"})
             print(f"[LIFECYCLE][RECONCILIATION][ORPHAN_ORDER] order_id={order_id}")
-        return {"findings": findings, "repaired": repaired, "orphan_orders": orphan_orders}
+        return {
+            "findings": findings,
+            "repaired": repaired,
+            "orphan_orders": orphan_orders,
+            "block_new_entries": self._block_new_entries,
+        }
 
     def mark_exit_pending(self, trade_id: str, reason: str) -> None:
         trade = self._trades.get(str(trade_id))

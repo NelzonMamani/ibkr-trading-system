@@ -71,6 +71,7 @@ class ExecutionEngine:
         self._order_trace_stages: dict[str, set[str]] = {}
         self._require_exit_stage: set[str] = set()
         self.position_records: dict[str, dict] = {}
+        self._failsafe_block_new_entries: bool = False
         self._provider = self._resolve_provider(provider)
         self.post_fill_lifecycle = PostFillLifecycleEngine(
             run_mode=self.run_mode.value,
@@ -191,10 +192,12 @@ class ExecutionEngine:
             print(f"[LIFECYCLE][RECONCILIATION][ERROR] stage=fetch_open_orders reason={exc}")
             return
         summary = self.post_fill_lifecycle.reconcile_orders(broker_orders, repair=True)
+        self._failsafe_block_new_entries = bool(summary.get("block_new_entries", False))
         print(
             "[LIFECYCLE][RECONCILIATION][SUMMARY] "
             f"stage={reason} findings={len(summary.get('findings', []))} repaired={summary.get('repaired', 0)} "
-            f"orphans={len(summary.get('orphan_orders', []))}"
+            f"orphans={len(summary.get('orphan_orders', []))} "
+            f"block_new_entries={self._failsafe_block_new_entries}"
         )
 
     @staticmethod
@@ -398,6 +401,11 @@ class ExecutionEngine:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="CIRCUIT_BREAKER_TRIPPED",
+            )
+        if self._failsafe_block_new_entries:
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale="LIFECYCLE_FAILSAFE_BLOCK_NEW_ENTRIES",
             )
         if self.run_mode == RunMode.READ_ONLY:
             return self._blocked_execution_from_risk_decision(
