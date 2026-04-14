@@ -26,8 +26,8 @@ def test_fillability_buy_sell_limit_against_bid_ask() -> None:
         ask=10.0,
     )
 
-    assert buy_classification == "MARKETABLE_BUY_AT_OR_ABOVE_ASK"
-    assert sell_classification == "MARKETABLE_SELL_AT_OR_BELOW_BID"
+    assert buy_classification == "CROSSING_ASK_AGGRESSIVE"
+    assert sell_classification == "CROSSING_BID_AGGRESSIVE"
     assert passive_classification == "PASSIVE_AWAY_FROM_MARKET"
 
 
@@ -48,8 +48,8 @@ def test_inactive_normalization_by_session_outside_rth_and_passive_limit() -> No
         fillability="PASSIVE_AWAY_FROM_MARKET",
         quote_available=True,
     )
-    assert reason == "INACTIVE_NON_MARKETABLE_LIMIT"
-    assert "fillability" in rationale
+    assert reason == "SESSION_MISMATCH"
+    assert "outside_rth" in rationale or "session" in rationale.lower()
 
 
 def test_inactive_normalization_no_quote_and_whyheld_priority() -> None:
@@ -72,8 +72,8 @@ def test_inactive_normalization_no_quote_and_whyheld_priority() -> None:
         quote_available=False,
     )
 
-    assert held_reason == "INACTIVE_BROKER_HELD"
-    assert no_quote_reason == "INACTIVE_NO_QUOTE_CONTEXT"
+    assert held_reason == "ROUTING_REJECT"
+    assert no_quote_reason == "NO_LIQUIDITY"
 
 
 def test_authoritative_state_still_prefers_exec_fill_truth() -> None:
@@ -88,6 +88,6 @@ def test_authoritative_state_still_prefers_exec_fill_truth() -> None:
     )
     row.fill_seen = True
     row.inactive_seen = True
-    row.inactive_normalized_reason = "INACTIVE_NON_MARKETABLE_LIMIT"
+    row.inactive_normalized_reason = "NON_MARKETABLE"
 
     assert order_router._resolve_authoritative_execution_state(row) == "BROKER_FILLED_FULL"

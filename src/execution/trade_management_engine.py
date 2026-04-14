@@ -167,10 +167,14 @@ class TradeManagementEngine:
         for symbol in sorted(self._positions.keys()):
             position = self._positions[symbol]
             state = market_state.get(symbol, {})
+            print(
+                "[ROSS][EXIT_INTELLIGENCE][EVAL] "
+                f"symbol={position.symbol} qty={position.quantity} avg_price={position.entry_price:.4f}"
+            )
 
             price = self._resolve_price(symbol, state)
             if price is None or price <= 0:
-                continue
+                price = float(position.current_price)
 
             self._update_position_cycle(position, state, price)
             print(
@@ -222,10 +226,12 @@ class TradeManagementEngine:
             market_state=state,
         )
         print(
-            "[EXIT][DECISION] "
+            "[ROSS][EXIT_DECISION] "
             f"symbol={position.symbol} action={decision.action} reason={decision.reason} "
             f"price={position.current_price:.4f} hold_s={position.holding_time_seconds}"
         )
+        if decision.should_exit:
+            print(f"[ROSS][EXIT_SIGNAL] symbol={position.symbol} reason={decision.reason}")
         return self._apply_exit_decision(position, decision)
 
     def _apply_exit_decision(self, position: PositionState, decision: ExitDecision) -> TradeIntent | None:
@@ -332,12 +338,16 @@ class TradeManagementEngine:
     def _exit_type_from_reason(rationale: str) -> str:
         mapping = {
             "STOP_LOSS_HIT": "STOP",
+            "STOP_LOSS_BREAK": "STOP",
             "TARGET_HIT": "TARGET",
             "NO_IMMEDIATE_FOLLOW_THROUGH": "FAST_FAILURE",
             "STALL_AT_LEVEL": "WEAKNESS",
             "MOMENTUM_WEAKNESS": "WEAKNESS",
+            "VOLUME_REVERSAL": "WEAKNESS",
+            "MACD_INVALID": "WEAKNESS",
             "TRAILING_STOP_BROKEN": "TRAIL",
             "MAX_HOLD_TIME_EXCEEDED": "TIME",
+            "TIME_STOP": "TIME",
         }
         return mapping.get(rationale, "RULE")
 
@@ -349,6 +359,10 @@ class TradeManagementEngine:
             "STALL_AT_LEVEL": "STALL",
             "MOMENTUM_WEAKNESS": "WEAKNESS",
             "STOP_LOSS_HIT": "STOP",
+            "STOP_LOSS_BREAK": "STOP",
+            "VOLUME_REVERSAL": "WEAKNESS",
+            "MACD_INVALID": "WEAKNESS",
+            "TIME_STOP": "TIME_STOP",
         }
         tag = tag_map.get(rationale)
         if tag:

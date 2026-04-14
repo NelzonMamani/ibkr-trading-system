@@ -2048,10 +2048,18 @@ class CoreOrchestrator:
                 "current_price": float(price),
                 "green_volume_ratio": 1.0,
                 "red_volume_ratio": 1.0,
+                "green_volume": 1.0,
+                "red_volume": 1.0,
+                "recent_green_volume": [1.0, 1.0, 1.0],
                 "structure_intact": True,
                 "near_resistance": near_key_level,
                 "key_level_hit": near_key_level,
                 "last_higher_low": float(price) * 0.995,
+                "pullback_low": float(price) * 0.995,
+                "candle_range": 0.02,
+                "upper_wick": 0.005,
+                "continuation": True,
+                "no_progress": False,
             }
         return market_state
 

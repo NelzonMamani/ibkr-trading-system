@@ -1728,12 +1728,13 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 row.inactive_normalized_reason = normalized_inactive_reason
                 row.inactive_rationale = inactive_rationale
                 print(
-                    "[EXECUTION][INACTIVE_CLASSIFICATION] "
-                    f"symbol={row.symbol} order_id={order_id} broker_status={_none_text(row.broker_status)} "
-                    f"fillability={fillability} outside_rth={_none_text(open_order_echo.get('outside_rth', submit_payload.get('outside_rth')))} "
+                    "[EXECUTION][INACTIVE_CLASSIFIED] "
+                    f"symbol={row.symbol} order_id={order_id} reason={normalized_inactive_reason} "
+                    f"broker_status={_none_text(row.broker_status)} fillability={fillability} "
+                    f"outside_rth={_none_text(open_order_echo.get('outside_rth', submit_payload.get('outside_rth')))} "
                     f"tif={_none_text(open_order_echo.get('tif', submit_payload.get('tif')))} "
                     f"session_label={_none_text(submit_payload.get('session_label'))} why_held={_none_text(why_held)} "
-                    f"normalized_inactive_reason={normalized_inactive_reason} rationale={inactive_rationale}"
+                    f"rationale={inactive_rationale}"
                 )
             if str(row.broker_status or "").upper() in {"CANCELLED", "CANCELED", "API_CANCELLED"}:
                 row.cancelled_seen = True
@@ -2621,35 +2622,49 @@ def normalize_inactive_reason(
     echo_outside_rth = open_order_echo.get("outside_rth")
     tif = str(open_order_echo.get("tif") or submit_payload.get("tif") or "").upper()
     exchange = str(open_order_echo.get("exchange") or submit_payload.get("exchange") or "").upper()
+    order_type = str(open_order_echo.get("order_type") or submit_payload.get("order_type") or "MKT").upper()
+    last = _safe_price_value(submit_payload.get("last"))
+    bid = _safe_price_value(submit_payload.get("bid"))
+    ask = _safe_price_value(submit_payload.get("ask"))
+    spread = (float(ask) - float(bid)) if bid is not None and ask is not None else None
     if why:
         if any(token in why_upper for token in ("ROUTE", "EXCHANGE", "DESTINATION")):
-            return "INACTIVE_ROUTING_OR_EXCHANGE", f"why_held indicates routing issue: {why}"
+            return "ROUTING_REJECT", f"why_held indicates routing issue: {why}"
         if any(token in why_upper for token in ("RTH", "SESSION", "MARKET CLOSED", "CLOSED")):
-            return "INACTIVE_SESSION_MISMATCH", f"why_held indicates session mismatch: {why}"
-        return "INACTIVE_BROKER_HELD", f"why_held present: {why}"
-    if not quote_available or fillability == "NO_QUOTE_CONTEXT":
-        return "INACTIVE_NO_QUOTE_CONTEXT", "no quote context available at submit time"
-    if fillability in {"PASSIVE_AWAY_FROM_MARKET", "RESTING_INSIDE_SPREAD", "PASSIVE_AT_ASK", "PASSIVE_AT_BID", "DEFERRED_OR_UNCLASSIFIABLE", "NON_MARKETABLE_UNKNOWN"}:
-        return "INACTIVE_NON_MARKETABLE_LIMIT", f"submit fillability={fillability}"
+            return "SESSION_MISMATCH", f"why_held indicates session mismatch: {why}"
+        return "ROUTING_REJECT", f"why_held present: {why}"
     canonical_session = _canonical_execution_session(session_label)
     if (submit_outside_rth is False or echo_outside_rth is False) and canonical_session in {"PREMARKET", "AFTER_HOURS", "CLOSED"}:
-        return "INACTIVE_OUTSIDE_RTH_CONFIGURATION", "outside_rth disabled outside regular session"
+        return "SESSION_MISMATCH", "outside_rth disabled outside regular session"
     if tif == "DAY" and canonical_session in {"AFTER_HOURS", "CLOSED"}:
-        return "INACTIVE_SESSION_MISMATCH", "DAY tif observed outside regular session"
+        return "SESSION_MISMATCH", "DAY tif observed outside regular session"
+    if not quote_available or fillability == "NO_QUOTE_CONTEXT" or bid is None or ask is None:
+        return "NO_LIQUIDITY", "no quote context available at submit time"
+    if spread is not None and spread <= 0:
+        return "NO_LIQUIDITY", f"invalid spread={spread}"
+    if order_type == "LMT" and fillability in {
+        "PASSIVE_AWAY_FROM_MARKET",
+        "RESTING_INSIDE_SPREAD",
+        "PASSIVE_AT_ASK",
+        "PASSIVE_AT_BID",
+        "DEFERRED_OR_UNCLASSIFIABLE",
+        "NON_MARKETABLE_UNKNOWN",
+    }:
+        return "NON_MARKETABLE", f"submit fillability={fillability}"
     if exchange and exchange not in {"SMART", "NONE"} and fillability.startswith("CROSSING_"):
-        return "INACTIVE_ROUTING_OR_EXCHANGE", f"non-SMART exchange for marketable order: {exchange}"
-    return "INACTIVE_UNKNOWN", "insufficient evidence for deterministic classification"
+        return "ROUTING_REJECT", f"non-SMART exchange for marketable order: {exchange}"
+    if last is None and fillability in {"DEFERRED_OR_UNCLASSIFIABLE", "NON_MARKETABLE_UNKNOWN"}:
+        return "NO_LIQUIDITY", "last price unavailable and fillability unclassifiable"
+    return "UNKNOWN", "insufficient evidence for deterministic classification"
 
 
 def _inactive_terminal_state_from_reason(reason: str) -> str:
     mapping = {
-        "INACTIVE_NON_MARKETABLE_LIMIT": "BROKER_INACTIVE_NON_MARKETABLE",
-        "INACTIVE_SESSION_MISMATCH": "BROKER_INACTIVE_SESSION_MISMATCH",
-        "INACTIVE_OUTSIDE_RTH_CONFIGURATION": "BROKER_INACTIVE_OUTSIDE_RTH",
-        "INACTIVE_ROUTING_OR_EXCHANGE": "BROKER_INACTIVE_ROUTING",
-        "INACTIVE_BROKER_HELD": "BROKER_INACTIVE_HELD",
-        "INACTIVE_NO_QUOTE_CONTEXT": "BROKER_INACTIVE_NO_QUOTE",
-        "INACTIVE_UNKNOWN": "BROKER_INACTIVE_UNKNOWN",
+        "NON_MARKETABLE": "BROKER_INACTIVE_NON_MARKETABLE",
+        "SESSION_MISMATCH": "BROKER_INACTIVE_SESSION_MISMATCH",
+        "NO_LIQUIDITY": "BROKER_INACTIVE_NO_QUOTE",
+        "ROUTING_REJECT": "BROKER_INACTIVE_ROUTING",
+        "UNKNOWN": "BROKER_INACTIVE_UNKNOWN",
     }
     return mapping.get(str(reason or "").upper(), "BROKER_INACTIVE_UNKNOWN")
 
@@ -2683,6 +2698,23 @@ def _evaluate_submission_restriction(
     if volume is not None and float(volume) < 10_000:
         return False, "extremely_low_volume"
     return False, "ok"
+
+
+def _config_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return bool(default)
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _config_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return int(default)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return int(default)
 
 
 def _wait_for_ibkr_snapshot_for_symbol(symbol: str, *, wait_up_to: float = 2.0, poll_interval: float = 0.2) -> dict[str, float | None]:
@@ -3145,6 +3177,9 @@ def execute_intents(
     print(f"[EXECUTION][WORKING_ORDER_RECON] known_working_orders={len(working_order_candidates)}")
 
     submitted_order_ids: list[int] = []
+    allow_pyramiding = _config_bool("ALLOW_PYRAMIDING", True)
+    max_position_size = max(1, _config_int("MAX_POSITION_SIZE", 3))
+    max_open_positions = max(1, _config_int("MAX_OPEN_POSITIONS", 5))
     for index, decision in enumerate(decisions, start=1):
         intents_received += 1
         execution_attempted = False
@@ -3263,14 +3298,15 @@ def execute_intents(
             f"effective_qty={effective_position_qty} source={position_source} treated_as_flat={str(treated_as_flat).lower()} "
             f"intent_mismatch_override={str(has_intent_mismatch_override).lower()}"
         )
-        if order_side == "BUY" and not treated_as_flat and not has_intent_mismatch_override:
-            blocked_reason = "DUPLICATE_POSITION"
+        current_open_positions = sum(1 for qty in existing_position_qty_by_symbol.values() if float(qty or 0.0) > 0.0)
+        if order_side == "BUY" and treated_as_flat and current_open_positions >= max_open_positions:
+            blocked_reason = "MAX_OPEN_POSITIONS"
             blocked_pre_submit += 1
-            print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
+            print(f"[RISK][POSITION_LIMIT] symbol={duplicate_symbol} open_positions={current_open_positions} max_open_positions={max_open_positions}")
             print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
             _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
             truth.rejection_reason = blocked_reason
-            _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_position")
+            _mark_execution_failure(trace, "ORDER_REJECTED", reason="max_open_positions")
             events.append(
                 ExecutionEvent(
                     symbol=decision.symbol,
@@ -3283,6 +3319,56 @@ def execute_intents(
                 )
             )
             continue
+        if order_side == "BUY" and not treated_as_flat and not has_intent_mismatch_override:
+            proposed_qty = effective_position_qty + float(quantity)
+            if not allow_pyramiding:
+                blocked_reason = "DUPLICATE_POSITION"
+                blocked_pre_submit += 1
+                print(f"[EXECUTION][PYRAMID] symbol={duplicate_symbol} existing_qty={effective_position_qty:.4f} new_qty={quantity} decision=BLOCK reason=DUPLICATE_POSITION")
+                print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
+                print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
+                _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
+                truth.rejection_reason = blocked_reason
+                _mark_execution_failure(trace, "ORDER_REJECTED", reason="duplicate_position")
+                events.append(
+                    ExecutionEvent(
+                        symbol=decision.symbol,
+                        intent_id=decision.intent_id,
+                        action="BLOCKED",
+                        detail=f"reason={blocked_reason}",
+                        event_type="ORDER_REJECTED",
+                        broker_status="REJECTED",
+                        last_update_time=_now_utc_iso(),
+                    )
+                )
+                continue
+            if proposed_qty > float(max_position_size):
+                blocked_reason = "MAX_SIZE_REACHED"
+                blocked_pre_submit += 1
+                print(
+                    f"[EXECUTION][PYRAMID] symbol={duplicate_symbol} existing_qty={effective_position_qty:.4f} "
+                    f"new_qty={quantity} decision=BLOCK reason={blocked_reason} max_position_size={max_position_size}"
+                )
+                print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
+                _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
+                truth.rejection_reason = blocked_reason
+                _mark_execution_failure(trace, "ORDER_REJECTED", reason="max_size_reached")
+                events.append(
+                    ExecutionEvent(
+                        symbol=decision.symbol,
+                        intent_id=decision.intent_id,
+                        action="BLOCKED",
+                        detail=f"reason={blocked_reason}",
+                        event_type="ORDER_REJECTED",
+                        broker_status="REJECTED",
+                        last_update_time=_now_utc_iso(),
+                    )
+                )
+                continue
+            print(
+                f"[EXECUTION][PYRAMID] symbol={duplicate_symbol} existing_qty={effective_position_qty:.4f} "
+                f"new_qty={quantity} decision=ALLOW reason=PYRAMID_ADD"
+            )
         if not str(decision.intent_id or "").strip():
             blocked_reason = "INVALID_ORDER_CONFIG"
             blocked_pre_submit += 1
@@ -3492,6 +3578,11 @@ def execute_intents(
             _transition_execution_truth_state(truth=truth, next_state="SUBMITTED", source="LOCAL")
             submitted_order_ids.append(int(broker_order_id))
             print(f"[EXECUTION][SUBMITTED] symbol={decision.symbol} broker_order_id={broker_order_id} local_dispatch_attempted=true place_order_issued=true")
+            if str(getattr(decision, "action", "") or "").upper() == "EXIT" or order_side == "SELL":
+                print(
+                    f"[EXECUTION][EXIT_ORDER_SUBMITTED] symbol={decision.symbol} broker_order_id={broker_order_id} "
+                    f"qty={quantity} intent_id={decision.intent_id}"
+                )
             print(
                 "[EXECUTION][SUBMIT] "
                 f"symbol={decision.symbol} intent_id={decision.intent_id} order_id={broker_order_id} "

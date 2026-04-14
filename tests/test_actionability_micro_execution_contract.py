@@ -269,6 +269,7 @@ def test_fill_requires_callback(monkeypatch) -> None:
 
 
 def test_execute_intents_blocks_duplicate_symbol_using_ibkr_truth(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("ALLOW_PYRAMIDING", "false")
     class _Pos:
         symbol = "MCRO"
         position = 100
@@ -338,6 +339,7 @@ def test_position_zero_not_blocked(monkeypatch, capsys) -> None:
 
 
 def test_stale_broker_position_still_blocks_without_ibkr_flat_confirmation(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("ALLOW_PYRAMIDING", "false")
     class _StaleBrokerPos:
         symbol = "MCRO"
         position = 100.0
