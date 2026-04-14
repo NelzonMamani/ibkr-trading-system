@@ -2036,23 +2036,39 @@ class CoreOrchestrator:
         cents = float(price) % 1
         return abs(cents - 0.0) < 0.02 or abs(cents - 0.5) < 0.02
 
-    def _get_trade_management_recent_candles(self, symbol: str, lookback: int) -> list:
+    def _get_trade_management_recent_candles(self, symbol: str, lookback: int) -> tuple[list, str]:
         client = self.connection_manager.optional_client
         if client is None:
-            return []
+            print(f"[DATA][MISSING_INTRADAY_CANDLES] symbol={symbol} reason=missing_market_data_client")
+            return [], "none"
         try:
-            bars = client.daily_bars_from_history(symbol, lookback_days=max(int(lookback), 2), use_rth=False)
+            bars = client.intraday_bars_from_history(
+                symbol,
+                timeframe="1m",
+                lookback_bars=max(int(lookback), 2),
+                use_rth=False,
+            )
         except Exception as exc:
-            print(f"[DATA][MISSING_CANDLE_DATA] symbol={symbol} reason={exc}")
-            return []
-        return list(bars or [])
+            print(f"[DATA][MISSING_INTRADAY_CANDLES] symbol={symbol} reason={exc}")
+            return [], "none"
+        intraday_bars = list(bars or [])
+        if not intraday_bars:
+            print(f"[DATA][MISSING_INTRADAY_CANDLES] symbol={symbol} reason=empty_intraday_history")
+            return [], "none"
+        print(
+            "[DATA][INTRADAY_CANDLE_SOURCE] "
+            f"symbol={symbol} source=market_data_client.intraday_bars_from_history timeframe=1m count={len(intraday_bars)}"
+        )
+        return intraday_bars, "market_data_client.intraday_bars_from_history"
 
     def _build_trade_management_market_state(self) -> dict[str, dict]:
         market_state: dict[str, dict] = {}
-        for symbol in sorted(self.trade_management_engine.snapshot_positions().keys()):
-            recent_candles = self._get_trade_management_recent_candles(symbol, lookback=6)
+        positions = self.trade_management_engine.snapshot_positions()
+        for symbol in sorted(positions.keys()):
+            recent_candles, intraday_source = self._get_trade_management_recent_candles(symbol, lookback=10)
             if len(recent_candles) < 2:
-                print(f"[DATA][MISSING_CANDLE_DATA] symbol={symbol} reason=insufficient_candles count={len(recent_candles)}")
+                print(f"[DATA][MISSING_INTRADAY_CANDLES] symbol={symbol} reason=insufficient_candles count={len(recent_candles)}")
+                print(f"[ROSS][EXIT_INTELLIGENCE][SKIP] symbol={symbol} reason=MISSING_INTRADAY_CANDLES")
                 continue
 
             latest_candle = recent_candles[-1]
@@ -2066,12 +2082,14 @@ class CoreOrchestrator:
                 current_volume = float(getattr(latest_candle, "volume"))
                 previous_close = float(getattr(previous_candle, "close"))
             except (TypeError, ValueError, AttributeError) as exc:
-                print(f"[DATA][MISSING_CANDLE_DATA] symbol={symbol} reason=invalid_candle_fields error={exc}")
+                print(f"[DATA][MISSING_INTRADAY_CANDLES] symbol={symbol} reason=invalid_candle_fields error={exc}")
+                print(f"[ROSS][EXIT_INTELLIGENCE][SKIP] symbol={symbol} reason=MISSING_INTRADAY_CANDLES")
                 continue
 
             candle_range = high_price - low_price
             if candle_range <= 0:
-                print(f"[DATA][MISSING_CANDLE_DATA] symbol={symbol} reason=invalid_range range={candle_range}")
+                print(f"[DATA][MISSING_INTRADAY_CANDLES] symbol={symbol} reason=invalid_range range={candle_range}")
+                print(f"[ROSS][EXIT_INTELLIGENCE][SKIP] symbol={symbol} reason=MISSING_INTRADAY_CANDLES")
                 continue
 
             body = abs(close_price - open_price)
@@ -2080,6 +2098,8 @@ class CoreOrchestrator:
             continuation = close_price > previous_close
             is_green = close_price > open_price
             near_key_level = self._is_near_whole_or_half_dollar(close_price)
+            position = positions.get(symbol)
+            entry_price = float(getattr(position, "entry_price", close_price) or close_price)
 
             volume_sample = [float(getattr(bar, "volume", 0.0) or 0.0) for bar in recent_candles[-5:]]
             rolling_avg_volume = (
@@ -2107,6 +2127,26 @@ class CoreOrchestrator:
                 green_volume_ratio = 0.0
                 red_volume_ratio = 0.0
 
+            low_window = [
+                float(getattr(bar, "low", 0.0) or 0.0)
+                for bar in recent_candles[-3:]
+            ]
+            pullback_low = min(low_window) if low_window else low_price
+            print(
+                "[ROSS][EXIT_INPUT_PROXY] "
+                f"symbol={symbol} pullback_low={pullback_low:.6f} method=recent_3bar_low"
+            )
+            recent_lows = [float(getattr(bar, "low", 0.0) or 0.0) for bar in recent_candles[-4:]]
+            higher_lows = [
+                curr_low
+                for prev_low, curr_low in zip(recent_lows[:-1], recent_lows[1:])
+                if curr_low > prev_low
+            ]
+            last_higher_low = higher_lows[-1] if higher_lows else low_price
+            min_progress_threshold = max(entry_price * 0.001, 0.01)
+            recent_close_max = max(float(getattr(bar, "close", close_price) or close_price) for bar in recent_candles[-3:])
+            no_progress = bool(close_price <= entry_price or recent_close_max <= (entry_price + min_progress_threshold))
+
             market_state[symbol] = {
                 "open": open_price,
                 "high": high_price,
@@ -2130,13 +2170,14 @@ class CoreOrchestrator:
                 "structure_intact": True,
                 "near_resistance": near_key_level,
                 "key_level_hit": near_key_level,
-                "last_higher_low": low_price,
-                "pullback_low": low_price,
-                "no_progress": False,
+                "last_higher_low": last_higher_low,
+                "pullback_low": pullback_low,
+                "no_progress": no_progress,
             }
             print(
                 "[DATA][MARKET_STATE_READY] "
-                f"symbol={symbol} range={candle_range:.6f} upper_wick={upper_wick:.6f} volume={current_volume:.2f}"
+                f"symbol={symbol} timeframe=1m source={intraday_source} close={close_price:.6f} "
+                f"range={candle_range:.6f} upper_wick={upper_wick:.6f} volume={current_volume:.2f}"
             )
         return market_state
 

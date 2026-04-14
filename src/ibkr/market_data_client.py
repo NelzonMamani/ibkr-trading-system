@@ -599,6 +599,41 @@ class MarketDataClient:
             end_datetime=end_datetime,
         )
 
+    def intraday_bars_from_history(
+        self,
+        contract_or_symbol,
+        *,
+        timeframe: str = "1m",
+        lookback_bars: int = 10,
+        use_rth: bool = False,
+        end_datetime: str = "",
+    ):
+        if timeframe != "1m":
+            raise ValueError(f"Unsupported timeframe: {timeframe}")
+        contract = self._canonicalize_history_contract(contract_or_symbol)
+        if contract is None:
+            return []
+        bars_requested = max(int(lookback_bars), 2)
+        duration_seconds = max(bars_requested * 60 * 2, 1800)
+        try:
+            bars = self._resolve_ib_client().reqHistoricalData(
+                contract,
+                endDateTime=end_datetime,
+                durationStr=f"{duration_seconds} S",
+                barSizeSetting="1 min",
+                whatToShow="TRADES",
+                useRTH=use_rth,
+                formatDate=1,
+            ) or []
+        except Exception as exc:
+            print(
+                "[IBKR][INTRADAY_HIST_FAIL] "
+                f"symbol={getattr(contract, 'symbol', None)} timeframe={timeframe} "
+                f"lookback_bars={bars_requested} error={exc}"
+            )
+            return []
+        return list(bars[-bars_requested:])
+
     def average_daily_volume_from_history(self, contract_or_symbol, *, window: int = 20, use_rth: bool = True) -> tuple[Optional[int], Optional[int]]:
         bars = self.daily_bars_from_history(contract_or_symbol, lookback_days=max(window, 3), use_rth=use_rth)
         volumes = [_clean(getattr(bar, "volume", None)) for bar in bars]

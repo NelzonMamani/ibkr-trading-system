@@ -183,6 +183,14 @@ def test_exit_intelligence_can_be_disabled_via_env(monkeypatch) -> None:
     assert intents == []
 
 
+def test_evaluate_cycle_skips_symbol_when_market_state_missing() -> None:
+    engine = _engine_with_position()
+
+    intents = engine.evaluate_cycle({})
+
+    assert intents == []
+
+
 def test_generic_management_layer_does_not_embed_ross_threshold_rules() -> None:
     source = inspect.getsource(TradeManagementEngine._evaluate_exit_rules)
     assert "NO_IMMEDIATE_FOLLOW_THROUGH" not in source

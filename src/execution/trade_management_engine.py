@@ -166,7 +166,10 @@ class TradeManagementEngine:
         intents: list[TradeIntent] = []
         for symbol in sorted(self._positions.keys()):
             position = self._positions[symbol]
-            state = market_state.get(symbol, {})
+            state = market_state.get(symbol)
+            if not state:
+                print(f"[ROSS][EXIT_INTELLIGENCE][SKIP] symbol={position.symbol} reason=MISSING_INTRADAY_CANDLES")
+                continue
             print(
                 "[ROSS][EXIT_INTELLIGENCE][EVAL] "
                 f"symbol={position.symbol} qty={position.quantity} avg_price={position.entry_price:.4f}"
