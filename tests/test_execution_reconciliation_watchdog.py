@@ -9,6 +9,13 @@ def _reset_state() -> None:
     order_router._RUNTIME_ORDERS.clear()
     order_router._RUNTIME_POSITIONS.clear()
     order_router._BROKER_POSITION_LAST_QTY_BY_SYMBOL.clear()
+    order_router._POSITION_OWNERSHIP_BY_SYMBOL.clear()
+    order_router.set_trading_control_mode("SYSTEM_TRADING")
+    order_router._RECONCILED_POSITIONS_OK = 0
+    order_router._RECONCILED_POSITIONS_MISMATCH = 0
+    order_router._BROKER_POSITION_WITHOUT_FILL_COUNT = 0
+    order_router._LOCAL_FILL_WITHOUT_POSITION_COUNT = 0
+    order_router._RECON_RESYNC_NEEDED = False
     order_router._IBKR_HEALTH_STATE.update(
         {
             "broker_connected": False,
@@ -250,3 +257,19 @@ def test_reconciliation_summary_log_populates(monkeypatch, capsys) -> None:
     out = capsys.readouterr().out
     assert "[EXECUTION][RECONCILIATION_SUMMARY]" in out
     assert "intents_received=0" in out
+
+
+def test_external_inventory_is_non_fatal_in_isolated_trading_mode(capsys) -> None:
+    _reset_state()
+    order_router.set_trading_control_mode("ISOLATED_TRADING")
+    order_router._POSITION_OWNERSHIP_BY_SYMBOL["EXT"] = order_router.OWNERSHIP_EXTERNAL
+
+    positions = [type("Pos", (), {"symbol": "EXT", "position": 4, "avgCost": 20.0})()]
+    order_router._run_passive_position_reconciliation(positions=positions)
+    out = capsys.readouterr().out
+
+    assert "[RECON][EXTERNAL_INVENTORY] symbol=EXT" in out
+    assert "reason=external_inventory" in out
+    assert order_router._RECONCILED_POSITIONS_MISMATCH == 0
+    assert order_router._BROKER_POSITION_WITHOUT_FILL_COUNT == 0
+    assert order_router._RECON_RESYNC_NEEDED is False
