@@ -63,6 +63,7 @@ from src.execution.position_truth import (
     healthy_position_truth_verdict,
     reconcile_position_truth,
 )
+from src.execution.entry_admission import EntryAdmissionVerdict, evaluate_entry_admission
 from src.execution.recovery_engine import apply_recovery_actions, build_recovery_plan
 from src.execution.trade_management_engine import TradeManagementEngine
 from src.core.managers import (
@@ -508,6 +509,12 @@ class CoreOrchestrator:
             "block_exit_progression": False,
             "block_new_entries": False,
         }
+        self._latest_entry_admission_verdict: EntryAdmissionVerdict = EntryAdmissionVerdict(
+            entries_allowed=True,
+            hard_blocked=False,
+            reasons=[],
+            rationale="entries_allowed",
+        )
         self.trace_bus = TraceBus()
         self._last_intent_validation = {"ok": True, "before": 0, "after": 0, "dropped": 0}
         self._daily_loss_warning_date: Optional[str] = None
@@ -2258,6 +2265,46 @@ class CoreOrchestrator:
         )
         return verdict
 
+    @staticmethod
+    def _strict_health_gated_execution_enabled() -> bool:
+        raw = str(os.getenv("ALLOW_EXECUTION_WHEN_HEALTHY_ONLY", "true")).strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _log_entry_admission_verdict(verdict: EntryAdmissionVerdict) -> None:
+        for reason in verdict.reasons:
+            print(
+                "[EXECUTION][BLOCK_REASON] "
+                f"source={reason.source} reason={reason.reason_code} severity={reason.severity}"
+            )
+        print(
+            "[TRADING][STATUS] "
+            f"entries_allowed={str(verdict.entries_allowed).lower()} "
+            f"hard_blocked={str(verdict.hard_blocked).lower()} "
+            f"rationale={verdict.rationale}"
+        )
+
+    @staticmethod
+    def _apply_entry_admission_gate(
+        intents: list[TradeIntent],
+        *,
+        verdict: EntryAdmissionVerdict,
+        strict_enforcement: bool,
+    ) -> list[TradeIntent]:
+        if not strict_enforcement:
+            return intents
+        if verdict.entries_allowed:
+            return intents
+        if intents:
+            reason_codes = [reason.reason_code for reason in verdict.reasons] or ["ENTRY_ADMISSION_BLOCKED"]
+            for intent in intents:
+                for reason_code in reason_codes:
+                    print(
+                        f"[TRADE_PATH][EXECUTION] symbol={intent.symbol.upper()} "
+                        f"verdict=SKIPPED_MODE_OR_SESSION_POLICY reason={reason_code}"
+                    )
+        return []
+
     def attach_broker_position_from_recovery(self, *, symbol: str) -> None:
         snapshot = self._latest_position_truth_snapshot
         if snapshot is None:
@@ -2295,7 +2342,14 @@ class CoreOrchestrator:
         print(f"[RUNTIME] {mode_manager.describe()}")
         position_truth_verdict = self._resolve_position_truth_cycle(as_of=cycle_started_at)
         fill_verdict = self._resolve_fill_authority_cycle()
-        self._resolve_lifecycle_authority_cycle()
+        lifecycle_verdict = self._resolve_lifecycle_authority_cycle()
+        self._latest_entry_admission_verdict = evaluate_entry_admission(
+            run_mode=self.run_mode,
+            position_truth_verdict=position_truth_verdict,
+            fill_authority_verdict=fill_verdict,
+            lifecycle_authority_verdict=lifecycle_verdict,
+        )
+        self._log_entry_admission_verdict(self._latest_entry_admission_verdict)
         recovery_plan = build_recovery_plan(
             self._latest_position_truth_snapshot or empty_position_truth_snapshot(as_of=cycle_started_at),
             position_truth_verdict,
@@ -2864,6 +2918,11 @@ class CoreOrchestrator:
         gated_strategy_output = self._apply_position_truth_entry_guard(
             gated_strategy_output,
             position_truth_verdict,
+        )
+        gated_strategy_output = self._apply_entry_admission_gate(
+            gated_strategy_output,
+            verdict=self._latest_entry_admission_verdict,
+            strict_enforcement=self._strict_health_gated_execution_enabled(),
         )
         if (
             self._mock_scanner_mode_enabled()
