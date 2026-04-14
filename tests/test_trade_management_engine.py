@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
+import inspect
 
+from src.strategies.ross_momentum.exit_intelligence import ExitDecision
 from src.execution.trade_management_engine import TradeManagementEngine
 
 
@@ -113,3 +115,76 @@ def test_no_duplicate_exits_while_pending() -> None:
 
     assert len(first) == 1
     assert second == []
+
+
+def test_exit_decision_source_is_strategy_owned_component() -> None:
+    class StubExitIntelligence:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def evaluate(self, **_: object) -> ExitDecision:
+            self.calls += 1
+            return ExitDecision(action="EXIT_MARKET", reason="STOP_LOSS_HIT")
+
+    stub = StubExitIntelligence()
+    engine = TradeManagementEngine(exit_intelligence=stub)  # type: ignore[arg-type]
+    engine.on_exec_details(symbol="ABCD", shares=10, price=10.0, exec_id="E1")
+
+    intents = engine.evaluate_cycle({"ABCD": {"current_price": 10.1}})
+
+    assert stub.calls == 1
+    assert len(intents) == 1
+    assert intents[0].rationale == "STOP_LOSS_HIT"
+
+
+def test_move_stop_decision_updates_stop_without_order_intent() -> None:
+    class StubExitIntelligence:
+        def evaluate(self, **_: object) -> ExitDecision:
+            return ExitDecision(action="MOVE_STOP", reason="PROTECT_BREAK_EVEN", new_stop_price=10.0)
+
+    engine = TradeManagementEngine(exit_intelligence=StubExitIntelligence())  # type: ignore[arg-type]
+    engine.on_exec_details(symbol="ABCD", shares=10, price=10.0, exec_id="E1")
+    position = engine.snapshot_positions()["ABCD"]
+    position.stop_loss_price = 9.95
+
+    intents = engine.evaluate_cycle({"ABCD": {"current_price": 10.05}})
+
+    assert intents == []
+    assert engine.snapshot_positions()["ABCD"].stop_loss_price == 10.0
+
+
+def test_activate_trailing_decision_is_stateful_and_idempotent() -> None:
+    class StubExitIntelligence:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def evaluate(self, **_: object) -> ExitDecision:
+            self.calls += 1
+            return ExitDecision(action="ACTIVATE_TRAILING", reason="TRAILING_ARMED_AT_KEY_LEVEL")
+
+    stub = StubExitIntelligence()
+    engine = TradeManagementEngine(exit_intelligence=stub)  # type: ignore[arg-type]
+    engine.on_exec_details(symbol="ABCD", shares=10, price=10.0, exec_id="E1")
+
+    first = engine.evaluate_cycle({"ABCD": {"current_price": 10.2}})
+    second = engine.evaluate_cycle({"ABCD": {"current_price": 10.25}})
+
+    assert first == []
+    assert second == []
+    assert engine.snapshot_positions()["ABCD"].trailing_active is True
+
+
+def test_exit_intelligence_can_be_disabled_via_env(monkeypatch) -> None:
+    monkeypatch.setenv("TRADE_MGMT_EXIT_INTELLIGENCE_ENABLED", "0")
+    engine = _engine_with_position()
+
+    intents = engine.evaluate_cycle({"ABCD": {"current_price": 9.98}})
+
+    assert intents == []
+
+
+def test_generic_management_layer_does_not_embed_ross_threshold_rules() -> None:
+    source = inspect.getsource(TradeManagementEngine._evaluate_exit_rules)
+    assert "NO_IMMEDIATE_FOLLOW_THROUGH" not in source
+    assert "STALL_AT_LEVEL" not in source
+    assert "MOMENTUM_WEAKNESS" not in source

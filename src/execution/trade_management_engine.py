@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
+
+from src.strategies.ross_momentum.exit_intelligence import ExitDecision, RossExitIntelligence
 
 
 @dataclass
@@ -28,6 +31,7 @@ class PositionState:
     exit_stage: str = "NONE"  # NONE / PARTIAL / FINAL
     reference_order_id: str | None = None
     partial_taken: bool = False
+    trailing_active: bool = False
 
 
 @dataclass(frozen=True)
@@ -55,6 +59,7 @@ class TradeManagementEngine:
     def __init__(
         self,
         price_lookup: Callable[[str], float] | None = None,
+        exit_intelligence: RossExitIntelligence | None = None,
         *,
         quick_profit_threshold: float = 0.15,
         max_hold_time_seconds: int = 120,
@@ -75,6 +80,14 @@ class TradeManagementEngine:
         self._fast_failure_min_progress = float(fast_failure_min_progress)
         self._stall_candles_without_high = int(stall_candles_without_high)
         self._stall_rejections_threshold = int(stall_rejections_threshold)
+        self._exit_intelligence_enabled = os.getenv("TRADE_MGMT_EXIT_INTELLIGENCE_ENABLED", "1").lower() in {"1", "true", "yes", "on"}
+        self._exit_intelligence = exit_intelligence or RossExitIntelligence(
+            max_hold_time_seconds=self._max_hold_time_seconds,
+            fast_failure_seconds=self._fast_failure_seconds,
+            fast_failure_min_progress=self._fast_failure_min_progress,
+            stall_candles_without_high=self._stall_candles_without_high,
+            stall_rejections_threshold=self._stall_rejections_threshold,
+        )
 
     def on_exec_details(self, *, symbol: str, shares: int, price: float, exec_id: str | None) -> PositionState | None:
         normalized = str(symbol or "").upper()
@@ -198,59 +211,78 @@ class TradeManagementEngine:
                 position.stop_loss_price = max(position.stop_loss_price, position.last_trail_price)
 
     def _evaluate_exit_rules(self, position: PositionState, state: dict) -> TradeIntent | None:
-        # 1) STOP LOSS (highest priority)
-        if position.current_price <= position.stop_loss_price:
-            return self._emit_exit_intent(position, qty=position.quantity, rationale="STOP_LOSS_HIT", exit_type="STOP", stage="FINAL")
+        if not self._exit_intelligence_enabled:
+            print(f"[EXIT][SKIP] symbol={position.symbol} action=DISABLED reason=EXIT_INTELLIGENCE_DISABLED")
+            return None
+        decision = self._exit_intelligence.evaluate(
+            trade=position,
+            current_price=float(position.current_price),
+            current_volume=state.get("current_volume"),
+            time_in_trade_sec=float(position.holding_time_seconds),
+            market_state=state,
+        )
+        print(
+            "[EXIT][DECISION] "
+            f"symbol={position.symbol} action={decision.action} reason={decision.reason} "
+            f"price={position.current_price:.4f} hold_s={position.holding_time_seconds}"
+        )
+        return self._apply_exit_decision(position, decision)
 
-        # 2) TARGET HIT — Ross primary sell-into-strength behaviour
-        self._refresh_target_from_hod(position, state)
-        if position.current_price >= position.first_target_price:
-            qty = max(1, position.quantity // 2)
-            stage = "PARTIAL" if (not position.partial_taken and position.quantity > 1) else "FINAL"
-            if stage == "PARTIAL":
-                position.partial_taken = True
-                position.stop_loss_price = max(position.stop_loss_price, position.break_even_price)
-            else:
-                qty = position.quantity
-            return self._emit_exit_intent(position, qty=qty, rationale="TARGET_HIT", exit_type="TARGET", stage=stage)
-
-        # 3) FAST FAILURE — no immediate follow-through
-        profit_per_share = position.current_price - position.entry_price
-        if (
-            position.holding_time_seconds >= self._fast_failure_seconds
-            and profit_per_share <= self._fast_failure_min_progress
-        ):
+    def _apply_exit_decision(self, position: PositionState, decision: ExitDecision) -> TradeIntent | None:
+        action = str(decision.action or "HOLD").upper()
+        if action == "HOLD":
+            return None
+        if action == "EXIT_MARKET":
             return self._emit_exit_intent(
                 position,
                 qty=position.quantity,
-                rationale="NO_IMMEDIATE_FOLLOW_THROUGH",
-                exit_type="FAST_FAILURE",
+                rationale=decision.reason,
+                exit_type=self._exit_type_from_reason(decision.reason),
                 stage="FINAL",
             )
-
-        if position.partial_taken:
+        if action == "SCALE_OUT":
+            requested_qty = int(decision.scale_quantity or max(1, position.quantity // 2))
+            max_partial_qty = max(1, position.quantity - 1) if position.quantity > 1 else 1
+            qty = min(max(requested_qty, 1), max_partial_qty)
+            if qty >= position.quantity:
+                return self._emit_exit_intent(
+                    position,
+                    qty=position.quantity,
+                    rationale=decision.reason,
+                    exit_type=self._exit_type_from_reason(decision.reason),
+                    stage="FINAL",
+                )
+            position.partial_taken = True
             position.stop_loss_price = max(position.stop_loss_price, position.break_even_price)
-
-        # 4) WEAKNESS / STALL
-        no_new_high_candles = int(state.get("candles_since_new_high", 0) or 0)
-        rejection_count = int(state.get("rejection_count", 0) or 0)
-        if no_new_high_candles >= self._stall_candles_without_high or rejection_count >= self._stall_rejections_threshold:
-            return self._emit_exit_intent(position, qty=position.quantity, rationale="STALL_AT_LEVEL", exit_type="WEAKNESS", stage="FINAL")
-        weakness = bool(state.get("large_upper_wick", False)) or bool(state.get("stall_near_hod", False)) or bool(state.get("failed_new_high", False))
-        red_vs_green = float(state.get("red_volume_ratio", 0.0) or 0.0) > float(state.get("green_volume_ratio", 0.0) or 0.0)
-        if weakness or red_vs_green:
-            qty = position.quantity if position.partial_taken else max(1, position.quantity // 2)
-            stage = "FINAL" if qty >= position.quantity else "PARTIAL"
-            return self._emit_exit_intent(position, qty=qty, rationale="MOMENTUM_WEAKNESS", exit_type="WEAKNESS", stage=stage)
-
-        # 5) TRAILING STOP
-        if position.partial_taken and position.current_price < position.last_trail_price:
-            return self._emit_exit_intent(position, qty=position.quantity, rationale="TRAILING_STOP_BROKEN", exit_type="TRAIL", stage="FINAL")
-
-        # 6) TIME EXIT
-        if position.holding_time_seconds > self._max_hold_time_seconds:
-            return self._emit_exit_intent(position, qty=position.quantity, rationale="MAX_HOLD_TIME_EXCEEDED", exit_type="TIME", stage="FINAL")
-
+            return self._emit_exit_intent(
+                position,
+                qty=qty,
+                rationale=decision.reason,
+                exit_type=self._exit_type_from_reason(decision.reason),
+                stage="PARTIAL",
+            )
+        if action == "MOVE_STOP":
+            if decision.new_stop_price is None:
+                print(f"[EXIT][SKIP] symbol={position.symbol} action=MOVE_STOP reason=MISSING_NEW_STOP")
+                return None
+            candidate = float(decision.new_stop_price)
+            if candidate <= position.stop_loss_price:
+                print(
+                    f"[EXIT][SKIP] symbol={position.symbol} action=MOVE_STOP "
+                    f"reason=NON_PROTECTIVE candidate={candidate:.4f} current={position.stop_loss_price:.4f}"
+                )
+                return None
+            position.stop_loss_price = candidate
+            print(f"[EXIT][EXECUTE] symbol={position.symbol} action=MOVE_STOP stop={position.stop_loss_price:.4f} reason={decision.reason}")
+            return None
+        if action == "ACTIVATE_TRAILING":
+            if position.trailing_active:
+                print(f"[EXIT][SKIP] symbol={position.symbol} action=ACTIVATE_TRAILING reason=ALREADY_ACTIVE")
+                return None
+            position.trailing_active = True
+            print(f"[EXIT][EXECUTE] symbol={position.symbol} action=ACTIVATE_TRAILING reason={decision.reason}")
+            return None
+        print(f"[EXIT][SKIP] symbol={position.symbol} action={action} reason=UNSUPPORTED_ACTION")
         return None
 
     def _resolve_price(self, symbol: str, state: dict) -> float | None:
@@ -297,18 +329,17 @@ class TradeManagementEngine:
         return first_target, second_target, target_type
 
     @staticmethod
-    def _refresh_target_from_hod(position: PositionState, state: dict) -> None:
-        hod_price_raw = state.get("hod_price")
-        if hod_price_raw is None:
-            return
-        hod_price = float(hod_price_raw)
-        if hod_price <= position.entry_price:
-            return
-        if hod_price > position.first_target_price:
-            return
-        position.first_target_price = hod_price
-        position.second_target_price = hod_price + 0.5
-        position.target_type = "HOD"
+    def _exit_type_from_reason(rationale: str) -> str:
+        mapping = {
+            "STOP_LOSS_HIT": "STOP",
+            "TARGET_HIT": "TARGET",
+            "NO_IMMEDIATE_FOLLOW_THROUGH": "FAST_FAILURE",
+            "STALL_AT_LEVEL": "WEAKNESS",
+            "MOMENTUM_WEAKNESS": "WEAKNESS",
+            "TRAILING_STOP_BROKEN": "TRAIL",
+            "MAX_HOLD_TIME_EXCEEDED": "TIME",
+        }
+        return mapping.get(rationale, "RULE")
 
     @staticmethod
     def _log_exit_reason(symbol: str, rationale: str, qty: int) -> None:
