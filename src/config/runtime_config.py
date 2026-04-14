@@ -211,6 +211,14 @@ def get_intent_dedup_selftest_enabled(default: bool = False) -> bool:
     return bool(_with_default("INTENT_DEDUP_SELFTEST_ENABLED", default))
 
 
+def get_force_clean_start(default: bool = False) -> bool:
+    return bool(_with_default("FORCE_CLEAN_START", default))
+
+
+def get_clean_start_timeout_seconds(default: int = 120) -> int:
+    return int(_with_default("CLEAN_START_TIMEOUT_SECONDS", default))
+
+
 def get_ibkr_order_translation_enabled() -> bool:
     return get_execution_enabled() and bool(get_config("IBKR_ORDER_TRANSLATION_ENABLED"))
 
