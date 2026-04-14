@@ -77,7 +77,7 @@ _IBKR_POSITION_EVENTS_COUNT = 0
 OWNERSHIP_SYSTEM = "SYSTEM"
 OWNERSHIP_EXTERNAL = "EXTERNAL"
 _POSITION_OWNERSHIP_BY_SYMBOL: dict[str, str] = {}
-_TRADING_CONTROL_MODE = "SYSTEM_TRADING"
+_TRADING_CONTROL_MODE = "ISOLATED_TRADING"
 
 AUTHORITATIVE_EXECUTION_STATES = {
     "DISPATCH_INTENDED",
@@ -178,6 +178,34 @@ def set_trading_control_mode(mode: str) -> None:
 
 def get_trading_control_mode() -> str:
     return _TRADING_CONTROL_MODE
+
+
+def _bootstrap_trading_control_mode() -> None:
+    configured_mode = str(os.getenv("TRADING_CONTROL_MODE", "") or "").strip()
+    mode = configured_mode or "ISOLATED_TRADING"
+    set_trading_control_mode(mode)
+    source = "ENV" if configured_mode else "DEFAULT"
+    print(f"[EXECUTION][TRADING_CONTROL_MODE] mode={get_trading_control_mode()} source={source}")
+
+
+def _symbol_has_local_fill_history(symbol: str) -> bool:
+    normalized = str(symbol or "").upper().strip()
+    if not normalized:
+        return False
+    return any(
+        str(order.symbol or "").upper() == normalized and int(order.filled_qty or 0) != 0
+        for order in _RUNTIME_ORDERS.values()
+    )
+
+
+def _resolve_symbol_ownership(symbol: str) -> str:
+    normalized = str(symbol or "").upper().strip()
+    assigned = _POSITION_OWNERSHIP_BY_SYMBOL.get(normalized)
+    if assigned in {OWNERSHIP_SYSTEM, OWNERSHIP_EXTERNAL}:
+        return assigned
+    if _symbol_has_local_fill_history(normalized):
+        return OWNERSHIP_SYSTEM
+    return OWNERSHIP_EXTERNAL
 
 
 class ExecutionInvariantViolation(RuntimeError):
@@ -2032,7 +2060,12 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
                 f"symbol={symbol} local_qty={local_qty} expected_position={expected_position} broker_qty={ibkr_qty} verdict={verdict}"
             )
         else:
-            ownership = _POSITION_OWNERSHIP_BY_SYMBOL.get(symbol, OWNERSHIP_EXTERNAL)
+            if verdict == "BROKER_POSITION_WITHOUT_FILL" and symbol not in _POSITION_OWNERSHIP_BY_SYMBOL:
+                _POSITION_OWNERSHIP_BY_SYMBOL[symbol] = OWNERSHIP_EXTERNAL
+                print(
+                    f"[RECON][OWNERSHIP_ASSIGNED] symbol={symbol} ownership=EXTERNAL reason=no_local_fill_history"
+                )
+            ownership = _resolve_symbol_ownership(symbol)
 
             is_external_inventory = (
                 get_trading_control_mode() == "ISOLATED_TRADING"
@@ -3141,6 +3174,7 @@ def execute_intents(
     decisions: List[RiskDecisionRecord],
 ) -> List[ExecutionEvent]:
     global _FILL_AUTHORITY_STATE, _EXECUTION_CYCLE_COUNTER, _CIRCUIT_BREAKER_ACTIVE
+    _bootstrap_trading_control_mode()
     _FILL_AUTHORITY_STATE = "UNKNOWN"
     if _is_explicit_test_mode():
         _CIRCUIT_BREAKER_ACTIVE = False
@@ -3230,6 +3264,19 @@ def execute_intents(
     allow_pyramiding = _config_bool("ALLOW_PYRAMIDING", True)
     max_position_size = max(1, _config_int("MAX_POSITION_SIZE", 3))
     max_open_positions = max(1, _config_int("MAX_OPEN_POSITIONS", 5))
+    open_position_symbols = {
+        symbol for symbol, qty in existing_position_qty_by_symbol.items() if float(qty or 0.0) > 0.0
+    }
+    system_position_symbols = {
+        symbol for symbol in open_position_symbols if _resolve_symbol_ownership(symbol) == OWNERSHIP_SYSTEM
+    }
+    external_position_symbols = open_position_symbols - system_position_symbols
+    print(
+        "[EXECUTION][BLOCK_CHECK] "
+        f"total_positions={len(open_position_symbols)} "
+        f"system_positions={len(system_position_symbols)} "
+        f"external_positions={len(external_position_symbols)}"
+    )
     for index, decision in enumerate(decisions, start=1):
         intents_received += 1
         execution_attempted = False
@@ -3334,9 +3381,33 @@ def execute_intents(
                 )
             )
             continue
-        system_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
-        external_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
-        effective_position_qty = max(system_qty, external_qty)
+        symbol_ownership = _resolve_symbol_ownership(duplicate_symbol)
+        broker_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
+        system_qty = broker_qty if symbol_ownership == OWNERSHIP_SYSTEM else 0.0
+        external_qty = broker_qty if symbol_ownership == OWNERSHIP_EXTERNAL else 0.0
+        effective_position_qty = system_qty
+        if is_exit_order and symbol_ownership == OWNERSHIP_EXTERNAL and abs(external_qty) > 0:
+            blocked_reason = "EXTERNAL_POSITION_READ_ONLY"
+            blocked_pre_submit += 1
+            print(
+                f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason} "
+                "detail=external_positions_are_read_only"
+            )
+            _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
+            truth.rejection_reason = blocked_reason
+            _mark_execution_failure(trace, "ORDER_REJECTED", reason="external_position_read_only")
+            events.append(
+                ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail=f"reason={blocked_reason}",
+                    event_type="ORDER_REJECTED",
+                    broker_status="REJECTED",
+                    last_update_time=_now_utc_iso(),
+                )
+            )
+            continue
         has_intent_mismatch_override = any(
             str(existing.symbol or "").upper() == duplicate_symbol
             and int(existing.filled_qty or 0) > 0
@@ -3345,17 +3416,21 @@ def execute_intents(
             for existing in _RUNTIME_ORDERS.values()
         )
         treated_as_flat = effective_position_qty <= 0
-        position_source = "IBKR_EXTERNAL"
+        position_source = "SYSTEM" if symbol_ownership == OWNERSHIP_SYSTEM else "IBKR_EXTERNAL"
         print(
             f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} local_qty={system_qty} broker_qty={external_qty} "
             f"effective_qty={effective_position_qty} source={position_source} treated_as_flat={str(treated_as_flat).lower()} "
             f"intent_mismatch_override={str(has_intent_mismatch_override).lower()}"
         )
-        current_open_positions = sum(1 for qty in existing_position_qty_by_symbol.values() if float(qty or 0.0) > 0.0)
+        current_open_positions = len(system_position_symbols)
         if (not is_exit_order) and order_side == "BUY" and treated_as_flat and current_open_positions >= max_open_positions:
             blocked_reason = "MAX_OPEN_POSITIONS"
             blocked_pre_submit += 1
-            print(f"[RISK][POSITION_LIMIT] symbol={duplicate_symbol} open_positions={current_open_positions} max_open_positions={max_open_positions}")
+            print(
+                "[RISK][POSITION_LIMIT] "
+                f"symbol={duplicate_symbol} open_positions={current_open_positions} max_open_positions={max_open_positions} "
+                f"total_positions={len(open_position_symbols)} external_positions={len(external_position_symbols)}"
+            )
             print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
             _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
             truth.rejection_reason = blocked_reason
@@ -3372,6 +3447,15 @@ def execute_intents(
                 )
             )
             continue
+        if (
+            (not is_exit_order)
+            and order_side == "BUY"
+            and treated_as_flat
+            and quantity > 0
+            and duplicate_symbol not in system_position_symbols
+        ):
+            system_position_symbols.add(duplicate_symbol)
+            open_position_symbols.add(duplicate_symbol)
         if (not is_exit_order) and order_side == "BUY" and not treated_as_flat and not has_intent_mismatch_override:
             proposed_qty = effective_position_qty + float(quantity)
             if not allow_pyramiding:

@@ -273,3 +273,52 @@ def test_external_inventory_is_non_fatal_in_isolated_trading_mode(capsys) -> Non
     assert order_router._RECONCILED_POSITIONS_MISMATCH == 0
     assert order_router._BROKER_POSITION_WITHOUT_FILL_COUNT == 0
     assert order_router._RECON_RESYNC_NEEDED is False
+
+
+def test_reconciliation_auto_assigns_external_ownership(capsys) -> None:
+    _reset_state()
+    order_router.set_trading_control_mode("ISOLATED_TRADING")
+
+    positions = [type("Pos", (), {"symbol": "EXT", "position": 4, "avgCost": 20.0})()]
+    order_router._run_passive_position_reconciliation(positions=positions)
+    out = capsys.readouterr().out
+
+    assert order_router._POSITION_OWNERSHIP_BY_SYMBOL["EXT"] == order_router.OWNERSHIP_EXTERNAL
+    assert "[RECON][OWNERSHIP_ASSIGNED] symbol=EXT ownership=EXTERNAL reason=no_local_fill_history" in out
+
+
+def test_max_open_positions_uses_system_inventory_only(monkeypatch, capsys) -> None:
+    _reset_state()
+    monkeypatch.setattr(order_router, "_fetch_ibkr_truth", lambda _mode: ([], [], [type("Pos", (), {"symbol": "EXT", "position": 2, "avgCost": 10.0})()]))
+    monkeypatch.setattr(order_router, "_post_submission_ibkr_diagnostics", lambda **_: None)
+    monkeypatch.setattr(order_router, "_strict_broker_truth_required", lambda _mode: False)
+    monkeypatch.setattr(order_router, "_ensure_submission_allowed", lambda **_: True)
+    monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda _symbol: {"bid": 10.0, "ask": 10.1, "last": 10.05, "volume": 1_000_000})
+    monkeypatch.setenv("MAX_OPEN_POSITIONS", "1")
+    monkeypatch.setenv("ALLOW_PYRAMIDING", "true")
+    monkeypatch.setenv("TRADING_CONTROL_MODE", "ISOLATED_TRADING")
+
+    decision = order_router.RiskDecisionRecord(
+        symbol="NEW",
+        intent_id="NEW-1",
+        decision="ALLOW",
+        max_position_size=1,
+        constraints=[],
+        triggered_rules=[],
+        rationale="ok",
+        approved_quantity=1,
+        available_funds=10_000.0,
+        order_value=10.0,
+        risk_allowed=True,
+        entry_price=10.0,
+    )
+    setattr(decision, "side", "LONG")
+    setattr(decision, "action", "ENTER")
+    setattr(decision, "strategy_name", "TEST")
+    events = order_router.execute_intents(mode=order_router.RunMode.READ_ONLY, decisions=[decision])
+    out = capsys.readouterr().out
+
+    assert "system_positions=0" in out
+    assert "external_positions=1" in out
+    assert "[EXECUTION][BLOCK] symbol=NEW reason=MAX_OPEN_POSITIONS" not in out
+    assert any(event.action == "WOULD_PLACE" for event in events)
