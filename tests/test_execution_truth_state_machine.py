@@ -50,6 +50,7 @@ def test_execution_truth_invalid_transition_is_rejected() -> None:
 
 
 def test_duplicate_open_position_blocks_at_final_boundary(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("ALLOW_PYRAMIDING", "false")
     order_router._RUNTIME_POSITIONS.clear()
     order_router._RUNTIME_POSITIONS["DUPX"] = order_router.TrackedPosition(symbol="DUPX", qty=100, state="POSITION_OPEN")
     monkeypatch.setattr(order_router, "_fetch_ibkr_truth", lambda _mode: ([], [SimpleNamespace()], [SimpleNamespace(symbol="DUPX", position=100)]))

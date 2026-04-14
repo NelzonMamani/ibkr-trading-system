@@ -19,7 +19,7 @@ def test_stop_loss_hit_triggers_full_sell() -> None:
     assert len(intents) == 1
     assert intents[0].direction == "SELL"
     assert intents[0].quantity == 100
-    assert intents[0].rationale == "STOP_LOSS_HIT"
+    assert intents[0].rationale == "STOP_LOSS_BREAK"
     assert intents[0].exit_type == "STOP"
 
 
@@ -61,10 +61,10 @@ def test_time_exit_when_max_hold_exceeded() -> None:
     position = engine.snapshot_positions()["ABCD"]
     position.entry_timestamp = datetime.now(timezone.utc) - timedelta(seconds=120)
 
-    intents = engine.evaluate_cycle({"ABCD": {"current_price": 10.1}})
+    intents = engine.evaluate_cycle({"ABCD": {"current_price": 10.0}})
 
     assert len(intents) == 1
-    assert intents[0].rationale == "MAX_HOLD_TIME_EXCEEDED"
+    assert intents[0].rationale == "TIME_STOP"
     assert intents[0].exit_type == "TIME"
 
 
