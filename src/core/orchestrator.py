@@ -2036,31 +2036,108 @@ class CoreOrchestrator:
         cents = float(price) % 1
         return abs(cents - 0.0) < 0.02 or abs(cents - 0.5) < 0.02
 
+    def _get_trade_management_recent_candles(self, symbol: str, lookback: int) -> list:
+        client = self.connection_manager.optional_client
+        if client is None:
+            return []
+        try:
+            bars = client.daily_bars_from_history(symbol, lookback_days=max(int(lookback), 2), use_rth=False)
+        except Exception as exc:
+            print(f"[DATA][MISSING_CANDLE_DATA] symbol={symbol} reason={exc}")
+            return []
+        return list(bars or [])
+
     def _build_trade_management_market_state(self) -> dict[str, dict]:
         market_state: dict[str, dict] = {}
         for symbol in sorted(self.trade_management_engine.snapshot_positions().keys()):
-            try:
-                price = float(self.price_feed.get_price(symbol))
-            except Exception:
+            recent_candles = self._get_trade_management_recent_candles(symbol, lookback=6)
+            if len(recent_candles) < 2:
+                print(f"[DATA][MISSING_CANDLE_DATA] symbol={symbol} reason=insufficient_candles count={len(recent_candles)}")
                 continue
-            near_key_level = self._is_near_whole_or_half_dollar(price)
+
+            latest_candle = recent_candles[-1]
+            previous_candle = recent_candles[-2]
+
+            try:
+                open_price = float(getattr(latest_candle, "open"))
+                high_price = float(getattr(latest_candle, "high"))
+                low_price = float(getattr(latest_candle, "low"))
+                close_price = float(getattr(latest_candle, "close"))
+                current_volume = float(getattr(latest_candle, "volume"))
+                previous_close = float(getattr(previous_candle, "close"))
+            except (TypeError, ValueError, AttributeError) as exc:
+                print(f"[DATA][MISSING_CANDLE_DATA] symbol={symbol} reason=invalid_candle_fields error={exc}")
+                continue
+
+            candle_range = high_price - low_price
+            if candle_range <= 0:
+                print(f"[DATA][MISSING_CANDLE_DATA] symbol={symbol} reason=invalid_range range={candle_range}")
+                continue
+
+            body = abs(close_price - open_price)
+            upper_wick = high_price - max(open_price, close_price)
+            lower_wick = min(open_price, close_price) - low_price
+            continuation = close_price > previous_close
+            is_green = close_price > open_price
+            near_key_level = self._is_near_whole_or_half_dollar(close_price)
+
+            volume_sample = [float(getattr(bar, "volume", 0.0) or 0.0) for bar in recent_candles[-5:]]
+            rolling_avg_volume = (
+                sum(volume_sample) / len(volume_sample)
+                if volume_sample
+                else None
+            )
+            recent_green_volume = [
+                float(getattr(bar, "volume", 0.0) or 0.0)
+                for bar in recent_candles[-5:]
+                if float(getattr(bar, "close", 0.0) or 0.0) > float(getattr(bar, "open", 0.0) or 0.0)
+            ]
+            recent_red_volume = [
+                float(getattr(bar, "volume", 0.0) or 0.0)
+                for bar in recent_candles[-5:]
+                if float(getattr(bar, "close", 0.0) or 0.0) < float(getattr(bar, "open", 0.0) or 0.0)
+            ]
+
+            green_volume = current_volume if is_green else 0.0
+            red_volume = current_volume if not is_green else 0.0
+            if rolling_avg_volume is not None and rolling_avg_volume > 0:
+                green_volume_ratio = green_volume / rolling_avg_volume
+                red_volume_ratio = red_volume / rolling_avg_volume
+            else:
+                green_volume_ratio = 0.0
+                red_volume_ratio = 0.0
+
             market_state[symbol] = {
-                "current_price": float(price),
-                "green_volume_ratio": 1.0,
-                "red_volume_ratio": 1.0,
-                "green_volume": 1.0,
-                "red_volume": 1.0,
-                "recent_green_volume": [1.0, 1.0, 1.0],
+                "open": open_price,
+                "high": high_price,
+                "low": low_price,
+                "close": close_price,
+                "current_price": close_price,
+                "current_volume": current_volume,
+                "rolling_avg_volume": rolling_avg_volume,
+                "body": body,
+                "candle_range": candle_range,
+                "upper_wick": upper_wick,
+                "lower_wick": lower_wick,
+                "continuation": continuation,
+                "no_continuation": not continuation,
+                "green_volume": green_volume,
+                "red_volume": red_volume,
+                "green_volume_ratio": green_volume_ratio,
+                "red_volume_ratio": red_volume_ratio,
+                "recent_green_volume": recent_green_volume,
+                "recent_red_volume": recent_red_volume,
                 "structure_intact": True,
                 "near_resistance": near_key_level,
                 "key_level_hit": near_key_level,
-                "last_higher_low": float(price) * 0.995,
-                "pullback_low": float(price) * 0.995,
-                "candle_range": 0.02,
-                "upper_wick": 0.005,
-                "continuation": True,
+                "last_higher_low": low_price,
+                "pullback_low": low_price,
                 "no_progress": False,
             }
+            print(
+                "[DATA][MARKET_STATE_READY] "
+                f"symbol={symbol} range={candle_range:.6f} upper_wick={upper_wick:.6f} volume={current_volume:.2f}"
+            )
         return market_state
 
     def _apply_execution_results_to_trade_management(self, execution_output: list[ExecutionResult]) -> None:
