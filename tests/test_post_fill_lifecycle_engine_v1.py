@@ -12,6 +12,7 @@ class _ProviderStub:
         self.stop_calls: list[dict] = []
         self.target_calls: list[dict] = []
         self.modify_calls: list[dict] = []
+        self.cancel_calls: list[dict] = []
 
     def place_stop_order(self, **kwargs):
         self.stop_calls.append(dict(kwargs))
@@ -24,6 +25,10 @@ class _ProviderStub:
     def modify_stop_order(self, **kwargs):
         self.modify_calls.append(dict(kwargs))
         return {"broker_order_id": kwargs["broker_order_id"], "status": "Submitted"}
+
+    def cancel_order(self, **kwargs):
+        self.cancel_calls.append(dict(kwargs))
+        return {"broker_order_id": kwargs["broker_order_id"], "status": "Cancelled"}
 
 
 def test_fill_installs_stop_and_target_in_paper_mode() -> None:
@@ -105,9 +110,12 @@ def test_exit_is_driven_from_broker_callback() -> None:
     assert callback_result["handled"] is True
     assert callback_result["exit_reason"] == "STOP_FILLED"
     assert callback_result["cancel_order_id"] == "TGT-1"
+    assert provider.cancel_calls == [{"broker_order_id": "TGT-1"}]
     trade = engine.get_trade("T-4")
     assert trade is not None
     assert trade.state == PositionLifecycleState.EXITED
+    assert trade.target is not None
+    assert trade.target.status == "CANCELLED"
 
 
 def test_startup_recovery_marks_protected_and_pending() -> None:
@@ -122,6 +130,27 @@ def test_startup_recovery_marks_protected_and_pending() -> None:
     recovered = engine.get_trade("recovery:AMD")
     assert recovered is not None
     assert recovered.state == PositionLifecycleState.RECOVERED
+
+
+def test_reconciliation_detects_missing_stop_and_repairs() -> None:
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-5",
+        symbol="AAPL",
+        side="LONG",
+        filled_qty=1,
+        avg_fill_price=100.0,
+        strategy_id="S5",
+    )
+    trade = engine.get_trade("T-5")
+    assert trade is not None
+    trade.stop.broker_order_id = "STOP-MISSING"
+    trade.target.broker_order_id = "TGT-OPEN"
+    summary = engine.reconcile_orders([{"orderId": "TGT-OPEN", "status": "Submitted"}], repair=True)
+    assert any(f["issue"] == "MISSING_STOP" for f in summary["findings"])
+    assert summary["repaired"] == 1
+    assert len(provider.stop_calls) == 2
 
 
 def test_lifecycle_payload_is_serializable_for_audit() -> None:
