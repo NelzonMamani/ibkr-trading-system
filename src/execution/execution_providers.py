@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import List, Optional, Protocol, runtime_checkable, TYPE_CHECKING
+from typing import Any, List, Optional, Protocol, runtime_checkable, TYPE_CHECKING
 
 from src.brokers.base_broker import BrokerOrderRequest
 from src.brokers.sim_broker import SimBroker
@@ -56,6 +56,42 @@ class ExecutionProvider(Protocol):
     def get_open_orders(self) -> List[OrderSnapshot]:
         ...
 
+    def place_stop_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: int,
+        stop_price: float,
+        trade_id: str,
+        parent_order_id: str | None = None,
+    ) -> dict[str, Any]:
+        ...
+
+    def place_target_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: int,
+        limit_price: float,
+        trade_id: str,
+        parent_order_id: str | None = None,
+    ) -> dict[str, Any]:
+        ...
+
+    def modify_stop_order(
+        self,
+        *,
+        broker_order_id: str,
+        symbol: str,
+        side: str,
+        quantity: int,
+        new_stop_price: float,
+        trade_id: str,
+    ) -> dict[str, Any]:
+        ...
+
 
 @dataclass
 class PaperExecutionProvider(ExecutionProvider):
@@ -64,6 +100,7 @@ class PaperExecutionProvider(ExecutionProvider):
     event_collector: EventCollector
     run_mode: RunMode = RunMode.PAPER
     broker: Optional[SimBroker] = None
+    _protective_seq: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.broker is None:
@@ -97,6 +134,70 @@ class PaperExecutionProvider(ExecutionProvider):
 
     def get_open_orders(self) -> List[OrderSnapshot]:
         return []
+
+    def _next_protective_id(self, prefix: str) -> str:
+        self._protective_seq += 1
+        return f"{prefix}-{self._protective_seq}"
+
+    def place_stop_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: int,
+        stop_price: float,
+        trade_id: str,
+        parent_order_id: str | None = None,
+    ) -> dict[str, Any]:
+        order_id = self._next_protective_id("PAPER-STP")
+        print(
+            "[IBKR][ORDER_SUBMITTED] "
+            f"type=STP mode=PAPER order_id={order_id} trade_id={trade_id} symbol={symbol} qty={quantity} stop={stop_price:.4f}"
+        )
+        return {
+            "broker_order_id": order_id,
+            "status": "Submitted",
+            "order_type": "STP",
+            "parent_order_id": parent_order_id,
+        }
+
+    def place_target_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: int,
+        limit_price: float,
+        trade_id: str,
+        parent_order_id: str | None = None,
+    ) -> dict[str, Any]:
+        order_id = self._next_protective_id("PAPER-LMT")
+        print(
+            "[IBKR][ORDER_SUBMITTED] "
+            f"type=LMT mode=PAPER order_id={order_id} trade_id={trade_id} symbol={symbol} qty={quantity} limit={limit_price:.4f}"
+        )
+        return {
+            "broker_order_id": order_id,
+            "status": "Submitted",
+            "order_type": "LMT",
+            "parent_order_id": parent_order_id,
+        }
+
+    def modify_stop_order(
+        self,
+        *,
+        broker_order_id: str,
+        symbol: str,
+        side: str,
+        quantity: int,
+        new_stop_price: float,
+        trade_id: str,
+    ) -> dict[str, Any]:
+        print(
+            "[IBKR][ORDER_MODIFIED] "
+            f"mode=PAPER order_id={broker_order_id} trade_id={trade_id} symbol={symbol} qty={quantity} stop={new_stop_price:.4f}"
+        )
+        return {"broker_order_id": broker_order_id, "status": "Submitted", "order_type": "STP"}
 
 
 @dataclass
@@ -147,3 +248,66 @@ class IbkrExecutionProvider(ExecutionProvider):
 
     def get_open_orders(self) -> List[OrderSnapshot]:
         return []
+
+    def place_stop_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: int,
+        stop_price: float,
+        trade_id: str,
+        parent_order_id: str | None = None,
+    ) -> dict[str, Any]:
+        if self.run_mode == RunMode.READ_ONLY:
+            raise RuntimeError("READ_ONLY_NO_ORDER_MUTATION")
+        return self.broker.place_stop_order(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            stop_price=stop_price,
+            trade_id=trade_id,
+            parent_order_id=parent_order_id,
+        )
+
+    def place_target_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: int,
+        limit_price: float,
+        trade_id: str,
+        parent_order_id: str | None = None,
+    ) -> dict[str, Any]:
+        if self.run_mode == RunMode.READ_ONLY:
+            raise RuntimeError("READ_ONLY_NO_ORDER_MUTATION")
+        return self.broker.place_target_order(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            limit_price=limit_price,
+            trade_id=trade_id,
+            parent_order_id=parent_order_id,
+        )
+
+    def modify_stop_order(
+        self,
+        *,
+        broker_order_id: str,
+        symbol: str,
+        side: str,
+        quantity: int,
+        new_stop_price: float,
+        trade_id: str,
+    ) -> dict[str, Any]:
+        if self.run_mode == RunMode.READ_ONLY:
+            raise RuntimeError("READ_ONLY_NO_ORDER_MUTATION")
+        return self.broker.modify_stop_order(
+            broker_order_id=broker_order_id,
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            new_stop_price=new_stop_price,
+            trade_id=trade_id,
+        )

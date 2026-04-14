@@ -5,6 +5,13 @@ from datetime import datetime, timezone
 from uuid import uuid4
 from typing import Optional
 
+try:
+    from ibapi.contract import Contract
+    from ibapi.order import Order
+except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
+    Contract = None  # type: ignore
+    Order = None  # type: ignore
+
 from src.adapters.brokers.ibkr.ibkr_order_submitter import (
     IbkrOrderSubmitter,
     OrderSubmissionSettings,
@@ -435,3 +442,126 @@ class IbkrLiveBroker(BaseBroker):
 
     def replace_order(self, client_order_id: str, new_request: BrokerOrderRequest) -> None:
         raise RuntimeError("Live order replace not implemented in LIVE mode.")
+
+    def _submit_protective_order(
+        self,
+        *,
+        symbol: str,
+        action: str,
+        quantity: int,
+        order_type: str,
+        stop_price: float | None,
+        limit_price: float | None,
+        trade_id: str,
+        parent_order_id: str | None,
+    ) -> dict[str, str]:
+        if Contract is None or Order is None:
+            raise RuntimeError("ibapi dependency missing; protective order unavailable")
+        self.ensure_connection()
+        assert self.connection_manager is not None
+        client = self.connection_manager.get_client()
+        contract = Contract()
+        contract.symbol = str(symbol).upper()
+        contract.exchange = get_ibkr_default_exchange()
+        contract.currency = get_ibkr_default_currency()
+        contract.secType = "STK"
+
+        order = Order()
+        order.action = str(action).upper()
+        order.totalQuantity = int(quantity)
+        order.orderType = str(order_type).upper()
+        order.tif = "GTC"
+        order.outsideRth = True
+        if stop_price is not None:
+            order.auxPrice = float(stop_price)
+        if limit_price is not None:
+            order.lmtPrice = float(limit_price)
+        if parent_order_id is not None:
+            order.parentId = int(parent_order_id)
+        order.transmit = True
+        order.orderRef = f"PROTECT|{trade_id}"
+        broker_order_id = client.submit_order(contract, order)
+        print(
+            "[IBKR][ORDER_SUBMITTED] "
+            f"type={order.orderType} order_id={broker_order_id} trade_id={trade_id} symbol={symbol} "
+            f"parent_id={parent_order_id or 'NONE'} transmit={getattr(order, 'transmit', None)}"
+        )
+        return {"broker_order_id": str(broker_order_id), "status": "Submitted"}
+
+    def place_stop_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: int,
+        stop_price: float,
+        trade_id: str,
+        parent_order_id: str | None = None,
+    ) -> dict[str, str]:
+        return self._submit_protective_order(
+            symbol=symbol,
+            action=side,
+            quantity=quantity,
+            order_type="STP",
+            stop_price=stop_price,
+            limit_price=None,
+            trade_id=trade_id,
+            parent_order_id=parent_order_id,
+        )
+
+    def place_target_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: int,
+        limit_price: float,
+        trade_id: str,
+        parent_order_id: str | None = None,
+    ) -> dict[str, str]:
+        return self._submit_protective_order(
+            symbol=symbol,
+            action=side,
+            quantity=quantity,
+            order_type="LMT",
+            stop_price=None,
+            limit_price=limit_price,
+            trade_id=trade_id,
+            parent_order_id=parent_order_id,
+        )
+
+    def modify_stop_order(
+        self,
+        *,
+        broker_order_id: str,
+        symbol: str,
+        side: str,
+        quantity: int,
+        new_stop_price: float,
+        trade_id: str,
+    ) -> dict[str, str]:
+        if Contract is None or Order is None:
+            raise RuntimeError("ibapi dependency missing; stop modification unavailable")
+        self.ensure_connection()
+        assert self.connection_manager is not None
+        client = self.connection_manager.get_client()
+        contract = Contract()
+        contract.symbol = str(symbol).upper()
+        contract.exchange = get_ibkr_default_exchange()
+        contract.currency = get_ibkr_default_currency()
+        contract.secType = "STK"
+        order = Order()
+        order.action = str(side).upper()
+        order.totalQuantity = int(quantity)
+        order.orderType = "STP"
+        order.auxPrice = float(new_stop_price)
+        order.tif = "GTC"
+        order.outsideRth = True
+        order.transmit = True
+        order.orderRef = f"PROTECT|{trade_id}"
+        client.placeOrder(int(broker_order_id), contract, order)
+        print(
+            "[IBKR][ORDER_MODIFIED] "
+            f"order_id={broker_order_id} trade_id={trade_id} symbol={symbol} stop={new_stop_price:.4f}"
+        )
+        return {"broker_order_id": str(broker_order_id), "status": "Submitted"}

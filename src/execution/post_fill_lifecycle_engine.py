@@ -103,9 +103,10 @@ _ALLOWED_TRANSITIONS: dict[PositionLifecycleState, set[PositionLifecycleState]] 
 
 
 class PostFillLifecycleEngine:
-    def __init__(self, run_mode: str, policy: LifecyclePolicy | None = None) -> None:
+    def __init__(self, run_mode: str, policy: LifecyclePolicy | None = None, execution_provider: Any | None = None) -> None:
         self.run_mode = str(run_mode or "SIM").upper()
         self.policy = policy or LifecyclePolicy()
+        self.execution_provider = execution_provider
         self._trades: dict[str, ManagedTradeLifecycle] = {}
 
     @staticmethod
@@ -194,8 +195,8 @@ class PostFillLifecycleEngine:
             self._transition(trade, PositionLifecycleState.PROTECTION_PENDING, f"install_attempt_{attempt}")
             try:
                 stop, target = self._compute_stop_target(avg_fill_price=float(avg_fill_price), side=side)
-                trade.stop = ProtectionOrderMeta(order_type="STOP", side="SELL", trigger_price=stop)
-                trade.target = ProtectionOrderMeta(order_type="LIMIT", side="SELL", trigger_price=target)
+                trade.stop = ProtectionOrderMeta(order_type="STOP", side="SELL", trigger_price=stop, status="PENDING_SUBMIT")
+                trade.target = ProtectionOrderMeta(order_type="LIMIT", side="SELL", trigger_price=target, status="PENDING_SUBMIT")
                 print(
                     "[LIFECYCLE][ORDER_INSTALL][STOP] "
                     f"trade_id={trade.trade_id} symbol={trade.symbol} stop={stop:.4f}"
@@ -208,6 +209,30 @@ class PostFillLifecycleEngine:
                     "[LIFECYCLE][ORDER_LINKAGE] "
                     f"trade_id={trade.trade_id} symbol={trade.symbol} entry_order_id={trade.trade_id}"
                 )
+                if self.execution_provider is not None and self.run_mode in {"PAPER", "LIVE"}:
+                    stop_result = self.execution_provider.place_stop_order(
+                        symbol=trade.symbol,
+                        side=trade.stop.side,
+                        quantity=trade.filled_qty,
+                        stop_price=trade.stop.trigger_price,
+                        trade_id=trade.trade_id,
+                        parent_order_id=trade.trade_id,
+                    )
+                    target_result = self.execution_provider.place_target_order(
+                        symbol=trade.symbol,
+                        side=trade.target.side,
+                        quantity=trade.filled_qty,
+                        limit_price=trade.target.trigger_price,
+                        trade_id=trade.trade_id,
+                        parent_order_id=trade.trade_id,
+                    )
+                    trade.stop.broker_order_id = str(stop_result.get("broker_order_id"))
+                    trade.target.broker_order_id = str(target_result.get("broker_order_id"))
+                    trade.stop.status = str(stop_result.get("status") or "Submitted")
+                    trade.target.status = str(target_result.get("status") or "Submitted")
+                else:
+                    trade.stop.status = "REGISTERED"
+                    trade.target.status = "REGISTERED"
                 self._transition(trade, PositionLifecycleState.PROTECTED, "stop_installed")
                 self._transition(trade, PositionLifecycleState.TARGET_ACTIVE, "target_registered")
                 self._transition(trade, PositionLifecycleState.TRAILING_ELIGIBLE, "baseline_trailing_ready")
@@ -278,7 +303,67 @@ class PostFillLifecycleEngine:
         trade.stop.trigger_price = candidate
         trade.last_update_ts = self._ts()
         print(f"[TRAIL][UPDATE] trade_id={trade.trade_id} new_stop={candidate:.4f} high_water={trade.high_water_mark:.4f}")
+        if (
+            self.execution_provider is not None
+            and self.run_mode in {"PAPER", "LIVE"}
+            and trade.stop.broker_order_id
+        ):
+            self.execution_provider.modify_stop_order(
+                broker_order_id=trade.stop.broker_order_id,
+                symbol=trade.symbol,
+                side=trade.stop.side,
+                quantity=trade.filled_qty,
+                new_stop_price=trade.stop.trigger_price,
+                trade_id=trade.trade_id,
+            )
         return {"updated": True, "stop_price": trade.stop.trigger_price, "state": trade.state.value}
+
+    def handle_broker_callback(self, payload: dict[str, Any]) -> dict[str, Any]:
+        event_type = str(payload.get("event_type", "") or "").lower()
+        if event_type not in {"execdetails", "orderstatus"}:
+            return {"handled": False, "reason": "unsupported_event"}
+        order_id = str(payload.get("order_id") or payload.get("orderId") or "").strip()
+        status = str(payload.get("status", "") or "").upper()
+        if not order_id:
+            return {"handled": False, "reason": "missing_order_id"}
+
+        for trade in self._trades.values():
+            stop = trade.stop
+            target = trade.target
+            if stop and str(stop.broker_order_id or "") == order_id:
+                if event_type == "orderstatus" and status:
+                    stop.status = status
+                if event_type == "execdetails" or status == "FILLED":
+                    print(f"[IBKR][EXEC_DETAILS] trade_id={trade.trade_id} symbol={trade.symbol} exit_leg=STOP")
+                    self.mark_exit_pending(trade.trade_id, "stop_fill_broker")
+                    self.mark_exited(trade.trade_id, "stop_fill_broker")
+                    if target:
+                        target.status = "CANCEL_PENDING"
+                    return {
+                        "handled": True,
+                        "trade_id": trade.trade_id,
+                        "exit_reason": "STOP_FILLED",
+                        "cancel_order_id": target.broker_order_id if target else None,
+                    }
+                return {"handled": True, "trade_id": trade.trade_id, "leg": "STOP", "status": stop.status}
+
+            if target and str(target.broker_order_id or "") == order_id:
+                if event_type == "orderstatus" and status:
+                    target.status = status
+                if event_type == "execdetails" or status == "FILLED":
+                    print(f"[IBKR][EXEC_DETAILS] trade_id={trade.trade_id} symbol={trade.symbol} exit_leg=TARGET")
+                    self.mark_exit_pending(trade.trade_id, "target_fill_broker")
+                    self.mark_exited(trade.trade_id, "target_fill_broker")
+                    if stop:
+                        stop.status = "CANCEL_PENDING"
+                    return {
+                        "handled": True,
+                        "trade_id": trade.trade_id,
+                        "exit_reason": "TARGET_FILLED",
+                        "cancel_order_id": stop.broker_order_id if stop else None,
+                    }
+                return {"handled": True, "trade_id": trade.trade_id, "leg": "TARGET", "status": target.status}
+        return {"handled": False, "reason": "order_not_mapped"}
 
     def mark_exit_pending(self, trade_id: str, reason: str) -> None:
         trade = self._trades.get(str(trade_id))

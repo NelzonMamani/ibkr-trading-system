@@ -7,8 +7,28 @@ from src.execution.post_fill_lifecycle_engine import (
 )
 
 
+class _ProviderStub:
+    def __init__(self) -> None:
+        self.stop_calls: list[dict] = []
+        self.target_calls: list[dict] = []
+        self.modify_calls: list[dict] = []
+
+    def place_stop_order(self, **kwargs):
+        self.stop_calls.append(dict(kwargs))
+        return {"broker_order_id": "STOP-1", "status": "Submitted"}
+
+    def place_target_order(self, **kwargs):
+        self.target_calls.append(dict(kwargs))
+        return {"broker_order_id": "TGT-1", "status": "Submitted"}
+
+    def modify_stop_order(self, **kwargs):
+        self.modify_calls.append(dict(kwargs))
+        return {"broker_order_id": kwargs["broker_order_id"], "status": "Submitted"}
+
+
 def test_fill_installs_stop_and_target_in_paper_mode() -> None:
-    engine = PostFillLifecycleEngine(run_mode="PAPER")
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
     result = engine.activate_trade_management_after_fill(
         trade_id="T-1",
         symbol="AAPL",
@@ -20,11 +40,16 @@ def test_fill_installs_stop_and_target_in_paper_mode() -> None:
     assert result["success"] is True
     assert result["installed_stop_metadata"]["trigger_price"] < 100.0
     assert result["installed_target_metadata"]["trigger_price"] > 100.0
+    assert result["installed_stop_metadata"]["broker_order_id"] == "STOP-1"
+    assert result["installed_target_metadata"]["broker_order_id"] == "TGT-1"
+    assert len(provider.stop_calls) == 1
+    assert len(provider.target_calls) == 1
     assert result["protection_state"] == PositionLifecycleState.TRAILING_ELIGIBLE.value
 
 
 def test_read_only_does_not_mutate_and_flags_failure() -> None:
-    engine = PostFillLifecycleEngine(run_mode="READ_ONLY")
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="READ_ONLY", execution_provider=provider)
     result = engine.activate_trade_management_after_fill(
         trade_id="T-2",
         symbol="MSFT",
@@ -38,10 +63,13 @@ def test_read_only_does_not_mutate_and_flags_failure() -> None:
     trade = engine.get_trade("T-2")
     assert trade is not None
     assert trade.state == PositionLifecycleState.LIFECYCLE_FAILURE
+    assert provider.stop_calls == []
+    assert provider.target_calls == []
 
 
 def test_trailing_only_activates_after_threshold_and_never_loosens() -> None:
-    engine = PostFillLifecycleEngine(run_mode="PAPER")
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
     engine.activate_trade_management_after_fill(
         trade_id="T-3",
         symbol="NVDA",
@@ -55,9 +83,31 @@ def test_trailing_only_activates_after_threshold_and_never_loosens() -> None:
     activated = engine.evaluate_trailing("T-3", current_price=102.0)
     assert activated["updated"] is True
     stop_after = float(activated["stop_price"])
+    assert len(provider.modify_calls) == 1
     rejected = engine.evaluate_trailing("T-3", current_price=100.5)
     assert rejected["updated"] is False
     assert float(rejected["stop_price"]) == stop_after
+    assert len(provider.modify_calls) == 1
+
+
+def test_exit_is_driven_from_broker_callback() -> None:
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-4",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=1,
+        avg_fill_price=100.0,
+        strategy_id="S4",
+    )
+    callback_result = engine.handle_broker_callback({"event_type": "execDetails", "order_id": "STOP-1"})
+    assert callback_result["handled"] is True
+    assert callback_result["exit_reason"] == "STOP_FILLED"
+    assert callback_result["cancel_order_id"] == "TGT-1"
+    trade = engine.get_trade("T-4")
+    assert trade is not None
+    assert trade.state == PositionLifecycleState.EXITED
 
 
 def test_startup_recovery_marks_protected_and_pending() -> None:
