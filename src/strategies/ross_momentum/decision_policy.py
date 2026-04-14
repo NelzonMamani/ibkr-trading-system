@@ -31,6 +31,11 @@ ALLOWED_SESSIONS = {
     "RTH_MID",
     "RTH_LATE",
 }
+DEFAULT_PAPER_AFTER_HOURS_ALLOWED_SETUPS = {
+    "TREND_CONTINUATION_STAIR_STEP",
+    "MICRO_PULLBACK",
+    "FLAT_TOP_BREAKOUT",
+}
 
 
 @dataclass(frozen=True)
@@ -45,6 +50,17 @@ def _env_flag_enabled(name: str, default: bool = False) -> bool:
     if raw_value is None:
         return default
     return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_allowed_setup_families() -> set[str]:
+    raw_value = os.getenv("PAPER_AFTER_HOURS_ALLOWED_SETUPS")
+    if raw_value is None or not str(raw_value).strip():
+        return set(DEFAULT_PAPER_AFTER_HOURS_ALLOWED_SETUPS)
+    return {
+        part.strip().upper()
+        for part in str(raw_value).split(",")
+        if part is not None and part.strip()
+    }
 
 
 def build_trade_intents(
@@ -68,6 +84,11 @@ def build_trade_intents(
         or os.getenv("RUN_MODE")
         or "UNKNOWN"
     ).upper()
+    paper_after_hours_override_enabled = _env_flag_enabled(
+        "ALLOW_PAPER_AFTER_HOURS_INTENTS",
+        default=False,
+    )
+    paper_after_hours_allowed_setups = _env_allowed_setup_families()
     print(
         "[ROSS][INPUT] "
         f"symbol={symbol} strategy={strategy_id} setup_candidates={len(summary.all_results)} "
@@ -80,16 +101,8 @@ def build_trade_intents(
 
     session_raw = session if session is not None else "RTH_OPEN"
     session = normalize_session_label(session_raw) or "RTH_OPEN"
+    display_session = "AFTER" if session in {"AH", "AFTER_HOURS"} else session
     session_is_invalid = session not in ALLOWED_SESSIONS
-    if session_is_invalid:
-        if validation_session_override_enabled:
-            print(
-                "[ROSS][SESSION_OVERRIDE] "
-                f"symbol={symbol} session={session} mode={run_mode} reason=VALIDATION_MODE override=ENABLED"
-            )
-        else:
-            print(f"[ROSS][BLOCKER] symbol={symbol} blocker=SESSION_INVALID reason={session}")
-            return intents
     effective_session = "PRE" if (session_is_invalid and validation_session_override_enabled) else session
 
     detected_setups = [
@@ -128,6 +141,35 @@ def build_trade_intents(
         print(f"[ROSS][INTENT_RESULT] symbol={symbol} outcome=NOT_CREATED reason=NO_TRIGGER_OR_SETUP")
         print(f"[ROSS][BLOCKER] symbol={symbol} blocker=NO_SETUP_DETECTED reason=NO_TRIGGER_OR_SETUP")
         return intents
+
+    setup_name = str(getattr(best_setup, "pattern_name", "") or "").upper()
+    session_is_after = session in {"AH", "AFTER", "AFTER_HOURS"}
+    paper_after_hours_override_active = (
+        run_mode == "PAPER"
+        and session_is_after
+        and paper_after_hours_override_enabled
+        and setup_name in paper_after_hours_allowed_setups
+    )
+    if session_is_invalid and not validation_session_override_enabled and not paper_after_hours_override_active:
+        if run_mode == "LIVE" and session_is_after:
+            print(f"[ROSS][BLOCKER] symbol={symbol} blocker=SESSION_INVALID reason=AH_LIVE_POLICY")
+        else:
+            print(f"[ROSS][BLOCKER] symbol={symbol} blocker=SESSION_INVALID reason={session}")
+        print(
+            "[ROSS][TRIGGER_AUTHORITY] "
+            f"symbol={symbol} decision=BLOCK block_reason=BLOCKED_BY_POLICY session={display_session}"
+        )
+        return intents
+    if paper_after_hours_override_active:
+        print(
+            "[ROSS][SESSION_POLICY_OVERRIDE] "
+            f"symbol={symbol} mode=PAPER session=AFTER setup={setup_name} reason=paper_after_hours_validation"
+        )
+    elif session_is_invalid and validation_session_override_enabled:
+        print(
+            "[ROSS][SESSION_OVERRIDE] "
+            f"symbol={symbol} session={session} mode={run_mode} reason=VALIDATION_MODE override=ENABLED"
+        )
 
     valid_trade = (
         best_setup is not None
@@ -172,6 +214,11 @@ def build_trade_intents(
         )
 
     if run_mode == "PAPER" and valid_trade:
+        if session_is_after and paper_after_hours_override_active:
+            print(
+                "[ROSS][TRIGGER_AUTHORITY] "
+                f"symbol={symbol} decision=ALLOW block_reason=NONE session={display_session} override=paper_after_hours_validation"
+            )
         print(
             "[ROSS][OVERRIDE][PAPER_MODE] "
             f"symbol={symbol} forcing_intent_creation reason=VALID_SETUP_AND_TRIGGER"
@@ -210,8 +257,18 @@ def build_trade_intents(
         trigger_fired = bool(trigger_ready_now) if trigger_ready_now is not None else bool(setup.entry_zone)
         if trigger_fired:
             guaranteed_intent_required = True
-        decision = "ALLOW" if valid_trade else "EVALUATE"
-        block_reason = None
+        if session_is_after and paper_after_hours_override_active and valid_trade:
+            decision = "ALLOW"
+            block_reason = "NONE"
+            trigger_authority_extra = " override=paper_after_hours_validation"
+        elif valid_trade:
+            decision = "ALLOW"
+            block_reason = "NONE"
+            trigger_authority_extra = ""
+        else:
+            decision = "EVALUATE"
+            block_reason = None
+            trigger_authority_extra = ""
         # `setup.risk_flags` can contain advisory warnings that do not block final
         # risk approval; only explicit veto flags should produce a risk-stage negative.
         risk_precheck_ok = not bool(summary.veto_flags)
@@ -222,12 +279,9 @@ def build_trade_intents(
         if not dq_ok and config.debug_force_execution:
             print(f"[DQ_OVERRIDE] symbol={symbol} dq was bypassed")
             dq_ok = True
-        if valid_trade:
-            decision = "ALLOW"
-            block_reason = None
         print(
             "[ROSS][TRIGGER_AUTHORITY] "
-            f"symbol={symbol} decision={decision} block_reason={block_reason}"
+            f"symbol={symbol} decision={decision} block_reason={block_reason} session={display_session}{trigger_authority_extra}"
         )
         pre_intent_execution_ready = (
             pattern_detected
