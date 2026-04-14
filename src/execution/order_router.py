@@ -77,7 +77,7 @@ _IBKR_POSITION_EVENTS_COUNT = 0
 OWNERSHIP_SYSTEM = "SYSTEM"
 OWNERSHIP_EXTERNAL = "EXTERNAL"
 _POSITION_OWNERSHIP_BY_SYMBOL: dict[str, str] = {}
-_TRADING_CONTROL_MODE = "SYSTEM_TRADING"
+_TRADING_CONTROL_MODE = "ISOLATED_TRADING"
 
 AUTHORITATIVE_EXECUTION_STATES = {
     "DISPATCH_INTENDED",
@@ -178,6 +178,29 @@ def set_trading_control_mode(mode: str) -> None:
 
 def get_trading_control_mode() -> str:
     return _TRADING_CONTROL_MODE
+
+
+def _resolve_symbol_ownership(symbol: str) -> str:
+    normalized_symbol = str(symbol or "").upper().strip()
+    if not normalized_symbol:
+        return OWNERSHIP_EXTERNAL
+    existing = str(_POSITION_OWNERSHIP_BY_SYMBOL.get(normalized_symbol, "") or "").upper().strip()
+    if existing in {OWNERSHIP_SYSTEM, OWNERSHIP_EXTERNAL}:
+        return existing
+
+    mode = get_trading_control_mode()
+    if mode != "ISOLATED_TRADING":
+        resolved = OWNERSHIP_SYSTEM
+    else:
+        tracked_position = _RUNTIME_POSITIONS.get(normalized_symbol)
+        has_local_position_state = tracked_position is not None and int(getattr(tracked_position, "qty", 0) or 0) > 0
+        has_local_fill_history = any(
+            str(order.symbol or "").upper() == normalized_symbol and int(order.filled_qty or 0) > 0
+            for order in _RUNTIME_ORDERS.values()
+        )
+        resolved = OWNERSHIP_SYSTEM if (has_local_fill_history or has_local_position_state) else OWNERSHIP_EXTERNAL
+    _POSITION_OWNERSHIP_BY_SYMBOL[normalized_symbol] = resolved
+    return resolved
 
 
 class ExecutionInvariantViolation(RuntimeError):
@@ -2032,7 +2055,7 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
                 f"symbol={symbol} local_qty={local_qty} expected_position={expected_position} broker_qty={ibkr_qty} verdict={verdict}"
             )
         else:
-            ownership = _POSITION_OWNERSHIP_BY_SYMBOL.get(symbol, OWNERSHIP_EXTERNAL)
+            ownership = _resolve_symbol_ownership(symbol)
 
             is_external_inventory = (
                 get_trading_control_mode() == "ISOLATED_TRADING"
@@ -3334,9 +3357,11 @@ def execute_intents(
                 )
             )
             continue
-        system_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
-        external_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
-        effective_position_qty = max(system_qty, external_qty)
+        symbol_ownership = _resolve_symbol_ownership(duplicate_symbol)
+        broker_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
+        system_qty = broker_qty if symbol_ownership == OWNERSHIP_SYSTEM else 0.0
+        external_qty = broker_qty if symbol_ownership == OWNERSHIP_EXTERNAL else 0.0
+        effective_position_qty = system_qty
         has_intent_mismatch_override = any(
             str(existing.symbol or "").upper() == duplicate_symbol
             and int(existing.filled_qty or 0) > 0
@@ -3344,14 +3369,22 @@ def execute_intents(
             and str(existing.intent_id or "").strip() != order_family
             for existing in _RUNTIME_ORDERS.values()
         )
-        treated_as_flat = effective_position_qty <= 0
-        position_source = "IBKR_EXTERNAL"
+        position_source = "SYSTEM" if symbol_ownership == OWNERSHIP_SYSTEM else "IBKR_EXTERNAL"
+        broker_qty_for_log = system_qty if position_source == "SYSTEM" else external_qty
+        treated_as_flat = effective_position_qty <= 0 if position_source == "SYSTEM" else external_qty <= 0
+        # NOTE: POSITION_CHECK is an execution audit contract surface; tests assert this exact shape.
+        # Ownership/isolation refactors must preserve this log (or update tests/audit expectations together).
         print(
-            f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} local_qty={system_qty} broker_qty={external_qty} "
+            f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} local_qty={system_qty} broker_qty={broker_qty_for_log} "
             f"effective_qty={effective_position_qty} source={position_source} treated_as_flat={str(treated_as_flat).lower()} "
             f"intent_mismatch_override={str(has_intent_mismatch_override).lower()}"
         )
-        current_open_positions = sum(1 for qty in existing_position_qty_by_symbol.values() if float(qty or 0.0) > 0.0)
+        system_position_symbols = {
+            symbol
+            for symbol, qty in existing_position_qty_by_symbol.items()
+            if float(qty or 0.0) > 0.0 and _resolve_symbol_ownership(symbol) == OWNERSHIP_SYSTEM
+        }
+        current_open_positions = len(system_position_symbols)
         if (not is_exit_order) and order_side == "BUY" and treated_as_flat and current_open_positions >= max_open_positions:
             blocked_reason = "MAX_OPEN_POSITIONS"
             blocked_pre_submit += 1
