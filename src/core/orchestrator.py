@@ -32,6 +32,7 @@ from src.config.runtime_config import (
     get_ibkr_readonly_enabled,
     get_run_mode,
     get_scanner_mode,
+    get_trading_control_mode,
 )
 from src.config.system_config import get_current_market_session
 from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
@@ -68,6 +69,10 @@ from src.execution.position_truth import (
 )
 from src.execution.recovery_engine import apply_recovery_actions, build_recovery_plan
 from src.execution.trade_management_engine import TradeManagementEngine
+from src.execution.order_router import (
+    current_ownership_summary,
+    set_trading_control_mode as set_order_router_control_mode,
+)
 from src.core.managers import (
     ConnectionManager,
     MarketDataSnapshotManager,
@@ -519,6 +524,9 @@ class CoreOrchestrator:
         self._prep_update_thread: Thread | None = None
         self._prep_update_lock = Lock()
         self._clean_start_ready_for_trading = True
+        self._trading_control_mode = get_trading_control_mode().value
+        self._trading_control_mode_locked = False
+        self._set_trading_control_mode(self._trading_control_mode)
         print(f"[BOOT] Event replay mode resolved — mode={self.replay_mode.value}")
         self._run_startup_validations()
         self._ensure_premarket_prep_artifact()
@@ -530,7 +538,12 @@ class CoreOrchestrator:
             print(f"[LEARNING][SCHEDULER] Startup check failed: {exc}")
 
     def _run_force_clean_start_if_enabled(self) -> None:
-        if not get_force_clean_start():
+        requested_mode = str(self._trading_control_mode or "LEGACY").upper()
+        force_clean_start = bool(get_force_clean_start())
+        should_clean_start = requested_mode == "CLEAN_START" or (requested_mode == "LEGACY" and force_clean_start)
+        if requested_mode == "ISOLATED_TRADING":
+            return
+        if not should_clean_start:
             return
         timeout_seconds = max(1, int(get_clean_start_timeout_seconds()))
         try:
@@ -549,8 +562,20 @@ class CoreOrchestrator:
             )
             print("[CLEAN_START][BLOCK] reason=DIRTY_SESSION_AFTER_CLEAN_ATTEMPT")
 
+    def _set_trading_control_mode(self, mode: str) -> bool:
+        normalized = str(mode or "LEGACY").strip().upper()
+        if self._trading_control_mode_locked and normalized != self._trading_control_mode:
+            print("[CONTROL_MODE][VIOLATION] attempted_runtime_mode_switch=true")
+            return False
+        self._trading_control_mode = normalized
+        self._trading_control_mode_locked = True
+        set_order_router_control_mode(normalized, lock=True)
+        return True
+
 
     def _maybe_force_flatten_all_positions_on_startup(self) -> None:
+        if str(self._trading_control_mode).upper() == "ISOLATED_TRADING":
+            return
         flatten_enabled = (
             self.run_mode in {RunMode.PAPER, RunMode.LIVE}
             and str(os.getenv("FLATTEN_ON_STARTUP", "false")).strip().lower() == "true"
@@ -2248,6 +2273,12 @@ class CoreOrchestrator:
 
     def _run_trade_management_engine(self, execution_output: list[ExecutionResult]) -> list[object]:
         self._apply_execution_results_to_trade_management(execution_output)
+        ownership_summary = current_ownership_summary()
+        print(
+            "[ROSS][EXIT_SCOPE] "
+            f"system_positions={ownership_summary.get('system_positions', 0)} "
+            f"external_positions_ignored={ownership_summary.get('external_positions', 0)}"
+        )
         market_state = self._build_trade_management_market_state()
         intents = self.trade_management_engine.evaluate_cycle(market_state)
         for intent in intents:

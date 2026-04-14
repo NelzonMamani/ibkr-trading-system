@@ -74,6 +74,10 @@ _REDUCED_POSITIONS_CONFIRMED = 0
 _CLOSED_POSITIONS_CONFIRMED = 0
 _BROKER_POSITION_LAST_QTY_BY_SYMBOL: dict[str, int] = {}
 _IBKR_POSITION_EVENTS_COUNT = 0
+_TRADING_CONTROL_MODE = "LEGACY"
+_TRADING_CONTROL_MODE_LOCKED = False
+_POSITION_OWNERSHIP_BY_SYMBOL: dict[str, str] = {}
+_OPEN_ORDER_OWNERSHIP_BY_ID: dict[int, str] = {}
 
 AUTHORITATIVE_EXECUTION_STATES = {
     "DISPATCH_INTENDED",
@@ -164,6 +168,9 @@ LOCAL_ALLOWED_STATES = {"CREATED", "BLOCKED", "SUBMITTING", "SUBMITTED"}
 
 FULL_QUOTE_PATH = "FULL_QUOTE_PATH"
 DEGRADED_QUOTE_PATH = "DEGRADED_QUOTE_PATH"
+OWNERSHIP_SYSTEM = "SYSTEM"
+OWNERSHIP_EXTERNAL = "EXTERNAL"
+OWNERSHIP_UNKNOWN = "UNKNOWN"
 
 
 class ExecutionInvariantViolation(RuntimeError):
@@ -797,6 +804,123 @@ def _build_order_ref(intent_id: str) -> str:
     if not normalized:
         return ""
     return f"TRADING_OS|ROSS_MOMENTUM|{normalized}"
+
+
+def set_trading_control_mode(mode: str, *, lock: bool = True) -> bool:
+    global _TRADING_CONTROL_MODE, _TRADING_CONTROL_MODE_LOCKED
+    normalized = str(mode or "LEGACY").strip().upper()
+    if normalized not in {"CLEAN_START", "ISOLATED_TRADING", "LEGACY"}:
+        normalized = "LEGACY"
+    if _TRADING_CONTROL_MODE_LOCKED and normalized != _TRADING_CONTROL_MODE:
+        print("[CONTROL_MODE][VIOLATION] attempted_runtime_mode_switch=true")
+        return False
+    _TRADING_CONTROL_MODE = normalized
+    if lock:
+        _TRADING_CONTROL_MODE_LOCKED = True
+    print(f"[CONTROL_MODE][SELECTED] mode={_TRADING_CONTROL_MODE}")
+    return True
+
+
+def get_trading_control_mode() -> str:
+    return str(_TRADING_CONTROL_MODE or "LEGACY")
+
+
+def _is_isolated_trading_mode() -> bool:
+    return get_trading_control_mode() == "ISOLATED_TRADING"
+
+
+def _is_system_order_ref(order_ref: str) -> bool:
+    namespace, _strategy, family = _parse_order_ref_components(order_ref)
+    return bool(str(namespace).upper() == "TRADING_OS" and str(family or "").strip())
+
+
+def _owned_symbol_quantities_from_runtime_orders() -> dict[str, int]:
+    owned: dict[str, int] = {}
+    for row in _RUNTIME_ORDERS.values():
+        symbol = str(row.symbol or "").upper().strip()
+        if not symbol:
+            continue
+        owned[symbol] = int(owned.get(symbol, 0)) + _signed_local_fill_qty(row)
+    return owned
+
+
+def classify_broker_inventory(*, open_orders: list[Any], positions: list[Any]) -> dict[str, int]:
+    _POSITION_OWNERSHIP_BY_SYMBOL.clear()
+    _OPEN_ORDER_OWNERSHIP_BY_ID.clear()
+    owned_qty = _owned_symbol_quantities_from_runtime_orders()
+
+    system_positions = 0
+    external_positions = 0
+    for row in positions:
+        symbol = str(getattr(row, "symbol", "") or "").upper().strip()
+        if not symbol:
+            continue
+        qty = int(_extract_position_qty(row) or 0)
+        ownership = OWNERSHIP_SYSTEM
+        if _is_isolated_trading_mode():
+            ownership = OWNERSHIP_SYSTEM if int(owned_qty.get(symbol, 0)) != 0 else OWNERSHIP_EXTERNAL
+        _POSITION_OWNERSHIP_BY_SYMBOL[symbol] = ownership
+        if qty != 0:
+            if ownership == OWNERSHIP_SYSTEM:
+                system_positions += 1
+                print(f"[POSITION][SYSTEM] symbol={symbol} qty={qty}")
+            else:
+                external_positions += 1
+                print(f"[POSITION][EXTERNAL] symbol={symbol} qty={qty}")
+                print(f"[OWNERSHIP][DETAIL] type=position ownership=EXTERNAL symbol={symbol}")
+
+    system_open_orders = 0
+    external_open_orders = 0
+    for row in open_orders:
+        symbol = _extract_symbol_from_order(row)
+        order_id_raw = getattr(row, "orderId", None)
+        order_id = int(order_id_raw) if order_id_raw is not None else -1
+        order_ref = _extract_order_ref(row)
+        ownership = OWNERSHIP_SYSTEM
+        if _is_isolated_trading_mode():
+            ownership = OWNERSHIP_SYSTEM if _is_system_order_ref(order_ref) else OWNERSHIP_EXTERNAL
+        _OPEN_ORDER_OWNERSHIP_BY_ID[order_id] = ownership
+        if ownership == OWNERSHIP_SYSTEM:
+            system_open_orders += 1
+            print(f"[ORDER][SYSTEM] order_id={order_id} symbol={symbol or 'UNKNOWN'}")
+        else:
+            external_open_orders += 1
+            print(f"[ORDER][EXTERNAL] order_id={order_id} symbol={symbol or 'UNKNOWN'}")
+            print(
+                f"[OWNERSHIP][DETAIL] type=open_order ownership=EXTERNAL symbol={symbol or 'UNKNOWN'} order_id={order_id}"
+            )
+    print(
+        "[OWNERSHIP][SUMMARY] "
+        f"system_positions={system_positions} external_positions={external_positions} "
+        f"system_open_orders={system_open_orders} external_open_orders={external_open_orders}"
+    )
+    return {
+        "system_positions": system_positions,
+        "external_positions": external_positions,
+        "system_open_orders": system_open_orders,
+        "external_open_orders": external_open_orders,
+    }
+
+
+def current_ownership_summary() -> dict[str, int]:
+    system_positions = sum(
+        1
+        for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items()
+        if int(row.quantity) != 0 and _POSITION_OWNERSHIP_BY_SYMBOL.get(symbol, OWNERSHIP_EXTERNAL) == OWNERSHIP_SYSTEM
+    )
+    external_positions = sum(
+        1
+        for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items()
+        if int(row.quantity) != 0 and _POSITION_OWNERSHIP_BY_SYMBOL.get(symbol, OWNERSHIP_EXTERNAL) == OWNERSHIP_EXTERNAL
+    )
+    system_open_orders = sum(1 for ownership in _OPEN_ORDER_OWNERSHIP_BY_ID.values() if ownership == OWNERSHIP_SYSTEM)
+    external_open_orders = sum(1 for ownership in _OPEN_ORDER_OWNERSHIP_BY_ID.values() if ownership == OWNERSHIP_EXTERNAL)
+    return {
+        "system_positions": int(system_positions),
+        "external_positions": int(external_positions),
+        "system_open_orders": int(system_open_orders),
+        "external_open_orders": int(external_open_orders),
+    }
 
 
 def _build_trace_id(*, intent_id: str, broker_order_id: int | None, cycle_id: str) -> str:
@@ -2018,21 +2142,38 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
                 f"symbol={symbol} local_qty={local_qty} expected_position={expected_position} broker_qty={ibkr_qty} verdict={verdict}"
             )
         else:
-            _RECONCILED_POSITIONS_MISMATCH += 1
-            mismatch_count += 1
-            if verdict == "BROKER_POSITION_WITHOUT_FILL":
-                _BROKER_POSITION_WITHOUT_FILL_COUNT += 1
-            if verdict == "LOCAL_FILL_WITHOUT_BROKER_POSITION":
-                _LOCAL_FILL_WITHOUT_POSITION_COUNT += 1
-            print(
-                "[POSITION][MISMATCH] "
-                f"symbol={symbol} expected_position={expected_position} ibkr_position={ibkr_qty} reason={reason or verdict}"
+            ownership = _POSITION_OWNERSHIP_BY_SYMBOL.get(symbol, OWNERSHIP_EXTERNAL)
+            is_external_inventory = (
+                _is_isolated_trading_mode() and verdict == "BROKER_POSITION_WITHOUT_FILL" and ownership == OWNERSHIP_EXTERNAL
             )
-            print(
-                "[EXECUTION][POSITION_RECONCILE_MISMATCH] "
-                f"symbol={symbol} verdict={verdict} reason={reason or 'mismatch'}"
-            )
-            _RECON_RESYNC_NEEDED = True
+            if is_external_inventory:
+                print(
+                    f"[RECON][EXTERNAL_INVENTORY] symbol={symbol} reason=unowned_broker_state"
+                )
+                print(
+                    "[EXECUTION][POSITION_RECONCILE_MISMATCH] "
+                    f"symbol={symbol} verdict={verdict} reason=external_inventory"
+                )
+            else:
+                _RECONCILED_POSITIONS_MISMATCH += 1
+                mismatch_count += 1
+                if verdict == "BROKER_POSITION_WITHOUT_FILL":
+                    _BROKER_POSITION_WITHOUT_FILL_COUNT += 1
+                    print(
+                        "[RECON][SYSTEM_MISMATCH] "
+                        f"symbol={symbol} verdict={verdict} reason={reason or 'mismatch'}"
+                    )
+                if verdict == "LOCAL_FILL_WITHOUT_BROKER_POSITION":
+                    _LOCAL_FILL_WITHOUT_POSITION_COUNT += 1
+                print(
+                    "[POSITION][MISMATCH] "
+                    f"symbol={symbol} expected_position={expected_position} ibkr_position={ibkr_qty} reason={reason or verdict}"
+                )
+                print(
+                    "[EXECUTION][POSITION_RECONCILE_MISMATCH] "
+                    f"symbol={symbol} verdict={verdict} reason={reason or 'mismatch'}"
+                )
+                _RECON_RESYNC_NEEDED = True
         print(
             "[EXECUTION][POSITION_RECONCILE] "
             f"symbol={symbol} local_qty={local_qty} expected_position={expected_position} broker_qty={ibkr_qty} verdict={verdict}"
@@ -2091,6 +2232,10 @@ def _check_position_consistency() -> None:
     for symbol in sorted(filled_symbols - position_symbols):
         print(f"[POSITION][INCONSISTENT_STATE] symbol={symbol} reason=PENDING_POSITION_CONFIRMATION")
     for symbol in sorted(position_symbols - filled_symbols):
+        ownership = _POSITION_OWNERSHIP_BY_SYMBOL.get(symbol, OWNERSHIP_EXTERNAL)
+        if _is_isolated_trading_mode() and ownership == OWNERSHIP_EXTERNAL:
+            print(f"[RECON][EXTERNAL_INVENTORY] symbol={symbol} reason=unowned_broker_state")
+            continue
         print(f"[POSITION][INCONSISTENT_STATE] symbol={symbol} reason=position_without_fill_history")
 
 
@@ -3158,18 +3303,25 @@ def execute_intents(
     broker_state = "CONNECTED" if mode in {RunMode.PAPER, RunMode.LIVE} else "DISCONNECTED"
     print(f"[EXECUTION][MODE] mode={mode.value} broker_connection_state={broker_state}")
     open_orders, _executions, positions = _normalize_ibkr_truth(_fetch_ibkr_truth(mode))
+    ownership_summary = classify_broker_inventory(open_orders=open_orders, positions=positions)
     has_working_order_recon = hasattr(open_orders, "__iter__")
     if mode in {RunMode.PAPER, RunMode.LIVE} and not has_working_order_recon:
         _FILL_AUTHORITY_STATE = "DEGRADED"
         print("[EXECUTION][FILL_AUTHORITY_DEGRADED] reason=broker_fill_reconciliation_unavailable")
     existing_position_qty_by_symbol: dict[str, float] = {}
+    system_position_qty_by_symbol: dict[str, float] = {}
+    external_position_qty_by_symbol: dict[str, float] = {}
     for row in positions:
         symbol = str(getattr(row, "symbol", "") or "").upper()
         if not symbol:
             continue
-        existing_position_qty_by_symbol[symbol] = existing_position_qty_by_symbol.get(symbol, 0.0) + float(
-            _extract_position_qty(row) or 0.0
-        )
+        qty = float(_extract_position_qty(row) or 0.0)
+        existing_position_qty_by_symbol[symbol] = existing_position_qty_by_symbol.get(symbol, 0.0) + qty
+        ownership = _POSITION_OWNERSHIP_BY_SYMBOL.get(symbol, OWNERSHIP_EXTERNAL)
+        if ownership == OWNERSHIP_SYSTEM:
+            system_position_qty_by_symbol[symbol] = system_position_qty_by_symbol.get(symbol, 0.0) + qty
+        else:
+            external_position_qty_by_symbol[symbol] = external_position_qty_by_symbol.get(symbol, 0.0) + qty
     working_order_candidates: list[dict[str, Any]] = []
     for row in open_orders:
         symbol = _extract_symbol_from_order(row)
@@ -3181,7 +3333,7 @@ def execute_intents(
         order_id = getattr(row, "orderId", None)
         order_ref = _extract_order_ref(row)
         _namespace, _strategy, family = _parse_order_ref_components(order_ref)
-        working_order_candidates.append(
+        candidate = (
             {
                 "symbol": symbol,
                 "side": side,
@@ -3191,7 +3343,17 @@ def execute_intents(
                 "is_live_status": status in {"SUBMITTED", "ACKNOWLEDGED", "WORKING", "PRESUBMITTED"},
             }
         )
+        if _is_isolated_trading_mode():
+            candidate_order_id = int(order_id) if order_id is not None else -1
+            if _OPEN_ORDER_OWNERSHIP_BY_ID.get(candidate_order_id, OWNERSHIP_EXTERNAL) != OWNERSHIP_SYSTEM:
+                continue
+        working_order_candidates.append(candidate)
     print(f"[EXECUTION][WORKING_ORDER_RECON] known_working_orders={len(working_order_candidates)}")
+    print(
+        "[RISK][SYSTEM_PORTFOLIO] "
+        f"system_open_positions={ownership_summary.get('system_positions', 0)} "
+        f"external_open_positions={ownership_summary.get('external_positions', 0)}"
+    )
 
     submitted_order_ids: list[int] = []
     allow_pyramiding = _config_bool("ALLOW_PYRAMIDING", True)
@@ -3301,9 +3463,9 @@ def execute_intents(
                 )
             )
             continue
-        system_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
-        external_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
-        effective_position_qty = max(system_qty, external_qty)
+        system_qty = float(system_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
+        external_qty = float(external_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
+        effective_position_qty = system_qty
         has_intent_mismatch_override = any(
             str(existing.symbol or "").upper() == duplicate_symbol
             and int(existing.filled_qty or 0) > 0
@@ -3314,11 +3476,66 @@ def execute_intents(
         treated_as_flat = effective_position_qty <= 0
         position_source = "IBKR_EXTERNAL"
         print(
+            f"[EXECUTION][POSITION_SCOPE] symbol={duplicate_symbol} system_qty={system_qty} external_qty={external_qty} "
+            f"effective_system_qty={effective_position_qty}"
+        )
+        print(
             f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} local_qty={system_qty} broker_qty={external_qty} "
             f"effective_qty={effective_position_qty} source={position_source} treated_as_flat={str(treated_as_flat).lower()} "
             f"intent_mismatch_override={str(has_intent_mismatch_override).lower()}"
         )
-        current_open_positions = sum(1 for qty in existing_position_qty_by_symbol.values() if float(qty or 0.0) > 0.0)
+        if (
+            _is_isolated_trading_mode()
+            and (not is_exit_order)
+            and order_side == "BUY"
+            and system_qty <= 0
+            and external_qty > 0
+        ):
+            blocked_reason = "EXTERNAL_POSITION_PRESENT"
+            blocked_pre_submit += 1
+            print(f"[EXECUTION][SYMBOL_OWNERSHIP_BLOCK] symbol={duplicate_symbol} reason=EXTERNAL_POSITION_PRESENT")
+            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
+            _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
+            truth.rejection_reason = blocked_reason
+            _mark_execution_failure(trace, "ORDER_REJECTED", reason="external_position_present")
+            events.append(
+                ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail=f"reason={blocked_reason}",
+                    event_type="ORDER_REJECTED",
+                    broker_status="REJECTED",
+                    last_update_time=_now_utc_iso(),
+                )
+            )
+            continue
+        if (
+            _is_isolated_trading_mode()
+            and is_exit_order
+            and system_qty <= 0
+            and external_qty > 0
+        ):
+            blocked_reason = "EXTERNAL_POSITION_PRESENT"
+            blocked_pre_submit += 1
+            print(f"[EXECUTION][SYMBOL_OWNERSHIP_BLOCK] symbol={duplicate_symbol} reason=EXTERNAL_POSITION_PRESENT")
+            print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
+            _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
+            truth.rejection_reason = blocked_reason
+            _mark_execution_failure(trace, "ORDER_REJECTED", reason="external_only_exit_blocked")
+            events.append(
+                ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail=f"reason={blocked_reason}",
+                    event_type="ORDER_REJECTED",
+                    broker_status="REJECTED",
+                    last_update_time=_now_utc_iso(),
+                )
+            )
+            continue
+        current_open_positions = sum(1 for qty in system_position_qty_by_symbol.values() if float(qty or 0.0) > 0.0)
         if (not is_exit_order) and order_side == "BUY" and treated_as_flat and current_open_positions >= max_open_positions:
             blocked_reason = "MAX_OPEN_POSITIONS"
             blocked_pre_submit += 1

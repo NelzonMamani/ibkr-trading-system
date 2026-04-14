@@ -133,6 +133,17 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "static",
         "description": "Maximum wait for clean-start reconciliation to reach zero open orders and zero positions.",
     },
+    "TRADING_CONTROL_MODE": {
+        "type": str,
+        "default": "LEGACY",
+        "env": ["TRADING_CONTROL_MODE"],
+        "affects": ["CoreOrchestrator", "ExecutionRouter", "RiskEngine"],
+        "enforcement": "HARD",
+        "mutable": "static",
+        "description": "Startup-locked trading ownership mode. CLEAN_START enforces broker flattening; ISOLATED_TRADING preserves external inventory.",
+        "choices": ["CLEAN_START", "ISOLATED_TRADING", "LEGACY"],
+        "normalizer": "upper",
+    },
     "PREMARKET_MIN_VOLUME": {
         "type": int,
         "default": 2_000,

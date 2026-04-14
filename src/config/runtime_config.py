@@ -37,6 +37,12 @@ class EventReplayMode(str, Enum):
 DEFAULT_EVENT_REPLAY_MODE: EventReplayMode = EventReplayMode.CYCLE
 
 
+class TradingControlMode(str, Enum):
+    CLEAN_START = "CLEAN_START"
+    ISOLATED_TRADING = "ISOLATED_TRADING"
+    LEGACY = "LEGACY"
+
+
 def _with_default(name: str, default):
     value = get_config(name)
     return default if value is None else value
@@ -217,6 +223,14 @@ def get_force_clean_start(default: bool = False) -> bool:
 
 def get_clean_start_timeout_seconds(default: int = 120) -> int:
     return int(_with_default("CLEAN_START_TIMEOUT_SECONDS", default))
+
+
+def get_trading_control_mode(default: TradingControlMode = TradingControlMode.LEGACY) -> TradingControlMode:
+    raw = str(_with_default("TRADING_CONTROL_MODE", default.value) or default.value).strip().upper()
+    try:
+        return TradingControlMode(raw)
+    except ValueError:
+        return default
 
 
 def get_ibkr_order_translation_enabled() -> bool:
