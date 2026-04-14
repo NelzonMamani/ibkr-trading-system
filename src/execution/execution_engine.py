@@ -6,6 +6,7 @@ import hashlib
 import os
 import time
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -24,6 +25,7 @@ from src.execution.execution_providers import ExecutionProvider, IbkrExecutionPr
 from src.execution.exit_plan import compute_stop_price
 from src.execution.order_models import PendingOrderBook
 from src.execution.post_fill_lifecycle_engine import PostFillLifecycleEngine
+from src.strategies.ross_momentum.exit_intelligence import RossExitIntelligence
 from src.models.execution_result import ExecutionResult
 from src.models.data_models import RiskDecision
 from src.models.risk_decision import DECISION_ARTIFACT_MISSING
@@ -77,6 +79,8 @@ class ExecutionEngine:
             run_mode=self.run_mode.value,
             execution_provider=self._provider,
         )
+        self.exit_intelligence = RossExitIntelligence()
+        self._lifecycle_activation_ts: dict[str, float] = {}
         self.provider: Optional[ExecutionProvider] = self._provider
         self.broker = getattr(self._provider, "broker", None)
         self._recover_startup_state()
@@ -881,6 +885,7 @@ class ExecutionEngine:
                 session_label=self.run_mode.value,
             )
             self.position_records[request.symbol]["lifecycle"] = protection_result
+            self._lifecycle_activation_ts[str(request.symbol).upper()] = time.time()
         if direction_upper in {"SHORT", "SELL"}:
             self.post_fill_lifecycle.mark_exit_pending(request.client_order_id, "exit_fill_received")
             self.post_fill_lifecycle.mark_exited(request.client_order_id, "exit_fill_complete")
@@ -898,6 +903,108 @@ class ExecutionEngine:
                     f"order_id={request.client_order_id}"
                 )
             self._record_order_stage(request.client_order_id, "EXIT")
+
+    def evaluate_post_fill_on_price_tick(
+        self,
+        *,
+        symbol: str,
+        current_price: float,
+        current_volume: float | None = None,
+    ) -> None:
+        trade = self.post_fill_lifecycle.get_trade_by_symbol(symbol)
+        if trade is None:
+            return
+        self.post_fill_lifecycle.evaluate_trailing(trade.trade_id, float(current_price))
+        self._evaluate_exit_intelligence(
+            symbol=symbol,
+            current_price=float(current_price),
+            current_volume=current_volume,
+        )
+
+    def evaluate_post_fill_on_batch_price_ticks(self, ticks: Iterable[tuple[str, float]]) -> None:
+        for symbol, current_price in ticks:
+            self.evaluate_post_fill_on_price_tick(symbol=symbol, current_price=float(current_price))
+
+    def _evaluate_exit_intelligence(
+        self,
+        *,
+        symbol: str,
+        current_price: float,
+        current_volume: float | None = None,
+    ) -> None:
+        trade = self.post_fill_lifecycle.get_trade_by_symbol(symbol)
+        if trade is None:
+            return
+
+        activation_ts = self._lifecycle_activation_ts.get(str(symbol).upper())
+        time_in_trade_sec = max(0.0, time.time() - activation_ts) if activation_ts is not None else 0.0
+        decision = self.exit_intelligence.evaluate(
+            trade=trade,
+            current_price=float(current_price),
+            current_volume=current_volume,
+            time_in_trade_sec=time_in_trade_sec,
+        )
+        print(f"[EXIT][DECISION] trade_id={trade.trade_id} action={decision.action} reason={decision.reason}")
+
+        if decision.action == "HOLD":
+            if decision.reason == "already_executed":
+                print("[EXIT][SKIP] reason=already_executed")
+            return
+
+        if decision.action == "EXIT_MARKET":
+            if trade.exit_triggered:
+                print("[EXIT][SKIP] reason=already_executed")
+                return
+            trade.exit_triggered = True
+            print(f"[EXIT][EXECUTE] trade_id={trade.trade_id} action={decision.action}")
+            if self._provider is not None:
+                self._provider.flatten_position(symbol=trade.symbol, quantity=trade.filled_qty, trade_id=trade.trade_id)
+            self.post_fill_lifecycle.mark_exit_pending(trade.trade_id, decision.reason)
+            self.post_fill_lifecycle.mark_exited(trade.trade_id, decision.reason)
+            return
+
+        if decision.action == "MOVE_STOP":
+            if trade.stop is None or decision.new_stop_price is None:
+                return
+            if decision.new_stop_price <= trade.stop.trigger_price:
+                return
+            print(f"[EXIT][EXECUTE] trade_id={trade.trade_id} action={decision.action}")
+            trade.stop.trigger_price = float(decision.new_stop_price)
+            if self._provider is not None and trade.stop.broker_order_id:
+                self._provider.modify_stop_order(
+                    broker_order_id=trade.stop.broker_order_id,
+                    symbol=trade.symbol,
+                    side=trade.stop.side,
+                    quantity=trade.filled_qty,
+                    new_stop_price=trade.stop.trigger_price,
+                    trade_id=trade.trade_id,
+                )
+            return
+
+        if decision.action == "SCALE_OUT":
+            if trade.scaled_out:
+                print("[EXIT][SKIP] reason=already_executed")
+                return
+            qty = int(decision.scale_quantity or 0)
+            if qty <= 0:
+                return
+            print(f"[EXIT][EXECUTE] trade_id={trade.trade_id} action={decision.action}")
+            if self._provider is not None:
+                exit_result = self._provider.flatten_position(
+                    symbol=trade.symbol,
+                    quantity=qty,
+                    trade_id=trade.trade_id,
+                    strategy_name="ROSS_MOMENTUM_SCALE_OUT",
+                )
+                filled_qty = int(getattr(exit_result, "filled_quantity", qty) or qty)
+                trade.filled_qty = max(0, int(trade.filled_qty) - filled_qty)
+            trade.scaled_out = True
+            return
+
+        if decision.action == "ACTIVATE_TRAILING":
+            print(f"[EXIT][EXECUTE] trade_id={trade.trade_id} action={decision.action}")
+            trade.trailing_active = True
+            return
 
     def _run_live_probe_exit_if_needed(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
         if self.run_mode != RunMode.LIVE:

@@ -52,6 +52,8 @@ class ManagedTradeLifecycle:
     break_even_activation: float = 0.0
     trailing_activation: float = 0.0
     high_water_mark: float | None = None
+    scaled_out: bool = False
+    exit_triggered: bool = False
     last_update_ts: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_recovery_status: str | None = None
     failure_flags: list[str] = field(default_factory=list)
@@ -656,6 +658,13 @@ class PostFillLifecycleEngine:
 
     def get_trade(self, trade_id: str) -> ManagedTradeLifecycle | None:
         return self._trades.get(str(trade_id))
+
+    def get_trade_by_symbol(self, symbol: str) -> ManagedTradeLifecycle | None:
+        symbol_u = str(symbol or "").upper()
+        for trade in self._trades.values():
+            if trade.symbol == symbol_u and trade.state not in {PositionLifecycleState.EXITED, PositionLifecycleState.LIFECYCLE_FAILURE}:
+                return trade
+        return None
 
     def snapshot(self) -> dict[str, dict[str, Any]]:
         return {trade_id: trade.to_dict() for trade_id, trade in self._trades.items()}

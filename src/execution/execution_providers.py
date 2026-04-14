@@ -98,6 +98,16 @@ class ExecutionProvider(Protocol):
     def cancel_order(self, *, broker_order_id: str) -> dict[str, Any]:
         ...
 
+    def flatten_position(
+        self,
+        *,
+        symbol: str,
+        quantity: int,
+        trade_id: str,
+        strategy_name: str = "ROSS_MOMENTUM_EXIT_INTELLIGENCE",
+    ) -> ExecutionResult:
+        ...
+
 
 @dataclass
 class PaperExecutionProvider(ExecutionProvider):
@@ -256,6 +266,25 @@ class PaperExecutionProvider(ExecutionProvider):
         print(f"[IBKR][ORDER_CANCELLED] mode=PAPER order_id={broker_order_id}")
         return {"broker_order_id": broker_order_id, "status": "Cancelled"}
 
+    def flatten_position(
+        self,
+        *,
+        symbol: str,
+        quantity: int,
+        trade_id: str,
+        strategy_name: str = "ROSS_MOMENTUM_EXIT_INTELLIGENCE",
+    ) -> ExecutionResult:
+        request = BrokerOrderRequest(
+            client_order_id=f"{trade_id}-EXIT-{datetime.now(timezone.utc).strftime('%H%M%S%f')}",
+            symbol=str(symbol).upper(),
+            direction="SELL",
+            quantity=max(1, int(quantity)),
+            order_type="MKT",
+            trader_type="SYSTEM",
+            strategy_name=str(strategy_name),
+        )
+        return self.place_order(request)
+
 
 @dataclass
 class IbkrExecutionProvider(ExecutionProvider):
@@ -389,3 +418,24 @@ class IbkrExecutionProvider(ExecutionProvider):
         if self.run_mode == RunMode.READ_ONLY:
             raise RuntimeError("READ_ONLY_NO_ORDER_MUTATION")
         return self.broker.cancel_order(broker_order_id=broker_order_id)
+
+    def flatten_position(
+        self,
+        *,
+        symbol: str,
+        quantity: int,
+        trade_id: str,
+        strategy_name: str = "ROSS_MOMENTUM_EXIT_INTELLIGENCE",
+    ) -> ExecutionResult:
+        if self.run_mode == RunMode.READ_ONLY:
+            raise RuntimeError("READ_ONLY_NO_ORDER_MUTATION")
+        request = BrokerOrderRequest(
+            client_order_id=f"{trade_id}-EXIT-{datetime.now(timezone.utc).strftime('%H%M%S%f')}",
+            symbol=str(symbol).upper(),
+            direction="SELL",
+            quantity=max(1, int(quantity)),
+            order_type="MKT",
+            trader_type="SYSTEM",
+            strategy_name=str(strategy_name),
+        )
+        return self.place_order(request)
