@@ -74,6 +74,8 @@ _REDUCED_POSITIONS_CONFIRMED = 0
 _CLOSED_POSITIONS_CONFIRMED = 0
 _BROKER_POSITION_LAST_QTY_BY_SYMBOL: dict[str, int] = {}
 _IBKR_POSITION_EVENTS_COUNT = 0
+OWNERSHIP_SYSTEM = "SYSTEM"
+OWNERSHIP_EXTERNAL = "EXTERNAL"
 
 AUTHORITATIVE_EXECUTION_STATES = {
     "DISPATCH_INTENDED",
@@ -516,6 +518,18 @@ def _position_reconciliation_window_seconds() -> int:
         return max(1, int(raw))
     except ValueError:
         return 5
+
+
+def _is_isolated_trading_mode() -> bool:
+    return str(os.environ.get("TRADING_CONTROL_MODE", "")).strip().upper() == "ISOLATED_TRADING"
+
+
+def _resolve_position_ownership(symbol: str) -> str:
+    normalized_symbol = str(symbol or "").upper()
+    for order in _RUNTIME_ORDERS.values():
+        if str(order.symbol or "").upper() == normalized_symbol:
+            return OWNERSHIP_SYSTEM
+    return OWNERSHIP_EXTERNAL
 
 
 def _watchdog_threshold_seconds(name: str, default: int) -> int:
@@ -1977,6 +1991,7 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
         local_qty = int(broker_position_by_symbol.get(symbol, 0))
         ibkr_qty = int(broker_position_by_symbol.get(symbol, 0))
         expected_position = int(local_fill_qty_by_symbol.get(symbol, 0))
+        ownership = _resolve_position_ownership(symbol)
         broker_avg_cost = broker_avg_cost_by_symbol.get(symbol)
         local_avg_cost = local_fill_avg_by_symbol.get(symbol)
         verdict = "ALIGNED"
@@ -2018,21 +2033,42 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
                 f"symbol={symbol} local_qty={local_qty} expected_position={expected_position} broker_qty={ibkr_qty} verdict={verdict}"
             )
         else:
-            _RECONCILED_POSITIONS_MISMATCH += 1
-            mismatch_count += 1
-            if verdict == "BROKER_POSITION_WITHOUT_FILL":
-                _BROKER_POSITION_WITHOUT_FILL_COUNT += 1
-            if verdict == "LOCAL_FILL_WITHOUT_BROKER_POSITION":
-                _LOCAL_FILL_WITHOUT_POSITION_COUNT += 1
-            print(
-                "[POSITION][MISMATCH] "
-                f"symbol={symbol} expected_position={expected_position} ibkr_position={ibkr_qty} reason={reason or verdict}"
+            is_external_inventory = (
+                _is_isolated_trading_mode()
+                and verdict == "BROKER_POSITION_WITHOUT_FILL"
+                and ownership == OWNERSHIP_EXTERNAL
             )
-            print(
-                "[EXECUTION][POSITION_RECONCILE_MISMATCH] "
-                f"symbol={symbol} verdict={verdict} reason={reason or 'mismatch'}"
-            )
-            _RECON_RESYNC_NEEDED = True
+            if is_external_inventory:
+                print(
+                    f"[RECON][EXTERNAL_INVENTORY] symbol={symbol} reason=unowned_broker_state"
+                )
+                print(
+                    "[EXECUTION][POSITION_RECONCILE_MISMATCH] "
+                    f"symbol={symbol} verdict={verdict} reason=external_inventory"
+                )
+
+                continue
+            else:
+                _RECONCILED_POSITIONS_MISMATCH += 1
+                mismatch_count += 1
+
+                if verdict == "BROKER_POSITION_WITHOUT_FILL":
+                    _BROKER_POSITION_WITHOUT_FILL_COUNT += 1
+
+                if verdict == "LOCAL_FILL_WITHOUT_BROKER_POSITION":
+                    _LOCAL_FILL_WITHOUT_POSITION_COUNT += 1
+
+                print(
+                    "[POSITION][MISMATCH] "
+                    f"symbol={symbol} expected_position={expected_position} ibkr_position={ibkr_qty} reason={reason or verdict}"
+                )
+
+                print(
+                    "[EXECUTION][POSITION_RECONCILE_MISMATCH] "
+                    f"symbol={symbol} verdict={verdict} reason={reason or 'mismatch'}"
+                )
+
+                _RECON_RESYNC_NEEDED = True
         print(
             "[EXECUTION][POSITION_RECONCILE] "
             f"symbol={symbol} local_qty={local_qty} expected_position={expected_position} broker_qty={ibkr_qty} verdict={verdict}"
