@@ -1,0 +1,351 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any
+
+
+class PositionLifecycleState(str, Enum):
+    ENTRY_SUBMITTED = "ENTRY_SUBMITTED"
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"
+    FILLED_UNPROTECTED = "FILLED_UNPROTECTED"
+    PROTECTION_PENDING = "PROTECTION_PENDING"
+    PROTECTED = "PROTECTED"
+    TARGET_ACTIVE = "TARGET_ACTIVE"
+    TRAILING_ELIGIBLE = "TRAILING_ELIGIBLE"
+    TRAILING_ACTIVE = "TRAILING_ACTIVE"
+    EXIT_PENDING = "EXIT_PENDING"
+    EXITED = "EXITED"
+    RECOVERY_PENDING = "RECOVERY_PENDING"
+    RECOVERED = "RECOVERED"
+    ORPHANED_POSITION = "ORPHANED_POSITION"
+    LIFECYCLE_FAILURE = "LIFECYCLE_FAILURE"
+
+
+@dataclass
+class ProtectionOrderMeta:
+    order_type: str
+    side: str
+    trigger_price: float
+    broker_order_id: str | None = None
+    status: str = "REGISTERED"
+
+
+@dataclass
+class ManagedTradeLifecycle:
+    trade_id: str
+    symbol: str
+    strategy_id: str
+    side: str
+    run_mode: str
+    session_label: str
+    intended_qty: int
+    filled_qty: int
+    avg_fill_price: float
+    state: PositionLifecycleState = PositionLifecycleState.ENTRY_SUBMITTED
+    stop: ProtectionOrderMeta | None = None
+    target: ProtectionOrderMeta | None = None
+    trailing_active: bool = False
+    trailing_mode: str = "break_even_then_offset"
+    break_even_activation: float = 0.0
+    trailing_activation: float = 0.0
+    high_water_mark: float | None = None
+    last_update_ts: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    last_recovery_status: str | None = None
+    failure_flags: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["state"] = self.state.value
+        return payload
+
+
+@dataclass
+class LifecyclePolicy:
+    default_stop_pct: float = 0.01
+    default_target_pct: float = 0.02
+    break_even_pct: float = 0.01
+    trailing_activation_pct: float = 0.015
+    trailing_offset_pct: float = 0.0075
+    install_retry_limit: int = 2
+    fail_safe_action_live: str = "BLOCK_NEW_ENTRIES"
+    fail_safe_action_paper: str = "DEGRADED_ALERT"
+
+
+_ALLOWED_TRANSITIONS: dict[PositionLifecycleState, set[PositionLifecycleState]] = {
+    PositionLifecycleState.ENTRY_SUBMITTED: {
+        PositionLifecycleState.PARTIALLY_FILLED,
+        PositionLifecycleState.FILLED_UNPROTECTED,
+        PositionLifecycleState.LIFECYCLE_FAILURE,
+    },
+    PositionLifecycleState.PARTIALLY_FILLED: {
+        PositionLifecycleState.PROTECTION_PENDING,
+        PositionLifecycleState.FILLED_UNPROTECTED,
+        PositionLifecycleState.LIFECYCLE_FAILURE,
+    },
+    PositionLifecycleState.FILLED_UNPROTECTED: {
+        PositionLifecycleState.PROTECTION_PENDING,
+        PositionLifecycleState.LIFECYCLE_FAILURE,
+    },
+    PositionLifecycleState.PROTECTION_PENDING: {
+        PositionLifecycleState.PROTECTED,
+        PositionLifecycleState.LIFECYCLE_FAILURE,
+    },
+    PositionLifecycleState.PROTECTED: {PositionLifecycleState.TARGET_ACTIVE, PositionLifecycleState.TRAILING_ELIGIBLE, PositionLifecycleState.EXIT_PENDING},
+    PositionLifecycleState.TARGET_ACTIVE: {PositionLifecycleState.TRAILING_ELIGIBLE, PositionLifecycleState.EXIT_PENDING},
+    PositionLifecycleState.TRAILING_ELIGIBLE: {PositionLifecycleState.TRAILING_ACTIVE, PositionLifecycleState.EXIT_PENDING},
+    PositionLifecycleState.TRAILING_ACTIVE: {PositionLifecycleState.EXIT_PENDING},
+    PositionLifecycleState.EXIT_PENDING: {PositionLifecycleState.EXITED},
+    PositionLifecycleState.RECOVERY_PENDING: {PositionLifecycleState.RECOVERED, PositionLifecycleState.LIFECYCLE_FAILURE},
+    PositionLifecycleState.RECOVERED: {PositionLifecycleState.PROTECTED, PositionLifecycleState.TARGET_ACTIVE, PositionLifecycleState.TRAILING_ELIGIBLE},
+}
+
+
+class PostFillLifecycleEngine:
+    def __init__(self, run_mode: str, policy: LifecyclePolicy | None = None) -> None:
+        self.run_mode = str(run_mode or "SIM").upper()
+        self.policy = policy or LifecyclePolicy()
+        self._trades: dict[str, ManagedTradeLifecycle] = {}
+
+    @staticmethod
+    def _ts() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    def _transition(self, trade: ManagedTradeLifecycle, target: PositionLifecycleState, reason: str) -> bool:
+        if trade.state == target:
+            return True
+        allowed = _ALLOWED_TRANSITIONS.get(trade.state, set())
+        if target not in allowed:
+            print(
+                "[LIFECYCLE][ILLEGAL_TRANSITION] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} from={trade.state.value} to={target.value} reason={reason}"
+            )
+            return False
+        print(
+            "[LIFECYCLE][TRANSITION] "
+            f"trade_id={trade.trade_id} symbol={trade.symbol} from={trade.state.value} to={target.value} reason={reason}"
+        )
+        trade.state = target
+        trade.last_update_ts = self._ts()
+        print(f"[LIFECYCLE][STATE] trade_id={trade.trade_id} state={trade.state.value}")
+        return True
+
+    def _compute_stop_target(self, avg_fill_price: float, side: str) -> tuple[float, float]:
+        side_u = str(side).upper()
+        if side_u not in {"LONG", "BUY"}:
+            raise ValueError("post-fill v1 supports long-side lifecycle hardening")
+        stop = avg_fill_price * (1.0 - self.policy.default_stop_pct)
+        target = avg_fill_price * (1.0 + self.policy.default_target_pct)
+        if stop >= avg_fill_price:
+            raise ValueError("invalid stop geometry: protective stop must be below long fill")
+        if target <= avg_fill_price:
+            raise ValueError("invalid target geometry: target must be above long fill")
+        print(
+            "[LIFECYCLE][PROTECTION_POLICY] "
+            f"side={side_u} fill={avg_fill_price:.4f} stop_pct={self.policy.default_stop_pct:.4f} target_pct={self.policy.default_target_pct:.4f}"
+        )
+        print(f"[LIFECYCLE][STOP_COMPUTED] stop={stop:.4f}")
+        print(f"[LIFECYCLE][TARGET_COMPUTED] target={target:.4f}")
+        return stop, target
+
+    def activate_trade_management_after_fill(
+        self,
+        *,
+        trade_id: str,
+        symbol: str,
+        side: str,
+        filled_qty: int,
+        avg_fill_price: float,
+        strategy_id: str,
+        session_label: str = "runtime",
+        intended_qty: int | None = None,
+    ) -> dict[str, Any]:
+        trade = ManagedTradeLifecycle(
+            trade_id=str(trade_id),
+            symbol=str(symbol).upper(),
+            strategy_id=str(strategy_id or "UNKNOWN"),
+            side=str(side).upper(),
+            run_mode=self.run_mode,
+            session_label=session_label,
+            intended_qty=int(intended_qty or filled_qty),
+            filled_qty=int(filled_qty),
+            avg_fill_price=float(avg_fill_price),
+            state=PositionLifecycleState.FILLED_UNPROTECTED,
+            break_even_activation=float(avg_fill_price) * (1.0 + self.policy.break_even_pct),
+            trailing_activation=float(avg_fill_price) * (1.0 + self.policy.trailing_activation_pct),
+            high_water_mark=float(avg_fill_price),
+        )
+        self._trades[trade.trade_id] = trade
+        print(f"[LIFECYCLE][STATE] trade_id={trade.trade_id} state={trade.state.value}")
+
+        if self.run_mode == "READ_ONLY":
+            trade.failure_flags.append("READ_ONLY_NO_MUTATION")
+            print(
+                "[LIFECYCLE][CRITICAL][UNPROTECTED_POSITION] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} reason=READ_ONLY_NO_ORDER_MUTATION"
+            )
+            self._transition(trade, PositionLifecycleState.LIFECYCLE_FAILURE, "read_only_no_install")
+            return {"success": False, "trade": trade.to_dict(), "failure_reason": "READ_ONLY_MODE"}
+
+        installed = False
+        failure_reason: str | None = None
+        for attempt in range(1, self.policy.install_retry_limit + 1):
+            self._transition(trade, PositionLifecycleState.PROTECTION_PENDING, f"install_attempt_{attempt}")
+            try:
+                stop, target = self._compute_stop_target(avg_fill_price=float(avg_fill_price), side=side)
+                trade.stop = ProtectionOrderMeta(order_type="STOP", side="SELL", trigger_price=stop)
+                trade.target = ProtectionOrderMeta(order_type="LIMIT", side="SELL", trigger_price=target)
+                print(
+                    "[LIFECYCLE][ORDER_INSTALL][STOP] "
+                    f"trade_id={trade.trade_id} symbol={trade.symbol} stop={stop:.4f}"
+                )
+                print(
+                    "[LIFECYCLE][ORDER_INSTALL][TARGET] "
+                    f"trade_id={trade.trade_id} symbol={trade.symbol} target={target:.4f}"
+                )
+                print(
+                    "[LIFECYCLE][ORDER_LINKAGE] "
+                    f"trade_id={trade.trade_id} symbol={trade.symbol} entry_order_id={trade.trade_id}"
+                )
+                self._transition(trade, PositionLifecycleState.PROTECTED, "stop_installed")
+                self._transition(trade, PositionLifecycleState.TARGET_ACTIVE, "target_registered")
+                self._transition(trade, PositionLifecycleState.TRAILING_ELIGIBLE, "baseline_trailing_ready")
+                installed = True
+                break
+            except Exception as exc:  # defensive lifecycle boundary
+                failure_reason = str(exc)
+                print(f"[LIFECYCLE][POLICY_INVALID] trade_id={trade.trade_id} reason={failure_reason}")
+                print(f"[LIFECYCLE][FAILSAFE][RETRY] trade_id={trade.trade_id} attempt={attempt}")
+
+        if not installed:
+            print(
+                "[LIFECYCLE][CRITICAL][UNPROTECTED_POSITION] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} reason={failure_reason or 'unknown'}"
+            )
+            trade.failure_flags.append("UNPROTECTED_POSITION")
+            self._transition(trade, PositionLifecycleState.LIFECYCLE_FAILURE, "protection_install_failed")
+            action = self.policy.fail_safe_action_live if self.run_mode == "LIVE" else self.policy.fail_safe_action_paper
+            print(f"[LIFECYCLE][FAILSAFE][{action}] trade_id={trade.trade_id} symbol={trade.symbol}")
+
+        print(
+            "[LIFECYCLE][ORDER_INSTALL][RESULT] "
+            f"trade_id={trade.trade_id} success={installed} state={trade.state.value}"
+        )
+        print(f"[LIFECYCLE][SUMMARY] trade_id={trade.trade_id} symbol={trade.symbol} state={trade.state.value}")
+        return {
+            "success": installed,
+            "installed_stop_metadata": asdict(trade.stop) if trade.stop else None,
+            "installed_target_metadata": asdict(trade.target) if trade.target else None,
+            "protection_state": trade.state.value,
+            "rationale": "initial_protection_installed" if installed else "protection_install_failed",
+            "failure_reason": failure_reason,
+            "trade": trade.to_dict(),
+        }
+
+    def evaluate_trailing(self, trade_id: str, current_price: float) -> dict[str, Any]:
+        trade = self._trades.get(str(trade_id))
+        if trade is None or trade.stop is None:
+            return {"updated": False, "reason": "trade_missing_or_unprotected"}
+        if trade.state not in {PositionLifecycleState.TRAILING_ELIGIBLE, PositionLifecycleState.TRAILING_ACTIVE}:
+            return {"updated": False, "reason": f"state_not_trailing:{trade.state.value}"}
+
+        print(f"[TRAIL][ELIGIBLE] trade_id={trade.trade_id} symbol={trade.symbol} state={trade.state.value}")
+        current = float(current_price)
+        trade.high_water_mark = max(float(trade.high_water_mark or trade.avg_fill_price), current)
+
+        if current < trade.trailing_activation:
+            print(f"[TRAIL][NO_CHANGE] trade_id={trade.trade_id} reason=activation_not_reached")
+            return {"updated": False, "reason": "activation_not_reached", "stop_price": trade.stop.trigger_price}
+
+        if trade.state != PositionLifecycleState.TRAILING_ACTIVE:
+            self._transition(trade, PositionLifecycleState.TRAILING_ACTIVE, "price_reached_trailing_activation")
+            print(f"[TRAIL][ACTIVATE] trade_id={trade.trade_id} trigger={trade.trailing_activation:.4f}")
+
+        candidate = max(
+            trade.avg_fill_price,
+            float(trade.high_water_mark) * (1.0 - self.policy.trailing_offset_pct),
+        )
+        if candidate < trade.stop.trigger_price:
+            print(
+                f"[TRAIL][REJECT_LOOSEN] trade_id={trade.trade_id} current_stop={trade.stop.trigger_price:.4f} candidate={candidate:.4f}"
+            )
+            return {"updated": False, "reason": "reject_loosen", "stop_price": trade.stop.trigger_price}
+        if abs(candidate - trade.stop.trigger_price) < 1e-9:
+            print(f"[TRAIL][NO_CHANGE] trade_id={trade.trade_id} reason=unchanged")
+            return {"updated": False, "reason": "unchanged", "stop_price": trade.stop.trigger_price}
+
+        trade.stop.trigger_price = candidate
+        trade.last_update_ts = self._ts()
+        print(f"[TRAIL][UPDATE] trade_id={trade.trade_id} new_stop={candidate:.4f} high_water={trade.high_water_mark:.4f}")
+        return {"updated": True, "stop_price": trade.stop.trigger_price, "state": trade.state.value}
+
+    def mark_exit_pending(self, trade_id: str, reason: str) -> None:
+        trade = self._trades.get(str(trade_id))
+        if trade is None:
+            return
+        if self._transition(trade, PositionLifecycleState.EXIT_PENDING, reason):
+            print(f"[TRAIL][EXIT_TRIGGERED] trade_id={trade.trade_id} reason={reason}")
+
+    def mark_exited(self, trade_id: str, reason: str = "fill_exit") -> None:
+        trade = self._trades.get(str(trade_id))
+        if trade is None:
+            return
+        self._transition(trade, PositionLifecycleState.EXITED, reason)
+
+    def startup_safe_state(self, broker_positions: list[Any], broker_orders: list[Any]) -> dict[str, Any]:
+        print("[STARTUP][SAFE_STATE][BEGIN]")
+        print(f"[STARTUP][SAFE_STATE][POSITIONS_FOUND] count={len(broker_positions)}")
+        print(f"[STARTUP][SAFE_STATE][ORDERS_FOUND] count={len(broker_orders)}")
+        print("[RECOVERY][START]")
+        print(f"[RECOVERY][BROKER_POSITIONS] count={len(broker_positions)}")
+        print(f"[RECOVERY][BROKER_ORDERS] count={len(broker_orders)}")
+
+        recovered = 0
+        recovery_pending = 0
+        for position in broker_positions:
+            symbol = str(getattr(position, "symbol", "") or "").upper()
+            qty = int(getattr(position, "quantity", 0) or 0)
+            if not symbol or qty <= 0:
+                continue
+            stop = getattr(position, "stop_loss_price", None)
+            trade_id = f"recovery:{symbol}"
+            if stop is None:
+                print(f"[RECOVERY][ORPHAN_POSITION] symbol={symbol} qty={qty}")
+                recovery_pending += 1
+                continue
+            trade = ManagedTradeLifecycle(
+                trade_id=trade_id,
+                symbol=symbol,
+                strategy_id=str(getattr(position, "strategy_name", "RECOVERY") or "RECOVERY"),
+                side=str(getattr(position, "direction", "LONG") or "LONG").upper(),
+                run_mode=self.run_mode,
+                session_label="startup_recovery",
+                intended_qty=qty,
+                filled_qty=qty,
+                avg_fill_price=float(getattr(position, "entry_price", 0.0) or 0.0),
+                stop=ProtectionOrderMeta(order_type="STOP", side="SELL", trigger_price=float(stop)),
+                target=(
+                    ProtectionOrderMeta(order_type="LIMIT", side="SELL", trigger_price=float(getattr(position, "take_profit_price")))
+                    if getattr(position, "take_profit_price", None) is not None
+                    else None
+                ),
+                state=PositionLifecycleState.RECOVERED,
+                last_recovery_status="matched_broker_position",
+                high_water_mark=float(getattr(position, "entry_price", 0.0) or 0.0),
+            )
+            self._trades[trade_id] = trade
+            recovered += 1
+            print(f"[RECOVERY][MATCH] symbol={symbol} trade_id={trade_id}")
+
+        print(f"[RECOVERY][SUMMARY] recovered={recovered} pending={recovery_pending}")
+        decision = "READY" if self.run_mode in {"SIM", "READ_ONLY"} or recovery_pending == 0 else "QUARANTINE"
+        print(f"[STARTUP][SAFE_STATE][DECISION] action={decision}")
+        print("[STARTUP][SAFE_STATE][READY]")
+        return {"recovered": recovered, "recovery_pending": recovery_pending, "decision": decision}
+
+    def get_trade(self, trade_id: str) -> ManagedTradeLifecycle | None:
+        return self._trades.get(str(trade_id))
+
+    def snapshot(self) -> dict[str, dict[str, Any]]:
+        return {trade_id: trade.to_dict() for trade_id, trade in self._trades.items()}
