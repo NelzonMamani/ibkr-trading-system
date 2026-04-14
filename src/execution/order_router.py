@@ -74,6 +74,10 @@ _REDUCED_POSITIONS_CONFIRMED = 0
 _CLOSED_POSITIONS_CONFIRMED = 0
 _BROKER_POSITION_LAST_QTY_BY_SYMBOL: dict[str, int] = {}
 _IBKR_POSITION_EVENTS_COUNT = 0
+OWNERSHIP_SYSTEM = "SYSTEM"
+OWNERSHIP_EXTERNAL = "EXTERNAL"
+_POSITION_OWNERSHIP_BY_SYMBOL: dict[str, str] = {}
+_TRADING_CONTROL_MODE = "SYSTEM_TRADING"
 
 AUTHORITATIVE_EXECUTION_STATES = {
     "DISPATCH_INTENDED",
@@ -164,6 +168,16 @@ LOCAL_ALLOWED_STATES = {"CREATED", "BLOCKED", "SUBMITTING", "SUBMITTED"}
 
 FULL_QUOTE_PATH = "FULL_QUOTE_PATH"
 DEGRADED_QUOTE_PATH = "DEGRADED_QUOTE_PATH"
+
+
+def set_trading_control_mode(mode: str) -> None:
+    global _TRADING_CONTROL_MODE
+    normalized = str(mode or "").strip().upper() or "SYSTEM_TRADING"
+    _TRADING_CONTROL_MODE = normalized
+
+
+def get_trading_control_mode() -> str:
+    return _TRADING_CONTROL_MODE
 
 
 class ExecutionInvariantViolation(RuntimeError):
@@ -2018,6 +2032,25 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
                 f"symbol={symbol} local_qty={local_qty} expected_position={expected_position} broker_qty={ibkr_qty} verdict={verdict}"
             )
         else:
+            ownership = _POSITION_OWNERSHIP_BY_SYMBOL.get(symbol, OWNERSHIP_EXTERNAL)
+
+            is_external_inventory = (
+                get_trading_control_mode() == "ISOLATED_TRADING"
+                and verdict == "BROKER_POSITION_WITHOUT_FILL"
+                and ownership == OWNERSHIP_EXTERNAL
+            )
+
+            if is_external_inventory:
+                print(
+                    f"[RECON][EXTERNAL_INVENTORY] symbol={symbol} reason=unowned_broker_state"
+                )
+                print(
+                    "[EXECUTION][POSITION_RECONCILE_MISMATCH] "
+                    f"symbol={symbol} verdict={verdict} reason=external_inventory"
+                )
+
+                continue
+
             _RECONCILED_POSITIONS_MISMATCH += 1
             mismatch_count += 1
             if verdict == "BROKER_POSITION_WITHOUT_FILL":
