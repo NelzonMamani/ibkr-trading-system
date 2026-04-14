@@ -17,7 +17,8 @@ def test_critical_exit_anomaly_blocks_exit_progression(monkeypatch) -> None:
     )
     orchestrator = CoreOrchestrator.__new__(CoreOrchestrator)
 
-    verdict = CoreOrchestrator._resolve_fill_authority_cycle(orchestrator)
+    verdict = CoreOrchestrator._resolve_lifecycle_authority_cycle(orchestrator)
 
     assert verdict["critical_exit_anomaly"] is True
     assert verdict["block_exit_progression"] is True
+    assert verdict["block_new_entries"] is True
