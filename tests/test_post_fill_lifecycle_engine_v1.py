@@ -13,13 +13,19 @@ class _ProviderStub:
         self.target_calls: list[dict] = []
         self.modify_calls: list[dict] = []
         self.cancel_calls: list[dict] = []
+        self.fail_stop_repairs = False
+        self.fail_target_repairs = False
 
     def place_stop_order(self, **kwargs):
         self.stop_calls.append(dict(kwargs))
+        if self.fail_stop_repairs and kwargs.get("trade_id") == "T-STOP-FAIL":
+            raise RuntimeError("stop repair failure")
         return {"broker_order_id": "STOP-1", "status": "Submitted"}
 
     def place_target_order(self, **kwargs):
         self.target_calls.append(dict(kwargs))
+        if self.fail_target_repairs and kwargs.get("trade_id") == "T-TARGET-FAIL":
+            raise RuntimeError("target repair failure")
         return {"broker_order_id": "TGT-1", "status": "Submitted"}
 
     def modify_stop_order(self, **kwargs):
@@ -149,8 +155,82 @@ def test_reconciliation_detects_missing_stop_and_repairs() -> None:
     trade.target.broker_order_id = "TGT-OPEN"
     summary = engine.reconcile_orders([{"orderId": "TGT-OPEN", "status": "Submitted"}], repair=True)
     assert any(f["issue"] == "MISSING_STOP" for f in summary["findings"])
+    assert not any(f["issue"] == "STOP_REPAIR_FAILED" for f in summary["findings"])
     assert summary["repaired"] == 1
+    assert summary["block_new_entries"] is False
     assert len(provider.stop_calls) == 2
+
+
+def test_reconciliation_detects_missing_target_and_repairs() -> None:
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-6",
+        symbol="AAPL",
+        side="LONG",
+        filled_qty=1,
+        avg_fill_price=100.0,
+        strategy_id="S6",
+    )
+    trade = engine.get_trade("T-6")
+    assert trade is not None
+    trade.stop.broker_order_id = "STOP-OPEN"
+    trade.target.broker_order_id = "TGT-MISSING"
+    summary = engine.reconcile_orders([{"orderId": "STOP-OPEN", "status": "Submitted"}], repair=True)
+    assert any(f["issue"] == "MISSING_TARGET" for f in summary["findings"])
+    assert not any(f["issue"] == "TARGET_REPAIR_FAILED" for f in summary["findings"])
+    assert summary["repaired"] == 1
+    assert summary["block_new_entries"] is False
+    assert len(provider.target_calls) == 2
+
+
+def test_reconciliation_failed_stop_repair_triggers_hard_failsafe(capsys) -> None:
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-STOP-FAIL",
+        symbol="AAPL",
+        side="LONG",
+        filled_qty=1,
+        avg_fill_price=100.0,
+        strategy_id="S7",
+    )
+    trade = engine.get_trade("T-STOP-FAIL")
+    assert trade is not None
+    provider.fail_stop_repairs = True
+    trade.stop.broker_order_id = "STOP-MISSING"
+    summary = engine.reconcile_orders([], repair=True)
+    assert any(f["issue"] == "MISSING_STOP" for f in summary["findings"])
+    assert any(f["issue"] == "STOP_REPAIR_FAILED" for f in summary["findings"])
+    assert summary["block_new_entries"] is True
+    assert trade.state == PositionLifecycleState.LIFECYCLE_FAILURE
+    assert "[LIFECYCLE][ILLEGAL_TRANSITION]" not in capsys.readouterr().out
+
+
+def test_reconciliation_failed_target_repair_degrades_and_blocks_without_exit(capsys) -> None:
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-TARGET-FAIL",
+        symbol="AAPL",
+        side="LONG",
+        filled_qty=1,
+        avg_fill_price=100.0,
+        strategy_id="S8",
+    )
+    trade = engine.get_trade("T-TARGET-FAIL")
+    assert trade is not None
+    provider.fail_target_repairs = True
+    trade.stop.broker_order_id = "STOP-OPEN"
+    trade.target.broker_order_id = "TGT-MISSING"
+    summary = engine.reconcile_orders([{"orderId": "STOP-OPEN", "status": "Submitted"}], repair=True)
+    assert any(f["issue"] == "MISSING_TARGET" for f in summary["findings"])
+    assert any(f["issue"] == "TARGET_REPAIR_FAILED" for f in summary["findings"])
+    assert summary["block_new_entries"] is True
+    assert trade.state == PositionLifecycleState.LIFECYCLE_FAILURE
+    assert trade.stop is not None
+    assert trade.stop.broker_order_id == "STOP-OPEN"
+    assert "[LIFECYCLE][ILLEGAL_TRANSITION]" not in capsys.readouterr().out
 
 
 def test_lifecycle_payload_is_serializable_for_audit() -> None:
