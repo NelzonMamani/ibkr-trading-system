@@ -167,6 +167,7 @@ def test_partial_exit_does_not_close_and_accumulates_realized_pnl() -> None:
     assert trade.state != PositionLifecycleState.EXITED
     assert trade.filled_qty == 6
     assert trade.exited_qty == 4
+    assert trade.intended_qty == 10
     assert trade.realized_pnl == 8.0
     assert trade.exit_fill_price == 102.0
     assert trade.exit_fill_time == "2026-04-15T10:00:02+00:00"
@@ -387,4 +388,26 @@ def test_lifecycle_payload_is_serializable_for_audit() -> None:
     payload = trade.to_dict()
     assert payload["trade_id"] == "T-9"
     assert payload["state"] == PositionLifecycleState.ENTRY_SUBMITTED.value
+    assert payload["initial_qty"] == 1
+    assert payload["remaining_qty"] == 1
+    assert payload["quantity"] == 1
+    assert payload["filled_qty"] == 1
     assert "last_update_ts" in payload
+
+
+def test_startup_recovery_does_not_duplicate_existing_symbol_trade() -> None:
+    engine = PostFillLifecycleEngine(run_mode="LIVE")
+    engine.activate_trade_management_after_fill(
+        trade_id="T-EXISTING",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=3,
+        avg_fill_price=100.0,
+        strategy_id="S1",
+    )
+    positions = [
+        SimpleNamespace(symbol="AMD", quantity=3, stop_loss_price=95.0, entry_price=100.0, direction="LONG"),
+    ]
+    summary = engine.startup_safe_state(positions, broker_orders=[])
+    assert summary["recovered"] == 0
+    assert "recovery:AMD" not in engine.snapshot()

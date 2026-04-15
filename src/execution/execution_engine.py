@@ -605,6 +605,13 @@ class ExecutionEngine:
         # future: select best venue
         return "IBKR_SMART"
 
+    def _has_position_record_for_symbol(self, symbol: str) -> bool:
+        normalized = str(symbol or "").upper()
+        for record in self.position_records.values():
+            if str(record.get("symbol", "")).upper() == normalized:
+                return True
+        return False
+
     def _route_order(self, request: BrokerOrderRequest) -> ExecutionResult:
         readonly = get_ibkr_readonly_enabled()
         submission_enabled = bool(get_config("IBKR_ORDER_SUBMISSION_ENABLED"))
@@ -617,7 +624,7 @@ class ExecutionEngine:
         if self.run_mode == RunMode.LIVE and str(request.strategy_name or "").upper() == "LIVE_EXECUTION_PROBE" and str(request.direction).upper() == "LONG":
             print(f"[PROBE][BUY] symbol={request.symbol} qty={request.quantity}")
             self._require_exit_stage.add(request.client_order_id)
-        if str(request.direction).upper() == "SELL" and request.symbol in self.position_records:
+        if str(request.direction).upper() == "SELL" and self._has_position_record_for_symbol(request.symbol):
             print(f"[EXECUTION][CLOSE] symbol={request.symbol} qty={request.quantity}")
             print(f"[EXIT][SUBMIT] symbol={request.symbol} qty={request.quantity} order_id={request.client_order_id}")
         print("[ORDER_SUBMIT]", f"symbol={request.symbol}", f"side={request.direction}", f"qty={request.quantity}")
@@ -863,9 +870,12 @@ class ExecutionEngine:
             status=getattr(result, "status", None),
         )
         self._record_order_stage(request.client_order_id, "FILL")
-        self.position_records[request.symbol] = {
+        self.position_records[request.client_order_id] = {
+            "trade_id": request.client_order_id,
+            "symbol": request.symbol,
             "entry_price": entry_price,
-            "quantity": filled_quantity,
+            "initial_qty": int(request.quantity),
+            "remaining_qty": int(filled_quantity),
             "timestamp": time.time(),
         }
         direction_upper = str(request.direction).upper()
@@ -880,7 +890,7 @@ class ExecutionEngine:
                 intended_qty=request.quantity,
                 session_label=self.run_mode.value,
             )
-            self.position_records[request.symbol]["lifecycle"] = protection_result
+            self.position_records[request.client_order_id]["lifecycle"] = protection_result
         if direction_upper in {"SHORT", "SELL"}:
             self.post_fill_lifecycle.mark_exit_pending(request.client_order_id, "exit_fill_received")
             self.post_fill_lifecycle.mark_exited(request.client_order_id, "exit_fill_complete")

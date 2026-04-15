@@ -64,6 +64,11 @@ class ManagedTradeLifecycle:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["initial_qty"] = int(self.intended_qty)
+        payload["remaining_qty"] = int(self.filled_qty)
+        payload["quantity"] = int(self.intended_qty)
+        payload["filled_qty"] = int(self.filled_qty)
+        payload["exited_qty"] = int(self.exited_qty)
         payload["state"] = self.state.value
         return payload
 
@@ -220,6 +225,19 @@ class PostFillLifecycleEngine:
         print(f"[LIFECYCLE][TARGET_COMPUTED] target={target:.4f}")
         return stop, target
 
+    @staticmethod
+    def _assert_trade_invariants(trade: ManagedTradeLifecycle) -> None:
+        initial_qty = int(trade.intended_qty)
+        remaining_qty = int(trade.filled_qty)
+        exited_qty = int(trade.exited_qty)
+        assert remaining_qty >= 0, "remaining_qty must be >= 0"
+        assert exited_qty <= initial_qty, "exited_qty must be <= initial_qty"
+        assert initial_qty == exited_qty + remaining_qty, "initial_qty must equal exited_qty + remaining_qty"
+
+    def _persist_trade_update(self, trade: ManagedTradeLifecycle) -> None:
+        # In-memory lifecycle persistence boundary.
+        self._trades[trade.trade_id] = trade
+
     def activate_trade_management_after_fill(
         self,
         *,
@@ -250,6 +268,8 @@ class PostFillLifecycleEngine:
         self._trades[trade.trade_id] = trade
         self._active_trade_ids.add(trade.trade_id)
         self._active_position_qty_by_symbol[trade.symbol] = trade.filled_qty
+        self._assert_trade_invariants(trade)
+        self._persist_trade_update(trade)
         print(f"[LIFECYCLE][STATE] trade_id={trade.trade_id} state={trade.state.value}")
 
         if self.run_mode == "READ_ONLY":
@@ -459,6 +479,8 @@ class PostFillLifecycleEngine:
         trade.exit_order_id = str(exit_order_id) if exit_order_id is not None else trade.exit_order_id
         trade.realized_pnl += float(realized_increment)
         trade.last_update_ts = self._ts()
+        self._assert_trade_invariants(trade)
+        self._persist_trade_update(trade)
 
         if remaining_qty > 0:
             self._active_trade_ids.add(trade.trade_id)
@@ -739,11 +761,25 @@ class PostFillLifecycleEngine:
 
         recovered = 0
         recovery_pending = 0
+        broker_position_by_symbol: dict[str, Any] = {}
         for position in broker_positions:
             symbol = str(getattr(position, "symbol", "") or "").upper()
             qty = int(getattr(position, "quantity", 0) or 0)
-            if not symbol or qty <= 0:
-                continue
+            if symbol and qty > 0:
+                broker_position_by_symbol[symbol] = position
+
+        tracked_symbols = {
+            str(trade.symbol).upper()
+            for trade in self._trades.values()
+            if trade.state not in {PositionLifecycleState.EXITED, PositionLifecycleState.LIFECYCLE_FAILURE}
+        }
+        for symbol in tracked_symbols:
+            broker_position_by_symbol.pop(symbol, None)
+
+        remaining_broker_symbols = sorted(broker_position_by_symbol.keys())
+        for symbol in remaining_broker_symbols:
+            position = broker_position_by_symbol[symbol]
+            qty = int(getattr(position, "quantity", 0) or 0)
             stop = getattr(position, "stop_loss_price", None)
             trade_id = f"recovery:{symbol}"
             if stop is None:
@@ -773,6 +809,8 @@ class PostFillLifecycleEngine:
             self._trades[trade_id] = trade
             self._active_trade_ids.add(trade_id)
             self._active_position_qty_by_symbol[symbol] = qty
+            self._assert_trade_invariants(trade)
+            self._persist_trade_update(trade)
             recovered += 1
             print(f"[RECOVERY][MATCH] symbol={symbol} trade_id={trade_id}")
 
