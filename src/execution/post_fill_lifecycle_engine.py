@@ -44,6 +44,7 @@ class ManagedTradeLifecycle:
     intended_qty: int
     filled_qty: int
     avg_fill_price: float
+    exited_qty: int = 0
     state: PositionLifecycleState = PositionLifecycleState.ENTRY_SUBMITTED
     stop: ProtectionOrderMeta | None = None
     target: ProtectionOrderMeta | None = None
@@ -389,16 +390,28 @@ class PostFillLifecycleEngine:
         if not order_id:
             return {"handled": False, "reason": "missing_order_id"}
 
-        for trade in self._trades.values():
+        for trade in list(self._trades.values()):
             stop = trade.stop
             target = trade.target
             if stop and str(stop.broker_order_id or "") == order_id:
                 if event_type == "orderstatus" and status:
                     stop.status = status
-                if event_type == "execdetails" or status == "FILLED":
+                if event_type == "execdetails":
                     print(f"[IBKR][EXEC_DETAILS] trade_id={trade.trade_id} symbol={trade.symbol} exit_leg=STOP")
                     self.mark_exit_pending(trade.trade_id, "stop_fill_broker")
-                    self.mark_exited(trade.trade_id, "stop_fill_broker")
+                    exit_update = self.record_exit_fill(
+                        trade_id=trade.trade_id,
+                        actual_qty=int(payload.get("shares") or payload.get("qty") or trade.filled_qty),
+                        reason="stop_fill_broker",
+                    )
+                    if exit_update.get("partial"):
+                        return {
+                            "handled": True,
+                            "trade_id": trade.trade_id,
+                            "exit_reason": "STOP_PARTIAL_FILLED",
+                            "partial": True,
+                            "remaining_qty": trade.filled_qty,
+                        }
                     if target:
                         target.status = "CANCEL_PENDING"
                         if self.execution_provider is not None and target.broker_order_id:
@@ -422,10 +435,22 @@ class PostFillLifecycleEngine:
             if target and str(target.broker_order_id or "") == order_id:
                 if event_type == "orderstatus" and status:
                     target.status = status
-                if event_type == "execdetails" or status == "FILLED":
+                if event_type == "execdetails":
                     print(f"[IBKR][EXEC_DETAILS] trade_id={trade.trade_id} symbol={trade.symbol} exit_leg=TARGET")
                     self.mark_exit_pending(trade.trade_id, "target_fill_broker")
-                    self.mark_exited(trade.trade_id, "target_fill_broker")
+                    exit_update = self.record_exit_fill(
+                        trade_id=trade.trade_id,
+                        actual_qty=int(payload.get("shares") or payload.get("qty") or trade.filled_qty),
+                        reason="target_fill_broker",
+                    )
+                    if exit_update.get("partial"):
+                        return {
+                            "handled": True,
+                            "trade_id": trade.trade_id,
+                            "exit_reason": "TARGET_PARTIAL_FILLED",
+                            "partial": True,
+                            "remaining_qty": trade.filled_qty,
+                        }
                     if stop:
                         stop.status = "CANCEL_PENDING"
                         if self.execution_provider is not None and stop.broker_order_id:
@@ -586,6 +611,22 @@ class PostFillLifecycleEngine:
         if trade is None:
             return
         self._transition(trade, PositionLifecycleState.EXITED, reason)
+
+    def record_exit_fill(self, *, trade_id: str, actual_qty: int, reason: str) -> dict[str, Any]:
+        trade = self._trades.get(str(trade_id))
+        if trade is None:
+            return {"ok": False, "reason": "trade_missing"}
+        qty = max(0, min(int(actual_qty), int(trade.filled_qty)))
+        if qty <= 0:
+            return {"ok": False, "reason": "invalid_qty"}
+        if qty < int(trade.filled_qty):
+            trade.filled_qty -= qty
+            trade.exited_qty += qty
+            print("[TRADE][UPDATE] partial_exit_detected")
+            return {"ok": True, "partial": True}
+        trade.exited_qty += qty
+        self.mark_exited(trade.trade_id, reason)
+        return {"ok": True, "partial": False}
 
     def startup_safe_state(self, broker_positions: list[Any], broker_orders: list[Any]) -> dict[str, Any]:
         print("[STARTUP][SAFE_STATE][BEGIN]")

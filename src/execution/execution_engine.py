@@ -70,6 +70,7 @@ class ExecutionEngine:
         self.execution_integrity_flag: bool = False
         self._order_trace_stages: dict[str, set[str]] = {}
         self._require_exit_stage: set[str] = set()
+        self._submitted_exit_orders: set[str] = set()
         self.position_records: dict[str, dict] = {}
         self._failsafe_block_new_entries: bool = False
         self._provider = self._resolve_provider(provider)
@@ -870,20 +871,25 @@ class ExecutionEngine:
         }
         direction_upper = str(request.direction).upper()
         if direction_upper in {"LONG", "BUY"}:
+            if entry_price is None:
+                print(
+                    f"[ORDER][WARN] order_id={request.client_order_id} symbol={request.symbol} "
+                    "reason=missing_broker_fill_price skip_lifecycle_activation=True"
+                )
+                return
             protection_result = self.post_fill_lifecycle.activate_trade_management_after_fill(
                 trade_id=request.client_order_id,
                 symbol=request.symbol,
                 side=request.direction,
                 filled_qty=filled_quantity,
-                avg_fill_price=float(entry_price or 0.0),
+                avg_fill_price=float(entry_price),
                 strategy_id=request.strategy_name or "UNKNOWN",
                 intended_qty=request.quantity,
                 session_label=self.run_mode.value,
             )
             self.position_records[request.symbol]["lifecycle"] = protection_result
         if direction_upper in {"SHORT", "SELL"}:
-            self.post_fill_lifecycle.mark_exit_pending(request.client_order_id, "exit_fill_received")
-            self.post_fill_lifecycle.mark_exited(request.client_order_id, "exit_fill_complete")
+            self.post_fill_lifecycle.mark_exit_pending(request.client_order_id, "exit_submission_acknowledged")
         if direction_upper in {"SHORT", "SELL"}:
             print(
                 f"[ORDER][EXIT] order_id={request.client_order_id} symbol={request.symbol} qty={filled_quantity}"
@@ -935,12 +941,38 @@ class ExecutionEngine:
         print(f"[PROBE][EXIT_INTENT] symbol={request.symbol} side=SELL close_position=True")
         print(f"[PROBE][SELL] symbol={request.symbol} qty={filled_quantity}")
         self._record_order_stage(request.client_order_id, "EXIT")
-        exit_result = self._provider.place_order(exit_order)
+        exit_result = self.submit_exit_order_once(exit_order)
         self._confirm_broker_ack(exit_order, exit_result)
         self._record_fill_and_position(exit_order, exit_result)
         print(
             f"[PROBE][CLOSED] symbol={request.symbol} status={getattr(exit_result, 'status', 'UNKNOWN')}"
         )
+
+    def submit_exit_order_once(self, request: BrokerOrderRequest) -> ExecutionResult:
+        order_key = str(request.client_order_id or "").strip()
+        if order_key and order_key in self._submitted_exit_orders:
+            print(f"[EXIT][DUPLICATE_BLOCKED] order_id={order_key} symbol={request.symbol}")
+            return ExecutionResult(
+                symbol=request.symbol,
+                trader_type=request.trader_type or "UNKNOWN",
+                attempted=False,
+                status="BLOCKED",
+                rationale="duplicate_exit_submission_blocked",
+                direction=request.direction,
+                quantity=request.quantity,
+                requested_quantity=request.quantity,
+                filled_quantity=0,
+                remaining_quantity=request.quantity,
+                fill_status="NONE",
+                note="duplicate_exit_submission_blocked",
+                rejection_reason="duplicate_exit_submission_blocked",
+                client_order_id=request.client_order_id,
+                attempt_number=request.attempt_number,
+            )
+        result = self._provider.place_order(request)
+        if order_key:
+            self._submitted_exit_orders.add(order_key)
+        return result
 
     def _record_order_stage(self, client_order_id: str, stage: str) -> None:
         stages = self._order_trace_stages.setdefault(client_order_id, set())
