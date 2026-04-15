@@ -1798,14 +1798,26 @@ def run_cycle(
     for event in execution_events:
         if int(getattr(event, "filled_quantity", 0) or 0) <= 0:
             continue
-        entry_price = float(getattr(event, "avg_fill_price", 0.0) or 0.0)
+        entry_price = float(
+            getattr(event, "entry_fill_price", None)
+            or getattr(event, "avg_fill_price", 0.0)
+            or 0.0
+        )
         exit_price = float(getattr(event, "avg_fill_price", 0.0) or 0.0)
         realized_pnl = 0.0
         gross_return_pct = 0.0
-        holding_seconds = 0
+        holding_seconds = int(getattr(event, "holding_duration_seconds", 0) or 0)
+        partial_exit_count = int(getattr(event, "partial_exit_count", 0) or 0)
         exit_reason = str(getattr(event, "detail", "ORDER_FILLED") or "ORDER_FILLED")
+        trade_id = f"{cycle_id}-{event.intent_id}"
+        print(
+            "[TRACE][ANALYTICS_SOURCE] "
+            f"trade_id={trade_id} symbol={event.symbol} source=lifecycle_snapshot"
+        )
         analytics_row = {
-            "trade_id": f"{cycle_id}-{event.intent_id}",
+            "trade_id": trade_id,
+            "origin_cycle_id": cycle_id,
+            "origin_intent_id": getattr(event, "intent_id", "UNKNOWN") or "UNKNOWN",
             "symbol": event.symbol,
             "setup_name": symbol_setup_family.get(event.symbol, "NONE"),
             "trigger_type": symbol_trigger_type.get(event.symbol, "NONE"),
@@ -1816,7 +1828,7 @@ def run_cycle(
             "holding_duration_seconds": holding_seconds,
             "realized_pnl": realized_pnl,
             "exit_reason": exit_reason,
-            "partial_exit_count": 1 if str(getattr(event, "event_type", "")).upper() == "ORDER_PARTIALLY_FILLED" else 0,
+            "partial_exit_count": partial_exit_count,
             "gross_return_pct": gross_return_pct,
             "risk_multiple": None,
             "entry_to_peak_favorable_pct": None,
