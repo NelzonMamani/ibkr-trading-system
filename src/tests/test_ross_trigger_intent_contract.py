@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from types import SimpleNamespace
 
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord, TradeIntentRecord
 from src.core.pricing.price_resolver import PriceResolutionError
@@ -472,16 +473,42 @@ def test_completed_trade_emits_analytics_row(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         "src.core_engine.orchestrator.execute_intents",
         lambda **_: [
-            ExecutionEvent(
-                symbol="ABCD",
-                intent_id="intent-ABCD",
-                action="SUBMITTED",
-                detail="profit_target",
-                broker_order_id=99,
-                event_type="ORDER_FILLED",
-                filled_quantity=10,
-                remaining_quantity=0,
-                avg_fill_price=5.01,
+            (
+                lambda event: (
+                    setattr(
+                        event,
+                        "lifecycle_engine",
+                        SimpleNamespace(
+                            get_trade=lambda trade_id: (
+                                SimpleNamespace(
+                                    trade_id=trade_id,
+                                    entry_fill_price=5.0,
+                                    avg_fill_price=5.0,
+                                    exit_fill_price=5.25,
+                                    realized_pnl=2.5,
+                                    entry_fill_time="2026-01-01T14:30:00+00:00",
+                                    exit_fill_time="2026-01-01T14:35:00+00:00",
+                                )
+                                if trade_id == "T-ABCD-1"
+                                else None
+                            )
+                        ),
+                    ),
+                    setattr(event, "lifecycle_trade_id", "T-ABCD-1"),
+                    event,
+                )[-1]
+            )(
+                ExecutionEvent(
+                    symbol="ABCD",
+                    intent_id="intent-ABCD",
+                    action="SUBMITTED",
+                    detail="profit_target",
+                    broker_order_id=99,
+                    event_type="ORDER_FILLED",
+                    filled_quantity=10,
+                    remaining_quantity=0,
+                    avg_fill_price=5.01,
+                )
             )
         ],
     )

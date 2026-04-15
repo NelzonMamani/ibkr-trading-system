@@ -228,6 +228,46 @@ def _dominant_reason(reasons: list[str]) -> str:
     return Counter(reason for reason in reasons if reason).most_common(1)[0][0]
 
 
+def _resolve_trade_id_from_execution(event: ExecutionEvent) -> str | None:
+    intent_id = str(getattr(event, "intent_id", "") or "")
+    metadata = getattr(event, "metadata", None)
+    trade_id = (
+        getattr(event, "lifecycle_trade_id", None)
+        or getattr(event, "trade_id", None)
+        or (metadata.get("trade_id") if isinstance(metadata, dict) else None)
+        or (metadata.get("lifecycle_trade_id") if isinstance(metadata, dict) else None)
+    )
+    if not trade_id:
+        print(
+            "[TRACE][TRADE_LINK_FAILURE] "
+            f"symbol={event.symbol} intent_id={intent_id}"
+        )
+        return None
+    return str(trade_id)
+
+
+def _compute_expectancy_metrics(analytics_rows: list[dict[str, Any]]) -> dict[str, float]:
+    total = len(analytics_rows)
+    realized_values = [float(row.get("realized_pnl", 0.0) or 0.0) for row in analytics_rows]
+    winners = [pnl for pnl in realized_values if pnl > 0]
+    losers = [pnl for pnl in realized_values if pnl < 0]
+    win_rate = (len(winners) / total) if total else 0.0
+    loss_rate = (len(losers) / total) if total else 0.0
+    avg_pnl = (sum(realized_values) / total) if total else 0.0
+    total_realized_pnl = sum(realized_values)
+    avg_winner = (sum(winners) / len(winners)) if winners else 0.0
+    avg_loser = (sum(losers) / len(losers)) if losers else 0.0
+    expectancy = (win_rate * avg_winner) + (loss_rate * avg_loser)
+    return {
+        "win_rate": win_rate,
+        "avg_pnl": avg_pnl,
+        "total_realized_pnl": total_realized_pnl,
+        "avg_winner": avg_winner,
+        "avg_loser": avg_loser,
+        "expectancy": expectancy,
+    }
+
+
 def _enforce_canonical_price_authority(
     *,
     symbol: str,
@@ -1793,25 +1833,67 @@ def run_cycle(
     if cycle_summary_row["intent_count"] > 0 and cycle_summary_row["submission_success_count"] == 0:
         print(f"[MAKE_IT_TRADE][ROOT_CAUSE] dominant_reason={_dominant_reason([row['execution_reason'] for row in admission_rows])}")
 
+    lifecycle_engine = next(
+        (
+            getattr(event, "lifecycle_engine", None)
+            for event in execution_events
+            if getattr(event, "lifecycle_engine", None) is not None
+        ),
+        None,
+    )
     analytics_rows: list[dict[str, Any]] = []
+    seen_trade_ids: set[str] = set()
     exit_reason_breakdown: Counter[str] = Counter()
     for event in execution_events:
         if int(getattr(event, "filled_quantity", 0) or 0) <= 0:
             continue
-        entry_price = float(getattr(event, "avg_fill_price", 0.0) or 0.0)
-        exit_price = float(getattr(event, "avg_fill_price", 0.0) or 0.0)
-        realized_pnl = 0.0
-        gross_return_pct = 0.0
-        holding_seconds = 0
+        trade_id = _resolve_trade_id_from_execution(event)
+        if not trade_id:
+            continue
+        if trade_id in seen_trade_ids:
+            continue
+        if lifecycle_engine is None:
+            continue
+        trade = lifecycle_engine.get_trade(trade_id)
+        if trade is None:
+            print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=missing_lifecycle")
+            continue
+        seen_trade_ids.add(trade_id)
+
+        entry_price = float(
+            getattr(trade, "entry_fill_price", None)
+            or getattr(trade, "avg_fill_price", 0.0)
+            or 0.0
+        )
+        exit_price = float(
+            getattr(trade, "exit_fill_price", None)
+            or getattr(event, "avg_fill_price", 0.0)
+            or 0.0
+        )
+        realized_pnl = float(getattr(trade, "realized_pnl", 0.0) or 0.0)
+        gross_return_pct = (
+            ((exit_price - entry_price) / entry_price) if entry_price else 0.0
+        )
+        entry_time = (
+            getattr(trade, "entry_fill_time", None)
+            or getattr(trade, "entry_time", None)
+            or getattr(event, "last_update_time", None)
+        )
+        exit_time = (
+            getattr(trade, "exit_fill_time", None)
+            or getattr(trade, "exit_time", None)
+            or getattr(event, "last_update_time", None)
+        )
+        holding_seconds = int(getattr(trade, "holding_duration_seconds", 0) or 0)
         exit_reason = str(getattr(event, "detail", "ORDER_FILLED") or "ORDER_FILLED")
         analytics_row = {
-            "trade_id": f"{cycle_id}-{event.intent_id}",
+            "trade_id": trade_id,
             "symbol": event.symbol,
             "setup_name": symbol_setup_family.get(event.symbol, "NONE"),
             "trigger_type": symbol_trigger_type.get(event.symbol, "NONE"),
-            "entry_time": getattr(event, "last_update_time", None),
+            "entry_time": entry_time,
             "entry_price": entry_price,
-            "exit_time": getattr(event, "last_update_time", None),
+            "exit_time": exit_time,
             "exit_price": exit_price,
             "holding_duration_seconds": holding_seconds,
             "realized_pnl": realized_pnl,
@@ -1827,13 +1909,18 @@ def run_cycle(
         print(f"[TRADE_ANALYTICS][ROW] {analytics_row}")
     winners = sum(1 for row in analytics_rows if float(row["realized_pnl"]) > 0)
     losers = sum(1 for row in analytics_rows if float(row["realized_pnl"]) < 0)
+    metrics = _compute_expectancy_metrics(analytics_rows)
+    expectancy = metrics["expectancy"]
     analytics_summary = {
         "trades_closed": len(analytics_rows),
         "winners": winners,
         "losers": losers,
-        "win_rate": (winners / len(analytics_rows)) if analytics_rows else 0.0,
-        "avg_pnl": (sum(float(row["realized_pnl"]) for row in analytics_rows) / len(analytics_rows)) if analytics_rows else 0.0,
-        "total_realized_pnl": sum(float(row["realized_pnl"]) for row in analytics_rows),
+        "win_rate": metrics["win_rate"],
+        "avg_pnl": metrics["avg_pnl"],
+        "total_realized_pnl": metrics["total_realized_pnl"],
+        "avg_winner": metrics["avg_winner"],
+        "avg_loser": metrics["avg_loser"],
+        "expectancy": expectancy,
         "avg_holding_seconds": (
             sum(int(row["holding_duration_seconds"]) for row in analytics_rows) / len(analytics_rows)
             if analytics_rows
