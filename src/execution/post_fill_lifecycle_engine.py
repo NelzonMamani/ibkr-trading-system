@@ -6,6 +6,8 @@ from enum import Enum
 import math
 from typing import Any
 
+from src.storage.storage_engine import StorageEngine
+
 
 class PositionLifecycleState(str, Enum):
     ENTRY_SUBMITTED = "ENTRY_SUBMITTED"
@@ -49,7 +51,12 @@ class ManagedTradeLifecycle:
     exit_fill_price: float | None = None
     exit_fill_time: str | None = None
     exit_order_id: str | None = None
+    entry_time: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    exit_time: str | None = None
+    holding_duration_seconds: float | None = None
     realized_pnl: float = 0.0
+    exit_reason: str | None = None
+    partial_exit_count: int = 0
     state: PositionLifecycleState = PositionLifecycleState.ENTRY_SUBMITTED
     stop: ProtectionOrderMeta | None = None
     target: ProtectionOrderMeta | None = None
@@ -116,10 +123,26 @@ _ALLOWED_TRANSITIONS: dict[PositionLifecycleState, set[PositionLifecycleState]] 
 
 
 class PostFillLifecycleEngine:
-    def __init__(self, run_mode: str, policy: LifecyclePolicy | None = None, execution_provider: Any | None = None) -> None:
+    EXIT_REASON_MAP = {
+        "stop_fill_broker": "STOP_LOSS",
+        "target_fill_broker": "PROFIT_TARGET",
+        "trailing_stop_fill_broker": "TRAILING_STOP",
+        "risk_exit": "RISK_EXIT",
+        "force_exit": "FORCE_EXIT",
+        "reconciliation_missing_broker": "RECONCILIATION_CLOSE",
+    }
+
+    def __init__(
+        self,
+        run_mode: str,
+        policy: LifecyclePolicy | None = None,
+        execution_provider: Any | None = None,
+        storage_engine: StorageEngine | None = None,
+    ) -> None:
         self.run_mode = str(run_mode or "SIM").upper()
         self.policy = policy or LifecyclePolicy()
         self.execution_provider = execution_provider
+        self.storage_engine = storage_engine
         self._trades: dict[str, ManagedTradeLifecycle] = {}
         self._active_trade_ids: set[str] = set()
         self._active_position_qty_by_symbol: dict[str, int] = {}
@@ -220,6 +243,88 @@ class PostFillLifecycleEngine:
         print(f"[LIFECYCLE][TARGET_COMPUTED] target={target:.4f}")
         return stop, target
 
+    def _normalize_exit_reason(self, reason: str) -> str:
+        normalized = self.EXIT_REASON_MAP.get(str(reason or "").strip().lower())
+        if normalized:
+            return normalized
+        token = str(reason or "").strip().upper()
+        if token in {"STOP_LOSS", "PROFIT_TARGET", "TRAILING_STOP", "RISK_EXIT", "FORCE_EXIT", "RECONCILIATION_CLOSE"}:
+            return token
+        return "FORCE_EXIT"
+
+    @staticmethod
+    def _parse_ts(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            if text.endswith("Z"):
+                text = f"{text[:-1]}+00:00"
+            return datetime.fromisoformat(text)
+        except ValueError:
+            return None
+
+    def _persist_trade_and_position(self, trade: ManagedTradeLifecycle) -> None:
+        if self.storage_engine is None:
+            return
+        holding_seconds = trade.holding_duration_seconds
+        if holding_seconds is None and trade.exit_time:
+            entry_dt = self._parse_ts(trade.entry_time)
+            exit_dt = self._parse_ts(trade.exit_time)
+            if entry_dt and exit_dt:
+                holding_seconds = max(0.0, (exit_dt - entry_dt).total_seconds())
+        trade_payload = {
+            "trade_id": trade.trade_id,
+            "symbol": trade.symbol,
+            "trader_type": "POST_FILL",
+            "strategy_name": trade.strategy_id,
+            "direction": trade.side,
+            "status": trade.state.value,
+            "quantity": int(trade.filled_qty),
+            "entry_price": float(trade.avg_fill_price),
+            "exit_price": float(trade.exit_fill_price) if trade.exit_fill_price is not None else None,
+            "gross_pnl": float(trade.realized_pnl),
+            "opened_at": trade.entry_time,
+            "closed_at": trade.exit_time,
+            "filled_qty": int(trade.filled_qty),
+            "exited_qty": int(trade.exited_qty),
+            "avg_fill_price": float(trade.avg_fill_price),
+            "exit_fill_price": float(trade.exit_fill_price) if trade.exit_fill_price is not None else None,
+            "exit_fill_time": trade.exit_fill_time,
+            "realized_pnl": float(trade.realized_pnl),
+            "exit_reason": trade.exit_reason,
+            "entry_time": trade.entry_time,
+            "exit_time": trade.exit_time,
+            "holding_duration_seconds": holding_seconds,
+            "partial_exit_count": int(trade.partial_exit_count),
+            "last_update_ts": trade.last_update_ts,
+        }
+        print(
+            "[TRADE][PERSIST] "
+            f"trade_id={trade.trade_id} symbol={trade.symbol} state={trade.state.value} filled_qty={trade.filled_qty} "
+            f"exited_qty={trade.exited_qty} realized_pnl={trade.realized_pnl:.4f} exit_reason={trade.exit_reason}"
+        )
+        self.storage_engine.upsert_trade(trade_payload)
+        if int(trade.filled_qty) > 0:
+            print(
+                "[POSITION][PERSIST] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} qty={trade.filled_qty} avg_price={trade.avg_fill_price:.4f}"
+            )
+            self.storage_engine.upsert_position(
+                {
+                    "symbol": trade.symbol,
+                    "trade_id": trade.trade_id,
+                    "quantity": int(trade.filled_qty),
+                    "avg_price": float(trade.avg_fill_price),
+                    "last_update_ts": trade.last_update_ts,
+                }
+            )
+        else:
+            print(f"[POSITION][PERSIST] symbol={trade.symbol} qty=0 action=remove_active")
+            self.storage_engine.remove_position(trade.symbol)
+
     def activate_trade_management_after_fill(
         self,
         *,
@@ -232,8 +337,12 @@ class PostFillLifecycleEngine:
         session_label: str = "runtime",
         intended_qty: int | None = None,
     ) -> dict[str, Any]:
+        trade_id_s = str(trade_id)
+        if trade_id_s in self._trades:
+            print(f"[LIFECYCLE][DUPLICATE_TRADE_REJECTED] trade_id={trade_id_s}")
+            return {"success": False, "failure_reason": "DUPLICATE_TRADE_ID"}
         trade = ManagedTradeLifecycle(
-            trade_id=str(trade_id),
+            trade_id=trade_id_s,
             symbol=str(symbol).upper(),
             strategy_id=str(strategy_id or "UNKNOWN"),
             side=str(side).upper(),
@@ -251,6 +360,7 @@ class PostFillLifecycleEngine:
         self._active_trade_ids.add(trade.trade_id)
         self._active_position_qty_by_symbol[trade.symbol] = trade.filled_qty
         print(f"[LIFECYCLE][STATE] trade_id={trade.trade_id} state={trade.state.value}")
+        self._persist_trade_and_position(trade)
 
         if self.run_mode == "READ_ONLY":
             trade.failure_flags.append("READ_ONLY_NO_MUTATION")
@@ -330,6 +440,7 @@ class PostFillLifecycleEngine:
             f"trade_id={trade.trade_id} success={installed} state={trade.state.value}"
         )
         print(f"[LIFECYCLE][SUMMARY] trade_id={trade.trade_id} symbol={trade.symbol} state={trade.state.value}")
+        self._persist_trade_and_position(trade)
         return {
             "success": installed,
             "installed_stop_metadata": asdict(trade.stop) if trade.stop else None,
@@ -458,16 +569,19 @@ class PostFillLifecycleEngine:
         trade.exit_fill_time = fill_time_text
         trade.exit_order_id = str(exit_order_id) if exit_order_id is not None else trade.exit_order_id
         trade.realized_pnl += float(realized_increment)
+        trade.exit_reason = self._normalize_exit_reason(reason)
         trade.last_update_ts = self._ts()
 
         if remaining_qty > 0:
             self._active_trade_ids.add(trade.trade_id)
             self._active_position_qty_by_symbol[trade.symbol] = remaining_qty
+            trade.partial_exit_count += 1
             print(
                 "[LIFECYCLE][EXIT_PARTIAL] "
                 f"symbol={trade.symbol} trade_id={trade.trade_id} partial_qty={qty} remaining_qty={remaining_qty} "
                 f"fill_price={float(fill_price):.4f} realized_increment={float(realized_increment):.4f}"
             )
+            self._persist_trade_and_position(trade)
             return {
                 "success": True,
                 "trade_id": trade.trade_id,
@@ -718,18 +832,72 @@ class PostFillLifecycleEngine:
         trade = self._trades.get(str(trade_id))
         if trade is None:
             return
+        trade.exit_reason = self._normalize_exit_reason(reason)
         if self._transition(trade, PositionLifecycleState.EXIT_PENDING, reason):
             print(f"[TRAIL][EXIT_TRIGGERED] trade_id={trade.trade_id} reason={reason}")
+            self._persist_trade_and_position(trade)
 
     def mark_exited(self, trade_id: str, reason: str = "fill_exit") -> None:
         trade = self._trades.get(str(trade_id))
         if trade is None:
             return
+        trade.exit_reason = self._normalize_exit_reason(reason)
+        trade.exit_time = trade.exit_fill_time or self._ts()
+        entry_dt = self._parse_ts(trade.entry_time)
+        exit_dt = self._parse_ts(trade.exit_time)
+        if entry_dt and exit_dt:
+            trade.holding_duration_seconds = max(0.0, (exit_dt - entry_dt).total_seconds())
         if self._transition(trade, PositionLifecycleState.EXITED, reason):
             self._active_trade_ids.discard(trade.trade_id)
             self._active_position_qty_by_symbol.pop(trade.symbol, None)
+            self._persist_trade_and_position(trade)
 
     def startup_safe_state(self, broker_positions: list[Any], broker_orders: list[Any]) -> dict[str, Any]:
+        print("[RESUME][LOAD] begin=true")
+        db_positions = self.storage_engine.fetch_positions() if self.storage_engine is not None else []
+        db_trades = self.storage_engine.fetch_trades() if self.storage_engine is not None else []
+        print(f"[RESUME][LOAD] positions={len(db_positions)} trades={len(db_trades)}")
+        self._trades = {}
+        self._active_trade_ids = set()
+        self._active_position_qty_by_symbol = {}
+
+        restored_trades = 0
+        for row in db_trades:
+            trade_id = str(row.get("trade_id") or "").strip()
+            symbol = str(row.get("symbol") or "").upper()
+            if not trade_id or not symbol:
+                continue
+            qty = int(row.get("quantity") or 0)
+            state_raw = str(row.get("status") or PositionLifecycleState.FILLED_UNPROTECTED.value)
+            state = PositionLifecycleState(state_raw) if state_raw in PositionLifecycleState._value2member_map_ else PositionLifecycleState.FILLED_UNPROTECTED
+            trade = ManagedTradeLifecycle(
+                trade_id=trade_id,
+                symbol=symbol,
+                strategy_id=str(row.get("strategy_name") or "RESUME"),
+                side=str(row.get("direction") or "LONG"),
+                run_mode=self.run_mode,
+                session_label="resume",
+                intended_qty=max(qty, int(row.get("filled_qty") or qty)),
+                filled_qty=max(0, qty),
+                avg_fill_price=float(row.get("avg_fill_price") or row.get("entry_price") or 0.0),
+                exited_qty=int(row.get("exited_qty") or 0),
+                exit_fill_price=row.get("exit_fill_price") if row.get("exit_fill_price") is not None else row.get("exit_price"),
+                exit_fill_time=row.get("exit_fill_time"),
+                realized_pnl=float(row.get("realized_pnl") or row.get("gross_pnl") or 0.0),
+                exit_reason=row.get("exit_reason"),
+                entry_time=str(row.get("entry_time") or row.get("opened_at") or self._ts()),
+                exit_time=row.get("exit_time") or row.get("closed_at"),
+                holding_duration_seconds=row.get("holding_duration_seconds"),
+                partial_exit_count=int(row.get("partial_exit_count") or 0),
+                state=state,
+                high_water_mark=float(row.get("avg_fill_price") or row.get("entry_price") or 0.0),
+            )
+            self._trades[trade_id] = trade
+            if qty > 0 and trade.state not in {PositionLifecycleState.EXITED, PositionLifecycleState.LIFECYCLE_FAILURE}:
+                self._active_trade_ids.add(trade_id)
+                self._active_position_qty_by_symbol[symbol] = qty
+            restored_trades += 1
+
         print("[STARTUP][SAFE_STATE][BEGIN]")
         print(f"[STARTUP][SAFE_STATE][POSITIONS_FOUND] count={len(broker_positions)}")
         print(f"[STARTUP][SAFE_STATE][ORDERS_FOUND] count={len(broker_orders)}")
@@ -739,10 +907,48 @@ class PostFillLifecycleEngine:
 
         recovered = 0
         recovery_pending = 0
+        mismatches_fixed = 0
+        broker_position_by_symbol: dict[str, Any] = {}
+        for position in broker_positions:
+            symbol = str(getattr(position, "symbol", "") or "").upper()
+            qty = int(getattr(position, "quantity", 0) or 0)
+            if symbol and qty > 0:
+                broker_position_by_symbol[symbol] = position
+
+        for row in db_positions:
+            symbol = str(row.get("symbol") or "").upper()
+            trade_id = str(row.get("trade_id") or "").strip()
+            if not symbol or not trade_id:
+                continue
+            db_qty = int(row.get("quantity") or 0)
+            trade = self._trades.get(trade_id)
+            broker_match = broker_position_by_symbol.pop(symbol, None)
+            if trade is None:
+                continue
+            if broker_match is None:
+                print(f"[RESUME][RECONCILE] symbol={symbol} action=mark_exited reason=reconciliation_missing_broker")
+                trade.exit_fill_time = self._ts()
+                self.mark_exit_pending(trade_id, "reconciliation_missing_broker")
+                self.mark_exited(trade_id, "reconciliation_missing_broker")
+                mismatches_fixed += 1
+                continue
+            broker_qty = int(getattr(broker_match, "quantity", 0) or 0)
+            broker_price = float(getattr(broker_match, "entry_price", trade.avg_fill_price) or trade.avg_fill_price)
+            if broker_qty != db_qty:
+                mismatches_fixed += 1
+            trade.filled_qty = max(0, broker_qty)
+            trade.avg_fill_price = broker_price
+            self._active_trade_ids.add(trade_id)
+            self._active_position_qty_by_symbol[symbol] = trade.filled_qty
+            trade.last_update_ts = self._ts()
+            self._persist_trade_and_position(trade)
+
         for position in broker_positions:
             symbol = str(getattr(position, "symbol", "") or "").upper()
             qty = int(getattr(position, "quantity", 0) or 0)
             if not symbol or qty <= 0:
+                continue
+            if symbol not in broker_position_by_symbol:
                 continue
             stop = getattr(position, "stop_loss_price", None)
             trade_id = f"recovery:{symbol}"
@@ -773,8 +979,10 @@ class PostFillLifecycleEngine:
             self._trades[trade_id] = trade
             self._active_trade_ids.add(trade_id)
             self._active_position_qty_by_symbol[symbol] = qty
+            self._persist_trade_and_position(trade)
             recovered += 1
             print(f"[RECOVERY][MATCH] symbol={symbol} trade_id={trade_id}")
+            mismatches_fixed += 1
 
         if broker_orders:
             self.reconcile_orders(list(broker_orders), repair=False)
@@ -788,6 +996,10 @@ class PostFillLifecycleEngine:
                     startup_repaired += 1
 
         print(f"[RECOVERY][SUMMARY] recovered={recovered} pending={recovery_pending}")
+        print(
+            "[RESUME][SUMMARY] "
+            f"total_positions_restored={len(db_positions)} total_trades_restored={restored_trades} mismatches_fixed={mismatches_fixed}"
+        )
         decision = "READY" if self.run_mode in {"SIM", "READ_ONLY"} or recovery_pending == 0 else "QUARANTINE"
         print(f"[STARTUP][SAFE_STATE][DECISION] action={decision}")
         print("[STARTUP][SAFE_STATE][READY]")
@@ -796,6 +1008,9 @@ class PostFillLifecycleEngine:
             "recovery_pending": recovery_pending,
             "decision": decision,
             "startup_repaired": startup_repaired,
+            "total_positions_restored": len(db_positions),
+            "total_trades_restored": restored_trades,
+            "mismatches_fixed": mismatches_fixed,
         }
 
     def get_trade(self, trade_id: str) -> ManagedTradeLifecycle | None:

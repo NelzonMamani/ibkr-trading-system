@@ -337,6 +337,37 @@ class StorageEngine:
         payload.setdefault("updated_at", now_iso())
         self._store.upsert_trade_lifecycle_trade(payload)
 
+    def upsert_trade(self, trade: dict[str, Any]) -> None:
+        if not self.enabled or self.backend != "sqlite" or self._store is None:
+            return
+        payload = dict(trade)
+        payload.setdefault("run_id", self.run_id)
+        payload.setdefault("created_at", now_iso())
+        self._store.upsert_trade(payload)
+
+    def fetch_trades(self) -> list[dict[str, Any]]:
+        if not self.enabled or self.backend != "sqlite" or self._store is None:
+            return []
+        return self._store.fetch_trades()
+
+    def upsert_position(self, position: dict[str, Any]) -> None:
+        if not self.enabled or self.backend != "sqlite" or self._store is None:
+            return
+        payload = dict(position)
+        payload.setdefault("run_id", self.run_id)
+        payload.setdefault("created_at", now_iso())
+        self._store.upsert_position(payload)
+
+    def remove_position(self, symbol: str) -> None:
+        if not self.enabled or self.backend != "sqlite" or self._store is None:
+            return
+        self._store.delete_position(str(symbol).upper())
+
+    def fetch_positions(self) -> list[dict[str, Any]]:
+        if not self.enabled or self.backend != "sqlite" or self._store is None:
+            return []
+        return self._store.fetch_positions()
+
     def insert_trade_lifecycle_event(self, event: dict[str, Any]) -> None:
         if not self.enabled or self.backend != "sqlite" or not self._store:
             return

@@ -278,6 +278,16 @@ class SQLiteStore:
                 FOREIGN KEY(run_id) REFERENCES runs(run_id),
                 FOREIGN KEY(cycle_id) REFERENCES cycles(cycle_id)
             );
+            CREATE TABLE IF NOT EXISTS positions (
+                symbol TEXT PRIMARY KEY,
+                trade_id TEXT,
+                run_id TEXT,
+                quantity INTEGER,
+                avg_price REAL,
+                last_update_ts TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id)
+            );
             CREATE TABLE IF NOT EXISTS performance_snapshots (
                 performance_snapshot_id TEXT PRIMARY KEY,
                 run_id TEXT,
@@ -379,6 +389,23 @@ class SQLiteStore:
             },
         )
         self._ensure_columns(
+            "trades",
+            {
+                "filled_qty": "INTEGER",
+                "exited_qty": "INTEGER",
+                "avg_fill_price": "REAL",
+                "exit_fill_price": "REAL",
+                "exit_fill_time": "TEXT",
+                "realized_pnl": "REAL",
+                "exit_reason": "TEXT",
+                "entry_time": "TEXT",
+                "exit_time": "TEXT",
+                "holding_duration_seconds": "REAL",
+                "partial_exit_count": "INTEGER",
+                "last_update_ts": "TEXT",
+            },
+        )
+        self._ensure_columns(
             "performance_snapshots",
             {
                 "tick": "INTEGER",
@@ -412,6 +439,7 @@ class SQLiteStore:
             CREATE INDEX IF NOT EXISTS idx_trades_run_id ON trades(run_id);
             CREATE INDEX IF NOT EXISTS idx_execution_results_run_id ON execution_results(run_id);
             CREATE INDEX IF NOT EXISTS idx_trade_outcomes_run_id ON trade_outcomes(run_id);
+            CREATE INDEX IF NOT EXISTS idx_positions_run_id ON positions(run_id);
             CREATE INDEX IF NOT EXISTS idx_performance_snapshots_run_id ON performance_snapshots(run_id);
             CREATE INDEX IF NOT EXISTS idx_watchlists_strategy_date ON watchlists(strategy_name, asof_date);
             CREATE INDEX IF NOT EXISTS idx_learning_reports_date ON learning_reports(strategy_name, asof_date_ny);
@@ -709,6 +737,112 @@ class SQLiteStore:
         )
         if self.commit_each_write:
             self.connection.commit()
+
+    def upsert_trade(self, trade: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO trades (
+                trade_id, run_id, symbol, trader_type, strategy_name, direction,
+                quantity, status, entry_price, exit_price, gross_pnl, opened_at, closed_at,
+                filled_qty, exited_qty, avg_fill_price, exit_fill_price, exit_fill_time, realized_pnl,
+                exit_reason, entry_time, exit_time, holding_duration_seconds, partial_exit_count, last_update_ts, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(trade_id) DO UPDATE SET
+                run_id=excluded.run_id,
+                symbol=excluded.symbol,
+                trader_type=excluded.trader_type,
+                strategy_name=excluded.strategy_name,
+                direction=excluded.direction,
+                quantity=excluded.quantity,
+                status=excluded.status,
+                entry_price=excluded.entry_price,
+                exit_price=excluded.exit_price,
+                gross_pnl=excluded.gross_pnl,
+                opened_at=excluded.opened_at,
+                closed_at=excluded.closed_at,
+                filled_qty=excluded.filled_qty,
+                exited_qty=excluded.exited_qty,
+                avg_fill_price=excluded.avg_fill_price,
+                exit_fill_price=excluded.exit_fill_price,
+                exit_fill_time=excluded.exit_fill_time,
+                realized_pnl=excluded.realized_pnl,
+                exit_reason=excluded.exit_reason,
+                entry_time=excluded.entry_time,
+                exit_time=excluded.exit_time,
+                holding_duration_seconds=excluded.holding_duration_seconds,
+                partial_exit_count=excluded.partial_exit_count,
+                last_update_ts=excluded.last_update_ts
+            """,
+            (
+                trade["trade_id"],
+                trade["run_id"],
+                trade.get("symbol"),
+                trade.get("trader_type"),
+                trade.get("strategy_name"),
+                trade.get("direction"),
+                trade.get("quantity"),
+                trade.get("status"),
+                trade.get("entry_price"),
+                trade.get("exit_price"),
+                trade.get("gross_pnl"),
+                trade.get("opened_at"),
+                trade.get("closed_at"),
+                trade.get("filled_qty"),
+                trade.get("exited_qty"),
+                trade.get("avg_fill_price"),
+                trade.get("exit_fill_price"),
+                trade.get("exit_fill_time"),
+                trade.get("realized_pnl"),
+                trade.get("exit_reason"),
+                trade.get("entry_time"),
+                trade.get("exit_time"),
+                trade.get("holding_duration_seconds"),
+                trade.get("partial_exit_count"),
+                trade.get("last_update_ts"),
+                trade.get("created_at"),
+            ),
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def fetch_trades(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute("SELECT * FROM trades").fetchall()
+        return [dict(row) for row in rows]
+
+    def upsert_position(self, position: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO positions (
+                symbol, trade_id, run_id, quantity, avg_price, last_update_ts, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE SET
+                trade_id=excluded.trade_id,
+                run_id=excluded.run_id,
+                quantity=excluded.quantity,
+                avg_price=excluded.avg_price,
+                last_update_ts=excluded.last_update_ts
+            """,
+            (
+                position["symbol"],
+                position.get("trade_id"),
+                position.get("run_id"),
+                position.get("quantity"),
+                position.get("avg_price"),
+                position.get("last_update_ts"),
+                position.get("created_at"),
+            ),
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def delete_position(self, symbol: str) -> None:
+        self.connection.execute("DELETE FROM positions WHERE symbol = ?", (symbol,))
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def fetch_positions(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute("SELECT * FROM positions").fetchall()
+        return [dict(row) for row in rows]
 
     def insert_trade_lifecycle_summary(self, summary: dict[str, Any]) -> None:
         self.connection.execute(

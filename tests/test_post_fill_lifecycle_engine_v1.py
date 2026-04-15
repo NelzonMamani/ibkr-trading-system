@@ -37,6 +37,30 @@ class _ProviderStub:
         return {"broker_order_id": kwargs["broker_order_id"], "status": "Cancelled"}
 
 
+class _StorageStub:
+    def __init__(self) -> None:
+        self.trade_upserts: list[dict] = []
+        self.position_upserts: list[dict] = []
+        self.removed_symbols: list[str] = []
+        self._positions: list[dict] = []
+        self._trades: list[dict] = []
+
+    def upsert_trade(self, payload: dict) -> None:
+        self.trade_upserts.append(dict(payload))
+
+    def upsert_position(self, payload: dict) -> None:
+        self.position_upserts.append(dict(payload))
+
+    def remove_position(self, symbol: str) -> None:
+        self.removed_symbols.append(str(symbol).upper())
+
+    def fetch_positions(self) -> list[dict]:
+        return list(self._positions)
+
+    def fetch_trades(self) -> list[dict]:
+        return list(self._trades)
+
+
 def test_fill_installs_stop_and_target_in_paper_mode() -> None:
     provider = _ProviderStub()
     engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
@@ -388,3 +412,142 @@ def test_lifecycle_payload_is_serializable_for_audit() -> None:
     assert payload["trade_id"] == "T-9"
     assert payload["state"] == PositionLifecycleState.ENTRY_SUBMITTED.value
     assert "last_update_ts" in payload
+
+
+def test_resume_restores_positions_from_db() -> None:
+    storage = _StorageStub()
+    storage._positions = [{"symbol": "AMD", "trade_id": "T-R1", "quantity": 5, "avg_price": 100.0}]
+    storage._trades = [
+        {
+            "trade_id": "T-R1",
+            "symbol": "AMD",
+            "strategy_name": "S-R",
+            "direction": "LONG",
+            "status": PositionLifecycleState.TRAILING_ELIGIBLE.value,
+            "quantity": 5,
+            "avg_fill_price": 100.0,
+            "entry_price": 100.0,
+            "entry_time": "2026-04-15T10:00:00+00:00",
+            "realized_pnl": 0.0,
+        }
+    ]
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=_ProviderStub(), storage_engine=storage)
+    broker_positions = [SimpleNamespace(symbol="AMD", quantity=5, entry_price=100.5)]
+    summary = engine.startup_safe_state(broker_positions, broker_orders=[])
+    assert summary["total_positions_restored"] == 1
+    assert summary["total_trades_restored"] == 1
+    trade = engine.get_trade("T-R1")
+    assert trade is not None
+    assert trade.filled_qty == 5
+    assert trade.avg_fill_price == 100.5
+
+
+def test_partial_exit_persistence() -> None:
+    storage = _StorageStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=_ProviderStub(), storage_engine=storage)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-PERSIST-P",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=10,
+        avg_fill_price=100.0,
+        strategy_id="S-PERSIST",
+    )
+    result = engine.record_exit_fill(
+        trade_id="T-PERSIST-P",
+        fill_price=101.0,
+        fill_time="2026-04-15T10:00:01+00:00",
+        actual_qty=4,
+        exit_order_id="STOP-1",
+        reason="stop_fill_broker",
+    )
+    assert result["success"] is True
+    assert result["partial"] is True
+    trade = engine.get_trade("T-PERSIST-P")
+    assert trade is not None
+    assert trade.partial_exit_count == 1
+    assert trade.realized_pnl == 4.0
+    assert storage.trade_upserts[-1]["realized_pnl"] == 4.0
+    assert storage.position_upserts[-1]["quantity"] == 6
+
+
+def test_full_exit_persistence() -> None:
+    storage = _StorageStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=_ProviderStub(), storage_engine=storage)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-PERSIST-F",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=2,
+        avg_fill_price=100.0,
+        strategy_id="S-PERSIST",
+    )
+    result = engine.record_exit_fill(
+        trade_id="T-PERSIST-F",
+        fill_price=102.0,
+        fill_time="2026-04-15T10:00:05+00:00",
+        actual_qty=2,
+        exit_order_id="STOP-1",
+        reason="target_fill_broker",
+    )
+    assert result["success"] is True
+    assert result["partial"] is False
+    assert storage.removed_symbols[-1] == "AMD"
+    assert storage.trade_upserts[-1]["status"] == PositionLifecycleState.EXITED.value
+    assert storage.trade_upserts[-1]["exit_reason"] == "PROFIT_TARGET"
+
+
+def test_reconciliation_on_startup() -> None:
+    storage = _StorageStub()
+    storage._positions = [{"symbol": "AAPL", "trade_id": "T-MISS", "quantity": 3, "avg_price": 50.0}]
+    storage._trades = [
+        {
+            "trade_id": "T-MISS",
+            "symbol": "AAPL",
+            "strategy_name": "S-R",
+            "direction": "LONG",
+            "status": PositionLifecycleState.TRAILING_ELIGIBLE.value,
+            "quantity": 3,
+            "avg_fill_price": 50.0,
+            "entry_price": 50.0,
+            "entry_time": "2026-04-15T10:00:00+00:00",
+            "realized_pnl": 0.0,
+        }
+    ]
+    engine = PostFillLifecycleEngine(run_mode="LIVE", execution_provider=_ProviderStub(), storage_engine=storage)
+    summary = engine.startup_safe_state(
+        [SimpleNamespace(symbol="MSFT", quantity=2, stop_loss_price=95.0, entry_price=100.0, direction="LONG")],
+        broker_orders=[],
+    )
+    trade = engine.get_trade("T-MISS")
+    assert trade is not None
+    assert trade.state == PositionLifecycleState.EXITED
+    assert trade.exit_reason == "RECONCILIATION_CLOSE"
+    assert summary["mismatches_fixed"] >= 1
+
+
+def test_holding_duration_calculation() -> None:
+    storage = _StorageStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=_ProviderStub(), storage_engine=storage)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-DUR",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=1,
+        avg_fill_price=100.0,
+        strategy_id="S-DUR",
+    )
+    trade = engine.get_trade("T-DUR")
+    assert trade is not None
+    trade.entry_time = "2026-04-15T10:00:00+00:00"
+    engine.record_exit_fill(
+        trade_id="T-DUR",
+        fill_price=101.0,
+        fill_time="2026-04-15T10:00:30+00:00",
+        actual_qty=1,
+        exit_order_id="STOP-1",
+        reason="stop_fill_broker",
+    )
+    trade = engine.get_trade("T-DUR")
+    assert trade is not None
+    assert trade.holding_duration_seconds == 30.0
