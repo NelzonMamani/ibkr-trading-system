@@ -10,7 +10,7 @@ from typing import Any, Iterable
 from src.storage.serialization import compute_audit_hash
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 @dataclass
@@ -335,6 +335,41 @@ class SQLiteStore:
                 approved_at_utc TEXT,
                 rejection_reason TEXT
             );
+            CREATE TABLE IF NOT EXISTS trade_admission_rows (
+                admission_row_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                symbol TEXT,
+                payload_json TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id)
+            );
+            CREATE TABLE IF NOT EXISTS trade_blocker_rows (
+                blocker_row_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                symbol TEXT,
+                blocker_category TEXT,
+                payload_json TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id)
+            );
+            CREATE TABLE IF NOT EXISTS trade_analytics_rows (
+                analytics_row_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                trade_id TEXT,
+                symbol TEXT,
+                realized_pnl REAL,
+                exit_reason TEXT,
+                payload_json TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id)
+            );
+            CREATE TABLE IF NOT EXISTS cycle_summary_rows (
+                cycle_summary_row_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                payload_json TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id)
+            );
             """
         )
         self._ensure_columns(
@@ -416,6 +451,10 @@ class SQLiteStore:
             CREATE INDEX IF NOT EXISTS idx_watchlists_strategy_date ON watchlists(strategy_name, asof_date);
             CREATE INDEX IF NOT EXISTS idx_learning_reports_date ON learning_reports(strategy_name, asof_date_ny);
             CREATE INDEX IF NOT EXISTS idx_policy_proposals_strategy ON policy_proposals(strategy_name, created_at_utc);
+            CREATE INDEX IF NOT EXISTS idx_trade_admission_run_symbol ON trade_admission_rows(run_id, symbol);
+            CREATE INDEX IF NOT EXISTS idx_trade_blocker_run_symbol ON trade_blocker_rows(run_id, symbol);
+            CREATE INDEX IF NOT EXISTS idx_trade_analytics_run_symbol ON trade_analytics_rows(run_id, symbol);
+            CREATE INDEX IF NOT EXISTS idx_cycle_summary_rows_run_id ON cycle_summary_rows(run_id);
             """
         )
         self._record_schema_version()
@@ -723,6 +762,90 @@ class SQLiteStore:
                 summary.get("payload_json"),
                 summary.get("timestamp"),
                 summary.get("created_at"),
+            ),
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_trade_admission_rows(self, rows: Iterable[dict[str, Any]]) -> None:
+        self.connection.executemany(
+            """
+            INSERT OR IGNORE INTO trade_admission_rows (
+                admission_row_id, run_id, symbol, payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    row["admission_row_id"],
+                    row["run_id"],
+                    row.get("symbol"),
+                    row.get("payload_json"),
+                    row.get("created_at"),
+                )
+                for row in rows
+            ],
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_trade_blocker_rows(self, rows: Iterable[dict[str, Any]]) -> None:
+        self.connection.executemany(
+            """
+            INSERT OR IGNORE INTO trade_blocker_rows (
+                blocker_row_id, run_id, symbol, blocker_category, payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    row["blocker_row_id"],
+                    row["run_id"],
+                    row.get("symbol"),
+                    row.get("blocker_category"),
+                    row.get("payload_json"),
+                    row.get("created_at"),
+                )
+                for row in rows
+            ],
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_trade_analytics_rows(self, rows: Iterable[dict[str, Any]]) -> None:
+        self.connection.executemany(
+            """
+            INSERT OR IGNORE INTO trade_analytics_rows (
+                analytics_row_id, run_id, trade_id, symbol, realized_pnl, exit_reason, payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    row["analytics_row_id"],
+                    row["run_id"],
+                    row.get("trade_id"),
+                    row.get("symbol"),
+                    row.get("realized_pnl"),
+                    row.get("exit_reason"),
+                    row.get("payload_json"),
+                    row.get("created_at"),
+                )
+                for row in rows
+            ],
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_cycle_summary_row(self, row: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            INSERT OR IGNORE INTO cycle_summary_rows (
+                cycle_summary_row_id, run_id, payload_json, created_at
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (
+                row["cycle_summary_row_id"],
+                row["run_id"],
+                row.get("payload_json"),
+                row.get("created_at"),
             ),
         )
         if self.commit_each_write:

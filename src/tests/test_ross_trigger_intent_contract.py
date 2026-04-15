@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord, TradeIntentRecord
 from src.core.pricing.price_resolver import PriceResolutionError
 from src.core_engine.orchestrator import run_cycle
@@ -301,3 +303,212 @@ def test_paper_mode_uses_scanner_fallback_after_ibkr_timeout(monkeypatch, capsys
     out = capsys.readouterr().out
     assert "[INTENT][CREATED] symbol=ABCD price=None" in out
     assert "[EXECUTION][SUBMIT_RESULT] symbol=ABCD submitted=True" in out
+
+
+def test_blocker_taxonomy_setup_but_no_trigger(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.run_scanner_cycle",
+        lambda **_: {
+            "watchlist_k_symbols": ["ABCD"],
+            "focus_m_symbols": ["ABCD"],
+            "data_quality_by_symbol": {},
+            "watchlist_k": [{"symbol": "ABCD", "last_price": 12.0}],
+        },
+    )
+    monkeypatch.setattr("src.core_engine.orchestrator.resolve_entry_price", lambda *_args, **_kwargs: (12.0, "IBKR_SNAPSHOT"))
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_evaluator.PatternEvaluator.evaluate",
+        lambda *_args, **_kwargs: _summary(detected=True, confidence=0.1, entry_zone=None),
+    )
+    monkeypatch.setattr("src.core_engine.orchestrator.build_trade_intents", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("src.core_engine.orchestrator.evaluate_trade_intents", lambda **_: [])
+    monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", lambda **_: [])
+
+    run_cycle(cycle_id=11, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    out = capsys.readouterr().out
+    assert "[TRADE_BLOCKER][ROW] {'symbol': 'ABCD', 'blocker_category': 'TRIGGER_NOT_CONFIRMED'" in out
+
+
+def test_blocker_taxonomy_trigger_but_risk_blocked(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.run_scanner_cycle",
+        lambda **_: {
+            "watchlist_k_symbols": ["ABCD"],
+            "focus_m_symbols": ["ABCD"],
+            "data_quality_by_symbol": {},
+            "watchlist_k": [{"symbol": "ABCD", "last_price": 5.0}],
+        },
+    )
+    monkeypatch.setattr("src.core_engine.orchestrator.resolve_entry_price", lambda *_args, **_kwargs: (5.0, "IBKR_SNAPSHOT"))
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.build_trade_intents",
+        lambda *args, **_kwargs: [
+            TradeIntentRecord(
+                symbol=args[1],
+                intent_id="intent-ABCD",
+                setup_id="GAP_GO",
+                side="LONG",
+                entry="breakout",
+                stop="structure",
+                rationale="test",
+                entry_price_source="IBKR_SNAPSHOT",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.evaluate_trade_intents",
+        lambda **_: [
+            RiskDecisionRecord(
+                symbol="ABCD",
+                intent_id="intent-ABCD",
+                decision="BLOCK",
+                max_position_size=100,
+                constraints=[],
+                triggered_rules=["MAX_RISK"],
+                rationale="risk fail",
+                approved_quantity=0,
+                block_reason="MAX_RISK",
+            )
+        ],
+    )
+    monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", lambda **_: [])
+    run_cycle(cycle_id=12, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    out = capsys.readouterr().out
+    assert "[TRADE_BLOCKER][ROW] {'symbol': 'ABCD', 'blocker_category': 'RISK_BLOCKED'" in out
+
+
+def test_admission_summary_reflects_success_path(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.run_scanner_cycle",
+        lambda **_: {
+            "watchlist_k_symbols": ["ABCD"],
+            "focus_m_symbols": ["ABCD"],
+            "data_quality_by_symbol": {},
+            "watchlist_k": [{"symbol": "ABCD", "last_price": 5.0}],
+        },
+    )
+    monkeypatch.setattr("src.core_engine.orchestrator.resolve_entry_price", lambda *_args, **_kwargs: (5.0, "IBKR_SNAPSHOT"))
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.build_trade_intents",
+        lambda *args, **_kwargs: [
+            TradeIntentRecord(
+                symbol=args[1],
+                intent_id="intent-ABCD",
+                setup_id="GAP_GO",
+                side="LONG",
+                entry="breakout",
+                stop="structure",
+                rationale="test",
+                entry_price_source="IBKR_SNAPSHOT",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.evaluate_trade_intents",
+        lambda **_: [
+            RiskDecisionRecord(
+                symbol="ABCD",
+                intent_id="intent-ABCD",
+                decision="ALLOW",
+                max_position_size=100,
+                constraints=[],
+                triggered_rules=[],
+                rationale="PASS",
+                approved_quantity=1,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.execute_intents",
+        lambda **_: [ExecutionEvent(symbol="ABCD", intent_id="intent-ABCD", action="SUBMITTED", detail="ok", broker_order_id=99)],
+    )
+    run_cycle(cycle_id=13, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    out = capsys.readouterr().out
+    assert "[TRADE_ADMISSION][SUMMARY]" in out
+    assert "'execution_attempted_count': 1" in out
+
+
+def test_completed_trade_emits_analytics_row(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.run_scanner_cycle",
+        lambda **_: {
+            "watchlist_k_symbols": ["ABCD"],
+            "focus_m_symbols": ["ABCD"],
+            "data_quality_by_symbol": {},
+            "watchlist_k": [{"symbol": "ABCD", "last_price": 5.0}],
+        },
+    )
+    monkeypatch.setattr("src.core_engine.orchestrator.resolve_entry_price", lambda *_args, **_kwargs: (5.0, "IBKR_SNAPSHOT"))
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.build_trade_intents",
+        lambda *args, **_kwargs: [
+            TradeIntentRecord(
+                symbol=args[1],
+                intent_id="intent-ABCD",
+                setup_id="GAP_GO",
+                side="LONG",
+                entry="breakout",
+                stop="structure",
+                rationale="test",
+                entry_price_source="IBKR_SNAPSHOT",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.evaluate_trade_intents",
+        lambda **_: [
+            RiskDecisionRecord(
+                symbol="ABCD",
+                intent_id="intent-ABCD",
+                decision="ALLOW",
+                max_position_size=100,
+                constraints=[],
+                triggered_rules=[],
+                rationale="PASS",
+                approved_quantity=1,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.execute_intents",
+        lambda **_: [
+            ExecutionEvent(
+                symbol="ABCD",
+                intent_id="intent-ABCD",
+                action="SUBMITTED",
+                detail="profit_target",
+                broker_order_id=99,
+                event_type="ORDER_FILLED",
+                filled_quantity=10,
+                remaining_quantity=0,
+                avg_fill_price=5.01,
+            )
+        ],
+    )
+    run_cycle(cycle_id=14, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    out = capsys.readouterr().out
+    assert "[TRADE_ANALYTICS][ROW]" in out
+    assert "'exit_reason': 'profit_target'" in out
+
+
+def test_make_it_trade_cycle_summary_counts_consistent(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.run_scanner_cycle",
+        lambda **_: {
+            "watchlist_k_symbols": ["ABCD"],
+            "focus_m_symbols": ["ABCD"],
+            "data_quality_by_symbol": {},
+            "watchlist_k": [{"symbol": "ABCD", "last_price": 5.0}],
+        },
+    )
+    monkeypatch.setattr("src.core_engine.orchestrator.resolve_entry_price", lambda *_args, **_kwargs: (5.0, "IBKR_SNAPSHOT"))
+    monkeypatch.setattr("src.core_engine.orchestrator.build_trade_intents", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("src.core_engine.orchestrator.evaluate_trade_intents", lambda **_: [])
+    monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", lambda **_: [])
+    run_cycle(cycle_id=15, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    out = capsys.readouterr().out
+    summary_line = next(line for line in out.splitlines() if line.startswith("[MAKE_IT_TRADE][CYCLE_SUMMARY]"))
+    payload = ast.literal_eval(summary_line.split(" ", 1)[1])
+    assert payload["trigger_count"] <= payload["setup_count"]
+    assert payload["intent_count"] <= payload["trigger_count"]
+    assert payload["risk_pass_count"] <= payload["intent_count"]

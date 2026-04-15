@@ -447,6 +447,67 @@ class StorageEngine:
         self.last_watchlist_hash = watchlist_hash
         return True
 
+    def store_make_it_trade_diagnostics(
+        self,
+        *,
+        trade_admission_rows: list[dict[str, Any]],
+        trade_blocker_rows: list[dict[str, Any]],
+        trade_analytics_rows: list[dict[str, Any]],
+        cycle_summary_row: dict[str, Any],
+    ) -> None:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return
+        timestamp = now_iso()
+        admission_records = [
+            {
+                "admission_row_id": str(uuid4()),
+                "run_id": self.run_id,
+                "symbol": row.get("symbol"),
+                "payload_json": canonical_json(row, allow_fallback=True),
+                "created_at": timestamp,
+            }
+            for row in trade_admission_rows
+        ]
+        blocker_records = [
+            {
+                "blocker_row_id": str(uuid4()),
+                "run_id": self.run_id,
+                "symbol": row.get("symbol"),
+                "blocker_category": row.get("blocker_category"),
+                "payload_json": canonical_json(row, allow_fallback=True),
+                "created_at": timestamp,
+            }
+            for row in trade_blocker_rows
+        ]
+        analytics_records = [
+            {
+                "analytics_row_id": str(uuid4()),
+                "run_id": self.run_id,
+                "trade_id": row.get("trade_id"),
+                "symbol": row.get("symbol"),
+                "realized_pnl": row.get("realized_pnl"),
+                "exit_reason": row.get("exit_reason"),
+                "payload_json": canonical_json(row, allow_fallback=True),
+                "created_at": timestamp,
+            }
+            for row in trade_analytics_rows
+        ]
+        if admission_records:
+            self._store.insert_trade_admission_rows(admission_records)
+        if blocker_records:
+            self._store.insert_trade_blocker_rows(blocker_records)
+        if analytics_records:
+            self._store.insert_trade_analytics_rows(analytics_records)
+        if cycle_summary_row:
+            self._store.insert_cycle_summary_row(
+                {
+                    "cycle_summary_row_id": str(uuid4()),
+                    "run_id": self.run_id,
+                    "payload_json": canonical_json(cycle_summary_row, allow_fallback=True),
+                    "created_at": timestamp,
+                }
+            )
+
     def _persist_events(
         self,
         cycle_id: str,

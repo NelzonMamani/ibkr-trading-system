@@ -7,7 +7,7 @@ from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import time
-from typing import List
+from typing import Any, List
 from zoneinfo import ZoneInfo
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
@@ -101,6 +101,37 @@ PIPELINE_BLOCKER_TAXONOMY = {
     "OTHER_UNCLASSIFIED",
 }
 
+NORMALIZED_BLOCKER_CATEGORIES = {
+    "SCANNER_DROP",
+    "FOCUS_EXCLUDED",
+    "NO_SETUP",
+    "TRIGGER_NOT_CONFIRMED",
+    "INTENT_NOT_EMITTED",
+    "RISK_BLOCKED",
+    "EXECUTION_BLOCKED",
+    "SUBMISSION_FAILED",
+    "NO_FILL",
+    "DATA_QUALITY",
+    "SESSION_RESTRICTED",
+    "UNKNOWN",
+}
+
+BLOCKER_CATEGORY_MAP = {
+    "SCANNER_DROP": "SCANNER_DROP",
+    "WATCHLIST_EXCLUDED": "SCANNER_DROP",
+    "FOCUS_EXCLUDED": "FOCUS_EXCLUDED",
+    "NO_SETUP_DETECTED": "NO_SETUP",
+    "SETUP_DETECTED_TRIGGER_NOT_FIRED": "TRIGGER_NOT_CONFIRMED",
+    "TRIGGER_FIRED_NO_INTENT": "INTENT_NOT_EMITTED",
+    "INTENT_BLOCKED_BY_RISK": "RISK_BLOCKED",
+    "INTENT_NOT_ROUTED_TO_EXECUTION": "EXECUTION_BLOCKED",
+    "EXECUTION_PRECHECK_FAIL": "EXECUTION_BLOCKED",
+    "IBKR_SUBMISSION_FAIL": "SUBMISSION_FAILED",
+    "ORDER_ACK_MISSING": "SUBMISSION_FAILED",
+    "FILL_PENDING": "NO_FILL",
+    "OTHER_UNCLASSIFIED": "UNKNOWN",
+}
+
 _CANONICAL_PRICE_SOURCES = frozenset(
     {
         "IBKR_SNAPSHOT",
@@ -178,6 +209,23 @@ def _pipeline_stage_log(
         f"[PIPELINE][{stage}] symbol={symbol} strategy={strategy} mode={mode} "
         f"session={session} outcome={outcome} reason_code={reason_code}"
     )
+
+
+def _normalize_blocker_category(blocker: str, reason: str) -> str:
+    normalized = BLOCKER_CATEGORY_MAP.get(blocker, "UNKNOWN")
+    reason_upper = str(reason or "").upper()
+    if normalized == "UNKNOWN":
+        if "DATA_QUALITY" in reason_upper:
+            return "DATA_QUALITY"
+        if "SESSION" in reason_upper:
+            return "SESSION_RESTRICTED"
+    return normalized
+
+
+def _dominant_reason(reasons: list[str]) -> str:
+    if not reasons:
+        return "NONE"
+    return Counter(reason for reason in reasons if reason).most_common(1)[0][0]
 
 
 def _enforce_canonical_price_authority(
@@ -824,6 +872,13 @@ def run_cycle(
     }
     symbol_setup_family: dict[str, str] = {symbol: "NONE" for symbol in watchlist}
     symbol_trigger_type: dict[str, str] = {symbol: "NONE" for symbol in watchlist}
+    watchlist_flow_reason: dict[str, dict[str, str]] = {
+        symbol: {
+            "watchlist_reason": "WATCHLIST_PASS",
+            "focus_reason": "FOCUS_PASS" if symbol in focus else "FOCUS_EXCLUDED",
+        }
+        for symbol in watchlist
+    }
     passed_setup = 0
     passed_trigger = 0
     generated_intents = 0
@@ -895,6 +950,28 @@ def run_cycle(
                 "[ROSS][TRIGGER_RESULT] "
                 f"symbol={symbol} strategy={strategy_name} mode={mode.value} session={session.value} "
                 f"outcome={'FIRED' if trigger_ready_now else 'NOT_FIRED'} reason={'TRIGGER_READY' if trigger_ready_now else 'TRIGGER_NOT_READY'}"
+            )
+            setup_name_lower = str(best_name).lower()
+            trigger_profile = "GENERIC_ROSS"
+            if "premarket" in setup_name_lower:
+                trigger_profile = "PREMARKET_HIGH_BREAK"
+            elif "stair" in setup_name_lower or "trend continuation" in setup_name_lower:
+                trigger_profile = "TREND_CONTINUATION_STAIR_STEP"
+            elif "pullback" in setup_name_lower:
+                trigger_profile = "MICRO_PULLBACK_CONTINUATION"
+            trigger_price = inputs.candles[-1].high if inputs.candles else None
+            pullback_high = max(candle.high for candle in inputs.candles[-3:]) if inputs.candles else None
+            pullback_low = min(candle.low for candle in inputs.candles[-3:]) if inputs.candles else None
+            confirmation_high = inputs.candles[-2].high if len(inputs.candles) >= 2 else None
+            breakout_confirmed = bool(trigger_ready_now and setup_detected)
+            print(
+                "[ROSS][TRIGGER_FACTS] "
+                f"symbol={symbol} setup_name={best_name} trigger_profile={trigger_profile} "
+                f"trigger_price={trigger_price} current_price={inputs.candles[-1].close if inputs.candles else None} "
+                f"pullback_high={pullback_high} pullback_low={pullback_low} "
+                f"confirmation_candle_high={confirmation_high} premarket_high={inputs.levels.premarket_high} "
+                f"volume_confirmation={inputs.candles[-1].volume if inputs.candles else 0} "
+                f"breakout_confirmed={str(breakout_confirmed).lower()}"
             )
             _pipeline_stage_log(
                 stage="SETUP_EVAL",
@@ -1613,6 +1690,158 @@ def run_cycle(
             "[PIPELINE][BLOCKER] "
             f"symbol={symbol} blocker={blocker} reason={first_blocker_reason_by_symbol.get(symbol, 'NONE')}"
         )
+    all_symbols = sorted(
+        {
+            *[str(symbol).upper() for symbol in scanned_symbols],
+            *[str(symbol).upper() for symbol in watchlist],
+            *[str(symbol).upper() for symbol in focus],
+            *list(first_blocker_by_symbol.keys()),
+        }
+    )
+    execution_events_by_symbol: dict[str, list[ExecutionEvent]] = {}
+    for event in execution_events:
+        execution_events_by_symbol.setdefault(str(event.symbol or "").upper(), []).append(event)
+    admission_rows: list[dict[str, Any]] = []
+    blocker_rows: list[dict[str, Any]] = []
+    blocker_summary_counts: Counter[str] = Counter()
+    for symbol in all_symbols:
+        wf = decision_waterfall.get(
+            symbol,
+            {
+                "setup": "NO",
+                "trigger": "NO",
+                "intent": "NONE",
+                "intent_reason": "SCANNER_DROP",
+                "risk": "N/A",
+                "risk_reason": "N/A",
+                "execution": "N/A",
+                "execution_reason": "N/A",
+            },
+        )
+        setup_detected = wf["setup"] == "YES"
+        trigger_confirmed = wf["trigger"] == "YES"
+        intent_emitted = wf["intent"] == "EMITTED"
+        risk_allowed_flag = wf["risk"] == "ALLOW"
+        execution_attempted = symbol in {str(d.symbol).upper() for d in execution_candidates}
+        blocker = first_blocker_by_symbol.get(symbol, "OTHER_UNCLASSIFIED")
+        blocker_reason = first_blocker_reason_by_symbol.get(symbol, "OTHER_UNCLASSIFIED")
+        admission_row = {
+            "symbol": symbol,
+            "setup_detected": setup_detected,
+            "setup_name": symbol_setup_family.get(symbol, "NONE"),
+            "trigger_confirmed": trigger_confirmed,
+            "trigger_reason": "TRIGGER_READY" if trigger_confirmed else blocker_reason,
+            "intent_emitted": intent_emitted,
+            "intent_reason": wf.get("intent_reason", "N/A"),
+            "risk_allowed": risk_allowed_flag,
+            "risk_reason": wf.get("risk_reason", "N/A"),
+            "execution_attempted": execution_attempted,
+            "execution_reason": wf.get("execution_reason", "N/A"),
+            "final_outcome": pipeline_outcomes.get(symbol, "NO_TRADE"),
+        }
+        admission_rows.append(admission_row)
+        print(f"[TRADE_ADMISSION][ROW] {admission_row}")
+        blocker_category = _normalize_blocker_category(blocker, blocker_reason)
+        blocker_summary_counts[blocker_category] += 1
+        blocker_row = {
+            "symbol": symbol,
+            "blocker_category": blocker_category,
+            "blocker": blocker,
+            "reason": blocker_reason,
+        }
+        blocker_rows.append(blocker_row)
+        print(f"[TRADE_BLOCKER][ROW] {blocker_row}")
+        flow_row = {
+            "symbol": symbol,
+            "scanner_inputs": "SCANNER_PAYLOAD",
+            "watchlist_inclusion_reason": watchlist_flow_reason.get(symbol, {}).get("watchlist_reason", "SCANNER_DROP"),
+            "focus_inclusion_reason": watchlist_flow_reason.get(symbol, {}).get("focus_reason", "FOCUS_EXCLUDED"),
+            "setup_family_result": symbol_setup_family.get(symbol, "NONE"),
+            "trigger_decision": "TRIGGER_CONFIRMED" if trigger_confirmed else "TRIGGER_NOT_CONFIRMED",
+            "intent_decision": "INTENT_EMITTED" if intent_emitted else "INTENT_NOT_EMITTED",
+            "risk_decision": "RISK_ALLOWED" if risk_allowed_flag else "RISK_BLOCKED",
+            "execution_outcome": wf.get("execution", "N/A"),
+        }
+        print(f"[WATCHLIST_FLOW][ROW] {flow_row}")
+    admission_summary = {
+        "rows": len(admission_rows),
+        "setup_detected_count": sum(1 for row in admission_rows if row["setup_detected"]),
+        "trigger_confirmed_count": sum(1 for row in admission_rows if row["trigger_confirmed"]),
+        "intent_emitted_count": sum(1 for row in admission_rows if row["intent_emitted"]),
+        "risk_allowed_count": sum(1 for row in admission_rows if row["risk_allowed"]),
+        "execution_attempted_count": sum(1 for row in admission_rows if row["execution_attempted"]),
+        "fills_confirmed_count": execution_state_counts["filled"],
+    }
+    print(f"[TRADE_ADMISSION][SUMMARY] {admission_summary}")
+    print(f"[TRADE_BLOCKER][SUMMARY] {dict(blocker_summary_counts)}")
+    cycle_summary_row = {
+        "watchlist_count": len(watchlist),
+        "focus_count": len(focus),
+        "setup_count": passed_setup,
+        "trigger_count": passed_trigger,
+        "intent_count": generated_intents,
+        "risk_pass_count": risk_allowed,
+        "execution_attempt_count": len(execution_candidates),
+        "submission_success_count": execution_state_counts["submitted"],
+        "fill_confirm_count": execution_state_counts["filled"],
+    }
+    print(f"[MAKE_IT_TRADE][CYCLE_SUMMARY] {cycle_summary_row}")
+    if cycle_summary_row["focus_count"] > 0 and cycle_summary_row["trigger_count"] == 0:
+        print(f"[MAKE_IT_TRADE][ROOT_CAUSE] dominant_reason={_dominant_reason([row['trigger_reason'] for row in admission_rows])}")
+    if cycle_summary_row["trigger_count"] > 0 and cycle_summary_row["intent_count"] == 0:
+        print(f"[MAKE_IT_TRADE][ROOT_CAUSE] dominant_reason={_dominant_reason([row['intent_reason'] for row in admission_rows])}")
+    if cycle_summary_row["intent_count"] > 0 and cycle_summary_row["submission_success_count"] == 0:
+        print(f"[MAKE_IT_TRADE][ROOT_CAUSE] dominant_reason={_dominant_reason([row['execution_reason'] for row in admission_rows])}")
+
+    analytics_rows: list[dict[str, Any]] = []
+    exit_reason_breakdown: Counter[str] = Counter()
+    for event in execution_events:
+        if int(getattr(event, "filled_quantity", 0) or 0) <= 0:
+            continue
+        entry_price = float(getattr(event, "avg_fill_price", 0.0) or 0.0)
+        exit_price = float(getattr(event, "avg_fill_price", 0.0) or 0.0)
+        realized_pnl = 0.0
+        gross_return_pct = 0.0
+        holding_seconds = 0
+        exit_reason = str(getattr(event, "detail", "ORDER_FILLED") or "ORDER_FILLED")
+        analytics_row = {
+            "trade_id": f"{cycle_id}-{event.intent_id}",
+            "symbol": event.symbol,
+            "setup_name": symbol_setup_family.get(event.symbol, "NONE"),
+            "trigger_type": symbol_trigger_type.get(event.symbol, "NONE"),
+            "entry_time": getattr(event, "last_update_time", None),
+            "entry_price": entry_price,
+            "exit_time": getattr(event, "last_update_time", None),
+            "exit_price": exit_price,
+            "holding_duration_seconds": holding_seconds,
+            "realized_pnl": realized_pnl,
+            "exit_reason": exit_reason,
+            "partial_exit_count": 1 if str(getattr(event, "event_type", "")).upper() == "ORDER_PARTIALLY_FILLED" else 0,
+            "gross_return_pct": gross_return_pct,
+            "risk_multiple": None,
+            "entry_to_peak_favorable_pct": None,
+            "entry_to_peak_adverse_pct": None,
+        }
+        analytics_rows.append(analytics_row)
+        exit_reason_breakdown[exit_reason] += 1
+        print(f"[TRADE_ANALYTICS][ROW] {analytics_row}")
+    winners = sum(1 for row in analytics_rows if float(row["realized_pnl"]) > 0)
+    losers = sum(1 for row in analytics_rows if float(row["realized_pnl"]) < 0)
+    analytics_summary = {
+        "trades_closed": len(analytics_rows),
+        "winners": winners,
+        "losers": losers,
+        "win_rate": (winners / len(analytics_rows)) if analytics_rows else 0.0,
+        "avg_pnl": (sum(float(row["realized_pnl"]) for row in analytics_rows) / len(analytics_rows)) if analytics_rows else 0.0,
+        "total_realized_pnl": sum(float(row["realized_pnl"]) for row in analytics_rows),
+        "avg_holding_seconds": (
+            sum(int(row["holding_duration_seconds"]) for row in analytics_rows) / len(analytics_rows)
+            if analytics_rows
+            else 0.0
+        ),
+        "exit_reason_breakdown": dict(exit_reason_breakdown),
+    }
+    print(f"[TRADE_ANALYTICS][SUMMARY] {analytics_summary}")
     print(
         "[LIFECYCLE][RISK_SIGNALS] "
         f"trade_flow_active={str(execution_attempts > 0).lower()} "
@@ -1679,6 +1908,10 @@ def run_cycle(
         intents=intents,
         risk_decisions=risk_decisions,
         executions=execution_events,
+        trade_admission_rows=admission_rows,
+        trade_blocker_rows=blocker_rows,
+        trade_analytics_rows=analytics_rows,
+        cycle_summary_row=cycle_summary_row,
     )
     print_section("STORAGE")
     print("Storage: OK" if storage_ok else "Storage: FAIL")
