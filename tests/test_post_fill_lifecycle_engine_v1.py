@@ -249,3 +249,83 @@ def test_lifecycle_payload_is_serializable_for_audit() -> None:
     assert payload["trade_id"] == "T-9"
     assert payload["state"] == PositionLifecycleState.ENTRY_SUBMITTED.value
     assert "last_update_ts" in payload
+
+
+def test_duplicate_fill_does_not_open_duplicate_trade() -> None:
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
+    first = engine.activate_trade_management_after_fill(
+        trade_id="T-DUP",
+        symbol="AAPL",
+        side="LONG",
+        filled_qty=10,
+        avg_fill_price=100.0,
+        strategy_id="S-DUP",
+    )
+    second = engine.activate_trade_management_after_fill(
+        trade_id="T-DUP",
+        symbol="AAPL",
+        side="LONG",
+        filled_qty=5,
+        avg_fill_price=101.0,
+        strategy_id="S-DUP",
+    )
+    assert first["success"] is True
+    assert second["deduped"] is True
+    assert len(engine.snapshot()) == 1
+    position = engine.get_position_by_trade_id("T-DUP")
+    assert position is not None
+    assert position.qty == 15.0
+
+
+def test_exit_engine_triggers_stop_and_target() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER")
+    engine.activate_trade_management_after_fill(
+        trade_id="T-STOP",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=10,
+        avg_fill_price=100.0,
+        strategy_id="S-EXIT",
+    )
+    actions = engine.evaluate_exit_engine({"AMD": 97.5})
+    assert actions and actions[0]["exit_reason"] == "STOP_LOSS"
+    assert engine.get_trade("T-STOP").state == PositionLifecycleState.EXITED
+
+    engine.activate_trade_management_after_fill(
+        trade_id="T-TGT",
+        symbol="NVDA",
+        side="LONG",
+        filled_qty=10,
+        avg_fill_price=100.0,
+        strategy_id="S-EXIT",
+    )
+    actions = engine.evaluate_exit_engine({"NVDA": 106.0})
+    assert actions and actions[0]["exit_reason"] == "PROFIT_TARGET"
+    assert engine.get_trade("T-TGT").state == PositionLifecycleState.EXITED
+
+
+def test_reconciliation_recovery_create_close_and_sync() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER")
+    engine.activate_trade_management_after_fill(
+        trade_id="T-SYNC",
+        symbol="AAPL",
+        side="LONG",
+        filled_qty=10,
+        avg_fill_price=100.0,
+        strategy_id="S-R",
+    )
+    actions = engine.reconcile_broker_positions(
+        [
+            SimpleNamespace(symbol="AAPL", quantity=15, avg_price=101.0),
+            SimpleNamespace(symbol="MSFT", quantity=20, avg_price=250.0),
+        ]
+    )
+    assert any(row["action"] == "SYNC_QTY_PRICE" and row["symbol"] == "AAPL" for row in actions)
+    assert any(row["action"] == "CREATE_RECOVERY_TRADE" and row["symbol"] == "MSFT" for row in actions)
+    msft_position = engine.get_position_by_symbol("MSFT")
+    assert msft_position is not None
+    assert msft_position.qty == 20.0
+
+    actions = engine.reconcile_broker_positions([])
+    assert any(row["action"] == "CLOSE_ORPHAN_TRADE" and row["symbol"] == "AAPL" for row in actions)

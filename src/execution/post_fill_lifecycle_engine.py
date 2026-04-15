@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
+from uuid import uuid4
 
 
 class PositionLifecycleState(str, Enum):
@@ -52,9 +53,16 @@ class ManagedTradeLifecycle:
     break_even_activation: float = 0.0
     trailing_activation: float = 0.0
     high_water_mark: float | None = None
+    last_mark_price: float | None = None
     last_update_ts: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_recovery_status: str | None = None
     failure_flags: list[str] = field(default_factory=list)
+    entry_order_id: int | None = None
+    exit_order_id: int | None = None
+    exit_price: float | None = None
+    exit_time: str | None = None
+    pnl: float | None = None
+    exit_reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -63,9 +71,24 @@ class ManagedTradeLifecycle:
 
 
 @dataclass
+class Position:
+    position_id: str
+    symbol: str
+    qty: float
+    avg_price: float
+    strategy_id: str
+    opened_at: str
+    last_updated_at: str
+    trade_id: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class LifecyclePolicy:
-    default_stop_pct: float = 0.01
-    default_target_pct: float = 0.02
+    default_stop_pct: float = 0.02
+    default_target_pct: float = 0.05
     break_even_pct: float = 0.01
     trailing_activation_pct: float = 0.015
     trailing_offset_pct: float = 0.0075
@@ -115,6 +138,8 @@ class PostFillLifecycleEngine:
         self.policy = policy or LifecyclePolicy()
         self.execution_provider = execution_provider
         self._trades: dict[str, ManagedTradeLifecycle] = {}
+        self._positions_by_symbol: dict[str, Position] = {}
+        self._positions_by_trade_id: dict[str, Position] = {}
 
     @staticmethod
     def _ts() -> str:
@@ -224,6 +249,23 @@ class PostFillLifecycleEngine:
         session_label: str = "runtime",
         intended_qty: int | None = None,
     ) -> dict[str, Any]:
+        existing = self._trades.get(str(trade_id))
+        if existing is not None:
+            print(f"[EXECUTION][FILL_DEDUP] trade_id={trade_id} deduped=true")
+            self._apply_position_fill(
+                trade_id=str(trade_id),
+                symbol=str(symbol).upper(),
+                filled_qty=int(filled_qty),
+                avg_fill_price=float(avg_fill_price),
+                strategy_id=str(strategy_id or existing.strategy_id),
+            )
+            return {
+                "success": True,
+                "deduped": True,
+                "trade": existing.to_dict(),
+                "position": self.get_position_by_trade_id(str(trade_id)).to_dict() if self.get_position_by_trade_id(str(trade_id)) else None,
+            }
+
         trade = ManagedTradeLifecycle(
             trade_id=str(trade_id),
             symbol=str(symbol).upper(),
@@ -238,8 +280,17 @@ class PostFillLifecycleEngine:
             break_even_activation=float(avg_fill_price) * (1.0 + self.policy.break_even_pct),
             trailing_activation=float(avg_fill_price) * (1.0 + self.policy.trailing_activation_pct),
             high_water_mark=float(avg_fill_price),
+            entry_order_id=int(trade_id) if str(trade_id).isdigit() else None,
         )
         self._trades[trade.trade_id] = trade
+        self._apply_position_fill(
+            trade_id=trade.trade_id,
+            symbol=trade.symbol,
+            filled_qty=trade.filled_qty,
+            avg_fill_price=trade.avg_fill_price,
+            strategy_id=trade.strategy_id,
+        )
+        print(f"[TRADE][OPEN] trade_id={trade.trade_id} symbol={trade.symbol} qty={trade.filled_qty} entry_price={trade.avg_fill_price:.4f}")
         print(f"[LIFECYCLE][STATE] trade_id={trade.trade_id} state={trade.state.value}")
 
         if self.run_mode == "READ_ONLY":
@@ -329,6 +380,42 @@ class PostFillLifecycleEngine:
             "failure_reason": failure_reason,
             "trade": trade.to_dict(),
         }
+
+    def _apply_position_fill(
+        self,
+        *,
+        trade_id: str,
+        symbol: str,
+        filled_qty: int,
+        avg_fill_price: float,
+        strategy_id: str,
+    ) -> Position:
+        now = self._ts()
+        existing = self._positions_by_trade_id.get(trade_id)
+        if existing is not None:
+            total_qty = float(existing.qty) + float(filled_qty)
+            if total_qty > 0:
+                existing.avg_price = ((existing.avg_price * existing.qty) + (float(avg_fill_price) * float(filled_qty))) / total_qty
+            existing.qty = total_qty
+            existing.last_updated_at = now
+            self._positions_by_symbol[symbol] = existing
+            print(f"[TRADE][UPDATE] trade_id={trade_id} symbol={symbol} qty={existing.qty:.4f} avg_price={existing.avg_price:.4f}")
+            print(f"[POSITION][SYNC] symbol={symbol} trade_id={trade_id} qty={existing.qty:.4f} avg_price={existing.avg_price:.4f}")
+            return existing
+        position = Position(
+            position_id=f"pos:{trade_id}",
+            symbol=symbol,
+            qty=float(filled_qty),
+            avg_price=float(avg_fill_price),
+            strategy_id=str(strategy_id or "UNKNOWN"),
+            opened_at=now,
+            last_updated_at=now,
+            trade_id=trade_id,
+        )
+        self._positions_by_trade_id[trade_id] = position
+        self._positions_by_symbol[symbol] = position
+        print(f"[POSITION][SYNC] symbol={symbol} trade_id={trade_id} qty={position.qty:.4f} avg_price={position.avg_price:.4f}")
+        return position
 
     def evaluate_trailing(self, trade_id: str, current_price: float) -> dict[str, Any]:
         trade = self._trades.get(str(trade_id))
@@ -585,6 +672,18 @@ class PostFillLifecycleEngine:
         trade = self._trades.get(str(trade_id))
         if trade is None:
             return
+        trade.exit_reason = reason
+        trade.exit_time = self._ts()
+        position = self._positions_by_trade_id.get(trade.trade_id)
+        if position is not None:
+            trade.exit_price = float(trade.last_mark_price or trade.avg_fill_price)
+            sign = 1.0 if trade.side in {"LONG", "BUY"} else -1.0
+            trade.pnl = (float(trade.exit_price or trade.avg_fill_price) - float(position.avg_price)) * float(position.qty) * sign
+            print(f"[TRADE][PNL] trade_id={trade.trade_id} symbol={trade.symbol} pnl={float(trade.pnl or 0.0):.4f}")
+            self._positions_by_trade_id.pop(trade.trade_id, None)
+            if self._positions_by_symbol.get(position.symbol) == position:
+                self._positions_by_symbol.pop(position.symbol, None)
+        print(f"[TRADE][EXIT] trade_id={trade.trade_id} symbol={trade.symbol} reason={reason}")
         self._transition(trade, PositionLifecycleState.EXITED, reason)
 
     def startup_safe_state(self, broker_positions: list[Any], broker_orders: list[Any]) -> dict[str, Any]:
@@ -629,6 +728,13 @@ class PostFillLifecycleEngine:
                 high_water_mark=float(getattr(position, "entry_price", 0.0) or 0.0),
             )
             self._trades[trade_id] = trade
+            self._apply_position_fill(
+                trade_id=trade_id,
+                symbol=symbol,
+                filled_qty=qty,
+                avg_fill_price=float(getattr(position, "entry_price", 0.0) or 0.0),
+                strategy_id=str(getattr(position, "strategy_name", "RECOVERY") or "RECOVERY"),
+            )
             recovered += 1
             print(f"[RECOVERY][MATCH] symbol={symbol} trade_id={trade_id}")
 
@@ -656,6 +762,88 @@ class PostFillLifecycleEngine:
 
     def get_trade(self, trade_id: str) -> ManagedTradeLifecycle | None:
         return self._trades.get(str(trade_id))
+
+    def get_position_by_symbol(self, symbol: str) -> Position | None:
+        return self._positions_by_symbol.get(str(symbol or "").upper().strip())
+
+    def get_position_by_trade_id(self, trade_id: str) -> Position | None:
+        return self._positions_by_trade_id.get(str(trade_id))
+
+    def evaluate_exit_engine(self, prices_by_symbol: dict[str, float]) -> list[dict[str, Any]]:
+        actions: list[dict[str, Any]] = []
+        for trade in self._trades.values():
+            if trade.state == PositionLifecycleState.EXITED:
+                continue
+            if trade.stop is None or trade.target is None:
+                continue
+            last_price = prices_by_symbol.get(trade.symbol)
+            if last_price is None:
+                continue
+            action_reason: str | None = None
+            if float(last_price) <= float(trade.stop.trigger_price):
+                action_reason = "STOP_LOSS"
+            elif float(last_price) >= float(trade.target.trigger_price):
+                action_reason = "PROFIT_TARGET"
+            if action_reason is None:
+                continue
+            trade.last_mark_price = float(last_price)
+            self.mark_exit_pending(trade.trade_id, action_reason)
+            if self.execution_provider is not None and hasattr(self.execution_provider, "place_order"):
+                try:
+                    self.execution_provider.place_order(
+                        symbol=trade.symbol,
+                        side="SELL",
+                        quantity=trade.filled_qty,
+                        order_type="MKT",
+                        trade_id=trade.trade_id,
+                    )
+                except Exception as exc:
+                    print(f"[TRADE][UPDATE] trade_id={trade.trade_id} symbol={trade.symbol} exit_submit_error={exc}")
+            print(f"[TRADE][UPDATE] trade_id={trade.trade_id} symbol={trade.symbol} exit_reason={action_reason} last={float(last_price):.4f}")
+            self.mark_exited(trade.trade_id, reason=action_reason)
+            actions.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "exit_reason": action_reason})
+        return actions
+
+    def reconcile_broker_positions(self, broker_positions: list[Any]) -> list[dict[str, Any]]:
+        actions: list[dict[str, Any]] = []
+        broker_by_symbol: dict[str, Any] = {}
+        for row in broker_positions:
+            symbol = str(getattr(row, "symbol", "") or "").upper().strip()
+            if symbol:
+                broker_by_symbol[symbol] = row
+        known_symbols = set(self._positions_by_symbol.keys())
+        all_symbols = sorted(known_symbols | set(broker_by_symbol.keys()))
+        for symbol in all_symbols:
+            broker_row = broker_by_symbol.get(symbol)
+            runtime_position = self._positions_by_symbol.get(symbol)
+            broker_qty = int(getattr(broker_row, "quantity", getattr(broker_row, "position", 0)) or 0) if broker_row is not None else 0
+            broker_avg = float(getattr(broker_row, "avg_price", getattr(broker_row, "avgCost", 0.0)) or 0.0) if broker_row is not None else 0.0
+            if broker_qty > 0 and runtime_position is None:
+                trade_id = f"recovery:{symbol}:{uuid4().hex[:8]}"
+                self.activate_trade_management_after_fill(
+                    trade_id=trade_id,
+                    symbol=symbol,
+                    side="LONG",
+                    filled_qty=broker_qty,
+                    avg_fill_price=broker_avg,
+                    strategy_id="RECOVERY",
+                    session_label="reconciliation_recovery",
+                    intended_qty=broker_qty,
+                )
+                action = {"symbol": symbol, "action": "CREATE_RECOVERY_TRADE", "trade_id": trade_id}
+            elif broker_qty <= 0 and runtime_position is not None:
+                self.mark_exited(runtime_position.trade_id, reason="FORCED_RECONCILIATION")
+                action = {"symbol": symbol, "action": "CLOSE_ORPHAN_TRADE", "trade_id": runtime_position.trade_id}
+            elif broker_qty > 0 and runtime_position is not None:
+                runtime_position.qty = float(broker_qty)
+                runtime_position.avg_price = float(broker_avg)
+                runtime_position.last_updated_at = self._ts()
+                action = {"symbol": symbol, "action": "SYNC_QTY_PRICE", "trade_id": runtime_position.trade_id}
+            else:
+                continue
+            print(f"[RECONCILIATION][ACTION] symbol={symbol} action={action['action']}")
+            actions.append(action)
+        return actions
 
     def snapshot(self) -> dict[str, dict[str, Any]]:
         return {trade_id: trade.to_dict() for trade_id, trade in self._trades.items()}

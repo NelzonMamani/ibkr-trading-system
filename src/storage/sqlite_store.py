@@ -224,12 +224,29 @@ class SQLiteStore:
                 gross_pnl REAL,
                 commission REAL,
                 net_pnl REAL,
+                stop_loss REAL,
+                profit_target REAL,
+                exit_reason TEXT,
                 status TEXT,
                 pattern_name TEXT,
                 opened_at TEXT,
                 closed_at TEXT,
                 created_at TEXT,
                 FOREIGN KEY(run_id) REFERENCES runs(run_id)
+            );
+            CREATE TABLE IF NOT EXISTS positions (
+                position_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                symbol TEXT,
+                qty REAL,
+                avg_price REAL,
+                strategy_id TEXT,
+                trade_id TEXT,
+                opened_at TEXT,
+                last_updated_at TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id),
+                FOREIGN KEY(trade_id) REFERENCES trades(trade_id)
             );
             CREATE TABLE IF NOT EXISTS execution_results (
                 execution_result_id TEXT PRIMARY KEY,
@@ -410,6 +427,8 @@ class SQLiteStore:
                 ON trade_lifecycle_reconciliation_events(symbol, timestamp);
             CREATE INDEX IF NOT EXISTS idx_trade_records_run_id ON trade_records(run_id);
             CREATE INDEX IF NOT EXISTS idx_trades_run_id ON trades(run_id);
+            CREATE INDEX IF NOT EXISTS idx_positions_run_id ON positions(run_id);
+            CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol);
             CREATE INDEX IF NOT EXISTS idx_execution_results_run_id ON execution_results(run_id);
             CREATE INDEX IF NOT EXISTS idx_trade_outcomes_run_id ON trade_outcomes(run_id);
             CREATE INDEX IF NOT EXISTS idx_performance_snapshots_run_id ON performance_snapshots(run_id);
@@ -734,9 +753,9 @@ class SQLiteStore:
             INSERT OR IGNORE INTO trades (
                 trade_id, run_id, symbol, trader_type, strategy_name, direction,
                 entry_tick, entry_price, exit_tick, exit_price, quantity,
-                gross_pnl, commission, net_pnl, status, pattern_name,
-                opened_at, closed_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                gross_pnl, commission, net_pnl, stop_loss, profit_target, exit_reason,
+                status, pattern_name, opened_at, closed_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -754,6 +773,9 @@ class SQLiteStore:
                     trade.get("gross_pnl"),
                     trade.get("commission"),
                     trade.get("net_pnl"),
+                    trade.get("stop_loss"),
+                    trade.get("profit_target"),
+                    trade.get("exit_reason"),
                     trade.get("status"),
                     trade.get("pattern_name"),
                     trade.get("opened_at"),
@@ -805,6 +827,47 @@ class SQLiteStore:
         )
         if self.commit_each_write:
             self.connection.commit()
+
+    def upsert_position(self, payload: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO positions (
+                position_id, run_id, symbol, qty, avg_price, strategy_id, trade_id,
+                opened_at, last_updated_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(position_id) DO UPDATE SET
+                qty=excluded.qty,
+                avg_price=excluded.avg_price,
+                strategy_id=excluded.strategy_id,
+                trade_id=excluded.trade_id,
+                last_updated_at=excluded.last_updated_at
+            """,
+            (
+                payload["position_id"],
+                payload["run_id"],
+                payload.get("symbol"),
+                payload.get("qty"),
+                payload.get("avg_price"),
+                payload.get("strategy_id"),
+                payload.get("trade_id"),
+                payload.get("opened_at"),
+                payload.get("last_updated_at"),
+                payload.get("created_at"),
+            ),
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def fetch_positions(self, run_id: str) -> list[dict[str, Any]]:
+        cursor = self.connection.execute(
+            """
+            SELECT * FROM positions
+            WHERE run_id = ?
+            ORDER BY symbol ASC, position_id ASC
+            """,
+            (run_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
 
     def insert_trade_outcomes(self, outcomes: Iterable[dict[str, Any]]) -> None:
         self.connection.executemany(

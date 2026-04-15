@@ -405,6 +405,22 @@ class StorageEngine:
             return []
         return self._store.fetch_trade_lifecycle_reconciliation_events(run_id or self.run_id)
 
+    def upsert_position(self, position: dict[str, Any]) -> None:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return
+        payload = dict(position)
+        ts = now_iso()
+        payload.setdefault("run_id", self.run_id)
+        payload.setdefault("created_at", ts)
+        payload.setdefault("opened_at", ts)
+        payload.setdefault("last_updated_at", ts)
+        self._store.upsert_position(payload)
+
+    def fetch_positions(self, *, run_id: str | None = None) -> list[dict[str, Any]]:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return []
+        return self._store.fetch_positions(run_id or self.run_id)
+
     def store_watchlist(
         self,
         *,
