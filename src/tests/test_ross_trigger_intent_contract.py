@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from types import SimpleNamespace
 
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord, TradeIntentRecord
 from src.core.pricing.price_resolver import PriceResolutionError
@@ -469,26 +470,41 @@ def test_completed_trade_emits_analytics_row(monkeypatch, capsys) -> None:
             )
         ],
     )
-    monkeypatch.setattr(
-        "src.core_engine.orchestrator.execute_intents",
-        lambda **_: [
-            ExecutionEvent(
-                symbol="ABCD",
-                intent_id="intent-ABCD",
-                action="SUBMITTED",
-                detail="profit_target",
-                broker_order_id=99,
-                event_type="ORDER_FILLED",
-                filled_quantity=10,
-                remaining_quantity=0,
-                avg_fill_price=5.01,
-            )
-        ],
+    event = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="profit_target",
+        broker_order_id=99,
+        event_type="ORDER_FILLED",
+        filled_quantity=10,
+        remaining_quantity=0,
+        avg_fill_price=5.01,
     )
-    run_cycle(cycle_id=14, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    setattr(event, "client_order_id", "trade-1")
+    monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", lambda **_: [event])
+
+    trade = SimpleNamespace(
+        trade_id="trade-1",
+        state="EXITED",
+        avg_fill_price=5.0,
+        exit_fill_price=5.25,
+        exit_fill_time="2026-04-15T14:31:00+00:00",
+        last_update_ts="2026-04-15T14:30:00+00:00",
+        realized_pnl=2.5,
+        holding_duration_seconds=60,
+        exit_reason="TARGET_FILLED",
+        partial_exit_count=0,
+    )
+    lifecycle = SimpleNamespace(
+        get_trade=lambda trade_id: trade if trade_id == "trade-1" else None,
+    )
+
+    run_cycle(cycle_id=14, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=lifecycle)
     out = capsys.readouterr().out
     assert "[TRADE_ANALYTICS][ROW]" in out
-    assert "'exit_reason': 'profit_target'" in out
+    assert "'realized_pnl': 2.5" in out
+    assert "'trade_id': 'trade-1'" in out
 
 
 def test_make_it_trade_cycle_summary_counts_consistent(monkeypatch, capsys) -> None:
@@ -512,3 +528,126 @@ def test_make_it_trade_cycle_summary_counts_consistent(monkeypatch, capsys) -> N
     assert payload["trigger_count"] <= payload["setup_count"]
     assert payload["intent_count"] <= payload["trigger_count"]
     assert payload["risk_pass_count"] <= payload["intent_count"]
+
+
+def test_open_trade_not_in_analytics(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.run_scanner_cycle",
+        lambda **_: {
+            "watchlist_k_symbols": ["ABCD"],
+            "focus_m_symbols": ["ABCD"],
+            "data_quality_by_symbol": {},
+            "watchlist_k": [{"symbol": "ABCD", "last_price": 5.0}],
+        },
+    )
+    monkeypatch.setattr("src.core_engine.orchestrator.resolve_entry_price", lambda *_args, **_kwargs: (5.0, "IBKR_SNAPSHOT"))
+    monkeypatch.setattr("src.core_engine.orchestrator.build_trade_intents", lambda *args, **_kwargs: [
+        TradeIntentRecord(symbol=args[1], intent_id="intent-ABCD", setup_id="GAP_GO", side="LONG", entry="breakout", stop="structure", rationale="test", entry_price_source="IBKR_SNAPSHOT")
+    ])
+    monkeypatch.setattr("src.core_engine.orchestrator.evaluate_trade_intents", lambda **_: [
+        RiskDecisionRecord(symbol="ABCD", intent_id="intent-ABCD", decision="ALLOW", max_position_size=100, constraints=[], triggered_rules=[], rationale="PASS", approved_quantity=1)
+    ])
+    event = ExecutionEvent(symbol="ABCD", intent_id="intent-ABCD", action="SUBMITTED", detail="ok", broker_order_id=99, event_type="ORDER_FILLED", filled_quantity=10)
+    setattr(event, "client_order_id", "trade-open")
+    monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", lambda **_: [event])
+
+    trade = SimpleNamespace(state="PROTECTED", avg_fill_price=5.0)
+    lifecycle = SimpleNamespace(get_trade=lambda trade_id: trade if trade_id == "trade-open" else None)
+    run_cycle(cycle_id=16, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=lifecycle)
+    out = capsys.readouterr().out
+    assert "[TRADE_ANALYTICS][ROW]" not in out
+
+
+def test_partial_then_full_exit_correct_pnl(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.run_scanner_cycle",
+        lambda **_: {
+            "watchlist_k_symbols": ["ABCD"],
+            "focus_m_symbols": ["ABCD"],
+            "data_quality_by_symbol": {},
+            "watchlist_k": [{"symbol": "ABCD", "last_price": 5.0}],
+        },
+    )
+    monkeypatch.setattr("src.core_engine.orchestrator.resolve_entry_price", lambda *_args, **_kwargs: (5.0, "IBKR_SNAPSHOT"))
+    monkeypatch.setattr("src.core_engine.orchestrator.build_trade_intents", lambda *args, **_kwargs: [
+        TradeIntentRecord(symbol=args[1], intent_id="intent-ABCD", setup_id="GAP_GO", side="LONG", entry="breakout", stop="structure", rationale="test", entry_price_source="IBKR_SNAPSHOT")
+    ])
+    monkeypatch.setattr("src.core_engine.orchestrator.evaluate_trade_intents", lambda **_: [
+        RiskDecisionRecord(symbol="ABCD", intent_id="intent-ABCD", decision="ALLOW", max_position_size=100, constraints=[], triggered_rules=[], rationale="PASS", approved_quantity=1)
+    ])
+    event = ExecutionEvent(symbol="ABCD", intent_id="intent-ABCD", action="SUBMITTED", detail="ok", broker_order_id=99, event_type="ORDER_FILLED", filled_quantity=10)
+    setattr(event, "client_order_id", "trade-partial")
+    monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", lambda **_: [event])
+
+    trade = SimpleNamespace(
+        state="EXITED",
+        avg_fill_price=10.0,
+        exit_fill_price=10.5,
+        exit_fill_time="2026-04-15T14:31:00+00:00",
+        last_update_ts="2026-04-15T14:30:00+00:00",
+        realized_pnl=14.0,
+        holding_duration_seconds=60,
+        exit_reason="TARGET_FILLED",
+        partial_exit_count=1,
+    )
+    lifecycle = SimpleNamespace(get_trade=lambda trade_id: trade if trade_id == "trade-partial" else None)
+    run_cycle(cycle_id=17, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=lifecycle)
+    out = capsys.readouterr().out
+    assert "'realized_pnl': 14.0" in out
+    assert "'partial_exit_count': 1" in out
+
+
+def test_expectancy_calculation() -> None:
+    from src.core_engine.orchestrator import _compute_expectancy_metrics
+
+    rows = [
+        {"realized_pnl": 100.0},
+        {"realized_pnl": -50.0},
+        {"realized_pnl": 25.0},
+        {"realized_pnl": -25.0},
+    ]
+    metrics = _compute_expectancy_metrics(rows)
+    assert metrics["win_rate"] == 0.5
+    assert metrics["avg_winner"] == 62.5
+    assert metrics["avg_loser"] == -37.5
+    assert metrics["expectancy"] == 12.5
+
+
+def test_analytics_uses_lifecycle_truth(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.run_scanner_cycle",
+        lambda **_: {
+            "watchlist_k_symbols": ["ABCD"],
+            "focus_m_symbols": ["ABCD"],
+            "data_quality_by_symbol": {},
+            "watchlist_k": [{"symbol": "ABCD", "last_price": 5.0}],
+        },
+    )
+    monkeypatch.setattr("src.core_engine.orchestrator.resolve_entry_price", lambda *_args, **_kwargs: (5.0, "IBKR_SNAPSHOT"))
+    monkeypatch.setattr("src.core_engine.orchestrator.build_trade_intents", lambda *args, **_kwargs: [
+        TradeIntentRecord(symbol=args[1], intent_id="intent-ABCD", setup_id="GAP_GO", side="LONG", entry="breakout", stop="structure", rationale="test", entry_price_source="IBKR_SNAPSHOT")
+    ])
+    monkeypatch.setattr("src.core_engine.orchestrator.evaluate_trade_intents", lambda **_: [
+        RiskDecisionRecord(symbol="ABCD", intent_id="intent-ABCD", decision="ALLOW", max_position_size=100, constraints=[], triggered_rules=[], rationale="PASS", approved_quantity=1)
+    ])
+    event = ExecutionEvent(symbol="ABCD", intent_id="intent-ABCD", action="SUBMITTED", detail="ok", broker_order_id=99, event_type="ORDER_FILLED", filled_quantity=10)
+    setattr(event, "client_order_id", "trade-real")
+    monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", lambda **_: [event])
+
+    trade = SimpleNamespace(
+        state="EXITED",
+        avg_fill_price=10.0,
+        exit_fill_price=11.0,
+        exit_fill_time="2026-04-15T14:31:00+00:00",
+        last_update_ts="2026-04-15T14:30:00+00:00",
+        realized_pnl=10.0,
+        holding_duration_seconds=60,
+        exit_reason="TARGET_FILLED",
+        partial_exit_count=0,
+    )
+    lifecycle = SimpleNamespace(get_trade=lambda trade_id: trade if trade_id == "trade-real" else None)
+
+    run_cycle(cycle_id=18, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=lifecycle)
+    out = capsys.readouterr().out
+    assert "'realized_pnl': 10.0" in out
+    assert "'exit_price': 11.0" in out

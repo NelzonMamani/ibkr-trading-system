@@ -49,7 +49,10 @@ class ManagedTradeLifecycle:
     exit_fill_price: float | None = None
     exit_fill_time: str | None = None
     exit_order_id: str | None = None
+    exit_reason: str | None = None
     realized_pnl: float = 0.0
+    partial_exit_count: int = 0
+    entry_fill_time: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     state: PositionLifecycleState = PositionLifecycleState.ENTRY_SUBMITTED
     stop: ProtectionOrderMeta | None = None
     target: ProtectionOrderMeta | None = None
@@ -61,6 +64,17 @@ class ManagedTradeLifecycle:
     last_update_ts: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_recovery_status: str | None = None
     failure_flags: list[str] = field(default_factory=list)
+
+    @property
+    def holding_duration_seconds(self) -> int:
+        if not self.exit_fill_time:
+            return 0
+        try:
+            entry_dt = datetime.fromisoformat(str(self.entry_fill_time).replace("Z", "+00:00"))
+            exit_dt = datetime.fromisoformat(str(self.exit_fill_time).replace("Z", "+00:00"))
+        except ValueError:
+            return 0
+        return max(0, int((exit_dt - entry_dt).total_seconds()))
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -279,6 +293,7 @@ class PostFillLifecycleEngine:
             break_even_activation=float(avg_fill_price) * (1.0 + self.policy.break_even_pct),
             trailing_activation=float(avg_fill_price) * (1.0 + self.policy.trailing_activation_pct),
             high_water_mark=float(avg_fill_price),
+            entry_fill_time=self._ts(),
         )
         self._trades[trade.trade_id] = trade
         self._update_in_memory_state()
@@ -493,6 +508,7 @@ class PostFillLifecycleEngine:
         trade.last_update_ts = self._ts()
 
         if remaining_qty > 0:
+            trade.partial_exit_count += 1
             self._update_in_memory_state()
             print(
                 "[LIFECYCLE][EXIT_PARTIAL] "
@@ -509,6 +525,7 @@ class PostFillLifecycleEngine:
                 "state": trade.state.value,
             }
 
+        trade.exit_reason = reason
         self.mark_exit_pending(trade.trade_id, reason)
         self.mark_exited(trade.trade_id, reason)
         self._update_in_memory_state()
@@ -800,6 +817,7 @@ class PostFillLifecycleEngine:
                 state=PositionLifecycleState.RECOVERED,
                 last_recovery_status="matched_broker_position",
                 high_water_mark=float(getattr(position, "entry_price", 0.0) or 0.0),
+                entry_fill_time=self._ts(),
             )
             self._trades[trade_id] = trade
             self._update_in_memory_state()

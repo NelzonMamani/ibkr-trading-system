@@ -222,6 +222,70 @@ def _normalize_blocker_category(blocker: str, reason: str) -> str:
     return normalized
 
 
+
+
+def _resolve_trade_id_from_execution(event: ExecutionEvent, lifecycle_engine: Any | None) -> str | None:
+    if lifecycle_engine is None:
+        return None
+
+    client_order_id = str(getattr(event, "client_order_id", "") or "").strip()
+    intent_id = str(getattr(event, "intent_id", "") or "").strip()
+
+    if client_order_id and hasattr(lifecycle_engine, "get_trade"):
+        trade = lifecycle_engine.get_trade(client_order_id)
+        if trade is not None:
+            return client_order_id
+
+    if intent_id:
+        resolver = getattr(lifecycle_engine, "resolve_trade_id_for_intent", None)
+        if callable(resolver):
+            resolved = resolver(intent_id)
+            if resolved:
+                return str(resolved)
+
+        intent_map = getattr(lifecycle_engine, "intent_to_trade_id", None)
+        if isinstance(intent_map, dict):
+            mapped = intent_map.get(intent_id)
+            if mapped:
+                return str(mapped)
+
+        resolver = getattr(lifecycle_engine, "get_trade_id_for_intent", None)
+        if callable(resolver):
+            resolved = resolver(intent_id)
+            if resolved:
+                return str(resolved)
+
+    return None
+
+
+def _compute_expectancy_metrics(analytics_rows: list[dict[str, Any]]) -> dict[str, float]:
+    pnls = [float(row.get("realized_pnl", 0.0) or 0.0) for row in analytics_rows]
+    total_trades = len(pnls)
+    if total_trades == 0:
+        return {
+            "total_realized_pnl": 0.0,
+            "avg_pnl": 0.0,
+            "win_rate": 0.0,
+            "avg_winner": 0.0,
+            "avg_loser": 0.0,
+            "expectancy": 0.0,
+        }
+
+    winners = [pnl for pnl in pnls if pnl > 0.0]
+    losers = [pnl for pnl in pnls if pnl < 0.0]
+    win_rate = len(winners) / total_trades
+    avg_winner = sum(winners) / len(winners) if winners else 0.0
+    avg_loser = sum(losers) / len(losers) if losers else 0.0
+    expectancy = (win_rate * avg_winner) + ((1.0 - win_rate) * avg_loser)
+
+    return {
+        "total_realized_pnl": sum(pnls),
+        "avg_pnl": sum(pnls) / total_trades,
+        "win_rate": win_rate,
+        "avg_winner": avg_winner,
+        "avg_loser": avg_loser,
+        "expectancy": expectancy,
+    }
 def _dominant_reason(reasons: list[str]) -> str:
     if not reasons:
         return "NONE"
@@ -574,6 +638,7 @@ def run_cycle(
     cycle_id: int,
     mode_value: str,
     forced_session_state=None,
+    lifecycle_engine: Any | None = None,
 ) -> CycleSummary:
     _ensure_deterministic_prep()
     mode_input = mode_value or str(get_config("RUN_MODE_EFFECTIVE") or "READ_ONLY")
@@ -1796,27 +1861,45 @@ def run_cycle(
     analytics_rows: list[dict[str, Any]] = []
     exit_reason_breakdown: Counter[str] = Counter()
     for event in execution_events:
-        if int(getattr(event, "filled_quantity", 0) or 0) <= 0:
+        trade_id = _resolve_trade_id_from_execution(event, lifecycle_engine)
+        print(
+            "[TRACE][TRADE_LINK] "
+            f"symbol={event.symbol} intent_id={getattr(event, 'intent_id', None)} trade_id={trade_id}"
+        )
+        if trade_id is None:
             continue
-        entry_price = float(getattr(event, "avg_fill_price", 0.0) or 0.0)
-        exit_price = float(getattr(event, "avg_fill_price", 0.0) or 0.0)
-        realized_pnl = 0.0
-        gross_return_pct = 0.0
-        holding_seconds = 0
-        exit_reason = str(getattr(event, "detail", "ORDER_FILLED") or "ORDER_FILLED")
+        if lifecycle_engine is None or not hasattr(lifecycle_engine, "get_trade"):
+            continue
+        trade = lifecycle_engine.get_trade(trade_id)
+        if trade is None:
+            continue
+        if str(getattr(trade, "state", "")).upper() != "EXITED":
+            continue
+        if getattr(trade, "exit_fill_price", None) is None or getattr(trade, "exit_fill_time", None) is None:
+            print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=incomplete_lifecycle")
+            continue
+
+        entry_price = float(getattr(trade, "avg_fill_price", 0.0) or 0.0)
+        exit_price = float(getattr(trade, "exit_fill_price", 0.0) or 0.0)
+        realized_pnl = float(getattr(trade, "realized_pnl", 0.0) or 0.0)
+        holding_seconds = int(getattr(trade, "holding_duration_seconds", 0) or 0)
+        exit_reason = str(getattr(trade, "exit_reason", "UNKNOWN") or "UNKNOWN")
+        partial_exit_count = int(getattr(trade, "partial_exit_count", 0) or 0)
+
+        gross_return_pct = ((exit_price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
         analytics_row = {
-            "trade_id": f"{cycle_id}-{event.intent_id}",
+            "trade_id": trade_id,
             "symbol": event.symbol,
             "setup_name": symbol_setup_family.get(event.symbol, "NONE"),
             "trigger_type": symbol_trigger_type.get(event.symbol, "NONE"),
-            "entry_time": getattr(event, "last_update_time", None),
+            "entry_time": getattr(trade, "last_update_ts", None),
             "entry_price": entry_price,
-            "exit_time": getattr(event, "last_update_time", None),
+            "exit_time": getattr(trade, "exit_fill_time", None),
             "exit_price": exit_price,
             "holding_duration_seconds": holding_seconds,
             "realized_pnl": realized_pnl,
             "exit_reason": exit_reason,
-            "partial_exit_count": 1 if str(getattr(event, "event_type", "")).upper() == "ORDER_PARTIALLY_FILLED" else 0,
+            "partial_exit_count": partial_exit_count,
             "gross_return_pct": gross_return_pct,
             "risk_multiple": None,
             "entry_to_peak_favorable_pct": None,
@@ -1825,15 +1908,19 @@ def run_cycle(
         analytics_rows.append(analytics_row)
         exit_reason_breakdown[exit_reason] += 1
         print(f"[TRADE_ANALYTICS][ROW] {analytics_row}")
+
     winners = sum(1 for row in analytics_rows if float(row["realized_pnl"]) > 0)
     losers = sum(1 for row in analytics_rows if float(row["realized_pnl"]) < 0)
+    expectancy_metrics = _compute_expectancy_metrics(analytics_rows)
     analytics_summary = {
         "trades_closed": len(analytics_rows),
         "winners": winners,
         "losers": losers,
-        "win_rate": (winners / len(analytics_rows)) if analytics_rows else 0.0,
-        "avg_pnl": (sum(float(row["realized_pnl"]) for row in analytics_rows) / len(analytics_rows)) if analytics_rows else 0.0,
-        "total_realized_pnl": sum(float(row["realized_pnl"]) for row in analytics_rows),
+        "win_rate": expectancy_metrics["win_rate"],
+        "avg_pnl": expectancy_metrics["avg_pnl"],
+        "total_realized_pnl": expectancy_metrics["total_realized_pnl"],
+        "avg_winner": expectancy_metrics["avg_winner"],
+        "avg_loser": expectancy_metrics["avg_loser"],
         "avg_holding_seconds": (
             sum(int(row["holding_duration_seconds"]) for row in analytics_rows) / len(analytics_rows)
             if analytics_rows
@@ -1842,6 +1929,21 @@ def run_cycle(
         "exit_reason_breakdown": dict(exit_reason_breakdown),
     }
     print(f"[TRADE_ANALYTICS][SUMMARY] {analytics_summary}")
+    print(f"[TRADE_ANALYTICS][EXPECTANCY] value={expectancy_metrics['expectancy']}")
+
+    setup_buckets: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in analytics_rows:
+        key = (str(row.get("setup_name", "NONE")), str(row.get("trigger_type", "NONE")))
+        setup_buckets.setdefault(key, []).append(row)
+    for (setup_name, trigger_type), rows in sorted(setup_buckets.items()):
+        wins = sum(1 for row in rows if float(row.get("realized_pnl", 0.0) or 0.0) > 0.0)
+        total = len(rows)
+        total_pnl = sum(float(row.get("realized_pnl", 0.0) or 0.0) for row in rows)
+        print(
+            "[SETUP_PERFORMANCE] "
+            f"setup={setup_name} trigger_type={trigger_type} trades={total} "
+            f"win_rate={(wins / total) if total else 0.0} total_pnl={total_pnl}"
+        )
     print(
         "[LIFECYCLE][RISK_SIGNALS] "
         f"trade_flow_active={str(execution_attempts > 0).lower()} "
