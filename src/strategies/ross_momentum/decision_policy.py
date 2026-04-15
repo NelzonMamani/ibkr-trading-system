@@ -103,7 +103,7 @@ def build_trade_intents(
     session = normalize_session_label(session_raw) or "RTH_OPEN"
     display_session = "AFTER" if session in {"AH", "AFTER_HOURS"} else session
     session_is_invalid = session not in ALLOWED_SESSIONS
-    effective_session = "PRE" if (session_is_invalid and validation_session_override_enabled) else session
+    effective_session = session
 
     detected_setups = [
         setup for setup in summary.all_results
@@ -150,7 +150,22 @@ def build_trade_intents(
         and paper_after_hours_override_enabled
         and setup_name in paper_after_hours_allowed_setups
     )
-    if session_is_invalid and not validation_session_override_enabled and not paper_after_hours_override_active:
+    # FIRST: handle paper after-hours override (highest priority)
+    if paper_after_hours_override_active:
+        print(
+            "[ROSS][SESSION_POLICY_OVERRIDE] "
+            f"symbol={symbol} mode=PAPER session=AFTER setup={setup_name} reason=paper_after_hours_validation"
+        )
+        effective_session = "AFTER"
+    # SECOND: validation override
+    elif session_is_invalid and validation_session_override_enabled:
+        print(
+            "[ROSS][SESSION_OVERRIDE] "
+            f"symbol={symbol} session={session} mode={run_mode} reason=VALIDATION_MODE override=ENABLED"
+        )
+        effective_session = "PRE"
+    # THIRD: enforce normal session rules
+    elif session_is_invalid:
         if run_mode == "LIVE" and session_is_after:
             print(f"[ROSS][BLOCKER] symbol={symbol} blocker=SESSION_INVALID reason=AH_LIVE_POLICY")
         else:
@@ -160,16 +175,9 @@ def build_trade_intents(
             f"symbol={symbol} decision=BLOCK block_reason=BLOCKED_BY_POLICY session={display_session}"
         )
         return intents
-    if paper_after_hours_override_active:
-        print(
-            "[ROSS][SESSION_POLICY_OVERRIDE] "
-            f"symbol={symbol} mode=PAPER session=AFTER setup={setup_name} reason=paper_after_hours_validation"
-        )
-    elif session_is_invalid and validation_session_override_enabled:
-        print(
-            "[ROSS][SESSION_OVERRIDE] "
-            f"symbol={symbol} session={session} mode={run_mode} reason=VALIDATION_MODE override=ENABLED"
-        )
+    # ELSE: valid session
+    else:
+        effective_session = session
 
     valid_trade = (
         best_setup is not None
