@@ -263,6 +263,64 @@ def test_orderstatus_filled_does_not_finalize_without_execdetails() -> None:
     assert trade.state != PositionLifecycleState.EXITED
 
 
+def test_exit_requires_execdetails() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=_ProviderStub())
+    engine.activate_trade_management_after_fill(
+        trade_id="T-P4B",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=3,
+        avg_fill_price=100.0,
+        strategy_id="S4",
+    )
+    order_status_result = engine.handle_broker_callback(
+        {"event_type": "orderStatus", "order_id": "STOP-1", "status": "Filled"}
+    )
+    assert order_status_result["handled"] is True
+
+    trade = engine.get_trade("T-P4B")
+    assert trade is not None
+    assert trade.state != PositionLifecycleState.EXITED
+    assert trade.exit_fill_price is None
+    assert trade.exit_fill_time is None
+
+
+def test_multiple_trades_same_symbol_not_confused() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=_ProviderStub())
+    engine.activate_trade_management_after_fill(
+        trade_id="T-MULTI-1",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=2,
+        avg_fill_price=100.0,
+        strategy_id="S4",
+    )
+    engine.activate_trade_management_after_fill(
+        trade_id="T-MULTI-2",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=3,
+        avg_fill_price=101.0,
+        strategy_id="S4",
+    )
+    open_trade_ids = set(engine._get_open_trades_for_symbol("AMD"))
+    assert open_trade_ids == {"T-MULTI-1", "T-MULTI-2"}
+    assert engine._active_position_qty_by_symbol["AMD"] == 5
+
+    result = engine.record_exit_fill(
+        trade_id="T-MULTI-1",
+        fill_price=102.0,
+        fill_time="2026-04-15T10:00:05+00:00",
+        actual_qty=2,
+        exit_order_id="STOP-1",
+        reason="stop_fill_broker",
+    )
+    assert result["success"] is True
+    assert result["partial"] is False
+    assert set(engine._get_open_trades_for_symbol("AMD")) == {"T-MULTI-2"}
+    assert engine._active_position_qty_by_symbol["AMD"] == 3
+
+
 def test_startup_recovery_marks_protected_and_pending() -> None:
     engine = PostFillLifecycleEngine(run_mode="LIVE")
     positions = [

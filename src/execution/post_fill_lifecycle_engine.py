@@ -125,6 +125,39 @@ class PostFillLifecycleEngine:
         self._active_position_qty_by_symbol: dict[str, int] = {}
 
     @staticmethod
+    def _is_open_trade_state(state: PositionLifecycleState) -> bool:
+        return state not in {PositionLifecycleState.EXITED, PositionLifecycleState.LIFECYCLE_FAILURE}
+
+    def _update_in_memory_state(self) -> None:
+        open_trade_ids: set[str] = set()
+        open_qty_by_symbol: dict[str, int] = {}
+        for trade_id, trade in self._trades.items():
+            if not self._is_open_trade_state(trade.state):
+                continue
+            remaining_qty = int(trade.filled_qty or 0)
+            if remaining_qty <= 0:
+                continue
+            open_trade_ids.add(trade_id)
+            open_qty_by_symbol[trade.symbol] = open_qty_by_symbol.get(trade.symbol, 0) + remaining_qty
+        self._active_trade_ids = open_trade_ids
+        self._active_position_qty_by_symbol = open_qty_by_symbol
+
+    def _get_open_trades_for_symbol(self, symbol: str) -> list[str]:
+        symbol_u = str(symbol or "").upper()
+        if not symbol_u:
+            return []
+        open_trade_ids: list[str] = []
+        for trade_id, trade in self._trades.items():
+            if trade.symbol != symbol_u:
+                continue
+            if not self._is_open_trade_state(trade.state):
+                continue
+            if int(trade.filled_qty or 0) <= 0:
+                continue
+            open_trade_ids.append(trade_id)
+        return open_trade_ids
+
+    @staticmethod
     def _ts() -> str:
         return datetime.now(timezone.utc).isoformat()
 
@@ -248,8 +281,7 @@ class PostFillLifecycleEngine:
             high_water_mark=float(avg_fill_price),
         )
         self._trades[trade.trade_id] = trade
-        self._active_trade_ids.add(trade.trade_id)
-        self._active_position_qty_by_symbol[trade.symbol] = trade.filled_qty
+        self._update_in_memory_state()
         print(f"[LIFECYCLE][STATE] trade_id={trade.trade_id} state={trade.state.value}")
 
         if self.run_mode == "READ_ONLY":
@@ -461,8 +493,7 @@ class PostFillLifecycleEngine:
         trade.last_update_ts = self._ts()
 
         if remaining_qty > 0:
-            self._active_trade_ids.add(trade.trade_id)
-            self._active_position_qty_by_symbol[trade.symbol] = remaining_qty
+            self._update_in_memory_state()
             print(
                 "[LIFECYCLE][EXIT_PARTIAL] "
                 f"symbol={trade.symbol} trade_id={trade.trade_id} partial_qty={qty} remaining_qty={remaining_qty} "
@@ -480,8 +511,7 @@ class PostFillLifecycleEngine:
 
         self.mark_exit_pending(trade.trade_id, reason)
         self.mark_exited(trade.trade_id, reason)
-        self._active_trade_ids.discard(trade.trade_id)
-        self._active_position_qty_by_symbol.pop(trade.symbol, None)
+        self._update_in_memory_state()
         return {
             "success": True,
             "trade_id": trade.trade_id,
@@ -726,8 +756,9 @@ class PostFillLifecycleEngine:
         if trade is None:
             return
         if self._transition(trade, PositionLifecycleState.EXITED, reason):
-            self._active_trade_ids.discard(trade.trade_id)
-            self._active_position_qty_by_symbol.pop(trade.symbol, None)
+            assert trade.exit_fill_price is not None, "exit_fill_price required before EXITED"
+            assert trade.exit_fill_time is not None, "exit_fill_time required before EXITED"
+            self._update_in_memory_state()
 
     def startup_safe_state(self, broker_positions: list[Any], broker_orders: list[Any]) -> dict[str, Any]:
         print("[STARTUP][SAFE_STATE][BEGIN]")
@@ -771,8 +802,7 @@ class PostFillLifecycleEngine:
                 high_water_mark=float(getattr(position, "entry_price", 0.0) or 0.0),
             )
             self._trades[trade_id] = trade
-            self._active_trade_ids.add(trade_id)
-            self._active_position_qty_by_symbol[symbol] = qty
+            self._update_in_memory_state()
             recovered += 1
             print(f"[RECOVERY][MATCH] symbol={symbol} trade_id={trade_id}")
 
