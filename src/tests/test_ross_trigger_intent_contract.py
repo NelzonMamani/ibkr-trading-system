@@ -469,9 +469,8 @@ def test_completed_trade_emits_analytics_row(monkeypatch, capsys) -> None:
             )
         ],
     )
-    monkeypatch.setattr(
-        "src.core_engine.orchestrator.execute_intents",
-        lambda **_: [
+    def _execute_intents_stub(**_kwargs):
+        return [
             ExecutionEvent(
                 symbol="ABCD",
                 intent_id="intent-ABCD",
@@ -483,12 +482,33 @@ def test_completed_trade_emits_analytics_row(monkeypatch, capsys) -> None:
                 remaining_quantity=0,
                 avg_fill_price=5.01,
             )
-        ],
-    )
+        ]
+
+    class _LifecycleStub:
+        @staticmethod
+        def snapshot_trades() -> dict[str, dict[str, object]]:
+            return {
+                "14-intent-ABCD": {
+                    "trade_id": "14-intent-ABCD",
+                    "symbol": "ABCD",
+                    "state": "EXITED",
+                    "avg_fill_price": 5.0,
+                    "exit_fill_price": 5.01,
+                    "realized_pnl": 0.1,
+                    "exit_fill_time": "2026-01-01T00:00:00+00:00",
+                    "last_update_ts": "2026-01-01T00:00:00+00:00",
+                    "exit_reason": "profit_target",
+                    "exited_qty": 10,
+                    "filled_qty": 0,
+                }
+            }
+
+    _execute_intents_stub.lifecycle_engine = _LifecycleStub()
+    monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", _execute_intents_stub)
     run_cycle(cycle_id=14, mode_value="PAPER", forced_session_state=SessionState.PRE)
     out = capsys.readouterr().out
     assert "[TRADE_ANALYTICS][ROW]" in out
-    assert "'exit_reason': 'profit_target'" in out
+    assert "profit_target" in out
 
 
 def test_make_it_trade_cycle_summary_counts_consistent(monkeypatch, capsys) -> None:

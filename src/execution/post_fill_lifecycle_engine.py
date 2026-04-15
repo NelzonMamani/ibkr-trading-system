@@ -48,6 +48,7 @@ class ManagedTradeLifecycle:
     exited_qty: int = 0
     exit_fill_price: float | None = None
     exit_fill_time: str | None = None
+    exit_reason: str | None = None
     exit_order_id: str | None = None
     realized_pnl: float = 0.0
     state: PositionLifecycleState = PositionLifecycleState.ENTRY_SUBMITTED
@@ -488,6 +489,7 @@ class PostFillLifecycleEngine:
         trade.exited_qty += qty
         trade.exit_fill_price = float(fill_price)
         trade.exit_fill_time = fill_time_text
+        trade.exit_reason = str(reason or "UNKNOWN")
         trade.exit_order_id = str(exit_order_id) if exit_order_id is not None else trade.exit_order_id
         trade.realized_pnl += float(realized_increment)
         trade.last_update_ts = self._ts()

@@ -1793,30 +1793,47 @@ def run_cycle(
     if cycle_summary_row["intent_count"] > 0 and cycle_summary_row["submission_success_count"] == 0:
         print(f"[MAKE_IT_TRADE][ROOT_CAUSE] dominant_reason={_dominant_reason([row['execution_reason'] for row in admission_rows])}")
 
+    lifecycle_engine = getattr(execute_intents, "lifecycle_engine", None)
+    if lifecycle_engine is None:
+        print("[ANALYTICS][SKIP] reason=no_lifecycle_engine")
+        return
+    trade_snapshot = getattr(lifecycle_engine, "snapshot_trades", None)
+    if not callable(trade_snapshot):
+        print("[ANALYTICS][SKIP] reason=no_lifecycle_snapshot")
+        return
+
     analytics_rows: list[dict[str, Any]] = []
     exit_reason_breakdown: Counter[str] = Counter()
-    for event in execution_events:
-        if int(getattr(event, "filled_quantity", 0) or 0) <= 0:
+    for trade_id, trade in dict(trade_snapshot() or {}).items():
+        if str(trade.get("state", "")).upper() != "EXITED":
             continue
-        entry_price = float(getattr(event, "avg_fill_price", 0.0) or 0.0)
-        exit_price = float(getattr(event, "avg_fill_price", 0.0) or 0.0)
-        realized_pnl = 0.0
-        gross_return_pct = 0.0
+        if getattr(trade, "exit_fill_price", None) is None and trade.get("exit_fill_price") is None:
+            print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=incomplete_exit_price")
+            continue
+
+        entry_price = float(trade.get("avg_fill_price", 0.0) or 0.0)
+        exit_price = float(trade["exit_fill_price"])
+        realized_pnl = float(trade.get("realized_pnl", 0.0) or 0.0)
+        gross_return_pct = ((exit_price - entry_price) / entry_price) if entry_price > 0 else 0.0
+        if str(trade.get("side", "")).upper() in {"SHORT", "SELL"}:
+            gross_return_pct *= -1.0
         holding_seconds = 0
-        exit_reason = str(getattr(event, "detail", "ORDER_FILLED") or "ORDER_FILLED")
+        exit_reason = str(getattr(trade, "exit_reason", "UNKNOWN") or trade.get("exit_reason", "UNKNOWN") or "UNKNOWN")
+        symbol = str(trade.get("symbol", "UNKNOWN") or "UNKNOWN")
+        setup_symbol = symbol.upper()
         analytics_row = {
-            "trade_id": f"{cycle_id}-{event.intent_id}",
-            "symbol": event.symbol,
-            "setup_name": symbol_setup_family.get(event.symbol, "NONE"),
-            "trigger_type": symbol_trigger_type.get(event.symbol, "NONE"),
-            "entry_time": getattr(event, "last_update_time", None),
+            "trade_id": str(trade_id),
+            "symbol": symbol,
+            "setup_name": symbol_setup_family.get(setup_symbol, "NONE"),
+            "trigger_type": symbol_trigger_type.get(setup_symbol, "NONE"),
+            "entry_time": trade.get("last_update_ts"),
             "entry_price": entry_price,
-            "exit_time": getattr(event, "last_update_time", None),
+            "exit_time": trade.get("exit_fill_time"),
             "exit_price": exit_price,
             "holding_duration_seconds": holding_seconds,
             "realized_pnl": realized_pnl,
             "exit_reason": exit_reason,
-            "partial_exit_count": 1 if str(getattr(event, "event_type", "")).upper() == "ORDER_PARTIALLY_FILLED" else 0,
+            "partial_exit_count": 1 if int(trade.get("exited_qty", 0) or 0) > 0 and int(trade.get("filled_qty", 0) or 0) > 0 else 0,
             "gross_return_pct": gross_return_pct,
             "risk_multiple": None,
             "entry_to_peak_favorable_pct": None,

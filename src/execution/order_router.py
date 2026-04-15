@@ -3955,3 +3955,11 @@ def execute_intents(
                 e.event_type = "ORDER_WORKING"
         assert e.event_type != "ORDER_SUBMITTED", "INVALID_FINAL_EVENT_TYPE"
     return events
+
+
+class _LifecycleAnalyticsFallback:
+    def snapshot_trades(self) -> dict[str, dict[str, Any]]:
+        return {}
+
+
+execute_intents.lifecycle_engine = _LifecycleAnalyticsFallback()
