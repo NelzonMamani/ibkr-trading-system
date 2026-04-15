@@ -112,7 +112,15 @@ def test_exit_is_driven_from_broker_callback() -> None:
         avg_fill_price=100.0,
         strategy_id="S4",
     )
-    callback_result = engine.handle_broker_callback({"event_type": "execDetails", "order_id": "STOP-1"})
+    callback_result = engine.handle_broker_callback(
+        {
+            "event_type": "execDetails",
+            "order_id": "STOP-1",
+            "shares": 1,
+            "price": 99.5,
+            "time": "2026-04-15T10:00:01+00:00",
+        }
+    )
     assert callback_result["handled"] is True
     assert callback_result["exit_reason"] == "STOP_FILLED"
     assert callback_result["cancel_order_id"] == "TGT-1"
@@ -120,8 +128,139 @@ def test_exit_is_driven_from_broker_callback() -> None:
     trade = engine.get_trade("T-4")
     assert trade is not None
     assert trade.state == PositionLifecycleState.EXITED
+    assert trade.exit_fill_price == 99.5
+    assert trade.exit_fill_time == "2026-04-15T10:00:01+00:00"
+    assert trade.exit_order_id == "STOP-1"
+    assert trade.realized_pnl == -0.5
     assert trade.target is not None
     assert trade.target.status == "CANCELLED"
+
+
+def test_partial_exit_does_not_close_and_accumulates_realized_pnl() -> None:
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-P1",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=10,
+        avg_fill_price=100.0,
+        strategy_id="S4",
+    )
+
+    callback_result = engine.handle_broker_callback(
+        {
+            "event_type": "execDetails",
+            "order_id": "STOP-1",
+            "shares": 4,
+            "price": 102.0,
+            "time": "2026-04-15T10:00:02+00:00",
+        }
+    )
+    assert callback_result["handled"] is True
+    assert callback_result["partial"] is True
+    assert callback_result["cancel_order_id"] is None
+    assert provider.cancel_calls == []
+
+    trade = engine.get_trade("T-P1")
+    assert trade is not None
+    assert trade.state != PositionLifecycleState.EXITED
+    assert trade.filled_qty == 6
+    assert trade.exited_qty == 4
+    assert trade.realized_pnl == 8.0
+    assert trade.exit_fill_price == 102.0
+    assert trade.exit_fill_time == "2026-04-15T10:00:02+00:00"
+    assert engine._active_position_qty_by_symbol["AMD"] == 6
+
+
+def test_final_exit_after_partial_closes_and_removes_active_position() -> None:
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-P2",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=10,
+        avg_fill_price=100.0,
+        strategy_id="S4",
+    )
+    engine.handle_broker_callback(
+        {
+            "event_type": "execDetails",
+            "order_id": "STOP-1",
+            "shares": 4,
+            "price": 102.0,
+            "time": "2026-04-15T10:00:02+00:00",
+        }
+    )
+
+    callback_result = engine.handle_broker_callback(
+        {
+            "event_type": "execDetails",
+            "order_id": "STOP-1",
+            "shares": 6,
+            "price": 101.0,
+            "time": "2026-04-15T10:00:03+00:00",
+        }
+    )
+    assert callback_result["handled"] is True
+    assert callback_result["partial"] is False
+    assert callback_result["cancel_order_id"] == "TGT-1"
+    assert provider.cancel_calls == [{"broker_order_id": "TGT-1"}]
+
+    trade = engine.get_trade("T-P2")
+    assert trade is not None
+    assert trade.state == PositionLifecycleState.EXITED
+    assert trade.filled_qty == 0
+    assert trade.exited_qty == 10
+    assert trade.realized_pnl == 14.0
+    assert "AMD" not in engine._active_position_qty_by_symbol
+
+
+def test_invalid_exit_fill_price_does_not_finalize_trade() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=_ProviderStub())
+    engine.activate_trade_management_after_fill(
+        trade_id="T-P3",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=5,
+        avg_fill_price=100.0,
+        strategy_id="S4",
+    )
+    result = engine.handle_broker_callback(
+        {
+            "event_type": "execDetails",
+            "order_id": "STOP-1",
+            "shares": 5,
+            "time": "2026-04-15T10:00:04+00:00",
+        }
+    )
+    assert result["handled"] is False
+    assert result["error"] == "missing_fill_truth"
+    trade = engine.get_trade("T-P3")
+    assert trade is not None
+    assert trade.state != PositionLifecycleState.EXITED
+    assert trade.filled_qty == 5
+
+
+def test_orderstatus_filled_does_not_finalize_without_execdetails() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=_ProviderStub())
+    engine.activate_trade_management_after_fill(
+        trade_id="T-P4",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=3,
+        avg_fill_price=100.0,
+        strategy_id="S4",
+    )
+    result = engine.handle_broker_callback(
+        {"event_type": "orderStatus", "order_id": "STOP-1", "status": "Filled"}
+    )
+    assert result["handled"] is True
+    assert result["leg"] == "STOP"
+    trade = engine.get_trade("T-P4")
+    assert trade is not None
+    assert trade.state != PositionLifecycleState.EXITED
 
 
 def test_startup_recovery_marks_protected_and_pending() -> None:

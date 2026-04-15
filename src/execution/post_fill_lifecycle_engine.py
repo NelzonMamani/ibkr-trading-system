@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+import math
 from typing import Any
 
 
@@ -44,6 +45,11 @@ class ManagedTradeLifecycle:
     intended_qty: int
     filled_qty: int
     avg_fill_price: float
+    exited_qty: int = 0
+    exit_fill_price: float | None = None
+    exit_fill_time: str | None = None
+    exit_order_id: str | None = None
+    realized_pnl: float = 0.0
     state: PositionLifecycleState = PositionLifecycleState.ENTRY_SUBMITTED
     stop: ProtectionOrderMeta | None = None
     target: ProtectionOrderMeta | None = None
@@ -115,6 +121,8 @@ class PostFillLifecycleEngine:
         self.policy = policy or LifecyclePolicy()
         self.execution_provider = execution_provider
         self._trades: dict[str, ManagedTradeLifecycle] = {}
+        self._active_trade_ids: set[str] = set()
+        self._active_position_qty_by_symbol: dict[str, int] = {}
 
     @staticmethod
     def _ts() -> str:
@@ -240,6 +248,8 @@ class PostFillLifecycleEngine:
             high_water_mark=float(avg_fill_price),
         )
         self._trades[trade.trade_id] = trade
+        self._active_trade_ids.add(trade.trade_id)
+        self._active_position_qty_by_symbol[trade.symbol] = trade.filled_qty
         print(f"[LIFECYCLE][STATE] trade_id={trade.trade_id} state={trade.state.value}")
 
         if self.run_mode == "READ_ONLY":
@@ -380,6 +390,108 @@ class PostFillLifecycleEngine:
             )
         return {"updated": True, "stop_price": trade.stop.trigger_price, "state": trade.state.value}
 
+    @staticmethod
+    def _extract_fill_price(payload: dict[str, Any]) -> float | None:
+        for key in ("price", "avg_fill_price", "avgPrice", "fill_price"):
+            raw = payload.get(key)
+            if raw is None:
+                continue
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(value) and value > 0.0:
+                return value
+        return None
+
+    @staticmethod
+    def _extract_fill_time(payload: dict[str, Any]) -> str | None:
+        for key in ("fill_time", "time", "timestamp"):
+            raw = payload.get(key)
+            if raw is None:
+                continue
+            text = str(raw).strip()
+            if text:
+                return text
+        return None
+
+    def record_exit_fill(
+        self,
+        *,
+        trade_id: str,
+        fill_price: float,
+        fill_time: str,
+        actual_qty: int,
+        exit_order_id: str | None = None,
+        reason: str,
+    ) -> dict[str, Any]:
+        trade = self._trades.get(str(trade_id))
+        if trade is None:
+            return {"success": False, "error": "trade_not_found"}
+        if not math.isfinite(float(fill_price)) or float(fill_price) <= 0.0:
+            print(f"[LIFECYCLE][EXIT_FILL_REJECTED] trade_id={trade_id} reason=invalid_fill_price value={fill_price}")
+            return {"success": False, "error": "invalid_fill_price"}
+        fill_time_text = str(fill_time or "").strip()
+        if not fill_time_text:
+            print(f"[LIFECYCLE][EXIT_FILL_REJECTED] trade_id={trade_id} reason=missing_fill_time")
+            return {"success": False, "error": "missing_fill_time"}
+        qty = int(actual_qty or 0)
+        if qty <= 0:
+            return {"success": False, "error": "invalid_qty"}
+        if qty > int(trade.filled_qty):
+            print(
+                "[LIFECYCLE][EXIT_FILL_REJECTED] "
+                f"trade_id={trade_id} reason=qty_exceeds_open requested={qty} open={trade.filled_qty}"
+            )
+            return {"success": False, "error": "qty_exceeds_open"}
+
+        side_u = str(trade.side or "").upper()
+        if side_u in {"LONG", "BUY"}:
+            realized_increment = (float(fill_price) - float(trade.avg_fill_price)) * float(qty)
+        else:
+            realized_increment = (float(trade.avg_fill_price) - float(fill_price)) * float(qty)
+
+        remaining_qty = int(trade.filled_qty) - qty
+        trade.filled_qty = remaining_qty
+        trade.exited_qty += qty
+        trade.exit_fill_price = float(fill_price)
+        trade.exit_fill_time = fill_time_text
+        trade.exit_order_id = str(exit_order_id) if exit_order_id is not None else trade.exit_order_id
+        trade.realized_pnl += float(realized_increment)
+        trade.last_update_ts = self._ts()
+
+        if remaining_qty > 0:
+            self._active_trade_ids.add(trade.trade_id)
+            self._active_position_qty_by_symbol[trade.symbol] = remaining_qty
+            print(
+                "[LIFECYCLE][EXIT_PARTIAL] "
+                f"symbol={trade.symbol} trade_id={trade.trade_id} partial_qty={qty} remaining_qty={remaining_qty} "
+                f"fill_price={float(fill_price):.4f} realized_increment={float(realized_increment):.4f}"
+            )
+            return {
+                "success": True,
+                "trade_id": trade.trade_id,
+                "partial": True,
+                "remaining_qty": remaining_qty,
+                "realized_increment": float(realized_increment),
+                "realized_pnl": float(trade.realized_pnl),
+                "state": trade.state.value,
+            }
+
+        self.mark_exit_pending(trade.trade_id, reason)
+        self.mark_exited(trade.trade_id, reason)
+        self._active_trade_ids.discard(trade.trade_id)
+        self._active_position_qty_by_symbol.pop(trade.symbol, None)
+        return {
+            "success": True,
+            "trade_id": trade.trade_id,
+            "partial": False,
+            "remaining_qty": 0,
+            "realized_increment": float(realized_increment),
+            "realized_pnl": float(trade.realized_pnl),
+            "state": trade.state.value,
+        }
+
     def handle_broker_callback(self, payload: dict[str, Any]) -> dict[str, Any]:
         event_type = str(payload.get("event_type", "") or "").lower()
         if event_type not in {"execdetails", "orderstatus"}:
@@ -395,54 +507,82 @@ class PostFillLifecycleEngine:
             if stop and str(stop.broker_order_id or "") == order_id:
                 if event_type == "orderstatus" and status:
                     stop.status = status
-                if event_type == "execdetails" or status == "FILLED":
+                if event_type == "execdetails":
                     print(f"[IBKR][EXEC_DETAILS] trade_id={trade.trade_id} symbol={trade.symbol} exit_leg=STOP")
-                    self.mark_exit_pending(trade.trade_id, "stop_fill_broker")
-                    self.mark_exited(trade.trade_id, "stop_fill_broker")
+                    fill_price = self._extract_fill_price(payload)
+                    fill_time = self._extract_fill_time(payload)
+                    if fill_price is None or fill_time is None:
+                        return {"handled": False, "trade_id": trade.trade_id, "error": "missing_fill_truth"}
+                    exit_result = self.record_exit_fill(
+                        trade_id=trade.trade_id,
+                        fill_price=fill_price,
+                        fill_time=fill_time,
+                        actual_qty=int(payload.get("shares") or payload.get("filled") or payload.get("qty") or 0),
+                        exit_order_id=order_id,
+                        reason="stop_fill_broker",
+                    )
+                    if not exit_result.get("success"):
+                        return {"handled": False, "trade_id": trade.trade_id, **exit_result}
                     if target:
-                        target.status = "CANCEL_PENDING"
-                        if self.execution_provider is not None and target.broker_order_id:
-                            try:
-                                self.execution_provider.cancel_order(broker_order_id=str(target.broker_order_id))
-                                target.status = "CANCELLED"
-                            except Exception as exc:
-                                target.status = "CANCEL_FAILED"
-                                print(
-                                    "[LIFECYCLE][CANCEL_FAILED] "
-                                    f"trade_id={trade.trade_id} symbol={trade.symbol} order_id={target.broker_order_id} reason={exc}"
-                                )
+                        if trade.state == PositionLifecycleState.EXITED:
+                            target.status = "CANCEL_PENDING"
+                            if self.execution_provider is not None and target.broker_order_id:
+                                try:
+                                    self.execution_provider.cancel_order(broker_order_id=str(target.broker_order_id))
+                                    target.status = "CANCELLED"
+                                except Exception as exc:
+                                    target.status = "CANCEL_FAILED"
+                                    print(
+                                        "[LIFECYCLE][CANCEL_FAILED] "
+                                        f"trade_id={trade.trade_id} symbol={trade.symbol} order_id={target.broker_order_id} reason={exc}"
+                                    )
                     return {
                         "handled": True,
                         "trade_id": trade.trade_id,
                         "exit_reason": "STOP_FILLED",
-                        "cancel_order_id": target.broker_order_id if target else None,
+                        "cancel_order_id": target.broker_order_id if target and trade.state == PositionLifecycleState.EXITED else None,
+                        "partial": bool(exit_result.get("partial")),
                     }
                 return {"handled": True, "trade_id": trade.trade_id, "leg": "STOP", "status": stop.status}
 
             if target and str(target.broker_order_id or "") == order_id:
                 if event_type == "orderstatus" and status:
                     target.status = status
-                if event_type == "execdetails" or status == "FILLED":
+                if event_type == "execdetails":
                     print(f"[IBKR][EXEC_DETAILS] trade_id={trade.trade_id} symbol={trade.symbol} exit_leg=TARGET")
-                    self.mark_exit_pending(trade.trade_id, "target_fill_broker")
-                    self.mark_exited(trade.trade_id, "target_fill_broker")
+                    fill_price = self._extract_fill_price(payload)
+                    fill_time = self._extract_fill_time(payload)
+                    if fill_price is None or fill_time is None:
+                        return {"handled": False, "trade_id": trade.trade_id, "error": "missing_fill_truth"}
+                    exit_result = self.record_exit_fill(
+                        trade_id=trade.trade_id,
+                        fill_price=fill_price,
+                        fill_time=fill_time,
+                        actual_qty=int(payload.get("shares") or payload.get("filled") or payload.get("qty") or 0),
+                        exit_order_id=order_id,
+                        reason="target_fill_broker",
+                    )
+                    if not exit_result.get("success"):
+                        return {"handled": False, "trade_id": trade.trade_id, **exit_result}
                     if stop:
-                        stop.status = "CANCEL_PENDING"
-                        if self.execution_provider is not None and stop.broker_order_id:
-                            try:
-                                self.execution_provider.cancel_order(broker_order_id=str(stop.broker_order_id))
-                                stop.status = "CANCELLED"
-                            except Exception as exc:
-                                stop.status = "CANCEL_FAILED"
-                                print(
-                                    "[LIFECYCLE][CANCEL_FAILED] "
-                                    f"trade_id={trade.trade_id} symbol={trade.symbol} order_id={stop.broker_order_id} reason={exc}"
-                                )
+                        if trade.state == PositionLifecycleState.EXITED:
+                            stop.status = "CANCEL_PENDING"
+                            if self.execution_provider is not None and stop.broker_order_id:
+                                try:
+                                    self.execution_provider.cancel_order(broker_order_id=str(stop.broker_order_id))
+                                    stop.status = "CANCELLED"
+                                except Exception as exc:
+                                    stop.status = "CANCEL_FAILED"
+                                    print(
+                                        "[LIFECYCLE][CANCEL_FAILED] "
+                                        f"trade_id={trade.trade_id} symbol={trade.symbol} order_id={stop.broker_order_id} reason={exc}"
+                                    )
                     return {
                         "handled": True,
                         "trade_id": trade.trade_id,
                         "exit_reason": "TARGET_FILLED",
-                        "cancel_order_id": stop.broker_order_id if stop else None,
+                        "cancel_order_id": stop.broker_order_id if stop and trade.state == PositionLifecycleState.EXITED else None,
+                        "partial": bool(exit_result.get("partial")),
                     }
                 return {"handled": True, "trade_id": trade.trade_id, "leg": "TARGET", "status": target.status}
         return {"handled": False, "reason": "order_not_mapped"}
@@ -585,7 +725,9 @@ class PostFillLifecycleEngine:
         trade = self._trades.get(str(trade_id))
         if trade is None:
             return
-        self._transition(trade, PositionLifecycleState.EXITED, reason)
+        if self._transition(trade, PositionLifecycleState.EXITED, reason):
+            self._active_trade_ids.discard(trade.trade_id)
+            self._active_position_qty_by_symbol.pop(trade.symbol, None)
 
     def startup_safe_state(self, broker_positions: list[Any], broker_orders: list[Any]) -> dict[str, Any]:
         print("[STARTUP][SAFE_STATE][BEGIN]")
@@ -629,6 +771,8 @@ class PostFillLifecycleEngine:
                 high_water_mark=float(getattr(position, "entry_price", 0.0) or 0.0),
             )
             self._trades[trade_id] = trade
+            self._active_trade_ids.add(trade_id)
+            self._active_position_qty_by_symbol[symbol] = qty
             recovered += 1
             print(f"[RECOVERY][MATCH] symbol={symbol} trade_id={trade_id}")
 
