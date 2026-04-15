@@ -46,9 +46,13 @@ class ManagedTradeLifecycle:
     filled_qty: int
     avg_fill_price: float
     exited_qty: int = 0
+    entry_fill_price: float | None = None
+    entry_fill_time: str | None = None
     exit_fill_price: float | None = None
     exit_fill_time: str | None = None
     exit_order_id: str | None = None
+    exit_reason: str | None = None
+    holding_duration_seconds: int = 0
     realized_pnl: float = 0.0
     state: PositionLifecycleState = PositionLifecycleState.ENTRY_SUBMITTED
     stop: ProtectionOrderMeta | None = None
@@ -170,6 +174,24 @@ class PostFillLifecycleEngine:
         return str(status or "").upper() in {"CANCELLED", "CANCELED"}
 
     @staticmethod
+    def _normalize_exit_reason(reason: str | None) -> str:
+        normalized = str(reason or "").strip().upper()
+        mapping = {
+            "STOP_FILL_BROKER": "STOP_LOSS",
+            "STOP_FILLED": "STOP_LOSS",
+            "STOP_LOSS": "STOP_LOSS",
+            "TARGET_FILL_BROKER": "PROFIT_TARGET",
+            "TARGET_FILLED": "PROFIT_TARGET",
+            "PROFIT_TARGET": "PROFIT_TARGET",
+            "TRAILING_STOP": "TRAILING_STOP",
+            "TRAIL_STOP": "TRAILING_STOP",
+            "TIME_EXIT": "TIME_EXIT",
+            "MANUAL_EXIT": "MANUAL_EXIT",
+            "FILL_EXIT": "FILL_EXIT",
+        }
+        return mapping.get(normalized, normalized or "UNKNOWN")
+
+    @staticmethod
     def _order_fields(order: Any) -> dict[str, str]:
         if isinstance(order, dict):
             order_obj = order
@@ -275,6 +297,8 @@ class PostFillLifecycleEngine:
             intended_qty=int(intended_qty or filled_qty),
             filled_qty=int(filled_qty),
             avg_fill_price=float(avg_fill_price),
+            entry_fill_price=float(avg_fill_price),
+            entry_fill_time=self._ts(),
             state=PositionLifecycleState.FILLED_UNPROTECTED,
             break_even_activation=float(avg_fill_price) * (1.0 + self.policy.break_even_pct),
             trailing_activation=float(avg_fill_price) * (1.0 + self.policy.trailing_activation_pct),
@@ -748,6 +772,7 @@ class PostFillLifecycleEngine:
         trade = self._trades.get(str(trade_id))
         if trade is None:
             return
+        trade.exit_reason = self._normalize_exit_reason(reason)
         if self._transition(trade, PositionLifecycleState.EXIT_PENDING, reason):
             print(f"[TRAIL][EXIT_TRIGGERED] trade_id={trade.trade_id} reason={reason}")
 
@@ -755,9 +780,19 @@ class PostFillLifecycleEngine:
         trade = self._trades.get(str(trade_id))
         if trade is None:
             return
+        trade.exit_reason = self._normalize_exit_reason(reason)
         if self._transition(trade, PositionLifecycleState.EXITED, reason):
             assert trade.exit_fill_price is not None, "exit_fill_price required before EXITED"
             assert trade.exit_fill_time is not None, "exit_fill_time required before EXITED"
+            entry_time = self._extract_fill_time({"fill_time": trade.entry_fill_time})
+            exit_time = self._extract_fill_time({"fill_time": trade.exit_fill_time})
+            if entry_time and exit_time:
+                try:
+                    start = datetime.fromisoformat(entry_time.replace("Z", "+00:00"))
+                    end = datetime.fromisoformat(exit_time.replace("Z", "+00:00"))
+                    trade.holding_duration_seconds = max(0, int((end - start).total_seconds()))
+                except ValueError:
+                    trade.holding_duration_seconds = 0
             self._update_in_memory_state()
 
     def startup_safe_state(self, broker_positions: list[Any], broker_orders: list[Any]) -> dict[str, Any]:

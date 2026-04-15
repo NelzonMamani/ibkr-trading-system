@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from types import SimpleNamespace
 
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord, TradeIntentRecord
 from src.core.pricing.price_resolver import PriceResolutionError
@@ -34,6 +35,63 @@ def _summary(*, detected: bool = True, confidence: float = 0.9, entry_zone: str 
         conflict_flag=False,
         combined_rationale_text="test",
         veto_flags=[],
+    )
+
+
+def _lifecycle_trade(**overrides):
+    base = {
+        "entry_fill_time": "2026-04-15T10:00:00+00:00",
+        "entry_fill_price": 5.0,
+        "exit_fill_time": "2026-04-15T10:05:00+00:00",
+        "exit_fill_price": 5.1,
+        "holding_duration_seconds": 300,
+        "realized_pnl": 1.0,
+        "exit_reason": "PROFIT_TARGET",
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def _configure_single_trade_pipeline(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.run_scanner_cycle",
+        lambda **_: {
+            "watchlist_k_symbols": ["ABCD"],
+            "focus_m_symbols": ["ABCD"],
+            "data_quality_by_symbol": {},
+            "watchlist_k": [{"symbol": "ABCD", "last_price": 5.0}],
+        },
+    )
+    monkeypatch.setattr("src.core_engine.orchestrator.resolve_entry_price", lambda *_args, **_kwargs: (5.0, "IBKR_SNAPSHOT"))
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.build_trade_intents",
+        lambda *args, **_kwargs: [
+            TradeIntentRecord(
+                symbol=args[1],
+                intent_id="intent-ABCD",
+                setup_id="GAP_GO",
+                side="LONG",
+                entry="breakout",
+                stop="structure",
+                rationale="test",
+                entry_price_source="IBKR_SNAPSHOT",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "src.core_engine.orchestrator.evaluate_trade_intents",
+        lambda **_: [
+            RiskDecisionRecord(
+                symbol="ABCD",
+                intent_id="intent-ABCD",
+                decision="ALLOW",
+                max_position_size=100,
+                constraints=[],
+                triggered_rules=[],
+                rationale="PASS",
+                approved_quantity=1,
+            )
+        ],
     )
 
 
@@ -469,26 +527,26 @@ def test_completed_trade_emits_analytics_row(monkeypatch, capsys) -> None:
             )
         ],
     )
-    monkeypatch.setattr(
-        "src.core_engine.orchestrator.execute_intents",
-        lambda **_: [
-            ExecutionEvent(
-                symbol="ABCD",
-                intent_id="intent-ABCD",
-                action="SUBMITTED",
-                detail="profit_target",
-                broker_order_id=99,
-                event_type="ORDER_FILLED",
-                filled_quantity=10,
-                remaining_quantity=0,
-                avg_fill_price=5.01,
-            )
-        ],
-    )
+    def _events(**_kwargs):
+        event = ExecutionEvent(
+            symbol="ABCD",
+            intent_id="intent-ABCD",
+            action="SUBMITTED",
+            detail="profit_target",
+            broker_order_id=99,
+            event_type="ORDER_FILLED",
+            filled_quantity=10,
+            remaining_quantity=0,
+            avg_fill_price=5.01,
+        )
+        event.trade_lifecycle = _lifecycle_trade()
+        return [event]
+
+    monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", _events)
     run_cycle(cycle_id=14, mode_value="PAPER", forced_session_state=SessionState.PRE)
     out = capsys.readouterr().out
     assert "[TRADE_ANALYTICS][ROW]" in out
-    assert "'exit_reason': 'profit_target'" in out
+    assert "'exit_reason': 'PROFIT_TARGET'" in out
 
 
 def test_make_it_trade_cycle_summary_counts_consistent(monkeypatch, capsys) -> None:
@@ -512,3 +570,48 @@ def test_make_it_trade_cycle_summary_counts_consistent(monkeypatch, capsys) -> N
     assert payload["trigger_count"] <= payload["setup_count"]
     assert payload["intent_count"] <= payload["trigger_count"]
     assert payload["risk_pass_count"] <= payload["intent_count"]
+
+
+def test_no_duplicate_analytics_rows(monkeypatch, capsys) -> None:
+    _configure_single_trade_pipeline(monkeypatch)
+    event_a = ExecutionEvent(symbol="ABCD", intent_id="intent-ABCD", action="SUBMITTED", detail="filled", filled_quantity=1)
+    event_a.trade_lifecycle = _lifecycle_trade()
+    event_b = ExecutionEvent(symbol="ABCD", intent_id="intent-ABCD", action="SUBMITTED", detail="filled", filled_quantity=1)
+    event_b.trade_lifecycle = _lifecycle_trade()
+    monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", lambda **_: [event_a, event_b])
+    run_cycle(cycle_id=16, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    out = capsys.readouterr().out
+    assert out.count("[TRADE_ANALYTICS][ROW]") == 1
+
+
+def test_entry_time_correct_source(monkeypatch, capsys) -> None:
+    _configure_single_trade_pipeline(monkeypatch)
+    event = ExecutionEvent(symbol="ABCD", intent_id="intent-ABCD", action="SUBMITTED", detail="filled", filled_quantity=1)
+    event.trade_lifecycle = _lifecycle_trade(entry_fill_time="2026-04-15T10:10:00+00:00")
+    monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", lambda **_: [event])
+    run_cycle(cycle_id=17, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    out = capsys.readouterr().out
+    assert "'entry_time': '2026-04-15T10:10:00+00:00'" in out
+
+
+def test_trade_id_mismatch_logged(monkeypatch, capsys) -> None:
+    _configure_single_trade_pipeline(monkeypatch)
+    event = ExecutionEvent(symbol="ABCD", intent_id="intent-ABCD", action="SUBMITTED", detail="filled", filled_quantity=1)
+    event.trade_id = "trade-123"
+    event.client_order_id = "coid-999"
+    event.trade_lifecycle = _lifecycle_trade()
+    monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", lambda **_: [event])
+    run_cycle(cycle_id=18, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    out = capsys.readouterr().out
+    assert "[TRACE][TRADE_LINK_MISMATCH]" in out
+
+
+def test_incomplete_lifecycle_not_emitted(monkeypatch, capsys) -> None:
+    _configure_single_trade_pipeline(monkeypatch)
+    event = ExecutionEvent(symbol="ABCD", intent_id="intent-ABCD", action="SUBMITTED", detail="filled", filled_quantity=1)
+    event.trade_lifecycle = _lifecycle_trade(exit_fill_time=None)
+    monkeypatch.setattr("src.core_engine.orchestrator.execute_intents", lambda **_: [event])
+    run_cycle(cycle_id=19, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    out = capsys.readouterr().out
+    assert "[ANALYTICS][SKIP] trade_id=intent-ABCD reason=incomplete_lifecycle" in out
+    assert "[TRADE_ANALYTICS][ROW]" not in out

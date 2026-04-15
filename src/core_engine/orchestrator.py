@@ -570,6 +570,31 @@ def _build_synthetic_inputs(
     )
 
 
+def _resolve_trade_id_from_execution(event: ExecutionEvent) -> str | None:
+    client_order_id = str(getattr(event, "client_order_id", "") or "").strip()
+    intent_id = str(getattr(event, "intent_id", "") or "").strip()
+    explicit_trade_id = str(getattr(event, "trade_id", "") or "").strip()
+    trade_id = explicit_trade_id or client_order_id
+    fallback_used = False
+    if not trade_id and intent_id:
+        trade_id = intent_id
+        fallback_used = True
+    if not trade_id:
+        fallback_used = True
+        trade_id = str(getattr(event, "symbol", "") or "").strip()
+    if client_order_id and trade_id and client_order_id != trade_id:
+        print(
+            "[TRACE][TRADE_LINK_MISMATCH] "
+            f"client_order_id={client_order_id} resolved_trade_id={trade_id}"
+        )
+    if fallback_used:
+        print(
+            "[TRACE][TRADE_LINK_FALLBACK] "
+            f"symbol={event.symbol} intent_id={intent_id} resolved_trade_id={trade_id}"
+        )
+    return trade_id or None
+
+
 def run_cycle(
     cycle_id: int,
     mode_value: str,
@@ -1794,24 +1819,43 @@ def run_cycle(
         print(f"[MAKE_IT_TRADE][ROOT_CAUSE] dominant_reason={_dominant_reason([row['execution_reason'] for row in admission_rows])}")
 
     analytics_rows: list[dict[str, Any]] = []
+    seen_trade_ids: set[str] = set()
     exit_reason_breakdown: Counter[str] = Counter()
     for event in execution_events:
         if int(getattr(event, "filled_quantity", 0) or 0) <= 0:
             continue
-        entry_price = float(getattr(event, "avg_fill_price", 0.0) or 0.0)
-        exit_price = float(getattr(event, "avg_fill_price", 0.0) or 0.0)
-        realized_pnl = 0.0
-        gross_return_pct = 0.0
-        holding_seconds = 0
-        exit_reason = str(getattr(event, "detail", "ORDER_FILLED") or "ORDER_FILLED")
+        trade_id = _resolve_trade_id_from_execution(event)
+        if not trade_id:
+            continue
+        if trade_id in seen_trade_ids:
+            continue
+        seen_trade_ids.add(trade_id)
+        trade = getattr(event, "trade_lifecycle", None) or getattr(event, "lifecycle_trade", None) or getattr(event, "trade", None)
+        if trade is None:
+            print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=missing_lifecycle_trade")
+            continue
+        if getattr(trade, "exit_fill_price", None) is None or getattr(trade, "exit_fill_time", None) is None:
+            print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=incomplete_lifecycle")
+            continue
+        assert hasattr(trade, "holding_duration_seconds"), "Lifecycle missing duration authority"
+        entry_price = float(getattr(trade, "entry_fill_price", 0.0) or 0.0)
+        exit_price = float(getattr(trade, "exit_fill_price", 0.0) or 0.0)
+        realized_pnl = float(getattr(trade, "realized_pnl", 0.0) or 0.0)
+        gross_return_pct = (
+            ((exit_price - entry_price) / entry_price) * 100.0
+            if entry_price > 0.0
+            else 0.0
+        )
+        holding_seconds = int(trade.holding_duration_seconds or 0)
+        exit_reason = str(getattr(trade, "exit_reason", getattr(event, "detail", "ORDER_FILLED")) or "ORDER_FILLED")
         analytics_row = {
-            "trade_id": f"{cycle_id}-{event.intent_id}",
+            "trade_id": trade_id,
             "symbol": event.symbol,
             "setup_name": symbol_setup_family.get(event.symbol, "NONE"),
             "trigger_type": symbol_trigger_type.get(event.symbol, "NONE"),
-            "entry_time": getattr(event, "last_update_time", None),
+            "entry_time": getattr(trade, "entry_fill_time", None),
             "entry_price": entry_price,
-            "exit_time": getattr(event, "last_update_time", None),
+            "exit_time": getattr(trade, "exit_fill_time", None),
             "exit_price": exit_price,
             "holding_duration_seconds": holding_seconds,
             "realized_pnl": realized_pnl,
@@ -1825,6 +1869,10 @@ def run_cycle(
         analytics_rows.append(analytics_row)
         exit_reason_breakdown[exit_reason] += 1
         print(f"[TRADE_ANALYTICS][ROW] {analytics_row}")
+    print(
+        "[ANALYTICS][EMIT_SUMMARY] "
+        f"rows={len(analytics_rows)} unique_trades={len(seen_trade_ids)}"
+    )
     winners = sum(1 for row in analytics_rows if float(row["realized_pnl"]) > 0)
     losers = sum(1 for row in analytics_rows if float(row["realized_pnl"]) < 0)
     analytics_summary = {
@@ -1842,6 +1890,15 @@ def run_cycle(
         "exit_reason_breakdown": dict(exit_reason_breakdown),
     }
     print(f"[TRADE_ANALYTICS][SUMMARY] {analytics_summary}")
+    expectancy = (
+        sum(float(row["realized_pnl"]) for row in analytics_rows) / len(analytics_rows)
+        if analytics_rows
+        else 0.0
+    )
+    print(
+        "[TRADE_ANALYTICS][EXPECTANCY] "
+        f"trades={len(analytics_rows)} value={expectancy}"
+    )
     print(
         "[LIFECYCLE][RISK_SIGNALS] "
         f"trade_flow_active={str(execution_attempts > 0).lower()} "
