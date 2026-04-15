@@ -55,6 +55,12 @@ class ManagedTradeLifecycle:
     last_update_ts: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_recovery_status: str | None = None
     failure_flags: list[str] = field(default_factory=list)
+    exit_reason: str | None = None
+    exit_order_id: str | None = None
+    exit_fill_price: float | None = None
+    exit_fill_time: str | None = None
+    realized_pnl: float | None = None
+    exited_qty: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -397,8 +403,18 @@ class PostFillLifecycleEngine:
                     stop.status = status
                 if event_type == "execdetails" or status == "FILLED":
                     print(f"[IBKR][EXEC_DETAILS] trade_id={trade.trade_id} symbol={trade.symbol} exit_leg=STOP")
-                    self.mark_exit_pending(trade.trade_id, "stop_fill_broker")
-                    self.mark_exited(trade.trade_id, "stop_fill_broker")
+                    fill_price = float(payload.get("price") or payload.get("avg_fill_price") or trade.avg_fill_price)
+                    fill_qty = int(payload.get("shares") or payload.get("filled") or trade.filled_qty)
+                    fill_time = str(payload.get("fill_time") or payload.get("time") or self._ts())
+                    self.mark_exit_pending_with_order(trade_id=trade.trade_id, reason="stop_fill_broker", exit_order_id=order_id)
+                    self.record_exit_fill(
+                        trade_id=trade.trade_id,
+                        fill_price=fill_price,
+                        fill_qty=fill_qty,
+                        fill_time=fill_time,
+                        exit_order_id=order_id,
+                        reason="stop_fill_broker",
+                    )
                     if target:
                         target.status = "CANCEL_PENDING"
                         if self.execution_provider is not None and target.broker_order_id:
@@ -424,8 +440,18 @@ class PostFillLifecycleEngine:
                     target.status = status
                 if event_type == "execdetails" or status == "FILLED":
                     print(f"[IBKR][EXEC_DETAILS] trade_id={trade.trade_id} symbol={trade.symbol} exit_leg=TARGET")
-                    self.mark_exit_pending(trade.trade_id, "target_fill_broker")
-                    self.mark_exited(trade.trade_id, "target_fill_broker")
+                    fill_price = float(payload.get("price") or payload.get("avg_fill_price") or trade.avg_fill_price)
+                    fill_qty = int(payload.get("shares") or payload.get("filled") or trade.filled_qty)
+                    fill_time = str(payload.get("fill_time") or payload.get("time") or self._ts())
+                    self.mark_exit_pending_with_order(trade_id=trade.trade_id, reason="target_fill_broker", exit_order_id=order_id)
+                    self.record_exit_fill(
+                        trade_id=trade.trade_id,
+                        fill_price=fill_price,
+                        fill_qty=fill_qty,
+                        fill_time=fill_time,
+                        exit_order_id=order_id,
+                        reason="target_fill_broker",
+                    )
                     if stop:
                         stop.status = "CANCEL_PENDING"
                         if self.execution_provider is not None and stop.broker_order_id:
@@ -575,10 +601,34 @@ class PostFillLifecycleEngine:
         }
 
     def mark_exit_pending(self, trade_id: str, reason: str) -> None:
+        self.mark_exit_pending_with_order(trade_id=trade_id, reason=reason, exit_order_id=None)
+
+    def mark_exit_pending_with_order(self, trade_id: str, reason: str, exit_order_id: str | None = None) -> None:
         trade = self._trades.get(str(trade_id))
         if trade is None:
             return
+        if trade.state == PositionLifecycleState.EXIT_PENDING:
+            print(
+                "[TRADE][UPDATE] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} exit_submitted=true dedupe=true state={trade.state.value}"
+            )
+            return
+        if trade.state == PositionLifecycleState.EXITED:
+            print(
+                "[TRADE][UPDATE] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} exit_submitted=false reason=already_exited"
+            )
+            return
+        trade.exit_reason = reason
+        if exit_order_id is not None:
+            trade.exit_order_id = str(exit_order_id)
+        trade.last_update_ts = self._ts()
         if self._transition(trade, PositionLifecycleState.EXIT_PENDING, reason):
+            print(
+                "[TRADE][UPDATE] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} exit_submitted=true exit_reason={reason} "
+                f"exit_order_id={trade.exit_order_id or 'NA'}"
+            )
             print(f"[TRAIL][EXIT_TRIGGERED] trade_id={trade.trade_id} reason={reason}")
 
     def mark_exited(self, trade_id: str, reason: str = "fill_exit") -> None:
@@ -586,6 +636,106 @@ class PostFillLifecycleEngine:
         if trade is None:
             return
         self._transition(trade, PositionLifecycleState.EXITED, reason)
+
+    def record_exit_fill(
+        self,
+        trade_id: str,
+        *,
+        fill_price: float,
+        fill_qty: int,
+        fill_time: str,
+        exit_order_id: str | None = None,
+        reason: str = "fill_exit",
+    ) -> dict[str, Any]:
+        trade = self._trades.get(str(trade_id))
+        if trade is None:
+            print(f"[TRADE][UPDATE] trade_id={trade_id} exit_fill_error=trade_not_found")
+            return {"ok": False, "reason": "trade_not_found"}
+        if trade.state != PositionLifecycleState.EXIT_PENDING:
+            print(
+                "[TRADE][UPDATE] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} exit_fill_error=invalid_state state={trade.state.value}"
+            )
+            return {"ok": False, "reason": "invalid_state", "state": trade.state.value}
+
+        actual_qty = max(0, min(int(fill_qty), int(trade.filled_qty)))
+        if actual_qty <= 0:
+            print(
+                "[TRADE][UPDATE] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} exit_fill_error=invalid_qty qty={fill_qty}"
+            )
+            return {"ok": False, "reason": "invalid_qty"}
+
+        entry_price = float(trade.avg_fill_price)
+        resolved_fill_price = float(fill_price)
+        side_sign = 1.0 if str(trade.side).upper() in {"LONG", "BUY"} else -1.0
+        realized_pnl = (resolved_fill_price - entry_price) * float(actual_qty) * side_sign
+
+        trade.exit_fill_price = resolved_fill_price
+        trade.exit_fill_time = str(fill_time)
+        trade.exit_order_id = str(exit_order_id) if exit_order_id is not None else trade.exit_order_id
+        trade.exit_reason = trade.exit_reason or reason
+        trade.realized_pnl = float(realized_pnl)
+        trade.exited_qty = actual_qty
+        trade.last_update_ts = self._ts()
+
+        self.mark_exited(trade.trade_id, reason=reason)
+        print(
+            "[TRADE][PNL] "
+            f"trade_id={trade.trade_id} symbol={trade.symbol} entry={entry_price:.4f} exit={resolved_fill_price:.4f} "
+            f"qty={actual_qty} realized_pnl={trade.realized_pnl:.4f}"
+        )
+        print(
+            "[TRADE][EXIT] "
+            f"trade_id={trade.trade_id} symbol={trade.symbol} qty={actual_qty} exit_price={resolved_fill_price:.4f} "
+            f"exit_time={trade.exit_fill_time} exit_order_id={trade.exit_order_id or 'NA'}"
+        )
+        print(f"[POSITION][SYNC] symbol={trade.symbol} action=close trade_id={trade.trade_id}")
+        return {
+            "ok": True,
+            "trade_id": trade.trade_id,
+            "state": trade.state.value,
+            "realized_pnl": trade.realized_pnl,
+            "exit_fill_price": trade.exit_fill_price,
+            "exit_fill_time": trade.exit_fill_time,
+            "exit_order_id": trade.exit_order_id,
+        }
+
+    def submit_exit_order_once(
+        self,
+        trade_id: str,
+        *,
+        reason: str,
+        submitter: Any,
+    ) -> dict[str, Any]:
+        trade = self._trades.get(str(trade_id))
+        if trade is None:
+            return {"submitted": False, "reason": "trade_not_found"}
+        if trade.state == PositionLifecycleState.EXIT_PENDING:
+            print(
+                "[TRADE][UPDATE] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} exit_submitted=false reason=already_exit_pending"
+            )
+            return {"submitted": False, "reason": "already_exit_pending"}
+        if trade.state == PositionLifecycleState.EXITED:
+            print(
+                "[TRADE][UPDATE] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} exit_submitted=false reason=already_exited"
+            )
+            return {"submitted": False, "reason": "already_exited"}
+        try:
+            submit_result = submitter(trade)
+            order_id = None
+            if isinstance(submit_result, dict):
+                order_id = submit_result.get("broker_order_id") or submit_result.get("order_id")
+            self.mark_exit_pending_with_order(trade_id=trade.trade_id, reason=reason, exit_order_id=str(order_id) if order_id else None)
+            return {"submitted": True, "order_id": order_id}
+        except Exception as exc:
+            print(
+                "[TRADE][UPDATE] "
+                f"trade_id={trade.trade_id} symbol={trade.symbol} exit_submit_error={exc}"
+            )
+            return {"submitted": False, "reason": "submit_failed", "error": str(exc)}
 
     def startup_safe_state(self, broker_positions: list[Any], broker_orders: list[Any]) -> dict[str, Any]:
         print("[STARTUP][SAFE_STATE][BEGIN]")

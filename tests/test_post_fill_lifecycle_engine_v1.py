@@ -112,7 +112,9 @@ def test_exit_is_driven_from_broker_callback() -> None:
         avg_fill_price=100.0,
         strategy_id="S4",
     )
-    callback_result = engine.handle_broker_callback({"event_type": "execDetails", "order_id": "STOP-1"})
+    callback_result = engine.handle_broker_callback(
+        {"event_type": "execDetails", "order_id": "STOP-1", "price": 98.5, "shares": 1, "fill_time": "2026-04-15T00:00:00+00:00"}
+    )
     assert callback_result["handled"] is True
     assert callback_result["exit_reason"] == "STOP_FILLED"
     assert callback_result["cancel_order_id"] == "TGT-1"
@@ -120,8 +122,148 @@ def test_exit_is_driven_from_broker_callback() -> None:
     trade = engine.get_trade("T-4")
     assert trade is not None
     assert trade.state == PositionLifecycleState.EXITED
+    assert trade.exit_fill_price == 98.5
+    assert trade.realized_pnl == -1.5
     assert trade.target is not None
     assert trade.target.status == "CANCELLED"
+
+
+def test_exit_submission_does_not_close_trade_immediately() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER")
+    engine.activate_trade_management_after_fill(
+        trade_id="T-PENDING-1",
+        symbol="AAPL",
+        side="LONG",
+        filled_qty=10,
+        avg_fill_price=100.0,
+        strategy_id="S-PENDING",
+    )
+    submit = engine.submit_exit_order_once(
+        "T-PENDING-1",
+        reason="STOP_LOSS",
+        submitter=lambda trade: {"broker_order_id": "EXIT-100"},
+    )
+    trade = engine.get_trade("T-PENDING-1")
+    assert submit["submitted"] is True
+    assert trade is not None
+    assert trade.state == PositionLifecycleState.EXIT_PENDING
+    assert trade.exit_fill_price is None
+    assert trade.realized_pnl is None
+    assert trade.exit_fill_time is None
+
+
+def test_exit_fill_closes_trade_and_computes_fill_based_pnl() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER")
+    engine.activate_trade_management_after_fill(
+        trade_id="T-PENDING-2",
+        symbol="MSFT",
+        side="LONG",
+        filled_qty=5,
+        avg_fill_price=100.0,
+        strategy_id="S-PNL",
+    )
+    engine.mark_exit_pending_with_order("T-PENDING-2", "TARGET_HIT", "EXIT-200")
+    result = engine.record_exit_fill(
+        "T-PENDING-2",
+        fill_price=103.0,
+        fill_qty=5,
+        fill_time="2026-04-15T01:00:00+00:00",
+        exit_order_id="EXIT-200",
+    )
+    trade = engine.get_trade("T-PENDING-2")
+    assert result["ok"] is True
+    assert trade is not None
+    assert trade.state == PositionLifecycleState.EXITED
+    assert trade.exit_fill_price == 103.0
+    assert trade.realized_pnl == 15.0
+    assert trade.exit_order_id == "EXIT-200"
+
+
+def test_duplicate_exit_evaluation_does_not_submit_twice() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER")
+    engine.activate_trade_management_after_fill(
+        trade_id="T-PENDING-3",
+        symbol="NVDA",
+        side="LONG",
+        filled_qty=2,
+        avg_fill_price=50.0,
+        strategy_id="S-DEDUPE",
+    )
+    submissions: list[str] = []
+
+    def _submit(_trade):
+        submissions.append("called")
+        return {"broker_order_id": "EXIT-300"}
+
+    first = engine.submit_exit_order_once("T-PENDING-3", reason="STOP_LOSS", submitter=_submit)
+    second = engine.submit_exit_order_once("T-PENDING-3", reason="STOP_LOSS", submitter=_submit)
+    trade = engine.get_trade("T-PENDING-3")
+    assert first["submitted"] is True
+    assert second["submitted"] is False
+    assert second["reason"] == "already_exit_pending"
+    assert len(submissions) == 1
+    assert trade is not None
+    assert trade.state == PositionLifecycleState.EXIT_PENDING
+
+
+def test_exit_submission_failure_leaves_trade_open() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER")
+    engine.activate_trade_management_after_fill(
+        trade_id="T-PENDING-4",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=3,
+        avg_fill_price=80.0,
+        strategy_id="S-FAIL",
+    )
+
+    def _raise(_trade):
+        raise RuntimeError("broker_down")
+
+    submit = engine.submit_exit_order_once("T-PENDING-4", reason="STOP_LOSS", submitter=_raise)
+    trade = engine.get_trade("T-PENDING-4")
+    assert submit["submitted"] is False
+    assert submit["reason"] == "submit_failed"
+    assert trade is not None
+    assert trade.state != PositionLifecycleState.EXIT_PENDING
+    assert trade.state != PositionLifecycleState.EXITED
+    assert trade.exit_fill_price is None
+    assert trade.realized_pnl is None
+    assert trade.exit_fill_time is None
+
+
+def test_partial_safety_trade_closes_only_after_explicit_fill_confirmation() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER")
+    engine.activate_trade_management_after_fill(
+        trade_id="T-PENDING-5",
+        symbol="TSLA",
+        side="LONG",
+        filled_qty=10,
+        avg_fill_price=200.0,
+        strategy_id="S-PARTIAL",
+    )
+    engine.submit_exit_order_once(
+        "T-PENDING-5",
+        reason="RISK_EXIT",
+        submitter=lambda trade: {"broker_order_id": "EXIT-500"},
+    )
+    pre_fill = engine.get_trade("T-PENDING-5")
+    assert pre_fill is not None
+    assert pre_fill.state == PositionLifecycleState.EXIT_PENDING
+    assert pre_fill.realized_pnl is None
+
+    result = engine.record_exit_fill(
+        "T-PENDING-5",
+        fill_price=198.0,
+        fill_qty=5,
+        fill_time="2026-04-15T02:00:00+00:00",
+        exit_order_id="EXIT-500",
+    )
+    post_fill = engine.get_trade("T-PENDING-5")
+    assert result["ok"] is True
+    assert post_fill is not None
+    assert post_fill.state == PositionLifecycleState.EXITED
+    assert post_fill.exited_qty == 5
 
 
 def test_startup_recovery_marks_protected_and_pending() -> None:

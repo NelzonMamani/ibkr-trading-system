@@ -882,8 +882,19 @@ class ExecutionEngine:
             )
             self.position_records[request.symbol]["lifecycle"] = protection_result
         if direction_upper in {"SHORT", "SELL"}:
-            self.post_fill_lifecycle.mark_exit_pending(request.client_order_id, "exit_fill_received")
-            self.post_fill_lifecycle.mark_exited(request.client_order_id, "exit_fill_complete")
+            self.post_fill_lifecycle.mark_exit_pending_with_order(
+                trade_id=request.client_order_id,
+                reason="exit_fill_received",
+                exit_order_id=str(getattr(result, "ibkr_order_id", "") or "") or None,
+            )
+            self.post_fill_lifecycle.record_exit_fill(
+                trade_id=request.client_order_id,
+                fill_price=float(entry_price or 0.0),
+                fill_qty=filled_quantity,
+                fill_time=datetime.now(timezone.utc).isoformat(),
+                exit_order_id=str(getattr(result, "ibkr_order_id", "") or "") or None,
+                reason="exit_fill_complete",
+            )
         if direction_upper in {"SHORT", "SELL"}:
             print(
                 f"[ORDER][EXIT] order_id={request.client_order_id} symbol={request.symbol} qty={filled_quantity}"
