@@ -78,7 +78,7 @@ def test_read_only_does_not_mutate_and_flags_failure() -> None:
     assert provider.target_calls == []
 
 
-def test_trailing_only_activates_after_threshold_and_never_loosens() -> None:
+def test_trailing_only_activates_after_profit_protection_and_never_loosens() -> None:
     provider = _ProviderStub()
     engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
     engine.activate_trade_management_after_fill(
@@ -89,8 +89,20 @@ def test_trailing_only_activates_after_threshold_and_never_loosens() -> None:
         avg_fill_price=100.0,
         strategy_id="S3",
     )
-    first = engine.evaluate_trailing("T-3", current_price=101.0)
-    assert first["updated"] is False
+    blocked = engine.evaluate_trailing("T-3", current_price=102.0)
+    assert blocked["updated"] is False
+    assert blocked["reason"] == "profit_protection_not_reached"
+
+    engine.handle_broker_callback(
+        {
+            "event_type": "execDetails",
+            "order_id": "TGT-1",
+            "shares": 1,
+            "price": 102.0,
+            "time": "2026-04-15T10:00:01+00:00",
+        }
+    )
+
     activated = engine.evaluate_trailing("T-3", current_price=102.0)
     assert activated["updated"] is True
     stop_after = float(activated["stop_price"])
@@ -167,6 +179,7 @@ def test_partial_exit_does_not_close_and_accumulates_realized_pnl() -> None:
     assert trade.state != PositionLifecycleState.EXITED
     assert trade.filled_qty == 6
     assert trade.exited_qty == 4
+    assert trade.partial_exit_count == 1
     assert trade.realized_pnl == 8.0
     assert trade.exit_fill_price == 102.0
     assert trade.exit_fill_time == "2026-04-15T10:00:02+00:00"

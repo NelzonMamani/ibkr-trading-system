@@ -54,6 +54,7 @@ class ManagedTradeLifecycle:
     stop: ProtectionOrderMeta | None = None
     target: ProtectionOrderMeta | None = None
     trailing_active: bool = False
+    partial_exit_count: int = 0
     trailing_mode: str = "break_even_then_offset"
     break_even_activation: float = 0.0
     trailing_activation: float = 0.0
@@ -379,6 +380,9 @@ class PostFillLifecycleEngine:
         if trade.state not in {PositionLifecycleState.TRAILING_ELIGIBLE, PositionLifecycleState.TRAILING_ACTIVE}:
             return {"updated": False, "reason": f"state_not_trailing:{trade.state.value}"}
 
+        if trade.partial_exit_count <= 0 and trade.state != PositionLifecycleState.PROTECTED:
+            return {"updated": False, "reason": "profit_protection_not_reached", "stop_price": trade.stop.trigger_price}
+
         print(f"[TRAIL][ELIGIBLE] trade_id={trade.trade_id} symbol={trade.symbol} state={trade.state.value}")
         current = float(current_price)
         trade.high_water_mark = max(float(trade.high_water_mark or trade.avg_fill_price), current)
@@ -493,10 +497,12 @@ class PostFillLifecycleEngine:
         trade.last_update_ts = self._ts()
 
         if remaining_qty > 0:
+            trade.partial_exit_count += 1
             self._update_in_memory_state()
             print(
                 "[LIFECYCLE][EXIT_PARTIAL] "
                 f"symbol={trade.symbol} trade_id={trade.trade_id} partial_qty={qty} remaining_qty={remaining_qty} "
+                f"partial_exit_count={trade.partial_exit_count} "
                 f"fill_price={float(fill_price):.4f} realized_increment={float(realized_increment):.4f}"
             )
             return {
