@@ -14,7 +14,7 @@ from ibapi.order import Order
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
 from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
-from src.core_engine.events import ExecutionEvent, RiskDecisionRecord
+from src.core_engine.events import ExecutionEvent, TradeIntentRecord
 from src.core_engine.state import RunMode, SessionState, resolve_session_state
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 
@@ -3160,10 +3160,58 @@ def _submit_ibkr_order(
 
 
 def execute_intents(
-    mode: RunMode,
-    decisions: List[RiskDecisionRecord],
+    *,
+    intents: List[TradeIntentRecord] | None = None,
+    decisions: List[Any] | None = None,
+    mode_value: str | None = None,
+    mode: Any | None = None,
 ) -> List[ExecutionEvent]:
     global _FILL_AUTHORITY_STATE, _EXECUTION_CYCLE_COUNTER, _CIRCUIT_BREAKER_ACTIVE
+    if mode_value is None and mode is not None:
+        mode_value = str(mode)
+
+    if mode_value is None:
+        mode_value = "READ_ONLY"
+
+    if str(mode_value).startswith("RunMode."):
+        mode_value = str(mode_value).split(".", 1)[1]
+
+    mode = RunMode(mode_value)
+    normalized_decisions = []
+
+    # Case 1 — new flow (intents provided)
+    if intents is not None:
+
+        for intent in intents:
+            metadata = dict(getattr(intent, "metadata", {}) or {})
+
+            normalized_decisions.append(
+                SimpleNamespace(
+                    symbol=str(intent.symbol or "").upper(),
+                    intent_id=str(intent.intent_id or ""),
+                    decision=str(metadata.get("risk_decision", "ALLOW")),
+                    available_funds=float(metadata.get("available_funds", 0.0) or 0.0),
+                    order_value=float(metadata.get("order_value", 0.0) or 0.0),
+                    risk_allowed=bool(metadata.get("risk_allowed", True)),
+                    approved_quantity=int(
+                        metadata.get("approved_quantity")
+                        or metadata.get("requested_qty")
+                        or 0
+                    ),
+                    entry_price=getattr(intent, "entry_price", None),
+                    side=getattr(intent, "side", "LONG"),
+                    action=str(metadata.get("action", "")),
+                    strategy_name=str(metadata.get("strategy_name", "")),
+                )
+            )
+
+    # Case 2 — legacy flow (decisions provided)
+    elif decisions is not None:
+        normalized_decisions = decisions
+
+    else:
+        return []
+
     _FILL_AUTHORITY_STATE = "UNKNOWN"
     if _is_explicit_test_mode():
         _CIRCUIT_BREAKER_ACTIVE = False
@@ -3185,7 +3233,7 @@ def execute_intents(
     blocked_price_unavailable = 0
     blocked_pre_submit = 0
 
-    for decision in decisions:
+    for decision in normalized_decisions:
         raw_qty = float(getattr(decision, "approved_quantity", 0) or 0)
         if raw_qty <= 0:
             raise RuntimeError("INVALID ORDER: quantity=0")
@@ -3253,7 +3301,7 @@ def execute_intents(
     allow_pyramiding = _config_bool("ALLOW_PYRAMIDING", True)
     max_position_size = max(1, _config_int("MAX_POSITION_SIZE", 3))
     max_open_positions = max(1, _config_int("MAX_OPEN_POSITIONS", 5))
-    for index, decision in enumerate(decisions, start=1):
+    for index, decision in enumerate(normalized_decisions, start=1):
         intents_received += 1
         execution_attempted = False
         execution_context: dict[str, Any] = {}
