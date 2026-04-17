@@ -176,6 +176,10 @@ LOCAL_ALLOWED_STATES = {"CREATED", "BLOCKED", "SUBMITTING", "SUBMITTED"}
 
 FULL_QUOTE_PATH = "FULL_QUOTE_PATH"
 DEGRADED_QUOTE_PATH = "DEGRADED_QUOTE_PATH"
+LOW_QUALITY_BLOCK = {
+    FillabilityClass.PASSIVE,
+    FillabilityClass.AWAY_FROM_MARKET,
+}
 
 
 def set_trading_control_mode(mode: str) -> None:
@@ -1573,6 +1577,14 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 )
     if event_type == "execdetails":
         normalized_symbol = str(symbol or "").upper().strip()
+        run_mode = RunMode.from_value(os.getenv("RUN_MODE", "READ_ONLY"))
+        callback_exec_id = str(_extract_callback_field(callback_payload, "execId") or "")
+        if run_mode in {RunMode.PAPER, RunMode.LIVE} and callback_exec_id.upper().startswith("BACKFILL"):
+            print(
+                "[EXECUTION][CALLBACK_IGNORED] "
+                f"event_type=execdetails order_id={order_id} reason=synthetic_backfill_exec_id exec_id={callback_exec_id}"
+            )
+            return
         tracked_before = tracked
         tracked = _recover_order_from_execdetails(
             order_id_key,
@@ -1593,7 +1605,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             symbol=normalized_symbol,
             fill_qty=int(filled_qty or 0),
             fill_price=fill_price,
-            exec_id=str(_extract_callback_field(callback_payload, "execId") or f"BACKFILL-{order_id}"),
+            exec_id=callback_exec_id or (f"BACKFILL-{order_id}" if run_mode == RunMode.SIM else None),
             timestamp=_now_utc_iso(),
             source="IBKR_EXECUTION_BACKFILL" if is_backfill else "IBKR_EXECUTION",
             fill_origin=_classify_fill_origin(
@@ -3029,6 +3041,19 @@ def _submit_ibkr_order(
         order=order,
         quote_snapshot={"bid": bid, "ask": ask},
     )
+    if fillability_class == FillabilityClass.NO_QUOTE:
+        print(
+            "[EXECUTION][BLOCKED_NO_QUOTE_PRE_SUBMIT] "
+            f"symbol={symbol} "
+            f"reason=NO_QUOTE bid={_none_text(bid)} ask={_none_text(ask)}"
+        )
+        raise RuntimeError("NO_QUOTE_PRE_SUBMIT")
+    if _config_bool("EXECUTION_BLOCK_LOW_QUALITY_PRE_SUBMIT", False) and fillability_class in LOW_QUALITY_BLOCK:
+        print(
+            "[EXECUTION][BLOCKED_LOW_QUALITY_PRE_SUBMIT] "
+            f"symbol={symbol} fillability={fillability_class.value}"
+        )
+        raise RuntimeError(f"LOW_QUALITY_{fillability_class.value}")
     setattr(order, "_fillability_class", fillability_class.value)
     print(
         "[EXECUTION][FILLABILITY_PRE] "
@@ -3708,7 +3733,17 @@ def execute_intents(
                     )
             except Exception as exc:
                 error_text = str(exc or "")
-                if "NO_QUOTE_CONTEXT" in error_text:
+                if "NO_QUOTE_PRE_SUBMIT" in error_text:
+                    blocked_no_quote += 1
+                    blocked_pre_submit += 1
+                    failure_type = "NO_QUOTE_CONTEXT"
+                    blocked_reason = "NO_QUOTE_PRE_SUBMIT"
+                elif "LOW_QUALITY_" in error_text:
+                    blocked_non_marketable += 1
+                    blocked_pre_submit += 1
+                    failure_type = "IBKR_REJECT"
+                    blocked_reason = error_text
+                elif "NO_QUOTE_CONTEXT" in error_text:
                     blocked_no_quote += 1
                     failure_type = "NO_QUOTE_CONTEXT"
                 elif "NON_MARKETABLE_ORDER" in error_text:
@@ -3732,7 +3767,7 @@ def execute_intents(
                         symbol=decision.symbol,
                         intent_id=decision.intent_id,
                         action="BLOCKED",
-                        detail=f"reason=SUBMISSION_FAILED:{exc}",
+                        detail=f"reason={blocked_reason or f'SUBMISSION_FAILED:{exc}'}",
                         broker_status="REJECTED",
                         last_update_time=_now_utc_iso(),
                     )

@@ -37,46 +37,40 @@ class _Client:
         return {"status": "Submitted"}
 
 
-def test_submit_allows_paper_with_last_price_only_quote_context(monkeypatch, capsys) -> None:
+def test_submit_blocks_paper_with_last_price_only_quote_context(monkeypatch) -> None:
     client = _Client()
     monkeypatch.setattr(order_router, "_session_label_now", lambda: "RTH")
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": None, "ask": None, "last": 5.0, "volume": 50_000})
-    order_id = order_router._submit_ibkr_order(
-        mode=RunMode.PAPER,
-        client=client,
-        symbol="MCRO",
-        side="BUY",
-        quantity=1,
-        order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
-        entry_price=5.0,
-        entry_price_source="IBKR_SNAPSHOT",
-    )
-    out = capsys.readouterr().out
-    assert order_id == 100001
-    assert client.submissions == 1
-    assert "[EXECUTION][NON_IBKR_CLIENT] deterministic_id_emulated" in out
-    assert "submit_order_order_id_mismatch" in out
+    with pytest.raises(RuntimeError, match="NO_QUOTE_PRE_SUBMIT"):
+        order_router._submit_ibkr_order(
+            mode=RunMode.PAPER,
+            client=client,
+            symbol="MCRO",
+            side="BUY",
+            quantity=1,
+            order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
+            entry_price=5.0,
+            entry_price_source="IBKR_SNAPSHOT",
+        )
+    assert client.submissions == 0
 
 
-def test_submit_allows_live_when_quote_context_missing(monkeypatch, capsys) -> None:
+def test_submit_blocks_live_when_quote_context_missing(monkeypatch) -> None:
     client = _Client()
     monkeypatch.setattr(order_router, "_session_label_now", lambda: "RTH")
     monkeypatch.setattr(order_router, "_wait_for_ibkr_snapshot_for_symbol", lambda *_args, **_kwargs: {"bid": None, "ask": None, "last": 5.0, "volume": 50_000})
-    order_id = order_router._submit_ibkr_order(
-        mode=RunMode.LIVE,
-        client=client,
-        symbol="MCRO",
-        side="BUY",
-        quantity=1,
-        order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
-        entry_price=5.0,
-        entry_price_source="IBKR_SNAPSHOT",
-    )
-    out = capsys.readouterr().out
-    assert order_id == 100001
-    assert client.submissions == 1
-    assert "[EXECUTION][NON_IBKR_CLIENT] deterministic_id_emulated" in out
-    assert "submit_order_order_id_mismatch" in out
+    with pytest.raises(RuntimeError, match="NO_QUOTE_PRE_SUBMIT"):
+        order_router._submit_ibkr_order(
+            mode=RunMode.LIVE,
+            client=client,
+            symbol="MCRO",
+            side="BUY",
+            quantity=1,
+            order_ref="TRADING_OS|ROSS_MOMENTUM|MCRO-1",
+            entry_price=5.0,
+            entry_price_source="IBKR_SNAPSHOT",
+        )
+    assert client.submissions == 0
 
 
 def test_submit_live_premarket_uses_quote_aware_limit(monkeypatch, capsys) -> None:
