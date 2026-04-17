@@ -215,6 +215,10 @@ def _resolve_symbol_ownership(symbol: str) -> str:
 class ExecutionInvariantViolation(RuntimeError):
     """Raised when execution intent invariants are violated."""
 
+
+class ExecutionIntegrityError(RuntimeError):
+    """Raised when broker callback data violates fill integrity constraints."""
+
 ALLOWED_EXECUTION_TRANSITIONS: dict[str, set[str]] = {
     "CREATED": {"BLOCKED", "SUBMITTING", "SUBMITTED", "ERROR"},
     "BLOCKED": set(),
@@ -1122,6 +1126,26 @@ def _extract_callback_field(callback_payload: Any, *field_names: str) -> Any:
     return None
 
 
+def _extract_exec_id_from_execdetails(callback_payload: Any) -> str:
+    exec_id_value = _extract_callback_field(callback_payload, "execId")
+
+    if not exec_id_value:
+        execution_obj = callback_payload.get("execution") if isinstance(callback_payload, dict) else getattr(callback_payload, "execution", None)
+        if execution_obj is not None:
+            exec_id_value = getattr(execution_obj, "execId", None)
+
+    exec_id_value = str(exec_id_value or "").strip()
+    exec_id_value = exec_id_value.strip()
+
+    if not exec_id_value:
+        raise ExecutionIntegrityError("Missing exec_id from execDetails")
+
+    if exec_id_value.upper().startswith("BACKFILL"):
+        raise ExecutionIntegrityError("Synthetic exec_id forbidden")
+
+    return exec_id_value
+
+
 def _extract_callback_symbol(callback_payload: Any) -> str:
     symbol = _extract_callback_field(callback_payload, "symbol")
     if symbol:
@@ -1594,7 +1618,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             symbol=normalized_symbol,
             fill_qty=int(filled_qty or 0),
             fill_price=fill_price,
-            exec_id=str(_extract_callback_field(callback_payload, "execId") or f"BACKFILL-{order_id}"),
+            exec_id=_extract_exec_id_from_execdetails(callback_payload),
             timestamp=_now_utc_iso(),
             source="IBKR_EXECUTION_BACKFILL" if is_backfill else "IBKR_EXECUTION",
             fill_origin=_classify_fill_origin(
@@ -1675,7 +1699,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     _EXECUTION_EVENT_BUFFER[order_id] = event
     if event_type == "execdetails":
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id_key, {}).update({"execDetails_seen": True})
-        exec_id = _extract_callback_field(callback_payload, "execId")
+        exec_id = _extract_exec_id_from_execdetails(callback_payload)
         print(
             "[EXECUTION][TRACE] "
             f"stage=FILL event_type=execDetails order_id={order_id} authority=execDetails exec_id={exec_id or 'NA'}"
