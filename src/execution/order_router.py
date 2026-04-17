@@ -3405,11 +3405,13 @@ def execute_intents(
                 )
             )
             continue
-        symbol_ownership = _resolve_symbol_ownership(duplicate_symbol)
-        broker_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
-        system_qty = broker_qty if symbol_ownership == OWNERSHIP_SYSTEM else 0.0
-        external_qty = broker_qty if symbol_ownership == OWNERSHIP_EXTERNAL else 0.0
-        effective_position_qty = system_qty
+        local_position_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
+        broker_position_qty = float(existing_position_qty_by_symbol.get(duplicate_symbol, 0.0) or 0.0)
+        local_qty = float(local_position_qty or 0.0)
+        broker_qty = float(broker_position_qty or 0.0)
+        effective_qty = broker_qty
+        treated_as_flat = broker_qty == 0.0
+        source = "IBKR_EXTERNAL"
         has_intent_mismatch_override = any(
             str(existing.symbol or "").upper() == duplicate_symbol
             and int(existing.filled_qty or 0) > 0
@@ -3417,15 +3419,14 @@ def execute_intents(
             and str(existing.intent_id or "").strip() != order_family
             for existing in _RUNTIME_ORDERS.values()
         )
-        position_source = "SYSTEM" if symbol_ownership == OWNERSHIP_SYSTEM else "IBKR_EXTERNAL"
-        broker_qty_for_log = system_qty if position_source == "SYSTEM" else external_qty
-        treated_as_flat = effective_position_qty <= 0 if position_source == "SYSTEM" else external_qty <= 0
-        # NOTE: POSITION_CHECK is an execution audit contract surface; tests assert this exact shape.
-        # Ownership/isolation refactors must preserve this log (or update tests/audit expectations together).
         print(
-            f"[EXECUTION][POSITION_CHECK] symbol={duplicate_symbol} local_qty={system_qty} broker_qty={broker_qty_for_log} "
-            f"effective_qty={effective_position_qty} source={position_source} treated_as_flat={str(treated_as_flat).lower()} "
-            f"intent_mismatch_override={str(has_intent_mismatch_override).lower()}"
+            f"[EXECUTION][POSITION_CHECK] "
+            f"symbol={duplicate_symbol} "
+            f"local_qty={local_qty:.1f} "
+            f"broker_qty={broker_qty:.1f} "
+            f"effective_qty={effective_qty:.1f} "
+            f"source={source} "
+            f"treated_as_flat={'true' if treated_as_flat else 'false'}"
         )
         system_position_symbols = {
             symbol
@@ -3454,11 +3455,11 @@ def execute_intents(
             )
             continue
         if (not is_exit_order) and order_side == "BUY" and not treated_as_flat and not has_intent_mismatch_override:
-            proposed_qty = effective_position_qty + float(quantity)
+            proposed_qty = effective_qty + float(quantity)
             if not allow_pyramiding:
                 blocked_reason = "DUPLICATE_POSITION"
                 blocked_pre_submit += 1
-                print(f"[EXECUTION][PYRAMID] symbol={duplicate_symbol} existing_qty={effective_position_qty:.4f} new_qty={quantity} decision=BLOCK reason=DUPLICATE_POSITION")
+                print(f"[EXECUTION][PYRAMID] symbol={duplicate_symbol} existing_qty={effective_qty:.4f} new_qty={quantity} decision=BLOCK reason=DUPLICATE_POSITION")
                 print(f"[EXECUTION][HARD_BLOCK] symbol={duplicate_symbol} reason=DUPLICATE_POSITION")
                 print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
                 _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
@@ -3480,7 +3481,7 @@ def execute_intents(
                 blocked_reason = "MAX_SIZE_REACHED"
                 blocked_pre_submit += 1
                 print(
-                    f"[EXECUTION][PYRAMID] symbol={duplicate_symbol} existing_qty={effective_position_qty:.4f} "
+                    f"[EXECUTION][PYRAMID] symbol={duplicate_symbol} existing_qty={effective_qty:.4f} "
                     f"new_qty={quantity} decision=BLOCK reason={blocked_reason} max_position_size={max_position_size}"
                 )
                 print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
