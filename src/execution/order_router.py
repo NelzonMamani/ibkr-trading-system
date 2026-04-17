@@ -3501,7 +3501,7 @@ def execute_intents(
                 )
                 continue
             print(
-                f"[EXECUTION][PYRAMID] symbol={duplicate_symbol} existing_qty={effective_position_qty:.4f} "
+                f"[EXECUTION][PYRAMID] symbol={duplicate_symbol} existing_qty={effective_qty:.4f} "
                 f"new_qty={quantity} decision=ALLOW reason=PYRAMID_ADD"
             )
         if not str(decision.intent_id or "").strip():
