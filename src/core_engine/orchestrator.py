@@ -26,7 +26,13 @@ from src.core_engine.state import CycleContext, RunMode, resolve_session_state
 from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core.intent import build_execution_intent
 from src.core.mode_authority import resolve_mode_authority
-from src.execution.order_router import execute_intents, fill_authority_state, runtime_lifecycle_snapshot
+from src.execution.order_router import (
+    execute_intents,
+    execution_fill_registry_snapshot,
+    fill_authority_state,
+    runtime_lifecycle_snapshot,
+    trade_registry_snapshot,
+)
 from src.prep.premarket_prep_artifact import write_premarket_prep_artifact
 from src.prep.premarket_prep import PreMarketPrepEngine
 from src.prep.premarket_prep_artifact import (
@@ -1585,16 +1591,24 @@ def run_cycle(
                 )
                 symbol_key = str(event.symbol or "").upper()
                 if symbol_key:
+                    fill_registry = execution_fill_registry_snapshot()
+                    fill_entry = fill_registry.get(int(broker_order_id)) if broker_order_id is not None else None
+                    fill_price = None if fill_entry is None else fill_entry.get("price")
+                    if fill_price is None or float(fill_price) <= 0:
+                        print(
+                            f"[POSITION][BLOCKED_NO_FILL_PRICE] symbol={symbol_key} "
+                            f"order_id={broker_order_id} reason=missing_execdetails_fill_price"
+                        )
+                        continue
                     existing_position = position_book.get(symbol_key)
-                    fill_price = event.avg_fill_price
                     fill_qty = max(0, filled_quantity)
                     if existing_position is None:
-                        position_book[symbol_key] = {"qty": float(fill_qty), "avg_price": float(fill_price or 0.0)}
+                        position_book[symbol_key] = {"qty": float(fill_qty), "avg_price": float(fill_price)}
                     else:
                         prev_qty = float(existing_position["qty"])
                         prev_avg = float(existing_position["avg_price"])
                         total_qty = prev_qty + float(fill_qty)
-                        if total_qty > 0 and fill_price is not None:
+                        if total_qty > 0:
                             weighted_avg = ((prev_qty * prev_avg) + (float(fill_qty) * float(fill_price))) / total_qty
                         else:
                             weighted_avg = prev_avg
@@ -1851,67 +1865,100 @@ def run_cycle(
 
     analytics_rows: list[dict[str, Any]] = []
     exit_reason_breakdown: Counter[str] = Counter()
-    seen_trade_ids: set[str] = set()
-    for event in execution_events:
-        trade_id = _resolve_trade_id_from_execution(event, lifecycle_engine)
-        if trade_id is None:
-            print(
-                f"[TRACE][TRADE_LINK_FAILURE] symbol={event.symbol} intent_id={event.intent_id}"
-            )
-            continue
-        client_order_id = getattr(event, "client_order_id", None)
-        if client_order_id and str(client_order_id) != trade_id:
-            print(
-                f"[TRACE][TRADE_LINK_MISMATCH] client_order_id={client_order_id} resolved_trade_id={trade_id}"
-            )
-        if trade_id in seen_trade_ids:
-            print(f"[ANALYTICS][DEDUP] trade_id={trade_id}")
-            continue
+    router_trades = trade_registry_snapshot()
+    if not router_trades:
+        print("[ANALYTICS][NO_TRADES_AVAILABLE]")
+        seen_trade_ids: set[str] = set()
+        for event in execution_events:
+            trade_id = _resolve_trade_id_from_execution(event, lifecycle_engine)
+            if trade_id is None:
+                print(f"[TRACE][TRADE_LINK_FAILURE] symbol={event.symbol} intent_id={event.intent_id}")
+                continue
+            if trade_id in seen_trade_ids:
+                print(f"[ANALYTICS][DEDUP] trade_id={trade_id}")
+                continue
+            if lifecycle_engine is None:
+                print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=missing_lifecycle")
+                continue
+            lifecycle_trade = lifecycle_engine.get_trade(trade_id)
+            if lifecycle_trade is None:
+                print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=missing_lifecycle")
+                continue
+            if str(getattr(lifecycle_trade, "state", "")).upper() != "EXITED":
+                print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=trade_not_closed")
+                continue
+            if getattr(lifecycle_trade, "exit_fill_price", None) is None or getattr(lifecycle_trade, "exit_fill_time", None) is None:
+                print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=incomplete_lifecycle")
+                continue
+            seen_trade_ids.add(trade_id)
+            print(f"[TRACE][ANALYTICS_SOURCE] trade_id={trade_id} symbol={event.symbol} source=lifecycle_trade")
+            entry_price_raw = getattr(lifecycle_trade, "entry_fill_price", None)
+            if entry_price_raw is None:
+                entry_price_raw = getattr(lifecycle_trade, "avg_fill_price", None)
+            entry_price = float(entry_price_raw or 0.0)
+            exit_price = float(getattr(lifecycle_trade, "exit_fill_price", 0.0) or 0.0)
+            exit_reason = str(getattr(lifecycle_trade, "exit_reason", "UNKNOWN") or "UNKNOWN")
+            realized_pnl = float(getattr(lifecycle_trade, "realized_pnl", 0.0) or 0.0)
+            analytics_row = {
+                "trade_id": trade_id,
+                "origin_intent_id": event.intent_id,
+                "origin_cycle_id": cycle_id,
+                "symbol": event.symbol,
+                "setup_name": symbol_setup_family.get(event.symbol, "NONE"),
+                "trigger_type": symbol_trigger_type.get(event.symbol, "NONE"),
+                "entry_time": getattr(lifecycle_trade, "entry_fill_time", None) or getattr(lifecycle_trade, "entry_time", None),
+                "entry_price": entry_price,
+                "exit_time": getattr(lifecycle_trade, "exit_fill_time", None) or getattr(lifecycle_trade, "exit_time", None),
+                "exit_price": exit_price,
+                "holding_duration_seconds": int(getattr(lifecycle_trade, "holding_duration_seconds", 0) or 0),
+                "realized_pnl": realized_pnl,
+                "exit_reason": exit_reason,
+                "partial_exit_count": int(getattr(lifecycle_trade, "partial_exit_count", 0) or 0),
+                "gross_return_pct": ((exit_price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0,
+                "risk_multiple": None,
+                "entry_to_peak_favorable_pct": None,
+                "entry_to_peak_adverse_pct": None,
+            }
+            analytics_rows.append(analytics_row)
+            exit_reason_breakdown[exit_reason] += 1
+            print(f"[TRADE_ANALYTICS][ROW] {analytics_row}")
+    for trade_id, trade_row in sorted(router_trades.items()):
+        symbol = str(trade_row.get("symbol", "") or "").upper()
+        entry_price = float(trade_row.get("entry_price") or 0.0)
+        qty = int(trade_row.get("qty") or 0)
         if lifecycle_engine is None:
             print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=missing_lifecycle")
             continue
-        trade = lifecycle_engine.get_trade(trade_id)
-        if trade is None:
+        lifecycle_trade = lifecycle_engine.get_trade(str(trade_id))
+        if lifecycle_trade is None:
             print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=missing_lifecycle")
             continue
-        if str(getattr(trade, "state", "")).upper() != "EXITED":
+        if str(getattr(lifecycle_trade, "state", "")).upper() != "EXITED":
             print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=trade_not_closed")
             continue
-        if getattr(trade, "exit_fill_price", None) is None or getattr(trade, "exit_fill_time", None) is None:
-            print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=incomplete_lifecycle")
+        exit_price = float(getattr(lifecycle_trade, "exit_fill_price", 0.0) or 0.0)
+        if exit_price <= 0:
+            print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=missing_exit_price")
             continue
-        seen_trade_ids.add(trade_id)
-        print(
-            f"[TRACE][ANALYTICS_SOURCE] trade_id={trade_id} symbol={event.symbol} source=lifecycle_trade"
-        )
-        entry_price_raw = getattr(trade, "entry_fill_price", None)
-        if entry_price_raw is None:
-            entry_price_raw = getattr(trade, "avg_fill_price", None)
-        exit_reason = str(getattr(trade, "exit_reason", "UNKNOWN") or "UNKNOWN")
-        realized_pnl = float(getattr(trade, "realized_pnl", 0.0) or 0.0)
-        entry_price = float(entry_price_raw or 0.0)
-        exit_price = float(getattr(trade, "exit_fill_price", 0.0) or 0.0)
+        realized_pnl = (exit_price - entry_price) * float(qty)
+        exit_reason = str(getattr(lifecycle_trade, "exit_reason", "UNKNOWN") or "UNKNOWN")
         gross_return_pct = ((exit_price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
-        holding_seconds = int(getattr(trade, "holding_duration_seconds", 0) or 0)
+        holding_seconds = int(getattr(lifecycle_trade, "holding_duration_seconds", 0) or 0)
         analytics_row = {
             "trade_id": trade_id,
-            "origin_intent_id": event.intent_id,
+            "origin_intent_id": str(trade_row.get("intent_id", "") or ""),
             "origin_cycle_id": cycle_id,
-            "symbol": event.symbol,
-            "setup_name": symbol_setup_family.get(event.symbol, "NONE"),
-            "trigger_type": symbol_trigger_type.get(event.symbol, "NONE"),
-            "entry_time": (
-                getattr(trade, "entry_fill_time", None)
-                or getattr(trade, "entry_time", None)
-                or getattr(trade, "last_update_ts", None)
-            ),
+            "symbol": symbol,
+            "setup_name": symbol_setup_family.get(symbol, "NONE"),
+            "trigger_type": symbol_trigger_type.get(symbol, "NONE"),
+            "entry_time": getattr(lifecycle_trade, "entry_fill_time", None) or getattr(lifecycle_trade, "entry_time", None),
             "entry_price": entry_price,
-            "exit_time": getattr(trade, "exit_fill_time", None) or getattr(trade, "exit_time", None),
+            "exit_time": getattr(lifecycle_trade, "exit_fill_time", None) or getattr(lifecycle_trade, "exit_time", None),
             "exit_price": exit_price,
             "holding_duration_seconds": holding_seconds,
             "realized_pnl": realized_pnl,
             "exit_reason": exit_reason,
-            "partial_exit_count": int(getattr(trade, "partial_exit_count", 0) or 0),
+            "partial_exit_count": int(getattr(lifecycle_trade, "partial_exit_count", 0) or 0),
             "gross_return_pct": gross_return_pct,
             "risk_multiple": None,
             "entry_to_peak_favorable_pct": None,

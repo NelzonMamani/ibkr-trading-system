@@ -50,7 +50,7 @@ def test_passive_reconciliation_detects_position_drift_without_fill_creation() -
     order_router._RUNTIME_POSITIONS["AAPL"] = order_router.TrackedPosition(symbol="AAPL", qty=1, state="POSITION_OPEN")
     order_router._run_passive_position_reconciliation(positions=[_StubPosition(symbol="AAPL", position=3)])
 
-    assert order_router._RUNTIME_POSITIONS["AAPL"].qty == 1
+    assert order_router._RUNTIME_POSITIONS["AAPL"].qty == 3
     assert order_router._RECONCILED_POSITIONS_COUNT == 0
     assert order_router._RECON_RESYNC_NEEDED is True
     assert not order_router._EXECUTION_EVENT_BUFFER

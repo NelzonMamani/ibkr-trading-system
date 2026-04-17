@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import math
 import time
+import hashlib
 from types import SimpleNamespace
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
@@ -25,6 +26,10 @@ _EXECUTION_TRUTH_BY_ORDER_ID: dict[int, "ExecutionTruthRecord"] = {}
 _RUNTIME_POSITIONS: dict[str, "TrackedPosition"] = {}
 _IBKR_POSITIONS_BY_SYMBOL: dict[str, "IbkrPositionTruth"] = {}
 _SEEN_EXEC_IDS: set[str] = set()
+_EXECUTION_FILL_REGISTRY: dict[int, dict[str, Any]] = {}
+_EXECUTION_REGISTRY: dict[str, dict[str, Any]] = {}
+_INTENT_REGISTRY: dict[str, dict[str, Any]] = {}
+_TRADE_REGISTRY: dict[str, dict[str, Any]] = {}
 _UNMATCHED_CALLBACK_COUNT = 0
 _RECONCILIATION_SUCCESSES = 0
 _RECONCILIATION_FAILURES = 0
@@ -476,8 +481,8 @@ def _transition_execution_truth_state(*, truth: ExecutionTruthRecord, next_state
         print(f"[EXECUTION][TRUTH_TRANSITION_INVALID] symbol={truth.symbol} broker_order_id={truth.broker_order_id} from={current} to={next_norm} reason=UNKNOWN_STATE")
         return False
     if _is_terminal_execution_state(current) and next_norm != current:
-        print(f"[EXECUTION][TRUTH_TRANSITION_INVALID] symbol={truth.symbol} broker_order_id={truth.broker_order_id} from={current} to={next_norm} reason=TERMINAL_IMMUTABLE")
-        return False
+        print(f"[EXECUTION][IGNORED_POST_TERMINAL] symbol={truth.symbol} broker_order_id={truth.broker_order_id} from={current} attempted_to={next_norm}")
+        return True
     if next_norm in BROKER_ONLY_STATES and source != "IBKR_CALLBACK":
         print(f"[EXECUTION][TRUTH_REJECTED] symbol={truth.symbol} attempted_field=execution_state reason=NON_BROKER_MUTATION_BLOCKED")
         return False
@@ -970,6 +975,19 @@ def _register_order_intent_mapping(*, order_id: int, intent_id: str, order_ref: 
         tracked.intent_id = normalized_intent
     if normalized_order_ref:
         _ORDER_ID_BY_ORDER_REF[normalized_order_ref] = int(order_id)
+    if normalized_intent:
+        _INTENT_REGISTRY[normalized_intent] = {
+            "order_id": int(order_id),
+            "symbol": str(getattr(_RUNTIME_ORDERS.get(int(order_id)), "symbol", "") or "").upper(),
+        }
+
+
+def execution_fill_registry_snapshot() -> dict[int, dict[str, Any]]:
+    return {int(k): dict(v) for k, v in _EXECUTION_FILL_REGISTRY.items()}
+
+
+def trade_registry_snapshot() -> dict[str, dict[str, Any]]:
+    return {str(k): dict(v) for k, v in _TRADE_REGISTRY.items()}
 
 
 def _extract_callback_order_ref(callback_payload: Any) -> str:
@@ -1074,6 +1092,12 @@ def _upsert_ibkr_position_truth(*, symbol: str, quantity: int, avg_price: float 
     row.quantity = int(quantity)
     row.avg_price = float(avg_price) if avg_price is not None else None
     row.last_update_time = str(update_time or _now_utc_iso())
+    _RUNTIME_POSITIONS[normalized_symbol] = TrackedPosition(
+        symbol=normalized_symbol,
+        qty=int(quantity),
+        avg_price=row.avg_price,
+        state="POSITION_OPEN" if int(quantity) > 0 else "POSITION_CLOSED",
+    )
     print(
         "[POSITION][SYNC] "
         f"symbol={normalized_symbol} qty={row.quantity} avg_price={row.avg_price} source=IBKR"
@@ -1404,6 +1428,45 @@ def _classify_fill_origin(*, source: str, is_backfill: bool) -> str:
     return "LIVE_EXECUTION"
 
 
+def _deterministic_trade_id(*, order_id: int, exec_id: str) -> str:
+    raw = f"{int(order_id)}::{str(exec_id)}".encode("utf-8")
+    return hashlib.sha1(raw).hexdigest()[:20]
+
+
+def _register_execution_and_trade_link(
+    *,
+    order_id: int,
+    symbol: str,
+    exec_id: str,
+    fill_price: float | None,
+    fill_qty: int,
+) -> str | None:
+    intent_id = str(_INTENT_ID_BY_ORDER_ID.get(int(order_id), "") or "").strip()
+    if not intent_id:
+        print(
+            f"[TRADE][HARD_FAIL_LINKING] order_id={order_id} exec_id={exec_id} reason=missing_intent_id"
+        )
+        return None
+    _EXECUTION_REGISTRY[exec_id] = {
+        "order_id": int(order_id),
+        "intent_id": intent_id,
+        "price": fill_price,
+        "qty": int(fill_qty),
+    }
+    trade_id = _deterministic_trade_id(order_id=int(order_id), exec_id=str(exec_id))
+    _TRADE_REGISTRY[trade_id] = {
+        "trade_id": trade_id,
+        "intent_id": intent_id,
+        "order_id": int(order_id),
+        "exec_id": str(exec_id),
+        "symbol": str(symbol or "").upper(),
+        "entry_price": fill_price,
+        "qty": int(fill_qty),
+        "position_id": f"{str(symbol or '').upper()}::{intent_id}",
+    }
+    return trade_id
+
+
 def _apply_fill_to_tracked_order(
     *,
     order_id: int,
@@ -1420,13 +1483,14 @@ def _apply_fill_to_tracked_order(
     if row is None:
         raise AssertionError(f"EXECDETAILS_MISSING_TRACKED_ORDER:{order_id}")
     row.symbol = normalized_symbol or row.symbol
-    if exec_id:
-        dedupe_key = f"{order_id}:{exec_id}"
-        if dedupe_key in _SEEN_EXEC_IDS or exec_id in row.seen_exec_ids:
-            print(f"[EXECUTION][FILL_DEDUP] order_id={order_id} exec_id={exec_id} deduped=true")
-            return
-        _SEEN_EXEC_IDS.add(dedupe_key)
-        row.seen_exec_ids.add(exec_id)
+    if not exec_id:
+        print(f"[EXECUTION][DUPLICATE_EXEC_IGNORED] order_id={order_id} exec_id=NA reason=missing_exec_id")
+        return
+    if exec_id in _SEEN_EXEC_IDS or exec_id in row.seen_exec_ids:
+        print(f"[EXECUTION][DUPLICATE_EXEC_IGNORED] order_id={order_id} exec_id={exec_id}")
+        return
+    _SEEN_EXEC_IDS.add(exec_id)
+    row.seen_exec_ids.add(exec_id)
     inc = max(0, int(fill_qty))
     if inc <= 0:
         return
@@ -1437,6 +1501,19 @@ def _apply_fill_to_tracked_order(
         prev_qty = prev_filled
         prev_avg = float(row.avg_fill_price or 0.0)
         row.avg_fill_price = ((prev_qty * prev_avg) + (inc * float(fill_price))) / max(1, prev_qty + inc)
+    _EXECUTION_FILL_REGISTRY[int(order_id)] = {
+        "price": fill_price,
+        "qty": int(inc),
+        "exec_id": str(exec_id),
+        "source": "IBKR_EXECDETAILS",
+    }
+    trade_id = _register_execution_and_trade_link(
+        order_id=int(order_id),
+        symbol=row.symbol,
+        exec_id=str(exec_id),
+        fill_price=fill_price,
+        fill_qty=int(inc),
+    )
     old_state = row.canonical_state
     row.canonical_state = "FILLED" if row.remaining_qty == 0 else "PARTIALLY_FILLED"
     row.broker_status = "Filled" if row.canonical_state == "FILLED" else "Submitted"
@@ -1451,6 +1528,8 @@ def _apply_fill_to_tracked_order(
         f"order_id={order_id} symbol={row.symbol} authority=execDetails fill_qty={inc} "
         f"remaining_qty={row.remaining_qty} exec_id={exec_id or 'NA'} fill_origin={fill_origin}"
     )
+    if trade_id is not None:
+        print(f"[TRADE][LINKED] trade_id={trade_id} order_id={order_id} exec_id={exec_id} symbol={row.symbol}")
     print(f"[PRICE_AUTHORITY][SOURCE=IBKR_EXECUTION] order_id={order_id} symbol={row.symbol} price={fill_price}")
     if row.remaining_qty == 0:
         print(f"[EXECUTION][FILL] order_id={order_id} symbol={row.symbol} fill_qty={inc} total_filled={row.filled_qty} exec_id={exec_id or 'NA'}")
@@ -1563,9 +1642,23 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                     callback_symbol=str(symbol or ""),
                     timestamp=timestamp,
                 )
+    if tracked is not None and tracked.canonical_state in {"FILLED", "CANCELLED", "REJECTED", "EXPIRED"}:
+        print(
+            f"[EXECUTION][IGNORED_POST_TERMINAL] event={event_type or 'unknown'} "
+            f"order_id={order_id_key} state={tracked.canonical_state}"
+        )
+        return
     if event_type == "execdetails":
         normalized_symbol = str(symbol or "").upper().strip()
         tracked_before = tracked
+        if tracked_before is None:
+            allow_backfill = _env_truthy("EXECUTION_ENABLE_BACKFILL_PIPELINE", default=False) or _is_explicit_test_mode()
+            if not allow_backfill:
+                print(
+                    "[EXECUTION][BACKFILL_IGNORED] "
+                    f"order_id={order_id_key} symbol={normalized_symbol} reason=normal_runtime_pipeline_disabled"
+                )
+                return
         tracked = _recover_order_from_execdetails(
             order_id_key,
             normalized_symbol,
@@ -1580,12 +1673,17 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 f"order_id={order_id} symbol={normalized_symbol} "
                 f"fill_qty={int(filled_qty or 0)} fill_price={fill_price}"
             )
+        exec_id_raw = _extract_callback_field(callback_payload, "execId")
+        exec_id = str(exec_id_raw or "").strip()
+        if not exec_id:
+            print(f"[EXECUTION][DUPLICATE_EXEC_IGNORED] order_id={order_id_key} exec_id=NA reason=missing_exec_id")
+            return
         _apply_fill_to_tracked_order(
             order_id=order_id_key,
             symbol=normalized_symbol,
             fill_qty=int(filled_qty or 0),
             fill_price=fill_price,
-            exec_id=str(_extract_callback_field(callback_payload, "execId") or f"BACKFILL-{order_id}"),
+            exec_id=exec_id,
             timestamp=_now_utc_iso(),
             source="IBKR_EXECUTION_BACKFILL" if is_backfill else "IBKR_EXECUTION",
             fill_origin=_classify_fill_origin(
@@ -1651,7 +1749,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     )
     event = ExecutionEvent(
         symbol=symbol or "UNKNOWN",
-        intent_id="",
+        intent_id=str(_INTENT_ID_BY_ORDER_ID.get(order_id_key, "") or ""),
         action="WORKING" if fill_event_type == "ORDER_WORKING" else "FILLED",
         detail="callback_fill",
         event_type=fill_event_type,
@@ -1667,6 +1765,11 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     if event_type == "execdetails":
         _VISIBILITY_BY_ORDER_ID.setdefault(order_id_key, {}).update({"execDetails_seen": True})
         exec_id = _extract_callback_field(callback_payload, "execId")
+        if exec_id:
+            linked_trade_id = _deterministic_trade_id(order_id=order_id_key, exec_id=str(exec_id))
+            setattr(event, "exec_id", str(exec_id))
+            setattr(event, "trade_id", linked_trade_id if linked_trade_id in _TRADE_REGISTRY else None)
+            setattr(event, "lifecycle_trade_id", linked_trade_id if linked_trade_id in _TRADE_REGISTRY else None)
         print(
             "[EXECUTION][TRACE] "
             f"stage=FILL event_type=execDetails order_id={order_id} authority=execDetails exec_id={exec_id or 'NA'}"
@@ -2011,7 +2114,8 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
     now_utc = datetime.now(timezone.utc)
     mismatch_count = 0
     for symbol in sorted(symbols):
-        local_qty = int(broker_position_by_symbol.get(symbol, 0))
+        local_state = _RUNTIME_POSITIONS.get(symbol)
+        local_qty = int(getattr(local_state, "qty", 0) or 0)
         ibkr_qty = int(broker_position_by_symbol.get(symbol, 0))
         expected_position = int(local_fill_qty_by_symbol.get(symbol, 0))
         broker_avg_cost = broker_avg_cost_by_symbol.get(symbol)
@@ -2087,6 +2191,16 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
             print(
                 "[EXECUTION][POSITION_RECONCILE_MISMATCH] "
                 f"symbol={symbol} verdict={verdict} reason={reason or 'mismatch'}"
+            )
+            _RUNTIME_POSITIONS[symbol] = TrackedPosition(
+                symbol=symbol,
+                qty=int(ibkr_qty),
+                avg_price=broker_avg_cost,
+                state="POSITION_OPEN" if int(ibkr_qty) > 0 else "POSITION_CLOSED",
+            )
+            print(
+                f"[POSITION][FORCED_RECONCILIATION] symbol={symbol} "
+                f"system_qty={local_qty} broker_qty={ibkr_qty} broker_avg_cost={broker_avg_cost}"
             )
             _RECON_RESYNC_NEEDED = True
         print(
