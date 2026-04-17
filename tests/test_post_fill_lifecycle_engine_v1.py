@@ -55,7 +55,7 @@ def test_fill_installs_stop_and_target_in_paper_mode() -> None:
     assert result["installed_target_metadata"]["broker_order_id"] == "TGT-1"
     assert len(provider.stop_calls) == 1
     assert len(provider.target_calls) == 1
-    assert result["protection_state"] == PositionLifecycleState.TRAILING_ELIGIBLE.value
+    assert result["protection_state"] == PositionLifecycleState.PROTECTED.value
 
 
 def test_read_only_does_not_mutate_and_flags_failure() -> None:

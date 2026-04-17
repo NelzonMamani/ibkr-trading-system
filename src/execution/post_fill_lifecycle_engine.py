@@ -6,13 +6,18 @@ from enum import Enum
 import math
 from typing import Any
 
+from src.core_engine.events import TradeIntentRecord
+from src.strategies.ross_momentum.policy import get_default_ross_policy_config
+
 
 class PositionLifecycleState(str, Enum):
     ENTRY_SUBMITTED = "ENTRY_SUBMITTED"
+    ENTRY_FILLED = "ENTRY_FILLED"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
     FILLED_UNPROTECTED = "FILLED_UNPROTECTED"
     PROTECTION_PENDING = "PROTECTION_PENDING"
     PROTECTED = "PROTECTED"
+    BREAK_EVEN = "BREAK_EVEN"
     TARGET_ACTIVE = "TARGET_ACTIVE"
     TRAILING_ELIGIBLE = "TRAILING_ELIGIBLE"
     TRAILING_ACTIVE = "TRAILING_ACTIVE"
@@ -50,6 +55,13 @@ class ManagedTradeLifecycle:
     exit_fill_time: str | None = None
     exit_order_id: str | None = None
     realized_pnl: float = 0.0
+    stop_price: float | None = None
+    initial_risk_R: float | None = None
+    remaining_qty: int = 0
+    avg_exit_price: float | None = None
+    partial_exit_count: int = 0
+    pending_exit_qty: int = 0
+    entry_time: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     state: PositionLifecycleState = PositionLifecycleState.ENTRY_SUBMITTED
     stop: ProtectionOrderMeta | None = None
     target: ProtectionOrderMeta | None = None
@@ -78,11 +90,22 @@ class LifecyclePolicy:
     install_retry_limit: int = 2
     fail_safe_action_live: str = "BLOCK_NEW_ENTRIES"
     fail_safe_action_paper: str = "DEGRADED_ALERT"
+    max_hold_time_seconds: int = 300
+    weak_trade_pnl_threshold: float = 0.0
+    close_before_session_end_seconds: int = 60
+    target1_fraction: float = 0.5
+    target2_enabled: bool = False
 
 
 _ALLOWED_TRANSITIONS: dict[PositionLifecycleState, set[PositionLifecycleState]] = {
     PositionLifecycleState.ENTRY_SUBMITTED: {
+        PositionLifecycleState.ENTRY_FILLED,
         PositionLifecycleState.PARTIALLY_FILLED,
+        PositionLifecycleState.FILLED_UNPROTECTED,
+        PositionLifecycleState.LIFECYCLE_FAILURE,
+    },
+    PositionLifecycleState.ENTRY_FILLED: {
+        PositionLifecycleState.PROTECTION_PENDING,
         PositionLifecycleState.FILLED_UNPROTECTED,
         PositionLifecycleState.LIFECYCLE_FAILURE,
     },
@@ -100,8 +123,14 @@ _ALLOWED_TRANSITIONS: dict[PositionLifecycleState, set[PositionLifecycleState]] 
         PositionLifecycleState.LIFECYCLE_FAILURE,
     },
     PositionLifecycleState.PROTECTED: {
+        PositionLifecycleState.BREAK_EVEN,
         PositionLifecycleState.TARGET_ACTIVE,
         PositionLifecycleState.TRAILING_ELIGIBLE,
+        PositionLifecycleState.EXIT_PENDING,
+        PositionLifecycleState.FAILSAFE_TRIGGERED,
+    },
+    PositionLifecycleState.BREAK_EVEN: {
+        PositionLifecycleState.TRAILING_ACTIVE,
         PositionLifecycleState.EXIT_PENDING,
         PositionLifecycleState.FAILSAFE_TRIGGERED,
     },
@@ -119,10 +148,12 @@ class PostFillLifecycleEngine:
     def __init__(self, run_mode: str, policy: LifecyclePolicy | None = None, execution_provider: Any | None = None) -> None:
         self.run_mode = str(run_mode or "SIM").upper()
         self.policy = policy or LifecyclePolicy()
+        self.ross_policy = get_default_ross_policy_config()
         self.execution_provider = execution_provider
         self._trades: dict[str, ManagedTradeLifecycle] = {}
         self._active_trade_ids: set[str] = set()
         self._active_position_qty_by_symbol: dict[str, int] = {}
+        self._pending_exit_requests: dict[str, str] = {}
 
     @staticmethod
     def _is_open_trade_state(state: PositionLifecycleState) -> bool:
@@ -227,7 +258,7 @@ class PostFillLifecycleEngine:
             )
             return False
         print(
-            "[LIFECYCLE][TRANSITION] "
+            "[LIFECYCLE][STATE_TRANSITION] "
             f"trade_id={trade.trade_id} symbol={trade.symbol} from={trade.state.value} to={target.value} reason={reason}"
         )
         trade.state = target
@@ -235,19 +266,34 @@ class PostFillLifecycleEngine:
         print(f"[LIFECYCLE][STATE] trade_id={trade.trade_id} state={trade.state.value}")
         return True
 
-    def _compute_stop_target(self, avg_fill_price: float, side: str) -> tuple[float, float]:
+    def _compute_stop_target(self, avg_fill_price: float, side: str, market_state: dict[str, Any] | None = None) -> tuple[float, float]:
         side_u = str(side).upper()
-        if side_u not in {"LONG", "BUY"}:
-            raise ValueError("post-fill v1 supports long-side lifecycle hardening")
-        stop = avg_fill_price * (1.0 - self.policy.default_stop_pct)
-        target = avg_fill_price * (1.0 + self.policy.default_target_pct)
-        if stop >= avg_fill_price:
-            raise ValueError("invalid stop geometry: protective stop must be below long fill")
-        if target <= avg_fill_price:
-            raise ValueError("invalid target geometry: target must be above long fill")
+        state = market_state or {}
+        risk_buffer = max(
+            float(self.ross_policy.risk.max_loss_per_trade),
+            float(avg_fill_price) * float(self.ross_policy.execution.stop_offset_pct),
+        )
+        if side_u in {"LONG", "BUY"}:
+            recent_pullback_low = state.get("recent_pullback_low")
+            stop = float(recent_pullback_low) if recent_pullback_low is not None else float(avg_fill_price) - risk_buffer
+            if stop >= avg_fill_price:
+                stop = float(avg_fill_price) - risk_buffer
+            target = avg_fill_price + (avg_fill_price - stop)
+            if stop >= avg_fill_price:
+                raise ValueError("invalid stop geometry: protective stop must be below long fill")
+        elif side_u in {"SHORT", "SELL"}:
+            recent_pullback_high = state.get("recent_pullback_high")
+            stop = float(recent_pullback_high) if recent_pullback_high is not None else float(avg_fill_price) + risk_buffer
+            if stop <= avg_fill_price:
+                stop = float(avg_fill_price) + risk_buffer
+            target = avg_fill_price - (stop - avg_fill_price)
+            if stop <= avg_fill_price:
+                raise ValueError("invalid stop geometry: protective stop must be above short fill")
+        else:
+            raise ValueError(f"unsupported trade side={side_u}")
         print(
             "[LIFECYCLE][PROTECTION_POLICY] "
-            f"side={side_u} fill={avg_fill_price:.4f} stop_pct={self.policy.default_stop_pct:.4f} target_pct={self.policy.default_target_pct:.4f}"
+            f"side={side_u} fill={avg_fill_price:.4f} risk_buffer={risk_buffer:.4f}"
         )
         print(f"[LIFECYCLE][STOP_COMPUTED] stop={stop:.4f}")
         print(f"[LIFECYCLE][TARGET_COMPUTED] target={target:.4f}")
@@ -264,6 +310,7 @@ class PostFillLifecycleEngine:
         strategy_id: str,
         session_label: str = "runtime",
         intended_qty: int | None = None,
+        market_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         trade = ManagedTradeLifecycle(
             trade_id=str(trade_id),
@@ -275,10 +322,11 @@ class PostFillLifecycleEngine:
             intended_qty=int(intended_qty or filled_qty),
             filled_qty=int(filled_qty),
             avg_fill_price=float(avg_fill_price),
-            state=PositionLifecycleState.FILLED_UNPROTECTED,
+            state=PositionLifecycleState.ENTRY_FILLED,
             break_even_activation=float(avg_fill_price) * (1.0 + self.policy.break_even_pct),
             trailing_activation=float(avg_fill_price) * (1.0 + self.policy.trailing_activation_pct),
             high_water_mark=float(avg_fill_price),
+            remaining_qty=int(filled_qty),
         )
         self._trades[trade.trade_id] = trade
         self._update_in_memory_state()
@@ -298,9 +346,13 @@ class PostFillLifecycleEngine:
         for attempt in range(1, self.policy.install_retry_limit + 1):
             self._transition(trade, PositionLifecycleState.PROTECTION_PENDING, f"install_attempt_{attempt}")
             try:
-                stop, target = self._compute_stop_target(avg_fill_price=float(avg_fill_price), side=side)
-                trade.stop = ProtectionOrderMeta(order_type="STOP", side="SELL", trigger_price=stop, status="PENDING_SUBMIT")
-                trade.target = ProtectionOrderMeta(order_type="LIMIT", side="SELL", trigger_price=target, status="PENDING_SUBMIT")
+                stop, target = self._compute_stop_target(avg_fill_price=float(avg_fill_price), side=side, market_state=market_state)
+                trade.stop_price = float(stop)
+                trade.initial_risk_R = abs(float(avg_fill_price) - float(stop))
+                exit_side = "SELL" if str(side).upper() in {"LONG", "BUY"} else "BUY"
+                trade.stop = ProtectionOrderMeta(order_type="STOP", side=exit_side, trigger_price=stop, status="PENDING_SUBMIT")
+                trade.target = ProtectionOrderMeta(order_type="LIMIT", side=exit_side, trigger_price=target, status="PENDING_SUBMIT")
+                print(f"[TRADE][STOP_SET] trade_id={trade.trade_id} stop_price={stop:.4f}")
                 print(
                     "[LIFECYCLE][ORDER_INSTALL][STOP] "
                     f"trade_id={trade.trade_id} symbol={trade.symbol} stop={stop:.4f}"
@@ -338,8 +390,6 @@ class PostFillLifecycleEngine:
                     trade.stop.status = "REGISTERED"
                     trade.target.status = "REGISTERED"
                 self._transition(trade, PositionLifecycleState.PROTECTED, "stop_installed")
-                self._transition(trade, PositionLifecycleState.TARGET_ACTIVE, "target_registered")
-                self._transition(trade, PositionLifecycleState.TRAILING_ELIGIBLE, "baseline_trailing_ready")
                 installed = True
                 break
             except Exception as exc:  # defensive lifecycle boundary
@@ -376,7 +426,12 @@ class PostFillLifecycleEngine:
         trade = self._trades.get(str(trade_id))
         if trade is None or trade.stop is None:
             return {"updated": False, "reason": "trade_missing_or_unprotected"}
-        if trade.state not in {PositionLifecycleState.TRAILING_ELIGIBLE, PositionLifecycleState.TRAILING_ACTIVE}:
+        if trade.state not in {
+            PositionLifecycleState.PROTECTED,
+            PositionLifecycleState.BREAK_EVEN,
+            PositionLifecycleState.TRAILING_ELIGIBLE,
+            PositionLifecycleState.TRAILING_ACTIVE,
+        }:
             return {"updated": False, "reason": f"state_not_trailing:{trade.state.value}"}
 
         print(f"[TRAIL][ELIGIBLE] trade_id={trade.trade_id} symbol={trade.symbol} state={trade.state.value}")
@@ -421,6 +476,113 @@ class PostFillLifecycleEngine:
                 trade_id=trade.trade_id,
             )
         return {"updated": True, "stop_price": trade.stop.trigger_price, "state": trade.state.value}
+
+    def evaluate_trade_management(
+        self,
+        *,
+        trade_id: str,
+        current_price: float,
+        market_state: dict[str, Any] | None = None,
+        manual_kill: bool = False,
+        now: datetime | None = None,
+    ) -> list[TradeIntentRecord]:
+        trade = self._trades.get(str(trade_id))
+        if trade is None or trade.state in {PositionLifecycleState.EXITED, PositionLifecycleState.LIFECYCLE_FAILURE}:
+            return []
+        if trade.stop is None or trade.initial_risk_R is None or trade.initial_risk_R <= 0:
+            return []
+        if trade.trade_id in self._pending_exit_requests:
+            return []
+        state = market_state or {}
+        intents: list[TradeIntentRecord] = []
+        side_u = str(trade.side).upper()
+        price = float(current_price)
+        direction = 1.0 if side_u in {"LONG", "BUY"} else -1.0
+        pnl_unrealized = (price - float(trade.avg_fill_price)) * float(trade.filled_qty) * direction
+        hold_seconds = int((now or datetime.now(timezone.utc)).timestamp() - datetime.fromisoformat(trade.entry_time).timestamp())
+        r_level_1 = float(trade.avg_fill_price) + (direction * float(trade.initial_risk_R))
+        r_level_2 = float(trade.avg_fill_price) + (direction * float(trade.initial_risk_R) * 2.0)
+        stop_hit = (price <= float(trade.stop.trigger_price)) if direction > 0 else (price >= float(trade.stop.trigger_price))
+
+        if manual_kill:
+            intents.append(self._request_exit(trade=trade, qty=trade.filled_qty, reason="manual_kill", exit_type="MANUAL_KILL"))
+            return intents
+
+        if stop_hit:
+            exit_type = "TRAILING_STOP_HIT" if trade.trailing_active else "STOP_HIT"
+            intents.append(self._request_exit(trade=trade, qty=trade.filled_qty, reason=exit_type.lower(), exit_type=exit_type))
+            return intents
+
+        reached_1r = (price >= r_level_1) if direction > 0 else (price <= r_level_1)
+        if reached_1r and trade.state == PositionLifecycleState.PROTECTED:
+            break_even = float(trade.avg_fill_price) + (direction * float(self.ross_policy.stop.break_even_buffer_pct) * float(trade.avg_fill_price))
+            if direction > 0:
+                trade.stop.trigger_price = max(float(trade.stop.trigger_price), break_even)
+            else:
+                trade.stop.trigger_price = min(float(trade.stop.trigger_price), break_even)
+            trade.stop_price = trade.stop.trigger_price
+            self._transition(trade, PositionLifecycleState.BREAK_EVEN, "reached_1R")
+            print(f"[TRADE][BREAK_EVEN] trade_id={trade.trade_id}")
+
+        if reached_1r and trade.partial_exit_count == 0:
+            target1_qty = max(1, int(math.floor(float(trade.filled_qty) * float(self.ross_policy.target.target1_exit_fraction))))
+            target1_qty = min(target1_qty, max(1, trade.filled_qty - 1) if trade.filled_qty > 1 else 1)
+            trade.partial_exit_count += 1
+            print(f"[TRADE][TARGET_HIT] trade_id={trade.trade_id} target=1R")
+            intents.append(self._request_exit(trade=trade, qty=target1_qty, reason="target_1r_hit", exit_type="TARGET_HIT"))
+
+        if self.ross_policy.target.target2_enabled:
+            reached_2r = (price >= r_level_2) if direction > 0 else (price <= r_level_2)
+            if reached_2r and trade.filled_qty > 0:
+                print(f"[TRADE][TARGET_HIT] trade_id={trade.trade_id} target=2R")
+                intents.append(self._request_exit(trade=trade, qty=trade.filled_qty, reason="target_2r_hit", exit_type="TARGET_HIT"))
+                return intents
+
+        trail_anchor_key = self.ross_policy.trailing.early_session_anchor
+        if hold_seconds >= int(self.ross_policy.trailing.late_session_min_hold_seconds):
+            trail_anchor_key = self.ross_policy.trailing.late_session_anchor
+        anchor = state.get(trail_anchor_key)
+        if anchor is not None:
+            candidate = float(anchor) - (direction * float(self.ross_policy.execution.stop_offset_pct) * float(trade.avg_fill_price))
+            if direction > 0 and candidate > float(trade.stop.trigger_price):
+                trade.stop.trigger_price = candidate
+                trade.stop_price = candidate
+                trade.trailing_active = True
+                self._transition(trade, PositionLifecycleState.TRAILING_ACTIVE, f"structural_{trail_anchor_key}")
+                print(f"[TRADE][TRAIL_UPDATE] trade_id={trade.trade_id} stop_price={candidate:.4f}")
+            if direction < 0 and candidate < float(trade.stop.trigger_price):
+                trade.stop.trigger_price = candidate
+                trade.stop_price = candidate
+                trade.trailing_active = True
+                self._transition(trade, PositionLifecycleState.TRAILING_ACTIVE, f"structural_{trail_anchor_key}")
+                print(f"[TRADE][TRAIL_UPDATE] trade_id={trade.trade_id} stop_price={candidate:.4f}")
+
+        if hold_seconds > int(self.ross_policy.time.max_hold_time_seconds) and pnl_unrealized <= float(self.ross_policy.time.weak_trade_pnl_threshold):
+            print(f"[TRADE][TIME_EXIT] trade_id={trade.trade_id}")
+            intents.append(self._request_exit(trade=trade, qty=trade.filled_qty, reason="time_exit_weak_trade", exit_type="TIME_EXIT"))
+            return intents
+        if int(state.get("seconds_to_session_end", 10**9)) <= int(self.ross_policy.time.close_before_session_end_seconds):
+            print(f"[TRADE][TIME_EXIT] trade_id={trade.trade_id}")
+            intents.append(self._request_exit(trade=trade, qty=trade.filled_qty, reason="session_end_flatten", exit_type="TIME_EXIT"))
+        return intents
+
+    def _request_exit(self, *, trade: ManagedTradeLifecycle, qty: int, reason: str, exit_type: str) -> TradeIntentRecord:
+        size = max(1, min(int(qty), int(trade.filled_qty)))
+        intent = TradeIntentRecord(
+            symbol=trade.symbol,
+            intent_id=f"EXIT:{trade.trade_id}:{int(datetime.now(timezone.utc).timestamp()*1000)}",
+            setup_id=trade.strategy_id,
+            side=str(trade.side),
+            entry="EXIT",
+            stop=str(trade.stop_price or ""),
+            rationale=reason,
+            metadata={"trade_id": trade.trade_id, "action": "EXIT", "exit_type": exit_type, "requested_qty": size},
+        )
+        self._transition(trade, PositionLifecycleState.EXIT_PENDING, reason)
+        self._pending_exit_requests[trade.trade_id] = intent.intent_id
+        if self.execution_provider is not None and hasattr(self.execution_provider, "submit_trade_intent"):
+            self.execution_provider.submit_trade_intent(intent)
+        return intent
 
     @staticmethod
     def _extract_fill_price(payload: dict[str, Any]) -> float | None:
@@ -485,14 +647,22 @@ class PostFillLifecycleEngine:
 
         remaining_qty = int(trade.filled_qty) - qty
         trade.filled_qty = remaining_qty
+        trade.remaining_qty = remaining_qty
         trade.exited_qty += qty
         trade.exit_fill_price = float(fill_price)
         trade.exit_fill_time = fill_time_text
         trade.exit_order_id = str(exit_order_id) if exit_order_id is not None else trade.exit_order_id
         trade.realized_pnl += float(realized_increment)
+        total_exited = int(trade.exited_qty)
+        if total_exited > 0:
+            prior_notional = float(trade.avg_exit_price or 0.0) * float(max(total_exited - qty, 0))
+            trade.avg_exit_price = (prior_notional + (float(fill_price) * float(qty))) / float(total_exited)
         trade.last_update_ts = self._ts()
+        self._pending_exit_requests.pop(trade.trade_id, None)
 
         if remaining_qty > 0:
+            if trade.state == PositionLifecycleState.EXIT_PENDING:
+                self._transition(trade, PositionLifecycleState.BREAK_EVEN, "partial_fill_continue_management")
             self._update_in_memory_state()
             print(
                 "[LIFECYCLE][EXIT_PARTIAL] "
