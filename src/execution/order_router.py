@@ -78,6 +78,7 @@ OWNERSHIP_SYSTEM = "SYSTEM"
 OWNERSHIP_EXTERNAL = "EXTERNAL"
 _POSITION_OWNERSHIP_BY_SYMBOL: dict[str, str] = {}
 _TRADING_CONTROL_MODE = "ISOLATED_TRADING"
+_TRADE_REGISTRY: set[str] = set()
 
 AUTHORITATIVE_EXECUTION_STATES = {
     "DISPATCH_INTENDED",
@@ -192,15 +193,16 @@ def _resolve_symbol_ownership(symbol: str) -> str:
     if mode != "ISOLATED_TRADING":
         resolved = OWNERSHIP_SYSTEM
     else:
-        tracked_position = _RUNTIME_POSITIONS.get(normalized_symbol)
-        has_local_position_state = tracked_position is not None and int(getattr(tracked_position, "qty", 0) or 0) > 0
-        has_local_fill_history = any(
-            str(order.symbol or "").upper() == normalized_symbol and int(order.filled_qty or 0) > 0
-            for order in _RUNTIME_ORDERS.values()
-        )
-        resolved = OWNERSHIP_SYSTEM if (has_local_fill_history or has_local_position_state) else OWNERSHIP_EXTERNAL
+        resolved = OWNERSHIP_SYSTEM if normalized_symbol in _TRADE_REGISTRY else OWNERSHIP_EXTERNAL
     _POSITION_OWNERSHIP_BY_SYMBOL[normalized_symbol] = resolved
     return resolved
+
+
+def _register_trade_symbol(symbol: str) -> None:
+    normalized_symbol = str(symbol or "").upper().strip()
+    if not normalized_symbol:
+        return
+    _TRADE_REGISTRY.add(normalized_symbol)
 
 
 class ExecutionInvariantViolation(RuntimeError):
@@ -3330,6 +3332,7 @@ def execute_intents(
         )
         if trace.intent_id:
             _EXECUTION_TRACE_BY_INTENT[trace.intent_id] = trace
+            _register_trade_symbol(trace.symbol)
         order_side = "BUY" if str(getattr(decision, "side", "LONG") or "LONG").upper() == "LONG" else "SELL"
         is_exit_order = str(getattr(decision, "action", "") or "").upper() == "EXIT" or order_side == "SELL"
         truth = _create_execution_truth(

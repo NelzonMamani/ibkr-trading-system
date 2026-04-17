@@ -7,6 +7,13 @@ from src.core_engine.orchestrator import _compute_expectancy_metrics, run_cycle
 from src.core_engine.state import SessionState
 
 
+def _lifecycle_engine_from_trades(trades: dict[str, SimpleNamespace]) -> SimpleNamespace:
+    return SimpleNamespace(
+        snapshot=lambda: {trade_id: trade.to_dict() if hasattr(trade, "to_dict") else {} for trade_id, trade in trades.items()},
+        get_trade=lambda trade_id: trades.get(str(trade_id)),
+    )
+
+
 def _configure_single_symbol_pipeline(monkeypatch, execution_events: list[ExecutionEvent]) -> None:
     monkeypatch.setattr(
         "src.core_engine.orchestrator.run_scanner_cycle",
@@ -66,6 +73,7 @@ def test_analytics_uses_lifecycle_truth(monkeypatch, capsys) -> None:
 
     trade = SimpleNamespace(
         state="EXITED",
+        symbol="ABCD",
         entry_fill_price=5.0,
         avg_fill_price=5.0,
         exit_fill_price=5.5,
@@ -79,11 +87,11 @@ def test_analytics_uses_lifecycle_truth(monkeypatch, capsys) -> None:
         exit_fill_time="2026-04-17T12:02:00+00:00",
         exit_time="2026-04-17T12:02:00+00:00",
     )
-    lifecycle_engine = SimpleNamespace(get_trade=lambda trade_id: trade if trade_id == "trade-1" else None)
+    lifecycle_engine = _lifecycle_engine_from_trades({"trade-1": trade})
 
     run_cycle(cycle_id=1, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=lifecycle_engine)
     out = capsys.readouterr().out
-    assert "[TRACE][ANALYTICS_SOURCE] trade_id=trade-1 symbol=ABCD source=lifecycle_trade" in out
+    assert "[TRACE][ANALYTICS_SOURCE] trade_id=trade-1 symbol=ABCD source=trade_registry" in out
     assert "'exit_price': 5.5" in out
     assert "'realized_pnl': 50.0" in out
     assert "'exit_reason': 'TARGET_FILLED'" in out
@@ -96,7 +104,9 @@ def test_open_trade_not_emitted(monkeypatch, capsys) -> None:
     event.lifecycle_trade_id = "trade-open"
     _configure_single_symbol_pipeline(monkeypatch, [event])
 
-    lifecycle_engine = SimpleNamespace(get_trade=lambda _trade_id: SimpleNamespace(state="PROTECTED", exit_fill_price=5.5, exit_fill_time="t"))
+    lifecycle_engine = _lifecycle_engine_from_trades(
+        {"trade-open": SimpleNamespace(state="PROTECTED", symbol="ABCD", exit_fill_price=5.5, exit_fill_time="t")}
+    )
     run_cycle(cycle_id=2, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=lifecycle_engine)
     out = capsys.readouterr().out
     assert "[ANALYTICS][SKIP] trade_id=trade-open reason=trade_not_closed" in out
@@ -108,8 +118,8 @@ def test_missing_exit_truth_not_emitted(monkeypatch, capsys) -> None:
     event.lifecycle_trade_id = "trade-incomplete"
     _configure_single_symbol_pipeline(monkeypatch, [event])
 
-    lifecycle_engine = SimpleNamespace(
-        get_trade=lambda _trade_id: SimpleNamespace(state="EXITED", exit_fill_price=None, exit_fill_time=None)
+    lifecycle_engine = _lifecycle_engine_from_trades(
+        {"trade-incomplete": SimpleNamespace(state="EXITED", symbol="ABCD", exit_fill_price=None, exit_fill_time=None)}
     )
     run_cycle(cycle_id=3, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=lifecycle_engine)
     out = capsys.readouterr().out
@@ -121,10 +131,10 @@ def test_no_synthetic_trade_id(monkeypatch, capsys) -> None:
     event = ExecutionEvent(symbol="ABCD", intent_id="intent-only", action="SUBMITTED", detail="ok")
     _configure_single_symbol_pipeline(monkeypatch, [event])
 
-    lifecycle_engine = SimpleNamespace(get_trade=lambda _trade_id: None)
+    lifecycle_engine = _lifecycle_engine_from_trades({})
     run_cycle(cycle_id=4, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=lifecycle_engine)
     out = capsys.readouterr().out
-    assert "[TRACE][TRADE_LINK_FAILURE] symbol=ABCD intent_id=intent-only" in out
+    assert "[ANALYTICS][NO_TRADES_AVAILABLE]" in out
     assert "[TRADE_ANALYTICS][ROW]" not in out
     assert "trade_id': '4-intent-only'" not in out
 
@@ -151,9 +161,10 @@ def test_duplicate_execution_events_same_trade_emit_one_row(monkeypatch, capsys)
     event_b.lifecycle_trade_id = "trade-dup"
     _configure_single_symbol_pipeline(monkeypatch, [event_a, event_b])
 
-    lifecycle_engine = SimpleNamespace(
-        get_trade=lambda _trade_id: SimpleNamespace(
+    lifecycle_engine = _lifecycle_engine_from_trades(
+        {"trade-dup": SimpleNamespace(
             state="EXITED",
+            symbol="ABCD",
             entry_fill_price=5.0,
             avg_fill_price=5.0,
             exit_fill_price=5.2,
@@ -166,9 +177,8 @@ def test_duplicate_execution_events_same_trade_emit_one_row(monkeypatch, capsys)
             last_update_ts="2026-04-17T12:01:00+00:00",
             exit_fill_time="2026-04-17T12:02:00+00:00",
             exit_time="2026-04-17T12:02:00+00:00",
-        )
+        )}
     )
     run_cycle(cycle_id=5, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=lifecycle_engine)
     out = capsys.readouterr().out
     assert out.count("[TRADE_ANALYTICS][ROW]") == 1
-    assert "[ANALYTICS][DEDUP] trade_id=trade-dup" in out

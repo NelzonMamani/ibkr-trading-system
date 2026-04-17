@@ -25,6 +25,7 @@ def _reset_router_state() -> None:
     order_router._RECONCILED_POSITIONS_COUNT = 0
     order_router._RECON_RESYNC_NEEDED = False
     order_router._CALLBACK_DELAY_WARNINGS_COUNT = 0
+    order_router._TRADE_REGISTRY.clear()
 
 
 def test_callback_delay_marks_order_pending() -> None:
@@ -48,6 +49,7 @@ def test_callback_delay_marks_order_pending() -> None:
 def test_passive_reconciliation_detects_position_drift_without_fill_creation() -> None:
     _reset_router_state()
     order_router._RUNTIME_POSITIONS["AAPL"] = order_router.TrackedPosition(symbol="AAPL", qty=1, state="POSITION_OPEN")
+    order_router._TRADE_REGISTRY.add("AAPL")
     order_router._run_passive_position_reconciliation(positions=[_StubPosition(symbol="AAPL", position=3)])
 
     assert order_router._RUNTIME_POSITIONS["AAPL"].qty == 1

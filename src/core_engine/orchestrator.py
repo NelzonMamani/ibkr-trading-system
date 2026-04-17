@@ -250,6 +250,32 @@ def _compute_expectancy_metrics(analytics_rows: list[dict[str, Any]]) -> dict[st
     }
 
 
+def _load_router_trades(lifecycle_engine: Any | None) -> dict[str, Any]:
+    if lifecycle_engine is None:
+        return {}
+    snapshot_fn = getattr(lifecycle_engine, "snapshot", None)
+    if not callable(snapshot_fn):
+        return {}
+    try:
+        snapshot = snapshot_fn()
+    except Exception:
+        return {}
+    if not isinstance(snapshot, dict):
+        return {}
+    get_trade = getattr(lifecycle_engine, "get_trade", None)
+    if not callable(get_trade):
+        return {}
+    router_trades: dict[str, Any] = {}
+    for trade_id in snapshot.keys():
+        try:
+            trade = get_trade(str(trade_id))
+        except Exception:
+            trade = None
+        if trade is not None:
+            router_trades[str(trade_id)] = trade
+    return router_trades
+
+
 def _pipeline_stage_log(
     *,
     stage: str,
@@ -1588,23 +1614,27 @@ def run_cycle(
                     existing_position = position_book.get(symbol_key)
                     fill_price = event.avg_fill_price
                     fill_qty = max(0, filled_quantity)
-                    if existing_position is None:
-                        position_book[symbol_key] = {"qty": float(fill_qty), "avg_price": float(fill_price or 0.0)}
+                    position_creation_blocked = fill_price is None or float(fill_price) <= 0
+                    if position_creation_blocked:
+                        print("[POSITION][BLOCKED_NO_FILL_PRICE]")
                     else:
-                        prev_qty = float(existing_position["qty"])
-                        prev_avg = float(existing_position["avg_price"])
-                        total_qty = prev_qty + float(fill_qty)
-                        if total_qty > 0 and fill_price is not None:
-                            weighted_avg = ((prev_qty * prev_avg) + (float(fill_qty) * float(fill_price))) / total_qty
+                        if existing_position is None:
+                            position_book[symbol_key] = {"qty": float(fill_qty), "avg_price": float(fill_price or 0.0)}
                         else:
-                            weighted_avg = prev_avg
-                        existing_position["qty"] = total_qty
-                        existing_position["avg_price"] = weighted_avg
-                    print(
-                        f"[LIFECYCLE] POSITION_OPENED symbol={symbol_key} "
-                        f"qty={int(position_book[symbol_key]['qty'])} "
-                        f"price={position_book[symbol_key]['avg_price']:.4f}"
-                    )
+                            prev_qty = float(existing_position["qty"])
+                            prev_avg = float(existing_position["avg_price"])
+                            total_qty = prev_qty + float(fill_qty)
+                            if total_qty > 0 and fill_price is not None:
+                                weighted_avg = ((prev_qty * prev_avg) + (float(fill_qty) * float(fill_price))) / total_qty
+                            else:
+                                weighted_avg = prev_avg
+                            existing_position["qty"] = total_qty
+                            existing_position["avg_price"] = weighted_avg
+                        print(
+                            f"[LIFECYCLE] POSITION_OPENED symbol={symbol_key} "
+                            f"qty={int(position_book[symbol_key]['qty'])} "
+                            f"price={position_book[symbol_key]['avg_price']:.4f}"
+                        )
                     pending_entries = max(0, pending_entries - 1)
         elif execution_pass:
             working_orders += 1 if event.action == "WOULD_PLACE" else 0
@@ -1852,38 +1882,25 @@ def run_cycle(
     analytics_rows: list[dict[str, Any]] = []
     exit_reason_breakdown: Counter[str] = Counter()
     seen_trade_ids: set[str] = set()
-    for event in execution_events:
-        trade_id = _resolve_trade_id_from_execution(event, lifecycle_engine)
-        if trade_id is None:
-            print(
-                f"[TRACE][TRADE_LINK_FAILURE] symbol={event.symbol} intent_id={event.intent_id}"
-            )
-            continue
-        client_order_id = getattr(event, "client_order_id", None)
-        if client_order_id and str(client_order_id) != trade_id:
-            print(
-                f"[TRACE][TRADE_LINK_MISMATCH] client_order_id={client_order_id} resolved_trade_id={trade_id}"
-            )
+    router_trades = _load_router_trades(lifecycle_engine)
+    if not router_trades:
+        print("[ANALYTICS][NO_TRADES_AVAILABLE]")
+    for trade_id, trade in router_trades.items():
         if trade_id in seen_trade_ids:
             print(f"[ANALYTICS][DEDUP] trade_id={trade_id}")
             continue
-        if lifecycle_engine is None:
-            print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=missing_lifecycle")
-            continue
-        trade = lifecycle_engine.get_trade(trade_id)
-        if trade is None:
-            print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=missing_lifecycle")
-            continue
         if str(getattr(trade, "state", "")).upper() != "EXITED":
             print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=trade_not_closed")
+            continue
+        symbol = str(getattr(trade, "symbol", "") or "").upper()
+        if not symbol:
+            print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=missing_symbol")
             continue
         if getattr(trade, "exit_fill_price", None) is None or getattr(trade, "exit_fill_time", None) is None:
             print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=incomplete_lifecycle")
             continue
         seen_trade_ids.add(trade_id)
-        print(
-            f"[TRACE][ANALYTICS_SOURCE] trade_id={trade_id} symbol={event.symbol} source=lifecycle_trade"
-        )
+        print(f"[TRACE][ANALYTICS_SOURCE] trade_id={trade_id} symbol={symbol} source=trade_registry")
         entry_price_raw = getattr(trade, "entry_fill_price", None)
         if entry_price_raw is None:
             entry_price_raw = getattr(trade, "avg_fill_price", None)
@@ -1895,11 +1912,11 @@ def run_cycle(
         holding_seconds = int(getattr(trade, "holding_duration_seconds", 0) or 0)
         analytics_row = {
             "trade_id": trade_id,
-            "origin_intent_id": event.intent_id,
+            "origin_intent_id": getattr(trade, "origin_intent_id", None),
             "origin_cycle_id": cycle_id,
-            "symbol": event.symbol,
-            "setup_name": symbol_setup_family.get(event.symbol, "NONE"),
-            "trigger_type": symbol_trigger_type.get(event.symbol, "NONE"),
+            "symbol": symbol,
+            "setup_name": symbol_setup_family.get(symbol, "NONE"),
+            "trigger_type": symbol_trigger_type.get(symbol, "NONE"),
             "entry_time": (
                 getattr(trade, "entry_fill_time", None)
                 or getattr(trade, "entry_time", None)
