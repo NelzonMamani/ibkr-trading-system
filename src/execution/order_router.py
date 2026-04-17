@@ -16,6 +16,14 @@ from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_co
 from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core_engine.events import ExecutionEvent, TradeIntentRecord
 from src.core_engine.state import RunMode, SessionState, resolve_session_state
+from src.execution.fill_diagnostics import (
+    FillabilityClass,
+    NormalizedInactiveReason,
+    classify_fillability,
+    diagnostic_verdict,
+    marketable_expected,
+    normalize_inactive_reason as normalize_inactive_reason_v2,
+)
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 
 _EXECUTION_EVENT_BUFFER: dict[int, ExecutionEvent] = {}
@@ -1749,28 +1757,34 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 why_held = str(_extract_callback_field(callback_payload, "whyHeld", "why_held") or "")
                 submit_payload = dict(row.order_wire_payload or {})
                 open_order_echo = dict(row.open_order_detail or {})
-                fillability = str(row.fillability_classification or "NON_MARKETABLE_UNKNOWN")
-                quote_available = any(
-                    submit_payload.get(key) is not None for key in ("bid", "ask", "last")
+                fillability = str(row.fillability_classification or FillabilityClass.AWAY_FROM_MARKET.value)
+                normalized_reason_v2 = normalize_inactive_reason_v2(
+                    order=SimpleNamespace(
+                        action=submit_payload.get("action"),
+                        lmtPrice=submit_payload.get("lmt_price"),
+                    ),
+                    broker_state=SimpleNamespace(
+                        status=row.broker_status,
+                        whyHeld=why_held,
+                    ),
+                    quote_snapshot={
+                        "bid": submit_payload.get("bid"),
+                        "ask": submit_payload.get("ask"),
+                        "session_label": str(submit_payload.get("session_label") or _session_label_now()),
+                    },
                 )
-                normalized_inactive_reason, inactive_rationale = normalize_inactive_reason(
-                    submit_payload=submit_payload,
-                    open_order_echo=open_order_echo,
-                    broker_status=row.broker_status,
-                    why_held=why_held,
-                    session_label=str(submit_payload.get("session_label") or _session_label_now()),
-                    fillability=fillability,
-                    quote_available=quote_available,
-                )
-                row.inactive_normalized_reason = normalized_inactive_reason
+                inactive_rationale = f"v2={normalized_reason_v2.value}"
+                row.inactive_normalized_reason = normalized_reason_v2.value
                 row.inactive_rationale = inactive_rationale
                 print(
-                    "[EXECUTION][INACTIVE_CLASSIFIED] "
-                    f"symbol={row.symbol} order_id={order_id} reason={normalized_inactive_reason} "
+                    "[EXECUTION][INACTIVE_DIAG] "
+                    f"symbol={row.symbol} order_id={order_id} normalized_reason={normalized_reason_v2.value} "
                     f"broker_status={_none_text(row.broker_status)} fillability={fillability} "
                     f"outside_rth={_none_text(open_order_echo.get('outside_rth', submit_payload.get('outside_rth')))} "
                     f"tif={_none_text(open_order_echo.get('tif', submit_payload.get('tif')))} "
                     f"session_label={_none_text(submit_payload.get('session_label'))} why_held={_none_text(why_held)} "
+                    f"bid={_none_text(submit_payload.get('bid'))} ask={_none_text(submit_payload.get('ask'))} "
+                    f"limit={_none_text(submit_payload.get('lmt_price'))} "
                     f"rationale={inactive_rationale}"
                 )
             if str(row.broker_status or "").upper() in {"CANCELLED", "CANCELED", "API_CANCELLED"}:
@@ -2719,7 +2733,11 @@ def _inactive_terminal_state_from_reason(reason: str) -> str:
         "NON_MARKETABLE": "BROKER_INACTIVE_NON_MARKETABLE",
         "SESSION_MISMATCH": "BROKER_INACTIVE_SESSION_MISMATCH",
         "NO_LIQUIDITY": "BROKER_INACTIVE_NO_QUOTE",
+        "NO_QUOTE": "BROKER_INACTIVE_NO_QUOTE",
         "ROUTING_REJECT": "BROKER_INACTIVE_ROUTING",
+        "ROUTING": "BROKER_INACTIVE_ROUTING",
+        "OUTSIDE_RTH": "BROKER_INACTIVE_OUTSIDE_RTH",
+        "HELD": "BROKER_INACTIVE_HELD",
         "UNKNOWN": "BROKER_INACTIVE_UNKNOWN",
     }
     return mapping.get(str(reason or "").upper(), "BROKER_INACTIVE_UNKNOWN")
@@ -3007,6 +3025,17 @@ def _submit_ibkr_order(
             f"orderType={getattr(order, 'orderType', 'UNKNOWN')} source={price_source}"
         )
     spread_abs, spread_pct = _compute_quote_spread(bid=bid, ask=ask)
+    fillability_class = classify_fillability(
+        order=order,
+        quote_snapshot={"bid": bid, "ask": ask},
+    )
+    setattr(order, "_fillability_class", fillability_class.value)
+    print(
+        "[EXECUTION][FILLABILITY_PRE] "
+        f"symbol={symbol} order_id=PENDING fillability={fillability_class.value} "
+        f"bid={_none_text(bid)} ask={_none_text(ask)} limit={_none_text(_safe_price_value(getattr(order, 'lmtPrice', None)))} "
+        f"type={_none_text(getattr(order, 'orderType', None))}"
+    )
     fillability, fillability_rationale = classify_submit_fillability(
         order_type=str(getattr(order, "orderType", "") or ""),
         action=str(getattr(order, "action", "") or ""),
@@ -3124,7 +3153,7 @@ def _submit_ibkr_order(
     tracked = _RUNTIME_ORDERS.get(int(order_id))
     if tracked is not None:
         tracked.order_wire_payload = dict(wire_payload)
-        tracked.fillability_classification = str(fillability)
+        tracked.fillability_classification = str(fillability_class.value)
         tracked.fillability_rationale = str(fillability_rationale)
         tracked.market_session = str(market_session)
         tracked.min_tick = float(min_tick)
@@ -3869,9 +3898,45 @@ def execute_intents(
     for order_id in submitted_order_ids:
         tracked = _RUNTIME_ORDERS.get(int(order_id))
         final_state = _resolve_authoritative_execution_state(tracked)
+        if tracked is not None and final_state == "BROKER_INACTIVE_UNKNOWN":
+            submit_payload = dict(tracked.order_wire_payload or {})
+            normalized_reason_v2 = normalize_inactive_reason_v2(
+                order=SimpleNamespace(
+                    action=submit_payload.get("action"),
+                    lmtPrice=submit_payload.get("lmt_price"),
+                ),
+                broker_state=SimpleNamespace(
+                    status=tracked.broker_status,
+                    whyHeld="",
+                ),
+                quote_snapshot={
+                    "bid": submit_payload.get("bid"),
+                    "ask": submit_payload.get("ask"),
+                    "session_label": submit_payload.get("session_label"),
+                },
+            )
+            tracked.inactive_normalized_reason = normalized_reason_v2.value
+            final_state = _resolve_authoritative_execution_state(tracked)
         if tracked is not None:
             tracked.final_execution_state = final_state
         truth_terminal_counts[final_state] = int(truth_terminal_counts.get(final_state, 0)) + 1
+        if tracked is not None and tracked.ack_seen and not tracked.fill_seen:
+            fillability_value = str(tracked.fillability_classification or FillabilityClass.AWAY_FROM_MARKET.value)
+            try:
+                fillability_for_verdict = FillabilityClass(fillability_value)
+            except ValueError:
+                fillability_for_verdict = FillabilityClass.AWAY_FROM_MARKET
+            try:
+                inactive_for_verdict = NormalizedInactiveReason(str(tracked.inactive_normalized_reason or "UNKNOWN"))
+            except ValueError:
+                inactive_for_verdict = NormalizedInactiveReason.UNKNOWN
+            print(
+                "[EXECUTION][FILL_DIAG_SUMMARY] "
+                f"symbol={tracked.symbol} order_id={int(order_id)} "
+                f"fillability={fillability_for_verdict.value} inactive_reason={inactive_for_verdict.value} "
+                f"marketable_expected={str(marketable_expected(fillability_for_verdict)).lower()} "
+                f"diagnostic_verdict={diagnostic_verdict(fillability_for_verdict, inactive_for_verdict)}"
+            )
         print(
             "[EXECUTION][TRUTH_ROW] "
             f"symbol={(tracked.symbol if tracked is not None else 'UNKNOWN')} order_id={int(order_id)} "
