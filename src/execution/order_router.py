@@ -3030,6 +3030,14 @@ def _submit_ibkr_order(
         quote_snapshot={"bid": bid, "ask": ask},
     )
     setattr(order, "_fillability_class", fillability_class.value)
+    is_degraded_path = execution_path == DEGRADED_QUOTE_PATH
+    if fillability_class == FillabilityClass.NO_QUOTE and not is_degraded_path:
+        print(
+            "[EXECUTION][BLOCKED_NO_QUOTE_PRE_SUBMIT] "
+            f"symbol={symbol} "
+            f"reason=NO_QUOTE bid={_none_text(bid)} ask={_none_text(ask)}"
+        )
+        raise RuntimeError("NO_QUOTE_PRE_SUBMIT")
     print(
         "[EXECUTION][FILLABILITY_PRE] "
         f"symbol={symbol} order_id=PENDING fillability={fillability_class.value} "
