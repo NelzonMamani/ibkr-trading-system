@@ -1320,7 +1320,8 @@ def run_cycle(
         f"scan_only={mode_authority.scan_only} execution_enabled={mode_authority.execution_enabled} "
         f"intents_present={bool(arbitrated_decisions)} intent_count={len(arbitrated_decisions)}"
     )
-    execution_candidates: List[RiskDecisionRecord] = []
+    execution_candidates: List[TradeIntentRecord] = []
+    intent_by_id = {intent.intent_id: intent for intent in intents}
     blocked_candidates: List[ExecutionEvent] = []
     execution_skipped = execution_intent.scan_only or (not mode_authority.trade_enabled)
     validation_override_active = "override" in str(getattr(mode_authority, "reason", "") or "").lower()
@@ -1484,10 +1485,41 @@ def run_cycle(
             outcome="ATTEMPT",
             reason_code="SUBMIT_ATTEMPT",
         )
-        execution_candidates.append(decision)
+        base_intent = intent_by_id.get(decision.intent_id)
+        if base_intent is None:
+            print(
+                f"[EXECUTION][BLOCK] symbol={decision.symbol} reason=INTENT_NOT_FOUND intent_id={decision.intent_id}"
+            )
+            blocked_candidates.append(
+                ExecutionEvent(
+                    symbol=decision.symbol,
+                    intent_id=decision.intent_id,
+                    action="BLOCKED",
+                    detail="reason=INTENT_NOT_FOUND",
+                )
+            )
+            pipeline_outcomes[decision.symbol] = TERMINAL_STATES["BLOCKED_BY_EXECUTION_PRECHECK"]
+            first_blocker_by_symbol.setdefault(decision.symbol, "INTENT_NOT_ROUTED_TO_EXECUTION")
+            first_blocker_reason_by_symbol.setdefault(decision.symbol, "INTENT_NOT_FOUND")
+            decision_waterfall[decision.symbol]["execution"] = "REJECTED"
+            decision_waterfall[decision.symbol]["execution_reason"] = "INTENT_NOT_FOUND"
+            continue
+        execution_candidates.append(
+            replace(
+                base_intent,
+                metadata={
+                    **(base_intent.metadata or {}),
+                    "approved_quantity": int(decision.approved_quantity),
+                    "risk_decision": str(decision.decision),
+                    "available_funds": float(decision.available_funds),
+                    "order_value": float(decision.order_value),
+                    "risk_allowed": bool(decision.risk_allowed),
+                },
+            )
+        )
 
-    if intents:
-        execution_events = execute_intents(mode=mode, decisions=execution_candidates)
+    if execution_candidates:
+        execution_events = execute_intents(intents=execution_candidates, mode_value=mode.value)
     else:
         execution_events = []
     execution_events.extend(blocked_candidates)
