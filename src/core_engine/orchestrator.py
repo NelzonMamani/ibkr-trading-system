@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import time
@@ -193,6 +193,61 @@ def _derive_last_block_reason(risk_decisions: List[RiskDecisionRecord]) -> str:
         if decision.decision == "BLOCK" and decision.triggered_rules:
             return ",".join(decision.triggered_rules)
     return "NONE"
+
+
+def _resolve_trade_id_from_execution(event: ExecutionEvent, lifecycle_engine: Any | None) -> str | None:
+    def _has_lifecycle_trade(candidate: Any) -> bool:
+        if lifecycle_engine is None or candidate is None:
+            return False
+        get_trade = getattr(lifecycle_engine, "get_trade", None)
+        if not callable(get_trade):
+            return False
+        try:
+            return get_trade(str(candidate)) is not None
+        except Exception:
+            return False
+
+    lifecycle_trade_id = getattr(event, "lifecycle_trade_id", None)
+    if lifecycle_trade_id:
+        return str(lifecycle_trade_id)
+
+    event_trade_id = getattr(event, "trade_id", None)
+    if event_trade_id:
+        return str(event_trade_id)
+
+    client_order_id = getattr(event, "client_order_id", None)
+    if client_order_id and _has_lifecycle_trade(client_order_id):
+        return str(client_order_id)
+
+    metadata = getattr(event, "metadata", None)
+    if isinstance(metadata, dict):
+        metadata_trade_id = metadata.get("trade_id") or metadata.get("lifecycle_trade_id")
+        if metadata_trade_id and _has_lifecycle_trade(metadata_trade_id):
+            return str(metadata_trade_id)
+
+    return None
+
+
+def _compute_expectancy_metrics(analytics_rows: list[dict[str, Any]]) -> dict[str, float]:
+    total_trades = len(analytics_rows)
+    pnls = [float(row.get("realized_pnl", 0.0) or 0.0) for row in analytics_rows]
+    total_realized_pnl = sum(pnls)
+    avg_pnl = (total_realized_pnl / total_trades) if total_trades else 0.0
+    winners = [pnl for pnl in pnls if pnl > 0]
+    losers = [pnl for pnl in pnls if pnl < 0]
+    win_rate = (len(winners) / total_trades) if total_trades else 0.0
+    avg_winner = (sum(winners) / len(winners)) if winners else 0.0
+    avg_loser = (sum(losers) / len(losers)) if losers else 0.0
+    expectancy = (win_rate * avg_winner) + ((1.0 - win_rate) * avg_loser)
+    return {
+        "total_trades": float(total_trades),
+        "total_realized_pnl": total_realized_pnl,
+        "avg_pnl": avg_pnl,
+        "win_rate": win_rate,
+        "avg_winner": avg_winner,
+        "avg_loser": avg_loser,
+        "expectancy": expectancy,
+    }
 
 
 def _pipeline_stage_log(
@@ -574,6 +629,7 @@ def run_cycle(
     cycle_id: int,
     mode_value: str,
     forced_session_state=None,
+    lifecycle_engine: Any | None = None,
 ) -> CycleSummary:
     _ensure_deterministic_prep()
     mode_input = mode_value or str(get_config("RUN_MODE_EFFECTIVE") or "READ_ONLY")
@@ -1795,28 +1851,67 @@ def run_cycle(
 
     analytics_rows: list[dict[str, Any]] = []
     exit_reason_breakdown: Counter[str] = Counter()
+    seen_trade_ids: set[str] = set()
     for event in execution_events:
-        if int(getattr(event, "filled_quantity", 0) or 0) <= 0:
+        trade_id = _resolve_trade_id_from_execution(event, lifecycle_engine)
+        if trade_id is None:
+            print(
+                f"[TRACE][TRADE_LINK_FAILURE] symbol={event.symbol} intent_id={event.intent_id}"
+            )
             continue
-        entry_price = float(getattr(event, "avg_fill_price", 0.0) or 0.0)
-        exit_price = float(getattr(event, "avg_fill_price", 0.0) or 0.0)
-        realized_pnl = 0.0
-        gross_return_pct = 0.0
-        holding_seconds = 0
-        exit_reason = str(getattr(event, "detail", "ORDER_FILLED") or "ORDER_FILLED")
+        client_order_id = getattr(event, "client_order_id", None)
+        if client_order_id and str(client_order_id) != trade_id:
+            print(
+                f"[TRACE][TRADE_LINK_MISMATCH] client_order_id={client_order_id} resolved_trade_id={trade_id}"
+            )
+        if trade_id in seen_trade_ids:
+            print(f"[ANALYTICS][DEDUP] trade_id={trade_id}")
+            continue
+        if lifecycle_engine is None:
+            print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=missing_lifecycle")
+            continue
+        trade = lifecycle_engine.get_trade(trade_id)
+        if trade is None:
+            print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=missing_lifecycle")
+            continue
+        if str(getattr(trade, "state", "")).upper() != "EXITED":
+            print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=trade_not_closed")
+            continue
+        if getattr(trade, "exit_fill_price", None) is None or getattr(trade, "exit_fill_time", None) is None:
+            print(f"[ANALYTICS][SKIP] trade_id={trade_id} reason=incomplete_lifecycle")
+            continue
+        seen_trade_ids.add(trade_id)
+        print(
+            f"[TRACE][ANALYTICS_SOURCE] trade_id={trade_id} symbol={event.symbol} source=lifecycle_trade"
+        )
+        entry_price_raw = getattr(trade, "entry_fill_price", None)
+        if entry_price_raw is None:
+            entry_price_raw = getattr(trade, "avg_fill_price", None)
+        exit_reason = str(getattr(trade, "exit_reason", "UNKNOWN") or "UNKNOWN")
+        realized_pnl = float(getattr(trade, "realized_pnl", 0.0) or 0.0)
+        entry_price = float(entry_price_raw or 0.0)
+        exit_price = float(getattr(trade, "exit_fill_price", 0.0) or 0.0)
+        gross_return_pct = ((exit_price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
+        holding_seconds = int(getattr(trade, "holding_duration_seconds", 0) or 0)
         analytics_row = {
-            "trade_id": f"{cycle_id}-{event.intent_id}",
+            "trade_id": trade_id,
+            "origin_intent_id": event.intent_id,
+            "origin_cycle_id": cycle_id,
             "symbol": event.symbol,
             "setup_name": symbol_setup_family.get(event.symbol, "NONE"),
             "trigger_type": symbol_trigger_type.get(event.symbol, "NONE"),
-            "entry_time": getattr(event, "last_update_time", None),
+            "entry_time": (
+                getattr(trade, "entry_fill_time", None)
+                or getattr(trade, "entry_time", None)
+                or getattr(trade, "last_update_ts", None)
+            ),
             "entry_price": entry_price,
-            "exit_time": getattr(event, "last_update_time", None),
+            "exit_time": getattr(trade, "exit_fill_time", None) or getattr(trade, "exit_time", None),
             "exit_price": exit_price,
             "holding_duration_seconds": holding_seconds,
             "realized_pnl": realized_pnl,
             "exit_reason": exit_reason,
-            "partial_exit_count": 1 if str(getattr(event, "event_type", "")).upper() == "ORDER_PARTIALLY_FILLED" else 0,
+            "partial_exit_count": int(getattr(trade, "partial_exit_count", 0) or 0),
             "gross_return_pct": gross_return_pct,
             "risk_multiple": None,
             "entry_to_peak_favorable_pct": None,
@@ -1825,15 +1920,16 @@ def run_cycle(
         analytics_rows.append(analytics_row)
         exit_reason_breakdown[exit_reason] += 1
         print(f"[TRADE_ANALYTICS][ROW] {analytics_row}")
+    expectancy_metrics = _compute_expectancy_metrics(analytics_rows)
     winners = sum(1 for row in analytics_rows if float(row["realized_pnl"]) > 0)
     losers = sum(1 for row in analytics_rows if float(row["realized_pnl"]) < 0)
     analytics_summary = {
         "trades_closed": len(analytics_rows),
         "winners": winners,
         "losers": losers,
-        "win_rate": (winners / len(analytics_rows)) if analytics_rows else 0.0,
-        "avg_pnl": (sum(float(row["realized_pnl"]) for row in analytics_rows) / len(analytics_rows)) if analytics_rows else 0.0,
-        "total_realized_pnl": sum(float(row["realized_pnl"]) for row in analytics_rows),
+        "win_rate": expectancy_metrics["win_rate"],
+        "avg_pnl": expectancy_metrics["avg_pnl"],
+        "total_realized_pnl": expectancy_metrics["total_realized_pnl"],
         "avg_holding_seconds": (
             sum(int(row["holding_duration_seconds"]) for row in analytics_rows) / len(analytics_rows)
             if analytics_rows
@@ -1842,6 +1938,17 @@ def run_cycle(
         "exit_reason_breakdown": dict(exit_reason_breakdown),
     }
     print(f"[TRADE_ANALYTICS][SUMMARY] {analytics_summary}")
+    print(f"[TRADE_ANALYTICS][EXPECTANCY] value={expectancy_metrics['expectancy']}")
+    setup_groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in analytics_rows:
+        setup_groups[(str(row.get("setup_name", "NONE")), str(row.get("trigger_type", "NONE")))].append(row)
+    for (setup_name, trigger_type), rows in sorted(setup_groups.items()):
+        row_metrics = _compute_expectancy_metrics(rows)
+        print(
+            "[SETUP_PERFORMANCE] "
+            f"setup={setup_name} trigger_type={trigger_type} trades={len(rows)} "
+            f"win_rate={row_metrics['win_rate']:.4f} total_pnl={row_metrics['total_realized_pnl']:.4f}"
+        )
     print(
         "[LIFECYCLE][RISK_SIGNALS] "
         f"trade_flow_active={str(execution_attempts > 0).lower()} "
