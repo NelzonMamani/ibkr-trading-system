@@ -249,6 +249,52 @@ def _compute_expectancy_metrics(analytics_rows: list[dict[str, Any]]) -> dict[st
         "expectancy": expectancy,
     }
 
+def _coerce_lifecycle_exit_decision(intent: Any, *, fallback_intent_id: str) -> RiskDecisionRecord | None:
+    if isinstance(intent, dict):
+        intent_symbol = intent.get("symbol")
+        intent_qty = intent.get("quantity") or intent.get("qty") or intent.get("approved_quantity")
+        intent_id = intent.get("intent_id") or intent.get("trade_id") or intent.get("reference_order_id")
+        decision_side = intent.get("side") or intent.get("direction") or "SHORT"
+        entry_price = intent.get("current_price") or intent.get("entry_price")
+    else:
+        intent_symbol = getattr(intent, "symbol", None)
+        intent_qty = getattr(intent, "quantity", None) or getattr(intent, "qty", None) or getattr(intent, "approved_quantity", None)
+        intent_id = (
+            getattr(intent, "intent_id", None)
+            or getattr(intent, "trade_id", None)
+            or getattr(intent, "reference_order_id", None)
+        )
+        decision_side = getattr(intent, "side", None) or getattr(intent, "direction", None) or "SHORT"
+        entry_price = getattr(intent, "current_price", None) or getattr(intent, "entry_price", None)
+
+    symbol = str(intent_symbol or "").upper()
+    qty = int(intent_qty or 0)
+    normalized_intent_id = str(intent_id or fallback_intent_id).strip()
+    if not symbol or qty <= 0 or not normalized_intent_id:
+        return None
+
+    decision = RiskDecisionRecord(
+        symbol=symbol,
+        intent_id=normalized_intent_id,
+        decision="ALLOW",
+        max_position_size=qty,
+        constraints=["LIFECYCLE_EXIT"],
+        triggered_rules=[],
+        rationale="LIFECYCLE_EXIT",
+        available_funds=0.0,
+        order_value=0.0,
+        risk_allowed=True,
+        block_reason="",
+        approved_quantity=qty,
+        entry_price=float(entry_price) if entry_price is not None else None,
+    )
+    setattr(decision, "action", "EXIT")
+    normalized_side = str(decision_side or "").upper()
+    setattr(decision, "side", "SHORT" if normalized_side in {"SHORT", "SELL", "EXIT"} else "SHORT")
+    setattr(decision, "strategy_name", "LIFECYCLE")
+    return decision
+
+
 
 def _pipeline_stage_log(
     *,
@@ -1490,6 +1536,78 @@ def run_cycle(
         execution_events = execute_intents(mode=mode, decisions=execution_candidates)
     else:
         execution_events = []
+
+    # -----------------------------------
+    # LIFECYCLE TRADE MANAGEMENT
+    # -----------------------------------
+    lifecycle_exit_intents: list[Any] = []
+
+    symbol_last_price: dict[str, float] = {}
+    for symbol, snapshot in ibkr_stream_by_symbol.items():
+        last_price = snapshot.get("last") if isinstance(snapshot, dict) else None
+        if last_price is not None:
+            symbol_last_price[str(symbol).upper()] = float(last_price)
+    for symbol, scanner_last in scanner_last_price_by_symbol.items():
+        if scanner_last is None:
+            continue
+        symbol_last_price.setdefault(str(symbol).upper(), float(scanner_last))
+
+    symbol_hl_1m = scanner_payload.get("higher_low_1m_by_symbol", {})
+    symbol_hl_5m = scanner_payload.get("higher_low_5m_by_symbol", {})
+    seconds_to_session_end = scanner_payload.get("seconds_to_session_end")
+
+    evaluate_trade_management = getattr(lifecycle_engine, "evaluate_trade_management", None) if lifecycle_engine is not None else None
+
+    if lifecycle_engine is not None and callable(evaluate_trade_management):
+        active_trades = getattr(lifecycle_engine, "_trades", {})
+
+        for trade_id, trade in active_trades.items():
+            if str(getattr(trade, "state", "")).upper() in {"EXITED", "LIFECYCLE_FAILURE"}:
+                continue
+
+            symbol = str(getattr(trade, "symbol", "") or "").upper()
+            market_price = symbol_last_price.get(symbol)
+
+            if market_price is None:
+                continue
+
+            market_state = {
+                "higher_low_1m": symbol_hl_1m.get(symbol) if isinstance(symbol_hl_1m, dict) else None,
+                "higher_low_5m": symbol_hl_5m.get(symbol) if isinstance(symbol_hl_5m, dict) else None,
+                "seconds_to_session_end": seconds_to_session_end,
+            }
+
+            lifecycle_intents = evaluate_trade_management(
+                trade_id=trade_id,
+                current_price=float(market_price),
+                market_state=market_state,
+            )
+
+            if lifecycle_intents:
+                print(
+                    f"[LIFECYCLE][EXIT_INTENTS] trade_id={trade_id} count={len(lifecycle_intents)}"
+                )
+                lifecycle_exit_intents.extend(lifecycle_intents)
+
+    if lifecycle_exit_intents:
+        print(f"[EXECUTION][LIFECYCLE_EXIT_SUBMIT] count={len(lifecycle_exit_intents)}")
+        lifecycle_exit_decisions: list[RiskDecisionRecord] = []
+        for index, lifecycle_intent in enumerate(lifecycle_exit_intents):
+            coerced = _coerce_lifecycle_exit_decision(
+                lifecycle_intent,
+                fallback_intent_id=f"LIFECYCLE-EXIT-{cycle_id}-{index}",
+            )
+            if coerced is None:
+                print(f"[LIFECYCLE][EXIT_INTENTS_DROP] reason=UNMAPPABLE_INTENT index={index}")
+                continue
+            lifecycle_exit_decisions.append(coerced)
+        if lifecycle_exit_decisions:
+            exit_execution_events = execute_intents(
+                mode=mode,
+                decisions=lifecycle_exit_decisions,
+            )
+            execution_events.extend(exit_execution_events)
+
     execution_events.extend(blocked_candidates)
     execution_state_counts = {"submitted": 0, "acknowledged": 0, "working": 0, "partial_fills": 0, "filled": 0}
     execution_attempts = 0
