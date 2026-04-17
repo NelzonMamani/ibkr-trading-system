@@ -198,7 +198,7 @@ def test_outside_rth_warning_does_not_force_broker_inactive_unknown() -> None:
     assert row.final_execution_state != "BROKER_INACTIVE_UNKNOWN"
 
 
-def test_unknown_orderid_and_symbol_leakage_backfills_without_truth_gap(capsys) -> None:
+def test_unknown_orderid_and_symbol_leakage_is_rejected_without_backfill(capsys) -> None:
     _reset_router_state()
 
     order_router._on_ibkr_callback(
@@ -210,6 +210,7 @@ def test_unknown_orderid_and_symbol_leakage_backfills_without_truth_gap(capsys) 
     )
 
     out = capsys.readouterr().out
-    assert "[EXECUTION][FORCED_BACKFILL] order_id=0" in out
-    assert "[EXECUTION][TRUTH_GAP]" not in out
-    assert order_router._RUNTIME_ORDERS[0].filled_qty == 5
+    assert "[EXECUTION][FORCED_BACKFILL]" not in out
+    assert "[ORDER_EVENT][UNMATCHED] event=EXECUTION reason=unknown_order_id order_id=0" in out
+    assert "[EXECUTION][RECONCILIATION_FAILED] event=EXECUTION callback=execDetails order_id=0" in out
+    assert 0 not in order_router._RUNTIME_ORDERS

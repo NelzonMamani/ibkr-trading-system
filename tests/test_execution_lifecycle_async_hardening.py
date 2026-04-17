@@ -269,7 +269,7 @@ def test_execdetails_callback_reconciles_via_order_ref(monkeypatch, capsys) -> N
     assert order_router._RUNTIME_ORDERS[oid].filled_qty == 10
 
 
-def test_execdetails_unknown_order_id_backfills_instead_of_unmatched(monkeypatch, capsys) -> None:
+def test_execdetails_unknown_order_id_is_rejected_without_fabricating_order(monkeypatch, capsys) -> None:
     _reset_router()
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
     unknown_order_id = 987654
@@ -286,11 +286,10 @@ def test_execdetails_unknown_order_id_backfills_instead_of_unmatched(monkeypatch
     )
     out = capsys.readouterr().out
 
-    assert "[EXECUTION][FORCED_BACKFILL]" in out
-    assert "[ORDER_EVENT][UNMATCHED] event=EXECUTION" not in out
-    assert unknown_order_id in order_router._RUNTIME_ORDERS
-    assert order_router._RUNTIME_ORDERS[unknown_order_id].filled_qty == 7
-    assert order_router._RUNTIME_ORDERS[unknown_order_id].symbol == "ABCD"
+    assert "[EXECUTION][FORCED_BACKFILL]" not in out
+    assert "[ORDER_EVENT][UNMATCHED] event=EXECUTION reason=unknown_order_id" in out
+    assert "[EXECUTION][RECONCILIATION_FAILED] event=EXECUTION callback=execDetails" in out
+    assert unknown_order_id not in order_router._RUNTIME_ORDERS
 
 
 def test_unmatched_callback_without_order_id_or_order_ref_does_not_fabricate_order(monkeypatch, capsys) -> None:
