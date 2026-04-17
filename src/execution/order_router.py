@@ -16,6 +16,7 @@ from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_co
 from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core_engine.events import ExecutionEvent, TradeIntentRecord
 from src.core_engine.state import RunMode, SessionState, resolve_session_state
+from src.execution.execution_ledger import ExecutionIntegrityError
 from src.execution.fill_diagnostics import (
     FillabilityClass,
     NormalizedInactiveReason,
