@@ -286,7 +286,7 @@ def test_execdetails_unknown_order_id_backfills_instead_of_unmatched(monkeypatch
     )
     out = capsys.readouterr().out
 
-    assert "[EXECUTION][FORCED_BACKFILL]" in out
+    assert "[EXECUTION][CALLBACK_RECOVERED]" in out
     assert "[ORDER_EVENT][UNMATCHED] event=EXECUTION" not in out
     assert unknown_order_id in order_router._RUNTIME_ORDERS
     assert order_router._RUNTIME_ORDERS[unknown_order_id].filled_qty == 7

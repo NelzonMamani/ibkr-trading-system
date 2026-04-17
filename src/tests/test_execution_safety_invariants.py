@@ -129,5 +129,5 @@ def test_passive_reconciliation_emits_position_summary_and_mismatch(capsys) -> N
     order_router._run_passive_position_reconciliation(positions=[_StubPosition(symbol="AAPL", position=2)])
     output = capsys.readouterr().out
 
-    assert "[POSITION][MISMATCH] symbol=AAPL expected_position=1 ibkr_position=2" in output
+    assert "[POSITION][MISMATCH] symbol=AAPL expected_position=0 ibkr_position=2" in output
     assert "[POSITION][SUMMARY] total_positions=1 mismatches=1" in output

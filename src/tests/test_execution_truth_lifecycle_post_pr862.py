@@ -210,6 +210,6 @@ def test_unknown_orderid_and_symbol_leakage_backfills_without_truth_gap(capsys) 
     )
 
     out = capsys.readouterr().out
-    assert "[EXECUTION][FORCED_BACKFILL] order_id=0" in out
+    assert "[EXECUTION][CALLBACK_RECOVERED] order_id=0" in out
     assert "[EXECUTION][TRUTH_GAP]" not in out
     assert order_router._RUNTIME_ORDERS[0].filled_qty == 5
