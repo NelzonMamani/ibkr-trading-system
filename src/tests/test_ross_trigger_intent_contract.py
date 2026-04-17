@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from types import SimpleNamespace
 
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord, TradeIntentRecord
 from src.core.pricing.price_resolver import PriceResolutionError
@@ -469,26 +470,47 @@ def test_completed_trade_emits_analytics_row(monkeypatch, capsys) -> None:
             )
         ],
     )
+    event = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="profit_target",
+        broker_order_id=99,
+        event_type="ORDER_FILLED",
+        filled_quantity=10,
+        remaining_quantity=0,
+        avg_fill_price=5.01,
+    )
+    event.lifecycle_trade_id = "trade-14"
     monkeypatch.setattr(
         "src.core_engine.orchestrator.execute_intents",
-        lambda **_: [
-            ExecutionEvent(
-                symbol="ABCD",
-                intent_id="intent-ABCD",
-                action="SUBMITTED",
-                detail="profit_target",
-                broker_order_id=99,
-                event_type="ORDER_FILLED",
-                filled_quantity=10,
-                remaining_quantity=0,
-                avg_fill_price=5.01,
-            )
-        ],
+        lambda **_: [event],
     )
-    run_cycle(cycle_id=14, mode_value="PAPER", forced_session_state=SessionState.PRE)
+    lifecycle_engine = SimpleNamespace(
+        get_trade=lambda trade_id: (
+            SimpleNamespace(
+                state="EXITED",
+                entry_fill_price=5.0,
+                avg_fill_price=5.0,
+                exit_fill_price=5.25,
+                realized_pnl=25.0,
+                holding_duration_seconds=45,
+                exit_reason="TARGET_FILLED",
+                partial_exit_count=0,
+                entry_fill_time="2026-04-17T12:00:00+00:00",
+                entry_time="2026-04-17T12:00:00+00:00",
+                last_update_ts="2026-04-17T12:01:00+00:00",
+                exit_fill_time="2026-04-17T12:02:00+00:00",
+                exit_time="2026-04-17T12:02:00+00:00",
+            )
+            if trade_id == "trade-14"
+            else None
+        )
+    )
+    run_cycle(cycle_id=14, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=lifecycle_engine)
     out = capsys.readouterr().out
     assert "[TRADE_ANALYTICS][ROW]" in out
-    assert "'exit_reason': 'profit_target'" in out
+    assert "'exit_reason': 'TARGET_FILLED'" in out
 
 
 def test_make_it_trade_cycle_summary_counts_consistent(monkeypatch, capsys) -> None:
