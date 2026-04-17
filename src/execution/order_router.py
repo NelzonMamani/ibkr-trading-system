@@ -1384,7 +1384,7 @@ def _recover_order_tracking_from_pending_submission(*, order_id: int, callback_s
     return row, trace
 
 
-def _recover_order_from_execdetails(order_id: int, symbol: str, filled_qty: int, fill_price: float | None) -> TrackedOrder:
+def _recover_order_from_execdetails(order_id: int, symbol: str, filled_qty: int, fill_price: float | None) -> TrackedOrder | None:
     normalized_symbol = str(symbol or "").upper().strip()
     timestamp = _now_utc_iso()
     tracked = _RUNTIME_ORDERS.get(int(order_id))
@@ -1396,16 +1396,7 @@ def _recover_order_from_execdetails(order_id: int, symbol: str, filled_qty: int,
             timestamp=timestamp,
         )
     if tracked is None:
-        side = "BUY"
-        total_qty = max(0, int(filled_qty or 0))
-        tracked = _upsert_order_from_submission(
-            order_id=int(order_id),
-            symbol=normalized_symbol or "UNKNOWN",
-            side=side,
-            total_qty=total_qty,
-            order_ref=f"EXECDETAILS_BACKFILL|{order_id}",
-        )
-        _initialize_visibility(int(order_id))
+        return None
     else:
         tracked.symbol = normalized_symbol or tracked.symbol
         tracked.total_qty = max(int(tracked.total_qty), max(0, int(filled_qty or 0)))
@@ -1413,8 +1404,8 @@ def _recover_order_from_execdetails(order_id: int, symbol: str, filled_qty: int,
     if trace is None:
         trace = ExecutionTrace(
             symbol=normalized_symbol or tracked.symbol or "UNKNOWN",
-            cycle_id="EXECDETAILS_BACKFILL",
-            intent_id=tracked.intent_id or f"BACKFILL-{order_id}",
+            cycle_id="EXECDETAILS",
+            intent_id=tracked.intent_id,
         )
         _EXECUTION_TRACE_BY_ORDER_ID[int(order_id)] = trace
         if trace.intent_id:
@@ -1430,8 +1421,6 @@ def _recover_order_from_execdetails(order_id: int, symbol: str, filled_qty: int,
 
 
 def _classify_fill_origin(*, source: str, is_backfill: bool) -> str:
-    if is_backfill:
-        return "IBKR_EXECDETAILS_BACKFILL"
     if source == "IBKR_EXECUTION":
         return "IBKR_EXECDETAILS"
     return "LIVE_EXECUTION"
@@ -1476,6 +1465,10 @@ def _apply_fill_to_tracked_order(
     row.last_update_at = timestamp
     if row.first_fill_seen_at is None:
         row.first_fill_seen_at = timestamp
+    print(
+        "[EXECUTION][LEDGER_APPEND] "
+        f"order_id={order_id} symbol={row.symbol} exec_id={exec_id or 'NA'} fill_qty={inc} fill_price={fill_price}"
+    )
     row.callback_pending = False
     row.callback_pending_since = None
     print(f"[EXECUTION][ORDER_MATCH] order_id={order_id} symbol={row.symbol} source={source}")
@@ -1496,7 +1489,7 @@ def _apply_fill_to_tracked_order(
         f"symbol={row.symbol} broker_order_id={order_id} filled_qty={row.filled_qty} avg_fill_price={row.avg_fill_price}"
     )
     print(f"[EXECUTION][LIFECYCLE] symbol={row.symbol} marker=FILL_CONFIRMED_AWAITING_POSITION")
-    if _is_explicit_test_mode() and source != "IBKR_EXECUTION_BACKFILL":
+    if _is_explicit_test_mode() and source == "IBKR_EXECUTION":
         _simulate_position_from_fill(order_id=order_id, symbol=row.symbol, fill_qty=inc, fill_price=fill_price)
 
 
@@ -1605,14 +1598,20 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             int(filled_qty or 0),
             fill_price,
         )
+        if tracked is None:
+            _UNMATCHED_CALLBACK_COUNT += 1
+            _record_reconciliation_result(False)
+            print(
+                "[ORDER_EVENT][UNMATCHED] "
+                f"event=EXECUTION reason=unknown_order_id order_id={order_id_key} symbol={normalized_symbol or 'UNKNOWN'}"
+            )
+            print(
+                "[EXECUTION][RECONCILIATION_FAILED] "
+                f"event=EXECUTION callback=execDetails order_id={order_id_key}"
+            )
+            return
         trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id_key)
         is_backfill = tracked_before is None
-        if is_backfill:
-            print(
-                "[EXECUTION][FORCED_BACKFILL] "
-                f"order_id={order_id} symbol={normalized_symbol} "
-                f"fill_qty={int(filled_qty or 0)} fill_price={fill_price}"
-            )
         _apply_fill_to_tracked_order(
             order_id=order_id_key,
             symbol=normalized_symbol,
@@ -1620,9 +1619,9 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             fill_price=fill_price,
             exec_id=_extract_exec_id_from_execdetails(callback_payload),
             timestamp=_now_utc_iso(),
-            source="IBKR_EXECUTION_BACKFILL" if is_backfill else "IBKR_EXECUTION",
+            source="IBKR_EXECUTION",
             fill_origin=_classify_fill_origin(
-                source="IBKR_EXECUTION_BACKFILL" if is_backfill else "IBKR_EXECUTION",
+                source="IBKR_EXECUTION",
                 is_backfill=is_backfill,
             ),
         )
@@ -2053,6 +2052,7 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
         local_qty = int(broker_position_by_symbol.get(symbol, 0))
         ibkr_qty = int(broker_position_by_symbol.get(symbol, 0))
         expected_position = int(local_fill_qty_by_symbol.get(symbol, 0))
+        print(f"[POSITION][DERIVED] symbol={symbol} derived_qty={expected_position}")
         broker_avg_cost = broker_avg_cost_by_symbol.get(symbol)
         local_avg_cost = local_fill_avg_by_symbol.get(symbol)
         verdict = "ALIGNED"
