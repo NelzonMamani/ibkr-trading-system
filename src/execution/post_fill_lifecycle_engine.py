@@ -124,6 +124,7 @@ class PostFillLifecycleEngine:
         self._trades: dict[str, ManagedTradeLifecycle] = {}
         self._active_trade_ids: set[str] = set()
         self._active_position_qty_by_symbol: dict[str, int] = {}
+        self._pending_exit_requests: dict[str, dict[str, Any]] = {}
 
     @staticmethod
     def _is_open_trade_state(state: PositionLifecycleState) -> bool:
@@ -495,6 +496,11 @@ class PostFillLifecycleEngine:
         trade.exit_order_id = str(exit_order_id) if exit_order_id is not None else trade.exit_order_id
         trade.realized_pnl += float(realized_increment)
         trade.last_update_ts = self._ts()
+        self._pending_exit_requests.pop(trade.trade_id, None)
+        print(
+            "[TRADE][EXIT_FILLED] "
+            f"trade_id={trade.trade_id} qty={qty} pnl={float(trade.realized_pnl):.4f}"
+        )
 
         if remaining_qty > 0:
             trade.partial_exit_count += 1
@@ -517,6 +523,7 @@ class PostFillLifecycleEngine:
 
         self.mark_exit_pending(trade.trade_id, reason)
         self.mark_exited(trade.trade_id, reason)
+        assert remaining_qty == 0, "EXITED invariant violation: remaining_qty must be zero"
         self._update_in_memory_state()
         return {
             "success": True,
@@ -527,6 +534,70 @@ class PostFillLifecycleEngine:
             "realized_pnl": float(trade.realized_pnl),
             "state": trade.state.value,
         }
+
+    def evaluate_trade_management(self, *, trade_id: str, current_price: float) -> list[dict[str, Any]]:
+        trade = self._trades.get(str(trade_id))
+        if trade is None or int(trade.filled_qty or 0) <= 0:
+            return []
+        if trade.state in {PositionLifecycleState.EXIT_PENDING, PositionLifecycleState.EXITED, PositionLifecycleState.LIFECYCLE_FAILURE}:
+            return []
+        if trade.trade_id in self._pending_exit_requests:
+            return []
+
+        price = float(current_price)
+        intents: list[dict[str, Any]] = []
+        expected_partial_exits = 1
+        if trade.target is not None and price >= float(trade.target.trigger_price):
+            if trade.partial_exit_count >= expected_partial_exits:
+                return []
+            partial_qty = max(1, int(trade.filled_qty) // 2)
+            partial_qty = min(partial_qty, int(trade.filled_qty))
+            intents.extend(self._create_exit_request(trade=trade, qty=partial_qty, reason="TARGET1_PARTIAL"))
+            return intents
+
+        if trade.stop is not None and price <= float(trade.stop.trigger_price):
+            intents.extend(self._create_exit_request(trade=trade, qty=int(trade.filled_qty), reason="STOP_EXIT"))
+        return intents
+
+    def _create_exit_request(self, *, trade: ManagedTradeLifecycle, qty: int, reason: str) -> list[dict[str, Any]]:
+        if trade.trade_id in self._pending_exit_requests:
+            return []
+        requested_qty = int(qty or 0)
+        if requested_qty <= 0:
+            return []
+        intent_id = f"{trade.trade_id}-EXIT-{len(self._pending_exit_requests) + 1}"
+        self._pending_exit_requests[trade.trade_id] = {
+            "intent_id": intent_id,
+            "requested_qty": requested_qty,
+            "reason": str(reason),
+            "created_at": self._ts(),
+        }
+        self.mark_exit_pending(trade.trade_id, f"exit_request:{reason}")
+        print(
+            "[TRADE][EXIT_REQUEST] "
+            f"trade_id={trade.trade_id} qty={requested_qty} reason={reason}"
+        )
+        return [
+            {
+                "trade_id": trade.trade_id,
+                "symbol": trade.symbol,
+                "side": "SELL",
+                "action": "EXIT",
+                "qty": requested_qty,
+                "reason": str(reason),
+                "intent_id": intent_id,
+            }
+        ]
+
+    def execute_exit_intents(self, *, intents: list[Any], execute_intents_fn: Any) -> list[Any]:
+        if not intents:
+            return []
+        for intent in intents:
+            print(
+                "[EXECUTION][EXIT_SUBMIT] "
+                f"trade_id={intent.get('trade_id', 'UNKNOWN')} intent_id={intent.get('intent_id', 'UNKNOWN')}"
+            )
+        return list(execute_intents_fn(intents=intents))
 
     def handle_broker_callback(self, payload: dict[str, Any]) -> dict[str, Any]:
         event_type = str(payload.get("event_type", "") or "").lower()

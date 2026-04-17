@@ -459,3 +459,107 @@ def test_lifecycle_payload_is_serializable_for_audit() -> None:
     assert payload["trade_id"] == "T-9"
     assert payload["state"] == PositionLifecycleState.ENTRY_SUBMITTED.value
     assert "last_update_ts" in payload
+
+
+def test_no_duplicate_exit_requests() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=_ProviderStub())
+    engine.activate_trade_management_after_fill(
+        trade_id="T-DUP-EXIT",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=10,
+        avg_fill_price=100.0,
+        strategy_id="S10",
+    )
+    first = engine.evaluate_trade_management(trade_id="T-DUP-EXIT", current_price=102.5)
+    second = engine.evaluate_trade_management(trade_id="T-DUP-EXIT", current_price=103.0)
+    assert len(first) == 1
+    assert second == []
+    assert "T-DUP-EXIT" in engine._pending_exit_requests
+    assert engine.get_trade("T-DUP-EXIT").state == PositionLifecycleState.EXIT_PENDING
+
+
+def test_exit_lock_cleared_on_fill() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=_ProviderStub())
+    engine.activate_trade_management_after_fill(
+        trade_id="T-LOCK",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=4,
+        avg_fill_price=100.0,
+        strategy_id="S11",
+    )
+    intents = engine.evaluate_trade_management(trade_id="T-LOCK", current_price=102.5)
+    assert len(intents) == 1
+    assert "T-LOCK" in engine._pending_exit_requests
+    fill_result = engine.record_exit_fill(
+        trade_id="T-LOCK",
+        fill_price=102.5,
+        fill_time="2026-04-16T10:00:00+00:00",
+        actual_qty=2,
+        exit_order_id="EXIT-1",
+        reason="target_fill_broker",
+    )
+    assert fill_result["success"] is True
+    assert fill_result["partial"] is True
+    assert "T-LOCK" not in engine._pending_exit_requests
+
+
+def test_partial_exit_only_once() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=_ProviderStub())
+    engine.activate_trade_management_after_fill(
+        trade_id="T-PARTIAL-ONCE",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=8,
+        avg_fill_price=100.0,
+        strategy_id="S12",
+    )
+    first = engine.evaluate_trade_management(trade_id="T-PARTIAL-ONCE", current_price=102.5)
+    assert len(first) == 1
+    engine.record_exit_fill(
+        trade_id="T-PARTIAL-ONCE",
+        fill_price=102.5,
+        fill_time="2026-04-16T10:01:00+00:00",
+        actual_qty=4,
+        exit_order_id="EXIT-2",
+        reason="target_fill_broker",
+    )
+    second = engine.evaluate_trade_management(trade_id="T-PARTIAL-ONCE", current_price=103.0)
+    assert second == []
+
+
+def test_exit_flow_full_path() -> None:
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=_ProviderStub())
+    engine.activate_trade_management_after_fill(
+        trade_id="T-FLOW",
+        symbol="AMD",
+        side="LONG",
+        filled_qty=6,
+        avg_fill_price=100.0,
+        strategy_id="S13",
+    )
+    intents = engine.evaluate_trade_management(trade_id="T-FLOW", current_price=99.0)
+    assert len(intents) == 1
+    submitted = []
+
+    def _submit(*, intents):
+        submitted.extend(intents)
+        return [{"status": "submitted", "intent_id": intents[0]["intent_id"]}]
+
+    result = engine.execute_exit_intents(intents=intents, execute_intents_fn=_submit)
+    assert len(result) == 1
+    assert submitted[0]["trade_id"] == "T-FLOW"
+    fill_result = engine.record_exit_fill(
+        trade_id="T-FLOW",
+        fill_price=99.0,
+        fill_time="2026-04-16T10:02:00+00:00",
+        actual_qty=6,
+        exit_order_id="EXIT-3",
+        reason="stop_fill_broker",
+    )
+    assert fill_result["success"] is True
+    trade = engine.get_trade("T-FLOW")
+    assert trade is not None
+    assert trade.state == PositionLifecycleState.EXITED
+    assert trade.filled_qty == 0
