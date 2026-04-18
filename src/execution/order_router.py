@@ -59,6 +59,7 @@ _VISIBILITY_BY_ORDER_ID: dict[int, dict[str, bool]] = {}
 _LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID: dict[int, str] = {}
 _BROKER_ERRORS_BY_ORDER_ID: dict[int, list[dict[str, Any]]] = {}
 _PENDING_SUBMISSIONS_BY_ORDER_ID: dict[int, "PendingSubmission"] = {}
+_PENDING_EXECUTIONS_BY_ORDER_ID: dict[int, list["PendingExecutionEvent"]] = {}
 _SUBMIT_FILLABILITY_COUNTS: dict[str, int] = {}
 _IBKR_HEALTH_STATE = {
     "broker_connected": False,
@@ -387,6 +388,16 @@ class PendingSubmission:
     created_at: str = field(default_factory=lambda: _now_utc_iso())
 
 
+@dataclass
+class PendingExecutionEvent:
+    order_id: int
+    symbol: str
+    fill_qty: int
+    fill_price: float | None
+    exec_id: str
+    received_at: str = field(default_factory=lambda: _now_utc_iso())
+
+
 def _trace_log(stage: str, trace: ExecutionTrace, *, extra: str = "") -> None:
     base = (
         f"[EXECUTION][{stage}] "
@@ -576,6 +587,10 @@ def _watchdog_threshold_seconds(name: str, default: int) -> int:
         return max(1, int(default))
 
 
+def _execution_orphan_timeout_seconds() -> int:
+    return _watchdog_threshold_seconds("EXECUTION_ORPHAN_TIMEOUT_SECONDS", 120)
+
+
 def _extract_position_avg_cost(position_row: Any) -> float | None:
     for field in ("avgCost", "averageCost", "avg_price", "cost"):
         value = getattr(position_row, field, None)
@@ -623,6 +638,22 @@ def _classify_watchdog_state(row: TrackedOrder, now: datetime) -> tuple[str, int
         if elapsed_partial >= partial_stall:
             return "PARTIAL_FILL_STALLED", elapsed_partial
     return "NORMAL_IN_FLIGHT", elapsed_submit
+
+
+def _sweep_orphan_buffered_execdetails(*, now: datetime) -> None:
+    timeout_seconds = _execution_orphan_timeout_seconds()
+    for order_id, pending in list(_PENDING_EXECUTIONS_BY_ORDER_ID.items()):
+        if not pending:
+            _PENDING_EXECUTIONS_BY_ORDER_ID.pop(order_id, None)
+            continue
+        oldest = _parse_iso_utc(pending[0].received_at)
+        if oldest is None:
+            continue
+        age_seconds = int((now - oldest).total_seconds())
+        if age_seconds < timeout_seconds:
+            continue
+        print(f"[EXECUTION][ORPHAN_EXECUTION] order_id={order_id}")
+        _PENDING_EXECUTIONS_BY_ORDER_ID.pop(order_id, None)
 
 
 def _watchdog_reprice_schedule_seconds() -> list[int]:
@@ -1318,6 +1349,7 @@ def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, tota
     row.is_exit = normalized_side == "SELL" and ibkr_qty > 0
     row.is_entry = not row.is_exit
     print(f"[LIFECYCLE][ORDER] order_id={order_id} symbol={symbol} state={row.canonical_state} filled={row.filled_qty} remaining={row.remaining_qty}")
+    _replay_buffered_execdetails_if_any(order_id=int(order_id))
     return row
 
 
@@ -1328,6 +1360,49 @@ def _register_pending_submission(*, order_id: int, symbol: str, intent_id: str, 
         intent_id=str(intent_id or ""),
         order_ref=str(order_ref or ""),
     )
+
+
+def _buffer_execdetails_for_untracked_order(
+    *,
+    order_id: int,
+    symbol: str,
+    fill_qty: int,
+    fill_price: float | None,
+    exec_id: str,
+) -> None:
+    pending = _PENDING_EXECUTIONS_BY_ORDER_ID.setdefault(int(order_id), [])
+    pending.append(
+        PendingExecutionEvent(
+            order_id=int(order_id),
+            symbol=str(symbol or "").upper().strip(),
+            fill_qty=max(0, int(fill_qty or 0)),
+            fill_price=fill_price,
+            exec_id=str(exec_id or "").strip(),
+        )
+    )
+    print(f"[EXECUTION][BUFFERED] order_id={int(order_id)} reason=order_not_tracked_yet")
+
+
+def _replay_buffered_execdetails_if_any(*, order_id: int) -> None:
+    pending = _PENDING_EXECUTIONS_BY_ORDER_ID.pop(int(order_id), None)
+    if not pending:
+        return
+    row = _RUNTIME_ORDERS.get(int(order_id))
+    if row is None:
+        _PENDING_EXECUTIONS_BY_ORDER_ID[int(order_id)] = pending
+        return
+    print(f"[EXECUTION][BUFFER_REPLAY] order_id={int(order_id)} count={len(pending)}")
+    for event in pending:
+        _apply_fill_to_tracked_order(
+            order_id=int(order_id),
+            symbol=event.symbol or row.symbol,
+            fill_qty=int(event.fill_qty),
+            fill_price=event.fill_price,
+            exec_id=event.exec_id,
+            timestamp=event.received_at,
+            source="IBKR_EXECUTION",
+            fill_origin=_classify_fill_origin(source="IBKR_EXECUTION", is_backfill=False),
+        )
 
 
 def _resolve_order_id_from_order_ref(order_ref: str) -> int | None:
@@ -1591,6 +1666,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 )
     if event_type == "execdetails":
         normalized_symbol = str(symbol or "").upper().strip()
+        exec_id = _extract_exec_id_from_execdetails(callback_payload)
         tracked_before = tracked
         tracked = _recover_order_from_execdetails(
             order_id_key,
@@ -1599,15 +1675,12 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             fill_price,
         )
         if tracked is None:
-            _UNMATCHED_CALLBACK_COUNT += 1
-            _record_reconciliation_result(False)
-            print(
-                "[ORDER_EVENT][UNMATCHED] "
-                f"event=EXECUTION reason=unknown_order_id order_id={order_id_key} symbol={normalized_symbol or 'UNKNOWN'}"
-            )
-            print(
-                "[EXECUTION][RECONCILIATION_FAILED] "
-                f"event=EXECUTION callback=execDetails order_id={order_id_key}"
+            _buffer_execdetails_for_untracked_order(
+                order_id=order_id_key,
+                symbol=normalized_symbol,
+                fill_qty=int(filled_qty or 0),
+                fill_price=fill_price,
+                exec_id=exec_id,
             )
             return
         trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id_key)
@@ -1617,7 +1690,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             symbol=normalized_symbol,
             fill_qty=int(filled_qty or 0),
             fill_price=fill_price,
-            exec_id=_extract_exec_id_from_execdetails(callback_payload),
+            exec_id=exec_id,
             timestamp=_now_utc_iso(),
             source="IBKR_EXECUTION",
             fill_origin=_classify_fill_origin(
@@ -1988,6 +2061,7 @@ def _normalize_ibkr_truth(raw: Any) -> tuple[list[Any], list[Any], list[Any]]:
 def _run_watchdog_checks(*, now: datetime | None = None) -> None:
     global _WATCHDOG_STALLS_TOTAL, _WATCHDOG_SUBMITTED_NO_ACK_TIMEOUTS, _WATCHDOG_WORKING_NO_FILL_TIMEOUTS, _WATCHDOG_PARTIAL_FILL_STALLS
     now_utc = now or datetime.now(timezone.utc)
+    _sweep_orphan_buffered_execdetails(now=now_utc)
     for row in _RUNTIME_ORDERS.values():
         if row.terminal:
             continue

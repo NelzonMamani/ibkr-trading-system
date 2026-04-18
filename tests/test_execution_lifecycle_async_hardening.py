@@ -28,6 +28,7 @@ def _reset_router() -> None:
     order_router._LAST_CALLBACK_FINGERPRINT_BY_ORDER_ID.clear()
     order_router._BROKER_ERRORS_BY_ORDER_ID.clear()
     order_router._PENDING_SUBMISSIONS_BY_ORDER_ID.clear()
+    order_router._PENDING_EXECUTIONS_BY_ORDER_ID.clear()
     order_router._BROKER_TRUTH_FATALS = 0
     order_router._BROKER_TRUTH_CONFIRMATIONS = 0
     order_router._CONTRACT_VALIDATION_FAILURES = 0
@@ -269,7 +270,7 @@ def test_execdetails_callback_reconciles_via_order_ref(monkeypatch, capsys) -> N
     assert order_router._RUNTIME_ORDERS[oid].filled_qty == 10
 
 
-def test_execdetails_unknown_order_id_is_rejected_without_fabricating_order(monkeypatch, capsys) -> None:
+def test_execdetails_unknown_order_id_is_buffered_until_order_tracking_exists(monkeypatch, capsys) -> None:
     _reset_router()
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
     unknown_order_id = 987654
@@ -286,10 +287,43 @@ def test_execdetails_unknown_order_id_is_rejected_without_fabricating_order(monk
     )
     out = capsys.readouterr().out
 
+    assert "[EXECUTION][BUFFERED] order_id=987654 reason=order_not_tracked_yet" in out
     assert "[EXECUTION][FORCED_BACKFILL]" not in out
-    assert "[ORDER_EVENT][UNMATCHED] event=EXECUTION reason=unknown_order_id" in out
-    assert "[EXECUTION][RECONCILIATION_FAILED] event=EXECUTION callback=execDetails" in out
+    assert unknown_order_id in order_router._PENDING_EXECUTIONS_BY_ORDER_ID
     assert unknown_order_id not in order_router._RUNTIME_ORDERS
+
+    order_router._upsert_order_from_submission(
+        order_id=unknown_order_id,
+        symbol="ABCD",
+        side="BUY",
+        total_qty=7,
+        order_ref="TRADING_OS|ROSS_MOMENTUM|ABCD-1",
+    )
+    replay_out = capsys.readouterr().out
+    assert "[EXECUTION][BUFFER_REPLAY] order_id=987654 count=1" in replay_out
+    assert order_router._RUNTIME_ORDERS[unknown_order_id].filled_qty == 7
+    assert unknown_order_id not in order_router._PENDING_EXECUTIONS_BY_ORDER_ID
+
+
+def test_buffered_execdetails_orphan_logs_and_expires(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    monkeypatch.setenv("EXECUTION_ORPHAN_TIMEOUT_SECONDS", "1")
+    order_router._on_ibkr_callback(
+        {
+            "event_type": "execDetails",
+            "order_id": 7001,
+            "symbol": "ABCD",
+            "shares": 3,
+            "price": 25.0,
+            "execId": "ORPH-1",
+        }
+    )
+    order_router._run_watchdog_checks(now=order_router.datetime.now(order_router.timezone.utc) + order_router.timedelta(seconds=2))
+    out = capsys.readouterr().out
+    assert "[EXECUTION][BUFFERED] order_id=7001 reason=order_not_tracked_yet" in out
+    assert "[EXECUTION][ORPHAN_EXECUTION] order_id=7001" in out
+    assert 7001 not in order_router._PENDING_EXECUTIONS_BY_ORDER_ID
 
 
 def test_unmatched_callback_without_order_id_or_order_ref_does_not_fabricate_order(monkeypatch, capsys) -> None:
