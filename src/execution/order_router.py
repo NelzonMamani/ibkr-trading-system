@@ -1114,8 +1114,14 @@ def _upsert_ibkr_position_truth(*, symbol: str, quantity: int, avg_price: float 
     if not normalized_symbol:
         return
     _IBKR_POSITION_EVENTS_COUNT += 1
+    normalized_qty = int(quantity)
+    if normalized_qty <= 0:
+        _IBKR_POSITIONS_BY_SYMBOL.pop(normalized_symbol, None)
+        _BROKER_POSITION_LAST_QTY_BY_SYMBOL[normalized_symbol] = 0
+        print(f"[POSITION][SYNC] symbol={normalized_symbol} qty=0 avg_price=NA source=IBKR action=REMOVE")
+        return
     row = _IBKR_POSITIONS_BY_SYMBOL.setdefault(normalized_symbol, IbkrPositionTruth(symbol=normalized_symbol))
-    row.quantity = int(quantity)
+    row.quantity = normalized_qty
     row.avg_price = float(avg_price) if avg_price is not None else None
     row.last_update_time = str(update_time or _now_utc_iso())
     print(
@@ -3570,9 +3576,19 @@ def execute_intents(
             if float(qty or 0.0) > 0.0 and _resolve_symbol_ownership(symbol) == OWNERSHIP_SYSTEM
         }
         current_open_positions = len(system_position_symbols)
+        system_exposure = sum(
+            max(0.0, float(existing_position_qty_by_symbol.get(symbol, 0.0) or 0.0))
+            * float(getattr(_IBKR_POSITIONS_BY_SYMBOL.get(symbol, IbkrPositionTruth(symbol=symbol)), "avg_price", 0.0) or 0.0)
+            for symbol in system_position_symbols
+        )
         if (not is_exit_order) and order_side == "BUY" and treated_as_flat and current_open_positions >= max_open_positions:
             blocked_reason = "MAX_OPEN_POSITIONS"
             blocked_pre_submit += 1
+            print(
+                "[RISK][STATE_CHECK] "
+                f"symbol={duplicate_symbol} open_positions={current_open_positions} "
+                f"exposure={system_exposure:.2f} max_allowed={max_open_positions}"
+            )
             print(f"[RISK][POSITION_LIMIT] symbol={duplicate_symbol} open_positions={current_open_positions} max_open_positions={max_open_positions}")
             print(f"[EXECUTION][BLOCK] symbol={duplicate_symbol} reason={blocked_reason}")
             _transition_execution_truth_state(truth=truth, next_state="BLOCKED", source="LOCAL")
@@ -3616,6 +3632,11 @@ def execute_intents(
             if proposed_qty > float(max_position_size):
                 blocked_reason = "MAX_SIZE_REACHED"
                 blocked_pre_submit += 1
+                print(
+                    "[RISK][STATE_CHECK] "
+                    f"symbol={duplicate_symbol} open_positions={current_open_positions} "
+                    f"exposure={system_exposure:.2f} max_allowed={max_position_size}"
+                )
                 print(
                     f"[EXECUTION][PYRAMID] symbol={duplicate_symbol} existing_qty={effective_qty:.4f} "
                     f"new_qty={quantity} decision=BLOCK reason={blocked_reason} max_position_size={max_position_size}"

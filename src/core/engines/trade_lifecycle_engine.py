@@ -6,7 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from src.core.portfolio.broker_position_adapter import BrokerPositionSnapshot
-from src.core.portfolio.portfolio_state import PortfolioState
+from src.core.portfolio.portfolio_state import PortfolioState, PortfolioStateDesyncError
 from src.core.portfolio.risk_signals import LifecycleRiskSignals
 
 OPEN_STATUSES = {"OPEN", "PARTIALLY_CLOSED"}
@@ -68,6 +68,7 @@ class TradeLifecycleEngine:
             "duplicate_events_ignored": 0,
         }
         self._last_portfolio_state = PortfolioState()
+        self._broker_positions_by_symbol: dict[str, BrokerPositionSnapshot] = {}
 
     def set_persistence_adapter(self, persistence_adapter: Any | None) -> None:
         self._persistence = persistence_adapter
@@ -399,6 +400,21 @@ class TradeLifecycleEngine:
     ) -> list[dict[str, Any]]:
         findings: list[dict[str, Any]] = []
         ts = self._now_iso()
+        next_broker_positions_by_symbol: dict[str, BrokerPositionSnapshot] = {}
+        for row in snapshot:
+            symbol = str(getattr(row, "symbol", "")).upper().strip()
+            if not symbol:
+                continue
+            quantity = int(getattr(row, "quantity", 0) or 0)
+            if quantity <= 0:
+                continue
+            next_broker_positions_by_symbol[symbol] = BrokerPositionSnapshot(
+                symbol=symbol,
+                quantity=quantity,
+                avg_entry_price=float(getattr(row, "avg_entry_price", 0.0) or 0.0),
+                timestamp=str(getattr(row, "timestamp", "") or ts),
+            )
+        self._broker_positions_by_symbol = next_broker_positions_by_symbol
         broker_by_symbol = {
             str(row.symbol).upper(): row for row in snapshot if str(getattr(row, "symbol", "")).strip()
         }
@@ -516,6 +532,21 @@ class TradeLifecycleEngine:
 
     def build_portfolio_state(self) -> PortfolioState:
         open_trades = self.open_trades()
+        broker_open_positions = [
+            row for row in self._broker_positions_by_symbol.values() if int(getattr(row, "quantity", 0) or 0) > 0
+        ]
+        use_broker_authority = bool(self._broker_positions_by_symbol)
+        if not use_broker_authority:
+            broker_open_positions = [
+                BrokerPositionSnapshot(
+                    symbol=str(t.symbol or "").upper(),
+                    quantity=int(t.quantity_open or 0),
+                    avg_entry_price=float(t.entry_avg_price or 0.0),
+                    timestamp=self._now_iso(),
+                )
+                for t in open_trades
+                if int(t.quantity_open or 0) > 0 and str(t.symbol or "").strip()
+            ]
         drifted_positions = sorted(
             {
                 trade.symbol
@@ -524,13 +555,20 @@ class TradeLifecycleEngine:
             }
         )
         state = PortfolioState(
-            total_open_positions=len(open_trades),
-            total_exposure=sum(float(t.quantity_open) * float(t.entry_avg_price) for t in open_trades),
+            total_open_positions=len(broker_open_positions),
+            total_exposure=sum(
+                float(getattr(row, "quantity", 0) or 0) * float(getattr(row, "avg_entry_price", 0.0) or 0.0)
+                for row in broker_open_positions
+            ),
             total_realized_pnl=sum(float(t.gross_realized_pnl or 0.0) for t in self._trades.values()),
             total_unrealized_pnl=sum(float(t.unrealized_pnl or 0.0) for t in open_trades),
-            symbols_open=sorted({t.symbol for t in open_trades if t.symbol}),
+            symbols_open=sorted({str(row.symbol).upper() for row in broker_open_positions if getattr(row, "symbol", "")}),
             drifted_positions=drifted_positions,
         )
+        if abs(float(state.total_exposure)) <= 1e-9 and int(state.total_open_positions) > 0:
+            raise PortfolioStateDesyncError(
+                f"portfolio_exposure={state.total_exposure} with open_positions={state.total_open_positions}"
+            )
         self._last_portfolio_state = state
         return state
 

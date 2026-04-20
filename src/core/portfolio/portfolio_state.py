@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
+class PortfolioStateDesyncError(RuntimeError):
+    """Raised when portfolio exposure and open-position counts contradict each other."""
+
+
 @dataclass
 class PortfolioState:
     total_open_positions: int = 0

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from src.config.config_resolver import set_config_overrides
 from src.models.data_models import TradeIntent
-from src.risk.risk_engine import RiskEngine
+from src.risk.risk_engine import PortfolioStateDesyncError, RiskEngine
 
 
 @dataclass
@@ -109,7 +109,7 @@ def test_capital_limits_block_portfolio_and_position_exposure() -> None:
         engine.set_trade_lifecycle_engine(
             _LifecycleStub(
                 signals=_Signals(),
-                state=_PortfolioState(total_exposure=0.0, total_open_positions=1),
+                state=_PortfolioState(total_exposure=100.0, total_open_positions=1),
             )
         )
         position_block = engine.evaluate_trade_intent(intent)
@@ -157,5 +157,24 @@ def test_lifecycle_bridge_failure_is_non_blocking() -> None:
         decision = engine.evaluate_trade_intent(_intent())
         assert decision is not None
         assert decision.blocked_by_lifecycle is False
+    finally:
+        set_config_overrides(None)
+
+
+def test_portfolio_state_desync_invariant_raises() -> None:
+    set_config_overrides({"RUN_MODE": "SIM", "EXECUTION_ENABLED": True})
+    try:
+        engine = RiskEngine()
+        engine.set_trade_lifecycle_engine(
+            _LifecycleStub(
+                signals=_Signals(),
+                state=_PortfolioState(total_exposure=0.0, total_open_positions=1),
+            )
+        )
+        try:
+            engine.evaluate_trade_intent(_intent())
+            assert False, "expected desync invariant failure"
+        except PortfolioStateDesyncError:
+            pass
     finally:
         set_config_overrides(None)

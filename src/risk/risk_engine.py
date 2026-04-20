@@ -63,6 +63,10 @@ from src.strategies.strategy_contracts import StrategyRiskPayload, TradeIntent a
 from src.utils.time_utils import utc_now
 
 
+class PortfolioStateDesyncError(RuntimeError):
+    """Raised when authoritative portfolio state is internally contradictory."""
+
+
 
 
 @dataclass(frozen=True)
@@ -118,6 +122,13 @@ class RiskEngine:
 
     def set_trade_lifecycle_engine(self, trade_lifecycle_engine: TradeLifecycleEngine) -> None:
         self.trade_lifecycle_engine = trade_lifecycle_engine
+
+    @staticmethod
+    def _assert_portfolio_state_invariant(*, open_positions: int, total_exposure: float) -> None:
+        if abs(float(total_exposure)) <= 1e-9 and int(open_positions) > 0:
+            raise PortfolioStateDesyncError(
+                f"portfolio_exposure={float(total_exposure):.2f} with open_positions={int(open_positions)}"
+            )
 
     @staticmethod
     def _resolve_trade_value(trade_intent: TradeIntent, fallback_quantity: int) -> float:
@@ -277,6 +288,19 @@ class RiskEngine:
         max_open_positions = int(get_config("RISK_MAX_OPEN_POSITIONS"))
         total_exposure = self._total_exposure()
         total_exposure_limit = self._total_exposure_limit()
+        if self.trade_lifecycle_engine is not None:
+            try:
+                lifecycle_state = self.trade_lifecycle_engine.build_portfolio_state()
+                open_positions = int(lifecycle_state.total_open_positions)
+                total_exposure = float(lifecycle_state.total_exposure)
+                self._assert_portfolio_state_invariant(
+                    open_positions=open_positions,
+                    total_exposure=total_exposure,
+                )
+            except PortfolioStateDesyncError:
+                raise
+            except Exception as exc:
+                print(f"[LIFECYCLE][DEGRADED] stage=strategy_payload_portfolio_state reason={exc}")
         available_capital = float(get_default_capital())
         print(f"[RISK][CAPITAL] source=CONFIG default_available_capital={available_capital}")
         evaluated_limits = {
@@ -538,12 +562,22 @@ class RiskEngine:
             try:
                 lifecycle_signals = self.trade_lifecycle_engine.compute_lifecycle_risk_signals()
                 portfolio_state = self.trade_lifecycle_engine.build_portfolio_state()
+                open_positions = int(portfolio_state.total_open_positions)
+                total_exposure = float(portfolio_state.total_exposure)
+                self._assert_portfolio_state_invariant(
+                    open_positions=open_positions,
+                    total_exposure=total_exposure,
+                )
+                evaluated_limits["open_positions"] = open_positions
+                evaluated_limits["total_exposure"] = total_exposure
                 findings = self.trade_lifecycle_engine.get_drift_report()
                 lifecycle_critical_drift = any(
                     str(event.get("severity", "")).upper() == "CRITICAL"
                     or str(event.get("status", "")).upper() == "ORPHANED"
                     for event in findings
                 )
+            except PortfolioStateDesyncError:
+                raise
             except Exception as exc:
                 print(f"[LIFECYCLE][DEGRADED] stage=risk_bridge reason={exc}")
         if lifecycle_critical_drift:

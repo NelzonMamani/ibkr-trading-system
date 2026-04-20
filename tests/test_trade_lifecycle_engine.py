@@ -9,6 +9,7 @@ from src.core.engines.position_management_engine import ManagedPosition
 from src.core.engines.trade_lifecycle_engine import LifecycleEvent, TradeLifecycleEngine
 from src.core.portfolio.broker_position_adapter import BrokerPositionSnapshot
 from src.models.data_models import ExecutionResult, RiskDecision, TradeIntent
+from src.risk.risk_engine import RiskEngine
 from src.scanner.result_models import CandidateMetrics
 
 
@@ -497,6 +498,53 @@ def test_risk_signals_drawdown_and_drift_triggered() -> None:
     signals = engine.compute_lifecycle_risk_signals()
     assert signals.max_drawdown_breached is True
     assert signals.drift_detected is True
+
+
+def test_portfolio_resets_after_flatten() -> None:
+    set_config_overrides(
+        {
+            "RUN_MODE": "PAPER",
+            "EXECUTION_ENABLED": True,
+            "IBKR_READONLY_ENABLED": False,
+            "IBKR_ORDER_SUBMISSION_ENABLED": True,
+            "LIFECYCLE_MAX_PORTFOLIO_EXPOSURE": 1000.0,
+            "LIFECYCLE_MAX_POSITION_EXPOSURE": 800.0,
+            "LIFECYCLE_MAX_POSITIONS": 5,
+        }
+    )
+    try:
+        engine = TradeLifecycleEngine()
+        engine.apply_event(_event("1", "ENTRY_FILL", 10, 10.0))
+        engine.reconcile_with_broker_snapshot(
+            [BrokerPositionSnapshot(symbol="AAPL", quantity=10, avg_entry_price=10.0, timestamp="2026-01-01T00:00:00+00:00")]
+        )
+        engine.apply_event(_event("2", "STOP_EXIT", 10, 10.5))  # Simulate execDetails close.
+        engine.reconcile_with_broker_snapshot(
+            [BrokerPositionSnapshot(symbol="AAPL", quantity=0, avg_entry_price=0.0, timestamp="2026-01-01T00:05:00+00:00")]
+        )  # Simulate IBKR position callback qty=0.
+
+        state = engine.build_portfolio_state()
+        assert state.total_open_positions == 0
+        assert state.total_exposure == 0.0
+
+        risk_engine = RiskEngine()
+        risk_engine.set_trade_lifecycle_engine(engine)
+        intent = TradeIntent(
+            symbol="AAPL",
+            direction="LONG",
+            strategy_name="ross_momentum",
+            confidence=0.8,
+            rationale="flatten reset test",
+            trader_type="SYSTEM",
+            decision_id="flatten-reset-1",
+            stop_loss_price=9.0,
+        )
+        intent.entry_price = 10.0
+        intent.quantity = 10
+        decision = risk_engine.evaluate_trade_intent(intent)
+        assert decision.allowed is True
+    finally:
+        set_config_overrides(None)
 
 
 def test_broker_fetch_failure_and_reconcile_failure_are_non_blocking(monkeypatch) -> None:

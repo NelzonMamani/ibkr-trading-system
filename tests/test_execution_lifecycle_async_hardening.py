@@ -113,7 +113,27 @@ def test_exit_final_fill_closes_position(monkeypatch) -> None:
     oid = events[0].broker_order_id
     order_router._on_ibkr_callback({"event_type": "execDetails", "order_id": oid, "symbol": "ABCD", "shares": 10, "price": 20.1, "execId": "X2"})
     order_router._on_ibkr_callback({"event_type": "position", "order_id": oid, "symbol": "ABCD", "position": 0, "avgCost": 0.0})
-    assert order_router._IBKR_POSITIONS_BY_SYMBOL["ABCD"].quantity == 0
+    assert "ABCD" not in order_router._IBKR_POSITIONS_BY_SYMBOL
+
+
+def test_max_open_positions_logs_state_check(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    monkeypatch.setenv("MAX_OPEN_POSITIONS", "1")
+    monkeypatch.setattr(
+        order_router,
+        "_fetch_ibkr_truth",
+        lambda _mode: (
+            [],
+            [],
+            [SimpleNamespace(symbol="HELD", position=10, avgCost=25.0)],
+        ),
+    )
+    order_router._POSITION_OWNERSHIP_BY_SYMBOL["HELD"] = order_router.OWNERSHIP_SYSTEM
+    order_router.execute_intents(mode=RunMode.PAPER, decisions=[_decision(symbol="NEXT", qty=5, side="LONG")])
+    out = capsys.readouterr().out
+    assert "[RISK][STATE_CHECK]" in out
+    assert "symbol=NEXT" in out
 
 
 def test_reconciliation_does_not_apply_fill_without_callback(monkeypatch) -> None:
