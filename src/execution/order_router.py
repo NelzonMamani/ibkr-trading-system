@@ -2123,7 +2123,7 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
     now_utc = datetime.now(timezone.utc)
     mismatch_count = 0
     for symbol in sorted(symbols):
-        local_qty = int(broker_position_by_symbol.get(symbol, 0))
+        local_qty = int(local_fill_qty_by_symbol.get(symbol, 0) or 0)
         ibkr_qty = int(broker_position_by_symbol.get(symbol, 0))
         expected_position = int(local_fill_qty_by_symbol.get(symbol, 0))
         print(f"[POSITION][DERIVED] symbol={symbol} derived_qty={expected_position}")
@@ -2132,14 +2132,18 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
         verdict = "ALIGNED"
         reason = ""
         prev_broker_qty = int(_BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol, 0))
-        if ibkr_qty == 0 and expected_position == 0 and prev_broker_qty > 0:
+        if (
+            expected_position == 0
+            and local_qty == 0
+            and (ibkr_qty == 0 or prev_broker_qty > 0)
+        ):
             verdict = "POSITION_CLOSED_ALIGNED"
         elif ibkr_qty == 0 and expected_position == 0:
             verdict = "ALIGNED"
-        elif ibkr_qty != 0 and expected_position == 0:
+        elif ibkr_qty > 0 and expected_position == 0:
             verdict = "BROKER_POSITION_WITHOUT_FILL"
             reason = "broker_has_open_position_without_execdetails_fill_trail"
-        elif ibkr_qty == 0 and expected_position != 0:
+        elif ibkr_qty == 0 and expected_position > 0:
             fill_ts = local_fill_ts_by_symbol.get(symbol)
             pending = fill_ts is not None and (now_utc - fill_ts).total_seconds() <= float(window_seconds)
             if pending:
@@ -2154,8 +2158,6 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
         elif broker_avg_cost is not None and local_avg_cost is not None and abs(float(broker_avg_cost) - float(local_avg_cost)) > 0.01:
             verdict = "AVG_COST_MISMATCH"
             reason = f"broker_avg_cost={broker_avg_cost} local_avg_cost={local_avg_cost}"
-        elif ibkr_qty == 0 and expected_position == 0 and int(_BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol, 0)) > 0:
-            verdict = "POSITION_CLOSED_ALIGNED"
         if verdict == "ALIGNED":
             _RECONCILED_POSITIONS_OK += 1
             print(f"[EXECUTION][POSITION_RECONCILE_OK] symbol={symbol} verdict=ALIGNED")
