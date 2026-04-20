@@ -2059,6 +2059,20 @@ def _emit_final_decisions(
     risk_decisions: List[RiskDecisionRecord],
     execution_events: List[ExecutionEvent],
 ) -> None:
+    terminal_rejected_broker_states = {
+        "BROKER_REJECTED",
+        "BROKER_CANCELLED",
+        "BROKER_EXPIRED",
+        "BROKER_INACTIVE_UNKNOWN",
+        "BROKER_INACTIVE_NON_MARKETABLE",
+        "BROKER_INACTIVE_SESSION_MISMATCH",
+        "BROKER_INACTIVE_OUTSIDE_RTH",
+        "BROKER_INACTIVE_ROUTING",
+        "BROKER_INACTIVE_HELD",
+        "BROKER_INACTIVE_NO_QUOTE",
+        "NO_FILL_TIMEOUT_TERMINAL",
+    }
+
     pattern_by_symbol = {p.symbol: p for p in pattern_summaries}
     intent_by_symbol = {i.symbol: i for i in intents}
     risk_by_symbol = {r.symbol: r for r in risk_decisions}
@@ -2084,8 +2098,21 @@ def _emit_final_decisions(
         if execution:
             execution_event_type = str(getattr(execution, "event_type", "") or "").upper()
             execution_detail = str(getattr(execution, "detail", "") or "")
+            final_execution_state = str(getattr(execution, "final_execution_state", "") or "").upper()
             if execution.action == "SUBMITTED":
-                if execution_event_type == "ORDER_QUEUED_FOR_RTH":
+                if final_execution_state == "BROKER_FILLED_FULL":
+                    outcome = "FILLED"
+                    reason = execution_detail
+                elif final_execution_state == "BROKER_FILLED_PARTIAL":
+                    outcome = "PARTIALLY_FILLED"
+                    reason = execution_detail
+                elif final_execution_state == "BROKER_QUEUED_FOR_RTH":
+                    outcome = "QUEUED_FOR_RTH"
+                    reason = execution_detail
+                elif final_execution_state in terminal_rejected_broker_states:
+                    outcome = "REJECTED"
+                    reason = execution_detail
+                elif execution_event_type == "ORDER_QUEUED_FOR_RTH":
                     outcome = "QUEUED_FOR_RTH"
                     reason = execution_detail
                 elif execution_event_type == "ORDER_WORKING":

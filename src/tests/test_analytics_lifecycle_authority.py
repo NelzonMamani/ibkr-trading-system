@@ -3,7 +3,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord, TradeIntentRecord
-from src.core_engine.orchestrator import _compute_expectancy_metrics, run_cycle
+from src.core_engine.orchestrator import (
+    BLOCKER_CATEGORY_MAP,
+    _compute_expectancy_metrics,
+    _emit_final_decisions,
+    run_cycle,
+)
 from src.core_engine.state import SessionState
 
 
@@ -172,3 +177,79 @@ def test_duplicate_execution_events_same_trade_emit_one_row(monkeypatch, capsys)
     out = capsys.readouterr().out
     assert out.count("[TRADE_ANALYTICS][ROW]") == 1
     assert "[ANALYTICS][DEDUP] trade_id=trade-dup" in out
+
+
+def test_final_decision_prefers_broker_filled_full_over_ack_event(capsys) -> None:
+    execution = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="broker truth full fill",
+        event_type="ORDER_ACKNOWLEDGED",
+        filled_quantity=0,
+        remaining_quantity=100,
+        broker_order_id=101,
+    )
+    execution.final_execution_state = "BROKER_FILLED_FULL"
+
+    _emit_final_decisions(
+        focus=["ABCD"],
+        pattern_summaries=[],
+        intents=[],
+        risk_decisions=[],
+        execution_events=[execution],
+    )
+    out = capsys.readouterr().out
+    assert "outcome=FILLED" in out
+
+
+def test_final_decision_prefers_broker_partial_fill_over_ack_event(capsys) -> None:
+    execution = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="broker truth partial fill",
+        event_type="ORDER_ACKNOWLEDGED",
+        filled_quantity=0,
+        remaining_quantity=100,
+        broker_order_id=102,
+    )
+    execution.final_execution_state = "BROKER_FILLED_PARTIAL"
+
+    _emit_final_decisions(
+        focus=["ABCD"],
+        pattern_summaries=[],
+        intents=[],
+        risk_decisions=[],
+        execution_events=[execution],
+    )
+    out = capsys.readouterr().out
+    assert "outcome=PARTIALLY_FILLED" in out
+
+
+def test_final_decision_terminal_rejected_broker_state_reports_rejected(capsys) -> None:
+    execution = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="inactive non marketable",
+        event_type="ORDER_ACKNOWLEDGED",
+        broker_order_id=103,
+    )
+    execution.final_execution_state = "BROKER_INACTIVE_NON_MARKETABLE"
+
+    _emit_final_decisions(
+        focus=["ABCD"],
+        pattern_summaries=[],
+        intents=[],
+        risk_decisions=[],
+        execution_events=[execution],
+    )
+    out = capsys.readouterr().out
+    assert "outcome=REJECTED" in out
+
+
+def test_blocker_taxonomy_pr996_mapping_intact() -> None:
+    assert BLOCKER_CATEGORY_MAP["IBKR_SUBMISSION_FAIL"] == "SUBMISSION_FAILED"
+    assert BLOCKER_CATEGORY_MAP["ORDER_ACK_MISSING"] == "SUBMISSION_FAILED"
+    assert BLOCKER_CATEGORY_MAP["FILL_PENDING"] == "NO_FILL"
