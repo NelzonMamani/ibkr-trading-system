@@ -1114,8 +1114,22 @@ def _upsert_ibkr_position_truth(*, symbol: str, quantity: int, avg_price: float 
     if not normalized_symbol:
         return
     _IBKR_POSITION_EVENTS_COUNT += 1
+    normalized_qty = int(quantity)
+    if normalized_qty <= 0:
+        # Preserve last known state for reconciliation BEFORE removal.
+        _BROKER_POSITION_LAST_QTY_BY_SYMBOL[normalized_symbol] = 0
+
+        # Emit explicit closure sync event (required for reconciliation visibility).
+        print(
+            f"[POSITION][SYNC] symbol={normalized_symbol} qty=0 avg_price=NA "
+            f"source=IBKR action=CLOSED"
+        )
+
+        # Keep runtime state clean; reconciliation uses last-known broker quantity fallback.
+        _IBKR_POSITIONS_BY_SYMBOL.pop(normalized_symbol, None)
+        return
     row = _IBKR_POSITIONS_BY_SYMBOL.setdefault(normalized_symbol, IbkrPositionTruth(symbol=normalized_symbol))
-    row.quantity = int(quantity)
+    row.quantity = normalized_qty
     row.avg_price = float(avg_price) if avg_price is not None else None
     row.last_update_time = str(update_time or _now_utc_iso())
     print(
@@ -2118,7 +2132,11 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
         if order.avg_fill_price is not None:
             local_fill_avg_by_symbol[symbol] = float(order.avg_fill_price)
         local_fill_ts_by_symbol[symbol] = _parse_iso_utc(order.first_fill_seen_at or order.last_update_at)
-    symbols = set(broker_position_by_symbol.keys()) | set(local_fill_qty_by_symbol.keys())
+    symbols = (
+        set(broker_position_by_symbol.keys())
+        | set(local_fill_qty_by_symbol.keys())
+        | set(_BROKER_POSITION_LAST_QTY_BY_SYMBOL.keys())
+    )
     window_seconds = _position_reconciliation_window_seconds()
     now_utc = datetime.now(timezone.utc)
     mismatch_count = 0
@@ -2131,8 +2149,11 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
         local_avg_cost = local_fill_avg_by_symbol.get(symbol)
         verdict = "ALIGNED"
         reason = ""
-        prev_broker_qty = int(_BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol, 0))
-        if ibkr_qty == 0 and expected_position == 0 and prev_broker_qty > 0:
+        last_qty = _BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol)
+        prev_broker_qty = int(last_qty if last_qty is not None else 0)
+        if expected_position == 0 and (ibkr_qty == 0 or last_qty == 0):
+            verdict = "POSITION_CLOSED_ALIGNED"
+        elif ibkr_qty == 0 and expected_position == 0 and prev_broker_qty > 0:
             verdict = "POSITION_CLOSED_ALIGNED"
         elif ibkr_qty == 0 and expected_position == 0:
             verdict = "ALIGNED"
