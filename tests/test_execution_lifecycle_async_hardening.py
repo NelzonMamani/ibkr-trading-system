@@ -302,6 +302,8 @@ def test_execdetails_unknown_order_id_is_buffered_until_order_tracking_exists(mo
     replay_out = capsys.readouterr().out
     assert "[EXECUTION][BUFFER_REPLAY] order_id=987654 count=1" in replay_out
     assert order_router._RUNTIME_ORDERS[unknown_order_id].filled_qty == 7
+    assert order_router._RUNTIME_ORDERS[unknown_order_id].avg_fill_price == 21.5
+    assert "[LIFECYCLE] POSITION_OPENED symbol=ABCD qty=0 price=0.0000" not in replay_out
     assert unknown_order_id not in order_router._PENDING_EXECUTIONS_BY_ORDER_ID
 
 

@@ -1667,6 +1667,12 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
     if event_type == "execdetails":
         normalized_symbol = str(symbol or "").upper().strip()
         exec_id = _extract_exec_id_from_execdetails(callback_payload)
+        if int(order_id_key) <= 0:
+            _UNMATCHED_CALLBACK_COUNT += 1
+            _record_reconciliation_result(False)
+            print(f"[ORDER_EVENT][UNMATCHED] event=EXECUTION reason=unknown_order_id order_id={order_id_key}")
+            print(f"[EXECUTION][RECONCILIATION_FAILED] event=EXECUTION callback=execDetails order_id={order_id_key}")
+            return
         tracked_before = tracked
         tracked = _recover_order_from_execdetails(
             order_id_key,
@@ -4078,6 +4084,7 @@ def execute_intents(
             else:
                 event.event_type = "ORDER_WORKING"
         tracked.final_execution_state = final_state
+        setattr(event, "final_execution_state", final_state)
         if final_state == "BROKER_REJECTED":
             event.event_type = "ORDER_REJECTED"
             event.broker_status = "Rejected"
@@ -4165,7 +4172,14 @@ def execute_intents(
     )
     for e in events:
         if e.event_type == "ORDER_SUBMITTED":
-            if str(e.action or "").upper() == "BLOCKED":
+            final_state = str(getattr(e, "final_execution_state", "") or "")
+            if final_state == "BROKER_FILLED_FULL":
+                e.event_type = "ORDER_FILLED"
+            elif final_state == "BROKER_FILLED_PARTIAL":
+                e.event_type = "ORDER_PARTIALLY_FILLED"
+            elif final_state in {"BROKER_REJECTED", "BROKER_INACTIVE_FATAL", "NO_FILL_TIMEOUT_TERMINAL"}:
+                e.event_type = "ORDER_REJECTED"
+            elif str(e.action or "").upper() == "BLOCKED":
                 e.event_type = "ORDER_REJECTED"
             elif int(e.filled_quantity or 0) > 0:
                 total_quantity = int(e.filled_quantity or 0) + int(e.remaining_quantity or 0)

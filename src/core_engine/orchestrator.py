@@ -82,6 +82,7 @@ TERMINAL_STATES = {
     "BLOCKED_BY_RISK": "BLOCKED_BY_RISK",
     "BLOCKED_BY_EXECUTION_PRECHECK": "BLOCKED_BY_EXECUTION_PRECHECK",
     "ORDER_SUBMITTED": "ORDER_SUBMITTED",
+    "ORDER_FILLED": "ORDER_FILLED",
     "ORDER_REJECTED": "ORDER_REJECTED",
 }
 
@@ -219,11 +220,18 @@ def _resolve_trade_id_from_execution(event: ExecutionEvent, lifecycle_engine: An
     if client_order_id and _has_lifecycle_trade(client_order_id):
         return str(client_order_id)
 
+    intent_id = getattr(event, "intent_id", None)
+    if intent_id and _has_lifecycle_trade(intent_id):
+        return str(intent_id)
+
     metadata = getattr(event, "metadata", None)
     if isinstance(metadata, dict):
         metadata_trade_id = metadata.get("trade_id") or metadata.get("lifecycle_trade_id")
         if metadata_trade_id and _has_lifecycle_trade(metadata_trade_id):
             return str(metadata_trade_id)
+        metadata_intent_id = metadata.get("intent_id")
+        if metadata_intent_id and _has_lifecycle_trade(metadata_intent_id):
+            return str(metadata_intent_id)
 
     return None
 
@@ -1553,6 +1561,7 @@ def run_cycle(
                 f"[INVARIANT][FAIL] submitted_order_without_broker_id symbol={event.symbol} intent_id={event.intent_id}"
             )
             execution_pass = False
+        final_execution_state = str(getattr(event, "final_execution_state", "") or "")
         if event.action == "SUBMITTED":
             if execution_pass:
                 working_orders += 1
@@ -1588,34 +1597,45 @@ def run_cycle(
                     existing_position = position_book.get(symbol_key)
                     fill_price = event.avg_fill_price
                     fill_qty = max(0, filled_quantity)
-                    if existing_position is None:
-                        position_book[symbol_key] = {"qty": float(fill_qty), "avg_price": float(fill_price or 0.0)}
+                    valid_fill_truth = fill_qty > 0 and fill_price is not None and float(fill_price) > 0.0
+                    if not valid_fill_truth:
+                        print(
+                            "[POSITION][BLOCKED_INVALID_AUTHORITATIVE_FILL] "
+                            f"symbol={symbol_key} qty={fill_qty} price={fill_price if fill_price is not None else 'None'} "
+                            "reason=invalid_fill_truth"
+                        )
                     else:
-                        prev_qty = float(existing_position["qty"])
-                        prev_avg = float(existing_position["avg_price"])
-                        total_qty = prev_qty + float(fill_qty)
-                        if total_qty > 0 and fill_price is not None:
-                            weighted_avg = ((prev_qty * prev_avg) + (float(fill_qty) * float(fill_price))) / total_qty
+                        if existing_position is None:
+                            position_book[symbol_key] = {"qty": float(fill_qty), "avg_price": float(fill_price)}
                         else:
-                            weighted_avg = prev_avg
-                        existing_position["qty"] = total_qty
-                        existing_position["avg_price"] = weighted_avg
-                    print(
-                        f"[LIFECYCLE] POSITION_OPENED symbol={symbol_key} "
-                        f"qty={int(position_book[symbol_key]['qty'])} "
-                        f"price={position_book[symbol_key]['avg_price']:.4f}"
-                    )
-                    pending_entries = max(0, pending_entries - 1)
+                            prev_qty = float(existing_position["qty"])
+                            prev_avg = float(existing_position["avg_price"])
+                            total_qty = prev_qty + float(fill_qty)
+                            weighted_avg = ((prev_qty * prev_avg) + (float(fill_qty) * float(fill_price))) / total_qty
+                            existing_position["qty"] = total_qty
+                            existing_position["avg_price"] = weighted_avg
+                        print(
+                            f"[LIFECYCLE] POSITION_OPENED symbol={symbol_key} "
+                            f"qty={int(position_book[symbol_key]['qty'])} "
+                            f"price={position_book[symbol_key]['avg_price']:.4f}"
+                        )
+                        pending_entries = max(0, pending_entries - 1)
         elif execution_pass:
             working_orders += 1 if event.action == "WOULD_PLACE" else 0
         execution_outcome = "ORDER_STILL_WORKING_NO_FILL_YET"
         event_type = str(getattr(event, "event_type", "") or "").upper()
-        if filled_quantity > 0 and remaining_quantity > 0:
+        if final_execution_state == "BROKER_FILLED_FULL":
+            execution_outcome = "ORDER_FILLED"
+        elif final_execution_state == "BROKER_FILLED_PARTIAL":
+            execution_outcome = "ORDER_FILLED_PARTIAL"
+        elif final_execution_state in {"BROKER_REJECTED", "BROKER_INACTIVE_FATAL", "NO_FILL_TIMEOUT_TERMINAL"}:
+            execution_outcome = "ORDER_REJECTED"
+        elif final_execution_state in {"BROKER_QUEUED_FOR_RTH"} or event_type == "ORDER_QUEUED_FOR_RTH":
+            execution_outcome = "ORDER_QUEUED_FOR_RTH"
+        elif filled_quantity > 0 and remaining_quantity > 0:
             execution_outcome = "ORDER_FILLED_PARTIAL"
         elif filled_quantity > 0 and remaining_quantity == 0:
             execution_outcome = "ORDER_FILLED"
-        elif event_type == "ORDER_QUEUED_FOR_RTH":
-            execution_outcome = "ORDER_QUEUED_FOR_RTH"
         elif event.action == "BLOCKED" or event_type == "ORDER_REJECTED":
             execution_outcome = "ORDER_REJECTED"
         elif is_acknowledged:
@@ -1627,11 +1647,13 @@ def run_cycle(
             f"executed={str(execution_pass).lower()} action={event.action} outcome={execution_outcome}"
         )
         if event.action in {"SUBMITTED", "WOULD_PLACE"}:
-            pipeline_outcomes[event.symbol] = TERMINAL_STATES["ORDER_SUBMITTED"]
+            pipeline_outcomes[event.symbol] = (
+                TERMINAL_STATES["ORDER_FILLED"] if execution_outcome in {"ORDER_FILLED", "ORDER_FILLED_PARTIAL"} else TERMINAL_STATES["ORDER_SUBMITTED"]
+            )
             if broker_order_id is None and event.action == "SUBMITTED":
                 first_blocker_by_symbol.setdefault(event.symbol, "ORDER_ACK_MISSING")
                 first_blocker_reason_by_symbol.setdefault(event.symbol, "MISSING_BROKER_ORDER_ID")
-            elif int(getattr(event, "filled_quantity", 0) or 0) <= 0:
+            elif execution_outcome not in {"ORDER_FILLED", "ORDER_FILLED_PARTIAL"}:
                 first_blocker_by_symbol.setdefault(event.symbol, "FILL_PENDING")
                 first_blocker_reason_by_symbol.setdefault(event.symbol, "FILL_PENDING")
             decision_waterfall[event.symbol]["execution"] = execution_outcome if event.action == "SUBMITTED" else "ORDER_DISPATCHED"
@@ -2084,8 +2106,15 @@ def _emit_final_decisions(
         if execution:
             execution_event_type = str(getattr(execution, "event_type", "") or "").upper()
             execution_detail = str(getattr(execution, "detail", "") or "")
+            final_execution_state = str(getattr(execution, "final_execution_state", "") or "")
             if execution.action == "SUBMITTED":
-                if execution_event_type == "ORDER_QUEUED_FOR_RTH":
+                if final_execution_state == "BROKER_FILLED_FULL" or execution_event_type == "ORDER_FILLED":
+                    outcome = "FILLED"
+                    reason = execution_detail
+                elif final_execution_state == "BROKER_FILLED_PARTIAL" or execution_event_type == "ORDER_PARTIALLY_FILLED":
+                    outcome = "PARTIALLY_FILLED"
+                    reason = execution_detail
+                elif execution_event_type == "ORDER_QUEUED_FOR_RTH":
                     outcome = "QUEUED_FOR_RTH"
                     reason = execution_detail
                 elif execution_event_type == "ORDER_WORKING":

@@ -172,3 +172,78 @@ def test_duplicate_execution_events_same_trade_emit_one_row(monkeypatch, capsys)
     out = capsys.readouterr().out
     assert out.count("[TRADE_ANALYTICS][ROW]") == 1
     assert "[ANALYTICS][DEDUP] trade_id=trade-dup" in out
+
+
+def test_filled_truth_dominates_acknowledged_outcome(monkeypatch, capsys) -> None:
+    event = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="ok",
+        event_type="ORDER_ACKNOWLEDGED",
+        broker_order_id=12345,
+        filled_quantity=0,
+        remaining_quantity=0,
+        broker_status="Submitted",
+        avg_fill_price=5.1,
+    )
+    event.final_execution_state = "BROKER_FILLED_FULL"
+    _configure_single_symbol_pipeline(monkeypatch, [event])
+
+    lifecycle_engine = SimpleNamespace(get_trade=lambda _trade_id: None)
+    run_cycle(cycle_id=6, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=lifecycle_engine)
+    out = capsys.readouterr().out
+    assert "[PIPELINE][EXECUTION] symbol=ABCD executed=true action=SUBMITTED outcome=ORDER_FILLED" in out
+    assert "[ROSS][DECISION_WATERFALL] symbol=ABCD" in out
+    assert "execution=ORDER_FILLED" in out
+    assert "[ROSS][FINAL_DECISION] symbol=ABCD" in out
+    assert "outcome=FILLED" in out
+
+
+def test_invalid_authoritative_fill_never_opens_position(monkeypatch, capsys) -> None:
+    bad_fill = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="ok",
+        event_type="ORDER_FILLED",
+        filled_quantity=0,
+        remaining_quantity=0,
+        avg_fill_price=0.0,
+    )
+    _configure_single_symbol_pipeline(monkeypatch, [bad_fill])
+
+    run_cycle(cycle_id=7, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=None)
+    out = capsys.readouterr().out
+    assert "[POSITION][BLOCKED_INVALID_AUTHORITATIVE_FILL] symbol=ABCD qty=0 price=0.0 reason=invalid_fill_truth" in out
+    assert "[LIFECYCLE] POSITION_OPENED symbol=ABCD" not in out
+
+
+def test_analytics_uses_intent_link_when_trade_is_authoritative(monkeypatch, capsys) -> None:
+    event = ExecutionEvent(symbol="ABCD", intent_id="intent-ABCD", action="SUBMITTED", detail="ok")
+    event.final_execution_state = "BROKER_FILLED_FULL"
+    _configure_single_symbol_pipeline(monkeypatch, [event])
+
+    lifecycle_engine = SimpleNamespace(
+        get_trade=lambda trade_id: SimpleNamespace(
+            state="EXITED",
+            entry_fill_price=5.0,
+            avg_fill_price=5.0,
+            exit_fill_price=5.5,
+            realized_pnl=10.0,
+            holding_duration_seconds=42,
+            exit_reason="TARGET_FILLED",
+            partial_exit_count=0,
+            entry_fill_time="2026-04-17T12:00:00+00:00",
+            entry_time="2026-04-17T12:00:00+00:00",
+            last_update_ts="2026-04-17T12:01:00+00:00",
+            exit_fill_time="2026-04-17T12:02:00+00:00",
+            exit_time="2026-04-17T12:02:00+00:00",
+        )
+        if trade_id == "intent-ABCD"
+        else None
+    )
+    run_cycle(cycle_id=8, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=lifecycle_engine)
+    out = capsys.readouterr().out
+    assert "[TRACE][TRADE_LINK_FAILURE] symbol=ABCD intent_id=intent-ABCD" not in out
+    assert "[TRACE][ANALYTICS_SOURCE] trade_id=intent-ABCD symbol=ABCD source=lifecycle_trade" in out
