@@ -26,7 +26,12 @@ from src.core_engine.state import CycleContext, RunMode, resolve_session_state
 from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core.intent import build_execution_intent
 from src.core.mode_authority import resolve_mode_authority
-from src.execution.order_router import execute_intents, fill_authority_state, runtime_lifecycle_snapshot
+from src.execution.order_router import (
+    AUTHORITATIVE_EXECUTION_STATES,
+    execute_intents,
+    fill_authority_state,
+    runtime_lifecycle_snapshot,
+)
 from src.prep.premarket_prep_artifact import write_premarket_prep_artifact
 from src.prep.premarket_prep import PreMarketPrepEngine
 from src.prep.premarket_prep_artifact import (
@@ -137,6 +142,22 @@ _CANONICAL_PRICE_SOURCES = frozenset(
         "IBKR_SNAPSHOT",
         "IBKR_SNAPSHOT_MID",
         "IBKR_STREAM",
+    }
+)
+
+FINAL_DECISION_TERMINAL_REJECTED_BROKER_STATES = frozenset(
+    {
+        state
+        for state in AUTHORITATIVE_EXECUTION_STATES
+        if state
+        in {
+            "BROKER_REJECTED",
+            "BROKER_CANCELLED",
+            "BROKER_EXPIRED",
+            "NO_FILL_TIMEOUT_TERMINAL",
+            "BROKER_VISIBILITY_FAILURE",
+        }
+        or state.startswith("BROKER_INACTIVE_")
     }
 )
 
@@ -2084,7 +2105,20 @@ def _emit_final_decisions(
         if execution:
             execution_event_type = str(getattr(execution, "event_type", "") or "").upper()
             execution_detail = str(getattr(execution, "detail", "") or "")
-            if execution.action == "SUBMITTED":
+            final_execution_state = str(getattr(execution, "final_execution_state", "") or "").upper()
+            if final_execution_state in FINAL_DECISION_TERMINAL_REJECTED_BROKER_STATES:
+                outcome = "REJECTED"
+                reason = final_execution_state or execution_detail
+            elif final_execution_state in {"BROKER_FILLED_PARTIAL", "BROKER_FILLED_FULL"}:
+                outcome = "FILLED"
+                reason = final_execution_state
+            elif final_execution_state in {"BROKER_WORKING", "BROKER_ACK_SEEN", "DISPATCH_SENT", "DISPATCH_INTENDED"}:
+                outcome = "WORKING"
+                reason = final_execution_state
+            elif final_execution_state == "BROKER_QUEUED_FOR_RTH":
+                outcome = "QUEUED_FOR_RTH"
+                reason = final_execution_state
+            elif execution.action == "SUBMITTED":
                 if execution_event_type == "ORDER_QUEUED_FOR_RTH":
                     outcome = "QUEUED_FOR_RTH"
                     reason = execution_detail

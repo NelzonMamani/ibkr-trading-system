@@ -172,3 +172,21 @@ def test_duplicate_execution_events_same_trade_emit_one_row(monkeypatch, capsys)
     out = capsys.readouterr().out
     assert out.count("[TRADE_ANALYTICS][ROW]") == 1
     assert "[ANALYTICS][DEDUP] trade_id=trade-dup" in out
+
+
+def test_final_decision_rejected_from_broker_visibility_failure(monkeypatch, capsys) -> None:
+    event = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="broker_visibility_lost",
+        event_type="ORDER_ACKNOWLEDGED",
+    )
+    event.final_execution_state = "BROKER_VISIBILITY_FAILURE"
+    _configure_single_symbol_pipeline(monkeypatch, [event])
+
+    run_cycle(cycle_id=6, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=None)
+    out = capsys.readouterr().out
+    final_decision_line = next(line for line in out.splitlines() if line.startswith("[ROSS][FINAL_DECISION] symbol=ABCD"))
+    assert "outcome=REJECTED" in final_decision_line
+    assert "reason=BROKER_VISIBILITY_FAILURE" in final_decision_line
