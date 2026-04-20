@@ -129,6 +129,81 @@ def test_no_synthetic_trade_id(monkeypatch, capsys) -> None:
     assert "trade_id': '4-intent-only'" not in out
 
 
+
+def test_partial_fill_remains_partial_in_pipeline_and_does_not_emit_completed_analytics(monkeypatch, capsys) -> None:
+    event = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="partial_fill_truth",
+        event_type="ORDER_PARTIALLY_FILLED",
+        filled_quantity=3,
+        remaining_quantity=7,
+        avg_fill_price=5.1,
+        broker_order_id=6001,
+    )
+    event.final_execution_state = "BROKER_FILLED_PARTIAL"
+    event.lifecycle_trade_id = "trade-partial"
+    _configure_single_symbol_pipeline(monkeypatch, [event])
+
+    lifecycle_engine = SimpleNamespace(
+        get_trade=lambda _trade_id: SimpleNamespace(state="PROTECTED", exit_fill_price=None, exit_fill_time=None)
+    )
+    run_cycle(cycle_id=6, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=lifecycle_engine)
+    out = capsys.readouterr().out
+
+    assert "[PIPELINE][EXECUTION] symbol=ABCD executed=true action=SUBMITTED outcome=ORDER_FILLED_PARTIAL" in out
+    assert "[ROSS][DECISION_WATERFALL] symbol=ABCD" in out
+    assert "execution=ORDER_FILLED_PARTIAL" in out
+    assert "'final_outcome': 'ORDER_FILLED_PARTIAL'" in out
+    assert "[LIFECYCLE] ORDER_PARTIALLY_FILLED symbol=ABCD" in out
+    assert "[LIFECYCLE] ORDER_FILLED symbol=ABCD" not in out
+    assert "[ROSS][FINAL_DECISION] symbol=ABCD" in out and "outcome=PARTIALLY_FILLED" in out
+    assert "[ANALYTICS][SKIP] trade_id=trade-partial reason=trade_not_closed" in out
+    assert "[TRADE_ANALYTICS][ROW]" not in out
+
+
+def test_full_fill_authoritative_truth_overrides_ack_in_pipeline(monkeypatch, capsys) -> None:
+    event = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="ack_then_full_fill",
+        event_type="ORDER_ACKNOWLEDGED",
+        filled_quantity=10,
+        remaining_quantity=0,
+        avg_fill_price=5.0,
+        broker_order_id=7001,
+    )
+    event.final_execution_state = "BROKER_FILLED_FULL"
+    event.lifecycle_trade_id = "trade-full"
+    _configure_single_symbol_pipeline(monkeypatch, [event])
+
+    lifecycle_engine = SimpleNamespace(
+        get_trade=lambda _trade_id: SimpleNamespace(
+            state="EXITED",
+            entry_fill_price=5.0,
+            avg_fill_price=5.0,
+            exit_fill_price=5.3,
+            realized_pnl=3.0,
+            holding_duration_seconds=30,
+            exit_reason="TARGET_FILLED",
+            partial_exit_count=0,
+            entry_fill_time="2026-04-17T12:00:00+00:00",
+            entry_time="2026-04-17T12:00:00+00:00",
+            last_update_ts="2026-04-17T12:01:00+00:00",
+            exit_fill_time="2026-04-17T12:02:00+00:00",
+            exit_time="2026-04-17T12:02:00+00:00",
+        )
+    )
+    run_cycle(cycle_id=7, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=lifecycle_engine)
+    out = capsys.readouterr().out
+
+    assert "[PIPELINE][EXECUTION] symbol=ABCD executed=true action=SUBMITTED outcome=ORDER_FILLED" in out
+    assert "execution=ORDER_FILLED" in out
+    assert "'final_outcome': 'ORDER_FILLED'" in out
+    assert "[ROSS][FINAL_DECISION] symbol=ABCD" in out and "outcome=FILLED" in out
+
 def test_expectancy_formula_correct() -> None:
     metrics = _compute_expectancy_metrics(
         [
