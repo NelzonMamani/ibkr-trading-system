@@ -26,7 +26,12 @@ from src.core_engine.state import CycleContext, RunMode, resolve_session_state
 from src.core.pricing.price_resolver import PriceResolutionError, resolve_entry_price
 from src.core.intent import build_execution_intent
 from src.core.mode_authority import resolve_mode_authority
-from src.execution.order_router import execute_intents, fill_authority_state, runtime_lifecycle_snapshot
+from src.execution.order_router import (
+    AUTHORITATIVE_EXECUTION_STATES,
+    execute_intents,
+    fill_authority_state,
+    runtime_lifecycle_snapshot,
+)
 from src.prep.premarket_prep_artifact import write_premarket_prep_artifact
 from src.prep.premarket_prep import PreMarketPrepEngine
 from src.prep.premarket_prep_artifact import (
@@ -140,6 +145,25 @@ _CANONICAL_PRICE_SOURCES = frozenset(
     }
 )
 
+_TERMINAL_REJECTED_BROKER_STATES = frozenset(
+    AUTHORITATIVE_EXECUTION_STATES.intersection(
+        {
+            "BROKER_REJECTED",
+            "BROKER_CANCELLED",
+            "BROKER_EXPIRED",
+            "BROKER_INACTIVE_UNKNOWN",
+            "BROKER_INACTIVE_NON_MARKETABLE",
+            "BROKER_INACTIVE_SESSION_MISMATCH",
+            "BROKER_INACTIVE_OUTSIDE_RTH",
+            "BROKER_INACTIVE_ROUTING",
+            "BROKER_INACTIVE_HELD",
+            "BROKER_INACTIVE_NO_QUOTE",
+            "NO_FILL_TIMEOUT_TERMINAL",
+            "BROKER_VISIBILITY_FAILURE",
+        }
+    )
+)
+
 
 @dataclass(frozen=True)
 class PriceAuthorityVerdict:
@@ -193,6 +217,14 @@ def _derive_last_block_reason(risk_decisions: List[RiskDecisionRecord]) -> str:
         if decision.decision == "BLOCK" and decision.triggered_rules:
             return ",".join(decision.triggered_rules)
     return "NONE"
+
+
+def _extract_final_execution_state(execution_detail: str) -> str:
+    for segment in str(execution_detail or "").split(";"):
+        key, sep, value = segment.strip().partition("=")
+        if sep and key.strip().lower() == "final_execution_state":
+            return value.strip().upper()
+    return ""
 
 
 def _resolve_trade_id_from_execution(event: ExecutionEvent, lifecycle_engine: Any | None) -> str | None:
@@ -2084,8 +2116,21 @@ def _emit_final_decisions(
         if execution:
             execution_event_type = str(getattr(execution, "event_type", "") or "").upper()
             execution_detail = str(getattr(execution, "detail", "") or "")
+            final_execution_state = _extract_final_execution_state(execution_detail)
             if execution.action == "SUBMITTED":
-                if execution_event_type == "ORDER_QUEUED_FOR_RTH":
+                if final_execution_state in _TERMINAL_REJECTED_BROKER_STATES:
+                    outcome = "REJECTED"
+                    reason = execution_detail
+                elif final_execution_state == "BROKER_FILLED_FULL":
+                    outcome = "FILLED"
+                    reason = execution_detail
+                elif final_execution_state == "BROKER_FILLED_PARTIAL":
+                    outcome = "PARTIALLY_FILLED"
+                    reason = execution_detail
+                elif final_execution_state == "BROKER_QUEUED_FOR_RTH":
+                    outcome = "QUEUED_FOR_RTH"
+                    reason = execution_detail
+                elif execution_event_type == "ORDER_QUEUED_FOR_RTH":
                     outcome = "QUEUED_FOR_RTH"
                     reason = execution_detail
                 elif execution_event_type == "ORDER_WORKING":

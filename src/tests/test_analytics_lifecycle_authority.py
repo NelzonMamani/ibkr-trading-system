@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from src.core_engine.events import ExecutionEvent, RiskDecisionRecord, TradeIntentRecord
-from src.core_engine.orchestrator import _compute_expectancy_metrics, run_cycle
+from src.core_engine.orchestrator import _compute_expectancy_metrics, _emit_final_decisions, run_cycle
 from src.core_engine.state import SessionState
 
 
@@ -172,3 +172,51 @@ def test_duplicate_execution_events_same_trade_emit_one_row(monkeypatch, capsys)
     out = capsys.readouterr().out
     assert out.count("[TRADE_ANALYTICS][ROW]") == 1
     assert "[ANALYTICS][DEDUP] trade_id=trade-dup" in out
+
+
+def test_final_decision_preserves_partial_fill_outcome(capsys) -> None:
+    event = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="ok; final_execution_state=BROKER_FILLED_PARTIAL; normalized_reject_reason=NONE",
+        event_type="ORDER_PARTIALLY_FILLED",
+        filled_quantity=1,
+        remaining_quantity=1,
+    )
+
+    _emit_final_decisions(focus=["ABCD"], pattern_summaries=[], intents=[], risk_decisions=[], execution_events=[event])
+    out = capsys.readouterr().out
+    assert "outcome=PARTIALLY_FILLED" in out
+
+
+def test_final_decision_preserves_full_fill_outcome(capsys) -> None:
+    event = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="ok; final_execution_state=BROKER_FILLED_FULL; normalized_reject_reason=NONE",
+        event_type="ORDER_FILLED",
+        filled_quantity=2,
+        remaining_quantity=0,
+    )
+
+    _emit_final_decisions(focus=["ABCD"], pattern_summaries=[], intents=[], risk_decisions=[], execution_events=[event])
+    out = capsys.readouterr().out
+    assert "outcome=FILLED" in out
+
+
+def test_final_decision_keeps_broker_visibility_failure_rejected(capsys) -> None:
+    event = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="timeout; final_execution_state=BROKER_VISIBILITY_FAILURE; normalized_reject_reason=NONE",
+        event_type="ORDER_WORKING",
+        filled_quantity=0,
+        remaining_quantity=1,
+    )
+
+    _emit_final_decisions(focus=["ABCD"], pattern_summaries=[], intents=[], risk_decisions=[], execution_events=[event])
+    out = capsys.readouterr().out
+    assert "outcome=REJECTED" in out
