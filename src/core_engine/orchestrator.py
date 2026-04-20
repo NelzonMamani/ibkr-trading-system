@@ -98,6 +98,8 @@ PIPELINE_BLOCKER_TAXONOMY = {
     "IBKR_SUBMISSION_FAIL",
     "ORDER_ACK_MISSING",
     "FILL_PENDING",
+    "ORDER_REJECTED_TERMINAL",
+    "ORDER_QUEUED_SESSION_WAIT",
     "OTHER_UNCLASSIFIED",
 }
 
@@ -129,7 +131,25 @@ BLOCKER_CATEGORY_MAP = {
     "IBKR_SUBMISSION_FAIL": "SUBMISSION_FAILED",
     "ORDER_ACK_MISSING": "SUBMISSION_FAILED",
     "FILL_PENDING": "NO_FILL",
+    "ORDER_REJECTED_TERMINAL": "SUBMISSION_FAILED",
+    "ORDER_QUEUED_SESSION_WAIT": "SESSION_RESTRICTED",
     "OTHER_UNCLASSIFIED": "UNKNOWN",
+}
+
+TERMINAL_REJECTED_EXECUTION_EVENT_TYPES = {
+    "ORDER_REJECTED",
+    "BROKER_REJECTED",
+    "NO_FILL_TIMEOUT_TERMINAL",
+    "BROKER_INACTIVE_UNKNOWN",
+    "BROKER_INACTIVE_NON_MARKETABLE",
+    "BROKER_INACTIVE_SESSION_MISMATCH",
+    "BROKER_INACTIVE_OUTSIDE_RTH",
+    "BROKER_INACTIVE_ROUTING",
+    "BROKER_INACTIVE_HELD",
+    "BROKER_INACTIVE_NO_QUOTE",
+    "BROKER_EXPIRED",
+    "BROKER_CANCELLED",
+    "BROKER_VISIBILITY_FAILURE",
 }
 
 _CANONICAL_PRICE_SOURCES = frozenset(
@@ -1616,7 +1636,7 @@ def run_cycle(
             execution_outcome = "ORDER_FILLED"
         elif event_type == "ORDER_QUEUED_FOR_RTH":
             execution_outcome = "ORDER_QUEUED_FOR_RTH"
-        elif event.action == "BLOCKED" or event_type == "ORDER_REJECTED":
+        elif event.action == "BLOCKED" or event_type in TERMINAL_REJECTED_EXECUTION_EVENT_TYPES:
             execution_outcome = "ORDER_REJECTED"
         elif is_acknowledged:
             execution_outcome = "ORDER_ACKNOWLEDGED"
@@ -1631,6 +1651,14 @@ def run_cycle(
             if broker_order_id is None and event.action == "SUBMITTED":
                 first_blocker_by_symbol.setdefault(event.symbol, "ORDER_ACK_MISSING")
                 first_blocker_reason_by_symbol.setdefault(event.symbol, "MISSING_BROKER_ORDER_ID")
+            elif execution_outcome == "ORDER_REJECTED":
+                first_blocker_by_symbol.setdefault(event.symbol, "ORDER_REJECTED_TERMINAL")
+                first_blocker_reason_by_symbol.setdefault(
+                    event.symbol, str(event_type or event.detail or "ORDER_REJECTED")
+                )
+            elif execution_outcome == "ORDER_QUEUED_FOR_RTH":
+                first_blocker_by_symbol.setdefault(event.symbol, "ORDER_QUEUED_SESSION_WAIT")
+                first_blocker_reason_by_symbol.setdefault(event.symbol, "ORDER_QUEUED_FOR_RTH")
             elif int(getattr(event, "filled_quantity", 0) or 0) <= 0:
                 first_blocker_by_symbol.setdefault(event.symbol, "FILL_PENDING")
                 first_blocker_reason_by_symbol.setdefault(event.symbol, "FILL_PENDING")
@@ -2085,8 +2113,17 @@ def _emit_final_decisions(
             execution_event_type = str(getattr(execution, "event_type", "") or "").upper()
             execution_detail = str(getattr(execution, "detail", "") or "")
             if execution.action == "SUBMITTED":
-                if execution_event_type == "ORDER_QUEUED_FOR_RTH":
+                if int(execution.filled_quantity or 0) > 0 and int(execution.remaining_quantity or 0) > 0:
+                    outcome = "PARTIALLY_FILLED"
+                    reason = execution_detail
+                elif int(execution.filled_quantity or 0) > 0 and int(execution.remaining_quantity or 0) == 0:
+                    outcome = "FILLED"
+                    reason = execution_detail
+                elif execution_event_type == "ORDER_QUEUED_FOR_RTH":
                     outcome = "QUEUED_FOR_RTH"
+                    reason = execution_detail
+                elif execution_event_type in TERMINAL_REJECTED_EXECUTION_EVENT_TYPES:
+                    outcome = "REJECTED"
                     reason = execution_detail
                 elif execution_event_type == "ORDER_WORKING":
                     outcome = "WORKING"
@@ -2094,13 +2131,10 @@ def _emit_final_decisions(
                 elif (execution.broker_order_id is not None) and int(execution.filled_quantity or 0) <= 0:
                     outcome = "ORDER_DISPATCHED"
                     reason = execution_detail
-                elif int(execution.filled_quantity or 0) > 0:
-                    outcome = "FILLED"
-                    reason = execution_detail
                 else:
                     outcome = "ORDER_SUBMISSION_TRACKING_ERROR"
                     reason = "submitted_without_broker_order_id"
-            elif execution.action == "BLOCKED" or execution_event_type == "ORDER_REJECTED":
+            elif execution.action == "BLOCKED" or execution_event_type in TERMINAL_REJECTED_EXECUTION_EVENT_TYPES:
                 outcome = "REJECTED"
                 reason = execution_detail
             else:

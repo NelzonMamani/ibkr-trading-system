@@ -172,3 +172,79 @@ def test_duplicate_execution_events_same_trade_emit_one_row(monkeypatch, capsys)
     out = capsys.readouterr().out
     assert out.count("[TRADE_ANALYTICS][ROW]") == 1
     assert "[ANALYTICS][DEDUP] trade_id=trade-dup" in out
+
+
+def test_terminal_rejection_not_labeled_fill_pending_blocker(monkeypatch, capsys) -> None:
+    event = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="broker rejected",
+        event_type="BROKER_REJECTED",
+        broker_order_id=111,
+        filled_quantity=0,
+        remaining_quantity=1,
+    )
+    _configure_single_symbol_pipeline(monkeypatch, [event])
+
+    run_cycle(cycle_id=6, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=None)
+    out = capsys.readouterr().out
+    assert "[PIPELINE][BLOCKER] symbol=ABCD blocker=ORDER_REJECTED_TERMINAL reason=BROKER_REJECTED" in out
+    assert "blocker=FILL_PENDING" not in out
+
+
+def test_final_decision_marks_terminal_submitted_failure_rejected(monkeypatch, capsys) -> None:
+    event = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="visibility failure",
+        event_type="BROKER_VISIBILITY_FAILURE",
+        broker_order_id=222,
+        filled_quantity=0,
+        remaining_quantity=1,
+    )
+    _configure_single_symbol_pipeline(monkeypatch, [event])
+
+    run_cycle(cycle_id=7, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=None)
+    out = capsys.readouterr().out
+    assert "symbol=ABCD" in out
+    assert "outcome=REJECTED reason=visibility failure" in out
+
+
+def test_final_decision_preserves_partial_fill_semantics(monkeypatch, capsys) -> None:
+    event = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="partial fill",
+        event_type="ORDER_PARTIALLY_FILLED",
+        broker_order_id=333,
+        filled_quantity=5,
+        remaining_quantity=5,
+    )
+    _configure_single_symbol_pipeline(monkeypatch, [event])
+
+    run_cycle(cycle_id=8, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=None)
+    out = capsys.readouterr().out
+    assert "symbol=ABCD" in out
+    assert "outcome=PARTIALLY_FILLED reason=partial fill" in out
+
+
+def test_final_decision_preserves_full_fill_semantics(monkeypatch, capsys) -> None:
+    event = ExecutionEvent(
+        symbol="ABCD",
+        intent_id="intent-ABCD",
+        action="SUBMITTED",
+        detail="full fill",
+        event_type="ORDER_FILLED",
+        broker_order_id=444,
+        filled_quantity=10,
+        remaining_quantity=0,
+    )
+    _configure_single_symbol_pipeline(monkeypatch, [event])
+
+    run_cycle(cycle_id=9, mode_value="PAPER", forced_session_state=SessionState.PRE, lifecycle_engine=None)
+    out = capsys.readouterr().out
+    assert "symbol=ABCD" in out
+    assert "outcome=FILLED reason=full fill" in out
