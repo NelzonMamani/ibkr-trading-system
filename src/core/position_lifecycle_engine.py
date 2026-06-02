@@ -7,6 +7,7 @@ from typing import Callable, Iterable
 from uuid import uuid4
 
 from src.config.runtime_config import RunMode
+from src.core.stop_loss_authority import StopProtectionEvidence, assess_stop_protection
 from src.storage.storage_engine import StorageEngine
 
 
@@ -113,6 +114,9 @@ class PositionLifecycle:
     quantity: int = 0
     state: PositionState = PositionState.FLAT
     stop_loss_price: float | None = None
+    active_stop_order_id: str | None = None
+    pending_stop_order_intent: str | None = None
+    emergency_stop_exception: str | None = None
     trailing_stop_price: float | None = None
     partial_profit_taken: bool = False
     state_history: list[dict] = field(default_factory=list)
@@ -128,6 +132,18 @@ class PositionLifecycle:
     @property
     def remaining_size(self) -> int:
         return max(int(self.entry_requested_quantity or 0) - int(self.quantity or 0), 0)
+
+    def stop_protection_evidence(self) -> StopProtectionEvidence:
+        return StopProtectionEvidence(
+            symbol=self.symbol,
+            state=self.state.value,
+            active_stop_order_id=self.active_stop_order_id,
+            pending_stop_order_intent=self.pending_stop_order_intent,
+            emergency_stop_exception=self.emergency_stop_exception,
+        )
+
+    def stop_protection_assessment(self) -> dict:
+        return assess_stop_protection(self.stop_protection_evidence())
 
 
 @dataclass
@@ -161,6 +177,11 @@ class LifecycleTransition:
             "entry_source": getattr(self, "entry_source", None),
             "entry_intent_id": getattr(self, "entry_intent_id", None),
             "entry_order_id": getattr(self, "entry_order_id", None),
+            "stop_loss_price": getattr(self, "stop_loss_price", None),
+            "active_stop_order_id": getattr(self, "active_stop_order_id", None),
+            "pending_stop_order_intent": getattr(self, "pending_stop_order_intent", None),
+            "emergency_stop_exception": getattr(self, "emergency_stop_exception", None),
+            "trailing_stop_price": getattr(self, "trailing_stop_price", None),
             "from_state": self.from_state.value,
             "to_state": self.to_state.value,
             "intent": self.intent.value,
@@ -320,6 +341,11 @@ class PositionLifecycleEngine:
         transition.entry_source = position.entry_source
         transition.entry_intent_id = position.entry_intent_id
         transition.entry_order_id = position.entry_order_id
+        transition.stop_loss_price = position.stop_loss_price
+        transition.active_stop_order_id = position.active_stop_order_id
+        transition.pending_stop_order_intent = position.pending_stop_order_intent
+        transition.emergency_stop_exception = position.emergency_stop_exception
+        transition.trailing_stop_price = position.trailing_stop_price
         position.state_history.append(
             {
                 "from": from_state.value,
@@ -338,6 +364,11 @@ class PositionLifecycleEngine:
                 "entry_source": position.entry_source,
                 "entry_intent_id": position.entry_intent_id,
                 "entry_order_id": position.entry_order_id,
+                "stop_loss_price": position.stop_loss_price,
+                "active_stop_order_id": position.active_stop_order_id,
+                "pending_stop_order_intent": position.pending_stop_order_intent,
+                "emergency_stop_exception": position.emergency_stop_exception,
+                "trailing_stop_price": position.trailing_stop_price,
                 "from_state": from_state.value,
                 "to_state": to_state.value,
                 "intent": intent.value,
@@ -373,6 +404,10 @@ class PositionLifecycleEngine:
         entry_source: str | None = None,
         entry_intent_id: str | None = None,
         entry_order_id: str | None = None,
+        stop_loss_price: float | None = None,
+        active_stop_order_id: str | None = None,
+        pending_stop_order_intent: str | None = None,
+        emergency_stop_exception: str | None = None,
     ) -> LifecycleResult:
         if strategy_owner:
             placeholder_owners = {None, "", "UNKNOWN", "SYSTEM", position.trader_type}
@@ -392,6 +427,15 @@ class PositionLifecycleEngine:
             position.entry_source = entry_source or position.entry_source or "UNKNOWN"
             position.entry_intent_id = entry_intent_id or position.entry_intent_id
             position.entry_order_id = entry_order_id or position.entry_order_id
+            if stop_loss_price is not None:
+                position.stop_loss_price = float(stop_loss_price)
+            position.active_stop_order_id = active_stop_order_id or position.active_stop_order_id
+            position.pending_stop_order_intent = (
+                pending_stop_order_intent or position.pending_stop_order_intent
+            )
+            position.emergency_stop_exception = (
+                emergency_stop_exception or position.emergency_stop_exception
+            )
             position.entry_requested_quantity = max(
                 int(position.entry_requested_quantity or 0),
                 int(requested_quantity or 0),
@@ -405,6 +449,10 @@ class PositionLifecycleEngine:
                 "entry_source": position.entry_source,
                 "entry_intent_id": position.entry_intent_id,
                 "entry_order_id": position.entry_order_id,
+                "stop_loss_price": position.stop_loss_price,
+                "active_stop_order_id": position.active_stop_order_id,
+                "pending_stop_order_intent": position.pending_stop_order_intent,
+                "emergency_stop_exception": position.emergency_stop_exception,
                 "intent": intent.value,
                 "requested_quantity": requested_quantity,
                 "mode": run_mode.value,
@@ -482,6 +530,15 @@ class PositionLifecycleEngine:
                     self._persist_transitions(transitions)
                     return LifecycleResult(accepted=True, transitions=transitions)
                 position.quantity += filled_quantity
+                if (
+                    run_mode in {RunMode.PAPER, RunMode.LIVE}
+                    and not position.active_stop_order_id
+                    and not position.pending_stop_order_intent
+                    and not position.emergency_stop_exception
+                ):
+                    position.pending_stop_order_intent = (
+                        f"pending_stop:{position.entry_order_id or position.entry_intent_id or position.symbol}"
+                    )
                 transitions.append(
                     self._apply_transition(
                         position=position,
@@ -669,6 +726,19 @@ class PositionLifecycleEngine:
                     entry_source=transition.get("entry_source"),
                     entry_intent_id=transition.get("entry_intent_id"),
                     entry_order_id=transition.get("entry_order_id"),
+                    stop_loss_price=(
+                        float(transition.get("stop_loss_price"))
+                        if transition.get("stop_loss_price") is not None
+                        else None
+                    ),
+                    active_stop_order_id=transition.get("active_stop_order_id"),
+                    pending_stop_order_intent=transition.get("pending_stop_order_intent"),
+                    emergency_stop_exception=transition.get("emergency_stop_exception"),
+                    trailing_stop_price=(
+                        float(transition.get("trailing_stop_price"))
+                        if transition.get("trailing_stop_price") is not None
+                        else None
+                    ),
                     entry_requested_quantity=int(transition.get("requested_quantity", 0) or 0),
                 )
                 positions[key] = position
@@ -682,6 +752,17 @@ class PositionLifecycleEngine:
             position.entry_source = transition.get("entry_source") or position.entry_source
             position.entry_intent_id = transition.get("entry_intent_id") or position.entry_intent_id
             position.entry_order_id = transition.get("entry_order_id") or position.entry_order_id
+            if transition.get("stop_loss_price") is not None:
+                position.stop_loss_price = float(transition.get("stop_loss_price"))
+            position.active_stop_order_id = transition.get("active_stop_order_id") or position.active_stop_order_id
+            position.pending_stop_order_intent = (
+                transition.get("pending_stop_order_intent") or position.pending_stop_order_intent
+            )
+            position.emergency_stop_exception = (
+                transition.get("emergency_stop_exception") or position.emergency_stop_exception
+            )
+            if transition.get("trailing_stop_price") is not None:
+                position.trailing_stop_price = float(transition.get("trailing_stop_price"))
             position.state_history.append(
                 {
                     "from": transition.get("from_state"),

@@ -5,6 +5,7 @@ from src.execution.post_fill_lifecycle_engine import (
     PostFillLifecycleEngine,
     PositionLifecycleState,
 )
+from src.core.stop_loss_authority import StopProtectionStatus
 
 
 class _ProviderStub:
@@ -56,6 +57,47 @@ def test_fill_installs_stop_and_target_in_paper_mode() -> None:
     assert len(provider.stop_calls) == 1
     assert len(provider.target_calls) == 1
     assert result["protection_state"] == PositionLifecycleState.TRAILING_ELIGIBLE.value
+
+
+def test_risk_authorized_stop_cancel_clears_active_protection_evidence() -> None:
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-CANCEL-STOP",
+        symbol="AAPL",
+        side="LONG",
+        filled_qty=10,
+        avg_fill_price=100.0,
+        strategy_id="S1",
+    )
+
+    protected = engine.assess_trade_stop_protection("T-CANCEL-STOP")
+    assert protected["status"] == StopProtectionStatus.PROTECTED.value
+    assert protected["protected"] is True
+
+    result = engine.cancel_stop(
+        trade_id="T-CANCEL-STOP",
+        requested_by_strategy="S1",
+        risk_authorized_override=True,
+        reason="risk authority approved temporary manual protection",
+    )
+    trade = engine.get_trade("T-CANCEL-STOP")
+
+    assert result["allowed"] is True
+    assert provider.cancel_calls == [{"broker_order_id": "STOP-1"}]
+    assert trade is not None
+    assert trade.stop is not None
+    assert trade.stop.status == "CANCELLED"
+    assert trade.stop.broker_order_id is None
+
+    exception = engine.assess_trade_stop_protection("T-CANCEL-STOP")
+    assert exception["status"] == StopProtectionStatus.EXCEPTION.value
+    assert exception["protected"] is True
+
+    trade.stop.emergency_stop_exception = None
+    unsafe = engine.assess_trade_stop_protection("T-CANCEL-STOP")
+    assert unsafe["status"] == StopProtectionStatus.UNSAFE.value
+    assert unsafe["protected"] is False
 
 
 def test_read_only_does_not_mutate_and_flags_failure() -> None:

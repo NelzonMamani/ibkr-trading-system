@@ -6,6 +6,19 @@ from enum import Enum
 import math
 from typing import Any
 
+from src.core.stop_loss_authority import (
+    StopAuditEventType,
+    StopAuditTrail,
+    StopAuthority,
+    StopAuthorityError,
+    StopProtectionEvidence,
+    StopRecoveryClassification,
+    assess_stop_protection,
+    classify_stop_recovery,
+    validate_stop_price,
+    validate_stop_update,
+)
+
 
 class PositionLifecycleState(str, Enum):
     ENTRY_SUBMITTED = "ENTRY_SUBMITTED"
@@ -32,6 +45,12 @@ class ProtectionOrderMeta:
     trigger_price: float
     broker_order_id: str | None = None
     status: str = "REGISTERED"
+    lifecycle_trade_id: str | None = None
+    strategy_owner: str | None = None
+    entry_order_id: str | None = None
+    entry_intent_id: str | None = None
+    pending_intent_id: str | None = None
+    emergency_stop_exception: str | None = None
 
 
 @dataclass
@@ -117,14 +136,73 @@ _ALLOWED_TRANSITIONS: dict[PositionLifecycleState, set[PositionLifecycleState]] 
 
 
 class PostFillLifecycleEngine:
-    def __init__(self, run_mode: str, policy: LifecyclePolicy | None = None, execution_provider: Any | None = None) -> None:
+    def __init__(
+        self,
+        run_mode: str,
+        policy: LifecyclePolicy | None = None,
+        execution_provider: Any | None = None,
+        stop_audit_trail: StopAuditTrail | None = None,
+        storage_engine: Any | None = None,
+    ) -> None:
         self.run_mode = str(run_mode or "SIM").upper()
         self.policy = policy or LifecyclePolicy()
         self.execution_provider = execution_provider
+        self.stop_audit_trail = stop_audit_trail or StopAuditTrail(storage_engine=storage_engine)
         self._trades: dict[str, ManagedTradeLifecycle] = {}
         self._active_trade_ids: set[str] = set()
         self._active_position_qty_by_symbol: dict[str, int] = {}
         self._pending_exit_requests: dict[str, dict[str, Any]] = {}
+
+    def _authority_for_trade(self, trade: ManagedTradeLifecycle) -> StopAuthority:
+        return StopAuthority(
+            symbol=trade.symbol,
+            lifecycle_trade_id=trade.trade_id,
+            position_id=trade.trade_id,
+            strategy_owner=trade.strategy_id,
+            entry_order_id=trade.trade_id,
+            entry_intent_id=trade.trade_id,
+        )
+
+    def _record_stop_event(
+        self,
+        trade: ManagedTradeLifecycle,
+        event_type: StopAuditEventType,
+        *,
+        stop_price: float | None = None,
+        previous_stop_price: float | None = None,
+        active_stop_order_id: str | None = None,
+        pending_stop_order_intent: str | None = None,
+        status: str | None = None,
+        reason: str | None = None,
+        recovery_classification: StopRecoveryClassification | str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        self.stop_audit_trail.record(
+            event_type,
+            self._authority_for_trade(trade),
+            stop_price=stop_price,
+            previous_stop_price=previous_stop_price,
+            active_stop_order_id=active_stop_order_id,
+            pending_stop_order_intent=pending_stop_order_intent,
+            quantity=int(trade.filled_qty or 0),
+            status=status,
+            reason=reason,
+            recovery_classification=recovery_classification,
+            payload=payload,
+        )
+
+    def assess_trade_stop_protection(self, trade_id: str) -> dict[str, Any]:
+        trade = self._trades.get(str(trade_id))
+        if trade is None:
+            return {"status": "UNSAFE", "protected": False, "reason_code": "TRADE_NOT_FOUND"}
+        evidence = StopProtectionEvidence(
+            symbol=trade.symbol,
+            state="OPEN" if self._is_open_trade_state(trade.state) and int(trade.filled_qty or 0) > 0 else "CLOSED",
+            active_stop_order_id=trade.stop.broker_order_id if trade.stop else None,
+            pending_stop_order_intent=trade.stop.pending_intent_id if trade.stop else None,
+            emergency_stop_exception=trade.stop.emergency_stop_exception if trade.stop else None,
+        )
+        return assess_stop_protection(evidence)
 
     @staticmethod
     def _is_open_trade_state(state: PositionLifecycleState) -> bool:
@@ -210,12 +288,25 @@ class PostFillLifecycleEngine:
             or ""
         ).upper()
         order_ref = str(getattr(order_obj, "orderRef", None) or (order_obj.get("order_ref") if isinstance(order_obj, dict) else "") or "")
+        metadata = {}
+        if isinstance(order, dict):
+            metadata = order.get("metadata") or {}
+        else:
+            metadata = getattr(order, "metadata", {}) or {}
+        stop_price = (
+            getattr(order_obj, "auxPrice", None)
+            or getattr(order, "stop_price", None)
+            or (order_obj.get("auxPrice") if isinstance(order_obj, dict) else None)
+            or (order.get("stop_price") if isinstance(order, dict) else None)
+            or metadata.get("stop_price")
+        )
         return {
             "order_id": order_id,
             "symbol": symbol,
             "order_type": order_type,
             "status": status,
             "order_ref": order_ref,
+            "stop_price": stop_price,
         }
 
     def _transition(self, trade: ManagedTradeLifecycle, target: PositionLifecycleState, reason: str) -> bool:
@@ -285,9 +376,21 @@ class PostFillLifecycleEngine:
         self._trades[trade.trade_id] = trade
         self._update_in_memory_state()
         print(f"[LIFECYCLE][STATE] trade_id={trade.trade_id} state={trade.state.value}")
+        self._record_stop_event(
+            trade,
+            StopAuditEventType.STOP_REQUIRED,
+            reason="entry_fill_requires_protective_stop",
+            status="REQUIRED",
+        )
 
         if self.run_mode == "READ_ONLY":
             trade.failure_flags.append("READ_ONLY_NO_MUTATION")
+            self._record_stop_event(
+                trade,
+                StopAuditEventType.STOP_REJECTED,
+                reason="READ_ONLY_NO_ORDER_MUTATION",
+                status="REJECTED",
+            )
             print(
                 "[LIFECYCLE][CRITICAL][UNPROTECTED_POSITION] "
                 f"trade_id={trade.trade_id} symbol={trade.symbol} reason=READ_ONLY_NO_ORDER_MUTATION"
@@ -301,8 +404,28 @@ class PostFillLifecycleEngine:
             self._transition(trade, PositionLifecycleState.PROTECTION_PENDING, f"install_attempt_{attempt}")
             try:
                 stop, target = self._compute_stop_target(avg_fill_price=float(avg_fill_price), side=side)
-                trade.stop = ProtectionOrderMeta(order_type="STOP", side="SELL", trigger_price=stop, status="PENDING_SUBMIT")
+                validate_stop_price(side=side, stop_price=stop, entry_price=float(avg_fill_price))
+                pending_stop_intent = f"stop-submit:{trade.trade_id}:{attempt}"
+                trade.stop = ProtectionOrderMeta(
+                    order_type="STOP",
+                    side="SELL",
+                    trigger_price=stop,
+                    status="PENDING_SUBMIT",
+                    lifecycle_trade_id=trade.trade_id,
+                    strategy_owner=trade.strategy_id,
+                    entry_order_id=trade.trade_id,
+                    entry_intent_id=trade.trade_id,
+                    pending_intent_id=pending_stop_intent,
+                )
                 trade.target = ProtectionOrderMeta(order_type="LIMIT", side="SELL", trigger_price=target, status="PENDING_SUBMIT")
+                self._record_stop_event(
+                    trade,
+                    StopAuditEventType.STOP_SUBMITTED,
+                    stop_price=stop,
+                    pending_stop_order_intent=pending_stop_intent,
+                    status="PENDING_SUBMIT",
+                    reason="protective_stop_submit_attempt",
+                )
                 print(
                     "[LIFECYCLE][ORDER_INSTALL][STOP] "
                     f"trade_id={trade.trade_id} symbol={trade.symbol} stop={stop:.4f}"
@@ -339,6 +462,15 @@ class PostFillLifecycleEngine:
                 else:
                     trade.stop.status = "REGISTERED"
                     trade.target.status = "REGISTERED"
+                self._record_stop_event(
+                    trade,
+                    StopAuditEventType.STOP_ACKNOWLEDGED,
+                    stop_price=trade.stop.trigger_price,
+                    active_stop_order_id=trade.stop.broker_order_id,
+                    pending_stop_order_intent=trade.stop.pending_intent_id,
+                    status=trade.stop.status,
+                    reason="protective_stop_acknowledged",
+                )
                 self._transition(trade, PositionLifecycleState.PROTECTED, "stop_installed")
                 self._transition(trade, PositionLifecycleState.TARGET_ACTIVE, "target_registered")
                 self._transition(trade, PositionLifecycleState.TRAILING_ELIGIBLE, "baseline_trailing_ready")
@@ -346,6 +478,14 @@ class PostFillLifecycleEngine:
                 break
             except Exception as exc:  # defensive lifecycle boundary
                 failure_reason = str(exc)
+                self._record_stop_event(
+                    trade,
+                    StopAuditEventType.STOP_REJECTED,
+                    stop_price=trade.stop.trigger_price if trade.stop else None,
+                    pending_stop_order_intent=trade.stop.pending_intent_id if trade.stop else None,
+                    status="REJECTED",
+                    reason=failure_reason,
+                )
                 print(f"[LIFECYCLE][POLICY_INVALID] trade_id={trade.trade_id} reason={failure_reason}")
                 print(f"[LIFECYCLE][FAILSAFE][RETRY] trade_id={trade.trade_id} attempt={attempt}")
 
@@ -409,6 +549,16 @@ class PostFillLifecycleEngine:
             print(f"[TRAIL][NO_CHANGE] trade_id={trade.trade_id} reason=unchanged")
             return {"updated": False, "reason": "unchanged", "stop_price": trade.stop.trigger_price}
 
+        previous_stop = float(trade.stop.trigger_price)
+        validate_stop_update(
+            authority=self._authority_for_trade(trade),
+            requested_by_strategy=trade.strategy_id,
+            side=trade.side,
+            current_stop_price=previous_stop,
+            candidate_stop_price=candidate,
+            entry_price=trade.avg_fill_price,
+            current_price=current,
+        )
         trade.stop.trigger_price = candidate
         trade.last_update_ts = self._ts()
         print(f"[TRAIL][UPDATE] trade_id={trade.trade_id} new_stop={candidate:.4f} high_water={trade.high_water_mark:.4f}")
@@ -425,7 +575,114 @@ class PostFillLifecycleEngine:
                 new_stop_price=trade.stop.trigger_price,
                 trade_id=trade.trade_id,
             )
+        self._record_stop_event(
+            trade,
+            StopAuditEventType.STOP_TIGHTENED,
+            stop_price=trade.stop.trigger_price,
+            previous_stop_price=previous_stop,
+            active_stop_order_id=trade.stop.broker_order_id,
+            status=trade.stop.status,
+            reason="trailing_update",
+        )
         return {"updated": True, "stop_price": trade.stop.trigger_price, "state": trade.state.value}
+
+    def replace_stop(
+        self,
+        *,
+        trade_id: str,
+        requested_by_strategy: str,
+        new_stop_price: float,
+        risk_authorized_override: bool = False,
+        override_reason: str | None = None,
+    ) -> dict[str, Any]:
+        trade = self._trades.get(str(trade_id))
+        if trade is None or trade.stop is None:
+            return {"allowed": False, "reason_code": "TRADE_MISSING_OR_UNPROTECTED"}
+        previous_stop = float(trade.stop.trigger_price)
+        try:
+            decision = validate_stop_update(
+                authority=self._authority_for_trade(trade),
+                requested_by_strategy=requested_by_strategy,
+                side=trade.side,
+                current_stop_price=previous_stop,
+                candidate_stop_price=float(new_stop_price),
+                entry_price=trade.avg_fill_price,
+                risk_authorized_override=risk_authorized_override,
+                override_reason=override_reason,
+            )
+        except StopAuthorityError as exc:
+            return {"allowed": False, "reason_code": exc.reason_code, "reason": str(exc)}
+
+        trade.stop.trigger_price = float(new_stop_price)
+        trade.stop.status = "REPLACED"
+        trade.last_update_ts = self._ts()
+        if (
+            self.execution_provider is not None
+            and self.run_mode in {"PAPER", "LIVE"}
+            and trade.stop.broker_order_id
+        ):
+            self.execution_provider.modify_stop_order(
+                broker_order_id=trade.stop.broker_order_id,
+                symbol=trade.symbol,
+                side=trade.stop.side,
+                quantity=trade.filled_qty,
+                new_stop_price=trade.stop.trigger_price,
+                trade_id=trade.trade_id,
+            )
+        event_type = (
+            StopAuditEventType.STOP_TIGHTENED
+            if decision["tightening"]
+            else StopAuditEventType.STOP_REPLACED
+        )
+        self._record_stop_event(
+            trade,
+            event_type,
+            stop_price=trade.stop.trigger_price,
+            previous_stop_price=previous_stop,
+            active_stop_order_id=trade.stop.broker_order_id,
+            status=trade.stop.status,
+            reason=decision["reason_code"],
+            payload={"risk_authorized_override": bool(risk_authorized_override), "override_reason": override_reason},
+        )
+        return {"allowed": True, **decision, "stop_price": trade.stop.trigger_price}
+
+    def cancel_stop(
+        self,
+        *,
+        trade_id: str,
+        requested_by_strategy: str,
+        risk_authorized_override: bool = False,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        trade = self._trades.get(str(trade_id))
+        if trade is None or trade.stop is None:
+            return {"allowed": False, "reason_code": "TRADE_MISSING_OR_UNPROTECTED"}
+        if str(requested_by_strategy or "") != trade.strategy_id:
+            return {
+                "allowed": False,
+                "reason_code": "STOP_OWNERSHIP_CONFLICT",
+                "owner_strategy": trade.strategy_id,
+            }
+        if not risk_authorized_override:
+            return {"allowed": False, "reason_code": "STOP_CANCEL_REQUIRES_RISK_AUTHORITY"}
+        if not str(reason or "").strip():
+            return {"allowed": False, "reason_code": "RISK_OVERRIDE_REASON_REQUIRED"}
+        broker_order_id = trade.stop.broker_order_id
+        if self.execution_provider is not None and broker_order_id and self.run_mode in {"PAPER", "LIVE"}:
+            self.execution_provider.cancel_order(broker_order_id=str(broker_order_id))
+        trade.stop.status = "CANCELLED"
+        trade.stop.broker_order_id = None
+        trade.stop.pending_intent_id = None
+        trade.stop.emergency_stop_exception = str(reason or "").strip()
+        self._record_stop_event(
+            trade,
+            StopAuditEventType.STOP_CANCELLED,
+            stop_price=trade.stop.trigger_price,
+            active_stop_order_id=broker_order_id,
+            status=trade.stop.status,
+            reason=reason,
+        )
+        return {"allowed": True, "reason_code": "RISK_AUTHORIZED_STOP_CANCEL", "broker_order_id": broker_order_id}
 
     @staticmethod
     def _extract_fill_price(payload: dict[str, Any]) -> float | None:
@@ -620,6 +877,15 @@ class PostFillLifecycleEngine:
                     fill_time = self._extract_fill_time(payload)
                     if fill_price is None or fill_time is None:
                         return {"handled": False, "trade_id": trade.trade_id, "error": "missing_fill_truth"}
+                    self._record_stop_event(
+                        trade,
+                        StopAuditEventType.STOP_TRIGGERED,
+                        stop_price=stop.trigger_price,
+                        active_stop_order_id=stop.broker_order_id,
+                        status="FILLED",
+                        reason="stop_fill_broker",
+                        payload={"fill_price": fill_price, "fill_time": fill_time},
+                    )
                     exit_result = self.record_exit_fill(
                         trade_id=trade.trade_id,
                         fill_price=fill_price,
@@ -710,12 +976,32 @@ class PostFillLifecycleEngine:
             )
             trade.stop.broker_order_id = str(result.get("broker_order_id"))
             trade.stop.status = str(result.get("status") or "Submitted")
+            self._record_stop_event(
+                trade,
+                StopAuditEventType.STOP_RECOVERY_RESULT,
+                stop_price=trade.stop.trigger_price,
+                active_stop_order_id=trade.stop.broker_order_id,
+                pending_stop_order_intent=trade.stop.pending_intent_id,
+                status=trade.stop.status,
+                reason=reason,
+                recovery_classification=StopRecoveryClassification.STOP_RECOVERED,
+            )
             print(
                 "[LIFECYCLE][CRITICAL][PROTECTION_REPAIRED] "
                 f"trade_id={trade.trade_id} symbol={trade.symbol} reason={reason} stop_order_id={trade.stop.broker_order_id}"
             )
             return True
         except Exception as exc:
+            self._record_stop_event(
+                trade,
+                StopAuditEventType.STOP_RECOVERY_RESULT,
+                stop_price=trade.stop.trigger_price,
+                active_stop_order_id=trade.stop.broker_order_id,
+                pending_stop_order_intent=trade.stop.pending_intent_id,
+                status="REPAIR_FAILED",
+                reason=f"{reason}:{exc}",
+                recovery_classification=StopRecoveryClassification.STOP_UNSAFE,
+            )
             print(
                 "[LIFECYCLE][CRITICAL][PROTECTION_REPAIR_FAILED] "
                 f"trade_id={trade.trade_id} symbol={trade.symbol} reason={reason} error={exc}"
@@ -762,6 +1048,7 @@ class PostFillLifecycleEngine:
             if row["order_id"] and not self._is_filled_status(row["status"]) and not self._is_cancelled_status(row["status"])
         }
         findings: list[dict[str, Any]] = []
+        stop_recovery: list[dict[str, Any]] = []
         repaired = 0
         block_new_entries = False
 
@@ -779,12 +1066,48 @@ class PostFillLifecycleEngine:
             target_missing = trade.target is not None and (not trade.target.broker_order_id or str(trade.target.broker_order_id) not in open_ids)
 
             if stop_missing:
+                recovery = classify_stop_recovery(
+                    lifecycle_stop_order_id=trade.stop.broker_order_id if trade.stop else None,
+                    lifecycle_stop_price=trade.stop.trigger_price if trade.stop else None,
+                    broker_stop_orders=normalized,
+                    symbol=trade.symbol,
+                    broker_position_quantity=int(trade.filled_qty or 0),
+                )
+                recovery["trade_id"] = trade.trade_id
+                stop_recovery.append(recovery)
+                self._record_stop_event(
+                    trade,
+                    StopAuditEventType.STOP_RECOVERY_RESULT,
+                    stop_price=trade.stop.trigger_price if trade.stop else None,
+                    active_stop_order_id=trade.stop.broker_order_id if trade.stop else None,
+                    status=trade.stop.status if trade.stop else None,
+                    reason=recovery["reason_code"],
+                    recovery_classification=recovery["classification"],
+                    payload=recovery,
+                )
                 findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "MISSING_STOP"})
                 print(f"[LIFECYCLE][RECONCILIATION][MISSING_STOP] trade_id={trade.trade_id} symbol={trade.symbol}")
                 repaired_stop = repair and self._repair_missing_stop(trade, "reconciliation_missing_stop")
                 if repaired_stop:
                     repaired += 1
+                    stop_recovery.append(
+                        {
+                            "trade_id": trade.trade_id,
+                            "symbol": trade.symbol,
+                            "classification": StopRecoveryClassification.STOP_RECOVERED.value,
+                            "reason_code": "missing_stop_repaired",
+                            "broker_order_id": trade.stop.broker_order_id if trade.stop else None,
+                        }
+                    )
                 elif repair:
+                    stop_recovery.append(
+                        {
+                            "trade_id": trade.trade_id,
+                            "symbol": trade.symbol,
+                            "classification": StopRecoveryClassification.STOP_UNSAFE.value,
+                            "reason_code": "stop_repair_failed",
+                        }
+                    )
                     findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "STOP_REPAIR_FAILED"})
                     block_new_entries = True
                     trade.failure_flags.append("STOP_REPAIR_FAILED")
@@ -792,6 +1115,48 @@ class PostFillLifecycleEngine:
                     self._escalate_failsafe(trade, reason="stop_repair_failed")
                     action = self.policy.fail_safe_action_live if self.run_mode == "LIVE" else self.policy.fail_safe_action_paper
                     print(f"[LIFECYCLE][FAILSAFE][{action}] trade_id={trade.trade_id} symbol={trade.symbol}")
+            elif trade.stop is not None:
+                recovery = classify_stop_recovery(
+                    lifecycle_stop_order_id=trade.stop.broker_order_id,
+                    lifecycle_stop_price=trade.stop.trigger_price,
+                    broker_stop_orders=normalized,
+                    symbol=trade.symbol,
+                    broker_position_quantity=int(trade.filled_qty or 0),
+                )
+                recovery["trade_id"] = trade.trade_id
+                stop_recovery.append(recovery)
+                self._record_stop_event(
+                    trade,
+                    StopAuditEventType.STOP_RECOVERY_RESULT,
+                    stop_price=trade.stop.trigger_price,
+                    active_stop_order_id=trade.stop.broker_order_id,
+                    status=trade.stop.status,
+                    reason=recovery["reason_code"],
+                    recovery_classification=recovery["classification"],
+                    payload=recovery,
+                )
+                if recovery["classification"] == StopRecoveryClassification.STOP_STALE.value:
+                    findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "STALE_STOP"})
+                    print(f"[LIFECYCLE][RECONCILIATION][STALE_STOP] trade_id={trade.trade_id} symbol={trade.symbol}")
+                    if repair and self.execution_provider is not None and trade.stop.broker_order_id:
+                        self.execution_provider.modify_stop_order(
+                            broker_order_id=trade.stop.broker_order_id,
+                            symbol=trade.symbol,
+                            side=trade.stop.side,
+                            quantity=trade.filled_qty,
+                            new_stop_price=trade.stop.trigger_price,
+                            trade_id=trade.trade_id,
+                        )
+                        repaired += 1
+                        stop_recovery.append(
+                            {
+                                "trade_id": trade.trade_id,
+                                "symbol": trade.symbol,
+                                "classification": StopRecoveryClassification.STOP_RECOVERED.value,
+                                "reason_code": "stale_stop_repaired",
+                                "broker_order_id": trade.stop.broker_order_id,
+                            }
+                        )
             if target_missing:
                 findings.append({"trade_id": trade.trade_id, "symbol": trade.symbol, "issue": "MISSING_TARGET"})
                 print(f"[LIFECYCLE][DEGRADED][TARGET_MISSING] trade_id={trade.trade_id} symbol={trade.symbol}")
@@ -813,9 +1178,19 @@ class PostFillLifecycleEngine:
         orphan_orders = sorted(open_ids - known_ids)
         for order_id in orphan_orders:
             findings.append({"order_id": order_id, "issue": "ORPHAN_ORDER"})
+            orphan = next((row for row in normalized if row["order_id"] == order_id), {})
+            stop_recovery.append(
+                {
+                    "order_id": order_id,
+                    "symbol": orphan.get("symbol"),
+                    "classification": StopRecoveryClassification.STOP_ORPHAN.value,
+                    "reason_code": "open_order_not_owned_by_lifecycle",
+                }
+            )
             print(f"[LIFECYCLE][RECONCILIATION][ORPHAN_ORDER] order_id={order_id}")
         return {
             "findings": findings,
+            "stop_recovery": stop_recovery,
             "repaired": repaired,
             "orphan_orders": orphan_orders,
             "block_new_entries": block_new_entries,
@@ -858,6 +1233,11 @@ class PostFillLifecycleEngine:
                 print(f"[RECOVERY][ORPHAN_POSITION] symbol={symbol} qty={qty}")
                 recovery_pending += 1
                 continue
+            validate_stop_price(
+                side=str(getattr(position, "direction", "LONG") or "LONG").upper(),
+                stop_price=float(stop),
+                entry_price=float(getattr(position, "entry_price", 0.0) or 0.0) or None,
+            )
             trade = ManagedTradeLifecycle(
                 trade_id=trade_id,
                 symbol=symbol,
@@ -868,17 +1248,35 @@ class PostFillLifecycleEngine:
                 intended_qty=qty,
                 filled_qty=qty,
                 avg_fill_price=float(getattr(position, "entry_price", 0.0) or 0.0),
-                stop=ProtectionOrderMeta(order_type="STOP", side="SELL", trigger_price=float(stop)),
+                stop=ProtectionOrderMeta(
+                    order_type="STOP",
+                    side="SELL",
+                    trigger_price=float(stop),
+                    lifecycle_trade_id=trade_id,
+                    strategy_owner=str(getattr(position, "strategy_name", "RECOVERY") or "RECOVERY"),
+                    entry_order_id=trade_id,
+                    entry_intent_id=trade_id,
+                    pending_intent_id=f"startup-stop:{trade_id}",
+                ),
                 target=(
                     ProtectionOrderMeta(order_type="LIMIT", side="SELL", trigger_price=float(getattr(position, "take_profit_price")))
                     if getattr(position, "take_profit_price", None) is not None
                     else None
                 ),
                 state=PositionLifecycleState.RECOVERED,
-                last_recovery_status="matched_broker_position",
+                last_recovery_status=StopRecoveryClassification.STOP_RECOVERED.value,
                 high_water_mark=float(getattr(position, "entry_price", 0.0) or 0.0),
             )
             self._trades[trade_id] = trade
+            self._record_stop_event(
+                trade,
+                StopAuditEventType.STOP_RECOVERY_RESULT,
+                stop_price=trade.stop.trigger_price if trade.stop else None,
+                pending_stop_order_intent=trade.stop.pending_intent_id if trade.stop else None,
+                status=trade.stop.status if trade.stop else None,
+                reason="startup_recovery_position_with_stop",
+                recovery_classification=StopRecoveryClassification.STOP_RECOVERED,
+            )
             self._update_in_memory_state()
             recovered += 1
             print(f"[RECOVERY][MATCH] symbol={symbol} trade_id={trade_id}")
