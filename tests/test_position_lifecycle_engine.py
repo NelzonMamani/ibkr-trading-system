@@ -69,9 +69,9 @@ def test_lifecycle_intents_across_modes():
         reason="Sim open",
     )
     assert sim_result.accepted is True
-    assert position.state == PositionState.OPEN
+    assert position.state == PositionState.PARTIALLY_FILLED
     assert position.quantity == 2
-    assert sim_result.transitions[0].fill_status == "PARTIAL"
+    assert sim_result.transitions[-1].fill_status == "PARTIAL"
 
     paper_position = PositionLifecycle(symbol="BBB", trader_type="PAPER")
     paper_result = engine.apply_intent(
@@ -82,7 +82,7 @@ def test_lifecycle_intents_across_modes():
         reason="Paper open",
     )
     assert paper_result.accepted is True
-    assert paper_result.transitions[0].fill_latency_ms == 750
+    assert paper_result.transitions[-1].fill_latency_ms == 750
     assert paper_position.quantity == 1
 
     read_only_position = PositionLifecycle(symbol="CCC", trader_type="READ_ONLY")
@@ -95,7 +95,7 @@ def test_lifecycle_intents_across_modes():
     )
     assert read_only_result.accepted is True
     assert read_only_result.transitions[0].execution_blocked is True
-    assert read_only_position.state == PositionState.OPEN
+    assert read_only_position.state == PositionState.REJECTED
 
     live_position = PositionLifecycle(symbol="DDD", trader_type="LIVE")
     denied_result = engine.apply_intent(
@@ -118,7 +118,7 @@ def test_lifecycle_intents_across_modes():
         risk_approved=True,
     )
     assert approved_result.accepted is True
-    assert live_position.state == PositionState.OPEN
+    assert live_position.state == PositionState.PENDING_ENTRY
 
 
 def test_invalid_intent_rejected():

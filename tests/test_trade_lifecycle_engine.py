@@ -380,10 +380,10 @@ def test_duplicate_event_id_and_payload_are_idempotent() -> None:
 def test_reconciliation_orphan_and_drift_flags() -> None:
     engine = TradeLifecycleEngine()
     orphan = engine.apply_reconciliation_snapshot(symbol="AAPL", runtime_quantity=5, runtime_avg_entry=10.0)
-    assert orphan["status"] == "ORPHANED"
+    assert orphan["classification"] == "EXTERNAL"
     engine.apply_event(_event("1", "ENTRY_FILL", 10, 10.0))
     drift = engine.apply_reconciliation_snapshot(symbol="AAPL", runtime_quantity=7, runtime_avg_entry=10.0)
-    assert drift["status"] == "DRIFTED"
+    assert drift["classification"] == "MISMATCH"
     report = engine.get_drift_report()
     assert len(report) >= 2
 
@@ -440,8 +440,9 @@ def test_broker_reconcile_lifecycle_open_broker_flat_orphaned() -> None:
     findings = engine.reconcile_with_broker_snapshot(
         [BrokerPositionSnapshot(symbol="AAPL", quantity=0, avg_entry_price=0.0, timestamp="2026-01-01T00:00:00+00:00")]
     )
-    assert findings[0]["status"] == "ORPHANED"
+    assert findings[0]["classification"] == "ORPHAN"
     assert findings[0]["severity"] == "CRITICAL"
+    assert engine.find_open_trade_id_for_symbol("AAPL") is None
 
 
 def test_broker_reconcile_broker_open_lifecycle_missing_orphaned() -> None:
@@ -449,7 +450,7 @@ def test_broker_reconcile_broker_open_lifecycle_missing_orphaned() -> None:
     findings = engine.reconcile_with_broker_snapshot(
         [BrokerPositionSnapshot(symbol="AAPL", quantity=10, avg_entry_price=10.0, timestamp="2026-01-01T00:00:00+00:00")]
     )
-    assert findings[0]["status"] == "ORPHANED"
+    assert findings[0]["classification"] == "EXTERNAL"
     assert findings[0]["severity"] == "CRITICAL"
 
 
@@ -459,7 +460,7 @@ def test_broker_reconcile_qty_mismatch_drifted() -> None:
     findings = engine.reconcile_with_broker_snapshot(
         [BrokerPositionSnapshot(symbol="AAPL", quantity=8, avg_entry_price=10.0, timestamp="2026-01-01T00:00:00+00:00")]
     )
-    assert findings[0]["status"] == "DRIFTED"
+    assert findings[0]["classification"] == "MISMATCH"
     assert findings[0]["severity"] == "WARNING"
 
 

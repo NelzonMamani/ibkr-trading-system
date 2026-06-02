@@ -9,7 +9,8 @@ from src.core.portfolio.broker_position_adapter import BrokerPositionSnapshot
 from src.core.portfolio.portfolio_state import PortfolioState
 from src.core.portfolio.risk_signals import LifecycleRiskSignals
 
-OPEN_STATUSES = {"OPEN", "PARTIALLY_CLOSED"}
+OPEN_STATUSES = {"OPEN", "PARTIALLY_CLOSED", "DRIFTED"}
+RECONCILIATION_CLASSIFICATIONS = {"MATCH", "MISMATCH", "ORPHAN", "EXTERNAL", "RECOVERED"}
 
 
 @dataclass
@@ -123,6 +124,34 @@ class TradeLifecycleEngine:
         except Exception as exc:
             print(f"[LIFECYCLE][ERROR] stage=persist_reconcile error={exc}")
 
+    @staticmethod
+    def _classified_finding(
+        *,
+        lifecycle_trade_id: str | None,
+        symbol: str,
+        classification: str,
+        finding_type: str,
+        details: dict[str, Any],
+        timestamp: str,
+        source: str = "runtime_snapshot",
+    ) -> dict[str, Any]:
+        normalized = str(classification or "").upper()
+        if normalized not in RECONCILIATION_CLASSIFICATIONS:
+            normalized = "MISMATCH"
+        severity = "INFO" if normalized in {"MATCH", "RECOVERED"} else ("WARNING" if normalized == "MISMATCH" else "CRITICAL")
+        return {
+            "reconciliation_id": str(uuid4()),
+            "lifecycle_trade_id": lifecycle_trade_id,
+            "symbol": symbol,
+            "status": normalized,
+            "classification": normalized,
+            "severity": severity,
+            "finding_type": finding_type,
+            "details_json": str(details),
+            "timestamp": timestamp,
+            "source": source,
+        }
+
     def recover_open_state(self) -> dict[str, Any]:
         print("[LIFECYCLE][RECOVERY][START]")
         if self._persistence is None:
@@ -179,12 +208,12 @@ class TradeLifecycleEngine:
         self._event_ids_seen.add(event.event_id)
         self._order_execution_keys_seen.add(dedupe_key)
         self._events.append(event)
-        self._persist_event_best_effort(event)
 
         if event.event_type == "ENTRY_FILL":
             trade = self.apply_entry_fill(event=event, strategy_name=strategy_name, stop_price=stop_price)
         else:
             trade = self.apply_exit_fill(event=event)
+        self._persist_event_best_effort(event)
         if trade:
             self._persist_trade_snapshot_best_effort(trade)
         return trade
@@ -192,16 +221,48 @@ class TradeLifecycleEngine:
     def apply_entry_fill(self, *, event: LifecycleEvent, strategy_name: str | None = None, stop_price: float | None = None) -> LifecycleTrade:
         trade = self._trades.get(event.lifecycle_trade_id)
         if trade is None:
-            trade = LifecycleTrade(
-                lifecycle_trade_id=event.lifecycle_trade_id,
-                symbol=event.symbol,
-                side=event.side,
-                strategy_name=strategy_name,
-                status="OPEN",
-                opened_at=event.timestamp,
-            )
-            self._trades[trade.lifecycle_trade_id] = trade
-            self._session_counts["total_lifecycle_trades_seen"] += 1
+            existing_open_trade_id = self.find_open_trade_id_for_symbol(event.symbol)
+            if existing_open_trade_id is not None:
+                existing = self._trades[existing_open_trade_id]
+                if strategy_name and existing.strategy_name and existing.strategy_name != strategy_name:
+                    finding = self._classified_finding(
+                        lifecycle_trade_id=existing.lifecycle_trade_id,
+                        symbol=event.symbol,
+                        classification="MISMATCH",
+                        finding_type="entry_fill_ownership_conflict",
+                        details={
+                            "existing_strategy": existing.strategy_name,
+                            "incoming_strategy": strategy_name,
+                            "incoming_trade_id": event.lifecycle_trade_id,
+                        },
+                        timestamp=event.timestamp,
+                    )
+                    existing.drift_flags.add("ENTRY_OWNERSHIP_CONFLICT")
+                    self._persist_trade_snapshot_best_effort(existing)
+                    self._persist_reconciliation_best_effort(finding)
+                    self._reconciliation_events.append(finding)
+                    print(
+                        "[LIFECYCLE][OWNERSHIP][CONFLICT] "
+                        f"symbol={event.symbol} existing_strategy={existing.strategy_name} incoming_strategy={strategy_name}"
+                    )
+                    return existing
+                existing.notes.append(f"merged_entry_fill_from_trade_id={event.lifecycle_trade_id}")
+                trade = existing
+            else:
+                trade = LifecycleTrade(
+                    lifecycle_trade_id=event.lifecycle_trade_id,
+                    symbol=event.symbol,
+                    side=event.side,
+                    strategy_name=strategy_name,
+                    status="OPEN",
+                    opened_at=event.timestamp,
+                )
+                self._trades[trade.lifecycle_trade_id] = trade
+                self._session_counts["total_lifecycle_trades_seen"] += 1
+        if trade.lifecycle_trade_id != event.lifecycle_trade_id:
+            event.lifecycle_trade_id = trade.lifecycle_trade_id
+        if trade.strategy_name is None and strategy_name is not None:
+            trade.strategy_name = strategy_name
         prior_open = max(trade.quantity_open, 0)
         trade.quantity_open = prior_open + int(event.quantity)
         if trade.quantity_open > 0:
@@ -292,92 +353,86 @@ class TradeLifecycleEngine:
         open_trade_id = self.find_open_trade_id_for_symbol(symbol)
         finding: dict[str, Any]
         if open_trade_id is None and runtime_quantity > 0:
-            finding = {
-                "reconciliation_id": str(uuid4()),
-                "lifecycle_trade_id": None,
-                "symbol": symbol,
-                "status": "ORPHANED",
-                "finding_type": "runtime_position_without_lifecycle_trade",
-                "details_json": str({"runtime_quantity": runtime_quantity, "runtime_avg_entry": runtime_avg_entry}),
-                "timestamp": ts,
-            }
-            print(f"[LIFECYCLE][RECONCILE][ORPHAN] symbol={symbol} runtime_qty={runtime_quantity}")
+            finding = self._classified_finding(
+                lifecycle_trade_id=None,
+                symbol=symbol,
+                classification="EXTERNAL",
+                finding_type="runtime_position_without_lifecycle_trade",
+                details={"runtime_quantity": runtime_quantity, "runtime_avg_entry": runtime_avg_entry},
+                timestamp=ts,
+            )
+            print(f"[LIFECYCLE][RECONCILE][EXTERNAL] symbol={symbol} runtime_qty={runtime_quantity}")
             self._session_counts["reconciliation_events_count"] += 1
             self._persist_reconciliation_best_effort(finding)
             self._reconciliation_events.append(finding)
             return finding
         if open_trade_id is None:
-            finding = {
-                "reconciliation_id": str(uuid4()),
-                "lifecycle_trade_id": None,
-                "symbol": symbol,
-                "status": "MATCH",
-                "finding_type": "no_open_position",
-                "details_json": "{}",
-                "timestamp": ts,
-            }
+            finding = self._classified_finding(
+                lifecycle_trade_id=None,
+                symbol=symbol,
+                classification="MATCH",
+                finding_type="no_open_position",
+                details={},
+                timestamp=ts,
+            )
             print(f"[LIFECYCLE][RECONCILE][MATCH] symbol={symbol} state=flat")
             self._persist_reconciliation_best_effort(finding)
             self._reconciliation_events.append(finding)
             return finding
         trade = self._trades[open_trade_id]
         if runtime_quantity <= 0:
-            trade.status = "ORPHANED"
-            trade.reconciliation_flags.add("RECONCILE_CLOSE_APPLIED")
+            trade.status = "CLOSED"
+            trade.reconciliation_flags.add("BROKER_FLAT_RECOVERED")
             trade.closed_at = ts
             trade.quantity_closed += trade.quantity_open
             trade.quantity_open = 0
             trade.unrealized_pnl = 0.0
             self._symbol_to_open_trade_id.pop(symbol, None)
-            finding = {
-                "reconciliation_id": str(uuid4()),
-                "lifecycle_trade_id": trade.lifecycle_trade_id,
-                "symbol": symbol,
-                "status": "ORPHANED",
-                "finding_type": "lifecycle_open_without_runtime_position",
-                "details_json": str({"action": "safe_reconcile_close"}),
-                "timestamp": ts,
-            }
+            finding = self._classified_finding(
+                lifecycle_trade_id=trade.lifecycle_trade_id,
+                symbol=symbol,
+                classification="RECOVERED",
+                finding_type="lifecycle_open_without_runtime_position",
+                details={"action": "broker_flat_closed_stale_lifecycle"},
+                timestamp=ts,
+            )
             print(f"[LIFECYCLE][RECONCILE][RECOVER] symbol={symbol} action=close_orphan trade_id={trade.lifecycle_trade_id}")
             self._persist_trade_snapshot_best_effort(trade)
         elif runtime_quantity != trade.quantity_open:
             trade.status = "DRIFTED"
             trade.drift_flags.add("QTY_MISMATCH")
-            finding = {
-                "reconciliation_id": str(uuid4()),
-                "lifecycle_trade_id": trade.lifecycle_trade_id,
-                "symbol": symbol,
-                "status": "DRIFTED",
-                "finding_type": "quantity_mismatch",
-                "details_json": str({"runtime_quantity": runtime_quantity, "lifecycle_quantity": trade.quantity_open}),
-                "timestamp": ts,
-            }
+            finding = self._classified_finding(
+                lifecycle_trade_id=trade.lifecycle_trade_id,
+                symbol=symbol,
+                classification="MISMATCH",
+                finding_type="quantity_mismatch",
+                details={"runtime_quantity": runtime_quantity, "lifecycle_quantity": trade.quantity_open},
+                timestamp=ts,
+            )
             print(f"[LIFECYCLE][RECONCILE][DRIFT] symbol={symbol} runtime_qty={runtime_quantity} lifecycle_qty={trade.quantity_open}")
             self._persist_trade_snapshot_best_effort(trade)
         elif runtime_avg_entry is not None and abs(float(runtime_avg_entry) - float(trade.entry_avg_price)) > 1e-6:
             trade.status = "DRIFTED"
             trade.drift_flags.add("AVG_ENTRY_MISMATCH")
-            finding = {
-                "reconciliation_id": str(uuid4()),
-                "lifecycle_trade_id": trade.lifecycle_trade_id,
-                "symbol": symbol,
-                "status": "DRIFTED",
-                "finding_type": "avg_entry_mismatch",
-                "details_json": str({"runtime_avg_entry": runtime_avg_entry, "lifecycle_avg_entry": trade.entry_avg_price}),
-                "timestamp": ts,
-            }
+            finding = self._classified_finding(
+                lifecycle_trade_id=trade.lifecycle_trade_id,
+                symbol=symbol,
+                classification="MISMATCH",
+                finding_type="avg_entry_mismatch",
+                details={"runtime_avg_entry": runtime_avg_entry, "lifecycle_avg_entry": trade.entry_avg_price},
+                timestamp=ts,
+            )
             print(f"[LIFECYCLE][RECONCILE][DRIFT] symbol={symbol} runtime_avg={runtime_avg_entry} lifecycle_avg={trade.entry_avg_price}")
             self._persist_trade_snapshot_best_effort(trade)
         else:
-            finding = {
-                "reconciliation_id": str(uuid4()),
-                "lifecycle_trade_id": trade.lifecycle_trade_id,
-                "symbol": symbol,
-                "status": "MATCH",
-                "finding_type": "position_match",
-                "details_json": str({"runtime_quantity": runtime_quantity}),
-                "timestamp": ts,
-            }
+            finding = self._classified_finding(
+                lifecycle_trade_id=trade.lifecycle_trade_id,
+                symbol=symbol,
+                classification="MATCH",
+                finding_type="position_match",
+                details={"runtime_quantity": runtime_quantity},
+                timestamp=ts,
+            )
             print(f"[LIFECYCLE][RECONCILE][MATCH] symbol={symbol} trade_id={trade.lifecycle_trade_id}")
         self._session_counts["reconciliation_events_count"] += 1
         self._persist_reconciliation_best_effort(finding)
@@ -418,7 +473,7 @@ class TradeLifecycleEngine:
             runtime_qty = sum(int(t.quantity_open or 0) for t in lifecycle_trades)
 
             if len(lifecycle_trades) > 1 and broker_qty > 0:
-                status = "DRIFTED"
+                classification = "MISMATCH"
                 finding_type = "structure_drift"
                 details = {
                     "reason": "multiple_lifecycle_trades_single_broker_position",
@@ -430,19 +485,30 @@ class TradeLifecycleEngine:
                     trade.drift_flags.add("STRUCTURE_DRIFT")
                     self._persist_trade_snapshot_best_effort(trade)
             elif runtime_qty > 0 and broker_qty <= 0:
-                status = "ORPHANED"
+                classification = "ORPHAN"
                 finding_type = "lifecycle_open_broker_flat"
-                details = {"runtime_quantity": runtime_qty, "broker_quantity": broker_qty}
+                details = {
+                    "runtime_quantity": runtime_qty,
+                    "broker_quantity": broker_qty,
+                    "action": "broker_flat_closed_stale_lifecycle",
+                    "recovery_result": "RECOVERED",
+                }
                 for trade in lifecycle_trades:
-                    trade.status = "ORPHANED"
-                    trade.reconciliation_flags.add("BROKER_FLAT")
+                    trade.status = "CLOSED"
+                    trade.closed_at = ts
+                    trade.quantity_closed += int(trade.quantity_open or 0)
+                    trade.quantity_open = 0
+                    trade.unrealized_pnl = 0.0
+                    trade.reconciliation_flags.add("BROKER_FLAT_RECOVERED")
+                    if self._symbol_to_open_trade_id.get(trade.symbol) == trade.lifecycle_trade_id:
+                        self._symbol_to_open_trade_id.pop(trade.symbol, None)
                     self._persist_trade_snapshot_best_effort(trade)
             elif runtime_qty <= 0 and broker_qty > 0:
-                status = "ORPHANED"
+                classification = "EXTERNAL"
                 finding_type = "broker_open_lifecycle_missing"
                 details = {"runtime_quantity": runtime_qty, "broker_quantity": broker_qty}
             elif runtime_qty != broker_qty:
-                status = "DRIFTED"
+                classification = "MISMATCH"
                 finding_type = "qty_mismatch"
                 details = {"runtime_quantity": runtime_qty, "broker_quantity": broker_qty}
                 for trade in lifecycle_trades:
@@ -452,7 +518,7 @@ class TradeLifecycleEngine:
             else:
                 lifecycle_avg = float(lifecycle_trades[0].entry_avg_price or 0.0) if lifecycle_trades else 0.0
                 if abs(lifecycle_avg - broker_avg) > 1e-6:
-                    status = "DRIFTED"
+                    classification = "MISMATCH"
                     finding_type = "avg_entry_mismatch"
                     details = {
                         "lifecycle_avg_entry": lifecycle_avg,
@@ -464,22 +530,20 @@ class TradeLifecycleEngine:
                         trade.drift_flags.add("BROKER_AVG_ENTRY_MISMATCH")
                         self._persist_trade_snapshot_best_effort(trade)
                 else:
-                    status = "MATCH"
+                    classification = "MATCH"
                     finding_type = "position_match"
                     details = {"runtime_quantity": runtime_qty, "broker_quantity": broker_qty}
 
-            severity = self._severity_for_status(status)
-            finding = {
-                "reconciliation_id": str(uuid4()),
-                "lifecycle_trade_id": lifecycle_trades[0].lifecycle_trade_id if lifecycle_trades else None,
-                "symbol": symbol,
-                "status": status,
-                "severity": severity,
-                "finding_type": finding_type,
-                "details_json": str(details),
-                "timestamp": ts,
-                "source": "broker_snapshot",
-            }
+            finding = self._classified_finding(
+                lifecycle_trade_id=lifecycle_trades[0].lifecycle_trade_id if lifecycle_trades else None,
+                symbol=symbol,
+                classification=classification,
+                finding_type=finding_type,
+                details=details,
+                timestamp=ts,
+                source="broker_snapshot",
+            )
+            severity = str(finding["severity"])
             print(f"[LIFECYCLE][BROKER_RECONCILE][{severity}] symbol={symbol} reason={finding_type}")
             self._session_counts["reconciliation_events_count"] += 1
             self._persist_reconciliation_best_effort(finding)
@@ -499,6 +563,49 @@ class TradeLifecycleEngine:
             return None
         return trade_id
 
+    def validate_exit_authority(
+        self,
+        *,
+        symbol: str,
+        strategy_name: str,
+        lifecycle_trade_id: str | None = None,
+    ) -> dict[str, Any]:
+        trade: LifecycleTrade | None = None
+        if lifecycle_trade_id:
+            candidate = self._trades.get(str(lifecycle_trade_id))
+            if candidate is not None and candidate.status in OPEN_STATUSES:
+                trade = candidate
+        if trade is None:
+            open_trade_id = self.find_open_trade_id_for_symbol(symbol)
+            trade = self._trades.get(open_trade_id) if open_trade_id else None
+        if trade is None:
+            return {
+                "allowed": False,
+                "reason_code": "NO_OPEN_POSITION",
+                "symbol": str(symbol or "").upper(),
+                "requested_strategy": strategy_name,
+                "owner_strategy": None,
+            }
+        requested = str(strategy_name or "").strip()
+        owner = str(trade.strategy_name or "").strip()
+        if owner and requested and owner != requested:
+            return {
+                "allowed": False,
+                "reason_code": "OWNERSHIP_CONFLICT",
+                "symbol": trade.symbol,
+                "lifecycle_trade_id": trade.lifecycle_trade_id,
+                "requested_strategy": requested,
+                "owner_strategy": owner,
+            }
+        return {
+            "allowed": True,
+            "reason_code": "OWNER_MATCH",
+            "symbol": trade.symbol,
+            "lifecycle_trade_id": trade.lifecycle_trade_id,
+            "requested_strategy": requested,
+            "owner_strategy": owner or None,
+        }
+
     def open_trades(self) -> list[LifecycleTrade]:
         return [trade for trade in self._trades.values() if trade.status in OPEN_STATUSES]
 
@@ -512,7 +619,12 @@ class TradeLifecycleEngine:
         return [trade for trade in self._trades.values() if trade.symbol == symbol]
 
     def get_drift_report(self) -> list[dict[str, Any]]:
-        return [event for event in self._reconciliation_events if event.get("status") in {"DRIFTED", "ORPHANED"}]
+        return [
+            event
+            for event in self._reconciliation_events
+            if event.get("classification") in {"MISMATCH", "ORPHAN", "EXTERNAL", "RECOVERED"}
+            or event.get("status") in {"DRIFTED", "ORPHANED"}
+        ]
 
     def build_portfolio_state(self) -> PortfolioState:
         open_trades = self.open_trades()
