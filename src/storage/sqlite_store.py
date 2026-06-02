@@ -10,7 +10,7 @@ from typing import Any, Iterable
 from src.storage.serialization import compute_audit_hash
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 @dataclass
@@ -107,6 +107,15 @@ class SQLiteStore:
                 run_id TEXT,
                 symbol TEXT,
                 trader_type TEXT,
+                strategy_owner TEXT,
+                entry_source TEXT,
+                entry_intent_id TEXT,
+                entry_order_id TEXT,
+                stop_loss_price REAL,
+                active_stop_order_id TEXT,
+                pending_stop_order_intent TEXT,
+                emergency_stop_exception TEXT,
+                trailing_stop_price REAL,
                 from_state TEXT,
                 to_state TEXT,
                 intent TEXT,
@@ -187,6 +196,29 @@ class SQLiteStore:
                 run_id TEXT,
                 payload_json TEXT,
                 timestamp TEXT,
+                created_at TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id)
+            );
+            CREATE TABLE IF NOT EXISTS stop_authority_events (
+                event_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                timestamp TEXT,
+                event_type TEXT,
+                symbol TEXT,
+                lifecycle_trade_id TEXT,
+                position_id TEXT,
+                strategy_owner TEXT,
+                entry_order_id TEXT,
+                entry_intent_id TEXT,
+                active_stop_order_id TEXT,
+                pending_stop_order_intent TEXT,
+                stop_price REAL,
+                previous_stop_price REAL,
+                quantity INTEGER,
+                status TEXT,
+                reason TEXT,
+                recovery_classification TEXT,
+                payload_json TEXT,
                 created_at TEXT,
                 FOREIGN KEY(run_id) REFERENCES runs(run_id)
             );
@@ -412,6 +444,11 @@ class SQLiteStore:
                 "entry_source": "TEXT",
                 "entry_intent_id": "TEXT",
                 "entry_order_id": "TEXT",
+                "stop_loss_price": "REAL",
+                "active_stop_order_id": "TEXT",
+                "pending_stop_order_intent": "TEXT",
+                "emergency_stop_exception": "TEXT",
+                "trailing_stop_price": "REAL",
                 "remaining_quantity": "INTEGER",
             },
         )
@@ -461,6 +498,10 @@ class SQLiteStore:
                 ON trade_lifecycle_events(symbol, timestamp);
             CREATE INDEX IF NOT EXISTS idx_tle_reconcile_symbol_time
                 ON trade_lifecycle_reconciliation_events(symbol, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_stop_authority_trade_time
+                ON stop_authority_events(lifecycle_trade_id, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_stop_authority_symbol_time
+                ON stop_authority_events(symbol, timestamp);
             CREATE INDEX IF NOT EXISTS idx_trade_records_run_id ON trade_records(run_id);
             CREATE INDEX IF NOT EXISTS idx_trades_run_id ON trades(run_id);
             CREATE INDEX IF NOT EXISTS idx_execution_results_run_id ON execution_results(run_id);
@@ -585,11 +626,13 @@ class SQLiteStore:
             """
             INSERT OR REPLACE INTO position_lifecycle_transitions (
                 transition_id, run_id, symbol, trader_type, strategy_owner,
-                entry_source, entry_intent_id, entry_order_id, from_state, to_state, intent,
+                entry_source, entry_intent_id, entry_order_id, stop_loss_price,
+                active_stop_order_id, pending_stop_order_intent, emergency_stop_exception,
+                trailing_stop_price, from_state, to_state, intent,
                 reason_code, reason, mode, requested_quantity, filled_quantity, quantity_before,
                 quantity_after, remaining_quantity, fill_status, execution_blocked, fill_latency_ms, transition_seq,
                 timestamp, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -601,6 +644,11 @@ class SQLiteStore:
                     transition.get("entry_source"),
                     transition.get("entry_intent_id"),
                     transition.get("entry_order_id"),
+                    transition.get("stop_loss_price"),
+                    transition.get("active_stop_order_id"),
+                    transition.get("pending_stop_order_intent"),
+                    transition.get("emergency_stop_exception"),
+                    transition.get("trailing_stop_price"),
                     transition.get("from_state"),
                     transition.get("to_state"),
                     transition.get("intent"),
@@ -789,6 +837,43 @@ class SQLiteStore:
                 summary.get("payload_json"),
                 summary.get("timestamp"),
                 summary.get("created_at"),
+            ),
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_stop_authority_event(self, event: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            INSERT OR IGNORE INTO stop_authority_events (
+                event_id, run_id, timestamp, event_type, symbol, lifecycle_trade_id,
+                position_id, strategy_owner, entry_order_id, entry_intent_id,
+                active_stop_order_id, pending_stop_order_intent, stop_price,
+                previous_stop_price, quantity, status, reason, recovery_classification,
+                payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event["event_id"],
+                event.get("run_id"),
+                event.get("timestamp"),
+                event.get("event_type"),
+                event.get("symbol"),
+                event.get("lifecycle_trade_id"),
+                event.get("position_id"),
+                event.get("strategy_owner"),
+                event.get("entry_order_id"),
+                event.get("entry_intent_id"),
+                event.get("active_stop_order_id"),
+                event.get("pending_stop_order_intent"),
+                event.get("stop_price"),
+                event.get("previous_stop_price"),
+                event.get("quantity"),
+                event.get("status"),
+                event.get("reason"),
+                event.get("recovery_classification"),
+                event.get("payload_json"),
+                event.get("created_at"),
             ),
         )
         if self.commit_each_write:
@@ -1198,6 +1283,25 @@ class SQLiteStore:
         )
         return [dict(row) for row in cursor.fetchall()]
 
+    def fetch_stop_authority_events(
+        self,
+        run_id: str,
+        *,
+        lifecycle_trade_id: str | None = None,
+        symbol: str | None = None,
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM stop_authority_events WHERE run_id = ?"
+        params: list[Any] = [run_id]
+        if lifecycle_trade_id:
+            query += " AND lifecycle_trade_id = ?"
+            params.append(lifecycle_trade_id)
+        if symbol:
+            query += " AND symbol = ?"
+            params.append(str(symbol).upper())
+        query += " ORDER BY timestamp ASC, event_id ASC"
+        cursor = self.connection.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
+
     def fetch_trade_outcomes(self, run_id: str) -> list[dict[str, Any]]:
         cursor = self.connection.execute(
             "SELECT * FROM trade_outcomes WHERE run_id = ? ORDER BY closed_at ASC",
@@ -1230,6 +1334,7 @@ class SQLiteStore:
             "execution_results",
             "trade_outcomes",
             "performance_snapshots",
+            "stop_authority_events",
         ]
         fmt = fmt.lower()
         created_files: list[str] = []

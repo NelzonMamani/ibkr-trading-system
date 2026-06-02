@@ -19,6 +19,7 @@ from src.config.runtime_config import (
 from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.core.stop_controller import StopController
+from src.core.stop_loss_authority import StopAuthorityError, validate_stop_price
 from src.core.managers.runtime_mode_manager import RuntimeModeManager
 from src.execution.execution_providers import ExecutionProvider, IbkrExecutionProvider, PaperExecutionProvider
 from src.execution.exit_plan import compute_stop_price
@@ -725,6 +726,22 @@ class ExecutionEngine:
                 risk_decision,
                 rationale="MISSING_STOP_LOSS_PRICE",
             )
+        if self.run_mode in {RunMode.PAPER, RunMode.LIVE} and side_upper in {"LONG", "BUY"} and stop_loss_price is not None:
+            try:
+                validate_stop_price(
+                    side=side_upper,
+                    stop_price=float(stop_loss_price),
+                    entry_price=float(entry_price),
+                )
+            except StopAuthorityError as exc:
+                print(
+                    "[EXECUTION][BLOCK] "
+                    f"symbol={request.symbol} trader_type={request.trader_type} reason={exc.reason_code}"
+                )
+                return self._blocked_execution_from_risk_decision(
+                    risk_decision,
+                    rationale=exc.reason_code,
+                )
         return None
 
     def _confirm_broker_ack(

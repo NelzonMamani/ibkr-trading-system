@@ -366,6 +366,33 @@ class StorageEngine:
         }
         self._store.insert_trade_lifecycle_summary(summary)
 
+    def insert_stop_authority_event(self, event: dict[str, Any]) -> None:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return
+        payload = dict(event)
+        if not payload.get("run_id"):
+            payload["run_id"] = self.run_id
+        if not payload.get("created_at"):
+            payload["created_at"] = now_iso()
+        if not payload.get("timestamp"):
+            payload["timestamp"] = payload["created_at"]
+        self._store.insert_stop_authority_event(payload)
+
+    def fetch_stop_authority_events(
+        self,
+        *,
+        run_id: str | None = None,
+        lifecycle_trade_id: str | None = None,
+        symbol: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return []
+        return self._store.fetch_stop_authority_events(
+            run_id or self.run_id,
+            lifecycle_trade_id=lifecycle_trade_id,
+            symbol=symbol,
+        )
+
     def fetch_trade_lifecycle_trades(
         self,
         *,
