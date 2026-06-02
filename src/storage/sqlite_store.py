@@ -406,6 +406,24 @@ class SQLiteStore:
             },
         )
         self._ensure_columns(
+            "position_lifecycle_transitions",
+            {
+                "strategy_owner": "TEXT",
+                "entry_source": "TEXT",
+                "entry_intent_id": "TEXT",
+                "entry_order_id": "TEXT",
+                "remaining_quantity": "INTEGER",
+            },
+        )
+        self._ensure_columns(
+            "trade_lifecycle_reconciliation_events",
+            {
+                "classification": "TEXT",
+                "severity": "TEXT",
+                "source": "TEXT",
+            },
+        )
+        self._ensure_columns(
             "trade_records",
             {
                 "tick": "INTEGER",
@@ -566,11 +584,12 @@ class SQLiteStore:
         self.connection.executemany(
             """
             INSERT OR REPLACE INTO position_lifecycle_transitions (
-                transition_id, run_id, symbol, trader_type, from_state, to_state, intent,
+                transition_id, run_id, symbol, trader_type, strategy_owner,
+                entry_source, entry_intent_id, entry_order_id, from_state, to_state, intent,
                 reason_code, reason, mode, requested_quantity, filled_quantity, quantity_before,
-                quantity_after, fill_status, execution_blocked, fill_latency_ms, transition_seq,
+                quantity_after, remaining_quantity, fill_status, execution_blocked, fill_latency_ms, transition_seq,
                 timestamp, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -578,6 +597,10 @@ class SQLiteStore:
                     transition["run_id"],
                     transition.get("symbol"),
                     transition.get("trader_type"),
+                    transition.get("strategy_owner"),
+                    transition.get("entry_source"),
+                    transition.get("entry_intent_id"),
+                    transition.get("entry_order_id"),
                     transition.get("from_state"),
                     transition.get("to_state"),
                     transition.get("intent"),
@@ -588,6 +611,7 @@ class SQLiteStore:
                     transition.get("filled_quantity"),
                     transition.get("quantity_before"),
                     transition.get("quantity_after"),
+                    transition.get("remaining_quantity"),
                     transition.get("fill_status"),
                     transition.get("execution_blocked"),
                     transition.get("fill_latency_ms"),
@@ -731,8 +755,8 @@ class SQLiteStore:
             """
             INSERT OR IGNORE INTO trade_lifecycle_reconciliation_events (
                 reconciliation_id, run_id, lifecycle_trade_id, symbol, status, finding_type,
-                details_json, timestamp, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                classification, severity, source, details_json, timestamp, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event["reconciliation_id"],
@@ -741,6 +765,9 @@ class SQLiteStore:
                 event.get("symbol"),
                 event.get("status"),
                 event.get("finding_type"),
+                event.get("classification"),
+                event.get("severity"),
+                event.get("source"),
                 event.get("details_json"),
                 event.get("timestamp"),
                 event.get("created_at"),

@@ -12,11 +12,17 @@ from src.storage.storage_engine import StorageEngine
 
 class PositionState(str, Enum):
     FLAT = "FLAT"
+    PENDING_ENTRY = "PENDING_ENTRY"
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"
     OPEN = "OPEN"
     SCALING_IN = "SCALING_IN"
+    SCALING_OUT = "SCALING_OUT"
     REDUCING = "REDUCING"
+    EXIT_PENDING = "EXIT_PENDING"
     CLOSING = "CLOSING"
     CLOSED = "CLOSED"
+    REJECTED = "REJECTED"
+    RECOVERING = "RECOVERING"
 
 
 class LifecycleIntent(str, Enum):
@@ -34,14 +40,30 @@ class LifecycleIntent(str, Enum):
 
 
 ALLOWED_TRANSITIONS = {
+    (PositionState.FLAT, PositionState.PENDING_ENTRY),
+    (PositionState.FLAT, PositionState.REJECTED),
     (PositionState.FLAT, PositionState.OPEN),
+    (PositionState.PENDING_ENTRY, PositionState.PARTIALLY_FILLED),
+    (PositionState.PENDING_ENTRY, PositionState.OPEN),
+    (PositionState.PENDING_ENTRY, PositionState.REJECTED),
+    (PositionState.PARTIALLY_FILLED, PositionState.OPEN),
+    (PositionState.PARTIALLY_FILLED, PositionState.EXIT_PENDING),
     (PositionState.OPEN, PositionState.SCALING_IN),
+    (PositionState.OPEN, PositionState.SCALING_OUT),
     (PositionState.OPEN, PositionState.REDUCING),
+    (PositionState.OPEN, PositionState.EXIT_PENDING),
     (PositionState.SCALING_IN, PositionState.OPEN),
+    (PositionState.SCALING_OUT, PositionState.OPEN),
     (PositionState.REDUCING, PositionState.OPEN),
     (PositionState.OPEN, PositionState.OPEN),
     (PositionState.OPEN, PositionState.CLOSING),
+    (PositionState.CLOSING, PositionState.EXIT_PENDING),
     (PositionState.CLOSING, PositionState.CLOSED),
+    (PositionState.EXIT_PENDING, PositionState.CLOSED),
+    (PositionState.EXIT_PENDING, PositionState.OPEN),
+    (PositionState.RECOVERING, PositionState.OPEN),
+    (PositionState.RECOVERING, PositionState.EXIT_PENDING),
+    (PositionState.RECOVERING, PositionState.CLOSED),
 }
 
 
@@ -55,8 +77,24 @@ def normalize_state(value: PositionState | str) -> PositionState:
     if isinstance(value, PositionState):
         return value
     if isinstance(value, Enum):
-        return PositionState(str(value.value).upper())
-    return PositionState(str(value).upper())
+        raw = str(value.value).upper()
+    else:
+        raw = str(value).upper()
+    aliases = {
+        "ENTRY_SUBMITTED": PositionState.PENDING_ENTRY,
+        "PARTIAL_POSITION_OPEN": PositionState.PARTIALLY_FILLED,
+        "POSITION_OPEN": PositionState.OPEN,
+        "POSITION_REDUCING": PositionState.SCALING_OUT,
+        "POSITION_CLOSED": PositionState.CLOSED,
+        "REDUCING": PositionState.SCALING_OUT,
+        "CLOSING": PositionState.EXIT_PENDING,
+        "EXITED": PositionState.CLOSED,
+        "RECOVERY_PENDING": PositionState.RECOVERING,
+        "RECOVERED": PositionState.OPEN,
+    }
+    if raw in aliases:
+        return aliases[raw]
+    return PositionState(raw)
 
 
 def is_transition_allowed(from_state: PositionState, to_state: PositionState) -> bool:
@@ -67,12 +105,29 @@ def is_transition_allowed(from_state: PositionState, to_state: PositionState) ->
 class PositionLifecycle:
     symbol: str
     trader_type: str
+    strategy_owner: str | None = None
+    entry_source: str | None = None
+    entry_intent_id: str | None = None
+    entry_order_id: str | None = None
+    entry_requested_quantity: int = 0
     quantity: int = 0
     state: PositionState = PositionState.FLAT
     stop_loss_price: float | None = None
     trailing_stop_price: float | None = None
     partial_profit_taken: bool = False
     state_history: list[dict] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.strategy_owner is None:
+            self.strategy_owner = self.trader_type
+
+    @property
+    def current_size(self) -> int:
+        return int(self.quantity or 0)
+
+    @property
+    def remaining_size(self) -> int:
+        return max(int(self.entry_requested_quantity or 0) - int(self.quantity or 0), 0)
 
 
 @dataclass
@@ -102,6 +157,10 @@ class LifecycleTransition:
             "run_id": run_id,
             "symbol": self.symbol,
             "trader_type": self.trader_type,
+            "strategy_owner": getattr(self, "strategy_owner", None),
+            "entry_source": getattr(self, "entry_source", None),
+            "entry_intent_id": getattr(self, "entry_intent_id", None),
+            "entry_order_id": getattr(self, "entry_order_id", None),
             "from_state": self.from_state.value,
             "to_state": self.to_state.value,
             "intent": self.intent.value,
@@ -110,6 +169,7 @@ class LifecycleTransition:
             "mode": self.mode,
             "requested_quantity": self.requested_quantity,
             "filled_quantity": self.filled_quantity,
+            "remaining_quantity": max(int(self.requested_quantity or 0) - int(self.filled_quantity or 0), 0),
             "quantity_before": self.quantity_before,
             "quantity_after": self.quantity_after,
             "fill_status": self.fill_status,
@@ -175,6 +235,7 @@ class PositionLifecycleEngine:
         payload = {
             "symbol": position.symbol,
             "trader_type": position.trader_type,
+            "strategy_owner": position.strategy_owner,
             "from_state": position.state.value,
             "intent": intent.value,
             "reason_code": reason_code,
@@ -188,6 +249,14 @@ class PositionLifecycleEngine:
             rejection_reason_code=reason_code,
             rejection_reason=reason,
         )
+
+    @staticmethod
+    def _entry_state_for_fill(filled_quantity: int, requested_quantity: int, fill_status: str) -> PositionState:
+        if filled_quantity <= 0:
+            return PositionState.PENDING_ENTRY
+        if filled_quantity < requested_quantity or str(fill_status).upper() == "PARTIAL":
+            return PositionState.PARTIALLY_FILLED
+        return PositionState.OPEN
 
     def _simulate_fill(self, requested_quantity: int, run_mode: RunMode) -> tuple[int, str, int | None]:
         if requested_quantity <= 0:
@@ -247,6 +316,10 @@ class PositionLifecycleEngine:
             transition_seq=self._next_seq(),
             timestamp=self._now(),
         )
+        transition.strategy_owner = position.strategy_owner
+        transition.entry_source = position.entry_source
+        transition.entry_intent_id = position.entry_intent_id
+        transition.entry_order_id = position.entry_order_id
         position.state_history.append(
             {
                 "from": from_state.value,
@@ -261,6 +334,10 @@ class PositionLifecycleEngine:
             {
                 "symbol": position.symbol,
                 "trader_type": position.trader_type,
+                "strategy_owner": position.strategy_owner,
+                "entry_source": position.entry_source,
+                "entry_intent_id": position.entry_intent_id,
+                "entry_order_id": position.entry_order_id,
                 "from_state": from_state.value,
                 "to_state": to_state.value,
                 "intent": intent.value,
@@ -269,6 +346,7 @@ class PositionLifecycleEngine:
                 "mode": run_mode.value,
                 "requested_quantity": requested_quantity,
                 "filled_quantity": filled_quantity,
+                "remaining_quantity": max(int(requested_quantity or 0) - int(filled_quantity or 0), 0),
                 "quantity_before": quantity_before,
                 "quantity_after": position.quantity,
                 "fill_status": fill_status,
@@ -291,12 +369,42 @@ class PositionLifecycleEngine:
         filled_quantity_override: int | None = None,
         fill_status_override: str | None = None,
         fill_latency_ms_override: int | None = None,
+        strategy_owner: str | None = None,
+        entry_source: str | None = None,
+        entry_intent_id: str | None = None,
+        entry_order_id: str | None = None,
     ) -> LifecycleResult:
+        if strategy_owner:
+            placeholder_owners = {None, "", "UNKNOWN", "SYSTEM", position.trader_type}
+            if position.strategy_owner not in placeholder_owners and position.strategy_owner != strategy_owner:
+                return self._reject(
+                    position=position,
+                    intent=intent,
+                    run_mode=run_mode,
+                    reason_code="OWNERSHIP_CONFLICT",
+                    reason=(
+                        "Position ownership conflict: "
+                        f"existing={position.strategy_owner} requested={strategy_owner}"
+                    ),
+                )
+            position.strategy_owner = strategy_owner
+        if intent == LifecycleIntent.OPEN:
+            position.entry_source = entry_source or position.entry_source or "UNKNOWN"
+            position.entry_intent_id = entry_intent_id or position.entry_intent_id
+            position.entry_order_id = entry_order_id or position.entry_order_id
+            position.entry_requested_quantity = max(
+                int(position.entry_requested_quantity or 0),
+                int(requested_quantity or 0),
+            )
         self._emit_event(
             "LIFECYCLE_INTENT",
             {
                 "symbol": position.symbol,
                 "trader_type": position.trader_type,
+                "strategy_owner": position.strategy_owner,
+                "entry_source": position.entry_source,
+                "entry_intent_id": position.entry_intent_id,
+                "entry_order_id": position.entry_order_id,
                 "intent": intent.value,
                 "requested_quantity": requested_quantity,
                 "mode": run_mode.value,
@@ -337,11 +445,47 @@ class PositionLifecycleEngine:
                         "INVALID_STATE",
                         "OPEN intent requires FLAT state.",
                     )
+                transitions.append(
+                    self._apply_transition(
+                        position=position,
+                        to_state=PositionState.PENDING_ENTRY,
+                        intent=intent,
+                        run_mode=run_mode,
+                        requested_quantity=requested_quantity,
+                        filled_quantity=0,
+                        fill_status="PENDING" if not execution_blocked else "BLOCKED",
+                        execution_blocked=execution_blocked,
+                        fill_latency_ms=fill_latency_ms,
+                        reason_code="ENTRY_ORDER_SUBMITTED" if not execution_blocked else "ENTRY_BLOCKED",
+                        reason=reason,
+                    )
+                )
+                if execution_blocked:
+                    transitions.append(
+                        self._apply_transition(
+                            position=position,
+                            to_state=PositionState.REJECTED,
+                            intent=intent,
+                            run_mode=run_mode,
+                            requested_quantity=requested_quantity,
+                            filled_quantity=0,
+                            fill_status="BLOCKED",
+                            execution_blocked=True,
+                            fill_latency_ms=fill_latency_ms,
+                            reason_code="ENTRY_REJECTED",
+                            reason="Read-only mode blocks entry mutation.",
+                        )
+                    )
+                    self._persist_transitions(transitions)
+                    return LifecycleResult(accepted=True, transitions=transitions)
+                if filled_quantity <= 0:
+                    self._persist_transitions(transitions)
+                    return LifecycleResult(accepted=True, transitions=transitions)
                 position.quantity += filled_quantity
                 transitions.append(
                     self._apply_transition(
                         position=position,
-                        to_state=PositionState.OPEN,
+                        to_state=self._entry_state_for_fill(filled_quantity, requested_quantity, fill_status),
                         intent=intent,
                         run_mode=run_mode,
                         requested_quantity=requested_quantity,
@@ -354,10 +498,10 @@ class PositionLifecycleEngine:
                     )
                 )
             elif intent in {LifecycleIntent.ADD, LifecycleIntent.ADD_TO_WINNER}:
-                if position.state != PositionState.OPEN:
+                if position.state not in {PositionState.OPEN, PositionState.PARTIALLY_FILLED}:
                     raise LifecycleTransitionError(
                         "INVALID_STATE",
-                        "ADD intent requires OPEN state.",
+                        "ADD intent requires OPEN or PARTIALLY_FILLED state.",
                     )
                 position.quantity += filled_quantity
                 transitions.append(
@@ -391,10 +535,10 @@ class PositionLifecycleEngine:
                     )
                 )
             elif intent in {LifecycleIntent.SCALE_OUT, LifecycleIntent.PARTIAL_PROFIT}:
-                if position.state != PositionState.OPEN:
+                if position.state not in {PositionState.OPEN, PositionState.PARTIALLY_FILLED}:
                     raise LifecycleTransitionError(
                         "INVALID_STATE",
-                        "SCALE_OUT intent requires OPEN state.",
+                        "SCALE_OUT intent requires OPEN or PARTIALLY_FILLED state.",
                     )
                 if requested_quantity >= position.quantity:
                     raise LifecycleTransitionError(
@@ -405,7 +549,7 @@ class PositionLifecycleEngine:
                 transitions.append(
                     self._apply_transition(
                         position=position,
-                        to_state=PositionState.REDUCING,
+                        to_state=PositionState.SCALING_OUT,
                         intent=intent,
                         run_mode=run_mode,
                         requested_quantity=requested_quantity,
@@ -420,7 +564,7 @@ class PositionLifecycleEngine:
                 transitions.append(
                     self._apply_transition(
                         position=position,
-                        to_state=PositionState.OPEN,
+                        to_state=PositionState.OPEN if position.quantity > 0 else PositionState.CLOSED,
                         intent=intent,
                         run_mode=run_mode,
                         requested_quantity=requested_quantity,
@@ -433,7 +577,7 @@ class PositionLifecycleEngine:
                     )
                 )
             elif intent == LifecycleIntent.TRAILING_STOP_UPDATE:
-                if position.state != PositionState.OPEN:
+                if position.state not in {PositionState.OPEN, PositionState.PARTIALLY_FILLED}:
                     raise LifecycleTransitionError(
                         "INVALID_STATE",
                         "TRAILING_STOP_UPDATE requires OPEN state.",
@@ -455,7 +599,7 @@ class PositionLifecycleEngine:
                     )
                 )
             else:
-                if position.state != PositionState.OPEN:
+                if position.state not in {PositionState.OPEN, PositionState.PARTIALLY_FILLED}:
                     raise LifecycleTransitionError(
                         "INVALID_STATE",
                         "Exit intent requires OPEN state.",
@@ -470,7 +614,7 @@ class PositionLifecycleEngine:
                 transitions.append(
                     self._apply_transition(
                         position=position,
-                        to_state=PositionState.CLOSING,
+                        to_state=PositionState.EXIT_PENDING,
                         intent=intent,
                         run_mode=run_mode,
                         requested_quantity=requested_quantity,
@@ -521,10 +665,23 @@ class PositionLifecycleEngine:
                 position = PositionLifecycle(
                     symbol=transition.get("symbol"),
                     trader_type=transition.get("trader_type"),
+                    strategy_owner=transition.get("strategy_owner") or transition.get("trader_type"),
+                    entry_source=transition.get("entry_source"),
+                    entry_intent_id=transition.get("entry_intent_id"),
+                    entry_order_id=transition.get("entry_order_id"),
+                    entry_requested_quantity=int(transition.get("requested_quantity", 0) or 0),
                 )
                 positions[key] = position
             position.state = normalize_state(transition.get("to_state"))
             position.quantity = int(transition.get("quantity_after", 0))
+            position.entry_requested_quantity = max(
+                int(position.entry_requested_quantity or 0),
+                int(transition.get("requested_quantity", 0) or 0),
+            )
+            position.strategy_owner = transition.get("strategy_owner") or position.strategy_owner
+            position.entry_source = transition.get("entry_source") or position.entry_source
+            position.entry_intent_id = transition.get("entry_intent_id") or position.entry_intent_id
+            position.entry_order_id = transition.get("entry_order_id") or position.entry_order_id
             position.state_history.append(
                 {
                     "from": transition.get("from_state"),
