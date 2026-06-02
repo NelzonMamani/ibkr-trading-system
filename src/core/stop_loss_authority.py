@@ -403,7 +403,7 @@ def classify_stop_recovery(
         return _classification(StopRecoveryClassification.STOP_UNSAFE, symbol_u, "unsafe_stop_recovery")
     if recovered:
         return _classification(StopRecoveryClassification.STOP_RECOVERED, symbol_u, "stop_recovered")
-    if int(broker_position_quantity or 0) <= 0:
+    if int(broker_position_quantity or 0) == 0:
         if symbol_orders:
             return _classification(
                 StopRecoveryClassification.STOP_ORPHAN,

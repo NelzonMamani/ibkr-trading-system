@@ -169,6 +169,13 @@ def test_another_strategy_cannot_cancel_or_replace_owner_stop() -> None:
 
 
 def test_recovery_classifies_missing_stale_orphan_and_matched_stops() -> None:
+    flat = classify_stop_recovery(
+        lifecycle_stop_order_id=None,
+        lifecycle_stop_price=None,
+        broker_stop_orders=[],
+        symbol="AAPL",
+        broker_position_quantity=0,
+    )
     matched = classify_stop_recovery(
         lifecycle_stop_order_id="STOP-1",
         lifecycle_stop_price=95.0,
@@ -197,10 +204,28 @@ def test_recovery_classifies_missing_stale_orphan_and_matched_stops() -> None:
         symbol="AAPL",
         broker_position_quantity=0,
     )
+    short_missing = classify_stop_recovery(
+        lifecycle_stop_order_id=None,
+        lifecycle_stop_price=None,
+        broker_stop_orders=[],
+        symbol="AAPL",
+        broker_position_quantity=-10,
+    )
+    short_stale = classify_stop_recovery(
+        lifecycle_stop_order_id="STOP-SHORT",
+        lifecycle_stop_price=105.0,
+        broker_stop_orders=[{"order_id": "STOP-SHORT", "symbol": "AAPL", "order_type": "STP", "stop_price": 106.0}],
+        symbol="AAPL",
+        broker_position_quantity=-10,
+    )
+    assert flat["classification"] == StopRecoveryClassification.STOP_MATCH.value
+    assert flat["reason_code"] == "flat_no_stop_required"
     assert matched["classification"] == StopRecoveryClassification.STOP_MATCH.value
     assert missing["classification"] == StopRecoveryClassification.STOP_MISSING.value
     assert stale["classification"] == StopRecoveryClassification.STOP_STALE.value
     assert orphan["classification"] == StopRecoveryClassification.STOP_ORPHAN.value
+    assert short_missing["classification"] == StopRecoveryClassification.STOP_MISSING.value
+    assert short_stale["classification"] == StopRecoveryClassification.STOP_STALE.value
 
 
 def test_audit_trail_can_reconstruct_stop_lifecycle(tmp_path, monkeypatch) -> None:

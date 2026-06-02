@@ -50,6 +50,7 @@ class ProtectionOrderMeta:
     entry_order_id: str | None = None
     entry_intent_id: str | None = None
     pending_intent_id: str | None = None
+    emergency_stop_exception: str | None = None
 
 
 @dataclass
@@ -199,7 +200,7 @@ class PostFillLifecycleEngine:
             state="OPEN" if self._is_open_trade_state(trade.state) and int(trade.filled_qty or 0) > 0 else "CLOSED",
             active_stop_order_id=trade.stop.broker_order_id if trade.stop else None,
             pending_stop_order_intent=trade.stop.pending_intent_id if trade.stop else None,
-            emergency_stop_exception=None,
+            emergency_stop_exception=trade.stop.emergency_stop_exception if trade.stop else None,
         )
         return assess_stop_protection(evidence)
 
@@ -670,6 +671,9 @@ class PostFillLifecycleEngine:
         if self.execution_provider is not None and broker_order_id and self.run_mode in {"PAPER", "LIVE"}:
             self.execution_provider.cancel_order(broker_order_id=str(broker_order_id))
         trade.stop.status = "CANCELLED"
+        trade.stop.broker_order_id = None
+        trade.stop.pending_intent_id = None
+        trade.stop.emergency_stop_exception = str(reason or "").strip()
         self._record_stop_event(
             trade,
             StopAuditEventType.STOP_CANCELLED,
