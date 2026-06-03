@@ -54,6 +54,8 @@ class TakeProfitDecision:
     target_stage: str = "PRIMARY"
     broker_order_id: str | None = None
     supersedes_target_id: str | None = None
+    filled_target_quantity: int = 0
+    remaining_target_quantity: int = 0
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_audit_payload(self) -> dict[str, Any]:
@@ -426,6 +428,8 @@ class TakeProfitAuthority:
             rationale=rationale,
             lifecycle_event="TAKE_PROFIT_CREATED",
             target_stage=stage_u,
+            filled_target_quantity=0,
+            remaining_target_quantity=requested_qty,
         )
         self._targets[target_id] = decision
         self._active_target_by_slice[slice_key] = target_id
@@ -527,6 +531,11 @@ class TakeProfitAuthority:
         existing = self._require_target(target_id)
         qty = int(fill_quantity or 0)
         live_before = max(int(live_position_quantity_before or 0), 0)
+        target_qty = max(int(existing.target_quantity or 0), 0)
+        previous_filled = max(int(existing.filled_target_quantity or 0), 0)
+        remaining_before = max(int(existing.remaining_target_quantity or 0), 0)
+        if remaining_before <= 0 and previous_filled <= 0:
+            remaining_before = target_qty
         if qty <= 0:
             return TakeProfitFillResult(
                 accepted=False,
@@ -535,7 +544,7 @@ class TakeProfitAuthority:
                 symbol=existing.symbol,
                 status=existing.status,
                 fill_quantity=qty,
-                remaining_target_quantity=existing.target_quantity,
+                remaining_target_quantity=remaining_before,
                 remaining_position_quantity=live_before,
                 reason_code="INVALID_FILL_QUANTITY",
                 rationale="Take-profit fill quantity must be positive.",
@@ -551,7 +560,7 @@ class TakeProfitAuthority:
                 symbol=existing.symbol,
                 status=existing.status,
                 fill_quantity=qty,
-                remaining_target_quantity=existing.target_quantity,
+                remaining_target_quantity=remaining_before,
                 remaining_position_quantity=live_before,
                 reason_code="FILL_QTY_EXCEEDS_POSITION",
                 rationale="Take-profit fill quantity exceeds live position quantity.",
@@ -559,17 +568,43 @@ class TakeProfitAuthority:
                 broker_order_id=broker_order_id,
                 realized_pnl=realized_pnl,
             )
+        if qty > remaining_before:
+            return TakeProfitFillResult(
+                accepted=False,
+                target_id=existing.target_id,
+                trade_id=existing.trade_id,
+                symbol=existing.symbol,
+                status=existing.status,
+                fill_quantity=qty,
+                remaining_target_quantity=remaining_before,
+                remaining_position_quantity=live_before,
+                reason_code="FILL_QTY_EXCEEDS_TARGET",
+                rationale="Take-profit fill quantity exceeds remaining target quantity.",
+                lifecycle_event="TAKE_PROFIT_REJECTED",
+                broker_order_id=broker_order_id,
+                realized_pnl=realized_pnl,
+            )
         remaining_position = max(live_before - qty, 0)
-        remaining_target = max(int(existing.target_quantity) - qty, 0)
+        filled_target = min(previous_filled + qty, target_qty)
+        remaining_target = max(target_qty - filled_target, 0)
+        if remaining_position == 0:
+            filled_target = target_qty
+            remaining_target = 0
         status = TakeProfitDecisionStatus.FILLED if remaining_position == 0 or remaining_target == 0 else TakeProfitDecisionStatus.PARTIALLY_FILLED
-        event = "TAKE_PROFIT_FILLED" if status == TakeProfitDecisionStatus.FILLED and remaining_position == 0 else "TAKE_PROFIT_PARTIALLY_FILLED"
+        event = "TAKE_PROFIT_FILLED" if status == TakeProfitDecisionStatus.FILLED else "TAKE_PROFIT_PARTIALLY_FILLED"
         self._replace_decision(
             existing,
             status=status,
+            filled_target_quantity=filled_target,
+            remaining_target_quantity=remaining_target,
+            remaining_position_quantity=remaining_position,
             broker_order_id=broker_order_id or existing.broker_order_id,
             reason_code=event,
             lifecycle_event=event,
-            rationale=f"Broker fill truth applied qty={qty} remaining_position={remaining_position}.",
+            rationale=(
+                f"Broker fill truth applied qty={qty} "
+                f"cumulative_target_fill={filled_target} remaining_target={remaining_target}."
+            ),
         )
         if status == TakeProfitDecisionStatus.FILLED:
             self._active_target_by_slice.pop((existing.trade_id, existing.target_stage), None)

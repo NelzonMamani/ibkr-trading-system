@@ -12,6 +12,7 @@ class _ProviderStub:
         self.target_calls: list[dict] = []
         self.modify_calls: list[dict] = []
         self.cancel_calls: list[dict] = []
+        self.fail_target_submissions_remaining = 0
 
     def place_stop_order(self, **kwargs):
         self.stop_calls.append(dict(kwargs))
@@ -19,6 +20,9 @@ class _ProviderStub:
 
     def place_target_order(self, **kwargs):
         self.target_calls.append(dict(kwargs))
+        if self.fail_target_submissions_remaining > 0:
+            self.fail_target_submissions_remaining -= 1
+            raise RuntimeError("target submit failure")
         return {"broker_order_id": "TGT-1", "status": "Submitted"}
 
     def modify_stop_order(self, **kwargs):
@@ -100,6 +104,52 @@ def test_authority_creates_long_r_multiple_and_blocks_invalid_or_duplicate_targe
     assert exceeds_position.reason_code == "TARGET_QTY_EXCEEDS_POSITION"
 
 
+def test_authority_cumulative_partial_fills_complete_target_slice() -> None:
+    authority = TakeProfitAuthority()
+    decision = authority.create_fixed_price_target(
+        trade_id="T-CUMULATIVE",
+        symbol="AAPL",
+        side="LONG",
+        target_price=102.0,
+        live_position_quantity=10,
+        source_strategy="ross_momentum",
+        quantity=5,
+    )
+
+    assert decision.accepted is True
+    assert decision.target_id is not None
+
+    first = authority.record_fill(
+        target_id=decision.target_id,
+        fill_quantity=2,
+        live_position_quantity_before=10,
+        broker_order_id="TGT-CUMULATIVE",
+    )
+    second = authority.record_fill(
+        target_id=decision.target_id,
+        fill_quantity=3,
+        live_position_quantity_before=8,
+        broker_order_id="TGT-CUMULATIVE",
+    )
+
+    assert first.status == "PARTIALLY_FILLED"
+    assert first.remaining_target_quantity == 3
+    assert second.status == "FILLED"
+    assert second.remaining_target_quantity == 0
+    assert authority._active_target_by_slice == {}
+
+    replacement = authority.create_fixed_price_target(
+        trade_id="T-CUMULATIVE",
+        symbol="AAPL",
+        side="LONG",
+        target_price=103.0,
+        live_position_quantity=5,
+        source_strategy="ross_momentum",
+        quantity=5,
+    )
+    assert replacement.accepted is True
+
+
 def test_post_fill_partial_target_fill_updates_remaining_quantity_stop_and_attribution() -> None:
     provider = _ProviderStub()
     engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
@@ -138,7 +188,41 @@ def test_post_fill_partial_target_fill_updates_remaining_quantity_stop_and_attri
     assert {event["event_type"] for event in trade.take_profit_events} >= {
         "TAKE_PROFIT_CREATED",
         "TAKE_PROFIT_SUBMITTED",
-        "TAKE_PROFIT_PARTIALLY_FILLED",
+        "TAKE_PROFIT_FILLED",
+    }
+
+
+def test_protection_install_failure_clears_created_target_before_retry() -> None:
+    provider = _ProviderStub()
+    provider.fail_target_submissions_remaining = 1
+    authority = TakeProfitAuthority()
+    engine = PostFillLifecycleEngine(
+        run_mode="PAPER",
+        execution_provider=provider,
+        take_profit_authority=authority,
+    )
+
+    result = engine.activate_trade_management_after_fill(
+        trade_id="T-RETRY",
+        symbol="AAPL",
+        side="LONG",
+        filled_qty=10,
+        avg_fill_price=100.0,
+        strategy_id="ross_momentum",
+    )
+    trade = engine.get_trade("T-RETRY")
+    rejected_targets = [target for target in authority._targets.values() if target.status == "REJECTED"]
+
+    assert result["success"] is True
+    assert result["failure_reason"] is None
+    assert len(provider.target_calls) == 2
+    assert trade is not None
+    assert trade.target is not None
+    assert trade.target.status == "Submitted"
+    assert len(rejected_targets) == 1
+    assert rejected_targets[0].target_id != trade.target.target_id
+    assert authority._active_target_by_slice == {
+        ("T-RETRY", "PARTIAL_1"): trade.target.target_id,
     }
 
 

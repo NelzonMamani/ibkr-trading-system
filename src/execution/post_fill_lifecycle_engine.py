@@ -372,6 +372,62 @@ class PostFillLifecycleEngine:
         )
         print(f"[TAKE_PROFIT][AUDIT] trade_id={trade.trade_id} event={event_type_u} payload={payload}")
 
+    def _clear_unsubmitted_take_profit_target(
+        self,
+        *,
+        trade: ManagedTradeLifecycle,
+        target_decision: TakeProfitDecision | None,
+        reason: str,
+        attempt: int,
+    ) -> None:
+        target_id = trade.target.target_id if trade.target is not None else None
+        if target_id is None and target_decision is not None:
+            target_id = target_decision.target_id
+        if not target_id:
+            self._record_take_profit_event(
+                trade,
+                "TAKE_PROFIT_REJECTED",
+                {"reason": reason, "attempt": attempt},
+            )
+            return
+
+        broker_order_id = trade.target.broker_order_id if trade.target is not None else None
+        if broker_order_id:
+            self._record_take_profit_event(
+                trade,
+                "TAKE_PROFIT_REJECTED",
+                {
+                    "target_id": target_id,
+                    "broker_order_id": broker_order_id,
+                    "reason": reason,
+                    "attempt": attempt,
+                },
+            )
+            return
+
+        try:
+            rejected = self.take_profit_authority.mark_rejected(
+                target_id=target_id,
+                reason=f"protection_install_failed_attempt_{attempt}: {reason}",
+            )
+            payload = rejected.to_audit_payload()
+            payload["attempt"] = attempt
+            self._record_take_profit_event(trade, rejected.lifecycle_event, payload)
+        except Exception as cleanup_exc:
+            self._record_take_profit_event(
+                trade,
+                "TAKE_PROFIT_REJECTED",
+                {
+                    "target_id": target_id,
+                    "reason": reason,
+                    "attempt": attempt,
+                    "cleanup_error": str(cleanup_exc),
+                },
+            )
+        if trade.target is not None and not trade.target.broker_order_id:
+            trade.target.status = "REJECTED"
+            trade.target = None
+
     @staticmethod
     def _exit_attribution(reason: str) -> str:
         normalized = str(reason or "").upper()
@@ -474,6 +530,7 @@ class PostFillLifecycleEngine:
         failure_reason: str | None = None
         for attempt in range(1, self.policy.install_retry_limit + 1):
             self._transition(trade, PositionLifecycleState.PROTECTION_PENDING, f"install_attempt_{attempt}")
+            target_decision: TakeProfitDecision | None = None
             try:
                 stop, target_decision = self._compute_stop_target(trade)
                 self._record_take_profit_event(
@@ -573,13 +630,15 @@ class PostFillLifecycleEngine:
                 self._transition(trade, PositionLifecycleState.TARGET_ACTIVE, "target_registered")
                 self._transition(trade, PositionLifecycleState.TRAILING_ELIGIBLE, "baseline_trailing_ready")
                 installed = True
+                failure_reason = None
                 break
             except Exception as exc:  # defensive lifecycle boundary
                 failure_reason = str(exc)
-                self._record_take_profit_event(
-                    trade,
-                    "TAKE_PROFIT_REJECTED",
-                    {"reason": failure_reason, "attempt": attempt},
+                self._clear_unsubmitted_take_profit_target(
+                    trade=trade,
+                    target_decision=target_decision,
+                    reason=failure_reason,
+                    attempt=attempt,
                 )
                 self._record_stop_event(
                     trade,
