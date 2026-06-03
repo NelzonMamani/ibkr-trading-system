@@ -6,6 +6,7 @@ from enum import Enum
 import math
 from typing import Any
 
+from src.core.take_profit_authority import TakeProfitAuthority, TakeProfitDecision, TakeProfitTargetType
 from src.core.stop_loss_authority import (
     StopAuditEventType,
     StopAuditTrail,
@@ -51,6 +52,12 @@ class ProtectionOrderMeta:
     entry_intent_id: str | None = None
     pending_intent_id: str | None = None
     emergency_stop_exception: str | None = None
+    quantity: int = 0
+    target_id: str | None = None
+    target_type: str | None = None
+    target_stage: str | None = None
+    source_strategy: str | None = None
+    rationale: str | None = None
 
 
 @dataclass
@@ -69,6 +76,7 @@ class ManagedTradeLifecycle:
     exit_fill_time: str | None = None
     exit_order_id: str | None = None
     realized_pnl: float = 0.0
+    realized_pnl_by_exit_reason: dict[str, float] = field(default_factory=dict)
     state: PositionLifecycleState = PositionLifecycleState.ENTRY_SUBMITTED
     stop: ProtectionOrderMeta | None = None
     target: ProtectionOrderMeta | None = None
@@ -81,6 +89,7 @@ class ManagedTradeLifecycle:
     last_update_ts: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_recovery_status: str | None = None
     failure_flags: list[str] = field(default_factory=list)
+    take_profit_events: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -143,11 +152,13 @@ class PostFillLifecycleEngine:
         execution_provider: Any | None = None,
         stop_audit_trail: StopAuditTrail | None = None,
         storage_engine: Any | None = None,
+        take_profit_authority: TakeProfitAuthority | None = None,
     ) -> None:
         self.run_mode = str(run_mode or "SIM").upper()
         self.policy = policy or LifecyclePolicy()
         self.execution_provider = execution_provider
         self.stop_audit_trail = stop_audit_trail or StopAuditTrail(storage_engine=storage_engine)
+        self.take_profit_authority = take_profit_authority or TakeProfitAuthority()
         self._trades: dict[str, ManagedTradeLifecycle] = {}
         self._active_trade_ids: set[str] = set()
         self._active_position_qty_by_symbol: dict[str, int] = {}
@@ -328,23 +339,140 @@ class PostFillLifecycleEngine:
         print(f"[LIFECYCLE][STATE] trade_id={trade.trade_id} state={trade.state.value}")
         return True
 
-    def _compute_stop_target(self, avg_fill_price: float, side: str) -> tuple[float, float]:
-        side_u = str(side).upper()
+    def _record_take_profit_event(
+        self,
+        trade: ManagedTradeLifecycle,
+        event_type: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        event_type_u = str(event_type or "").upper()
+        payload = dict(payload or {})
+        event_payload = {
+            "event_type": event_type_u,
+            "trade_id": trade.trade_id,
+            "symbol": trade.symbol,
+            "timestamp": self._ts(),
+            **payload,
+        }
+        trade.take_profit_events.append(event_payload)
+        tag_map = {
+            "TAKE_PROFIT_CREATED": "CREATE",
+            "TAKE_PROFIT_SUBMITTED": "SUBMIT",
+            "TAKE_PROFIT_PARTIALLY_FILLED": "PARTIAL",
+            "TAKE_PROFIT_FILLED": "FILL",
+            "TAKE_PROFIT_CANCELLED": "CANCEL",
+            "TAKE_PROFIT_SUPERSEDED": "SUPERSEDE",
+            "TAKE_PROFIT_REJECTED": "REJECT",
+        }
+        tag = tag_map.get(event_type_u, "AUDIT")
+        print(
+            f"[TAKE_PROFIT][{tag}] "
+            f"trade_id={trade.trade_id} symbol={trade.symbol} event={event_type_u} "
+            f"target_id={payload.get('target_id') or payload.get('target', {}).get('target_id') or 'NONE'}"
+        )
+        print(f"[TAKE_PROFIT][AUDIT] trade_id={trade.trade_id} event={event_type_u} payload={payload}")
+
+    def _clear_unsubmitted_take_profit_target(
+        self,
+        *,
+        trade: ManagedTradeLifecycle,
+        target_decision: TakeProfitDecision | None,
+        reason: str,
+        attempt: int,
+    ) -> None:
+        target_id = trade.target.target_id if trade.target is not None else None
+        if target_id is None and target_decision is not None:
+            target_id = target_decision.target_id
+        if not target_id:
+            self._record_take_profit_event(
+                trade,
+                "TAKE_PROFIT_REJECTED",
+                {"reason": reason, "attempt": attempt},
+            )
+            return
+
+        broker_order_id = trade.target.broker_order_id if trade.target is not None else None
+        if broker_order_id:
+            self._record_take_profit_event(
+                trade,
+                "TAKE_PROFIT_REJECTED",
+                {
+                    "target_id": target_id,
+                    "broker_order_id": broker_order_id,
+                    "reason": reason,
+                    "attempt": attempt,
+                },
+            )
+            return
+
+        try:
+            rejected = self.take_profit_authority.mark_rejected(
+                target_id=target_id,
+                reason=f"protection_install_failed_attempt_{attempt}: {reason}",
+            )
+            payload = rejected.to_audit_payload()
+            payload["attempt"] = attempt
+            self._record_take_profit_event(trade, rejected.lifecycle_event, payload)
+        except Exception as cleanup_exc:
+            self._record_take_profit_event(
+                trade,
+                "TAKE_PROFIT_REJECTED",
+                {
+                    "target_id": target_id,
+                    "reason": reason,
+                    "attempt": attempt,
+                    "cleanup_error": str(cleanup_exc),
+                },
+            )
+        if trade.target is not None and not trade.target.broker_order_id:
+            trade.target.status = "REJECTED"
+            trade.target = None
+
+    @staticmethod
+    def _exit_attribution(reason: str) -> str:
+        normalized = str(reason or "").upper()
+        if "TARGET" in normalized or "TAKE_PROFIT" in normalized:
+            return "TAKE_PROFIT"
+        if "TRAIL" in normalized:
+            return "TRAILING_STOP"
+        if "STOP" in normalized:
+            return "STOP_LOSS"
+        if "MANUAL" in normalized or "FORCED" in normalized or "TIME" in normalized:
+            return "MANUAL_FORCED"
+        if "BROKER" in normalized or "EXTERNAL" in normalized:
+            return "BROKER_EXTERNAL"
+        return "UNKNOWN"
+
+    def _compute_stop_target(self, trade: ManagedTradeLifecycle) -> tuple[float, TakeProfitDecision]:
+        side_u = str(trade.side).upper()
         if side_u not in {"LONG", "BUY"}:
             raise ValueError("post-fill v1 supports long-side lifecycle hardening")
-        stop = avg_fill_price * (1.0 - self.policy.default_stop_pct)
-        target = avg_fill_price * (1.0 + self.policy.default_target_pct)
-        if stop >= avg_fill_price:
+        stop = trade.avg_fill_price * (1.0 - self.policy.default_stop_pct)
+        target_decision = self.take_profit_authority.create_fixed_percent_target(
+            trade_id=trade.trade_id,
+            symbol=trade.symbol,
+            side=trade.side,
+            entry_price=trade.avg_fill_price,
+            target_pct=self.policy.default_target_pct,
+            live_position_quantity=trade.filled_qty,
+            source_strategy=trade.strategy_id,
+            target_stage="PARTIAL_1" if int(trade.filled_qty or 0) > 1 else "FULL",
+            fraction=0.5 if int(trade.filled_qty or 0) > 1 else None,
+        )
+        if not target_decision.accepted or target_decision.target_price is None:
+            raise ValueError(target_decision.rationale)
+        target = float(target_decision.target_price)
+        if stop >= trade.avg_fill_price:
             raise ValueError("invalid stop geometry: protective stop must be below long fill")
-        if target <= avg_fill_price:
+        if target <= trade.avg_fill_price:
             raise ValueError("invalid target geometry: target must be above long fill")
         print(
             "[LIFECYCLE][PROTECTION_POLICY] "
-            f"side={side_u} fill={avg_fill_price:.4f} stop_pct={self.policy.default_stop_pct:.4f} target_pct={self.policy.default_target_pct:.4f}"
+            f"side={side_u} fill={trade.avg_fill_price:.4f} stop_pct={self.policy.default_stop_pct:.4f} target_pct={self.policy.default_target_pct:.4f}"
         )
         print(f"[LIFECYCLE][STOP_COMPUTED] stop={stop:.4f}")
         print(f"[LIFECYCLE][TARGET_COMPUTED] target={target:.4f}")
-        return stop, target
+        return stop, target_decision
 
     def activate_trade_management_after_fill(
         self,
@@ -402,8 +530,14 @@ class PostFillLifecycleEngine:
         failure_reason: str | None = None
         for attempt in range(1, self.policy.install_retry_limit + 1):
             self._transition(trade, PositionLifecycleState.PROTECTION_PENDING, f"install_attempt_{attempt}")
+            target_decision: TakeProfitDecision | None = None
             try:
-                stop, target = self._compute_stop_target(avg_fill_price=float(avg_fill_price), side=side)
+                stop, target_decision = self._compute_stop_target(trade)
+                self._record_take_profit_event(
+                    trade,
+                    target_decision.lifecycle_event,
+                    target_decision.to_audit_payload(),
+                )
                 validate_stop_price(side=side, stop_price=stop, entry_price=float(avg_fill_price))
                 pending_stop_intent = f"stop-submit:{trade.trade_id}:{attempt}"
                 trade.stop = ProtectionOrderMeta(
@@ -417,7 +551,18 @@ class PostFillLifecycleEngine:
                     entry_intent_id=trade.trade_id,
                     pending_intent_id=pending_stop_intent,
                 )
-                trade.target = ProtectionOrderMeta(order_type="LIMIT", side="SELL", trigger_price=target, status="PENDING_SUBMIT")
+                trade.target = ProtectionOrderMeta(
+                    order_type="LIMIT",
+                    side="SELL",
+                    trigger_price=float(target_decision.target_price or 0.0),
+                    status="PENDING_SUBMIT",
+                    quantity=target_decision.target_quantity,
+                    target_id=target_decision.target_id,
+                    target_type=target_decision.target_type,
+                    target_stage=target_decision.target_stage,
+                    source_strategy=target_decision.source_strategy,
+                    rationale=target_decision.rationale,
+                )
                 self._record_stop_event(
                     trade,
                     StopAuditEventType.STOP_SUBMITTED,
@@ -432,7 +577,7 @@ class PostFillLifecycleEngine:
                 )
                 print(
                     "[LIFECYCLE][ORDER_INSTALL][TARGET] "
-                    f"trade_id={trade.trade_id} symbol={trade.symbol} target={target:.4f}"
+                    f"trade_id={trade.trade_id} symbol={trade.symbol} target={trade.target.trigger_price:.4f}"
                 )
                 print(
                     "[LIFECYCLE][ORDER_LINKAGE] "
@@ -450,7 +595,7 @@ class PostFillLifecycleEngine:
                     target_result = self.execution_provider.place_target_order(
                         symbol=trade.symbol,
                         side=trade.target.side,
-                        quantity=trade.filled_qty,
+                        quantity=trade.target.quantity or trade.filled_qty,
                         limit_price=trade.target.trigger_price,
                         trade_id=trade.trade_id,
                         parent_order_id=trade.trade_id,
@@ -459,6 +604,16 @@ class PostFillLifecycleEngine:
                     trade.target.broker_order_id = str(target_result.get("broker_order_id"))
                     trade.stop.status = str(stop_result.get("status") or "Submitted")
                     trade.target.status = str(target_result.get("status") or "Submitted")
+                    if trade.target.target_id:
+                        submitted = self.take_profit_authority.mark_submitted(
+                            target_id=trade.target.target_id,
+                            broker_order_id=trade.target.broker_order_id,
+                        )
+                        self._record_take_profit_event(
+                            trade,
+                            submitted.lifecycle_event,
+                            submitted.to_audit_payload(),
+                        )
                 else:
                     trade.stop.status = "REGISTERED"
                     trade.target.status = "REGISTERED"
@@ -475,9 +630,16 @@ class PostFillLifecycleEngine:
                 self._transition(trade, PositionLifecycleState.TARGET_ACTIVE, "target_registered")
                 self._transition(trade, PositionLifecycleState.TRAILING_ELIGIBLE, "baseline_trailing_ready")
                 installed = True
+                failure_reason = None
                 break
             except Exception as exc:  # defensive lifecycle boundary
                 failure_reason = str(exc)
+                self._clear_unsubmitted_take_profit_target(
+                    trade=trade,
+                    target_decision=target_decision,
+                    reason=failure_reason,
+                    attempt=attempt,
+                )
                 self._record_stop_event(
                     trade,
                     StopAuditEventType.STOP_REJECTED,
@@ -709,6 +871,40 @@ class PostFillLifecycleEngine:
                 return text
         return None
 
+    def _tighten_stop_after_take_profit(self, trade: ManagedTradeLifecycle, remaining_qty: int) -> None:
+        if trade.stop is None:
+            return
+        side_u = str(trade.side or "").upper()
+        previous_stop = float(trade.stop.trigger_price)
+        if side_u in {"LONG", "BUY"}:
+            trade.stop.trigger_price = max(float(trade.stop.trigger_price), float(trade.avg_fill_price))
+        elif side_u == "SHORT":
+            trade.stop.trigger_price = min(float(trade.stop.trigger_price), float(trade.avg_fill_price))
+        trade.stop.quantity = int(remaining_qty)
+        print(
+            "[TAKE_PROFIT][PARTIAL] "
+            f"trade_id={trade.trade_id} symbol={trade.symbol} stop_qty={remaining_qty} stop={trade.stop.trigger_price:.4f}"
+        )
+        self._record_stop_event(
+            trade,
+            StopAuditEventType.STOP_TIGHTENED,
+            stop_price=trade.stop.trigger_price,
+            previous_stop_price=previous_stop,
+            active_stop_order_id=trade.stop.broker_order_id,
+            status=trade.stop.status,
+            reason="take_profit_partial_break_even",
+        )
+        if self.execution_provider is None or self.run_mode not in {"PAPER", "LIVE"} or not trade.stop.broker_order_id:
+            return
+        self.execution_provider.modify_stop_order(
+            broker_order_id=trade.stop.broker_order_id,
+            symbol=trade.symbol,
+            side=trade.stop.side,
+            quantity=int(remaining_qty),
+            new_stop_price=trade.stop.trigger_price,
+            trade_id=trade.trade_id,
+        )
+
     def record_exit_fill(
         self,
         *,
@@ -745,6 +941,24 @@ class PostFillLifecycleEngine:
         else:
             realized_increment = (float(trade.avg_fill_price) - float(fill_price)) * float(qty)
 
+        attribution = self._exit_attribution(reason)
+        target_fill_result = None
+        if attribution == "TAKE_PROFIT" and trade.target is not None and trade.target.target_id:
+            target_fill_result = self.take_profit_authority.record_fill(
+                target_id=trade.target.target_id,
+                fill_quantity=qty,
+                live_position_quantity_before=int(trade.filled_qty),
+                broker_order_id=str(exit_order_id) if exit_order_id is not None else trade.target.broker_order_id,
+                realized_pnl=float(realized_increment),
+            )
+            if not target_fill_result.accepted:
+                self._record_take_profit_event(
+                    trade,
+                    target_fill_result.lifecycle_event,
+                    target_fill_result.to_audit_payload(),
+                )
+                return {"success": False, "error": target_fill_result.reason_code}
+
         remaining_qty = int(trade.filled_qty) - qty
         trade.filled_qty = remaining_qty
         trade.exited_qty += qty
@@ -752,6 +966,9 @@ class PostFillLifecycleEngine:
         trade.exit_fill_time = fill_time_text
         trade.exit_order_id = str(exit_order_id) if exit_order_id is not None else trade.exit_order_id
         trade.realized_pnl += float(realized_increment)
+        trade.realized_pnl_by_exit_reason[attribution] = (
+            float(trade.realized_pnl_by_exit_reason.get(attribution, 0.0)) + float(realized_increment)
+        )
         trade.last_update_ts = self._ts()
         self._pending_exit_requests.pop(trade.trade_id, None)
         print(
@@ -761,6 +978,15 @@ class PostFillLifecycleEngine:
 
         if remaining_qty > 0:
             trade.partial_exit_count += 1
+            if target_fill_result is not None:
+                trade.target.status = target_fill_result.status
+                self._record_take_profit_event(
+                    trade,
+                    target_fill_result.lifecycle_event,
+                    target_fill_result.to_audit_payload(),
+                )
+            if attribution == "TAKE_PROFIT":
+                self._tighten_stop_after_take_profit(trade, remaining_qty)
             self._update_in_memory_state()
             print(
                 "[LIFECYCLE][EXIT_PARTIAL] "
@@ -778,6 +1004,13 @@ class PostFillLifecycleEngine:
                 "state": trade.state.value,
             }
 
+        if target_fill_result is not None:
+            trade.target.status = target_fill_result.status
+            self._record_take_profit_event(
+                trade,
+                target_fill_result.lifecycle_event,
+                target_fill_result.to_audit_payload(),
+            )
         self.mark_exit_pending(trade.trade_id, reason)
         self.mark_exited(trade.trade_id, reason)
         assert remaining_qty == 0, "EXITED invariant violation: remaining_qty must be zero"
@@ -804,10 +1037,15 @@ class PostFillLifecycleEngine:
         price = float(current_price)
         intents: list[dict[str, Any]] = []
         expected_partial_exits = 1
-        if trade.target is not None and price >= float(trade.target.trigger_price):
+        if trade.target is not None and TakeProfitAuthority._hits_target(trade.side, price, float(trade.target.trigger_price)):
             if trade.partial_exit_count >= expected_partial_exits:
                 return []
-            partial_qty = max(1, int(trade.filled_qty) // 2)
+            partial_qty = int(trade.target.quantity or 0)
+            if partial_qty <= 0:
+                partial_qty = TakeProfitAuthority.scale_out_quantity(
+                    live_position_quantity=int(trade.filled_qty),
+                    fraction=0.5,
+                )
             partial_qty = min(partial_qty, int(trade.filled_qty))
             intents.extend(self._create_exit_request(trade=trade, qty=partial_qty, reason="TARGET1_PARTIAL"))
             return intents
@@ -903,6 +1141,16 @@ class PostFillLifecycleEngine:
                                 try:
                                     self.execution_provider.cancel_order(broker_order_id=str(target.broker_order_id))
                                     target.status = "CANCELLED"
+                                    if target.target_id:
+                                        cancelled = self.take_profit_authority.mark_cancelled(
+                                            target_id=target.target_id,
+                                            reason="stop_exit_filled_cancel_remaining_target",
+                                        )
+                                        self._record_take_profit_event(
+                                            trade,
+                                            cancelled.lifecycle_event,
+                                            cancelled.to_audit_payload(),
+                                        )
                                 except Exception as exc:
                                     target.status = "CANCEL_FAILED"
                                     print(
@@ -921,6 +1169,26 @@ class PostFillLifecycleEngine:
             if target and str(target.broker_order_id or "") == order_id:
                 if event_type == "orderstatus" and status:
                     target.status = status
+                    if status in {"CANCELLED", "CANCELED"} and target.target_id:
+                        cancelled = self.take_profit_authority.mark_cancelled(
+                            target_id=target.target_id,
+                            reason="broker_cancel_status",
+                        )
+                        self._record_take_profit_event(
+                            trade,
+                            cancelled.lifecycle_event,
+                            cancelled.to_audit_payload(),
+                        )
+                    elif status in {"REJECTED", "INACTIVE"} and target.target_id:
+                        rejected = self.take_profit_authority.mark_rejected(
+                            target_id=target.target_id,
+                            reason=f"broker_status:{status}",
+                        )
+                        self._record_take_profit_event(
+                            trade,
+                            rejected.lifecycle_event,
+                            rejected.to_audit_payload(),
+                        )
                 if event_type == "execdetails":
                     print(f"[IBKR][EXEC_DETAILS] trade_id={trade.trade_id} symbol={trade.symbol} exit_leg=TARGET")
                     fill_price = self._extract_fill_price(payload)
@@ -1014,16 +1282,64 @@ class PostFillLifecycleEngine:
         if trade.target is None:
             return False
         try:
+            if trade.target.target_id:
+                superseded = self.take_profit_authority.supersede_target(
+                    target_id=trade.target.target_id,
+                    reason=reason,
+                )
+                self._record_take_profit_event(
+                    trade,
+                    superseded.lifecycle_event,
+                    superseded.to_audit_payload(),
+                )
+                replacement = self.take_profit_authority.create_fixed_price_target(
+                    trade_id=trade.trade_id,
+                    symbol=trade.symbol,
+                    side=trade.side,
+                    target_price=trade.target.trigger_price,
+                    live_position_quantity=trade.filled_qty,
+                    source_strategy=trade.strategy_id,
+                    target_stage=trade.target.target_stage or "PARTIAL_1",
+                    quantity=min(int(trade.target.quantity or trade.filled_qty), int(trade.filled_qty)),
+                    rationale=f"replacement target after missing broker order: {reason}",
+                )
+                if not replacement.accepted:
+                    self._record_take_profit_event(
+                        trade,
+                        replacement.lifecycle_event,
+                        replacement.to_audit_payload(),
+                    )
+                    return False
+                trade.target.target_id = replacement.target_id
+                trade.target.quantity = replacement.target_quantity
+                trade.target.target_type = replacement.target_type
+                trade.target.target_stage = replacement.target_stage
+                trade.target.rationale = replacement.rationale
+                self._record_take_profit_event(
+                    trade,
+                    replacement.lifecycle_event,
+                    replacement.to_audit_payload(),
+                )
             result = self.execution_provider.place_target_order(
                 symbol=trade.symbol,
                 side=trade.target.side,
-                quantity=trade.filled_qty,
+                quantity=trade.target.quantity or trade.filled_qty,
                 limit_price=trade.target.trigger_price,
                 trade_id=trade.trade_id,
                 parent_order_id=trade.trade_id,
             )
             trade.target.broker_order_id = str(result.get("broker_order_id"))
             trade.target.status = str(result.get("status") or "Submitted")
+            if trade.target.target_id:
+                submitted = self.take_profit_authority.mark_submitted(
+                    target_id=trade.target.target_id,
+                    broker_order_id=trade.target.broker_order_id,
+                )
+                self._record_take_profit_event(
+                    trade,
+                    submitted.lifecycle_event,
+                    submitted.to_audit_payload(),
+                )
             print(
                 "[LIFECYCLE][DEGRADED][TARGET_REPAIRED] "
                 f"trade_id={trade.trade_id} symbol={trade.symbol} reason={reason} target_order_id={trade.target.broker_order_id}"

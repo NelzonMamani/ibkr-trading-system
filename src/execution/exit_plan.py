@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from src.core.take_profit_authority import TakeProfitAuthority
+
 
 @dataclass(frozen=True)
 class ExitPlan:
@@ -194,8 +196,10 @@ def compute_take_profit_price(
     strategy_name: Optional[str] = None,
 ) -> float:
     plan = resolve_exit_plan(pattern_name, strategy_name)
-    normalized_direction = (direction or "").upper()
-    risk_amount = max(abs(entry_price - stop_loss_price), 0.01)
-    if normalized_direction == "SHORT":
-        return round(entry_price - (risk_amount * plan.target_r_multiple), 2)
-    return round(entry_price + (risk_amount * plan.target_r_multiple), 2)
+    return TakeProfitAuthority.r_multiple_price(
+        entry_price=entry_price,
+        stop_loss_price=stop_loss_price,
+        side=direction,
+        r_multiple=plan.target_r_multiple,
+        decimals=2,
+    )
