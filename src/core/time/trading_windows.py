@@ -11,6 +11,12 @@ IBKR_LIQUID_HOURS = "IBKR_LIQUID_HOURS"
 SESSION_FALLBACK = "SESSION_FALLBACK"
 UNAVAILABLE = "UNAVAILABLE"
 
+WINDOWS_TIMEZONE_ALIASES = {
+    "GMT Summer Time": "Europe/London",
+    "GMT Standard Time": "Europe/London",
+    "Eastern Standard Time": "America/New_York",
+}
+
 
 @dataclass(frozen=True)
 class TradingWindowSegment:
@@ -38,7 +44,15 @@ class TradingWindowDecision:
     force_flat: bool
 
 
+def _normalize_timezone_name(tz_name: str | None) -> str:
+    if not tz_name:
+        return "America/New_York"
+    normalized = str(tz_name).strip()
+    return WINDOWS_TIMEZONE_ALIASES.get(normalized, normalized)
+
+
 def _default_session_segment(now: datetime, tz_name: str) -> TradingWindowSegment:
+    tz_name = _normalize_timezone_name(tz_name)
     tz = ZoneInfo(tz_name)
     local_now = now.astimezone(tz)
     day = local_now.date()
@@ -51,6 +65,7 @@ def _parse_ibkr_hours(raw_hours: str | None, tz_name: str, now: datetime) -> lis
     if not raw_hours:
         return []
 
+    tz_name = _normalize_timezone_name(tz_name)
     tz = ZoneInfo(tz_name)
     local_now = now.astimezone(tz)
     accepted_dates = {
@@ -112,7 +127,7 @@ def _resolve_symbol_window_segments(
     timezone: str | None,
     session_segment_resolver: Callable[[datetime, str], TradingWindowSegment] = _default_session_segment,
 ) -> tuple[list[TradingWindowSegment], str, str]:
-    tz_name = timezone or "America/New_York"
+    tz_name = _normalize_timezone_name(timezone)
 
     # Primary authority
     if trading_hours is not None:
@@ -164,7 +179,7 @@ def resolve_trading_window_decision(
     policy: TradingWindowPolicy,
     now: datetime,
 ) -> TradingWindowDecision:
-    tz = ZoneInfo(policy.timezone)
+    tz = ZoneInfo(_normalize_timezone_name(policy.timezone))
     local_now = now.astimezone(tz)
     in_window = any(segment.contains(local_now) for segment in policy.segments)
 

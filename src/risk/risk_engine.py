@@ -27,6 +27,7 @@ from src.config.risk_profiles import RISK_PROFILES, RiskProfile
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.core.stop_controller import StopController
+from src.core.take_profit_authority import TakeProfitAuthority
 from src.models.data_models import RiskDecision, TradeIntent, IntentRiskDecision
 from src.models.risk_decision import (
     CIRCUIT_BREAKER_TRIPPED,
@@ -115,9 +116,40 @@ class RiskEngine:
         self.strategy_limits = dict(get_config("RISK_STRATEGY_LIMITS"))
         self.trade_lifecycle_engine: TradeLifecycleEngine | None = None
         self.kill_switch = GlobalKillSwitch()
+        self.take_profit_authority = TakeProfitAuthority()
 
     def set_trade_lifecycle_engine(self, trade_lifecycle_engine: TradeLifecycleEngine) -> None:
         self.trade_lifecycle_engine = trade_lifecycle_engine
+
+    def validate_take_profit_order(
+        self,
+        *,
+        symbol: str,
+        requested_quantity: int,
+        live_position_quantity: int,
+        broker_position_degraded: bool = False,
+        account_degraded: bool = False,
+    ) -> ValidationResult:
+        result = self.take_profit_authority.validate_target_order(
+            requested_quantity=requested_quantity,
+            live_position_quantity=live_position_quantity,
+            broker_position_degraded=broker_position_degraded,
+            account_degraded=account_degraded,
+        )
+        allowed = bool(result.get("allowed"))
+        reason_code = str(result.get("reason_code") or "TARGET_RISK_REJECTED")
+        if allowed:
+            print(
+                "[RISK][TAKE_PROFIT][ALLOW] "
+                f"symbol={str(symbol or '').upper()} requested={requested_quantity} live_qty={live_position_quantity}"
+            )
+            return Accept()
+        print(
+            "[RISK][TAKE_PROFIT][BLOCK] "
+            f"symbol={str(symbol or '').upper()} requested={requested_quantity} live_qty={live_position_quantity} "
+            f"reason={reason_code}"
+        )
+        return Reject(reason_code)
 
     @staticmethod
     def _resolve_trade_value(trade_intent: TradeIntent, fallback_quantity: int) -> float:

@@ -148,7 +148,11 @@ class SQLiteStore:
                 entry_avg_price REAL,
                 exit_avg_price REAL,
                 stop_price REAL,
+                target_price REAL,
+                target_quantity INTEGER,
+                target_type TEXT,
                 gross_realized_pnl REAL,
+                realized_pnl_by_exit_reason_json TEXT,
                 unrealized_pnl REAL,
                 last_mark_price REAL,
                 source_order_ids_json TEXT,
@@ -156,6 +160,7 @@ class SQLiteStore:
                 reconciliation_flags_json TEXT,
                 drift_flags_json TEXT,
                 notes_json TEXT,
+                take_profit_events_json TEXT,
                 updated_at TEXT,
                 created_at TEXT,
                 FOREIGN KEY(run_id) REFERENCES runs(run_id)
@@ -461,6 +466,16 @@ class SQLiteStore:
             },
         )
         self._ensure_columns(
+            "trade_lifecycle_trades",
+            {
+                "target_price": "REAL",
+                "target_quantity": "INTEGER",
+                "target_type": "TEXT",
+                "realized_pnl_by_exit_reason_json": "TEXT",
+                "take_profit_events_json": "TEXT",
+            },
+        )
+        self._ensure_columns(
             "trade_records",
             {
                 "tick": "INTEGER",
@@ -711,10 +726,11 @@ class SQLiteStore:
             INSERT INTO trade_lifecycle_trades (
                 lifecycle_trade_id, run_id, symbol, side, strategy_name, status, opened_at, closed_at,
                 quantity_open, quantity_closed, entry_avg_price, exit_avg_price, stop_price,
-                gross_realized_pnl, unrealized_pnl, last_mark_price, source_order_ids_json,
-                source_execution_ids_json, reconciliation_flags_json, drift_flags_json, notes_json,
-                updated_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                target_price, target_quantity, target_type, gross_realized_pnl,
+                realized_pnl_by_exit_reason_json, unrealized_pnl, last_mark_price,
+                source_order_ids_json, source_execution_ids_json, reconciliation_flags_json,
+                drift_flags_json, notes_json, take_profit_events_json, updated_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(lifecycle_trade_id) DO UPDATE SET
                 run_id=excluded.run_id,
                 symbol=excluded.symbol,
@@ -728,7 +744,11 @@ class SQLiteStore:
                 entry_avg_price=excluded.entry_avg_price,
                 exit_avg_price=excluded.exit_avg_price,
                 stop_price=excluded.stop_price,
+                target_price=excluded.target_price,
+                target_quantity=excluded.target_quantity,
+                target_type=excluded.target_type,
                 gross_realized_pnl=excluded.gross_realized_pnl,
+                realized_pnl_by_exit_reason_json=excluded.realized_pnl_by_exit_reason_json,
                 unrealized_pnl=excluded.unrealized_pnl,
                 last_mark_price=excluded.last_mark_price,
                 source_order_ids_json=excluded.source_order_ids_json,
@@ -736,6 +756,7 @@ class SQLiteStore:
                 reconciliation_flags_json=excluded.reconciliation_flags_json,
                 drift_flags_json=excluded.drift_flags_json,
                 notes_json=excluded.notes_json,
+                take_profit_events_json=excluded.take_profit_events_json,
                 updated_at=excluded.updated_at
             """,
             (
@@ -752,7 +773,11 @@ class SQLiteStore:
                 trade.get("entry_avg_price"),
                 trade.get("exit_avg_price"),
                 trade.get("stop_price"),
+                trade.get("target_price"),
+                trade.get("target_quantity"),
+                trade.get("target_type"),
                 trade.get("gross_realized_pnl"),
+                trade.get("realized_pnl_by_exit_reason_json"),
                 trade.get("unrealized_pnl"),
                 trade.get("last_mark_price"),
                 trade.get("source_order_ids_json"),
@@ -760,6 +785,7 @@ class SQLiteStore:
                 trade.get("reconciliation_flags_json"),
                 trade.get("drift_flags_json"),
                 trade.get("notes_json"),
+                trade.get("take_profit_events_json"),
                 trade.get("updated_at"),
                 trade.get("created_at"),
             ),

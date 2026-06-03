@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.core.take_profit_authority import TakeProfitAuthority
+
 
 @dataclass
 class PositionManagementConfig:
@@ -78,17 +80,29 @@ class PositionManagementEngine:
             return
 
         side = str(position.side).upper()
-        one_r_price = position.entry_price + risk_per_share if side == "LONG" else position.entry_price - risk_per_share
-        two_r_price = position.entry_price + (2 * risk_per_share) if side == "LONG" else position.entry_price - (2 * risk_per_share)
+        one_r_price = TakeProfitAuthority.r_multiple_price(
+            entry_price=position.entry_price,
+            stop_loss_price=position.stop_price,
+            side=side,
+            r_multiple=1.0,
+            decimals=4,
+        )
+        two_r_price = TakeProfitAuthority.r_multiple_price(
+            entry_price=position.entry_price,
+            stop_loss_price=position.stop_price,
+            side=side,
+            r_multiple=2.0,
+            decimals=4,
+        )
 
-        if self._hits_target(side, current_price, one_r_price) and "1R" not in position.partials_taken:
+        if TakeProfitAuthority._hits_target(side, current_price, one_r_price) and "1R" not in position.partials_taken:
             qty = self._partial_qty(position, self.config.partial_at_1r_fraction)
             if qty > 0:
                 position.quantity -= qty
                 position.partials_taken.add("1R")
                 print(f"[POSITION][PARTIAL] symbol={position.symbol} level=1R qty={qty} remaining={position.quantity}")
 
-        if self._hits_target(side, current_price, two_r_price) and "2R" not in position.partials_taken:
+        if TakeProfitAuthority._hits_target(side, current_price, two_r_price) and "2R" not in position.partials_taken:
             qty = self._partial_qty(position, self.config.partial_at_2r_fraction)
             if qty > 0:
                 position.quantity -= qty
@@ -169,7 +183,9 @@ class PositionManagementEngine:
     @staticmethod
     def _partial_qty(position: ManagedPosition, fraction: float) -> int:
         base_qty = max(int(position.initial_quantity or 0), 0)
-        target_qty = int(round(base_qty * fraction))
-        if target_qty <= 0:
-            return 0
+        target_qty = TakeProfitAuthority.scale_out_quantity(
+            live_position_quantity=base_qty,
+            fraction=fraction,
+            allow_full_exit_for_single_share=False,
+        )
         return min(target_qty, max(position.quantity - 1, 0))

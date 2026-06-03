@@ -145,14 +145,16 @@ def test_trailing_only_activates_after_profit_protection_and_never_loosens() -> 
         }
     )
 
+    assert len(provider.modify_calls) == 1
+    assert provider.modify_calls[-1]["quantity"] == 1
     activated = engine.evaluate_trailing("T-3", current_price=102.0)
     assert activated["updated"] is True
     stop_after = float(activated["stop_price"])
-    assert len(provider.modify_calls) == 1
+    assert len(provider.modify_calls) == 2
     rejected = engine.evaluate_trailing("T-3", current_price=100.5)
     assert rejected["updated"] is False
     assert float(rejected["stop_price"]) == stop_after
-    assert len(provider.modify_calls) == 1
+    assert len(provider.modify_calls) == 2
 
 
 def test_exit_is_driven_from_broker_callback() -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+import json
 from typing import Any
 from uuid import uuid4
 
@@ -11,6 +12,16 @@ from src.core.portfolio.risk_signals import LifecycleRiskSignals
 
 OPEN_STATUSES = {"OPEN", "PARTIALLY_CLOSED", "DRIFTED"}
 RECONCILIATION_CLASSIFICATIONS = {"MATCH", "MISMATCH", "ORPHAN", "EXTERNAL", "RECOVERED"}
+TAKE_PROFIT_EVENT_TYPES = {
+    "TAKE_PROFIT_CREATED",
+    "TAKE_PROFIT_SUBMITTED",
+    "TAKE_PROFIT_PARTIALLY_FILLED",
+    "TAKE_PROFIT_FILLED",
+    "TAKE_PROFIT_CANCELLED",
+    "TAKE_PROFIT_SUPERSEDED",
+    "TAKE_PROFIT_REJECTED",
+}
+TAKE_PROFIT_FILL_EVENT_TYPES = {"TAKE_PROFIT_PARTIALLY_FILLED", "TAKE_PROFIT_FILLED"}
 
 
 @dataclass
@@ -42,7 +53,11 @@ class LifecycleTrade:
     entry_avg_price: float = 0.0
     exit_avg_price: float | None = None
     stop_price: float | None = None
+    target_price: float | None = None
+    target_quantity: int = 0
+    target_type: str | None = None
     gross_realized_pnl: float = 0.0
+    realized_pnl_by_exit_reason: dict[str, float] = field(default_factory=dict)
     unrealized_pnl: float = 0.0
     last_mark_price: float | None = None
     source_order_ids: set[str] = field(default_factory=set)
@@ -50,6 +65,7 @@ class LifecycleTrade:
     reconciliation_flags: set[str] = field(default_factory=set)
     drift_flags: set[str] = field(default_factory=set)
     notes: list[str] = field(default_factory=list)
+    take_profit_events: list[dict[str, Any]] = field(default_factory=list)
 
 
 class TradeLifecycleEngine:
@@ -93,7 +109,11 @@ class TradeLifecycleEngine:
             "entry_avg_price": trade.entry_avg_price,
             "exit_avg_price": trade.exit_avg_price,
             "stop_price": trade.stop_price,
+            "target_price": trade.target_price,
+            "target_quantity": trade.target_quantity,
+            "target_type": trade.target_type,
             "gross_realized_pnl": trade.gross_realized_pnl,
+            "realized_pnl_by_exit_reason_json": json.dumps(trade.realized_pnl_by_exit_reason, sort_keys=True),
             "unrealized_pnl": trade.unrealized_pnl,
             "last_mark_price": trade.last_mark_price,
             "source_order_ids_json": str(sorted(trade.source_order_ids)),
@@ -101,6 +121,7 @@ class TradeLifecycleEngine:
             "reconciliation_flags_json": str(sorted(trade.reconciliation_flags)),
             "drift_flags_json": str(sorted(trade.drift_flags)),
             "notes_json": str(trade.notes),
+            "take_profit_events_json": json.dumps(trade.take_profit_events, sort_keys=True),
             "updated_at": self._now_iso(),
         }
         try:
@@ -123,6 +144,52 @@ class TradeLifecycleEngine:
             self._persistence.insert_trade_lifecycle_reconciliation_event(payload)
         except Exception as exc:
             print(f"[LIFECYCLE][ERROR] stage=persist_reconcile error={exc}")
+
+    @staticmethod
+    def _exit_attribution(event_type: str, source: str | None = None) -> str:
+        normalized = str(event_type or "").upper()
+        source_u = str(source or "").upper()
+        if normalized.startswith("TAKE_PROFIT"):
+            return "TAKE_PROFIT"
+        if "STOP" in normalized and "TRAIL" in normalized:
+            return "TRAILING_STOP"
+        if "STOP" in normalized:
+            return "STOP_LOSS"
+        if "MANUAL" in normalized or "FORCED" in normalized or "SYSTEM" in normalized:
+            return "MANUAL_FORCED"
+        if "BROKER" in normalized or "EXTERNAL" in normalized or "BROKER" in source_u or "EXTERNAL" in source_u:
+            return "BROKER_EXTERNAL"
+        return "UNKNOWN"
+
+    def _apply_take_profit_audit_event(self, *, event: LifecycleEvent) -> LifecycleTrade | None:
+        trade = self._trades.get(event.lifecycle_trade_id)
+        if trade is None:
+            print(f"[LIFECYCLE][WARN] take_profit_event_without_trade trade_id={event.lifecycle_trade_id}")
+            return None
+        payload = {
+            "event_type": event.event_type,
+            "quantity": int(event.quantity or 0),
+            "price": float(event.price or 0.0),
+            "timestamp": event.timestamp,
+            "order_id": event.order_id,
+            "execution_id": event.execution_id,
+            "source": event.source,
+        }
+        if event.event_type == "TAKE_PROFIT_CREATED":
+            trade.target_price = float(event.price or 0.0) or trade.target_price
+            trade.target_quantity = int(event.quantity or 0) or trade.target_quantity
+        if event.event_type == "TAKE_PROFIT_CANCELLED":
+            trade.notes.append("take_profit_cancelled")
+        if event.event_type == "TAKE_PROFIT_SUPERSEDED":
+            trade.notes.append("take_profit_superseded")
+        if event.event_type == "TAKE_PROFIT_REJECTED":
+            trade.notes.append("take_profit_rejected")
+        trade.take_profit_events.append(payload)
+        print(
+            "[LIFECYCLE][TAKE_PROFIT][AUDIT] "
+            f"trade_id={trade.lifecycle_trade_id} symbol={trade.symbol} event={event.event_type}"
+        )
+        return trade
 
     @staticmethod
     def _classified_finding(
@@ -181,11 +248,16 @@ class TradeLifecycleEngine:
                     float(row["exit_avg_price"]) if row.get("exit_avg_price") is not None else None
                 ),
                 stop_price=float(row["stop_price"]) if row.get("stop_price") is not None else None,
+                target_price=float(row["target_price"]) if row.get("target_price") is not None else None,
+                target_quantity=int(row.get("target_quantity") or 0),
+                target_type=row.get("target_type"),
                 gross_realized_pnl=float(row.get("gross_realized_pnl") or 0.0),
+                realized_pnl_by_exit_reason=json.loads(row.get("realized_pnl_by_exit_reason_json") or "{}"),
                 unrealized_pnl=float(row.get("unrealized_pnl") or 0.0),
                 last_mark_price=(
                     float(row["last_mark_price"]) if row.get("last_mark_price") is not None else None
                 ),
+                take_profit_events=json.loads(row.get("take_profit_events_json") or "[]"),
             )
             self._trades[trade.lifecycle_trade_id] = trade
             if trade.status in OPEN_STATUSES and trade.quantity_open > 0:
@@ -209,8 +281,11 @@ class TradeLifecycleEngine:
         self._order_execution_keys_seen.add(dedupe_key)
         self._events.append(event)
 
-        if event.event_type == "ENTRY_FILL":
+        event_type_u = str(event.event_type or "").upper()
+        if event_type_u == "ENTRY_FILL":
             trade = self.apply_entry_fill(event=event, strategy_name=strategy_name, stop_price=stop_price)
+        elif event_type_u in TAKE_PROFIT_EVENT_TYPES and event_type_u not in TAKE_PROFIT_FILL_EVENT_TYPES:
+            trade = self._apply_take_profit_audit_event(event=event)
         else:
             trade = self.apply_exit_fill(event=event)
         self._persist_event_best_effort(event)
@@ -291,7 +366,27 @@ class TradeLifecycleEngine:
         trade.quantity_open -= exit_qty
         trade.quantity_closed += exit_qty
         sign = 1.0 if trade.side == "LONG" else -1.0
-        trade.gross_realized_pnl += (event.price - trade.entry_avg_price) * float(exit_qty) * sign
+        realized_increment = (event.price - trade.entry_avg_price) * float(exit_qty) * sign
+        trade.gross_realized_pnl += realized_increment
+        attribution = self._exit_attribution(event.event_type, event.source)
+        trade.realized_pnl_by_exit_reason[attribution] = (
+            float(trade.realized_pnl_by_exit_reason.get(attribution, 0.0)) + float(realized_increment)
+        )
+        if str(event.event_type or "").upper() in TAKE_PROFIT_FILL_EVENT_TYPES:
+            trade.take_profit_events.append(
+                {
+                    "event_type": event.event_type,
+                    "quantity": int(exit_qty),
+                    "price": float(event.price),
+                    "timestamp": event.timestamp,
+                    "order_id": event.order_id,
+                    "execution_id": event.execution_id,
+                    "source": event.source,
+                    "realized_increment": float(realized_increment),
+                }
+            )
+            trade.target_price = float(event.price)
+            trade.target_quantity = max(int(trade.target_quantity or 0), int(event.quantity or 0))
         total_closed = max(trade.quantity_closed, 1)
         prior_closed = total_closed - exit_qty
         if trade.exit_avg_price is None:

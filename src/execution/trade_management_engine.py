@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
 
+from src.core.take_profit_authority import TakeProfitAuthority
 from src.strategies.ross_momentum.exit_intelligence import ExitDecision, RossExitIntelligence
 
 
@@ -321,21 +322,7 @@ class TradeManagementEngine:
 
     @staticmethod
     def _calculate_profit_targets(entry_price: float) -> tuple[float, float, str]:
-        base_dollars = int(entry_price)
-        half_level = base_dollars + 0.5
-        whole_level = base_dollars + 1.0
-        if entry_price < half_level:
-            first_target = half_level
-            target_type = "HALF_DOLLAR"
-        elif entry_price < whole_level:
-            first_target = whole_level
-            target_type = "WHOLE_DOLLAR"
-        else:
-            # Fallback for edge cases (e.g., floating precision near whole numbers).
-            first_target = whole_level
-            target_type = "WHOLE_DOLLAR"
-        second_target = first_target + 0.5
-        return first_target, second_target, target_type
+        return TakeProfitAuthority.fixed_staged_targets(entry_price=entry_price, side="LONG")
 
     @staticmethod
     def _exit_type_from_reason(rationale: str) -> str:

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from src.config.runtime_config import RunMode
+from src.core.take_profit_authority import TakeProfitAuthority
 from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import TradeIntent
 from src.scanner.result_models import CandidateMetrics
@@ -193,7 +194,13 @@ def decide_trade_intent(
 
     stop_distance = max(last_price * 0.01, 0.01)
     stop_loss_price = round(max(last_price - stop_distance, 0.01), 4)
-    take_profit_price = round(last_price + (2.0 * stop_distance), 4)
+    take_profit_price = TakeProfitAuthority.r_multiple_price(
+        entry_price=last_price,
+        stop_loss_price=stop_loss_price,
+        side="LONG",
+        r_multiple=2.0,
+        decimals=4,
+    )
     confidence = _confidence_score(gap_pct, rvol)
     rationale_parts = [
         f"gap_pct={gap_pct}",
