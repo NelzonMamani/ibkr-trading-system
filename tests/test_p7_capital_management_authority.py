@@ -46,6 +46,7 @@ def _decision(
     current_total: float = 0.0,
     current_symbol: float = 0.0,
     current_positions: int = 0,
+    current_symbol_position_exists: bool = False,
     max_positions: int | None = None,
     max_position_notional: float | None = None,
     max_total_exposure: float | None = None,
@@ -65,6 +66,7 @@ def _decision(
         current_total_exposure=current_total,
         current_symbol_exposure=current_symbol,
         current_open_positions=current_positions,
+        current_symbol_position_exists=current_symbol_position_exists,
         max_open_positions=max_positions,
         max_position_notional=max_position_notional,
         max_total_exposure=max_total_exposure,
@@ -137,6 +139,52 @@ def test_max_open_positions_rejects() -> None:
 
     assert decision.status == CapitalDecisionStatus.MAX_POSITIONS_EXCEEDED
     assert decision.reason == "MAX_POSITIONS_EXCEEDED"
+
+
+def test_max_open_positions_does_not_reject_add_to_existing_symbol() -> None:
+    authority = CapitalManagementAuthority(run_mode="PAPER")
+    decision = _decision(
+        authority,
+        quantity=1,
+        current_positions=5,
+        current_symbol=500.0,
+        current_symbol_position_exists=True,
+        max_positions=5,
+        max_symbol_exposure=2_000.0,
+    )
+
+    assert decision.status == CapitalDecisionStatus.APPROVED
+    assert decision.reason == "CAPITAL_APPROVED"
+
+
+def test_add_to_existing_symbol_still_obeys_exposure_and_capital_limits() -> None:
+    exposure_limited = CapitalManagementAuthority(run_mode="PAPER")
+    exposure_decision = _decision(
+        exposure_limited,
+        quantity=1,
+        current_positions=5,
+        current_symbol=950.0,
+        current_symbol_position_exists=True,
+        max_positions=5,
+        max_symbol_exposure=1_000.0,
+    )
+    capital_limited = CapitalManagementAuthority(run_mode="PAPER")
+    capital_decision = _decision(
+        capital_limited,
+        quantity=1,
+        available=50.0,
+        buying_power=50.0,
+        current_positions=5,
+        current_symbol=500.0,
+        current_symbol_position_exists=True,
+        max_positions=5,
+        max_symbol_exposure=2_000.0,
+    )
+
+    assert exposure_decision.status == CapitalDecisionStatus.EXPOSURE_LIMIT_EXCEEDED
+    assert exposure_decision.reason == "SYMBOL_EXPOSURE_LIMIT_EXCEEDED"
+    assert capital_decision.status == CapitalDecisionStatus.INSUFFICIENT_CAPITAL
+    assert capital_limited.active_reservations == {}
 
 
 def test_position_total_and_symbol_exposure_limits_reject() -> None:
