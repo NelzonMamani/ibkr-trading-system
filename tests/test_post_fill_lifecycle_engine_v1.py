@@ -4,6 +4,7 @@ from src.execution.post_fill_lifecycle_engine import (
     ManagedTradeLifecycle,
     PostFillLifecycleEngine,
     PositionLifecycleState,
+    ProtectionOrderMeta,
 )
 from src.core.stop_loss_authority import StopProtectionStatus
 
@@ -16,6 +17,7 @@ class _ProviderStub:
         self.cancel_calls: list[dict] = []
         self.fail_stop_repairs = False
         self.fail_target_repairs = False
+        self.fail_stop_modifications = False
 
     def place_stop_order(self, **kwargs):
         self.stop_calls.append(dict(kwargs))
@@ -31,11 +33,39 @@ class _ProviderStub:
 
     def modify_stop_order(self, **kwargs):
         self.modify_calls.append(dict(kwargs))
+        if self.fail_stop_modifications:
+            raise RuntimeError("stop modification failure")
         return {"broker_order_id": kwargs["broker_order_id"], "status": "Submitted"}
 
     def cancel_order(self, **kwargs):
         self.cancel_calls.append(dict(kwargs))
         return {"broker_order_id": kwargs["broker_order_id"], "status": "Cancelled"}
+
+
+def _manual_trailing_trade(*, trade_id: str = "T-MANUAL", stop_price: float = 99.0) -> ManagedTradeLifecycle:
+    return ManagedTradeLifecycle(
+        trade_id=trade_id,
+        symbol="AAPL",
+        strategy_id="S-TRAIL",
+        side="LONG",
+        run_mode="READ_ONLY",
+        session_label="unit",
+        intended_qty=2,
+        filled_qty=2,
+        avg_fill_price=100.0,
+        state=PositionLifecycleState.TRAILING_ELIGIBLE,
+        stop=ProtectionOrderMeta(
+            order_type="STOP",
+            side="SELL",
+            trigger_price=stop_price,
+            broker_order_id="STOP-MANUAL",
+            status="Submitted",
+            quantity=2,
+        ),
+        partial_exit_count=1,
+        trailing_activation=101.0,
+        high_water_mark=100.0,
+    )
 
 
 def test_fill_installs_stop_and_target_in_paper_mode() -> None:
@@ -147,6 +177,10 @@ def test_trailing_only_activates_after_profit_protection_and_never_loosens() -> 
 
     assert len(provider.modify_calls) == 1
     assert provider.modify_calls[-1]["quantity"] == 1
+    trade = engine.get_trade("T-3")
+    assert trade is not None
+    assert trade.stop is not None
+    assert trade.stop.quantity == 1
     activated = engine.evaluate_trailing("T-3", current_price=102.0)
     assert activated["updated"] is True
     stop_after = float(activated["stop_price"])
@@ -155,6 +189,136 @@ def test_trailing_only_activates_after_profit_protection_and_never_loosens() -> 
     assert rejected["updated"] is False
     assert float(rejected["stop_price"]) == stop_after
     assert len(provider.modify_calls) == 2
+
+
+def test_read_only_trailing_does_not_mutate_state_or_submit() -> None:
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="READ_ONLY", execution_provider=provider)
+    trade = _manual_trailing_trade(stop_price=99.0)
+    engine._trades[trade.trade_id] = trade
+    original_state = trade.state
+
+    result = engine.evaluate_trailing(trade.trade_id, current_price=103.0)
+
+    assert result["updated"] is False
+    assert result["reason"] == "READ_ONLY_NO_ORDER_MUTATION"
+    assert trade.stop is not None
+    assert trade.stop.trigger_price == 99.0
+    assert trade.state == original_state
+    assert trade.trailing_active is False
+    assert provider.modify_calls == []
+
+
+def test_broker_modification_failure_preserves_old_stop() -> None:
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-TRAIL-FAIL",
+        symbol="NVDA",
+        side="LONG",
+        filled_qty=2,
+        avg_fill_price=100.0,
+        strategy_id="S3",
+    )
+    engine.handle_broker_callback(
+        {
+            "event_type": "execDetails",
+            "order_id": "TGT-1",
+            "shares": 1,
+            "price": 102.0,
+            "time": "2026-04-15T10:00:01+00:00",
+        }
+    )
+    trade = engine.get_trade("T-TRAIL-FAIL")
+    assert trade is not None
+    assert trade.stop is not None
+    previous_stop = trade.stop.trigger_price
+    previous_state = trade.state
+    previous_high_water = trade.high_water_mark
+    provider.fail_stop_modifications = True
+
+    result = engine.evaluate_trailing("T-TRAIL-FAIL", current_price=103.0)
+
+    assert result["updated"] is False
+    assert result["reason"] == "TRAILING_STOP_MODIFY_FAILED"
+    assert trade.stop.trigger_price == previous_stop
+    assert trade.state == previous_state
+    assert trade.high_water_mark == previous_high_water
+
+
+def test_partial_target_fill_cannot_loosen_stop_and_resizes_remaining_quantity() -> None:
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-PARTIAL-TIGHT",
+        symbol="NVDA",
+        side="LONG",
+        filled_qty=2,
+        avg_fill_price=100.0,
+        strategy_id="S3",
+    )
+    trade = engine.get_trade("T-PARTIAL-TIGHT")
+    assert trade is not None
+    assert trade.stop is not None
+    trade.stop.trigger_price = 101.0
+    trade.stop.quantity = 2
+
+    engine.handle_broker_callback(
+        {
+            "event_type": "execDetails",
+            "order_id": "TGT-1",
+            "shares": 1,
+            "price": 102.0,
+            "time": "2026-04-15T10:00:01+00:00",
+        }
+    )
+
+    assert trade.stop.trigger_price == 101.0
+    assert trade.stop.quantity == 1
+    assert provider.modify_calls[-1]["quantity"] == 1
+    assert provider.modify_calls[-1]["new_stop_price"] == 101.0
+
+
+def test_trailing_stop_fill_updates_lifecycle_using_broker_truth_only() -> None:
+    provider = _ProviderStub()
+    engine = PostFillLifecycleEngine(run_mode="PAPER", execution_provider=provider)
+    engine.activate_trade_management_after_fill(
+        trade_id="T-TRAIL-FILL",
+        symbol="NVDA",
+        side="LONG",
+        filled_qty=2,
+        avg_fill_price=100.0,
+        strategy_id="S3",
+    )
+    engine.handle_broker_callback(
+        {
+            "event_type": "execDetails",
+            "order_id": "TGT-1",
+            "shares": 1,
+            "price": 102.0,
+            "time": "2026-04-15T10:00:01+00:00",
+        }
+    )
+    engine.evaluate_trailing("T-TRAIL-FILL", current_price=103.0)
+
+    callback_result = engine.handle_broker_callback(
+        {
+            "event_type": "execDetails",
+            "order_id": "STOP-1",
+            "shares": 1,
+            "price": 101.25,
+            "time": "2026-04-15T10:00:02+00:00",
+        }
+    )
+
+    trade = engine.get_trade("T-TRAIL-FILL")
+    assert callback_result["handled"] is True
+    assert callback_result["exit_reason"] == "STOP_FILLED"
+    assert trade is not None
+    assert trade.state == PositionLifecycleState.EXITED
+    assert trade.exit_fill_price == 101.25
+    assert trade.exit_fill_time == "2026-04-15T10:00:02+00:00"
+    assert trade.exit_order_id == "STOP-1"
 
 
 def test_exit_is_driven_from_broker_callback() -> None:

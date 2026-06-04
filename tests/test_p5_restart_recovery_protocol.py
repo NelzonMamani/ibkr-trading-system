@@ -45,6 +45,28 @@ class _PriorRunLifecyclePersistence:
         ]
 
 
+class _TrailingLifecyclePersistence:
+    def fetch_trade_lifecycle_trades(self, **_kwargs):
+        return [
+            {
+                "lifecycle_trade_id": "LIFE-TRAIL",
+                "symbol": "MSFT",
+                "side": "LONG",
+                "strategy_name": "ross_momentum",
+                "status": "TRAILING_ACTIVE",
+                "opened_at": "2026-06-01T13:30:00+00:00",
+                "quantity_open": 3,
+                "quantity_closed": 0,
+                "entry_avg_price": 100.0,
+                "stop_price": 99.0,
+                "target_price": None,
+                "target_quantity": 0,
+                "target_type": None,
+                "last_mark_price": 103.0,
+            }
+        ]
+
+
 class _P5Provider:
     def __init__(
         self,
@@ -59,6 +81,8 @@ class _P5Provider:
         self.fail_positions = fail_positions
         self.fail_orders = fail_orders
         self.submitted_orders = 0
+        self.stop_orders = 0
+        self.modify_stop_calls: list[dict] = []
 
     def name(self) -> str:
         return "P5_TEST_PROVIDER"
@@ -97,12 +121,14 @@ class _P5Provider:
         return {"order_id": order_id, "status": "NOT_SUPPORTED", "rationale": "test"}
 
     def place_stop_order(self, **kwargs):
+        self.stop_orders += 1
         return {"broker_order_id": "STOP-REPAIRED", "status": "Submitted", **kwargs}
 
     def place_target_order(self, **kwargs):
         return {"broker_order_id": "TGT-REPAIRED", "status": "Submitted", **kwargs}
 
     def modify_stop_order(self, **kwargs):
+        self.modify_stop_calls.append(dict(kwargs))
         return {"broker_order_id": kwargs["broker_order_id"], "status": "Submitted"}
 
     def cancel_order(self, *, broker_order_id: str):
@@ -300,6 +326,48 @@ def test_broker_position_stop_and_target_are_adopted_and_duplicate_target_blocke
         )
         assert duplicate.accepted is False
         assert duplicate.reason_code == "DUPLICATE_TARGET_SLICE"
+    finally:
+        set_config_overrides(None)
+
+
+def test_restart_recovery_links_active_trailing_stop_and_prevents_duplicate_stop() -> None:
+    set_config_overrides({"RUN_MODE": "LIVE", "EXECUTION_ENABLED": True, "IBKR_READONLY_ENABLED": False})
+    try:
+        lifecycle_engine = TradeLifecycleEngine(persistence_adapter=_TrailingLifecyclePersistence())
+        position = SimpleNamespace(symbol="MSFT", position=3, avgCost=100.0)
+        orders = [
+            OrderSnapshot(
+                order_id="STOP-TRAIL",
+                symbol="MSFT",
+                status="Submitted",
+                order_type="STP",
+                parent_order_id="LIFE-TRAIL",
+                metadata={"side": "SELL", "quantity": 3, "stop_price": 99.0, "trade_id": "LIFE-TRAIL"},
+            ),
+        ]
+        provider = _P5Provider(positions=[position], orders=orders)
+        engine = ExecutionEngine(
+            provider=provider,
+            trade_registry=ActiveTradeRegistry(),
+            event_collector=EventCollector(),
+            trade_lifecycle_engine=lifecycle_engine,
+        )
+        trade = engine.post_fill_lifecycle.get_trade("LIFE-TRAIL")
+
+        assert engine.startup_recovery_complete() is True
+        assert trade is not None
+        assert trade.state.value == "TRAILING_ACTIVE"
+        assert trade.trailing_active is True
+        assert trade.stop is not None
+        assert trade.stop.broker_order_id == "STOP-TRAIL"
+        assert provider.stop_orders == 0
+
+        result = engine.post_fill_lifecycle.evaluate_trailing("LIFE-TRAIL", current_price=104.0)
+
+        assert result["updated"] is True
+        assert provider.stop_orders == 0
+        assert provider.modify_stop_calls[-1]["broker_order_id"] == "STOP-TRAIL"
+        assert provider.modify_stop_calls[-1]["quantity"] == 3
     finally:
         set_config_overrides(None)
 

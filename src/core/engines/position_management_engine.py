@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.core.take_profit_authority import TakeProfitAuthority
+from src.core.trailing_stop_authority import TrailingStopAuthority, TrailingStopDecisionStatus
 
 
 @dataclass
@@ -39,6 +40,7 @@ class PositionManagementEngine:
 
     def __init__(self, config: PositionManagementConfig | None = None) -> None:
         self.config = config or PositionManagementConfig()
+        self.trailing_stop_authority = TrailingStopAuthority()
 
     def manage_position(self, position: ManagedPosition, market_state: dict[str, Any]) -> ManagedPosition:
         if position.closed or position.quantity <= 0:
@@ -124,9 +126,15 @@ class PositionManagementEngine:
             if (side == "LONG" and position.stop_price < position.entry_price) or (
                 side == "SHORT" and position.stop_price > position.entry_price
             ):
-                position.stop_price = position.entry_price
-                print(f"[POSITION][BREAKEVEN] symbol={position.symbol} stop={position.stop_price}")
-                print(f"[POSITION][TRAIL] symbol={position.symbol} stop=break_even value={position.stop_price}")
+                if self._apply_authorized_stop_update(
+                    position,
+                    proposed_stop_price=position.entry_price,
+                    current_price=current_price,
+                    reference_price=one_r_price,
+                    reason="break_even",
+                ):
+                    print(f"[POSITION][BREAKEVEN] symbol={position.symbol} stop={position.stop_price}")
+                    print(f"[TRAILING_STOP][MODIFY] symbol={position.symbol} stop=break_even value={position.stop_price}")
 
         higher_low = self._to_float(market_state.get("higher_low"))
         if higher_low is None:
@@ -134,14 +142,61 @@ class PositionManagementEngine:
 
         if side == "LONG":
             trailed_stop = higher_low - structure_buffer
-            if trailed_stop > position.stop_price:
-                position.stop_price = trailed_stop
-                print(f"[POSITION][TRAIL] symbol={position.symbol} stop=structure value={position.stop_price:.4f}")
+            if trailed_stop > position.stop_price and self._apply_authorized_stop_update(
+                position,
+                proposed_stop_price=trailed_stop,
+                current_price=current_price,
+                reference_price=higher_low,
+                reason="structure",
+            ):
+                print(f"[TRAILING_STOP][MODIFY] symbol={position.symbol} stop=structure value={position.stop_price:.4f}")
         else:
             trailed_stop = higher_low + structure_buffer
-            if trailed_stop < position.stop_price:
-                position.stop_price = trailed_stop
-                print(f"[POSITION][TRAIL] symbol={position.symbol} stop=structure value={position.stop_price:.4f}")
+            if trailed_stop < position.stop_price and self._apply_authorized_stop_update(
+                position,
+                proposed_stop_price=trailed_stop,
+                current_price=current_price,
+                reference_price=higher_low,
+                reason="structure",
+            ):
+                print(f"[TRAILING_STOP][MODIFY] symbol={position.symbol} stop=structure value={position.stop_price:.4f}")
+
+    def _apply_authorized_stop_update(
+        self,
+        position: ManagedPosition,
+        *,
+        proposed_stop_price: float,
+        current_price: float,
+        reference_price: float,
+        reason: str,
+    ) -> bool:
+        decision = self.trailing_stop_authority.evaluate_update(
+            symbol=position.symbol,
+            side=position.side,
+            current_stop_price=position.stop_price,
+            proposed_stop_price=proposed_stop_price,
+            quantity=int(position.quantity),
+            live_position_quantity=int(position.quantity),
+            has_active_stop=float(position.stop_price or 0.0) > 0.0,
+            recovery_complete=True,
+            run_mode="SIM",
+            trigger_price=current_price,
+            reference_price=reference_price,
+            source=f"position_management:{reason}",
+        )
+        print(
+            "[TRAILING_STOP][DECISION] "
+            f"symbol={decision.symbol} status={decision.status.value} reason={decision.reason}"
+        )
+        if decision.approved:
+            position.stop_price = float(decision.proposed_stop_price)
+            return True
+        if decision.status == TrailingStopDecisionStatus.NO_ACTION:
+            print(f"[TRAILING_STOP][BLOCKED] symbol={position.symbol} reason={decision.reason}")
+        else:
+            stage = "BLOCKED" if decision.status == TrailingStopDecisionStatus.BLOCKED else "REJECT"
+            print(f"[TRAILING_STOP][{stage}] symbol={position.symbol} reason={decision.reason}")
+        return False
 
     def _apply_exit_logic(self, position: ManagedPosition, market_state: dict[str, Any]) -> None:
         mode = str(position.execution_mode or "").upper()

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from src.core.take_profit_authority import TakeProfitAuthority
+from src.core.trailing_stop_authority import TrailingStopAuthority, TrailingStopDecisionStatus
 from src.strategies.ross_momentum.exit_intelligence import ExitDecision, RossExitIntelligence
 
 
@@ -81,6 +82,7 @@ class TradeManagementEngine:
         self._fast_failure_min_progress = float(fast_failure_min_progress)
         self._stall_candles_without_high = int(stall_candles_without_high)
         self._stall_rejections_threshold = int(stall_rejections_threshold)
+        self.trailing_stop_authority = TrailingStopAuthority()
         self._exit_intelligence_enabled = os.getenv("TRADE_MGMT_EXIT_INTELLIGENCE_ENABLED", "1").lower() in {"1", "true", "yes", "on"}
         self._exit_intelligence = exit_intelligence or RossExitIntelligence(
             max_hold_time_seconds=self._max_hold_time_seconds,
@@ -214,9 +216,17 @@ class TradeManagementEngine:
         if position.current_price >= position.highest_price_seen:
             position.last_trail_price = max(position.last_trail_price, candidate_trail)
             if position.partial_taken:
-                position.stop_loss_price = max(position.stop_loss_price, position.break_even_price, position.last_trail_price)
+                self._apply_authorized_stop_update(
+                    position,
+                    proposed_stop_price=max(position.stop_loss_price, position.break_even_price, position.last_trail_price),
+                    reason="cycle_partial_trail",
+                )
             else:
-                position.stop_loss_price = max(position.stop_loss_price, position.last_trail_price)
+                self._apply_authorized_stop_update(
+                    position,
+                    proposed_stop_price=max(position.stop_loss_price, position.last_trail_price),
+                    reason="cycle_trail",
+                )
 
     def _evaluate_exit_rules(self, position: PositionState, state: dict) -> TradeIntent | None:
         if not self._exit_intelligence_enabled:
@@ -263,7 +273,11 @@ class TradeManagementEngine:
                     stage="FINAL",
                 )
             position.partial_taken = True
-            position.stop_loss_price = max(position.stop_loss_price, position.break_even_price)
+            self._apply_authorized_stop_update(
+                position,
+                proposed_stop_price=max(position.stop_loss_price, position.break_even_price),
+                reason="scale_out_break_even",
+            )
             return self._emit_exit_intent(
                 position,
                 qty=qty,
@@ -282,7 +296,12 @@ class TradeManagementEngine:
                     f"reason=NON_PROTECTIVE candidate={candidate:.4f} current={position.stop_loss_price:.4f}"
                 )
                 return None
-            position.stop_loss_price = candidate
+            if not self._apply_authorized_stop_update(
+                position,
+                proposed_stop_price=candidate,
+                reason="exit_decision_move_stop",
+            ):
+                return None
             print(f"[EXIT][EXECUTE] symbol={position.symbol} action=MOVE_STOP stop={position.stop_loss_price:.4f} reason={decision.reason}")
             return None
         if action == "ACTIVATE_TRAILING":
@@ -294,6 +313,42 @@ class TradeManagementEngine:
             return None
         print(f"[EXIT][SKIP] symbol={position.symbol} action={action} reason=UNSUPPORTED_ACTION")
         return None
+
+    def _apply_authorized_stop_update(
+        self,
+        position: PositionState,
+        *,
+        proposed_stop_price: float,
+        reason: str,
+    ) -> bool:
+        decision = self.trailing_stop_authority.evaluate_update(
+            symbol=position.symbol,
+            side="LONG",
+            current_stop_price=position.stop_loss_price,
+            proposed_stop_price=proposed_stop_price,
+            quantity=int(position.quantity),
+            live_position_quantity=int(position.quantity),
+            has_active_stop=float(position.stop_loss_price or 0.0) > 0.0,
+            recovery_complete=True,
+            run_mode="SIM",
+            trigger_price=position.current_price,
+            reference_price=position.highest_price_seen,
+            source=f"trade_management:{reason}",
+        )
+        print(
+            "[TRAILING_STOP][DECISION] "
+            f"symbol={decision.symbol} status={decision.status.value} reason={decision.reason}"
+        )
+        if decision.approved:
+            position.stop_loss_price = float(decision.proposed_stop_price)
+            print(f"[TRAILING_STOP][MODIFY] symbol={position.symbol} stop={position.stop_loss_price:.4f} reason={reason}")
+            return True
+        if decision.status == TrailingStopDecisionStatus.NO_ACTION:
+            print(f"[TRAILING_STOP][BLOCKED] symbol={position.symbol} reason={decision.reason}")
+        else:
+            stage = "BLOCKED" if decision.status == TrailingStopDecisionStatus.BLOCKED else "REJECT"
+            print(f"[TRAILING_STOP][{stage}] symbol={position.symbol} reason={decision.reason}")
+        return False
 
     def _resolve_price(self, symbol: str, state: dict) -> float | None:
         raw = state.get("current_price")

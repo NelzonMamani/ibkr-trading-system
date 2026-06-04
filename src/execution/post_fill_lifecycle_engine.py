@@ -19,6 +19,11 @@ from src.core.stop_loss_authority import (
     validate_stop_price,
     validate_stop_update,
 )
+from src.core.trailing_stop_authority import (
+    TrailingStopAuthority,
+    TrailingStopDecision,
+    TrailingStopDecisionStatus,
+)
 
 
 class PositionLifecycleState(str, Enum):
@@ -153,16 +158,23 @@ class PostFillLifecycleEngine:
         stop_audit_trail: StopAuditTrail | None = None,
         storage_engine: Any | None = None,
         take_profit_authority: TakeProfitAuthority | None = None,
+        trailing_stop_authority: TrailingStopAuthority | None = None,
+        startup_recovery_complete: bool = True,
     ) -> None:
         self.run_mode = str(run_mode or "SIM").upper()
         self.policy = policy or LifecyclePolicy()
         self.execution_provider = execution_provider
         self.stop_audit_trail = stop_audit_trail or StopAuditTrail(storage_engine=storage_engine)
         self.take_profit_authority = take_profit_authority or TakeProfitAuthority()
+        self.trailing_stop_authority = trailing_stop_authority or TrailingStopAuthority()
+        self.startup_recovery_complete = bool(startup_recovery_complete)
         self._trades: dict[str, ManagedTradeLifecycle] = {}
         self._active_trade_ids: set[str] = set()
         self._active_position_qty_by_symbol: dict[str, int] = {}
         self._pending_exit_requests: dict[str, dict[str, Any]] = {}
+
+    def set_startup_recovery_complete(self, complete: bool) -> None:
+        self.startup_recovery_complete = bool(complete)
 
     def _authority_for_trade(self, trade: ManagedTradeLifecycle) -> StopAuthority:
         return StopAuthority(
@@ -199,6 +211,52 @@ class PostFillLifecycleEngine:
             status=status,
             reason=reason,
             recovery_classification=recovery_classification,
+            payload=payload,
+        )
+
+    def _has_active_stop_for_trailing(self, trade: ManagedTradeLifecycle) -> bool:
+        if trade.stop is None:
+            return False
+        status_u = str(trade.stop.status or "").upper()
+        if status_u in {"CANCELLED", "CANCELED", "REJECTED"}:
+            return False
+        if self.run_mode in {"PAPER", "LIVE"} and self.execution_provider is not None:
+            return bool(trade.stop.broker_order_id)
+        return True
+
+    def _log_trailing_decision(self, decision: TrailingStopDecision) -> None:
+        print(
+            "[TRAILING_STOP][DECISION] "
+            f"symbol={decision.symbol} status={decision.status.value} reason={decision.reason} "
+            f"current={decision.current_stop_price} proposed={decision.proposed_stop_price} "
+            f"qty={decision.quantity}"
+        )
+
+    def _record_trailing_decision(
+        self,
+        trade: ManagedTradeLifecycle,
+        decision: TrailingStopDecision,
+        *,
+        event_type: StopAuditEventType,
+        previous_stop_price: float | None = None,
+        status: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        payload = decision.to_audit_payload()
+        if error:
+            payload["error"] = str(error)
+        print(
+            "[TRAILING_STOP][AUDIT] "
+            f"trade_id={trade.trade_id} symbol={trade.symbol} status={decision.status.value} reason={decision.reason}"
+        )
+        self._record_stop_event(
+            trade,
+            event_type,
+            stop_price=decision.proposed_stop_price,
+            previous_stop_price=previous_stop_price,
+            active_stop_order_id=trade.stop.broker_order_id if trade.stop else None,
+            status=status or (decision.status.value if decision.status else None),
+            reason=decision.blocked_reason or decision.reason,
             payload=payload,
         )
 
@@ -619,19 +677,26 @@ class PostFillLifecycleEngine:
         session_label: str = "runtime",
         intended_qty: int | None = None,
     ) -> dict[str, Any]:
+        side_u = str(side).upper()
+        if side_u in {"SHORT", "SELL"}:
+            break_even_activation = float(avg_fill_price) * (1.0 - self.policy.break_even_pct)
+            trailing_activation = float(avg_fill_price) * (1.0 - self.policy.trailing_activation_pct)
+        else:
+            break_even_activation = float(avg_fill_price) * (1.0 + self.policy.break_even_pct)
+            trailing_activation = float(avg_fill_price) * (1.0 + self.policy.trailing_activation_pct)
         trade = ManagedTradeLifecycle(
             trade_id=str(trade_id),
             symbol=str(symbol).upper(),
             strategy_id=str(strategy_id or "UNKNOWN"),
-            side=str(side).upper(),
+            side=side_u,
             run_mode=self.run_mode,
             session_label=session_label,
             intended_qty=int(intended_qty or filled_qty),
             filled_qty=int(filled_qty),
             avg_fill_price=float(avg_fill_price),
             state=PositionLifecycleState.FILLED_UNPROTECTED,
-            break_even_activation=float(avg_fill_price) * (1.0 + self.policy.break_even_pct),
-            trailing_activation=float(avg_fill_price) * (1.0 + self.policy.trailing_activation_pct),
+            break_even_activation=break_even_activation,
+            trailing_activation=trailing_activation,
             high_water_mark=float(avg_fill_price),
         )
         self._trades[trade.trade_id] = trade
@@ -683,6 +748,7 @@ class PostFillLifecycleEngine:
                     entry_order_id=trade.trade_id,
                     entry_intent_id=trade.trade_id,
                     pending_intent_id=pending_stop_intent,
+                    quantity=trade.filled_qty,
                 )
                 trade.target = ProtectionOrderMeta(
                     order_type="LIMIT",
@@ -816,60 +882,108 @@ class PostFillLifecycleEngine:
         if trade.state not in {PositionLifecycleState.TRAILING_ELIGIBLE, PositionLifecycleState.TRAILING_ACTIVE}:
             return {"updated": False, "reason": f"state_not_trailing:{trade.state.value}"}
 
-        if trade.partial_exit_count <= 0 and trade.state != PositionLifecycleState.PROTECTED:
+        if trade.partial_exit_count <= 0 and trade.state == PositionLifecycleState.TRAILING_ELIGIBLE:
             return {"updated": False, "reason": "profit_protection_not_reached", "stop_price": trade.stop.trigger_price}
 
-        print(f"[TRAIL][ELIGIBLE] trade_id={trade.trade_id} symbol={trade.symbol} state={trade.state.value}")
+        print(f"[TRAILING_STOP][DECISION] trade_id={trade.trade_id} symbol={trade.symbol} state={trade.state.value}")
         current = float(current_price)
-        trade.high_water_mark = max(float(trade.high_water_mark or trade.avg_fill_price), current)
+        side_u = "SHORT" if str(trade.side or "").upper() in {"SHORT", "SELL"} else "LONG"
+        previous_reference = float(trade.high_water_mark or trade.avg_fill_price)
+        reference_price = min(previous_reference, current) if side_u == "SHORT" else max(previous_reference, current)
 
-        if current < trade.trailing_activation:
-            print(f"[TRAIL][NO_CHANGE] trade_id={trade.trade_id} reason=activation_not_reached")
+        activation_reached = current <= trade.trailing_activation if side_u == "SHORT" else current >= trade.trailing_activation
+        if not activation_reached:
+            print(f"[TRAILING_STOP][BLOCKED] trade_id={trade.trade_id} reason=activation_not_reached")
             return {"updated": False, "reason": "activation_not_reached", "stop_price": trade.stop.trigger_price}
 
-        if trade.state != PositionLifecycleState.TRAILING_ACTIVE:
-            self._transition(trade, PositionLifecycleState.TRAILING_ACTIVE, "price_reached_trailing_activation")
-            print(f"[TRAIL][ACTIVATE] trade_id={trade.trade_id} trigger={trade.trailing_activation:.4f}")
-
-        candidate = max(
-            trade.avg_fill_price,
-            float(trade.high_water_mark) * (1.0 - self.policy.trailing_offset_pct),
-        )
-        if candidate < trade.stop.trigger_price:
-            print(
-                f"[TRAIL][REJECT_LOOSEN] trade_id={trade.trade_id} current_stop={trade.stop.trigger_price:.4f} candidate={candidate:.4f}"
-            )
-            return {"updated": False, "reason": "reject_loosen", "stop_price": trade.stop.trigger_price}
-        if abs(candidate - trade.stop.trigger_price) < 1e-9:
-            print(f"[TRAIL][NO_CHANGE] trade_id={trade.trade_id} reason=unchanged")
-            return {"updated": False, "reason": "unchanged", "stop_price": trade.stop.trigger_price}
-
         previous_stop = float(trade.stop.trigger_price)
-        validate_stop_update(
-            authority=self._authority_for_trade(trade),
-            requested_by_strategy=trade.strategy_id,
+        if side_u == "SHORT":
+            candidate = min(
+                float(trade.avg_fill_price),
+                float(reference_price) * (1.0 + self.policy.trailing_offset_pct),
+            )
+        else:
+            candidate = max(
+                float(trade.avg_fill_price),
+                float(reference_price) * (1.0 - self.policy.trailing_offset_pct),
+            )
+
+        decision = self.trailing_stop_authority.evaluate_update(
+            symbol=trade.symbol,
             side=trade.side,
             current_stop_price=previous_stop,
-            candidate_stop_price=candidate,
-            entry_price=trade.avg_fill_price,
-            current_price=current,
+            proposed_stop_price=candidate,
+            quantity=int(trade.filled_qty or 0),
+            live_position_quantity=int(trade.filled_qty or 0),
+            has_active_stop=self._has_active_stop_for_trailing(trade),
+            recovery_complete=self.startup_recovery_complete,
+            run_mode=self.run_mode,
+            trigger_price=current,
+            reference_price=reference_price,
+            source="evaluate_trailing",
         )
-        trade.stop.trigger_price = candidate
-        trade.last_update_ts = self._ts()
-        print(f"[TRAIL][UPDATE] trade_id={trade.trade_id} new_stop={candidate:.4f} high_water={trade.high_water_mark:.4f}")
+        self._log_trailing_decision(decision)
+        if decision.status == TrailingStopDecisionStatus.NO_ACTION:
+            print(f"[TRAILING_STOP][BLOCKED] trade_id={trade.trade_id} reason={decision.reason}")
+            return {"updated": False, "reason": decision.reason, "stop_price": trade.stop.trigger_price}
+        if not decision.approved:
+            stage = "BLOCKED" if decision.status == TrailingStopDecisionStatus.BLOCKED else "REJECT"
+            print(f"[TRAILING_STOP][{stage}] trade_id={trade.trade_id} reason={decision.reason}")
+            self._record_trailing_decision(
+                trade,
+                decision,
+                event_type=StopAuditEventType.STOP_REJECTED,
+                previous_stop_price=previous_stop,
+                status=decision.status.value,
+            )
+            return {
+                "updated": False,
+                "reason": decision.blocked_reason or decision.reason,
+                "stop_price": trade.stop.trigger_price,
+                "status": decision.status.value,
+            }
+
         if (
             self.execution_provider is not None
             and self.run_mode in {"PAPER", "LIVE"}
             and trade.stop.broker_order_id
         ):
-            self.execution_provider.modify_stop_order(
-                broker_order_id=trade.stop.broker_order_id,
-                symbol=trade.symbol,
-                side=trade.stop.side,
-                quantity=trade.filled_qty,
-                new_stop_price=trade.stop.trigger_price,
-                trade_id=trade.trade_id,
-            )
+            try:
+                print(f"[TRAILING_STOP][MODIFY] trade_id={trade.trade_id} broker_order_id={trade.stop.broker_order_id}")
+                self.execution_provider.modify_stop_order(
+                    broker_order_id=trade.stop.broker_order_id,
+                    symbol=trade.symbol,
+                    side=trade.stop.side,
+                    quantity=decision.quantity,
+                    new_stop_price=float(decision.proposed_stop_price),
+                    trade_id=trade.trade_id,
+                )
+            except Exception as exc:  # defensive broker boundary
+                print(f"[TRAILING_STOP][FAILED] trade_id={trade.trade_id} reason=TRAILING_STOP_MODIFY_FAILED error={exc}")
+                self._record_trailing_decision(
+                    trade,
+                    decision,
+                    event_type=StopAuditEventType.STOP_REJECTED,
+                    previous_stop_price=previous_stop,
+                    status=TrailingStopDecisionStatus.FAILED.value,
+                    error=str(exc),
+                )
+                return {
+                    "updated": False,
+                    "reason": "TRAILING_STOP_MODIFY_FAILED",
+                    "stop_price": trade.stop.trigger_price,
+                    "status": TrailingStopDecisionStatus.FAILED.value,
+                }
+
+        if trade.state != PositionLifecycleState.TRAILING_ACTIVE:
+            self._transition(trade, PositionLifecycleState.TRAILING_ACTIVE, "price_reached_trailing_activation")
+            print(f"[TRAILING_STOP][MODIFY] trade_id={trade.trade_id} action=activate trigger={trade.trailing_activation:.4f}")
+        trade.high_water_mark = reference_price
+        trade.trailing_active = True
+        trade.stop.trigger_price = float(decision.proposed_stop_price)
+        trade.stop.quantity = decision.quantity
+        trade.last_update_ts = self._ts()
+        print(f"[TRAILING_STOP][MODIFY] trade_id={trade.trade_id} new_stop={trade.stop.trigger_price:.4f} reference={trade.high_water_mark:.4f}")
         self._record_stop_event(
             trade,
             StopAuditEventType.STOP_TIGHTENED,
@@ -878,6 +992,7 @@ class PostFillLifecycleEngine:
             active_stop_order_id=trade.stop.broker_order_id,
             status=trade.stop.status,
             reason="trailing_update",
+            payload=decision.to_audit_payload(),
         )
         return {"updated": True, "stop_price": trade.stop.trigger_price, "state": trade.state.value}
 
@@ -1010,10 +1125,64 @@ class PostFillLifecycleEngine:
         side_u = str(trade.side or "").upper()
         previous_stop = float(trade.stop.trigger_price)
         if side_u in {"LONG", "BUY"}:
-            trade.stop.trigger_price = max(float(trade.stop.trigger_price), float(trade.avg_fill_price))
-        elif side_u == "SHORT":
-            trade.stop.trigger_price = min(float(trade.stop.trigger_price), float(trade.avg_fill_price))
+            candidate = max(float(trade.stop.trigger_price), float(trade.avg_fill_price))
+        elif side_u in {"SHORT", "SELL"}:
+            candidate = min(float(trade.stop.trigger_price), float(trade.avg_fill_price))
+        else:
+            candidate = float(trade.stop.trigger_price)
+        decision = self.trailing_stop_authority.evaluate_update(
+            symbol=trade.symbol,
+            side=trade.side,
+            current_stop_price=previous_stop,
+            proposed_stop_price=candidate,
+            quantity=int(remaining_qty),
+            live_position_quantity=int(remaining_qty),
+            has_active_stop=self._has_active_stop_for_trailing(trade),
+            recovery_complete=self.startup_recovery_complete,
+            run_mode=self.run_mode,
+            trigger_price=trade.exit_fill_price,
+            reference_price=trade.avg_fill_price,
+            allow_same_price=True,
+            source="take_profit_partial",
+        )
+        self._log_trailing_decision(decision)
+        if not decision.approved:
+            stage = "BLOCKED" if decision.status == TrailingStopDecisionStatus.BLOCKED else "REJECT"
+            print(f"[TRAILING_STOP][{stage}] trade_id={trade.trade_id} reason={decision.reason}")
+            self._record_trailing_decision(
+                trade,
+                decision,
+                event_type=StopAuditEventType.STOP_REJECTED,
+                previous_stop_price=previous_stop,
+                status=decision.status.value,
+            )
+            return
+        if self.execution_provider is not None and self.run_mode in {"PAPER", "LIVE"} and trade.stop.broker_order_id:
+            try:
+                print(f"[TRAILING_STOP][MODIFY] trade_id={trade.trade_id} broker_order_id={trade.stop.broker_order_id}")
+                self.execution_provider.modify_stop_order(
+                    broker_order_id=trade.stop.broker_order_id,
+                    symbol=trade.symbol,
+                    side=trade.stop.side,
+                    quantity=int(remaining_qty),
+                    new_stop_price=float(decision.proposed_stop_price),
+                    trade_id=trade.trade_id,
+                )
+            except Exception as exc:  # defensive broker boundary
+                print(f"[TRAILING_STOP][FAILED] trade_id={trade.trade_id} reason=TRAILING_STOP_MODIFY_FAILED error={exc}")
+                self._record_trailing_decision(
+                    trade,
+                    decision,
+                    event_type=StopAuditEventType.STOP_REJECTED,
+                    previous_stop_price=previous_stop,
+                    status=TrailingStopDecisionStatus.FAILED.value,
+                    error=str(exc),
+                )
+                return
+
+        trade.stop.trigger_price = float(decision.proposed_stop_price)
         trade.stop.quantity = int(remaining_qty)
+        trade.last_update_ts = self._ts()
         print(
             "[TAKE_PROFIT][PARTIAL] "
             f"trade_id={trade.trade_id} symbol={trade.symbol} stop_qty={remaining_qty} stop={trade.stop.trigger_price:.4f}"
@@ -1026,16 +1195,7 @@ class PostFillLifecycleEngine:
             active_stop_order_id=trade.stop.broker_order_id,
             status=trade.stop.status,
             reason="take_profit_partial_break_even",
-        )
-        if self.execution_provider is None or self.run_mode not in {"PAPER", "LIVE"} or not trade.stop.broker_order_id:
-            return
-        self.execution_provider.modify_stop_order(
-            broker_order_id=trade.stop.broker_order_id,
-            symbol=trade.symbol,
-            side=trade.stop.side,
-            quantity=int(remaining_qty),
-            new_stop_price=trade.stop.trigger_price,
-            trade_id=trade.trade_id,
+            payload=decision.to_audit_payload(),
         )
 
     def record_exit_fill(
@@ -1803,6 +1963,22 @@ class PostFillLifecycleEngine:
                 else:
                     recovery_pending += 1
 
+            lifecycle_status = str(getattr(lifecycle, "status", "") or "").upper() if lifecycle is not None else ""
+            trailing_recovered = lifecycle_status in {"TRAILING_ACTIVE", "TRAILING_ELIGIBLE"}
+            recovered_high_water = (
+                self._float_or_none(getattr(lifecycle, "last_mark_price", None)) if lifecycle is not None else None
+            )
+            if recovered_high_water is None:
+                recovered_high_water = entry_price
+            if lifecycle_status == "TRAILING_ACTIVE":
+                recovered_state = PositionLifecycleState.TRAILING_ACTIVE
+            elif lifecycle_status == "TRAILING_ELIGIBLE":
+                recovered_state = PositionLifecycleState.TRAILING_ELIGIBLE
+            elif target_meta is not None:
+                recovered_state = PositionLifecycleState.TARGET_ACTIVE
+            else:
+                recovered_state = PositionLifecycleState.RECOVERED
+
             trade = ManagedTradeLifecycle(
                 trade_id=trade_id,
                 symbol=symbol,
@@ -1827,11 +2003,19 @@ class PostFillLifecycleEngine:
                     quantity=qty,
                 ),
                 target=target_meta,
-                state=PositionLifecycleState.TARGET_ACTIVE if target_meta is not None else PositionLifecycleState.RECOVERED,
+                state=recovered_state,
+                trailing_active=trailing_recovered,
                 last_recovery_status=StopRecoveryClassification.STOP_RECOVERED.value,
-                high_water_mark=entry_price,
+                high_water_mark=recovered_high_water,
             )
             self._trades[trade_id] = trade
+            if trailing_recovered:
+                print(
+                    "[TRAILING_STOP][RECOVER] "
+                    f"trade_id={trade.trade_id} symbol={trade.symbol} state={trade.state.value} "
+                    f"stop_order_id={trade.stop.broker_order_id if trade.stop else None} "
+                    f"reference={float(trade.high_water_mark or 0.0):.4f}"
+                )
             if target_event is not None:
                 self._record_take_profit_event(trade, target_event[0], target_event[1])
             self._record_stop_event(
