@@ -156,6 +156,7 @@ class CapitalManagementAuthority:
         current_total_exposure: float | None = None,
         current_symbol_exposure: float | None = None,
         current_open_positions: int | None = None,
+        current_symbol_position_exists: bool = False,
         max_open_positions: int | None = None,
         max_position_notional: float | None = None,
         max_total_exposure: float | None = None,
@@ -187,6 +188,8 @@ class CapitalManagementAuthority:
             + self._reserved_symbol_notional(normalized_symbol)
         )
         open_positions = int(current_open_positions or 0)
+        position_slot_increase = 0 if current_symbol_position_exists else 1
+        projected_open_positions = open_positions + position_slot_increase
         symbol_limit = float(max_symbol_exposure if max_symbol_exposure is not None else limits["max_position_notional"])
         decision_context = {
             "mode": effective_mode,
@@ -196,6 +199,8 @@ class CapitalManagementAuthority:
             "reference_price": price,
             "recovery_complete": recovery_complete,
             "risk_approved": risk_approved,
+            "current_symbol_position_exists": current_symbol_position_exists,
+            "projected_open_positions": projected_open_positions,
         }
 
         if effective_mode == "READ_ONLY":
@@ -314,7 +319,7 @@ class CapitalManagementAuthority:
             self._emit_decision(decision)
             return decision
 
-        if open_positions >= int(limits["max_open_positions"]):
+        if projected_open_positions > int(limits["max_open_positions"]):
             decision = self._blocked_decision(
                 CapitalDecisionStatus.MAX_POSITIONS_EXCEEDED,
                 "MAX_POSITIONS_EXCEEDED",

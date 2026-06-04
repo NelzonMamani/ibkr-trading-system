@@ -223,6 +223,7 @@ class ExecutionEngine:
             current_total_exposure=context["current_total_exposure"],
             current_symbol_exposure=context["current_symbol_exposure"],
             current_open_positions=context["current_open_positions"],
+            current_symbol_position_exists=bool(context["current_symbol_position_exists"]),
             max_open_positions=self._evaluated_limit(risk_decision, "max_open_positions"),
             max_position_notional=self._evaluated_limit(risk_decision, "max_position_notional"),
             max_total_exposure=self._evaluated_limit(risk_decision, "max_total_exposure"),
@@ -256,6 +257,7 @@ class ExecutionEngine:
     def _capital_portfolio_context(self, symbol: str) -> dict[str, float | int]:
         total_exposure = 0.0
         symbol_exposure = 0.0
+        symbol_position_exists = False
         open_positions = self.trade_registry.count_active()
         lifecycle_trades: list[object] = []
         if self._trade_lifecycle_engine is not None:
@@ -270,6 +272,7 @@ class ExecutionEngine:
                 notional = float(qty) * price
                 total_exposure += notional
                 if str(getattr(trade, "symbol", "") or "").upper() == str(symbol or "").upper():
+                    symbol_position_exists = symbol_position_exists or qty > 0
                     symbol_exposure += notional
         else:
             for trade in self.trade_registry.snapshot():
@@ -278,11 +281,13 @@ class ExecutionEngine:
                 notional = float(qty) * price
                 total_exposure += notional
                 if str(getattr(trade, "symbol", "") or "").upper() == str(symbol or "").upper():
+                    symbol_position_exists = symbol_position_exists or qty > 0
                     symbol_exposure += notional
         return {
             "current_total_exposure": total_exposure,
             "current_symbol_exposure": symbol_exposure,
             "current_open_positions": open_positions,
+            "current_symbol_position_exists": symbol_position_exists,
         }
 
     def _capital_account_snapshot(self, risk_decision: RiskDecision) -> dict[str, float | bool | None]:
@@ -916,7 +921,6 @@ class ExecutionEngine:
         )
         result = self._confirm_broker_ack(request, result)
         self._log_ibkr_status(request, result)
-        self._release_capital_for_terminal_result(request, result)
         self._record_fill_and_position(request, result)
         self._run_live_probe_exit_if_needed(request, result)
         self._validate_trace_integrity(request.client_order_id)
@@ -927,7 +931,12 @@ class ExecutionEngine:
             )
         else:
             print("[EXECUTION] LIVE broker order routed.")
-        self._schedule_retry(request, result)
+        retry_enqueued = self._schedule_retry(request, result)
+        self._release_capital_for_terminal_result(
+            request,
+            result,
+            retry_enqueued=retry_enqueued,
+        )
         self._run_protection_reconciliation(reason="post_order_route")
         return result
 
@@ -1268,8 +1277,17 @@ class ExecutionEngine:
             reason=reason,
         )
 
-    def _release_capital_for_terminal_result(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
-        if bool(getattr(result, "retry_scheduled", False)):
+    def _release_capital_for_terminal_result(
+        self,
+        request: BrokerOrderRequest,
+        result: ExecutionResult,
+        *,
+        retry_enqueued: bool = False,
+    ) -> None:
+        if bool(getattr(result, "retry_scheduled", False)) and retry_enqueued:
+            return
+        if bool(getattr(result, "retry_scheduled", False)) and not retry_enqueued:
+            self._release_capital_for_order(request, reason="RETRY_NOT_SCHEDULED")
             return
         if int(getattr(result, "filled_quantity", 0) or 0) > 0:
             return
@@ -1428,11 +1446,11 @@ class ExecutionEngine:
             next_retry_tick=None,
         )
 
-    def _schedule_retry(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
+    def _schedule_retry(self, request: BrokerOrderRequest, result: ExecutionResult) -> bool:
         if not self.execution_enabled:
-            return
+            return False
         if not getattr(result, "retry_scheduled", False) or result.next_retry_tick is None:
-            return
+            return False
 
         next_attempt = request.attempt_number + 1
         max_attempts = self._max_attempts(request.trader_type or "")
@@ -1440,7 +1458,7 @@ class ExecutionEngine:
             print(
                 f"[RETRY] id={request.client_order_id} reached max attempts; not scheduling further retries."
             )
-            return
+            return False
 
         self._assert_execution_enabled_for_order_construction("retry schedule")
         scheduled_request = BrokerOrderRequest(
@@ -1464,6 +1482,7 @@ class ExecutionEngine:
             f"[PENDING] Added retry for id={request.client_order_id} "
             f"attempt={next_attempt} tick={result.next_retry_tick}"
         )
+        return True
 
     def _assert_execution_enabled_for_order_construction(self, context: str) -> None:
         if not self.execution_enabled:

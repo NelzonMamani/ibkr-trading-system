@@ -11,7 +11,7 @@ sys.path.append(str(repo_root))
 sys.path.append(str(repo_root / "src"))
 
 from src.config.config_resolver import set_config_overrides
-from src.core.active_trade_registry import ActiveTradeRegistry
+from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.capital_management_authority import CapitalManagementAuthority
 from src.core.event_collector import EventCollector
 from src.execution.execution_engine import ExecutionEngine
@@ -136,14 +136,53 @@ class _CapitalGateProvider:
         return {"broker_order_id": broker_order_id, "status": "Cancelled"}
 
 
-def _risk_decision(*, quantity: int = 1) -> RiskDecision:
+class _RetryFlagProvider(_CapitalGateProvider):
+    def __init__(
+        self,
+        *,
+        status: str = "Submitted",
+        retry_scheduled: bool = True,
+        next_retry_tick: int | None = 1,
+    ) -> None:
+        super().__init__(available_funds=10_000.0, buying_power=10_000.0)
+        self.status = status
+        self.retry_scheduled = retry_scheduled
+        self.next_retry_tick = next_retry_tick
+        self.engine_to_disable = None
+
+    def place_order(self, request):
+        self.submitted_orders.append(request)
+        if self.engine_to_disable is not None:
+            self.engine_to_disable.execution_enabled = False
+        return ExecutionResult(
+            symbol=request.symbol,
+            trader_type=request.trader_type or "UNKNOWN",
+            attempted=False,
+            status=self.status,
+            rationale=self.status,
+            direction=request.direction,
+            quantity=0,
+            requested_quantity=request.quantity,
+            filled_quantity=0,
+            remaining_quantity=request.quantity,
+            fill_status="NONE",
+            client_order_id=request.client_order_id,
+            ibkr_order_id=1001,
+            attempt_number=request.attempt_number,
+            retry_scheduled=self.retry_scheduled,
+            next_retry_tick=self.next_retry_tick,
+            rejection_reason=self.status,
+        )
+
+
+def _risk_decision(*, quantity: int = 1, trader_type: str = "P7_TEST") -> RiskDecision:
     return RiskDecision(
         symbol="AAPL",
         allowed=True,
         max_position_size=quantity,
         risk_level="LOW",
         rationale="p7 capital gate",
-        trader_type="P7_TEST",
+        trader_type=trader_type,
         strategy_name="unit_strategy",
         direction="BUY",
         stop_loss_price=9.0,
@@ -152,10 +191,14 @@ def _risk_decision(*, quantity: int = 1) -> RiskDecision:
     )
 
 
-def _engine(provider: _CapitalGateProvider, authority: CapitalManagementAuthority | None = None) -> ExecutionEngine:
+def _engine(
+    provider: _CapitalGateProvider,
+    authority: CapitalManagementAuthority | None = None,
+    trade_registry: ActiveTradeRegistry | None = None,
+) -> ExecutionEngine:
     return ExecutionEngine(
         provider=provider,
-        trade_registry=ActiveTradeRegistry(),
+        trade_registry=trade_registry or ActiveTradeRegistry(),
         event_collector=EventCollector(),
         price_feed=DeterministicPriceFeed(),
         capital_authority=authority,
@@ -199,6 +242,32 @@ def test_executable_capital_decision_allows_submission_and_converts_reservation(
     assert engine.capital_authority.symbol_exposure("AAPL") == 10.0
 
 
+def test_trade_management_add_to_existing_symbol_at_max_positions_reaches_broker() -> None:
+    registry = ActiveTradeRegistry()
+    for symbol in ("AAPL", "MSFT", "NVDA", "TSLA", "AMD"):
+        registry.register_trade(
+            ActiveTrade(
+                symbol=symbol,
+                trader_type="P7_TEST",
+                entry_tick=0,
+                entry_price=10.0,
+                direction="LONG",
+                quantity=1,
+                strategy_name="unit_strategy",
+                stop_loss_price=9.0,
+            )
+        )
+    provider = _CapitalGateProvider(available_funds=10_000.0, buying_power=10_000.0)
+    engine = _engine(provider, trade_registry=registry)
+    decision = _risk_decision(quantity=1)
+    decision.reason_code = "TRADE_MANAGEMENT_ADD"
+
+    result = engine.execute_trade(decision)
+
+    assert result.status == "Filled"
+    assert len(provider.submitted_orders) == 1
+
+
 def test_p5_recovery_failure_still_blocks_before_capital_reservation() -> None:
     provider = _CapitalGateProvider(available_funds=10_000.0, buying_power=10_000.0)
     engine = _engine(provider)
@@ -214,3 +283,57 @@ def test_p5_recovery_failure_still_blocks_before_capital_reservation() -> None:
     assert result.rationale == "STARTUP_RECOVERY_NOT_COMPLETE:unit_test_recovery_failed"
     assert provider.submitted_orders == []
     assert engine.capital_authority.active_reservations == {}
+
+
+def test_failed_order_with_retry_actually_enqueued_keeps_reservation() -> None:
+    provider = _RetryFlagProvider(next_retry_tick=1)
+    engine = _engine(provider)
+
+    result = engine.execute_trade(_risk_decision(quantity=1, trader_type="SCALPER"))
+
+    assert result.retry_scheduled is True
+    assert engine.pending_book.count() == 1
+    assert engine.capital_authority.total_reserved_capital > 0.0
+
+
+def test_failed_order_with_retry_flag_but_max_attempts_exceeded_releases_reservation() -> None:
+    provider = _RetryFlagProvider(next_retry_tick=1)
+    engine = _engine(provider)
+
+    result = engine.execute_trade(_risk_decision(quantity=1))
+
+    assert result.retry_scheduled is True
+    assert engine.pending_book.count() == 0
+    assert engine.capital_authority.active_reservations == {}
+
+
+def test_failed_order_with_retry_flag_but_execution_disabled_releases_reservation() -> None:
+    provider = _RetryFlagProvider(next_retry_tick=1)
+    engine = _engine(provider)
+    provider.engine_to_disable = engine
+
+    result = engine.execute_trade(_risk_decision(quantity=1, trader_type="SCALPER"))
+
+    assert result.retry_scheduled is True
+    assert engine.pending_book.count() == 0
+    assert engine.capital_authority.active_reservations == {}
+
+
+def test_ordinary_rejection_and_cancel_still_release_reservation() -> None:
+    rejected_provider = _RetryFlagProvider(status="REJECTED", retry_scheduled=False, next_retry_tick=None)
+    rejected_engine = _engine(rejected_provider)
+
+    rejected = rejected_engine.execute_trade(_risk_decision(quantity=1))
+
+    assert rejected.status == "BLOCKED"
+    assert rejected_engine.pending_book.count() == 0
+    assert rejected_engine.capital_authority.active_reservations == {}
+
+    cancelled_provider = _RetryFlagProvider(status="Cancelled", retry_scheduled=False, next_retry_tick=None)
+    cancelled_engine = _engine(cancelled_provider)
+
+    cancelled = cancelled_engine.execute_trade(_risk_decision(quantity=1))
+
+    assert cancelled.status == "BLOCKED"
+    assert cancelled_engine.pending_book.count() == 0
+    assert cancelled_engine.capital_authority.active_reservations == {}
