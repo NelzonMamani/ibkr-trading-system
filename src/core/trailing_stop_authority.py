@@ -205,6 +205,28 @@ class TrailingStopAuthority:
                 audit_payload=base_payload,
             )
 
+        market_reference = self._market_reference_price(trigger_price=trigger_price, reference_price=reference_price)
+        if market_reference is not None and self._crosses_market(
+            side=side_u,
+            proposed_stop_price=proposed,
+            market_reference_price=market_reference,
+        ):
+            payload = dict(base_payload)
+            payload["market_reference_price"] = market_reference
+            return self._decision(
+                TrailingStopDecisionStatus.REJECTED,
+                "STOP_CROSSES_MARKET",
+                symbol_u,
+                side_u,
+                current,
+                proposed,
+                qty,
+                trigger_price,
+                reference_price,
+                True,
+                audit_payload=payload,
+            )
+
         if str(run_mode or "").upper() == "READ_ONLY":
             return self._decision(
                 TrailingStopDecisionStatus.BLOCKED,
@@ -260,6 +282,28 @@ class TrailingStopAuthority:
             return proposed >= current
         if side_u == "SHORT":
             return proposed <= current
+        return False
+
+    @staticmethod
+    def _market_reference_price(*, trigger_price: float | None, reference_price: float | None) -> float | None:
+        for value in (trigger_price, reference_price):
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(numeric) and numeric > 0.0:
+                return numeric
+        return None
+
+    @staticmethod
+    def _crosses_market(*, side: str, proposed_stop_price: float, market_reference_price: float) -> bool:
+        side_u = TrailingStopAuthority._normalize_side(side)
+        proposed = TrailingStopAuthority._finite_positive(proposed_stop_price, "proposed_stop_price")
+        market = TrailingStopAuthority._finite_positive(market_reference_price, "market_reference_price")
+        if side_u == "LONG":
+            return proposed >= market
+        if side_u == "SHORT":
+            return proposed <= market
         return False
 
     @staticmethod
