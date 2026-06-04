@@ -139,6 +139,10 @@ class ExecutionEngine:
         self.startup_recovery_state = result.state
         self.startup_recovery_result = result
         self._failsafe_block_new_entries = result.state != RecoveryState.RECOVERY_COMPLETE
+        if hasattr(self.post_fill_lifecycle, "set_startup_recovery_complete"):
+            self.post_fill_lifecycle.set_startup_recovery_complete(
+                result.state == RecoveryState.RECOVERY_COMPLETE
+            )
         provider_name = self._provider.name() if self._provider is not None else "NONE"
         print(
             "[RECOVERY][STARTUP] "
