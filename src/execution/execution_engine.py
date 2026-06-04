@@ -17,6 +17,7 @@ from src.config.runtime_config import (
     get_ibkr_readonly_enabled,
 )
 from src.core.active_trade_registry import ActiveTradeRegistry
+from src.core.capital_management_authority import CapitalDecision, CapitalManagementAuthority
 from src.core.event_collector import EventCollector
 from src.core.stop_controller import StopController
 from src.core.stop_loss_authority import StopAuthorityError, validate_stop_price
@@ -55,6 +56,7 @@ class ExecutionEngine:
         stop_controller: Optional[StopController] = None,
         trade_lifecycle_engine: Optional[object] = None,
         storage_engine: Optional[object] = None,
+        capital_authority: Optional[CapitalManagementAuthority] = None,
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
         self.run_mode: RunMode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
@@ -83,15 +85,22 @@ class ExecutionEngine:
         self.startup_recovery_state: RecoveryState = RecoveryState.RECOVERY_PENDING
         self.startup_recovery_result: StartupRecoveryResult | None = None
         self._trade_lifecycle_engine = trade_lifecycle_engine
+        self._storage_engine = storage_engine
         self._provider = self._resolve_provider(provider)
         self.post_fill_lifecycle = PostFillLifecycleEngine(
             run_mode=self.run_mode.value,
             execution_provider=self._provider,
             storage_engine=storage_engine,
         )
+        self.capital_authority = capital_authority or CapitalManagementAuthority(
+            run_mode=self.run_mode.value,
+            storage_engine=storage_engine,
+        )
+        self._capital_decisions_by_order_id: dict[str, str] = {}
         self.provider: Optional[ExecutionProvider] = self._provider
         self.broker = getattr(self._provider, "broker", None)
         self._recover_startup_state()
+        self._recover_capital_state()
 
     def _execution_log(self, stage: str, **payload: object) -> None:
         fields = []
@@ -157,6 +166,218 @@ class ExecutionEngine:
         if self.startup_recovery_result is not None and self.startup_recovery_result.reason:
             return str(self.startup_recovery_result.reason)
         return self.startup_recovery_state.value
+
+    def _recover_capital_state(self) -> None:
+        if not self.startup_recovery_complete():
+            return
+        lifecycle_trades: list[object] = []
+        if self._trade_lifecycle_engine is not None:
+            getter = getattr(self._trade_lifecycle_engine, "get_open_lifecycle_trades", None)
+            if callable(getter):
+                lifecycle_trades = list(getter() or [])
+        if not lifecycle_trades:
+            lifecycle_trades = list(getattr(self.post_fill_lifecycle, "_trades", {}).values())
+        self.capital_authority.recover_from_lifecycle(lifecycle_trades)
+
+        broker_orders: list[object] = []
+        if self._provider is not None:
+            try:
+                broker_orders = list(self._provider.get_open_orders() or [])
+            except Exception as exc:
+                if self.run_mode == RunMode.LIVE:
+                    self._mark_capital_recovery_failed(f"CAPITAL_OPEN_ORDER_RECOVERY_FAILED:{exc}")
+                return
+        self.capital_authority.recover_from_open_orders(broker_orders)
+        if self.run_mode == RunMode.LIVE and getattr(self.capital_authority, "recovery_failed", False):
+            reason = getattr(self.capital_authority, "recovery_failure_reason", "CAPITAL_RECOVERY_FAILED")
+            self._mark_capital_recovery_failed(str(reason))
+
+    def _mark_capital_recovery_failed(self, reason: str) -> None:
+        self.startup_recovery_state = RecoveryState.RECOVERY_FAILED
+        self.startup_recovery_result = StartupRecoveryResult(
+            state=RecoveryState.RECOVERY_FAILED,
+            reason=reason,
+        )
+        self._failsafe_block_new_entries = True
+        if hasattr(self.post_fill_lifecycle, "set_startup_recovery_complete"):
+            self.post_fill_lifecycle.set_startup_recovery_complete(False)
+        print(f"[CAPITAL][RECOVER] status=FAILED reason={reason}")
+
+    def _capital_admission_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
+        direction = str(getattr(risk_decision, "direction", "") or "").upper()
+        if direction not in {"BUY", "LONG", "SHORT"}:
+            return None
+        account = self._capital_account_snapshot(risk_decision)
+        context = self._capital_portfolio_context(risk_decision.symbol)
+        requested_quantity = self._effective_quantity_from_risk_decision(risk_decision)
+        decision = self.capital_authority.evaluate_entry(
+            run_mode=self.run_mode.value,
+            strategy_id=getattr(risk_decision, "strategy_name", None) or "UNKNOWN",
+            symbol=risk_decision.symbol,
+            side=direction,
+            requested_quantity=requested_quantity,
+            reference_price=float(getattr(risk_decision, "entry_price", 0.0) or 0.0),
+            account_equity=account.get("account_equity"),
+            available_capital=account.get("available_capital"),
+            buying_power=account.get("buying_power"),
+            current_total_exposure=context["current_total_exposure"],
+            current_symbol_exposure=context["current_symbol_exposure"],
+            current_open_positions=context["current_open_positions"],
+            current_symbol_position_exists=bool(context["current_symbol_position_exists"]),
+            max_open_positions=self._evaluated_limit(risk_decision, "max_open_positions"),
+            max_position_notional=self._evaluated_limit(risk_decision, "max_position_notional"),
+            max_total_exposure=self._evaluated_limit(risk_decision, "max_total_exposure"),
+            max_symbol_exposure=self._evaluated_limit(risk_decision, "max_symbol_exposure"),
+            recovery_complete=self.startup_recovery_complete(),
+            risk_approved=bool(getattr(risk_decision, "allowed", False)),
+            broker_truth_available=account["broker_truth_available"],
+            intent_id=getattr(risk_decision, "intent_id", None),
+            reserve=True,
+            audit_payload={
+                "risk_decision_id": getattr(risk_decision, "decision_id", None),
+                "intent_id": getattr(risk_decision, "intent_id", None),
+                "trader_type": getattr(risk_decision, "trader_type", None),
+            },
+        )
+        risk_decision.capital_decision = decision
+        risk_decision.capital_decision_id = decision.decision_id
+        if not decision.executable:
+            print(
+                "[CAPITAL][BLOCKED] "
+                f"symbol={risk_decision.symbol} status={decision.status.value} reason={decision.reason}"
+            )
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale=f"CAPITAL_{decision.status.value}:{decision.reason}",
+            )
+        if decision.approved_quantity < int(getattr(risk_decision, "max_position_size", 0) or 0):
+            risk_decision.max_position_size = decision.approved_quantity
+        return None
+
+    def _capital_portfolio_context(self, symbol: str) -> dict[str, float | int]:
+        total_exposure = 0.0
+        symbol_exposure = 0.0
+        symbol_position_exists = False
+        open_positions = self.trade_registry.count_active()
+        lifecycle_trades: list[object] = []
+        if self._trade_lifecycle_engine is not None:
+            getter = getattr(self._trade_lifecycle_engine, "get_open_lifecycle_trades", None)
+            if callable(getter):
+                lifecycle_trades = list(getter() or [])
+        if lifecycle_trades:
+            open_positions = len(lifecycle_trades)
+            for trade in lifecycle_trades:
+                qty = int(getattr(trade, "quantity_open", 0) or 0)
+                price = float(getattr(trade, "entry_avg_price", 0.0) or 0.0)
+                notional = float(qty) * price
+                total_exposure += notional
+                if str(getattr(trade, "symbol", "") or "").upper() == str(symbol or "").upper():
+                    symbol_position_exists = symbol_position_exists or qty > 0
+                    symbol_exposure += notional
+        else:
+            for trade in self.trade_registry.snapshot():
+                qty = int(getattr(trade, "quantity", 0) or 0)
+                price = float(getattr(trade, "entry_price", 0.0) or 0.0)
+                notional = float(qty) * price
+                total_exposure += notional
+                if str(getattr(trade, "symbol", "") or "").upper() == str(symbol or "").upper():
+                    symbol_position_exists = symbol_position_exists or qty > 0
+                    symbol_exposure += notional
+        return {
+            "current_total_exposure": total_exposure,
+            "current_symbol_exposure": symbol_exposure,
+            "current_open_positions": open_positions,
+            "current_symbol_position_exists": symbol_position_exists,
+        }
+
+    def _capital_account_snapshot(self, risk_decision: RiskDecision) -> dict[str, float | bool | None]:
+        evaluated = getattr(risk_decision, "evaluated_limits", {}) or {}
+        equity = self._float_or_none(
+            evaluated.get("account_equity")
+            or evaluated.get("equity")
+            or evaluated.get("net_liquidation")
+        )
+        available = self._float_or_none(
+            evaluated.get("available_capital")
+            or evaluated.get("available_funds")
+            or evaluated.get("AvailableFunds")
+        )
+        buying_power = self._float_or_none(evaluated.get("buying_power") or evaluated.get("BuyingPower"))
+        truth_available = equity is not None and available is not None and buying_power is not None
+        if truth_available:
+            return {
+                "account_equity": equity,
+                "available_capital": available,
+                "buying_power": buying_power,
+                "broker_truth_available": True,
+            }
+        for source in (
+            self._provider,
+            getattr(self._provider, "broker", None) if self._provider is not None else None,
+            getattr(getattr(self._provider, "broker", None), "client", None) if self._provider is not None else None,
+        ):
+            summary = self._read_account_summary(source)
+            if not summary:
+                continue
+            equity = self._float_or_none(
+                summary.get("NetLiquidation")
+                or summary.get("net_liquidation")
+                or summary.get("account_equity")
+                or summary.get("equity")
+            )
+            available = self._float_or_none(
+                summary.get("AvailableFunds")
+                or summary.get("available_funds")
+                or summary.get("available_capital")
+            )
+            buying_power = self._float_or_none(summary.get("BuyingPower") or summary.get("buying_power"))
+            if equity is not None and available is not None and buying_power is not None:
+                return {
+                    "account_equity": equity,
+                    "available_capital": available,
+                    "buying_power": buying_power,
+                    "broker_truth_available": True,
+                }
+        return {
+            "account_equity": None,
+            "available_capital": None,
+            "buying_power": None,
+            "broker_truth_available": False,
+        }
+
+    @staticmethod
+    def _read_account_summary(source: object | None) -> dict:
+        if source is None:
+            return {}
+        method = getattr(source, "get_account_summary", None)
+        if callable(method):
+            try:
+                summary = method()
+            except Exception:
+                return {}
+            return dict(summary or {}) if isinstance(summary, dict) else {}
+        summary = getattr(source, "account_summary", None)
+        return dict(summary or {}) if isinstance(summary, dict) else {}
+
+    @staticmethod
+    def _float_or_none(value: object) -> float | None:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _evaluated_limit(risk_decision: RiskDecision, name: str) -> float | int | None:
+        evaluated = getattr(risk_decision, "evaluated_limits", {}) or {}
+        value = evaluated.get(name)
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     def _run_protection_reconciliation(self, *, open_orders: list[object] | None = None, reason: str = "runtime") -> None:
         if self._provider is None:
@@ -305,9 +526,14 @@ class ExecutionEngine:
         if gate_result is not None:
             return gate_result
 
+        capital_result = self._capital_admission_check(risk_decision)
+        if capital_result is not None:
+            return capital_result
+
         order = self._order_from_risk_decision(risk_decision, tick)
         required_fields_check = self._validate_required_order_fields(risk_decision, order)
         if required_fields_check is not None:
+            self._release_capital_for_order(order, reason="ORDER_FIELD_VALIDATION_FAILED")
             return required_fields_check
         return self._route_order(order)
 
@@ -563,7 +789,7 @@ class ExecutionEngine:
             "[ORDER][BUILD] "
             f"symbol={risk_decision.symbol} order_type=MKT qty={requested_quantity} side=BUY"
         )
-        return BrokerOrderRequest(
+        request = BrokerOrderRequest(
             client_order_id=client_order_id,
             symbol=risk_decision.symbol,
             direction=risk_decision.direction,
@@ -579,6 +805,14 @@ class ExecutionEngine:
             invalidation_level=getattr(risk_decision, "invalidation_level", None),
             next_retry_tick=None,
         )
+        capital_decision = getattr(risk_decision, "capital_decision", None)
+        if isinstance(capital_decision, CapitalDecision):
+            self._capital_decisions_by_order_id[client_order_id] = capital_decision.decision_id
+            self.capital_authority.attach_order(
+                decision_id=capital_decision.decision_id,
+                order_id=client_order_id,
+            )
+        return request
 
     @staticmethod
     def route_order(request: BrokerOrderRequest) -> str:
@@ -591,6 +825,7 @@ class ExecutionEngine:
         print("[EXECUTION][GATE]", f"execution_enabled={self.execution_enabled}", f"readonly={readonly}", f"submission_enabled={submission_enabled}")
         if not self.execution_enabled:
             print("[EXECUTION][BLOCKED] reason=EXECUTION_DISABLED")
+            self._release_capital_for_order(request, reason="EXECUTION_DISABLED")
             return self._blocked_execution_from_request(request)
         if self._provider is None:
             raise RuntimeError("ExecutionEngine execution provider missing for execution path.")
@@ -635,7 +870,29 @@ class ExecutionEngine:
         print(
             f"[ORDER_SUBMITTED] symbol={request.symbol} qty={request.quantity} type={request.order_type}"
         )
-        result = self._provider.place_order(request)
+        try:
+            result = self._provider.place_order(request)
+        except Exception as exc:
+            self._release_capital_for_order(request, reason="ENTRY_SUBMISSION_FAILURE")
+            return ExecutionResult(
+                symbol=request.symbol,
+                trader_type=request.trader_type or "UNKNOWN",
+                attempted=False,
+                status="FAILED",
+                rationale=f"ENTRY_SUBMISSION_FAILURE:{exc}",
+                direction=request.direction,
+                quantity=request.quantity,
+                stop_loss_price=request.stop_loss_price,
+                take_profit_price=request.take_profit_price,
+                requested_quantity=request.quantity,
+                filled_quantity=0,
+                remaining_quantity=request.quantity,
+                fill_status="NONE",
+                note="ENTRY_SUBMISSION_FAILURE",
+                rejection_reason="ENTRY_SUBMISSION_FAILURE",
+                attempt_number=request.attempt_number,
+                client_order_id=request.client_order_id,
+            )
         if str(getattr(result, "status", "") or "") in self.VALID_IBKR_STATUSES:
             print(
                 f"[EXECUTION] SUBMITTED symbol={request.symbol} qty={request.quantity} "
@@ -674,7 +931,12 @@ class ExecutionEngine:
             )
         else:
             print("[EXECUTION] LIVE broker order routed.")
-        self._schedule_retry(request, result)
+        retry_enqueued = self._schedule_retry(request, result)
+        self._release_capital_for_terminal_result(
+            request,
+            result,
+            retry_enqueued=retry_enqueued,
+        )
         self._run_protection_reconciliation(reason="post_order_route")
         return result
 
@@ -843,6 +1105,18 @@ class ExecutionEngine:
                 f"filled={filled_quantity} remaining={remaining_quantity}"
             )
         entry_price = getattr(result, "entry_price", None) or getattr(result, "average_fill_price", None)
+        direction_upper = str(request.direction).upper()
+        fill_price = self._float_or_none(entry_price) or 0.0
+        if direction_upper in {"LONG", "BUY", "SHORT"}:
+            self._convert_capital_for_fill(request, filled_quantity=filled_quantity, fill_price=fill_price)
+        elif direction_upper == "SELL":
+            self.capital_authority.release_exposure(
+                symbol=request.symbol,
+                quantity=filled_quantity,
+                price=fill_price,
+                strategy_id=request.strategy_name,
+                reason="EXIT_FILL",
+            )
         print(
             f"[ORDER][FILL] order_id={request.client_order_id} "
             f"symbol={request.symbol} qty={filled_quantity} entry_price={entry_price}"
@@ -869,7 +1143,6 @@ class ExecutionEngine:
             "entry_price": entry_price,
             "timestamp": time.time(),
         }
-        direction_upper = str(request.direction).upper()
         if direction_upper in {"LONG", "BUY"}:
             protection_result = self.post_fill_lifecycle.activate_trade_management_after_fill(
                 trade_id=request.client_order_id,
@@ -993,6 +1266,53 @@ class ExecutionEngine:
             )
         if normalized in {"CANCELLED", "CANCELED"}:
             print(f"[EXECUTION][IBKR] order_id={order_id_display} status=CANCELLED")
+
+    def _release_capital_for_order(self, request: BrokerOrderRequest, *, reason: str) -> None:
+        decision_id = self._capital_decisions_by_order_id.get(request.client_order_id)
+        if not decision_id:
+            return
+        self.capital_authority.release_reservation(
+            decision_id=decision_id,
+            order_id=request.client_order_id,
+            reason=reason,
+        )
+
+    def _release_capital_for_terminal_result(
+        self,
+        request: BrokerOrderRequest,
+        result: ExecutionResult,
+        *,
+        retry_enqueued: bool = False,
+    ) -> None:
+        if bool(getattr(result, "retry_scheduled", False)) and retry_enqueued:
+            return
+        if bool(getattr(result, "retry_scheduled", False)) and not retry_enqueued:
+            self._release_capital_for_order(request, reason="RETRY_NOT_SCHEDULED")
+            return
+        if int(getattr(result, "filled_quantity", 0) or 0) > 0:
+            return
+        status = str(getattr(result, "status", "") or "").upper()
+        if status in {"BLOCKED", "FAILED", "REJECTED", "CANCELLED", "CANCELED", "EXPIRED", "NOT_FILLED", "TIMED_OUT"}:
+            self._release_capital_for_order(request, reason=f"ORDER_{status}")
+
+    def _convert_capital_for_fill(
+        self,
+        request: BrokerOrderRequest,
+        *,
+        filled_quantity: int,
+        fill_price: float,
+    ) -> None:
+        decision_id = self._capital_decisions_by_order_id.get(request.client_order_id)
+        self.capital_authority.convert_reservation_to_exposure(
+            decision_id=decision_id,
+            order_id=request.client_order_id,
+            symbol=request.symbol,
+            strategy_id=request.strategy_name,
+            fill_quantity=filled_quantity,
+            fill_price=fill_price,
+            trade_id=request.client_order_id,
+            reason="ENTRY_FILL",
+        )
 
     def _clamp_order_quantity(self, quantity: int, *, symbol: str) -> int:
         if self.max_shares_per_order is None:
@@ -1126,11 +1446,11 @@ class ExecutionEngine:
             next_retry_tick=None,
         )
 
-    def _schedule_retry(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
+    def _schedule_retry(self, request: BrokerOrderRequest, result: ExecutionResult) -> bool:
         if not self.execution_enabled:
-            return
+            return False
         if not getattr(result, "retry_scheduled", False) or result.next_retry_tick is None:
-            return
+            return False
 
         next_attempt = request.attempt_number + 1
         max_attempts = self._max_attempts(request.trader_type or "")
@@ -1138,7 +1458,7 @@ class ExecutionEngine:
             print(
                 f"[RETRY] id={request.client_order_id} reached max attempts; not scheduling further retries."
             )
-            return
+            return False
 
         self._assert_execution_enabled_for_order_construction("retry schedule")
         scheduled_request = BrokerOrderRequest(
@@ -1162,6 +1482,7 @@ class ExecutionEngine:
             f"[PENDING] Added retry for id={request.client_order_id} "
             f"attempt={next_attempt} tick={result.next_retry_tick}"
         )
+        return True
 
     def _assert_execution_enabled_for_order_construction(self, context: str) -> None:
         if not self.execution_enabled:
