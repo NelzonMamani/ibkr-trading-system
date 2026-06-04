@@ -468,17 +468,21 @@ class CoreOrchestrator:
             )
         else:
             provider = None
+        self.trade_lifecycle_engine = TradeLifecycleEngine()
+        self.storage_engine = StorageEngine()
+        self.trade_lifecycle_engine.set_persistence_adapter(self.storage_engine)
         self.execution_engine = ExecutionEngine(
             provider=provider,
             trade_registry=self.trade_registry,
             event_collector=self.event_collector,
             price_feed=self.price_feed,
             stop_controller=self.stop_controller,
+            trade_lifecycle_engine=self.trade_lifecycle_engine,
+            storage_engine=self.storage_engine,
         )
         self.execution_enabled = self.execution_engine.execution_enabled
         self.position_management_engine = PositionManagementEngine()
         self.trade_management_engine = TradeManagementEngine(price_lookup=lambda symbol: float(self.price_feed.get_price(symbol)))
-        self.trade_lifecycle_engine = TradeLifecycleEngine()
         self.risk_engine.set_trade_lifecycle_engine(self.trade_lifecycle_engine)
         self._broker_position_adapter = BrokerPositionSnapshotAdapter()
         self.trade_exit_engine = TradeExitEngine(
@@ -487,12 +491,6 @@ class CoreOrchestrator:
             price_feed=self.price_feed,
             stop_controller=self.stop_controller,
         )
-        self.storage_engine = StorageEngine()
-        self.trade_lifecycle_engine.set_persistence_adapter(self.storage_engine)
-        try:
-            self.trade_lifecycle_engine.recover_open_state()
-        except Exception as exc:
-            print(f"[LIFECYCLE][RECOVERY][DEGRADED] reason=unexpected_error error={exc}")
         self.decision_trace_store = DecisionTraceStore(
             persist_path=os.getenv("DECISION_TRACE_PATH")
         )
@@ -2021,6 +2019,19 @@ class CoreOrchestrator:
         return watchlist, focus
 
 
+    def _startup_recovery_allows_strategy_execution(self) -> bool:
+        checker = getattr(self.execution_engine, "startup_recovery_complete", None)
+        if callable(checker) and checker():
+            return True
+        state = getattr(self.execution_engine, "startup_recovery_state", "UNKNOWN")
+        reason_getter = getattr(self.execution_engine, "startup_recovery_block_reason", None)
+        reason = reason_getter() if callable(reason_getter) else str(state)
+        print(
+            "[RECOVERY][FAILED] "
+            f"state={getattr(state, 'value', state)} reason={reason} action=BLOCK_TRADING"
+        )
+        return False
+
     @staticmethod
     def _mock_scanner_mode_enabled() -> bool:
         return str(get_config("SCANNER_DATA_SOURCE") or "").strip().upper() == "MOCK"
@@ -2464,6 +2475,8 @@ class CoreOrchestrator:
             fill_verdict,
         )
         apply_recovery_actions(recovery_plan, self)
+        if not self._startup_recovery_allows_strategy_execution():
+            return False
         self._run_position_management_tick(cycle_started_at)
         active_strategy_keys = self._enabled_strategy_keys()
         strategy_key = self.primary_strategy_key

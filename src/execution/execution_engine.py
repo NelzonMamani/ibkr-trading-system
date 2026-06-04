@@ -16,7 +16,7 @@ from src.config.runtime_config import (
     get_execution_enabled,
     get_ibkr_readonly_enabled,
 )
-from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
+from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.core.stop_controller import StopController
 from src.core.stop_loss_authority import StopAuthorityError, validate_stop_price
@@ -25,6 +25,11 @@ from src.execution.execution_providers import ExecutionProvider, IbkrExecutionPr
 from src.execution.exit_plan import compute_stop_price
 from src.execution.order_models import PendingOrderBook
 from src.execution.post_fill_lifecycle_engine import PostFillLifecycleEngine
+from src.execution.startup_recovery_authority import (
+    RecoveryState,
+    StartupRecoveryAuthority,
+    StartupRecoveryResult,
+)
 from src.models.execution_result import ExecutionResult
 from src.models.data_models import RiskDecision
 from src.models.risk_decision import DECISION_ARTIFACT_MISSING
@@ -48,6 +53,8 @@ class ExecutionEngine:
         event_collector: Optional[EventCollector] = None,
         price_feed: Optional[PriceFeed] = None,
         stop_controller: Optional[StopController] = None,
+        trade_lifecycle_engine: Optional[object] = None,
+        storage_engine: Optional[object] = None,
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
         self.run_mode: RunMode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
@@ -73,10 +80,14 @@ class ExecutionEngine:
         self._require_exit_stage: set[str] = set()
         self.position_records: dict[str, dict] = {}
         self._failsafe_block_new_entries: bool = False
+        self.startup_recovery_state: RecoveryState = RecoveryState.RECOVERY_PENDING
+        self.startup_recovery_result: StartupRecoveryResult | None = None
+        self._trade_lifecycle_engine = trade_lifecycle_engine
         self._provider = self._resolve_provider(provider)
         self.post_fill_lifecycle = PostFillLifecycleEngine(
             run_mode=self.run_mode.value,
             execution_provider=self._provider,
+            storage_engine=storage_engine,
         )
         self.provider: Optional[ExecutionProvider] = self._provider
         self.broker = getattr(self._provider, "broker", None)
@@ -117,72 +128,31 @@ class ExecutionEngine:
         return provider
 
     def _recover_startup_state(self) -> None:
-        if self._provider is None:
-            return
-        try:
-            positions_snapshot = self._provider.get_positions()
-            open_orders = self._provider.get_open_orders()
-        except Exception as exc:
-            print(f"[RECOVERY][STARTUP] broker_snapshot_failed reason={exc}")
-            return
-
-        positions = list(getattr(positions_snapshot, "positions", []) or [])
-        self.post_fill_lifecycle.startup_safe_state(positions, list(open_orders))
-        self._run_protection_reconciliation(open_orders=list(open_orders), reason="startup")
+        authority = StartupRecoveryAuthority(
+            run_mode=self.run_mode.value,
+            provider=self._provider,
+            post_fill_lifecycle=self.post_fill_lifecycle,
+            trade_registry=self.trade_registry,
+            trade_lifecycle_engine=self._trade_lifecycle_engine,
+        )
+        result = authority.run()
+        self.startup_recovery_state = result.state
+        self.startup_recovery_result = result
+        self._failsafe_block_new_entries = result.state != RecoveryState.RECOVERY_COMPLETE
+        provider_name = self._provider.name() if self._provider is not None else "NONE"
         print(
             "[RECOVERY][STARTUP] "
-            f"provider={self._provider.name()} "
-            f"open_positions={len(positions)} open_orders={len(open_orders)}"
+            f"provider={provider_name} state={result.state.value} "
+            f"open_positions={result.positions_count} open_orders={result.orders_count}"
         )
-        for position in positions:
-            symbol = str(getattr(position, "symbol", "") or "").upper()
-            trader_type = str(getattr(position, "trader_type", "UNKNOWN") or "UNKNOWN")
-            if not symbol:
-                continue
-            if self.trade_registry.get_trade(symbol, trader_type) is not None:
-                print(
-                    "[RECOVERY][DEDUP] "
-                    f"symbol={symbol} trader_type={trader_type} reason=already_registered"
-                )
-                continue
 
-            stop_loss_price = getattr(position, "stop_loss_price", None)
-            quantity = int(getattr(position, "quantity", 0) or 0)
-            if quantity <= 0:
-                continue
-            if stop_loss_price is None:
-                print(
-                    "[CRITICAL][UNPROTECTED_POSITION] "
-                    f"stage=startup_recovery symbol={symbol} trader_type={trader_type} quantity={quantity}"
-                )
-                continue
+    def startup_recovery_complete(self) -> bool:
+        return self.startup_recovery_state == RecoveryState.RECOVERY_COMPLETE
 
-            entry_tick = int(getattr(position, "entry_tick", 0) or 0)
-            entry_price = float(getattr(position, "entry_price", 0.0) or 0.0)
-            direction = str(getattr(position, "direction", "UNKNOWN") or "UNKNOWN")
-            strategy_name = str(getattr(position, "strategy_name", "UNKNOWN") or "UNKNOWN")
-            take_profit_price = getattr(position, "take_profit_price", None)
-            pattern_name = getattr(position, "pattern_name", None)
-            invalidation_level = getattr(position, "invalidation_level", None)
-
-            recovered_trade = ActiveTrade(
-                symbol=symbol,
-                trader_type=trader_type,
-                entry_tick=entry_tick,
-                entry_price=entry_price,
-                direction=direction,
-                quantity=quantity,
-                strategy_name=strategy_name,
-                stop_loss_price=float(stop_loss_price),
-                take_profit_price=float(take_profit_price) if take_profit_price is not None else None,
-                pattern_name=pattern_name,
-                invalidation_level=float(invalidation_level) if invalidation_level is not None else None,
-            )
-            self.trade_registry.register_trade(recovered_trade)
-            print(
-                "[RECOVERY][RESTORED] "
-                f"symbol={symbol} trader_type={trader_type} quantity={quantity}"
-            )
+    def startup_recovery_block_reason(self) -> str:
+        if self.startup_recovery_result is not None and self.startup_recovery_result.reason:
+            return str(self.startup_recovery_result.reason)
+        return self.startup_recovery_state.value
 
     def _run_protection_reconciliation(self, *, open_orders: list[object] | None = None, reason: str = "runtime") -> None:
         if self._provider is None:
@@ -397,6 +367,11 @@ class ExecutionEngine:
             broker_ready=provider_ready,
             broker_connected=broker_connected,
         )
+        if not self.startup_recovery_complete():
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale=f"STARTUP_RECOVERY_NOT_COMPLETE:{self.startup_recovery_block_reason()}",
+            )
         if self.stop_controller.is_breaker_tripped():
             return self._blocked_execution_from_risk_decision(
                 risk_decision,

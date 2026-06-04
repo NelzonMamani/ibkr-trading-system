@@ -10,7 +10,15 @@ from src.core.portfolio.broker_position_adapter import BrokerPositionSnapshot
 from src.core.portfolio.portfolio_state import PortfolioState
 from src.core.portfolio.risk_signals import LifecycleRiskSignals
 
-OPEN_STATUSES = {"OPEN", "PARTIALLY_CLOSED", "DRIFTED"}
+OPEN_STATUSES = {
+    "OPEN",
+    "PARTIALLY_CLOSED",
+    "DRIFTED",
+    "PARTIALLY_FILLED",
+    "PROTECTION_PENDING",
+    "PROTECTED",
+    "TARGET_ACTIVE",
+}
 RECONCILIATION_CLASSIFICATIONS = {"MATCH", "MISMATCH", "ORPHAN", "EXTERNAL", "RECOVERED"}
 TAKE_PROFIT_EVENT_TYPES = {
     "TAKE_PROFIT_CREATED",
@@ -225,7 +233,10 @@ class TradeLifecycleEngine:
             print("[LIFECYCLE][RECOVERY][DEGRADED] reason=no_persistence_adapter")
             return {"ok": False, "open_loaded": 0, "degraded": True}
         try:
-            records = self._persistence.fetch_trade_lifecycle_trades()
+            try:
+                records = self._persistence.fetch_trade_lifecycle_trades(open_only=True)
+            except TypeError:
+                records = self._persistence.fetch_trade_lifecycle_trades()
         except Exception as exc:
             print(f"[LIFECYCLE][RECOVERY][DEGRADED] reason=load_failed error={exc}")
             return {"ok": False, "open_loaded": 0, "degraded": True}

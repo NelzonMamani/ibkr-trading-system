@@ -9,7 +9,7 @@ from core.active_trade_registry import ActiveTrade, ActiveTradeRegistry  # noqa:
 from core.event_collector import EventCollector  # noqa: E402
 from core.stop_controller import StopController  # noqa: E402
 from execution.execution_engine import ExecutionEngine  # noqa: E402
-from execution.execution_providers import PositionSnapshot  # noqa: E402
+from execution.execution_providers import OrderSnapshot, PositionSnapshot  # noqa: E402
 from models.execution_result import ExecutionResult  # noqa: E402
 from risk.risk_engine import RiskEngine  # noqa: E402
 from strategies.strategy_contracts import (  # noqa: E402
@@ -22,8 +22,9 @@ from strategies.strategy_contracts import (  # noqa: E402
 
 
 class _StartupRecoveryProvider:
-    def __init__(self, positions: list[object]):
+    def __init__(self, positions: list[object], orders: list[object] | None = None):
         self._positions = positions
+        self._orders = list(orders or [])
 
     def name(self) -> str:
         return "STARTUP_RECOVERY_PROVIDER"
@@ -41,7 +42,7 @@ class _StartupRecoveryProvider:
         return PositionSnapshot(positions=self._positions, as_of="2026-03-26T00:00:00+00:00")
 
     def get_open_orders(self) -> list:
-        return []
+        return list(self._orders)
 
 
 def _decision_without_stop(symbol: str = "AAPL"):
@@ -87,7 +88,18 @@ def test_startup_recovery_restores_protected_position_once() -> None:
             strategy_name="UnitTestStrategy",
             stop_loss_price=409.50,
         )
-        provider = _StartupRecoveryProvider([recovered])
+        provider = _StartupRecoveryProvider(
+            [recovered],
+            [
+                OrderSnapshot(
+                    order_id="STOP-MSFT",
+                    symbol="MSFT",
+                    status="Submitted",
+                    order_type="STP",
+                    metadata={"stop_price": 409.50, "quantity": 3, "trade_id": "recovery:MSFT"},
+                )
+            ],
+        )
         _ = ExecutionEngine(
             provider=provider,
             trade_registry=registry,

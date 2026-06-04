@@ -1266,12 +1266,37 @@ class SQLiteStore:
         *,
         status: str | None = None,
         symbol: str | None = None,
+        open_only: bool = False,
     ) -> list[dict[str, Any]]:
         query = "SELECT * FROM trade_lifecycle_trades WHERE run_id = ?"
         params: list[Any] = [run_id]
+        if open_only:
+            query += (
+                " AND status IN ("
+                "'OPEN', 'PARTIALLY_CLOSED', 'DRIFTED', 'PARTIALLY_FILLED', "
+                "'PROTECTION_PENDING', 'PROTECTED', 'TARGET_ACTIVE'"
+                ") AND COALESCE(quantity_open, 0) > 0"
+            )
         if status:
             query += " AND status = ?"
             params.append(status)
+        if symbol:
+            query += " AND symbol = ?"
+            params.append(symbol)
+        query += " ORDER BY opened_at ASC, lifecycle_trade_id ASC"
+        cursor = self.connection.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
+
+    def fetch_open_trade_lifecycle_trades(self, *, symbol: str | None = None) -> list[dict[str, Any]]:
+        query = """
+            SELECT * FROM trade_lifecycle_trades
+            WHERE status IN (
+                'OPEN', 'PARTIALLY_CLOSED', 'DRIFTED', 'PARTIALLY_FILLED',
+                'PROTECTION_PENDING', 'PROTECTED', 'TARGET_ACTIVE'
+            )
+            AND COALESCE(quantity_open, 0) > 0
+        """
+        params: list[Any] = []
         if symbol:
             query += " AND symbol = ?"
             params.append(symbol)

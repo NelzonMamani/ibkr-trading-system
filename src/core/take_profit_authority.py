@@ -456,6 +456,102 @@ class TakeProfitAuthority:
         )
         return updated
 
+    def restore_submitted_target(
+        self,
+        *,
+        trade_id: str,
+        symbol: str,
+        side: str,
+        target_price: float,
+        target_quantity: int,
+        live_position_quantity: int,
+        source_strategy: str,
+        broker_order_id: str,
+        target_stage: str = "PRIMARY",
+        target_type: TakeProfitTargetType = TakeProfitTargetType.FIXED_PRICE,
+        rationale: str | None = None,
+    ) -> TakeProfitDecision:
+        normalized_trade_id = str(trade_id or "").strip()
+        symbol_u = str(symbol or "").upper()
+        side_u = self._normalize_side(side)
+        stage_u = str(target_stage or "PRIMARY").upper()
+        live_qty = max(int(live_position_quantity or 0), 0)
+        target_qty = max(int(target_quantity or 0), 0)
+        order_id = str(broker_order_id or "").strip()
+        if not normalized_trade_id or not symbol_u or not order_id:
+            return self._rejected(
+                trade_id=normalized_trade_id,
+                symbol=symbol_u,
+                side=side_u,
+                target_type=target_type,
+                live_position_quantity=live_qty,
+                source_strategy=source_strategy,
+                target_stage=stage_u,
+                reason_code="TARGET_CONTEXT_MISSING",
+                rationale="Restored take-profit target requires trade_id, symbol, and broker_order_id.",
+            )
+        if live_qty <= 0 or target_qty <= 0 or target_qty > live_qty:
+            return self._rejected(
+                trade_id=normalized_trade_id,
+                symbol=symbol_u,
+                side=side_u,
+                target_type=target_type,
+                live_position_quantity=live_qty,
+                source_strategy=source_strategy,
+                target_stage=stage_u,
+                reason_code="INVALID_RESTORED_TARGET_QUANTITY",
+                rationale="Restored take-profit target quantity must fit the live broker position.",
+            )
+        slice_key = (normalized_trade_id, stage_u)
+        duplicate_target_id = self._active_target_by_slice.get(slice_key)
+        if duplicate_target_id:
+            duplicate = self._targets.get(duplicate_target_id)
+            if duplicate and TakeProfitDecisionStatus(duplicate.status) not in TERMINAL_TARGET_STATUSES:
+                if str(duplicate.broker_order_id or "") == order_id:
+                    return duplicate
+                return self._rejected(
+                    trade_id=normalized_trade_id,
+                    symbol=symbol_u,
+                    side=side_u,
+                    target_type=target_type,
+                    live_position_quantity=live_qty,
+                    source_strategy=source_strategy,
+                    target_stage=stage_u,
+                    reason_code="DUPLICATE_TARGET_SLICE",
+                    rationale=f"Active take-profit target already exists for slice {stage_u}.",
+                )
+
+        target_id = f"TP-RESTORED-{uuid4()}"
+        decision = TakeProfitDecision(
+            accepted=True,
+            decision_id=str(uuid4()),
+            target_id=target_id,
+            trade_id=normalized_trade_id,
+            symbol=symbol_u,
+            side=side_u,
+            target_type=target_type.value,
+            status=TakeProfitDecisionStatus.SUBMITTED.value,
+            target_price=float(target_price),
+            target_quantity=target_qty,
+            live_position_quantity=live_qty,
+            remaining_position_quantity=max(live_qty - target_qty, 0),
+            source_strategy=str(source_strategy or "UNKNOWN"),
+            reason_code="TAKE_PROFIT_RESTORED",
+            rationale=rationale or f"Restored broker take-profit order_id={order_id}.",
+            lifecycle_event="TAKE_PROFIT_SUBMITTED",
+            target_stage=stage_u,
+            broker_order_id=order_id,
+            filled_target_quantity=0,
+            remaining_target_quantity=target_qty,
+        )
+        self._targets[target_id] = decision
+        self._active_target_by_slice[slice_key] = target_id
+        print(
+            "[TAKE_PROFIT][RESTORE] "
+            f"trade_id={decision.trade_id} symbol={decision.symbol} target_id={target_id} order_id={order_id}"
+        )
+        return decision
+
     def mark_cancelled(self, *, target_id: str, reason: str) -> TakeProfitDecision:
         existing = self._require_target(target_id)
         updated = self._replace_decision(

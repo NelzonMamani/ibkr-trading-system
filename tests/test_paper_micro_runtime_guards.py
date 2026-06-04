@@ -15,6 +15,7 @@ from core.event_collector import EventCollector
 from core.orchestrator import CoreOrchestrator
 from core.stop_controller import StopController
 from execution.execution_engine import ExecutionEngine
+from src.execution.startup_recovery_authority import RecoveryState, StartupRecoveryResult
 from config.runtime_config import RunMode
 from models.data_models import RiskDecision
 from sim.price_feed import DeterministicPriceFeed
@@ -56,6 +57,15 @@ def test_execution_engine_clamps_micro_risk_profile_to_one_share(capsys) -> None
     assert "[RISK][MICRO_CLAMP]" in out
 
 
+def _stub_startup_recovery_complete(orchestrator: CoreOrchestrator) -> None:
+    orchestrator.execution_engine.startup_recovery_state = RecoveryState.RECOVERY_COMPLETE
+    orchestrator.execution_engine.startup_recovery_result = StartupRecoveryResult(
+        state=RecoveryState.RECOVERY_COMPLETE,
+        reason="TEST_RECOVERY_COMPLETE",
+    )
+    orchestrator.execution_engine._failsafe_block_new_entries = False
+
+
 @pytest.mark.parametrize(
     ("mode", "expected_connect_calls", "expected_log"),
     [
@@ -81,6 +91,8 @@ def test_run_mode_connectivity_path_enforcement(
     )
 
     orchestrator = CoreOrchestrator()
+    if mode in {"PAPER", "LIVE"}:
+        _stub_startup_recovery_complete(orchestrator)
     connect_calls = {"count": 0}
 
     def _record_connect():

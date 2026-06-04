@@ -261,7 +261,7 @@ class PostFillLifecycleEngine:
         return str(status or "").upper() in {"CANCELLED", "CANCELED"}
 
     @staticmethod
-    def _order_fields(order: Any) -> dict[str, str]:
+    def _order_fields(order: Any) -> dict[str, Any]:
         if isinstance(order, dict):
             order_obj = order
             order_state = order
@@ -299,11 +299,35 @@ class PostFillLifecycleEngine:
             or ""
         ).upper()
         order_ref = str(getattr(order_obj, "orderRef", None) or (order_obj.get("order_ref") if isinstance(order_obj, dict) else "") or "")
+        parent_order_id = str(
+            getattr(order_obj, "parentId", None)
+            or getattr(order, "parent_order_id", None)
+            or (order_obj.get("parentId") if isinstance(order_obj, dict) else "")
+            or (order.get("parent_order_id") if isinstance(order, dict) else "")
+            or ""
+        )
         metadata = {}
         if isinstance(order, dict):
             metadata = order.get("metadata") or {}
         else:
             metadata = getattr(order, "metadata", {}) or {}
+        if not order_ref:
+            order_ref = str(metadata.get("order_ref") or "")
+        action = str(
+            getattr(order_obj, "action", None)
+            or getattr(order, "side", None)
+            or (order_obj.get("action") if isinstance(order_obj, dict) else "")
+            or (order.get("side") if isinstance(order, dict) else "")
+            or metadata.get("side")
+            or ""
+        ).upper()
+        quantity = (
+            getattr(order_obj, "totalQuantity", None)
+            or getattr(order, "quantity", None)
+            or (order_obj.get("totalQuantity") if isinstance(order_obj, dict) else None)
+            or (order.get("quantity") if isinstance(order, dict) else None)
+            or metadata.get("quantity")
+        )
         stop_price = (
             getattr(order_obj, "auxPrice", None)
             or getattr(order, "stop_price", None)
@@ -311,14 +335,123 @@ class PostFillLifecycleEngine:
             or (order.get("stop_price") if isinstance(order, dict) else None)
             or metadata.get("stop_price")
         )
+        limit_price = (
+            getattr(order_obj, "lmtPrice", None)
+            or getattr(order, "limit_price", None)
+            or (order_obj.get("lmtPrice") if isinstance(order_obj, dict) else None)
+            or (order.get("limit_price") if isinstance(order, dict) else None)
+            or metadata.get("limit_price")
+        )
+        trade_id = str(
+            getattr(order, "trade_id", None)
+            or (order.get("trade_id") if isinstance(order, dict) else "")
+            or metadata.get("trade_id")
+            or ""
+        )
         return {
             "order_id": order_id,
             "symbol": symbol,
             "order_type": order_type,
             "status": status,
             "order_ref": order_ref,
+            "parent_order_id": parent_order_id,
+            "side": action,
+            "quantity": quantity,
             "stop_price": stop_price,
+            "limit_price": limit_price,
+            "trade_id": trade_id,
         }
+
+    @staticmethod
+    def _float_or_none(value: Any) -> float | None:
+        if value is None or value == "":
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _int_or_none(value: Any) -> int | None:
+        if value is None or value == "":
+            return None
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _position_symbol(position: Any) -> str:
+        symbol = str(getattr(position, "symbol", "") or "").upper()
+        if symbol:
+            return symbol
+        contract = getattr(position, "contract", None)
+        return str(getattr(contract, "symbol", "") or "").upper()
+
+    @staticmethod
+    def _position_quantity(position: Any) -> int:
+        value = getattr(position, "quantity", None)
+        if value is None:
+            value = getattr(position, "position", None)
+        return abs(int(value or 0))
+
+    @staticmethod
+    def _position_side(position: Any) -> str:
+        direction = str(getattr(position, "direction", "") or "").upper()
+        if direction:
+            return "SHORT" if direction in {"SELL", "SHORT"} else "LONG"
+        value = getattr(position, "quantity", None)
+        if value is None:
+            value = getattr(position, "position", 0)
+        return "SHORT" if float(value or 0) < 0 else "LONG"
+
+    @staticmethod
+    def _position_entry_price(position: Any) -> float:
+        value = getattr(position, "entry_price", None)
+        if value is None:
+            value = getattr(position, "avg_entry_price", None)
+        if value is None:
+            value = getattr(position, "avgCost", None)
+        return float(value or 0.0)
+
+    @staticmethod
+    def _order_type_matches(order_type: str, candidates: set[str]) -> bool:
+        normalized = str(order_type or "").upper().replace(" ", "")
+        return normalized in {candidate.replace(" ", "") for candidate in candidates}
+
+    @staticmethod
+    def _order_ref_matches_trade(row: dict[str, Any], trade_id: str) -> bool:
+        trade_id_s = str(trade_id or "")
+        return trade_id_s and (
+            str(row.get("trade_id") or "") == trade_id_s
+            or str(row.get("parent_order_id") or "") == trade_id_s
+            or trade_id_s in str(row.get("order_ref") or "")
+        )
+
+    def _match_broker_order(
+        self,
+        *,
+        normalized_orders: list[dict[str, Any]],
+        symbol: str,
+        trade_id: str,
+        order_types: set[str],
+    ) -> dict[str, Any] | None:
+        symbol_u = str(symbol or "").upper()
+        candidates = [
+            row
+            for row in normalized_orders
+            if row.get("order_id")
+            and str(row.get("symbol") or "").upper() == symbol_u
+            and not self._is_filled_status(row.get("status"))
+            and not self._is_cancelled_status(row.get("status"))
+            and self._order_type_matches(str(row.get("order_type") or ""), order_types)
+        ]
+        exact = [row for row in candidates if self._order_ref_matches_trade(row, trade_id)]
+        if exact:
+            return exact[0]
+        if len(candidates) == 1:
+            return candidates[0]
+        return None
 
     def _transition(self, trade: ManagedTradeLifecycle, target: PositionLifecycleState, reason: str) -> bool:
         if trade.state == target:
@@ -1528,7 +1661,13 @@ class PostFillLifecycleEngine:
             assert trade.exit_fill_time is not None, "exit_fill_time required before EXITED"
             self._update_in_memory_state()
 
-    def startup_safe_state(self, broker_positions: list[Any], broker_orders: list[Any]) -> dict[str, Any]:
+    def startup_safe_state(
+        self,
+        broker_positions: list[Any],
+        broker_orders: list[Any],
+        *,
+        lifecycle_trades: list[Any] | None = None,
+    ) -> dict[str, Any]:
         print("[STARTUP][SAFE_STATE][BEGIN]")
         print(f"[STARTUP][SAFE_STATE][POSITIONS_FOUND] count={len(broker_positions)}")
         print(f"[STARTUP][SAFE_STATE][ORDERS_FOUND] count={len(broker_orders)}")
@@ -1536,58 +1675,170 @@ class PostFillLifecycleEngine:
         print(f"[RECOVERY][BROKER_POSITIONS] count={len(broker_positions)}")
         print(f"[RECOVERY][BROKER_ORDERS] count={len(broker_orders)}")
 
+        normalized_orders = [self._order_fields(order) for order in broker_orders]
+        lifecycle_by_symbol = {
+            str(getattr(trade, "symbol", "") or "").upper(): trade
+            for trade in (lifecycle_trades or [])
+            if str(getattr(trade, "symbol", "") or "").strip()
+        }
         recovered = 0
         recovery_pending = 0
+        stop_adopted = 0
+        target_reconstructed = 0
         for position in broker_positions:
-            symbol = str(getattr(position, "symbol", "") or "").upper()
-            qty = int(getattr(position, "quantity", 0) or 0)
+            symbol = self._position_symbol(position)
+            qty = self._position_quantity(position)
             if not symbol or qty <= 0:
                 continue
+            lifecycle = lifecycle_by_symbol.get(symbol)
+            trade_id = str(getattr(lifecycle, "lifecycle_trade_id", "") or f"recovery:{symbol}")
+            side = self._position_side(position)
+            strategy_id = str(
+                getattr(position, "strategy_name", None)
+                or (getattr(lifecycle, "strategy_name", None) if lifecycle is not None else None)
+                or "RECOVERY"
+            )
+            entry_price = self._position_entry_price(position)
+            if entry_price <= 0.0 and lifecycle is not None:
+                entry_price = float(getattr(lifecycle, "entry_avg_price", 0.0) or 0.0)
+
+            stop_order = self._match_broker_order(
+                normalized_orders=normalized_orders,
+                symbol=symbol,
+                trade_id=trade_id,
+                order_types={"STP", "STOP", "STP LMT", "STPLMT"},
+            )
+            target_order = self._match_broker_order(
+                normalized_orders=normalized_orders,
+                symbol=symbol,
+                trade_id=trade_id,
+                order_types={"LMT", "LIMIT"},
+            )
+
             stop = getattr(position, "stop_loss_price", None)
-            trade_id = f"recovery:{symbol}"
+            if stop is None and lifecycle is not None:
+                stop = getattr(lifecycle, "stop_price", None)
+            if stop is None and stop_order is not None:
+                stop = stop_order.get("stop_price")
             if stop is None:
                 print(f"[RECOVERY][ORPHAN_POSITION] symbol={symbol} qty={qty}")
+                print(
+                    "[CRITICAL][UNPROTECTED_POSITION] "
+                    f"stage=startup_recovery symbol={symbol} quantity={qty}"
+                )
                 recovery_pending += 1
                 continue
             validate_stop_price(
-                side=str(getattr(position, "direction", "LONG") or "LONG").upper(),
+                side=side,
                 stop_price=float(stop),
-                entry_price=float(getattr(position, "entry_price", 0.0) or 0.0) or None,
+                entry_price=entry_price or None,
             )
+            stop_status = str(stop_order.get("status") or "RECOVERED") if stop_order else "REGISTERED"
+            stop_order_id = str(stop_order.get("order_id") or "") if stop_order else None
+            if stop_order_id:
+                stop_adopted += 1
+
+            target_meta: ProtectionOrderMeta | None = None
+            target_price = getattr(position, "take_profit_price", None)
+            if target_price is None and lifecycle is not None:
+                target_price = getattr(lifecycle, "target_price", None)
+            if target_price is None and target_order is not None:
+                target_price = target_order.get("limit_price")
+            target_quantity = 0
+            if lifecycle is not None:
+                target_quantity = int(getattr(lifecycle, "target_quantity", 0) or 0)
+            if target_quantity <= 0 and target_order is not None:
+                target_quantity = int(self._int_or_none(target_order.get("quantity")) or 0)
+            if target_quantity <= 0 and target_price is not None:
+                target_quantity = qty
+            target_stage = "PARTIAL_1" if 0 < target_quantity < qty else "FULL"
+            target_event: tuple[str, dict[str, Any]] | None = None
+
+            if target_price is not None and target_quantity > 0:
+                if target_order is not None and target_order.get("order_id"):
+                    target_decision = self.take_profit_authority.restore_submitted_target(
+                        trade_id=trade_id,
+                        symbol=symbol,
+                        side=side,
+                        target_price=float(target_price),
+                        target_quantity=min(int(target_quantity), qty),
+                        live_position_quantity=qty,
+                        source_strategy=strategy_id,
+                        broker_order_id=str(target_order["order_id"]),
+                        target_stage=target_stage,
+                        rationale="startup recovery restored broker target order",
+                    )
+                else:
+                    target_decision = self.take_profit_authority.create_fixed_price_target(
+                        trade_id=trade_id,
+                        symbol=symbol,
+                        side=side,
+                        target_price=float(target_price),
+                        live_position_quantity=qty,
+                        source_strategy=strategy_id,
+                        target_stage=target_stage,
+                        quantity=min(int(target_quantity), qty),
+                        rationale="startup recovery restored stored target state",
+                    )
+                target_event = (target_decision.lifecycle_event, target_decision.to_audit_payload())
+                if target_decision.accepted and target_decision.target_id:
+                    target_reconstructed += 1
+                    target_meta = ProtectionOrderMeta(
+                        order_type="LIMIT",
+                        side=str(target_order.get("side") or "SELL") if target_order else "SELL",
+                        trigger_price=float(target_decision.target_price or target_price),
+                        broker_order_id=str(target_order.get("order_id") or "") if target_order else None,
+                        status=str(target_order.get("status") or target_decision.status) if target_order else target_decision.status,
+                        lifecycle_trade_id=trade_id,
+                        strategy_owner=strategy_id,
+                        entry_order_id=trade_id,
+                        entry_intent_id=trade_id,
+                        quantity=int(target_decision.target_quantity),
+                        target_id=target_decision.target_id,
+                        target_type=target_decision.target_type,
+                        target_stage=target_decision.target_stage,
+                        source_strategy=target_decision.source_strategy,
+                        rationale=target_decision.rationale,
+                    )
+                else:
+                    recovery_pending += 1
+
             trade = ManagedTradeLifecycle(
                 trade_id=trade_id,
                 symbol=symbol,
-                strategy_id=str(getattr(position, "strategy_name", "RECOVERY") or "RECOVERY"),
-                side=str(getattr(position, "direction", "LONG") or "LONG").upper(),
+                strategy_id=strategy_id,
+                side=side,
                 run_mode=self.run_mode,
                 session_label="startup_recovery",
                 intended_qty=qty,
                 filled_qty=qty,
-                avg_fill_price=float(getattr(position, "entry_price", 0.0) or 0.0),
+                avg_fill_price=entry_price,
                 stop=ProtectionOrderMeta(
                     order_type="STOP",
                     side="SELL",
                     trigger_price=float(stop),
+                    broker_order_id=stop_order_id,
+                    status=stop_status,
                     lifecycle_trade_id=trade_id,
-                    strategy_owner=str(getattr(position, "strategy_name", "RECOVERY") or "RECOVERY"),
+                    strategy_owner=strategy_id,
                     entry_order_id=trade_id,
                     entry_intent_id=trade_id,
                     pending_intent_id=f"startup-stop:{trade_id}",
+                    quantity=qty,
                 ),
-                target=(
-                    ProtectionOrderMeta(order_type="LIMIT", side="SELL", trigger_price=float(getattr(position, "take_profit_price")))
-                    if getattr(position, "take_profit_price", None) is not None
-                    else None
-                ),
-                state=PositionLifecycleState.RECOVERED,
+                target=target_meta,
+                state=PositionLifecycleState.TARGET_ACTIVE if target_meta is not None else PositionLifecycleState.RECOVERED,
                 last_recovery_status=StopRecoveryClassification.STOP_RECOVERED.value,
-                high_water_mark=float(getattr(position, "entry_price", 0.0) or 0.0),
+                high_water_mark=entry_price,
             )
             self._trades[trade_id] = trade
+            if target_event is not None:
+                self._record_take_profit_event(trade, target_event[0], target_event[1])
             self._record_stop_event(
                 trade,
                 StopAuditEventType.STOP_RECOVERY_RESULT,
                 stop_price=trade.stop.trigger_price if trade.stop else None,
+                active_stop_order_id=trade.stop.broker_order_id if trade.stop else None,
                 pending_stop_order_intent=trade.stop.pending_intent_id if trade.stop else None,
                 status=trade.stop.status if trade.stop else None,
                 reason="startup_recovery_position_with_stop",
@@ -1608,15 +1859,22 @@ class PostFillLifecycleEngine:
                 if self._repair_missing_stop(trade, "startup_missing_stop"):
                     startup_repaired += 1
 
-        print(f"[RECOVERY][SUMMARY] recovered={recovered} pending={recovery_pending}")
+        print(
+            "[RECOVERY][SUMMARY] "
+            f"recovered={recovered} pending={recovery_pending} "
+            f"stop_adopted={stop_adopted} target_reconstructed={target_reconstructed}"
+        )
         decision = "READY" if self.run_mode in {"SIM", "READ_ONLY"} or recovery_pending == 0 else "QUARANTINE"
         print(f"[STARTUP][SAFE_STATE][DECISION] action={decision}")
-        print("[STARTUP][SAFE_STATE][READY]")
+        if decision == "READY":
+            print("[STARTUP][SAFE_STATE][READY]")
         return {
             "recovered": recovered,
             "recovery_pending": recovery_pending,
             "decision": decision,
             "startup_repaired": startup_repaired,
+            "stop_adopted": stop_adopted,
+            "target_reconstructed": target_reconstructed,
         }
 
     def get_trade(self, trade_id: str) -> ManagedTradeLifecycle | None:

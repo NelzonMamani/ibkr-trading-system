@@ -301,23 +301,52 @@ class IbkrExecutionProvider(ExecutionProvider):
 
     def get_positions(self) -> PositionSnapshot:
         timestamp = datetime.now(timezone.utc).isoformat()
-        return PositionSnapshot(positions=self.trade_registry.snapshot(), as_of=timestamp)
+        try:
+            if hasattr(self.broker, "positions"):
+                rows = self.broker.positions()
+            else:
+                connection_manager = getattr(self.broker, "connection_manager", None)
+                if connection_manager is None:
+                    raise RuntimeError("IBKR broker positions interface unavailable")
+                client = connection_manager.get_client()
+                rows = client.positions()
+        except Exception as exc:
+            print(f"[IBKR][POSITIONS][ERROR] reason={exc}")
+            raise
+        return PositionSnapshot(positions=list(rows), as_of=timestamp)
 
     def get_open_orders(self) -> List[OrderSnapshot]:
         try:
             rows = self.broker.open_orders()
         except Exception as exc:
             print(f"[IBKR][OPEN_ORDERS][ERROR] reason={exc}")
-            return []
+            raise
         snapshots: list[OrderSnapshot] = []
         for row in rows:
             contract = getattr(row, "contract", None)
+            order = getattr(row, "order", None)
             order_state = getattr(row, "orderState", None)
+            order_ref = str(getattr(order, "orderRef", "") or "")
+            trade_id = order_ref.split("|", 1)[1] if order_ref.startswith("PROTECT|") else ""
             snapshots.append(
                 OrderSnapshot(
                     order_id=str(getattr(row, "orderId", "")),
                     symbol=str(getattr(contract, "symbol", "") or "").upper(),
                     status=str(getattr(order_state, "status", "") or ""),
+                    order_type=str(getattr(order, "orderType", "") or ""),
+                    parent_order_id=(
+                        str(getattr(order, "parentId"))
+                        if getattr(order, "parentId", None) not in {None, 0, ""}
+                        else None
+                    ),
+                    metadata={
+                        "side": str(getattr(order, "action", "") or ""),
+                        "quantity": int(getattr(order, "totalQuantity", 0) or 0),
+                        "stop_price": getattr(order, "auxPrice", None),
+                        "limit_price": getattr(order, "lmtPrice", None),
+                        "trade_id": trade_id,
+                        "order_ref": order_ref,
+                    },
                 )
             )
         return snapshots

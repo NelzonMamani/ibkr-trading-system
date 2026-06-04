@@ -399,13 +399,17 @@ class StorageEngine:
         run_id: str | None = None,
         status: str | None = None,
         symbol: str | None = None,
+        open_only: bool = False,
     ) -> list[dict[str, Any]]:
         if not self.enabled or self.backend != "sqlite" or not self._store:
             return []
+        if open_only and run_id is None:
+            return self._store.fetch_open_trade_lifecycle_trades(symbol=symbol)
         return self._store.fetch_trade_lifecycle_trades(
             run_id or self.run_id,
             status=status,
             symbol=symbol,
+            open_only=open_only,
         )
 
     def fetch_trade_lifecycle_events(
