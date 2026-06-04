@@ -48,10 +48,41 @@ def test_valid_long_tightening_is_approved() -> None:
 
 
 def test_valid_short_tightening_is_approved() -> None:
-    decision = _decision(side="SHORT", current_stop_price=101.0, proposed_stop_price=100.5)
+    decision = _decision(
+        side="SHORT",
+        current_stop_price=101.0,
+        proposed_stop_price=100.5,
+        trigger_price=99.0,
+        reference_price=99.0,
+    )
 
     assert decision.status == TrailingStopDecisionStatus.APPROVED
     assert decision.is_tightening is True
+
+
+def test_long_stale_high_water_candidate_above_current_price_is_rejected() -> None:
+    decision = _decision(
+        current_stop_price=100.0,
+        proposed_stop_price=109.17,
+        trigger_price=102.0,
+        reference_price=110.0,
+    )
+
+    assert decision.status == TrailingStopDecisionStatus.REJECTED
+    assert decision.reason == "STOP_CROSSES_MARKET"
+
+
+def test_short_stale_low_water_candidate_below_current_price_is_rejected() -> None:
+    decision = _decision(
+        side="SHORT",
+        current_stop_price=100.0,
+        proposed_stop_price=95.0,
+        trigger_price=98.0,
+        reference_price=94.0,
+    )
+
+    assert decision.status == TrailingStopDecisionStatus.REJECTED
+    assert decision.reason == "STOP_CROSSES_MARKET"
 
 
 def test_quantity_cannot_exceed_remaining_position_quantity() -> None:
