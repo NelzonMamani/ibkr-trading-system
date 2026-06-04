@@ -2,6 +2,16 @@ from __future__ import annotations
 
 from src.config.config_resolver import set_config_overrides
 from src.core.orchestrator import CoreOrchestrator
+from src.execution.startup_recovery_authority import RecoveryState, StartupRecoveryResult
+
+
+def _stub_startup_recovery_complete(orchestrator: CoreOrchestrator) -> None:
+    orchestrator.execution_engine.startup_recovery_state = RecoveryState.RECOVERY_COMPLETE
+    orchestrator.execution_engine.startup_recovery_result = StartupRecoveryResult(
+        state=RecoveryState.RECOVERY_COMPLETE,
+        reason="TEST_RECOVERY_COMPLETE",
+    )
+    orchestrator.execution_engine._failsafe_block_new_entries = False
 
 
 def test_orchestrator_emits_regime_snapshot(tmp_path):
@@ -15,6 +25,7 @@ def test_orchestrator_emits_regime_snapshot(tmp_path):
     set_config_overrides(overrides)
     try:
         orchestrator = CoreOrchestrator()
+        _stub_startup_recovery_complete(orchestrator)
         assert orchestrator.run_once() is True
         events = orchestrator.event_collector.snapshot_cycle()
         assert any(event.event_type == "REGIME_SNAPSHOT" for event in events)

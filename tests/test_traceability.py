@@ -6,6 +6,7 @@ import pytest
 from src.config.config_resolver import set_config_overrides
 from src.core.orchestrator import CoreOrchestrator
 from src.core.stop_controller import StopMode
+from src.execution.startup_recovery_authority import RecoveryState, StartupRecoveryResult
 from src.scanner.providers.base import ProviderConnectionError
 from src.strategies.ross_momentum.strategy_policy import StockSelectionSpec
 from src.strategies.statistical_intraday_momentum.strategy_policy import (
@@ -24,6 +25,15 @@ def _halt_metadata(record: dict) -> dict:
     return record
 
 
+def _stub_startup_recovery_complete(orchestrator: CoreOrchestrator) -> None:
+    orchestrator.execution_engine.startup_recovery_state = RecoveryState.RECOVERY_COMPLETE
+    orchestrator.execution_engine.startup_recovery_result = StartupRecoveryResult(
+        state=RecoveryState.RECOVERY_COMPLETE,
+        reason="TEST_RECOVERY_COMPLETE",
+    )
+    orchestrator.execution_engine._failsafe_block_new_entries = False
+
+
 @pytest.fixture(autouse=True)
 def _cleanup_overrides():
     yield
@@ -40,6 +50,7 @@ def test_trace_event_order_sim(monkeypatch, tmp_path):
     )
 
     orchestrator = CoreOrchestrator()
+    _stub_startup_recovery_complete(orchestrator)
     assert orchestrator.run_once() is True
 
     log_files = list(tmp_path.glob("trace_*.jsonl"))

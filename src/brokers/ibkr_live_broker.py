@@ -579,3 +579,9 @@ class IbkrLiveBroker(BaseBroker):
         assert self.connection_manager is not None
         client = self.connection_manager.get_client()
         return list(client.openOrders())
+
+    def positions(self) -> list[object]:
+        self.ensure_connection()
+        assert self.connection_manager is not None
+        client = self.connection_manager.get_client()
+        return list(client.positions())
