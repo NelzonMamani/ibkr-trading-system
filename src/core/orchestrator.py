@@ -39,6 +39,10 @@ from src.core.engines.position_management_engine import ManagedPosition, Positio
 from src.core.engines.trade_lifecycle_engine import LifecycleEvent, TradeLifecycleEngine
 from src.core.portfolio import BrokerPositionSnapshotAdapter, PortfolioArbitrator, PortfolioState
 from src.core.event_collector import EventCollector
+from src.core.strategy_arbitration_authority import (
+    StrategyArbitrationAuthority,
+    StrategyArbitrationDecision,
+)
 from src.data.fundamentals.float_provider import FloatProvider
 from src.data.manual_focus_loader import ManualFocusConfig
 from src.core.faults import (
@@ -384,6 +388,9 @@ class CoreOrchestrator:
             trade_registry=self.trade_registry,
             event_collector=self.event_collector,
             stop_controller=self.stop_controller,
+        )
+        self.strategy_arbitration_authority = StrategyArbitrationAuthority(
+            event_collector=self.event_collector,
         )
         self.portfolio_arbitrator = PortfolioArbitrator()
         if not self.execution_enabled:
@@ -2031,6 +2038,34 @@ class CoreOrchestrator:
             f"state={getattr(state, 'value', state)} reason={reason} action=BLOCK_TRADING"
         )
         return False
+
+    def _startup_recovery_complete_for_arbitration(self) -> bool:
+        checker = getattr(self.execution_engine, "startup_recovery_complete", None)
+        if callable(checker):
+            return bool(checker())
+        return True
+
+    def _apply_p9_strategy_arbitration(
+        self,
+        intents: List[TradeIntent],
+    ) -> tuple[List[TradeIntent], StrategyArbitrationDecision]:
+        decision = self.strategy_arbitration_authority.arbitrate(
+            intents,
+            run_mode=self.run_mode.value,
+            now=datetime.now(timezone.utc),
+            recovery_complete=self._startup_recovery_complete_for_arbitration(),
+            audit_payload={
+                "cycle_id": self._ensure_cycle_id(),
+                "authority": "P9_STRATEGY_ARBITRATION",
+            },
+        )
+        selected_ids = set(decision.selected_intent_ids)
+        selected_intents = [
+            intent
+            for intent in intents
+            if str(getattr(intent, "intent_id", "") or "") in selected_ids
+        ]
+        return selected_intents, decision
 
     @staticmethod
     def _mock_scanner_mode_enabled() -> bool:
@@ -4020,6 +4055,18 @@ class CoreOrchestrator:
                         "policy": e22_artifact.policy,
                     },
                 )
+            strategy_output, p9_decision = self._apply_p9_strategy_arbitration(strategy_output)
+            self._record_decision_trace_stage(
+                "P9_ARBITRATION",
+                strategy_output,
+                {
+                    "count": len(strategy_output),
+                    "authority": "StrategyArbitrationAuthority",
+                    "arbitration_id": p9_decision.arbitration_id,
+                    "rejected_count": len(p9_decision.rejected_intents),
+                    "status": p9_decision.status.value,
+                },
+            )
         except Exception as exc:
             self._evaluate_runtime_safety(
                 cycle_stage="INTENT_NORMALISATION",
