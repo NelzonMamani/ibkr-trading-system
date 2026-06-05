@@ -269,24 +269,27 @@ class ExecutionEngine:
         strategy_exposure = 0.0
         strategy_open_positions = 0
         current_symbol_position_exists = False
-        lifecycle_trades: list[object] = []
-        if self._trade_lifecycle_engine is not None:
-            getter = getattr(self._trade_lifecycle_engine, "get_open_lifecycle_trades", None)
-            if callable(getter):
-                lifecycle_trades = list(getter() or [])
+        injected_lifecycle_trades, post_fill_lifecycle_trades = self._strategy_allocation_lifecycle_sources()
+        lifecycle_trades = injected_lifecycle_trades or post_fill_lifecycle_trades
         if lifecycle_trades:
             for trade in lifecycle_trades:
-                trade_strategy = str(getattr(trade, "strategy_name", "") or "UNKNOWN").upper()
+                trade_strategy = self._lifecycle_trade_strategy_id(trade)
                 if trade_strategy != strategy_id:
                     continue
-                qty = int(getattr(trade, "quantity_open", 0) or 0)
-                price = float(getattr(trade, "entry_avg_price", 0.0) or 0.0)
+                qty = self._lifecycle_trade_open_quantity(trade)
+                price = self._lifecycle_trade_entry_price(trade)
                 if qty <= 0:
                     continue
                 strategy_open_positions += 1
                 strategy_exposure += float(qty) * price
                 if str(getattr(trade, "symbol", "") or "").upper() == symbol:
                     current_symbol_position_exists = True
+            if not current_symbol_position_exists:
+                current_symbol_position_exists = self._lifecycle_sources_have_symbol_position(
+                    strategy_id,
+                    symbol,
+                    injected_lifecycle_trades + post_fill_lifecycle_trades,
+                )
         else:
             for trade in self.trade_registry.snapshot():
                 trade_strategy = str(getattr(trade, "strategy_name", "") or "UNKNOWN").upper()
@@ -306,6 +309,68 @@ class ExecutionEngine:
             "current_symbol_position_exists": current_symbol_position_exists,
             "strategy_daily_trade_count": 0,
         }
+
+    def _strategy_allocation_lifecycle_sources(self) -> tuple[list[object], list[object]]:
+        injected_trades: list[object] = []
+        if self._trade_lifecycle_engine is not None:
+            getter = getattr(self._trade_lifecycle_engine, "get_open_lifecycle_trades", None)
+            if callable(getter):
+                injected_trades = list(getter() or [])
+
+        return injected_trades, self._post_fill_lifecycle_open_trades()
+
+    def _lifecycle_sources_have_symbol_position(
+        self,
+        strategy_id: str,
+        symbol: str,
+        lifecycle_trades: list[object],
+    ) -> bool:
+        for trade in lifecycle_trades:
+            if self._lifecycle_trade_strategy_id(trade) != strategy_id:
+                continue
+            if self._lifecycle_trade_open_quantity(trade) <= 0:
+                continue
+            if str(getattr(trade, "symbol", "") or "").upper() == symbol:
+                return True
+        return False
+
+    def _post_fill_lifecycle_open_trades(self) -> list[object]:
+        trades = list(getattr(self.post_fill_lifecycle, "_trades", {}).values())
+        return [trade for trade in trades if self._is_open_lifecycle_trade(trade)]
+
+    @staticmethod
+    def _lifecycle_trade_strategy_id(trade: object) -> str:
+        return str(
+            getattr(trade, "strategy_name", None)
+            or getattr(trade, "strategy_id", None)
+            or "UNKNOWN"
+        ).upper()
+
+    @staticmethod
+    def _lifecycle_trade_open_quantity(trade: object) -> int:
+        quantity_open = getattr(trade, "quantity_open", None)
+        if quantity_open is not None:
+            return int(quantity_open or 0)
+        filled_qty = int(getattr(trade, "filled_qty", 0) or 0)
+        exited_qty = int(getattr(trade, "exited_qty", 0) or 0)
+        return max(0, filled_qty - exited_qty)
+
+    @staticmethod
+    def _lifecycle_trade_entry_price(trade: object) -> float:
+        return float(
+            getattr(trade, "entry_avg_price", None)
+            or getattr(trade, "avg_fill_price", None)
+            or getattr(trade, "entry_price", 0.0)
+            or 0.0
+        )
+
+    @classmethod
+    def _is_open_lifecycle_trade(cls, trade: object) -> bool:
+        state = getattr(trade, "state", None)
+        state_value = str(getattr(state, "value", state) or "").upper()
+        if state_value in {"EXITED", "LIFECYCLE_FAILURE", "CLOSED"}:
+            return False
+        return cls._lifecycle_trade_open_quantity(trade) > 0
 
     def _capital_admission_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
         direction = str(getattr(risk_decision, "direction", "") or "").upper()
