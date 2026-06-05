@@ -36,6 +36,7 @@ def _live_execution_config() -> None:
             "LIFECYCLE_MAX_POSITION_EXPOSURE": 1_500.0,
             "LIFECYCLE_MAX_PORTFOLIO_EXPOSURE": 5_000.0,
             "RISK_MAX_TOTAL_EXPOSURE_PCT": 50.0,
+            "STRATEGY_CAPITAL_DEFAULT_ALLOCATION_PCT": 1.0,
         }
     )
     yield

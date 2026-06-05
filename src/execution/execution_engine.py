@@ -19,6 +19,10 @@ from src.config.runtime_config import (
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.capital_management_authority import CapitalDecision, CapitalManagementAuthority
 from src.core.event_collector import EventCollector
+from src.core.strategy_capital_allocation_authority import (
+    StrategyAllocationDecision,
+    StrategyCapitalAllocationAuthority,
+)
 from src.core.stop_controller import StopController
 from src.core.stop_loss_authority import StopAuthorityError, validate_stop_price
 from src.core.managers.runtime_mode_manager import RuntimeModeManager
@@ -57,6 +61,7 @@ class ExecutionEngine:
         trade_lifecycle_engine: Optional[object] = None,
         storage_engine: Optional[object] = None,
         capital_authority: Optional[CapitalManagementAuthority] = None,
+        strategy_allocation_authority: Optional[StrategyCapitalAllocationAuthority] = None,
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
         self.run_mode: RunMode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
@@ -96,7 +101,15 @@ class ExecutionEngine:
             run_mode=self.run_mode.value,
             storage_engine=storage_engine,
         )
+        self.strategy_allocation_authority = (
+            strategy_allocation_authority
+            or StrategyCapitalAllocationAuthority(
+                run_mode=self.run_mode.value,
+                storage_engine=storage_engine,
+            )
+        )
         self._capital_decisions_by_order_id: dict[str, str] = {}
+        self._strategy_allocation_decisions_by_order_id: dict[str, str] = {}
         self.provider: Optional[ExecutionProvider] = self._provider
         self.broker = getattr(self._provider, "broker", None)
         self._recover_startup_state()
@@ -177,6 +190,7 @@ class ExecutionEngine:
                 lifecycle_trades = list(getter() or [])
         if not lifecycle_trades:
             lifecycle_trades = list(getattr(self.post_fill_lifecycle, "_trades", {}).values())
+        self.strategy_allocation_authority.recover_from_lifecycle(lifecycle_trades)
         self.capital_authority.recover_from_lifecycle(lifecycle_trades)
 
         broker_orders: list[object] = []
@@ -202,6 +216,161 @@ class ExecutionEngine:
         if hasattr(self.post_fill_lifecycle, "set_startup_recovery_complete"):
             self.post_fill_lifecycle.set_startup_recovery_complete(False)
         print(f"[CAPITAL][RECOVER] status=FAILED reason={reason}")
+
+    def _strategy_allocation_admission_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
+        direction = str(getattr(risk_decision, "direction", "") or "").upper()
+        if direction not in {"BUY", "LONG", "SHORT"}:
+            return None
+        account = self._capital_account_snapshot(risk_decision)
+        context = self._strategy_allocation_context(risk_decision)
+        requested_quantity = self._effective_quantity_from_risk_decision(risk_decision)
+        decision = self.strategy_allocation_authority.evaluate_entry(
+            run_mode=self.run_mode.value,
+            strategy_id=getattr(risk_decision, "strategy_name", None) or "UNKNOWN",
+            symbol=risk_decision.symbol,
+            side=direction,
+            requested_quantity=requested_quantity,
+            reference_price=float(getattr(risk_decision, "entry_price", 0.0) or 0.0),
+            available_capital=account.get("available_capital"),
+            account_equity=account.get("account_equity"),
+            current_strategy_exposure=context["current_strategy_exposure"],
+            current_strategy_open_positions=context["current_strategy_open_positions"],
+            current_symbol_position_exists=bool(context["current_symbol_position_exists"]),
+            strategy_daily_trade_count=context["strategy_daily_trade_count"],
+            recovery_complete=self.startup_recovery_complete(),
+            broker_truth_available=bool(account["broker_truth_available"]),
+            intent_id=getattr(risk_decision, "intent_id", None),
+            reserve=True,
+            audit_payload={
+                "risk_decision_id": getattr(risk_decision, "decision_id", None),
+                "intent_id": getattr(risk_decision, "intent_id", None),
+                "trader_type": getattr(risk_decision, "trader_type", None),
+            },
+        )
+        risk_decision.strategy_allocation_decision = decision
+        risk_decision.strategy_allocation_decision_id = decision.decision_id
+        if not decision.executable:
+            print(
+                "[STRATEGY_ALLOC][BLOCKED] "
+                f"strategy_id={decision.strategy_id} symbol={risk_decision.symbol} "
+                f"status={decision.status.value} reason={decision.reason}"
+            )
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale=f"STRATEGY_ALLOC_{decision.status.value}:{decision.reason}",
+            )
+        if decision.approved_quantity < int(getattr(risk_decision, "max_position_size", 0) or 0):
+            risk_decision.max_position_size = decision.approved_quantity
+        return None
+
+    def _strategy_allocation_context(self, risk_decision: RiskDecision) -> dict[str, float | int | bool]:
+        strategy_id = str(getattr(risk_decision, "strategy_name", "") or "UNKNOWN").upper()
+        symbol = str(getattr(risk_decision, "symbol", "") or "").upper()
+        strategy_exposure = 0.0
+        strategy_open_positions = 0
+        current_symbol_position_exists = False
+        injected_lifecycle_trades, post_fill_lifecycle_trades = self._strategy_allocation_lifecycle_sources()
+        lifecycle_trades = injected_lifecycle_trades or post_fill_lifecycle_trades
+        if lifecycle_trades:
+            for trade in lifecycle_trades:
+                trade_strategy = self._lifecycle_trade_strategy_id(trade)
+                if trade_strategy != strategy_id:
+                    continue
+                qty = self._lifecycle_trade_open_quantity(trade)
+                price = self._lifecycle_trade_entry_price(trade)
+                if qty <= 0:
+                    continue
+                strategy_open_positions += 1
+                strategy_exposure += float(qty) * price
+                if str(getattr(trade, "symbol", "") or "").upper() == symbol:
+                    current_symbol_position_exists = True
+            if not current_symbol_position_exists:
+                current_symbol_position_exists = self._lifecycle_sources_have_symbol_position(
+                    strategy_id,
+                    symbol,
+                    injected_lifecycle_trades + post_fill_lifecycle_trades,
+                )
+        else:
+            for trade in self.trade_registry.snapshot():
+                trade_strategy = str(getattr(trade, "strategy_name", "") or "UNKNOWN").upper()
+                if trade_strategy != strategy_id:
+                    continue
+                qty = int(getattr(trade, "quantity", 0) or 0)
+                price = float(getattr(trade, "entry_price", 0.0) or 0.0)
+                if qty <= 0:
+                    continue
+                strategy_open_positions += 1
+                strategy_exposure += float(qty) * price
+                if str(getattr(trade, "symbol", "") or "").upper() == symbol:
+                    current_symbol_position_exists = True
+        return {
+            "current_strategy_exposure": strategy_exposure,
+            "current_strategy_open_positions": strategy_open_positions,
+            "current_symbol_position_exists": current_symbol_position_exists,
+            "strategy_daily_trade_count": 0,
+        }
+
+    def _strategy_allocation_lifecycle_sources(self) -> tuple[list[object], list[object]]:
+        injected_trades: list[object] = []
+        if self._trade_lifecycle_engine is not None:
+            getter = getattr(self._trade_lifecycle_engine, "get_open_lifecycle_trades", None)
+            if callable(getter):
+                injected_trades = list(getter() or [])
+
+        return injected_trades, self._post_fill_lifecycle_open_trades()
+
+    def _lifecycle_sources_have_symbol_position(
+        self,
+        strategy_id: str,
+        symbol: str,
+        lifecycle_trades: list[object],
+    ) -> bool:
+        for trade in lifecycle_trades:
+            if self._lifecycle_trade_strategy_id(trade) != strategy_id:
+                continue
+            if self._lifecycle_trade_open_quantity(trade) <= 0:
+                continue
+            if str(getattr(trade, "symbol", "") or "").upper() == symbol:
+                return True
+        return False
+
+    def _post_fill_lifecycle_open_trades(self) -> list[object]:
+        trades = list(getattr(self.post_fill_lifecycle, "_trades", {}).values())
+        return [trade for trade in trades if self._is_open_lifecycle_trade(trade)]
+
+    @staticmethod
+    def _lifecycle_trade_strategy_id(trade: object) -> str:
+        return str(
+            getattr(trade, "strategy_name", None)
+            or getattr(trade, "strategy_id", None)
+            or "UNKNOWN"
+        ).upper()
+
+    @staticmethod
+    def _lifecycle_trade_open_quantity(trade: object) -> int:
+        quantity_open = getattr(trade, "quantity_open", None)
+        if quantity_open is not None:
+            return int(quantity_open or 0)
+        filled_qty = int(getattr(trade, "filled_qty", 0) or 0)
+        exited_qty = int(getattr(trade, "exited_qty", 0) or 0)
+        return max(0, filled_qty - exited_qty)
+
+    @staticmethod
+    def _lifecycle_trade_entry_price(trade: object) -> float:
+        return float(
+            getattr(trade, "entry_avg_price", None)
+            or getattr(trade, "avg_fill_price", None)
+            or getattr(trade, "entry_price", 0.0)
+            or 0.0
+        )
+
+    @classmethod
+    def _is_open_lifecycle_trade(cls, trade: object) -> bool:
+        state = getattr(trade, "state", None)
+        state_value = str(getattr(state, "value", state) or "").upper()
+        if state_value in {"EXITED", "LIFECYCLE_FAILURE", "CLOSED"}:
+            return False
+        return cls._lifecycle_trade_open_quantity(trade) > 0
 
     def _capital_admission_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
         direction = str(getattr(risk_decision, "direction", "") or "").upper()
@@ -251,6 +420,14 @@ class ExecutionEngine:
                 rationale=f"CAPITAL_{decision.status.value}:{decision.reason}",
             )
         if decision.approved_quantity < int(getattr(risk_decision, "max_position_size", 0) or 0):
+            strategy_decision_id = getattr(risk_decision, "strategy_allocation_decision_id", None)
+            if strategy_decision_id:
+                self.strategy_allocation_authority.resize_reservation(
+                    decision_id=strategy_decision_id,
+                    quantity=decision.approved_quantity,
+                    notional=decision.approved_notional,
+                    reason="P7_CAPITAL_REDUCED",
+                )
             risk_decision.max_position_size = decision.approved_quantity
         return None
 
@@ -526,13 +703,19 @@ class ExecutionEngine:
         if gate_result is not None:
             return gate_result
 
+        strategy_allocation_result = self._strategy_allocation_admission_check(risk_decision)
+        if strategy_allocation_result is not None:
+            return strategy_allocation_result
+
         capital_result = self._capital_admission_check(risk_decision)
         if capital_result is not None:
+            self._release_strategy_allocation_for_decision(risk_decision, reason="P7_CAPITAL_BLOCKED")
             return capital_result
 
         order = self._order_from_risk_decision(risk_decision, tick)
         required_fields_check = self._validate_required_order_fields(risk_decision, order)
         if required_fields_check is not None:
+            self._release_strategy_allocation_for_order(order, reason="ORDER_FIELD_VALIDATION_FAILED")
             self._release_capital_for_order(order, reason="ORDER_FIELD_VALIDATION_FAILED")
             return required_fields_check
         return self._route_order(order)
@@ -812,6 +995,16 @@ class ExecutionEngine:
                 decision_id=capital_decision.decision_id,
                 order_id=client_order_id,
             )
+        strategy_allocation_decision = getattr(risk_decision, "strategy_allocation_decision", None)
+        if isinstance(strategy_allocation_decision, StrategyAllocationDecision):
+            self._strategy_allocation_decisions_by_order_id[client_order_id] = (
+                strategy_allocation_decision.decision_id
+            )
+            self.strategy_allocation_authority.attach_order(
+                decision_id=strategy_allocation_decision.decision_id,
+                order_id=client_order_id,
+                global_capital_decision_id=getattr(risk_decision, "capital_decision_id", None),
+            )
         return request
 
     @staticmethod
@@ -825,6 +1018,7 @@ class ExecutionEngine:
         print("[EXECUTION][GATE]", f"execution_enabled={self.execution_enabled}", f"readonly={readonly}", f"submission_enabled={submission_enabled}")
         if not self.execution_enabled:
             print("[EXECUTION][BLOCKED] reason=EXECUTION_DISABLED")
+            self._release_strategy_allocation_for_order(request, reason="EXECUTION_DISABLED")
             self._release_capital_for_order(request, reason="EXECUTION_DISABLED")
             return self._blocked_execution_from_request(request)
         if self._provider is None:
@@ -873,6 +1067,7 @@ class ExecutionEngine:
         try:
             result = self._provider.place_order(request)
         except Exception as exc:
+            self._release_strategy_allocation_for_order(request, reason="ENTRY_SUBMISSION_FAILURE")
             self._release_capital_for_order(request, reason="ENTRY_SUBMISSION_FAILURE")
             return ExecutionResult(
                 symbol=request.symbol,
@@ -933,6 +1128,11 @@ class ExecutionEngine:
             print("[EXECUTION] LIVE broker order routed.")
         retry_enqueued = self._schedule_retry(request, result)
         self._release_capital_for_terminal_result(
+            request,
+            result,
+            retry_enqueued=retry_enqueued,
+        )
+        self._release_strategy_allocation_for_terminal_result(
             request,
             result,
             retry_enqueued=retry_enqueued,
@@ -1108,8 +1308,15 @@ class ExecutionEngine:
         direction_upper = str(request.direction).upper()
         fill_price = self._float_or_none(entry_price) or 0.0
         if direction_upper in {"LONG", "BUY", "SHORT"}:
+            self._convert_strategy_allocation_for_fill(request, filled_quantity=filled_quantity, fill_price=fill_price)
             self._convert_capital_for_fill(request, filled_quantity=filled_quantity, fill_price=fill_price)
         elif direction_upper == "SELL":
+            self.strategy_allocation_authority.release_exposure(
+                strategy_id=request.strategy_name or "UNKNOWN",
+                quantity=filled_quantity,
+                price=fill_price,
+                reason="EXIT_FILL",
+            )
             self.capital_authority.release_exposure(
                 symbol=request.symbol,
                 quantity=filled_quantity,
@@ -1267,6 +1474,43 @@ class ExecutionEngine:
         if normalized in {"CANCELLED", "CANCELED"}:
             print(f"[EXECUTION][IBKR] order_id={order_id_display} status=CANCELLED")
 
+    def _release_strategy_allocation_for_decision(self, risk_decision: RiskDecision, *, reason: str) -> None:
+        decision_id = getattr(risk_decision, "strategy_allocation_decision_id", None)
+        if not decision_id:
+            return
+        self.strategy_allocation_authority.release_reservation(
+            decision_id=decision_id,
+            reason=reason,
+        )
+
+    def _release_strategy_allocation_for_order(self, request: BrokerOrderRequest, *, reason: str) -> None:
+        decision_id = self._strategy_allocation_decisions_by_order_id.get(request.client_order_id)
+        if not decision_id:
+            return
+        self.strategy_allocation_authority.release_reservation(
+            decision_id=decision_id,
+            order_id=request.client_order_id,
+            reason=reason,
+        )
+
+    def _release_strategy_allocation_for_terminal_result(
+        self,
+        request: BrokerOrderRequest,
+        result: ExecutionResult,
+        *,
+        retry_enqueued: bool = False,
+    ) -> None:
+        if bool(getattr(result, "retry_scheduled", False)) and retry_enqueued:
+            return
+        if bool(getattr(result, "retry_scheduled", False)) and not retry_enqueued:
+            self._release_strategy_allocation_for_order(request, reason="RETRY_NOT_SCHEDULED")
+            return
+        if int(getattr(result, "filled_quantity", 0) or 0) > 0:
+            return
+        status = str(getattr(result, "status", "") or "").upper()
+        if status in {"BLOCKED", "FAILED", "REJECTED", "CANCELLED", "CANCELED", "EXPIRED", "NOT_FILLED", "TIMED_OUT"}:
+            self._release_strategy_allocation_for_order(request, reason=f"ORDER_{status}")
+
     def _release_capital_for_order(self, request: BrokerOrderRequest, *, reason: str) -> None:
         decision_id = self._capital_decisions_by_order_id.get(request.client_order_id)
         if not decision_id:
@@ -1308,6 +1552,25 @@ class ExecutionEngine:
             order_id=request.client_order_id,
             symbol=request.symbol,
             strategy_id=request.strategy_name,
+            fill_quantity=filled_quantity,
+            fill_price=fill_price,
+            trade_id=request.client_order_id,
+            reason="ENTRY_FILL",
+        )
+
+    def _convert_strategy_allocation_for_fill(
+        self,
+        request: BrokerOrderRequest,
+        *,
+        filled_quantity: int,
+        fill_price: float,
+    ) -> None:
+        decision_id = self._strategy_allocation_decisions_by_order_id.get(request.client_order_id)
+        self.strategy_allocation_authority.convert_reservation_to_exposure(
+            decision_id=decision_id,
+            order_id=request.client_order_id,
+            strategy_id=request.strategy_name,
+            symbol=request.symbol,
             fill_quantity=filled_quantity,
             fill_price=fill_price,
             trade_id=request.client_order_id,
