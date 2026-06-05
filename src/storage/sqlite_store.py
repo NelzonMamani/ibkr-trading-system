@@ -251,6 +251,31 @@ class SQLiteStore:
                 payload_json TEXT,
                 created_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS strategy_allocation_audit_events (
+                event_id TEXT PRIMARY KEY,
+                timestamp TEXT,
+                event_type TEXT,
+                decision_id TEXT,
+                reservation_id TEXT,
+                trade_id TEXT,
+                intent_id TEXT,
+                order_id TEXT,
+                strategy_id TEXT,
+                symbol TEXT,
+                run_mode TEXT,
+                status TEXT,
+                requested_quantity INTEGER,
+                approved_quantity INTEGER,
+                requested_notional REAL,
+                approved_notional REAL,
+                strategy_capital_limit REAL,
+                reserved_capital REAL,
+                used_exposure REAL,
+                reason TEXT,
+                global_capital_decision_id TEXT,
+                payload_json TEXT,
+                created_at TEXT
+            );
             CREATE TABLE IF NOT EXISTS trade_records (
                 trade_record_id TEXT PRIMARY KEY,
                 run_id TEXT,
@@ -543,6 +568,8 @@ class SQLiteStore:
                 ON stop_authority_events(symbol, timestamp);
             CREATE INDEX IF NOT EXISTS idx_capital_audit_decision ON capital_audit_events(decision_id);
             CREATE INDEX IF NOT EXISTS idx_capital_audit_symbol_time ON capital_audit_events(symbol, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_strategy_alloc_audit_decision ON strategy_allocation_audit_events(decision_id);
+            CREATE INDEX IF NOT EXISTS idx_strategy_alloc_audit_strategy_time ON strategy_allocation_audit_events(strategy_id, timestamp);
             CREATE INDEX IF NOT EXISTS idx_trade_records_run_id ON trade_records(run_id);
             CREATE INDEX IF NOT EXISTS idx_trades_run_id ON trades(run_id);
             CREATE INDEX IF NOT EXISTS idx_execution_results_run_id ON execution_results(run_id);
@@ -963,6 +990,47 @@ class SQLiteStore:
                 event.get("exposure_before"),
                 event.get("exposure_after"),
                 event.get("reason"),
+                event.get("payload_json"),
+                event.get("created_at"),
+            ),
+        )
+        if self.commit_each_write:
+            self.connection.commit()
+
+    def insert_strategy_allocation_audit_event(self, event: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            INSERT OR IGNORE INTO strategy_allocation_audit_events (
+                event_id, timestamp, event_type, decision_id, reservation_id,
+                trade_id, intent_id, order_id, strategy_id, symbol, run_mode,
+                status, requested_quantity, approved_quantity, requested_notional,
+                approved_notional, strategy_capital_limit, reserved_capital,
+                used_exposure, reason, global_capital_decision_id,
+                payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event["event_id"],
+                event.get("timestamp"),
+                event.get("event_type"),
+                event.get("decision_id"),
+                event.get("reservation_id"),
+                event.get("trade_id"),
+                event.get("intent_id"),
+                event.get("order_id"),
+                event.get("strategy_id"),
+                event.get("symbol"),
+                event.get("run_mode"),
+                event.get("status"),
+                event.get("requested_quantity"),
+                event.get("approved_quantity"),
+                event.get("requested_notional"),
+                event.get("approved_notional"),
+                event.get("strategy_capital_limit"),
+                event.get("reserved_capital"),
+                event.get("used_exposure"),
+                event.get("reason"),
+                event.get("global_capital_decision_id"),
                 event.get("payload_json"),
                 event.get("created_at"),
             ),
