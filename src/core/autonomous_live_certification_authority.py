@@ -461,7 +461,7 @@ class AutonomousLiveCertificationAuthority:
         if storage is None:
             return False
         if getattr(storage, "enabled", True) is False:
-            return True
+            return False
         if hasattr(storage, "_store"):
             return getattr(storage, "_store") is not None
         return True
