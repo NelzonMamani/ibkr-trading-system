@@ -39,6 +39,7 @@ from src.core.engines.position_management_engine import ManagedPosition, Positio
 from src.core.engines.trade_lifecycle_engine import LifecycleEvent, TradeLifecycleEngine
 from src.core.portfolio import BrokerPositionSnapshotAdapter, PortfolioArbitrator, PortfolioState
 from src.core.analytics_authority import AnalyticsAuthority
+from src.core.autonomous_live_certification_authority import AutonomousLiveCertificationAuthority
 from src.core.daily_risk_governor import DailyRiskGovernor
 from src.core.event_collector import EventCollector
 from src.core.strategy_arbitration_authority import (
@@ -317,6 +318,9 @@ class CoreOrchestrator:
         self.replay_engine = ReplayEngine()
         self.performance_registry = PerformanceRegistry()
         self.analytics_authority = AnalyticsAuthority(event_collector=self.event_collector)
+        self.autonomous_certification_authority = AutonomousLiveCertificationAuthority(
+            event_collector=self.event_collector,
+        )
         self.trade_registry = ActiveTradeRegistry()
         self.strategy_perf_tracker = StrategyPerformanceTracker()
         self.market_data_hub = None
@@ -2201,6 +2205,49 @@ class CoreOrchestrator:
             except Exception as emit_exc:
                 print(f"[ANALYTICS][DEGRADED][AUDIT_FAILED] reason={emit_exc}")
             return None
+
+    def run_autonomous_certification(
+        self,
+        *,
+        now: datetime | None = None,
+        emit_audit_event: bool = True,
+    ):
+        authority = getattr(self, "autonomous_certification_authority", None)
+        if authority is None:
+            authority = AutonomousLiveCertificationAuthority(event_collector=self.event_collector)
+            self.autonomous_certification_authority = authority
+        certification_time = now or datetime.now(timezone.utc)
+        return authority.run_autonomous_certification(
+            run_mode=self.run_mode.value,
+            now=certification_time,
+            event_collector=self.event_collector,
+            orchestrator=self,
+            execution_engine=self.execution_engine,
+            storage_engine=self.storage_engine,
+            analytics_authority=self.analytics_authority,
+            daily_risk_governor=self.daily_risk_governor,
+            autonomous_recovery_authority=self.autonomous_recovery_authority,
+            evidence={
+                "startup": {
+                    "strategy_registry_loaded": self._strategy_registry_available(),
+                },
+                "recovery": {
+                    "recovery_decisions_emitted": self.event_collector.count(
+                        "AUTONOMOUS_RECOVERY_DECISION"
+                    )
+                    > 0,
+                },
+            },
+            emit_audit_event=emit_audit_event,
+            read_only=self.run_mode == RunMode.READ_ONLY,
+        )
+
+    @staticmethod
+    def _strategy_registry_available() -> bool:
+        try:
+            return build_orchestrator_strategy_registry() is not None
+        except Exception:
+            return False
 
     def _apply_p9_strategy_arbitration(
         self,
