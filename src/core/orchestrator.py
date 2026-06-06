@@ -38,6 +38,7 @@ from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.engines.position_management_engine import ManagedPosition, PositionManagementEngine
 from src.core.engines.trade_lifecycle_engine import LifecycleEvent, TradeLifecycleEngine
 from src.core.portfolio import BrokerPositionSnapshotAdapter, PortfolioArbitrator, PortfolioState
+from src.core.analytics_authority import AnalyticsAuthority
 from src.core.daily_risk_governor import DailyRiskGovernor
 from src.core.event_collector import EventCollector
 from src.core.strategy_arbitration_authority import (
@@ -315,6 +316,7 @@ class CoreOrchestrator:
         self._last_market_session: str | None = None
         self.replay_engine = ReplayEngine()
         self.performance_registry = PerformanceRegistry()
+        self.analytics_authority = AnalyticsAuthority(event_collector=self.event_collector)
         self.trade_registry = ActiveTradeRegistry()
         self.strategy_perf_tracker = StrategyPerformanceTracker()
         self.market_data_hub = None
@@ -489,6 +491,8 @@ class CoreOrchestrator:
             trade_lifecycle_engine=self.trade_lifecycle_engine,
             provider=provider,
         )
+        self.analytics_authority.storage_engine = self.storage_engine
+        self.analytics_authority.trade_lifecycle_engine = self.trade_lifecycle_engine
         self.execution_engine = ExecutionEngine(
             provider=provider,
             trade_registry=self.trade_registry,
@@ -2146,6 +2150,57 @@ class CoreOrchestrator:
         }
         evidence.update(provided)
         return evidence
+
+    def _run_analytics_authority(
+        self,
+        *,
+        cycle_started_at: datetime,
+        cycle_ended_at: datetime,
+        execution_output: list,
+    ):
+        authority = getattr(self, "analytics_authority", None)
+        if authority is None:
+            return None
+        try:
+            snapshot = authority.evaluate(
+                run_id=getattr(self.storage_engine, "run_id", None),
+                trading_day=cycle_started_at.date().isoformat(),
+                run_mode=self.run_mode.value,
+                now=cycle_ended_at,
+                event_collector=self.event_collector,
+                storage_engine=self.storage_engine,
+                trade_lifecycle_engine=self.trade_lifecycle_engine,
+                execution_results=execution_output,
+                event_replay_complete=True,
+            )
+            print(
+                "[ANALYTICS] "
+                f"trades={snapshot.trade_count} attempted={snapshot.attempted_trade_count} "
+                f"blocked={snapshot.blocked_trade_count} realized_pnl={snapshot.realized_pnl:.2f} "
+                f"data_quality_issues={snapshot.data_quality_issue_count}"
+            )
+            return snapshot
+        except Exception as exc:
+            self._degraded = True
+            print(f"[ANALYTICS][DEGRADED] reason={type(exc).__name__}:{exc}")
+            try:
+                self.event_collector.emit(
+                    event_type="ANALYTICS_DATA_QUALITY_ISSUE",
+                    source="CoreOrchestrator",
+                    payload={
+                        "issue_id": f"analytics-dq-{uuid4().hex[:12]}",
+                        "code": "ANALYTICS_EVALUATION_FAILED",
+                        "severity": "ERROR",
+                        "source": "CoreOrchestrator",
+                        "trade_identity": "SYSTEM",
+                        "field_name": "analytics_authority",
+                        "detail": f"{type(exc).__name__}:{exc}",
+                        "timestamp": cycle_ended_at.isoformat(),
+                    },
+                )
+            except Exception as emit_exc:
+                print(f"[ANALYTICS][DEGRADED][AUDIT_FAILED] reason={emit_exc}")
+            return None
 
     def _apply_p9_strategy_arbitration(
         self,
@@ -4911,9 +4966,14 @@ class CoreOrchestrator:
             payload={"strategies": strategy_perf_payload},
         )
         print(strategy_perf_event)
+        cycle_ended_at = datetime.now(timezone.utc)
+        self._run_analytics_authority(
+            cycle_started_at=cycle_started_at,
+            cycle_ended_at=cycle_ended_at,
+            execution_output=execution_output or [],
+        )
         print("[TEACH] >>> Storage stage — record decisions/results (conceptual).")
         print("[TEACH] Creating TradeRecord to capture stage outputs for review.")
-        cycle_ended_at = datetime.now(timezone.utc)
         cycle_context = {
             "tick": tick,
             "session": get_current_market_session(),
