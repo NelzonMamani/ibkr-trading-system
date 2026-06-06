@@ -18,6 +18,7 @@ from src.config.runtime_config import (
 )
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.capital_management_authority import CapitalDecision, CapitalManagementAuthority
+from src.core.daily_risk_governor import DailyRiskGovernor
 from src.core.event_collector import EventCollector
 from src.core.strategy_capital_allocation_authority import (
     StrategyAllocationDecision,
@@ -62,6 +63,7 @@ class ExecutionEngine:
         storage_engine: Optional[object] = None,
         capital_authority: Optional[CapitalManagementAuthority] = None,
         strategy_allocation_authority: Optional[StrategyCapitalAllocationAuthority] = None,
+        daily_risk_governor: Optional[DailyRiskGovernor] = None,
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
         self.run_mode: RunMode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
@@ -108,12 +110,26 @@ class ExecutionEngine:
                 storage_engine=storage_engine,
             )
         )
+        self.daily_risk_governor = daily_risk_governor or DailyRiskGovernor(
+            event_collector=self.event_collector,
+            storage_engine=storage_engine,
+            trade_lifecycle_engine=trade_lifecycle_engine,
+            provider=self._provider,
+        )
         self._capital_decisions_by_order_id: dict[str, str] = {}
         self._strategy_allocation_decisions_by_order_id: dict[str, str] = {}
         self.provider: Optional[ExecutionProvider] = self._provider
         self.broker = getattr(self._provider, "broker", None)
         self._recover_startup_state()
         self._recover_capital_state()
+        self.daily_risk_governor.recover(
+            run_mode=self.run_mode.value,
+            recovery_complete=self.startup_recovery_complete(),
+            event_collector=self.event_collector,
+            storage_engine=storage_engine,
+            trade_lifecycle_engine=trade_lifecycle_engine,
+            provider=self._provider,
+        )
 
     def _execution_log(self, stage: str, **payload: object) -> None:
         fields = []
@@ -676,6 +692,11 @@ class ExecutionEngine:
                 rationale="No risk decision provided; nothing to execute in teaching mode.",
             )
 
+        if self.startup_recovery_complete():
+            daily_risk_result = self._daily_risk_preflight_check(risk_decision)
+            if daily_risk_result is not None:
+                return daily_risk_result
+
         tick = self.current_tick if self.current_tick is not None else 0
         if getattr(risk_decision, "entry_price", None) is None:
             risk_decision.entry_price = self.price_feed.price_for(risk_decision.symbol, tick)
@@ -883,6 +904,87 @@ class ExecutionEngine:
                 rationale="DUPLICATE_POSITION_CONFLICT",
             )
         return None
+
+    def _daily_risk_preflight_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
+        if self.daily_risk_governor is None:
+            return None
+        is_new_entry = self._daily_risk_is_new_entry(risk_decision)
+        decision = self.daily_risk_governor.evaluate(
+            run_mode=self.run_mode.value,
+            recovery_complete=self.startup_recovery_complete(),
+            is_new_entry=is_new_entry,
+            now=self._daily_risk_evaluation_time(risk_decision),
+            event_collector=self.event_collector,
+            storage_engine=self._storage_engine,
+            trade_lifecycle_engine=self._trade_lifecycle_engine,
+            provider=self._provider,
+            audit_payload={
+                "source": "ExecutionEngine",
+                "symbol": getattr(risk_decision, "symbol", None),
+                "strategy_name": getattr(risk_decision, "strategy_name", None),
+                "intent_id": getattr(risk_decision, "intent_id", None),
+                "risk_decision_id": getattr(risk_decision, "decision_id", None),
+                "force_execute": bool(getattr(risk_decision, "force_execute", False)),
+            },
+        )
+        blocks_entry = is_new_entry and decision.blocks_new_entries
+        blocks_management = (not is_new_entry) and not decision.allows_existing_position_management
+        if blocks_entry or blocks_management:
+            print(
+                "[DAILY_RISK][BLOCKED] "
+                f"symbol={risk_decision.symbol} status={decision.status.value} reason={decision.reason}"
+            )
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale=f"DAILY_RISK_{decision.status.value}:{decision.reason}",
+            )
+        return None
+
+    def _daily_risk_evaluation_time(self, risk_decision: RiskDecision) -> datetime:
+        for candidate in (
+            getattr(risk_decision, "timestamp", None),
+            getattr(risk_decision, "created_at", None),
+            self._latest_event_timestamp(),
+        ):
+            resolved = self._coerce_daily_risk_datetime(candidate)
+            if resolved is not None:
+                return resolved
+        return datetime.now(timezone.utc)
+
+    def _latest_event_timestamp(self) -> object:
+        snapshot_all = getattr(self.event_collector, "snapshot_all", None)
+        if not callable(snapshot_all):
+            return None
+        try:
+            events = snapshot_all()
+        except Exception:
+            return None
+        for event in reversed(events):
+            timestamp = getattr(event, "timestamp", None)
+            if timestamp is not None:
+                return timestamp
+        return None
+
+    @staticmethod
+    def _coerce_daily_risk_datetime(value: object) -> Optional[datetime]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            resolved = value
+        else:
+            try:
+                resolved = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        if resolved.tzinfo is None:
+            return resolved.replace(tzinfo=timezone.utc)
+        return resolved
+    @staticmethod
+    def _daily_risk_is_new_entry(risk_decision: RiskDecision) -> bool:
+        direction = str(getattr(risk_decision, "direction", "") or "").upper()
+        if direction in {"BUY", "LONG", "SHORT"}:
+            return True
+        return False
 
     def _resolve_idempotency_key(self, risk_decision: RiskDecision, tick: int) -> str:
         payload = {
