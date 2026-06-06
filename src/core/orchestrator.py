@@ -58,6 +58,7 @@ from src.core.replay_engine import ReplayEngine
 from src.core.trace_bus import TraceBus
 from src.core.decision_trace import DecisionTraceStore, SymbolDecisionTrace
 from src.execution.execution_engine import ExecutionEngine
+from src.execution.autonomous_recovery_authority import AutonomousRecoveryAuthority
 from src.execution.clean_start_session import enforce_clean_start_session
 from src.execution.dev_tools.flatten_positions import force_flatten_all_positions
 from src.execution.execution_providers import IbkrExecutionProvider
@@ -393,6 +394,9 @@ class CoreOrchestrator:
         self.strategy_arbitration_authority = StrategyArbitrationAuthority(
             event_collector=self.event_collector,
         )
+        self.autonomous_recovery_authority = AutonomousRecoveryAuthority(
+            event_collector=self.event_collector,
+        )
         self.portfolio_arbitrator = PortfolioArbitrator()
         if not self.execution_enabled:
             provider = None
@@ -494,6 +498,7 @@ class CoreOrchestrator:
             trade_lifecycle_engine=self.trade_lifecycle_engine,
             storage_engine=self.storage_engine,
             daily_risk_governor=self.daily_risk_governor,
+            autonomous_recovery_authority=self.autonomous_recovery_authority,
         )
         self.execution_enabled = self.execution_engine.execution_enabled
         self.position_management_engine = PositionManagementEngine()
@@ -2082,6 +2087,66 @@ class CoreOrchestrator:
         )
         return False
 
+    def _autonomous_recovery_allows_new_entries(self, *, cycle_started_at: datetime) -> bool:
+        authority = getattr(self, "autonomous_recovery_authority", None)
+        if authority is None:
+            return True
+        evidence = self._autonomous_recovery_pre_strategy_evidence(cycle_started_at=cycle_started_at)
+        current = authority.evaluate(
+            run_mode=self.run_mode.value,
+            event_collector=self.event_collector,
+            **evidence,
+        )
+        if not current.blocks_new_entries:
+            return True
+        print(
+            "[AUTONOMOUS_RECOVERY][BLOCK_NEW_ENTRIES] "
+            f"status={current.recovery_status.value} reason={current.rationale}"
+        )
+        self._trace_halt(
+            reason_code=f"AUTONOMOUS_RECOVERY_{current.recovery_status.value}",
+            message=current.rationale,
+            stage="AUTONOMOUS_RECOVERY",
+        )
+        return False
+
+    def _autonomous_recovery_pre_strategy_evidence(self, *, cycle_started_at: datetime) -> dict:
+        evidence_provider = getattr(self, "autonomous_recovery_evidence_provider", None)
+        provided: dict = {}
+        if callable(evidence_provider):
+            try:
+                provided = dict(evidence_provider(cycle_started_at=cycle_started_at) or {})
+            except TypeError:
+                provided = dict(evidence_provider() or {})
+        audit_payload = {
+            "cycle_id": self._ensure_cycle_id(),
+            "source": "CoreOrchestrator",
+            "stage": "PRE_STRATEGY",
+            "cycle_started_at": cycle_started_at.isoformat(),
+        }
+        audit_payload.update(dict(provided.pop("audit_payload", {}) or {}))
+        evidence = {
+            "broker_connected": True,
+            "broker_truth_available": True,
+            "storage_available": True,
+            "storage_replay_required": False,
+            "event_replay_complete": True,
+            "daily_risk_recovered": True,
+            "lifecycle_recovered": True,
+            "order_state_known": True,
+            "position_state_matches": True,
+            "fill_state_matches": True,
+            "stop_protection_missing": False,
+            "target_state_unknown": False,
+            "trailing_state_unknown": False,
+            "market_data_stale": False,
+            "config_valid": True,
+            "clock_or_session_valid": True,
+            "audit_payload": audit_payload,
+        }
+        evidence.update(provided)
+        return evidence
+
     def _apply_p9_strategy_arbitration(
         self,
         intents: List[TradeIntent],
@@ -2550,6 +2615,8 @@ class CoreOrchestrator:
         if not self._startup_recovery_allows_strategy_execution():
             return False
         self._run_position_management_tick(cycle_started_at)
+        if not self._autonomous_recovery_allows_new_entries(cycle_started_at=cycle_started_at):
+            return True
         if not self._daily_risk_allows_new_entries(cycle_started_at=cycle_started_at):
             return True
         active_strategy_keys = self._enabled_strategy_keys()
