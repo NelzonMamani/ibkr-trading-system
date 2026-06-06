@@ -88,6 +88,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "normalizer": "upper",
         "derived": True,
     },
+    "AUTONOMOUS_CERTIFICATION_ENABLED": {
+        "type": bool,
+        "default": True,
+        "env": ["AUTONOMOUS_CERTIFICATION_ENABLED"],
+        "affects": ["AutonomousLiveCertificationAuthority", "CoreOrchestrator"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Enable the read-only P16 autonomous live certification self-check.",
+    },
     "EXECUTION_ENABLED": {
         "type": bool,
         "default": False,
