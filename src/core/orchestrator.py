@@ -38,6 +38,7 @@ from src.core.active_trade_registry import ActiveTrade, ActiveTradeRegistry
 from src.core.engines.position_management_engine import ManagedPosition, PositionManagementEngine
 from src.core.engines.trade_lifecycle_engine import LifecycleEvent, TradeLifecycleEngine
 from src.core.portfolio import BrokerPositionSnapshotAdapter, PortfolioArbitrator, PortfolioState
+from src.core.daily_risk_governor import DailyRiskGovernor
 from src.core.event_collector import EventCollector
 from src.core.strategy_arbitration_authority import (
     StrategyArbitrationAuthority,
@@ -478,6 +479,12 @@ class CoreOrchestrator:
         self.trade_lifecycle_engine = TradeLifecycleEngine()
         self.storage_engine = StorageEngine()
         self.trade_lifecycle_engine.set_persistence_adapter(self.storage_engine)
+        self.daily_risk_governor = DailyRiskGovernor(
+            event_collector=self.event_collector,
+            storage_engine=self.storage_engine,
+            trade_lifecycle_engine=self.trade_lifecycle_engine,
+            provider=provider,
+        )
         self.execution_engine = ExecutionEngine(
             provider=provider,
             trade_registry=self.trade_registry,
@@ -486,6 +493,7 @@ class CoreOrchestrator:
             stop_controller=self.stop_controller,
             trade_lifecycle_engine=self.trade_lifecycle_engine,
             storage_engine=self.storage_engine,
+            daily_risk_governor=self.daily_risk_governor,
         )
         self.execution_enabled = self.execution_engine.execution_enabled
         self.position_management_engine = PositionManagementEngine()
@@ -2045,6 +2053,35 @@ class CoreOrchestrator:
             return bool(checker())
         return True
 
+    def _daily_risk_allows_new_entries(self, *, cycle_started_at: datetime) -> bool:
+        decision = self.daily_risk_governor.evaluate(
+            run_mode=self.run_mode.value,
+            recovery_complete=self._startup_recovery_complete_for_arbitration(),
+            now=cycle_started_at,
+            is_new_entry=True,
+            event_collector=self.event_collector,
+            storage_engine=self.storage_engine,
+            trade_lifecycle_engine=self.trade_lifecycle_engine,
+            provider=getattr(self.execution_engine, "provider", None),
+            audit_payload={
+                "cycle_id": self._ensure_cycle_id(),
+                "source": "CoreOrchestrator",
+                "stage": "PRE_STRATEGY",
+            },
+        )
+        if not decision.blocks_new_entries:
+            return True
+        print(
+            "[DAILY_RISK][BLOCK_NEW_ENTRIES] "
+            f"status={decision.status.value} reason={decision.reason} day={decision.trading_day}"
+        )
+        self._trace_halt(
+            reason_code=f"DAILY_RISK_{decision.status.value}",
+            message=decision.reason,
+            stage="DAILY_RISK",
+        )
+        return False
+
     def _apply_p9_strategy_arbitration(
         self,
         intents: List[TradeIntent],
@@ -2513,6 +2550,8 @@ class CoreOrchestrator:
         if not self._startup_recovery_allows_strategy_execution():
             return False
         self._run_position_management_tick(cycle_started_at)
+        if not self._daily_risk_allows_new_entries(cycle_started_at=cycle_started_at):
+            return True
         active_strategy_keys = self._enabled_strategy_keys()
         strategy_key = self.primary_strategy_key
 
