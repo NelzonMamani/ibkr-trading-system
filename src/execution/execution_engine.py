@@ -701,14 +701,14 @@ class ExecutionEngine:
                 rationale="No risk decision provided; nothing to execute in teaching mode.",
             )
 
-        autonomous_recovery_result = self._autonomous_recovery_preflight_check(risk_decision)
-        if autonomous_recovery_result is not None:
-            return autonomous_recovery_result
-
         if self.startup_recovery_complete():
             daily_risk_result = self._daily_risk_preflight_check(risk_decision)
             if daily_risk_result is not None:
                 return daily_risk_result
+
+        autonomous_recovery_result = self._autonomous_recovery_preflight_check(risk_decision)
+        if autonomous_recovery_result is not None:
+            return autonomous_recovery_result
 
         tick = self.current_tick if self.current_tick is not None else 0
         if getattr(risk_decision, "entry_price", None) is None:
