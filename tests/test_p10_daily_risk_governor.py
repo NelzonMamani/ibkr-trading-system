@@ -71,19 +71,28 @@ def _set_config(**overrides: object) -> None:
     set_config_overrides(config)
 
 
-def _record_closed_trade(events: EventCollector, pnl: float, *, timestamp: datetime = NOW) -> None:
+def _record_closed_trade(
+    events: EventCollector,
+    pnl: float,
+    *,
+    timestamp: datetime = NOW,
+    trade_id: str | None = None,
+) -> None:
+    payload = {
+        "symbol": "AAPL",
+        "trader_type": "P10_TEST",
+        "strategy_name": "unit_strategy",
+        "net_realised_pnl": pnl,
+        "realised_pnl": pnl,
+    }
+    if trade_id is not None:
+        payload["trade_id"] = trade_id
     events.record_event(
         SystemEvent(
             event_type="TRADE_CLOSED",
             source="unit_test",
             timestamp=timestamp,
-            payload={
-                "symbol": "AAPL",
-                "trader_type": "P10_TEST",
-                "strategy_name": "unit_strategy",
-                "net_realised_pnl": pnl,
-                "realised_pnl": pnl,
-            },
+            payload=payload,
         )
     )
 
@@ -310,6 +319,52 @@ def test_recovery_complete_with_reconstructed_empty_state_enables_trading() -> N
     assert decision.blocks_new_entries is False
 
 
+def test_live_fail_closed_when_provider_read_fails() -> None:
+    class _Provider:
+        def get_daily_fills(self):
+            raise RuntimeError("broker fill API unavailable")
+
+    governor = DailyRiskGovernor(event_collector=EventCollector(), provider=_Provider())
+
+    decision = governor.evaluate(run_mode="LIVE", recovery_complete=True, now=NOW)
+
+    assert decision.status == DailyRiskDecisionStatus.DATA_UNAVAILABLE
+    assert decision.reason.startswith("DATA_UNAVAILABLE:broker_fills:BROKER_FILLS_READ_FAILED")
+    assert decision.blocks_new_entries is True
+
+
+def test_live_fail_closed_when_storage_read_fails() -> None:
+    class _Store:
+        def fetch_trade_outcomes(self, run_id: str):
+            raise RuntimeError("database unavailable")
+
+    storage = SimpleNamespace(_store=_Store(), run_id="run-p10")
+    governor = DailyRiskGovernor(event_collector=EventCollector(), storage_engine=storage)
+
+    decision = governor.evaluate(run_mode="LIVE", recovery_complete=True, now=NOW)
+
+    assert decision.status == DailyRiskDecisionStatus.DATA_UNAVAILABLE
+    assert decision.reason == "DATA_UNAVAILABLE:storage:STORAGE_TRADE_OUTCOMES_READ_FAILED"
+    assert decision.blocks_new_entries is True
+
+
+def test_live_fail_closed_when_lifecycle_read_fails() -> None:
+    class _LifecycleReader:
+        def build_portfolio_state(self):
+            raise RuntimeError("lifecycle unavailable")
+
+    governor = DailyRiskGovernor(
+        event_collector=EventCollector(),
+        trade_lifecycle_engine=_LifecycleReader(),
+    )
+
+    decision = governor.evaluate(run_mode="LIVE", recovery_complete=True, now=NOW)
+
+    assert decision.status == DailyRiskDecisionStatus.DATA_UNAVAILABLE
+    assert decision.reason == "DATA_UNAVAILABLE:lifecycle:LIFECYCLE_READ_FAILED"
+    assert decision.blocks_new_entries is True
+
+
 def test_read_only_evaluation_does_not_mutate_governor_state() -> None:
     governor = _governor()
 
@@ -389,6 +444,56 @@ def test_broker_fill_reconciliation_uses_provider_fills() -> None:
 
     assert decision.realized_pnl == -3.0
     assert decision.losing_trade_count == 1
+
+
+def test_same_day_storage_and_event_losses_are_combined() -> None:
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=10.0)
+    events = EventCollector()
+    _record_closed_trade(events, -3.0, trade_id="event-loss")
+
+    class _Store:
+        def fetch_trade_outcomes(self, run_id: str):
+            return [
+                {
+                    "trade_id": "stored-loss",
+                    "symbol": "AAPL",
+                    "closed_at": NOW.isoformat(),
+                    "net_realised_pnl": -8.0,
+                }
+            ]
+
+    storage = SimpleNamespace(_store=_Store(), run_id="run-p10")
+    governor = DailyRiskGovernor(event_collector=events, storage_engine=storage)
+
+    decision = governor.evaluate(run_mode="PAPER", recovery_complete=True, now=NOW)
+
+    assert decision.realized_pnl == -11.0
+    assert decision.daily_trade_count == 2
+    assert decision.reason == "MAX_DAILY_LOSS_AMOUNT"
+
+
+def test_duplicate_daily_history_trade_is_not_double_counted() -> None:
+    events = EventCollector()
+    _record_closed_trade(events, -4.0, trade_id="same-trade")
+
+    class _Store:
+        def fetch_trade_outcomes(self, run_id: str):
+            return [
+                {
+                    "trade_id": "same-trade",
+                    "symbol": "AAPL",
+                    "closed_at": NOW.isoformat(),
+                    "net_realised_pnl": -4.0,
+                }
+            ]
+
+    storage = SimpleNamespace(_store=_Store(), run_id="run-p10")
+    governor = DailyRiskGovernor(event_collector=events, storage_engine=storage)
+
+    decision = governor.evaluate(run_mode="PAPER", recovery_complete=True, now=NOW)
+
+    assert decision.realized_pnl == -4.0
+    assert decision.daily_trade_count == 1
 
 
 def test_orchestrator_gate_blocks_before_strategy_when_daily_risk_locked() -> None:

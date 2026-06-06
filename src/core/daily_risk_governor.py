@@ -144,6 +144,10 @@ class _DailyRiskMetrics:
     losing_trade_count: int = 0
     consecutive_losses: int = 0
     source_count: int = 0
+    read_attempted: bool = False
+    read_failed: bool = False
+    failure_reason: str | None = None
+    trade_payloads: tuple[dict[str, Any], ...] = ()
 
 
 class DailyRiskGovernor:
@@ -338,22 +342,16 @@ class DailyRiskGovernor:
         lifecycle_metrics = self._metrics_from_lifecycle()
         broker_metrics = self._metrics_from_broker_fills(trading_day)
 
-        realized = event_metrics.realized_pnl
-        trade_count = event_metrics.daily_trade_count
-        losing_count = event_metrics.losing_trade_count
-        consecutive_losses = event_metrics.consecutive_losses
-        if event_metrics.source_count == 0 and storage_metrics.source_count > 0:
-            realized = storage_metrics.realized_pnl
-            trade_count = storage_metrics.daily_trade_count
-            losing_count = storage_metrics.losing_trade_count
-            consecutive_losses = storage_metrics.consecutive_losses
-        if event_metrics.source_count == 0 and storage_metrics.source_count == 0 and broker_metrics.source_count > 0:
-            realized = broker_metrics.realized_pnl
-            trade_count = broker_metrics.daily_trade_count
-            losing_count = broker_metrics.losing_trade_count
-            consecutive_losses = broker_metrics.consecutive_losses
-        if event_metrics.source_count == 0 and storage_metrics.source_count == 0 and broker_metrics.source_count == 0:
-            realized = lifecycle_metrics.realized_pnl
+        realized_metrics = self._merge_realized_metrics(
+            event_metrics,
+            storage_metrics,
+            broker_metrics,
+            lifecycle_metrics,
+        )
+        realized = realized_metrics.realized_pnl
+        trade_count = realized_metrics.daily_trade_count
+        losing_count = realized_metrics.losing_trade_count
+        consecutive_losses = realized_metrics.consecutive_losses
 
         source_counts = {
             "events": event_metrics.source_count,
@@ -363,20 +361,29 @@ class DailyRiskGovernor:
         }
         recovered = True
         recovery_error = None
+        source_metrics = {
+            "events": event_metrics,
+            "storage": storage_metrics,
+            "broker_fills": broker_metrics,
+            "lifecycle": lifecycle_metrics,
+        }
         if not recovery_complete:
             recovered = False
             recovery_error = "RECOVERY_NOT_COMPLETE"
         elif str(run_mode or "").upper() == "LIVE" and self._bool_config("DAILY_RISK_LIVE_FAIL_CLOSED", True):
-            source_available = any(
-                source is not None
-                for source in (
-                    self.event_collector,
-                    self.storage_engine,
-                    self.trade_lifecycle_engine,
-                    self.provider,
-                )
+            failed_reads = [
+                f"{source}:{metrics.failure_reason or 'READ_FAILED'}"
+                for source, metrics in source_metrics.items()
+                if metrics.read_failed
+            ]
+            successful_read = any(
+                metrics.read_attempted and not metrics.read_failed
+                for metrics in source_metrics.values()
             )
-            if not source_available:
+            if failed_reads:
+                recovered = False
+                recovery_error = "DATA_UNAVAILABLE:" + ",".join(failed_reads)
+            elif not successful_read:
                 recovered = False
                 recovery_error = "DAILY_RISK_STATE_UNRECONSTRUCTED"
 
@@ -406,8 +413,16 @@ class DailyRiskGovernor:
         collector = self.event_collector
         if collector is None or not hasattr(collector, "snapshot_all"):
             return _DailyRiskMetrics()
+        try:
+            events = list(collector.snapshot_all() or [])
+        except Exception:
+            return _DailyRiskMetrics(
+                read_attempted=True,
+                read_failed=True,
+                failure_reason="EVENT_HISTORY_READ_FAILED",
+            )
         closed_events = []
-        for event in list(collector.snapshot_all() or []):
+        for event in events:
             if getattr(event, "event_type", None) != "TRADE_CLOSED":
                 continue
             if self.trading_day_for(getattr(event, "timestamp", None) or datetime.now(timezone.utc)) != trading_day:
@@ -418,9 +433,11 @@ class DailyRiskGovernor:
                 {
                     **dict(getattr(event, "payload", {}) or {}),
                     "timestamp": getattr(event, "timestamp", None),
+                    "event_id": getattr(event, "event_id", None),
                 }
                 for event in closed_events
-            ]
+            ],
+            read_attempted=True,
         )
 
     def _metrics_from_storage(self, trading_day: str) -> _DailyRiskMetrics:
@@ -430,8 +447,10 @@ class DailyRiskGovernor:
         if store is None or not run_id:
             return _DailyRiskMetrics()
         payloads: list[dict[str, Any]] = []
+        read_attempted = False
         fetch_trade_outcomes = getattr(store, "fetch_trade_outcomes", None)
         if callable(fetch_trade_outcomes):
+            read_attempted = True
             try:
                 for row in list(fetch_trade_outcomes(run_id) or []):
                     timestamp = row.get("closed_at") or row.get("created_at")
@@ -439,16 +458,26 @@ class DailyRiskGovernor:
                         continue
                     payloads.append(
                         {
+                            "trade_id": row.get("trade_id") or row.get("lifecycle_trade_id"),
+                            "event_id": row.get("event_id"),
+                            "symbol": row.get("symbol"),
                             "net_realised_pnl": row.get("net_realised_pnl"),
+                            "net_realized_pnl": row.get("net_realized_pnl"),
                             "realised_pnl": row.get("realised_pnl"),
+                            "realized_pnl": row.get("realized_pnl"),
                             "timestamp": timestamp,
                         }
                     )
             except Exception:
-                return _DailyRiskMetrics()
+                return _DailyRiskMetrics(
+                    read_attempted=True,
+                    read_failed=True,
+                    failure_reason="STORAGE_TRADE_OUTCOMES_READ_FAILED",
+                )
         if not payloads:
             fetch_events = getattr(store, "fetch_events", None)
             if callable(fetch_events):
+                read_attempted = True
                 try:
                     for row in list(fetch_events(run_id) or []):
                         if str(row.get("event_type") or "") != "TRADE_CLOSED":
@@ -458,10 +487,17 @@ class DailyRiskGovernor:
                             continue
                         payload = self._payload_from_storage_event(row)
                         payload["timestamp"] = timestamp
+                        payload["event_id"] = row.get("event_id")
+                        payload["trade_id"] = payload.get("trade_id") or row.get("trade_id") or row.get("lifecycle_trade_id")
+                        payload["symbol"] = payload.get("symbol") or row.get("symbol")
                         payloads.append(payload)
                 except Exception:
-                    return _DailyRiskMetrics()
-        return self._metrics_from_trade_payloads(payloads)
+                    return _DailyRiskMetrics(
+                        read_attempted=True,
+                        read_failed=True,
+                        failure_reason="STORAGE_EVENTS_READ_FAILED",
+                    )
+        return self._metrics_from_trade_payloads(payloads, read_attempted=read_attempted)
 
     def _metrics_from_lifecycle(self) -> _DailyRiskMetrics:
         engine = self.trade_lifecycle_engine
@@ -470,10 +506,21 @@ class DailyRiskGovernor:
         try:
             if hasattr(engine, "build_portfolio_state"):
                 state = engine.build_portfolio_state()
-                return _DailyRiskMetrics(
-                    realized_pnl=round(float(getattr(state, "total_realized_pnl", 0.0) or 0.0), 2),
-                    unrealized_pnl=round(float(getattr(state, "total_unrealized_pnl", 0.0) or 0.0), 2),
-                    source_count=1,
+                realized = round(float(getattr(state, "total_realized_pnl", 0.0) or 0.0), 2)
+                unrealized = round(float(getattr(state, "total_unrealized_pnl", 0.0) or 0.0), 2)
+                payloads = []
+                if realized:
+                    payloads.append(
+                        {
+                            "trade_id": "lifecycle_portfolio_state",
+                            "realized_pnl": realized,
+                        }
+                    )
+                metrics = self._metrics_from_trade_payloads(payloads, read_attempted=True)
+                return replace(
+                    metrics,
+                    unrealized_pnl=unrealized,
+                    source_count=max(1, metrics.source_count),
                 )
             if hasattr(engine, "get_open_lifecycle_trades"):
                 trades = list(engine.get_open_lifecycle_trades() or [])
@@ -483,9 +530,14 @@ class DailyRiskGovernor:
                         2,
                     ),
                     source_count=len(trades),
+                    read_attempted=True,
                 )
         except Exception:
-            return _DailyRiskMetrics()
+            return _DailyRiskMetrics(
+                read_attempted=True,
+                read_failed=True,
+                failure_reason="LIFECYCLE_READ_FAILED",
+            )
         return _DailyRiskMetrics()
 
     def _metrics_from_broker_fills(self, trading_day: str) -> _DailyRiskMetrics:
@@ -499,7 +551,11 @@ class DailyRiskGovernor:
             try:
                 fills = list(getter() or [])
             except Exception:
-                return _DailyRiskMetrics()
+                return _DailyRiskMetrics(
+                    read_attempted=True,
+                    read_failed=True,
+                    failure_reason=f"BROKER_FILLS_READ_FAILED:{method_name}",
+                )
             payloads = []
             for fill in fills:
                 payload = self._fill_payload(fill)
@@ -507,15 +563,43 @@ class DailyRiskGovernor:
                 if timestamp and self.trading_day_for(self._parse_datetime(timestamp)) != trading_day:
                     continue
                 payloads.append(payload)
-            return self._metrics_from_trade_payloads(payloads)
+            return self._metrics_from_trade_payloads(payloads, read_attempted=True)
         return _DailyRiskMetrics()
 
-    def _metrics_from_trade_payloads(self, payloads: Iterable[dict[str, Any]]) -> _DailyRiskMetrics:
+    def _merge_realized_metrics(self, *source_metrics: _DailyRiskMetrics) -> _DailyRiskMetrics:
+        payloads: list[dict[str, Any]] = []
+        seen: set[tuple[str, ...]] = set()
+        for metrics in source_metrics:
+            for payload in metrics.trade_payloads:
+                identity = self._trade_identity(payload)
+                if identity == ("trade_id", "lifecycle_portfolio_state") and payloads:
+                    continue
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                payloads.append(payload)
+        payloads.sort(key=lambda payload: self._parse_datetime(payload.get("timestamp")).isoformat())
+        merged = self._metrics_from_trade_payloads(
+            payloads,
+            read_attempted=any(metrics.read_attempted for metrics in source_metrics),
+        )
+        return replace(
+            merged,
+            read_failed=any(metrics.read_failed for metrics in source_metrics),
+        )
+
+    def _metrics_from_trade_payloads(
+        self,
+        payloads: Iterable[dict[str, Any]],
+        *,
+        read_attempted: bool = True,
+    ) -> _DailyRiskMetrics:
         realized = 0.0
         losses = 0
         trade_count = 0
         pnl_values: list[float] = []
-        for payload in payloads:
+        normalized_payloads = [dict(payload) for payload in payloads]
+        for payload in normalized_payloads:
             pnl = self._float_from_payload(
                 payload,
                 "net_realised_pnl",
@@ -541,6 +625,8 @@ class DailyRiskGovernor:
             losing_trade_count=losses,
             consecutive_losses=consecutive,
             source_count=trade_count,
+            read_attempted=read_attempted,
+            trade_payloads=tuple(normalized_payloads),
         )
 
     def _breach_reasons(self, state: DailyRiskState, *, include_unrealized: bool) -> list[str]:
@@ -700,6 +786,39 @@ class DailyRiskGovernor:
             except (TypeError, ValueError):
                 return 0.0
         return 0.0
+
+    def _trade_identity(self, payload: dict[str, Any]) -> tuple[str, ...]:
+        for key in (
+            "trade_id",
+            "fill_id",
+            "execution_id",
+            "event_id",
+            "order_id",
+            "broker_fill_id",
+            "client_order_id",
+            "ibkr_order_id",
+            "lifecycle_trade_id",
+        ):
+            value = payload.get(key)
+            if value is not None and str(value) != "":
+                return (key, str(value))
+        timestamp = payload.get("timestamp")
+        if timestamp:
+            timestamp = self._parse_datetime(timestamp).isoformat()
+        pnl = self._float_from_payload(
+            payload,
+            "net_realised_pnl",
+            "net_realized_pnl",
+            "realised_pnl",
+            "realized_pnl",
+            "pnl",
+        )
+        return (
+            "fallback",
+            str(payload.get("symbol") or ""),
+            str(timestamp or ""),
+            f"{pnl:.8f}",
+        )
 
     @staticmethod
     def _payload_from_storage_event(row: dict[str, Any]) -> dict[str, Any]:
