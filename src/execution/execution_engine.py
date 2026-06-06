@@ -692,6 +692,11 @@ class ExecutionEngine:
                 rationale="No risk decision provided; nothing to execute in teaching mode.",
             )
 
+        if self.startup_recovery_complete():
+            daily_risk_result = self._daily_risk_preflight_check(risk_decision)
+            if daily_risk_result is not None:
+                return daily_risk_result
+
         tick = self.current_tick if self.current_tick is not None else 0
         if getattr(risk_decision, "entry_price", None) is None:
             risk_decision.entry_price = self.price_feed.price_for(risk_decision.symbol, tick)
@@ -801,9 +806,6 @@ class ExecutionEngine:
                 risk_decision,
                 rationale=f"STARTUP_RECOVERY_NOT_COMPLETE:{self.startup_recovery_block_reason()}",
             )
-        daily_risk_result = self._daily_risk_preflight_check(risk_decision)
-        if daily_risk_result is not None:
-            return daily_risk_result
         if self.stop_controller.is_breaker_tripped():
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
@@ -911,6 +913,7 @@ class ExecutionEngine:
             run_mode=self.run_mode.value,
             recovery_complete=self.startup_recovery_complete(),
             is_new_entry=is_new_entry,
+            now=self._daily_risk_evaluation_time(risk_decision),
             event_collector=self.event_collector,
             storage_engine=self._storage_engine,
             trade_lifecycle_engine=self._trade_lifecycle_engine,
@@ -937,6 +940,45 @@ class ExecutionEngine:
             )
         return None
 
+    def _daily_risk_evaluation_time(self, risk_decision: RiskDecision) -> datetime:
+        for candidate in (
+            getattr(risk_decision, "timestamp", None),
+            getattr(risk_decision, "created_at", None),
+            self._latest_event_timestamp(),
+        ):
+            resolved = self._coerce_daily_risk_datetime(candidate)
+            if resolved is not None:
+                return resolved
+        return datetime.now(timezone.utc)
+
+    def _latest_event_timestamp(self) -> object:
+        snapshot_all = getattr(self.event_collector, "snapshot_all", None)
+        if not callable(snapshot_all):
+            return None
+        try:
+            events = snapshot_all()
+        except Exception:
+            return None
+        for event in reversed(events):
+            timestamp = getattr(event, "timestamp", None)
+            if timestamp is not None:
+                return timestamp
+        return None
+
+    @staticmethod
+    def _coerce_daily_risk_datetime(value: object) -> Optional[datetime]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            resolved = value
+        else:
+            try:
+                resolved = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        if resolved.tzinfo is None:
+            return resolved.replace(tzinfo=timezone.utc)
+        return resolved
     @staticmethod
     def _daily_risk_is_new_entry(risk_decision: RiskDecision) -> bool:
         direction = str(getattr(risk_decision, "direction", "") or "").upper()
