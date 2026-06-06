@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from src.core.autonomous_live_certification_authority import (
     DOMAIN_SPECS,
@@ -118,6 +119,32 @@ def test_storage_unavailable_is_not_certified() -> None:
 
     assert report.audit_status == "FAIL"
     assert "AUDIT:storage_available" in report.critical_failures
+
+
+def test_disabled_storage_persistence_is_not_certified_for_paper_or_live() -> None:
+    evidence = _complete_evidence()
+    evidence["audit"].pop("storage_available")
+    storage = SimpleNamespace(enabled=False, _store=object())
+
+    for run_mode, disallowed_state in (
+        ("PAPER", AutonomousPlatformState.PAPER_CERTIFIED.value),
+        ("LIVE", AutonomousPlatformState.LIVE_CERTIFIED.value),
+    ):
+        authority = AutonomousLiveCertificationAuthority(event_collector=EventCollector())
+
+        report = authority.evaluate(
+            run_mode=run_mode,
+            now=NOW,
+            storage_engine=storage,
+            evidence=evidence,
+            emit_audit_event=False,
+        )
+
+        assert report.audit_status == "FAIL"
+        assert report.certified is False
+        assert report.platform_state == AutonomousPlatformState.NOT_CERTIFIED.value
+        assert report.platform_state != disallowed_state
+        assert "AUDIT:storage_available" in report.critical_failures
 
 
 def test_determinism_certified() -> None:
