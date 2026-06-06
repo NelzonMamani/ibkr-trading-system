@@ -304,7 +304,6 @@ def test_paper_and_sim_decisions_are_deterministic() -> None:
 def test_orchestrator_managed_only_blocks_new_entries_after_position_management_tick() -> None:
     events = EventCollector()
     authority = AutonomousRecoveryAuthority(event_collector=events)
-    authority.evaluate(run_mode="PAPER", position_state_matches=False)
     halted: list[dict[str, object]] = []
     orchestrator = CoreOrchestrator.__new__(CoreOrchestrator)
     orchestrator.autonomous_recovery_authority = authority
@@ -312,6 +311,9 @@ def test_orchestrator_managed_only_blocks_new_entries_after_position_management_
     orchestrator.event_collector = events
     orchestrator._ensure_cycle_id = lambda: "cycle-p11"
     orchestrator._trace_halt = lambda **payload: halted.append(payload)
+    orchestrator.autonomous_recovery_evidence_provider = lambda **_kwargs: {
+        "position_state_matches": False,
+    }
 
     allowed = CoreOrchestrator._autonomous_recovery_allows_new_entries(
         orchestrator,
@@ -320,6 +322,42 @@ def test_orchestrator_managed_only_blocks_new_entries_after_position_management_
 
     assert allowed is False
     assert halted[0]["reason_code"] == "AUTONOMOUS_RECOVERY_MANAGED_ONLY"
+
+
+def test_orchestrator_refreshes_stale_blocking_decision_on_later_healthy_cycle() -> None:
+    events = EventCollector()
+    authority = AutonomousRecoveryAuthority(event_collector=events)
+    authority.evaluate(run_mode="PAPER", position_state_matches=False)
+    halted: list[dict[str, object]] = []
+    evidence_sequence = iter(
+        [
+            {"position_state_matches": False},
+            {"position_state_matches": True},
+        ]
+    )
+    orchestrator = CoreOrchestrator.__new__(CoreOrchestrator)
+    orchestrator.autonomous_recovery_authority = authority
+    orchestrator.run_mode = RunMode.PAPER
+    orchestrator.event_collector = events
+    orchestrator._ensure_cycle_id = lambda: "cycle-p11"
+    orchestrator._trace_halt = lambda **payload: halted.append(payload)
+    orchestrator.autonomous_recovery_evidence_provider = lambda **_kwargs: next(evidence_sequence)
+
+    first_cycle = CoreOrchestrator._autonomous_recovery_allows_new_entries(
+        orchestrator,
+        cycle_started_at=NOW,
+    )
+    later_cycle = CoreOrchestrator._autonomous_recovery_allows_new_entries(
+        orchestrator,
+        cycle_started_at=NOW,
+    )
+
+    assert first_cycle is False
+    assert later_cycle is True
+    assert authority.last_decision is not None
+    assert authority.last_decision.recovery_status == AutonomousRecoveryStatus.RECOVERED
+    audit_events = events.filter_by_type("AUTONOMOUS_RECOVERY_DECISION")
+    assert audit_events[-1].payload["recovery_status"] == "RECOVERED"
 
 
 def test_managed_only_blocks_new_entries_in_execution_backstop() -> None:

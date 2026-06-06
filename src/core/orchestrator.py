@@ -2091,26 +2091,12 @@ class CoreOrchestrator:
         authority = getattr(self, "autonomous_recovery_authority", None)
         if authority is None:
             return True
-        current = authority.current_decision()
-        if current is None:
-            current = authority.evaluate(
-                run_mode=self.run_mode.value,
-                broker_connected=True,
-                broker_truth_available=True,
-                storage_available=True,
-                storage_replay_required=False,
-                event_replay_complete=True,
-                daily_risk_recovered=True,
-                lifecycle_recovered=True,
-                order_state_known=True,
-                audit_payload={
-                    "cycle_id": self._ensure_cycle_id(),
-                    "source": "CoreOrchestrator",
-                    "stage": "PRE_STRATEGY",
-                    "cycle_started_at": cycle_started_at.isoformat(),
-                },
-                event_collector=self.event_collector,
-            )
+        evidence = self._autonomous_recovery_pre_strategy_evidence(cycle_started_at=cycle_started_at)
+        current = authority.evaluate(
+            run_mode=self.run_mode.value,
+            event_collector=self.event_collector,
+            **evidence,
+        )
         if not current.blocks_new_entries:
             return True
         print(
@@ -2123,6 +2109,43 @@ class CoreOrchestrator:
             stage="AUTONOMOUS_RECOVERY",
         )
         return False
+
+    def _autonomous_recovery_pre_strategy_evidence(self, *, cycle_started_at: datetime) -> dict:
+        evidence_provider = getattr(self, "autonomous_recovery_evidence_provider", None)
+        provided: dict = {}
+        if callable(evidence_provider):
+            try:
+                provided = dict(evidence_provider(cycle_started_at=cycle_started_at) or {})
+            except TypeError:
+                provided = dict(evidence_provider() or {})
+        audit_payload = {
+            "cycle_id": self._ensure_cycle_id(),
+            "source": "CoreOrchestrator",
+            "stage": "PRE_STRATEGY",
+            "cycle_started_at": cycle_started_at.isoformat(),
+        }
+        audit_payload.update(dict(provided.pop("audit_payload", {}) or {}))
+        evidence = {
+            "broker_connected": True,
+            "broker_truth_available": True,
+            "storage_available": True,
+            "storage_replay_required": False,
+            "event_replay_complete": True,
+            "daily_risk_recovered": True,
+            "lifecycle_recovered": True,
+            "order_state_known": True,
+            "position_state_matches": True,
+            "fill_state_matches": True,
+            "stop_protection_missing": False,
+            "target_state_unknown": False,
+            "trailing_state_unknown": False,
+            "market_data_stale": False,
+            "config_valid": True,
+            "clock_or_session_valid": True,
+            "audit_payload": audit_payload,
+        }
+        evidence.update(provided)
+        return evidence
 
     def _apply_p9_strategy_arbitration(
         self,
