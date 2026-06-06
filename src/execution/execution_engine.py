@@ -30,6 +30,10 @@ from src.core.managers.runtime_mode_manager import RuntimeModeManager
 from src.execution.execution_providers import ExecutionProvider, IbkrExecutionProvider, PaperExecutionProvider
 from src.execution.exit_plan import compute_stop_price
 from src.execution.order_models import PendingOrderBook
+from src.execution.autonomous_recovery_authority import (
+    AutonomousRecoveryAuthority,
+    AutonomousRecoveryDecision,
+)
 from src.execution.post_fill_lifecycle_engine import PostFillLifecycleEngine
 from src.execution.startup_recovery_authority import (
     RecoveryState,
@@ -64,6 +68,7 @@ class ExecutionEngine:
         capital_authority: Optional[CapitalManagementAuthority] = None,
         strategy_allocation_authority: Optional[StrategyCapitalAllocationAuthority] = None,
         daily_risk_governor: Optional[DailyRiskGovernor] = None,
+        autonomous_recovery_authority: Optional[AutonomousRecoveryAuthority] = None,
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
         self.run_mode: RunMode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
@@ -115,6 +120,10 @@ class ExecutionEngine:
             storage_engine=storage_engine,
             trade_lifecycle_engine=trade_lifecycle_engine,
             provider=self._provider,
+        )
+        self.autonomous_recovery_authority = (
+            autonomous_recovery_authority
+            or AutonomousRecoveryAuthority(event_collector=self.event_collector)
         )
         self._capital_decisions_by_order_id: dict[str, str] = {}
         self._strategy_allocation_decisions_by_order_id: dict[str, str] = {}
@@ -692,6 +701,10 @@ class ExecutionEngine:
                 rationale="No risk decision provided; nothing to execute in teaching mode.",
             )
 
+        autonomous_recovery_result = self._autonomous_recovery_preflight_check(risk_decision)
+        if autonomous_recovery_result is not None:
+            return autonomous_recovery_result
+
         if self.startup_recovery_complete():
             daily_risk_result = self._daily_risk_preflight_check(risk_decision)
             if daily_risk_result is not None:
@@ -904,6 +917,65 @@ class ExecutionEngine:
                 rationale="DUPLICATE_POSITION_CONFLICT",
             )
         return None
+
+    def _autonomous_recovery_preflight_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
+        authority = getattr(self, "autonomous_recovery_authority", None)
+        if authority is None:
+            return None
+        is_new_entry = self._autonomous_recovery_is_new_entry(risk_decision)
+        decision = self._resolve_autonomous_recovery_decision(authority, risk_decision)
+        blocks_entry = is_new_entry and decision.blocks_new_entries
+        blocks_management = (not is_new_entry) and not decision.allows_existing_position_management
+        if blocks_entry or blocks_management:
+            print(
+                "[AUTONOMOUS_RECOVERY][BLOCKED] "
+                f"symbol={risk_decision.symbol} status={decision.recovery_status.value} "
+                f"reason={decision.rationale}"
+            )
+            return self._blocked_execution_from_risk_decision(
+                risk_decision,
+                rationale=f"AUTONOMOUS_RECOVERY_{decision.recovery_status.value}:{decision.rationale}",
+            )
+        return None
+
+    def _resolve_autonomous_recovery_decision(
+        self,
+        authority: AutonomousRecoveryAuthority,
+        risk_decision: RiskDecision,
+    ) -> AutonomousRecoveryDecision:
+        current = authority.current_decision()
+        if current is not None:
+            return current
+        return authority.evaluate(
+            run_mode=self.run_mode.value,
+            broker_connected=True,
+            broker_truth_available=True,
+            storage_available=True,
+            storage_replay_required=False,
+            event_replay_complete=True,
+            daily_risk_recovered=True,
+            lifecycle_recovered=True,
+            order_state_known=True,
+            audit_payload={
+                "source": "ExecutionEngine",
+                "symbol": getattr(risk_decision, "symbol", None),
+                "strategy_name": getattr(risk_decision, "strategy_name", None),
+                "intent_id": getattr(risk_decision, "intent_id", None),
+                "risk_decision_id": getattr(risk_decision, "decision_id", None),
+                "force_execute": bool(getattr(risk_decision, "force_execute", False)),
+            },
+            event_collector=self.event_collector,
+        )
+
+    @staticmethod
+    def _autonomous_recovery_is_new_entry(risk_decision: RiskDecision) -> bool:
+        direction = str(getattr(risk_decision, "direction", "") or "").upper()
+        reason_code = str(getattr(risk_decision, "reason_code", "") or "").upper()
+        if "REPAIR" in reason_code or "EXIT" in reason_code:
+            return False
+        if direction in {"BUY", "LONG", "SHORT"}:
+            return True
+        return False
 
     def _daily_risk_preflight_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
         if self.daily_risk_governor is None:
