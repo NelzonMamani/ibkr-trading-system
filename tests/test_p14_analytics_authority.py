@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from types import SimpleNamespace
 
 from src.core.analytics_authority import AnalyticsAuthority
@@ -10,6 +11,7 @@ from src.models.execution_result import ExecutionResult
 
 
 NOW = datetime(2026, 6, 5, 14, 0, tzinfo=timezone.utc)
+YESTERDAY = datetime(2026, 6, 4, 14, 0, tzinfo=timezone.utc)
 
 
 def _closed_payload(
@@ -360,6 +362,109 @@ def test_storage_unavailable_produces_analytics_degradation() -> None:
     assert "STORAGE_UNAVAILABLE" in {issue.code for issue in snapshot.data_quality_issues}
 
 
+def test_matching_storage_and_event_closed_trade_counts_once() -> None:
+    events = EventCollector()
+    event_payload = _closed_payload(trade_id="T-DUP", pnl=12.0, timestamp=NOW)
+    event_payload.pop("trade_id")
+    events.emit(
+        event_type="TRADE_CLOSED",
+        source="unit",
+        payload=event_payload,
+        timestamp=NOW,
+    )
+    storage_payload = dict(event_payload)
+    storage = _Storage(
+        _Store(
+            outcomes=[
+                {
+                    "trade_outcome_id": "generated-storage-outcome-id",
+                    "symbol": "AAPL",
+                    "strategy_name": "ross_momentum",
+                    "entry_price": 100.0,
+                    "exit_price": 110.0,
+                    "quantity": 1,
+                    "net_realised_pnl": 12.0,
+                    "closed_at": NOW.isoformat(),
+                    "payload_json": json.dumps(storage_payload, sort_keys=True),
+                }
+            ]
+        )
+    )
+
+    snapshot = AnalyticsAuthority(
+        event_collector=events,
+        storage_engine=storage,
+    ).evaluate(
+        run_id="run-p14",
+        trading_day="2026-06-05",
+        run_mode="PAPER",
+        now=NOW,
+        emit_audit_event=False,
+    )
+
+    assert snapshot.trade_count == 1
+    assert snapshot.realized_pnl == 12.0
+    assert snapshot.source_counts["storage"] == 1
+    assert snapshot.source_counts["events"] == 1
+
+
+def test_event_counters_are_filtered_to_requested_trading_day() -> None:
+    events = EventCollector()
+    for timestamp, suffix in ((YESTERDAY, "OLD"), (NOW, "NEW")):
+        events.record_event(
+            SystemEvent(
+                event_type="TRADE_BLOCKED",
+                source="unit",
+                payload={
+                    "reason_code": f"BLOCK_{suffix}",
+                    "symbol": "AAPL",
+                    "trader_type": "ross_momentum",
+                    "strategy_name": "ross_momentum",
+                },
+                timestamp=timestamp,
+            )
+        )
+        events.record_event(
+            SystemEvent(
+                event_type="ORDER_REJECTED_HARD",
+                source="unit",
+                payload={"reason": f"REJECT_{suffix}"},
+                timestamp=timestamp,
+            )
+        )
+        events.record_event(
+            SystemEvent(
+                event_type="DAILY_RISK_DECISION",
+                source="DailyRiskGovernor",
+                payload={"blocks_new_entries": True, "status": "MANAGED_ONLY"},
+                timestamp=timestamp,
+            )
+        )
+        events.record_event(
+            SystemEvent(
+                event_type="AUTONOMOUS_RECOVERY_DECISION",
+                source="AutonomousRecoveryAuthority",
+                payload={"blocks_new_entries": True, "recovery_status": f"STATUS_{suffix}"},
+                timestamp=timestamp,
+            )
+        )
+
+    snapshot = _authority(events).evaluate(
+        run_id="run-p14",
+        trading_day="2026-06-05",
+        run_mode="PAPER",
+        now=NOW,
+        emit_audit_event=False,
+    )
+
+    assert snapshot.blocked_trade_count == 1
+    assert snapshot.block_reason_counts == {"BLOCK_NEW": 1}
+    assert snapshot.execution_failure_count == 1
+    assert snapshot.daily_risk_lock_count == 1
+    assert snapshot.recovery_lock_count == 1
+    assert snapshot.recovery_status_counts == {"STATUS_NEW": 1}
+
+
 def test_p10_daily_risk_events_are_counted() -> None:
     events = EventCollector()
     events.record_event(
@@ -505,3 +610,24 @@ def test_lifecycle_unrealized_pnl_is_included() -> None:
     )
 
     assert snapshot.unrealized_pnl == -2.5
+
+
+def test_breakdown_profit_factor_uses_each_bucket_key() -> None:
+    events = EventCollector()
+    _record_closed(events, trade_id="ROSS-WIN", pnl=20.0, symbol="AAPL", strategy="ross_momentum")
+    _record_closed(events, trade_id="ROSS-LOSS", pnl=-10.0, symbol="AAPL", strategy="ross_momentum")
+    _record_closed(events, trade_id="MEAN-WIN", pnl=9.0, symbol="MSFT", strategy="mean_reversion")
+    _record_closed(events, trade_id="MEAN-LOSS", pnl=-3.0, symbol="MSFT", strategy="mean_reversion")
+
+    snapshot = _authority(events).evaluate(
+        run_id="run-p14",
+        trading_day="2026-06-05",
+        run_mode="SIM",
+        now=NOW,
+        emit_audit_event=False,
+    )
+
+    assert snapshot.breakdowns["strategy_key"]["ross_momentum"]["profit_factor"] == 2.0
+    assert snapshot.breakdowns["strategy_key"]["mean_reversion"]["profit_factor"] == 3.0
+    assert snapshot.breakdowns["symbol"]["AAPL"]["profit_factor"] == 2.0
+    assert snapshot.breakdowns["symbol"]["MSFT"]["profit_factor"] == 3.0

@@ -299,6 +299,8 @@ class AnalyticsAuthority:
                 )
                 records.append(record)
                 continue
+            if self._trading_day(event_timestamp) != trading_day:
+                continue
             if event_type == "TRADE_BLOCKED":
                 reason = self._block_reason(payload)
                 counters["block_reason_counts"][reason] = counters["block_reason_counts"].get(reason, 0) + 1
@@ -368,7 +370,8 @@ class AnalyticsAuthority:
                 if closed_at and self._trading_day(self._parse_datetime(closed_at)) != trading_day:
                     continue
                 payload.setdefault("timestamp", closed_at)
-                payload.setdefault("trade_id", row.get("trade_outcome_id") or row.get("trade_id"))
+                payload.setdefault("trade_id", row.get("trade_id") or row.get("lifecycle_trade_id"))
+                payload.setdefault("trade_outcome_id", row.get("trade_outcome_id"))
                 records.append(
                     self._record_from_payload(
                         payload,
@@ -399,6 +402,9 @@ class AnalyticsAuthority:
                 rows = []
             for row in rows:
                 event_type = str(row.get("event_type") or "")
+                row_timestamp = row.get("timestamp") or row.get("created_at")
+                if row_timestamp and self._trading_day(self._parse_datetime(row_timestamp)) != trading_day:
+                    continue
                 payload = self._payload_from_json(row.get("payload_json"))
                 if event_type == "TRADE_BLOCKED":
                     reason = self._block_reason(payload)
@@ -688,10 +694,24 @@ class AnalyticsAuthority:
     def _dedupe_records(records: list[AnalyticsTradeRecord]) -> list[AnalyticsTradeRecord]:
         deduped: list[AnalyticsTradeRecord] = []
         seen: set[str] = set()
-        for record in records:
-            if record.trade_identity in seen:
+        ordered = sorted(
+            records,
+            key=lambda record: (
+                0 if str(record.source).startswith("storage.") else 1,
+                record.timestamp or "",
+                record.symbol or "",
+                record.strategy_key or "",
+                record.trade_identity,
+            ),
+        )
+        for record in ordered:
+            identities = {
+                record.trade_identity,
+                AnalyticsAuthority._canonical_close_identity(record),
+            }
+            if seen.intersection(identities):
                 continue
-            seen.add(record.trade_identity)
+            seen.update(identities)
             deduped.append(record)
         return sorted(
             deduped,
@@ -763,24 +783,14 @@ class AnalyticsAuthority:
                 bucket["loss_count"] += 1
             else:
                 bucket["breakeven_count"] += 1
-        for bucket in buckets.values():
+        for bucket_key, bucket in buckets.items():
             trade_count = int(bucket["trade_count"])
             wins = int(bucket["win_count"])
             losses = int(bucket["loss_count"])
             bucket["win_rate"] = round(wins / trade_count, 4) if trade_count else 0.0
-            gross_profit = sum(
-                float(record.realized_pnl or 0.0)
-                for record in records
-                if record.realized_pnl is not None and record.realized_pnl > 0
-            )
-            gross_loss = sum(
-                float(record.realized_pnl or 0.0)
-                for record in records
-                if record.realized_pnl is not None and record.realized_pnl < 0
-            )
             bucket_records = [
                 record for record in records
-                if str(getter(record) or "UNKNOWN") == key
+                if str(getter(record) or "UNKNOWN") == bucket_key
                 and record.realized_pnl is not None
             ]
             bucket_profit = sum(
@@ -796,6 +806,31 @@ class AnalyticsAuthority:
             if bucket_loss:
                 bucket["profit_factor"] = round(abs(bucket_profit / bucket_loss), 4)
         return dict(sorted(buckets.items()))
+
+    @staticmethod
+    def _canonical_close_identity(record: AnalyticsTradeRecord) -> str:
+        timestamp_bucket = "NO_TIMESTAMP"
+        if record.timestamp:
+            parsed = AnalyticsAuthority._parse_datetime(record.timestamp)
+            timestamp_bucket = parsed.replace(second=0, microsecond=0).isoformat()
+        pnl = "NO_PNL" if record.realized_pnl is None else f"{float(record.realized_pnl):.2f}"
+        entry = "NO_ENTRY" if record.entry_price is None else f"{float(record.entry_price):.4f}"
+        exit_price = "NO_EXIT" if record.exit_price is None else f"{float(record.exit_price):.4f}"
+        quantity = "NO_QTY" if record.quantity is None else str(int(record.quantity))
+        return "|".join(
+            [
+                "closed_trade",
+                str(record.symbol or "UNKNOWN").upper(),
+                str(record.strategy_key or "UNKNOWN").upper(),
+                str(record.setup_family or "UNKNOWN").upper(),
+                timestamp_bucket,
+                pnl,
+                quantity,
+                entry,
+                exit_price,
+                str(record.exit_reason or "UNKNOWN").upper(),
+            ]
+        )
 
     @staticmethod
     def _counters_from_execution_results(execution_results: Iterable[Any] | None) -> dict[str, int]:
