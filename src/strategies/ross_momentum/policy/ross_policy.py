@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from src.strategies.ross_momentum.strategy_policy import (
     POLICY_V2,
@@ -16,6 +16,7 @@ from .exit_policy import ExitPolicy
 from .float_policy import FloatPolicy
 from .gap_policy import GapPolicy
 from .pattern_input_policy import PatternInputPolicy
+from .price_policy import PricePolicy
 from .rvol_policy import RvolPolicy
 from .watchlist_policy import WatchlistPolicy
 
@@ -30,9 +31,17 @@ class RossPolicy:
 
     core: RossMomentumPolicy = field(default_factory=RossMomentumPolicy)
 
+    @classmethod
+    def from_stock_selection(cls, stock_selection: StockSelectionSpec) -> "RossPolicy":
+        return cls(core=replace(RossMomentumPolicy(), stock_selection=stock_selection))
+
     @property
     def stock_selection(self) -> StockSelectionSpec:
         return self.core.stock_selection
+
+    @property
+    def price(self) -> PricePolicy:
+        return PricePolicy.from_stock_selection(self.stock_selection)
 
     @property
     def rvol(self) -> RvolPolicy:

@@ -81,12 +81,18 @@ from src.scanner.session_contract import attach_session_contract, build_canonica
 from src.strategies.strategy_registry import build_default_registry
 from src.strategies.ross_momentum.policy import (
     CatalystStatus,
+    FloatPolicy,
+    FloatQuality,
+    PricePolicy,
+    PriceQuality,
+    RossPolicy,
     assess_catalyst,
     log_catalyst_live_not_satisfied,
     log_catalyst_unavailable,
     log_catalyst_validation_bypass,
     log_validation_override_active,
     log_validation_override_blocked,
+    normalize_run_mode,
     validation_override_allowed,
 )
 
@@ -276,6 +282,14 @@ class GateThresholds:
     allow_unknown_float: bool
     session_focus_volume_min: Dict[str, int] = field(default_factory=dict)
     min_premarket_volume_threshold: int = 5_000
+    focus_pct_change_min: float = 10.0
+    live_quality_pct_change_min: float = 10.0
+    live_quality_min_price: float = 2.0
+    preferred_price_min: float = 5.0
+    preferred_price_max: float = 10.0
+    live_quality_required: bool = True
+    validation_override_active: bool = False
+    run_mode: str = "LIVE"
 
 
 @dataclass(frozen=True)
@@ -288,6 +302,13 @@ class RuntimeThresholdResolution:
     spread_max_pct_source: str
     allow_unknown_float: bool
     allow_unknown_float_source: str
+    session_label: str
+    watchlist_pct_change_min: float
+    focus_pct_change_min: float
+    live_quality_pct_change_min: float
+    live_quality_required: bool
+    validation_override_active: bool
+    run_mode: str
 
 
 @dataclass(frozen=True)
@@ -883,10 +904,12 @@ def _resolve_pct_change_min_for_session(session: str, thresholds: GateThresholds
     if normalized in {"", "CLOSED"}:
         print("[ROSS][SESSION_ERROR] missing_canonical_session")
         raise ValueError("missing_canonical_session")
-    if normalized in {"PRE", "OVN"}:
-        return float(thresholds.min_pct_change)
-    print(f"[ROSS][GATE] session={normalized} pct_change_min=5")
-    return 5.0
+    print(f"[ROSS][GATE] session={normalized} pct_change_min={thresholds.min_pct_change}")
+    return float(thresholds.min_pct_change)
+
+
+def _ross_policy_for_stock_selection(policy: StockSelectionPolicy) -> RossPolicy:
+    return RossPolicy.from_stock_selection(policy)
 
 
 def _ensure_provider_connection(provider: ScannerDataProvider, *, max_attempts: int = 4) -> None:
@@ -913,15 +936,29 @@ def _resolve_runtime_thresholds(policy: StockSelectionPolicy, session_label: str
 
     normalized = normalize_session_label(session_label or "PRE")
     canonical = canonical_session_label(normalized)
-    watchlist_policy = dict(getattr(policy, "session_watchlist_rvol_min", {}) or {})
-    focus_policy = dict(getattr(policy, "session_focus_rvol_min", {}) or {})
-    watchlist_default = float(
-        watchlist_policy.get(normalized, watchlist_policy.get(canonical, getattr(policy, "watchlist_rvol_min", 0.5)))
-    )
-    focus_default = float(
-        focus_policy.get(normalized, focus_policy.get(canonical, getattr(policy, "focus_rvol_min", getattr(policy, "rvol_min", 2.0))))
-    )
+    ross_policy = _ross_policy_for_stock_selection(policy)
+    rvol_policy = ross_policy.rvol
+    gap_policy = ross_policy.gap
+    watchlist_default = rvol_policy.watchlist_threshold_for(normalized or canonical)
+    focus_default = rvol_policy.focus_threshold_for(normalized or canonical)
+    watchlist_pct_change_min = gap_policy.discovery_threshold_for(normalized or canonical)
+    focus_pct_change_min = gap_policy.focus_threshold_for(normalized or canonical)
+    live_quality_pct_change_min = gap_policy.live_quality_min_pct
     spread_default = getattr(policy, "spread_max_pct", None)
+    run_mode_value = normalize_run_mode(get_run_mode())
+    validation_requested = bool(get_config("ROSS_VALIDATION_OVERRIDE_ENABLED"))
+    validation_active = validation_override_allowed(run_mode_value, validation_requested)
+    live_quality_required = run_mode_value in {"LIVE", "READ_ONLY", "PAPER"} and not validation_active
+
+    if ross_pct_override.source in {"OVERRIDE", "ENV"} and ross_pct_override.value is not None:
+        override_pct = float(ross_pct_override.value)
+        watchlist_pct_change_min = override_pct
+        if override_pct < focus_pct_change_min:
+            print(
+                "[ROSS][PCT][OVERRIDE_RELAXED] "
+                f"source={ross_pct_override.source} value={override_pct} "
+                f"focus_threshold={focus_pct_change_min} validation_active={validation_active}"
+            )
 
     if ross_rvol_override.source in {"OVERRIDE", "ENV"} and ross_rvol_override.value is not None:
         watchlist_rvol_min = float(ross_rvol_override.value)
@@ -946,10 +983,23 @@ def _resolve_runtime_thresholds(policy: StockSelectionPolicy, session_label: str
         spread_source = spread_override.source
 
     if allow_unknown_float_override.source in {"OVERRIDE", "ENV"}:
-        allow_unknown_float = bool(allow_unknown_float_override.value)
-        allow_unknown_float_source = allow_unknown_float_override.source
+        requested_allow_unknown = bool(allow_unknown_float_override.value)
+        if requested_allow_unknown and validation_active:
+            allow_unknown_float = True
+            allow_unknown_float_source = allow_unknown_float_override.source
+        elif requested_allow_unknown:
+            allow_unknown_float = False
+            allow_unknown_float_source = f"{allow_unknown_float_override.source}_BLOCKED"
+            print(
+                "[ROSS][FLOAT][UNKNOWN_OVERRIDE_BLOCKED] "
+                f"mode={run_mode_value} source={allow_unknown_float_override.source} "
+                "reason=explicit_validation_required"
+            )
+        else:
+            allow_unknown_float = False
+            allow_unknown_float_source = allow_unknown_float_override.source
     else:
-        allow_unknown_float = bool(getattr(policy, "allow_unknown_float", True))
+        allow_unknown_float = False
         allow_unknown_float_source = "STRATEGY"
 
     return RuntimeThresholdResolution(
@@ -961,10 +1011,20 @@ def _resolve_runtime_thresholds(policy: StockSelectionPolicy, session_label: str
         spread_max_pct_source=spread_source,
         allow_unknown_float=allow_unknown_float,
         allow_unknown_float_source=allow_unknown_float_source,
+        session_label=normalized,
+        watchlist_pct_change_min=watchlist_pct_change_min,
+        focus_pct_change_min=focus_pct_change_min,
+        live_quality_pct_change_min=live_quality_pct_change_min,
+        live_quality_required=live_quality_required,
+        validation_override_active=validation_active,
+        run_mode=run_mode_value,
     )
 
 
 def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdResolution) -> GateThresholds:
+    ross_policy = _ross_policy_for_stock_selection(policy)
+    price_policy = ross_policy.price
+    float_policy = ross_policy.float
     execution_min_volume = int(policy.min_volume)
     premarket_min_volume = int(getattr(policy, "premarket_volume_min", policy.min_premarket_volume))
     configured_session_focus_volume = getattr(policy, "session_focus_volume_min", {}) or {}
@@ -982,7 +1042,7 @@ def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdReso
     return GateThresholds(
         min_price=policy.price_min,
         max_price=policy.price_max,
-        min_pct_change=float(get_config("ROSS_PCT_CHANGE_MIN") or policy.gap_min_pct),
+        min_pct_change=runtime.watchlist_pct_change_min,
         max_pct_change=policy.gap_max_pct,
         watchlist_rvol_min=runtime.watchlist_rvol_min,
         focus_rvol_min=runtime.focus_rvol_min,
@@ -992,7 +1052,7 @@ def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdReso
         session_focus_volume_min=session_focus_volume_min,
         min_volume=execution_min_volume,
         min_premarket_volume=premarket_min_volume,
-        max_float=int(max(float(policy.float_max_millions), 50.0) * 1_000_000),
+        max_float=float_policy.max_shares,
         spread_max_pct=runtime.spread_max_pct,
         min_dollar_volume=policy.liquidity_min_dollar_volume,
         require_price=policy.data_quality_require_price,
@@ -1002,6 +1062,14 @@ def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdReso
         allow_ssr=policy.allow_ssr,
         allow_unknown_float=runtime.allow_unknown_float,
         min_premarket_volume_threshold=premarket_min_volume,
+        focus_pct_change_min=runtime.focus_pct_change_min,
+        live_quality_pct_change_min=runtime.live_quality_pct_change_min,
+        live_quality_min_price=price_policy.live_quality_min,
+        preferred_price_min=price_policy.preferred_min,
+        preferred_price_max=price_policy.preferred_max,
+        live_quality_required=runtime.live_quality_required,
+        validation_override_active=runtime.validation_override_active,
+        run_mode=runtime.run_mode,
     )
 
 
@@ -1037,7 +1105,30 @@ def _evaluate_price_gate(
     price = _safe_float(context.get("last_price"), None)
     snapshot_fetch_attempted = bool(context.get("snapshot_fetch_attempted"))
     if thresholds.require_price and price is None and snapshot_fetch_attempted:
+        context["price_quality"] = PriceQuality.MISSING.value
         return "DROP_MISSING_PRICE"
+    if price is None:
+        return None
+    decision = PricePolicy(
+        minimum=float(thresholds.min_price),
+        maximum=float(thresholds.max_price),
+        live_quality_min=float(thresholds.live_quality_min_price),
+        preferred_min=float(thresholds.preferred_price_min),
+        preferred_max=float(thresholds.preferred_price_max),
+    ).assess(price)
+    context["price_quality"] = decision.quality.value
+    context["price_rank_bonus"] = decision.rank_bonus
+    context["price_policy_reason"] = decision.reason
+    if not decision.satisfied:
+        return "DROP_PRICE_RANGE"
+    if not decision.live_quality:
+        flags = context.setdefault("data_quality_flags", [])
+        if "PRICE_LOW_DEGRADED" not in flags:
+            flags.append("PRICE_LOW_DEGRADED")
+        context.setdefault("eligibility_reason_codes", []).append("PRICE_BELOW_LIVE_QUALITY")
+        context["execution_eligible"] = False
+        context["selection_tier"] = "DISCOVERY"
+        _apply_degraded_contract(context)
     return None
 
 
@@ -1073,9 +1164,10 @@ def _watchlist_gate_checks(
     if thresholds.max_pct_change is not None:
         pct_ok = pct_ok and pct_change is not None and pct_change <= thresholds.max_pct_change
     rvol_ok = scanner_rvol is not None and scanner_rvol >= thresholds.watchlist_rvol_min
-    # Float can be legitimately missing on fallback/mock providers; treat missing
-    # as soft-pass so deterministic fallback universes still produce candidates.
-    float_ok = float_shares is None or float_shares <= thresholds.max_float
+    if float_shares is None:
+        float_ok = bool(thresholds.allow_unknown_float or not thresholds.live_quality_required)
+    else:
+        float_ok = float_shares <= thresholds.max_float
 
     return {
         "pct_change_ok": pct_ok,
@@ -1351,7 +1443,9 @@ def _evaluate_watchlist_gates(
     context: Dict[str, Any],
     thresholds: GateThresholds,
 ) -> Optional[str]:
-    _evaluate_float_gate(context, thresholds)
+    float_drop = _evaluate_float_gate(context, thresholds)
+    if float_drop:
+        return float_drop
     pct_change = _safe_float(context.get("pct_change"), None)
     session = normalize_session_label(str(context.get("session") or ""))
     calendar_session = str(context.get("calendar_session") or "")
@@ -1376,6 +1470,42 @@ def _evaluate_watchlist_gates(
     if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
         print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=FAIL reason=ABOVE_MAX threshold={thresholds.max_pct_change}")
         return "DROP_PCT_CHANGE_MAX"
+    rvol_metric, watchlist_rvol_value = _resolve_rvol_for_focus_gate(context)
+    if watchlist_rvol_value is None:
+        if bool(context.get("degraded_rvol_gate_bypass")):
+            context.setdefault("eligibility_reason_codes", []).append("PRE_RVOL_BYPASS_APPLIED")
+            print(
+                "[GATE][RVOL] "
+                f"symbol={context.get('symbol')} metric={rvol_metric} verdict=PASS reason=PRE_RVOL_BYPASS_APPLIED"
+            )
+            return None
+        if bool(context.get("prep_only")):
+            context.setdefault("eligibility_reason_codes", []).append("PREP_RVOL_DEFERRED")
+            print(
+                "[GATE][RVOL] "
+                f"symbol={context.get('symbol')} metric={rvol_metric} verdict=PASS reason=PREP_RVOL_DEFERRED"
+            )
+            return None
+        print(
+            "[GATE][RVOL] "
+            f"symbol={context.get('symbol')} metric={rvol_metric} verdict=FAIL reason=MISSING_RVOL"
+        )
+        return "DROP_MISSING_RVOL"
+    if watchlist_rvol_value < thresholds.watchlist_rvol_min:
+        if bool(context.get("prep_only")):
+            context.setdefault("eligibility_reason_codes", []).append("PREP_RVOL_DEFERRED")
+            print(
+                "[GATE][RVOL] "
+                f"symbol={context.get('symbol')} metric={rvol_metric} value={watchlist_rvol_value} "
+                f"threshold={thresholds.watchlist_rvol_min} verdict=PASS reason=PREP_RVOL_DEFERRED"
+            )
+            return None
+        print(
+            "[GATE][RVOL] "
+            f"symbol={context.get('symbol')} metric={rvol_metric} value={watchlist_rvol_value} "
+            f"threshold={thresholds.watchlist_rvol_min} verdict=FAIL reason=BELOW_WATCHLIST_MIN"
+        )
+        return "DROP_RVOL_DISCOVERY"
     print(f"[GATE][PCT] symbol={context.get('symbol')} pct_change={pct_change} source={pct_source} verdict=PASS reason=VALUE_PRESENT")
     return None
 
@@ -1385,6 +1515,14 @@ def _evaluate_float_gate(
     thresholds: GateThresholds,
 ) -> Optional[str]:
     float_shares = context.get("float_shares")
+    policy = FloatPolicy(
+        max_millions=float(thresholds.max_float) / 1_000_000.0,
+        data_sources=(),
+        cache_policy="scanner_runtime_thresholds",
+    )
+    decision = policy.assess(float_shares)
+    context["float_status"] = decision.quality.value
+    context["float_policy_reason"] = decision.reason
     if float_shares is None:
         rvol = _safe_float(context.get("rvol"), None)
         volume = _safe_float(context.get("volume"), None)
@@ -1393,7 +1531,6 @@ def _evaluate_float_gate(
         volume_ok = volume is not None and volume >= float(thresholds.min_volume)
         pct_ok = pct_change is not None and pct_change >= float(thresholds.min_pct_change)
         all_threshold_inputs_present = rvol is not None and volume is not None and pct_change is not None
-        context["float_status"] = "UNKNOWN_ALLOWED" if thresholds.allow_unknown_float else "UNKNOWN_DEGRADED"
         context["float_unknown_gate"] = {
             "rvol_ok": rvol_ok,
             "volume_ok": volume_ok,
@@ -1401,14 +1538,6 @@ def _evaluate_float_gate(
         }
         if all_threshold_inputs_present and not (rvol_ok and volume_ok and pct_ok):
             context.setdefault("eligibility_reason_codes", []).append("FLOAT_UNKNOWN_POLICY_GATES")
-            if not thresholds.allow_unknown_float:
-                degraded_flags = context.setdefault("data_quality_flags", [])
-                if "FLOAT_REQUIRED_DEGRADED" not in degraded_flags:
-                    degraded_flags.append("FLOAT_REQUIRED_DEGRADED")
-                print(
-                    f"[FLOAT][FALLBACK_USED] symbol={context.get('symbol')} used=True policy=DEGRADED_ONLY"
-                )
-                return None
         flags = context.setdefault("data_quality_flags", [])
         context["float_tolerated"] = bool(thresholds.allow_unknown_float)
         if isinstance(flags, list) and "FLOAT_UNKNOWN" in flags:
@@ -1418,12 +1547,19 @@ def _evaluate_float_gate(
             if "FLOAT_REQUIRED_DEGRADED" not in degraded_flags:
                 degraded_flags.append("FLOAT_REQUIRED_DEGRADED")
             context.setdefault("eligibility_reason_codes", []).append("FLOAT_REQUIRED_DEGRADED")
+            context["execution_eligible"] = False
+            _apply_degraded_contract(context)
+            print(
+                f"[FLOAT][FALLBACK_USED] symbol={context.get('symbol')} used=True policy=DEGRADED_ONLY"
+            )
+            if thresholds.live_quality_required:
+                return "DROP_FLOAT_UNKNOWN"
+            return None
         print(
-            f"[FLOAT][FALLBACK_USED] symbol={context.get('symbol')} used=True policy={'ALLOW_UNKNOWN' if thresholds.allow_unknown_float else 'DEGRADED_ONLY'}"
+            f"[FLOAT][FALLBACK_USED] symbol={context.get('symbol')} used=True policy=ALLOW_UNKNOWN_VALIDATION"
         )
         return None
-    context["float_status"] = "KNOWN"
-    if float_shares > thresholds.max_float:
+    if not decision.satisfied:
         return "DROP_FLOAT_MAX"
     return None
 
@@ -1450,7 +1586,7 @@ def _allow_pre_rvol_bypass(
     if thresholds.require_catalyst and not bool(context.get("catalyst_present") or context.get("news_present") or context.get("catalyst_summary")):
         return False
     float_status = str(context.get("float_status") or "")
-    if float_status == "UNKNOWN" and not thresholds.allow_unknown_float:
+    if float_status in {"UNKNOWN", FloatQuality.UNKNOWN_FLOAT.value} and not thresholds.allow_unknown_float:
         return False
     has_strong_anchor = (
         str(context.get("reference_quality_tier") or "").upper() in {"PRIMARY", "SECONDARY"}
@@ -1468,15 +1604,10 @@ def _is_etf_context(context: Dict[str, Any]) -> bool:
     return instrument_type == "ETF"
 
 
-def _resolve_focus_rvol_min_for_session(session: str) -> float:
-    session_normalized = str(session or "").upper()
-    if session_normalized in ("PRE", "PREMARKET"):
-        return 0.3
-    if session_normalized in ("RTH", "REGULAR"):
-        return 1.0
-    if session_normalized in ("AH", "AFTER_HOURS"):
-        return 0.5
-    return 1.0
+def _resolve_focus_rvol_min_for_session(session: str, thresholds: GateThresholds | None = None) -> float:
+    if thresholds is not None:
+        return float(thresholds.focus_rvol_min)
+    return _ross_policy_for_stock_selection(policy_from_config()).rvol.focus_threshold_for(session)
 
 
 def _evaluate_focus_gates(
@@ -1494,6 +1625,9 @@ def _evaluate_focus_gates(
     halted = context.get("halted")
     ssr = context.get("ssr")
 
+    price_drop = _evaluate_price_gate(context, thresholds)
+    if price_drop:
+        return price_drop
     if thresholds.require_price and price is None:
         return "DROP_MISSING_PRICE"
     if halted is True and not thresholds.allow_halts:
@@ -1502,13 +1636,53 @@ def _evaluate_focus_gates(
         return "DROP_SSR"
     if bool(context.get("live_confirmation_pending")):
         return "DROP_LIVE_CONFIRMATION_PENDING"
+    if session == "PRE":
+        _, pre_focus_rvol_value = _resolve_rvol_for_focus_gate(context)
+        if pre_focus_rvol_value is None and not _allow_pre_rvol_bypass(context, thresholds):
+            context.setdefault("eligibility_reason_codes", []).append("PRE_RVOL_BYPASS_REJECTED")
+            return "DROP_MISSING_RVOL"
+    pct_change = _safe_float(context.get("pct_change"), None)
+    if pct_change is None:
+        return "DROP_MISSING_PCT_CHANGE"
+    if thresholds.max_pct_change is not None and pct_change > thresholds.max_pct_change:
+        return "DROP_PCT_CHANGE_MAX"
+    if pct_change < thresholds.focus_pct_change_min:
+        context["pct_change_quality"] = "BELOW_FOCUS_THRESHOLD"
+        print(
+            "[FOCUS][PCT_FAIL] "
+            f"symbol={context.get('symbol')} value={pct_change} "
+            f"threshold={thresholds.focus_pct_change_min}"
+        )
+        return "DROP_PCT_CHANGE_FOCUS"
+    if pct_change < thresholds.live_quality_pct_change_min:
+        context["pct_change_quality"] = "SESSION_ADAPTATION"
+        context["selection_tier"] = "SESSION_ADAPTATION"
+        context["execution_eligible"] = False
+        context.setdefault("eligibility_reason_codes", []).append("PCT_CHANGE_SESSION_ADAPTATION")
+        _apply_degraded_contract(context)
+        print(
+            "[FOCUS][PCT_SESSION_ADAPTATION] "
+            f"symbol={context.get('symbol')} value={pct_change} "
+            f"live_quality_threshold={thresholds.live_quality_pct_change_min}"
+        )
+    else:
+        context["pct_change_quality"] = "LIVE_QUALITY"
+    if thresholds.require_catalyst and not bool(
+        context.get("catalyst_present")
+        or context.get("news_present")
+        or context.get("catalyst_summary")
+    ):
+        context.setdefault("eligibility_reason_codes", []).append(
+            f"CATALYST_{str(context.get('catalyst_status') or 'UNKNOWN').upper()}"
+        )
+        return "DROP_NO_CATALYST"
     rvol_metric_used, focus_rvol_value = _resolve_rvol_for_focus_gate(context)
     rvol_phase = _safe_float(context.get("rvol_phase"), None)
     rvol_discovery = _safe_float(context.get("rvol_discovery"), None)
-    threshold_value = _resolve_focus_rvol_min_for_session(session)
+    threshold_value = _resolve_focus_rvol_min_for_session(session, thresholds)
     print(
         "[FOCUS][RVOL_THRESHOLD] "
-        f"session={session} rvol_min={threshold_value}"
+        f"session={session} rvol_min={threshold_value} source=RossPolicy.session_focus_rvol_min"
     )
     if focus_rvol_value is None:
         context["rvol_status"] = "UNKNOWN"
@@ -1544,6 +1718,12 @@ def _evaluate_focus_gates(
     if focus_rvol_value >= threshold_value:
         focus_decision = "KEEP"
         focus_reason = "PASS_RVOL_THRESHOLD"
+        if focus_rvol_value >= 5.0:
+            context["rvol_quality"] = "LIVE_QUALITY"
+        else:
+            context["rvol_quality"] = "SESSION_FOCUS_ACCEPTABLE"
+            if thresholds.live_quality_required:
+                context["selection_tier"] = context.get("selection_tier") or "SESSION_ADAPTATION"
     else:
         fallback_values = [rvol_discovery, rvol_phase]
         fallback_pass = any(v is not None and v >= threshold_value for v in fallback_values)
@@ -4236,6 +4416,29 @@ def run_scanner_cycle(
         focus_candidates: list[Dict[str, Any]] = []
         volume_soft_fail_candidates: list[Dict[str, Any]] = []
         for context in watchlist_contexts:
+            symbol = str(context.get("symbol") or "")
+            news_context = news_by_symbol.get(symbol, {})
+            if catalyst_decision is not None:
+                context["catalyst_status"] = catalyst_decision.status.value
+                context["catalyst_present"] = bool(catalyst_decision.satisfied)
+                context["catalyst_policy_reason"] = catalyst_decision.reason
+            else:
+                catalyst_confirmed = bool(
+                    news_context.get("ross_catalyst_valid")
+                    or news_context.get("news_present")
+                    or context.get("catalyst_present")
+                    or context.get("catalyst_summary")
+                )
+                catalyst_status_decision = assess_catalyst(
+                    mode=run_mode,
+                    news_enabled=news_enabled,
+                    news_available=bool(news_context or context.get("catalyst_summary")),
+                    confirmed=True if catalyst_confirmed else (False if news_context else None),
+                    validation_bypass_requested=validation_override_active,
+                )
+                context["catalyst_status"] = catalyst_status_decision.status.value
+                context["catalyst_present"] = bool(catalyst_status_decision.satisfied)
+                context["catalyst_policy_reason"] = catalyst_status_decision.reason
             focus_drop = _evaluate_focus_gates(context, thresholds)
             if focus_drop:
                 context["focus_drop_reason"] = focus_drop
@@ -4273,11 +4476,12 @@ def run_scanner_cycle(
         if normalize_session_label(session_label) in {"PRE", "PREMARKET"}:
             if not focus_contexts and watchlist_contexts:
                 spread_limit = thresholds.spread_max_pct
+                pre_focus_rvol_min = _resolve_focus_rvol_min_for_session(session_label, thresholds)
                 eligible = [
                     context
                     for context in watchlist_contexts
                     if _safe_float(context.get("pct_change"), 0.0) >= thresholds.min_pct_change
-                    and _safe_float(context.get("rvol_phase"), 0.0) >= 0.3
+                    and _safe_float(context.get("rvol_phase"), 0.0) >= pre_focus_rvol_min
                     and _safe_float(context.get("last_price"), None) is not None
                     and (
                         spread_limit is None

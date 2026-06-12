@@ -34,6 +34,7 @@ def test_premarket_volume_gate_enforced() -> None:
     context = {
         "symbol": "XYZ",
         "session": "PRE",
+        "pct_change": 12.0,
         "last_price": 4.2,
         "volume": 150_000,
         "premarket_volume": 5_000,
@@ -74,6 +75,7 @@ def test_premarket_volume_gate_relaxed_for_discovery() -> None:
     context = {
         "symbol": "XYZ",
         "session": "PRE",
+        "pct_change": 12.0,
         "last_price": 4.2,
         "volume": 150_000,
         "premarket_volume": 15_000,
@@ -119,6 +121,7 @@ def test_prep_seeded_can_stay_watchlist_and_pass_focus_when_confirmation_pending
     context = {
         "symbol": "ATRA",
         "session": "PRE",
+        "pct_change": 12.0,
         "last_price": 2.0,
         "volume": 15_000,
         "premarket_volume": 15_000,

@@ -16,6 +16,7 @@ from src.strategies.ross_momentum.patterns.pattern_types import (
     PatternFamily,
     PatternResult,
 )
+from src.strategies.ross_momentum.policy import ROSS_POLICY_AUTHORITY
 from src.strategies.strategy_base import StrategyBase
 from src.strategies.strategy_contracts import (
     DecisionType,
@@ -413,11 +414,16 @@ class RossMomentumStrategy(StrategyBase):
                 return default
 
         def score(candidate: Any) -> float:
+            price_value = _float_value(candidate, "last_price", 0.0)
+            if price_value == 0.0:
+                price_value = _float_value(candidate, "price", 0.0)
+            price_decision = ROSS_POLICY_AUTHORITY.price.assess(price_value if price_value > 0 else None)
             base = (
                 (_float_value(candidate, "pct_change", 0.0) * 0.4)
                 + (_float_value(candidate, "rvol", 0.0) * 0.3)
                 + ((1.0 / max(_float_value(candidate, "float_millions", 1.0), 1.0)) * 0.2)
                 + ((1.0 if bool(_read(candidate, "has_catalyst", False)) else 0.0) * 0.1)
+                + price_decision.rank_bonus
             )
             symbol = str(_read(candidate, "symbol", "") or "").upper()
             if symbol == "FUBO":

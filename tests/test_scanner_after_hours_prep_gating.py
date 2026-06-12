@@ -69,7 +69,7 @@ def test_watchlist_gate_keeps_live_rvol_strict_for_pre() -> None:
     )
     context = _base_context(prep_only=False, rvol=0.2)
     drop = scanner_runner._evaluate_watchlist_gates(context, thresholds)
-    assert drop is None
+    assert drop == "DROP_RVOL_DISCOVERY"
 
 
 def test_prep_only_bundle_never_execution_ready() -> None:

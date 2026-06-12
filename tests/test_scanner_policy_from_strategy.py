@@ -19,8 +19,9 @@ def test_scanner_policy_limits_applied_in_teaching_mode():
     os.environ["ENABLE_OVN_TRADING"] = "true"
     set_config_overrides(
         {
-        "RUN_MODE": "PAPER",
+            "RUN_MODE": "PAPER",
             "SCANNER_DATA_SOURCE": "MOCK",
+            "ROSS_VALIDATION_OVERRIDE_ENABLED": True,
         }
     )
     base_policy = RossMomentumPolicy()
@@ -64,6 +65,7 @@ def test_scanner_keeps_top_k_and_drops_only_below_watchlist_rank():
         {
             "RUN_MODE": "PAPER",
             "SCANNER_DATA_SOURCE": "MOCK",
+            "ROSS_VALIDATION_OVERRIDE_ENABLED": True,
         }
     )
     base_policy = RossMomentumPolicy()
