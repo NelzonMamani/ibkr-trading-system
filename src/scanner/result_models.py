@@ -102,6 +102,7 @@ class CandidateMetrics:
     rank_components: Optional[dict[str, float]] = None
     timestamp_utc: str = ""
     gate_checks: dict[str, bool] = field(default_factory=dict)
+    selection_rationale: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
