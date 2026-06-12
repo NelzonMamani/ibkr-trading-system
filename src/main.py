@@ -59,6 +59,11 @@ from src.config.system_config import ACTIVE_SESSIONS, CYCLE_SLEEP_SECONDS
 from src.domain.models.internal_order import InternalOrder
 from src.core.orchestrator import CoreOrchestrator
 from src.strategies.ross_momentum import strategy_policy as ross_strategy_policy
+from src.strategies.ross_momentum.policy import (
+    log_validation_override_active,
+    log_validation_override_blocked,
+    validation_override_allowed,
+)
 from src.core.readiness import run_readiness_check
 from src.adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
 from src.ibkr.read_only_guard import validate_read_only_guard
@@ -151,9 +156,15 @@ def _apply_cli_overrides(args: argparse.Namespace) -> None:
 
 
 
-def _apply_temp_validation_override() -> None:
-    """Temporarily relax runtime policy gates to validate the full trade pipeline."""
-    # === TEMP VALIDATION OVERRIDE — REMOVE AFTER FIRST TRADE ===
+def _apply_temp_validation_override(run_mode: RunMode) -> None:
+    """Explicit SIM/PAPER-only relaxation for validating the Ross pipeline."""
+    requested = bool(get_config("ROSS_VALIDATION_OVERRIDE_ENABLED"))
+    if not requested:
+        return
+    if not validation_override_allowed(run_mode, requested):
+        log_validation_override_blocked(run_mode)
+        return
+    log_validation_override_active(run_mode, "explicit_ross_validation_override")
     ross_strategy_policy.CANONICAL_POLICY = replace(
         ross_strategy_policy.CANONICAL_POLICY,
         stock_selection=replace(
@@ -168,11 +179,10 @@ def _apply_temp_validation_override() -> None:
     ross_strategy_policy.ROSS_POLICY = ross_strategy_policy.CANONICAL_POLICY
     ross_strategy_policy.RossMomentumPolicy = lambda: ross_strategy_policy.CANONICAL_POLICY
     print(
-        "[DEBUG OVERRIDE ACTIVE]",
-        ross_strategy_policy.CANONICAL_POLICY.stock_selection.watchlist_rvol_min,
-        ross_strategy_policy.CANONICAL_POLICY.stock_selection.focus_rvol_min,
+        "[ROSS][VALIDATION_OVERRIDE][POLICY] "
+        f"watchlist_rvol_min={ross_strategy_policy.CANONICAL_POLICY.stock_selection.watchlist_rvol_min} "
+        f"focus_rvol_min={ross_strategy_policy.CANONICAL_POLICY.stock_selection.focus_rvol_min}"
     )
-    # === END TEMP OVERRIDE ===
 
 
 def _print_enabled_strategies_banner() -> None:
@@ -325,7 +335,7 @@ def main() -> None:
         print("[SAFETY] LIVE DATA — READ ONLY MODE")
         print("[SAFETY] NO ORDERS WILL BE SENT")
     validate_read_only_guard()
-    _apply_temp_validation_override()
+    _apply_temp_validation_override(run_mode)
 
     translation_test_symbol = str(get_config("IBKR_TRANSLATION_TEST_SYMBOL") or "").strip().upper()
     translation_test_direction = str(

@@ -79,6 +79,16 @@ from src.scanner.session_pct_change import (
 from src.core.time.calendar_session import resolve_calendar_session
 from src.scanner.session_contract import attach_session_contract, build_canonical_session_contract
 from src.strategies.strategy_registry import build_default_registry
+from src.strategies.ross_momentum.policy import (
+    CatalystStatus,
+    assess_catalyst,
+    log_catalyst_live_not_satisfied,
+    log_catalyst_unavailable,
+    log_catalyst_validation_bypass,
+    log_validation_override_active,
+    log_validation_override_blocked,
+    validation_override_allowed,
+)
 
 
 _FLOAT_CACHE_STATE: Dict[str, Any] = {
@@ -3265,6 +3275,16 @@ def run_scanner_cycle(
                 return dict(_LAST_SCANNER_PAYLOAD)
 
     run_mode = get_run_mode()
+    validation_override_requested = bool(get_config("ROSS_VALIDATION_OVERRIDE_ENABLED"))
+    validation_override_active = validation_override_allowed(
+        run_mode,
+        validation_override_requested,
+    )
+    if validation_override_requested:
+        if validation_override_active:
+            log_validation_override_active(run_mode, "scanner_validation_mode")
+        else:
+            log_validation_override_blocked(run_mode)
     fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
     explicit_mock = _is_mock_scanner_mode()
     allow_mock_fallback = run_mode in {RunMode.SIM, RunMode.PAPER} or explicit_mock
@@ -3477,7 +3497,7 @@ def run_scanner_cycle(
 
         float_cache = _bootstrap_float_cache(symbols, provider)
         thresholds = _gate_thresholds(resolved_policy, runtime_thresholds)
-        if explicit_mock:
+        if explicit_mock and validation_override_active:
             thresholds = replace(
                 thresholds,
                 min_pct_change=min(0.0, float(thresholds.min_pct_change)),
@@ -3487,6 +3507,11 @@ def run_scanner_cycle(
                 allow_unknown_float=True,
             )
             print("[E29][MOCK_OVERRIDE] relaxed scanner gates for verification mode")
+        elif explicit_mock:
+            print(
+                "[E29][MOCK_OVERRIDE][BLOCKED] "
+                f"mode={run_mode.value} reason=explicit_validation_flag_required"
+            )
         print(f"[GATE][THRESHOLDS] pct_min={thresholds.min_pct_change} rvol_min={thresholds.watchlist_rvol_min}")
         candidates: List[Dict[str, Any]] = []
         evaluated_contexts: List[Dict[str, Any]] = []
@@ -3800,14 +3825,25 @@ def run_scanner_cycle(
         ranking_intent = request.ranking_intent or resolved_policy.ranking_intent
         selector = resolve_watchlist_selector(ranking_intent)
         watchlist_limit = limits["watchlist_limit"]
-        allow_news = bool(get_config("NEWS_ENABLED")) and run_mode not in {
+        news_enabled = bool(get_config("NEWS_ENABLED"))
+        allow_news = news_enabled and run_mode not in {
             RunMode.LIVE,
             RunMode.READ_ONLY,
             RunMode.PAPER,
         }
         if explicit_mock:
             allow_news = False
-        catalyst_override = None if allow_news else True
+        catalyst_override = None
+        catalyst_decision = None
+        if not allow_news:
+            catalyst_decision = assess_catalyst(
+                mode=run_mode,
+                news_enabled=news_enabled,
+                news_available=False,
+                confirmed=None,
+                validation_bypass_requested=validation_override_active,
+            )
+            catalyst_override = catalyst_decision.satisfied
         session_override = "" if session_label == "WEEKEND" and run_mode != RunMode.LIVE else None
         context_by_symbol = {
             context.get("symbol"): context for context in evaluated_contexts
@@ -3815,6 +3851,14 @@ def run_scanner_cycle(
         candidate_symbols = [
             symbol for symbol in context_by_symbol.keys() if symbol
         ]
+        if catalyst_decision is not None and candidate_symbols:
+            if catalyst_decision.status == CatalystStatus.DISABLED_FOR_VALIDATION:
+                log_catalyst_validation_bypass(run_mode, catalyst_decision.reason)
+            else:
+                for symbol in candidate_symbols:
+                    log_catalyst_unavailable(symbol, catalyst_decision.reason)
+                    if run_mode == RunMode.LIVE:
+                        log_catalyst_live_not_satisfied(symbol, catalyst_decision.reason)
         news_by_symbol = {}
         news_diag = NewsDiagnostics(False, False, None, 0, 0, {})
         if selector is not None and allow_news and candidate_symbols:

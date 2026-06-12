@@ -1184,6 +1184,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Temporary SIM-only validation hook to relax scanner thresholds and force at least one debug trade when setup+trigger gates pass.",
     },
+    "ROSS_VALIDATION_OVERRIDE_ENABLED": {
+        "type": bool,
+        "default": False,
+        "env": ["ROSS_VALIDATION_OVERRIDE_ENABLED"],
+        "affects": ["CoreOrchestrator", "ScannerFilters", "RossMomentum"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Explicit SIM/PAPER Ross validation mode flag for temporary relaxed gates, catalyst bypass, and synthetic intent hooks.",
+    },
     "FORCE_PREMARKET_TRIGGER": {
         "type": bool,
         "default": False,

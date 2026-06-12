@@ -62,6 +62,13 @@ from src.signals.signal_event import SignalEvent
 from src.regime.contracts import RegimePolicyDecision
 from src.config.config_resolver import get_config
 from src.scanner.session_pct_change import canonical_session_label
+from src.strategies.ross_momentum.policy import (
+    log_fallback_intent_blocked,
+    log_no_setup_no_trade,
+    log_validation_override_active,
+    normalize_run_mode,
+    synthetic_intent_allowed,
+)
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -406,13 +413,29 @@ class StrategyRunner:
                 f"Strategy '{strategy.name}' has no watchlist handler; skipping."
             )
         mock_scanner_mode = str(safe_get_config("SCANNER_DATA_SOURCE", default="", required=False) or "").strip().upper() == "MOCK"
-        force_execution_window = _env_flag("FORCE_EXECUTION_WINDOW", False) or mock_scanner_mode
+        validation_override_requested = bool(
+            safe_get_config("ROSS_VALIDATION_OVERRIDE_ENABLED", default=False, required=False)
+        )
+        force_execution_requested = _env_flag("FORCE_EXECUTION_WINDOW", False) or mock_scanner_mode
+        force_execution_window = force_execution_requested and synthetic_intent_allowed(
+            run_mode,
+            validation_override_requested,
+        )
         if len(watchlist) > 0 and len(results) == 0:
             print("[ALERT] NO_INTENTS_GENERATED — CHECK STRATEGY LOGIC")
+            fallback_symbol = next((symbol for symbol in (_watchlist_symbol(item) for item in watchlist) if symbol), None)
+            if fallback_symbol and normalize_run_mode(run_mode) in {"LIVE", "READ_ONLY"}:
+                log_no_setup_no_trade(fallback_symbol, "NO_TRIGGER_PIPELINE")
+
+        if len(watchlist) > 0 and len(results) == 0 and force_execution_requested and not force_execution_window:
+            fallback_symbol = next((symbol for symbol in (_watchlist_symbol(item) for item in watchlist) if symbol), None)
+            if fallback_symbol:
+                log_fallback_intent_blocked(run_mode)
 
         if len(watchlist) > 0 and len(results) == 0 and force_execution_window:
             fallback_symbol = next((symbol for symbol in (_watchlist_symbol(item) for item in watchlist) if symbol), None)
             if fallback_symbol:
+                log_validation_override_active(run_mode, "strategy_runner_synthetic_intent")
                 print(f"[ROSS][FORCED_TRIGGER] symbol={fallback_symbol} reason=NO_TRIGGER_PIPELINE mock_mode={mock_scanner_mode}")
                 forced_intent = TradeIntent(
                     symbol=fallback_symbol,
