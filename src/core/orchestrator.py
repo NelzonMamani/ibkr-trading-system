@@ -150,6 +150,12 @@ from src.strategies.ross_momentum.strategy_policy import (
     UniverseSource,
     stock_selection_policy_for_session_phase,
 )
+from src.strategies.ross_momentum.policy import (
+    log_fallback_intent_blocked,
+    log_no_setup_no_trade,
+    log_validation_override_active,
+    synthetic_intent_allowed,
+)
 from src.strategies.statistical_intraday_momentum.strategy_policy import (
     StatisticalIntradayMomentumPolicy,
     statistical_stock_selection_spec,
@@ -4150,31 +4156,45 @@ class CoreOrchestrator:
                 and watchlist_symbols
             ):
                 fallback_symbol = watchlist_symbols[0]
-                strategy_name = (
-                    "LongHorizonValue"
-                    if self.selected_strategy_key == "long_horizon_value"
-                    else "RossMomentumStrategyV1"
-                )
-                trader_type = (
-                    "LONG_HORIZON_VALUE"
-                    if self.selected_strategy_key == "long_horizon_value"
-                    else "MOMENTUM"
-                )
-                strategy_output = [
-                    TradeIntent(
-                        symbol=fallback_symbol,
-                        direction="LONG",
-                        strategy_name=strategy_name,
-                        confidence=0.6,
-                        rationale="Deterministic fallback intent emitted from watchlist when no signals fire.",
-                        trader_type=trader_type,
-                        pattern_name="WATCHLIST_DETERMINISTIC_FALLBACK",
+                ross_fallback_requested = self.selected_strategy_key == "ross_momentum"
+                validation_override_requested = bool(get_config("ROSS_VALIDATION_OVERRIDE_ENABLED"))
+                if ross_fallback_requested and not synthetic_intent_allowed(
+                    self.run_mode,
+                    validation_override_requested,
+                ):
+                    log_no_setup_no_trade(fallback_symbol, "real_setup_required")
+                    log_fallback_intent_blocked(self.run_mode)
+                else:
+                    if ross_fallback_requested:
+                        log_validation_override_active(
+                            self.run_mode,
+                            "orchestrator_synthetic_intent",
+                        )
+                    strategy_name = (
+                        "LongHorizonValue"
+                        if self.selected_strategy_key == "long_horizon_value"
+                        else "RossMomentumStrategyV1"
                     )
-                ]
-                print(
-                    "[STRATEGY][FALLBACK] "
-                    f"strategy={self.selected_strategy_key} symbol={fallback_symbol}"
-                )
+                    trader_type = (
+                        "LONG_HORIZON_VALUE"
+                        if self.selected_strategy_key == "long_horizon_value"
+                        else "MOMENTUM"
+                    )
+                    strategy_output = [
+                        TradeIntent(
+                            symbol=fallback_symbol,
+                            direction="LONG",
+                            strategy_name=strategy_name,
+                            confidence=0.6,
+                            rationale="Deterministic fallback intent emitted from watchlist when no signals fire.",
+                            trader_type=trader_type,
+                            pattern_name="WATCHLIST_DETERMINISTIC_FALLBACK",
+                        )
+                    ]
+                    print(
+                        "[STRATEGY][FALLBACK] "
+                        f"strategy={self.selected_strategy_key} symbol={fallback_symbol}"
+                    )
             if strategy_key == "statistical_intraday_momentum":
                 interface_intents = []
                 interface_event = self.event_collector.emit(

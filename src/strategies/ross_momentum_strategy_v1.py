@@ -24,6 +24,12 @@ from src.signals.signal_event import SignalEvent
 from src.strategy.base_strategy import BaseStrategy
 from src.strategy.exit_signal import ExitSignal
 from src.utils.pipeline_trace import pipeline_trace
+from src.strategies.ross_momentum.policy import (
+    log_fallback_intent_blocked,
+    log_no_setup_no_trade,
+    log_validation_override_active,
+    synthetic_intent_allowed,
+)
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
 from src.strategies.ross_momentum.patterns.pattern_trace import (
     RossPatternFailureTraceCollector,
@@ -507,6 +513,12 @@ class RossMomentumStrategyV1(BaseStrategy):
         mode: RunMode,
         session_phase: str,
     ) -> List[TradeIntent]:
+        self._active_run_mode = mode
+        validation_override_requested = self._cfg_bool("ROSS_VALIDATION_OVERRIDE_ENABLED", False)
+        validation_fallback_allowed = synthetic_intent_allowed(
+            mode,
+            validation_override_requested,
+        )
         print(f"[ROSS][PROCESS_START] symbols={len(watchlist)}")
         if not watchlist:
             print("[ROSS][CRITICAL] EMPTY_WATCHLIST_NO_TRADING_POSSIBLE")
@@ -563,8 +575,14 @@ class RossMomentumStrategyV1(BaseStrategy):
             effective_focus_symbols = set(gated_focus_symbols)
         if not effective_focus_symbols and watchlist_symbols:
             fallback = watchlist_symbols[:3]
-            print("[FOCUS][FORCED_FALLBACK] activating:", fallback)
-            effective_focus_symbols = set(fallback)
+            if validation_fallback_allowed:
+                log_validation_override_active(mode, "strategy_focus_fallback")
+                print("[FOCUS][FORCED_FALLBACK] activating:", fallback)
+                effective_focus_symbols = set(fallback)
+            else:
+                for symbol in fallback:
+                    log_no_setup_no_trade(symbol, "focus_empty")
+                log_fallback_intent_blocked(mode)
         print(f"[FOCUS_FINAL] count={len(effective_focus_symbols)} symbols={sorted(effective_focus_symbols)}")
         symbol_traces: List[RossSymbolTrace] = []
         translated_intents: List[TradeIntent] = []
@@ -1641,6 +1659,12 @@ class RossMomentumStrategyV1(BaseStrategy):
         input_summary,
         setup_override: str | None = None,
     ) -> TradeIntent | None:
+        run_mode = getattr(self, "_active_run_mode", None)
+        validation_override_requested = self._cfg_bool("ROSS_VALIDATION_OVERRIDE_ENABLED", False)
+        if not synthetic_intent_allowed(run_mode, validation_override_requested):
+            log_no_setup_no_trade(symbol, "fallback_setup_blocked")
+            log_fallback_intent_blocked(run_mode)
+            return None
         setup_name = setup_override or "MOMENTUM_BREAKOUT"
         print(f"[ROSS][SETUP] symbol={symbol} source=fallback_detector setup={setup_name}")
         print(f"[ROSS][SETUP_FALLBACK] symbol={symbol} setups=1 types=['{setup_name}']")
@@ -2283,6 +2307,12 @@ class RossMomentumStrategyV1(BaseStrategy):
         trigger_candidates: list[dict],
     ) -> None:
         if not self._force_premarket_trigger:
+            return
+        run_mode = getattr(self, "_active_run_mode", None)
+        validation_override_requested = self._cfg_bool("ROSS_VALIDATION_OVERRIDE_ENABLED", False)
+        if not synthetic_intent_allowed(run_mode, validation_override_requested):
+            log_no_setup_no_trade(symbol, "forced_premarket_validation_blocked")
+            log_fallback_intent_blocked(run_mode)
             return
         session = str(getattr(input_summary, "session_context", "") or "").upper()
         if session != "PRE":
