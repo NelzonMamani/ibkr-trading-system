@@ -1081,10 +1081,12 @@ def _gate_checks(
 ) -> Dict[str, bool]:
     watchlist_checks = _watchlist_gate_checks(context, thresholds)
     focus_checks = _focus_gate_checks(context, thresholds)
+    price_ok = _price_gate_check_ok(context, thresholds)
     catalyst_ok = True
     if thresholds.require_catalyst:
         catalyst_ok = bool(catalyst_present)
     return {
+        "watch_price": price_ok,
         "watch_pct_change": watchlist_checks.get("pct_change_ok", False),
         "watch_rvol": watchlist_checks.get("rvol_ok", False),
         "watch_float": watchlist_checks.get("float_ok", False),
@@ -1096,6 +1098,24 @@ def _gate_checks(
         "focus_dollar_volume": focus_checks.get("dollar_volume_ok", False),
         "catalyst_ok": catalyst_ok,
     }
+
+
+def _price_gate_check_ok(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+) -> bool:
+    price = _safe_float(context.get("last_price"), None)
+    if thresholds.require_price and price is None and bool(context.get("snapshot_fetch_attempted")):
+        return False
+    if price is None:
+        return True
+    return PricePolicy(
+        minimum=float(thresholds.min_price),
+        maximum=float(thresholds.max_price),
+        live_quality_min=float(thresholds.live_quality_min_price),
+        preferred_min=float(thresholds.preferred_price_min),
+        preferred_max=float(thresholds.preferred_price_max),
+    ).assess(price).satisfied
 
 
 def _evaluate_price_gate(
@@ -1610,6 +1630,55 @@ def _resolve_focus_rvol_min_for_session(session: str, thresholds: GateThresholds
     return _ross_policy_for_stock_selection(policy_from_config()).rvol.focus_threshold_for(session)
 
 
+def _float_gate_check_ok(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+) -> bool:
+    float_shares = context.get("float_shares")
+    if float_shares is None:
+        return bool(thresholds.allow_unknown_float or not thresholds.live_quality_required)
+    return _safe_float(float_shares, thresholds.max_float + 1.0) <= thresholds.max_float
+
+
+def _has_focus_catalyst(context: Dict[str, Any]) -> bool:
+    return bool(
+        context.get("catalyst_present")
+        or context.get("news_present")
+        or context.get("catalyst_summary")
+    )
+
+
+def _forced_premarket_focus_eligible(
+    context: Dict[str, Any],
+    thresholds: GateThresholds,
+    *,
+    session_label: str,
+) -> bool:
+    session = normalize_session_label(session_label or str(context.get("session") or ""))
+    if session not in {"PRE", "PREMARKET"}:
+        return False
+    if context.get("focus_drop_reason") or context.get("drop_reason"):
+        return False
+    if not _price_gate_check_ok(context, thresholds):
+        return False
+    if not _float_gate_check_ok(context, thresholds):
+        return False
+    if thresholds.require_catalyst and not _has_focus_catalyst(context):
+        return False
+    if _safe_float(context.get("pct_change"), 0.0) < thresholds.min_pct_change:
+        return False
+    pre_focus_rvol_min = _resolve_focus_rvol_min_for_session(session_label, thresholds)
+    if _safe_float(context.get("rvol_phase"), 0.0) < pre_focus_rvol_min:
+        return False
+    if _safe_float(context.get("last_price"), None) is None:
+        return False
+    spread_limit = thresholds.spread_max_pct
+    spread_pct = _safe_float(context.get("spread_pct"), None)
+    if spread_limit is not None and spread_pct is not None and spread_pct > spread_limit:
+        return False
+    return True
+
+
 def _evaluate_focus_gates(
     context: Dict[str, Any],
     thresholds: GateThresholds,
@@ -1667,11 +1736,7 @@ def _evaluate_focus_gates(
         )
     else:
         context["pct_change_quality"] = "LIVE_QUALITY"
-    if thresholds.require_catalyst and not bool(
-        context.get("catalyst_present")
-        or context.get("news_present")
-        or context.get("catalyst_summary")
-    ):
+    if thresholds.require_catalyst and not _has_focus_catalyst(context):
         context.setdefault("eligibility_reason_codes", []).append(
             f"CATALYST_{str(context.get('catalyst_status') or 'UNKNOWN').upper()}"
         )
@@ -4475,18 +4540,13 @@ def run_scanner_cycle(
         )[:focus_limit]
         if normalize_session_label(session_label) in {"PRE", "PREMARKET"}:
             if not focus_contexts and watchlist_contexts:
-                spread_limit = thresholds.spread_max_pct
-                pre_focus_rvol_min = _resolve_focus_rvol_min_for_session(session_label, thresholds)
                 eligible = [
                     context
                     for context in watchlist_contexts
-                    if _safe_float(context.get("pct_change"), 0.0) >= thresholds.min_pct_change
-                    and _safe_float(context.get("rvol_phase"), 0.0) >= pre_focus_rvol_min
-                    and _safe_float(context.get("last_price"), None) is not None
-                    and (
-                        spread_limit is None
-                        or _safe_float(context.get("spread_pct"), None) is None
-                        or _safe_float(context.get("spread_pct"), None) <= spread_limit
+                    if _forced_premarket_focus_eligible(
+                        context,
+                        thresholds,
+                        session_label=session_label,
                     )
                 ]
                 focus_contexts = eligible[: min(5, len(eligible))]

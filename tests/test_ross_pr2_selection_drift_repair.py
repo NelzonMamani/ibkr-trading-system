@@ -6,6 +6,8 @@ from src.config.config_resolver import set_config_overrides
 from src.scanner.scanner_runner import (
     _evaluate_float_gate,
     _evaluate_focus_gates,
+    _forced_premarket_focus_eligible,
+    _gate_checks,
     _gate_thresholds,
     _resolve_runtime_thresholds,
 )
@@ -146,6 +148,53 @@ def test_missing_live_catalyst_blocks_focus() -> None:
     context = _focus_context(catalyst_present=False, catalyst_status="DATA_UNAVAILABLE")
 
     assert _evaluate_focus_gates(context, thresholds) == "DROP_NO_CATALYST"
+
+
+def test_selector_gate_checks_reject_price_range_drop() -> None:
+    thresholds = _thresholds_for("RTH_OPEN", mode="LIVE")
+    context = _focus_context(last_price=25.0)
+
+    checks = _gate_checks(context, thresholds, catalyst_present=True)
+
+    assert checks["watch_price"] is False
+
+
+def test_forced_premarket_focus_rejects_missing_catalyst_drop() -> None:
+    thresholds = _thresholds_for("PRE", mode="LIVE")
+    context = _focus_context(
+        session="PRE",
+        pct_change=7.0,
+        scanner_rvol=2.5,
+        rvol_phase=2.5,
+        rvol_discovery=2.5,
+        volume=1_000_000,
+        premarket_volume=1_000_000,
+        catalyst_present=False,
+        catalyst_status="DATA_UNAVAILABLE",
+    )
+
+    assert _evaluate_focus_gates(context, thresholds) == "DROP_NO_CATALYST"
+    context["focus_drop_reason"] = "DROP_NO_CATALYST"
+
+    assert _forced_premarket_focus_eligible(context, thresholds, session_label="PRE") is False
+
+
+def test_forced_premarket_focus_rejects_price_range_drop() -> None:
+    thresholds = _thresholds_for("PRE", mode="LIVE")
+    context = _focus_context(
+        session="PRE",
+        pct_change=12.0,
+        scanner_rvol=3.0,
+        rvol_phase=3.0,
+        rvol_discovery=3.0,
+        volume=1_000_000,
+        premarket_volume=1_000_000,
+        last_price=25.0,
+    )
+
+    context["focus_drop_reason"] = "DROP_PRICE_RANGE"
+
+    assert _forced_premarket_focus_eligible(context, thresholds, session_label="PRE") is False
 
 
 def test_price_sweet_spot_improves_ranking_without_overriding_gates() -> None:
