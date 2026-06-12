@@ -35,16 +35,16 @@ def test_symbol_survives_when_float_present_from_external_cache() -> None:
 def test_symbol_survives_when_float_missing() -> None:
     context = {"symbol": "ABC", "session": "RTH", "pct_change": 5.0, "scanner_rvol": 1.2, "float_shares": None}
     assert _evaluate_watchlist_gates(context, _thresholds()) is None
-    assert context["float_status"] == "UNKNOWN_ALLOWED"
+    assert context["float_status"] == "UNKNOWN_FLOAT"
 
 
-def test_symbol_not_dropped_when_float_missing_and_unknown_not_allowed() -> None:
+def test_symbol_dropped_when_float_missing_and_unknown_not_allowed() -> None:
     thresholds = GateThresholds(
         **{**_thresholds().__dict__, "allow_unknown_float": False}
     )
     context = {"symbol": "ABC", "session": "RTH", "pct_change": 5.0, "scanner_rvol": 1.2, "float_shares": None}
-    assert _evaluate_watchlist_gates(context, thresholds) is None
-    assert context["float_status"] == "UNKNOWN_DEGRADED"
+    assert _evaluate_watchlist_gates(context, thresholds) == "DROP_FLOAT_UNKNOWN"
+    assert context["float_status"] == "UNKNOWN_FLOAT"
 
 
 def test_scanner_contract_prints_reconciled_counts(capsys) -> None:

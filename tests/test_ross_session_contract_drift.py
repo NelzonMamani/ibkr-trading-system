@@ -38,22 +38,22 @@ def _candles(count: int = 20) -> list[Candle]:
 def test_ross_gate_preserves_ah_session_in_log_and_threshold(capsys) -> None:
     pct_min = _resolve_pct_change_min_for_session("AH", _thresholds())
     out = capsys.readouterr().out
-    assert pct_min == 5.0
-    assert "[ROSS][GATE] session=AH pct_change_min=5" in out
+    assert pct_min == 7.0
+    assert "[ROSS][GATE] session=AH pct_change_min=7" in out
 
 
 def test_ross_gate_normalizes_power_hour_to_rth_late(capsys) -> None:
     pct_min = _resolve_pct_change_min_for_session("POWER_HOUR", _thresholds())
     out = capsys.readouterr().out
-    assert pct_min == 5.0
-    assert "[ROSS][GATE] session=RTH_LATE pct_change_min=5" in out
+    assert pct_min == 7.0
+    assert "[ROSS][GATE] session=RTH_LATE pct_change_min=7" in out
 
 
 def test_ross_gate_preserves_pre_threshold(capsys) -> None:
     pct_min = _resolve_pct_change_min_for_session("PRE", _thresholds())
     out = capsys.readouterr().out
     assert pct_min == 7.0
-    assert "[ROSS][GATE]" not in out
+    assert "[ROSS][GATE] session=PRE pct_change_min=7" in out
 
 
 def test_missing_session_raises_explicit_error(capsys) -> None:

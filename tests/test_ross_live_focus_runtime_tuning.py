@@ -53,6 +53,7 @@ def test_early_rth_candidate_can_promote_with_discovery_context() -> None:
         "premarket_volume": 1_400_000,
         "dollar_volume": 8_000_000,
         "last_price": 5.7,
+        "float_shares": 8_000_000,
         "spread_pct": 0.02,
         "bid": 5.69,
         "ask": 5.71,
@@ -67,18 +68,29 @@ def test_early_rth_candidate_can_promote_with_discovery_context() -> None:
 
 def test_unknown_float_allowed_does_not_drop_watchlist() -> None:
     policy = RossMomentumPolicy().stock_selection
-    runtime = _resolve_runtime_thresholds(policy)
-    thresholds = _gate_thresholds(policy, runtime)
+    set_config_overrides(
+        {
+            "RUN_MODE": "PAPER",
+            "ROSS_VALIDATION_OVERRIDE_ENABLED": True,
+            "ALLOW_UNKNOWN_FLOAT": True,
+        }
+    )
+    try:
+        runtime = _resolve_runtime_thresholds(policy)
+        thresholds = _gate_thresholds(policy, runtime)
+    finally:
+        set_config_overrides(None)
     context = {
         "symbol": "XYZ",
         "session": "PRE",
         "pct_change": 15.0,
         "rvol_discovery": 3.0,
+        "volume": 1_000_000,
         "float_shares": None,
     }
 
     assert _evaluate_watchlist_gates(context, thresholds) is None
-    assert context["float_status"] == "UNKNOWN_ALLOWED"
+    assert context["float_status"] == "UNKNOWN_FLOAT"
 
 
 
@@ -319,30 +331,42 @@ def test_focus_gate_prefers_scanner_rvol_in_rth_open(capsys) -> None:
 
 
 def test_focus_rvol_min_is_session_aware() -> None:
-    assert _resolve_focus_rvol_min_for_session("PRE") == 0.3
-    assert _resolve_focus_rvol_min_for_session("PREMARKET") == 0.3
-    assert _resolve_focus_rvol_min_for_session("RTH") == 1.0
-    assert _resolve_focus_rvol_min_for_session("REGULAR") == 1.0
-    assert _resolve_focus_rvol_min_for_session("AH") == 0.5
-    assert _resolve_focus_rvol_min_for_session("AFTER_HOURS") == 0.5
-    assert _resolve_focus_rvol_min_for_session("RTH_OPEN") == 1.0
+    assert _resolve_focus_rvol_min_for_session("PRE") == 2.0
+    assert _resolve_focus_rvol_min_for_session("PREMARKET") == 2.0
+    assert _resolve_focus_rvol_min_for_session("RTH") == 2.5
+    assert _resolve_focus_rvol_min_for_session("REGULAR") == 2.5
+    assert _resolve_focus_rvol_min_for_session("AH") == 1.25
+    assert _resolve_focus_rvol_min_for_session("AFTER_HOURS") == 1.25
+    assert _resolve_focus_rvol_min_for_session("RTH_OPEN") == 2.5
 
 
 def test_unknown_float_allowed_removes_degrading_flag() -> None:
     policy = RossMomentumPolicy().stock_selection
-    runtime = _resolve_runtime_thresholds(policy)
-    thresholds = _gate_thresholds(policy, runtime)
+    set_config_overrides(
+        {
+            "RUN_MODE": "PAPER",
+            "ROSS_VALIDATION_OVERRIDE_ENABLED": True,
+            "ALLOW_UNKNOWN_FLOAT": True,
+        }
+    )
+    try:
+        runtime = _resolve_runtime_thresholds(policy)
+        thresholds = _gate_thresholds(policy, runtime)
+    finally:
+        set_config_overrides(None)
 
     context = {
         "symbol": "UFLO",
         "session": "PRE",
         "pct_change": 15.0,
+        "rvol_discovery": 3.0,
+        "volume": 1_000_000,
         "float_shares": None,
         "data_quality_flags": ["FLOAT_UNKNOWN", "SPREAD_UNKNOWN"],
     }
 
     assert _evaluate_watchlist_gates(context, thresholds) is None
-    assert context["float_status"] == "UNKNOWN_ALLOWED"
+    assert context["float_status"] == "UNKNOWN_FLOAT"
     assert context["float_tolerated"] is True
     assert context["data_quality_flags"] == ["SPREAD_UNKNOWN"]
 
@@ -375,6 +399,7 @@ def test_rth_mid_candidate_with_realistic_intraday_volume_can_enter_focus() -> N
         "premarket_volume": 175_000,
         "dollar_volume": 2_813_497.5,
         "last_price": 5.5,
+        "float_shares": 8_000_000,
         "spread_pct": 0.012,
         "bid": 5.49,
         "ask": 5.51,
@@ -404,6 +429,7 @@ def test_rth_mid_illiquid_candidate_still_fails_focus_volume_gate() -> None:
         "premarket_volume": 2_000,
         "dollar_volume": 24_576,
         "last_price": 4.0,
+        "float_shares": 8_000_000,
         "spread_pct": 0.015,
         "bid": 3.99,
         "ask": 4.01,
@@ -435,6 +461,7 @@ def test_live_like_focus_list_can_be_non_zero_in_rth_mid() -> None:
             "premarket_volume": 18_000,
             "dollar_volume": 264_988,
             "last_price": 4.0,
+            "float_shares": 8_000_000,
             "spread_pct": 0.018,
             "bid": 3.99,
             "ask": 4.01,
@@ -453,6 +480,7 @@ def test_live_like_focus_list_can_be_non_zero_in_rth_mid() -> None:
             "premarket_volume": 175_000,
             "dollar_volume": 2_813_497.5,
             "last_price": 5.5,
+            "float_shares": 8_000_000,
             "spread_pct": 0.012,
             "bid": 5.49,
             "ask": 5.51,
@@ -471,6 +499,7 @@ def test_live_like_focus_list_can_be_non_zero_in_rth_mid() -> None:
             "premarket_volume": 120_000,
             "dollar_volume": 1_881_000,
             "last_price": 5.5,
+            "float_shares": 8_000_000,
             "spread_pct": 0.01,
             "bid": 5.49,
             "ask": 5.51,

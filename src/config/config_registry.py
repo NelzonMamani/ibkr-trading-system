@@ -1214,12 +1214,12 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "ALLOW_UNKNOWN_FLOAT": {
         "type": bool,
-        "default": True,
+        "default": False,
         "env": ["ALLOW_UNKNOWN_FLOAT"],
         "affects": ["ScannerFilters", "RossMomentum"],
         "enforcement": "SOFT",
         "mutable": "dynamic",
-        "description": "Allow symbols with unknown float to pass watchlist/focus promotion gates.",
+        "description": "Validation-only relaxation that allows unknown float to pass watchlist/focus promotion gates.",
     },
     "ROSS_MIN_VOLUME": {
         "type": int,
