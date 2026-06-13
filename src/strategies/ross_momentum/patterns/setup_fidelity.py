@@ -33,6 +33,7 @@ def setup_policy_key(pattern_id: str | None, result: Any | None = None) -> str:
     raw = str(
         getattr(result, "setup_family_id", None)
         or getattr(result, "setup_id", None)
+        or getattr(result, "pattern_name", None)
         or pattern_id
         or ""
     ).strip().upper()
@@ -90,7 +91,7 @@ def apply_detected_setup_fidelity(
         )
         return _with_pr4_metadata(result, inputs, policy_key, disposition="RISK_OFF")
 
-    entry_ok, reason = is_tradeable_entry_candidate(result)
+    entry_ok, reason = is_tradeable_entry_candidate(result, policy_key=policy_key)
     if not entry_ok:
         print(
             "[ROSS][SETUP][DROP] "
@@ -102,19 +103,6 @@ def apply_detected_setup_fidelity(
             confidence=0.0,
             rejection_reason=reason,
             rationale_text=f"Rejected: {reason}",
-        )
-
-    if any(str(flag).startswith("PATTERN_INPUT_BLOCK_") for flag in result.data_quality_flags):
-        print(
-            "[ROSS][SETUP][DROP] "
-            f"symbol={inputs.symbol} setup={policy_key} pattern={result.pattern_name} reason=pr4_input_block_flag"
-        )
-        return replace(
-            result,
-            detected=False,
-            confidence=0.0,
-            rejection_reason="pr4_input_block_flag",
-            rationale_text="Rejected: pr4_input_block_flag",
         )
 
     enriched = _with_pr4_metadata(result, inputs, policy_key, disposition="ENTRY_READY")
@@ -130,7 +118,7 @@ def apply_detected_setup_fidelity(
     return enriched
 
 
-def is_tradeable_entry_candidate(setup: Any) -> tuple[bool, str]:
+def is_tradeable_entry_candidate(setup: Any, *, policy_key: str | None = None) -> tuple[bool, str]:
     if setup is None:
         return False, "missing_setup"
     if not bool(getattr(setup, "detected", False)):
@@ -141,7 +129,7 @@ def is_tradeable_entry_candidate(setup: Any) -> tuple[bool, str]:
         return False, "non_long_setup"
     if _is_risk_off_result(setup):
         return False, "risk_off_non_entry"
-    if any(str(flag).startswith("PATTERN_INPUT_BLOCK_") for flag in list(getattr(setup, "data_quality_flags", []) or [])):
+    if _has_pr4_block_for_setup(setup, policy_key=policy_key):
         return False, "pr4_input_block_flag"
     if getattr(setup, "trigger_level", None) is None and not getattr(setup, "entry_zone", None):
         return False, "missing_trigger"
@@ -160,6 +148,14 @@ def is_tradeable_entry_candidate(setup: Any) -> tuple[bool, str]:
 def setup_quality_disposition(inputs: PatternInputs, policy_key: str) -> str:
     quality = dict((inputs.setup_quality or {}).get(policy_key) or {})
     return str(quality.get("action") or "UNKNOWN").upper()
+
+
+def _has_pr4_block_for_setup(setup: Any, *, policy_key: str | None = None) -> bool:
+    key = policy_key or setup_policy_key(None, setup)
+    if not key:
+        return False
+    scoped_flag = f"PATTERN_INPUT_BLOCK_{key}"
+    return scoped_flag in {str(flag).upper() for flag in list(getattr(setup, "data_quality_flags", []) or [])}
 
 
 def _is_risk_off_result(result: Any) -> bool:

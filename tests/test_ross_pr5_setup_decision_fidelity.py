@@ -18,6 +18,7 @@ from src.strategies.ross_momentum.patterns.pattern_inputs import (
     build_authoritative_pattern_inputs,
 )
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
+from src.strategies.ross_momentum.patterns.setup_fidelity import is_tradeable_entry_candidate
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
 from src.strategies.ross_momentum.policy import IndicatorProvenance, MissingDataBehavior
 from src.strategies.strategy_contracts import SessionContext
@@ -75,6 +76,7 @@ def _authoritative_inputs(
     session_label: str = "RTH_OPEN",
     stale_10s: bool = False,
     count_for_macd: bool = True,
+    include_5m: bool = True,
 ) -> PatternInputs:
     now = datetime.now(timezone.utc)
     fresh_start = now - timedelta(seconds=len(rows) * 10)
@@ -86,11 +88,14 @@ def _authoritative_inputs(
         pad = [(9.50 + idx * 0.01, 9.56 + idx * 0.01, 9.48 + idx * 0.01, 9.54 + idx * 0.01, 1000 + idx) for idx in range(26)]
         one_minute = _candles(pad + rows, start=now - timedelta(seconds=(len(pad) + len(rows)) * 10))
         five_minute = _candles(pad + rows, start=now - timedelta(seconds=(len(pad) + len(rows)) * 10))
+    timeframe_candles = {"10s": ten_second, "1m": one_minute}
+    if include_5m:
+        timeframe_candles["5m"] = five_minute
     return build_authoritative_pattern_inputs(
         symbol="PR5",
         session_label=session_label,
         session_phase=session_label,
-        timeframe_candles={"10s": ten_second, "1m": one_minute, "5m": five_minute},
+        timeframe_candles=timeframe_candles,
         indicators=IndicatorSet(ema9=10.18, ema20=10.05, ema200=9.70, vwap=10.12),
         levels=_levels(),
         liquidity_context=_liquidity(),
@@ -115,6 +120,68 @@ def test_micro_pullback_uses_pr4_timeframes_and_blocks_stale_opening_10s() -> No
     assert inputs.missing_data_actions["timeframe:10s"] == MissingDataBehavior.BLOCK.value
     assert result.detected is False
     assert result.rejection_reason and result.rejection_reason.startswith("pr4_input_block:MICRO_PULLBACK")
+
+
+def test_orb_block_flag_does_not_suppress_micro_pullback_runtime() -> None:
+    inputs = _authoritative_inputs(rows=_micro_rows(), include_5m=False)
+
+    assert "PATTERN_INPUT_BLOCK_ORB_GAP_GO" in inputs.data_quality_flags
+    assert inputs.setup_quality["ORB_GAP_GO"]["action"] == MissingDataBehavior.BLOCK.value
+    assert inputs.setup_quality["MICRO_PULLBACK"]["action"] != MissingDataBehavior.BLOCK.value
+
+    result = _run_single(MicroPullbackPattern(), inputs)
+
+    assert result.detected is True
+    assert result.rejection_reason is None
+    assert result.setup_metadata["pr4_policy_setup"] == "MICRO_PULLBACK"
+
+
+def test_orb_block_flag_is_scoped_for_other_setup_families() -> None:
+    unrelated = [
+        ("P_MICRO_PULLBACK", "MICRO_PULLBACK"),
+        ("P_FIRST_PULLBACK", "FIRST_PULLBACK"),
+        ("P_FLAT_TOP_BREAKOUT", "FLAT_TOP_BREAKOUT"),
+        ("P_HOD_BREAK", "HOD_BREAK"),
+        ("P_PREMARKET_HIGH_BREAK", "PREMARKET_HIGH_BREAK"),
+    ]
+    for setup_id, setup_family in unrelated:
+        setup = PatternResult(
+            setup_id=setup_id,
+            setup_family_id=setup_family,
+            pattern_name=setup_family,
+            pattern_family=PatternFamily.BREAKOUT,
+            detected=True,
+            direction=Direction.LONG,
+            confidence=0.75,
+            setup_quality_tags=[],
+            entry_zone="breakout",
+            stop_suggestion="below structure",
+            rationale_text="Valid price-action setup with scoped PR4 block elsewhere.",
+            data_quality_flags=["PATTERN_INPUT_BLOCK_ORB_GAP_GO"],
+            trigger_level=10.5,
+            stop_level=10.0,
+            invalidation_level=10.0,
+        )
+        assert is_tradeable_entry_candidate(setup) == (True, "ok")
+
+    orb = PatternResult(
+        setup_id="P_ORB",
+        setup_family_id="OPENING_RANGE_BREAKOUT",
+        pattern_name="Opening Range Breakout",
+        pattern_family=PatternFamily.BREAKOUT,
+        detected=True,
+        direction=Direction.LONG,
+        confidence=0.75,
+        setup_quality_tags=[],
+        entry_zone="breakout",
+        stop_suggestion="below ORL",
+        rationale_text="ORB setup with its own PR4 block.",
+        data_quality_flags=["PATTERN_INPUT_BLOCK_ORB_GAP_GO"],
+        trigger_level=10.5,
+        stop_level=10.0,
+        invalidation_level=10.0,
+    )
+    assert is_tradeable_entry_candidate(orb) == (False, "pr4_input_block_flag")
 
 
 def test_first_pullback_requires_valid_structure_and_stop() -> None:
