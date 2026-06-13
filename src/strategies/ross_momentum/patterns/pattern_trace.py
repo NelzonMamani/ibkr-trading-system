@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, time, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -14,9 +14,14 @@ from src.domain.market_snapshot import MarketSnapshot
 from src.scanner.session_pct_change import compute_session_relative_volume_with_provenance, normalize_session_label
 from src.scanner.result_models import CandidateMetrics
 from src.strategies.common.candles.candle_types import Candle
-from src.strategies.ross_momentum.patterns.pattern_inputs import IndicatorSet, LevelSet, LiquidityContext, PatternInputs
+from src.strategies.ross_momentum.patterns.pattern_inputs import (
+    IndicatorSet,
+    LevelSet,
+    LiquidityContext,
+    PatternInputs,
+    build_authoritative_pattern_inputs,
+)
 from src.strategies.ross_momentum.patterns.pattern_types import PatternResult
-from src.strategies.strategy_contracts import SessionContext
 
 # Restore test monkeypatch compatibility
 historical_data_provider.get_intraday_bars = get_intraday_bars
@@ -461,11 +466,8 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     if volume is None:
         quality_flags.append("missing_volume")
     historical_data_provider.get_intraday_bars = get_intraday_bars
-    intraday_bars = historical_data_provider.get_intraday_bars(
-        symbol=symbol,
-        timeframe="1m",
-        limit=50,
-    )
+    timeframe_bars = _fetch_runtime_timeframe_bars(symbol)
+    intraday_bars = timeframe_bars.get("1m")
 
     if intraday_bars is None or len(intraday_bars) == 0:
         print(f"[PATTERN_INPUT][BLOCK] symbol={symbol} reason=insufficient_intraday_data")
@@ -477,8 +479,6 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     print(
         f"[INTRADAY_FETCH] symbol={symbol} candles={len(intraday_bars)} source=IBKR_INTRADAY"
     )
-
-    candles: list[Candle] = intraday_bars
 
     def _normalize_bar(bar: Candle) -> Candle:
         bar_volume = _safe_float(getattr(bar, "volume", None))
@@ -495,7 +495,11 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
             timestamp=getattr(bar, "timestamp", None),
         )
 
-    candles = [_normalize_bar(bar) for bar in candles]
+    timeframe_candles = {
+        timeframe: [_normalize_bar(bar) for bar in bars]
+        for timeframe, bars in timeframe_bars.items()
+    }
+    candles = timeframe_candles.get("1m", [])
     raw_session = session_label or session_phase or _get_value(row, "session_label")
     if not str(raw_session or "").strip():
         quality_flags.append("missing_canonical_session")
@@ -616,6 +620,7 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         spread=spread,
         float_millions=float_millions,
         rvol=rvol,
+        volume=market_volume,
     )
     if indicators.ema9 is None or indicators.ema20 is None or indicators.vwap is None:
         quality_flags.append("indicators_incomplete")
@@ -625,12 +630,11 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         quality_flags.append("pct_change_missing")
     if rvol is None:
         quality_flags.append("rvol_missing")
-    session_context = SessionContext.REGULAR if session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE", "REGULAR", "POWER_HOUR", "LATE"} else SessionContext.AFTER if session in {"AH", "AFTER"} else SessionContext.PRE
-    inputs = PatternInputs(
+    inputs = build_authoritative_pattern_inputs(
         symbol=symbol,
-        timeframe="1m",
-        candles=candles,
-        session_context=session_context,
+        session_label=session,
+        session_phase=normalize_session_label(str(session_phase or session)),
+        timeframe_candles=timeframe_candles,
         levels=levels,
         indicators=indicators,
         liquidity_context=liquidity,
@@ -646,6 +650,30 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
             "rvol_baseline": rvol_payload.baseline,
             "rvol_method": rvol_payload.method,
         },
-        data_quality_flags=sorted(set(quality_flags)),
+        now=datetime.now(timezone.utc),
     )
+    combined_flags = sorted(set(inputs.data_quality_flags) | set(quality_flags))
+    inputs = replace(inputs, data_quality_flags=combined_flags)
     return inputs, sorted(set(quality_flags))
+
+
+def _fetch_runtime_timeframe_bars(symbol: str) -> dict[str, list[Candle]]:
+    fetched: dict[str, list[Candle]] = {}
+    for timeframe, limit in (("10s", 120), ("1m", 50), ("5m", 50)):
+        try:
+            bars = historical_data_provider.get_intraday_bars(
+                symbol=symbol,
+                timeframe=timeframe,
+                limit=limit,
+            )
+        except Exception as exc:
+            if timeframe == "1m":
+                raise
+            print(
+                "[ROSS][PATTERN_INPUT][TIMEFRAMES] "
+                f"symbol={symbol} timeframe={timeframe} status=UNAVAILABLE reason={type(exc).__name__}"
+            )
+            continue
+        if bars:
+            fetched[timeframe] = list(bars)
+    return fetched
