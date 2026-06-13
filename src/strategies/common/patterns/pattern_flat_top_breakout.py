@@ -71,6 +71,10 @@ def detect_flat_top_breakout(inputs: PatternInputs) -> PatternResult:
 
     if breakout_close < (resistance + tolerance * 0.25) or breakout_high < resistance:
         return reject("breakout_not_confirmed")
+    avg_pre_breakout_volume = sum(float(getattr(c, "volume", 0.0) or 0.0) for c in pre_breakout) / max(len(pre_breakout), 1)
+    breakout_volume = float(getattr(breakout, "volume", 0.0) or 0.0)
+    if avg_pre_breakout_volume > 0 and breakout_volume <= avg_pre_breakout_volume:
+        return reject("breakout_volume_below_average")
 
     invalidation = min(float(v) for v in pre_lows if v is not None)
     if invalidation >= resistance:

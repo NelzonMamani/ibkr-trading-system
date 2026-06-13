@@ -17,6 +17,7 @@ from src.strategies.ross_momentum.patterns.pattern_inputs import (
     LiquidityContext,
     PatternInputs,
 )
+from src.strategies.ross_momentum.patterns.setup_fidelity import is_tradeable_entry_candidate
 from src.strategies.ross_momentum.patterns.pattern_types import Direction
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.strategy_contracts import Direction as IntentDirection
@@ -105,10 +106,23 @@ def build_trade_intents(
     session_is_invalid = session not in ALLOWED_SESSIONS
     effective_session = session
 
-    detected_setups = [
-        setup for setup in summary.all_results
-        if setup is not None and bool(getattr(setup, "detected", False))
-    ]
+    detected_setups = []
+    for setup in summary.all_results:
+        if setup is None or not bool(getattr(setup, "detected", False)):
+            continue
+        entry_ok, drop_reason = is_tradeable_entry_candidate(setup)
+        if not entry_ok:
+            if "risk_off" in drop_reason:
+                print(
+                    "[ROSS][DECISION][RISK_OFF] "
+                    f"symbol={symbol} setup={getattr(setup, 'pattern_name', None)}"
+                )
+            print(
+                "[ROSS][SETUP][DROP] "
+                f"symbol={symbol} setup={getattr(setup, 'pattern_name', None)} reason={drop_reason}"
+            )
+            continue
+        detected_setups.append(setup)
     selection_session = (
         effective_session
         if session_is_invalid and validation_session_override_enabled
@@ -138,6 +152,7 @@ def build_trade_intents(
             "[ROSS][SETUP_RESULT] "
             f"symbol={symbol} setup_families=[] detected=['NONE']"
         )
+        print(f"[ROSS][DECISION][NO_TRADE] symbol={symbol} reason=no_valid_setup")
         print(f"[ROSS][INTENT_RESULT] symbol={symbol} outcome=NOT_CREATED reason=NO_TRIGGER_OR_SETUP")
         print(f"[ROSS][BLOCKER] symbol={symbol} blocker=NO_SETUP_DETECTED reason=NO_TRIGGER_OR_SETUP")
         return intents
@@ -190,6 +205,10 @@ def build_trade_intents(
         f"trigger_ready={trigger_ready_now} "
         f"mode={run_mode} "
         f"valid_trade={valid_trade}"
+    )
+    print(
+        "[ROSS][DECISION][ENTRY_READY] "
+        f"symbol={symbol} setup={getattr(best_setup, 'pattern_name', None)}"
     )
 
     print(

@@ -16,6 +16,11 @@ from src.setup_engine.setup_families import (
 )
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
+from src.strategies.ross_momentum.patterns.setup_fidelity import (
+    apply_detected_setup_fidelity,
+    blocking_input_reason,
+    setup_policy_key,
+)
 from src.strategies.ross_momentum.patterns.pattern_trace import RossPatternTrace
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternResult
 from src.strategies.strategy_contracts import SessionContext
@@ -91,6 +96,11 @@ class RossPatternRegistry:
         for pattern in self._patterns:
             pattern_id = getattr(pattern, "pattern_id", "") or pattern.name
             setup_name = self._setup_name_by_pattern_id.get(pattern_id)
+            policy_setup = setup_policy_key(pattern_id)
+            print(
+                "[ROSS][SETUP][EVAL] "
+                f"symbol={inputs.symbol} pattern_id={pattern_id} setup={policy_setup}"
+            )
             if setup_name is not None:
                 print(f"[SETUP][INVOKE] name={setup_name}")
             print(f"[PATTERN_TRACE][INVOKE] symbol={inputs.symbol} pattern={pattern.name}")
@@ -183,8 +193,33 @@ class RossPatternRegistry:
                 if trace_collector is not None:
                     trace_collector(pattern_trace)
                 continue
+            input_block_reason = blocking_input_reason(inputs, pattern_id)
+            if input_block_reason is not None:
+                result = pattern._rejected(input_block_reason, inputs)
+                pattern_trace.detected = False
+                pattern_trace.rejection_reason = input_block_reason
+                pattern_trace.final_outcome = "REJECTED"
+                print(
+                    "[ROSS][SETUP][REJECT] "
+                    f"symbol={inputs.symbol} pattern_id={pattern_id} setup={policy_setup} "
+                    f"reason={input_block_reason}"
+                )
+                print(
+                    f"[PATTERN_TRACE][RESULT] symbol={inputs.symbol} pattern={pattern.name} detected=False"
+                )
+                print(
+                    f"[PATTERN_TRACE][REJECT] symbol={inputs.symbol} pattern={pattern.name} reason={input_block_reason}"
+                )
+                results.append(result)
+                if trace_collector is not None:
+                    trace_collector(pattern_trace)
+                continue
             try:
-                result = pattern.evaluate(inputs)
+                result = apply_detected_setup_fidelity(
+                    pattern.evaluate(inputs),
+                    inputs,
+                    pattern_id=pattern_id,
+                )
                 pattern_trace.detected = bool(result.detected)
                 pattern_trace.rejection_reason = result.rejection_reason
                 pattern_trace.final_outcome = "DETECTED" if result.detected else "REJECTED"
