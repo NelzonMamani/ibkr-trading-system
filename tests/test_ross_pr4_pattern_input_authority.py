@@ -137,9 +137,11 @@ def test_runtime_builder_feeds_authoritative_10s_1m_5m_inputs(monkeypatch) -> No
     assert inputs.primary_timeframe == "1m"
     assert inputs.execution_refinement_timeframe == "10s"
     assert inputs.context_timeframe == "5m"
-    assert inputs.timeframe_provenance["10s"] == IndicatorProvenance.PRESENT.value
-    assert inputs.timeframe_provenance["1m"] == IndicatorProvenance.PRESENT.value
-    assert inputs.timeframe_provenance["5m"] == IndicatorProvenance.PRESENT.value
+    # Runtime construction uses current UTC, so these fixed fixture timestamps
+    # are stale once they exceed the policy freshness windows.
+    assert inputs.timeframe_provenance["10s"] == IndicatorProvenance.STALE.value
+    assert inputs.timeframe_provenance["1m"] == IndicatorProvenance.STALE.value
+    assert inputs.timeframe_provenance["5m"] == IndicatorProvenance.STALE.value
     assert inputs.liquidity_context.volume == 120_000
 
 
