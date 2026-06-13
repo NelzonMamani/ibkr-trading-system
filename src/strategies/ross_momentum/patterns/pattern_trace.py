@@ -650,8 +650,10 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
             "rvol_baseline": rvol_payload.baseline,
             "rvol_method": rvol_payload.method,
         },
+        now=datetime.now(timezone.utc),
     )
-    inputs = replace(inputs, data_quality_flags=sorted(set(quality_flags)))
+    combined_flags = sorted(set(inputs.data_quality_flags) | set(quality_flags))
+    inputs = replace(inputs, data_quality_flags=combined_flags)
     return inputs, sorted(set(quality_flags))
 
 

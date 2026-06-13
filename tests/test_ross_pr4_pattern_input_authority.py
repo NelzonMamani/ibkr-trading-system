@@ -143,6 +143,105 @@ def test_runtime_builder_feeds_authoritative_10s_1m_5m_inputs(monkeypatch) -> No
     assert inputs.liquidity_context.volume == 120_000
 
 
+def test_runtime_builder_marks_stale_opening_10s_as_block(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    by_timeframe = {
+        "10s": _candles(30, timestamp_start=now - timedelta(minutes=30)),
+        "1m": _candles(30, timestamp_start=now - timedelta(minutes=5)),
+        "5m": _candles(30, timestamp_start=now - timedelta(minutes=5)),
+    }
+
+    def fake_get_intraday_bars(**kwargs):
+        return by_timeframe[str(kwargs["timeframe"])]
+
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        fake_get_intraday_bars,
+    )
+
+    inputs, _flags = build_runtime_pattern_inputs(
+        symbol="STALE10",
+        row={
+            "symbol": "STALE10",
+            "session_label": "RTH_OPEN",
+            "last_price": 10.8,
+            "bid": 10.79,
+            "ask": 10.81,
+            "spread": 0.02,
+            "volume": 120_000,
+            "pct_change": 8.5,
+            "rvol": 6.0,
+            "float_millions": 8.0,
+            "prior_close": 9.9,
+        },
+        snapshot=MarketSnapshot(
+            symbol="STALE10",
+            bid=10.79,
+            ask=10.81,
+            last=10.8,
+            volume=120_000,
+            asof_utc=now,
+        ),
+        session_label="RTH_OPEN",
+        session_phase="RTH_OPEN",
+    )
+
+    assert inputs is not None
+    assert inputs.timeframe_provenance["10s"] == IndicatorProvenance.STALE.value
+    assert inputs.missing_data_actions["timeframe:10s"] == MissingDataBehavior.BLOCK.value
+    assert inputs.setup_quality["MICRO_PULLBACK"]["action"] == MissingDataBehavior.BLOCK.value
+
+
+def test_runtime_builder_merges_authoritative_and_legacy_quality_flags(monkeypatch) -> None:
+    by_timeframe = {
+        "10s": [],
+        "1m": _candles(30),
+        "5m": _candles(30),
+    }
+
+    def fake_get_intraday_bars(**kwargs):
+        return by_timeframe[str(kwargs["timeframe"])]
+
+    monkeypatch.setattr(
+        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
+        fake_get_intraday_bars,
+    )
+
+    inputs, flags = build_runtime_pattern_inputs(
+        symbol="FLAG4",
+        row={
+            "symbol": "FLAG4",
+            "session_label": "RTH_OPEN",
+            "last_price": 10.8,
+            "bid": 10.79,
+            "ask": 10.81,
+            "spread": 0.02,
+            "volume": 120_000,
+            "pct_change": 8.5,
+            "rvol": 6.0,
+            "float_millions": 8.0,
+            "prior_close": 9.9,
+            "data_quality_flags": ["LEGACY_RUNTIME_FLAG", "LEGACY_RUNTIME_FLAG"],
+        },
+        snapshot=MarketSnapshot(
+            symbol="FLAG4",
+            bid=10.79,
+            ask=10.81,
+            last=10.8,
+            volume=120_000,
+            asof_utc=datetime.now(timezone.utc),
+        ),
+        session_label="RTH_OPEN",
+        session_phase="RTH_OPEN",
+    )
+
+    assert inputs is not None
+    assert "PATTERN_INPUT_BLOCK_MICRO_PULLBACK" in inputs.data_quality_flags
+    assert "LEGACY_RUNTIME_FLAG" in inputs.data_quality_flags
+    assert flags == ["LEGACY_RUNTIME_FLAG"]
+    assert len(inputs.data_quality_flags) == len(set(inputs.data_quality_flags))
+
+
 def test_opening_session_requires_10s_refinement_when_missing() -> None:
     inputs = build_authoritative_pattern_inputs(
         symbol="OPENX",
