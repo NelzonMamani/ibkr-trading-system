@@ -14,6 +14,7 @@ from src.strategies.ross_momentum.patterns.pattern_inputs import (
     PatternInputs,
 )
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
+from src.strategies.ross_momentum.patterns.setup_fidelity import is_tradeable_entry_candidate
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternResult
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.strategy_contracts import SessionContext
@@ -55,7 +56,14 @@ class PatternEvaluator:
             except TypeError:
                 # Backward compatibility for test mocks
                 symbol_results = self._registry.run(inputs)
-            detected_pattern = next((result for result in symbol_results if result.detected), None)
+            detected_pattern = next(
+                (
+                    result
+                    for result in symbol_results
+                    if result.detected and is_tradeable_entry_candidate(result)[0]
+                ),
+                None,
+            )
             print(
                 f"[ROSS][PATTERN] symbol={symbol} detected={bool(detected_pattern)} "
                 f"pattern={detected_pattern.pattern_name if detected_pattern else None}"
@@ -79,6 +87,12 @@ class PatternEvaluator:
                 print(f"[ROSS][FORCED_TRIGGER] symbol={symbol} reason=NO_TRIGGER_PIPELINE")
             for result in symbol_results:
                 if result.detected:
+                    entry_ok, drop_reason = is_tradeable_entry_candidate(result)
+                    if not entry_ok:
+                        print(
+                            "[ROSS][SETUP][DROP] "
+                            f"symbol={inputs.symbol} pattern={result.pattern_name} reason={drop_reason}"
+                        )
                     print(
                         "[ROSS][PATTERN][PASS] "
                         f"symbol={inputs.symbol} pattern={result.pattern_name}"
@@ -117,6 +131,14 @@ class PatternEvaluator:
         if veto_flags:
             rationale_lines.append(f"Veto flags: {', '.join(sorted(set(veto_flags)))}")
         combined = " | ".join(rationale_lines) if rationale_lines else "No setups detected"
+        if best_long is None and best_short is None:
+            print("[ROSS][DECISION][NO_TRADE] reason=no_valid_setup")
+        else:
+            selected = best_long or best_short
+            print(
+                "[ROSS][DECISION][ENTRY_READY] "
+                f"setup={selected.pattern_name if selected else None}"
+            )
 
         return PatternEvaluationSummary(
             all_results=all_results,
@@ -134,7 +156,9 @@ class PatternEvaluator:
         candidates = [
             result
             for result in results
-            if result.detected and result.direction == direction
+            if result.detected
+            and result.direction == direction
+            and is_tradeable_entry_candidate(result)[0]
         ]
         if not candidates:
             return None

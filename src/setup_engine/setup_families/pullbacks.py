@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from src.strategies.common.patterns.pattern_hod_break import detect_hod_break
 from src.strategies.common.patterns.pattern_ema_pullback import detect_ema_pullback
+from src.strategies.common.patterns.pattern_flat_top_breakout import detect_flat_top_breakout
 from src.strategies.common.patterns.pattern_opening_drive import detect_opening_drive
 from src.strategies.common.patterns.pattern_vwap_pullback import detect_vwap_pullback
 from src.strategies.common.patterns.pattern_trend_continuation_stair_step import (
@@ -50,6 +51,9 @@ class RangeBreakoutPattern(_SimpleLongPattern):
 class FlatTopBreakoutPattern(_SimpleLongPattern):
     pattern_id = "P_FLAT_TOP_BREAKOUT"
     name = "Flat Top Breakout"
+
+    def evaluate(self, inputs: PatternInputs) -> PatternResult:
+        return detect_flat_top_breakout(inputs)
 
 
 class AscendingTriangleBreakoutPattern(_SimpleLongPattern):
