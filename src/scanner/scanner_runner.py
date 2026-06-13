@@ -2243,6 +2243,132 @@ def _format_float_millions(value: Optional[float]) -> str:
     return f"{value:.2f}M"
 
 
+def _classify_pct_change_for_rationale(
+    pct_change: Optional[float],
+    session: str,
+    thresholds: GateThresholds,
+    *,
+    focus_stage: bool,
+) -> tuple[str, float]:
+    threshold = thresholds.focus_pct_change_min if focus_stage else thresholds.min_pct_change
+    if pct_change is None:
+        return "MISSING", threshold
+    value = float(pct_change)
+    if thresholds.max_pct_change is not None and value > thresholds.max_pct_change:
+        return "ABOVE_MAX", threshold
+    if value < threshold:
+        return "BELOW_FOCUS" if focus_stage else "BELOW_DISCOVERY", threshold
+    if value >= thresholds.live_quality_pct_change_min:
+        return "LIVE_QUALITY", threshold
+    normalized = normalize_session_label(session)
+    if normalized in {"PRE", "OVN", "AH"}:
+        return "SESSION_ADAPTATION", threshold
+    return "DISCOVERY", threshold
+
+
+def _classify_rvol_for_rationale(
+    rvol: Optional[float],
+    thresholds: GateThresholds,
+    *,
+    focus_stage: bool,
+) -> tuple[str, float]:
+    threshold = thresholds.focus_rvol_min if focus_stage else thresholds.watchlist_rvol_min
+    if rvol is None:
+        return "MISSING", threshold
+    value = float(rvol)
+    if value < threshold:
+        return "BELOW_THRESHOLD", threshold
+    if value >= 5.0:
+        return "LIVE_QUALITY", threshold
+    return "SESSION_FOCUS_ACCEPTABLE" if focus_stage else "WATCHLIST_ACCEPTABLE", threshold
+
+
+def _candidate_selection_rationale(
+    candidate: CandidateMetrics,
+    thresholds: GateThresholds,
+    *,
+    focus_stage: bool,
+) -> dict[str, object]:
+    session = normalize_session_label(candidate.session_label or "")
+    price_decision = PricePolicy(
+        minimum=float(thresholds.min_price),
+        maximum=float(thresholds.max_price),
+        live_quality_min=float(thresholds.live_quality_min_price),
+        preferred_min=float(thresholds.preferred_price_min),
+        preferred_max=float(thresholds.preferred_price_max),
+    ).assess(candidate.last_price)
+    pct_value = (
+        candidate.pct_change_resolved
+        if candidate.pct_change_resolved is not None
+        else candidate.pct_change
+    )
+    pct_quality, pct_threshold = _classify_pct_change_for_rationale(
+        pct_value,
+        session,
+        thresholds,
+        focus_stage=focus_stage,
+    )
+    rvol_value = (
+        candidate.rvol_phase
+        if focus_stage and candidate.rvol_phase is not None
+        else candidate.rvol_discovery
+        if candidate.rvol_discovery is not None
+        else candidate.rvol
+    )
+    rvol_quality, rvol_threshold = _classify_rvol_for_rationale(
+        rvol_value,
+        thresholds,
+        focus_stage=focus_stage,
+    )
+    float_decision = FloatPolicy(
+        max_millions=float(thresholds.max_float) / 1_000_000.0,
+        data_sources=(),
+        cache_policy="scanner_runtime_thresholds",
+    ).assess(candidate.float_shares)
+    gates = candidate.gate_checks or {}
+    failed_gates = [name for name, passed in gates.items() if not passed]
+    hard_reject = bool(candidate.drop_reasons or failed_gates)
+    degraded = bool(
+        candidate.degraded_reference
+        or candidate.degraded_pct_change
+        or candidate.degraded_rvol
+        or candidate.degraded_adv20
+        or candidate.degraded_focus_eligibility
+        or pct_quality in {"DISCOVERY", "SESSION_ADAPTATION"}
+        or rvol_quality in {"WATCHLIST_ACCEPTABLE", "SESSION_FOCUS_ACCEPTABLE"}
+        or not price_decision.live_quality
+        or not float_decision.live_quality
+    )
+    final_decision = "REJECT" if hard_reject else "DEGRADED" if degraded else "ACCEPT"
+    spread_ok = gates.get("focus_spread", True)
+    liquidity_ok = gates.get("focus_dollar_volume", True)
+    return {
+        "stage": "FOCUS" if focus_stage else "WATCHLIST",
+        "session": session,
+        "price": price_decision.quality.value,
+        "price_reason": price_decision.reason,
+        "pct_change": pct_quality,
+        "pct_change_value": pct_value,
+        "pct_change_threshold": pct_threshold,
+        "pct_change_source": candidate.pct_source or candidate.reference_source or "UNKNOWN",
+        "rvol": rvol_quality,
+        "rvol_value": rvol_value,
+        "rvol_threshold": rvol_threshold,
+        "rvol_session_tier": session,
+        "float": float_decision.quality.value,
+        "float_reason": float_decision.reason,
+        "catalyst": "PRESENT" if candidate.catalyst_present else "UNKNOWN",
+        "spread_liquidity": "OK" if spread_ok and liquidity_ok else "FAIL",
+        "final_decision": final_decision,
+        "failed_gates": failed_gates,
+        "drop_reasons": list(candidate.drop_reasons or []),
+    }
+
+
+def _format_rationale_for_log(rationale: dict[str, object] | None) -> str:
+    return json.dumps(rationale or {}, sort_keys=True, separators=(",", ":"), default=str)
+
+
 def _candidate_from_context(
     context: Dict[str, Any],
     news_context: Dict[str, Any],
@@ -2292,7 +2418,7 @@ def _candidate_from_context(
     quote_contract = context.get("quote_contract") or _compute_quote_validity_contract(context)
     context["quote_contract"] = quote_contract
     _emit_scanner_reference_trace("watchlist_print_payload", context)
-    return CandidateMetrics(
+    candidate = CandidateMetrics(
         symbol=context.get("symbol"),
         con_id=context.get("con_id"),
         exchange=context.get("exchange"),
@@ -2389,6 +2515,14 @@ def _candidate_from_context(
         rank_components=context.get("scanner_score_components"),
         timestamp_utc=timestamp_utc,
         gate_checks=gate_checks,
+    )
+    return replace(
+        candidate,
+        selection_rationale=_candidate_selection_rationale(
+            candidate,
+            thresholds,
+            focus_stage=False,
+        ),
     )
 
 
@@ -4127,6 +4261,11 @@ def run_scanner_cycle(
                     session_label_override=session_override,
                 )
             )
+        ranking_metric_by_symbol = {
+            metric.symbol: metric
+            for metric in candidate_metrics_for_ranking
+            if metric.symbol
+        }
         after_gates_symbols = [context["symbol"] for context in candidates]
         print(
             f"AFTER_GATES_SYMBOLS (N={len(after_gates_symbols)}): {after_gates_symbols}"
@@ -4271,8 +4410,16 @@ def run_scanner_cycle(
         watchlist_passed = 0
         for context in ranked:
             symbol = context["symbol"]
+            metric = ranking_metric_by_symbol.get(symbol)
+            rationale_log = _format_rationale_for_log(
+                metric.selection_rationale if metric is not None else {}
+            )
             if symbol in watchlist_set:
                 watchlist_passed += 1
+                print(
+                    "[ROSS][WATCHLIST][EVAL] "
+                    f"symbol={symbol} decision=ACCEPT rationale={rationale_log}"
+                )
                 print(
                     "[WATCHLIST][EVAL] "
                     f"symbol={symbol} passed=true reasons=['SELECTED_FOR_WATCHLIST']"
@@ -4285,6 +4432,14 @@ def run_scanner_cycle(
             else:
                 reject_reasons.append("SELECTOR_REJECTED")
             watchlist_rejection_counter.update(reject_reasons)
+            print(
+                "[ROSS][WATCHLIST][EVAL] "
+                f"symbol={symbol} decision=REJECT reasons={reject_reasons} rationale={rationale_log}"
+            )
+            print(
+                "[ROSS][WATCHLIST][REJECT] "
+                f"symbol={symbol} reasons={reject_reasons} rationale={rationale_log}"
+            )
             print(
                 "[WATCHLIST][EVAL] "
                 f"symbol={symbol} passed=false reasons={reject_reasons}"
@@ -4419,6 +4574,16 @@ def run_scanner_cycle(
         print(
             f"WATCHLIST_K_SELECTED (K={len(watchlist_symbols)}): {watchlist_symbols}"
         )
+        for context in watchlist_contexts:
+            symbol = str(context.get("symbol") or "")
+            metric = ranking_metric_by_symbol.get(symbol)
+            rationale_log = _format_rationale_for_log(
+                metric.selection_rationale if metric is not None else {}
+            )
+            print(
+                "[ROSS][WATCHLIST][ACCEPT] "
+                f"symbol={symbol} reason={context.get('promotion_reason') or 'LIVE_SCAN'} rationale={rationale_log}"
+            )
         if event_collector is not None:
             event_collector.emit(
                 event_type="WATCHLIST_K_SELECTED",
@@ -4504,18 +4669,37 @@ def run_scanner_cycle(
                 context["catalyst_status"] = catalyst_status_decision.status.value
                 context["catalyst_present"] = bool(catalyst_status_decision.satisfied)
                 context["catalyst_policy_reason"] = catalyst_status_decision.reason
+            print(
+                "[ROSS][FOCUS][EVAL] "
+                f"symbol={symbol} session={context.get('session') or session_label} "
+                f"pct_change={context.get('pct_change')} rvol_phase={context.get('rvol_phase')} "
+                f"price={context.get('last_price')} float={context.get('float_shares')} "
+                f"catalyst_status={context.get('catalyst_status') or 'UNKNOWN'}"
+            )
             focus_drop = _evaluate_focus_gates(context, thresholds)
             if focus_drop:
                 context["focus_drop_reason"] = focus_drop
                 if focus_drop == "SOFT_FAIL_VOLUME":
+                    print(
+                        "[ROSS][FOCUS][ACCEPT] "
+                        f"symbol={context.get('symbol')} decision=DEGRADED reason={focus_drop}"
+                    )
                     volume_soft_fail_candidates.append(context)
                     focus_candidates.append(context)
                     continue
+                print(
+                    "[ROSS][FOCUS][REJECT] "
+                    f"symbol={context.get('symbol')} reason={focus_drop}"
+                )
                 print(
                     "[SCANNER][FOCUS_DROP] symbol="
                     f"{context.get('symbol')} reason={focus_drop}"
                 )
                 continue
+            print(
+                "[ROSS][FOCUS][ACCEPT] "
+                f"symbol={context.get('symbol')} decision=ACCEPT reason=FOCUS_GATES_PASS"
+            )
             focus_candidates.append(context)
         if not focus_candidates and volume_soft_fail_candidates:
             focus_candidates = _bounded_pass_focus_candidates(
@@ -4551,6 +4735,11 @@ def run_scanner_cycle(
                 ]
                 focus_contexts = eligible[: min(5, len(eligible))]
                 print(f"[FOCUS][FORCED_PROMOTION_PREMARKET] count={len(focus_contexts)}")
+        print(
+            "[ROSS][FOCUS][SUMMARY] "
+            f"evaluated={len(watchlist_contexts)} accepted={len(focus_contexts)} "
+            f"rejected={sum(1 for context in watchlist_contexts if context.get('focus_drop_reason'))}"
+        )
         deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
 
         if not deep_rows and watchlist_contexts:
@@ -4711,9 +4900,11 @@ def run_scanner_cycle(
             symbol_state.float_class = _classify_float(float_cache.get(symbol))
             if symbol not in previous_watch:
                 promote_reason = symbol_state.watch_pass_reasons[0] if symbol_state.watch_pass_reasons else "FILTER_PASS"
+                print(f"[ROSS][WATCHLIST][STATE] symbol={symbol} state=NEW reason={promote_reason}")
                 print(f"[ROSS][PROMOTE] symbol={symbol} from=TOP_UNIVERSE to=WATCHLIST_K reason={promote_reason}")
             else:
                 persist_reason = symbol_state.watch_pass_reasons[0] if symbol_state.watch_pass_reasons else "FILTER_PASS"
+                print(f"[ROSS][WATCHLIST][STATE] symbol={symbol} state=CONTINUING reason={persist_reason}")
                 print(f"[ROSS][PERSIST] symbol={symbol} list=WATCHLIST_K reason={persist_reason}")
             daily_state.watchlist_k[symbol] = symbol_state
             daily_state.rejected_tracked.pop(symbol, None)
@@ -4724,6 +4915,7 @@ def run_scanner_cycle(
                 if symbol in current_focus:
                     continue
                 reason = drop_ledger.get(symbol, "RANK_DECAY")
+                print(f"[ROSS][WATCHLIST][STATE] symbol={symbol} state=DROPPED reason={reason}")
                 print(f"[ROSS][DROP] symbol={symbol} list=WATCHLIST_K reason={reason}")
                 state.rejection_reason = _ross_reason_from_drop(reason) if reason.startswith("DROP_") else reason
                 state.rejection_stale_after_cycle = _SCAN_CYCLE_COUNT + 6
@@ -4805,7 +4997,18 @@ def run_scanner_cycle(
             for symbol in watchlist_symbols
             if symbol in candidate_lookup
         ]
-        focus_metrics = [candidate_lookup[symbol] for symbol in focus_symbols if symbol in candidate_lookup]
+        focus_metrics = [
+            replace(
+                candidate_lookup[symbol],
+                selection_rationale=_candidate_selection_rationale(
+                    candidate_lookup[symbol],
+                    thresholds,
+                    focus_stage=True,
+                ),
+            )
+            for symbol in focus_symbols
+            if symbol in candidate_lookup
+        ]
         if _should_print_watchlist(
             watchlist_changed=watchlist_changed,
             session_label=session_label,
