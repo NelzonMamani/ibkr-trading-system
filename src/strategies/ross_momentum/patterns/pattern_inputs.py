@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+import os
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any, Dict, List, Optional
 
@@ -27,6 +28,25 @@ _INDICATOR_NAMES = (
     "volume",
     "rvol",
 )
+
+_DEFAULT_LOCAL_TIMESTAMP_TIMEZONE = "America/New_York"
+_LOCAL_TIMESTAMP_TIMEZONE_ENV_KEYS = (
+    "IBKR_TWS_TIMEZONE",
+    "IBKR_MARKET_TIMEZONE",
+    "MARKET_TIMEZONE",
+    "DAILY_RISK_TIMEZONE",
+)
+_TIMEZONE_ALIASES = {
+    "UTC": "UTC",
+    "GMT": "UTC",
+    "EST": "America/New_York",
+    "EDT": "America/New_York",
+    "ET": "America/New_York",
+    "US/EASTERN": "America/New_York",
+    "EASTERN": "America/New_York",
+    "EASTERN STANDARD TIME": "America/New_York",
+    "EASTERN DAYLIGHT TIME": "America/New_York",
+}
 
 
 @dataclass(frozen=True)
@@ -593,37 +613,71 @@ def _parse_timestamp_string(value: str) -> datetime:
         text = f"{text[:-1]}+00:00"
     try:
         parsed = datetime.fromisoformat(text)
-        return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+        return _localize_parsed_timestamp(parsed, raw_text=text)
     except ValueError:
         pass
 
     parts = text.split()
     timezone_name: str | None = None
     core = text
-    if len(parts) >= 3 and "/" in parts[-1]:
+    if len(parts) >= 3 and ("/" in parts[-1] or parts[-1].upper() in _TIMEZONE_ALIASES):
         timezone_name = parts[-1]
-        core = " ".join(parts[:-1])
-    elif len(parts) >= 3 and parts[-1].upper() in {"UTC", "GMT"}:
-        timezone_name = "UTC"
         core = " ".join(parts[:-1])
 
     for fmt in ("%Y%m%d %H:%M:%S", "%Y%m%d-%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y%m%d"):
         try:
             parsed = datetime.strptime(core, fmt)
-            tz = _zoneinfo_or_utc(timezone_name)
-            return parsed.replace(tzinfo=tz).astimezone(timezone.utc)
+            return _localize_parsed_timestamp(parsed, raw_text=core, timezone_name=timezone_name)
         except ValueError:
             continue
     raise ValueError(f"unsupported_timestamp_format:{value}")
 
 
+def _localize_parsed_timestamp(
+    parsed: datetime,
+    *,
+    raw_text: str,
+    timezone_name: str | None = None,
+) -> datetime:
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc)
+
+    if timezone_name:
+        tz = _zoneinfo_or_utc(timezone_name)
+    elif _timestamp_text_has_time(raw_text):
+        tz = _zoneinfo_or_utc(_configured_local_timestamp_timezone())
+    else:
+        tz = timezone.utc
+    return parsed.replace(tzinfo=tz).astimezone(timezone.utc)
+
+
+def _timestamp_text_has_time(value: str) -> bool:
+    return ":" in value
+
+
+def _configured_local_timestamp_timezone() -> str:
+    for env_key in _LOCAL_TIMESTAMP_TIMEZONE_ENV_KEYS:
+        configured = os.getenv(env_key)
+        if configured and configured.strip():
+            return _timezone_alias(configured)
+    return _DEFAULT_LOCAL_TIMESTAMP_TIMEZONE
+
+
+def _timezone_alias(timezone_name: str | None) -> str:
+    normalized = str(timezone_name or "").strip()
+    if not normalized:
+        return _DEFAULT_LOCAL_TIMESTAMP_TIMEZONE
+    return _TIMEZONE_ALIASES.get(normalized.upper(), normalized)
+
+
 def _zoneinfo_or_utc(timezone_name: str | None):
     if not timezone_name:
         return timezone.utc
-    if timezone_name.upper() in {"UTC", "GMT"}:
+    normalized = _timezone_alias(timezone_name)
+    if normalized.upper() in {"UTC", "GMT"}:
         return timezone.utc
     try:
-        return ZoneInfo(timezone_name)
+        return ZoneInfo(normalized)
     except ZoneInfoNotFoundError as exc:
         raise ValueError(f"unsupported_timestamp_timezone:{timezone_name}") from exc
 
