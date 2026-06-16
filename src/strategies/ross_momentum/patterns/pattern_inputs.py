@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+import os
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any, Dict, List, Optional
 
 from src.strategies.common.candles.candle_types import Candle
@@ -26,6 +28,25 @@ _INDICATOR_NAMES = (
     "volume",
     "rvol",
 )
+
+_DEFAULT_LOCAL_TIMESTAMP_TIMEZONE = "America/New_York"
+_LOCAL_TIMESTAMP_TIMEZONE_ENV_KEYS = (
+    "IBKR_TWS_TIMEZONE",
+    "IBKR_MARKET_TIMEZONE",
+    "MARKET_TIMEZONE",
+    "DAILY_RISK_TIMEZONE",
+)
+_TIMEZONE_ALIASES = {
+    "UTC": "UTC",
+    "GMT": "UTC",
+    "EST": "America/New_York",
+    "EDT": "America/New_York",
+    "ET": "America/New_York",
+    "US/EASTERN": "America/New_York",
+    "EASTERN": "America/New_York",
+    "EASTERN STANDARD TIME": "America/New_York",
+    "EASTERN DAYLIGHT TIME": "America/New_York",
+}
 
 
 @dataclass(frozen=True)
@@ -105,7 +126,11 @@ def build_authoritative_pattern_inputs(
     plan = policy.plan_for_session(session_label)
     now_utc = _coerce_utc(now) if now is not None else None
     normalized_candles = {
-        _canonical_timeframe(name): list(candles or [])
+        _canonical_timeframe(name): _normalize_candle_timestamps(
+            list(candles or []),
+            symbol=symbol,
+            timeframe=_canonical_timeframe(name),
+        )
         for name, candles in (timeframe_candles or {}).items()
     }
     timeframe_provenance = {
@@ -113,6 +138,7 @@ def build_authoritative_pattern_inputs(
             normalized_candles.get(timeframe, []),
             timeframe,
             policy,
+            symbol=symbol,
             now_utc=now_utc,
         )
         for timeframe in policy.preferred_timeframes
@@ -216,6 +242,7 @@ def _timeframe_provenance(
     timeframe: str,
     policy: PatternInputPolicy,
     *,
+    symbol: str | None = None,
     now_utc: datetime | None,
 ) -> str:
     if not candles:
@@ -224,6 +251,12 @@ def _timeframe_provenance(
         (_coerce_utc(candle.timestamp) for candle in candles if candle.timestamp is not None),
         default=None,
     )
+    if latest_timestamp is None and now_utc is not None:
+        print(
+            "[ROSS][RUNTIME_FIX][PATTERN_INPUT_UNAVAILABLE] "
+            f"symbol={symbol or 'UNKNOWN'} timeframe={timeframe} status=STALE reason=timestamp_unavailable"
+        )
+        return IndicatorProvenance.STALE.value
     if latest_timestamp is not None and now_utc is not None:
         age_seconds = (now_utc - latest_timestamp).total_seconds()
         if age_seconds > policy.candle_freshness_seconds.get(timeframe, 300):
@@ -508,10 +541,167 @@ def _session_context_for(session_label: str | None) -> SessionContext:
     return SessionContext.PRE
 
 
-def _coerce_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+def _normalize_candle_timestamps(
+    candles: List[Candle],
+    *,
+    symbol: str,
+    timeframe: str,
+) -> List[Candle]:
+    normalized: list[Candle] = []
+    for candle in candles:
+        raw_timestamp = getattr(candle, "timestamp", None)
+        if raw_timestamp is None:
+            normalized.append(candle)
+            continue
+        try:
+            timestamp = normalize_timestamp_utc(
+                raw_timestamp,
+                symbol=symbol,
+                timeframe=timeframe,
+            )
+        except ValueError as exc:
+            print(
+                "[ROSS][RUNTIME_FIX][PATTERN_INPUT_UNAVAILABLE] "
+                f"symbol={symbol} timeframe={timeframe} status=STALE reason={exc}"
+            )
+            normalized.append(replace(candle, timestamp=None))
+            continue
+        normalized.append(replace(candle, timestamp=timestamp))
+    return normalized
+
+
+def normalize_timestamp_utc(
+    value: Any,
+    *,
+    symbol: str | None = None,
+    timeframe: str | None = None,
+    emit_log: bool = True,
+) -> datetime:
+    source_type = type(value).__name__
+    if isinstance(value, datetime):
+        normalized = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+        _log_timestamp_normalized(
+            value=value,
+            normalized=normalized,
+            source_type=source_type,
+            symbol=symbol,
+            timeframe=timeframe,
+            emit_log=emit_log and (value.tzinfo is None or normalized != value),
+        )
+        return normalized
+
+    if isinstance(value, str):
+        normalized = _parse_timestamp_string(value)
+        _log_timestamp_normalized(
+            value=value,
+            normalized=normalized,
+            source_type=source_type,
+            symbol=symbol,
+            timeframe=timeframe,
+            emit_log=emit_log,
+        )
+        return normalized
+
+    raise ValueError(f"unsupported_timestamp_type:{source_type}")
+
+
+def _parse_timestamp_string(value: str) -> datetime:
+    text = value.strip()
+    if not text:
+        raise ValueError("unsupported_timestamp_format:empty")
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+        return _localize_parsed_timestamp(parsed, raw_text=text)
+    except ValueError:
+        pass
+
+    parts = text.split()
+    timezone_name: str | None = None
+    core = text
+    if len(parts) >= 3 and ("/" in parts[-1] or parts[-1].upper() in _TIMEZONE_ALIASES):
+        timezone_name = parts[-1]
+        core = " ".join(parts[:-1])
+
+    for fmt in ("%Y%m%d %H:%M:%S", "%Y%m%d-%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y%m%d"):
+        try:
+            parsed = datetime.strptime(core, fmt)
+            return _localize_parsed_timestamp(parsed, raw_text=core, timezone_name=timezone_name)
+        except ValueError:
+            continue
+    raise ValueError(f"unsupported_timestamp_format:{value}")
+
+
+def _localize_parsed_timestamp(
+    parsed: datetime,
+    *,
+    raw_text: str,
+    timezone_name: str | None = None,
+) -> datetime:
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc)
+
+    if timezone_name:
+        tz = _zoneinfo_or_utc(timezone_name)
+    elif _timestamp_text_has_time(raw_text):
+        tz = _zoneinfo_or_utc(_configured_local_timestamp_timezone())
+    else:
+        tz = timezone.utc
+    return parsed.replace(tzinfo=tz).astimezone(timezone.utc)
+
+
+def _timestamp_text_has_time(value: str) -> bool:
+    return ":" in value
+
+
+def _configured_local_timestamp_timezone() -> str:
+    for env_key in _LOCAL_TIMESTAMP_TIMEZONE_ENV_KEYS:
+        configured = os.getenv(env_key)
+        if configured and configured.strip():
+            return _timezone_alias(configured)
+    return _DEFAULT_LOCAL_TIMESTAMP_TIMEZONE
+
+
+def _timezone_alias(timezone_name: str | None) -> str:
+    normalized = str(timezone_name or "").strip()
+    if not normalized:
+        return _DEFAULT_LOCAL_TIMESTAMP_TIMEZONE
+    return _TIMEZONE_ALIASES.get(normalized.upper(), normalized)
+
+
+def _zoneinfo_or_utc(timezone_name: str | None):
+    if not timezone_name:
+        return timezone.utc
+    normalized = _timezone_alias(timezone_name)
+    if normalized.upper() in {"UTC", "GMT"}:
+        return timezone.utc
+    try:
+        return ZoneInfo(normalized)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"unsupported_timestamp_timezone:{timezone_name}") from exc
+
+
+def _log_timestamp_normalized(
+    *,
+    value: Any,
+    normalized: datetime,
+    source_type: str,
+    symbol: str | None,
+    timeframe: str | None,
+    emit_log: bool,
+) -> None:
+    if not emit_log:
+        return
+    print(
+        "[ROSS][RUNTIME_FIX][TIMESTAMP_NORMALIZED] "
+        f"symbol={symbol or 'UNKNOWN'} timeframe={timeframe or 'UNKNOWN'} "
+        f"source_type={source_type} normalized={normalized.isoformat()}"
+    )
+
+
+def _coerce_utc(value: Any) -> datetime:
+    return normalize_timestamp_utc(value, emit_log=False)
 
 
 def _compact_mapping(mapping: Dict[str, Any]) -> str:

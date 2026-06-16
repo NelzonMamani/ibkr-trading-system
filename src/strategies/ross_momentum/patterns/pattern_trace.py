@@ -20,6 +20,7 @@ from src.strategies.ross_momentum.patterns.pattern_inputs import (
     LiquidityContext,
     PatternInputs,
     build_authoritative_pattern_inputs,
+    normalize_timestamp_utc,
 )
 from src.strategies.ross_momentum.patterns.pattern_types import PatternResult
 
@@ -81,11 +82,16 @@ def _vwap(candles: list[Candle]) -> float | None:
 
 
 def _timestamp_as_utc(value: Any) -> datetime | None:
-    if not isinstance(value, datetime):
+    if value is None:
         return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+    try:
+        return normalize_timestamp_utc(value)
+    except ValueError as exc:
+        print(
+            "[ROSS][RUNTIME_FIX][PATTERN_INPUT_UNAVAILABLE] "
+            f"symbol=UNKNOWN timeframe=UNKNOWN status=STALE reason={exc}"
+        )
+        return None
 
 
 def _is_premarket_candle(candle: Candle) -> bool:
@@ -486,13 +492,26 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
             bar_volume = _safe_float(getattr(bar, "totalVolume", None))
         if bar_volume is None:
             bar_volume = 0.0
+        raw_timestamp = getattr(bar, "timestamp", None)
+        try:
+            normalized_timestamp = (
+                normalize_timestamp_utc(raw_timestamp, symbol=symbol, timeframe="runtime")
+                if raw_timestamp is not None
+                else None
+            )
+        except ValueError as exc:
+            print(
+                "[ROSS][RUNTIME_FIX][PATTERN_INPUT_UNAVAILABLE] "
+                f"symbol={symbol} timeframe=runtime status=STALE reason={exc}"
+            )
+            normalized_timestamp = None
         return Candle(
             open=float(bar.open),
             high=float(bar.high),
             low=float(bar.low),
             close=float(bar.close),
             volume=float(bar_volume),
-            timestamp=getattr(bar, "timestamp", None),
+            timestamp=normalized_timestamp,
         )
 
     timeframe_candles = {
@@ -666,11 +685,17 @@ def _fetch_runtime_timeframe_bars(symbol: str) -> dict[str, list[Candle]]:
                 timeframe=timeframe,
                 limit=limit,
             )
+        except ValueError as exc:
+            print(
+                "[ROSS][RUNTIME_FIX][PATTERN_INPUT_UNAVAILABLE] "
+                f"symbol={symbol} timeframe={timeframe} status=UNAVAILABLE reason={exc}"
+            )
+            continue
         except Exception as exc:
             if timeframe == "1m":
                 raise
             print(
-                "[ROSS][PATTERN_INPUT][TIMEFRAMES] "
+                "[ROSS][RUNTIME_FIX][PATTERN_INPUT_UNAVAILABLE] "
                 f"symbol={symbol} timeframe={timeframe} status=UNAVAILABLE reason={type(exc).__name__}"
             )
             continue

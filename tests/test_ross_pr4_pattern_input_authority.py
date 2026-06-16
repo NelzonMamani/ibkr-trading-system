@@ -9,6 +9,7 @@ from src.strategies.ross_momentum.patterns.pattern_inputs import (
     LevelSet,
     LiquidityContext,
     build_authoritative_pattern_inputs,
+    normalize_timestamp_utc,
 )
 from src.strategies.ross_momentum.patterns.pattern_trace import build_runtime_pattern_inputs
 from src.strategies.ross_momentum.policy import (
@@ -341,3 +342,23 @@ def test_stale_timeframe_is_explicit_in_freshness_provenance() -> None:
 
     assert inputs.timeframe_provenance["10s"] == IndicatorProvenance.STALE.value
     assert inputs.missing_data_actions["timeframe:10s"] == MissingDataBehavior.BLOCK.value
+
+
+def test_ibkr_intraday_timestamp_strings_use_eastern_market_timezone(monkeypatch) -> None:
+    monkeypatch.setenv("IBKR_TWS_TIMEZONE", "America/New_York")
+
+    summer_open = normalize_timestamp_utc("20260616 09:30:00")
+    winter_open = normalize_timestamp_utc("20260116 09:30:00")
+
+    assert summer_open == datetime(2026, 6, 16, 13, 30, tzinfo=timezone.utc)
+    assert winter_open == datetime(2026, 1, 16, 14, 30, tzinfo=timezone.utc)
+
+
+def test_timestamp_strings_preserve_explicit_timezone_and_date_only_is_safe(monkeypatch) -> None:
+    monkeypatch.delenv("IBKR_TWS_TIMEZONE", raising=False)
+
+    explicit_timezone = normalize_timestamp_utc("2026-06-16T09:30:00-04:00")
+    date_only = normalize_timestamp_utc("20260616")
+
+    assert explicit_timezone == datetime(2026, 6, 16, 13, 30, tzinfo=timezone.utc)
+    assert date_only == datetime(2026, 6, 16, 0, 0, tzinfo=timezone.utc)
