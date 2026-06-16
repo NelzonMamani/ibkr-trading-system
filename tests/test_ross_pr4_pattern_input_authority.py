@@ -242,7 +242,7 @@ def test_runtime_builder_merges_authoritative_and_legacy_quality_flags(monkeypat
     assert "PATTERN_INPUT_BLOCK_MICRO_PULLBACK" in inputs.data_quality_flags
     assert "LEGACY_RUNTIME_FLAG" in inputs.data_quality_flags
     assert flags == ["LEGACY_RUNTIME_FLAG"]
-    assert len(inputs.data_quality_flags)`== len(set(inputs.data_quality_flags))
+    assert len(inputs.data_quality_flags) == len(set(inputs.data_quality_flags))
 
 
 def test_opening_session_requires_10s_refinement_when_missing() -> None:
@@ -331,7 +331,7 @@ def test_stale_timeframe_is_explicit_in_freshness_provenance() -> None:
     stale_start = now - timedelta(minutes=30)
 
     inputs = build_authoritative_pattern_inputs(
-        symbol="STALEY",
+        symbol="STALEX",
         session_label="RTH_OPEN",
         timeframe_candles={"10s": _candles(5, timestamp_start=stale_start), "1m": _candles(30), "5m": _candles(30)},
         indicators=IndicatorSet(ema9=10.5, ema20=10.4, ema200=9.9, vwap=10.3),
