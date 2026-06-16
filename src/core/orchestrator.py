@@ -2932,15 +2932,27 @@ class CoreOrchestrator:
             f"auto_focus={auto_focus_symbols} manual_focus={manual_focus_accepted_symbols} final={final_evaluation_symbols}"
         )
         focus_source = "MANUAL" if manual_focus_accepted_symbols and not auto_focus_symbols else "MIXED" if manual_focus_accepted_symbols and auto_focus_symbols else "AUTO"
+        ross_read_only_runtime = (
+            self.run_mode == RunMode.READ_ONLY
+            and (strategy_key or self.selected_strategy_key or "ross_momentum") == "ross_momentum"
+        )
         if len(final_evaluation_symbols) == 0 and len(watchlist_symbols) > 0:
-            fallback_symbols = watchlist_symbols[:3]
-            print("[FALLBACK][FOCUS_EMPTY] using_watchlist_candidates")
-            print(
-                "[FALLBACK][ENGAGED] "
-                f"reason=EMPTY_FOCUS fallback_symbols={fallback_symbols}"
-            )
-            final_evaluation_symbols = list(fallback_symbols)
-            focus_source = "FALLBACK_FROM_WATCHLIST"
+            if ross_read_only_runtime:
+                print(
+                    "[ROSS][FOCUS_HANDOFF] "
+                    f"watchlist={len(watchlist_symbols)} focus=0 strategy_input=0 "
+                    "diagnostic_only=true execution_ineligible=true"
+                )
+                print("[ROSS][NO_TRADE] reason=NO_FOCUS_CANDIDATES")
+            else:
+                fallback_symbols = watchlist_symbols[:3]
+                print("[FALLBACK][FOCUS_EMPTY] using_watchlist_candidates")
+                print(
+                    "[FALLBACK][ENGAGED] "
+                    f"reason=EMPTY_FOCUS fallback_symbols={fallback_symbols}"
+                )
+                final_evaluation_symbols = list(fallback_symbols)
+                focus_source = "FALLBACK_FROM_WATCHLIST"
         if not auto_focus_symbols and manual_focus_accepted_symbols:
             print(f"[FINAL_EVAL][MANUAL_ONLY] symbols={manual_focus_accepted_symbols} reason=manual_override_only")
         print(
@@ -3016,9 +3028,10 @@ class CoreOrchestrator:
         if not watchlist_symbols:
             print("[PIPELINE][SKIP] empty watchlist")
             final_evaluation_symbols = []
-        strategy_watchlist = selected_watchlist or selected_focus
+        read_only_no_focus = ross_read_only_runtime and not final_evaluation_symbols
+        strategy_watchlist = [] if read_only_no_focus else (selected_watchlist or selected_focus)
         if not strategy_watchlist:
-            fallback_candidates = list(selected_watchlist) or list(selected_observations)
+            fallback_candidates = [] if read_only_no_focus else (list(selected_watchlist) or list(selected_observations))
             strategy_watchlist = [
                 candidate
                 for candidate in fallback_candidates
@@ -3058,7 +3071,7 @@ class CoreOrchestrator:
             f"focus={len(final_evaluation_symbols)} "
             f"strategy_input={len(strategy_evaluation_symbols)}"
         )
-        if watchlist_symbols and not strategy_evaluation_symbols:
+        if watchlist_symbols and not strategy_evaluation_symbols and not read_only_no_focus:
             print("[ERROR] WATCHLIST_WITHOUT_STRATEGY_INPUT")
             strategy_evaluation_symbols = watchlist_symbols[:5]
             lookup_candidates = list(selected_watchlist) + list(selected_focus) + list(selected_observations)
@@ -3076,7 +3089,7 @@ class CoreOrchestrator:
                 "[RECOVERY] Using watchlist as strategy input "
                 f"symbols={strategy_evaluation_symbols}"
             )
-        if watchlist_symbols and not strategy_evaluation_symbols:
+        if watchlist_symbols and not strategy_evaluation_symbols and not read_only_no_focus:
             raise Exception("PIPELINE_BREAK_FOCUS_TO_STRATEGY")
         print(
             "[PIPELINE] "
@@ -3088,17 +3101,28 @@ class CoreOrchestrator:
         print(f"[ORCHESTRATOR][DISPATCH] passing {len(strategy_evaluation_symbols)} symbols to strategy")
         strategy_inputs = strategy_watchlist
         if not final_evaluation_symbols and strategy_evaluation_symbols:
-            print(
-                "[FOCUS][FALLBACK_TO_WATCHLIST] "
-                f"reason=focus_empty_using_watchlist symbols={strategy_evaluation_symbols}"
-            )
-            fallback_symbols = list(strategy_evaluation_symbols[:3])
-            print(
-                "[FALLBACK][ENGAGED] "
-                f"reason=EMPTY_FOCUS fallback_symbols={fallback_symbols}"
-            )
-            final_evaluation_symbols = fallback_symbols
-            focus_source = "FALLBACK_FROM_WATCHLIST"
+            if ross_read_only_runtime:
+                print(
+                    "[ROSS][FOCUS_HANDOFF] "
+                    f"watchlist={len(watchlist_symbols)} focus=0 strategy_input=0 "
+                    "diagnostic_only=true execution_ineligible=true"
+                )
+                print("[ROSS][NO_TRADE] reason=NO_FOCUS_CANDIDATES")
+                strategy_inputs = []
+                strategy_watchlist = []
+                strategy_evaluation_symbols = []
+            else:
+                print(
+                    "[FOCUS][FALLBACK_TO_WATCHLIST] "
+                    f"reason=focus_empty_using_watchlist symbols={strategy_evaluation_symbols}"
+                )
+                fallback_symbols = list(strategy_evaluation_symbols[:3])
+                print(
+                    "[FALLBACK][ENGAGED] "
+                    f"reason=EMPTY_FOCUS fallback_symbols={fallback_symbols}"
+                )
+                final_evaluation_symbols = fallback_symbols
+                focus_source = "FALLBACK_FROM_WATCHLIST"
         print(f"[FOCUS_FINAL] count={len(final_evaluation_symbols)} symbols={final_evaluation_symbols}")
         if not final_evaluation_symbols:
             print(
@@ -4073,10 +4097,14 @@ class CoreOrchestrator:
 
         print("[TEACH] >>> Strategy stage — decide on trade ideas (conceptual).")
         try:
+            ross_focus_required = (
+                self.run_mode == RunMode.READ_ONLY
+                and (self.selected_strategy_key or strategy_key or "ross_momentum") == "ross_momentum"
+            )
             strategy_watchlist = (
-                list(strategy_context.watchlist_k)
-                or list(strategy_context.focus_m)
-                or list(watchlist_rows)
+                list(strategy_context.focus_m)
+                if ross_focus_required
+                else (list(strategy_context.watchlist_k) or list(strategy_context.focus_m) or list(watchlist_rows))
             )
             focus_only = {
                 str(getattr(candidate, "symbol", "")).upper()
@@ -4107,9 +4135,9 @@ class CoreOrchestrator:
             print("[STRATEGY][ENTRY] entering strategy execution phase")
 
             strategy_watchlist = (
-                list(strategy_context.watchlist_k)
-                or list(strategy_context.focus_m)
-                or list(watchlist_rows)
+                list(strategy_context.focus_m)
+                if ross_focus_required
+                else (list(strategy_context.watchlist_k) or list(strategy_context.focus_m) or list(watchlist_rows))
             )
             if focus_only:
                 strategy_watchlist = [
@@ -4128,22 +4156,32 @@ class CoreOrchestrator:
             print(f"[ORCHESTRATOR][DISPATCH] passing {len(strategy_watchlist)} symbols to strategy")
             strategy_inputs = strategy_watchlist
 
-            if not strategy_watchlist:
-                print("[WARNING] condition hit but continuing for debug")
-            print("[STRATEGY][EXECUTION] FORCED execution ON")
-            print("[STRATEGY_RUNNER] invoking RossMomentumStrategyV1")
-            strategy_output = self.strategy_runner.process(
-                strategy_key="ross_momentum",
-                watchlist=strategy_inputs,
-                snapshots=snapshots_by_symbol,
-                session_label=session_label,
-                timestamp_utc=timestamp_utc,
-                mode=self.run_mode,
-                session_phase=session_phase,
-                execution_allowed=True,
-                execution_ready=True,
-                prep_only=False,
-            )
+            if not strategy_watchlist and ross_focus_required:
+                print(
+                    "[ROSS][FOCUS_HANDOFF] "
+                    f"watchlist={len(strategy_context.watchlist_k)} focus={len(strategy_context.focus_m)} "
+                    "strategy_input=0 diagnostic_only=true execution_ineligible=true"
+                )
+                print("[ROSS][NO_TRADE] reason=NO_FOCUS_CANDIDATES")
+                print("[STRATEGY][EXECUTION] SKIPPED reason=NO_FOCUS_CANDIDATES")
+                strategy_output = []
+            else:
+                if not strategy_watchlist:
+                    print("[WARNING] condition hit but continuing for debug")
+                print("[STRATEGY][EXECUTION] FORCED execution ON")
+                print("[STRATEGY_RUNNER] invoking RossMomentumStrategyV1")
+                strategy_output = self.strategy_runner.process(
+                    strategy_key="ross_momentum",
+                    watchlist=strategy_inputs,
+                    snapshots=snapshots_by_symbol,
+                    session_label=session_label,
+                    timestamp_utc=timestamp_utc,
+                    mode=self.run_mode,
+                    session_phase=session_phase,
+                    execution_allowed=True,
+                    execution_ready=True,
+                    prep_only=False,
+                )
             strategy_output = self._merge_trade_intents([], strategy_output)
             strategy_output = self._annotate_trade_intents_with_regime(
                 strategy_output,
@@ -4154,6 +4192,7 @@ class CoreOrchestrator:
                 not strategy_output
                 and self.selected_strategy_key in {"ross_momentum", "long_horizon_value", "mean_reversion"}
                 and watchlist_symbols
+                and not (ross_focus_required and not strategy_watchlist)
             ):
                 fallback_symbol = watchlist_symbols[0]
                 ross_fallback_requested = self.selected_strategy_key == "ross_momentum"
