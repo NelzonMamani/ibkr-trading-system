@@ -195,7 +195,7 @@ def test_pr554_pipeline_trace_populated_on_live_path(monkeypatch, tmp_path) -> N
     assert trace.final_reason_code is not None
 
 
-def test_focus_empty_but_viable_watchlist_still_reaches_ross_evaluation(monkeypatch) -> None:
+def test_focus_empty_viable_watchlist_stays_diagnostic_only_in_paper(monkeypatch, capsys) -> None:
     set_config_overrides(
         {
             "RUN_MODE": "PAPER",
@@ -230,10 +230,15 @@ def test_focus_empty_but_viable_watchlist_still_reaches_ross_evaluation(monkeypa
     try:
         orchestrator = CoreOrchestrator()
         orchestrator.market_data_snapshot_manager = SimpleNamespace(batch_snapshots=lambda symbols: ({}, []))
+        orchestrator._refresh_manual_focus_if_due = lambda *_args, **_kwargs: []
+        orchestrator._resolve_manual_focus_candidates = lambda **kwargs: ([], [])
         orchestrator.strategy_runner.receive_watchlist_snapshot = lambda **kwargs: None
         orchestrator.strategy_runner.process = _process
         assert orchestrator.run_once() is True
-        assert observed["watchlist"] == ["AAPL"]
+        assert observed == {}
+        output = capsys.readouterr().out
+        assert "[ROSS][FOCUS_AUTHORITY] official_focus_count=0" in output
+        assert "[ROSS][NO_TRADE] reason=NO_FOCUS_CANDIDATES" in output
     finally:
         set_config_overrides(None)
 

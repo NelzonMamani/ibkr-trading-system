@@ -1,5 +1,8 @@
+import io
+import sys
 from types import SimpleNamespace
 
+from src import main as main_module
 from src.core.engines.execution_mode_engine import ExecutionModeEngine
 
 
@@ -42,7 +45,24 @@ def test_execution_mode_matrix_applied_by_session() -> None:
         assert out.execution_refinement_timeframe == refinement
 
 
-def test_fallback_logic_preserved_for_incomplete_context() -> None:
+def test_fallback_logic_preserved_for_incomplete_context(monkeypatch) -> None:
+    original_stdout = sys.stdout
+    bytes_buffer = io.BytesIO()
+    cp1252_stream = io.TextIOWrapper(
+        bytes_buffer,
+        encoding="cp1252",
+        errors="strict",
+        write_through=True,
+    )
+    monkeypatch.setattr(sys, "stdout", cp1252_stream)
+    main_module._configure_console_output()
+    print("runtime -> safe", end="")
+    print(" | unicode → safe", end="")
+    cp1252_stream.flush()
+    monkeypatch.setattr(sys, "stdout", original_stdout)
+
+    assert bytes_buffer.getvalue().decode("cp1252") == "runtime -> safe | unicode ? safe"
+
     engine = ExecutionModeEngine()
     intent = _intent()
 

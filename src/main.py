@@ -155,6 +155,24 @@ def _apply_cli_overrides(args: argparse.Namespace) -> None:
         set_config_overrides(overrides)
 
 
+def _configure_console_output() -> None:
+    """Keep runtime logging from failing on limited Windows console encodings."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(errors="replace")
+        except TypeError:
+            encoding = getattr(stream, "encoding", None) or "utf-8"
+            try:
+                reconfigure(encoding=encoding, errors="replace")
+            except Exception:
+                continue
+        except Exception:
+            continue
+
 
 def _apply_temp_validation_override(run_mode: RunMode) -> None:
     """Explicit SIM/PAPER-only relaxation for validating the Ross pipeline."""
@@ -249,6 +267,7 @@ def _print_config_resolution_trace() -> None:
 
 def main() -> None:
     """Run the minimal teaching-first entry point."""
+    _configure_console_output()
     args = _parse_args()
     _apply_cli_overrides(args)
     if args.readiness_check:
