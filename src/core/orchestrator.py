@@ -2283,12 +2283,46 @@ class CoreOrchestrator:
 
     @staticmethod
     def _session_execution_allowed(session_label: str) -> bool:
-        return canonical_session_label(session_label or "") in {
+        token = (
+            str(session_label or "")
+            .strip()
+            .upper()
+            .replace("-", "_")
+            .replace(" ", "_")
+            .replace("/", "_")
+        )
+        if token in {
+            "",
+            "NONE",
+            "UNKNOWN",
+            "NA",
+            "N_A",
+            "CLOSED",
+            "MARKET_CLOSED",
+            "WEEKEND",
+            "HOLIDAY",
+            "OVN",
+            "OVERNIGHT",
+            "AH",
+            "AFTER",
+            "AFTER_HOURS",
+        }:
+            return False
+        if token in {
             "PRE",
+            "PREMARKET",
             "RTH_OPEN",
+            "OPENING_0_30",
             "RTH_MID",
+            "REGULAR",
             "RTH_LATE",
-        }
+            "POWER_HOUR",
+        }:
+            return True
+        normalized = normalize_session_label(token)
+        if normalized in {"AH", "OVN", "WEEKEND"}:
+            return False
+        return normalized in {"PRE", "RTH_OPEN", "RTH_MID", "RTH_LATE"}
 
     def _ross_focus_authority_required(self, strategy_key: str | None = None) -> bool:
         selected_key = str(strategy_key or self.selected_strategy_key or "").strip().lower()
@@ -3168,10 +3202,13 @@ class CoreOrchestrator:
         focus_rejected = int(scanner_payload.get("focus_rejected", 0))
         focus_dominant_reasons = dict(scanner_payload.get("focus_dominant_reasons", {}) or {})
         snapshots_by_symbol, _ = self.market_data_snapshot_manager.batch_snapshots(final_evaluation_symbols)
-        session_label = canonical_session_label(
+        session_gate_label = (
             forced_session_label
             or (selected_watchlist[0].session_label if selected_watchlist else session_phase)
         )
+        session_label = canonical_session_label(session_gate_label)
+        session_execution_allowed = self._session_execution_allowed(session_gate_label)
+        session_prep_only = not session_execution_allowed
         self.strategy_runner.receive_watchlist_snapshot(
             watchlist_symbols=final_evaluation_symbols,
             snapshots=snapshots_by_symbol,
@@ -3202,7 +3239,6 @@ class CoreOrchestrator:
                         )
             else:
                 print("[PIPELINE][THA_POLICY] execution_disabled=True flatten_skipped=True")
-        session_execution_allowed = self._session_execution_allowed(session_label)
         if mock_scanner_mode and not session_execution_allowed:
             session_execution_allowed = True
             print("[SESSION][MOCK_OVERRIDE] execution_allowed=True")
@@ -3232,7 +3268,7 @@ class CoreOrchestrator:
                 session_phase=session_phase,
                 execution_allowed=session_execution_allowed,
                 execution_ready=session_execution_allowed,
-                prep_only=session_label in {"AH", "OVN", "CLOSED", "WEEKEND"},
+                prep_only=session_prep_only,
             )
         else:
             print("[PIPELINE][SKIP] empty watchlist")
@@ -3520,8 +3556,8 @@ class CoreOrchestrator:
             f"focus_count_final={focus_passed} evaluated_count={focus_evaluated} focus_rejected={focus_rejected} setup_trigger_count={intent_count} "
             f"no_setup_count={no_setup_count} intent_count={intent_count} order_submission_count={intent_count if mode_manager.allow_orders else 0} "
             f"open_positions_count={self.trade_registry.count_active()} dominant_drop_reasons=NA dominant_no_trade_reasons={dominant_no_trade_reasons} "
-            f"execution_allowed={session_label in {'PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE'}} "
-            f"execution_ready={session_label in {'PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE'}} focus_source={focus_source}"
+            f"execution_allowed={session_execution_allowed} "
+            f"execution_ready={session_execution_allowed} focus_source={focus_source}"
         )
         print(
             "[PIPELINE] "
