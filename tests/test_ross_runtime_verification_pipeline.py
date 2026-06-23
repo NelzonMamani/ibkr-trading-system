@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 from src.config.config_resolver import set_config_overrides
@@ -243,23 +244,24 @@ def test_runtime_pipeline_accepts_setup_detected_as_valid_outcome(monkeypatch, c
         set_config_overrides(None)
 
 
-def test_runtime_pipeline_routes_ross_through_watchlist_processor(monkeypatch):
+def test_runtime_pipeline_routes_ross_through_watchlist_processor(monkeypatch, capsys):
     set_config_overrides(
         {
-            "RUN_MODE": "SIM",
+            "RUN_MODE": "READ_ONLY",
             "EXECUTION_ENABLED": False,
             "ROSS_MOMENTUM_STRATEGY_ENABLED": True,
             "SELECTED_STRATEGY": "ross_momentum",
             "SESSION_PHASE_OVERRIDE": "PREMARKET",
             "WATCHLIST_MAX_SYMBOLS_PER_STRATEGY": 15,
             "FOCUS_MAX_SYMBOLS_PER_STRATEGY": 5,
+            "ROSS_VALIDATION_OVERRIDE_ENABLED": False,
         }
     )
     calls: dict[str, object] = {}
 
     def _scanner_cycle(**kwargs):
-        c1 = _candidate("AAPL", 10.0)
-        c2 = _candidate("MSFT", 9.0)
+        c1 = replace(_candidate("AAPL", 10.0), session_label="AH", session_phase="AH")
+        c2 = replace(_candidate("MSFT", 9.0), session_label="AH", session_phase="AH")
         return {
             "candidate_metrics": [c1, c2],
             "watchlist_k": [c1, c2],
@@ -272,6 +274,9 @@ def test_runtime_pipeline_routes_ross_through_watchlist_processor(monkeypatch):
 
     def _process(**kwargs):
         calls["process_watchlist"] = [getattr(row, "symbol", None) for row in kwargs["watchlist"]]
+        calls["execution_allowed"] = kwargs["execution_allowed"]
+        calls["execution_ready"] = kwargs["execution_ready"]
+        calls["prep_only"] = kwargs["prep_only"]
         return [
             TradeIntent(
                 symbol="AAPL",
@@ -304,7 +309,105 @@ def test_runtime_pipeline_routes_ross_through_watchlist_processor(monkeypatch):
 
         assert orchestrator.run_once() is True
         assert set(calls["process_watchlist"]) == {"AAPL"}
+        assert calls["execution_allowed"] is False
+        assert calls["execution_ready"] is False
+        assert calls["prep_only"] is True
         assert "generate_trade_intents" not in calls
+        output = capsys.readouterr().out
+        assert "[VALIDATION_OVERRIDE]" not in output
+        assert "[STRATEGY][FORCED_EXECUTION]" not in output
+        assert "[STRATEGY][DIAGNOSTIC] invoking StrategyRunner reason=SESSION_RESTRICTED execution_ineligible=true" in output
+    finally:
+        set_config_overrides(None)
+
+
+def test_session_execution_allowlist_blocks_closed_off_hours_and_unknown_labels():
+    for session_label in [
+        "",
+        "NONE",
+        "UNKNOWN",
+        "NA",
+        "N/A",
+        "CLOSED",
+        "MARKET_CLOSED",
+        "WEEKEND",
+        "OVN",
+        "OVERNIGHT",
+        "AH",
+        "AFTER_HOURS",
+    ]:
+        assert CoreOrchestrator._session_execution_allowed(session_label) is False
+
+    for session_label in [
+        "PRE",
+        "PREMARKET",
+        "RTH_OPEN",
+        "OPENING_0_30",
+        "RTH_MID",
+        "REGULAR",
+        "RTH_LATE",
+        "POWER_HOUR",
+    ]:
+        assert CoreOrchestrator._session_execution_allowed(session_label) is True
+
+
+def test_runtime_pipeline_keeps_overnight_session_non_executable(monkeypatch, capsys):
+    set_config_overrides(
+        {
+            "RUN_MODE": "READ_ONLY",
+            "EXECUTION_ENABLED": False,
+            "ROSS_MOMENTUM_STRATEGY_ENABLED": True,
+            "SELECTED_STRATEGY": "ross_momentum",
+            "SESSION_PHASE_OVERRIDE": "OVN",
+            "WATCHLIST_MAX_SYMBOLS_PER_STRATEGY": 15,
+            "FOCUS_MAX_SYMBOLS_PER_STRATEGY": 5,
+            "ROSS_VALIDATION_OVERRIDE_ENABLED": False,
+        }
+    )
+    calls: dict[str, object] = {}
+
+    def _scanner_cycle(**kwargs):
+        c1 = replace(_candidate("AAPL", 10.0), session_label="OVN", session_phase="OVN")
+        c2 = replace(_candidate("MSFT", 9.0), session_label="OVN", session_phase="OVN")
+        return {
+            "candidate_metrics": [c1, c2],
+            "watchlist_k": [c1, c2],
+            "watchlist_k_symbols": ["AAPL", "MSFT"],
+            "focus_m": [c1],
+            "focus_m_symbols": ["AAPL"],
+            "universe_top_n": [{"symbol": "AAPL"}, {"symbol": "MSFT"}],
+            "candidates": [c1, c2],
+        }
+
+    def _process(**kwargs):
+        calls["process_watchlist"] = [getattr(row, "symbol", None) for row in kwargs["watchlist"]]
+        calls["execution_allowed"] = kwargs["execution_allowed"]
+        calls["execution_ready"] = kwargs["execution_ready"]
+        calls["prep_only"] = kwargs["prep_only"]
+        return []
+
+    monkeypatch.setattr("src.core.orchestrator.run_scanner_cycle", _scanner_cycle)
+    monkeypatch.setattr("src.core.orchestrator.resolve_watchlist_selector", lambda *_: (lambda observations, _policy: observations))
+    monkeypatch.setattr("src.core.orchestrator.resolve_policy_v2", lambda *_: None)
+    monkeypatch.setattr(CoreOrchestrator, "_resolve_tha_decisions", lambda self, strategy_inputs, now_utc: {})
+
+    try:
+        orchestrator = CoreOrchestrator()
+        orchestrator.market_data_snapshot_manager = SimpleNamespace(
+            batch_snapshots=lambda symbols: ({}, [])
+        )
+        orchestrator._refresh_manual_focus_if_due = lambda *_args, **_kwargs: []
+        orchestrator._resolve_manual_focus_candidates = lambda **kwargs: ([], [])
+        orchestrator.strategy_runner.receive_watchlist_snapshot = lambda **kwargs: None
+        orchestrator.strategy_runner.process = _process
+
+        assert orchestrator.run_once() is True
+        assert set(calls["process_watchlist"]) == {"AAPL"}
+        assert calls["execution_allowed"] is False
+        assert calls["execution_ready"] is False
+        assert calls["prep_only"] is True
+        output = capsys.readouterr().out
+        assert "[STRATEGY][DIAGNOSTIC] invoking StrategyRunner reason=SESSION_RESTRICTED execution_ineligible=true" in output
     finally:
         set_config_overrides(None)
 
@@ -348,21 +451,51 @@ def test_runtime_pipeline_falls_back_to_watchlist_when_focus_empty(monkeypatch, 
     monkeypatch.setattr(CoreOrchestrator, "_resolve_tha_decisions", lambda self, strategy_inputs, now_utc: {})
 
     try:
-        orchestrator = CoreOrchestrator()
-        orchestrator.market_data_snapshot_manager = SimpleNamespace(
+        sim_orchestrator = CoreOrchestrator()
+        sim_orchestrator.market_data_snapshot_manager = SimpleNamespace(
             batch_snapshots=lambda symbols: ({}, [])
         )
-        orchestrator._refresh_manual_focus_if_due = lambda *_args, **_kwargs: []
-        orchestrator._resolve_manual_focus_candidates = lambda **kwargs: ([], [])
-        orchestrator._merge_focus_candidates = lambda **kwargs: []
-        orchestrator.strategy_runner.receive_watchlist_snapshot = lambda **kwargs: None
-        orchestrator.strategy_runner.process = _process
+        sim_orchestrator._refresh_manual_focus_if_due = lambda *_args, **_kwargs: []
+        sim_orchestrator._resolve_manual_focus_candidates = lambda **kwargs: ([], [])
+        sim_orchestrator._merge_focus_candidates = lambda **kwargs: []
+        sim_orchestrator.strategy_runner.receive_watchlist_snapshot = lambda **kwargs: None
+        sim_orchestrator.strategy_runner.process = _process
 
-        assert orchestrator.run_once() is True
+        assert sim_orchestrator.run_once() is True
         assert calls["process_watchlist"] == ["AAPL", "MSFT", "NVDA"]
         output = capsys.readouterr().out
         assert "[FOCUS][SELECTED] symbols=['AAPL', 'MSFT', 'NVDA']" in output
         assert "[FALLBACK][ENGAGED] reason=EMPTY_FOCUS fallback_symbols=['AAPL', 'MSFT', 'NVDA']" in output
         assert "[ROSS][PROCESS_START]" in output
+
+        calls.clear()
+        set_config_overrides(
+            {
+                "RUN_MODE": "PAPER",
+                "EXECUTION_ENABLED": False,
+                "ROSS_MOMENTUM_STRATEGY_ENABLED": True,
+                "SELECTED_STRATEGY": "ross_momentum",
+                "SESSION_PHASE_OVERRIDE": "PREMARKET",
+                "WATCHLIST_MAX_SYMBOLS_PER_STRATEGY": 15,
+                "FOCUS_MAX_SYMBOLS_PER_STRATEGY": 5,
+            }
+        )
+        paper_orchestrator = CoreOrchestrator()
+        paper_orchestrator.market_data_snapshot_manager = SimpleNamespace(
+            batch_snapshots=lambda symbols: ({}, [])
+        )
+        paper_orchestrator._refresh_manual_focus_if_due = lambda *_args, **_kwargs: []
+        paper_orchestrator._resolve_manual_focus_candidates = lambda **kwargs: ([], [])
+        paper_orchestrator._merge_focus_candidates = lambda **kwargs: []
+        paper_orchestrator.strategy_runner.receive_watchlist_snapshot = lambda **kwargs: None
+        paper_orchestrator.strategy_runner.process = _process
+
+        assert paper_orchestrator.run_once() is True
+        assert calls == {}
+        output = capsys.readouterr().out
+        assert "[ROSS][FOCUS_AUTHORITY] official_focus_count=0 diagnostic_focus_count=4 source=WATCHLIST_DIAGNOSTIC" in output
+        assert "[ROSS][FOCUS_HANDOFF] watchlist=4 official_focus_count=0 executable_focus_count=0 diagnostic_only=true execution_ineligible=true" in output
+        assert "[ROSS][NO_TRADE] reason=NO_FOCUS_CANDIDATES" in output
+        assert "[PIPELINE][FOCUS] count=0 symbols=[]" in output
     finally:
         set_config_overrides(None)

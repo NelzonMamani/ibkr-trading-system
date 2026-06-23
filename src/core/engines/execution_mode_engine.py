@@ -102,7 +102,7 @@ class ExecutionModeEngine:
 
         # 🔥 NEW: context fallback
         if self._is_context_incomplete(context):
-            print("[EXECUTION_FALLBACK] incomplete_context → bypass_strict_checks")
+            print("[EXECUTION_FALLBACK] incomplete_context -> bypass_strict_checks")
             intent.execution_mode = "FALLBACK"
             intent.execution_primary_timeframe = config["primary"]
             intent.execution_refinement_timeframe = config["refinement"]
