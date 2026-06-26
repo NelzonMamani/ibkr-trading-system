@@ -86,6 +86,26 @@ def test_manual_focus_bypasses_watchlist() -> None:
     assert "OCGN" in _symbols(merged)
 
 
+def test_manual_focus_candidate_marks_setup_authority_requirements() -> None:
+    orchestrator = _orchestrator()
+
+    manual_rows, rejected = orchestrator._resolve_manual_focus_candidates(
+        manual_symbols=["TMDE"],
+        session_phase="PRE",
+    )
+
+    assert rejected == []
+    row = manual_rows[0]
+    assert row.selection_rationale["source"] == "MANUAL_FOCUS"
+    assert row.selection_rationale["stock_selection_bypass"] is True
+    assert row.selection_rationale["setup_detection_required"] is True
+    assert row.gate_checks["stock_selection_bypass"] is True
+    assert row.gate_checks["risk_required"] is True
+    assert row.gate_checks["execution_required"] is True
+    assert "USER_SELECTED_SYMBOL" in row.eligibility_reason_codes
+    assert "MANUAL_BYPASS_RVOL_FILTER" in row.eligibility_reason_codes
+
+
 def test_manual_focus_with_empty_scanner_focus_runtime_regression() -> None:
     orchestrator = _orchestrator()
     watchlist_k = ["BNRG", "SBEV"]
