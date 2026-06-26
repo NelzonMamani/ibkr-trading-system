@@ -499,3 +499,118 @@ def test_runtime_pipeline_falls_back_to_watchlist_when_focus_empty(monkeypatch, 
         assert "[PIPELINE][FOCUS] count=0 symbols=[]" in output
     finally:
         set_config_overrides(None)
+
+
+def test_runtime_pipeline_manual_focus_reaches_strategy_handoff_when_auto_focus_empty(monkeypatch, capsys):
+    set_config_overrides(
+        {
+            "RUN_MODE": "READ_ONLY",
+            "EXECUTION_ENABLED": False,
+            "ROSS_MOMENTUM_STRATEGY_ENABLED": True,
+            "SELECTED_STRATEGY": "ross_momentum",
+            "SESSION_PHASE_OVERRIDE": "PREMARKET",
+            "WATCHLIST_MAX_SYMBOLS_PER_STRATEGY": 15,
+            "FOCUS_MAX_SYMBOLS_PER_STRATEGY": 5,
+            "ROSS_VALIDATION_OVERRIDE_ENABLED": False,
+        }
+    )
+    calls: dict[str, object] = {}
+
+    def _scanner_cycle(**kwargs):
+        c1 = replace(_candidate("BNRG", 10.0), session_label="PRE", session_phase="PRE")
+        c2 = replace(_candidate("SBEV", 9.0), session_label="PRE", session_phase="PRE")
+        return {
+            "candidate_metrics": [c1, c2],
+            "watchlist_k": [c1, c2],
+            "watchlist_k_symbols": ["BNRG", "SBEV"],
+            "focus_m": [],
+            "focus_m_symbols": [],
+            "universe_top_n": [{"symbol": "BNRG"}, {"symbol": "SBEV"}],
+            "candidates": [c1, c2],
+        }
+
+    monkeypatch.setattr("src.core.orchestrator.run_scanner_cycle", _scanner_cycle)
+    monkeypatch.setattr("src.core.orchestrator.resolve_watchlist_selector", lambda *_: (lambda observations, _policy: observations))
+    monkeypatch.setattr("src.core.orchestrator.resolve_policy_v2", lambda *_: None)
+
+    try:
+        orchestrator = CoreOrchestrator()
+        orchestrator.market_data_snapshot_manager = SimpleNamespace(
+            batch_snapshots=lambda symbols: ({}, [])
+        )
+        orchestrator._refresh_manual_focus_if_due = lambda *_args, **_kwargs: ["TMDE", "HURA"]
+        runner = orchestrator.strategy_runner._runner_registry["RossMomentumStrategyV1"]
+        ross_strategy = runner.strategy
+
+        def _run(context):
+            symbols = [getattr(row, "symbol", None) for row in context.get("watchlist", [])]
+            calls["process_watchlist"] = symbols
+            ross_strategy.last_evaluated_symbols = [symbol for symbol in symbols if symbol]
+            return {"trade_intents": [], "trade_ready_count": 0, "reports": []}
+
+        runner.run = _run
+
+        assert orchestrator.run_once() is True
+        assert calls["process_watchlist"] == ["TMDE", "HURA"]
+        output = capsys.readouterr().out
+        assert "[FINAL_EVAL][MANUAL_ONLY] symbols=['TMDE', 'HURA'] reason=manual_override_only" in output
+        assert "[THA][SOURCE] symbol=TMDE source=MANUAL_FOCUS_SESSION_FALLBACK segments=1" in output
+        assert "[ROSS][CONTRACT_VIOLATION]" not in output
+        assert "[ROSS][CRITICAL] EMPTY_WATCHLIST_NO_TRADING_POSSIBLE" not in output
+        assert "[ROSS][ERROR] EMPTY_SYMBOL_LIST" not in output
+    finally:
+        set_config_overrides(None)
+
+
+def test_runtime_pipeline_manual_focus_off_hours_stays_prep_only(monkeypatch, capsys):
+    set_config_overrides(
+        {
+            "RUN_MODE": "READ_ONLY",
+            "EXECUTION_ENABLED": False,
+            "ROSS_MOMENTUM_STRATEGY_ENABLED": True,
+            "SELECTED_STRATEGY": "ross_momentum",
+            "SESSION_PHASE_OVERRIDE": "AH",
+            "WATCHLIST_MAX_SYMBOLS_PER_STRATEGY": 15,
+            "FOCUS_MAX_SYMBOLS_PER_STRATEGY": 5,
+            "ROSS_VALIDATION_OVERRIDE_ENABLED": False,
+        }
+    )
+
+    def _scanner_cycle(**kwargs):
+        c1 = replace(_candidate("BNRG", 10.0), session_label="AH", session_phase="AH")
+        return {
+            "candidate_metrics": [c1],
+            "watchlist_k": [c1],
+            "watchlist_k_symbols": ["BNRG"],
+            "focus_m": [],
+            "focus_m_symbols": [],
+            "universe_top_n": [{"symbol": "BNRG"}],
+            "candidates": [c1],
+        }
+
+    monkeypatch.setattr("src.core.orchestrator.run_scanner_cycle", _scanner_cycle)
+    monkeypatch.setattr("src.core.orchestrator.resolve_watchlist_selector", lambda *_: (lambda observations, _policy: observations))
+    monkeypatch.setattr("src.core.orchestrator.resolve_policy_v2", lambda *_: None)
+
+    try:
+        orchestrator = CoreOrchestrator()
+        orchestrator.market_data_snapshot_manager = SimpleNamespace(
+            batch_snapshots=lambda symbols: ({}, [])
+        )
+        orchestrator._refresh_manual_focus_if_due = lambda *_args, **_kwargs: ["TMDE"]
+        runner = orchestrator.strategy_runner._runner_registry["RossMomentumStrategyV1"]
+
+        def _run(_context):
+            raise AssertionError("Ross runner should not execute during prep-only manual focus rejection")
+
+        runner.run = _run
+
+        assert orchestrator.run_once() is True
+        output = capsys.readouterr().out
+        assert "[MANUAL_FOCUS][PREP_ONLY] symbol=TMDE session=AH reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED" in output
+        assert "[MANUAL_FOCUS][REJECT] symbol=TMDE reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED" in output
+        assert "[ROSS][CONTRACT_VIOLATION]" not in output
+        assert "[ROSS][CRITICAL] EMPTY_WATCHLIST_NO_TRADING_POSSIBLE" not in output
+        assert "[ROSS][ERROR] EMPTY_SYMBOL_LIST" not in output
+    finally:
+        set_config_overrides(None)
