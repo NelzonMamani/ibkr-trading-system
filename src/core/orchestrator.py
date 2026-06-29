@@ -117,6 +117,7 @@ from src.scanner.providers.mock_provider import MockScannerProvider
 from src.scanner.session_pct_change import canonical_session_label, normalize_session_label, resolve_market_session_context
 from src.core.time.calendar_session import resolve_calendar_session
 from src.core.time.trading_windows import (
+    TradingWindowDecision,
     build_trading_window_policy,
     format_tha_source_log,
     resolve_trading_window_decision,
@@ -1248,6 +1249,35 @@ class CoreOrchestrator:
                 or getattr(candidate, "timezone", None)
                 or getattr(candidate, "timezone_id", None)
             )
+            watchlist_source = str(getattr(candidate, "watchlist_source", "") or "").upper()
+            promotion_reason = str(getattr(candidate, "promotion_reason", "") or "").lower()
+            is_manual_focus = watchlist_source == "MANUAL_FOCUS" or promotion_reason == "manual_focus"
+            if is_manual_focus and not trading_hours and not liquid_hours:
+                session_token = str(
+                    getattr(candidate, "session_label", None)
+                    or getattr(candidate, "session_phase", None)
+                    or ""
+                ).strip().upper()
+                allow_entries = self._session_execution_allowed(session_token)
+                tha_decision = TradingWindowDecision(
+                    symbol=symbol,
+                    source="MANUAL_FOCUS_SESSION_FALLBACK",
+                    in_window=allow_entries,
+                    allow_entries=allow_entries,
+                    force_flat=not allow_entries,
+                )
+                decisions[symbol] = tha_decision
+                print(
+                    "[THA][SOURCE] "
+                    f"symbol={symbol} source=MANUAL_FOCUS_SESSION_FALLBACK segments=1"
+                )
+                print(
+                    "[PIPELINE][THA_GATE] "
+                    f"symbol={symbol} in_window={tha_decision.in_window} "
+                    f"allow_entries={tha_decision.allow_entries} force_flat={tha_decision.force_flat}"
+                )
+                continue
+
             policy = build_trading_window_policy(
                 symbol=symbol,
                 now=now_utc,
@@ -1282,6 +1312,17 @@ class CoreOrchestrator:
 
     @staticmethod
     def _manual_focus_candidate(symbol: str, session_phase: str) -> CandidateMetrics:
+        risk_tags = [
+            "USER_SELECTED_SYMBOL",
+            "MANUAL_BYPASS_PRICE_FILTER",
+            "MANUAL_BYPASS_FLOAT_FILTER",
+            "MANUAL_BYPASS_RVOL_FILTER",
+            "MANUAL_BYPASS_CATALYST_FILTER",
+            "STOCK_SELECTION_BYPASS",
+            "SETUP_DETECTION_REQUIRED",
+            "RISK_REQUIRED",
+            "EXECUTION_REQUIRED",
+        ]
         return CandidateMetrics(
             symbol=symbol,
             con_id=None,
@@ -1359,12 +1400,32 @@ class CoreOrchestrator:
             news_source_mode=None,
             news_asof=None,
             data_quality_ok=True,
+            watchlist_eligible=True,
+            focus_eligible=True,
+            execution_eligible=None,
+            eligibility_reason_codes=list(risk_tags),
             data_quality_flags=[],
             drop_reasons=[],
             rank_score=None,
             rank_components=None,
             timestamp_utc=datetime.now(timezone.utc).isoformat(),
-            gate_checks={},
+            gate_checks={
+                "stock_selection_bypass": True,
+                "auto_selection_required": False,
+                "setup_detection_required": True,
+                "risk_required": True,
+                "execution_required": True,
+            },
+            selection_rationale={
+                "source": "MANUAL_FOCUS",
+                "stock_selection_bypass": True,
+                "user_selected": True,
+                "auto_selection_required": False,
+                "setup_detection_required": True,
+                "risk_required": True,
+                "execution_required": True,
+                "risk_tags": list(risk_tags),
+            },
         )
 
     def _refresh_manual_focus_if_due(self, now_utc: datetime) -> list[str]:
@@ -1416,9 +1477,23 @@ class CoreOrchestrator:
             rejection_reason = self._manual_focus_rejection_reason(symbol)
             if rejection_reason:
                 print(f"[MANUAL_FOCUS][REJECT] symbol={symbol or '<EMPTY>'} reason={rejection_reason}")
+                print(
+                    "[ROSS][MANUAL_FOCUS_AUTHORITY] "
+                    f"symbol={symbol or '<EMPTY>'} accepted=false "
+                    "stock_selection_bypass=true setup_detection_required=true"
+                )
                 rejected.append((symbol, rejection_reason))
                 continue
-            print(f"[MANUAL_FOCUS][ACCEPT] symbol={symbol} reason=DIRECT_OVERRIDE")
+            print(
+                "[MANUAL_FOCUS][ACCEPT] "
+                f"symbol={symbol} reason=USER_SELECTED_WATCH_CANDIDATE "
+                "stock_selection_bypass=True setup_detection_required=True"
+            )
+            print(
+                "[ROSS][MANUAL_FOCUS_AUTHORITY] "
+                f"symbol={symbol} accepted=true "
+                "stock_selection_bypass=true setup_detection_required=true"
+            )
             accepted.append(self._manual_focus_candidate(symbol, session_phase))
         return accepted, rejected
 
@@ -2967,14 +3042,27 @@ class CoreOrchestrator:
 
         pipeline_trace("CONTEXT")
         manual_focus_symbols = self._refresh_manual_focus_if_due(cycle_started_at)
+        manual_focus_session_phase = session_phase
+        if selected_watchlist:
+            manual_focus_session_phase = str(
+                getattr(selected_watchlist[0], "session_label", None)
+                or getattr(selected_watchlist[0], "session_phase", None)
+                or session_phase
+            )
+        elif selected_observations:
+            manual_focus_session_phase = str(
+                getattr(selected_observations[0], "session_label", None)
+                or getattr(selected_observations[0], "session_phase", None)
+                or session_phase
+            )
         manual_focus_rows, manual_focus_rejections = self._resolve_manual_focus_candidates(
             manual_symbols=manual_focus_symbols,
-            session_phase=session_phase,
+            session_phase=manual_focus_session_phase,
         )
         watchlist_symbols = self._symbols_from_candidates(selected_watchlist)
         auto_focus_symbols = self._symbols_from_candidates(selected_focus)
         merged = list(selected_focus)
-        manual_allowed = bool(getattr(self, "_manual_focus_enabled", True)) and not merged
+        manual_allowed = bool(getattr(self, "_manual_focus_enabled", True))
         selected_focus = self._merge_focus_candidates(
             scanner_focus=merged,
             manual_candidates=manual_focus_rows if manual_allowed else [],
@@ -2984,6 +3072,7 @@ class CoreOrchestrator:
         print(f"[PIPELINE][WATCHLIST] count={len(watchlist_symbols)} symbols={watchlist_symbols}")
         print(f"[PIPELINE][FOCUS] count={len(final_evaluation_symbols)} symbols={final_evaluation_symbols}")
         manual_focus_accepted_symbols = self._symbols_from_candidates(manual_focus_rows)
+        manual_focus_symbol_set = {symbol.upper() for symbol in manual_focus_accepted_symbols}
         print(
             "[FINAL_EVAL][MERGE] "
             f"auto_focus={auto_focus_symbols} manual_focus={manual_focus_accepted_symbols} final={final_evaluation_symbols}"
@@ -3085,11 +3174,22 @@ class CoreOrchestrator:
         else:
             print("[FOCUS][EMPTY] reason=no_focus_symbols_after_selection")
         self._trace_event("FOCUS", {"focus": [{"symbol": s} for s in final_evaluation_symbols]})
-        if not watchlist_symbols:
+        if not watchlist_symbols and not manual_focus_accepted_symbols:
             print("[PIPELINE][SKIP] empty watchlist")
             final_evaluation_symbols = []
+        elif not watchlist_symbols:
+            print("[PIPELINE][MANUAL_FOCUS_ONLY] scanner_watchlist_empty=True manual_focus_present=True")
         no_focus_execution_block = ross_focus_authority_required and not final_evaluation_symbols
-        strategy_watchlist = [] if no_focus_execution_block else (selected_watchlist or selected_focus)
+        if no_focus_execution_block:
+            strategy_watchlist = []
+        else:
+            strategy_watchlist = list(selected_watchlist or selected_focus)
+            if manual_allowed and manual_focus_rows:
+                strategy_watchlist = self._merge_focus_candidates(
+                    scanner_focus=strategy_watchlist,
+                    manual_candidates=manual_focus_rows,
+                    session_phase=session_phase,
+                )
         if not strategy_watchlist:
             fallback_candidates = [] if no_focus_execution_block else (list(selected_watchlist) or list(selected_observations))
             strategy_watchlist = [
@@ -3109,7 +3209,12 @@ class CoreOrchestrator:
                 if str(getattr(candidate, "symbol", "")).upper() in focus_only
             ]
         if final_evaluation_symbols and not strategy_watchlist:
-            lookup_candidates = list(selected_focus) + list(selected_watchlist) + list(selected_observations)
+            lookup_candidates = (
+                list(selected_focus)
+                + list(manual_focus_rows)
+                + list(selected_watchlist)
+                + list(selected_observations)
+            )
             lookup_by_symbol = {
                 str(getattr(candidate, "symbol", "")).upper(): candidate
                 for candidate in lookup_candidates
@@ -3146,7 +3251,12 @@ class CoreOrchestrator:
         if watchlist_symbols and not strategy_evaluation_symbols and not no_focus_execution_block:
             print("[ERROR] WATCHLIST_WITHOUT_STRATEGY_INPUT")
             strategy_evaluation_symbols = watchlist_symbols[:5]
-            lookup_candidates = list(selected_watchlist) + list(selected_focus) + list(selected_observations)
+            lookup_candidates = (
+                list(selected_watchlist)
+                + list(selected_focus)
+                + list(manual_focus_rows)
+                + list(selected_observations)
+            )
             lookup_by_symbol = {
                 str(getattr(candidate, "symbol", "")).upper(): candidate
                 for candidate in lookup_candidates
@@ -3209,6 +3319,57 @@ class CoreOrchestrator:
         session_label = canonical_session_label(session_gate_label)
         session_execution_allowed = self._session_execution_allowed(session_gate_label)
         session_prep_only = not session_execution_allowed
+        ross_strategy = next(
+            (
+                strategy
+                for strategy in getattr(self.strategy_runner, "strategies", [])
+                if getattr(strategy, "name", "") == "RossMomentumStrategyV1"
+            ),
+            None,
+        )
+        manual_focus_strategy_symbols = [
+            symbol
+            for symbol in self._symbols_from_candidates(strategy_inputs)
+            if symbol.upper() in manual_focus_symbol_set
+        ]
+        manual_focus_only_strategy = bool(manual_focus_strategy_symbols) and (
+            len(manual_focus_strategy_symbols) == len(strategy_evaluation_symbols)
+        )
+        if manual_focus_only_strategy and not session_execution_allowed:
+            if ross_strategy is not None:
+                ross_strategy.last_evaluated_symbols = list(manual_focus_strategy_symbols)
+            for symbol in manual_focus_strategy_symbols:
+                print(
+                    "[MANUAL_FOCUS][PREP_ONLY] "
+                    f"symbol={symbol} session={session_label or session_phase or 'UNKNOWN'} "
+                    "reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED"
+                )
+                print(
+                    "[ROSS][MANUAL_FOCUS_NO_SETUP] "
+                    f"symbol={symbol} reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED"
+                )
+            strategy_inputs = []
+            strategy_watchlist = []
+            strategy_evaluation_symbols = []
+            print(
+                "[ROSS][FOCUS_HANDOFF] "
+                f"watchlist={len(watchlist_symbols)} "
+                f"official_focus_count={len(auto_focus_symbols)} "
+                "executable_focus_count=0 diagnostic_only=true execution_ineligible=true"
+            )
+        elif manual_focus_strategy_symbols:
+            if ross_strategy is not None:
+                ross_strategy.last_evaluated_symbols = list(manual_focus_strategy_symbols)
+            print(
+                "[MANUAL_FOCUS][HANDOFF] "
+                f"symbols={manual_focus_strategy_symbols} source=MANUAL_FOCUS "
+                "stock_selection_bypass=True setup_detection_required=True"
+            )
+            for symbol in manual_focus_strategy_symbols:
+                print(
+                    "[ROSS][EVALUATION_SOURCE] "
+                    f"symbol={symbol} source=MANUAL_FOCUS path=USER_SELECTED_TO_SETUP_EVAL"
+                )
         self.strategy_runner.receive_watchlist_snapshot(
             watchlist_symbols=final_evaluation_symbols,
             snapshots=snapshots_by_symbol,

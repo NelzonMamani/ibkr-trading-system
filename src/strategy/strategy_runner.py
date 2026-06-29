@@ -89,6 +89,28 @@ def _watchlist_symbol(entry: object) -> str | None:
     return normalized or None
 
 
+def _watchlist_source(entry: object) -> str:
+    if isinstance(entry, dict):
+        source = entry.get("watchlist_source")
+    else:
+        source = getattr(entry, "watchlist_source", None)
+    return str(source or "").strip().upper()
+
+
+def _manual_focus_symbols(entries: Sequence[object]) -> List[str]:
+    symbols: List[str] = []
+    seen: set[str] = set()
+    for entry in entries:
+        if _watchlist_source(entry) != "MANUAL_FOCUS":
+            continue
+        symbol = _watchlist_symbol(entry)
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        symbols.append(symbol)
+    return symbols
+
+
 def safe_get_config(key, default=None, required=False):
     try:
         value = get_config(key)
@@ -306,8 +328,7 @@ class StrategyRunner:
         )
         max_positions = safe_get_config("MAX_POSITIONS", default=1, required=False)
         enabled = safe_get_config(
-            "ROSS_MOMENTUM_STRATEGY_ENABLED", default=True, required=False
-        )
+            "ROSS_MOMENTUM_STRATEGY_ENABLED", default=True, required=False)
 
         if not enabled:
             raise RuntimeError("ROSS STRATEGY DISABLED — HARD FAILURE")
@@ -343,6 +364,12 @@ class StrategyRunner:
         resolved_prep_only = (
             prep_only if prep_only is not None else session_norm in {"AH", "OVN", "CLOSED", "WEEKEND"}
         )
+        watchlist = list(watchlist or [])
+        manual_focus_symbols = (
+            _manual_focus_symbols(watchlist)
+            if str(strategy_key or "").strip().lower() == "ross_momentum"
+            else []
+        )
         print(
             "[EXECUTION_WINDOW] "
             f"session={session_norm or 'UNKNOWN'} "
@@ -360,6 +387,40 @@ class StrategyRunner:
                 print("[ALERT] NO_INTENTS_GENERATED — CHECK STRATEGY LOGIC")
             print("[STRATEGY][PROCESS] No registered strategies; returning [].")
             return []
+        if manual_focus_symbols:
+            ross_strategy = next(
+                (
+                    strategy
+                    for strategy in strategies
+                    if getattr(strategy, "name", "") == "RossMomentumStrategyV1"
+                ),
+                None,
+            )
+            session_token = str(session_label or session_phase or "UNKNOWN").strip().upper() or "UNKNOWN"
+            if resolved_prep_only or not resolved_execution_allowed:
+                if ross_strategy is not None:
+                    ross_strategy.last_evaluated_symbols = list(manual_focus_symbols)
+                for symbol in manual_focus_symbols:
+                    print(
+                        "[MANUAL_FOCUS][PREP_ONLY] "
+                        f"symbol={symbol} session={session_token} "
+                        "reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED"
+                    )
+                    print(
+                        "[ROSS][MANUAL_FOCUS_NO_SETUP] "
+                        f"symbol={symbol} reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED"
+                    )
+                return []
+            print(
+                "[MANUAL_FOCUS][HANDOFF] "
+                f"symbols={manual_focus_symbols} source=MANUAL_FOCUS "
+                "stock_selection_bypass=True setup_detection_required=True"
+            )
+            for symbol in manual_focus_symbols:
+                print(
+                    "[ROSS][EVALUATION_SOURCE] "
+                    f"symbol={symbol} source=MANUAL_FOCUS path=USER_SELECTED_TO_SETUP_EVAL"
+                )
         results: List[TradeIntent] = []
         for strategy in strategies:
             runner = self._runner_registry.get(strategy.name)
