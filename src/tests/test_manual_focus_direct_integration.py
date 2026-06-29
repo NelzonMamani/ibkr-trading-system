@@ -1,14 +1,26 @@
 from types import SimpleNamespace
 
 from src.core.orchestrator import CoreOrchestrator
+from src.strategy.strategy_runner import StrategyRunner
+from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
 
 
 def _orchestrator() -> CoreOrchestrator:
     return CoreOrchestrator.__new__(CoreOrchestrator)
 
 
+def _runner() -> StrategyRunner:
+    return StrategyRunner(strategies=[RossMomentumStrategyV1()])
+
+
 def _symbols(rows: list[object]) -> list[str]:
-    return [getattr(row, "symbol", "") for row in rows]
+    values: list[str] = []
+    for row in rows:
+        if isinstance(row, dict):
+            values.append(str(row.get("symbol") or ""))
+        else:
+            values.append(getattr(row, "symbol", ""))
+    return values
 
 
 def test_manual_focus_only_path() -> None:
@@ -86,39 +98,95 @@ def test_manual_focus_bypasses_watchlist() -> None:
     assert "OCGN" in _symbols(merged)
 
 
-def test_manual_focus_candidate_marks_setup_authority_requirements() -> None:
-    orchestrator = _orchestrator()
+def test_manual_focus_runner_rehydrates_configured_symbols(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.strategy.strategy_runner._load_manual_focus_symbols",
+        lambda: ["TMDE", "HURA"],
+    )
+    runner = _runner()
+    runner.receive_watchlist_snapshot(
+        watchlist_symbols=["TMDE", "HURA", "BNRG"],
+        snapshots={},
+        session_label="PRE",
+        timestamp_utc="2026-06-29T08:00:00+00:00",
+    )
+    backend = runner._runner_registry["RossMomentumStrategyV1"]
+    calls: dict[str, object] = {}
 
-    manual_rows, rejected = orchestrator._resolve_manual_focus_candidates(
-        manual_symbols=["TMDE"],
+    def _run(context):
+        calls["rows"] = list(context["watchlist"])
+        return {"trade_intents": [], "trade_ready_count": 0, "reports": []}
+
+    backend.run = _run
+
+    result = runner.process(
+        strategy_key="ross_momentum",
+        watchlist=[],
+        snapshots={},
+        session_label="PRE",
+        timestamp_utc="2026-06-29T08:00:00+00:00",
+        mode=SimpleNamespace(value="READ_ONLY"),
         session_phase="PRE",
+        execution_allowed=True,
+        execution_ready=True,
+        prep_only=False,
     )
 
-    assert rejected == []
-    row = manual_rows[0]
-    assert row.selection_rationale["source"] == "MANUAL_FOCUS"
-    assert row.selection_rationale["stock_selection_bypass"] is True
-    assert row.selection_rationale["setup_detection_required"] is True
-    assert row.gate_checks["stock_selection_bypass"] is True
-    assert row.gate_checks["risk_required"] is True
-    assert row.gate_checks["execution_required"] is True
-    assert "USER_SELECTED_SYMBOL" in row.eligibility_reason_codes
-    assert "MANUAL_BYPASS_RVOL_FILTER" in row.eligibility_reason_codes
+    assert result == []
+    rows = list(calls["rows"])
+    assert _symbols(rows) == ["TMDE", "HURA"]
+    first = rows[0]
+    assert isinstance(first, dict)
+    assert first["watchlist_source"] == "MANUAL_FOCUS"
+    assert first["selection_rationale"]["source"] == "MANUAL_FOCUS"
+    assert first["selection_rationale"]["stock_selection_bypass"] is True
+    assert first["selection_rationale"]["setup_detection_required"] is True
+    assert first["gate_checks"]["stock_selection_bypass"] is True
+    assert first["gate_checks"]["risk_required"] is True
+    assert first["gate_checks"]["execution_required"] is True
+    assert "USER_SELECTED_SYMBOL" in first["eligibility_reason_codes"]
+    assert "MANUAL_BYPASS_RVOL_FILTER" in first["eligibility_reason_codes"]
 
 
-def test_manual_focus_with_empty_scanner_focus_runtime_regression() -> None:
-    orchestrator = _orchestrator()
-    watchlist_k = ["BNRG", "SBEV"]
-    manual_rows, _ = orchestrator._resolve_manual_focus_candidates(
-        manual_symbols=["TMDE", "HURA"],
-        session_phase="PRE",
+def test_manual_focus_runner_keeps_off_hours_prep_only(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "src.strategy.strategy_runner._load_manual_focus_symbols",
+        lambda: ["TMDE"],
+    )
+    runner = _runner()
+    runner.receive_watchlist_snapshot(
+        watchlist_symbols=["TMDE"],
+        snapshots={},
+        session_label="AH",
+        timestamp_utc="2026-06-29T22:00:00+00:00",
+    )
+    backend = runner._runner_registry["RossMomentumStrategyV1"]
+    ross_strategy = next(
+        strategy
+        for strategy in runner.strategies
+        if getattr(strategy, "name", "") == "RossMomentumStrategyV1"
     )
 
-    final_eval = orchestrator._merge_focus_candidates(
-        scanner_focus=[],
-        manual_candidates=manual_rows,
-        session_phase="PRE",
+    def _run(_context):
+        raise AssertionError("Ross runner should not execute for off-hours manual-focus prep-only")
+
+    backend.run = _run
+
+    result = runner.process(
+        strategy_key="ross_momentum",
+        watchlist=[],
+        snapshots={},
+        session_label="AH",
+        timestamp_utc="2026-06-29T22:00:00+00:00",
+        mode=SimpleNamespace(value="READ_ONLY"),
+        session_phase="AH",
+        execution_allowed=False,
+        execution_ready=False,
+        prep_only=True,
     )
 
-    assert watchlist_k
-    assert _symbols(final_eval) == ["TMDE", "HURA"]
+    assert result == []
+    assert ross_strategy.last_evaluated_symbols == ["TMDE"]
+    output = capsys.readouterr().out
+    assert "[MANUAL_FOCUS][PREP_ONLY] symbol=TMDE session=AH reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED" in output
+    assert "[ROSS][MANUAL_FOCUS_NO_SETUP] symbol=TMDE reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED" in output
