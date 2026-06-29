@@ -532,6 +532,10 @@ def test_runtime_pipeline_manual_focus_reaches_strategy_handoff_when_auto_focus_
     monkeypatch.setattr("src.core.orchestrator.run_scanner_cycle", _scanner_cycle)
     monkeypatch.setattr("src.core.orchestrator.resolve_watchlist_selector", lambda *_: (lambda observations, _policy: observations))
     monkeypatch.setattr("src.core.orchestrator.resolve_policy_v2", lambda *_: None)
+    monkeypatch.setattr(
+        "src.strategy.strategy_runner._load_manual_focus_symbols",
+        lambda: ["TMDE", "HURA"],
+    )
 
     try:
         orchestrator = CoreOrchestrator()
@@ -543,7 +547,10 @@ def test_runtime_pipeline_manual_focus_reaches_strategy_handoff_when_auto_focus_
         ross_strategy = runner.strategy
 
         def _run(context):
-            symbols = [getattr(row, "symbol", None) for row in context.get("watchlist", [])]
+            symbols = [
+                row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
+                for row in context.get("watchlist", [])
+            ]
             calls["process_watchlist"] = symbols
             ross_strategy.last_evaluated_symbols = [symbol for symbol in symbols if symbol]
             return {"trade_intents": [], "trade_ready_count": 0, "reports": []}
@@ -554,7 +561,7 @@ def test_runtime_pipeline_manual_focus_reaches_strategy_handoff_when_auto_focus_
         assert calls["process_watchlist"] == ["TMDE", "HURA"]
         output = capsys.readouterr().out
         assert "[FINAL_EVAL][MANUAL_ONLY] symbols=['TMDE', 'HURA'] reason=manual_override_only" in output
-        assert "[THA][SOURCE] symbol=TMDE source=MANUAL_FOCUS_SESSION_FALLBACK segments=1" in output
+        assert "[MANUAL_FOCUS][HANDOFF] symbols=['TMDE', 'HURA'] source=MANUAL_FOCUS stock_selection_bypass=True setup_detection_required=True" in output
         assert "[ROSS][CONTRACT_VIOLATION]" not in output
         assert "[ROSS][CRITICAL] EMPTY_WATCHLIST_NO_TRADING_POSSIBLE" not in output
         assert "[ROSS][ERROR] EMPTY_SYMBOL_LIST" not in output
@@ -591,6 +598,10 @@ def test_runtime_pipeline_manual_focus_off_hours_stays_prep_only(monkeypatch, ca
     monkeypatch.setattr("src.core.orchestrator.run_scanner_cycle", _scanner_cycle)
     monkeypatch.setattr("src.core.orchestrator.resolve_watchlist_selector", lambda *_: (lambda observations, _policy: observations))
     monkeypatch.setattr("src.core.orchestrator.resolve_policy_v2", lambda *_: None)
+    monkeypatch.setattr(
+        "src.strategy.strategy_runner._load_manual_focus_symbols",
+        lambda: ["TMDE"],
+    )
 
     try:
         orchestrator = CoreOrchestrator()
@@ -608,7 +619,7 @@ def test_runtime_pipeline_manual_focus_off_hours_stays_prep_only(monkeypatch, ca
         assert orchestrator.run_once() is True
         output = capsys.readouterr().out
         assert "[MANUAL_FOCUS][PREP_ONLY] symbol=TMDE session=AH reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED" in output
-        assert "[MANUAL_FOCUS][REJECT] symbol=TMDE reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED" in output
+        assert "[ROSS][MANUAL_FOCUS_NO_SETUP] symbol=TMDE reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED" in output
         assert "[ROSS][CONTRACT_VIOLATION]" not in output
         assert "[ROSS][CRITICAL] EMPTY_WATCHLIST_NO_TRADING_POSSIBLE" not in output
         assert "[ROSS][ERROR] EMPTY_SYMBOL_LIST" not in output
