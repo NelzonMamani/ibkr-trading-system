@@ -1,8 +1,21 @@
 from types import SimpleNamespace
 
+from src.config.config_resolver import set_config_overrides
 from src.core.orchestrator import CoreOrchestrator
 from src.strategy.strategy_runner import StrategyRunner
 from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
+
+
+_RUNNER_TEST_OVERRIDES = {
+    "RUN_MODE": "READ_ONLY",
+    "EXECUTION_ENABLED": False,
+    "LIVE_EXECUTION_PROBE_MODE": False,
+    "FORCE_EXECUTION_ON_TRADE_READY": False,
+    "FORCE_RISK_APPROVAL_FOR_TRADE_READY": False,
+    "ROSS_VALIDATION_OVERRIDE_ENABLED": False,
+    "SELECTED_STRATEGY": "ross_momentum",
+    "ROSS_MOMENTUM_STRATEGY_ENABLED": True,
+}
 
 
 def _orchestrator() -> CoreOrchestrator:
@@ -110,77 +123,87 @@ def test_manual_focus_with_empty_scanner_focus_runtime_regression() -> None:
     assert _symbols(final_eval) == ["TMDE", "HURA"]
 
 
-def test_manual_focus_runner_logs_handoff_for_real_manual_rows(capsys) -> None:
-    orchestrator = _orchestrator()
-    manual_rows, _ = orchestrator._resolve_manual_focus_candidates(
-        manual_symbols=["TMDE", "HURA"],
-        session_phase="PRE",
-    )
-    runner = _runner()
-    backend = runner._runner_registry["RossMomentumStrategyV1"]
-    calls: dict[str, object] = {}
+def test_manual_focus_runner_logs_handoff_for_real_manual_rows(monkeypatch, capsys) -> None:
+    set_config_overrides(dict(_RUNNER_TEST_OVERRIDES))
+    monkeypatch.setenv("FORCE_EXECUTION_WINDOW", "false")
+    try:
+        orchestrator = _orchestrator()
+        manual_rows, _ = orchestrator._resolve_manual_focus_candidates(
+            manual_symbols=["TMDE", "HURA"],
+            session_phase="PRE",
+        )
+        runner = _runner()
+        backend = runner._runner_registry["RossMomentumStrategyV1"]
+        calls: dict[str, object] = {}
 
-    def _run(context):
-        calls["rows"] = list(context["watchlist"])
-        return {"trade_intents": [], "trade_ready_count": 0, "reports": []}
+        def _run(context):
+            calls["rows"] = list(context["watchlist"])
+            return {"trade_intents": [], "trade_ready_count": 0, "reports": []}
 
-    backend.run = _run
+        backend.run = _run
 
-    result = runner.process(
-        strategy_key="ross_momentum",
-        watchlist=manual_rows,
-        snapshots={},
-        session_label="PRE",
-        timestamp_utc="2026-06-29T08:00:00+00:00",
-        mode=SimpleNamespace(value="READ_ONLY"),
-        session_phase="PRE",
-        execution_allowed=True,
-        execution_ready=True,
-        prep_only=False,
-    )
+        result = runner.process(
+            strategy_key="ross_momentum",
+            watchlist=manual_rows,
+            snapshots={},
+            session_label="PRE",
+            timestamp_utc="2026-06-29T08:00:00+00:00",
+            mode=SimpleNamespace(value="READ_ONLY"),
+            session_phase="PRE",
+            execution_allowed=True,
+            execution_ready=True,
+            prep_only=False,
+        )
 
-    assert result == []
-    assert _symbols(list(calls["rows"])) == ["TMDE", "HURA"]
-    output = capsys.readouterr().out
-    assert "[MANUAL_FOCUS][HANDOFF] symbols=['TMDE', 'HURA'] source=MANUAL_FOCUS stock_selection_bypass=True setup_detection_required=True" in output
-    assert "[ROSS][EVALUATION_SOURCE] symbol=TMDE source=MANUAL_FOCUS path=USER_SELECTED_TO_SETUP_EVAL" in output
-    assert "[ROSS][EVALUATION_SOURCE] symbol=HURA source=MANUAL_FOCUS path=USER_SELECTED_TO_SETUP_EVAL" in output
+        assert result == []
+        assert _symbols(list(calls["rows"])) == ["TMDE", "HURA"]
+        output = capsys.readouterr().out
+        assert "[MANUAL_FOCUS][HANDOFF] symbols=['TMDE', 'HURA'] source=MANUAL_FOCUS stock_selection_bypass=True setup_detection_required=True" in output
+        assert "[ROSS][EVALUATION_SOURCE] symbol=TMDE source=MANUAL_FOCUS path=USER_SELECTED_TO_SETUP_EVAL" in output
+        assert "[ROSS][EVALUATION_SOURCE] symbol=HURA source=MANUAL_FOCUS path=USER_SELECTED_TO_SETUP_EVAL" in output
+    finally:
+        set_config_overrides(None)
 
 
-def test_manual_focus_runner_keeps_off_hours_prep_only(capsys) -> None:
-    orchestrator = _orchestrator()
-    manual_rows, _ = orchestrator._resolve_manual_focus_candidates(
-        manual_symbols=["TMDE"],
-        session_phase="AH",
-    )
-    runner = _runner()
-    backend = runner._runner_registry["RossMomentumStrategyV1"]
-    ross_strategy = next(
-        strategy
-        for strategy in runner.strategies
-        if getattr(strategy, "name", "") == "RossMomentumStrategyV1"
-    )
+def test_manual_focus_runner_keeps_off_hours_prep_only(monkeypatch, capsys) -> None:
+    set_config_overrides(dict(_RUNNER_TEST_OVERRIDES))
+    monkeypatch.setenv("FORCE_EXECUTION_WINDOW", "false")
+    try:
+        orchestrator = _orchestrator()
+        manual_rows, _ = orchestrator._resolve_manual_focus_candidates(
+            manual_symbols=["TMDE"],
+            session_phase="AH",
+        )
+        runner = _runner()
+        backend = runner._runner_registry["RossMomentumStrategyV1"]
+        ross_strategy = next(
+            strategy
+            for strategy in runner.strategies
+            if getattr(strategy, "name", "") == "RossMomentumStrategyV1"
+        )
 
-    def _run(_context):
-        raise AssertionError("Ross runner should not execute for off-hours manual-focus prep-only")
+        def _run(_context):
+            raise AssertionError("Ross runner should not execute for off-hours manual-focus prep-only")
 
-    backend.run = _run
+        backend.run = _run
 
-    result = runner.process(
-        strategy_key="ross_momentum",
-        watchlist=manual_rows,
-        snapshots={},
-        session_label="AH",
-        timestamp_utc="2026-06-29T22:00:00+00:00",
-        mode=SimpleNamespace(value="READ_ONLY"),
-        session_phase="AH",
-        execution_allowed=False,
-        execution_ready=False,
-        prep_only=True,
-    )
+        result = runner.process(
+            strategy_key="ross_momentum",
+            watchlist=manual_rows,
+            snapshots={},
+            session_label="AH",
+            timestamp_utc="2026-06-29T22:00:00+00:00",
+            mode=SimpleNamespace(value="READ_ONLY"),
+            session_phase="AH",
+            execution_allowed=False,
+            execution_ready=False,
+            prep_only=True,
+        )
 
-    assert result == []
-    assert ross_strategy.last_evaluated_symbols == ["TMDE"]
-    output = capsys.readouterr().out
-    assert "[MANUAL_FOCUS][PREP_ONLY] symbol=TMDE session=AH reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED" in output
-    assert "[ROSS][MANUAL_FOCUS_NO_SETUP] symbol=TMDE reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED" in output
+        assert result == []
+        assert ross_strategy.last_evaluated_symbols == ["TMDE"]
+        output = capsys.readouterr().out
+        assert "[MANUAL_FOCUS][PREP_ONLY] symbol=TMDE session=AH reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED" in output
+        assert "[ROSS][MANUAL_FOCUS_NO_SETUP] symbol=TMDE reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED" in output
+    finally:
+        set_config_overrides(None)
