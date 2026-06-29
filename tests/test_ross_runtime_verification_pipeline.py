@@ -532,10 +532,6 @@ def test_runtime_pipeline_manual_focus_reaches_strategy_handoff_when_auto_focus_
     monkeypatch.setattr("src.core.orchestrator.run_scanner_cycle", _scanner_cycle)
     monkeypatch.setattr("src.core.orchestrator.resolve_watchlist_selector", lambda *_: (lambda observations, _policy: observations))
     monkeypatch.setattr("src.core.orchestrator.resolve_policy_v2", lambda *_: None)
-    monkeypatch.setattr(
-        "src.strategy.strategy_runner._load_manual_focus_symbols",
-        lambda: ["TMDE", "HURA"],
-    )
 
     try:
         orchestrator = CoreOrchestrator()
@@ -598,10 +594,6 @@ def test_runtime_pipeline_manual_focus_off_hours_stays_prep_only(monkeypatch, ca
     monkeypatch.setattr("src.core.orchestrator.run_scanner_cycle", _scanner_cycle)
     monkeypatch.setattr("src.core.orchestrator.resolve_watchlist_selector", lambda *_: (lambda observations, _policy: observations))
     monkeypatch.setattr("src.core.orchestrator.resolve_policy_v2", lambda *_: None)
-    monkeypatch.setattr(
-        "src.strategy.strategy_runner._load_manual_focus_symbols",
-        lambda: ["TMDE"],
-    )
 
     try:
         orchestrator = CoreOrchestrator()
