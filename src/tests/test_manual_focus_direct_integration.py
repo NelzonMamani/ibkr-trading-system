@@ -14,13 +14,7 @@ def _runner() -> StrategyRunner:
 
 
 def _symbols(rows: list[object]) -> list[str]:
-    values: list[str] = []
-    for row in rows:
-        if isinstance(row, dict):
-            values.append(str(row.get("symbol") or ""))
-        else:
-            values.append(getattr(row, "symbol", ""))
-    return values
+    return [getattr(row, "symbol", "") for row in rows]
 
 
 def test_manual_focus_only_path() -> None:
@@ -98,18 +92,31 @@ def test_manual_focus_bypasses_watchlist() -> None:
     assert "OCGN" in _symbols(merged)
 
 
-def test_manual_focus_runner_rehydrates_configured_symbols(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "src.strategy.strategy_runner._load_manual_focus_symbols",
-        lambda: ["TMDE", "HURA"],
+def test_manual_focus_with_empty_scanner_focus_runtime_regression() -> None:
+    orchestrator = _orchestrator()
+    watchlist_k = ["BNRG", "SBEV"]
+    manual_rows, _ = orchestrator._resolve_manual_focus_candidates(
+        manual_symbols=["TMDE", "HURA"],
+        session_phase="PRE",
+    )
+
+    final_eval = orchestrator._merge_focus_candidates(
+        scanner_focus=[],
+        manual_candidates=manual_rows,
+        session_phase="PRE",
+    )
+
+    assert watchlist_k
+    assert _symbols(final_eval) == ["TMDE", "HURA"]
+
+
+def test_manual_focus_runner_logs_handoff_for_real_manual_rows(capsys) -> None:
+    orchestrator = _orchestrator()
+    manual_rows, _ = orchestrator._resolve_manual_focus_candidates(
+        manual_symbols=["TMDE", "HURA"],
+        session_phase="PRE",
     )
     runner = _runner()
-    runner.receive_watchlist_snapshot(
-        watchlist_symbols=["TMDE", "HURA", "BNRG"],
-        snapshots={},
-        session_label="PRE",
-        timestamp_utc="2026-06-29T08:00:00+00:00",
-    )
     backend = runner._runner_registry["RossMomentumStrategyV1"]
     calls: dict[str, object] = {}
 
@@ -121,7 +128,7 @@ def test_manual_focus_runner_rehydrates_configured_symbols(monkeypatch) -> None:
 
     result = runner.process(
         strategy_key="ross_momentum",
-        watchlist=[],
+        watchlist=manual_rows,
         snapshots={},
         session_label="PRE",
         timestamp_utc="2026-06-29T08:00:00+00:00",
@@ -133,33 +140,20 @@ def test_manual_focus_runner_rehydrates_configured_symbols(monkeypatch) -> None:
     )
 
     assert result == []
-    rows = list(calls["rows"])
-    assert _symbols(rows) == ["TMDE", "HURA"]
-    first = rows[0]
-    assert isinstance(first, dict)
-    assert first["watchlist_source"] == "MANUAL_FOCUS"
-    assert first["selection_rationale"]["source"] == "MANUAL_FOCUS"
-    assert first["selection_rationale"]["stock_selection_bypass"] is True
-    assert first["selection_rationale"]["setup_detection_required"] is True
-    assert first["gate_checks"]["stock_selection_bypass"] is True
-    assert first["gate_checks"]["risk_required"] is True
-    assert first["gate_checks"]["execution_required"] is True
-    assert "USER_SELECTED_SYMBOL" in first["eligibility_reason_codes"]
-    assert "MANUAL_BYPASS_RVOL_FILTER" in first["eligibility_reason_codes"]
+    assert _symbols(list(calls["rows"])) == ["TMDE", "HURA"]
+    output = capsys.readouterr().out
+    assert "[MANUAL_FOCUS][HANDOFF] symbols=['TMDE', 'HURA'] source=MANUAL_FOCUS stock_selection_bypass=True setup_detection_required=True" in output
+    assert "[ROSS][EVALUATION_SOURCE] symbol=TMDE source=MANUAL_FOCUS path=USER_SELECTED_TO_SETUP_EVAL" in output
+    assert "[ROSS][EVALUATION_SOURCE] symbol=HURA source=MANUAL_FOCUS path=USER_SELECTED_TO_SETUP_EVAL" in output
 
 
-def test_manual_focus_runner_keeps_off_hours_prep_only(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(
-        "src.strategy.strategy_runner._load_manual_focus_symbols",
-        lambda: ["TMDE"],
+def test_manual_focus_runner_keeps_off_hours_prep_only(capsys) -> None:
+    orchestrator = _orchestrator()
+    manual_rows, _ = orchestrator._resolve_manual_focus_candidates(
+        manual_symbols=["TMDE"],
+        session_phase="AH",
     )
     runner = _runner()
-    runner.receive_watchlist_snapshot(
-        watchlist_symbols=["TMDE"],
-        snapshots={},
-        session_label="AH",
-        timestamp_utc="2026-06-29T22:00:00+00:00",
-    )
     backend = runner._runner_registry["RossMomentumStrategyV1"]
     ross_strategy = next(
         strategy
@@ -174,7 +168,7 @@ def test_manual_focus_runner_keeps_off_hours_prep_only(monkeypatch, capsys) -> N
 
     result = runner.process(
         strategy_key="ross_momentum",
-        watchlist=[],
+        watchlist=manual_rows,
         snapshots={},
         session_label="AH",
         timestamp_utc="2026-06-29T22:00:00+00:00",
