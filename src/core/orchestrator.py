@@ -3174,11 +3174,22 @@ class CoreOrchestrator:
         else:
             print("[FOCUS][EMPTY] reason=no_focus_symbols_after_selection")
         self._trace_event("FOCUS", {"focus": [{"symbol": s} for s in final_evaluation_symbols]})
-        if not watchlist_symbols:
+        if not watchlist_symbols and not manual_focus_accepted_symbols:
             print("[PIPELINE][SKIP] empty watchlist")
             final_evaluation_symbols = []
+        elif not watchlist_symbols:
+            print("[PIPELINE][MANUAL_FOCUS_ONLY] scanner_watchlist_empty=True manual_focus_present=True")
         no_focus_execution_block = ross_focus_authority_required and not final_evaluation_symbols
-        strategy_watchlist = [] if no_focus_execution_block else (selected_watchlist or selected_focus)
+        if no_focus_execution_block:
+            strategy_watchlist = []
+        else:
+            strategy_watchlist = list(selected_watchlist or selected_focus)
+            if manual_allowed and manual_focus_rows:
+                strategy_watchlist = self._merge_focus_candidates(
+                    scanner_focus=strategy_watchlist,
+                    manual_candidates=manual_focus_rows,
+                    session_phase=session_phase,
+                )
         if not strategy_watchlist:
             fallback_candidates = [] if no_focus_execution_block else (list(selected_watchlist) or list(selected_observations))
             strategy_watchlist = [

@@ -102,7 +102,7 @@ def _manual_focus_symbols(entries: Sequence[object]) -> List[str]:
     seen: set[str] = set()
     for entry in entries:
         if _watchlist_source(entry) != "MANUAL_FOCUS":
-            return []
+            continue
         symbol = _watchlist_symbol(entry)
         if not symbol or symbol in seen:
             continue
