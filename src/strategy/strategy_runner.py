@@ -1,10 +1,8 @@
 """Strategy runner dispatcher for pluggable, teaching-first strategy modules."""
 
-import json
 import os
 from collections import defaultdict
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import List, Optional, Sequence
 
 from src.config.trading_config import (
@@ -72,9 +70,6 @@ from src.strategies.ross_momentum.policy import (
     synthetic_intent_allowed,
 )
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_MANUAL_FOCUS_PATH = _PROJECT_ROOT / "config" / "manual_focus.json"
-
 
 def _env_flag(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -94,119 +89,26 @@ def _watchlist_symbol(entry: object) -> str | None:
     return normalized or None
 
 
-def _unique_symbols(entries: Sequence[object]) -> List[str]:
+def _watchlist_source(entry: object) -> str:
+    if isinstance(entry, dict):
+        source = entry.get("watchlist_source")
+    else:
+        source = getattr(entry, "watchlist_source", None)
+    return str(source or "").strip().upper()
+
+
+def _manual_focus_symbols(entries: Sequence[object]) -> List[str]:
     symbols: List[str] = []
     seen: set[str] = set()
     for entry in entries:
+        if _watchlist_source(entry) != "MANUAL_FOCUS":
+            return []
         symbol = _watchlist_symbol(entry)
         if not symbol or symbol in seen:
             continue
         seen.add(symbol)
         symbols.append(symbol)
     return symbols
-
-
-def _safe_float(value: object) -> float | None:
-    try:
-        return None if value is None else float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _spread_metrics(*, bid: object, ask: object) -> tuple[float | None, float | None]:
-    bid_value = _safe_float(bid)
-    ask_value = _safe_float(ask)
-    if bid_value is None or ask_value is None:
-        return None, None
-    spread = ask_value - bid_value
-    midpoint = (ask_value + bid_value) / 2.0
-    spread_pct = spread / midpoint if midpoint > 0 else None
-    return spread, spread_pct
-
-
-def _load_manual_focus_symbols() -> List[str]:
-    try:
-        with _MANUAL_FOCUS_PATH.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-    except Exception:
-        return []
-
-    if not isinstance(payload, dict):
-        return []
-    if not bool(payload.get("enabled", True)):
-        return []
-
-    raw_symbols = payload.get("manual_focus", [])
-    if not isinstance(raw_symbols, list):
-        return []
-
-    max_manual_symbols = int(payload.get("max_manual_symbols", len(raw_symbols) or 5) or 0)
-    if max_manual_symbols < 0:
-        max_manual_symbols = 0
-
-    symbols: List[str] = []
-    seen: set[str] = set()
-    for value in raw_symbols:
-        symbol = _watchlist_symbol(value)
-        if not symbol or symbol in seen:
-            continue
-        seen.add(symbol)
-        symbols.append(symbol)
-        if max_manual_symbols and len(symbols) >= max_manual_symbols:
-            break
-    return symbols
-
-
-def _manual_focus_watchlist_entry(
-    *,
-    symbol: str,
-    session_label: str,
-    session_phase: str,
-    snapshot: MarketSnapshot | None,
-) -> dict[str, object]:
-    bid = getattr(snapshot, "bid", None) if snapshot is not None else None
-    ask = getattr(snapshot, "ask", None) if snapshot is not None else None
-    spread, spread_pct = _spread_metrics(bid=bid, ask=ask)
-    last_price = getattr(snapshot, "last", None) if snapshot is not None else None
-    volume = getattr(snapshot, "volume", None) if snapshot is not None else None
-    return {
-        "symbol": symbol,
-        "session_label": session_label,
-        "session_phase": session_phase,
-        "watchlist_source": "MANUAL_FOCUS",
-        "promotion_reason": "manual_focus",
-        "context_status": "MANUAL_FOCUS",
-        "data_quality_ok": True,
-        "data_quality_flags": [],
-        "drop_reasons": [],
-        "eligibility_reason_codes": [
-            "USER_SELECTED_SYMBOL",
-            "MANUAL_BYPASS_PRICE_FILTER",
-            "MANUAL_BYPASS_FLOAT_FILTER",
-            "MANUAL_BYPASS_RVOL_FILTER",
-            "MANUAL_BYPASS_CATALYST_FILTER",
-        ],
-        "gate_checks": {
-            "stock_selection_bypass": True,
-            "auto_selection_required": False,
-            "setup_detection_required": True,
-            "risk_required": True,
-            "execution_required": True,
-        },
-        "selection_rationale": {
-            "source": "MANUAL_FOCUS",
-            "stock_selection_bypass": True,
-            "setup_detection_required": True,
-            "risk_required": True,
-            "execution_required": True,
-        },
-        "last_price": last_price,
-        "bid": bid,
-        "ask": ask,
-        "spread": spread,
-        "spread_pct": spread_pct,
-        "volume": volume,
-    }
 
 
 def safe_get_config(key, default=None, required=False):
@@ -221,7 +123,7 @@ def safe_get_config(key, default=None, required=False):
                 f"[CONFIG][FATAL] Missing required config: {key}"
             ) from e
         print(
-            f"[CONFIG][WARN] Missing optional config: {key} -> using default={default}"
+            f"[CONFIG][WARN] Missing optional config: {key} → using default={default}"
         )
         return default
 
@@ -429,7 +331,7 @@ class StrategyRunner:
             "ROSS_MOMENTUM_STRATEGY_ENABLED", default=True, required=False)
 
         if not enabled:
-            raise RuntimeError("ROSS STRATEGY DISABLED - HARD FAILURE")
+            raise RuntimeError("ROSS STRATEGY DISABLED — HARD FAILURE")
 
         print("[STRATEGY_RUNNER][CONFIG_SNAPSHOT]")
         print(
@@ -462,66 +364,12 @@ class StrategyRunner:
         resolved_prep_only = (
             prep_only if prep_only is not None else session_norm in {"AH", "OVN", "CLOSED", "WEEKEND"}
         )
-        snapshots = dict(snapshots or {})
-        if not snapshots and self.last_watchlist_snapshots:
-            snapshots = dict(self.last_watchlist_snapshots)
         watchlist = list(watchlist or [])
-
-        if str(strategy_key or "").strip().lower() == "ross_momentum" and not watchlist:
-            configured_manual_focus = set(_load_manual_focus_symbols())
-            manual_focus_symbols = [
-                symbol
-                for symbol in _unique_symbols(self.last_watchlist_symbols)
-                if symbol in configured_manual_focus
-            ]
-            if manual_focus_symbols:
-                ross_strategy = next(
-                    (
-                        strategy
-                        for strategy in strategies
-                        if getattr(strategy, "name", "") == "RossMomentumStrategyV1"
-                    ),
-                    None,
-                )
-                session_token = str(session_label or session_phase or "UNKNOWN").strip().upper() or "UNKNOWN"
-                if resolved_prep_only or not resolved_execution_allowed:
-                    if ross_strategy is not None:
-                        ross_strategy.last_evaluated_symbols = list(manual_focus_symbols)
-                    for symbol in manual_focus_symbols:
-                        print(
-                            "[MANUAL_FOCUS][PREP_ONLY] "
-                            f"symbol={symbol} session={session_token} "
-                            "reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED"
-                        )
-                        print(
-                            "[MANUAL_FOCUS][REJECT] "
-                            f"symbol={symbol} reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED"
-                        )
-                        print(
-                            "[ROSS][MANUAL_FOCUS_NO_SETUP] "
-                            f"symbol={symbol} reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED"
-                        )
-                    return []
-                print(
-                    "[MANUAL_FOCUS][HANDOFF] "
-                    f"symbols={manual_focus_symbols} source=MANUAL_FOCUS "
-                    "stock_selection_bypass=True setup_detection_required=True"
-                )
-                for symbol in manual_focus_symbols:
-                    print(
-                        "[ROSS][EVALUATION_SOURCE] "
-                        f"symbol={symbol} source=MANUAL_FOCUS path=USER_SELECTED_TO_SETUP_EVAL"
-                    )
-                watchlist = [
-                    _manual_focus_watchlist_entry(
-                        symbol=symbol,
-                        session_label=session_label,
-                        session_phase=session_phase,
-                        snapshot=snapshots.get(symbol),
-                    )
-                    for symbol in manual_focus_symbols
-                ]
-
+        manual_focus_symbols = (
+            _manual_focus_symbols(watchlist)
+            if str(strategy_key or "").strip().lower() == "ross_momentum"
+            else []
+        )
         print(
             "[EXECUTION_WINDOW] "
             f"session={session_norm or 'UNKNOWN'} "
@@ -536,9 +384,43 @@ class StrategyRunner:
         )
         if not strategies:
             if len(watchlist) > 0:
-                print("[ALERT] NO_INTENTS_GENERATED - CHECK STRATEGY LOGIC")
+                print("[ALERT] NO_INTENTS_GENERATED — CHECK STRATEGY LOGIC")
             print("[STRATEGY][PROCESS] No registered strategies; returning [].")
             return []
+        if manual_focus_symbols:
+            ross_strategy = next(
+                (
+                    strategy
+                    for strategy in strategies
+                    if getattr(strategy, "name", "") == "RossMomentumStrategyV1"
+                ),
+                None,
+            )
+            session_token = str(session_label or session_phase or "UNKNOWN").strip().upper() or "UNKNOWN"
+            if resolved_prep_only or not resolved_execution_allowed:
+                if ross_strategy is not None:
+                    ross_strategy.last_evaluated_symbols = list(manual_focus_symbols)
+                for symbol in manual_focus_symbols:
+                    print(
+                        "[MANUAL_FOCUS][PREP_ONLY] "
+                        f"symbol={symbol} session={session_token} "
+                        "reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED"
+                    )
+                    print(
+                        "[ROSS][MANUAL_FOCUS_NO_SETUP] "
+                        f"symbol={symbol} reason=MARKET_NOT_EXECUTABLE_BUT_USER_WATCH_ACCEPTED"
+                    )
+                return []
+            print(
+                "[MANUAL_FOCUS][HANDOFF] "
+                f"symbols={manual_focus_symbols} source=MANUAL_FOCUS "
+                "stock_selection_bypass=True setup_detection_required=True"
+            )
+            for symbol in manual_focus_symbols:
+                print(
+                    "[ROSS][EVALUATION_SOURCE] "
+                    f"symbol={symbol} source=MANUAL_FOCUS path=USER_SELECTED_TO_SETUP_EVAL"
+                )
         results: List[TradeIntent] = []
         for strategy in strategies:
             runner = self._runner_registry.get(strategy.name)
@@ -601,7 +483,7 @@ class StrategyRunner:
             validation_override_requested,
         )
         if len(watchlist) > 0 and len(results) == 0:
-            print("[ALERT] NO_INTENTS_GENERATED - CHECK STRATEGY LOGIC")
+            print("[ALERT] NO_INTENTS_GENERATED — CHECK STRATEGY LOGIC")
             fallback_symbol = next((symbol for symbol in (_watchlist_symbol(item) for item in watchlist) if symbol), None)
             if fallback_symbol and normalize_run_mode(run_mode) in {"LIVE", "READ_ONLY"}:
                 log_no_setup_no_trade(fallback_symbol, "NO_TRIGGER_PIPELINE")
@@ -654,7 +536,7 @@ class StrategyRunner:
                 traces = getattr(collector, "_symbols", []) if collector is not None else []
                 if not traces:
                     continue
-                cycle_slice = traces[-len(watchlist):]
+                cycle_slice = traces[-len(watchlist) :]
                 reasons: list[str] = []
                 for trace in cycle_slice:
                     patterns_called += len(getattr(trace, "pattern_traces", []) or [])
