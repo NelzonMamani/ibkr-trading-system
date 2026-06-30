@@ -51,13 +51,15 @@ The tests prove:
 5. Missing catalyst fails both watchlist selection and focus admission when the policy requires catalyst evidence.
 6. Catalyst status semantics distinguish confirmed, absent, unknown, unavailable, PAPER validation bypass, and READ_ONLY bypass rejection.
 
+CI follow-up note: GitHub Actions run #963 initially exposed a fixture/provenance mismatch where the controlled provider's `get_float()` method was not part of the scanner float bootstrap path. The test now seeds deterministic float-cache provenance through the scanner's `_resolve_float_cache_path()` contract, preserving strict Ross unknown/high-float rejection behavior.
+
 ## Scanner Runtime Trace Matrix
 
 | Stage | Required Ross evidence | Current code/test evidence | Missing evidence | Status | Required PR/fix |
 | --- | --- | --- | --- | --- | --- |
 | Scanner request | Strategy policy creates scanner request with top N, scan code, instrument, price range, ranking intent. | PR1028 uses `scanner_request_from_policy` and asserts `ROSS_MOMENTUM_STOCK_SELECTION`. | Real broker request/response capture. | PASS | PR1031 runtime trace. |
 | Provider universe | Autonomous provider returns ordered top-gainer symbols. | Controlled provider returns ordered `PR28A`-`PR28D`; payload top N preserves order. | Live IBKR returned rows and attribution. | PARTIAL | PR1031 full-session READ_ONLY. |
-| Gate enrichment | Quote, percent change, RVOL, float, volume, spread, and reference context are merged before ranking. | Controlled provider supplies deterministic quote, intraday stats, float, ADV, and history hooks. | Live missing-field inventory. | PARTIAL | PR1031 storage/runtime review. |
+| Gate enrichment | Quote, percent change, RVOL, float, volume, spread, and reference context are merged before ranking. | Controlled provider supplies deterministic quote, intraday stats, ADV, history hooks, and deterministic float-cache provenance. | Live missing-field inventory. | PARTIAL | PR1031 storage/runtime review. |
 | Watchlist K | Eligible symbols rank into bounded watchlist. | PR1028 asserts non-empty bounded watchlist and valid scanner contract. | Multi-cycle live churn and rank-decay proof. | PASS | PR1031. |
 | Focus M | Best watchlist symbols narrow into bounded focus list. | PR1028 asserts non-empty focus and subset of watchlist. | Live focus persistence and demotion trace. | PASS | PR1031. |
 | Manual focus | Manual focus must not be required for discovery proof. | PR1028 asserts no `manual_focus` source and no prep seed. | Runtime configuration inventory. | PASS | PR1031. |
@@ -173,11 +175,12 @@ Target commands:
 
 ```powershell
 python -m pytest tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py
+python -m pytest tests -k "ross or scanner or catalyst or focus or manual_focus"
 python -m pytest tests/test_ross_pr1027_strategy_fidelity_audit.py
 python -m pytest tests/test_ross_pr6_end_to_end_certification.py tests/test_ross_pr5_setup_decision_fidelity.py
 ```
 
-Local execution may be unavailable in this Codex desktop session if the Windows command sandbox blocks file access. In that case, GitHub Actions is the authoritative verification surface for this PR.
+Local execution may be unavailable in this Codex desktop session if the Windows command sandbox blocks file access or if the local Python environment lacks pytest. In that case, GitHub Actions is the authoritative verification surface for this PR.
 
 ## Final Certification Answer
 
