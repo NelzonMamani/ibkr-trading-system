@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 
 import pytest
 
@@ -19,6 +20,9 @@ from src.strategies.ross_momentum.strategy_policy import (
     RossMomentumPolicy,
     select_watchlist,
 )
+
+
+_FLOAT_CACHE_ASOF = "2026-06-30T12:00:00+00:00"
 
 
 class _ControlledRuntimeProvider:
@@ -138,6 +142,26 @@ def _reset_scanner_state():
     set_config_overrides({})
 
 
+def _seed_float_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    floats_by_symbol: dict[str, int | None],
+) -> None:
+    payload = {
+        symbol.upper(): {
+            "float_value": value,
+            "float_source": "PR1028_TEST",
+            "float_asof": _FLOAT_CACHE_ASOF,
+        }
+        for symbol, value in floats_by_symbol.items()
+        if value is not None
+    }
+    cache_path = tmp_path / "float_cache.json"
+    cache_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    monkeypatch.setattr(scanner_runner, "_resolve_float_cache_path", lambda: cache_path)
+    scanner_runner._FLOAT_CACHE_STATE = {"mtime_ns": None, "data": {}}
+
+
 def _cert_policy(*, require_catalyst: bool):
     return replace(
         RossMomentumPolicy().stock_selection,
@@ -198,8 +222,18 @@ def _quality_rows() -> list[dict[str, object]]:
     ]
 
 
-def test_pr1028_readonly_scanner_cycle_ranks_watchlist_and_focus_without_manual_focus(capsys) -> None:
+def test_pr1028_readonly_scanner_cycle_ranks_watchlist_and_focus_without_manual_focus(capsys, monkeypatch, tmp_path) -> None:
     set_config_overrides({"RUN_MODE": "READ_ONLY", "NEWS_ENABLED": False, "IBKR_FALLBACK_ENABLED": False})
+    _seed_float_cache(
+        monkeypatch,
+        tmp_path,
+        {
+            "PR28A": 5_000_000,
+            "PR28B": 6_000_000,
+            "PR28C": 8_000_000,
+            "PR28D": 9_000_000,
+        },
+    )
     policy = _cert_policy(require_catalyst=False)
     request = scanner_request_from_policy(policy, strategy_name="ross_momentum")
 
@@ -231,15 +265,24 @@ def test_pr1028_readonly_scanner_cycle_ranks_watchlist_and_focus_without_manual_
     assert "[SCANNER][CONTRACT]" in output
 
 
-def test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus() -> None:
+def test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus(monkeypatch, tmp_path) -> None:
     set_config_overrides({"RUN_MODE": "READ_ONLY", "NEWS_ENABLED": False, "IBKR_FALLBACK_ENABLED": False})
+    _seed_float_cache(
+        monkeypatch,
+        tmp_path,
+        {
+            "PR28HFLT": 30_000_000,
+            "PR28WGAP": 6_000_000,
+            "PR28LRVL": 6_000_000,
+        },
+    )
     policy = _cert_policy(require_catalyst=False)
     request = scanner_request_from_policy(policy, strategy_name="ross_momentum")
     rows = [
         {"symbol": "PR28HFLT", "last": 7.0, "prev_close": 5.0, "volume": 1_600_000, "avg_volume": 200_000, "float_shares": 30_000_000},
         {"symbol": "PR28UFLT", "last": 7.0, "prev_close": 5.0, "volume": 1_600_000, "avg_volume": 200_000, "float_shares": None},
         {"symbol": "PR28WGAP", "last": 5.2, "prev_close": 5.0, "volume": 1_600_000, "avg_volume": 200_000, "float_shares": 6_000_000},
-        {"symbol": "PR28LRVL", "last": 7.0, "prev_close": 5.0, "volume": 250_000, "avg_volume": 250_000, "float_shares": 6_000_000},
+        {"symbol": "PR28LRVL", "last": 7.0, "prev_close": 5.0, "volume": 50_000, "avg_volume": 500_000, "float_shares": 6_000_000},
     ]
 
     payload = scanner_runner.run_scanner_cycle(
@@ -251,14 +294,13 @@ def test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus() -> Non
         forced_session_source="PR1028_TEST",
     )
 
-    rejected = {"PR28HFLT", "PR28UFLT", "PR28WGAP", "PR28LRVL"}
     assert payload["scanner_result"].top_n_symbols == [str(row["symbol"]) for row in rows]
     assert payload["watchlist_k_symbols"] == []
     assert payload["focus_m_symbols"] == []
-    assert rejected.issubset(set(payload["drop_ledger"].keys()))
-    assert set(payload["drop_ledger"].values()).issuperset(
-        {"DROP_FLOAT_MAX", "DROP_FLOAT_UNKNOWN", "DROP_PCT_CHANGE", "DROP_RVOL_DISCOVERY"}
-    )
+    assert payload["drop_ledger"]["PR28HFLT"] == "DROP_FLOAT_MAX"
+    assert payload["drop_ledger"]["PR28UFLT"] == "DROP_FLOAT_UNKNOWN"
+    assert payload["drop_ledger"]["PR28WGAP"] == "DROP_PCT_CHANGE"
+    assert payload["drop_ledger"]["PR28LRVL"] == "DROP_RVOL_DISCOVERY"
     assert payload["diagnostics"]["scanner_contract"]["contract_valid"] is True
 
 
