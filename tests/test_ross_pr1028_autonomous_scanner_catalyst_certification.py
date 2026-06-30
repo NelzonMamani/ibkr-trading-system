@@ -252,7 +252,7 @@ def test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus() -> Non
     )
 
     rejected = {"PR28HFLT", "PR28UFLT", "PR28WGAP", "PR28LRVL"}
-    assert payload["scanner_result"].top_n_symbols == list(rejected)
+    assert payload["scanner_result"].top_n_symbols == [str(row["symbol"]) for row in rows]
     assert payload["watchlist_k_symbols"] == []
     assert payload["focus_m_symbols"] == []
     assert rejected.issubset(set(payload["drop_ledger"].keys()))
