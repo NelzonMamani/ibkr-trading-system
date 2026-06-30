@@ -11,6 +11,7 @@ from src.domain.market_snapshot import MarketSnapshot
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.ross_momentum.patterns.pattern_trace import RossPatternFailureTraceCollector
 from src.strategies.ross_momentum.patterns.pattern_types import PatternResult
+from src.strategies.ross_momentum.runner import RossMomentumRunner
 from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
 
 
@@ -75,6 +76,49 @@ def _base_strategy(monkeypatch, tmp_path) -> RossMomentumStrategyV1:
     strategy._pattern_registry = EmptyRegistry(inactive_pattern_ids=set())
     strategy._data_contract_block_reasons = lambda **kwargs: []
     return strategy
+
+
+def test_ross_runner_explicit_focus_skips_non_focus_rows(capsys) -> None:
+    set_config_overrides(
+        {
+            "RUN_MODE": "PAPER",
+            "EXECUTION_ENABLED": False,
+            "ROSS_MOMENTUM_STRATEGY_ENABLED": True,
+            "SELECTED_STRATEGY": "ross_momentum",
+        }
+    )
+    observed: dict[str, object] = {}
+
+    try:
+        runner = RossMomentumRunner()
+
+        def _process(**kwargs):
+            observed["watchlist"] = [row.get("symbol") for row in kwargs["watchlist"]]
+            return []
+
+        runner.strategy.process_watchlist = _process
+        result = runner.run(
+            {
+                "watchlist": [
+                    {"symbol": "AAPL", "focus_m_symbols": ["AAPL"]},
+                    {"symbol": "MSFT", "focus_m_symbols": ["AAPL"]},
+                ],
+                "snapshots": {},
+                "session_label": "PRE",
+                "timestamp_utc": "cycle-explicit-focus",
+                "mode": RunMode.PAPER,
+                "session_phase": "PRE",
+            }
+        )
+
+        assert result["trade_intents"] == []
+        assert result["trade_ready_count"] == 0
+        assert observed["watchlist"] == ["AAPL"]
+        output = capsys.readouterr().out
+        assert "[ROSS][FOCUS][SKIP] symbol=MSFT reason=NOT_IN_FOCUS_LIST execution_ineligible=true" in output
+        assert "[ROSS][FOCUS][SKIP] symbol=AAPL" not in output
+    finally:
+        set_config_overrides(None)
 
 
 def test_runtime_strategy_entrypoint_emits_eval_start(monkeypatch, tmp_path, capsys) -> None:
