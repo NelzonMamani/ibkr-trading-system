@@ -131,6 +131,17 @@ def load_ib_insync_ib_after_bootstrap() -> Any:
     return IB
 
 
+def _disconnect_after_failed_connect(ib: Any) -> None:
+    disconnect = getattr(ib, "disconnect", None)
+    if not callable(disconnect):
+        return
+    try:
+        disconnect()
+    except Exception:
+        # Preserve the original connect failure as the actionable abort reason.
+        return
+
+
 class IBInsyncReadOnlyProvider:
     """Small IBKR read-only adapter used only by operator-invoked CLI runs."""
 
@@ -141,13 +152,24 @@ class IBInsyncReadOnlyProvider:
     def connect_readonly(self) -> None:
         IB = load_ib_insync_ib_after_bootstrap()
         ib = IB()
-        ib.connect(
-            self.config.host,
-            self.config.port,
-            clientId=self.config.client_id,
-            timeout=self.config.timeout_seconds,
-            readonly=True,
-        )
+        try:
+            ib.connect(
+                self.config.host,
+                self.config.port,
+                clientId=self.config.client_id,
+                timeout=self.config.timeout_seconds,
+                readonly=True,
+            )
+        except TimeoutError as exc:
+            _disconnect_after_failed_connect(ib)
+            raise CollectorValidationError(
+                "IBKR READ_ONLY connection timed out before broker audit could start"
+            ) from exc
+        except Exception as exc:
+            _disconnect_after_failed_connect(ib)
+            raise CollectorValidationError(
+                "IBKR READ_ONLY connection failed before broker audit could start"
+            ) from exc
         self._ib = ib
 
     def disconnect(self) -> None:
