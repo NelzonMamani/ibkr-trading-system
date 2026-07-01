@@ -65,7 +65,7 @@ def _write_json(path: Path, payload: dict) -> None:
 def _minimal_artifacts() -> dict[str, dict]:
     return {
         "operator_runbook_acknowledgement": {
-            "runbook_path": "docs/certification/PR1032_READ_ONLY_BROKER_CONNECTED_OPERATOR_RUNBOOK.md",
+            "runbook_path": "docs/certification/PR1022_READ_ONLY_BROKER_CONNECTED_OPERATOR_RUNBOOK.md".replace("PR1022", "PR1032"),
             "operator": "TEST_OP",
             "acknowledged_at_utc": "2026-07-01T12:00:00+00:00",
             "pre_run_checklist_status": "PASS",
@@ -334,7 +334,7 @@ def test_pr1032_runbook_lists_pr1033_dry_run_command() -> None:
 
     required_fragments = (
         "## PR1033 Artifact Validator / Dry-Run Commands",
-        r'cd "C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system"'.replace('\\', '\\'),
+        'cd "C:\\Users\\nelzo\\PycharmProjectsDec2025\\ibkr-trading-system"',
         "git pull --ff-only origin main",
         '$env:RUN_MODE="READ_ONLY"',
         '$env:RUN_MODE_EFFECTIVE="READ_ONLY"',
@@ -345,9 +345,9 @@ def test_pr1032_runbook_lists_pr1033_dry_run_command() -> None:
         '$env:IBKR_API_WRITE_ALLOWED="false"',
         '$env:IBKR_ORDER_SUBMISSION_ENABLED="false"',
         '$env:FORCE_CLEAN_START="false"',
-        r".\.venv\Scripts\python.exe scripts\certification\pr1033_readonly_broker_artifact_capture.py `",
+        ".\\.venv\\Scripts\\python.exe scripts\\certification\\pr1033_readonly_broker_artifact_capture.py `",
         "--dry-run `",
-        r"--output-dir artifacts\certification\pr1033\dry_run_readonly_capture `",
+        "--output-dir artifacts\\certification\\pr1033\\dry_run_readonly_capture `",
         "--operator NELZON",
         "Dry-run output is not broker-connected evidence.",
     )
