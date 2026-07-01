@@ -4,6 +4,8 @@
   "paper_ready": "NO",
   "paper_readiness_gate": "FAIL",
   "broker_connected_runtime_artifact_captured": false,
+  "operator_runbook": "docs/certification/PR1032_READ_ONLY_BROKER_CONNECTED_OPERATOR_RUNBOOK.md",
+  "operator_runbook_required": true,
   "description": "Template for a future broker-connected READ_ONLY artifact bundle. This example is not captured evidence.",
   "run_constraints": {
     "allowed_run_mode": "READ_ONLY",
@@ -16,6 +18,7 @@
     "ibkr_api_write_allowed_required": false,
     "ibkr_order_submission_enabled_required": false,
     "event_replay_mode_effective_required": "OFF",
+    "force_clean_start_required": false,
     "paper_live_enablement_allowed": false,
     "broker_orders_allowed_required": false
   },
@@ -38,6 +41,24 @@
   },
   "required_artifacts": [
     {
+      "id": "operator_runbook_acknowledgement",
+      "required": true,
+      "minimum_fields": [
+        "runbook_path",
+        "operator",
+        "acknowledged_at_utc",
+        "pre_run_checklist_status",
+        "abort_conditions_reviewed",
+        "paper_ready"
+      ],
+      "must_prove": [
+        "operator used PR1032 runbook",
+        "pre-run checklist completed before broker connection",
+        "abort conditions were reviewed",
+        "PAPER_READY=NO"
+      ]
+    },
+    {
       "id": "runtime_config_snapshot",
       "required": true,
       "minimum_fields": [
@@ -47,12 +68,14 @@
         "EXECUTION_ENABLED_EFFECTIVE",
         "EVENT_REPLAY_MODE_EFFECTIVE",
         "IBKR_API_WRITE_ALLOWED",
-        "IBKR_ORDER_SUBMISSION_ENABLED"
+        "IBKR_ORDER_SUBMISSION_ENABLED",
+        "FORCE_CLEAN_START"
       ],
       "must_prove": [
         "RUN_MODE_EFFECTIVE=READ_ONLY",
         "EXECUTION_ENABLED_EFFECTIVE=false",
-        "EVENT_REPLAY_MODE_EFFECTIVE=OFF"
+        "EVENT_REPLAY_MODE_EFFECTIVE=OFF",
+        "FORCE_CLEAN_START=false"
       ]
     },
     {
@@ -226,9 +249,19 @@
   ],
   "acceptance_gates": [
     {
+      "id": "operator_runbook_acknowledged",
+      "required_verdict": "PASS",
+      "failure_if": "operator acknowledgement artifact is missing or pre-run checklist is incomplete"
+    },
+    {
       "id": "readonly_mode_only",
       "required_verdict": "PASS",
       "failure_if": "RUN_MODE_EFFECTIVE is PAPER or LIVE"
+    },
+    {
+      "id": "clean_start_disabled",
+      "required_verdict": "PASS",
+      "failure_if": "FORCE_CLEAN_START is true or any flatten/cancel-all workflow runs"
     },
     {
       "id": "zero_broker_order_mutations",
@@ -258,11 +291,15 @@
     "RUN_MODE_EFFECTIVE=LIVE",
     "EXECUTION_ENABLED_EFFECTIVE=true",
     "IBKR_ORDER_SUBMISSION_ENABLED=true",
+    "FORCE_CLEAN_START=true",
     "submitted_orders_count>0",
     "cancelled_orders_count>0",
     "modified_orders_count>0",
     "fake trade",
     "synthetic broker order",
+    "clean start",
+    "flatten position",
+    "cancel all orders",
     "unredacted account id",
     "unredacted token or credential"
   ]
