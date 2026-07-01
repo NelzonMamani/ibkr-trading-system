@@ -65,7 +65,7 @@ def _write_json(path: Path, payload: dict) -> None:
 def _minimal_artifacts() -> dict[str, dict]:
     return {
         "operator_runbook_acknowledgement": {
-            "runbook_path": "docs/certification/PR1022_READ_ONLY_BROKER_CONNECTED_OPERATOR_RUNBOOK.md".replace("PR1022", "PR1032"),
+            "runbook_path": "docs/certification/PR1032_READ_ONLY_BROKER_CONNECTED_OPERATOR_RUNBOOK.md",
             "operator": "TEST_OP",
             "acknowledged_at_utc": "2026-07-01T12:00:00+00:00",
             "pre_run_checklist_status": "PASS",
