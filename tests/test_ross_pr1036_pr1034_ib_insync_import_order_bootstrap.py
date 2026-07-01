@@ -41,8 +41,28 @@ def _config():
     )
 
 
-def test_pr1036_util_bootstrap_happens_before_ib_symbol_is_loaded(monkeypatch) -> None:
+def test_pr1036_asyncio_loop_exists_before_any_ib_insync_symbol_is_loaded(monkeypatch) -> None:
     calls: list[object] = []
+    current_loop: dict[str, object | None] = {"value": None}
+
+    def fake_get_event_loop():
+        calls.append("get_event_loop")
+        if current_loop["value"] is None:
+            raise RuntimeError("no current event loop")
+        return current_loop["value"]
+
+    def fake_new_event_loop():
+        loop = object()
+        calls.append("new_event_loop")
+        return loop
+
+    def fake_set_event_loop(loop) -> None:
+        current_loop["value"] = loop
+        calls.append("set_event_loop")
+
+    monkeypatch.setattr(pr1034.asyncio, "get_event_loop", fake_get_event_loop)
+    monkeypatch.setattr(pr1034.asyncio, "new_event_loop", fake_new_event_loop)
+    monkeypatch.setattr(pr1034.asyncio, "set_event_loop", fake_set_event_loop)
 
     class FakeUtil:
         def patchAsyncio(self) -> None:
@@ -64,6 +84,8 @@ def test_pr1036_util_bootstrap_happens_before_ib_symbol_is_loaded(monkeypatch) -
         def __getattribute__(self, name):
             if name == "util":
                 calls.append("get_util")
+                if "set_event_loop" not in calls:
+                    raise AssertionError("util was imported before asyncio event loop setup")
                 return fake_util
             if name == "IB":
                 calls.append("get_IB")
@@ -79,6 +101,7 @@ def test_pr1036_util_bootstrap_happens_before_ib_symbol_is_loaded(monkeypatch) -
     provider = pr1034.IBInsyncReadOnlyProvider(_config())
     provider.connect_readonly()
 
+    assert calls.index("set_event_loop") < calls.index("get_util")
     assert calls.index("get_util") < calls.index("patchAsyncio")
     assert calls.index("patchAsyncio") < calls.index("get_IB")
     assert calls.index("get_IB") < calls.index("IB")
@@ -110,11 +133,12 @@ def test_pr1036_report_documents_import_order_fix_and_keeps_paper_blocked() -> N
     required_fragments = (
         "PAPER_READY: NO",
         "PR1034_IB_INSYNC_IMPORT_ORDER_BOOTSTRAP_FIXED: YES",
+        "ASYNCIO_EVENT_LOOP_BEFORE_IB_INSYNC_IMPORT: YES",
         "UTIL_BOOTSTRAP_BEFORE_IB_SYMBOL_LOAD: YES",
         "CI_CONNECTS_TO_IBKR: NO",
         "ORDER_MUTATION_ALLOWED: NO",
         "PAPER_READINESS_GATE: FAIL",
-        "The collector imports `ib_insync.util` and completes event-loop bootstrap before importing or instantiating `IB`.",
+        "The collector creates or confirms an asyncio event loop before any `ib_insync` import.",
         "Broker-connected runtime artifact captured by this PR: NO",
     )
     forbidden_fragments = (
