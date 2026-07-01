@@ -58,6 +58,35 @@ artifacts/certification/pr1032/YYYYMMDD_READ_ONLY_broker_capture/
 
 The directory must contain no stale files before the run starts. Do not reuse a previous failed run directory. If a run aborts, keep the aborted directory and create a new one for the next attempt.
 
+## PR1033 Artifact Validator / Dry-Run Commands
+
+Run this before the future broker-connected capture to verify that the PR1033 artifact validator, READ_ONLY safety preflight, redaction, hashing, and manifest-writing path are available locally. This does not connect to IBKR and does not validate real broker artifacts.
+
+```powershell
+cd "C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system"
+
+git status
+git branch --show-current
+git pull --ff-only origin main
+
+$env:RUN_MODE="READ_ONLY"
+$env:RUN_MODE_EFFECTIVE="READ_ONLY"
+$env:EXECUTION_ENABLED="false"
+$env:EXECUTION_ENABLED_EFFECTIVE="false"
+$env:EVENT_REPLAY_MODE="OFF"
+$env:EVENT_REPLAY_MODE_EFFECTIVE="OFF"
+$env:IBKR_API_WRITE_ALLOWED="false"
+$env:IBKR_ORDER_SUBMISSION_ENABLED="false"
+$env:FORCE_CLEAN_START="false"
+
+.\.venv\Scripts\python.exe scripts\certification\pr1033_readonly_broker_artifact_capture.py `
+  --dry-run `
+  --output-dir artifacts\certification\pr1033\dry_run_readonly_capture `
+  --operator NELZON
+```
+
+Dry-run output is not broker-connected evidence. It only proves the PR1033 validator can run locally, enforce READ_ONLY environment gates, write placeholder schema artifacts, hash/redact outputs, and keep `PAPER_READY=NO`.
+
 ## Required Artifacts To Capture
 
 The future broker-connected run must produce these files or equivalent redacted artifacts. File names may vary, but each artifact id must map to one captured file in the manifest.
