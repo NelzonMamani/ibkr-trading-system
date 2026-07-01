@@ -49,6 +49,7 @@ def _safe_env() -> dict[str, str]:
         "RUN_MODE_EFFECTIVE": "READ_ONLY",
         "EXECUTION_ENABLED": "false",
         "EXECUTION_ENABLED_EFFECTIVE": "false",
+        "EVENT_REPLAY_MODE": "OFF",
         "EVENT_REPLAY_MODE_EFFECTIVE": "OFF",
         "IBKR_API_WRITE_ALLOWED": "false",
         "IBKR_ORDER_SUBMISSION_ENABLED": "false",
@@ -76,6 +77,7 @@ def _minimal_artifacts() -> dict[str, dict]:
             "RUN_MODE_EFFECTIVE": "READ_ONLY",
             "EXECUTION_ENABLED": False,
             "EXECUTION_ENABLED_EFFECTIVE": False,
+            "EVENT_REPLAY_MODE": "OFF",
             "EVENT_REPLAY_MODE_EFFECTIVE": "OFF",
             "IBKR_API_WRITE_ALLOWED": False,
             "IBKR_ORDER_SUBMISSION_ENABLED": False,
@@ -184,6 +186,7 @@ def test_pr1033_capture_script_assembles_hashes_and_redacts_bundle(tmp_path: Pat
     assert manifest["schema_version"] == "PR1033.readonly_broker_artifact_capture.v1"
     assert manifest["source_schema_version"] == "PR1032.readonly_broker_runtime_artifact.v1"
     assert manifest["status"] == "CAPTURE_BUNDLE_VALIDATED_PENDING_HUMAN_REVIEW"
+    assert manifest["dry_run"] is False
     assert manifest["paper_ready"] == "NO"
     assert manifest["paper_readiness_gate"] == "FAIL"
     assert manifest["broker_connected_runtime_artifact_captured"] is True
@@ -198,6 +201,78 @@ def test_pr1033_capture_script_assembles_hashes_and_redacts_bundle(tmp_path: Pat
     broker_row = next(row for row in manifest["artifacts"] if row["id"] == "broker_connection_snapshot")
     assert broker_row["redaction_status"] == "REDACTED"
     assert broker_row["sha256"] == pr1033.sha256_file(output_dir / broker_row["path"])
+
+
+def test_pr1033_dry_run_generates_non_broker_evidence_bundle(tmp_path: Path) -> None:
+    output_dir = tmp_path / "dry_run"
+
+    manifest = pr1033.capture_dry_run(
+        output_dir=output_dir,
+        operator="TEST_OP",
+        template_path=_TEMPLATE_PATH,
+        runbook_path=_RUNBOOK_PATH,
+        env=_safe_env(),
+    )
+
+    assert manifest["schema_version"] == "PR1033.readonly_broker_artifact_capture.v1"
+    assert manifest["status"] == "DRY_RUN_VALIDATED_NOT_BROKER_EVIDENCE"
+    assert manifest["dry_run"] is True
+    assert manifest["paper_ready"] == "NO"
+    assert manifest["paper_readiness_gate"] == "FAIL"
+    assert manifest["broker_connected_runtime_artifact_captured"] is False
+    assert len(manifest["artifacts"]) == len(pr1033.REQUIRED_ARTIFACT_IDS)
+    assert {row["id"] for row in manifest["artifacts"]} == set(pr1033.REQUIRED_ARTIFACT_IDS)
+    assert all(row["source"] == "DRY_RUN_GENERATED_BY_PR1033_SCRIPT" for row in manifest["artifacts"])
+    assert all(row["sha256"] for row in manifest["artifacts"])
+    assert (output_dir / "capture_manifest.json").exists()
+
+    broker_snapshot = json.loads((output_dir / "broker_connection_snapshot.json").read_text(encoding="utf-8"))
+    final_verdict = json.loads((output_dir / "final_verdict.json").read_text(encoding="utf-8"))
+    assert broker_snapshot["connected"] is False
+    assert broker_snapshot["account_id_redacted"] == "NO_SECRET_DATA_PRESENT"
+    assert final_verdict["paper_ready"] == "NO"
+    assert final_verdict["paper_readiness_gate"] == "FAIL"
+    assert "not broker-connected runtime evidence" in final_verdict["blockers"][0]
+
+
+def test_pr1033_cli_dry_run_accepts_no_source_dir(tmp_path: Path) -> None:
+    output_dir = tmp_path / "dry_run_cli"
+
+    result = pr1033.main(
+        [
+            "--dry-run",
+            "--output-dir",
+            str(output_dir),
+            "--operator",
+            "TEST_OP",
+            "--manifest-template",
+            str(_TEMPLATE_PATH),
+            "--runbook",
+            str(_RUNBOOK_PATH),
+        ]
+    )
+
+    assert result == 0
+    manifest = json.loads((output_dir / "capture_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "DRY_RUN_VALIDATED_NOT_BROKER_EVIDENCE"
+    assert manifest["broker_connected_runtime_artifact_captured"] is False
+
+
+def test_pr1033_cli_requires_source_dir_without_dry_run(tmp_path: Path) -> None:
+    result = pr1033.main(
+        [
+            "--output-dir",
+            str(tmp_path / "validated"),
+            "--operator",
+            "TEST_OP",
+            "--manifest-template",
+            str(_TEMPLATE_PATH),
+            "--runbook",
+            str(_RUNBOOK_PATH),
+        ]
+    )
+
+    assert result == 2
 
 
 def test_pr1033_capture_script_aborts_for_unsafe_runtime_env(tmp_path: Path) -> None:
@@ -254,18 +329,47 @@ def test_pr1033_capture_script_aborts_for_nonzero_broker_order_mutation(tmp_path
         )
 
 
+def test_pr1032_runbook_lists_pr1033_dry_run_command() -> None:
+    runbook = _RUNBOOK_PATH.read_text(encoding="utf-8")
+
+    required_fragments = (
+        "## PR1033 Artifact Validator / Dry-Run Commands",
+        'cd "C:\\Users\\nelzo\\PycharmProjectsDec2025\\ibkr-trading-system"',
+        "git pull --ff-only origin main",
+        '$env:RUN_MODE="READ_ONLY"',
+        '$env:RUN_MODE_EFFECTIVE="READ_ONLY"',
+        '$env:EXECUTION_ENABLED="false"',
+        '$env:EXECUTION_ENABLED_EFFECTIVE="false"',
+        '$env:EVENT_REPLAY_MODE="OFF"',
+        '$env:EVENT_REPLAY_MODE_EFFECTIVE="OFF"',
+        '$env:IBKR_API_WRITE_ALLOWED="false"',
+        '$env:IBKR_ORDER_SUBMISSION_ENABLED="false"',
+        '$env:FORCE_CLEAN_START="false"',
+        ".\\.venv\\Scripts\\python.exe scripts\\certification\\pr1033_readonly_broker_artifact_capture.py `",
+        "--dry-run `",
+        "--output-dir artifacts\\certification\\pr1033\\dry_run_readonly_capture `",
+        "--operator NELZON",
+        "Dry-run output is not broker-connected evidence.",
+    )
+
+    for fragment in required_fragments:
+        assert fragment in runbook
+
+
 def test_pr1033_report_keeps_script_scope_and_paper_blocked() -> None:
     report = _REPORT_PATH.read_text(encoding="utf-8")
 
     required_fragments = (
         "PAPER_READY: NO",
         "READ_ONLY_BROKER_ARTIFACT_CAPTURE_SCRIPT: ADDED",
+        "DRY_RUN_SUPPORTED: YES",
         "SCRIPT_CONNECTS_TO_BROKER: NO",
         "SCRIPT_SUBMITS_ORDERS: NO",
         "BROKER_CONNECTED_RUNTIME_ARTIFACT_CAPTURED_BY_THIS_PR: NO",
         "PRODUCTION_TRADING_CODE_CHANGED: NO",
         "PAPER_LIVE_ENABLED: NO",
         "PAPER_READINESS_GATE: FAIL",
+        "DRY_RUN_VALIDATED_NOT_BROKER_EVIDENCE",
         "offline READ_ONLY broker artifact capture tooling",
         "Ross Momentum remains `PAPER_READY: NO`.",
     )
