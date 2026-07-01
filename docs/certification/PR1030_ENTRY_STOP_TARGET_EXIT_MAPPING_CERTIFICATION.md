@@ -28,7 +28,7 @@ PAPER readiness remains blocked. PR1030 improves the decision boundary by requir
 | --- | --- | --- | --- |
 | Entry mapping | PASS | `test_pr1030_complete_setup_maps_to_entry_stop_target_and_rationale` asserts entry model is carried into `TradeIntent`. | Full-session runtime trace in PR1031. |
 | Stop/invalidation mapping | PASS | Complete setup test asserts stop model; invalid geometry test rejects long stop above trigger. | Broker-order translation remains out of scope. |
-| Target mapping | PASS | Missing target now blocks intent; ABCD `d_projection` can map to target model; PMH detector now emits target suggestion. | Runtime persistence of target evidence in PR1031. |
+| Target mapping | PASS | Missing target now blocks intent; ABCD `d_projection` can map to target model; flat-top and PMH detectors now emit target suggestions. | Runtime persistence of target evidence in PR1031. |
 | Rationale mapping | PASS | Complete setup test asserts rationale is preserved. | Full analytics storage trace in PR1031. |
 | Risk/reward sanity | PASS | Invalid long trigger/stop geometry rejects as `invalid_risk_geometry`. | Numeric R/R threshold policy is not introduced here and remains out of scope. |
 | Risk-off/exit signals | PASS | Parabolic exhaustion/risk-off fixture creates no long-entry intent. | Exit-management lifecycle behavior beyond simulated evidence remains for later runtime certification. |
@@ -40,6 +40,7 @@ PAPER readiness remains blocked. PR1030 improves the decision boundary by requir
 | File | Change | Reason |
 | --- | --- | --- |
 | `src/strategies/ross_momentum/decision_policy.py` | Added target mapping helper, ABCD projection fallback, missing-target rejection, and entry/stop geometry rejection. | Direct PR1030 gap: targetless or geometrically invalid setups could previously reach intent creation. |
+| `src/strategies/common/patterns/pattern_flat_top_breakout.py` | Added flat-top target suggestion. | CI exposed that the certified flat-top positive path was targetless under the new PR1030 mapping guard. |
 | `src/strategies/common/patterns/pattern_premarket_high_break.py` | Added PMH target suggestion. | Existing certified PMH positive setup now maps into a complete trade plan. |
 | `tests/test_ross_pr1030_entry_stop_target_exit_mapping.py` | Added PR1030 mapping and exit evidence tests. | Certification evidence. |
 
@@ -48,7 +49,7 @@ PAPER readiness remains blocked. PR1030 improves the decision boundary by requir
 | Setup / mapping surface | Required evidence | Current code evidence | Decision behavior | Status | Required PR/fix |
 | --- | --- | --- | --- | --- | --- |
 | Micro pullback | Entry trigger, structure stop, target model, rationale. | Synthetic complete setup maps all fields into `TradeIntent`; PR6 micro positive has simulated exit evidence. | Intent allowed only when trigger-ready and mapped. | PASS | PR1031 runtime trace. |
-| Flat-top breakout | Resistance trigger, structure stop, target model, rationale. | PR6 flat-top positive has stop/target exit evidence. | Intent allowed only when mapped. | PASS | PR1031 runtime trace. |
+| Flat-top breakout | Resistance trigger, structure stop, target model, rationale. | Flat-top detector now emits `target_suggestion`; PR6 flat-top positive has stop/target exit evidence. | Intent allowed only when mapped. | PASS | PR1031 runtime trace. |
 | PMH break | PMH trigger, stop below PMH, target extension, rationale. | PMH detector now emits `target_suggestion`; PR6 PMH positive has stop/target exit evidence. | Intent allowed only when mapped. | PASS | PR1031 runtime trace. |
 | ABCD continuation | Pullback trigger, C stop, measured-move target/projection. | `d_projection` fallback maps to `ABCD measured move projection`. | Intent allowed with projection target even without text target suggestion. | PASS | PR1031 runtime trace. |
 | Missing target | Setup has trigger/stop/rationale but no target evidence. | PR1030 test asserts drop reason `missing_target`. | No intent. | PASS | Keep guard. |
@@ -64,7 +65,7 @@ PAPER readiness remains blocked. PR1030 improves the decision boundary by requir
 | Pattern detection | Certified setup families detect/reject deterministically. | PR1029 certified pattern fixtures. | Runtime input provenance full-session trace missing. | HIGH | Capture focus-to-pattern inputs in READ_ONLY run. | PR1031 |
 | Entry mapping | Intent requires entry model from price-action setup. | PR1030 complete setup test preserves entry model. | Runtime analytics persistence missing. | MEDIUM | Store/verify entry evidence. | PR1031 |
 | Stop mapping | Intent requires stop or invalidation model. | Existing PR5 guard plus PR1030 complete/invalid-geometry tests. | Broker order translation out of scope. | MEDIUM | Runtime execution-disabled trace. | PR1031 |
-| Target mapping | Intent requires target model or measured projection. | PR1030 missing-target guard and ABCD projection fallback. | Runtime persistence missing. | HIGH | Store/verify target evidence. | PR1031 |
+| Target mapping | Intent requires target model or measured projection. | PR1030 missing-target guard, ABCD projection fallback, and detector target additions. | Runtime persistence missing. | HIGH | Store/verify target evidence. | PR1031 |
 | Risk/reward sanity | Obviously invalid long entry/stop geometry must not proceed. | PR1030 blocks stop >= trigger as `invalid_risk_geometry`. | Formal numeric R/R threshold not introduced. | MEDIUM | Separate policy only if explicitly required. | Future PR |
 | Risk-off/exit evidence | Exhaustion/reversal risk signals must not create long entry. | PR1030 risk-off test blocks intent. | Exit lifecycle beyond simulation not certified. | MEDIUM | Full READ_ONLY lifecycle trace. | PR1031 |
 | PAPER mode path | PAPER forced intent path must still require complete mapping. | PR1030 guards run before PAPER forced intent creation. | Production env flags not full-session audited. | HIGH | Runtime config inventory. | PR1031 |
@@ -98,6 +99,8 @@ The tests prove:
 4. ABCD measured-move projection can supply explicit target mapping.
 5. Risk-off/exhaustion evidence cannot create a long-entry intent.
 6. PR6 positive certification cases expose simulated stop, target, and exit-signal capture evidence.
+
+CI follow-up note: the first PR1030 Actions run exposed the certified flat-top positive path as targetless under the new mapping guard. The flat-top detector now emits deterministic target evidence, preserving the stricter guard rather than relaxing it.
 
 ## PR1031 Remaining Plan
 
