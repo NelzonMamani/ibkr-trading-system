@@ -16,6 +16,7 @@ placeholders unless they are supplied by a future full READ_ONLY strategy run.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import importlib.util
 import json
 import os
@@ -33,6 +34,32 @@ PR1032_RUNBOOK_PATH = Path(
     "docs/certification/PR1032_READ_ONLY_BROKER_CONNECTED_OPERATOR_RUNBOOK.md"
 )
 PR1033_SCRIPT_NAME = "pr1033_readonly_broker_artifact_capture.py"
+FORBIDDEN_OPEN_ORDER_AUDIT_STATUSES = frozenset(
+    {
+        "OPEN_ORDER_REQUEST_FAILED",
+        "OPEN_ORDER_READ_FAILED",
+        "OPEN_ORDER_AUDIT_FAILED",
+        "OPEN_ORDER_AUDIT_UNAVAILABLE",
+        "ERROR",
+        "FAILED",
+        "UNKNOWN",
+        "UNAVAILABLE",
+    }
+)
+BROKER_SNAPSHOT_REQUIRED_FIELDS = (
+    "provider_name",
+    "connected",
+    "host",
+    "port",
+    "client_id",
+    "market_data_type",
+    "account_id_redacted",
+    "submitted_orders_count",
+    "cancelled_orders_count",
+    "modified_orders_count",
+    "open_orders_before",
+    "open_orders_after",
+)
 
 
 def _load_pr1033_validator():
@@ -67,6 +94,22 @@ class BrokerConnectionConfig:
     market_data_type: str
 
 
+def bootstrap_ib_insync_event_loop(util_module: Any | None = None) -> None:
+    """Prepare an asyncio loop before ib_insync creates its IB connection object."""
+
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
+    patch_asyncio = getattr(util_module, "patchAsyncio", None)
+    if callable(patch_asyncio):
+        try:
+            patch_asyncio()
+        except Exception as exc:
+            raise CollectorValidationError("ib_insync event-loop bootstrap failed") from exc
+
+
 class IBInsyncReadOnlyProvider:
     """Small IBKR read-only adapter used only by operator-invoked CLI runs."""
 
@@ -76,9 +119,10 @@ class IBInsyncReadOnlyProvider:
 
     def connect_readonly(self) -> None:
         try:
-            from ib_insync import IB
+            from ib_insync import IB, util
         except ImportError as exc:
             raise CollectorValidationError("ib_insync is required for broker connection") from exc
+        bootstrap_ib_insync_event_loop(util)
         ib = IB()
         ib.connect(
             self.config.host,
@@ -95,15 +139,21 @@ class IBInsyncReadOnlyProvider:
 
     def _open_orders_snapshot(self) -> list[dict[str, Any]]:
         if self._ib is None:
-            return []
+            raise CollectorValidationError("IBKR provider is not connected for open-order audit")
         try:
             self._ib.reqOpenOrders()
-        except Exception:
-            # Open-order request failures should not trigger order mutation. Preserve
-            # the failure as data quality evidence rather than attempting recovery.
-            return [{"status": "OPEN_ORDER_REQUEST_FAILED"}]
+        except Exception as exc:
+            raise CollectorValidationError(
+                "IBKR open-order request failed; aborting READ_ONLY capture"
+            ) from exc
+        try:
+            open_orders = list(self._ib.openOrders())
+        except Exception as exc:
+            raise CollectorValidationError(
+                "IBKR open-order read failed; aborting READ_ONLY capture"
+            ) from exc
         rows: list[dict[str, Any]] = []
-        for order in self._ib.openOrders():
+        for order in open_orders:
             rows.append(
                 {
                     "order_id": str(getattr(order, "orderId", "")),
@@ -119,11 +169,12 @@ class IBInsyncReadOnlyProvider:
             raise CollectorValidationError("IBKR provider is not connected")
         open_orders_before = self._open_orders_snapshot()
         open_orders_after = self._open_orders_snapshot()
-        managed_accounts = []
         try:
             managed_accounts = list(self._ib.managedAccounts())
-        except Exception:
-            managed_accounts = []
+        except Exception as exc:
+            raise CollectorValidationError(
+                "IBKR managed-account read failed; aborting READ_ONLY capture"
+            ) from exc
         return {
             "provider_name": "IB_INSYNC_READONLY",
             "connected": True,
@@ -154,18 +205,65 @@ def _as_zero_int(snapshot: Mapping[str, Any], key: str) -> int:
     return value
 
 
+def _as_positive_int(snapshot: Mapping[str, Any], key: str) -> int:
+    try:
+        value = int(snapshot.get(key, 0))
+    except (TypeError, ValueError) as exc:
+        raise CollectorValidationError(f"{key} must be a positive integer") from exc
+    if value <= 0:
+        raise CollectorValidationError(f"{key} must be a positive integer")
+    return value
+
+
+def _as_nonempty_string(snapshot: Mapping[str, Any], key: str) -> str:
+    value = str(snapshot.get(key, "")).strip()
+    if not value:
+        raise CollectorValidationError(f"{key} must be present in broker snapshot")
+    return value
+
+
 def _stable_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
+def _require_open_order_rows(snapshot: Mapping[str, Any], key: str) -> list[Any]:
+    rows = snapshot.get(key)
+    if not isinstance(rows, list):
+        raise CollectorValidationError(f"{key} must be a list")
+    for index, row in enumerate(rows):
+        if not isinstance(row, Mapping):
+            raise CollectorValidationError(f"{key}[{index}] must be a mapping")
+        status = str(row.get("status", "")).strip().upper()
+        if (
+            status in FORBIDDEN_OPEN_ORDER_AUDIT_STATUSES
+            or status.endswith("_FAILED")
+            or status.endswith("_ERROR")
+        ):
+            raise CollectorValidationError(
+                f"{key}[{index}] contains open-order audit failure status: {status}"
+            )
+    return rows
+
+
 def assert_broker_snapshot_safe(snapshot: Mapping[str, Any]) -> None:
+    missing = [key for key in BROKER_SNAPSHOT_REQUIRED_FIELDS if key not in snapshot]
+    if missing:
+        raise CollectorValidationError(
+            f"broker snapshot missing required field(s): {', '.join(missing)}"
+        )
     if snapshot.get("connected") is not True:
         raise CollectorValidationError("broker snapshot must prove connected=True")
+    _as_nonempty_string(snapshot, "provider_name")
+    _as_nonempty_string(snapshot, "host")
+    _as_positive_int(snapshot, "port")
+    _as_positive_int(snapshot, "client_id")
+    _as_nonempty_string(snapshot, "market_data_type")
+    _as_nonempty_string(snapshot, "account_id_redacted")
     _as_zero_int(snapshot, "submitted_orders_count")
     _as_zero_int(snapshot, "cancelled_orders_count")
     _as_zero_int(snapshot, "modified_orders_count")
-    before = snapshot.get("open_orders_before", [])
-    after = snapshot.get("open_orders_after", [])
+    before = _require_open_order_rows(snapshot, "open_orders_before")
+    after = _require_open_order_rows(snapshot, "open_orders_after")
     if _stable_json(before) != _stable_json(after):
         raise CollectorValidationError("open order snapshot changed during READ_ONLY collection")
 
@@ -331,7 +429,7 @@ def collect_with_provider(
     force: bool = False,
 ) -> dict[str, Any]:
     runtime_env = pr1033.assert_safe_runtime_environment(env or os.environ)
-    if raw_output_dir == validated_output_dir:
+    if raw_output_dir.resolve() == validated_output_dir.resolve():
         raise CollectorValidationError("raw and validated output directories must differ")
     pr1033.assert_output_dir_ready(raw_output_dir, force=force)
 
