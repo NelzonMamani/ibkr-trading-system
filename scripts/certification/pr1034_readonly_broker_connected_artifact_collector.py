@@ -110,6 +110,21 @@ def bootstrap_ib_insync_event_loop(util_module: Any | None = None) -> None:
             raise CollectorValidationError("ib_insync event-loop bootstrap failed") from exc
 
 
+def load_ib_insync_ib_after_bootstrap() -> Any:
+    """Return ib_insync.IB only after util-based event-loop bootstrap is complete."""
+
+    try:
+        from ib_insync import util
+    except ImportError as exc:
+        raise CollectorValidationError("ib_insync is required for broker connection") from exc
+    bootstrap_ib_insync_event_loop(util)
+    try:
+        from ib_insync import IB
+    except ImportError as exc:
+        raise CollectorValidationError("ib_insync IB is required for broker connection") from exc
+    return IB
+
+
 class IBInsyncReadOnlyProvider:
     """Small IBKR read-only adapter used only by operator-invoked CLI runs."""
 
@@ -118,11 +133,7 @@ class IBInsyncReadOnlyProvider:
         self._ib: Any | None = None
 
     def connect_readonly(self) -> None:
-        try:
-            from ib_insync import IB, util
-        except ImportError as exc:
-            raise CollectorValidationError("ib_insync is required for broker connection") from exc
-        bootstrap_ib_insync_event_loop(util)
+        IB = load_ib_insync_ib_after_bootstrap()
         ib = IB()
         ib.connect(
             self.config.host,
