@@ -37,7 +37,7 @@ PR1035 tightens the collector without changing trading behavior. The corrected c
 
 ## PR1036 Correction Note
 
-PR1036 tightens the import-order side of the bootstrap without changing trading behavior. The collector now imports `ib_insync.util`, completes event-loop bootstrap, and only then imports or instantiates `IB`. The PR1035 fail-closed broker evidence behavior is preserved.
+PR1036 tightens the import-order side of the bootstrap without changing trading behavior. The collector now creates or confirms an asyncio event loop before any `ib_insync` import, then imports `ib_insync.util`, applies the util bootstrap, and only then imports or instantiates `IB`. The PR1035 fail-closed broker evidence behavior is preserved.
 
 ## Files Added Or Updated
 
@@ -54,7 +54,7 @@ PR1036 tightens the import-order side of the bootstrap without changing trading 
 | --- | --- | --- |
 | Explicit broker connection | CLI refuses to connect unless `--connect-ibkr-readonly` is provided. | Prevents accidental broker connection during local or CI use. |
 | Runtime preflight | Reuses PR1033 READ_ONLY env validation before provider connection. | Fails before broker connection if mode/execution flags are unsafe. |
-| ib_insync bootstrap | PR1036 imports `ib_insync.util`, prepares an asyncio event loop, calls `patchAsyncio()`, and then imports/instantiates `IB`. | Reduces operator-run connection failures caused by missing event-loop setup or fragile import ordering. |
+| ib_insync bootstrap | PR1036 creates or confirms an asyncio event loop, imports `ib_insync.util`, calls `patchAsyncio()`, and then imports/instantiates `IB`. | Reduces operator-run connection failures caused by missing event-loop setup or fragile import ordering. |
 | IBKR adapter | Uses `ib_insync.IB.connect(..., readonly=True)` only in operator-invoked CLI runs. | Requests broker read-only connection rather than order authority. |
 | Order mutation audit | Requires submitted/cancelled/modified order counts to remain zero. | Blocks any bundle that indicates broker order mutation. |
 | Open-order audit availability | PR1035 aborts on open-order request/read failure or failure status markers. | Prevents incomplete broker audit data from becoming validated-looking evidence. |
@@ -128,4 +128,4 @@ Local execution may be unavailable in this Codex desktop session if the local Py
 
 ## Final Certification Answer
 
-PR1034 adds a guarded READ_ONLY broker-connected collector path; PR1035 tightens the collector's bootstrap and fail-closed broker evidence checks; PR1036 tightens the ib_insync import/bootstrap ordering. It does not mutate broker state, does not connect to IBKR in CI, does not enable PAPER/LIVE, and does not certify that the real broker-connected full strategy capture has already happened. Ross Momentum remains `PAPER_READY: NO`.
+PR1034 adds a guarded READ_ONLY broker-connected collector path; PR1035 tightens the collector's bootstrap and fail-closed broker evidence checks; PR1036 tightens the asyncio and ib_insync import/bootstrap ordering. It does not mutate broker state, does not connect to IBKR in CI, does not enable PAPER/LIVE, and does not certify that the real broker-connected full strategy capture has already happened. Ross Momentum remains `PAPER_READY: NO`.
