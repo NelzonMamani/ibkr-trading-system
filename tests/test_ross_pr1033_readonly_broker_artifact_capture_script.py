@@ -235,8 +235,12 @@ def test_pr1033_dry_run_generates_non_broker_evidence_bundle(tmp_path: Path) -> 
     assert "not broker-connected runtime evidence" in final_verdict["blockers"][0]
 
 
-def test_pr1033_cli_dry_run_accepts_no_source_dir(tmp_path: Path) -> None:
+def test_pr1033_cli_dry_run_accepts_no_source_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     output_dir = tmp_path / "dry_run_cli"
+    for key, value in _safe_env().items():
+        monkeypatch.setenv(key, value)
 
     result = pr1033.main(
         [
