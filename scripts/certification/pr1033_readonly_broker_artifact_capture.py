@@ -401,10 +401,7 @@ def capture_bundle(
                 "PAPER_READY remains NO by script policy.",
             ],
         }
-        manifest_path = output_dir / "capture_manifest.json"
-        write_json(manifest_path, manifest)
-        manifest["manifest_sha256"] = sha256_file(manifest_path)
-        write_json(manifest_path, manifest)
+        write_json(output_dir / "capture_manifest.json", manifest)
         return manifest
     except Exception:
         # Preserve partial artifacts for audit only if the operator chose --force and
