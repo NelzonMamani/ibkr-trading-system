@@ -87,6 +87,39 @@ $env:FORCE_CLEAN_START="false"
 
 Dry-run output is not broker-connected evidence. It only proves the PR1033 validator can run locally, enforce READ_ONLY environment gates, write placeholder schema artifacts, hash/redact outputs, and keep `PAPER_READY=NO`.
 
+## PR1034 READ_ONLY Broker-Connected Collector Command
+
+Run this only for an operator-controlled READ_ONLY broker-connected collection. The command requires the same safe environment values as the PR1033 dry-run and adds an explicit `--connect-ibkr-readonly` acknowledgement before the script may connect to IBKR.
+
+```powershell
+cd "C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system"
+
+git status
+git branch --show-current
+git pull --ff-only origin main
+
+$env:RUN_MODE="READ_ONLY"
+$env:RUN_MODE_EFFECTIVE="READ_ONLY"
+$env:EXECUTION_ENABLED="false"
+$env:EXECUTION_ENABLED_EFFECTIVE="false"
+$env:EVENT_REPLAY_MODE="OFF"
+$env:EVENT_REPLAY_MODE_EFFECTIVE="OFF"
+$env:IBKR_API_WRITE_ALLOWED="false"
+$env:IBKR_ORDER_SUBMISSION_ENABLED="false"
+$env:FORCE_CLEAN_START="false"
+
+.\.venv\Scripts\python.exe scripts\certification\pr1034_readonly_broker_connected_artifact_collector.py `
+  --connect-ibkr-readonly `
+  --raw-output-dir artifacts\certification\pr1034\raw_readonly_broker_collect `
+  --validated-output-dir artifacts\certification\pr1034\validated_readonly_broker_collect `
+  --operator NELZON `
+  --host 127.0.0.1 `
+  --port 7497 `
+  --client-id 1034
+```
+
+PR1034 collector output is not PAPER readiness evidence by itself. It captures only the guarded broker connection/order-audit shell and PR1032-shaped collector artifacts. Full scanner, catalyst, setup, decision, risk, execution-disabled, storage readback, and final readiness evidence still require a controlled READ_ONLY strategy observation and human review.
+
 ## Required Artifacts To Capture
 
 The future broker-connected run must produce these files or equivalent redacted artifacts. File names may vary, but each artifact id must map to one captured file in the manifest.
