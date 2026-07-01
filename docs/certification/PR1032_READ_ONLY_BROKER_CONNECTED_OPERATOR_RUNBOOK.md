@@ -120,6 +120,8 @@ $env:FORCE_CLEAN_START="false"
 
 PR1034 collector output is not PAPER readiness evidence by itself. It captures only the guarded broker connection/order-audit shell and PR1032-shaped collector artifacts. Full scanner, catalyst, setup, decision, risk, execution-disabled, storage readback, and final readiness evidence still require a controlled READ_ONLY strategy observation and human review.
 
+PR1035 correction note: the collector now bootstraps ib_insync's asyncio support before creating the `IB()` object and fails closed if open-order request/read evidence or managed-account redaction evidence cannot be collected. If the collector aborts with one of those errors, preserve the failed run context and do not treat the directory as broker-connected certification evidence.
+
 ## Required Artifacts To Capture
 
 The future broker-connected run must produce these files or equivalent redacted artifacts. File names may vary, but each artifact id must map to one captured file in the manifest.
@@ -176,6 +178,7 @@ Abort the run and preserve the partial artifact directory if any of these occur:
 10. Storage write/readback cannot be captured.
 11. A required artifact contains unredacted account id, token, credential, or secret.
 12. Any artifact cannot be hashed after redaction.
+13. The PR1034 collector reports an ib_insync event-loop bootstrap failure, open-order request/read failure, managed-account read failure, missing broker snapshot field, or broker order audit failure marker.
 
 ## Post-Run Validation
 

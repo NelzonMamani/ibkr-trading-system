@@ -31,6 +31,10 @@ DO_NOT_GO_PAPER_REASON: PR1034 adds the broker-connected collector path only; CI
 
 PAPER readiness remains blocked.
 
+## PR1035 Correction Note
+
+PR1035 tightens the collector without changing trading behavior. The corrected collector bootstraps ib_insync's asyncio support before creating the `IB()` object and fails closed if broker order/account evidence cannot be read. An open-order request/read failure, a managed-account read failure, missing broker snapshot fields, or explicit failure status rows now abort the capture before PR1032 raw artifacts are written.
+
 ## Files Added Or Updated
 
 | File | Purpose |
@@ -46,9 +50,12 @@ PAPER readiness remains blocked.
 | --- | --- | --- |
 | Explicit broker connection | CLI refuses to connect unless `--connect-ibkr-readonly` is provided. | Prevents accidental broker connection during local or CI use. |
 | Runtime preflight | Reuses PR1033 READ_ONLY env validation before provider connection. | Fails before broker connection if mode/execution flags are unsafe. |
+| ib_insync bootstrap | PR1035 prepares an asyncio event loop and calls `ib_insync.util.patchAsyncio()` before `IB()` is constructed. | Reduces operator-run connection failures caused by missing event-loop setup. |
 | IBKR adapter | Uses `ib_insync.IB.connect(..., readonly=True)` only in operator-invoked CLI runs. | Requests broker read-only connection rather than order authority. |
 | Order mutation audit | Requires submitted/cancelled/modified order counts to remain zero. | Blocks any bundle that indicates broker order mutation. |
+| Open-order audit availability | PR1035 aborts on open-order request/read failure or failure status markers. | Prevents incomplete broker audit data from becoming validated-looking evidence. |
 | Open-order snapshot check | Requires open-order snapshot before/after collection to be stable. | Detects unexpected broker state changes during the collection window. |
+| Broker connection evidence | Requires connection/provenance fields and redacted account evidence. | Prevents incomplete broker snapshots from entering the artifact bundle. |
 | PR1032 raw artifacts | Writes every required PR1032 artifact id to the raw output directory. | Keeps the artifact set machine-reviewable. |
 | PR1033 validation | Calls the PR1033 validator to redact, hash, and normalize artifacts. | Reuses existing artifact review contract. |
 | Strategy artifacts | Scanner/catalyst/setup/risk/storage artifacts are marked collector-only with explicit blockers. | Avoids treating broker connection as full strategy runtime proof. |
@@ -77,15 +84,20 @@ The collector aborts if any of these are true:
 1. `--connect-ibkr-readonly` is absent.
 2. Effective mode is not READ_ONLY.
 3. Execution authority, IBKR write authority, order submission, replay mode, or clean-start is enabled.
-4. The provider cannot prove `connected=true`.
-5. Submitted/cancelled/modified order counts are nonzero.
-6. Open-order snapshots change during the collector window.
-7. Raw and validated output directories are the same path.
-8. PR1033 validation fails.
+4. ib_insync event-loop bootstrap fails.
+5. The provider cannot prove `connected=true`.
+6. Required broker snapshot fields are missing or malformed.
+7. Managed-account read fails before redacted account evidence can be produced.
+8. Submitted/cancelled/modified order counts are nonzero.
+9. Open-order request or read fails.
+10. Open-order audit rows contain failure, error, unavailable, or unknown status markers.
+11. Open-order snapshots change during the collector window.
+12. Raw and validated output directories are the same resolved path.
+13. PR1033 validation fails.
 
 ## Remaining Blockers
 
-| Blocker | Status after PR1034 |
+| Blocker | Status after PR1034/PR1035 |
 | --- | --- |
 | Real operator-run broker-connected artifact bundle | Not captured by this PR |
 | Full scanner/watchlist/focus runtime evidence | Not captured by this PR |
@@ -102,6 +114,7 @@ Target commands:
 
 ```powershell
 python -m pytest tests/test_ross_pr1034_readonly_broker_connected_artifact_collector.py
+python -m pytest tests/test_ross_pr1035_pr1034_broker_collector_safety_fix.py
 python -m pytest tests/test_ross_pr1033_readonly_broker_artifact_capture_script.py tests/test_ross_pr1032_readonly_broker_runtime_artifact_capture_pack.py
 python -m pytest tests -k "ross or readonly or paper or execution or scanner or catalyst or focus or artifact or broker"
 ```
@@ -110,4 +123,4 @@ Local execution may be unavailable in this Codex desktop session if the local Py
 
 ## Final Certification Answer
 
-PR1034 adds a guarded READ_ONLY broker-connected collector path. It does not mutate broker state, does not connect to IBKR in CI, does not enable PAPER/LIVE, and does not certify that the real broker-connected full strategy capture has already happened. Ross Momentum remains `PAPER_READY: NO`.
+PR1034 adds a guarded READ_ONLY broker-connected collector path, and PR1035 tightens the collector's bootstrap and fail-closed broker evidence checks. It does not mutate broker state, does not connect to IBKR in CI, does not enable PAPER/LIVE, and does not certify that the real broker-connected full strategy capture has already happened. Ross Momentum remains `PAPER_READY: NO`.
