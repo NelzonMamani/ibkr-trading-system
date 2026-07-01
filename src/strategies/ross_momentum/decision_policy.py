@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 from dataclasses import dataclass
-from typing import List
+from typing import Any, List
 
 from src.scanner.session_pct_change import normalize_session_label
 
@@ -64,6 +64,40 @@ def _env_allowed_setup_families() -> set[str]:
     }
 
 
+def _safe_float(value: object) -> float | None:
+    try:
+        return None if value is None else float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _target_model_from_setup(setup: Any) -> str | None:
+    explicit_target = str(getattr(setup, "target_suggestion", "") or "").strip()
+    if explicit_target:
+        return explicit_target
+    projection = _safe_float(getattr(setup, "d_projection", None))
+    if projection is not None:
+        return f"ABCD measured move projection {projection:.4f}"
+    return None
+
+
+def _risk_geometry_rejection_reason(setup: Any) -> str | None:
+    trigger = _safe_float(getattr(setup, "trigger_level", None))
+    stop_candidate = getattr(setup, "stop_level", None)
+    if stop_candidate is None:
+        stop_candidate = getattr(setup, "invalidation_level", None)
+    stop = _safe_float(stop_candidate)
+    if trigger is None or stop is None:
+        return None
+    direction = getattr(setup, "direction", None)
+    direction_value = direction.value if hasattr(direction, "value") else str(direction or "").upper()
+    if direction_value == Direction.LONG.value and stop >= trigger:
+        return "invalid_risk_geometry"
+    if direction_value == Direction.SHORT.value and stop <= trigger:
+        return "invalid_risk_geometry"
+    return None
+
+
 def build_trade_intents(
     strategy_id: str,
     symbol: str,
@@ -120,6 +154,19 @@ def build_trade_intents(
             print(
                 "[ROSS][SETUP][DROP] "
                 f"symbol={symbol} setup={getattr(setup, 'pattern_name', None)} reason={drop_reason}"
+            )
+            continue
+        risk_geometry_reason = _risk_geometry_rejection_reason(setup)
+        if risk_geometry_reason is not None:
+            print(
+                "[ROSS][SETUP][DROP] "
+                f"symbol={symbol} setup={getattr(setup, 'pattern_name', None)} reason={risk_geometry_reason}"
+            )
+            continue
+        if _target_model_from_setup(setup) is None:
+            print(
+                "[ROSS][SETUP][DROP] "
+                f"symbol={symbol} setup={getattr(setup, 'pattern_name', None)} reason=missing_target"
             )
             continue
         detected_setups.append(setup)
@@ -232,7 +279,7 @@ def build_trade_intents(
             direction=direction,
             entry_model=setup.entry_zone or "Breakout trigger",
             stop_model=setup.stop_suggestion or "Structure-based stop",
-            target_model=setup.target_suggestion,
+            target_model=_target_model_from_setup(setup),
             time_in_force_policy=TimeInForcePolicy.DAY,
             invalidations=invalidations,
             rationale_text=setup.rationale_text or "Debug-forced Ross Momentum intent.",
