@@ -1,0 +1,269 @@
+{
+  "schema_version": "PR1032.readonly_broker_runtime_artifact.v1",
+  "status": "TEMPLATE_NOT_CAPTURED",
+  "paper_ready": "NO",
+  "paper_readiness_gate": "FAIL",
+  "broker_connected_runtime_artifact_captured": false,
+  "description": "Template for a future broker-connected READ_ONLY artifact bundle. This example is not captured evidence.",
+  "run_constraints": {
+    "allowed_run_mode": "READ_ONLY",
+    "forbidden_run_modes": [
+      "PAPER",
+      "LIVE"
+    ],
+    "execution_enabled_required": false,
+    "execution_enabled_effective_required": false,
+    "ibkr_api_write_allowed_required": false,
+    "ibkr_order_submission_enabled_required": false,
+    "event_replay_mode_effective_required": "OFF",
+    "paper_live_enablement_allowed": false,
+    "broker_orders_allowed_required": false
+  },
+  "artifact_file_contract": {
+    "required_fields": [
+      "id",
+      "path",
+      "sha256",
+      "captured_at_utc",
+      "source",
+      "redaction_status",
+      "description"
+    ],
+    "hash_required": true,
+    "redaction_required": true,
+    "allowed_redaction_statuses": [
+      "REDACTED",
+      "NO_SECRET_DATA_PRESENT"
+    ]
+  },
+  "required_artifacts": [
+    {
+      "id": "runtime_config_snapshot",
+      "required": true,
+      "minimum_fields": [
+        "RUN_MODE",
+        "RUN_MODE_EFFECTIVE",
+        "EXECUTION_ENABLED",
+        "EXECUTION_ENABLED_EFFECTIVE",
+        "EVENT_REPLAY_MODE_EFFECTIVE",
+        "IBKR_API_WRITE_ALLOWED",
+        "IBKR_ORDER_SUBMISSION_ENABLED"
+      ],
+      "must_prove": [
+        "RUN_MODE_EFFECTIVE=READ_ONLY",
+        "EXECUTION_ENABLED_EFFECTIVE=false",
+        "EVENT_REPLAY_MODE_EFFECTIVE=OFF"
+      ]
+    },
+    {
+      "id": "broker_connection_snapshot",
+      "required": true,
+      "minimum_fields": [
+        "connected",
+        "host",
+        "port",
+        "client_id",
+        "market_data_type",
+        "account_id_redacted"
+      ],
+      "must_prove": [
+        "broker connection was established for market data only",
+        "account identifier is redacted"
+      ]
+    },
+    {
+      "id": "scanner_cycle_artifact",
+      "required": true,
+      "minimum_fields": [
+        "provider_source",
+        "scanner_contract",
+        "top_n_symbols",
+        "drop_ledger",
+        "selection_spec"
+      ],
+      "must_prove": [
+        "scanner contract valid",
+        "no prep_seeded survivor",
+        "no manual_focus survivor"
+      ]
+    },
+    {
+      "id": "catalyst_news_artifact",
+      "required": true,
+      "minimum_fields": [
+        "news_source_mode",
+        "news_asof",
+        "catalyst_status_by_symbol",
+        "fresh_news_count"
+      ],
+      "must_prove": [
+        "catalyst status is explicit for every focused symbol",
+        "missing catalyst cannot enter focus"
+      ]
+    },
+    {
+      "id": "watchlist_focus_artifact",
+      "required": true,
+      "minimum_fields": [
+        "watchlist_k_symbols",
+        "focus_m_symbols",
+        "watchlist_rows",
+        "focus_rows"
+      ],
+      "must_prove": [
+        "focus_m is a subset of watchlist_k",
+        "manual_focus is absent",
+        "prep_seeded is false"
+      ]
+    },
+    {
+      "id": "pattern_input_artifact",
+      "required": true,
+      "minimum_fields": [
+        "symbol",
+        "timeframe_provenance",
+        "data_quality_flags",
+        "liquidity_context",
+        "news_context"
+      ],
+      "must_prove": [
+        "pattern input provenance is captured",
+        "blocking data quality flags are persisted"
+      ]
+    },
+    {
+      "id": "setup_decision_artifact",
+      "required": true,
+      "minimum_fields": [
+        "detected_setups",
+        "selected_setup",
+        "entry_model",
+        "stop_model",
+        "target_model",
+        "rationale_text",
+        "decision_reason"
+      ],
+      "must_prove": [
+        "target_model presence is persisted",
+        "READ_ONLY decision path does not use PAPER forced intent"
+      ]
+    },
+    {
+      "id": "risk_gate_artifact",
+      "required": true,
+      "minimum_fields": [
+        "risk_gate_called",
+        "risk_approved",
+        "risk_reason",
+        "risk_profile"
+      ],
+      "must_prove": [
+        "risk decision is persisted for every intent",
+        "no-trade path does not fabricate risk approval"
+      ]
+    },
+    {
+      "id": "execution_gate_artifact",
+      "required": true,
+      "minimum_fields": [
+        "execution_enabled",
+        "order_submission_enabled",
+        "api_write_allowed",
+        "execution_path",
+        "order_attempt_count"
+      ],
+      "must_prove": [
+        "order_submission_enabled=false",
+        "api_write_allowed=false",
+        "order_attempt_count=0"
+      ]
+    },
+    {
+      "id": "broker_order_audit",
+      "required": true,
+      "minimum_fields": [
+        "submitted_orders_count",
+        "cancelled_orders_count",
+        "modified_orders_count",
+        "open_orders_before",
+        "open_orders_after"
+      ],
+      "must_prove": [
+        "submitted_orders_count=0",
+        "cancelled_orders_count=0",
+        "modified_orders_count=0"
+      ]
+    },
+    {
+      "id": "analytics_storage_artifact",
+      "required": true,
+      "minimum_fields": [
+        "storage_write_count",
+        "storage_readback_count",
+        "trade_plan_records",
+        "no_trade_records",
+        "artifact_paths"
+      ],
+      "must_prove": [
+        "trade-plan records are durable when intents exist",
+        "no-trade records are durable when gates block"
+      ]
+    },
+    {
+      "id": "final_verdict",
+      "required": true,
+      "minimum_fields": [
+        "paper_ready",
+        "paper_readiness_gate",
+        "blockers",
+        "operator_signature"
+      ],
+      "must_prove": [
+        "PAPER_READY=NO unless every objective gate passes",
+        "operator reviewed redacted artifact bundle"
+      ]
+    }
+  ],
+  "acceptance_gates": [
+    {
+      "id": "readonly_mode_only",
+      "required_verdict": "PASS",
+      "failure_if": "RUN_MODE_EFFECTIVE is PAPER or LIVE"
+    },
+    {
+      "id": "zero_broker_order_mutations",
+      "required_verdict": "PASS",
+      "failure_if": "submitted, cancelled, or modified broker order count is nonzero"
+    },
+    {
+      "id": "scanner_focus_artifacts_present",
+      "required_verdict": "PASS",
+      "failure_if": "watchlist/focus/scanner contract artifacts are missing"
+    },
+    {
+      "id": "decision_risk_storage_artifacts_present",
+      "required_verdict": "PASS",
+      "failure_if": "decision, risk, execution gate, or storage readback artifacts are missing"
+    },
+    {
+      "id": "redaction_and_hashing_complete",
+      "required_verdict": "PASS",
+      "failure_if": "any artifact lacks sha256 or contains unredacted account/secrets"
+    }
+  ],
+  "forbidden_evidence": [
+    "PAPER_READY: YES",
+    "PAPER_READINESS_GATE: PASS",
+    "RUN_MODE_EFFECTIVE=PAPER",
+    "RUN_MODE_EFFECTIVE=LIVE",
+    "EXECUTION_ENABLED_EFFECTIVE=true",
+    "IBKR_ORDER_SUBMISSION_ENABLED=true",
+    "submitted_orders_count>0",
+    "cancelled_orders_count>0",
+    "modified_orders_count>0",
+    "fake trade",
+    "synthetic broker order",
+    "unredacted account id",
+    "unredacted token or credential"
+  ]
+}
