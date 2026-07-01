@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,7 @@ def _load_script_module():
     spec = importlib.util.spec_from_file_location("pr1033_capture", _SCRIPT_PATH)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
