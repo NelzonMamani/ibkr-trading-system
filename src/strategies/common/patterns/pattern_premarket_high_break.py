@@ -128,6 +128,7 @@ def detect_premarket_high_break(inputs: PatternInputs) -> PatternResult:
         setup_quality_tags=["pmh_break", path, "volume_confirmed"],
         setup_family_id="PREMARKET_HIGH_BREAK",
         rationale_text="Reclaim and hold above premarket high",
+        target_suggestion="HOD / next resistance extension after PMH acceptance",
         rejection_reason=None,
         data_quality_flags=list(inputs.data_quality_flags),
         trigger_type="XL_PREMARKET_HIGH_BREAK",

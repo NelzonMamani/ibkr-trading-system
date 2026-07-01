@@ -93,6 +93,7 @@ def detect_flat_top_breakout(inputs: PatternInputs) -> PatternResult:
             f"Flat-top resistance held for {touches} touches and price closed above "
             f"trigger={resistance:.4f}."
         ),
+        target_suggestion="Measured range expansion above flat-top resistance",
         rejection_reason=None,
         data_quality_flags=list(inputs.data_quality_flags),
         trigger_type="BREAKOUT_HIGH",
