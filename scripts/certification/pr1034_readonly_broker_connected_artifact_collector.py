@@ -94,20 +94,41 @@ class BrokerConnectionConfig:
     market_data_type: str
 
 
-def bootstrap_ib_insync_event_loop(util_module: Any | None = None) -> None:
-    """Prepare an asyncio loop before ib_insync creates its IB connection object."""
+def ensure_asyncio_event_loop() -> None:
+    """Create a current asyncio loop before importing ib_insync."""
 
     try:
         asyncio.get_event_loop()
     except RuntimeError:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
+
+def bootstrap_ib_insync_event_loop(util_module: Any | None = None) -> None:
+    """Ensure an asyncio loop and optionally apply ib_insync's asyncio patch."""
+
+    ensure_asyncio_event_loop()
     patch_asyncio = getattr(util_module, "patchAsyncio", None)
     if callable(patch_asyncio):
         try:
             patch_asyncio()
         except Exception as exc:
             raise CollectorValidationError("ib_insync event-loop bootstrap failed") from exc
+
+
+def load_ib_insync_ib_after_bootstrap() -> Any:
+    """Return ib_insync.IB only after asyncio and util bootstrap are complete."""
+
+    ensure_asyncio_event_loop()
+    try:
+        from ib_insync import util
+    except ImportError as exc:
+        raise CollectorValidationError("ib_insync is required for broker connection") from exc
+    bootstrap_ib_insync_event_loop(util)
+    try:
+        from ib_insync import IB
+    except ImportError as exc:
+        raise CollectorValidationError("ib_insync IB is required for broker connection") from exc
+    return IB
 
 
 class IBInsyncReadOnlyProvider:
@@ -118,11 +139,7 @@ class IBInsyncReadOnlyProvider:
         self._ib: Any | None = None
 
     def connect_readonly(self) -> None:
-        try:
-            from ib_insync import IB, util
-        except ImportError as exc:
-            raise CollectorValidationError("ib_insync is required for broker connection") from exc
-        bootstrap_ib_insync_event_loop(util)
+        IB = load_ib_insync_ib_after_bootstrap()
         ib = IB()
         ib.connect(
             self.config.host,

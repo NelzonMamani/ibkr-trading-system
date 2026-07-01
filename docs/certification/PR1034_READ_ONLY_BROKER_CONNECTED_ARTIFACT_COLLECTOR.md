@@ -35,6 +35,10 @@ PAPER readiness remains blocked.
 
 PR1035 tightens the collector without changing trading behavior. The corrected collector bootstraps ib_insync's asyncio support before creating the `IB()` object and fails closed if broker order/account evidence cannot be read. An open-order request/read failure, a managed-account read failure, missing broker snapshot fields, or explicit failure status rows now abort the capture before PR1032 raw artifacts are written.
 
+## PR1036 Correction Note
+
+PR1036 tightens the import-order side of the bootstrap without changing trading behavior. The collector now creates or confirms an asyncio event loop before any `ib_insync` import, then imports `ib_insync.util`, applies the util bootstrap, and only then imports or instantiates `IB`. The PR1035 fail-closed broker evidence behavior is preserved.
+
 ## Files Added Or Updated
 
 | File | Purpose |
@@ -50,7 +54,7 @@ PR1035 tightens the collector without changing trading behavior. The corrected c
 | --- | --- | --- |
 | Explicit broker connection | CLI refuses to connect unless `--connect-ibkr-readonly` is provided. | Prevents accidental broker connection during local or CI use. |
 | Runtime preflight | Reuses PR1033 READ_ONLY env validation before provider connection. | Fails before broker connection if mode/execution flags are unsafe. |
-| ib_insync bootstrap | PR1035 prepares an asyncio event loop and calls `ib_insync.util.patchAsyncio()` before `IB()` is constructed. | Reduces operator-run connection failures caused by missing event-loop setup. |
+| ib_insync bootstrap | PR1036 creates or confirms an asyncio event loop, imports `ib_insync.util`, calls `patchAsyncio()`, and then imports/instantiates `IB`. | Reduces operator-run connection failures caused by missing event-loop setup or fragile import ordering. |
 | IBKR adapter | Uses `ib_insync.IB.connect(..., readonly=True)` only in operator-invoked CLI runs. | Requests broker read-only connection rather than order authority. |
 | Order mutation audit | Requires submitted/cancelled/modified order counts to remain zero. | Blocks any bundle that indicates broker order mutation. |
 | Open-order audit availability | PR1035 aborts on open-order request/read failure or failure status markers. | Prevents incomplete broker audit data from becoming validated-looking evidence. |
@@ -97,7 +101,7 @@ The collector aborts if any of these are true:
 
 ## Remaining Blockers
 
-| Blocker | Status after PR1034/PR1035 |
+| Blocker | Status after PR1034/PR1035/PR1036 |
 | --- | --- |
 | Real operator-run broker-connected artifact bundle | Not captured by this PR |
 | Full scanner/watchlist/focus runtime evidence | Not captured by this PR |
@@ -115,6 +119,7 @@ Target commands:
 ```powershell
 python -m pytest tests/test_ross_pr1034_readonly_broker_connected_artifact_collector.py
 python -m pytest tests/test_ross_pr1035_pr1034_broker_collector_safety_fix.py
+python -m pytest tests/test_ross_pr1036_pr1034_ib_insync_import_order_bootstrap.py
 python -m pytest tests/test_ross_pr1033_readonly_broker_artifact_capture_script.py tests/test_ross_pr1032_readonly_broker_runtime_artifact_capture_pack.py
 python -m pytest tests -k "ross or readonly or paper or execution or scanner or catalyst or focus or artifact or broker"
 ```
@@ -123,4 +128,4 @@ Local execution may be unavailable in this Codex desktop session if the local Py
 
 ## Final Certification Answer
 
-PR1034 adds a guarded READ_ONLY broker-connected collector path, and PR1035 tightens the collector's bootstrap and fail-closed broker evidence checks. It does not mutate broker state, does not connect to IBKR in CI, does not enable PAPER/LIVE, and does not certify that the real broker-connected full strategy capture has already happened. Ross Momentum remains `PAPER_READY: NO`.
+PR1034 adds a guarded READ_ONLY broker-connected collector path; PR1035 tightens the collector's bootstrap and fail-closed broker evidence checks; PR1036 tightens the asyncio and ib_insync import/bootstrap ordering. It does not mutate broker state, does not connect to IBKR in CI, does not enable PAPER/LIVE, and does not certify that the real broker-connected full strategy capture has already happened. Ross Momentum remains `PAPER_READY: NO`.
