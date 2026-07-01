@@ -2,10 +2,13 @@
 """PR1033 READ_ONLY broker artifact capture/assembly tool.
 
 This script does not connect to IBKR, submit orders, cancel orders, flatten
-positions, or fabricate missing broker artifacts. It validates a directory of
+positions, or fabricate broker artifacts. It validates a directory of
 operator-provided JSON artifacts against the PR1032 capture contract, redacts
 secret-like fields, writes normalized copies, computes SHA-256 hashes, and
 emits a review manifest that keeps PAPER_READY=NO.
+
+The optional --dry-run mode writes generated placeholder artifacts to prove the
+validator path without claiming broker-connected runtime evidence.
 """
 
 from __future__ import annotations
@@ -23,6 +26,8 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 SCHEMA_VERSION = "PR1033.readonly_broker_artifact_capture.v1"
+CAPTURE_STATUS = "CAPTURE_BUNDLE_VALIDATED_PENDING_HUMAN_REVIEW"
+DRY_RUN_STATUS = "DRY_RUN_VALIDATED_NOT_BROKER_EVIDENCE"
 PR1032_MANIFEST_PATH = Path(
     "docs/certification/PR1032_READ_ONLY_BROKER_RUNTIME_ARTIFACT_MANIFEST.example.json"
 )
@@ -165,6 +170,7 @@ def assert_safe_runtime_environment(env: Mapping[str, str]) -> dict[str, Any]:
         "RUN_MODE_EFFECTIVE": env.get("RUN_MODE_EFFECTIVE"),
         "EXECUTION_ENABLED": env.get("EXECUTION_ENABLED"),
         "EXECUTION_ENABLED_EFFECTIVE": env.get("EXECUTION_ENABLED_EFFECTIVE"),
+        "EVENT_REPLAY_MODE": env.get("EVENT_REPLAY_MODE"),
         "EVENT_REPLAY_MODE_EFFECTIVE": env.get("EVENT_REPLAY_MODE_EFFECTIVE"),
         "IBKR_API_WRITE_ALLOWED": env.get("IBKR_API_WRITE_ALLOWED"),
         "IBKR_ORDER_SUBMISSION_ENABLED": env.get("IBKR_ORDER_SUBMISSION_ENABLED"),
@@ -178,6 +184,9 @@ def assert_safe_runtime_environment(env: Mapping[str, str]) -> dict[str, Any]:
         raise CaptureValidationError("EXECUTION_ENABLED must be false before capture")
     if _normalize_bool(snapshot["EXECUTION_ENABLED_EFFECTIVE"]) is not False:
         raise CaptureValidationError("EXECUTION_ENABLED_EFFECTIVE must be false before capture")
+    event_replay_mode = snapshot["EVENT_REPLAY_MODE"]
+    if event_replay_mode is not None and _normalize_upper(event_replay_mode) != "OFF":
+        raise CaptureValidationError("EVENT_REPLAY_MODE must be OFF before capture")
     if _normalize_upper(snapshot["EVENT_REPLAY_MODE_EFFECTIVE"]) != "OFF":
         raise CaptureValidationError("EVENT_REPLAY_MODE_EFFECTIVE must be OFF before capture")
     if _normalize_bool(snapshot["IBKR_API_WRITE_ALLOWED"]) is not False:
@@ -284,6 +293,9 @@ def assert_artifact_policy(artifact_id: str, payload: Mapping[str, Any]) -> None
             raise CaptureValidationError("runtime RUN_MODE_EFFECTIVE must be READ_ONLY")
         _require_false(payload, "EXECUTION_ENABLED", artifact_id)
         _require_false(payload, "EXECUTION_ENABLED_EFFECTIVE", artifact_id)
+        event_replay_mode = payload.get("EVENT_REPLAY_MODE")
+        if event_replay_mode is not None and _normalize_upper(event_replay_mode) != "OFF":
+            raise CaptureValidationError("runtime EVENT_REPLAY_MODE must be OFF")
         if _normalize_upper(payload.get("EVENT_REPLAY_MODE_EFFECTIVE")) != "OFF":
             raise CaptureValidationError("runtime EVENT_REPLAY_MODE_EFFECTIVE must be OFF")
         _require_false(payload, "IBKR_API_WRITE_ALLOWED", artifact_id)
@@ -320,6 +332,58 @@ def assert_output_dir_ready(output_dir: Path, force: bool) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
 
+def _validate_paths(template_path: Path, runbook_path: Path) -> dict[str, ArtifactSpec]:
+    if not template_path.exists():
+        raise CaptureValidationError(f"manifest template not found: {template_path}")
+    if not runbook_path.exists():
+        raise CaptureValidationError(f"operator runbook not found: {runbook_path}")
+    return load_artifact_specs(template_path)
+
+
+def _write_captured_artifact(
+    *,
+    artifact_id: str,
+    source_path: Path,
+    payload: Mapping[str, Any],
+    spec: ArtifactSpec,
+    output_dir: Path,
+    description: str,
+) -> CapturedArtifact:
+    require_fields(payload, spec)
+    assert_artifact_policy(artifact_id, payload)
+    redacted_payload, changed = redact_payload(payload)
+    assert_no_forbidden_evidence(redacted_payload, artifact_id)
+    output_path = output_dir / f"{artifact_id}.json"
+    write_json(output_path, redacted_payload)
+    return CapturedArtifact(
+        artifact_id=artifact_id,
+        source_path=source_path,
+        output_path=output_path,
+        sha256=sha256_file(output_path),
+        redaction_status="REDACTED" if changed else "NO_SECRET_DATA_PRESENT",
+        description=description,
+    )
+
+
+def _artifact_rows(captured_artifacts: Sequence[CapturedArtifact], captured_at: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": item.artifact_id,
+            "path": item.output_path.name,
+            "sha256": item.sha256,
+            "captured_at_utc": captured_at,
+            "source": str(item.source_path.as_posix()),
+            "redaction_status": item.redaction_status,
+            "description": item.description,
+        }
+        for item in captured_artifacts
+    ]
+
+
+def _write_manifest(output_dir: Path, manifest: Mapping[str, Any]) -> None:
+    write_json(output_dir / "capture_manifest.json", manifest)
+
+
 def capture_bundle(
     *,
     source_dir: Path,
@@ -331,94 +395,250 @@ def capture_bundle(
     force: bool = False,
 ) -> dict[str, Any]:
     runtime_env = assert_safe_runtime_environment(env or os.environ)
-    if not template_path.exists():
-        raise CaptureValidationError(f"manifest template not found: {template_path}")
-    if not runbook_path.exists():
-        raise CaptureValidationError(f"operator runbook not found: {runbook_path}")
-    specs = load_artifact_specs(template_path)
+    specs = _validate_paths(template_path, runbook_path)
     assert_output_dir_ready(output_dir, force=force)
 
     captured_at = utc_now_iso()
     captured_artifacts: list[CapturedArtifact] = []
-    try:
-        for artifact_id in REQUIRED_ARTIFACT_IDS:
-            spec = specs[artifact_id]
-            source_path = _artifact_source_path(source_dir, artifact_id)
-            if not source_path.exists():
-                raise CaptureValidationError(f"missing required artifact file: {source_path}")
-            raw_payload = load_json(source_path)
-            if not isinstance(raw_payload, dict):
-                raise CaptureValidationError(f"{artifact_id} must be a JSON object")
-            require_fields(raw_payload, spec)
-            assert_artifact_policy(artifact_id, raw_payload)
-            redacted_payload, changed = redact_payload(raw_payload)
-            assert_no_forbidden_evidence(redacted_payload, artifact_id)
-            output_path = output_dir / f"{artifact_id}.json"
-            write_json(output_path, redacted_payload)
-            captured_artifacts.append(
-                CapturedArtifact(
-                    artifact_id=artifact_id,
-                    source_path=source_path,
-                    output_path=output_path,
-                    sha256=sha256_file(output_path),
-                    redaction_status="REDACTED" if changed else "NO_SECRET_DATA_PRESENT",
-                    description=f"PR1033 captured {artifact_id}",
-                )
+    for artifact_id in REQUIRED_ARTIFACT_IDS:
+        spec = specs[artifact_id]
+        source_path = _artifact_source_path(source_dir, artifact_id)
+        if not source_path.exists():
+            raise CaptureValidationError(f"missing required artifact file: {source_path}")
+        raw_payload = load_json(source_path)
+        if not isinstance(raw_payload, dict):
+            raise CaptureValidationError(f"{artifact_id} must be a JSON object")
+        captured_artifacts.append(
+            _write_captured_artifact(
+                artifact_id=artifact_id,
+                source_path=source_path,
+                payload=raw_payload,
+                spec=spec,
+                output_dir=output_dir,
+                description=f"PR1033 captured {artifact_id}",
             )
+        )
 
-        manifest = {
-            "schema_version": SCHEMA_VERSION,
-            "source_schema_version": load_json(template_path).get("schema_version"),
-            "status": "CAPTURE_BUNDLE_VALIDATED_PENDING_HUMAN_REVIEW",
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "source_schema_version": load_json(template_path).get("schema_version"),
+        "status": CAPTURE_STATUS,
+        "dry_run": False,
+        "paper_ready": "NO",
+        "paper_readiness_gate": "FAIL",
+        "broker_connected_runtime_artifact_captured": True,
+        "operator": operator,
+        "captured_at_utc": captured_at,
+        "operator_runbook": str(runbook_path.as_posix()),
+        "runtime_environment_snapshot": runtime_env,
+        "artifacts": _artifact_rows(captured_artifacts, captured_at),
+        "acceptance_gates": [
+            {"id": "operator_runbook_acknowledged", "verdict": "PASS"},
+            {"id": "readonly_mode_only", "verdict": "PASS"},
+            {"id": "clean_start_disabled", "verdict": "PASS"},
+            {"id": "zero_broker_order_mutations", "verdict": "PASS"},
+            {"id": "redaction_and_hashing_complete", "verdict": "PASS"},
+        ],
+        "blockers": [
+            "Human review required before any readiness decision.",
+            "PAPER_READY remains NO by script policy.",
+        ],
+    }
+    _write_manifest(output_dir, manifest)
+    return manifest
+
+
+def build_dry_run_artifacts(*, operator: str, captured_at: str, runtime_env: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        "operator_runbook_acknowledgement": {
+            "runbook_path": str(PR1032_RUNBOOK_PATH.as_posix()),
+            "operator": operator,
+            "acknowledged_at_utc": captured_at,
+            "pre_run_checklist_status": "PASS",
+            "abort_conditions_reviewed": True,
+            "paper_ready": "NO",
+            "dry_run": True,
+        },
+        "runtime_config_snapshot": {
+            "RUN_MODE": "READ_ONLY",
+            "RUN_MODE_EFFECTIVE": "READ_ONLY",
+            "EXECUTION_ENABLED": False,
+            "EXECUTION_ENABLED_EFFECTIVE": False,
+            "EVENT_REPLAY_MODE": "OFF",
+            "EVENT_REPLAY_MODE_EFFECTIVE": "OFF",
+            "IBKR_API_WRITE_ALLOWED": False,
+            "IBKR_ORDER_SUBMISSION_ENABLED": False,
+            "FORCE_CLEAN_START": False,
+            "source_env_snapshot": dict(runtime_env),
+            "dry_run": True,
+        },
+        "broker_connection_snapshot": {
+            "connected": False,
+            "host": "NOT_CONNECTED_DRY_RUN",
+            "port": 0,
+            "client_id": 0,
+            "market_data_type": "NOT_CONNECTED_DRY_RUN",
+            "account_id_redacted": "NO_SECRET_DATA_PRESENT",
+            "dry_run": True,
+        },
+        "scanner_cycle_artifact": {
+            "provider_source": "DRY_RUN_NO_PROVIDER",
+            "scanner_contract": {"contract_valid": True, "dry_run_only": True},
+            "top_n_symbols": [],
+            "drop_ledger": {},
+            "selection_spec": {"ranking_intent": "NO_SCAN_DRY_RUN"},
+            "dry_run": True,
+        },
+        "catalyst_news_artifact": {
+            "news_source_mode": "DRY_RUN_NO_NEWS_FEED",
+            "news_asof": captured_at,
+            "catalyst_status_by_symbol": {},
+            "fresh_news_count": 0,
+            "dry_run": True,
+        },
+        "watchlist_focus_artifact": {
+            "watchlist_k_symbols": [],
+            "focus_m_symbols": [],
+            "watchlist_rows": [],
+            "focus_rows": [],
+            "dry_run": True,
+        },
+        "pattern_input_artifact": {
+            "symbol": "DRY_RUN_NO_SYMBOL",
+            "timeframe_provenance": {},
+            "data_quality_flags": ["DRY_RUN_NO_MARKET_DATA"],
+            "liquidity_context": {},
+            "news_context": {},
+            "dry_run": True,
+        },
+        "setup_decision_artifact": {
+            "detected_setups": [],
+            "selected_setup": "NONE",
+            "entry_model": "NO_ENTRY_DRY_RUN",
+            "stop_model": "NO_STOP_DRY_RUN",
+            "target_model": "NO_TARGET_DRY_RUN",
+            "rationale_text": "Dry-run only; no market data or broker evidence captured.",
+            "decision_reason": "DRY_RUN_NO_TRADE_DECISION",
+            "dry_run": True,
+        },
+        "risk_gate_artifact": {
+            "risk_gate_called": False,
+            "risk_approved": False,
+            "risk_reason": "DRY_RUN_NOT_EVALUATED",
+            "risk_profile": "NONE",
+            "dry_run": True,
+        },
+        "execution_gate_artifact": {
+            "execution_enabled": False,
+            "order_submission_enabled": False,
+            "api_write_allowed": False,
+            "execution_path": "DRY_RUN_ORDER_PATH_DISABLED",
+            "order_attempt_count": 0,
+            "dry_run": True,
+        },
+        "broker_order_audit": {
+            "submitted_orders_count": 0,
+            "cancelled_orders_count": 0,
+            "modified_orders_count": 0,
+            "open_orders_before": [],
+            "open_orders_after": [],
+            "dry_run": True,
+        },
+        "analytics_storage_artifact": {
+            "storage_write_count": 0,
+            "storage_readback_count": 0,
+            "trade_plan_records": [],
+            "no_trade_records": [],
+            "artifact_paths": [],
+            "dry_run": True,
+        },
+        "final_verdict": {
             "paper_ready": "NO",
             "paper_readiness_gate": "FAIL",
-            "broker_connected_runtime_artifact_captured": True,
-            "operator": operator,
-            "captured_at_utc": captured_at,
-            "operator_runbook": str(runbook_path.as_posix()),
-            "runtime_environment_snapshot": runtime_env,
-            "artifacts": [
-                {
-                    "id": item.artifact_id,
-                    "path": item.output_path.name,
-                    "sha256": item.sha256,
-                    "captured_at_utc": captured_at,
-                    "source": str(item.source_path.as_posix()),
-                    "redaction_status": item.redaction_status,
-                    "description": item.description,
-                }
-                for item in captured_artifacts
-            ],
-            "acceptance_gates": [
-                {"id": "operator_runbook_acknowledged", "verdict": "PASS"},
-                {"id": "readonly_mode_only", "verdict": "PASS"},
-                {"id": "clean_start_disabled", "verdict": "PASS"},
-                {"id": "zero_broker_order_mutations", "verdict": "PASS"},
-                {"id": "redaction_and_hashing_complete", "verdict": "PASS"},
-            ],
             "blockers": [
-                "Human review required before any readiness decision.",
-                "PAPER_READY remains NO by script policy.",
+                "Dry-run output is not broker-connected runtime evidence.",
+                "Operator-provided broker artifacts are still required.",
             ],
-        }
-        write_json(output_dir / "capture_manifest.json", manifest)
-        return manifest
-    except Exception:
-        # Preserve partial artifacts for audit only if the operator chose --force and
-        # the directory existed; otherwise leave already-written files visible for debugging.
-        raise
+            "operator_signature": operator,
+            "dry_run": True,
+        },
+    }
+
+
+def capture_dry_run(
+    *,
+    output_dir: Path,
+    operator: str,
+    template_path: Path = PR1032_MANIFEST_PATH,
+    runbook_path: Path = PR1032_RUNBOOK_PATH,
+    env: Mapping[str, str] | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    runtime_env = assert_safe_runtime_environment(env or os.environ)
+    specs = _validate_paths(template_path, runbook_path)
+    assert_output_dir_ready(output_dir, force=force)
+
+    captured_at = utc_now_iso()
+    artifacts = build_dry_run_artifacts(operator=operator, captured_at=captured_at, runtime_env=runtime_env)
+    captured_artifacts: list[CapturedArtifact] = []
+    for artifact_id in REQUIRED_ARTIFACT_IDS:
+        captured_artifacts.append(
+            _write_captured_artifact(
+                artifact_id=artifact_id,
+                source_path=Path("DRY_RUN_GENERATED_BY_PR1033_SCRIPT"),
+                payload=artifacts[artifact_id],
+                spec=specs[artifact_id],
+                output_dir=output_dir,
+                description=f"PR1033 dry-run generated {artifact_id}; not broker evidence",
+            )
+        )
+
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "source_schema_version": load_json(template_path).get("schema_version"),
+        "status": DRY_RUN_STATUS,
+        "dry_run": True,
+        "paper_ready": "NO",
+        "paper_readiness_gate": "FAIL",
+        "broker_connected_runtime_artifact_captured": False,
+        "operator": operator,
+        "captured_at_utc": captured_at,
+        "operator_runbook": str(runbook_path.as_posix()),
+        "runtime_environment_snapshot": runtime_env,
+        "artifacts": _artifact_rows(captured_artifacts, captured_at),
+        "acceptance_gates": [
+            {"id": "dry_run_mode_only", "verdict": "PASS"},
+            {"id": "readonly_mode_only", "verdict": "PASS"},
+            {"id": "clean_start_disabled", "verdict": "PASS"},
+            {"id": "zero_broker_order_mutations", "verdict": "PASS"},
+            {"id": "redaction_and_hashing_complete", "verdict": "PASS"},
+            {"id": "broker_connected_runtime_evidence", "verdict": "FAIL"},
+        ],
+        "blockers": [
+            "Dry-run output is not broker-connected runtime evidence.",
+            "Operator-provided broker artifacts are still required.",
+            "PAPER_READY remains NO by script policy.",
+        ],
+    }
+    _write_manifest(output_dir, manifest)
+    return manifest
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Validate and assemble a PR1033 READ_ONLY broker artifact bundle."
     )
-    parser.add_argument("--source-dir", required=True, type=Path, help="Directory containing <artifact_id>.json files")
+    parser.add_argument("--source-dir", type=Path, help="Directory containing <artifact_id>.json files")
     parser.add_argument("--output-dir", required=True, type=Path, help="Fresh destination directory for normalized artifacts")
     parser.add_argument("--operator", required=True, help="Operator name or initials for manifest metadata")
     parser.add_argument("--manifest-template", default=PR1032_MANIFEST_PATH, type=Path)
     parser.add_argument("--runbook", default=PR1032_RUNBOOK_PATH, type=Path)
     parser.add_argument("--force", action="store_true", help="Replace a non-empty output directory")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Generate placeholder artifacts to validate the script path without broker evidence",
+    )
     return parser
 
 
@@ -426,14 +646,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        manifest = capture_bundle(
-            source_dir=args.source_dir,
-            output_dir=args.output_dir,
-            operator=args.operator,
-            template_path=args.manifest_template,
-            runbook_path=args.runbook,
-            force=args.force,
-        )
+        if args.dry_run:
+            manifest = capture_dry_run(
+                output_dir=args.output_dir,
+                operator=args.operator,
+                template_path=args.manifest_template,
+                runbook_path=args.runbook,
+                force=args.force,
+            )
+        else:
+            if args.source_dir is None:
+                raise CaptureValidationError("--source-dir is required unless --dry-run is set")
+            manifest = capture_bundle(
+                source_dir=args.source_dir,
+                output_dir=args.output_dir,
+                operator=args.operator,
+                template_path=args.manifest_template,
+                runbook_path=args.runbook,
+                force=args.force,
+            )
     except CaptureValidationError as exc:
         print(f"[PR1033][ABORT] {exc}", file=sys.stderr)
         return 2
