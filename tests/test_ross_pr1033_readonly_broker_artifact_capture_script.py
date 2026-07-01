@@ -334,7 +334,7 @@ def test_pr1032_runbook_lists_pr1033_dry_run_command() -> None:
 
     required_fragments = (
         "## PR1033 Artifact Validator / Dry-Run Commands",
-        'cd "C:\\Users\\nelzo\\PycharmProjectsDec2025\\ibkr-trading-system"',
+        r'cd "C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system"'.replace('\\', '\\'),
         "git pull --ff-only origin main",
         '$env:RUN_MODE="READ_ONLY"',
         '$env:RUN_MODE_EFFECTIVE="READ_ONLY"',
@@ -345,9 +345,9 @@ def test_pr1032_runbook_lists_pr1033_dry_run_command() -> None:
         '$env:IBKR_API_WRITE_ALLOWED="false"',
         '$env:IBKR_ORDER_SUBMISSION_ENABLED="false"',
         '$env:FORCE_CLEAN_START="false"',
-        ".\\.venv\\Scripts\\python.exe scripts\\certification\\pr1033_readonly_broker_artifact_capture.py `",
+        r".\.venv\Scripts\python.exe scripts\certification\pr1033_readonly_broker_artifact_capture.py `",
         "--dry-run `",
-        "--output-dir artifacts\\certification\\pr1033\\dry_run_readonly_capture `",
+        r"--output-dir artifacts\certification\pr1033\dry_run_readonly_capture `",
         "--operator NELZON",
         "Dry-run output is not broker-connected evidence.",
     )
