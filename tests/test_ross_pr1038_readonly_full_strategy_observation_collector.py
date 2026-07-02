@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import importlib.util
 import json
@@ -63,6 +63,7 @@ def _safe_env() -> dict[str, str]:
         "FORCE_RISK_APPROVAL_FOR_TRADE_READY": "false",
         "VALIDATION_SESSION_OVERRIDE": "false",
         "ROSS_VALIDATION_OVERRIDE": "false",
+        "ROSS_VALIDATION_OVERRIDE_ENABLED": "false",
         "ROSS_THRESHOLD_OVERRIDE": "false",
         "ROSS_CATALYST_BYPASS": "false",
         "ROSS_FLOAT_RELAXATION": "false",
@@ -105,6 +106,7 @@ def _minimal_artifacts() -> dict[str, dict]:
             "FORCE_RISK_APPROVAL_FOR_TRADE_READY": False,
             "VALIDATION_SESSION_OVERRIDE": False,
             "ROSS_VALIDATION_OVERRIDE": False,
+            "ROSS_VALIDATION_OVERRIDE_ENABLED": False,
             "ROSS_THRESHOLD_OVERRIDE": False,
             "ROSS_CATALYST_BYPASS": False,
             "ROSS_FLOAT_RELAXATION": False,
@@ -307,9 +309,9 @@ def test_pr1038_aborts_for_extra_force_or_validation_override_env(tmp_path: Path
     output_dir = tmp_path / "validated"
     _write_artifact_dir(source_dir)
     env = _safe_env()
-    env["ROSS_VALIDATION_OVERRIDE"] = "true"
+    env["ROSS_VALIDATION_OVERRIDE_ENABLED"] = "true"
 
-    with pytest.raises(pr1038.PR1038ValidationError, match="ROSS_VALIDATION_OVERRIDE"):
+    with pytest.raises(pr1038.PR1038ValidationError, match="ROSS_VALIDATION_OVERRIDE_ENABLED"):
         _validate(source_dir, output_dir, env)
 
 
@@ -438,6 +440,66 @@ def test_pr1038_missing_storage_readback_requires_blocker(tmp_path: Path) -> Non
     _write_artifact_dir(source_dir, artifacts)
 
     with pytest.raises(pr1038.PR1038ValidationError, match="storage readback"):
+        _validate(source_dir, output_dir)
+
+
+def test_pr1038_accepted_setup_without_decision_verdict_still_requires_confirmed_catalyst(tmp_path: Path) -> None:
+    source_dir = tmp_path / "raw"
+    output_dir = tmp_path / "validated"
+    artifacts = _minimal_artifacts()
+    artifacts["catalyst_news_artifact"]["catalyst_status_by_symbol"] = {"PR38A": "DROP_NO_CATALYST"}
+    artifacts["pattern_input_artifact"]["freshness_status"] = "FRESH"
+    artifacts["pattern_input_artifact"]["missing_data_action"] = "NONE"
+    artifacts["setup_decision_artifact"].pop("decision_verdict", None)
+    artifacts["setup_decision_artifact"].update(
+        {
+            "detected_setups": ["Micro Pullback"],
+            "selected_setup": "Micro Pullback",
+            "entry_model": "Break over pullback high",
+            "stop_model": "Below pullback low",
+            "target_model": "HOD extension target",
+            "decision_reason": "READ_ONLY_NORMAL_DECISION_PATH",
+        }
+    )
+    artifacts["risk_gate_artifact"]["risk_gate_called"] = True
+    artifacts["risk_gate_artifact"]["risk_approved"] = True
+    _write_artifact_dir(source_dir, artifacts)
+
+    with pytest.raises(pr1038.PR1038ValidationError, match="confirmed catalyst"):
+        _validate(source_dir, output_dir)
+
+
+def test_pr1038_accepted_setup_without_decision_verdict_still_rejects_blocked_pattern_inputs(tmp_path: Path) -> None:
+    source_dir = tmp_path / "raw"
+    output_dir = tmp_path / "validated"
+    artifacts = _minimal_artifacts()
+    artifacts["setup_decision_artifact"].pop("decision_verdict", None)
+    artifacts["setup_decision_artifact"].update(
+        {
+            "detected_setups": ["Flat Top Breakout"],
+            "selected_setup": "Flat Top Breakout",
+            "entry_model": "Break flat-top trigger",
+            "stop_model": "Below consolidation low",
+            "target_model": "Measured extension",
+            "decision_reason": "ROSS_SETUP_ACCEPTED",
+        }
+    )
+    artifacts["risk_gate_artifact"]["risk_gate_called"] = True
+    artifacts["risk_gate_artifact"]["risk_approved"] = True
+    _write_artifact_dir(source_dir, artifacts)
+
+    with pytest.raises(pr1038.PR1038ValidationError, match="blocked pattern inputs"):
+        _validate(source_dir, output_dir)
+
+
+def test_pr1038_aborts_for_registered_validation_override_in_runtime_artifact(tmp_path: Path) -> None:
+    source_dir = tmp_path / "raw"
+    output_dir = tmp_path / "validated"
+    artifacts = _minimal_artifacts()
+    artifacts["runtime_config_snapshot"]["ROSS_VALIDATION_OVERRIDE_ENABLED"] = True
+    _write_artifact_dir(source_dir, artifacts)
+
+    with pytest.raises(pr1038.PR1038ValidationError, match="ROSS_VALIDATION_OVERRIDE_ENABLED"):
         _validate(source_dir, output_dir)
 
 

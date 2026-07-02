@@ -1,4 +1,4 @@
-﻿# PR1038 READ_ONLY Full Ross Strategy Observation Collector
+# PR1038 READ_ONLY Full Ross Strategy Observation Collector
 
 ## Scope
 
@@ -58,7 +58,7 @@ final_verdict.json
 | Clean-start | FORCE_CLEAN_START=false |
 | Force execution | absent or false |
 | Force risk approval | absent or false |
-| Ross validation override | absent or false |
+| Ross validation override | ROSS_VALIDATION_OVERRIDE_ENABLED and legacy ROSS_VALIDATION_OVERRIDE absent or false |
 | Threshold override | absent or false |
 | Catalyst bypass | absent or false |
 | Float/RVOL relaxation | absent or false |
@@ -98,6 +98,7 @@ $env:FORCE_EXECUTION_ON_TRADE_READY="false"
 $env:FORCE_RISK_APPROVAL_FOR_TRADE_READY="false"
 $env:VALIDATION_SESSION_OVERRIDE="false"
 $env:ROSS_VALIDATION_OVERRIDE="false"
+$env:ROSS_VALIDATION_OVERRIDE_ENABLED="false"
 $env:ROSS_THRESHOLD_OVERRIDE="false"
 $env:ROSS_CATALYST_BYPASS="false"
 $env:ROSS_FLOAT_RELAXATION="false"

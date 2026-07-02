@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 """PR1038 READ_ONLY full Ross strategy observation artifact validator.
 
 Certification-only offline validator/assembler for a full Ross READ_ONLY
@@ -57,6 +57,7 @@ EXTRA_FALSE_OR_ABSENT_ENV_KEYS = (
     "FORCE_RISK_APPROVAL_FOR_TRADE_READY",
     "VALIDATION_SESSION_OVERRIDE",
     "ROSS_VALIDATION_OVERRIDE",
+    "ROSS_VALIDATION_OVERRIDE_ENABLED",
     "ROSS_THRESHOLD_OVERRIDE",
     "ROSS_CATALYST_BYPASS",
     "ROSS_FLOAT_RELAXATION",
@@ -264,6 +265,59 @@ def assert_no_bypass_or_threshold_override(scanner: Mapping[str, Any], catalyst:
                     raise PR1038ValidationError(f"{nested_key}.{key} is forbidden")
 
 
+ACCEPTED_DECISION_REASONS = {
+    "ACCEPT",
+    "ACCEPTED",
+    "APPROVED",
+    "ROSS_SETUP_ACCEPTED",
+    "READ_ONLY_NORMAL_DECISION_PATH",
+    "TRADE_READY",
+    "SETUP_ACCEPTED",
+}
+
+NO_TRADE_OR_REJECT_DECISION_REASONS = {
+    "NO_TRADE",
+    "REJECT",
+    "REJECTED",
+    "BLOCK",
+    "DROP",
+    "DROP_NO_CATALYST",
+    "PATTERN_INPUT_BLOCK",
+    "INVALID_RISK_GEOMETRY",
+    "MISSING_TARGET",
+}
+
+
+def _has_meaningful_setup_value(value: Any) -> bool:
+    normalized = _normalize_upper(value)
+    return normalized not in {"", "NONE", "NO_SETUP", "NONE_COLLECTOR_ONLY", "NO_ENTRY_NO_TRADE"}
+
+
+def _has_detected_setup(setup: Mapping[str, Any]) -> bool:
+    detected = setup.get("detected_setups", []) or []
+    if isinstance(detected, str):
+        detected = [detected]
+    return any(_has_meaningful_setup_value(item) for item in detected)
+
+
+def _decision_key(setup: Mapping[str, Any]) -> str:
+    return _normalize_upper(setup.get("decision_verdict") or setup.get("decision_reason"))
+
+
+def _decision_is_accept(setup: Mapping[str, Any]) -> bool:
+    decision = _decision_key(setup)
+    if decision in ACCEPTED_DECISION_REASONS:
+        return True
+    if decision in NO_TRADE_OR_REJECT_DECISION_REASONS:
+        return False
+    return _has_meaningful_setup_value(setup.get("selected_setup")) or _has_detected_setup(setup)
+
+
+def _decision_is_reject_or_no_trade(setup: Mapping[str, Any]) -> bool:
+    decision = _decision_key(setup)
+    return decision in NO_TRADE_OR_REJECT_DECISION_REASONS
+
+
 def assert_decision_and_inputs_safe(artifacts: Mapping[str, Mapping[str, Any]]) -> None:
     catalyst = artifacts["catalyst_news_artifact"]
     focus = artifacts["watchlist_focus_artifact"]
@@ -272,12 +326,12 @@ def assert_decision_and_inputs_safe(artifacts: Mapping[str, Mapping[str, Any]]) 
     risk = artifacts["risk_gate_artifact"]
     execution = artifacts["execution_gate_artifact"]
 
-    verdict = _normalize_upper(setup.get("decision_verdict") or setup.get("decision_reason"))
+    accepted = _decision_is_accept(setup)
 
     if _normalize_bool(setup.get("fallback_trade_intent")) is True:
         raise PR1038ValidationError("fallback trade intent is forbidden")
 
-    if verdict == "ACCEPT":
+    if accepted:
         statuses = _catalyst_statuses(catalyst)
         for symbol in _focused_symbols(focus):
             if statuses.get(symbol) not in CATALYST_ACCEPT_VALUES:
@@ -292,7 +346,7 @@ def assert_decision_and_inputs_safe(artifacts: Mapping[str, Mapping[str, Any]]) 
             if not str(setup.get(key, "")).strip():
                 raise PR1038ValidationError(f"accepted setup missing {key}")
 
-    if verdict in {"NO_TRADE", "REJECT", "BLOCK", "DROP_NO_CATALYST"}:
+    if not accepted and _decision_is_reject_or_no_trade(setup):
         if _normalize_bool(risk.get("risk_approved")) is True:
             raise PR1038ValidationError("risk gate must not approve rejected/no-trade setup")
 
