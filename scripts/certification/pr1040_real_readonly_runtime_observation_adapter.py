@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 import importlib.util
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -24,6 +25,8 @@ PR1039_INPUT_SCHEMA_VERSION = "PR1039.controlled_readonly_observation_input.v1"
 CANONICAL_DECISION_AUTHORITY = "RossMomentumStrategy.evaluate"
 REAL_STORAGE_EVIDENCE_SOURCE = "REAL_ANALYTICS_STORAGE_WRITE_READBACK"
 STORAGE_EVIDENCE_UNAVAILABLE_BLOCKER = "Real analytics/storage write-readback evidence is unavailable."
+PRICED_INTENT_BLOCKER = "Accepted setup risk evidence missing numeric entry price."
+BROKER_AUDIT_INCOMPLETE_BLOCKER = "Broker before/after audit evidence is incomplete."
 
 DEFAULT_OBSERVATION_OUTPUT = Path(
     "artifacts/certification/pr1040/real_runtime_observation/real_runtime_observation.json"
@@ -37,6 +40,18 @@ DEFAULT_VALIDATED_OUTPUT_DIR = Path(
 
 TRUE_VALUES = {"1", "true", "yes", "on"}
 FALSE_VALUES = {"0", "false", "no", "off", ""}
+ENTRY_PRICE_METADATA_KEYS = (
+    "entry_price",
+    "priced_entry",
+    "priced_sizing_input",
+    "sizing_entry_price",
+    "canonical_entry_price",
+    "entry_level",
+    "trigger_price",
+    "trigger_level",
+    "limit_price",
+)
+NUMERIC_PRICE_PATTERN = re.compile(r"[-+]?\d+(?:\.\d+)?")
 
 READ_ONLY_ENV_DEFAULTS: dict[str, str] = {
     "RUN_MODE": "READ_ONLY",
@@ -416,8 +431,20 @@ def _normalize_open_order_rows(open_orders: Sequence[Any]) -> list[dict[str, Any
     return sorted(rows, key=lambda row: (str(row.get("symbol")), str(row.get("order_id")), str(row.get("perm_id"))))
 
 
+def _broker_before_connected(evidence: RuntimeObservationEvidence) -> bool:
+    return bool(evidence.broker_before.get("connected"))
+
+
+def _broker_after_connected(evidence: RuntimeObservationEvidence) -> bool:
+    return bool(evidence.broker_after.get("connected"))
+
+
+def _broker_audit_complete(evidence: RuntimeObservationEvidence) -> bool:
+    return _broker_before_connected(evidence) and _broker_after_connected(evidence)
+
+
 def _broker_connected(evidence: RuntimeObservationEvidence) -> bool:
-    return bool(evidence.broker_before.get("connected") or evidence.broker_after.get("connected"))
+    return _broker_audit_complete(evidence)
 
 
 def _order_mutation_count(evidence: RuntimeObservationEvidence) -> int:
@@ -446,6 +473,48 @@ def _intent_metadata(intent: Any) -> Mapping[str, Any]:
 
 def _intent_decision_authority(intent: Any) -> str:
     return str(_intent_metadata(intent).get("decision_authority") or "")
+
+
+def _coerce_positive_price(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+        return parsed if parsed > 0.0 else None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = float(text)
+        return parsed if parsed > 0.0 else None
+    except ValueError:
+        pass
+    for token in NUMERIC_PRICE_PATTERN.findall(text):
+        try:
+            parsed = float(token)
+        except ValueError:
+            continue
+        if parsed > 0.0:
+            return parsed
+    return None
+
+
+def _intent_entry_price(intent: Any) -> float | None:
+    metadata = _intent_metadata(intent)
+    for key in ENTRY_PRICE_METADATA_KEYS:
+        if key in metadata:
+            price = _coerce_positive_price(metadata.get(key))
+            if price is not None:
+                return price
+    for key in ENTRY_PRICE_METADATA_KEYS:
+        price = _coerce_positive_price(_get_value(intent, key))
+        if price is not None:
+            return price
+    for key in ("entry", "entry_model"):
+        price = _coerce_positive_price(_get_value(intent, key))
+        if price is not None:
+            return price
+    return None
 
 
 def _strategy_decision_rows(evidence: RuntimeObservationEvidence) -> list[dict[str, Any]]:
@@ -578,6 +647,7 @@ def _setup_decision_artifact(evidence: RuntimeObservationEvidence) -> dict[str, 
     strategy_decisions = _strategy_decision_rows(evidence)
     if evidence.intent_records:
         intent = evidence.intent_records[0]
+        entry_price = _intent_entry_price(intent)
         detected = [
             str(_get_value(summary, "best_setup", "") or "")
             for summary in evidence.pattern_summaries
@@ -589,6 +659,9 @@ def _setup_decision_artifact(evidence: RuntimeObservationEvidence) -> dict[str, 
             "detected_setups": detected or [str(_get_value(intent, "setup_id", "REAL_RUNTIME_SETUP"))],
             "selected_setup": str(_get_value(intent, "setup_id", detected[0] if detected else "REAL_RUNTIME_SETUP")),
             "entry_model": str(_get_value(intent, "entry", _get_value(intent, "entry_model", "")) or ""),
+            "entry_price": entry_price,
+            "priced_sizing_input": entry_price,
+            "priced_intent": entry_price is not None,
             "stop_model": str(_get_value(intent, "stop", _get_value(intent, "stop_model", "")) or ""),
             "target_model": _intent_target_model(intent),
             "rationale_text": str(_get_value(intent, "rationale", _get_value(intent, "rationale_text", "")) or ""),
@@ -662,8 +735,8 @@ def _classify_observation(evidence: RuntimeObservationEvidence, setup_artifact: 
     if mutation_count:
         blockers.append("Broker order mutation or execution event observed during READ_ONLY adapter run.")
         return "READ_ONLY_OBSERVATION_INVALID", blockers
-    if not _broker_connected(evidence):
-        blockers.append("Broker connection evidence is unavailable; real operator runtime evidence is incomplete.")
+    if not _broker_audit_complete(evidence):
+        blockers.append(BROKER_AUDIT_INCOMPLETE_BLOCKER)
         return "INSUFFICIENT_EVIDENCE", blockers
 
     scanner_contract = _scanner_contract(evidence.scanner_payload)
@@ -697,6 +770,9 @@ def _classify_observation(evidence: RuntimeObservationEvidence, setup_artifact: 
             return "READ_ONLY_OBSERVATION_INVALID", blockers
         if not str(setup_artifact.get("target_model") or "").strip():
             blockers.append("Accepted setup missing target model evidence from the real strategy output.")
+            return "READ_ONLY_OBSERVATION_INVALID", blockers
+        if setup_artifact.get("priced_intent") is not True:
+            blockers.append(PRICED_INTENT_BLOCKER)
             return "READ_ONLY_OBSERVATION_INVALID", blockers
         statuses = _catalyst_statuses(evidence.scanner_payload, focus_symbols)
         for symbol in focus_symbols:
@@ -733,9 +809,15 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
     risk_artifact = _risk_gate_artifact(evidence)
     classification, blockers = _classify_observation(evidence, setup_artifact, risk_artifact)
     captured = classification == "READ_ONLY_OBSERVATION_VALID"
+    broker_before_connected = _broker_before_connected(evidence)
+    broker_after_connected = _broker_after_connected(evidence)
+    broker_audit_complete = _broker_audit_complete(evidence)
 
     broker = {
-        "connected": _broker_connected(evidence),
+        "connected": broker_audit_complete,
+        "broker_before_connected": broker_before_connected,
+        "broker_after_connected": broker_after_connected,
+        "broker_audit_complete": broker_audit_complete,
         "readonly_connection": True,
         "host": evidence.env.get("IBKR_HOST", "127.0.0.1"),
         "port": int(evidence.env.get("IBKR_PORT", "7497") or 7497),
@@ -806,6 +888,9 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
             "cancelled_orders_count": 0,
             "modified_orders_count": 0,
             "order_attempt_count": order_mutation_count,
+            "broker_before_connected": broker_before_connected,
+            "broker_after_connected": broker_after_connected,
+            "broker_audit_complete": broker_audit_complete,
             "open_orders_before": _json_safe(evidence.broker_before.get("open_orders", [])),
             "open_orders_after": _json_safe(evidence.broker_after.get("open_orders", [])),
         },
@@ -825,7 +910,7 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
             "paper_ready": "NO",
             "paper_readiness_gate": "FAIL",
             "READ_ONLY_FULL_STRATEGY_OBSERVATION_CAPTURED": "YES" if captured else "NO",
-            "BROKER_CONNECTED_RUNTIME_ARTIFACT_CAPTURED": "YES" if _broker_connected(evidence) else "NO",
+            "BROKER_CONNECTED_RUNTIME_ARTIFACT_CAPTURED": "YES" if broker_audit_complete else "NO",
             "ZERO_BROKER_ORDER_MUTATIONS": "YES" if order_mutation_count == 0 else "NO",
             "EXECUTION_DISABLED": "YES",
             "remaining_blockers": blockers + ["PAPER readiness remains blocked after PR1040 adapter output."],
@@ -962,6 +1047,7 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
         strategy_decisions.append(decision)
         for intent in getattr(decision, "intents", []) or []:
             setup_id = str(getattr(intent, "intent_id", "REAL_RUNTIME_SETUP")).split(":")[-1] or "REAL_RUNTIME_SETUP"
+            entry_price = _coerce_positive_price(intent.entry_model)
             intent_records.append(
                 TradeIntentRecord(
                     symbol=symbol,
@@ -977,6 +1063,8 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
                         "pattern_input_source": "REAL_RUNTIME_PATTERN_INPUTS",
                         "decision_authority": CANONICAL_DECISION_AUTHORITY,
                         "strategy_id": getattr(decision, "strategy_id", "ross_momentum"),
+                        "entry_price": entry_price,
+                        "priced_sizing_input": entry_price,
                     },
                 )
             )
