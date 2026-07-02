@@ -42,12 +42,13 @@ def _config():
 
 
 def _install_fake_ib_insync(monkeypatch, fake_ib_class) -> None:
-    class FakeUtil:
-        def patchAsyncio(self) -> None:
-            return None
+    class FakeIBInsync(types.ModuleType):
+        def __getattribute__(self, name):
+            if name == "util":
+                raise AssertionError("ib_insync.util should not be imported by default")
+            return super().__getattribute__(name)
 
-    fake_ib_insync = types.ModuleType("ib_insync")
-    fake_ib_insync.util = FakeUtil()
+    fake_ib_insync = FakeIBInsync("ib_insync")
     fake_ib_insync.IB = fake_ib_class
     monkeypatch.setitem(sys.modules, "ib_insync", fake_ib_insync)
 
@@ -133,10 +134,12 @@ def test_pr1037_report_documents_timeout_fix_and_keeps_paper_blocked() -> None:
         "PR1034_IB_INSYNC_CONNECT_TIMEOUT_FAILS_CLOSED: YES",
         "PYTHON314_CONNECT_TIMEOUT_PATH_GUARDED: YES",
         "PARTIAL_IB_OBJECT_DISCONNECTED_ON_CONNECT_FAILURE: YES",
+        "DEFAULT_PATCH_ASYNCIO_NEST_ASYNCIO_PATH_ENABLED: NO",
         "CI_CONNECTS_TO_IBKR: NO",
         "ORDER_MUTATION_ALLOWED: NO",
         "PAPER_READINESS_GATE: FAIL",
         "Connect timeout exceptions now abort as `CollectorValidationError` before broker audit begins.",
+        "The default `patchAsyncio()`/`nest_asyncio` route is not used.",
         "Broker-connected runtime artifact captured by this PR: NO",
     )
     forbidden_fragments = (
