@@ -60,12 +60,10 @@ def _broker_snapshot(**overrides):
     return snapshot
 
 
-def test_pr1035_ib_insync_provider_bootstraps_event_loop_before_connect(monkeypatch) -> None:
+def test_pr1035_ib_insync_provider_uses_plain_event_loop_before_connect_without_patch_asyncio(
+    monkeypatch,
+) -> None:
     calls: list[object] = []
-
-    class FakeUtil:
-        def patchAsyncio(self) -> None:
-            calls.append("patchAsyncio")
 
     class FakeIB:
         def __init__(self) -> None:
@@ -79,26 +77,34 @@ def test_pr1035_ib_insync_provider_bootstraps_event_loop_before_connect(monkeypa
         def isConnected(self) -> bool:
             return self.connected
 
-    fake_ib_insync = types.ModuleType("ib_insync")
+    class FakeIBInsync(types.ModuleType):
+        def __getattribute__(self, name):
+            if name == "util":
+                raise AssertionError("ib_insync.util should not be imported by default")
+            return super().__getattribute__(name)
+
+    fake_ib_insync = FakeIBInsync("ib_insync")
     fake_ib_insync.IB = FakeIB
-    fake_ib_insync.util = FakeUtil()
     monkeypatch.setitem(sys.modules, "ib_insync", fake_ib_insync)
 
     provider = pr1034.IBInsyncReadOnlyProvider(_config())
     provider.connect_readonly()
 
-    assert calls[0] == "patchAsyncio"
-    assert calls[1] == "IB"
-    assert calls[2] == ("connect", "127.0.0.1", 7497, 1035, 3.0, True)
+    assert calls[0] == "IB"
+    assert calls[1] == ("connect", "127.0.0.1", 7497, 1035, 3.0, True)
 
 
-def test_pr1035_ib_insync_bootstrap_failure_aborts_before_connection() -> None:
-    class FailingUtil:
-        def patchAsyncio(self) -> None:
-            raise RuntimeError("loop patch failed")
+def test_pr1035_bootstrap_uses_plain_asyncio_loop_without_patch_asyncio(monkeypatch) -> None:
+    calls: list[str] = []
 
-    with pytest.raises(pr1034.CollectorValidationError, match="event-loop bootstrap failed"):
-        pr1034.bootstrap_ib_insync_event_loop(FailingUtil())
+    def fake_ensure_asyncio_event_loop() -> None:
+        calls.append("ensure_asyncio_event_loop")
+
+    monkeypatch.setattr(pr1034, "ensure_asyncio_event_loop", fake_ensure_asyncio_event_loop)
+
+    pr1034.bootstrap_ib_insync_event_loop()
+
+    assert calls == ["ensure_asyncio_event_loop"]
 
 
 def test_pr1035_open_order_request_failure_aborts_capture() -> None:
@@ -181,7 +187,7 @@ def test_pr1035_report_documents_safety_fix_and_keeps_paper_blocked() -> None:
         "CI_CONNECTS_TO_IBKR: NO",
         "ORDER_MUTATION_ALLOWED: NO",
         "PAPER_READINESS_GATE: FAIL",
-        "ib_insync event-loop bootstrap runs before the `IB()` object is created",
+        "plain asyncio loop bootstrap runs before the `IB()` object is created",
         "Broker-connected runtime artifact captured by this PR: NO",
     )
     forbidden_fragments = (
