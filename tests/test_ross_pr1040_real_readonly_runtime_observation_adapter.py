@@ -209,6 +209,35 @@ def test_pr1040_env_is_readonly_and_execution_disabled() -> None:
     assert env["EXECUTION_ENABLED_EFFECTIVE"] == "false"
     assert env["IBKR_API_WRITE_ALLOWED"] == "false"
     assert env["IBKR_ORDER_SUBMISSION_ENABLED"] == "false"
+    assert env["SCANNER_MODE"] == "LIVE_READONLY"
+
+
+def test_pr1040_readonly_config_overrides_preserve_launch_config_types() -> None:
+    env = _safe_env()
+    env["SCANNER_SYMBOLS"] = ""
+
+    overrides = pr1040.build_readonly_config_overrides(env)
+
+    assert set(overrides) == set(pr1040.READ_ONLY_ENV_DEFAULTS)
+    assert overrides["RUN_MODE"] == "READ_ONLY"
+    assert isinstance(overrides["RUN_MODE"], str)
+    assert overrides["RUN_MODE_EFFECTIVE"] == "READ_ONLY"
+    assert isinstance(overrides["RUN_MODE_EFFECTIVE"], str)
+    assert overrides["EVENT_REPLAY_MODE"] == "OFF"
+    assert isinstance(overrides["EVENT_REPLAY_MODE"], str)
+    assert overrides["SCANNER_DATA_SOURCE"] == "IBKR"
+    assert isinstance(overrides["SCANNER_DATA_SOURCE"], str)
+    assert overrides["SCANNER_MODE"] == "LIVE_READONLY"
+    assert isinstance(overrides["SCANNER_MODE"], str)
+    assert overrides["EXECUTION_ENABLED"] is False
+    assert overrides["EXECUTION_ENABLED_EFFECTIVE"] is False
+    assert overrides["IBKR_API_WRITE_ALLOWED"] is False
+    assert overrides["IBKR_ORDER_SUBMISSION_ENABLED"] is False
+    assert overrides["IBKR_READONLY_ENABLED"] is True
+    for key in pr1040.EMPTY_OR_ABSENT_ENV_KEYS:
+        assert overrides[key] == ""
+        assert not isinstance(overrides[key], bool)
+    assert "SCANNER_SYMBOLS" not in overrides
 
 
 def test_pr1040_rejects_non_readonly_env() -> None:
