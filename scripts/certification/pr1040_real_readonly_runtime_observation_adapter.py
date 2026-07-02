@@ -21,6 +21,9 @@ from typing import Any, Mapping, Sequence
 
 SCHEMA_VERSION = "PR1040.real_readonly_runtime_observation_adapter.v1"
 PR1039_INPUT_SCHEMA_VERSION = "PR1039.controlled_readonly_observation_input.v1"
+CANONICAL_DECISION_AUTHORITY = "RossMomentumStrategy.evaluate"
+REAL_STORAGE_EVIDENCE_SOURCE = "REAL_ANALYTICS_STORAGE_WRITE_READBACK"
+STORAGE_EVIDENCE_UNAVAILABLE_BLOCKER = "Real analytics/storage write-readback evidence is unavailable."
 
 DEFAULT_OBSERVATION_OUTPUT = Path(
     "artifacts/certification/pr1040/real_runtime_observation/real_runtime_observation.json"
@@ -142,6 +145,8 @@ class RuntimeObservationEvidence:
     session_label: str
     storage_write_verified: bool = False
     storage_readback_verified: bool = False
+    storage_evidence_source: str = "UNAVAILABLE"
+    storage_evidence_detail: Mapping[str, Any] | None = None
 
 
 def utc_now_iso() -> str:
@@ -162,7 +167,33 @@ def _normalize_bool(value: Any) -> bool | None:
 
 
 def _normalize_upper(value: Any) -> str:
+    if hasattr(value, "value"):
+        value = getattr(value, "value")
     return str(value or "").strip().upper()
+
+
+def _text_value(value: Any) -> str:
+    if hasattr(value, "value"):
+        value = getattr(value, "value")
+    return str(value or "")
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _get_value(value: Any, name: str, default: Any = None) -> Any:
@@ -247,10 +278,6 @@ def _stable_json(value: Any) -> str:
 
 def _symbol(value: Any) -> str:
     return str(_get_value(value, "symbol", "") or "").strip().upper()
-
-
-def _rows_by_symbol(rows: Sequence[Any]) -> dict[str, Any]:
-    return {symbol: row for row in rows if (symbol := _symbol(row))}
 
 
 def _scanner_rows(payload: Mapping[str, Any], keys: Sequence[str]) -> list[Any]:
@@ -404,6 +431,46 @@ def _order_mutation_count(evidence: RuntimeObservationEvidence) -> int:
     return count
 
 
+def _storage_evidence_verified(evidence: RuntimeObservationEvidence) -> bool:
+    return bool(
+        evidence.storage_write_verified
+        and evidence.storage_readback_verified
+        and _normalize_upper(getattr(evidence, "storage_evidence_source", "")) == REAL_STORAGE_EVIDENCE_SOURCE
+    )
+
+
+def _intent_metadata(intent: Any) -> Mapping[str, Any]:
+    metadata = _get_value(intent, "metadata", {}) or {}
+    return metadata if isinstance(metadata, Mapping) else {}
+
+
+def _intent_decision_authority(intent: Any) -> str:
+    return str(_intent_metadata(intent).get("decision_authority") or "")
+
+
+def _strategy_decision_rows(evidence: RuntimeObservationEvidence) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for decision in evidence.pattern_summaries:
+        decision_type = _text_value(_get_value(decision, "decision_type", ""))
+        strategy_id = str(_get_value(decision, "strategy_id", "") or "")
+        if not decision_type and not strategy_id:
+            continue
+        intents = list(_get_value(decision, "intents", []) or [])
+        rows.append(
+            {
+                "symbol": _symbol(decision),
+                "strategy_id": strategy_id,
+                "decision_type": decision_type,
+                "confidence": _safe_float(_get_value(decision, "confidence", 0.0), 0.0),
+                "rationale_text": str(_get_value(decision, "rationale_text", "") or ""),
+                "risk_flags": list(_get_value(decision, "risk_flags", []) or []),
+                "intent_count": len(intents),
+                "decision_authority": CANONICAL_DECISION_AUTHORITY,
+            }
+        )
+    return rows
+
+
 def _catalyst_statuses(payload: Mapping[str, Any], symbols: Sequence[str]) -> dict[str, str]:
     rows = _scanner_rows(payload, ("focus_m", "watchlist_k", "candidate_metrics", "candidates", "focus_rows", "watchlist_rows"))
     statuses: dict[str, str] = {}
@@ -500,16 +567,15 @@ def _pattern_input_artifact(evidence: RuntimeObservationEvidence) -> dict[str, A
 
 
 def _intent_target_model(intent: Any) -> str:
-    metadata = _get_value(intent, "metadata", {}) or {}
-    if isinstance(metadata, Mapping):
-        value = metadata.get("target_model")
-        if str(value or "").strip():
-            return str(value)
+    value = _intent_metadata(intent).get("target_model")
+    if str(value or "").strip():
+        return str(value)
     value = _get_value(intent, "target_model")
     return str(value or "")
 
 
 def _setup_decision_artifact(evidence: RuntimeObservationEvidence) -> dict[str, Any]:
+    strategy_decisions = _strategy_decision_rows(evidence)
     if evidence.intent_records:
         intent = evidence.intent_records[0]
         detected = [
@@ -518,6 +584,7 @@ def _setup_decision_artifact(evidence: RuntimeObservationEvidence) -> dict[str, 
             if str(_get_value(summary, "best_setup", "") or "").strip()
             and str(_get_value(summary, "best_setup", "")).upper() != "NONE"
         ]
+        authority = _intent_decision_authority(intent)
         return {
             "detected_setups": detected or [str(_get_value(intent, "setup_id", "REAL_RUNTIME_SETUP"))],
             "selected_setup": str(_get_value(intent, "setup_id", detected[0] if detected else "REAL_RUNTIME_SETUP")),
@@ -527,13 +594,20 @@ def _setup_decision_artifact(evidence: RuntimeObservationEvidence) -> dict[str, 
             "rationale_text": str(_get_value(intent, "rationale", _get_value(intent, "rationale_text", "")) or ""),
             "decision_verdict": "ACCEPT",
             "decision_reason": "REAL_READ_ONLY_RUNTIME_SETUP_ACCEPTED_EXECUTION_DISABLED",
+            "decision_authority": authority or "UNKNOWN",
+            "decision_path_canonical": authority == CANONICAL_DECISION_AUTHORITY,
+            "strategy_decisions": strategy_decisions,
             "fallback_trade_intent": False,
         }
     no_trade_reason = "NO_FOCUS_CANDIDATES"
-    if evidence.pattern_input_evidence:
+    if strategy_decisions:
+        primary = strategy_decisions[0]
+        decision_type = _normalize_upper(primary.get("decision_type")) or "NO_INTENT_CREATED"
+        no_trade_reason = f"CANONICAL_STRATEGY_{decision_type}"
+    elif evidence.pattern_input_evidence:
         no_trade_reason = "NO_INTENT_CREATED"
-        if _pattern_input_artifact(evidence).get("missing_data_action") in {"BLOCK", "DROP", "NO_TRADE"}:
-            no_trade_reason = "PATTERN_INPUT_BLOCKED"
+    if evidence.pattern_input_evidence and _pattern_input_artifact(evidence).get("missing_data_action") in {"BLOCK", "DROP", "NO_TRADE"}:
+        no_trade_reason = "PATTERN_INPUT_BLOCKED"
     return {
         "detected_setups": [
             str(_get_value(summary, "best_setup", "") or "")
@@ -548,6 +622,9 @@ def _setup_decision_artifact(evidence: RuntimeObservationEvidence) -> dict[str, 
         "rationale_text": f"Real READ_ONLY no-trade observation: {no_trade_reason}.",
         "decision_verdict": "NO_TRADE",
         "decision_reason": no_trade_reason,
+        "decision_authority": CANONICAL_DECISION_AUTHORITY if strategy_decisions else "NOT_EVALUATED",
+        "decision_path_canonical": bool(strategy_decisions),
+        "strategy_decisions": strategy_decisions,
         "no_setup_reason": no_trade_reason,
         "fallback_trade_intent": False,
     }
@@ -602,8 +679,18 @@ def _classify_observation(evidence: RuntimeObservationEvidence, setup_artifact: 
         blockers.append("No real pattern input evidence was captured for Focus M candidates.")
         return "INSUFFICIENT_EVIDENCE", blockers
 
+    pattern_artifact = _pattern_input_artifact(evidence)
     accepted = _normalize_upper(setup_artifact.get("decision_verdict")) in {"ACCEPT", "ACCEPTED", "SETUP_ACCEPTED"}
     if accepted:
+        if setup_artifact.get("decision_authority") != CANONICAL_DECISION_AUTHORITY:
+            blockers.append("Accepted setup evidence did not come from the canonical Ross strategy decision authority.")
+            return "READ_ONLY_OBSERVATION_INVALID", blockers
+        if pattern_artifact.get("input_source") != "REAL_RUNTIME_PATTERN_INPUTS":
+            blockers.append("Accepted setup missing real runtime pattern input evidence.")
+            return "READ_ONLY_OBSERVATION_INVALID", blockers
+        if _normalize_upper(pattern_artifact.get("missing_data_action")) in {"BLOCK", "DROP", "NO_TRADE", "MISSING", "UNAVAILABLE"}:
+            blockers.append("Accepted setup used blocked or unavailable pattern input evidence.")
+            return "READ_ONLY_OBSERVATION_INVALID", blockers
         selected = str(setup_artifact.get("selected_setup") or "").strip()
         if not selected or selected.upper() == "NONE":
             blockers.append("Accepted setup missing real selected setup evidence.")
@@ -622,6 +709,13 @@ def _classify_observation(evidence: RuntimeObservationEvidence, setup_artifact: 
         if risk_artifact.get("risk_approved") is not True:
             blockers.append("Accepted setup did not receive a real READ_ONLY risk decision.")
             return "READ_ONLY_OBSERVATION_INVALID", blockers
+        if risk_artifact.get("risk_approval_source") != "READ_ONLY_RISK_ENGINE":
+            blockers.append("Accepted setup risk decision was not produced by the READ_ONLY risk engine.")
+            return "READ_ONLY_OBSERVATION_INVALID", blockers
+
+    if not _storage_evidence_verified(evidence):
+        blockers.append(STORAGE_EVIDENCE_UNAVAILABLE_BLOCKER)
+        return "INSUFFICIENT_EVIDENCE", blockers
 
     return "READ_ONLY_OBSERVATION_VALID", blockers
 
@@ -655,8 +749,9 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
 
     order_mutation_count = _order_mutation_count(evidence)
     pattern_artifact = _pattern_input_artifact(evidence)
-    storage_count = 1 if evidence.storage_write_verified else 0
-    readback_count = 1 if evidence.storage_readback_verified else 0
+    storage_verified = _storage_evidence_verified(evidence)
+    storage_count = 1 if storage_verified else 0
+    readback_count = 1 if storage_verified else 0
 
     return {
         "schema_version": PR1039_INPUT_SCHEMA_VERSION,
@@ -718,7 +813,9 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
             "storage_write_count": storage_count,
             "storage_readback_count": readback_count,
             "storage_key": evidence.scenario_id,
-            "readback_proof": bool(evidence.storage_readback_verified),
+            "storage_evidence_source": evidence.storage_evidence_source if storage_verified else "UNAVAILABLE",
+            "storage_evidence_detail": _json_safe(evidence.storage_evidence_detail or {}),
+            "readback_proof": storage_verified,
             "trade_plan_records": _json_safe(evidence.intent_records),
             "no_trade_records": [] if evidence.intent_records else [{"reason": setup_artifact.get("decision_reason"), "symbols": focus_symbols or watchlist_symbols}],
             "artifact_paths": [str(DEFAULT_OBSERVATION_OUTPUT)],
@@ -789,20 +886,33 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
     from src.core_engine.state import RunMode
     from src.risk.risk_audit import AccountSnapshot, evaluate_trade_intents
     from src.scanner.scanner_runner import run_scanner_cycle
-    from src.strategies.ross_momentum.decision_policy import build_trade_intents
-    from src.strategies.ross_momentum.patterns.pattern_evaluator import PatternEvaluator
     from src.strategies.ross_momentum.patterns.pattern_trace import build_runtime_pattern_inputs
+    from src.strategies.ross_momentum.strategy import RossMomentumStrategy
+    from src.strategies.strategy_contracts import (
+        MarketContext,
+        ScannerContext,
+        SessionContext,
+        StrategyInput,
+    )
 
     scanner_payload = run_scanner_cycle(mode="READ_ONLY")
     watchlist_rows = _scanner_rows(scanner_payload, ("watchlist_k", "watchlist_rows"))
     focus_rows = _scanner_rows(scanner_payload, ("focus_m", "focus_rows"))
     session_label = _session_label_from_payload(scanner_payload, focus_rows + watchlist_rows)
-    evaluator = PatternEvaluator()
+    strategy = RossMomentumStrategy()
     pattern_inputs: list[dict[str, Any]] = []
-    pattern_summaries: list[Any] = []
+    strategy_decisions: list[Any] = []
     intent_records: list[TradeIntentRecord] = []
 
-    for row in focus_rows:
+    def session_context(label: str) -> Any:
+        normalized = _normalize_upper(label)
+        if normalized in {"PRE", "PREMARKET"}:
+            return SessionContext.PRE
+        if normalized in {"AH", "AFTER", "AFTER_HOURS"}:
+            return SessionContext.AFTER
+        return SessionContext.REGULAR
+
+    for index, row in enumerate(focus_rows, start=1):
         symbol = _symbol(row)
         if not symbol:
             continue
@@ -821,25 +931,42 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
             pattern_inputs.append(_unavailable_pattern_evidence(symbol, "pattern_inputs_unavailable", quality_flags))
             continue
         pattern_inputs.append(_pattern_evidence_from_inputs(symbol, inputs, quality_flags))
-        summary = evaluator.evaluate([inputs])
-        pattern_summaries.append(summary)
-        best_setup = summary.best_long_setup or summary.best_short_setup
-        setup_detected = bool(best_setup and getattr(best_setup, "pattern_name", ""))
-        best_conf = float(getattr(best_setup, "confidence", 0.0) or 0.0) if best_setup else 0.0
-        trigger_ready_now = setup_detected and best_conf >= 0.20
-        strategy_intents = build_trade_intents(
-            "RossMomentumStrategy",
-            symbol,
-            summary,
-            trigger_ready_now=trigger_ready_now,
-            session=session_label,
+        liquidity = getattr(inputs, "liquidity_context", None)
+        levels = getattr(inputs, "levels", None)
+        key_levels = dict(getattr(levels, "key_levels", {}) or {}) if levels is not None else {}
+        market_context = MarketContext(
+            price=_safe_float(_get_value(row, "last_price", _get_value(row, "price", 0.0)), 0.0),
+            spread=_safe_float(_get_value(liquidity, "spread"), 0.0),
+            volume=_safe_float(_get_value(liquidity, "volume", _get_value(row, "volume", 0.0)), 0.0),
+            rvol=_safe_float(_get_value(liquidity, "rvol", _get_value(row, "rvol", 0.0)), 0.0),
+            session_label=session_label,
+            float=_safe_float(_get_value(liquidity, "float_millions"), 0.0),
+            key_levels=key_levels,
         )
-        for intent in strategy_intents:
+        scanner_context = ScannerContext(
+            score=_safe_float(_get_value(row, "score", _get_value(row, "rank_score", 0.0)), 0.0),
+            rank=_safe_int(_get_value(row, "rank", index), index),
+            drop_reasons=list(_get_value(row, "drop_reasons", []) or []),
+        )
+        strategy_input = StrategyInput(
+            symbol=symbol,
+            session_context=session_context(session_label),
+            scanner_context=scanner_context,
+            market_context=market_context,
+            news_context=dict(getattr(inputs, "news_context", {}) or {}),
+            data_quality_flags=sorted(set(list(getattr(inputs, "data_quality_flags", []) or []) + list(quality_flags))),
+            pattern_inputs=[inputs],
+            pattern_results=None,
+        )
+        decision = strategy.evaluate(symbol, strategy_input)
+        strategy_decisions.append(decision)
+        for intent in getattr(decision, "intents", []) or []:
+            setup_id = str(getattr(intent, "intent_id", "REAL_RUNTIME_SETUP")).split(":")[-1] or "REAL_RUNTIME_SETUP"
             intent_records.append(
                 TradeIntentRecord(
                     symbol=symbol,
                     intent_id=intent.intent_id,
-                    setup_id=str(getattr(best_setup, "pattern_name", "REAL_RUNTIME_SETUP") or "REAL_RUNTIME_SETUP"),
+                    setup_id=setup_id,
                     side=getattr(intent.direction, "value", str(intent.direction)),
                     entry=intent.entry_model,
                     stop=intent.stop_model,
@@ -848,6 +975,8 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
                     metadata={
                         "target_model": intent.target_model,
                         "pattern_input_source": "REAL_RUNTIME_PATTERN_INPUTS",
+                        "decision_authority": CANONICAL_DECISION_AUTHORITY,
+                        "strategy_id": getattr(decision, "strategy_id", "ross_momentum"),
                     },
                 )
             )
@@ -875,7 +1004,7 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
         focus_rows=focus_rows,
         watchlist_rows=watchlist_rows,
         pattern_input_evidence=pattern_inputs,
-        pattern_summaries=pattern_summaries,
+        pattern_summaries=strategy_decisions,
         intent_records=intent_records,
         risk_decisions=risk_decisions,
         execution_events=[],
@@ -934,9 +1063,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             env=env,
             cycle_id=args.cycle_id,
         )
-        spec = build_pr1039_observation_input(evidence)
-        evidence.storage_write_verified = True
-        evidence.storage_readback_verified = True
         spec = build_pr1039_observation_input(evidence)
         spec["analytics_storage_artifact"]["artifact_paths"] = [str(args.observation_output)]
         write_observation_input(args.observation_output, spec)
