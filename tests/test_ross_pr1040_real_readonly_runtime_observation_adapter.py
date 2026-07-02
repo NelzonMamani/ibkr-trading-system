@@ -82,7 +82,7 @@ def _pattern_input(action: str = "BLOCK") -> dict:
     return {
         "symbol": "REAL1",
         "source": "REAL_RUNTIME_PATTERN_INPUTS",
-        "timeframe_provenance": {"10s": "MISSING", "1m": "PRESENT", "5m": "PRESENT"},
+        "timeframe_provenance": {"10s": "PRESENT", "1m": "PRESENT", "5m": "PRESENT"},
         "freshness_status": "MISSING" if action == "BLOCK" else "FRESH",
         "missing_data_action": action,
         "indicator_provenance": {"ema9": "PRESENT", "vwap": "PRESENT"},
@@ -93,10 +93,33 @@ def _pattern_input(action: str = "BLOCK") -> dict:
     }
 
 
-def _evidence(*, intents=None, risks=None, scanner=None, pattern_inputs=None, execution_events=None):
+def _strategy_decision(decision_type: str = "NO_ACTION", intents=None):
+    return ns(
+        symbol="REAL1",
+        strategy_id="ross_momentum",
+        decision_type=decision_type,
+        confidence=0.0,
+        rationale_text="Canonical Ross strategy READ_ONLY observation.",
+        risk_flags=[],
+        intents=intents or [],
+    )
+
+
+def _evidence(
+    *,
+    intents=None,
+    risks=None,
+    scanner=None,
+    pattern_inputs=None,
+    execution_events=None,
+    storage: bool = True,
+    storage_source: str | None = None,
+    pattern_summaries=None,
+):
     scanner_payload = scanner if scanner is not None else _scanner_payload()
     watchlist_rows = scanner_payload.get("watchlist_rows", [])
     focus_rows = scanner_payload.get("focus_rows", [])
+    source = storage_source or (pr1040.REAL_STORAGE_EVIDENCE_SOURCE if storage else "UNAVAILABLE")
     return pr1040.RuntimeObservationEvidence(
         operator="TEST_OP",
         scenario_id="REAL_READ_ONLY_RUNTIME_OBSERVATION_TEST",
@@ -106,19 +129,26 @@ def _evidence(*, intents=None, risks=None, scanner=None, pattern_inputs=None, ex
         focus_rows=focus_rows,
         watchlist_rows=watchlist_rows,
         pattern_input_evidence=pattern_inputs if pattern_inputs is not None else [_pattern_input()],
-        pattern_summaries=[ns(symbol="REAL1", best_setup="NONE", confidence=0.0, rationale="no setup", all_patterns=[])],
+        pattern_summaries=pattern_summaries if pattern_summaries is not None else [_strategy_decision()],
         intent_records=intents or [],
         risk_decisions=risks or [],
         execution_events=execution_events or [],
         broker_before={"connected": True, "readonly_connection": True, "open_orders": [], "metadata": {"readonly": True}},
         broker_after={"connected": True, "readonly_connection": True, "open_orders": [], "metadata": {"readonly": True}},
         session_label="PRE",
-        storage_write_verified=True,
-        storage_readback_verified=True,
+        storage_write_verified=storage,
+        storage_readback_verified=storage,
+        storage_evidence_source=source,
+        storage_evidence_detail={"path": "analytics/runtime/proof.json"} if source == pr1040.REAL_STORAGE_EVIDENCE_SOURCE else {},
     )
 
 
-def _accepted_intent(*, target_model: str | None = "HOD extension target", tags=None):
+def _accepted_intent(
+    *,
+    target_model: str | None = "HOD extension target",
+    tags=None,
+    decision_authority: str = pr1040.CANONICAL_DECISION_AUTHORITY,
+):
     return ns(
         symbol="REAL1",
         intent_id="RossMomentumStrategy:REAL1:MICRO_PULLBACK",
@@ -128,7 +158,11 @@ def _accepted_intent(*, target_model: str | None = "HOD extension target", tags=
         stop="Below pullback low",
         rationale="Real READ_ONLY accepted setup observation.",
         tags=tags or [],
-        metadata={"target_model": target_model, "pattern_input_source": "REAL_RUNTIME_PATTERN_INPUTS"},
+        metadata={
+            "target_model": target_model,
+            "pattern_input_source": "REAL_RUNTIME_PATTERN_INPUTS",
+            "decision_authority": decision_authority,
+        },
     )
 
 
@@ -205,6 +239,28 @@ def test_pr1040_rejects_synthetic_trade_intent() -> None:
         pr1040.build_pr1039_observation_input(evidence)
 
 
+def test_pr1040_storage_flags_without_real_source_are_insufficient() -> None:
+    evidence = _evidence(storage=True, storage_source="OBSERVATION_JSON_WRITE_ONLY")
+
+    spec = pr1040.build_pr1039_observation_input(evidence)
+
+    assert spec["classification"] == "INSUFFICIENT_EVIDENCE"
+    assert spec["analytics_storage_artifact"]["storage_write_count"] == 0
+    assert spec["analytics_storage_artifact"]["storage_readback_count"] == 0
+    assert spec["analytics_storage_artifact"]["readback_proof"] is False
+    assert pr1040.STORAGE_EVIDENCE_UNAVAILABLE_BLOCKER in " ".join(spec["final_verdict"]["blockers"])
+
+
+def test_pr1040_missing_storage_evidence_forces_insufficient_evidence() -> None:
+    evidence = _evidence(storage=False)
+
+    spec = pr1040.build_pr1039_observation_input(evidence)
+
+    assert spec["classification"] == "INSUFFICIENT_EVIDENCE"
+    assert spec["final_verdict"]["READ_ONLY_FULL_STRATEGY_OBSERVATION_CAPTURED"] == "NO"
+    assert pr1040.STORAGE_EVIDENCE_UNAVAILABLE_BLOCKER in " ".join(spec["final_verdict"]["blockers"])
+
+
 def test_pr1040_marks_accepted_setup_without_target_as_invalid() -> None:
     evidence = _evidence(
         intents=[_accepted_intent(target_model=None)],
@@ -217,6 +273,19 @@ def test_pr1040_marks_accepted_setup_without_target_as_invalid() -> None:
     assert spec["classification"] == "READ_ONLY_OBSERVATION_INVALID"
     assert spec["final_verdict"]["READ_ONLY_FULL_STRATEGY_OBSERVATION_CAPTURED"] == "NO"
     assert "target model" in " ".join(spec["final_verdict"]["blockers"])
+
+
+def test_pr1040_rejects_accepted_setup_from_noncanonical_decision_path() -> None:
+    evidence = _evidence(
+        intents=[_accepted_intent(decision_authority="PatternEvaluator+build_trade_intents")],
+        risks=_risk_allowed(),
+        pattern_inputs=[_pattern_input(action="NONE")],
+    )
+
+    spec = pr1040.build_pr1039_observation_input(evidence)
+
+    assert spec["classification"] == "READ_ONLY_OBSERVATION_INVALID"
+    assert "canonical Ross strategy decision authority" in " ".join(spec["final_verdict"]["blockers"])
 
 
 def test_pr1040_accepted_setup_requires_focused_symbol_confirmed_catalyst_and_risk_gate() -> None:
@@ -243,12 +312,14 @@ def test_pr1040_accepted_setup_requires_focused_symbol_confirmed_catalyst_and_ri
 
 
 def test_pr1040_no_trade_observation_can_pass_with_full_real_evidence() -> None:
-    evidence = _evidence(pattern_inputs=[_pattern_input(action="BLOCK")])
+    evidence = _evidence(pattern_inputs=[_pattern_input(action="NONE")])
 
     spec = pr1040.build_pr1039_observation_input(evidence)
 
     assert spec["classification"] == "READ_ONLY_OBSERVATION_VALID"
     assert spec["setup_decision_artifact"]["decision_verdict"] == "NO_TRADE"
+    assert spec["setup_decision_artifact"]["decision_authority"] == pr1040.CANONICAL_DECISION_AUTHORITY
+    assert spec["analytics_storage_artifact"]["storage_evidence_source"] == pr1040.REAL_STORAGE_EVIDENCE_SOURCE
     assert spec["risk_gate_artifact"]["risk_gate_called"] is False
     assert spec["risk_gate_artifact"]["risk_approved"] is False
     assert spec["final_verdict"]["READ_ONLY_FULL_STRATEGY_OBSERVATION_CAPTURED"] == "YES"
@@ -267,3 +338,10 @@ def test_pr1040_no_trade_without_focus_is_insufficient_evidence() -> None:
     assert spec["classification"] == "INSUFFICIENT_EVIDENCE"
     assert spec["final_verdict"]["READ_ONLY_FULL_STRATEGY_OBSERVATION_CAPTURED"] == "NO"
     assert "Focus M" in " ".join(spec["final_verdict"]["blockers"])
+
+
+def test_pr1040_paper_ready_remains_no_and_gate_fail() -> None:
+    spec = pr1040.build_pr1039_observation_input(_evidence())
+
+    assert spec["final_verdict"]["paper_ready"] == "NO"
+    assert spec["final_verdict"]["paper_readiness_gate"] == "FAIL"
