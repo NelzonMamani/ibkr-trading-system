@@ -103,32 +103,32 @@ def ensure_asyncio_event_loop() -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
 
-def bootstrap_ib_insync_event_loop(util_module: Any | None = None) -> None:
-    """Ensure an asyncio loop and optionally apply ib_insync's asyncio patch."""
+def bootstrap_ib_insync_event_loop() -> None:
+    """Ensure an asyncio loop without applying patchAsyncio or nest_asyncio."""
 
     ensure_asyncio_event_loop()
-    patch_asyncio = getattr(util_module, "patchAsyncio", None)
-    if callable(patch_asyncio):
-        try:
-            patch_asyncio()
-        except Exception as exc:
-            raise CollectorValidationError("ib_insync event-loop bootstrap failed") from exc
 
 
 def load_ib_insync_ib_after_bootstrap() -> Any:
-    """Return ib_insync.IB only after asyncio and util bootstrap are complete."""
+    """Return ib_insync.IB only after plain asyncio loop bootstrap is complete."""
 
-    ensure_asyncio_event_loop()
-    try:
-        from ib_insync import util
-    except ImportError as exc:
-        raise CollectorValidationError("ib_insync is required for broker connection") from exc
-    bootstrap_ib_insync_event_loop(util)
+    bootstrap_ib_insync_event_loop()
     try:
         from ib_insync import IB
     except ImportError as exc:
         raise CollectorValidationError("ib_insync IB is required for broker connection") from exc
     return IB
+
+
+def _disconnect_after_failed_connect(ib: Any) -> None:
+    disconnect = getattr(ib, "disconnect", None)
+    if not callable(disconnect):
+        return
+    try:
+        disconnect()
+    except Exception:
+        # Preserve the original connect failure as the actionable abort reason.
+        return
 
 
 class IBInsyncReadOnlyProvider:
@@ -141,13 +141,24 @@ class IBInsyncReadOnlyProvider:
     def connect_readonly(self) -> None:
         IB = load_ib_insync_ib_after_bootstrap()
         ib = IB()
-        ib.connect(
-            self.config.host,
-            self.config.port,
-            clientId=self.config.client_id,
-            timeout=self.config.timeout_seconds,
-            readonly=True,
-        )
+        try:
+            ib.connect(
+                self.config.host,
+                self.config.port,
+                clientId=self.config.client_id,
+                timeout=self.config.timeout_seconds,
+                readonly=True,
+            )
+        except TimeoutError as exc:
+            _disconnect_after_failed_connect(ib)
+            raise CollectorValidationError(
+                "IBKR READ_ONLY connection timed out before broker audit could start"
+            ) from exc
+        except Exception as exc:
+            _disconnect_after_failed_connect(ib)
+            raise CollectorValidationError(
+                "IBKR READ_ONLY connection failed before broker audit could start"
+            ) from exc
         self._ib = ib
 
     def disconnect(self) -> None:

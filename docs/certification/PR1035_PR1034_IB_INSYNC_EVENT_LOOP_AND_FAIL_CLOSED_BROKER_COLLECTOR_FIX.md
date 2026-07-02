@@ -4,6 +4,8 @@
 
 PR1035 is a narrow correction to the PR1034 READ_ONLY broker-connected artifact collector. It fixes the ib_insync connection bootstrap path and tightens broker evidence handling so incomplete broker audit data aborts capture instead of becoming validated-looking artifact data.
 
+PR1037 corrects the bootstrap contract without changing the fail-closed broker evidence behavior: the collector uses a plain asyncio loop before importing and constructing `IB`; it does not call `patchAsyncio()` or install a default `nest_asyncio` path.
+
 This PR does not enable PAPER or LIVE, does not submit/cancel/modify orders, does not connect to IBKR in CI, and does not change Ross strategy thresholds or gates.
 
 ## Executive Verdict
@@ -15,6 +17,7 @@ PR1034_FAIL_CLOSED_BROKER_EVIDENCE: YES
 OPEN_ORDER_REQUEST_FAILURE_ABORTS_CAPTURE: YES
 OPEN_ORDER_READ_FAILURE_ABORTS_CAPTURE: YES
 MANAGED_ACCOUNT_READ_FAILURE_ABORTS_CAPTURE: YES
+DEFAULT_PATCH_ASYNCIO_NEST_ASYNCIO_PATH_ENABLED: NO
 CI_CONNECTS_TO_IBKR: NO
 ORDER_MUTATION_ALLOWED: NO
 PRODUCTION_TRADING_BEHAVIOR_CHANGED: NO
@@ -31,9 +34,10 @@ Broker-connected runtime artifact captured by this PR: NO.
 
 ## Fix Matrix
 
-| Area | Previous behavior | PR1035 behavior | Certification result |
+| Area | Previous behavior | PR1035/PR1037 behavior | Certification result |
 | --- | --- | --- | --- |
-| ib_insync event-loop bootstrap | `IB()` was created without an explicit event-loop/bootstrap step. | `bootstrap_ib_insync_event_loop()` prepares an asyncio loop and calls `ib_insync.util.patchAsyncio()` before `IB()` is constructed. | FIXED |
+| ib_insync event-loop bootstrap | `IB()` was created without an explicit event-loop/bootstrap step. | A plain asyncio loop bootstrap runs before the `IB()` object is created, and PR1036/PR1037 ensure that loop exists before importing `IB`. | FIXED |
+| Default async patching | Earlier branch wording allowed a default `ib_insync.util.patchAsyncio()` path. | The collector does not call `patchAsyncio()` or install a default `nest_asyncio` path. | REMOVED |
 | Open-order request failure | `reqOpenOrders()` exceptions were recorded as a row with `OPEN_ORDER_REQUEST_FAILED`. | Any request exception raises `CollectorValidationError` and aborts capture. | FAIL-CLOSED |
 | Open-order read failure | `openOrders()` failures were not separately guarded. | Any read exception raises `CollectorValidationError` and aborts capture. | FAIL-CLOSED |
 | Managed account read failure | Account lookup failures silently produced `NO_SECRET_DATA_PRESENT`. | Account lookup exceptions abort capture because broker/redaction evidence is incomplete. | FAIL-CLOSED |
@@ -44,7 +48,7 @@ Broker-connected runtime artifact captured by this PR: NO.
 
 The corrected collector aborts before writing PR1032 raw artifacts if any of these broker evidence checks fail:
 
-1. ib_insync event-loop bootstrap raises an exception.
+1. Plain asyncio event-loop bootstrap or `IB` import fails.
 2. IBKR open-order request cannot be completed.
 3. IBKR open-order rows cannot be read.
 4. Managed account lookup fails before redacted account evidence can be produced.
@@ -70,14 +74,15 @@ These rules preserve the zero-order, READ_ONLY artifact contract. They do not gr
 | Broker order modification | NO |
 | Position flattening | NO |
 | Clean-start behavior | NO |
+| Default `patchAsyncio()`/`nest_asyncio` route | NO |
 | PAPER readiness | NO |
 
-## Tests Added
+## Tests Added Or Updated
 
 `tests/test_ross_pr1035_pr1034_broker_collector_safety_fix.py` covers:
 
-1. ib_insync event-loop bootstrap runs before the `IB()` object is created.
-2. Bootstrap failure aborts connection setup.
+1. plain asyncio loop bootstrap runs before the `IB()` object is created.
+2. The bootstrap path does not call `patchAsyncio()` or install a default `nest_asyncio` path.
 3. Open-order request failure aborts capture.
 4. Open-order read failure aborts capture.
 5. Managed account read failure aborts capture.
@@ -99,4 +104,4 @@ Local execution may be unavailable in this Codex desktop session if the local Py
 
 ## Final Certification Answer
 
-PR1035 corrects the PR1034 collector bootstrap and fail-closed broker evidence behavior. It does not add broker-connected runtime evidence, does not run IBKR in CI, does not enable PAPER/LIVE, and does not mutate broker state. Ross Momentum remains `PAPER_READY: NO`.
+PR1035 corrects the PR1034 collector bootstrap and fail-closed broker evidence behavior. PR1037 clarifies that the bootstrap is a plain asyncio loop before `IB`, not a default `patchAsyncio()`/`nest_asyncio` route. It does not add broker-connected runtime evidence, does not run IBKR in CI, does not enable PAPER/LIVE, and does not mutate broker state. Ross Momentum remains `PAPER_READY: NO`.
