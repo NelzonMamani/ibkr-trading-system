@@ -103,27 +103,16 @@ def ensure_asyncio_event_loop() -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
 
-def bootstrap_ib_insync_event_loop(util_module: Any | None = None) -> None:
-    """Ensure an asyncio loop and optionally apply ib_insync's asyncio patch."""
+def bootstrap_ib_insync_event_loop() -> None:
+    """Ensure an asyncio loop without applying patchAsyncio or nest_asyncio."""
 
     ensure_asyncio_event_loop()
-    patch_asyncio = getattr(util_module, "patchAsyncio", None)
-    if callable(patch_asyncio):
-        try:
-            patch_asyncio()
-        except Exception as exc:
-            raise CollectorValidationError("ib_insync event-loop bootstrap failed") from exc
 
 
 def load_ib_insync_ib_after_bootstrap() -> Any:
-    """Return ib_insync.IB only after asyncio and util bootstrap are complete."""
+    """Return ib_insync.IB only after plain asyncio loop bootstrap is complete."""
 
-    ensure_asyncio_event_loop()
-    try:
-        from ib_insync import util
-    except ImportError as exc:
-        raise CollectorValidationError("ib_insync is required for broker connection") from exc
-    bootstrap_ib_insync_event_loop(util)
+    bootstrap_ib_insync_event_loop()
     try:
         from ib_insync import IB
     except ImportError as exc:
