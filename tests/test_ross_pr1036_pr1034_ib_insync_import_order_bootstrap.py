@@ -41,7 +41,7 @@ def _config():
     )
 
 
-def test_pr1036_asyncio_loop_exists_before_any_ib_insync_symbol_is_loaded(monkeypatch) -> None:
+def test_pr1036_asyncio_loop_exists_before_ib_symbol_is_loaded(monkeypatch) -> None:
     calls: list[object] = []
     current_loop: dict[str, object | None] = {"value": None}
 
@@ -64,10 +64,6 @@ def test_pr1036_asyncio_loop_exists_before_any_ib_insync_symbol_is_loaded(monkey
     monkeypatch.setattr(pr1034.asyncio, "new_event_loop", fake_new_event_loop)
     monkeypatch.setattr(pr1034.asyncio, "set_event_loop", fake_set_event_loop)
 
-    class FakeUtil:
-        def patchAsyncio(self) -> None:
-            calls.append("patchAsyncio")
-
     class FakeIB:
         def __init__(self) -> None:
             calls.append("IB")
@@ -83,40 +79,31 @@ def test_pr1036_asyncio_loop_exists_before_any_ib_insync_symbol_is_loaded(monkey
     class OrderedFakeIBInsync(types.ModuleType):
         def __getattribute__(self, name):
             if name == "util":
-                calls.append("get_util")
-                if "set_event_loop" not in calls:
-                    raise AssertionError("util was imported before asyncio event loop setup")
-                return fake_util
+                raise AssertionError("ib_insync.util should not be imported by default")
             if name == "IB":
                 calls.append("get_IB")
-                if "patchAsyncio" not in calls:
-                    raise AssertionError("IB was imported before util bootstrap")
+                if "set_event_loop" not in calls:
+                    raise AssertionError("IB was imported before asyncio event loop setup")
                 return FakeIB
             return super().__getattribute__(name)
 
-    fake_util = FakeUtil()
     fake_ib_insync = OrderedFakeIBInsync("ib_insync")
     monkeypatch.setitem(sys.modules, "ib_insync", fake_ib_insync)
 
     provider = pr1034.IBInsyncReadOnlyProvider(_config())
     provider.connect_readonly()
 
-    assert calls.index("set_event_loop") < calls.index("get_util")
-    assert calls.index("get_util") < calls.index("patchAsyncio")
-    assert calls.index("patchAsyncio") < calls.index("get_IB")
+    assert calls.index("set_event_loop") < calls.index("get_IB")
     assert calls.index("get_IB") < calls.index("IB")
+    assert "patchAsyncio" not in calls
     assert calls[-1] == ("connect", "127.0.0.1", 7497, 1036, 3.0, True)
 
 
-def test_pr1036_bootstrap_loader_aborts_if_ib_symbol_is_unavailable_after_util(monkeypatch) -> None:
-    class FakeUtil:
-        def patchAsyncio(self) -> None:
-            return None
-
+def test_pr1036_bootstrap_loader_aborts_if_ib_symbol_is_unavailable(monkeypatch) -> None:
     class MissingIBFakeModule(types.ModuleType):
         def __getattribute__(self, name):
             if name == "util":
-                return FakeUtil()
+                raise AssertionError("ib_insync.util should not be imported by default")
             if name == "IB":
                 raise ImportError("missing IB")
             return super().__getattribute__(name)
@@ -134,11 +121,13 @@ def test_pr1036_report_documents_import_order_fix_and_keeps_paper_blocked() -> N
         "PAPER_READY: NO",
         "PR1034_IB_INSYNC_IMPORT_ORDER_BOOTSTRAP_FIXED: YES",
         "ASYNCIO_EVENT_LOOP_BEFORE_IB_INSYNC_IMPORT: YES",
-        "UTIL_BOOTSTRAP_BEFORE_IB_SYMBOL_LOAD: YES",
+        "DEFAULT_PATCH_ASYNCIO_NEST_ASYNCIO_PATH_ENABLED: NO",
+        "IB_SYMBOL_LOAD_AFTER_PLAIN_EVENT_LOOP_BOOTSTRAP: YES",
         "CI_CONNECTS_TO_IBKR: NO",
         "ORDER_MUTATION_ALLOWED: NO",
         "PAPER_READINESS_GATE: FAIL",
         "The collector creates or confirms an asyncio event loop before any `ib_insync` import.",
+        "The collector does not call `patchAsyncio()` or install a default `nest_asyncio` path.",
         "Broker-connected runtime artifact captured by this PR: NO",
     )
     forbidden_fragments = (
