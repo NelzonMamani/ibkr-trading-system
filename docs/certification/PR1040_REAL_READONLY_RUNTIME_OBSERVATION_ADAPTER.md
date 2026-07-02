@@ -19,6 +19,7 @@ PAPER_LIVE_ENABLED: NO
 BROKER_ORDER_MUTATION_ALLOWED: NO
 BROKER_BEFORE_AFTER_AUDIT_COMPLETE_REQUIRED: YES
 PRICED_INTENT_REQUIRED_FOR_ACCEPTED_SETUP: YES
+READONLY_CONFIG_OVERRIDE_TYPES_GUARDED: YES
 MANUAL_FOCUS_READINESS_PROOF_ALLOWED: NO
 SYNTHETIC_TRADE_INTENT_ALLOWED: NO
 SYNTHETIC_ANALYTICS_STORAGE_PROOF_ALLOWED: NO
@@ -41,6 +42,8 @@ Script:
 scripts/certification/pr1040_real_readonly_runtime_observation_adapter.py
 
 The adapter sets READ_ONLY-only runtime overrides, runs the real scanner path through `run_scanner_cycle(mode="READ_ONLY")`, builds real pattern inputs through `build_runtime_pattern_inputs`, routes setup/decision authority through `RossMomentumStrategy.evaluate`, evaluates risk through `evaluate_trade_intents` in READ_ONLY mode only if canonical strategy output emits intents, keeps execution disabled, audits broker open orders before and after, and writes a PR1039-compatible `--observation-input` JSON.
+
+The adapter now sends only PR1040 READ_ONLY launch guard keys into `set_config_overrides`. Inherited environment variables remain at normal ENV precedence so blank operator fields such as scanner symbol lists are not accidentally promoted to boolean `False` overrides. The scanner launch config value is `SCANNER_MODE=LIVE_READONLY`, while the adapter still records the observation run as `run_scanner_cycle(mode="READ_ONLY")`.
 
 Broker connection evidence is complete only when both the before and after broker snapshots are connected and auditable. A one-sided broker snapshot is not enough and classifies as `INSUFFICIENT_EVIDENCE` with this blocker:
 
@@ -121,7 +124,7 @@ $env:ROSS_MANUAL_FOCUS_SYMBOLS=""
 $env:SYNTHETIC_TRADE_INTENTS=""
 $env:ROSS_SYNTHETIC_TRADE_INTENTS=""
 $env:SCANNER_DATA_SOURCE="IBKR"
-$env:SCANNER_MODE="READ_ONLY"
+$env:SCANNER_MODE="LIVE_READONLY"
 
 .\.venv\Scripts\python.exe scripts\certification\pr1040_real_readonly_runtime_observation_adapter.py `
   --operator NELZON `
