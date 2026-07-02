@@ -19,6 +19,7 @@ PAPER_LIVE_ENABLED: NO
 BROKER_ORDER_MUTATION_ALLOWED: NO
 MANUAL_FOCUS_READINESS_PROOF_ALLOWED: NO
 SYNTHETIC_TRADE_INTENT_ALLOWED: NO
+SYNTHETIC_ANALYTICS_STORAGE_PROOF_ALLOWED: NO
 
 Final classification is determined only by the generated real observation JSON:
 
@@ -37,7 +38,11 @@ Script:
 
 scripts/certification/pr1040_real_readonly_runtime_observation_adapter.py
 
-The adapter sets READ_ONLY-only runtime overrides, runs the real scanner path through `run_scanner_cycle(mode="READ_ONLY")`, builds real pattern inputs through `build_runtime_pattern_inputs`, evaluates Ross patterns through `PatternEvaluator`, creates Ross intents through the normal decision policy if the real setup path emits any, evaluates risk through `evaluate_trade_intents` in READ_ONLY mode, keeps execution disabled, audits broker open orders before and after, and writes a PR1039-compatible `--observation-input` JSON.
+The adapter sets READ_ONLY-only runtime overrides, runs the real scanner path through `run_scanner_cycle(mode="READ_ONLY")`, builds real pattern inputs through `build_runtime_pattern_inputs`, routes setup/decision authority through `RossMomentumStrategy.evaluate`, evaluates risk through `evaluate_trade_intents` in READ_ONLY mode only if canonical strategy output emits intents, keeps execution disabled, audits broker open orders before and after, and writes a PR1039-compatible `--observation-input` JSON.
+
+The adapter no longer treats the PR1040 observation JSON write/readback as analytics/storage proof. Storage evidence is valid only when the runtime evidence source is `REAL_ANALYTICS_STORAGE_WRITE_READBACK`. No existing real analytics/storage write-readback source was identified in this patch, so operator runs without that source classify as `INSUFFICIENT_EVIDENCE` with this blocker:
+
+`Real analytics/storage write-readback evidence is unavailable.`
 
 The adapter fails closed if it observes:
 
@@ -49,8 +54,17 @@ The adapter fails closed if it observes:
 - validation or threshold override enabled
 - manual focus or prep-seeded focus evidence
 - synthetic or forced trade intent markers
+- accepted setup evidence from a non-canonical decision authority
 - submitted/acknowledged/working/filled/cancelled/modified execution events
 - broker open-order mutation before vs after the READ_ONLY observation
+
+## Decision Authority
+
+Accepted setup evidence must carry:
+
+`decision_authority=RossMomentumStrategy.evaluate`
+
+The adapter no longer calls `PatternEvaluator` and `build_trade_intents` directly as the certification authority. Pattern input evidence is still captured from the real runtime pattern-input builder, but setup/decision evidence comes from the canonical Ross strategy evaluation path. Under READ_ONLY runtime configuration, the canonical strategy may block intent emission; that is recorded honestly as no-trade or insufficient evidence rather than manufacturing an accepted setup.
 
 ## Output
 
@@ -105,6 +119,14 @@ $env:SCANNER_MODE="READ_ONLY"
   --force
 ```
 
+Expected default result until real storage proof exists:
+
+```text
+classification=INSUFFICIENT_EVIDENCE
+paper_ready=NO
+paper_readiness_gate=FAIL
+```
+
 ## PR1039 Validation Command
 
 ```powershell
@@ -131,12 +153,15 @@ A valid accepted setup requires all of the following:
 
 - focused symbol present in Focus M
 - catalyst status confirmed for focused symbols
-- real runtime pattern input evidence captured
+- real runtime pattern input evidence captured and not blocked/unavailable
 - non-synthetic setup/intent evidence
-- target model present from the real strategy output
+- `decision_authority=RossMomentumStrategy.evaluate`
+- target model present from canonical strategy output
 - risk_gate_called=true through READ_ONLY risk evaluation
+- READ_ONLY risk decision source
 - execution disabled
 - broker order mutation count zero
+- real analytics/storage write-readback evidence source
 
 A valid no-trade observation is allowed only when it still contains full real pipeline evidence:
 
@@ -144,35 +169,36 @@ A valid no-trade observation is allowed only when it still contains full real pi
 - catalyst/news evidence
 - watchlist/focus evidence
 - real pattern-input attempt and explicit missing/stale/block classification if blocked
-- setup/decision no-trade reason
+- canonical setup/decision no-trade reason
 - risk not approved
 - execution disabled
 - broker zero-order audit
-- analytics/storage write/readback evidence
+- real analytics/storage write/readback evidence
 - final PAPER_READY=NO and PAPER_READINESS_GATE=FAIL
 
-If Focus M is empty, broker evidence is missing, pattern-input evidence is absent, or storage/readback evidence is incomplete, the adapter classifies the result as INSUFFICIENT_EVIDENCE.
+If Focus M is empty, broker evidence is missing, pattern-input evidence is absent, canonical strategy decision evidence is absent, or storage/readback evidence is incomplete, the adapter classifies the result as INSUFFICIENT_EVIDENCE.
 
-If the run observes unsafe execution, broker mutation, manual focus readiness proof, synthetic intent, or an accepted setup without required catalyst/risk/target evidence, the adapter classifies or fails the result as READ_ONLY_OBSERVATION_INVALID.
+If the run observes unsafe execution, broker mutation, manual focus readiness proof, synthetic intent, non-canonical accepted setup evidence, or an accepted setup without required catalyst/risk/target evidence, the adapter classifies or fails the result as READ_ONLY_OBSERVATION_INVALID.
 
 ## Tests
 
 Focused tests:
 
 ```powershell
-python -m pytest -q tests/test_ross_pr1040_real_readonly_runtime_observation_adapter.py
+.\.venv\Scripts\pytest.exe tests/test_ross_pr1040_real_readonly_runtime_observation_adapter.py -q
 ```
 
-Relevant producer regression:
+Relevant producer and collector regressions:
 
 ```powershell
-python -m pytest -q tests/test_ross_pr1039_readonly_full_strategy_observation_producer.py
+.\.venv\Scripts\pytest.exe tests/test_ross_pr1039_readonly_full_strategy_observation_producer.py -q
+.\.venv\Scripts\pytest.exe tests/test_ross_pr1038_readonly_full_strategy_observation_collector.py -q
 ```
 
 Compile check:
 
 ```powershell
-python -m compileall -q scripts tests src
+.\.venv\Scripts\python.exe -m compileall -q src tests scripts
 ```
 
 ## Certification Status
