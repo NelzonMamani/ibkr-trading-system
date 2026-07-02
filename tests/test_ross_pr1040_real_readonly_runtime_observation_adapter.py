@@ -115,6 +115,8 @@ def _evidence(
     storage: bool = True,
     storage_source: str | None = None,
     pattern_summaries=None,
+    broker_before_connected: bool = True,
+    broker_after_connected: bool = True,
 ):
     scanner_payload = scanner if scanner is not None else _scanner_payload()
     watchlist_rows = scanner_payload.get("watchlist_rows", [])
@@ -133,8 +135,18 @@ def _evidence(
         intent_records=intents or [],
         risk_decisions=risks or [],
         execution_events=execution_events or [],
-        broker_before={"connected": True, "readonly_connection": True, "open_orders": [], "metadata": {"readonly": True}},
-        broker_after={"connected": True, "readonly_connection": True, "open_orders": [], "metadata": {"readonly": True}},
+        broker_before={
+            "connected": broker_before_connected,
+            "readonly_connection": True,
+            "open_orders": [],
+            "metadata": {"readonly": True},
+        },
+        broker_after={
+            "connected": broker_after_connected,
+            "readonly_connection": True,
+            "open_orders": [],
+            "metadata": {"readonly": True},
+        },
         session_label="PRE",
         storage_write_verified=storage,
         storage_readback_verified=storage,
@@ -148,13 +160,15 @@ def _accepted_intent(
     target_model: str | None = "HOD extension target",
     tags=None,
     decision_authority: str = pr1040.CANONICAL_DECISION_AUTHORITY,
+    entry: str = "trigger=12.34",
+    entry_price=12.34,
 ):
     return ns(
         symbol="REAL1",
         intent_id="RossMomentumStrategy:REAL1:MICRO_PULLBACK",
         setup_id="MICRO_PULLBACK",
         side="LONG",
-        entry="Break over pullback high",
+        entry=entry,
         stop="Below pullback low",
         rationale="Real READ_ONLY accepted setup observation.",
         tags=tags or [],
@@ -162,6 +176,8 @@ def _accepted_intent(
             "target_model": target_model,
             "pattern_input_source": "REAL_RUNTIME_PATTERN_INPUTS",
             "decision_authority": decision_authority,
+            "entry_price": entry_price,
+            "priced_sizing_input": entry_price,
         },
     )
 
@@ -261,6 +277,45 @@ def test_pr1040_missing_storage_evidence_forces_insufficient_evidence() -> None:
     assert pr1040.STORAGE_EVIDENCE_UNAVAILABLE_BLOCKER in " ".join(spec["final_verdict"]["blockers"])
 
 
+def test_pr1040_broker_after_disconnected_is_insufficient_evidence() -> None:
+    evidence = _evidence(broker_before_connected=True, broker_after_connected=False)
+
+    spec = pr1040.build_pr1039_observation_input(evidence)
+
+    assert spec["classification"] == "INSUFFICIENT_EVIDENCE"
+    assert spec["broker_connection_snapshot"]["connected"] is False
+    assert spec["broker_connection_snapshot"]["broker_before_connected"] is True
+    assert spec["broker_connection_snapshot"]["broker_after_connected"] is False
+    assert spec["broker_connection_snapshot"]["broker_audit_complete"] is False
+    assert spec["final_verdict"]["BROKER_CONNECTED_RUNTIME_ARTIFACT_CAPTURED"] == "NO"
+    assert pr1040.BROKER_AUDIT_INCOMPLETE_BLOCKER in " ".join(spec["final_verdict"]["blockers"])
+
+
+def test_pr1040_broker_before_disconnected_is_insufficient_evidence() -> None:
+    evidence = _evidence(broker_before_connected=False, broker_after_connected=True)
+
+    spec = pr1040.build_pr1039_observation_input(evidence)
+
+    assert spec["classification"] == "INSUFFICIENT_EVIDENCE"
+    assert spec["broker_connection_snapshot"]["connected"] is False
+    assert spec["broker_connection_snapshot"]["broker_before_connected"] is False
+    assert spec["broker_connection_snapshot"]["broker_after_connected"] is True
+    assert spec["broker_order_audit"]["broker_audit_complete"] is False
+    assert spec["final_verdict"]["BROKER_CONNECTED_RUNTIME_ARTIFACT_CAPTURED"] == "NO"
+    assert pr1040.BROKER_AUDIT_INCOMPLETE_BLOCKER in " ".join(spec["final_verdict"]["blockers"])
+
+
+def test_pr1040_broker_before_and_after_connected_may_proceed() -> None:
+    evidence = _evidence(broker_before_connected=True, broker_after_connected=True)
+
+    spec = pr1040.build_pr1039_observation_input(evidence)
+
+    assert spec["broker_connection_snapshot"]["connected"] is True
+    assert spec["broker_connection_snapshot"]["broker_audit_complete"] is True
+    assert spec["final_verdict"]["BROKER_CONNECTED_RUNTIME_ARTIFACT_CAPTURED"] == "YES"
+    assert spec["classification"] == "READ_ONLY_OBSERVATION_VALID"
+
+
 def test_pr1040_marks_accepted_setup_without_target_as_invalid() -> None:
     evidence = _evidence(
         intents=[_accepted_intent(target_model=None)],
@@ -286,6 +341,58 @@ def test_pr1040_rejects_accepted_setup_from_noncanonical_decision_path() -> None
 
     assert spec["classification"] == "READ_ONLY_OBSERVATION_INVALID"
     assert "canonical Ross strategy decision authority" in " ".join(spec["final_verdict"]["blockers"])
+
+
+def test_pr1040_rejects_accepted_setup_missing_entry_price() -> None:
+    evidence = _evidence(
+        intents=[_accepted_intent(entry="Break over pullback high", entry_price=None)],
+        risks=_risk_allowed(),
+        pattern_inputs=[_pattern_input(action="NONE")],
+    )
+
+    spec = pr1040.build_pr1039_observation_input(evidence)
+
+    assert spec["classification"] == "READ_ONLY_OBSERVATION_INVALID"
+    assert spec["setup_decision_artifact"]["priced_intent"] is False
+    assert pr1040.PRICED_INTENT_BLOCKER in " ".join(spec["final_verdict"]["blockers"])
+
+
+def test_pr1040_rejects_accepted_setup_non_numeric_entry_price() -> None:
+    evidence = _evidence(
+        intents=[_accepted_intent(entry="entry=market_when_ready", entry_price="not-a-number")],
+        risks=_risk_allowed(),
+        pattern_inputs=[_pattern_input(action="NONE")],
+    )
+
+    spec = pr1040.build_pr1039_observation_input(evidence)
+
+    assert spec["classification"] == "READ_ONLY_OBSERVATION_INVALID"
+    assert spec["setup_decision_artifact"]["entry_price"] is None
+    assert pr1040.PRICED_INTENT_BLOCKER in " ".join(spec["final_verdict"]["blockers"])
+
+
+def test_pr1040_accepted_setup_with_numeric_entry_price_can_pass_all_gates() -> None:
+    evidence = _evidence(
+        intents=[_accepted_intent(entry="trigger=12.34", entry_price=12.34)],
+        risks=_risk_allowed(),
+        pattern_inputs=[_pattern_input(action="NONE")],
+        storage=True,
+        broker_before_connected=True,
+        broker_after_connected=True,
+    )
+
+    spec = pr1040.build_pr1039_observation_input(evidence)
+
+    assert spec["classification"] == "READ_ONLY_OBSERVATION_VALID"
+    assert spec["setup_decision_artifact"]["decision_verdict"] == "ACCEPT"
+    assert spec["setup_decision_artifact"]["decision_authority"] == pr1040.CANONICAL_DECISION_AUTHORITY
+    assert spec["setup_decision_artifact"]["entry_price"] == 12.34
+    assert spec["setup_decision_artifact"]["priced_intent"] is True
+    assert spec["risk_gate_artifact"]["risk_gate_called"] is True
+    assert spec["risk_gate_artifact"]["risk_approved"] is True
+    assert spec["execution_gate_artifact"]["execution_enabled"] is False
+    assert spec["broker_order_audit"]["submitted_orders_count"] == 0
+    assert spec["analytics_storage_artifact"]["storage_evidence_source"] == pr1040.REAL_STORAGE_EVIDENCE_SOURCE
 
 
 def test_pr1040_accepted_setup_requires_focused_symbol_confirmed_catalyst_and_risk_gate() -> None:
