@@ -1,4 +1,4 @@
-﻿# PR1039 READ_ONLY Full Ross Strategy Observation Producer
+# PR1039 READ_ONLY Full Ross Strategy Observation Producer
 
 ## Scope
 
@@ -65,10 +65,10 @@ PR1039 fails closed before writing or validating when any safety setting is unsa
 | Manual focus | absent/empty/false |
 | Synthetic trade intent | absent/empty/false |
 | Broker order mutation | submitted/cancelled/modified/order-attempt counts all zero |
-| Accepted setup catalyst | confirmed catalyst required for focused symbols |
+| Accepted setup catalyst | at least one focused symbol and confirmed catalyst required for focused symbols |
 | Accepted setup pattern inputs | fresh/non-blocked required |
 | Accepted setup models | entry, stop, and target models required |
-| Accepted setup risk | real READ_ONLY risk source required |
+| Accepted setup risk | risk_gate_called=true and real READ_ONLY risk source required |
 | No-trade risk | cannot have risk_approved=true |
 | Final verdict | paper_ready=NO and paper_readiness_gate=FAIL |
 

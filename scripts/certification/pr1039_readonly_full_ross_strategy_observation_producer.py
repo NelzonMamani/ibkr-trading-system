@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 """PR1039 READ_ONLY full Ross strategy observation producer.
 
 Certification-only producer/adapter for controlled READ_ONLY Ross observation
@@ -594,8 +594,12 @@ def assert_decision_and_risk_safe(spec: Mapping[str, Any]) -> None:
         raise PR1039ProducerError("fake or forced risk approval source is forbidden")
 
     if accepted:
+        focused_symbols = _focused_symbols(focus)
+        if not focused_symbols:
+            raise PR1039ProducerError("accepted setup requires at least one focused symbol")
+
         statuses = _catalyst_statuses(catalyst)
-        for symbol in _focused_symbols(focus):
+        for symbol in focused_symbols:
             if statuses.get(symbol) not in CATALYST_ACCEPT_VALUES:
                 raise PR1039ProducerError(f"accepted setup requires confirmed catalyst for {symbol}")
 
@@ -608,6 +612,8 @@ def assert_decision_and_risk_safe(spec: Mapping[str, Any]) -> None:
             if not str(setup.get(key, "")).strip():
                 raise PR1039ProducerError(f"accepted setup missing {key}")
 
+        if _normalize_bool(risk.get("risk_gate_called")) is not True:
+            raise PR1039ProducerError("accepted setup requires risk_gate_called=true")
         if _normalize_bool(risk.get("risk_approved")) is not True:
             raise PR1039ProducerError("accepted setup requires real risk evaluation")
         if risk_source not in REAL_RISK_SOURCE_VALUES:

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import importlib.util
 import json
@@ -238,6 +238,26 @@ def test_pr1039_rejects_broker_order_mutation(tmp_path: Path) -> None:
     spec["broker_order_audit"]["submitted_orders_count"] = 1
 
     with pytest.raises(pr1039.PR1039ProducerError, match="submitted_orders_count"):
+        _produce(tmp_path, spec=spec)
+
+
+def test_pr1039_rejects_accepted_setup_when_risk_gate_was_not_called(tmp_path: Path) -> None:
+    spec = pr1039.build_valid_accepted_setup_spec("TEST_OP")
+    spec["risk_gate_artifact"]["risk_gate_called"] = False
+    spec["risk_gate_artifact"]["risk_approved"] = True
+    spec["risk_gate_artifact"]["risk_approval_source"] = "READ_ONLY_RISK_ENGINE"
+
+    with pytest.raises(pr1039.PR1039ProducerError, match="risk_gate_called"):
+        _produce(tmp_path, spec=spec)
+
+
+def test_pr1039_rejects_accepted_setup_without_focused_symbol(tmp_path: Path) -> None:
+    spec = pr1039.build_valid_accepted_setup_spec("TEST_OP")
+    spec["watchlist_focus_artifact"]["focus_m_symbols"] = []
+    spec["watchlist_focus_artifact"]["focus_rows"] = []
+    spec["catalyst_news_artifact"]["catalyst_status_by_symbol"] = {}
+
+    with pytest.raises(pr1039.PR1039ProducerError, match="focused symbol"):
         _produce(tmp_path, spec=spec)
 
 
