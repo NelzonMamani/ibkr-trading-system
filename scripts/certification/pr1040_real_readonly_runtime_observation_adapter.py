@@ -80,7 +80,7 @@ READ_ONLY_ENV_DEFAULTS: dict[str, str] = {
     "SYNTHETIC_TRADE_INTENTS": "",
     "ROSS_SYNTHETIC_TRADE_INTENTS": "",
     "SCANNER_DATA_SOURCE": "IBKR",
-    "SCANNER_MODE": "READ_ONLY",
+    "SCANNER_MODE": "LIVE_READONLY",
 }
 
 FALSE_REQUIRED_ENV_KEYS = (
@@ -272,6 +272,59 @@ def assert_safe_runtime_env(env: Mapping[str, str]) -> None:
             raise PR1040AdapterError(f"{key} must be empty or absent")
 
 
+def _config_registry() -> Mapping[str, Mapping[str, Any]]:
+    try:
+        from src.config.config_registry import CONFIG_REGISTRY
+    except Exception:
+        return {}
+    return CONFIG_REGISTRY if isinstance(CONFIG_REGISTRY, Mapping) else {}
+
+
+def _sequence_override(value: Any) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+
+def _coerce_config_override_value(key: str, value: Any, type_hint: Any) -> object:
+    if type_hint is bool:
+        parsed = _normalize_bool(value)
+        if parsed is None:
+            raise PR1040AdapterError(f"{key} must be boolean-compatible for config override")
+        return parsed
+    if type_hint is int:
+        return int(str(value).strip())
+    if type_hint is float:
+        return float(str(value).strip())
+    if type_hint is list:
+        return _sequence_override(value)
+    if type_hint is set:
+        return set(_sequence_override(value))
+    if type_hint is dict:
+        if isinstance(value, Mapping):
+            return dict(value)
+        text = str(value or "").strip()
+        if not text:
+            return {}
+        parsed = json.loads(text)
+        if not isinstance(parsed, dict):
+            raise PR1040AdapterError(f"{key} must decode to a JSON object for config override")
+        return parsed
+    return str(value)
+
+
+def build_readonly_config_overrides(env: Mapping[str, str]) -> dict[str, object]:
+    registry = _config_registry()
+    overrides: dict[str, object] = {}
+    for key in READ_ONLY_ENV_DEFAULTS:
+        if key not in env:
+            continue
+        entry = registry.get(key, {})
+        type_hint = entry.get("type") if isinstance(entry, Mapping) else None
+        overrides[key] = _coerce_config_override_value(key, env.get(key), type_hint)
+    return overrides
+
+
 def apply_readonly_runtime_overrides(env: Mapping[str, str]) -> None:
     assert_safe_runtime_env(env)
     os.environ.update({key: str(value) for key, value in env.items()})
@@ -280,11 +333,8 @@ def apply_readonly_runtime_overrides(env: Mapping[str, str]) -> None:
     except Exception:
         return
 
-    typed: dict[str, object] = {}
-    for key, value in env.items():
-        parsed = _normalize_bool(value)
-        typed[key] = parsed if parsed is not None and str(value).strip().lower() in TRUE_VALUES | FALSE_VALUES else value
-    set_config_overrides(typed)
+    # Keep inherited environment at ENV precedence; only PR1040 launch guards get override precedence.
+    set_config_overrides(build_readonly_config_overrides(env))
 
 
 def _stable_json(value: Any) -> str:
