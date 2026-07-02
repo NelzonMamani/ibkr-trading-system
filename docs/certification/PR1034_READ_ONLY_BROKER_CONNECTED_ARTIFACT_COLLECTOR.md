@@ -39,6 +39,10 @@ PR1035 tightens the collector without changing trading behavior. The corrected c
 
 PR1036 tightens the import-order side of the bootstrap without changing trading behavior. The collector now creates or confirms an asyncio event loop before any `ib_insync` import, then imports `ib_insync.util`, applies the util bootstrap, and only then imports or instantiates `IB`. The PR1035 fail-closed broker evidence behavior is preserved.
 
+## PR1037 Correction Note
+
+PR1037 tightens the connect-timeout side of the collector without changing trading behavior. Python 3.14/ib_insync connect timeout exceptions now abort as `CollectorValidationError`, the partially created IB object is disconnected, and broker audit/artifact writing does not start after a failed connection.
+
 ## Files Added Or Updated
 
 | File | Purpose |
@@ -56,6 +60,7 @@ PR1036 tightens the import-order side of the bootstrap without changing trading 
 | Runtime preflight | Reuses PR1033 READ_ONLY env validation before provider connection. | Fails before broker connection if mode/execution flags are unsafe. |
 | ib_insync bootstrap | PR1036 creates or confirms an asyncio event loop, imports `ib_insync.util`, calls `patchAsyncio()`, and then imports/instantiates `IB`. | Reduces operator-run connection failures caused by missing event-loop setup or fragile import ordering. |
 | IBKR adapter | Uses `ib_insync.IB.connect(..., readonly=True)` only in operator-invoked CLI runs. | Requests broker read-only connection rather than order authority. |
+| Connect timeout handling | PR1037 aborts on connect timeout/failure, disconnects the partial IB object, and does not start broker audit. | Prevents raw timeout exceptions or partial connections from becoming artifact evidence. |
 | Order mutation audit | Requires submitted/cancelled/modified order counts to remain zero. | Blocks any bundle that indicates broker order mutation. |
 | Open-order audit availability | PR1035 aborts on open-order request/read failure or failure status markers. | Prevents incomplete broker audit data from becoming validated-looking evidence. |
 | Open-order snapshot check | Requires open-order snapshot before/after collection to be stable. | Detects unexpected broker state changes during the collection window. |
@@ -89,19 +94,20 @@ The collector aborts if any of these are true:
 2. Effective mode is not READ_ONLY.
 3. Execution authority, IBKR write authority, order submission, replay mode, or clean-start is enabled.
 4. ib_insync event-loop bootstrap fails.
-5. The provider cannot prove `connected=true`.
-6. Required broker snapshot fields are missing or malformed.
-7. Managed-account read fails before redacted account evidence can be produced.
-8. Submitted/cancelled/modified order counts are nonzero.
-9. Open-order request or read fails.
-10. Open-order audit rows contain failure, error, unavailable, or unknown status markers.
-11. Open-order snapshots change during the collector window.
-12. Raw and validated output directories are the same resolved path.
-13. PR1033 validation fails.
+5. IBKR READ_ONLY connection times out or fails before broker audit begins.
+6. The provider cannot prove `connected=true`.
+7. Required broker snapshot fields are missing or malformed.
+8. Managed-account read fails before redacted account evidence can be produced.
+9. Submitted/cancelled/modified order counts are nonzero.
+10. Open-order request or read fails.
+11. Open-order audit rows contain failure, error, unavailable, or unknown status markers.
+12. Open-order snapshots change during the collector window.
+13. Raw and validated output directories are the same resolved path.
+14. PR1033 validation fails.
 
 ## Remaining Blockers
 
-| Blocker | Status after PR1034/PR1035/PR1036 |
+| Blocker | Status after PR1034/PR1035/PR1036/PR1037 |
 | --- | --- |
 | Real operator-run broker-connected artifact bundle | Not captured by this PR |
 | Full scanner/watchlist/focus runtime evidence | Not captured by this PR |
@@ -120,6 +126,7 @@ Target commands:
 python -m pytest tests/test_ross_pr1034_readonly_broker_connected_artifact_collector.py
 python -m pytest tests/test_ross_pr1035_pr1034_broker_collector_safety_fix.py
 python -m pytest tests/test_ross_pr1036_pr1034_ib_insync_import_order_bootstrap.py
+python -m pytest tests/test_ross_pr1037_pr1034_ib_insync_connect_timeout.py
 python -m pytest tests/test_ross_pr1033_readonly_broker_artifact_capture_script.py tests/test_ross_pr1032_readonly_broker_runtime_artifact_capture_pack.py
 python -m pytest tests -k "ross or readonly or paper or execution or scanner or catalyst or focus or artifact or broker"
 ```
@@ -128,4 +135,4 @@ Local execution may be unavailable in this Codex desktop session if the local Py
 
 ## Final Certification Answer
 
-PR1034 adds a guarded READ_ONLY broker-connected collector path; PR1035 tightens the collector's bootstrap and fail-closed broker evidence checks; PR1036 tightens the asyncio and ib_insync import/bootstrap ordering. It does not mutate broker state, does not connect to IBKR in CI, does not enable PAPER/LIVE, and does not certify that the real broker-connected full strategy capture has already happened. Ross Momentum remains `PAPER_READY: NO`.
+PR1034 adds a guarded READ_ONLY broker-connected collector path; PR1035 tightens the collector's bootstrap and fail-closed broker evidence checks; PR1036 tightens the asyncio and ib_insync import/bootstrap ordering; PR1037 tightens the connect timeout/failure path. It does not mutate broker state, does not connect to IBKR in CI, does not enable PAPER/LIVE, and does not certify that the real broker-connected full strategy capture has already happened. Ross Momentum remains `PAPER_READY: NO`.
