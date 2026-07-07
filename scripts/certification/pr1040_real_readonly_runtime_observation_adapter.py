@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
+import hashlib
 import importlib.util
 import json
 import os
@@ -40,6 +41,9 @@ DEFAULT_RAW_OUTPUT_DIR = Path(
 )
 DEFAULT_VALIDATED_OUTPUT_DIR = Path(
     "artifacts/certification/pr1040/validated_real_runtime_observation"
+)
+DEFAULT_ANALYTICS_STORAGE_DB = Path(
+    "artifacts/certification/pr1040/analytics_storage/read_only_runtime_observation.sqlite3"
 )
 
 TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -1016,12 +1020,260 @@ def _unavailable_pattern_evidence(symbol: str, reason: str, quality_flags: Seque
     }
 
 
+def _trade_intent_record_from_strategy_intent(symbol: str, decision: Any, intent: Any) -> Any:
+    from src.core_engine.events import TradeIntentRecord
+
+    setup_id = str(getattr(intent, "intent_id", "REAL_RUNTIME_SETUP")).split(":")[-1] or "REAL_RUNTIME_SETUP"
+    entry_model = str(getattr(intent, "entry_model", "") or "")
+    entry_price = _coerce_positive_price(entry_model)
+    return TradeIntentRecord(
+        symbol=symbol,
+        intent_id=intent.intent_id,
+        setup_id=setup_id,
+        side=getattr(intent.direction, "value", str(intent.direction)),
+        entry=entry_model,
+        stop=intent.stop_model,
+        rationale=intent.rationale_text,
+        tags=list(intent.risk_flags or []),
+        entry_price=entry_price,
+        entry_price_source="CANONICAL_STRATEGY_ENTRY_MODEL" if entry_price is not None else None,
+        metadata={
+            "target_model": intent.target_model,
+            "pattern_input_source": "REAL_RUNTIME_PATTERN_INPUTS",
+            "decision_authority": CANONICAL_DECISION_AUTHORITY,
+            "strategy_id": getattr(decision, "strategy_id", "ross_momentum"),
+            "entry_price": entry_price,
+            "priced_sizing_input": entry_price,
+        },
+    )
+
+
+def _analytics_storage_path(env: Mapping[str, str], store_path: Path | None = None) -> Path:
+    if store_path is not None:
+        return store_path
+    configured = str(env.get("PR1040_ANALYTICS_STORAGE_DB") or env.get("ANALYTICS_STORAGE_DB") or "").strip()
+    return Path(configured) if configured else DEFAULT_ANALYTICS_STORAGE_DB
+
+
+def _storage_failure_detail(path: Path, exc: Exception | str) -> dict[str, Any]:
+    message = str(exc)
+    return {
+        "storage_layer": "src.storage.sqlite_store.SQLiteStore",
+        "store_path": str(path),
+        "error": message,
+    }
+
+
+def capture_real_analytics_storage_write_readback(
+    evidence: RuntimeObservationEvidence,
+    *,
+    cycle_id: int = 1,
+    store_path: Path | None = None,
+) -> dict[str, Any]:
+    """Write/read back runtime analytics evidence through SQLiteStore.
+
+    This deliberately does not use the PR1040 observation JSON as proof. The
+    proof is a row written through the existing runtime storage layer and read
+    back from the same layer before the observation is classified valid.
+    """
+
+    path = _analytics_storage_path(evidence.env, store_path)
+    store = None
+    try:
+        assert_safe_runtime_env(evidence.env)
+        from src.storage.sqlite_store import SQLiteStore
+
+        store = SQLiteStore(str(path))
+        store.initialize_schema()
+        run_id = evidence.scenario_id
+        cycle_key = f"{run_id}:cycle:{cycle_id}"
+        trade_record_id = f"{run_id}:trade_record:{cycle_id}"
+        cycle_summary_row_id = f"{run_id}:cycle_summary:{cycle_id}"
+        created_at = evidence.captured_at_utc
+        setup_artifact = _setup_decision_artifact(evidence)
+        risk_artifact = _risk_gate_artifact(evidence)
+        order_mutations = _order_mutation_count(evidence)
+
+        store.insert_run(
+            {
+                "run_id": run_id,
+                "started_at": created_at,
+                "started_at_utc": created_at,
+                "ended_at": created_at,
+                "ended_at_utc": created_at,
+                "hostname": "PR1040_CERTIFICATION_ADAPTER",
+                "user": evidence.operator,
+                "app_version": SCHEMA_VERSION,
+                "git_sha": evidence.env.get("GIT_SHA"),
+                "run_mode": "READ_ONLY",
+                "effective_run_mode": "READ_ONLY",
+                "event_replay_mode": "OFF",
+                "resolved_config_json": _stable_json({key: evidence.env.get(key) for key in sorted(READ_ONLY_ENV_DEFAULTS)}),
+                "config_fingerprint": hashlib.sha256(_stable_json(evidence.env).encode("utf-8")).hexdigest(),
+                "schema_version": 1040,
+                "system_version": SCHEMA_VERSION,
+                "created_at": created_at,
+            }
+        )
+        store.insert_cycle(
+            {
+                "cycle_id": cycle_key,
+                "run_id": run_id,
+                "tick": cycle_id,
+                "session": evidence.session_label,
+                "market_session": evidence.session_label,
+                "cycle_started_at": created_at,
+                "cycle_ended_at": created_at,
+                "scanner_n": len(evidence.scanner_payload.get("symbols", []) or []),
+                "scanner_candidates_count": int(evidence.scanner_payload.get("topn_count", 0) or 0),
+                "patterns_n": len(evidence.pattern_input_evidence),
+                "patterns_count": len(evidence.pattern_input_evidence),
+                "signals_count": len(evidence.intent_records),
+                "intents_n": len(evidence.intent_records),
+                "intents_count": len(evidence.intent_records),
+                "risk_n": len(evidence.risk_decisions),
+                "risk_decisions_count": len(evidence.risk_decisions),
+                "exec_n": 0,
+                "execution_results_count": 0,
+                "closed_n": 0,
+                "trade_outcomes_count": 0,
+                "warnings_json": _stable_json([]),
+                "created_at": created_at,
+            }
+        )
+
+        trade_record = {
+            "trade_record_id": trade_record_id,
+            "run_id": run_id,
+            "cycle_id": cycle_key,
+            "tick": cycle_id,
+            "scanner_output_json": _stable_json(evidence.scanner_payload),
+            "pattern_output_json": _stable_json(evidence.pattern_input_evidence),
+            "strategy_output_json": _stable_json(evidence.pattern_summaries),
+            "decision_output_json": _stable_json(setup_artifact),
+            "risk_output_json": _stable_json({"risk_artifact": risk_artifact, "risk_decisions": evidence.risk_decisions}),
+            "execution_output_json": _stable_json(
+                {
+                    "execution_enabled": False,
+                    "order_submission_enabled": False,
+                    "api_write_allowed": False,
+                    "execution_events": evidence.execution_events,
+                    "broker_order_mutation_count": order_mutations,
+                }
+            ),
+            "trade_outcomes_json": _stable_json([]),
+            "performance_snapshot_json": _stable_json(
+                {
+                    "paper_ready": "NO",
+                    "paper_readiness_gate": "FAIL",
+                    "storage_evidence_source": REAL_STORAGE_EVIDENCE_SOURCE,
+                }
+            ),
+            "regime_snapshot_json": _stable_json({"session_label": evidence.session_label}),
+            "regime_policy_decision_json": _stable_json(
+                {"ross_threshold_override": False, "validation_override": False, "catalyst_bypass": False}
+            ),
+            "created_at": created_at,
+        }
+        store.insert_trade_record(trade_record)
+
+        cycle_summary_payload = {
+            "schema_version": SCHEMA_VERSION,
+            "scenario_id": run_id,
+            "cycle_id": cycle_key,
+            "captured_at_utc": created_at,
+            "operator": evidence.operator,
+            "scanner_symbols": _scanner_symbols(evidence.scanner_payload, "symbols"),
+            "focus_m_symbols": _scanner_symbols(evidence.scanner_payload, "focus_m_symbols"),
+            "pattern_input_count": len(evidence.pattern_input_evidence),
+            "intent_count": len(evidence.intent_records),
+            "risk_decision_count": len(evidence.risk_decisions),
+            "execution_enabled": False,
+            "broker_before_connected": _broker_before_connected(evidence),
+            "broker_after_connected": _broker_after_connected(evidence),
+            "broker_order_mutation_count": order_mutations,
+            "paper_ready": "NO",
+            "paper_readiness_gate": "FAIL",
+        }
+        cycle_summary = {
+            "cycle_summary_row_id": cycle_summary_row_id,
+            "run_id": run_id,
+            "payload_json": _stable_json(cycle_summary_payload),
+            "created_at": created_at,
+        }
+        store.insert_cycle_summary_row(cycle_summary)
+
+        record_rows = [row for row in store.fetch_trade_records(run_id) if row.get("trade_record_id") == trade_record_id]
+        summary_rows = [
+            row
+            for row in store.fetch_table("cycle_summary_rows", run_id)
+            if row.get("cycle_summary_row_id") == cycle_summary_row_id
+        ]
+        record_row = record_rows[0] if record_rows else None
+        summary_row = summary_rows[0] if summary_rows else None
+        record_fields = (
+            "scanner_output_json",
+            "pattern_output_json",
+            "strategy_output_json",
+            "decision_output_json",
+            "risk_output_json",
+            "execution_output_json",
+            "trade_outcomes_json",
+            "performance_snapshot_json",
+            "regime_snapshot_json",
+            "regime_policy_decision_json",
+        )
+        record_matches = bool(record_row) and all(record_row.get(field) == trade_record.get(field) for field in record_fields)
+        summary_matches = bool(summary_row) and summary_row.get("payload_json") == cycle_summary.get("payload_json")
+        proof_payload = {
+            "run_id": run_id,
+            "cycle_id": cycle_key,
+            "trade_record_id": trade_record_id,
+            "cycle_summary_row_id": cycle_summary_row_id,
+            "record_matches": record_matches,
+            "summary_matches": summary_matches,
+            "trade_record_hash": hashlib.sha256(_stable_json(trade_record).encode("utf-8")).hexdigest(),
+            "cycle_summary_hash": hashlib.sha256(_stable_json(cycle_summary).encode("utf-8")).hexdigest(),
+        }
+        proof_hash = hashlib.sha256(_stable_json(proof_payload).encode("utf-8")).hexdigest()
+        detail = {
+            "storage_layer": "src.storage.sqlite_store.SQLiteStore",
+            "store_path": str(path),
+            "run_id": run_id,
+            "cycle_id": cycle_key,
+            "trade_record_id": trade_record_id,
+            "cycle_summary_row_id": cycle_summary_row_id,
+            "tables_written": ["runs", "cycles", "trade_records", "cycle_summary_rows"],
+            "tables_read_back": ["trade_records", "cycle_summary_rows"],
+            "record_matches": record_matches,
+            "summary_matches": summary_matches,
+            "proof_hash": proof_hash,
+        }
+        readback_verified = record_matches and summary_matches
+        return {
+            "write_verified": True,
+            "readback_verified": readback_verified,
+            "source": REAL_STORAGE_EVIDENCE_SOURCE if readback_verified else "UNAVAILABLE",
+            "detail": detail,
+        }
+    except Exception as exc:
+        return {
+            "write_verified": False,
+            "readback_verified": False,
+            "source": "UNAVAILABLE",
+            "detail": _storage_failure_detail(path, exc),
+        }
+    finally:
+        if store is not None:
+            store.close()
+
+
 def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, str], cycle_id: int = 1) -> RuntimeObservationEvidence:
     apply_readonly_runtime_overrides(env)
     captured_at = utc_now_iso()
+    scenario_id = f"REAL_READ_ONLY_RUNTIME_OBSERVATION_{captured_at.replace(':', '').replace('+', 'Z')}"
     broker_before = _broker_snapshot()
 
-    from src.core_engine.events import TradeIntentRecord
     from src.core_engine.state import RunMode
     from src.risk.risk_audit import AccountSnapshot, evaluate_trade_intents
     from src.scanner.scanner_runner import run_scanner_cycle
@@ -1041,7 +1293,7 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
     strategy = RossMomentumStrategy()
     pattern_inputs: list[dict[str, Any]] = []
     strategy_decisions: list[Any] = []
-    intent_records: list[TradeIntentRecord] = []
+    intent_records: list[Any] = []
 
     def session_context(label: str) -> Any:
         normalized = _normalize_upper(label)
@@ -1100,28 +1352,7 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
         decision = strategy.evaluate(symbol, strategy_input)
         strategy_decisions.append(decision)
         for intent in getattr(decision, "intents", []) or []:
-            setup_id = str(getattr(intent, "intent_id", "REAL_RUNTIME_SETUP")).split(":")[-1] or "REAL_RUNTIME_SETUP"
-            entry_price = _coerce_positive_price(intent.entry_model)
-            intent_records.append(
-                TradeIntentRecord(
-                    symbol=symbol,
-                    intent_id=intent.intent_id,
-                    setup_id=setup_id,
-                    side=getattr(intent.direction, "value", str(intent.direction)),
-                    entry=intent.entry_model,
-                    stop=intent.stop_model,
-                    rationale=intent.rationale_text,
-                    tags=list(intent.risk_flags or []),
-                    metadata={
-                        "target_model": intent.target_model,
-                        "pattern_input_source": "REAL_RUNTIME_PATTERN_INPUTS",
-                        "decision_authority": CANONICAL_DECISION_AUTHORITY,
-                        "strategy_id": getattr(decision, "strategy_id", "ross_momentum"),
-                        "entry_price": entry_price,
-                        "priced_sizing_input": entry_price,
-                    },
-                )
-            )
+            intent_records.append(_trade_intent_record_from_strategy_intent(symbol, decision, intent))
 
     account = AccountSnapshot(
         available_funds=0.0,
@@ -1137,9 +1368,9 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
     )
     broker_after = _broker_snapshot()
 
-    return RuntimeObservationEvidence(
+    evidence = RuntimeObservationEvidence(
         operator=operator,
-        scenario_id=f"REAL_READ_ONLY_RUNTIME_OBSERVATION_{captured_at.replace(':', '').replace('+', 'Z')}",
+        scenario_id=scenario_id,
         env=env,
         captured_at_utc=captured_at,
         scanner_payload=scanner_payload,
@@ -1154,6 +1385,12 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
         broker_after=broker_after,
         session_label=session_label,
     )
+    storage_proof = capture_real_analytics_storage_write_readback(evidence, cycle_id=cycle_id)
+    evidence.storage_write_verified = bool(storage_proof.get("write_verified"))
+    evidence.storage_readback_verified = bool(storage_proof.get("readback_verified"))
+    evidence.storage_evidence_source = str(storage_proof.get("source") or "UNAVAILABLE")
+    evidence.storage_evidence_detail = storage_proof.get("detail") if isinstance(storage_proof.get("detail"), Mapping) else {}
+    return evidence
 
 
 def write_observation_input(path: Path, spec: Mapping[str, Any]) -> dict[str, Any]:
