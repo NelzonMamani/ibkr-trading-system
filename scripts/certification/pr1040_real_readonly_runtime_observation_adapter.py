@@ -1048,6 +1048,39 @@ def _trade_intent_record_from_strategy_intent(symbol: str, decision: Any, intent
     )
 
 
+def _resolve_readonly_risk_capital() -> float:
+    try:
+        from src.config.runtime_config import get_risk_account_equity
+
+        configured_capital = float(get_risk_account_equity())
+    except Exception:
+        configured_capital = 0.0
+    if configured_capital > 0.0:
+        return configured_capital
+
+    try:
+        from src.config.runtime_config import get_default_capital
+
+        default_capital = float(get_default_capital())
+    except Exception:
+        default_capital = 0.0
+    if default_capital > 0.0:
+        return default_capital
+
+    raise PR1040AdapterError("READ_ONLY risk capital basis is unavailable for PR1040 observation.")
+
+
+def _readonly_risk_account_snapshot() -> Any:
+    from src.risk.risk_audit import AccountSnapshot
+
+    return AccountSnapshot(
+        available_funds=_resolve_readonly_risk_capital(),
+        source="READ_ONLY_CONFIG",
+        canonical=False,
+        broker_connection_state="READ_ONLY_CONFIG",
+    )
+
+
 def _analytics_storage_path(env: Mapping[str, str], store_path: Path | None = None) -> Path:
     if store_path is not None:
         return store_path
@@ -1275,7 +1308,7 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
     broker_before = _broker_snapshot()
 
     from src.core_engine.state import RunMode
-    from src.risk.risk_audit import AccountSnapshot, evaluate_trade_intents
+    from src.risk.risk_audit import evaluate_trade_intents
     from src.scanner.scanner_runner import run_scanner_cycle
     from src.strategies.ross_momentum.patterns.pattern_trace import build_runtime_pattern_inputs
     from src.strategies.ross_momentum.strategy import RossMomentumStrategy
@@ -1354,12 +1387,7 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
         for intent in getattr(decision, "intents", []) or []:
             intent_records.append(_trade_intent_record_from_strategy_intent(symbol, decision, intent))
 
-    account = AccountSnapshot(
-        available_funds=0.0,
-        source="READ_ONLY_RUNTIME_ADAPTER",
-        canonical=False,
-        broker_connection_state="READ_ONLY",
-    )
+    account = _readonly_risk_account_snapshot()
     risk_decisions = evaluate_trade_intents(
         intents=intent_records,
         mode=RunMode.READ_ONLY,
