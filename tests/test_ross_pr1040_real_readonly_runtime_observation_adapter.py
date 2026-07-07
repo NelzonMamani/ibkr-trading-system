@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -36,6 +38,24 @@ def ns(**kwargs):
 
 def _safe_env() -> dict[str, str]:
     return pr1040.build_safe_readonly_env({})
+
+
+def test_pr1040_direct_script_help_bootstraps_repo_root_without_pythonpath() -> None:
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+
+    result = subprocess.run(
+        [sys.executable, "scripts/certification/pr1040_real_readonly_runtime_observation_adapter.py", "--help"],
+        cwd=_ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Run PR1040 real READ_ONLY Ross runtime observation adapter" in result.stdout or "--operator" in result.stdout
 
 
 def _scanner_payload(*, catalyst: str = "CONFIRMED", manual_focus: bool = False) -> dict:
