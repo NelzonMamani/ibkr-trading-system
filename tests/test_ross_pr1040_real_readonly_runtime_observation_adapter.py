@@ -175,6 +175,13 @@ def _evidence(
     )
 
 
+def _apply_storage_proof(evidence, proof: dict) -> None:
+    evidence.storage_write_verified = bool(proof.get("write_verified"))
+    evidence.storage_readback_verified = bool(proof.get("readback_verified"))
+    evidence.storage_evidence_source = str(proof.get("source") or "UNAVAILABLE")
+    evidence.storage_evidence_detail = proof.get("detail") if isinstance(proof.get("detail"), dict) else {}
+
+
 def _accepted_intent(
     *,
     target_model: str | None = "HOD extension target",
@@ -324,6 +331,73 @@ def test_pr1040_missing_storage_evidence_forces_insufficient_evidence() -> None:
     assert spec["classification"] == "INSUFFICIENT_EVIDENCE"
     assert spec["final_verdict"]["READ_ONLY_FULL_STRATEGY_OBSERVATION_CAPTURED"] == "NO"
     assert pr1040.STORAGE_EVIDENCE_UNAVAILABLE_BLOCKER in " ".join(spec["final_verdict"]["blockers"])
+
+
+def test_pr1043_real_storage_proof_uses_sqlite_write_readback(tmp_path: Path) -> None:
+    evidence = _evidence(storage=False, pattern_inputs=[_pattern_input(action="NONE")])
+
+    proof = pr1040.capture_real_analytics_storage_write_readback(
+        evidence,
+        cycle_id=7,
+        store_path=tmp_path / "pr1043_storage.sqlite3",
+    )
+    _apply_storage_proof(evidence, proof)
+    spec = pr1040.build_pr1039_observation_input(evidence)
+
+    assert proof["write_verified"] is True
+    assert proof["readback_verified"] is True
+    assert proof["source"] == pr1040.REAL_STORAGE_EVIDENCE_SOURCE
+    assert proof["detail"]["storage_layer"] == "src.storage.sqlite_store.SQLiteStore"
+    assert proof["detail"]["tables_written"] == ["runs", "cycles", "trade_records", "cycle_summary_rows"]
+    assert proof["detail"]["tables_read_back"] == ["trade_records", "cycle_summary_rows"]
+    assert proof["detail"]["record_matches"] is True
+    assert proof["detail"]["summary_matches"] is True
+    assert spec["classification"] == "READ_ONLY_OBSERVATION_VALID"
+    assert spec["analytics_storage_artifact"]["storage_write_count"] == 1
+    assert spec["analytics_storage_artifact"]["storage_readback_count"] == 1
+    assert spec["analytics_storage_artifact"]["storage_evidence_source"] == pr1040.REAL_STORAGE_EVIDENCE_SOURCE
+    assert spec["analytics_storage_artifact"]["readback_proof"] is True
+
+
+def test_pr1043_failed_storage_proof_keeps_observation_insufficient(tmp_path: Path) -> None:
+    evidence = _evidence(storage=False, pattern_inputs=[_pattern_input(action="NONE")])
+
+    proof = pr1040.capture_real_analytics_storage_write_readback(evidence, store_path=tmp_path)
+    _apply_storage_proof(evidence, proof)
+    spec = pr1040.build_pr1039_observation_input(evidence)
+
+    assert proof["write_verified"] is False
+    assert proof["readback_verified"] is False
+    assert proof["source"] == "UNAVAILABLE"
+    assert spec["classification"] == "INSUFFICIENT_EVIDENCE"
+    assert spec["analytics_storage_artifact"]["storage_write_count"] == 0
+    assert spec["analytics_storage_artifact"]["storage_readback_count"] == 0
+    assert spec["analytics_storage_artifact"]["readback_proof"] is False
+    assert pr1040.STORAGE_EVIDENCE_UNAVAILABLE_BLOCKER in " ".join(spec["final_verdict"]["blockers"])
+
+
+def test_pr1043_strategy_intent_entry_price_is_top_level_risk_input() -> None:
+    intent = ns(
+        intent_id="RossMomentumStrategy:REAL1:MICRO_PULLBACK",
+        direction=ns(value="LONG"),
+        entry_model="trigger=12.34",
+        stop_model="Below pullback low",
+        target_model="HOD extension target",
+        rationale_text="Canonical strategy accepted setup.",
+        risk_flags=[],
+    )
+
+    record = pr1040._trade_intent_record_from_strategy_intent(
+        "REAL1",
+        ns(strategy_id="ross_momentum"),
+        intent,
+    )
+
+    assert record.entry_price == 12.34
+    assert record.entry_price_source == "CANONICAL_STRATEGY_ENTRY_MODEL"
+    assert record.metadata["entry_price"] == 12.34
+    assert record.metadata["priced_sizing_input"] == 12.34
+    assert record.metadata["decision_authority"] == pr1040.CANONICAL_DECISION_AUTHORITY
 
 
 def test_pr1040_broker_after_disconnected_is_insufficient_evidence() -> None:
