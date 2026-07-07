@@ -40,9 +40,9 @@ If the SQLiteStore write/readback is unavailable or mismatched, the adapter keep
 
 The adapter now passes the numeric entry price parsed from the canonical Ross strategy entry model into the top-level `TradeIntentRecord.entry_price` field. That is the field consumed by `evaluate_trade_intents` for sizing, so READ_ONLY accepted setup evidence cannot rely only on metadata while bypassing the priced risk path.
 
-PR1044 keeps that priced sizing path from becoming a zero-capital false negative: when the PR1040 adapter supplies its READ_ONLY certification account source with no broker capital, risk sizing uses the configured READ_ONLY capital basis and records `capital_source=READ_ONLY_CONFIG`. This remains non-canonical certification evidence only; it does not enable PAPER or LIVE and does not mutate broker orders.
+PR1044 keeps that priced sizing path bounded to the PR1040 observation adapter. Before calling the shared risk engine, the adapter builds a non-canonical READ_ONLY config account snapshot with a positive configured capital basis and `source=READ_ONLY_CONFIG`. The shared `src.risk.risk_audit` sizing behavior remains generic; it does not contain a PR1040 adapter-specific zero-capital exception.
 
-Unknown zero-capital READ_ONLY account sources are still blocked by `INSUFFICIENT_CAPITAL_PER_SYMBOL`. The nonzero fallback is scoped to PR1040 certification evidence, not general runtime risk approval.
+Unknown zero-capital READ_ONLY account sources are still blocked by `INSUFFICIENT_CAPITAL_PER_SYMBOL`. The nonzero capital basis is scoped to PR1040 certification evidence, not general runtime risk approval.
 
 If an accepted setup has no usable numeric entry price, PR1040 remains `READ_ONLY_OBSERVATION_INVALID` with:
 
