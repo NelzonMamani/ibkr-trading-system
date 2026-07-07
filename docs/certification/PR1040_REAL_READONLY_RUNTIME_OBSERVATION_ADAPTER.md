@@ -20,6 +20,7 @@ BROKER_ORDER_MUTATION_ALLOWED: NO
 BROKER_BEFORE_AFTER_AUDIT_COMPLETE_REQUIRED: YES
 PRICED_INTENT_REQUIRED_FOR_ACCEPTED_SETUP: YES
 READONLY_CONFIG_OVERRIDE_TYPES_GUARDED: YES
+REAL_ANALYTICS_STORAGE_WRITE_READBACK_ADDED: YES
 MANUAL_FOCUS_READINESS_PROOF_ALLOWED: NO
 SYNTHETIC_TRADE_INTENT_ALLOWED: NO
 SYNTHETIC_ANALYTICS_STORAGE_PROOF_ALLOWED: NO
@@ -41,15 +42,19 @@ Script:
 
 scripts/certification/pr1040_real_readonly_runtime_observation_adapter.py
 
-The adapter sets READ_ONLY-only runtime overrides, runs the real scanner path through `run_scanner_cycle(mode="READ_ONLY")`, builds real pattern inputs through `build_runtime_pattern_inputs`, routes setup/decision authority through `RossMomentumStrategy.evaluate`, evaluates risk through `evaluate_trade_intents` in READ_ONLY mode only if canonical strategy output emits intents, keeps execution disabled, audits broker open orders before and after, and writes a PR1039-compatible `--observation-input` JSON.
+The adapter sets READ_ONLY-only runtime overrides, runs the real scanner path through `run_scanner_cycle(mode="READ_ONLY")`, builds real pattern inputs through `build_runtime_pattern_inputs`, routes setup/decision authority through `RossMomentumStrategy.evaluate`, evaluates risk through `evaluate_trade_intents` in READ_ONLY mode only if canonical strategy output emits intents, keeps execution disabled, audits broker open orders before and after, records real analytics/storage proof, and writes a PR1039-compatible `--observation-input` JSON.
 
-The adapter now sends only PR1040 READ_ONLY launch guard keys into `set_config_overrides`. Inherited environment variables remain at normal ENV precedence so blank operator fields such as scanner symbol lists are not accidentally promoted to boolean `False` overrides. The scanner launch config value is `SCANNER_MODE=LIVE_READONLY`, while the adapter still records the observation run as `run_scanner_cycle(mode="READ_ONLY")`.
+The adapter sends only PR1040 READ_ONLY launch guard keys into `set_config_overrides`. Inherited environment variables remain at normal ENV precedence so blank operator fields such as scanner symbol lists are not accidentally promoted to boolean `False` overrides. The scanner launch config value is `SCANNER_MODE=LIVE_READONLY`, while the adapter still records the observation run as `run_scanner_cycle(mode="READ_ONLY")`.
 
 Broker connection evidence is complete only when both the before and after broker snapshots are connected and auditable. A one-sided broker snapshot is not enough and classifies as `INSUFFICIENT_EVIDENCE` with this blocker:
 
 `Broker before/after audit evidence is incomplete.`
 
-The adapter no longer treats the PR1040 observation JSON write/readback as analytics/storage proof. Storage evidence is valid only when the runtime evidence source is `REAL_ANALYTICS_STORAGE_WRITE_READBACK`. No existing real analytics/storage write-readback source was identified in this patch, so operator runs without that source classify as `INSUFFICIENT_EVIDENCE` with this blocker:
+The adapter does not treat the PR1040 observation JSON write/readback as analytics/storage proof. Storage evidence is valid only when the adapter writes runtime analytics evidence through `src.storage.sqlite_store.SQLiteStore`, reads the stored rows back, verifies the stored payloads match, and records source `REAL_ANALYTICS_STORAGE_WRITE_READBACK`. The default storage database is:
+
+`artifacts/certification/pr1040/analytics_storage/read_only_runtime_observation.sqlite3`
+
+If real storage write/readback is unavailable or mismatched, the observation classifies as `INSUFFICIENT_EVIDENCE` with this blocker:
 
 `Real analytics/storage write-readback evidence is unavailable.`
 
@@ -75,15 +80,19 @@ Accepted setup evidence must carry:
 
 `decision_authority=RossMomentumStrategy.evaluate`
 
-The adapter no longer calls `PatternEvaluator` and `build_trade_intents` directly as the certification authority. Pattern input evidence is still captured from the real runtime pattern-input builder, but setup/decision evidence comes from the canonical Ross strategy evaluation path. Under READ_ONLY runtime configuration, the canonical strategy may block intent emission; that is recorded honestly as no-trade or insufficient evidence rather than manufacturing an accepted setup.
+The adapter does not call `PatternEvaluator` and `build_trade_intents` directly as the certification authority. Pattern input evidence is still captured from the real runtime pattern-input builder, but setup/decision evidence comes from the canonical Ross strategy evaluation path. Under READ_ONLY runtime configuration, the canonical strategy may block intent emission; that is recorded honestly as no-trade or insufficient evidence rather than manufacturing an accepted setup.
 
-Accepted setup risk evidence also requires a usable numeric entry price or equivalent canonical priced sizing input. READ_ONLY risk approval without priced intent evidence is not valid PR1040 proof.
+Accepted setup risk evidence also requires a usable numeric entry price or equivalent canonical priced sizing input. The adapter passes the parsed canonical strategy entry price into `TradeIntentRecord.entry_price`, the top-level field consumed by `evaluate_trade_intents` for sizing. READ_ONLY risk approval without priced intent evidence is not valid PR1040 proof.
 
 ## Output
 
 Default PR1039-compatible observation input:
 
 artifacts/certification/pr1040/real_runtime_observation/real_runtime_observation.json
+
+Default PR1040 analytics storage database:
+
+artifacts/certification/pr1040/analytics_storage/read_only_runtime_observation.sqlite3
 
 Default PR1039 raw output:
 
@@ -132,9 +141,11 @@ $env:SCANNER_MODE="LIVE_READONLY"
   --force
 ```
 
-Expected default result until real storage proof exists:
+Possible honest classifications remain:
 
 ```text
+classification=READ_ONLY_OBSERVATION_VALID
+classification=READ_ONLY_OBSERVATION_INVALID
 classification=INSUFFICIENT_EVIDENCE
 paper_ready=NO
 paper_readiness_gate=FAIL
@@ -219,7 +230,7 @@ Compile check:
 
 ## Certification Status
 
-PR1040 provides the smallest safe real READ_ONLY adapter and PR1039-compatible observation-input format. It does not itself complete the human real-operator capture. The generated observation JSON must be reviewed and validated through PR1039 before any PAPER readiness discussion.
+PR1040 provides the smallest safe real READ_ONLY adapter and PR1039-compatible observation-input format. PR1043 repairs the completion path by adding real SQLiteStore analytics write/readback proof and top-level priced risk input propagation. The generated observation JSON must still be reviewed and validated through PR1039 before any PAPER readiness discussion.
 
 PAPER_READY remains NO.
 PAPER_READINESS_GATE remains FAIL.
