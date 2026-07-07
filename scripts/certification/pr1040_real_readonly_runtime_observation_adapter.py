@@ -20,6 +20,10 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 SCHEMA_VERSION = "PR1040.real_readonly_runtime_observation_adapter.v1"
 PR1039_INPUT_SCHEMA_VERSION = "PR1039.controlled_readonly_observation_input.v1"
 CANONICAL_DECISION_AUTHORITY = "RossMomentumStrategy.evaluate"
