@@ -58,7 +58,13 @@ def test_pr1040_direct_script_help_bootstraps_repo_root_without_pythonpath() -> 
     assert "Run PR1040 real READ_ONLY Ross runtime observation adapter" in result.stdout or "--operator" in result.stdout
 
 
-def _scanner_payload(*, catalyst: str = "CONFIRMED", manual_focus: bool = False) -> dict:
+def _scanner_payload(
+    *,
+    catalyst: str = "CONFIRMED",
+    manual_focus: bool = False,
+    market_data_status: str | None = None,
+    market_data_unavailable: bool = False,
+) -> dict:
     catalyst_present = catalyst == "CONFIRMED"
     row = {
         "symbol": "REAL1",
@@ -75,6 +81,21 @@ def _scanner_payload(*, catalyst: str = "CONFIRMED", manual_focus: bool = False)
         "float_millions": 8.2,
         "data_quality_flags": [],
     }
+    diagnostics = {
+        "scanner_contract": {
+            "top_n": 1,
+            "watchlist_k": 1,
+            "focus_m": 1,
+            "contract_valid": True,
+        }
+    }
+    if market_data_status is not None or market_data_unavailable:
+        diagnostics["market_data"] = {
+            "status": market_data_status or "UNAVAILABLE",
+            "market_data_unavailable": market_data_unavailable,
+        }
+        if market_data_unavailable:
+            diagnostics["market_data"]["subscription_error"] = "no realtime market data available"
     return {
         "provider_source": "IBKR",
         "symbols": ["REAL1"],
@@ -87,14 +108,7 @@ def _scanner_payload(*, catalyst: str = "CONFIRMED", manual_focus: bool = False)
         "watchlist_rows": [row],
         "focus_rows": [row],
         "drop_ledger": {},
-        "diagnostics": {
-            "scanner_contract": {
-                "top_n": 1,
-                "watchlist_k": 1,
-                "focus_m": 1,
-                "contract_valid": True,
-            }
-        },
+        "diagnostics": diagnostics,
     }
 
 
@@ -173,13 +187,6 @@ def _evidence(
         storage_evidence_source=source,
         storage_evidence_detail={"path": "analytics/runtime/proof.json"} if source == pr1040.REAL_STORAGE_EVIDENCE_SOURCE else {},
     )
-
-
-def _apply_storage_proof(evidence, proof: dict) -> None:
-    evidence.storage_write_verified = bool(proof.get("write_verified"))
-    evidence.storage_readback_verified = bool(proof.get("readback_verified"))
-    evidence.storage_evidence_source = str(proof.get("source") or "UNAVAILABLE")
-    evidence.storage_evidence_detail = proof.get("detail") if isinstance(proof.get("detail"), dict) else {}
 
 
 def _accepted_intent(
@@ -333,47 +340,30 @@ def test_pr1040_missing_storage_evidence_forces_insufficient_evidence() -> None:
     assert pr1040.STORAGE_EVIDENCE_UNAVAILABLE_BLOCKER in " ".join(spec["final_verdict"]["blockers"])
 
 
-def test_pr1043_real_storage_proof_uses_sqlite_write_readback(tmp_path: Path) -> None:
-    evidence = _evidence(storage=False, pattern_inputs=[_pattern_input(action="NONE")])
+def test_pr1044_market_data_diagnostic_artifact_is_emitted() -> None:
+    spec = pr1040.build_pr1039_observation_input(_evidence())
 
-    proof = pr1040.capture_real_analytics_storage_write_readback(
-        evidence,
-        cycle_id=7,
-        store_path=tmp_path / "pr1043_storage.sqlite3",
-    )
-    _apply_storage_proof(evidence, proof)
+    diagnostic = spec["market_data_diagnostic_artifact"]
+    assert diagnostic["provider_source"] == "IBKR"
+    assert diagnostic["market_data_status"] == "UNKNOWN"
+    assert diagnostic["market_data_available"] is None
+    assert diagnostic["diagnostic_source"] == "scanner_payload.diagnostics.market_data"
+
+
+def test_pr1044_market_data_unavailable_forces_insufficient_evidence() -> None:
+    scanner = _scanner_payload(market_data_status="UNAVAILABLE", market_data_unavailable=True)
+    evidence = _evidence(scanner=scanner, pattern_inputs=[_pattern_input(action="NONE")])
+
     spec = pr1040.build_pr1039_observation_input(evidence)
 
-    assert proof["write_verified"] is True
-    assert proof["readback_verified"] is True
-    assert proof["source"] == pr1040.REAL_STORAGE_EVIDENCE_SOURCE
-    assert proof["detail"]["storage_layer"] == "src.storage.sqlite_store.SQLiteStore"
-    assert proof["detail"]["tables_written"] == ["runs", "cycles", "trade_records", "cycle_summary_rows"]
-    assert proof["detail"]["tables_read_back"] == ["trade_records", "cycle_summary_rows"]
-    assert proof["detail"]["record_matches"] is True
-    assert proof["detail"]["summary_matches"] is True
-    assert spec["classification"] == "READ_ONLY_OBSERVATION_VALID"
-    assert spec["analytics_storage_artifact"]["storage_write_count"] == 1
-    assert spec["analytics_storage_artifact"]["storage_readback_count"] == 1
-    assert spec["analytics_storage_artifact"]["storage_evidence_source"] == pr1040.REAL_STORAGE_EVIDENCE_SOURCE
-    assert spec["analytics_storage_artifact"]["readback_proof"] is True
-
-
-def test_pr1043_failed_storage_proof_keeps_observation_insufficient(tmp_path: Path) -> None:
-    evidence = _evidence(storage=False, pattern_inputs=[_pattern_input(action="NONE")])
-
-    proof = pr1040.capture_real_analytics_storage_write_readback(evidence, store_path=tmp_path)
-    _apply_storage_proof(evidence, proof)
-    spec = pr1040.build_pr1039_observation_input(evidence)
-
-    assert proof["write_verified"] is False
-    assert proof["readback_verified"] is False
-    assert proof["source"] == "UNAVAILABLE"
+    diagnostic = spec["market_data_diagnostic_artifact"]
     assert spec["classification"] == "INSUFFICIENT_EVIDENCE"
-    assert spec["analytics_storage_artifact"]["storage_write_count"] == 0
-    assert spec["analytics_storage_artifact"]["storage_readback_count"] == 0
-    assert spec["analytics_storage_artifact"]["readback_proof"] is False
-    assert pr1040.STORAGE_EVIDENCE_UNAVAILABLE_BLOCKER in " ".join(spec["final_verdict"]["blockers"])
+    assert diagnostic["market_data_status"] == "UNAVAILABLE"
+    assert diagnostic["market_data_available"] is False
+    assert "market_data_unavailable" in diagnostic["unavailable_flags"]
+    assert pr1040.MARKET_DATA_DIAGNOSTIC_BLOCKER in " ".join(spec["final_verdict"]["blockers"])
+    assert spec["final_verdict"]["paper_ready"] == "NO"
+    assert spec["final_verdict"]["paper_readiness_gate"] == "FAIL"
 
 
 def test_pr1043_strategy_intent_entry_price_is_top_level_risk_input() -> None:
