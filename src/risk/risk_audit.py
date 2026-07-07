@@ -13,7 +13,6 @@ from src.risk.data_quality_contract import data_quality_blocking_causes
 
 DEFAULT_PAPER_CAPITAL = 10000.0
 INITIAL_POSITION_PCT = 0.25
-READ_ONLY_CERTIFICATION_CAPITAL_SOURCES = {"READ_ONLY_RUNTIME_ADAPTER", "READ_ONLY_CONFIG"}
 
 
 @dataclass(frozen=True)
@@ -28,28 +27,6 @@ def compute_capital_per_symbol(available_capital: float, focus_count: int) -> fl
     if focus_count <= 0:
         return 0.0
     return float(available_capital) / float(focus_count)
-
-
-def _resolve_readonly_certification_capital() -> float:
-    try:
-        from src.config.runtime_config import get_risk_account_equity
-
-        configured_capital = float(get_risk_account_equity())
-    except Exception:
-        configured_capital = 0.0
-    if configured_capital > 0:
-        return configured_capital
-
-    try:
-        from src.config.runtime_config import get_default_capital
-
-        default_capital = float(get_default_capital())
-    except Exception:
-        default_capital = 0.0
-    if default_capital > 0:
-        return default_capital
-
-    return DEFAULT_PAPER_CAPITAL
 
 
 def evaluate_trade_intents(
@@ -68,7 +45,6 @@ def evaluate_trade_intents(
 
     raw_available_capital = float(resolved_account.available_funds)
     available_capital = raw_available_capital
-    capital_source = resolved_account.source
 
     live_capital_invalid = (
         mode == RunMode.LIVE
@@ -85,19 +61,10 @@ def evaluate_trade_intents(
         available_capital = DEFAULT_PAPER_CAPITAL
         print("[RISK][CAPITAL_OVERRIDE] using default capital=10000")
 
-    if (
-        mode == RunMode.READ_ONLY
-        and raw_available_capital <= 0
-        and resolved_account.source in READ_ONLY_CERTIFICATION_CAPITAL_SOURCES
-    ):
-        available_capital = _resolve_readonly_certification_capital()
-        capital_source = "READ_ONLY_CONFIG"
-        print(f"[RISK][CAPITAL_OVERRIDE] using readonly certification capital={available_capital}")
-
     capital_per_symbol = compute_capital_per_symbol(available_capital, focus_count)
     print(
         "[CAPITAL] "
-        f"source={capital_source} canonical={resolved_account.canonical} "
+        f"source={resolved_account.source} canonical={resolved_account.canonical} "
         f"raw_available_capital={raw_available_capital} available_capital={available_capital} "
         f"focus_count={focus_count} "
         f"capital_per_symbol={capital_per_symbol} broker_connection_state={resolved_account.broker_connection_state}"
@@ -123,7 +90,7 @@ def evaluate_trade_intents(
                     available_funds=available_capital,
                     order_value=0.0,
                     risk_allowed=False,
-                    capital_source=capital_source,
+                    capital_source=resolved_account.source,
                     block_reason="CANONICAL_CAPITAL_UNAVAILABLE",
                     approved_quantity=0,
                     entry_price=getattr(intent, "entry_price", None),
@@ -239,7 +206,7 @@ def evaluate_trade_intents(
                 available_funds=available_funds,
                 order_value=position_value,
                 risk_allowed=risk_allowed,
-                capital_source=capital_source,
+                capital_source=resolved_account.source,
                 block_reason=block_reason,
                 approved_quantity=approved_quantity,
                 sizing_basis=sizing_basis,
