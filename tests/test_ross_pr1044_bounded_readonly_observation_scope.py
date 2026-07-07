@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from scripts.certification import pr1040_real_readonly_runtime_observation_adapter as pr1040
 from src.config import runtime_config
 from src.core_engine.events import TradeIntentRecord
@@ -75,3 +77,27 @@ def test_pr1044_shared_readonly_zero_account_still_blocks_priced_intent() -> Non
     assert decision.capital_source == "UNAVAILABLE"
     assert "MODE_READONLY" in decision.triggered_rules
     assert "INSUFFICIENT_CAPITAL_PER_SYMBOL" in decision.triggered_rules
+
+
+def test_pr1044_certification_docs_include_exact_bounded_scope_markers() -> None:
+    root = Path(__file__).resolve().parents[1]
+    docs = [
+        root / "docs/certification/PR1040_REAL_READONLY_RUNTIME_OBSERVATION_ADAPTER.md",
+        root / "docs/certification/PR1043_REAL_READONLY_OBSERVATION_COMPLETION_REPAIR.md",
+    ]
+    text = "\n".join(path.read_text(encoding="utf-8") for path in docs)
+
+    required_markers = {
+        "PR1044_SCOPE: BOUNDED_OBSERVATION_AND_MARKET_DATA_DIAGNOSTIC_ONLY",
+        "BOUNDED_OBSERVATION_SCOPE_ONLY: YES",
+        "MARKET_DATA_DIAGNOSTIC_ONLY: YES",
+        "PR1044_COMPLETES_PR1043: NO",
+        "PR1044_COMPLETES_REAL_OPERATOR_CAPTURE: NO",
+        "REAL_ANALYTICS_STORAGE_WRITE_READBACK_ADDED: NO",
+        "REAL_ANALYTICS_STORAGE_WRITE_READBACK_ADDED_BY_PR1044: NO",
+        "PR1044_STORAGE_PROOF_ADDED: NO",
+        "PAPER_READY: NO",
+        "PAPER_READINESS_GATE: FAIL",
+    }
+    for marker in required_markers:
+        assert marker in text
