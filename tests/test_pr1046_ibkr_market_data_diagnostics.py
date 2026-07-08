@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -201,6 +202,20 @@ def test_pr1046_classifies_snapshot_fields_missing_without_ibkr_error() -> None:
     assert diagnostic["missing_fields_by_symbol"] == {"MISS2": ["close", "ask"]}
 
 
+def test_pr1046_symbol_keyed_drop_ledger_counts_actual_reason() -> None:
+    scanner = {
+        "provider_source": "IBKR",
+        "drop_ledger": {"MISS1": "DROP_MISSING_PRICE"},
+        "candidate_metrics": [],
+    }
+
+    diagnostic = pr1046.build_ibkr_market_data_diagnostic(scanner_payload=scanner)
+
+    assert diagnostic["drop_reason_counts"] == {"DROP_MISSING_PRICE": 1}
+    assert diagnostic["classification"] == "SNAPSHOT_FIELDS_MISSING"
+    assert diagnostic["snapshot_fields_missing"] is True
+
+
 def test_pr1046_classifies_market_data_usable() -> None:
     scanner = _scanner([_quote_row("REAL1")])
 
@@ -210,6 +225,16 @@ def test_pr1046_classifies_market_data_usable() -> None:
     assert diagnostic["symbols_with_all_required_fields"] == ["REAL1"]
     assert diagnostic["execution_enabled"] is False
     assert diagnostic["order_submission_enabled"] is False
+
+
+def test_pr1046_mixed_quote_rows_are_usable_when_any_row_is_complete() -> None:
+    scanner = _scanner([_quote_row("REAL1"), _quote_row("MISS2", close=None, ask=None)])
+
+    diagnostic = pr1046.build_ibkr_market_data_diagnostic(scanner_payload=scanner)
+
+    assert diagnostic["classification"] == "MARKET_DATA_USABLE"
+    assert diagnostic["symbols_with_all_required_fields"] == ["REAL1"]
+    assert diagnostic["missing_fields_by_symbol"] == {"MISS2": ["close", "ask"]}
 
 
 def test_pr1046_classifies_unknown_without_evidence() -> None:
@@ -263,3 +288,50 @@ def test_pr1046_probe_help_is_diagnostics_only() -> None:
     assert "--scanner-payload" in result.stdout
     assert "--observation-input" in result.stdout
     assert "--operator" in result.stdout
+
+
+def test_pr1046_probe_classifies_backward_compatible_observation_without_nested_block(tmp_path) -> None:
+    observation_input = tmp_path / "legacy_observation.json"
+    output = tmp_path / "diagnostic.json"
+    observation_input.write_text(
+        json.dumps(
+            {
+                "scanner_cycle_artifact": {
+                    "provider_source": "IBKR",
+                    "top_n_symbols": ["MISS1"],
+                    "drop_ledger": {"MISS1": "DROP_MISSING_PRICE"},
+                },
+                "market_data_observation_diagnostics": {
+                    "dominant_drop_reason": "DROP_MISSING_PRICE",
+                    "drop_reason_counts": {"DROP_MISSING_PRICE": 1},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_PROBE_PATH),
+            "--observation-input",
+            str(observation_input),
+            "--output",
+            str(output),
+            "--operator",
+            "TEST_OPERATOR",
+        ],
+        cwd=_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(output.read_text(encoding="utf-8"))
+    diagnostic = report["diagnostic"]
+    assert diagnostic["classification"] == "SNAPSHOT_FIELDS_MISSING"
+    assert diagnostic["drop_reason_counts"] == {"DROP_MISSING_PRICE": 1}
+    assert diagnostic["paper_ready"] == "NO"
+    assert diagnostic["paper_readiness_gate"] == "FAIL"
