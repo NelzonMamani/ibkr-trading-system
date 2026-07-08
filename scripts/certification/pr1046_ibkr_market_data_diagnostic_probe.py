@@ -50,6 +50,21 @@ def _diagnostic_from_observation(payload: Mapping[str, Any]) -> dict[str, Any] |
     return None
 
 
+def _observation_market_data(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    market_data = payload.get("market_data_observation_diagnostics", {})
+    return market_data if isinstance(market_data, Mapping) else {}
+
+
+def _scanner_payload_from_observation(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    scanner_payload = payload.get("scanner_payload")
+    if isinstance(scanner_payload, Mapping):
+        return scanner_payload
+    scanner_payload = payload.get("scanner_cycle_artifact")
+    if isinstance(scanner_payload, Mapping):
+        return scanner_payload
+    return payload
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run PR1046 IBKR market-data diagnostics probe.")
     source = parser.add_mutually_exclusive_group(required=True)
@@ -70,8 +85,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.observation_input is not None:
         diagnostic = _diagnostic_from_observation(payload)
     if diagnostic is None:
-        scanner_payload = payload.get("scanner_payload") or payload.get("scanner_cycle_artifact") or payload
-        diagnostic = build_ibkr_market_data_diagnostic(scanner_payload=scanner_payload)
+        market_data = _observation_market_data(payload) if args.observation_input is not None else {}
+        scanner_payload = _scanner_payload_from_observation(payload) if args.observation_input is not None else payload
+        diagnostic = build_ibkr_market_data_diagnostic(
+            scanner_payload=scanner_payload,
+            drop_reason_counts=market_data.get("drop_reason_counts") if isinstance(market_data, Mapping) else None,
+        )
 
     report = {
         "schema_version": "PR1046.ibkr_market_data_diagnostic_probe.v1",
