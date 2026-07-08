@@ -67,7 +67,16 @@ ERROR_MESSAGE_KEYS = (
     "description",
 )
 SYMBOL_KEYS = ("symbol", "ticker", "local_symbol", "localSymbol", "contract_symbol")
+DROP_REASON_PREFIXES = ("DROP", "DATA_QUALITY", "SNAPSHOT", "QUOTE", "MARKET_DATA", "REFERENCE")
 SNAPSHOT_TIMEOUT_REASONS = {"DATA_QUALITY_FAIL_SNAPSHOT", "SNAPSHOT_TIMEOUT", "SNAPSHOT_TIMED_OUT"}
+MISSING_FIELD_DROP_REASONS = {
+    "DROP_MISSING_PRICE",
+    "DROP_QUOTE_UNAVAILABLE",
+    "DROP_MISSING_QUOTE",
+    "DROP_MISSING_MARKET_DATA",
+    "SNAPSHOT_FIELDS_MISSING",
+    "QUOTE_FIELDS_MISSING",
+}
 
 
 def _normalize_text(value: Any) -> str:
@@ -164,6 +173,34 @@ def _symbol(value: Any) -> str:
         if str(symbol or "").strip():
             return str(symbol).strip().upper()
     return ""
+
+
+def _is_drop_reason_key(value: Any) -> bool:
+    text = _normalize_upper(value)
+    return any(text.startswith(prefix) for prefix in DROP_REASON_PREFIXES)
+
+
+def _drop_reasons_from_value(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        reason = _normalize_upper(value)
+        return [reason] if reason else []
+    if isinstance(value, Mapping):
+        reasons: list[str] = []
+        for key in ("reason", "drop_reason", "drop_reasons", "reasons", "code"):
+            if key in value:
+                reasons.extend(_drop_reasons_from_value(value.get(key)))
+        if reasons:
+            return reasons
+        return [_normalize_upper(item) for item in value.values() if _normalize_upper(item)]
+    if isinstance(value, (list, tuple, set)):
+        reasons: list[str] = []
+        for item in value:
+            reasons.extend(_drop_reasons_from_value(item))
+        return reasons
+    reason = _normalize_upper(value)
+    return [reason] if reason else []
 
 
 def _extract_error_observations(payload: Any) -> tuple[list[int], list[str], dict[str, list[str]]]:
@@ -281,37 +318,47 @@ def _drop_reason_counts(scanner_payload: Mapping[str, Any] | None) -> dict[str, 
     drop_ledger = scanner_payload.get("drop_ledger", {})
     if isinstance(drop_ledger, Mapping):
         for key, value in drop_ledger.items():
-            reason = _normalize_upper(key)
-            if not reason:
+            key_text = _normalize_upper(key)
+            if not key_text:
                 continue
-            if isinstance(value, (list, tuple, set)):
-                counts[reason] += len(value)
+            if _is_drop_reason_key(key_text):
+                if isinstance(value, (list, tuple, set)):
+                    counts[key_text] += len(value)
+                elif isinstance(value, Mapping):
+                    counts[key_text] += max(1, len(value))
+                else:
+                    counts[key_text] += 1
             else:
-                counts[reason] += 1
+                for reason in _drop_reasons_from_value(value):
+                    if reason:
+                        counts[reason] += 1
     for row in extract_candidate_rows(scanner_payload):
         for key in ("drop_reason", "drop_reasons", "reasons"):
             value = _get_value(row, key)
-            if isinstance(value, str):
-                counts[_normalize_upper(value)] += 1
-            elif isinstance(value, (list, tuple, set)):
-                for item in value:
-                    counts[_normalize_upper(item)] += 1
+            for reason in _drop_reasons_from_value(value):
+                if reason:
+                    counts[reason] += 1
     return {key: value for key, value in sorted(counts.items()) if key}
 
 
 def _normalized_counts(value: Mapping[str, Any] | None, scanner_payload: Mapping[str, Any] | None) -> dict[str, int]:
     if not value:
         return _drop_reason_counts(scanner_payload)
-    counts: dict[str, int] = {}
+    counts: Counter[str] = Counter()
     for key, item in value.items():
-        reason = _normalize_upper(key)
-        if not reason:
+        key_text = _normalize_upper(key)
+        if not key_text:
             continue
-        try:
-            counts[reason] = int(item)
-        except (TypeError, ValueError):
-            counts[reason] = 1
-    return dict(sorted(counts.items()))
+        if _is_drop_reason_key(key_text):
+            try:
+                counts[key_text] += int(item)
+            except (TypeError, ValueError):
+                counts[key_text] += 1
+        else:
+            for reason in _drop_reasons_from_value(item):
+                if reason:
+                    counts[reason] += 1
+    return {key: value for key, value in sorted(counts.items()) if key}
 
 
 def _snapshot_timeout_observed(counts: Mapping[str, int], texts: Sequence[str]) -> bool:
@@ -324,6 +371,10 @@ def _snapshot_timeout_observed(counts: Mapping[str, int], texts: Sequence[str]) 
         if "data_quality_fail_snapshot" in lowered:
             return True
     return False
+
+
+def _missing_field_drop_observed(counts: Mapping[str, int]) -> bool:
+    return any(reason in counts for reason in MISSING_FIELD_DROP_REASONS)
 
 
 def _probable_causes(classification: str) -> list[str]:
@@ -349,7 +400,7 @@ def _probable_causes(classification: str) -> list[str]:
         ]
     if classification == SNAPSHOT_FIELDS_MISSING:
         return [
-            "Scanner rows were present, but at least one required last/close/volume/bid/ask field was missing or non-positive.",
+            "Scanner rows or backward-compatible drop-ledger evidence show required last/close/volume/bid/ask fields were missing or non-positive.",
             "The runtime should stay blocked until real quote fields are complete enough for existing Ross gates.",
         ]
     if classification == MARKET_DATA_USABLE:
@@ -385,7 +436,9 @@ def classify_ibkr_market_data(
     joined_text = "\n".join(texts + messages).lower()
     counts = _normalized_counts(drop_reason_counts, scanner_payload)
     missing_by_symbol = _missing_fields_by_symbol(rows)
+    complete_symbols = _symbols_with_all_required_fields(rows)
     fields_missing = bool(rows and missing_by_symbol)
+    field_drop_observed = _missing_field_drop_observed(counts)
     snapshot_timeout = _snapshot_timeout_observed(counts, texts + messages)
     delayed_observed = "delayed market data" in joined_text or "displaying delayed" in joined_text
     subscription_required = 10089 in codes or "requires additional subscription" in joined_text
@@ -393,16 +446,18 @@ def classify_ibkr_market_data(
 
     if subscription_required:
         return MARKET_DATA_SUBSCRIPTION_REQUIRED
-    if not_subscribed and delayed_observed and fields_missing:
+    if not_subscribed and delayed_observed and (fields_missing or field_drop_observed) and not complete_symbols:
         return DELAYED_DATA_AVAILABLE_BUT_UNUSABLE
     if not_subscribed:
         return MARKET_DATA_NOT_SUBSCRIBED
+    if snapshot_timeout and not complete_symbols:
+        return SNAPSHOT_TIMEOUT
+    if complete_symbols:
+        return MARKET_DATA_USABLE
+    if fields_missing or field_drop_observed:
+        return SNAPSHOT_FIELDS_MISSING
     if snapshot_timeout:
         return SNAPSHOT_TIMEOUT
-    if fields_missing:
-        return SNAPSHOT_FIELDS_MISSING
-    if rows and _symbols_with_all_required_fields(rows):
-        return MARKET_DATA_USABLE
     return MARKET_DATA_DIAGNOSTIC_UNKNOWN
 
 
@@ -420,6 +475,7 @@ def build_ibkr_market_data_diagnostic(
     texts = _text_corpus(payload)
     joined_text = "\n".join(texts + messages).lower()
     missing_by_symbol = _missing_fields_by_symbol(rows)
+    field_drop_observed = _missing_field_drop_observed(counts)
     classification = classify_ibkr_market_data(
         scanner_payload=payload,
         candidate_rows=rows,
@@ -442,7 +498,7 @@ def build_ibkr_market_data_diagnostic(
         "subscription_required_observed": 10089 in codes or "requires additional subscription" in joined_text,
         "not_subscribed_observed": 10167 in codes or "not subscribed" in joined_text,
         "snapshot_timeout_observed": _snapshot_timeout_observed(counts, texts + messages),
-        "snapshot_fields_missing": bool(rows and missing_by_symbol),
+        "snapshot_fields_missing": bool((rows and missing_by_symbol) or field_drop_observed),
         "drop_reason_counts": counts,
         "requested_market_data_type": str((env or {}).get("IBKR_MARKET_DATA_TYPE") or "IBKR_READ_ONLY"),
         "scanner_mode": str((env or {}).get("SCANNER_MODE") or "LIVE_READONLY"),
